@@ -7,10 +7,13 @@ Update this file at the end of every work session. Record decisions in the log a
 
 Goal: a single Ramspott-style render of **India** that looks right, before building anything global.
 
-- [ ] Download Copernicus GLO-30 tiles covering India + margin (OpenTopography / AWS)
-- [ ] Download GEBCO bathymetry for the same extent
-- [ ] Fuse land + bathymetry into one seamless GeoTIFF heightfield (GDAL; document the
-      land/sea blend approach — nodata handling at coastline is the tricky bit)
+- [x] Download Copernicus GLO-30 tiles covering India + margin (979 tiles, 60–100°E /
+      0–40°N, DEM + WBM, 34 GB — `pipeline/download_glo30.py`)
+- [x] Download GEBCO bathymetry for the same extent (GEBCO_2026 GeoTIFF subset + TID,
+      via download.gebco.net)
+- [x] Fuse land + bathymetry into one seamless GeoTIFF heightfield — done at 3″ for the
+      66–99°E/4–38°N frame (pipeline/fuse_heightfield.py + ocean mask COG; recipe and
+      oracles in decision log). 1″ runs deferred until small-country heroes / z9+ tiles.
 - [ ] Manual Blender scene: displacement plane, sun lamp, two-ramp material, ortho camera
 - [ ] Iterate lighting/palette/exaggeration until it matches the reference aesthetic
 - [ ] Add Natural Earth border overlay (white, ~like reference) + dashed maritime lines
@@ -61,17 +64,60 @@ Goal: a single Ramspott-style render of **India** that looks right, before build
 
 ## Open questions
 
-- Land/sea heightfield fusion: offset bathymetry below zero on one scale, or two
-  separate materials keyed to a sea mask? (Decide in Phase 0.)
+- ~~Land/sea heightfield fusion~~ RESOLVED 2026-07-04 (see decision log): WBM ocean
+  class as mask, hard splice, ocean clamped ≤ −1 m, no feathering. Confirmed by the
+  Khambhat color test — naive fusion produces phantom land in macro-tidal seas; the
+  clamp eliminates it and shading shows no seam either way.
 - Exact palette hex values — sample from reference image or design fresh in the same spirit?
 - Disputed boundaries policy (India's borders differ by audience; Natural Earth has
   point-of-view variants — pick one and note it on the About page).
 - Tile shading: is pure raster compositing good enough, or render z0–z6 tiles in
   Blender for true shadows and switch to raster at higher zooms?
 - Storage location for the tile pyramid on rohome (which mount, backup exclusion).
+- Straight survey-boundary seam in GEBCO offshore W Khambhat (~72.5°E 21.7°N): sample
+  the TID grid along it to identify the sources; decide whether it survives final
+  color+light or needs local smoothing. Check whether it's widespread in our extent.
 
 ## Decision log
 
+- 2026-07-04 — Fusion rule refined after full-frame v1 spot checks: WBM classifies
+  coastal lagoons and tidal channels as lake/river (Palk Bay patch = class 2; ~2,200 km²
+  of sea-level "lakes" + ~8,000 km² of sea-level "rivers" in the India frame — Chilika,
+  Kerala backwaters, Sundarbans). Rule is now: ocean = class 1 ∪ no-coverage ∪
+  (class 2/3 with |elev| ≤ 1 m). High-altitude lakes unaffected. Never convert dry land.
+  Spot-check oracles for any future fusion run: Delhi ~214 m, Everest ~8.7 km (3″
+  averaging shaves the true 8,849 m peak), open Arabian Sea deeply negative, Chilika
+  lagoon ≤ −1 m with mask = 1. Caveat learned the hard way: verify anomalies at the
+  data's own pixel scale before calling them bugs — 79.7°E 9.5°N reads +0.6/land
+  correctly (ESA maps an emergent tidal flat there; the water starts one pixel west).
+- 2026-07-04 — Khambhat seam experiment (pipeline/experiments/fuse_khambhat.py), run on
+  the adversarial macro-tidal case. Decisions (confirmed by the two-ramp color test,
+  pipeline/experiments/color_khambhat.py — naive fusion renders phantom sand-colored
+  land inside the gulf; hard clamp eliminates it):
+  sea = WBM ocean class only (lakes/rivers keep the land surface; their water *tint* is
+  a later material decision, not a fusion decision); hard splice with ocean clamped to
+  ≤ −1 m; feathering rejected — no visible seam in multidirectional hillshade even here.
+  Key learning: the naive fusion's failure mode is not shading but *coloring* — 3.2% of
+  ocean pixels resolve ≥ 0 m (up to +18 m) and would key off the wrong end of a
+  depth-keyed ramp. The −1 m clamp also makes sign-of-elevation a valid sea/land key for
+  downstream materials (caveat: rare below-sea-level land like Kuttanad mis-keys; keep
+  the mask COG as ground truth). Found a dead-straight GEBCO source boundary offshore
+  W Khambhat — survey-grid seam, diagnose via TID (see open questions).
+  Tooling: project .venv created (numpy, rasterio w/ GDAL 3.12) — needed for windowed
+  raster passes.
+- 2026-07-04 — Fusion reframed after prior-art check: land/sea DEM fusion is solved
+  (ETOPO 2022 is the finished product at 15"; grdblend is the standard tool; the
+  cartography community does this routinely). We proceed with our own fusion anyway —
+  justified by 1" land detail for small countries and z9–z10 tiles, plus learning value —
+  but treat it as method selection, with ETOPO 2022 as an external oracle for validation.
+  Noted honestly: for a ship-it project, "use ETOPO 2022" would be the right call for
+  country-scale renders (~370 m/px at 8K for India-sized framing).
+- 2026-07-04 — Phase 0 data acquired. Extent locked at 60–100°E / 0–40°N (979 GLO-30
+  tiles, half-open east/north edges). GEBCO_2026 (April 2026 release) chosen over 2025.
+  Water-body masks (WBM) downloaded alongside DEMs as a candidate coastline source for
+  fusion. Downloader is stdlib-only Python using the .part → verify → atomic-rename
+  pattern; that pattern is the template for all later pipeline stages. Git initialized
+  (code only; data/ ignored).
 - 2026-07-03 — Project scoped in claude.ai conversation. Architecture, data sources,
   and rendering approach locked into CLAUDE.md. Phase 0 target: India.
 - 2026-07-04 — Project purpose reframed: learning/understanding every piece is the primary

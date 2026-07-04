@@ -96,3 +96,7 @@ Principles: default pessimistic / upgrade optimistically; user-overridable quali
 
 - Daniel Huffman, "Creating Shaded Relief in Blender" (the canonical technique).
 - MapLibre GL globe projection docs; PMTiles spec (Protomaps).
+- Prior art for land/sea fusion: ETOPO 2022 (NOAA, finished 15" product + reference
+  oracle), Tozer et al. 2019 (SRTM15+ paper, describes grdblend assembly), GMT grdblend
+  docs (feathered grid blending), Tom Patterson's shadedrelief.com + Blue Earth
+  Bathymetry (the aesthetic school we follow, with processed data).
