@@ -1,0 +1,7 @@
+# Rendered assets and source rasters live outside git (see CLAUDE.md)
+data/
+*.part
+
+__pycache__/
+*.pyc
+.venv/
