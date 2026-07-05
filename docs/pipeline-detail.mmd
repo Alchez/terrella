@@ -1,0 +1,75 @@
+%% Low-level companion to pipeline-overview.mmd — same structure, full technical
+%% labels. Update both when the pipeline changes.
+
+flowchart TD
+
+  subgraph SRC["External sources"]
+    S1["Copernicus GLO-30 — ESA<br/>AWS Open Data, public S3<br/>1-arcsec land DSM, 1x1 deg COG tiles"]
+    S2["GEBCO_2026 — Seabed 2030<br/>download.gebco.net subset<br/>15-arcsec global land+sea grid"]
+    S3["Natural Earth<br/>country / coastline / border vectors<br/>(not yet ingested)"]
+  end
+
+  subgraph ACQ["Acquisition — done"]
+    D1["download_glo30.py<br/>idempotent: .part, size check, atomic rename<br/>extent 60-100E / 0-40N"]
+    R1[("raw/glo30/dem — 979 tiles<br/>elevation Float32, 34 GB with wbm")]
+    R2[("raw/glo30/wbm — 979 tiles<br/>water class Byte: 0 dry, 1 ocean, 2 lake, 3 river")]
+    R3[("raw/gebco/*.tif<br/>bathymetry Int16, 184 MB + TID provenance")]
+  end
+
+  S1 --> D1
+  D1 --> R1
+  D1 --> R2
+  S2 -->|manual subset via download app| R3
+
+  subgraph FUSE["Fusion — done for India frame at 3 arcsec"]
+    V["VRT virtual mosaics<br/>gdalbuildvrt, explicit nodata fills<br/>no tile means open ocean"]
+    F["fuse_heightfield.py --bounds --res-arcsec<br/>land = GLO-30 area-average<br/>sea = GEBCO cubic-spline, clamped to -1 m max<br/>ocean = WBM 1, or no coverage,<br/>or WBM 2/3 within 1 m of sea level"]
+    O1[("work/india/heightfield_3s.tif<br/>39600x40800 Float32, tiled + overviews, 3.4 GB")]
+    O2[("work/india/oceanmask_3s.tif<br/>Byte 0/1, 3 MB — drives material split")]
+  end
+
+  R1 --> V
+  R2 --> V
+  V --> F
+  R3 --> F
+  F --> O1
+  F --> O2
+
+  subgraph HERO["Hero render path — next"]
+    P["render_prep.py<br/>warp EPSG:4326 to Albers equal-area conic,<br/>~16k Float32 TIFF + nearest-warped mask"]
+    B["Blender Cycles on RTX 4070S / OptiX<br/>true displacement + adaptive subdivision<br/>two ColorRamps switched by ocean mask<br/>low sun, orthographic camera, 5-15x exaggeration"]
+    H8["8K hero render<br/>then 2K / 4K / 8K WebP variants"]
+  end
+
+  O1 --> P
+  O2 --> P
+  P --> B
+  B --> H8
+  S3 -.->|white borders, dashed maritime lines| B
+
+  subgraph TILES["Tile pyramid — Phase 2"]
+    T1["raster shading approximation:<br/>multidirectional hillshade + sky-view factor<br/>+ the same two color ramps"]
+    T2["512 px tiles, z0-8<br/>packaged as single PMTiles file"]
+  end
+
+  O1 -.-> T1
+  O2 -.-> T1
+  T1 -.-> T2
+
+  subgraph SITE["Site — Phases 3-4"]
+    W["three-tier static site on rohome (nginx)<br/>Tier 1 gallery / Tier 2 MapLibre globe<br/>Tier 3 globe + terrain-RGB relief"]
+  end
+
+  T2 -.-> W
+  H8 -.-> W
+  S3 -.->|vector border overlay| W
+
+  classDef ext fill:#dbe9f6,stroke:#3572a5,color:#173a5e
+  classDef done fill:#dcefe2,stroke:#2e7d4f,color:#1a3a28
+  classDef next fill:#fdf3d7,stroke:#b8860b,color:#4a3a10
+  classDef plan fill:#eceff1,stroke:#78909c,color:#37474f
+
+  class S1,S2,S3 ext
+  class D1,R1,R2,R3,V,F,O1,O2 done
+  class P,B,H8 next
+  class T1,T2,W plan

@@ -80,6 +80,13 @@ Goal: a single Ramspott-style render of **India** that looks right, before build
 
 ## Decision log
 
+- 2026-07-04 — Render projection chosen: Albers equal-area conic for the India frame
+  (+proj=aea +lat_1=10 +lat_2=32 +lat_0=21 +lon_0=82.5). Rationale: geographic degrees
+  are E-W stretched (~5% at 21°N mid-frame, varying N-S); a conic with standard
+  parallels ⅙ in from the frame's latitude edges keeps scale near-uniform, so the
+  displaced terrain isn't anisotropically distorted. Per-country conic params will be
+  derived the same way in Phase 1 (pipeline/render_prep.py). Heights stay in meters;
+  exaggeration is a Blender-side constant.
 - 2026-07-04 — Fusion rule refined after full-frame v1 spot checks: WBM classifies
   coastal lagoons and tidal channels as lake/river (Palk Bay patch = class 2; ~2,200 km²
   of sea-level "lakes" + ~8,000 km² of sea-level "rivers" in the India frame — Chilika,
