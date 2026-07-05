@@ -81,6 +81,16 @@ Goal: a single Ramspott-style render of **India** that looks right, before build
 
 ## Decision log
 
+- 2026-07-05 — v1 look constants (pre-tuning baseline, all art-directable): exaggeration
+  10× (Displacement Scale 5.3e-6 on the 2-unit plane); sun rot (55°, 0°, −45°), angle 3°,
+  strength 3; land ramp cap 2,000 m, stops E9D9C0@0 / D7AC8E@0.25 / CE9880@0.5 /
+  C68A76@1; sea ramp cap −3,000 m, stops C6E4E2@0 / 98C5C8@0.15 / 649BA4@0.4 /
+  487D8A@1; ortho scale 2.06; test res 2048×2109, final 7680×7906; view transform AgX
+  (default — A/B against Standard during tuning). Tuning agenda: pale high-Himalaya
+  stop, exaggeration↔sun-altitude sweep, sun angle (shadow softness), world color/
+  strength, view transform, then Natural Earth borders + 8K + lock constants.
+  Reference renders: blender/renders/india_look_v1.png (canonical), *_check.png
+  (accidental sun-angle drift — soft-shadow example, instructive to keep).
 - 2026-07-05 — First full-look Blender render achieved (india_hero.blend). Scene recipe:
   plane scaled to raster aspect, Simple subdivision + adaptive dicing, heightfield as
   Float32 TIFF (Non-Color) driving Displacement (Midlevel 0, Scale 5.3e-6 = 10x), sun
