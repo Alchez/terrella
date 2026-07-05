@@ -14,7 +14,8 @@ Goal: a single Ramspott-style render of **India** that looks right, before build
 - [x] Fuse land + bathymetry into one seamless GeoTIFF heightfield — done at 3″ for the
       66–99°E/4–38°N frame (pipeline/fuse_heightfield.py + ocean mask COG; recipe and
       oracles in decision log). 1″ runs deferred until small-country heroes / z9+ tiles.
-- [ ] Manual Blender scene: displacement plane, sun lamp, two-ramp material, ortho camera
+- [x] Manual Blender scene: displacement plane, sun lamp, two-ramp material, ortho camera
+      (blender/india_hero.blend — working recipe and debug lessons in decision log)
 - [ ] Iterate lighting/palette/exaggeration until it matches the reference aesthetic
 - [ ] Add Natural Earth border overlay (white, ~like reference) + dashed maritime lines
 - [ ] Render 8K still; review on both desktop and phone
@@ -79,6 +80,20 @@ Goal: a single Ramspott-style render of **India** that looks right, before build
   color+light or needs local smoothing. Check whether it's widespread in our extent.
 
 ## Decision log
+
+- 2026-07-05 — First full-look Blender render achieved (india_hero.blend). Scene recipe:
+  plane scaled to raster aspect, Simple subdivision + adaptive dicing, heightfield as
+  Float32 TIFF (Non-Color) driving Displacement (Midlevel 0, Scale 5.3e-6 = 10x), sun
+  55° tilt / −45° azimuth / 3° angle / strength 3, ortho camera from above, two
+  ColorRamps switched by ocean mask via Mix. Hard-won lessons for the bpy script:
+  (a) Blender divides 8-bit images by 255 — mask must be exported 0/255 (PNG in
+  render/), Float32 passes raw; (b) image nodes must be Non-Color, mask interpolation
+  Closest; (c) Map Range nodes with any reversed range are undefined territory in
+  5.1.2 — use forward ranges or Math Multiply+Clamp; (d) ColorRamp stops re-sort by
+  position and renumber — never identify a stop by index; the final bug was a hidden
+  5th pale stop that four index-walking verifications missed. Debug toolkit proven:
+  binary mask test, independent numpy albedo oracle, base-resolution ASCII map,
+  revert-to-baseline + minimal diff.
 
 - 2026-07-04 — Render projection chosen: Albers equal-area conic for the India frame
   (+proj=aea +lat_1=10 +lat_2=32 +lat_0=21 +lon_0=82.5). Rationale: geographic degrees

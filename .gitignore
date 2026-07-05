@@ -1,6 +1,11 @@
 # Rendered assets and source rasters live outside git (see CLAUDE.md)
 data/
 *.part
+blender/renders/
+*.blend1
+
+# Local-only project memory (Rohan's call, 2026-07-05): CLAUDE.md stays untracked.
+CLAUDE.md
 
 __pycache__/
 *.pyc
