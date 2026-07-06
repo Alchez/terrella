@@ -3,7 +3,7 @@ flowchart TD
   subgraph SRC["Where the data comes from"]
     S1["Copernicus GLO-30<br/>satellite-measured land heights<br/>(detail: ~30 m per pixel)"]
     S2["GEBCO 2026<br/>worldwide seafloor depths<br/>(detail: ~450 m per pixel)"]
-    S3["Natural Earth<br/>country outlines and borders<br/>(not used yet)"]
+    S3["Natural Earth<br/>country outlines and borders"]
   end
 
   subgraph ACQ["Getting it — done"]
@@ -30,17 +30,21 @@ flowchart TD
   F --> O1
   F --> O2
 
-  subgraph HERO["Country portraits — next"]
+  subgraph HERO["Country portraits — India done; every country = Phase 1, next"]
     P["Prepare for rendering:<br/>undo the map stretch (projection),<br/>shrink to a renderable size"]
     B["Blender 3D scene:<br/>heights become sculpted terrain,<br/>a low sun casts soft real shadows,<br/>color from height on land, depth at sea"]
-    H8["8K portrait of India<br/>+ smaller web-friendly copies"]
+    H8["8K portrait of India"]
+    OV["Borders drawn onto the finished image:<br/>solid white between countries, dashed for<br/>disputed and sea boundaries; positions<br/>double-checked against the coastline"]
+    HF[("Final bordered portrait, plus a<br/>separate border-only layer so the<br/>website can toggle borders off")]
   end
 
   O1 --> P
   O2 --> P
   P --> B
   B --> H8
-  S3 -.->|white border lines| B
+  H8 --> OV
+  S3 --> OV
+  OV --> HF
 
   subgraph TILES["Zoomable world — later"]
     T1["Fast shading that imitates<br/>the Blender look without ray tracing"]
@@ -56,7 +60,7 @@ flowchart TD
   end
 
   T2 -.-> W
-  H8 -.-> W
+  HF -.-> W
   S3 -.->|clickable borders| W
 
   classDef ext fill:#dbe9f6,stroke:#3572a5,color:#173a5e
@@ -67,5 +71,5 @@ flowchart TD
   class S1,S2,S3 ext
   class D1,R1,R2,R3 done
   class F,O1,O2 done
-  class P,B,H8 next
+  class P,B,H8,OV,HF done
   class T1,T2,W plan

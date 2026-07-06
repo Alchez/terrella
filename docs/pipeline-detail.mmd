@@ -6,7 +6,7 @@ flowchart TD
   subgraph SRC["External sources"]
     S1["Copernicus GLO-30 — ESA<br/>AWS Open Data, public S3<br/>1-arcsec land DSM, 1x1 deg COG tiles"]
     S2["GEBCO_2026 — Seabed 2030<br/>download.gebco.net subset<br/>15-arcsec global land+sea grid"]
-    S3["Natural Earth<br/>country / coastline / border vectors<br/>(not yet ingested)"]
+    S3["Natural Earth<br/>country / coastline / border vectors<br/>1:10m, default worldview"]
   end
 
   subgraph ACQ["Acquisition — done"]
@@ -14,12 +14,16 @@ flowchart TD
     R1[("raw/glo30/dem — 979 tiles<br/>elevation Float32, 34 GB with wbm")]
     R2[("raw/glo30/wbm — 979 tiles<br/>water class Byte: 0 dry, 1 ocean, 2 lake, 3 river")]
     R3[("raw/gebco/*.tif<br/>bathymetry Int16, 184 MB + TID provenance")]
+    D2["download_naturalearth.sh<br/>idempotent fetch of 1:10m vectors"]
+    R4[("raw/naturalearth/ — boundary lines,<br/>maritime indicators, countries, coastline")]
   end
 
   S1 --> D1
   D1 --> R1
   D1 --> R2
   S2 -->|manual subset via download app| R3
+  S3 --> D2
+  D2 --> R4
 
   subgraph FUSE["Fusion — done for India frame at 3 arcsec"]
     V["VRT virtual mosaics<br/>gdalbuildvrt, explicit nodata fills<br/>no tile means open ocean"]
@@ -35,17 +39,21 @@ flowchart TD
   F --> O1
   F --> O2
 
-  subgraph HERO["Hero render path — next"]
+  subgraph HERO["Hero render path — India done; batch all countries = Phase 1"]
     P["render_prep.py<br/>warp EPSG:4326 to Albers equal-area conic,<br/>~16k Float32 TIFF + nearest-warped mask"]
-    B["Blender Cycles on RTX 4070S / OptiX<br/>true displacement + adaptive subdivision<br/>two ColorRamps switched by ocean mask<br/>low sun, orthographic camera, 5-15x exaggeration"]
-    H8["8K hero render<br/>then 2K / 4K / 8K WebP variants"]
+    B["Blender Cycles on RTX 4070S / OptiX<br/>true displacement + adaptive subdivision<br/>two ColorRamps switched by ocean mask<br/>locked look: 15x, sun alt 46, OIDN denoise"]
+    H8["8K hero render (7680x7906)<br/>2K / 4K / 8K WebP variants in Phase 1"]
+    OV["overlay_borders.py<br/>pyshp + pyproj + pycairo, same Albers +<br/>ortho-margin mapping; coastline oracle;<br/>cased white borders, dashed disputed/maritime"]
+    HF[("hero_bordered_8k.png +<br/>transparent border layer<br/>(gallery border-toggle asset)")]
   end
 
   O1 --> P
   O2 --> P
   P --> B
   B --> H8
-  S3 -.->|white borders, dashed maritime lines| B
+  H8 --> OV
+  R4 --> OV
+  OV --> HF
 
   subgraph TILES["Tile pyramid — Phase 2"]
     T1["raster shading approximation:<br/>multidirectional hillshade + sky-view factor<br/>+ the same two color ramps"]
@@ -61,7 +69,7 @@ flowchart TD
   end
 
   T2 -.-> W
-  H8 -.-> W
+  HF -.-> W
   S3 -.->|vector border overlay| W
 
   classDef ext fill:#dbe9f6,stroke:#3572a5,color:#173a5e
@@ -70,6 +78,6 @@ flowchart TD
   classDef plan fill:#eceff1,stroke:#78909c,color:#37474f
 
   class S1,S2,S3 ext
-  class D1,R1,R2,R3,V,F,O1,O2 done
-  class P,B,H8 next
+  class D1,R1,R2,R3,D2,R4,V,F,O1,O2 done
+  class P,B,H8,OV,HF done
   class T1,T2,W plan
