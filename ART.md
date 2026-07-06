@@ -59,6 +59,20 @@ with visible shelf bathymetry.
   teal; a map has no speculars, so filmic rolloff buys nothing. Ramp hexes now render
   near-verbatim — treat this as locked, not a lever.
 
+### Borders (composited overlay — current baseline 2026-07-06)
+- Drawn by pipeline/overlay_borders.py over the finished render; iterate freely,
+  no re-render needed. Alignment is verified by the coastline oracle before any tuning.
+- **Judge width on the 2K preview (≈ fit-to-screen), never on the 1:1 crops** — the
+  first attempt (4 px) looked right in crops and vanished at viewing scale.
+- Baseline: land borders white 95% @ 10 px, casing #3D2B1F 35% @ 14 px; disputed/LoC
+  same + dash [30, 20]; maritime white 80% @ 7 px, casing 25% @ 10.5 px, dash [40, 25].
+  All values live in the style dicts at the top of the script.
+- Casing = wider dark stroke under the white ink; dashes are cased per-dash (same
+  path + dash phase). It should be invisible as a feature — only felt over pale terrain.
+- Not levers: worldview (NE default, site-wide — editorial policy, see PLAN.md) and
+  which classes are dashed (Disputed / Line of control / Indefinite / Indeterminant;
+  DBF field is uppercase `FEATURECLA`).
+
 ## Fixed (don't touch without re-litigating)
 
 - Orthographic camera, straight down, ortho scale 2.06 — framing is data-driven,

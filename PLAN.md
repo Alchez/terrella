@@ -18,11 +18,14 @@ Goal: a single Ramspott-style render of **India** that looks right, before build
       (blender/india_hero.blend — working recipe and debug lessons in decision log)
 - [x] Iterate lighting/palette/exaggeration until it matches the reference aesthetic
       (2026-07-05 tuning session — v2 constants in decision log; final judgment at 8K)
-- [ ] Add Natural Earth border overlay (white, ~like reference) + dashed maritime lines
+- [x] Add Natural Earth border overlay (white, ~like reference) + dashed maritime lines
+      (2026-07-06 — pipeline/overlay_borders.py, oracle-verified alignment, cased
+      poster-weight styling approved)
 - [x] Render 8K still; review on both desktop and phone (2026-07-06, approved; 1 px
       dicing, 6.8 GB peak, CPU denoise)
-- [ ] **Checkpoint: lock the scene rig parameters (light azimuth/altitude, ramps,
-      exaggeration) — these become global constants**
+- [x] **Checkpoint: lock the scene rig parameters (light azimuth/altitude, ramps,
+      exaggeration) — these become global constants** (2026-07-06 — see "Locked
+      global constants" below. Phase 0 complete.)
 
 ## Phase 1 — Batch hero renders (all countries)
 
@@ -48,7 +51,8 @@ Goal: a single Ramspott-style render of **India** that looks right, before build
 ## Phase 3 — Frontend
 
 - [ ] MapLibre GL v5 globe with the PMTiles raster source
-- [ ] Natural Earth borders as vector overlay layer
+- [ ] Natural Earth borders as vector overlay layer, with show/hide toggle (gallery
+      tier: stacked transparent border image over the hero, same toggle)
 - [ ] Country click → fly-to → hero render view (lazy-loaded)
 - [ ] Tier 1 fallback: plain HTML gallery over the same hero images, country list/search
 - [ ] Capability probe (~100 LOC): WebGL2 check → GPU tier (detect-gpu or renderer
@@ -65,6 +69,32 @@ Goal: a single Ramspott-style render of **India** that looks right, before build
 - [ ] About page: data credits (Copernicus, GEBCO, Natural Earth), technique notes
 - [ ] Ship. Post it somewhere.
 
+## Locked global constants (Phase 0 exit checkpoint, 2026-07-06)
+
+Global for all ~195 countries. Changing any of these after Phase 1 starts means
+re-rendering every hero — treat as frozen; re-litigate only with explicit discussion.
+
+- **Terrain:** vertical exaggeration 15× — Displacement Scale `8.0e-6`, Midlevel 0
+  (1 Blender unit = extent_width/2 meters; 15× assumes the India-frame scale — the bpy
+  script recomputes Scale per frame as `15 × unit_in_meters⁻¹ × ... ` from first
+  principles, see Phase 1).
+- **Light:** Sun rotation (44°, 0°, −45°) → altitude 46°, azimuth NW; Angle 5°;
+  Strength 3. World fill `F2E7D5` @ strength 0.3.
+- **Color:** View transform **Standard** (never AgX). Land ramp: heights 0→6,000 m on
+  positions 0→1, stops E9D9C0@0 / D7AC8E@0.083 / CE9880@0.25 / C9AD97@0.5 /
+  E8DFD2@0.75 / F6F1E8@1.0. Sea ramp: depths 0→−3,000 m, stops C6E4E2@0 / 98C5C8@0.15
+  / 649BA4@0.4 / 487D8A@1.0. Masks 0/255 PNG, image nodes Non-Color, mask
+  interpolation Closest, no reversed Map Ranges.
+- **Camera:** orthographic, straight down; ortho scale = plane's larger dimension
+  × 1.0006 (India: 2.06 over a 2 × 2.0588 plane); render resolution from raster
+  aspect (India: 7680×7906 final, 2048-wide tests).
+- **Render:** Cycles, OptiX backend, OIDN denoiser (GPU off for 8K frames —
+  VRAM contention), adaptive subdivision dicing 1 px (≈6.8 GB peak at 8K).
+- **Borders (overlay, not scene):** land white 95% @ 10 px + casing #3D2B1F 35% @
+  14 px; disputed/LoC dash [30, 20]; maritime white 80% @ 7 px + casing 25% @ 10.5 px,
+  dash [40, 25]. Widths are 8K-canvas pixels; scale linearly with render width.
+  NE default worldview.
+
 ## Open questions
 
 - ~~Land/sea heightfield fusion~~ RESOLVED 2026-07-04 (see decision log): WBM ocean
@@ -72,8 +102,9 @@ Goal: a single Ramspott-style render of **India** that looks right, before build
   Khambhat color test — naive fusion produces phantom land in macro-tidal seas; the
   clamp eliminates it and shading shows no seam either way.
 - Exact palette hex values — sample from reference image or design fresh in the same spirit?
-- Disputed boundaries policy (India's borders differ by audience; Natural Earth has
-  point-of-view variants — pick one and note it on the About page).
+- ~~Disputed boundaries policy~~ RESOLVED 2026-07-06 (see decision log): Natural Earth
+  default (de-facto) worldview, site-wide; disputed/LoC segments dashed; About page
+  notes the choice.
 - Tile shading: is pure raster compositing good enough, or render z0–z6 tiles in
   Blender for true shadows and switch to raster at higher zooms?
 - Storage location for the tile pyramid on rohome (which mount, backup exclusion).
@@ -82,6 +113,47 @@ Goal: a single Ramspott-style render of **India** that looks right, before build
   color+light or needs local smoothing. Check whether it's widespread in our extent.
 
 ## Decision log
+
+- 2026-07-06 (evening) — Overlay pipeline live (pipeline/overlay_borders.py). Coastline
+  oracle passed: 74.5 / 91.1 / 93.8 % of drawn NE coastline within 2 / 5 / 10 px of the
+  ocean-mask boundary at 8K, no directional bias in crops → the AEA→pixel mapping
+  (including the ~2 px ortho-margin correction) is confirmed. Residual disagreement is
+  NE 1:10m generalization vs our 30 m coast (Khambhat tidal flats, as predicted at
+  design time). First borders composite: 59 solid / 17 dashed / 14 maritime features
+  in frame; standalone transparent layer emitted alongside (gallery-toggle asset).
+  Aesthetics still open: white-on-bone contrast over high pale terrain (halo/casing is
+  the designated lever), maritime dash visibility to be judged on the 8K, and borders
+  drawing over the flat no-data collar at the frame corners — that last one is really
+  a Phase-1 framing/collar decision, not a borders bug.
+
+- 2026-07-06 — Border overlay designed; worldview decided: **Natural Earth default
+  (de-facto)**, site-wide — one editorial stance for all heroes (Kashmir must not
+  change shape between the India and Pakistan pages); disputed/LoC segments get dashed
+  styling; policy noted on the About page. Context: NE ships 31 national POV variants
+  + an ISO variant, but only for the countries *polygons* — boundary *lines* exist in
+  the default worldview only (a POV would be a filtering transform we'd own).
+  Rendering route: **composite in post** (pipeline/overlay_borders.py, next) — with a
+  straight-down ortho camera, draped-3D and flat-2D lines project to identical pixels
+  (no parallax, no heightfield overhangs), so the scene route buys nothing; it was
+  fully evaluated anyway (BlenderGIS import + Grease Pencil Dot Dash / Freestyle / GN
+  dashing are all real) and rejected on iteration cost (re-render vs recomposite),
+  GUI-add-on dependency in the headless Phase-1 batch, Freestyle perf vs diced
+  terrain, and the frontend toggle needing a standalone transparent border layer
+  anyway — which the compositor emits as a byproduct (gallery toggle = stacked <img>;
+  globe tiers toggle their MapLibre vector layer for free). Alignment oracle: NE
+  coastline rasterized onto the render grid must hug the land/sea color boundary
+  (checks systematic offset; NE 1:10m is more generalized than our 30 m coast, local
+  disagreement is expected and fine). Data downloaded (naciscdn.org, via
+  pipeline/download_naturalearth.sh): boundary_lines_land, maritime_indicator,
+  countries (Phase-1 camera bboxes), coastline (oracle). Styling classes from the DBF
+  (field is uppercase `FEATURECLA` in this NE release — don't filter on lowercase):
+  solid white = "International boundary (verify)"; dashed = Disputed / Line of
+  control / Indefinite / Indeterminant frontier; maritime indicators all dashed per
+  the reference look. Overlay stack (versions verified current on PyPI 2026-07-06):
+  pyshp 3.1.4 + pyproj 3.7.2 + pycairo 1.29.0 — read/reproject/draw needs no
+  geometric ops, so geopandas/shapely would be dead weight; fiona is unmaintained
+  since 2024-09 (pyogrio succeeded it); cairo has native dashes/AA/RGBA and clips to
+  canvas. pycairo builds from sdist and needs system libcairo2-dev + pkg-config.
 
 - 2026-07-06 — First 8K hero render (7680×7906) completed **at 1 px dicing**, peak
   6.8 GB VRAM. Approved on desktop and phone (slight detail softening on phone =
