@@ -16,9 +16,11 @@ Goal: a single Ramspott-style render of **India** that looks right, before build
       oracles in decision log). 1″ runs deferred until small-country heroes / z9+ tiles.
 - [x] Manual Blender scene: displacement plane, sun lamp, two-ramp material, ortho camera
       (blender/india_hero.blend — working recipe and debug lessons in decision log)
-- [ ] Iterate lighting/palette/exaggeration until it matches the reference aesthetic
+- [x] Iterate lighting/palette/exaggeration until it matches the reference aesthetic
+      (2026-07-05 tuning session — v2 constants in decision log; final judgment at 8K)
 - [ ] Add Natural Earth border overlay (white, ~like reference) + dashed maritime lines
-- [ ] Render 8K still; review on both desktop and phone
+- [x] Render 8K still; review on both desktop and phone (2026-07-06, approved; 1 px
+      dicing, 6.8 GB peak, CPU denoise)
 - [ ] **Checkpoint: lock the scene rig parameters (light azimuth/altitude, ramps,
       exaggeration) — these become global constants**
 
@@ -81,6 +83,42 @@ Goal: a single Ramspott-style render of **India** that looks right, before build
 
 ## Decision log
 
+- 2026-07-06 — First 8K hero render (7680×7906) completed **at 1 px dicing**, peak
+  6.8 GB VRAM. Approved on desktop and phone (slight detail softening on phone =
+  display downscaling, not a render defect). Claude's prediction that 1 px geometry
+  wouldn't fit was wrong (per-quad memory overestimated; Max Subdivisions also caps
+  effective dicing) — recorded so we trust the empirical peak, not the estimate. The
+  morning's Xid 31 MMU fault is re-attributed, low confidence, to GPU render + GPU
+  OIDN denoise VRAM contention at 8K (known failure pattern, blender/blender#119035;
+  the failed attempt had GPU denoise on, the successful one had it off) → rule:
+  denoise on CPU for 8K frames. Denoiser decision verified by research: OIDN beats the OptiX
+  denoiser on detail preservation for final stills (community consensus; OptiX is a
+  viewport tool); OIDN has a GPU mode since 4.1, but GPU render + GPU denoise can OOM
+  on big frames → denoise on CPU for 8K. GPU debug lesson: OPTIX_ERROR_UNKNOWN at
+  context creation right after a failed render = check `journalctl -k` for NVRM Xid
+  lines; if the Xid pid is Blender, the driver is fine — restart Blender to clear the
+  dead CUDA context. Version plan: finish Phase 0 and start the Phase 1 bpy script on
+  5.1.2; pin 5.2 LTS (releases 2026-07-14) once out — its Cycles texture cache
+  (`--command maketx`) and geometry-memory reduction target exactly our batch
+  workload, and our API surface is untouched by 5.2's breaking changes (Geometry
+  Nodes/paint APIs only). Verify the switch with an A/B test render against a 5.1.2
+  reference before trusting it.
+
+- 2026-07-05 — Tuning session → v2 look (supersedes v1 constants below). View transform
+  **Standard**, locked — AgX's highlight desaturation greyed the palette; a map has no
+  speculars, so filmic compression buys nothing. Exaggeration **15× (Scale 8.0e-6)**
+  paired with **sun altitude 46° (X rot 44°)** — pairing math: shadow length ∝
+  height × cot(altitude), so cot(new) = cot(old) ÷ exaggeration ratio holds drama
+  constant while adding lowland micro-relief. Sun **angle 5°** (3° vs 5° invisible at 2K:
+  penumbra ≈ shadow length × tan(angle), sub-pixel at test res — re-judge at 8K). World
+  fill **F2E7D5 @ strength 0.3** (was default dark grey) — lifts shadow cores to warm
+  brown, tints the backdrop paper-bone; raytraced analogue of Phase-2's sky-view factor.
+  Land ramp rebuilt: **cap 6,000 m**, stops E9D9C0@0 / D7AC8E@0.083 / CE9880@0.25 /
+  C9AD97@0.5 / E8DFD2@0.75 / F6F1E8@1.0 — rose peaks ~1,500 m then rises to bone/near-
+  white (the Ramspott pale-highlands move); C68A76 retired as too heavy. Sea ramp
+  unchanged from v1 (audited, no tweak needed). Sun strength 3, ortho scale 2.06
+  unchanged. Remaining before the Phase-0 lock checkpoint: 8K render review on
+  desktop + phone (incl. sun-angle re-judge), Natural Earth borders.
 - 2026-07-05 — v1 look constants (pre-tuning baseline, all art-directable): exaggeration
   10× (Displacement Scale 5.3e-6 on the 2-unit plane); sun rot (55°, 0°, −45°), angle 3°,
   strength 3; land ramp cap 2,000 m, stops E9D9C0@0 / D7AC8E@0.25 / CE9880@0.5 /
