@@ -22,6 +22,7 @@ flowchart TD
     F["Fusion script — makes one seamless height map:<br/>land keeps its measured height,<br/>sea floor comes from GEBCO, always below zero,<br/>sea-level lagoons and deltas count as sea"]
     O1[("India height map<br/>one elevation value per ~90 m,<br/>Himalaya summits to ocean trenches")]
     O2[("Sea/land map<br/>remembers which pixels are sea —<br/>later picks sand vs teal coloring")]
+    O3[("Inland water map<br/>which pixels are lake or river —<br/>painted flat teal in the scene")]
   end
 
   R1 --> F
@@ -29,10 +30,11 @@ flowchart TD
   R3 --> F
   F --> O1
   F --> O2
+  F --> O3
 
   subgraph HERO["Country portraits — India done; every country = Phase 1, next"]
     P["Prepare for rendering:<br/>undo the map stretch (projection),<br/>shrink to a renderable size"]
-    B["Blender 3D scene:<br/>heights become sculpted terrain,<br/>a low sun casts soft real shadows,<br/>color from height on land, depth at sea"]
+    B["Blender 3D scene:<br/>heights become sculpted terrain,<br/>a low sun casts soft real shadows,<br/>color from height on land, depth at sea,<br/>lakes and rivers in flat teal"]
     H8["8K portrait of India"]
     OV["Borders drawn onto the finished image:<br/>solid white between countries, dashed for<br/>disputed and sea boundaries; positions<br/>double-checked against the coastline"]
     HF[("Final bordered portrait, plus a<br/>separate border-only layer so the<br/>website can toggle borders off")]
@@ -40,6 +42,7 @@ flowchart TD
 
   O1 --> P
   O2 --> P
+  O3 --> P
   P --> B
   B --> H8
   H8 --> OV
@@ -70,6 +73,6 @@ flowchart TD
 
   class S1,S2,S3 ext
   class D1,R1,R2,R3 done
-  class F,O1,O2 done
+  class F,O1,O2,O3 done
   class P,B,H8,OV,HF done
   class T1,T2,W plan

@@ -11,6 +11,10 @@ with visible shelf bathymetry.
 ### Vertical exaggeration — Displacement node → Scale
 - Baseline `8.0e-6` ≈ **15×**. Conversion: 1 Blender unit = 1,872,643 m, so
   `scale = multiplier × 5.34e-7` → 5× = `2.7e-6`, 10× = `5.3e-6`.
+- **That conversion is India-frame-specific** (1 unit = frame width ÷ 2 in meters —
+  the plane is always 2 units wide). Phase 1 must recompute Scale per country:
+  `scale = 15 ÷ (extent_w_m / 2)`. Copying `8.0e-6` verbatim onto a small frame
+  multiplies effective exaggeration by the frame-width ratio (Switzerland ≈ 100×).
 - More exaggeration = more drama, longer shadows, but ranges start reading as walls.
 - **Tune as a pair with sun altitude** — raising one and lowering the other can cancel
   out in shadow length while changing the shape of the terrain. Sweep the pair, not each alone.
@@ -54,6 +58,20 @@ with visible shelf bathymetry.
   0–450 m band — Palk Strait, Gulf of Khambhat, the Sundarbans shelf.
 - The −3,000 m cap controls how fast open ocean saturates to the darkest teal.
 
+### Inland water (in-scene raster, decided 2026-07-07)
+- Lakes and rivers come from the WBM masks (inlandlake_aea.png / river_aea.png)
+  through the Lake/River Mix switches on the land branch; the color is the single
+  RGB node feeding both — baseline `98C5C8` (the sea ramp's 0.15 stop). That node
+  is the lever; the masks are not. Judge on the 2K preview, like borders.
+- Muting the River (or Lake) Mix node toggles that layer for A/Bs.
+- Flat water is ground truth (GLO-30 hydro-flattens surfaces — Namtso is one plate
+  at 4,725 m) and the decided look (2026-07-07): the distance-transform depth
+  prototype (pipeline/experiments/) read well and was rejected anyway as an
+  artificial gradient — reopen only with real modeled depths (GLOBathy class),
+  never geometry-only. River depth is rejected outright: no data, wouldn't read.
+- Rivers read faint by design: nearest sampling keeps water *area*, not line
+  continuity — the honest trace, chosen over a drawn cartographic line.
+
 ### View transform — Render Properties → Color Management
 - **Decided: Standard** (2026-07-05). AgX's highlight desaturation greyed the sand and
   teal; a map has no speculars, so filmic rolloff buys nothing. Ramp hexes now render
@@ -78,7 +96,8 @@ with visible shelf bathymetry.
 - Orthographic camera, straight down, ortho scale 2.06 — framing is data-driven,
   becomes per-country math in Phase 1.
 - Displacement Midlevel 0, plane scale, adaptive subdivision + dicing rates.
-- Mask wiring: Non-Color, Closest interpolation, 0/255 PNG mask.
+- Mask wiring (all three masks — ocean/lake/river): Non-Color, Closest
+  interpolation, 0/255 PNG.
 - Resolution ratio (2048×2109 test / 7680×7906 final) — from the raster's aspect.
 - No Map Range with reversed ranges — Math Multiply + Clamp only.
 

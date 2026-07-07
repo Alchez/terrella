@@ -10,6 +10,9 @@ Modes:
             dashed disputed/LoC segments, dashed maritime indicator lines.
             Emits both a composited hero and a standalone transparent RGBA
             layer (the gallery border-toggle asset).
+  hydro   — vector water (Route B of the inland-water A/B): NE lakes as
+            filled polygons over scalerank-tapered river centerlines, in the
+            same flat teal as the Route A material demo.
 
 The AEA→pixel mapping models the ortho camera exactly: the displacement plane
 is PLANE_WIDTH_UNITS wide (its height follows the raster aspect), the camera's
@@ -53,6 +56,13 @@ DISPUTED_STYLE = dict(rgba=(1.0, 1.0, 1.0, 0.95), width=10.0, dash=[30, 20],
 MARITIME_STYLE = dict(rgba=(1.0, 1.0, 1.0, 0.8), width=7.0, dash=[40, 25],
                       casing=dict(rgba=(0.24, 0.17, 0.12, 0.25), width=10.5))
 
+# hydro: flat 98C5C8 to match the Route A demo teal. The current NE 10m file
+# has no strokeweig field, so river width tapers by scalerank (1 = major):
+# width = width_base + width_per_rank * (10 - scalerank), px at 8K.
+WATER_RGBA = (0.596, 0.773, 0.784, 1.0)
+LAKE_STYLE = dict(rgba=WATER_RGBA)
+RIVER_STYLE = dict(rgba=WATER_RGBA, width_base=1.5, width_per_rank=0.65)
+
 SOLID_CLASSES = {"International boundary (verify)"}
 DASHED_CLASSES = {
     "Disputed (please verify)",
@@ -66,6 +76,9 @@ CROP_SITES = {  # lon, lat of 1:1 inspection crops
     "palk": (79.5, 9.6),
     "sundarbans": (89.0, 21.8),
     "kashmir": (76.0, 34.5),
+    "tibet_lakes": (88.0, 31.5),
+    "ganges": (82.5, 25.5),
+    "brahmaputra": (91.0, 26.3),
 }
 CROP_SIZE = 900
 
@@ -145,6 +158,43 @@ def stroke(ctx, fwd, to_px, features, rgba, width, dash=None):
     return count
 
 
+def fill_polys(ctx, fwd, to_px, features, rgba):
+    """Fill polygon features; even-odd rule turns interior rings into holes.
+    Filled per feature so overlapping features cannot cancel each other."""
+    ctx.set_source_rgba(*rgba)
+    ctx.set_fill_rule(cairo.FILL_RULE_EVEN_ODD)
+    count = 0
+    for _, parts in features:
+        count += 1
+        for pts in parts:
+            x, y = fwd.transform(pts[:, 0], pts[:, 1])
+            col, row = to_px(x, y)
+            ctx.move_to(col[0], row[0])
+            for c, r in zip(col[1:], row[1:]):
+                ctx.line_to(c, r)
+            ctx.close_path()
+        ctx.fill()
+    return count
+
+
+def stroke_rivers(ctx, fwd, to_px, rivers, rgba, width_base, width_per_rank):
+    """Stroke (scalerank, parts) river features, wider for lower scalerank."""
+    ctx.set_source_rgba(*rgba)
+    ctx.set_line_join(cairo.LINE_JOIN_ROUND)
+    ctx.set_line_cap(cairo.LINE_CAP_ROUND)
+    ctx.set_dash([])
+    for rank, parts in rivers:
+        ctx.set_line_width(width_base + width_per_rank * (10 - rank))
+        for pts in parts:
+            x, y = fwd.transform(pts[:, 0], pts[:, 1])
+            col, row = to_px(x, y)
+            ctx.move_to(col[0], row[0])
+            for c, r in zip(col[1:], row[1:]):
+                ctx.line_to(c, r)
+        ctx.stroke()
+    return len(rivers)
+
+
 def surface_alpha(surface):
     """Alpha channel of an ARGB32 surface as a (H, W) uint8 array."""
     surface.flush()
@@ -210,7 +260,8 @@ def save_crops(surface, fwd, to_px, outdir, tag):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--mode", choices=["oracle", "borders"], required=True)
+    ap.add_argument("--mode", choices=["oracle", "borders", "hydro"],
+                    required=True)
     ap.add_argument("--render", type=Path, required=True)
     ap.add_argument("--heightfield", type=Path, required=True)
     ap.add_argument("--mask", type=Path)
@@ -250,6 +301,33 @@ def main():
             print("WARNING: <90% within 5 px — suspect a systematic offset",
                   flush=True)
         tag = "oracle"
+    elif args.mode == "hydro":
+        rivers, centerlines = [], 0
+        for rec, parts in read_lines(ne("ne_10m_rivers_lake_centerlines"),
+                                     bbox):
+            d = rec.as_dict()
+            if "featurecla" not in d or "scalerank" not in d:
+                sys.exit(f"expected lowercase featurecla/scalerank in rivers "
+                         f"file; fields are {list(d)}")
+            if d["featurecla"] == "Lake Centerline":
+                centerlines += 1  # lake polygons cover these
+                continue
+            rivers.append((d["scalerank"], parts))
+        lakes = list(read_lines(ne("ne_10m_lakes"), bbox))
+        if not rivers or not lakes:
+            sys.exit("zero rivers or lakes in an India frame — data or "
+                     "prefilter broken")
+        lake_classes = {}
+        for rec, _ in lakes:
+            fc = rec.as_dict()["featurecla"]
+            lake_classes[fc] = lake_classes.get(fc, 0) + 1
+        print(f"rivers {len(rivers)} (skipped {centerlines} lake "
+              f"centerlines), lakes {lake_classes}", flush=True)
+
+        stroke_rivers(octx, fwd, to_px, rivers, **RIVER_STYLE)
+        fill_polys(octx, fwd, to_px, lakes, **LAKE_STYLE)
+        overlay.write_to_png(str(args.outdir / "hydro_layer_8k.png"))
+        tag = "hydro"
     else:
         land = ne("ne_10m_admin_0_boundary_lines_land")
         classes = {}

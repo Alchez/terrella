@@ -30,6 +30,7 @@ flowchart TD
     F["fuse_heightfield.py --bounds --res-arcsec<br/>land = GLO-30 area-average<br/>sea = GEBCO cubic-spline, clamped to -1 m max<br/>ocean = WBM 1, or no coverage,<br/>or WBM 2/3 within 1 m of sea level"]
     O1[("work/india/heightfield_3s.tif<br/>39600x40800 Float32, tiled + overviews, 3.4 GB")]
     O2[("work/india/oceanmask_3s.tif<br/>Byte 0/1, 3 MB — drives material split")]
+    O3[("work/india/watermask_3s.tif<br/>Byte 4-class: land / ocean /<br/>inland lake / river")]
   end
 
   R1 --> V
@@ -38,10 +39,11 @@ flowchart TD
   R3 --> F
   F --> O1
   F --> O2
+  F --> O3
 
   subgraph HERO["Hero render path — India done; batch all countries = Phase 1"]
-    P["render_prep.py<br/>warp EPSG:4326 to Albers equal-area conic,<br/>~16k Float32 TIFF + nearest-warped mask"]
-    B["Blender Cycles on RTX 4070S / OptiX<br/>true displacement + adaptive subdivision<br/>two ColorRamps switched by ocean mask<br/>locked look: 15x, sun alt 46, OIDN denoise"]
+    P["render_prep.py<br/>warp EPSG:4326 to Albers equal-area conic,<br/>~16k Float32 TIFF + nearest-warped masks<br/>+ 0/255 lake & river PNGs for the shader"]
+    B["Blender Cycles on RTX 4070S / OptiX, headless -b<br/>true displacement + adaptive subdivision<br/>two ColorRamps switched by ocean mask<br/>+ in-scene lake/river teal (raster water)<br/>locked look: 15x, sun alt 46, OIDN denoise"]
     H8["8K hero render (7680x7906)<br/>2K / 4K / 8K WebP variants in Phase 1"]
     OV["overlay_borders.py<br/>pyshp + pyproj + pycairo, same Albers +<br/>ortho-margin mapping; coastline oracle;<br/>cased white borders, dashed disputed/maritime"]
     HF[("hero_bordered_8k.png +<br/>transparent border layer<br/>(gallery border-toggle asset)")]
@@ -49,6 +51,7 @@ flowchart TD
 
   O1 --> P
   O2 --> P
+  O3 --> P
   P --> B
   B --> H8
   H8 --> OV
@@ -78,6 +81,6 @@ flowchart TD
   classDef plan fill:#eceff1,stroke:#78909c,color:#37474f
 
   class S1,S2,S3 ext
-  class D1,R1,R2,R3,D2,R4,V,F,O1,O2 done
+  class D1,R1,R2,R3,D2,R4,V,F,O1,O2,O3 done
   class P,B,H8,OV,HF done
   class T1,T2,W plan

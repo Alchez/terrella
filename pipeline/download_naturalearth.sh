@@ -13,6 +13,8 @@ LAYERS=(
   "10m/cultural/ne_10m_admin_0_boundary_lines_maritime_indicator"
   "10m/cultural/ne_10m_admin_0_countries"
   "10m/physical/ne_10m_coastline"
+  "10m/physical/ne_10m_lakes"
+  "10m/physical/ne_10m_rivers_lake_centerlines"
 )
 
 mkdir -p "$DEST"

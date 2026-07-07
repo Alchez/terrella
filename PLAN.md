@@ -29,10 +29,19 @@ Goal: a single Ramspott-style render of **India** that looks right, before build
 
 ## Phase 1 — Batch hero renders (all countries)
 
-- [ ] Script the Phase 0 scene in bpy: load heightfield, frame ortho camera from a
-      country bounding box (Natural Earth), render headless
+- [ ] Script the Phase 0 scene in bpy: load heightfield + the three masks
+      (ocean/lake/river), frame ortho camera from a country bounding box (Natural
+      Earth), render headless (blender -b — proven 2026-07-07: 3:36 @ 8K, 12.3 GB host)
 - [ ] Per-country config: bbox padding, camera framing overrides for awkward shapes
       (Chile, Indonesia, Russia, island nations)
+- [ ] Per-country displacement Scale: the locked 15× is *physical*, and the plane is
+      always 2 units wide, so Scale = 15 ÷ (frame width ÷ 2 in m) — the 8.0e-6
+      constant is India-frame-specific (see ART.md); copying it verbatim
+      over-exaggerates small countries by the frame-width ratio
+- [ ] QA small rugged countries (Switzerland-class) for "bumpy" over-detail — finer
+      m/px feeds near-native 30 m data into displacement (Huffman 2022 critique);
+      remedy on the shelf: Patterson resolution bumping (smoothed DEM + ~10% detail
+      mixed back) as a render_prep option
 - [ ] Handle antimeridian-crossing countries (Fiji, Russia, NZ) explicitly
 - [ ] Batch runner: queue all ~195 countries, resumable, logs failures
 - [ ] Overnight render run on 4070 Super; QA pass over outputs
@@ -42,7 +51,9 @@ Goal: a single Ramspott-style render of **India** that looks right, before build
 
 - [ ] Build planet-wide fused heightfield (chunked; will not fit in RAM)
 - [ ] Raster shading pipeline: multidirectional hillshade + sky-view factor (WhiteboxTools)
-      + land/sea color ramps, composited to match hero-render palette
+      + land/sea color ramps, composited to match hero-render palette; tune *quieter*
+      than the heroes — tiles are background under labels/borders (Huffman 2022), and
+      resolution bumping is available where native 30 m reads as noise at high zooms
 - [ ] Compare a tile region side-by-side with the Cycles render; tune until acceptable
 - [ ] Cut 512px tiles, zoom 0–8 (extend to 10 later if quality/storage allows)
 - [ ] Package as PMTiles
@@ -97,28 +108,69 @@ re-rendering every hero — treat as frozen; re-litigate only with explicit disc
 
 ## Open questions
 
-- ~~Land/sea heightfield fusion~~ RESOLVED 2026-07-04 (see decision log): WBM ocean
-  class as mask, hard splice, ocean clamped ≤ −1 m, no feathering. Confirmed by the
-  Khambhat color test — naive fusion produces phantom land in macro-tidal seas; the
-  clamp eliminates it and shading shows no seam either way.
-- Exact palette hex values — sample from reference image or design fresh in the same spirit?
-- ~~Disputed boundaries policy~~ RESOLVED 2026-07-06 (see decision log): Natural Earth
-  default (de-facto) worldview, site-wide; disputed/LoC segments dashed; About page
-  notes the choice.
+Resolved questions move to the decision log — one home per fact.
+
 - Tile shading: is pure raster compositing good enough, or render z0–z6 tiles in
   Blender for true shadows and switch to raster at higher zooms?
 - Storage location for the tile pyramid on rohome (which mount, backup exclusion).
-- ~~Straight survey-boundary seam in GEBCO offshore W Khambhat~~ RESOLVED 2026-07-06
-  (TID probe): the seam is a data-provenance edge — rectangular blocks of TID 16
-  "optical" (satellite-derived bathymetry, scene-shaped) meeting TID 40 gravity-
-  predicted fill; ENC soundings sprinkle the gulf itself. Extent-wide ocean mix:
-  83.3% gravity-predicted / 13.0% multibeam / 2.3% optical / 1.2% gravity-guided
-  soundings. Straight edges recur wherever optical blocks exist (shallow coastal
-  water). Decision: no smoothing — nobody noticed it on the approved v2 8K; spot-check
-  the seam zone (72.3–72.6°E, 21.0–21.8°N, offshore Saurashtra) once by eye, and
-  reopen only if Phase-2 tile shading makes provenance edges pop.
+- Caspian Sea routing (first frame that contains it): its surface sits at −28 m, so
+  neither the ocean rule nor the land ramp handles it cleanly; check its WBM class
+  and whether GEBCO already carries its measured bathymetry.
 
 ## Decision log
+
+- 2026-07-07 (later) — Lake depth: **flat stays**. The distance-transform prototype
+  (v2: shore anchored at the flat teal, size-attenuated contrast) proved intra-lake
+  gradients read at hero scale and arguably beat flat on looks — rejected regardless:
+  geometry-only depth is an artificial gradient, epistemically worse than honest
+  flat and blind on deep lakes. Reopening bar: real modeled data (GLOBathy or
+  better); implementation choice then = post-tint stage vs fusion depth channel +
+  shader ramp. Prototype parked in pipeline/experiments/lake_depth_prototype.py.
+  Constraints if reopened: tint-only, never carve displacement (at 15× Namtso becomes
+  a 1.5 km crater and the shadow-catching plate dies); needs a per-lake depth channel
+  + its own shallow ramp cap (lakes sit above sea level, mostly < 50 m — the sea ramp
+  can't see them); GLOBathy costs bulk acquisition + HydroLAKES→WBM shoreline
+  re-registration (MERIT Hydro is river hydrography — flow/width — not depth). River
+  depth rejected outright: no real global data exists (SWOT measures the water
+  surface, not the bed) and 5–15 m river depths are one ramp tone anyway.
+
+- 2026-07-07 — Inland water: **full Route A (raster, in-scene)** — lakes AND rivers
+  from the WBM, painted in the material; vector hydro rejected, hybrid explicitly
+  declined. Trigger: the approved 8K had no inland water (fusion's ocean rule only
+  absorbs sea-level water, by design). Build: fusion now emits a 4-class watermask
+  (0 land / 1 ocean / 2 lake / 3 river; class 1 verified pixel-identical to the ocean
+  mask over all 1.6 Gpx; `--watermask-only` backfill avoids recomputing anything);
+  render_prep warps it and splits 0/255 inlandlake/river PNGs, taking the grid from
+  the existing heightfield_aea.tif so backfills stay aligned with prior renders; the
+  shader gained Lake/River Mix switches fed by one RGB node (98C5C8 — note the GUI hex
+  field converts sRGB→linear silently; raw bpy values would not). A/B evidence vs
+  Route B (`overlay_borders.py --mode hydro`, NE lakes + scalerank-tapered centerlines;
+  the current NE 10m rivers file has no strokeweig, and its DBF fields are lowercase
+  unlike the boundary files): Tibet decided it — the WBM carries 3,358 plateau lakes in
+  one 8°×4° window (1,849 survive at hero 229 m/px, 1,381 at z8; everything ≥ 0.5 km²
+  survives at all scales) vs ~10 generalized NE polygons whose outlines visibly
+  contradict the DEM's own basins. Vector rivers are more legible (raster rivers render
+  as a pale broken trace — nearest sampling preserves water *area*, not *continuity*)
+  but are synthesized courses that drift off the braid plains and miss reservoirs;
+  verdict: truth over pop, rivers stay raster and faint. hydro mode stays in the script
+  as a documented rejected experiment. Flatness is ground truth: GLO-30 hydro-flattens
+  water (Namtso: one plate at 4,725 m; the Ganges: a ramp stepping 82→38 m over
+  83–85.5°E) — it's the *ocean* that is stylized (bathymetric tint renders seafloor,
+  not surface). Ops finding: the GUI 8K OOMed at 18.4 GB host RSS (kernel oom-kill took
+  the desktop down; unsaved node work lost, rebuilt); the identical render headless:
+  **3 min 36 s, 12.3 GB host peak**, result written straight to disk. `blender -b` is
+  the standard render path from now on. Next: re-composite borders onto the water
+  render; water color stays an ART.md lever.
+
+- 2026-07-06 (late) — Khambhat seam diagnosed (TID probe): the straight offshore seam
+  is a data-provenance edge — rectangular blocks of TID 16 "optical" (satellite-
+  derived bathymetry, scene-shaped) meeting TID 40 gravity-predicted fill; ENC
+  soundings sprinkle the gulf itself. Extent-wide ocean mix: 83.3% gravity-predicted
+  / 13.0% multibeam / 2.3% optical / 1.2% gravity-guided soundings. Straight edges
+  recur wherever optical blocks exist (shallow coastal water). Decision: no
+  smoothing — nobody noticed it on the approved v2 8K; spot-check the seam zone
+  (72.3–72.6°E, 21.0–21.8°N, offshore Saurashtra) once by eye, and reopen only if
+  Phase-2 tile shading makes provenance edges pop.
 
 - 2026-07-06 (evening) — Overlay pipeline live (pipeline/overlay_borders.py). Coastline
   oracle passed: 74.5 / 91.1 / 93.8 % of drawn NE coastline within 2 / 5 / 10 px of the
@@ -250,7 +302,8 @@ re-rendering every hero — treat as frozen; re-litigate only with explicit disc
   depth-keyed ramp. The −1 m clamp also makes sign-of-elevation a valid sea/land key for
   downstream materials (caveat: rare below-sea-level land like Kuttanad mis-keys; keep
   the mask COG as ground truth). Found a dead-straight GEBCO source boundary offshore
-  W Khambhat — survey-grid seam, diagnose via TID (see open questions).
+  W Khambhat — survey-grid seam, diagnose via TID (diagnosed 2026-07-06, see the
+  TID-probe entry above).
   Tooling: project .venv created (numpy, rasterio w/ GDAL 3.12) — needed for windowed
   raster passes.
 - 2026-07-04 — Fusion reframed after prior-art check: land/sea DEM fusion is solved
