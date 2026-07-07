@@ -61,6 +61,14 @@ Goal: a single Ramspott-style render of **India** that looks right, before build
 
 ## Phase 3 — Frontend
 
+Baked-vs-live rule (2026-07-07): too expensive to compute live → baked, always;
+depends on view state/interaction → live, always; otherwise context-dependent or
+variant-multiplying → live but pinned to authored constants; invariant and
+physics-coupled → baked. Live raster grading (dark mode) OK — it commutes with the
+look; runtime terrain exaggeration only in a narrow range — baked shadows don't move.
+User-exposed settings only where the user's context genuinely varies (quality tier,
+border toggle, motion).
+
 - [ ] MapLibre GL v5 globe with the PMTiles raster source
 - [ ] Natural Earth borders as vector overlay layer, with show/hide toggle (gallery
       tier: stacked transparent border image over the hero, same toggle)
@@ -78,6 +86,9 @@ Goal: a single Ramspott-style render of **India** that looks right, before build
 - [ ] Pangolin route: maps.alchez.dev (or chosen subdomain)
 - [ ] Lighthouse pass on all three tiers; test on a weak Android device
 - [ ] About page: data credits (Copernicus, GEBCO, Natural Earth), technique notes
+- [ ] (Optional flourish) landing-page "poster mode" beauty shot — Balazh-style
+      sphere + water shell + atmosphere volume + perspective camera; a weekend
+      experiment on existing data, decomposed in chat 2026-07-07
 - [ ] Ship. Post it somewhere.
 
 ## Locked global constants (Phase 0 exit checkpoint, 2026-07-06)
@@ -118,6 +129,50 @@ Resolved questions move to the decision log — one home per fact.
   and whether GEBCO already carries its measured bathymetry.
 
 ## Decision log
+
+- 2026-07-07 (night) — **Dead render blobs rewritten out of history.** The two 2K PNGs
+  (15 MB, added f6e9647, deleted 6afead7) existed only in history; with no remote the
+  rewrite was free: `git reset --soft 5b18632`, both commits recreated as one (7607fff —
+  the PNG add/delete cancelled in the index, so no unstaging needed), stale water-mask
+  branch + ORIG_HEAD deleted, reflog expired, gc'd. Repo: 15.39 MiB → 323 KiB; blob-scan
+  oracle returns empty. `blender/*.png` added to .gitignore as a tripwire. This kind of
+  rewrite is baked-in-forever after the first push.
+
+- 2026-07-07 (night) — **Python packaging formalized: pyproject.toml + uv, manifest-only.**
+  Until now the venv was the only record of dependencies — unreconstructible after loss.
+  Now: six direct deps declared in pyproject.toml with `[tool.uv] package = false` (the
+  repo is scripts, not an installable library); committed uv.lock pins the full tree to
+  exactly the validated environment (numpy held at 2.5.0 — the resolver wanted 2.5.1;
+  upgrades are deliberate via `uv lock --upgrade`, never incidental). Verified by syncing
+  the lock into a throwaway env: package set identical to the live venv, all six imports
+  OK (rasterio wheel carries GDAL 3.12.1). Python pinned two ways: `requires-python
+  = ">=3.12"` (compatibility floor) + `.python-version` 3.12 (what uv actually provisions
+  and runs). The bpy scripts are outside all of this — they run on Blender's bundled
+  3.13.9; shared code must stay compatible with both interpreters. Deferred on purpose:
+  package structure (src layout, shared modules, entry points) waits until per-country
+  generalization reveals the real seams. The live .venv is still pip-made and untouched;
+  flipping it to lock-managed is one `uv sync` whenever convenient (removes pip from the
+  venv — uv manages it thereafter).
+
+- 2026-07-07 (evening) — **Phase 1 keystone verified: pipeline/scene_build.py rebuilds
+  the hand-built scene from code.** Three oracles, strongest last: structural (full
+  scene dump, order-normalized, ramp stops included), ramp-function (cr.evaluate()
+  sampled at 10 positions per ramp), pixel (2K test renders, hand vs scripted:
+  max |diff| = 2/255, 0.0000% of samples differ by > 1 — denoiser noise). Two bugs
+  found on the way, both instructive: (1) bpy ColorRamp construction — elements.new()
+  and position writes re-sort the collection and invalidate held element references,
+  so colors land on wrong stops and a default white stop can survive (API edition of
+  the "stops re-sort by position" GUI gotcha; fix = shrink to one element, append in
+  ascending order, color via the ref .new() returns); (2) the first structural oracle
+  passed while blind — its grep filter for object `loc=` lines also deleted every
+  material-node line, exactly where the bug was. The render pixel-diff caught what
+  the filtered diff blessed. Checks must be shown to FAIL on a known-bad input before
+  their pass means anything. Notes: scripted build replicates the hand-built plane
+  height 2.058 (rounded by hand; exact raster aspect = 2.0588) — switching to exact
+  is a per-country-generalization decision, expected to *improve* coastline-oracle
+  registration by ~1.6 px N-S; scene_build takes explicit numbers via CLI, all geo
+  math stays outside Blender (bundled Python has no GDAL); user prefs (OptiX) survive
+  because the builder clears the scene, not factory settings.
 
 - 2026-07-07 (later) — Lake depth: **flat stays**. The distance-transform prototype
   (v2: shore anchored at the flat teal, size-attenuated contrast) proved intra-lake

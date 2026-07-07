@@ -12,7 +12,7 @@ Production would be a real depth channel from fusion plus a lake ramp in the
 shader — see the PLAN.md open question.
 
 Usage:
-  lake_depth_prototype.py --render blender/renders/india_water_8k_0001.png \
+  lake_depth_prototype.py --render blender/renders/india_hero_8k_v3_water.png \
       --watermask data/work/india/render/watermask_aea.tif \
       --outdir data/work/india/render/overlay
 """

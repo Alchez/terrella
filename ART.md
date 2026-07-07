@@ -2,7 +2,9 @@
 
 The knobs that shape the final look, what each one does, and which are safe to play with.
 Baseline = the v2 look from the 2026-07-05 tuning session (constants in PLAN.md decision
-log; canonical render `blender/renders/india_hero_8k_candidate.png`, v1 kept for history). Everything here is about matching the Ramspott "Neutral" reference: soft
+log; canonical render `blender/renders/india_hero_8k_v3_water.png` — v3 = v2 look
++ in-scene water; v2 candidate and v1 kept for history). Everything here is about
+matching the Ramspott "Neutral" reference: soft
 raytraced shadows, heavy vertical exaggeration, warm sand/rose land, desaturated teal sea
 with visible shelf bathymetry.
 

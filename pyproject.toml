@@ -1,0 +1,19 @@
+[project]
+name = "relief-globe"
+version = "0.1.0"
+description = "Pipeline for ray-traced relief maps: DEM/bathymetry fusion, render prep, overlays"
+requires-python = ">=3.12"
+dependencies = [
+    "numpy>=2.5",
+    "pycairo>=1.29",  # vector overlay compositing (borders, hydro)
+    "pyproj>=3.7",    # AEA <-> lon/lat transforms outside rasterio
+    "pyshp>=3.1",     # Natural Earth shapefile reading
+    "rasterio>=1.5",  # wheels bundle GDAL; no system GDAL needed on the Python side
+    "scipy>=1.18",    # experiments only (distance transforms)
+]
+
+# Dependency manifest only — the repo is scripts, not an installable library.
+# The bpy scripts (scene_build, scene_dump, probe_tap) run under Blender's own
+# bundled Python and cannot use this environment.
+[tool.uv]
+package = false

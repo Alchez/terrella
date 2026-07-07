@@ -2,7 +2,10 @@
 data/
 *.part
 blender/renders/
+blender/*.png
 *.blend1
+# build artifact — regenerate with pipeline/scene_build.py
+blender/india_hero_scripted.blend
 
 # Local-only project memory (Rohan's call, 2026-07-05): CLAUDE.md stays untracked.
 CLAUDE.md

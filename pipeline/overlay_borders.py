@@ -23,7 +23,7 @@ meters-per-pixel scale plus the frame center.
 
 Usage:
   overlay_borders.py --mode oracle \
-      --render blender/renders/india_hero_8k_candidate.png \
+      --render blender/renders/india_hero_8k_v3_water.png \
       --heightfield data/work/india/render/heightfield_aea.tif \
       --mask data/work/india/render/oceanmask_aea.tif \
       --ne-dir data/raw/naturalearth \
