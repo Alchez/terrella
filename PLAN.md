@@ -108,9 +108,15 @@ re-rendering every hero — treat as frozen; re-litigate only with explicit disc
 - Tile shading: is pure raster compositing good enough, or render z0–z6 tiles in
   Blender for true shadows and switch to raster at higher zooms?
 - Storage location for the tile pyramid on rohome (which mount, backup exclusion).
-- Straight survey-boundary seam in GEBCO offshore W Khambhat (~72.5°E 21.7°N): sample
-  the TID grid along it to identify the sources; decide whether it survives final
-  color+light or needs local smoothing. Check whether it's widespread in our extent.
+- ~~Straight survey-boundary seam in GEBCO offshore W Khambhat~~ RESOLVED 2026-07-06
+  (TID probe): the seam is a data-provenance edge — rectangular blocks of TID 16
+  "optical" (satellite-derived bathymetry, scene-shaped) meeting TID 40 gravity-
+  predicted fill; ENC soundings sprinkle the gulf itself. Extent-wide ocean mix:
+  83.3% gravity-predicted / 13.0% multibeam / 2.3% optical / 1.2% gravity-guided
+  soundings. Straight edges recur wherever optical blocks exist (shallow coastal
+  water). Decision: no smoothing — nobody noticed it on the approved v2 8K; spot-check
+  the seam zone (72.3–72.6°E, 21.0–21.8°N, offshore Saurashtra) once by eye, and
+  reopen only if Phase-2 tile shading makes provenance edges pop.
 
 ## Decision log
 
