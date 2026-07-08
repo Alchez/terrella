@@ -10,23 +10,38 @@ Non-Color in the shader).
 
 Heights stay in real meters; vertical exaggeration is applied in Blender.
 
-With --watermask (the 4-class mask from fusion) it additionally emits
-watermask_aea.tif plus the shader-facing binary masks inlandlake_aea.png and
-river_aea.png — 0/255, because Blender divides 8-bit images by 255 on load.
+The projection is built per frame with --frame W S E N (the padded lon/lat
+window from frame_country.py): standard parallels 1/6 in from the frame's
+latitude edges, origin at the frame center. Every derivation is spelled out
+in docs/framing-math.md.
+
+Also emits frame.json — the per-country numbers the Blender stages need
+(scene_build.py runs inside Blender's Python, which cannot read geographic
+metadata, and overlay_borders.py must model the camera identically). A
+hand-authored frame.json is never overwritten: that is the pinning mechanism
+for frames whose renders predate the formulas (India v3).
+
+Every mask the shader consumes is also emitted as a 0/255 PNG (Blender
+divides 8-bit images by 255 on load): oceanmask_aea.png always, and with
+--watermask (the 4-class mask from fusion) additionally watermask_aea.tif
+plus inlandlake_aea.png and river_aea.png.
 
 Per-output idempotency: existing outputs are skipped, never overwritten, so
 new outputs can be backfilled next to old ones. When heightfield_aea.tif
-already exists the grid is taken from it, not re-derived, so backfilled masks
-stay aligned with any render already made from it.
+already exists the grid AND projection are taken from it, not re-derived
+(--frame is then unneeded), so backfilled outputs stay aligned with any
+render already made from it.
 
 Usage:
-  render_prep.py --heightfield data/work/india/heightfield_3s.tif \
-                 --mask data/work/india/oceanmask_3s.tif \
-                 [--watermask data/work/india/watermask_3s.tif] \
-                 --outdir data/work/india/render [--width 16384]
+  render_prep.py --heightfield data/work/nepal/heightfield_3s.tif \
+                 --mask data/work/nepal/oceanmask_3s.tif \
+                 --frame 79.6 25.9 88.7 31.0 \
+                 [--watermask data/work/nepal/watermask_3s.tif] \
+                 --outdir data/work/nepal/render [--width 16384]
 """
 
 import argparse
+import json
 from pathlib import Path
 
 import numpy as np
@@ -37,22 +52,49 @@ from rasterio.vrt import WarpedVRT
 from rasterio.warp import transform_bounds
 from rasterio.windows import Window
 
-# Albers equal-area conic for the India frame (66-99E / 4-38N): standard
-# parallels at ~1/6 in from the frame's latitude edges, origin at frame center.
-DST_CRS = "+proj=aea +lat_1=10 +lat_2=32 +lat_0=21 +lon_0=82.5 +datum=WGS84 +units=m"
+EXAGGERATION = 15.0    # locked global vertical exaggeration (PLAN.md)
+FRAME_MARGIN = 1.0006  # camera overshoot: the plane underfills the frame a hair
+HERO_WIDTH = 7680      # hero render width in px; height follows raster aspect
 
 BLOCK = 8192
 
 
-def warp(src_path, out_path, transform, width, height, resampling, dtype, predictor):
+def aea_crs(frame):
+    """Albers equal-area conic centered on a (W, S, E, N) lon/lat frame:
+    standard parallels 1/6 in from the latitude edges, origin at center."""
+    w, s, e, n = frame
+    return (f"+proj=aea +lat_1={s + (n - s) / 6.0:g} "
+            f"+lat_2={n - (n - s) / 6.0:g} "
+            f"+lat_0={(s + n) / 2.0:g} +lon_0={(w + e) / 2.0:g} "
+            f"+datum=WGS84 +units=m")
+
+
+def scene_numbers(width_px, height_px, extent_w_m):
+    """Blender scene numbers for a warped grid (docs/framing-math.md).
+
+    The displacement plane is always 2 Blender units wide, so one unit is
+    half the frame width in meters — every number here is that conversion
+    applied to the locked global look constants."""
+    plane_h = 2.0 * height_px / width_px
+    return dict(
+        plane_height_units=plane_h,
+        ortho_scale=max(2.0, plane_h) * FRAME_MARGIN,
+        displacement_scale=EXAGGERATION / (extent_w_m / 2.0),
+        res_x=HERO_WIDTH,
+        res_y=round(HERO_WIDTH * height_px / width_px),
+    )
+
+
+def warp(src_path, out_path, dst_crs, transform, width, height, resampling,
+         dtype, predictor):
     profile = dict(
-        driver="GTiff", crs=DST_CRS, transform=transform,
+        driver="GTiff", crs=dst_crs, transform=transform,
         width=width, height=height, count=1, dtype=dtype,
         tiled=True, blockxsize=512, blockysize=512,
         compress="deflate", predictor=predictor, bigtiff="if_safer",
     )
     with rasterio.open(src_path) as src, \
-         WarpedVRT(src, crs=DST_CRS, transform=transform, width=width,
+         WarpedVRT(src, crs=dst_crs, transform=transform, width=width,
                    height=height, resampling=resampling) as vrt, \
          rasterio.open(out_path, "w", **profile) as out:
         for row in range(0, height, BLOCK):
@@ -84,22 +126,31 @@ def main():
                          "inlandlake_aea.png + river_aea.png")
     ap.add_argument("--outdir", type=Path, required=True)
     ap.add_argument("--width", type=int, default=16384)
+    ap.add_argument("--frame", nargs=4, type=float, metavar=("W", "S", "E", "N"),
+                    help="padded lon/lat frame from frame_country.py; "
+                         "required unless heightfield_aea.tif already exists")
     args = ap.parse_args()
 
     out_h = args.outdir / "heightfield_aea.tif"
     out_m = args.outdir / "oceanmask_aea.tif"
     out_w = args.outdir / "watermask_aea.tif"
+    out_f = args.outdir / "frame.json"
     args.outdir.mkdir(parents=True, exist_ok=True)
 
     if out_h.exists():
         with rasterio.open(out_h) as f:
+            dst_crs = f.crs
             transform, width, height = f.transform, f.width, f.height
-        print(f"grid from existing {out_h.name}: {width} x {height}, "
-              f"{transform.a:.0f} m/px (--width ignored)", flush=True)
+        print(f"grid + CRS from existing {out_h.name}: {width} x {height}, "
+              f"{transform.a:.0f} m/px (--width/--frame ignored)", flush=True)
     else:
+        if args.frame is None:
+            ap.error("--frame W S E N is required when no heightfield exists")
+        dst_crs = aea_crs(args.frame)
+        print(f"projection: {dst_crs}", flush=True)
         with rasterio.open(args.heightfield) as src:
             left, bottom, right, top = transform_bounds(
-                src.crs, DST_CRS, *src.bounds, densify_pts=64)
+                src.crs, dst_crs, *src.bounds, densify_pts=64)
         width = args.width
         xres = (right - left) / width
         height = round((top - bottom) / xres)
@@ -108,6 +159,20 @@ def main():
               flush=True)
 
     wrote = 0
+    if out_f.exists():
+        print("frame.json exists — skipping (pinned frames stay pinned)",
+              flush=True)
+    else:
+        numbers = scene_numbers(width, height, width * transform.a)
+        payload = dict(
+            frame_lonlat=args.frame,
+            dst_crs=dst_crs if isinstance(dst_crs, str) else dst_crs.to_proj4(),
+            width_px=width, height_px=height, xres_m=transform.a,
+            extent_w_m=width * transform.a, extent_h_m=height * transform.a,
+            **numbers)
+        out_f.write_text(json.dumps(payload, indent=2) + "\n")
+        print(f"wrote {out_f}", flush=True)
+        wrote += 1
     for src_path, out_path, rs, dtype, pred in (
             (args.heightfield, out_h, Resampling.bilinear, "float32", 3),
             (args.mask, out_m, Resampling.nearest, "uint8", 2),
@@ -117,17 +182,20 @@ def main():
         if out_path.exists():
             print(f"{out_path.name} exists — skipping", flush=True)
             continue
-        warp(src_path, out_path, transform, width, height, rs, dtype, pred)
+        warp(src_path, out_path, dst_crs, transform, width, height, rs,
+             dtype, pred)
         wrote += 1
 
+    png_jobs = [(out_m, 1, "oceanmask_aea.png")]
     if args.watermask:
-        for cls, name in ((2, "inlandlake_aea.png"), (3, "river_aea.png")):
-            out_png = args.outdir / name
-            if out_png.exists():
-                print(f"{name} exists — skipping", flush=True)
-                continue
-            write_class_png(out_w, out_png, cls)
-            wrote += 1
+        png_jobs += [(out_w, 2, "inlandlake_aea.png"), (out_w, 3, "river_aea.png")]
+    for src_tif, cls, name in png_jobs:
+        out_png = args.outdir / name
+        if out_png.exists():
+            print(f"{name} exists — skipping", flush=True)
+            continue
+        write_class_png(src_tif, out_png, cls)
+        wrote += 1
 
     print("complete" if wrote else "nothing to do — all outputs exist",
           flush=True)

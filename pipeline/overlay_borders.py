@@ -6,6 +6,12 @@ Modes:
             tightly it hugs the land/sea boundary of the ocean mask. Verifies
             the Albers→render-pixel mapping before any real border is drawn:
             a systematic offset here means the mapping below is wrong.
+            Tolerances are in ground METERS, not render pixels: NE's 1:10m
+            line disagrees with the WBM-derived coast by up to ~1-2 km around
+            lagoon spits and shifting sandbars (measured on Sri Lanka,
+            2026-07-08), so that is the noise floor regardless of how fine
+            one country's m/px is. Mapping failures are uniform multi-km
+            shifts — still unmissable at these tolerances.
   borders — draw the production overlay: solid white international borders,
             dashed disputed/LoC segments, dashed maritime indicator lines.
             Emits both a composited hero and a standalone transparent RGBA
@@ -31,6 +37,7 @@ Usage:
 """
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -40,7 +47,6 @@ import pyproj
 import rasterio
 import shapefile
 
-ORTHO_SCALE = 2.06
 PLANE_WIDTH_UNITS = 2.0
 
 # Art levers (see ART.md): width in render pixels at 8K, dash = [on, off] px.
@@ -84,7 +90,16 @@ CROP_SIZE = 900
 
 
 def render_mapping(heightfield, render_w, render_h):
-    """Derive the AEA→render-pixel mapping from the raster the plane displays."""
+    """Derive the AEA→render-pixel mapping from the raster the plane displays.
+
+    The camera's ortho scale comes from frame.json next to the heightfield —
+    the same number scene_build.py framed the render with, so pinned frames
+    (India v3's hand-rounded 2.06) keep compositing correctly."""
+    frame_path = heightfield.parent / "frame.json"
+    if not frame_path.exists():
+        sys.exit(f"{frame_path} not found — render_prep.py emits it")
+    ortho_scale = json.loads(frame_path.read_text())["ortho_scale"]
+
     with rasterio.open(heightfield) as src:
         b, crs = src.bounds, src.crs
     extent_w = b.right - b.left
@@ -96,7 +111,7 @@ def render_mapping(heightfield, render_w, render_h):
         sys.exit(f"render aspect {render_aspect:.4f} != raster aspect "
                  f"{raster_aspect:.4f} — wrong render or wrong heightfield")
 
-    units_per_px = ORTHO_SCALE / max(render_w, render_h)
+    units_per_px = ortho_scale / max(render_w, render_h)
     m_per_px = units_per_px * extent_w / PLANE_WIDTH_UNITS
     cx = (b.left + b.right) / 2.0
     cy = (b.bottom + b.top) / 2.0
@@ -106,7 +121,7 @@ def render_mapping(heightfield, render_w, render_h):
         row = render_h / 2.0 - (np.asarray(y) - cy) / m_per_px
         return col, row
 
-    return to_px, crs, b
+    return to_px, m_per_px, crs, b
 
 
 def frame_bbox_lonlat(bounds, crs, pad_deg=2.0):
@@ -203,9 +218,10 @@ def surface_alpha(surface):
     return buf[:, :surface.get_width(), 3].copy()
 
 
-def coast_agreement(mask_path, drawn, to_px):
-    """Percent of drawn coastline pixels within {2,5,10} px of the ocean-mask
-    land/sea boundary. Low numbers = the mapping is systematically off."""
+def coast_agreement(mask_path, drawn, to_px, m_per_px):
+    """Percent of drawn coastline pixels within {600, 1200, 2500} m of the
+    ocean-mask land/sea boundary. Low numbers at 2500 m = the mapping is
+    systematically off (per-country m/px is divided out; see docstring)."""
     with rasterio.open(mask_path) as src:
         m = src.read(1)
         t = src.transform
@@ -226,12 +242,15 @@ def coast_agreement(mask_path, drawn, to_px):
     drawn_px = int(drawn.sum())
     if drawn_px == 0:
         sys.exit("oracle drew zero pixels — mapping or data is broken")
+    px_buckets = {max(1, round(meters / m_per_px)): meters
+                  for meters in (600, 1200, 2500)}
     stats, grown = {}, edge_img
-    for n in range(1, 11):
+    for n in range(1, max(px_buckets) + 1):
         grown = (grown | np.roll(grown, 1, 0) | np.roll(grown, -1, 0)
                  | np.roll(grown, 1, 1) | np.roll(grown, -1, 1))
-        if n in (2, 5, 10):
-            stats[n] = 100.0 * int((drawn & grown).sum()) / drawn_px
+        if n in px_buckets:
+            stats[px_buckets[n]] = (n, 100.0 * int((drawn & grown).sum())
+                                    / drawn_px)
     return stats
 
 
@@ -276,7 +295,7 @@ def main():
     w, h = comp.get_width(), comp.get_height()
     print(f"render: {w} x {h}", flush=True)
 
-    to_px, crs, bounds = render_mapping(args.heightfield, w, h)
+    to_px, m_per_px, crs, bounds = render_mapping(args.heightfield, w, h)
     fwd = pyproj.Transformer.from_crs("EPSG:4326", crs, always_xy=True)
     bbox = frame_bbox_lonlat(bounds, crs)
     print(f"frame lon/lat bbox (padded): {['%.1f' % v for v in bbox]}", flush=True)
@@ -293,12 +312,13 @@ def main():
         print(f"coastline features drawn: {n}", flush=True)
         if n == 0:
             sys.exit("no coastline features in frame — prefilter or data broken")
-        stats = coast_agreement(args.mask, surface_alpha(overlay) > 0, to_px)
-        for k, v in stats.items():
-            print(f"drawn coastline within {k:2d} px of mask boundary: {v:5.1f}%",
-                  flush=True)
-        if stats[5] < 90.0:
-            print("WARNING: <90% within 5 px — suspect a systematic offset",
+        stats = coast_agreement(args.mask, surface_alpha(overlay) > 0, to_px,
+                                m_per_px)
+        for meters, (px, pct) in stats.items():
+            print(f"drawn coastline within {meters:4d} m ({px:2d} px): "
+                  f"{pct:5.1f}%", flush=True)
+        if stats[2500][1] < 90.0:
+            print("WARNING: <90% within 2500 m — suspect a systematic offset",
                   flush=True)
         tag = "oracle"
     elif args.mode == "hydro":

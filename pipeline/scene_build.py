@@ -8,8 +8,11 @@ Verified against the hand-built .blend by structural dump-diff and a
 pixel-diff of test renders (see PLAN.md Phase 1).
 
 Runs inside Blender's Python, which has no GDAL: all geographic math
-(per-country frame width, displacement scale = exaggeration / (extent_w/2),
-plane aspect) happens outside and arrives here as plain numbers via CLI.
+(projection, frame width, plane aspect) happens in render_prep.py and
+arrives here as plain numbers in frame.json — plane height, ortho scale,
+displacement scale, render resolution (docs/framing-math.md). The
+heightfield's pixel size is cross-checked against frame.json so a stale or
+mismatched file fails loudly instead of framing the wrong scene.
 
 Color constants are stored in LINEAR floats exactly as Blender holds them
 (hex comments alongside are the sRGB values entered in the GUI, which
@@ -17,13 +20,14 @@ converts on entry — bpy does not).
 
 Usage:
   blender -b --python pipeline/scene_build.py -- \
-      --render-dir data/work/india/render \
-      --out blender/india_hero_scripted.blend \
-      [--plane-height 2.058]   # replicate the hand-built (rounded) value;
-                               # default derives the exact raster aspect
+      --render-dir data/work/nepal/render \
+      --out blender/nepal_hero.blend \
+      [--frame-json data/work/nepal/render/frame.json]  # default: sibling
+      [--render blender/renders/nepal_hero_8k.png]      # save, then render
 """
 
 import argparse
+import json
 import math
 import sys
 from pathlib import Path
@@ -31,8 +35,6 @@ from pathlib import Path
 import bpy
 
 # ---- locked look (PLAN.md "Locked global constants", 2026-07-06) ----------
-ORTHO_SCALE = 2.06
-DISPLACEMENT_SCALE = 8.0e-6      # India frame; per-country = 15 / (extent_w/2)
 DISPLACEMENT_MIDLEVEL = 0.0
 SUN_ROTATION = (math.radians(44.0), 0.0, math.radians(-45.0))
 SUN_ANGLE = math.radians(5.0)
@@ -59,7 +61,6 @@ SEA_STOPS = [
 ]
 RAMP_INTERPOLATION = "EASE"
 
-RES_X, RES_Y = 7680, 7906
 SAMPLES = 4096
 ADAPTIVE_THRESHOLD = 0.01
 DICING_RATE = 1.0
@@ -100,10 +101,10 @@ def build_plane(height):
     return ob
 
 
-def build_camera():
+def build_camera(ortho_scale):
     cam = bpy.data.cameras.new("Camera")
     cam.type = "ORTHO"
-    cam.ortho_scale = ORTHO_SCALE
+    cam.ortho_scale = ortho_scale
     cam.clip_end = 100.0
     ob = bpy.data.objects.new("Camera", cam)
     ob.location = (0.0, 0.0, 5.0)
@@ -183,7 +184,7 @@ def mix_socket(n, sock):
     return next(s for s in coll if s.name == sock and s.type == "RGBA")
 
 
-def build_material(ob, render_dir):
+def build_material(ob, render_dir, displacement_scale):
     mat = bpy.data.materials.new("Material.001")
     mat.use_nodes = True
     mat.displacement_method = "DISPLACEMENT"
@@ -204,7 +205,7 @@ def build_material(ob, render_dir):
     disp.name = "Displacement"
     disp.space = "OBJECT"
     disp.inputs["Midlevel"].default_value = DISPLACEMENT_MIDLEVEL
-    disp.inputs["Scale"].default_value = DISPLACEMENT_SCALE
+    disp.inputs["Scale"].default_value = displacement_scale
 
     land_range = make_map_range(nt, "Map Range", "Land",
                                 LAND_RANGE, (0.0, 1.0))
@@ -250,11 +251,11 @@ def build_material(ob, render_dir):
     ob.data.materials.append(mat)
 
 
-def configure_render():
+def configure_render(res_x, res_y):
     s = bpy.context.scene
     r, c = s.render, s.cycles
     r.engine = "CYCLES"
-    r.resolution_x, r.resolution_y = RES_X, RES_Y
+    r.resolution_x, r.resolution_y = res_x, res_y
     r.image_settings.file_format = "PNG"
     r.image_settings.color_mode = "RGBA"
     c.device = "GPU"
@@ -280,31 +281,53 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--render-dir", type=Path, required=True)
     ap.add_argument("--out", type=Path, required=True)
-    ap.add_argument("--plane-height", type=float, default=None,
-                    help="override plane height in Blender units; default "
-                         "derives 2 * raster_h / raster_w from the heightfield")
+    ap.add_argument("--frame-json", type=Path, default=None,
+                    help="per-country numbers from render_prep.py; "
+                         "default <render-dir>/frame.json")
+    ap.add_argument("--render", type=Path, default=None,
+                    help="after saving the .blend, render a still to this PNG")
+    ap.add_argument("--render-scale", type=int, default=100,
+                    help="resolution_percentage for the --render still; the "
+                         "saved .blend always keeps 100 (Phase 0's 2048-wide "
+                         "test convention ~= 27)")
     args = ap.parse_args(argv)
     render_dir = args.render_dir.resolve()
 
+    frame_path = args.frame_json or render_dir / "frame.json"
+    if not frame_path.exists():
+        sys.exit(f"{frame_path} not found — render_prep.py emits it")
+    frame = json.loads(frame_path.read_text())
+
     clear_scene()
-    configure_render()
+    configure_render(frame["res_x"], frame["res_y"])
     build_world()
-    build_camera()
+    build_camera(frame["ortho_scale"])
     build_sun()
 
     probe = load_image(render_dir, IMAGES["Image Texture"][0])
-    w, h = probe.size
-    height = args.plane_height or 2.0 * h / w
+    if tuple(probe.size) != (frame["width_px"], frame["height_px"]):
+        sys.exit(f"heightfield is {tuple(probe.size)} px but frame.json says "
+                 f"({frame['width_px']}, {frame['height_px']}) — stale or "
+                 f"mismatched frame.json")
     bpy.data.images.remove(probe)
-    plane = build_plane(height)
-    build_material(plane, render_dir)
+    plane = build_plane(frame["plane_height_units"])
+    build_material(plane, render_dir, frame["displacement_scale"])
 
     prefs = bpy.context.preferences.addons["cycles"].preferences
-    print(f"plane 2.0 x {height:.6f}; compute device "
+    print(f"plane 2.0 x {frame['plane_height_units']:.6f}; "
+          f"ortho {frame['ortho_scale']:.6f}; "
+          f"displacement {frame['displacement_scale']:.6e}; "
+          f"res {frame['res_x']} x {frame['res_y']}; compute device "
           f"{getattr(prefs, 'compute_device_type', '?')}", flush=True)
     bpy.ops.wm.save_as_mainfile(filepath=str(args.out.resolve()),
                                 relative_remap=True)
     print(f"saved {args.out}", flush=True)
+
+    if args.render:
+        bpy.context.scene.render.resolution_percentage = args.render_scale
+        bpy.context.scene.render.filepath = str(args.render.resolve())
+        bpy.ops.render.render(write_still=True)
+        print(f"rendered {args.render} @ {args.render_scale}%", flush=True)
 
 
 if __name__ == "__main__":
