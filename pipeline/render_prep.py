@@ -47,6 +47,7 @@ from typing import Any
 
 import numpy as np
 import rasterio
+from rasterio.crs import CRS
 from rasterio.enums import Resampling
 from rasterio.transform import from_origin
 from rasterio.vrt import WarpedVRT
@@ -169,7 +170,7 @@ def main():
         numbers = scene_numbers(width, height, width * xres)
         # normalize the CRS spelling so a regenerated frame.json is
         # byte-identical whether the projection came from --frame or the file
-        crs_norm = rasterio.crs.CRS.from_string(dst_crs) \
+        crs_norm = CRS.from_string(dst_crs) \
             if isinstance(dst_crs, str) else dst_crs
         payload = dict(
             frame_lonlat=args.frame,

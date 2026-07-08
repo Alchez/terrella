@@ -84,6 +84,7 @@ for ob in s.objects:
         li = ob.data
         p(f"  light: type={li.type} energy={li.energy}"
           f" angle={getattr(li, 'angle', 0.0):.6f}"
+          f" use_shadow={getattr(li, 'use_shadow', 'n/a')}"
           f" color=({li.color.r:.4f}, {li.color.g:.4f}, {li.color.b:.4f})")
     if ob.type == "MESH":
         p(f"  mesh: {len(ob.data.vertices)} verts, dims=({ob.dimensions.x:.6f},"

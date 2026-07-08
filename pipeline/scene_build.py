@@ -2,8 +2,10 @@
 """Build the hero-render Blender scene from code (Phase 1 keystone).
 
 Reconstructs the hand-built Phase 0 scene — plane + adaptive-subdivision
-displacement, two-ramp land/sea material with lake/river switches, sun,
-ortho camera, locked render settings — entirely from the constants below.
+displacement, two-ramp land/sea material with lake/river switches (plus a
+snow switch iff snowmask_aea.png exists in the render dir), sun plus a
+shadowless fill sun, ortho camera, locked render settings — entirely from
+the constants below.
 Verified against the hand-built .blend by structural dump-diff and a
 pixel-diff of test renders (see PLAN.md Phase 1).
 
@@ -34,14 +36,20 @@ from pathlib import Path
 
 import bpy  # pyright: ignore[reportMissingImports] — exists only in Blender's Python
 
-# ---- locked look (PLAN.md "Locked global constants", 2026-07-06) ----------
+# ---- locked look (PLAN.md "Locked global constants", 2026-07-06;
+# ---- amended 2026-07-08: snow, fill sun, sun angle, land ramp top) --------
 DISPLACEMENT_MIDLEVEL = 0.0
 SUN_ROTATION = (math.radians(44.0), 0.0, math.radians(-45.0))
-SUN_ANGLE = math.radians(5.0)
+SUN_ANGLE = math.radians(12.0)
 SUN_STRENGTH = 3.0
+FILL_ROTATION = (math.radians(30.0), 0.0, math.radians(135.0))
+FILL_ANGLE = math.radians(10.0)
+FILL_STRENGTH = 0.45   # 15% of SUN_STRENGTH; shadowless SE fill so shadowed
+                       # faces keep directional modeling (never pure black)
 WORLD_RGBA = (0.887923, 0.799103, 0.665388, 1.0)   # F2E7D5
 WORLD_STRENGTH = 0.3
 WATER_RGBA = (0.313989, 0.558341, 0.577581, 1.0)   # 98C5C8
+SNOW_RGBA = (0.806952, 0.879622, 0.921582, 1.0)    # E8F1F6 — glacial blue-white
 
 LAND_RANGE = (0.0, 6000.0)       # meters -> ramp position 0..1
 SEA_RANGE = (-3000.0, 0.0)       # meters -> ramp position 1..0 (reversed To)
@@ -50,8 +58,9 @@ LAND_STOPS = [                   # position, linear RGBA        (sRGB hex)
     (0.083, (0.679543, 0.412543, 0.270498, 1.0)),  # D7AC8E
     (0.250, (0.617207, 0.313989, 0.215861, 1.0)),  # CE9880
     (0.500, (0.584079, 0.417885, 0.309469, 1.0)),  # C9AD97
-    (0.750, (0.806952, 0.737911, 0.644480, 1.0)),  # E8DFD2
-    (1.000, (0.921582, 0.879623, 0.806952, 1.0)),  # F6F1E8
+    (0.750, (0.715694, 0.584078, 0.445201, 1.0)),  # DCC9B2
+    (1.000, (0.814847, 0.715694, 0.577580, 1.0)),  # E9DCC8 — top stays in the
+    # warm sand register: white/blue belongs to the snow mask alone
 ]
 SEA_STOPS = [
     (0.000, (0.564712, 0.775822, 0.760525, 1.0)),  # C6E4E2
@@ -120,6 +129,17 @@ def build_sun():
     ob = bpy.data.objects.new("Light", sun)
     ob.location = (4.076245, 1.005454, 5.903862)  # cosmetic; sun is a direction
     ob.rotation_euler = SUN_ROTATION
+    bpy.context.collection.objects.link(ob)
+    return ob
+
+
+def build_fill():
+    sun = bpy.data.lights.new("Fill", "SUN")
+    sun.energy = FILL_STRENGTH
+    sun.angle = FILL_ANGLE
+    sun.use_shadow = False
+    ob = bpy.data.objects.new("Fill", sun)
+    ob.rotation_euler = FILL_ROTATION
     bpy.context.collection.objects.link(ob)
     return ob
 
@@ -222,6 +242,20 @@ def build_material(ob, render_dir, displacement_scale):
     river = make_mix(nt, "Mix.002", "River")
     ocean = make_mix(nt, "Mix", "")
 
+    # optional data-driven snow/ice (experiments/snow_mask.py); mask absent
+    # -> graph identical to the pre-snow scene
+    snow = None
+    if (render_dir / "snowmask_aea.png").exists():
+        n = nt.nodes.new("ShaderNodeTexImage")
+        n.name = "Image Texture.004"
+        n.image = load_image(render_dir, "snowmask_aea.png")
+        n.interpolation = "Closest"
+        n.extension = "REPEAT"
+        tex["Image Texture.004"] = n
+        snow = make_mix(nt, "Mix.003", "Snow")
+        mix_socket(snow, "B").default_value = SNOW_RGBA
+        print("snowmask_aea.png found — wiring Snow mix", flush=True)
+
     bsdf = nt.nodes.new("ShaderNodeBsdfPrincipled")
     bsdf.name = "Principled BSDF"
     bsdf.inputs["Roughness"].default_value = 1.0
@@ -236,7 +270,12 @@ def build_material(ob, render_dir, displacement_scale):
     L(hf.outputs["Color"], sea_range.inputs["Value"])
     L(land_range.outputs["Result"], land_ramp.inputs["Factor"])
     L(sea_range.outputs["Result"], sea_ramp.inputs["Factor"])
-    L(land_ramp.outputs["Color"], mix_socket(lake, "A"))
+    land_color = land_ramp.outputs["Color"]
+    if snow is not None:
+        L(land_color, mix_socket(snow, "A"))
+        L(tex["Image Texture.004"].outputs["Color"], snow.inputs[0])
+        land_color = mix_socket(snow, "Result")
+    L(land_color, mix_socket(lake, "A"))
     L(tex["Image Texture.002"].outputs["Color"], lake.inputs[0])
     L(rgb.outputs["Color"], mix_socket(lake, "B"))
     L(mix_socket(lake, "Result"), mix_socket(river, "A"))
@@ -303,6 +342,7 @@ def main():
     build_world()
     build_camera(frame["ortho_scale"])
     build_sun()
+    build_fill()
 
     probe = load_image(render_dir, IMAGES["Image Texture"][0])
     if tuple(probe.size) != (frame["width_px"], frame["height_px"]):
