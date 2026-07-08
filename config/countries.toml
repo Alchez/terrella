@@ -1,0 +1,103 @@
+# Per-country render configuration — the single committed source of truth for
+# which countries get heroes, their frames, and their resolution/fusion knobs.
+# Read by pipeline/country_config.py (stdlib tomllib); the batch runner will
+# consume the same resolver.
+#
+# Scope rule: a Natural Earth admin-0 row is in scope iff ADMIN == SOVEREIGNT
+# (sovereign states under NE's de-facto worldview), minus [scope].exclude,
+# plus [scope].include (curated dependent territories, listed by ADMIN name).
+#
+# Slug rule: ADMIN lowercased with non-alphanumerics stripped
+# ("Sri Lanka" -> "srilanka"). The slug names the work dir (data/work/<slug>)
+# and the per-country table below. A table may carry `admin = "..."` to bind a
+# hand-picked slug to its NE ADMIN name; without it the rule must resolve.
+#
+# Per-country keys (all optional):
+#   admin          NE ADMIN name, only when the slug rule can't derive it
+#   frame          [W, S, E, N] lon/lat — overrides the computed padded bbox
+#   hero_long_edge px — overrides [defaults].hero_long_edge
+#   fusion         "1s" | "3s" — overrides the automatic choice
+#   status         "antimeridian" — batch must skip loudly (own PLAN item)
+#   notes          free text: why the override exists
+#
+# Frame pins are a separate mechanism: a committed config/frames/<slug>.json
+# is copied verbatim into data/work/<slug>/render/ (country_config --emit-pin)
+# and render_prep never overwrites an existing frame.json.
+
+[defaults]
+pad_pct = 5.0          # frame padding, % of the larger bbox span
+hero_long_edge = 7680  # hero render long edge, px (8K-class)
+warp_long_edge = 8192  # render_prep --width target for the warped grid
+fusion = "auto"        # 1" iff 3" source pixels across the frame < warp width
+
+[scope]
+# Strict-selector rows that are not countries to render:
+exclude = [
+    "Antarctica",                      # deferred: special-case hero (polar projection, no WorldCover)
+    "Bir Tawil",                       # terra nullius wedge (Egypt/Sudan), not a country
+    "Spratly Islands",                 # disputed reefs, no landmass at 30 m
+    "Scarborough Reef",                # disputed reef, no landmass at 30 m
+    "Bajo Nuevo Bank (Petrel Is.)",    # uninhabited disputed bank
+    "Serranilla Bank",                 # uninhabited disputed bank
+    "Cyprus No Mans Area",             # UN buffer strip, not a country
+    "Brazilian Island",                # disputed Uruguay-river islet, data artifact
+    "Southern Patagonian Ice Field",   # undelimited Argentina/Chile section
+]
+# Curated dependent territories that get their own hero:
+include = [
+    "Greenland",           # Denmark
+    "Faroe Islands",       # Denmark
+    "New Caledonia",       # France
+    "French Polynesia",    # France
+    "Puerto Rico",         # United States
+]
+
+# ---- frame overrides: far-flung territories that explode the whole-geometry
+# ---- bbox (main landmass <= ~25% of a bbox axis). Values = union bbox of the
+# ---- mainland parts + the standard 5% pad, same rounding as frame_country.
+
+[countries.france]
+frame = [-5.9, 40.6, 10.3, 51.9]
+notes = "Metropole incl. Corsica; whole bbox is 118x72 deg (reaches French Guiana, Antilles, Mayotte, Reunion). New Caledonia and French Polynesia are separate heroes."
+
+[countries.netherlands]
+frame = [3.1, 50.5, 7.4, 53.8]
+notes = "European Netherlands; whole bbox reaches the Caribbean municipalities (Bonaire, Saba, Sint Eustatius)."
+
+[countries.norway]
+frame = [3.3, 56.6, 32.4, 72.5]
+notes = "Mainland only; whole bbox spans Bouvet Island (54S) to Svalbard (81N), 135 deg of latitude. Jan Mayen also dropped."
+
+[countries.portugal]
+frame = [-9.8, 36.7, -5.9, 42.5]
+notes = "Mainland only; whole bbox reaches the Azores and Madeira (25 deg of longitude)."
+
+[countries.chile]
+frame = [-77.7, -57.9, -64.5, -15.5]
+notes = "Continental Chile incl. Tierra del Fuego; drops Easter Island, Salas y Gomez, Desventuradas, Juan Fernandez (whole bbox reaches 109W)."
+
+# ---- antimeridian crossers: NE bbox degenerates to ~(-180..180); frames and
+# ---- fusion windows need split-and-shift handling (separate PLAN item).
+
+[countries.russia]
+status = "antimeridian"
+
+[countries.unitedstatesofamerica]
+status = "antimeridian"
+notes = "Aleutians cross 180; also far-flung (Hawaii, minor outlying islands are separate NE rows only for the uninhabited ones)."
+
+[countries.newzealand]
+status = "antimeridian"
+notes = "Chatham Islands sit east of 180."
+
+[countries.fiji]
+status = "antimeridian"
+
+[countries.kiribati]
+status = "antimeridian"
+notes = "Spans ~40 deg across 180 (Gilbert/Phoenix/Line groups); may want per-group heroes eventually."
+
+# ---- data-coverage notes
+
+[countries.greenland]
+notes = "WorldCover stops at 82.75N; the northern tip has no snow mask. Decide fallback (treat as snow via GLO-30 WBM? plain ramp?) when Greenland's data is acquired."

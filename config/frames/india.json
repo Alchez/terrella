@@ -1,0 +1,15 @@
+{
+  "_pinned": "hand-authored 2026-07-08: plane/ortho/displacement are the hand-rounded Phase 0 values the approved v3 hero was rendered with, NOT the formula derivations (2.05884 / 2.06007 / 8.0113e-6). render_prep.py never overwrites this file. See PLAN.md decision log.",
+  "frame_lonlat": [66.0, 4.0, 99.0, 38.0],
+  "dst_crs": "+proj=aea +lat_0=21 +lon_0=82.5 +lat_1=10 +lat_2=32 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs=True",
+  "width_px": 16384,
+  "height_px": 16866,
+  "xres_m": 228.55878724717184,
+  "extent_w_m": 3744707.1702576634,
+  "extent_h_m": 3854872.5057108,
+  "plane_height_units": 2.058,
+  "ortho_scale": 2.06,
+  "displacement_scale": 8.0e-06,
+  "res_x": 7680,
+  "res_y": 7906
+}
