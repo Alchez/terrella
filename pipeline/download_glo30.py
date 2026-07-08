@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Download Copernicus GLO-30 elevation tiles for one lat/lon extent.
 
-For every 1x1 degree land tile intersecting EXTENT (per the bucket's
+For every 1x1 degree land tile intersecting --extent (per the bucket's
 tileList.txt index), fetches two files from the public AWS bucket over
 plain HTTPS, WORKERS files at a time, into DATA_DIR:
 
@@ -14,18 +14,23 @@ under its final name is therefore always complete: re-runs skip finished files
 and retry only what is missing. Failures never abort the run; they are listed
 in failures.txt and retried on the next run.
 
-Usage: python3 download_glo30.py
+Before downloading, a preflight proves the bucket hasn't changed editions
+under us (the standing oracle from PLAN.md 2026-07-08): the bucket carries no
+edition in any path, so mixing tiles fetched years apart could silently mix
+Copernicus DEM editions. Local md5 of a few held tiles must equal their S3
+ETag (a plain md5 for these single-part objects); any mismatch aborts.
+
+Usage: python3 download_glo30.py --extent 60 0 100 40   # the Phase 0 window
 """
 
+import argparse
 import concurrent.futures as cf
+import hashlib
 import os
 import shutil
 import sys
 import urllib.request
 from pathlib import Path
-
-# (west, south, east, north) in degrees. India + sea/Himalaya margin.
-EXTENT = (60, 0, 100, 40)
 
 BUCKET_URL = "https://copernicus-dem-30m.s3.amazonaws.com"
 DATA_DIR = Path.home() / "projects/maps/data/raw/glo30"
@@ -41,14 +46,34 @@ def parse_tile_name(name: str) -> tuple[int, int]:
     return lat, lon
 
 
-def in_extent(lat: int, lon: int) -> bool:
-    """True if the 1x1 degree tile with this SW corner overlaps EXTENT.
+def in_extent(lat: int, lon: int, extent) -> bool:
+    """True if the 1x1 degree tile with this SW corner overlaps the extent.
 
     Strict inequalities exclude tiles that only touch the boundary line,
     so an extent ending at 100E takes E099 (99..100) but not E100 (100..101).
     """
-    west, south, east, north = EXTENT
+    west, south, east, north = extent
     return lon < east and lon + 1 > west and lat < north and lat + 1 > south
+
+
+def bucket_preflight():
+    """Abort if the bucket changed under us: md5 of held tiles vs S3 ETag."""
+    held = sorted((DATA_DIR / "dem").glob("*.tif")) if (DATA_DIR / "dem").exists() else []
+    sample = [held[0], held[len(held) // 2], held[-1]] if held else []
+    for path in dict.fromkeys(sample):
+        name = path.stem
+        req = urllib.request.Request(f"{BUCKET_URL}/{name}/{name}.tif",
+                                     method="HEAD")
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            etag = resp.headers["ETag"].strip('"')
+        local = hashlib.md5(path.read_bytes()).hexdigest()
+        if local != etag:
+            sys.exit(f"bucket preflight FAILED: {name} local md5 {local} != "
+                     f"ETag {etag} — the bucket may have moved to a new "
+                     f"Copernicus edition; stop and decide (PLAN.md 2026-07-08)")
+    print(f"bucket preflight: {len(set(sample))} held tiles match their ETags"
+          if sample else "bucket preflight: no held tiles yet — nothing to check",
+          flush=True)
 
 
 def download_one(url: str, dest: Path) -> str:
@@ -90,10 +115,19 @@ def fetch_tile_list() -> list[str]:
 
 
 def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--extent", nargs=4, type=float, required=True,
+                    metavar=("W", "S", "E", "N"),
+                    help="lon/lat window; overlapping 1x1 degree land tiles "
+                         "are fetched (Phase 0 window was 60 0 100 40)")
+    args = ap.parse_args()
+
+    bucket_preflight()
     for sub in ("dem", "wbm"):
         (DATA_DIR / sub).mkdir(parents=True, exist_ok=True)
 
-    names = [n for n in fetch_tile_list() if in_extent(*parse_tile_name(n))]
+    names = [n for n in fetch_tile_list()
+             if in_extent(*parse_tile_name(n), args.extent)]
     jobs = [pair for n in names for pair in tile_files(n)]
     print(f"{len(names)} tiles in extent -> {len(jobs)} files")
 

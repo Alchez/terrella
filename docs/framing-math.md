@@ -40,7 +40,7 @@ For Nepal (25.9–30.9°N): parallels at 26.73° and 30.07°, centered at 28.4°
 
 ## Step 3 — the warped grid
 
-`render_prep.py` re-samples the fused heightfield from plain lon/lat degrees into this projection, producing the raster Blender will actually displace. Its `--width` sets the pixel width (don't exceed the source data's own width — upsampling invents nothing); the height follows from the frame's shape. One number falls out that everything below depends on: the frame's true width in meters, `extent_w = width_px × meters_per_pixel`.
+`render_prep.py` re-samples the fused heightfield from plain lon/lat degrees into this projection, producing the raster Blender will actually displace. Its `--width` sets the pixel width, bounded on both sides: don't exceed the source data's own width (upsampling invents nothing), and keep it near the render width (the Switzerland QA, 2026-07-08, showed this is what prevents "bumpy" over-detail — the warp grid low-passes anything finer than the render can show, so displacement can't pick up sub-pixel noise). The height follows from the frame's shape. One number falls out that everything below depends on: the frame's true width in meters, `extent_w = width_px × meters_per_pixel`.
 
 ## Step 4 — the scene numbers
 
