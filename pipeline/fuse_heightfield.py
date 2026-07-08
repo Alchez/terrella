@@ -28,6 +28,7 @@ Usage:
 import argparse
 import sys
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import rasterio
@@ -95,7 +96,7 @@ def backfill_watermask(mask_path, out_water):
         done = 0
         for row in range(0, height, BLOCK):
             for col in range(0, width, BLOCK):
-                win = Window(col, row,
+                win = Window(col, row,  # pyright: ignore[reportCallIssue] — rasterio untyped, attrs init invisible
                              min(BLOCK, width - col), min(BLOCK, height - row))
                 wm = classify_water(ms.read(1, window=win) == 1,
                                     wbm.read(1, window=win))
@@ -142,7 +143,7 @@ def main():
     transform, width, height = make_grid(args.bounds, args.res_arcsec)
     print(f"target grid: {width} x {height} @ {args.res_arcsec}\"", flush=True)
 
-    profile = dict(
+    profile: dict[str, Any] = dict(
         driver="GTiff", crs="EPSG:4326", transform=transform,
         width=width, height=height, count=1,
         tiled=True, blockxsize=512, blockysize=512, compress="deflate",
@@ -167,7 +168,7 @@ def main():
         counts = np.zeros(4, dtype=np.int64)
         for row in range(0, height, BLOCK):
             for col in range(0, width, BLOCK):
-                win = Window(col, row,
+                win = Window(col, row,  # pyright: ignore[reportCallIssue] — rasterio untyped, attrs init invisible
                              min(BLOCK, width - col), min(BLOCK, height - row))
                 d = dem.read(1, window=win)
                 w = wbm.read(1, window=win)

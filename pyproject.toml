@@ -17,3 +17,17 @@ dependencies = [
 # bundled Python and cannot use this environment.
 [tool.uv]
 package = false
+
+[dependency-groups]
+dev = [
+    "pyright>=1.1.411",
+]
+
+# Same engine as Pylance, so `uv run pyright` reproduces the IDE's findings.
+# experiments/ = archival one-off prototypes (kept for history, not maintained).
+[tool.pyright]
+include = ["pipeline"]
+exclude = ["pipeline/experiments"]
+venvPath = "."
+venv = ".venv"
+typeCheckingMode = "standard"

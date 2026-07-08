@@ -18,7 +18,7 @@ on a broken scene because an overzealous grep deleted every node line.
 Usage:
   blender -b FILE.blend --python pipeline/scene_dump.py > dump.txt 2>/dev/null
 """
-import bpy
+import bpy  # pyright: ignore[reportMissingImports] — exists only in Blender's Python
 
 
 def p(*a):

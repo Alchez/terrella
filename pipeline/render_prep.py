@@ -43,6 +43,7 @@ Usage:
 import argparse
 import json
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import rasterio
@@ -87,7 +88,7 @@ def scene_numbers(width_px, height_px, extent_w_m):
 
 def warp(src_path, out_path, dst_crs, transform, width, height, resampling,
          dtype, predictor):
-    profile = dict(
+    profile: dict[str, Any] = dict(
         driver="GTiff", crs=dst_crs, transform=transform,
         width=width, height=height, count=1, dtype=dtype,
         tiled=True, blockxsize=512, blockysize=512,
@@ -99,7 +100,7 @@ def warp(src_path, out_path, dst_crs, transform, width, height, resampling,
          rasterio.open(out_path, "w", **profile) as out:
         for row in range(0, height, BLOCK):
             for col in range(0, width, BLOCK):
-                win = Window(col, row,
+                win = Window(col, row,  # pyright: ignore[reportCallIssue] — rasterio untyped, attrs init invisible
                              min(BLOCK, width - col), min(BLOCK, height - row))
                 out.write(vrt.read(1, window=win).astype(dtype), 1, window=win)
     print(f"wrote {out_path}", flush=True)
@@ -109,9 +110,10 @@ def write_class_png(watermask_path, out_path, cls):
     """Binary 0/255 PNG for one water class of the warped 4-class mask."""
     with rasterio.open(watermask_path) as src:
         binary = (src.read(1) == cls).astype("uint8") * 255
-        profile = dict(driver="PNG", width=src.width, height=src.height,
-                       count=1, dtype="uint8",
-                       crs=src.crs, transform=src.transform)
+        profile: dict[str, Any] = dict(driver="PNG", width=src.width,
+                                       height=src.height, count=1,
+                                       dtype="uint8", crs=src.crs,
+                                       transform=src.transform)
     with rasterio.open(out_path, "w", **profile) as out:
         out.write(binary, 1)
     print(f"wrote {out_path} ({int((binary > 0).sum()):,} px set)", flush=True)
@@ -141,8 +143,9 @@ def main():
         with rasterio.open(out_h) as f:
             dst_crs = f.crs
             transform, width, height = f.transform, f.width, f.height
+        xres = transform.a  # pyright: ignore[reportAttributeAccessIssue] — affine untyped
         print(f"grid + CRS from existing {out_h.name}: {width} x {height}, "
-              f"{transform.a:.0f} m/px (--width/--frame ignored)", flush=True)
+              f"{xres:.0f} m/px (--width/--frame ignored)", flush=True)
     else:
         if args.frame is None:
             ap.error("--frame W S E N is required when no heightfield exists")
@@ -163,12 +166,16 @@ def main():
         print("frame.json exists — skipping (pinned frames stay pinned)",
               flush=True)
     else:
-        numbers = scene_numbers(width, height, width * transform.a)
+        numbers = scene_numbers(width, height, width * xres)
+        # normalize the CRS spelling so a regenerated frame.json is
+        # byte-identical whether the projection came from --frame or the file
+        crs_norm = rasterio.crs.CRS.from_string(dst_crs) \
+            if isinstance(dst_crs, str) else dst_crs
         payload = dict(
             frame_lonlat=args.frame,
-            dst_crs=dst_crs if isinstance(dst_crs, str) else dst_crs.to_proj4(),
-            width_px=width, height_px=height, xres_m=transform.a,
-            extent_w_m=width * transform.a, extent_h_m=height * transform.a,
+            dst_crs=crs_norm.to_proj4(),
+            width_px=width, height_px=height, xres_m=xres,
+            extent_w_m=width * xres, extent_h_m=height * xres,
             **numbers)
         out_f.write_text(json.dumps(payload, indent=2) + "\n")
         print(f"wrote {out_f}", flush=True)

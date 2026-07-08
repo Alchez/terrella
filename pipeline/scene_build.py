@@ -32,7 +32,7 @@ import math
 import sys
 from pathlib import Path
 
-import bpy
+import bpy  # pyright: ignore[reportMissingImports] — exists only in Blender's Python
 
 # ---- locked look (PLAN.md "Locked global constants", 2026-07-06) ----------
 DISPLACEMENT_MIDLEVEL = 0.0

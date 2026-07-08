@@ -37,11 +37,13 @@ def country_bbox(shp_path, name):
     sf = shapefile.Reader(str(shp_path))
     candidates = []
     for sr in sf.iterShapeRecords():
+        if sr.record is None or sr.shape is None:  # spec allows null shapes
+            continue
         rec = sr.record.as_dict()
         if "ADMIN" not in rec:
             sys.exit(f"ADMIN field missing in {shp_path.name}; "
                      f"fields are {list(rec)}")
-        admin = rec["ADMIN"]
+        admin = str(rec["ADMIN"])
         if admin.lower() == name.lower():
             return admin, tuple(sr.shape.bbox)
         if name.lower() in admin.lower():

@@ -143,6 +143,8 @@ def read_lines(shp_path, bbox):
     minx, miny, maxx, maxy = bbox
     sf = shapefile.Reader(str(shp_path))
     for sr in sf.iterShapeRecords():
+        if sr.shape is None or sr.record is None:  # spec allows null shapes
+            continue
         if not sr.shape.points:
             continue
         sb = sr.shape.bbox
@@ -228,7 +230,7 @@ def coast_agreement(mask_path, drawn, to_px, m_per_px):
     edge = np.zeros(m.shape, bool)
     edge[:, 1:] |= m[:, 1:] != m[:, :-1]
     edge[1:, :] |= m[1:, :] != m[:-1, :]
-    rr, cc = np.nonzero(edge)
+    rr, cc = np.nonzero(edge)  # pyright: ignore[reportGeneralTypeIssues, reportAssignmentType] — numpy stubs see a 1-tuple for unknown-dim input
     xs = t.c + (cc + 0.5) * t.a
     ys = t.f + (rr + 0.5) * t.e
     col, row = to_px(xs, ys)
