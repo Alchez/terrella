@@ -176,8 +176,16 @@ def main():
     profile: dict[str, Any] = dict(driver="PNG", width=width, height=height,
                                    count=1, dtype="uint8", crs=dst_crs,
                                    transform=transform)
-    with rasterio.open(out_png, "w", **profile) as out:
+    # Crash-safety: write to .tmp and os.replace on success (with the PNG's
+    # GDAL .aux.xml sidecar), so a kill mid-write never leaves a partial
+    # snowmask that batch resume would trust as the prep-complete marker.
+    tmp = out_png.with_name(out_png.name + ".tmp")
+    with rasterio.open(tmp, "w", **profile) as out:
         out.write(mask, 1)
+    aux = tmp.with_name(tmp.name + ".aux.xml")
+    if aux.exists():
+        os.replace(aux, out_png.with_name(out_png.name + ".aux.xml"))
+    os.replace(tmp, out_png)
 
     px = int((mask > 0).sum())
     km2 = px * (xres * xres) / 1e6

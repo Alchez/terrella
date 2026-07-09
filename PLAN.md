@@ -24,7 +24,7 @@ Goal: a single Ramspott-style render of **India** that looks right, before build
 - [x] QA small rugged countries (Switzerland-class) for "bumpy" over-detail (2026-07-08 three-arm A/B: no bumpiness when warp width ≈ render width — 1″ fusion adopted as the small-country standard, resolution bumping rejected for heroes; see decision log)
 - [x] Snow/ice as a data mask + shadow legibility (2026-07-08: WorldCover class 70 via pipeline/snow_mask.py after render_prep, snow E8F1F6, fill sun + 12° sun, land ramp top de-whitened — full A/B evidence and dataset evaluation in decision log; Switzerland v2 + India v4 heroes re-rendered as confirmation)
 - [ ] Handle antimeridian-crossing countries (Fiji, Russia, NZ) explicitly
-- [ ] Batch runner: queue all ~195 countries, resumable, logs failures — canonical outputs blender/renders/heroes/&lt;workdir-slug&gt;.png (current look, no version suffix; history lives in renders/archive/ + the decision log). Input is `country_config.py --all`; consider GNU `parallel` over the printed stage commands vs. a hand-rolled Python runner (relievo uses the former for its batch workflows).
+- [x] Batch runner: queue all ~195 countries, resumable, logs failures — canonical outputs blender/renders/heroes/&lt;workdir-slug&gt;.png (current look, no version suffix; history lives in renders/archive/ + the decision log). Complete 2026-07-09: `pipeline/batch.py` (reuses `country_config`, subprocess-isolated, sequential, prep/render split default-prep, crash-safe filesystem resume, dynamic OOM defense, JSONL failure log — see decision log). Chose a Python runner over GNU `parallel` (needed the crash-safety + OOM logic; rendering is serial anyway).
 - [ ] Document hero regeneration + pipeline CLI usage (README or docs/), end of Phase 1 — the committed source (scene_build.py + country_config.py + countries.toml + frame.json pins) is the canonical, reproducible form; .blend scenes are regenerated from it, never versioned (decision log 2026-07-09). This is what a fresh clone or a contributor runs to reproduce any hero.
 - [ ] Overnight render run on 4070 Super; QA pass over outputs
 - [ ] Generate responsive variants (2K/4K/8K WebP) per country
@@ -82,6 +82,36 @@ Resolved questions move to the decision log — one home per fact. Each question
 - Caspian Sea routing (first frame that contains it): its surface sits at −28 m, so neither the ocean rule nor the land ramp handles it cleanly; check its WBM class and whether GEBCO already carries its measured bathymetry. **Decided at:** Phase 1 config of the first Caspian-bordering frame (Kazakhstan / Azerbaijan / Iran / Russia / Turkmenistan); the probe itself is a cheap fusion-window check and can run any time earlier.
 
 ## Decision log
+
+### 2026-07-09 — Batch runner: crash-safe orchestration + dynamic OOM defense
+
+- **`pipeline/batch.py`** drives the full pipeline across the in-scope countries, reusing
+  `country_config` (scope, frames, `stage_commands`). Each stage runs as an isolated
+  subprocess (a Blender segfault/OOM kills only that process), sequential (the render is
+  GPU-bound). `--through prep` (default) runs download→snow; `--through render` adds the
+  render. Default prep so a bare run can never start the ~10–13 h render sweep; `--dry-run`
+  previews (204 → 5 antimeridian, 1 GEBCO/Tuvalu-past-±180°, 196 to run). `--only`/`--limit`/
+  `--force`. Failures → one JSONL line in `blender/renders/batch_failures.jsonl`, country's
+  rest skipped, run continues.
+- **Resilience to abrupt shutdown (Rohan's requirement) is the keystone.** Filesystem-resume
+  is only safe if "output exists" means "output complete," so **every stage now finalizes
+  atomically** — `fuse_heightfield`, `render_prep`, `snow_mask` write to `.tmp` and
+  `os.replace` on success (PNG `.aux.xml` sidecar moved too); the runner renders to a
+  `.tmp.png` it promotes on exit 0. (This fixed a latent CLAUDE.md violation — those stages
+  wrote straight to final paths, so a kill mid-write left a partial file resume would trust.)
+  `fuse_heightfield` also aligned to skip-exit-0 when complete (was a hard error), so
+  "re-run all stages, each skips what it finished" is the uniform resume contract. **Verified:**
+  SIGKILL mid-fusion leaves only `.tmp` (no partial final); re-run recovers byte-identical;
+  deleting a snowmask and re-running re-executes only `snow_mask` (fusion skip-exit-0).
+- **Dynamic OOM defense** (machine: 30 GiB): sequential; a pre-render memory gate waits
+  (bounded 30 min) if `MemAvailable` < floor (default 14 GiB, `--mem-floor-gib`) then defers
+  the country rather than starting a doomed render; heavy stages (fuse, render) run under a
+  best-effort `systemd-run --user` cgroup `MemoryMax` (≈85 % of MemTotal, `MemorySwapMax=0`)
+  so a runaway is cleanly killed, not left to thrash. **Cap enforcement verified** on the dev
+  box (300 MB under a 64 MB cap → rc 137; memory controller delegated to the user manager);
+  degrades to no-cap where unavailable (container). An OOM-kill (rc 137) is logged `kind:oom`
+  and the country skipped — **no silent quality-degrade** (locked-look consistency); the human
+  decides from the log. Runner keeps no durable in-memory state → a killed runner just re-runs.
 
 ### 2026-07-09 — Global GEBCO acquired: batch renders unblocked 6 → 198 countries
 

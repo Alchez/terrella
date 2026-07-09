@@ -26,6 +26,7 @@ Usage:
 """
 
 import argparse
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -140,9 +141,16 @@ def main():
 
     if args.bounds is None:
         ap.error("--bounds is required for a full fusion run")
-    if out_height.exists() or out_mask.exists() or out_water.exists():
-        sys.exit(f"output already exists in {args.outdir} — delete to redo")
+    if out_height.exists() and out_mask.exists() and out_water.exists():
+        print(f"fusion outputs exist in {args.outdir} — skipping", flush=True)
+        return
     args.outdir.mkdir(parents=True, exist_ok=True)
+    # Crash-safety: write to .tmp siblings and os.replace only on full success,
+    # so an abrupt kill (OOM / blackout) leaves ignorable .tmp files, never a
+    # partial final that resume would trust (same discipline as download_*.part).
+    tmp_height = out_height.with_name(out_height.name + ".tmp")
+    tmp_mask = out_mask.with_name(out_mask.name + ".tmp")
+    tmp_water = out_water.with_name(out_water.name + ".tmp")
 
     transform, width, height = make_grid(args.bounds, args.res_arcsec)
     print(f"target grid: {width} x {height} @ {args.res_arcsec}\"", flush=True)
@@ -162,10 +170,10 @@ def main():
          WarpedVRT(dem_src, resampling=Resampling.average, **vrt_kw) as dem, \
          WarpedVRT(wbm_src, resampling=Resampling.nearest, **vrt_kw) as wbm, \
          WarpedVRT(geb_src, resampling=Resampling.cubic_spline, **vrt_kw) as geb, \
-         rasterio.open(out_height, "w", dtype="float32", predictor=3,
+         rasterio.open(tmp_height, "w", dtype="float32", predictor=3,
                        **profile) as fh, \
-         rasterio.open(out_mask, "w", dtype="uint8", **profile) as fm, \
-         rasterio.open(out_water, "w", dtype="uint8", **profile) as fw:
+         rasterio.open(tmp_mask, "w", dtype="uint8", **profile) as fm, \
+         rasterio.open(tmp_water, "w", dtype="uint8", **profile) as fw:
 
         nwin = ((height + BLOCK - 1) // BLOCK) * ((width + BLOCK - 1) // BLOCK)
         done = 0
@@ -193,11 +201,14 @@ def main():
 
     print_class_counts(counts)
     # class codes must not be averaged — a 2 next to a 0 is not a 1
-    for path, rs in ((out_height, Resampling.average),
-                     (out_mask, Resampling.average),
-                     (out_water, Resampling.nearest)):
+    for path, rs in ((tmp_height, Resampling.average),
+                     (tmp_mask, Resampling.average),
+                     (tmp_water, Resampling.nearest)):
         with rasterio.open(path, "r+") as ds:
             ds.build_overviews([2, 4, 8, 16, 32], rs)
+    for tmp, final in ((tmp_height, out_height), (tmp_mask, out_mask),
+                       (tmp_water, out_water)):
+        os.replace(tmp, final)
     print("complete", flush=True)
 
 

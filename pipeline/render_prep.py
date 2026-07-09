@@ -42,6 +42,7 @@ Usage:
 
 import argparse
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -96,8 +97,19 @@ def scene_numbers(width_px, height_px, extent_w_m, hero_long_edge=HERO_LONG_EDGE
     )
 
 
+def finalize(tmp, final):
+    """Atomically move a fully-written tmp (plus any GDAL .aux.xml sidecar for
+    PNGs) into place. The final path appears last, so its existence always
+    means 'complete' — an abrupt kill mid-write leaves only ignorable .tmp."""
+    aux = tmp.with_name(tmp.name + ".aux.xml")
+    if aux.exists():
+        os.replace(aux, final.with_name(final.name + ".aux.xml"))
+    os.replace(tmp, final)
+
+
 def warp(src_path, out_path, dst_crs, transform, width, height, resampling,
          dtype, predictor):
+    tmp = out_path.with_name(out_path.name + ".tmp")
     profile: dict[str, Any] = dict(
         driver="GTiff", crs=dst_crs, transform=transform,
         width=width, height=height, count=1, dtype=dtype,
@@ -107,25 +119,28 @@ def warp(src_path, out_path, dst_crs, transform, width, height, resampling,
     with rasterio.open(src_path) as src, \
          WarpedVRT(src, crs=dst_crs, transform=transform, width=width,
                    height=height, resampling=resampling) as vrt, \
-         rasterio.open(out_path, "w", **profile) as out:
+         rasterio.open(tmp, "w", **profile) as out:
         for row in range(0, height, BLOCK):
             for col in range(0, width, BLOCK):
                 win = Window(col, row,  # pyright: ignore[reportCallIssue] — rasterio untyped, attrs init invisible
                              min(BLOCK, width - col), min(BLOCK, height - row))
                 out.write(vrt.read(1, window=win).astype(dtype), 1, window=win)
+    finalize(tmp, out_path)
     print(f"wrote {out_path}", flush=True)
 
 
 def write_class_png(watermask_path, out_path, cls):
     """Binary 0/255 PNG for one water class of the warped 4-class mask."""
+    tmp = out_path.with_name(out_path.name + ".tmp")
     with rasterio.open(watermask_path) as src:
         binary = (src.read(1) == cls).astype("uint8") * 255
         profile: dict[str, Any] = dict(driver="PNG", width=src.width,
                                        height=src.height, count=1,
                                        dtype="uint8", crs=src.crs,
                                        transform=src.transform)
-    with rasterio.open(out_path, "w", **profile) as out:
+    with rasterio.open(tmp, "w", **profile) as out:
         out.write(binary, 1)
+    finalize(tmp, out_path)
     print(f"wrote {out_path} ({int((binary > 0).sum()):,} px set)", flush=True)
 
 
@@ -191,7 +206,9 @@ def main():
             width_px=width, height_px=height, xres_m=xres,
             extent_w_m=width * xres, extent_h_m=height * xres,
             **numbers)
-        out_f.write_text(json.dumps(payload, indent=2) + "\n")
+        tmp_f = out_f.with_name(out_f.name + ".tmp")
+        tmp_f.write_text(json.dumps(payload, indent=2) + "\n")
+        os.replace(tmp_f, out_f)
         print(f"wrote {out_f}", flush=True)
         wrote += 1
     for src_path, out_path, rs, dtype, pred in (
