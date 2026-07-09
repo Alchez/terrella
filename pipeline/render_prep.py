@@ -56,7 +56,9 @@ from rasterio.windows import Window
 
 EXAGGERATION = 15.0    # locked global vertical exaggeration (PLAN.md)
 FRAME_MARGIN = 1.0006  # camera overshoot: the plane underfills the frame a hair
-HERO_WIDTH = 7680      # hero render width in px; height follows raster aspect
+HERO_LONG_EDGE = 7680  # hero render long edge in px; the short axis follows
+                       # raster aspect (a tall country caps at 7680 tall, not
+                       # 7680 wide — Maldives would be 56k px otherwise)
 
 BLOCK = 8192
 
@@ -71,19 +73,26 @@ def aea_crs(frame):
             f"+datum=WGS84 +units=m")
 
 
-def scene_numbers(width_px, height_px, extent_w_m):
+def scene_numbers(width_px, height_px, extent_w_m, hero_long_edge=HERO_LONG_EDGE):
     """Blender scene numbers for a warped grid (docs/framing-math.md).
 
     The displacement plane is always 2 Blender units wide, so one unit is
     half the frame width in meters — every number here is that conversion
-    applied to the locked global look constants."""
+    applied to the locked global look constants. The render resolution puts
+    hero_long_edge on the grid's longer axis; for landscape grids this is
+    identical to the retired fixed-width rule."""
     plane_h = 2.0 * height_px / width_px
+    if height_px > width_px:
+        res = dict(res_x=round(hero_long_edge * width_px / height_px),
+                   res_y=hero_long_edge)
+    else:
+        res = dict(res_x=hero_long_edge,
+                   res_y=round(hero_long_edge * height_px / width_px))
     return dict(
         plane_height_units=plane_h,
         ortho_scale=max(2.0, plane_h) * FRAME_MARGIN,
         displacement_scale=EXAGGERATION / (extent_w_m / 2.0),
-        res_x=HERO_WIDTH,
-        res_y=round(HERO_WIDTH * height_px / width_px),
+        **res,
     )
 
 
@@ -129,6 +138,9 @@ def main():
                          "inlandlake_aea.png + river_aea.png")
     ap.add_argument("--outdir", type=Path, required=True)
     ap.add_argument("--width", type=int, default=16384)
+    ap.add_argument("--hero-long-edge", type=int, default=HERO_LONG_EDGE,
+                    help="hero render long edge in px (per-country override; "
+                         "config/countries.toml is the durable home for it)")
     ap.add_argument("--frame", nargs=4, type=float, metavar=("W", "S", "E", "N"),
                     help="padded lon/lat frame from frame_country.py; "
                          "required unless heightfield_aea.tif already exists")
@@ -167,7 +179,8 @@ def main():
         print("frame.json exists — skipping (pinned frames stay pinned)",
               flush=True)
     else:
-        numbers = scene_numbers(width, height, width * xres)
+        numbers = scene_numbers(width, height, width * xres,
+                                args.hero_long_edge)
         # normalize the CRS spelling so a regenerated frame.json is
         # byte-identical whether the projection came from --frame or the file
         crs_norm = CRS.from_string(dst_crs) \

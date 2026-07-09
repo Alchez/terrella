@@ -5,11 +5,13 @@ Every hero render shares one *look* — the same sun, the same colors, the same 
 The chain, end to end:
 
 ```
-country name ──frame_country.py──▶ frame (a lon/lat box)
+country name ──country_config.py──▶ frame (a lon/lat box) + stage commands
 frame ──render_prep.py──▶ projection + warped rasters + frame.json
 frame.json ──scene_build.py──▶ Blender scene (+ render)
 frame.json ──overlay_borders.py──▶ borders drawn in exactly the camera's view
 ```
+
+`country_config.py` resolves `config/countries.toml` — the committed source of truth for which ~200 countries get heroes and their per-country knobs. The frame is computed from the Natural Earth bbox (the `frame_country.py` math below) unless the config carries an override.
 
 `frame.json` is the hand-off: one small file per country holding every derived number. Blender's Python cannot read geographic metadata, so these numbers must be computed outside and handed over.
 
@@ -22,7 +24,7 @@ The frame is the rectangle of the world the poster shows. It comes from the coun
 
 Nepal's bounding box is 80.03–88.17°E / 26.34–30.42°N; padded and rounded it becomes the frame **79.6–88.6°E / 25.9–30.9°N**.
 
-Known limitation: countries with far-flung territories (France + French Guiana) or antimeridian crossers (Fiji) get absurd frames from this rule — they are on the plan as a separate per-country-overrides item.
+Countries with far-flung territories get absurd frames from this rule — France's whole-geometry bbox spans 118°×72° to reach French Guiana. Policy (2026-07-09): the whole bbox stands unless catastrophic (main landmass under ~25% of a bbox axis); the five catastrophic ones (France, Netherlands, Norway, Portugal, Chile) carry hand-authored mainland frames in `config/countries.toml`, derived with this same pad-and-round math from the mainland parts only. Antimeridian crossers (Russia, Fiji, Kiribati, New Zealand, US) are marked `status = "antimeridian"` there and skipped loudly until their own plan item.
 
 ## Step 2 — the projection
 
@@ -53,7 +55,7 @@ Every scene number is just this conversion applied to a locked look constant:
 - **Plane height** — the plane must have the same shape as the raster: `plane_height = 2 × height_px / width_px`. Wider-than-tall countries (Nepal) get a plane shorter than 2; taller-than-wide ones (Sri Lanka) get taller than 2.
 - **Displacement scale** — the heightfield stores real meters. Multiplying by scale must turn meters into Blender units *and* apply the locked 15× exaggeration: `scale = 15 ÷ (extent_w / 2)`. This is why the number is different per country while the mountains' *relative* drama is identical: a small frame means each Blender unit is fewer meters, so each meter of rock is a bigger fraction of a unit. Copying India's value onto Switzerland would exaggerate ~100× — mountains as walls.
 - **Camera size (ortho scale)** — an orthographic camera has no zoom, just a window width in scene units. Blender applies `ortho_scale` to the *larger* side of the render. We set it to the plane's larger dimension × **1.0006**, so the picture is a hair bigger than the plane and the map never touches the frame edge: `ortho = max(2, plane_height) × 1.0006`.
-- **Resolution** — width is fixed at 7680 px for every hero; height follows the raster's shape: `res_y = round(7680 × height_px / width_px)`. (Very tall countries make this explode — Sri Lanka wants 7680×12498 — which the per-country-config item will cap with overrides.)
+- **Resolution** — the raster's *longer* axis gets 7680 px and the other follows its shape: for wide countries `res_x = 7680, res_y = round(7680 × height_px / width_px)`, for tall ones the mirror image. For wide countries this is exactly the old fixed-width rule; for tall ones it caps the poster at 7680 instead of letting it explode (Sri Lanka wanted 7680×12498 under fixed-width, the Maldives 56,000 px). The default lives in `config/countries.toml` (`hero_long_edge = 7680`), per-country overridable, and reaches `render_prep.py` as `--hero-long-edge`.
 
 Worked examples (from the real `frame.json` files):
 
@@ -65,11 +67,11 @@ Worked examples (from the real `frame.json` files):
 | plane (units) | 2 × 2.058 | 2 × 1.2466 | 2 × 3.2546 |
 | displacement scale | 8.0e-6 | 3.33e-5 | 1.00e-4 |
 | ortho scale | 2.06 | 2.0012 | 3.2565 |
-| render (px) | 7680 × 7906 | 7680 × 4787 | 7680 × 12498 |
+| render (px) | 7680 × 7906 | 7680 × 4787 | 4720 × 7680 |
 
 ## The India exception
 
-India's scene was built by hand during Phase 0, and several numbers were typed in rounded (plane 2.058 instead of 2.05884, ortho 2.06 instead of 2.06007, displacement 8.0e-6 instead of 8.0113e-6 — all within 0.15%). The approved v3 hero is baked with those values, so India's `frame.json` is **hand-authored with the historical numbers** and `render_prep.py` never overwrites an existing `frame.json`. That is the pinning mechanism, and the same file is where future per-country overrides will live. Every new country gets the exact formula values.
+India's scene was built by hand during Phase 0, and several numbers were typed in rounded (plane 2.058 instead of 2.05884, ortho 2.06 instead of 2.06007, displacement 8.0e-6 instead of 8.0113e-6 — all within 0.15%). The approved v3 hero is baked with those values (including its fixed-width-era 7680 × 7906 resolution), so India's `frame.json` is **hand-authored with the historical numbers** and `render_prep.py` never overwrites an existing `frame.json`. The authoritative copy is committed at `config/frames/india.json`; `country_config.py --emit-pin` places it into the workdir, so the pin survives a data-disk loss. Every new country gets the exact formula values; frame *overrides* (a different window, not different derived numbers) live in `config/countries.toml` instead.
 
 ## Checking it worked — the coastline oracle
 

@@ -246,10 +246,10 @@ def preflight_gebco(frame) -> str | None:
     w, s, e, n = frame
     if b.left <= w and b.bottom <= s and e <= b.right and n <= b.top:
         return None
-    def g(v):  # geotiff transforms carry float noise: -7.1e-15 for 0
+    def fmt(v):  # geotiff transforms carry float noise: -7.1e-15 for 0
         return f"{round(v, 6) + 0.0:g}"
     return (f"frame outside the held GEBCO window "
-            f"({g(b.left)}..{g(b.right)}E {g(b.bottom)}..{g(b.top)}N) — "
+            f"({fmt(b.left)}..{fmt(b.right)}E {fmt(b.bottom)}..{fmt(b.top)}N) — "
             f"global GEBCO is a separate acquisition (Phase 2)")
 
 
