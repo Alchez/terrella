@@ -40,6 +40,7 @@ import shutil
 import subprocess
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 from country_config import (build_scope, load_config, load_ne_rows,
@@ -92,9 +93,10 @@ def wait_for_mem(floor_gib: float) -> bool:
 
 def log_failure(slug, stage_index, cmd, returncode, kind) -> None:
     FAIL_LOG.parent.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now(timezone.utc).isoformat(timespec="seconds")
     with open(FAIL_LOG, "a") as f:
-        f.write(json.dumps(dict(slug=slug, stage_index=stage_index, cmd=cmd,
-                                returncode=returncode, kind=kind)) + "\n")
+        f.write(json.dumps(dict(ts=ts, slug=slug, stage_index=stage_index,
+                                cmd=cmd, returncode=returncode, kind=kind)) + "\n")
 
 
 def bootstrap() -> None:
@@ -181,7 +183,7 @@ def main() -> int:
           f"{f'{cap_gib:.0f} GiB' if use_cap else 'unavailable'}"
           f"{' [DRY-RUN]' if args.dry_run else ''}", flush=True)
 
-    tally: dict[str, int] = {}
+    outcomes: dict[str, list[str]] = {}
     for slug in slugs:
         r = resolve(slug, scope[slug], cfg)
         if r is None:
@@ -193,15 +195,22 @@ def main() -> int:
                                   args.dry_run, cap_gib, use_cap,
                                   args.mem_floor_gib)
         key = outcome.split(" ")[0].split("@")[0]
-        tally[key] = tally.get(key, 0) + 1
+        outcomes.setdefault(key, []).append(slug)
         print(f"  {slug:28} {outcome}", flush=True)
 
-    print("\nsummary: " + ", ".join(f"{k}={v}" for k, v in sorted(tally.items())),
+    print("\nsummary: " + ", ".join(f"{k}={len(v)}"
+                                    for k, v in sorted(outcomes.items())),
           flush=True)
-    failed = sum(v for k, v in tally.items() if k.startswith("FAIL"))
-    if failed:
-        print(f"{failed} failed — see {FAIL_LOG}", flush=True)
-    return 1 if failed else 0
+    # roster the countries that did NOT produce output, by name, so a re-run is
+    # informed at a glance (the JSONL has the per-run stage/returncode detail).
+    attention = {k: v for k, v in sorted(outcomes.items())
+                 if k.startswith("FAIL") or k == "skip-low-mem"}
+    for k, v in attention.items():
+        print(f"  {k} ({len(v)}): {', '.join(v)}", flush=True)
+    if attention:
+        print(f"re-run the same command to retry these; "
+              f"per-run detail in {FAIL_LOG}", flush=True)
+    return 1 if any(k.startswith("FAIL") for k in attention) else 0
 
 
 if __name__ == "__main__":

@@ -91,8 +91,11 @@ Resolved questions move to the decision log — one home per fact. Each question
   GPU-bound). `--through prep` (default) runs download→snow; `--through render` adds the
   render. Default prep so a bare run can never start the ~10–13 h render sweep; `--dry-run`
   previews (204 → 5 antimeridian, 1 GEBCO/Tuvalu-past-±180°, 196 to run). `--only`/`--limit`/
-  `--force`. Failures → one JSONL line in `blender/renders/batch_failures.jsonl`, country's
-  rest skipped, run continues.
+  `--force`. Failures → one timestamped JSONL line in
+  `blender/renders/batch_failures.jsonl`, country's rest skipped, run continues; the
+  end-of-run summary rosters the failed + low-mem-skipped slugs by name so a re-run is
+  informed at a glance. Fail-once-then-skip is accepted (Rohan): recover by re-running the
+  same command (filesystem resume).
 - **Resilience to abrupt shutdown (Rohan's requirement) is the keystone.** Filesystem-resume
   is only safe if "output exists" means "output complete," so **every stage now finalizes
   atomically** — `fuse_heightfield`, `render_prep`, `snow_mask` write to `.tmp` and
