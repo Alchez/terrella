@@ -26,7 +26,7 @@ Goal: a single Ramspott-style render of **India** that looks right, before build
 - [x] Handle antimeridian-crossing countries (Fiji, Russia, NZ) explicitly. Complete 2026-07-09: a geometry premise-check killed the wrap-math — 4 of 5 (Russia/US/NZ/Fiji) have their land on one side of 180 → non-crossing mainland frame overrides (France mechanism); Kiribati deferred as a special-case (genuinely split). Code = a ±180 clamp in `pad_frame` (also fixes Tuvalu) + a 1-line `resolve()` guard. See decision log.
 - [x] Batch runner: queue all ~195 countries, resumable, logs failures — canonical outputs blender/renders/heroes/&lt;workdir-slug&gt;.png (current look, no version suffix; history lives in renders/archive/ + the decision log). Complete 2026-07-09: `pipeline/batch.py` (reuses `country_config`, subprocess-isolated, sequential, prep/render split default-prep, crash-safe filesystem resume, dynamic OOM defense, JSONL failure log — see decision log). Chose a Python runner over GNU `parallel` (needed the crash-safety + OOM logic; rendering is serial anyway).
 - [ ] Document hero regeneration + pipeline CLI usage (README or docs/), end of Phase 1 — the committed source (scene_build.py + country_config.py + countries.toml + frame.json pins) is the canonical, reproducible form; .blend scenes are regenerated from it, never versioned (decision log 2026-07-09). This is what a fresh clone or a contributor runs to reproduce any hero.
-- [ ] Overnight render run on 4070 Super; QA pass over outputs
+- [ ] Overnight render run on 4070 Super; QA pass over outputs. Command: `python pipeline/batch.py --through render --clean` (bootstrap runs first; ~500 GB of GLO-30 downloads on top of 285 GB used, `--clean` reclaims per-country intermediates; Russia alone is 4919 tiles). Pre-sweep readiness verified 2026-07-09: held countries are config-consistent, **no re-prep/wipe needed** — india & switzerland skip-done (approved heroes), srilanka re-rendered at 1s, bhutan/nepal consistent (nepal gains its Himalayan snow on the sweep render); khambhat is out-of-scope dev cruft the sweep ignores. Recommend one `--only <slug> --through render` proof render before the full sweep (already done for srilanka).
 - [x] Generate responsive variants (2K/4K/8K WebP) per country. Complete 2026-07-09: `pipeline/hero_variants.py` — GDAL WebP driver (no new dep), Lanczos-downscales each 8K hero PNG to long-edge 1920/3840/native WebP (q85) in `blender/renders/variants/<slug>-<longedge>.webp`, idempotent, downscale-only. Heroes are fully opaque (borders composite separately) so alpha is dropped → RGB. Full-res WebP ≈16× smaller than the PNG (srilanka 3.1 MB vs 51 MB), 2K sub-MB, no visible artifacts. Naming is by long-edge size-class (consistent tier across portrait/landscape); the Phase-3 frontend reads actual dims for the `srcset` width descriptor.
 
 ## Phase 2 — Global tile pyramid
@@ -77,11 +77,66 @@ Global for all ~195 countries. Changing any of these after Phase 1 starts means 
 Resolved questions move to the decision log — one home per fact. Each question names the point where it gets decided.
 
 - Tile shading: is pure raster compositing good enough, or render z0–z6 tiles in Blender for true shadows and switch to raster at higher zooms? **Decided at:** Phase 2's side-by-side step — judge one region's raster composite against its Cycles reference; the Blender-tile arm only gets costed if that comparison fails. (Prior-art audit 2026-07-09: the closest neighbour, LuisSevillano/relievo, colors its relief in gdaldem/Pillow *outside* Blender — exactly the raster-composite arm we plan for tiles — reinforcing that the hero=in-Blender / tile=GDAL-post split is the standard division, not an idiosyncrasy.)
-- **Spike — country-shape alpha cutout hero.** From the prior-art audit (relievo's two-stage render→clip): render past the frame, then clip the hero to the country's Natural Earth polygon with transparent alpha, for a "country lifts off the globe" variant alongside the rectangular framed heroes. We already emit a standalone transparent border layer, so the polygon + alpha mask is adjacent work (reuse overlay_borders' geometry). Time-boxed: one country, one polygon, compare against its rectangular hero. **Decided at:** Phase 3 gallery/globe design, once rectangular heroes exist to judge against; not a look change to the heroes themselves, so it does not touch the locked constants.
+- **Hero presentation — geography-conditional, not finalised** (explored 2026-07-09 spike; full findings + reusable machinery in the decision log). The country-shape cutout was tried and generalised: cutout-cream suits continental/landlocked, real generous ocean suits genuinely water-surrounded (island) countries, but no single universal design holds (the trilemma: consistent / coherent / neighbour-free can't all hold at once). Two problems stay open: (a) most countries are *both* coastal and bordered (France, USA, India…) and need a tier-classification rule; (b) every treatment reads **flat at the country margin** (wants its own edge-depth pass). cutout-cream and everyone-island are post-processes of the tight renders (free); only the island real-ocean tier needs bigger-frame renders (cost path C). **Decided at:** Phase 3 gallery/globe design, once rectangular heroes exist to judge against; not a look change to the heroes, so it does not touch the locked constants.
 - Storage location for the tile pyramid on rohome (which mount, backup exclusion). **Decided by:** the start of Phase 2 production runs on rohome, before the planet heightfield and pyramid (tens of GB) start landing on disk.
 - Caspian Sea routing (first frame that contains it): its surface sits at −28 m, so neither the ocean rule nor the land ramp handles it cleanly; check its WBM class and whether GEBCO already carries its measured bathymetry. **Decided at:** Phase 1 config of the first Caspian-bordering frame (Kazakhstan / Azerbaijan / Iran / Russia / Turkmenistan); the probe itself is a cheap fusion-window check and can run any time earlier.
 
 ## Decision log
+
+### 2026-07-09 — Hero presentation explored (spike): no single universal design; geography-conditional; margins read flat
+
+- **Question:** beyond the rectangular framed hero, how should a country be *presented* in
+  the gallery? Ran as post-processes on existing heroes (Sri Lanka = coastal, Switzerland =
+  landlocked) reusing `overlay_borders` geometry — no look change to the renders, no
+  locked-constant touch.
+- **Ruled out (incoherent / artefacts):** (1) country-shape cutout with a faded **sea ring**
+  into a cream page — three unrelated zones (land → teal ring → paper); water doesn't dissolve
+  into cream. (2) hard-edged coastal **rim** of sea — a uniform band that reads as an outline,
+  "juts." (3) **synthesising** a generous ocean from the tight render — real bathymetry ends at
+  the render frame, so beyond it is invented → visible rectangle/glow seams (the frame boundary
+  is literally visible).
+- **What works:** (a) **cutout-cream** — country land silhouette + **drop shadow** on a cream
+  vignette; the shadow is essential (grounds it; without it the silhouette floats). Coherent,
+  honest, neighbour-free; works for island *and* landlocked. (b) **real generous ocean** —
+  re-render at a bigger frame so real GEBCO bathymetry fills the sea edge-to-edge with an ocean
+  vignette; coherent and on-brand. Demoed: Sri Lanka at 35 % pad, 3″ fusion (adequate — the
+  97 m/px render is coarser than the 3″ source), rendered 2:24; generous frames pull in
+  **neighbours** (India across the Palk Strait).
+- **The trilemma (why no universal rule):** *consistent across all countries* / *coherent (no
+  land–sea–cream salad)* / *only the target country visible* cannot all hold at once.
+  cutout-cream = consistent + coherent + neighbour-free + real-data but **no sea**; real-context
+  = consistent + coherent but **neighbours dominate** (a landlocked country is lost in neighbour
+  terrain); everyone-an-island (mask all neighbour land → sea) = consistent + coherent +
+  neighbour-free but the sea is synthetic and **fictional for landlocked** (Switzerland floating
+  in an ocean); real generous ocean = gorgeous + coherent + real but only honest for **true
+  islands** (landlocked have no sea) → cannot be universal.
+- **Conclusion (Rohan, deliberately not finalised):** no single fixed design — presentation is
+  **geography-conditional**: cutout-cream suits continental/landlocked; real-ocean suits
+  genuinely water-surrounded (island) countries.
+- **Central open gap:** the two treatments fit the *extremes* (pure island, pure landlocked);
+  **most countries are BOTH coastal and bordered** (France, USA, India, Brazil) and the split
+  doesn't classify them. Needs a tier rule (coastline-fraction of perimeter? land-neighbour
+  count? % sea in frame?).
+- **Second open problem (Rohan):** **every** treatment reads **flat at the country margin** —
+  the boundary transition lacks depth. Unsolved; wants its own pass (edge relief / lighting /
+  gradient?).
+- **Cost is not a blocker for two of three.** cutout-cream and everyone-island are **pure
+  post-processes of the existing tight renders** — no re-render, no frame change → the current
+  tight-frame prep sweep is correct for them. Only the island real-ocean tier needs bigger
+  frames; of the three cost paths (A synthetic = fake; B full generous re-renders ≈ 2–3× GPU +
+  storage; C low-res sea pass + high-res land composite ≈ +10–20 %), **C** is the sweet spot if
+  that tier is pursued.
+- **Reusable machinery (for the Phase-3 revisit):** AEA→render-pixel mapping via
+  `overlay_borders.render_mapping` (reads `frame.json` `ortho_scale`), validated by the coast
+  oracle (< 2500 m); ocean-mask convention **0 = land, 1 = sea**; hero PNGs are opaque RGBA
+  (`film_transparent` off, opaque sand world) so alpha only means something after a cut;
+  neighbour removal is an NE-polygon mask (keep real sea, drop neighbour land); sea shares the
+  land's 15× vertical exaggeration → dramatic submarine relief (a knob if calmer sea is wanted —
+  Rohan: exaggeration is fine).
+- **Housekeeping:** throwaway spike scripts (`pipeline/experiments/hero_*_spike.py`) and demo
+  outputs removed; the reusable core stays in `overlay_borders.py`; `CUTOUT.md` graduated into
+  this entry. **Decided at:** Phase 3 gallery/globe design, once the rectangular heroes exist to
+  judge against — does not touch the locked constants.
 
 ### 2026-07-09 — Antimeridian: no wrap-math; 4 mainland overrides + Kiribati deferred
 
