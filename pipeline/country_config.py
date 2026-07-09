@@ -166,9 +166,11 @@ def resolve(slug: str, row: dict, cfg: dict) -> dict | None:
     if tbl.get("status") == "antimeridian":
         return None
     w, s, e, n = row["bbox"]
-    if w <= -179.99 and e >= 179.99:
+    # A frame override is authoritative, so a raw bbox that spans 180 (the
+    # country has parts on both sides) is fine — the override frame does not.
+    if "frame" not in tbl and w <= -179.99 and e >= 179.99:
         sys.exit(f"{slug}: bbox spans the antimeridian but countries.toml "
-                 f"has no status marker — mark it or fix the geometry")
+                 f"has no status marker — mark it or add a frame override")
     frame = tuple(tbl["frame"]) if "frame" in tbl \
         else pad_frame(row["bbox"], d["pad_pct"])
     left, bottom, right, top = transform_bounds(
@@ -289,9 +291,9 @@ def print_country(sf, scope, cfg, slug: str, emit_pin: bool) -> int:
     row = scope[slug]
     r = resolve(slug, row, cfg)
     if r is None:
-        print(f"{row['admin']} is marked status=antimeridian — frames and "
-              f"fusion windows need split-and-shift handling (PLAN.md item); "
-              f"skipping resolution")
+        print(f"{row['admin']} is marked status=antimeridian — a deferred "
+              f"special-case with no representative non-crossing frame "
+              f"(see countries.toml notes); skipping resolution")
         return 0
 
     src = "override (countries.toml)" if r["frame_overridden"] \

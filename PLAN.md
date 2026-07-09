@@ -23,7 +23,7 @@ Goal: a single Ramspott-style render of **India** that looks right, before build
 - [x] Per-country displacement Scale: the locked 15× is *physical*, and the plane is always 2 units wide, so Scale = 15 ÷ (frame width ÷ 2 in m) — the 8.0e-6 constant is India-frame-specific; computed per frame by render_prep.scene_numbers into frame.json since 2026-07-08 (Nepal 3.33e-5, Sri Lanka 1.00e-4 — docs/framing-math.md)
 - [x] QA small rugged countries (Switzerland-class) for "bumpy" over-detail (2026-07-08 three-arm A/B: no bumpiness when warp width ≈ render width — 1″ fusion adopted as the small-country standard, resolution bumping rejected for heroes; see decision log)
 - [x] Snow/ice as a data mask + shadow legibility (2026-07-08: WorldCover class 70 via pipeline/snow_mask.py after render_prep, snow E8F1F6, fill sun + 12° sun, land ramp top de-whitened — full A/B evidence and dataset evaluation in decision log; Switzerland v2 + India v4 heroes re-rendered as confirmation)
-- [ ] Handle antimeridian-crossing countries (Fiji, Russia, NZ) explicitly
+- [x] Handle antimeridian-crossing countries (Fiji, Russia, NZ) explicitly. Complete 2026-07-09: a geometry premise-check killed the wrap-math — 4 of 5 (Russia/US/NZ/Fiji) have their land on one side of 180 → non-crossing mainland frame overrides (France mechanism); Kiribati deferred as a special-case (genuinely split). Code = a ±180 clamp in `pad_frame` (also fixes Tuvalu) + a 1-line `resolve()` guard. See decision log.
 - [x] Batch runner: queue all ~195 countries, resumable, logs failures — canonical outputs blender/renders/heroes/&lt;workdir-slug&gt;.png (current look, no version suffix; history lives in renders/archive/ + the decision log). Complete 2026-07-09: `pipeline/batch.py` (reuses `country_config`, subprocess-isolated, sequential, prep/render split default-prep, crash-safe filesystem resume, dynamic OOM defense, JSONL failure log — see decision log). Chose a Python runner over GNU `parallel` (needed the crash-safety + OOM logic; rendering is serial anyway).
 - [ ] Document hero regeneration + pipeline CLI usage (README or docs/), end of Phase 1 — the committed source (scene_build.py + country_config.py + countries.toml + frame.json pins) is the canonical, reproducible form; .blend scenes are regenerated from it, never versioned (decision log 2026-07-09). This is what a fresh clone or a contributor runs to reproduce any hero.
 - [ ] Overnight render run on 4070 Super; QA pass over outputs
@@ -82,6 +82,29 @@ Resolved questions move to the decision log — one home per fact. Each question
 - Caspian Sea routing (first frame that contains it): its surface sits at −28 m, so neither the ocean rule nor the land ramp handles it cleanly; check its WBM class and whether GEBCO already carries its measured bathymetry. **Decided at:** Phase 1 config of the first Caspian-bordering frame (Kazakhstan / Azerbaijan / Iran / Russia / Turkmenistan); the probe itself is a cheap fusion-window check and can run any time earlier.
 
 ## Decision log
+
+### 2026-07-09 — Antimeridian: no wrap-math; 4 mainland overrides + Kiribati deferred
+
+- **Premise-check beat the scary version.** True antimeridian wrap-math (W>E frames, shifted
+  source VRTs across ±180, touching 4 pipeline files) looked inevitable. A cos-lat-area part
+  audit of the 5 marked countries showed the land concentrates on ONE side of 180 for four:
+  Russia 99.3% at 19.6-180E, US 100% western (CONUS=82.9%), NZ 99.7% at 166-179E, Fiji 95.8%
+  at 174.6-180E. So each reduces to a **non-crossing mainland/main-island frame override** —
+  the existing France/Chile mechanism, zero wrap-math. Dropped trans-180 remainders (Chukotka
+  sliver, Alaska/Hawaii, Chathams, Lau group) recorded in each `notes`; consistent with the
+  mainland-only far-flung policy.
+- **Kiribati deferred** (decided with Rohan): genuinely split 32% Gilberts (east, capital
+  Tarawa) / 68% Phoenix+Line (west, largest atoll Kiritimati), no dominant side. No
+  non-crossing frame represents it and a true 40deg crosser is mostly empty ocean — a
+  special-case like Antarctica, kept `status="antimeridian"` (in-scope but skipped), no hero.
+- **Code: two tiny changes.** `frame_country.pad_frame` now clamps to [-180,180]x[-90,90]
+  (a no-op off the antimeridian; **also fixes Tuvalu**, whose 179.9E island padded to 180.1
+  and failed the GEBCO window). `country_config.resolve` skips the "raw bbox spans 180 -> need
+  a status marker" abort when a `frame` override is present (the override is authoritative).
+- **Verified:** the 4 resolve to frames with E<=180, GEBCO covers, GLO-30 fetches on demand
+  (Russia 4919 tiles — the sweep's biggest, `--clean` reclaims it); `--all` now 203 resolved /
+  1 antimeridian-skipped (was 199/5); **no** resolved frame escapes [-180,180]x[-90,90];
+  nepal/switzerland/france/india/chile frames byte-identical (clamp is inert elsewhere).
 
 ### 2026-07-09 — Batch runner: crash-safe orchestration + dynamic OOM defense
 

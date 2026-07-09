@@ -76,26 +76,31 @@ notes = "Mainland only; whole bbox reaches the Azores and Madeira (25 deg of lon
 frame = [-77.7, -57.9, -64.5, -15.5]
 notes = "Continental Chile incl. Tierra del Fuego; drops Easter Island, Salas y Gomez, Desventuradas, Juan Fernandez (whole bbox reaches 109W)."
 
-# ---- antimeridian crossers: NE bbox degenerates to ~(-180..180); frames and
-# ---- fusion windows need split-and-shift handling (separate PLAN item).
+# ---- antimeridian countries. The whole-geometry NE bbox spans ~(-180..180),
+# ---- but a cos-lat-area part audit (2026-07-09) shows the land concentrates on
+# ---- ONE side of 180 for four of five, so a non-crossing mainland/main-island
+# ---- frame override captures it (the far-flung mechanism above) with no
+# ---- wrap-math. Only Kiribati is genuinely split, and is deferred.
 
 [countries.russia]
-status = "antimeridian"
+frame = [18.5, 40.0, 180.0, 83.0]
+notes = "Mainland 19.6-180E holds 99.3% of the land; the Chukotka/Wrangel/Diomede sliver past 180 (0.7%) is dropped. Frame hand-tightened (a 5% pad on a 168deg span adds ~8deg of empty arctic); an extreme coarse overview, but non-crossing."
 
 [countries.unitedstatesofamerica]
-status = "antimeridian"
-notes = "Aleutians cross 180; also far-flung (Hawaii, minor outlying islands are separate NE rows only for the uninhabited ones)."
+frame = [-127.6, 22.2, -64.0, 52.3]
+notes = "CONUS (82.9% of land); Alaska, Hawaii, and the Aleutian tail past 180 are dropped (same mainland-only policy as France). Could become separate territory heroes later."
 
 [countries.newzealand]
-status = "antimeridian"
-notes = "Chatham Islands sit east of 180."
+frame = [164.9, -53.6, 179.8, -33.2]
+notes = "North + South Islands (99.7% of land, 166-179E, does not cross 180); the Chatham Islands (0.3%, past 180) are dropped."
 
 [countries.fiji]
-status = "antimeridian"
+frame = [174.1, -22.2, 180.0, -12.0]
+notes = "Viti Levu + Vanua Levu and the western group (95.8% of land, 174.6-180E); the Lau group past 180 (4.2%) is dropped."
 
 [countries.kiribati]
 status = "antimeridian"
-notes = "Spans ~40 deg across 180 (Gilbert/Phoenix/Line groups); may want per-group heroes eventually."
+notes = "DEFERRED special-case (2026-07-09): genuinely split across 180 - Gilberts 32% at 169-177E (incl. capital Tarawa) vs Phoenix+Line 68% at 175-151W (incl. the largest atoll Kiritimati), no dominant side. No non-crossing frame represents it and a true 40deg crosser would be mostly empty ocean. Like Antarctica, no hero for now."
 
 # ---- data-coverage notes
 
