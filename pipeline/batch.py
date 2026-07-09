@@ -108,11 +108,27 @@ def bootstrap() -> None:
             sys.exit(f"bootstrap failed: {cmd} — cannot proceed without it")
 
 
-def run_country(slug, r, through, force, dry, cap_gib, use_cap, floor) -> str:
+def prune_intermediates(slug: str) -> None:
+    """Reclaim a country's regenerable intermediates once its hero exists — the
+    fused rasters, warp dir, and scene file. The hero PNG and the shared raw
+    GLO-30/GEBCO tiles are kept. Used by --clean to keep a full sweep within
+    disk (a near-global run accretes ~500 GB of tiles + fusions otherwise)."""
+    work = ROOT / f"data/work/{slug}"
+    if work.exists():
+        shutil.rmtree(work)
+    (ROOT / f"blender/{slug}_hero.blend").unlink(missing_ok=True)
+    print(f"    cleaned intermediates for {slug}", flush=True)
+
+
+def run_country(slug, r, through, force, dry, cap_gib, use_cap, floor,
+                clean) -> str:
     """Run one country's stages; return a short outcome string."""
+    do_clean = clean and through == "render" and not dry
     target = (ROOT / f"blender/renders/heroes/{slug}.png" if through == "render"
               else ROOT / f"data/work/{slug}/render/snowmask_aea.png")
     if target.exists() and not force:
+        if do_clean:
+            prune_intermediates(slug)
         return "skip-done"
 
     n = 6 if through == "render" else PREP_STAGES
@@ -145,6 +161,8 @@ def run_country(slug, r, through, force, dry, cap_gib, use_cap, floor) -> str:
             return f"FAIL@{idx} ({kind})"
         if idx == RENDER_STAGE and tmp and final:
             os.replace(ROOT / tmp, ROOT / final)
+    if do_clean:
+        prune_intermediates(slug)
     return "ok"
 
 
@@ -158,6 +176,10 @@ def main() -> int:
     ap.add_argument("--dry-run", action="store_true", help="print the plan only")
     ap.add_argument("--mem-floor-gib", type=float, default=14.0,
                     help="min MemAvailable before starting a render")
+    ap.add_argument("--clean", action="store_true",
+                    help="render mode: delete each country's intermediates "
+                         "(data/work/<slug> + .blend) once its hero lands, so a "
+                         "full sweep stays within disk; keeps hero + raw tiles")
     args = ap.parse_args()
 
     if not args.dry_run:
@@ -193,7 +215,7 @@ def main() -> int:
         else:
             outcome = run_country(slug, r, args.through, args.force,
                                   args.dry_run, cap_gib, use_cap,
-                                  args.mem_floor_gib)
+                                  args.mem_floor_gib, args.clean)
         key = outcome.split(" ")[0].split("@")[0]
         outcomes.setdefault(key, []).append(slug)
         print(f"  {slug:28} {outcome}", flush=True)

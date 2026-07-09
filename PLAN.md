@@ -27,7 +27,7 @@ Goal: a single Ramspott-style render of **India** that looks right, before build
 - [x] Batch runner: queue all ~195 countries, resumable, logs failures — canonical outputs blender/renders/heroes/&lt;workdir-slug&gt;.png (current look, no version suffix; history lives in renders/archive/ + the decision log). Complete 2026-07-09: `pipeline/batch.py` (reuses `country_config`, subprocess-isolated, sequential, prep/render split default-prep, crash-safe filesystem resume, dynamic OOM defense, JSONL failure log — see decision log). Chose a Python runner over GNU `parallel` (needed the crash-safety + OOM logic; rendering is serial anyway).
 - [ ] Document hero regeneration + pipeline CLI usage (README or docs/), end of Phase 1 — the committed source (scene_build.py + country_config.py + countries.toml + frame.json pins) is the canonical, reproducible form; .blend scenes are regenerated from it, never versioned (decision log 2026-07-09). This is what a fresh clone or a contributor runs to reproduce any hero.
 - [ ] Overnight render run on 4070 Super; QA pass over outputs
-- [ ] Generate responsive variants (2K/4K/8K WebP) per country
+- [x] Generate responsive variants (2K/4K/8K WebP) per country. Complete 2026-07-09: `pipeline/hero_variants.py` — GDAL WebP driver (no new dep), Lanczos-downscales each 8K hero PNG to long-edge 1920/3840/native WebP (q85) in `blender/renders/variants/<slug>-<longedge>.webp`, idempotent, downscale-only. Heroes are fully opaque (borders composite separately) so alpha is dropped → RGB. Full-res WebP ≈16× smaller than the PNG (srilanka 3.1 MB vs 51 MB), 2K sub-MB, no visible artifacts. Naming is by long-edge size-class (consistent tier across portrait/landscape); the Phase-3 frontend reads actual dims for the `srcset` width descriptor.
 
 ## Phase 2 — Global tile pyramid
 
@@ -91,7 +91,10 @@ Resolved questions move to the decision log — one home per fact. Each question
   GPU-bound). `--through prep` (default) runs download→snow; `--through render` adds the
   render. Default prep so a bare run can never start the ~10–13 h render sweep; `--dry-run`
   previews (204 → 5 antimeridian, 1 GEBCO/Tuvalu-past-±180°, 196 to run). `--only`/`--limit`/
-  `--force`. Failures → one timestamped JSONL line in
+  `--force`. `--clean` (render mode) prunes each country's `data/work/<slug>` + `.blend`
+  once its hero lands — the disk-safety valve for a full sweep, which otherwise accretes
+  ~500 GB of GLO-30 tiles + fusions on top of the 285 GB already used (hero PNGs and the
+  shared raw tiles are kept). Failures → one timestamped JSONL line in
   `blender/renders/batch_failures.jsonl`, country's rest skipped, run continues; the
   end-of-run summary rosters the failed + low-mem-skipped slugs by name so a re-run is
   informed at a glance. Fail-once-then-skip is accepted (Rohan): recover by re-running the
