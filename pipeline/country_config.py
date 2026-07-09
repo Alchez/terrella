@@ -238,9 +238,9 @@ def preflight_glo30(frame):
 
 
 def preflight_gebco(frame) -> str | None:
-    """None if the held GEBCO GeoTIFF covers the frame, else the failure."""
+    """None if the GEBCO mosaic covers the frame, else the failure."""
     if not GEBCO.exists():
-        return f"{GEBCO} not found"
+        return f"{GEBCO} not found — run pipeline/download_gebco.py"
     with rasterio.open(GEBCO) as g:
         b = g.bounds
     w, s, e, n = frame
@@ -248,9 +248,9 @@ def preflight_gebco(frame) -> str | None:
         return None
     def fmt(v):  # geotiff transforms carry float noise: -7.1e-15 for 0
         return f"{round(v, 6) + 0.0:g}"
-    return (f"frame outside the held GEBCO window "
+    return (f"frame outside the GEBCO mosaic "
             f"({fmt(b.left)}..{fmt(b.right)}E {fmt(b.bottom)}..{fmt(b.top)}N) — "
-            f"global GEBCO is a separate acquisition (Phase 2)")
+            f"a frame reaching past ±180° needs the antimeridian item")
 
 
 def stage_commands(r: dict) -> list[str]:
@@ -329,10 +329,15 @@ def print_country(sf, scope, cfg, slug: str, emit_pin: bool) -> int:
         print()
         do_emit_pin(slug, r)
 
-    if gebco_err:
-        print("\nno stage commands: fix the GEBCO coverage first")
-        return 1
     print("\nstages (repo root, venv active):")
+    print("  0. (once per machine, skips if data present) "
+          "bash pipeline/download_naturalearth.sh && "
+          "python pipeline/download_gebco.py")
+    if gebco_err:
+        print("     ^ complete the bootstrap above; then this country resolves"
+              if "download_gebco" in gebco_err else
+              f"     (this frame still won't fuse: {gebco_err})")
+        return 1
     for i, cmd in enumerate(stage_commands(r), 1):
         print(f"  {i}. {cmd}")
     return 0

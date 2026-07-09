@@ -40,7 +40,9 @@ from rasterio.enums import Resampling
 DATA = Path.home() / "projects/maps/data"
 DEM_VRT = DATA / "work/dem_mosaic.vrt"
 WBM_VRT = DATA / "work/wbm_mosaic.vrt"
-GEBCO = DATA / "raw/gebco/gebco_2026_n40.0_s0.0_w60.0_e100.0_geotiff.tif"
+GEBCO = DATA / "raw/gebco/gebco_2026_global.vrt"  # global ice-surface mosaic
+# over the 8 GeoTIFF tiles of GEBCO_2026 (build with gdalbuildvrt); overridable
+# per run with --gebco (e.g. the old regional tile for a byte-for-byte regression)
 
 DEM_NODATA = -9999  # VRT fill where no GLO-30 tile exists
 WBM_NODATA = 255
@@ -113,6 +115,8 @@ def main():
                     metavar=("W", "S", "E", "N"))
     ap.add_argument("--res-arcsec", type=float, required=True)
     ap.add_argument("--outdir", type=Path, required=True)
+    ap.add_argument("--gebco", type=Path, default=GEBCO,
+                    help="bathymetry source (default: the global GEBCO_2026 mosaic)")
     ap.add_argument("--watermask-only", action="store_true",
                     help="backfill the water mask from an existing fusion")
     args = ap.parse_args()
@@ -154,7 +158,7 @@ def main():
 
     with rasterio.open(DEM_VRT) as dem_src, \
          rasterio.open(WBM_VRT) as wbm_src, \
-         rasterio.open(GEBCO) as geb_src, \
+         rasterio.open(args.gebco) as geb_src, \
          WarpedVRT(dem_src, resampling=Resampling.average, **vrt_kw) as dem, \
          WarpedVRT(wbm_src, resampling=Resampling.nearest, **vrt_kw) as wbm, \
          WarpedVRT(geb_src, resampling=Resampling.cubic_spline, **vrt_kw) as geb, \

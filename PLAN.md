@@ -83,6 +83,48 @@ Resolved questions move to the decision log — one home per fact. Each question
 
 ## Decision log
 
+### 2026-07-09 — Global GEBCO acquired: batch renders unblocked 6 → 198 countries
+
+- **Why now:** a data audit via `country_config`'s own preflights found only **6 of 204**
+  countries were renderable — all inside the single regional GEBCO tile
+  (60–100°E/0–40°N); the other 193 failed GEBCO coverage. GLO-30 was never the blocker
+  (on-demand per country). Global bathymetry was the true critical path for the whole rest
+  of Phase 1. Chosen over antimeridian handling (those 5 are blocked on this same data and
+  can't be render-validated without it).
+- **Acquired:** GEBCO_2026 **ice-surface** global grid, 8× 90° GeoTIFF tiles (15″, Int16,
+  nodata −32767), ~4 GB zip direct from CEDA
+  (`dap.ceda.ac.uk/bodc/gebco/global/gebco_2026/ice_surface_elevation/geotiff/`) →
+  `data/raw/gebco/gebco_2026_global.vrt` via `gdalbuildvrt`. Ice-surface not under-ice
+  (relief shows the visible landscape; Greenland is a hero). TID grid deferred
+  (diagnostic-only, like GLO-30's FLM). Regional tile kept as the `--gebco` regression
+  reference. **Refined the plan** (which said "single translated GeoTIFF"): a VRT over the
+  8 tiles matches the `dem_mosaic.vrt` convention and avoids a 7.5 GB copy.
+- **Wiring:** `fuse_heightfield.py` `GEBCO` → the global VRT, plus a `--gebco PATH`
+  override (default = the constant, so `country_config`'s import still resolves);
+  `country_config.preflight_gebco` message now points a coverage miss at the antimeridian
+  item (the only way to miss a global grid). Unblock proven: `--country japan` passes GEBCO;
+  scope-wide GEBCO coverage **6 → 198/204** (remainder = antimeridian frames past ±180°).
+- **Regression (Sri Lanka, all-coast, re-fused from global vs regional):** land and both
+  masks **bit-identical**; ocean differs by **±1 m at ~0.02 % of pixels**. Chased to ground
+  with independent oracles: the two GEBCO sources are **byte-identical where they overlap**
+  (0 diffs at native res), and wrapping the regional tile in a VRT is bit-identical to
+  reading it directly — so it is not a data difference and not the VRT path, but
+  `Resampling.cubic_spline`'s source-structure-dependent numerics (diff count itself
+  shifts 1804/1465/1299 with source tiling/extent). **Sub-visible and irrelevant:** ±1 m is
+  below GEBCO's own vertical accuracy (tens of m) and invisible under a sea ramp spanning
+  0→−3000 m in 4 stops. Consequence noted: the 6 held fusions came from the regional tile,
+  so they differ from global by this same sub-visible ocean noise — optional one-source
+  re-fusion later; India's render is approved/pinned, so no re-render is warranted.
+- **Reproducibility (follow-up, same day):** GEBCO was the only dataset acquired by hand
+  (an ad-hoc curl) — a fresh clone / rohome could not fuse. Closed by
+  `pipeline/download_gebco.py` (mirrors download_glo30: reuses its `download_one`,
+  resumable, versioned-path edition pin, 404 = naming-drift abort; fetches the 8 tiles and
+  rebuilds the VRT). `country_config --country` now prints it + `download_naturalearth.sh`
+  as **stage 0** (once per machine), so the printed recipe is a complete fresh-clone
+  bootstrap. Folder-grouping the download scripts was considered and **deferred**: the
+  cross-module flat imports (`country_config` ← download_glo30/frame_country/…) would force
+  the package layout CLAUDE.md defers until the batch runner reveals the seams.
+
 ### 2026-07-09 — Hero .blend files are build artifacts, not versioned; source is canonical; prior-art audit logged
 
 - **Decision:** stop git-versioning generated hero `.blend` scenes (`blender/*.blend` gitignored; `git rm --cached` the two tracked ones). The **one exception** kept in git is `india_hero_handbuilt_phase0.blend` — the hand-built Phase 0 scene, which no script reproduces (archival provenance of the origin recipe).
