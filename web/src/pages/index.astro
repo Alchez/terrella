@@ -27,7 +27,7 @@ const SIZES = "(max-width: 640px) 92vw, (max-width: 1024px) 46vw, 30vw";
 ---
 
 <Base title="Relief Globe — Gallery" borders={true}>
-  <Masthead eyebrow="Atlas" heading="Relief Globe" maxWidth="1400px">
+  <Masthead eyebrow="Atlas" heading="Relief Globe" maxWidth="min(2200px, 94vw)">
     <a slot="actions" class="about-link" href="/about/">About</a>
     <p class="tagline">
       Ray-traced relief maps of every country.
@@ -101,6 +101,7 @@ const SIZES = "(max-width: 640px) 92vw, (max-width: 1024px) 46vw, 30vw";
   }
   .search {
     width: 100%;
+    max-width: 720px;
     margin-top: clamp(1.4rem, 3vw, 2rem);
     padding: 0.7rem 0.9rem;
     font: inherit;
@@ -124,10 +125,12 @@ const SIZES = "(max-width: 640px) 92vw, (max-width: 1024px) 46vw, 30vw";
   }
 
   .gallery {
-    max-width: 1400px;
+    max-width: min(2200px, 94vw);
     margin: 0 auto;
     padding: clamp(1.4rem, 3vw, 2rem) clamp(1.1rem, 4vw, 2.5rem) 4rem;
-    columns: 3 300px; /* masonry: flows varied hero aspects without cropping */
+    /* masonry: column *width* drives the count, so more relief cards fill wider
+       screens (≈6 columns at 2K, 1 on mobile) without cropping varied aspects. */
+    columns: 320px;
     column-gap: clamp(0.8rem, 1.5vw, 1.4rem);
   }
   .card {

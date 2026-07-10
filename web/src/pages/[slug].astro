@@ -29,7 +29,7 @@ const SIZES = "(max-width: 1240px) 94vw, 1200px";
   description={`Ray-traced relief map of ${c.name}.`}
   borders={c.hasBorder}
 >
-  <Masthead heading={c.name} eyebrow={c.continent} back="/" maxWidth="1240px" />
+  <Masthead heading={c.name} eyebrow={c.continent} back="/" maxWidth="min(1500px, 92vw)" />
 
   <main class="stage">
     {
@@ -70,7 +70,7 @@ const SIZES = "(max-width: 1240px) 94vw, 1200px";
 
 <style>
   .stage {
-    max-width: 1240px;
+    max-width: min(1500px, 92vw);
     margin: 0 auto;
     padding: clamp(1rem, 2vw, 1.4rem) clamp(1.1rem, 4vw, 2.5rem) 3rem;
   }
