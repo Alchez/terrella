@@ -1,0 +1,82 @@
+/* Global design tokens + resets. Imported once by Base.astro. Kept as a
+   standalone stylesheet (not a component <style is:global>) so Vite hot-reloads
+   it reliably in dev — a shared-layout is:global block can miss HMR updates. */
+
+:root {
+  --bg: #e9e5da;
+  --bg-2: #f3f0e8;
+  --text: #2c2822;
+  --muted: #6b6458;
+  --line: #d6d0c2;
+  --accent: #3a6e7d; /* deep-sea teal, from the hero ramp */
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.06), 0 6px 18px rgba(0, 0, 0, 0.08);
+  --serif: Georgia, "Times New Roman", serif;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1b1a16;
+    --bg-2: #24221b;
+    --text: #e7e2d5;
+    --muted: #9a9384;
+    --line: #35312a;
+    --accent: #7cb8b8; /* shallow teal in the dark */
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 22px rgba(0, 0, 0, 0.45);
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+html {
+  -webkit-text-size-adjust: 100%;
+}
+body {
+  margin: 0;
+  font-family: var(--sans);
+  color: var(--text);
+  background: var(--bg);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+img {
+  display: block;
+  max-width: 100%;
+}
+a {
+  color: var(--accent);
+}
+
+/* Floating, always-reachable border toggle (tall heroes scroll past a header
+   control). Shown only when the page passes borders={true}. */
+.borders-fab {
+  position: fixed;
+  bottom: 1.2rem;
+  right: 1.2rem;
+  z-index: 20;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.55rem 0.95rem;
+  background: color-mix(in srgb, var(--bg-2) 92%, transparent);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  box-shadow: var(--shadow);
+  font-size: 0.9rem;
+  color: var(--text);
+  cursor: pointer;
+  user-select: none;
+}
+.borders-fab input {
+  accent-color: var(--accent);
+  width: 1.05rem;
+  height: 1.05rem;
+  margin: 0;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .borders-fab {
+    transition: box-shadow 0.2s ease;
+  }
+}
