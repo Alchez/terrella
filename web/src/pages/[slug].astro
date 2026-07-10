@@ -1,0 +1,183 @@
+---
+import Base from "../layouts/Base.astro";
+import data from "../data/countries.json";
+
+// One statically-built page per country.
+export function getStaticPaths() {
+  return data.countries.map((country) => ({
+    params: { slug: country.slug },
+    props: { country },
+  }));
+}
+
+type Country = (typeof data.countries)[number];
+const { country: c } = Astro.props as { country: Country };
+
+const HERO_BASE = import.meta.env.PUBLIC_HERO_BASE ?? "/heroes/";
+const heroSrcset = c.sizes.map((s) => `${HERO_BASE}${c.slug}-${s}.webp ${s}w`).join(", ");
+const borderSrcset = c.borderSizes
+  .map((s) => `${HERO_BASE}${c.slug}-border-${s}.png ${s}w`)
+  .join(", ");
+// Detail view is a single large stage, capped ~1200px; DPR-2 phones still pull
+// a sharp variant without fetching the full native frame.
+const SIZES = "(max-width: 1240px) 94vw, 1200px";
+---
+
+<Base
+  title={`${c.name} — Relief Globe`}
+  description={`Ray-traced relief map of ${c.name}.`}
+>
+  <header class="detail-head">
+    <a class="back" href="/">← All countries</a>
+    <div class="title-row">
+      <h1>{c.name}</h1>
+      {
+        c.hasBorder && (
+          <label class="toggle">
+            <input type="checkbox" id="border-toggle" />
+            <span>Borders</span>
+          </label>
+        )
+      }
+    </div>
+  </header>
+
+  <main class="stage">
+    {
+      c.rendered ? (
+        <figure style={`aspect-ratio:${c.aspect}`}>
+          <img
+            src={`${HERO_BASE}${c.slug}-${c.sizes[0]}.webp`}
+            srcset={heroSrcset}
+            sizes={SIZES}
+            alt={`Ray-traced relief map of ${c.name}`}
+            decoding="async"
+            fetchpriority="high"
+          />
+          {c.hasBorder && (
+            <img
+              class="border-layer"
+              src={`${HERO_BASE}${c.slug}-border-${c.borderSizes[0]}.png`}
+              srcset={borderSrcset}
+              sizes={SIZES}
+              alt=""
+              aria-hidden="true"
+            />
+          )}
+        </figure>
+      ) : (
+        <div class="placeholder" style={`aspect-ratio:${c.aspect}`}>
+          <span>{c.name}</span>
+          <small>This hero is still rendering — check back soon.</small>
+        </div>
+      )
+    }
+    <p class="meta">
+      Ray-traced relief · Copernicus GLO-30 + GEBCO bathymetry
+      {c.hasBorder && <span> · Natural Earth boundaries</span>}
+    </p>
+  </main>
+</Base>
+
+<style>
+  .detail-head {
+    max-width: 1240px;
+    margin: 0 auto;
+    padding: clamp(1.2rem, 3vw, 2rem) clamp(1rem, 3vw, 2rem) 0.5rem;
+  }
+  .back {
+    display: inline-block;
+    color: var(--muted);
+    text-decoration: none;
+    font-size: 0.9rem;
+    margin-bottom: 0.8rem;
+  }
+  .back:hover {
+    color: var(--accent);
+  }
+  .title-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+  h1 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: clamp(1.6rem, 5vw, 2.6rem);
+    letter-spacing: -0.01em;
+    margin: 0;
+  }
+  .toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    font-size: 0.9rem;
+    color: var(--muted);
+    cursor: pointer;
+    user-select: none;
+  }
+  .toggle input {
+    accent-color: var(--accent);
+    width: 1.05rem;
+    height: 1.05rem;
+  }
+
+  .stage {
+    max-width: 1240px;
+    margin: 0 auto;
+    padding: 0.5rem clamp(1rem, 3vw, 2rem) 3rem;
+  }
+  figure {
+    position: relative;
+    margin: 0;
+    border-radius: 12px;
+    overflow: hidden;
+    background: var(--bg-2);
+    box-shadow: var(--shadow);
+  }
+  figure img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  .border-layer {
+    position: absolute;
+    inset: 0;
+    display: none;
+  }
+  :global(body.borders-on) .border-layer {
+    display: block;
+  }
+  .placeholder {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    text-align: center;
+    padding: 2rem;
+    border: 1px dashed var(--line);
+    border-radius: 12px;
+    background: var(--bg-2);
+    color: var(--muted);
+  }
+  .placeholder span {
+    font-family: var(--serif);
+    font-size: 1.3rem;
+    color: var(--text);
+  }
+  .meta {
+    color: var(--muted);
+    font-size: 0.85rem;
+    margin: 0.9rem 0 0;
+  }
+</style>
+
+<script>
+  const border = document.getElementById("border-toggle") as HTMLInputElement | null;
+  border?.addEventListener("change", () => {
+    document.body.classList.toggle("borders-on", border.checked);
+  });
+</script>

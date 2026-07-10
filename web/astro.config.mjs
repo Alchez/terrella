@@ -24,7 +24,10 @@ function heroDevServer() {
         if (!file.startsWith(path.resolve(HERO_STORE)) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) {
           return next();
         }
-        res.setHeader('Content-Type', file.endsWith('.webp') ? 'image/webp' : 'application/octet-stream');
+        const type = file.endsWith('.webp') ? 'image/webp'
+          : file.endsWith('.png') ? 'image/png'
+          : 'application/octet-stream';
+        res.setHeader('Content-Type', type);
         res.setHeader('Cache-Control', 'no-cache');
         fs.createReadStream(file).pipe(res);
       });

@@ -28,6 +28,16 @@ def variant_sizes(variants_dir: Path, slug: str) -> list[int]:
     return sorted(set(sizes))
 
 
+def border_sizes(variants_dir: Path, slug: str) -> list[int]:
+    """Long-edge sizes of the standalone border layer, e.g. [1920, 7680]."""
+    sizes = []
+    for p in variants_dir.glob(f"{slug}-border-*.png"):
+        m = re.fullmatch(rf"{re.escape(slug)}-border-(\d+)\.png", p.name)
+        if m:
+            sizes.append(int(m.group(1)))
+    return sorted(set(sizes))
+
+
 def aspect_of(variants_dir: Path, slug: str, sizes: list[int]) -> float:
     """width/height from the smallest variant (accurate framing, no layout shift)."""
     if not sizes:
@@ -59,6 +69,7 @@ def main() -> int:
         if r is None:              # antimeridian-deferred (Kiribati)
             continue
         sizes = variant_sizes(variants_dir, slug)
+        bsizes = border_sizes(variants_dir, slug)
         countries.append(dict(
             slug=slug,
             name=r["admin"],
@@ -66,7 +77,8 @@ def main() -> int:
             sizes=sizes,
             native=sizes[-1] if sizes else None,
             rendered=bool(sizes),
-            hasBorder=False,       # border-layer generation is a later pass
+            hasBorder=bool(bsizes),
+            borderSizes=bsizes,
         ))
 
     payload = dict(

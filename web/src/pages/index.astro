@@ -17,6 +17,9 @@ const countries = [...data.countries].sort(
 const srcset = (c: Country) =>
   c.sizes.map((s) => `${HERO_BASE}${c.slug}-${s}.webp ${s}w`).join(", ");
 
+const borderSrcset = (c: Country) =>
+  c.borderSizes.map((s) => `${HERO_BASE}${c.slug}-border-${s}.png ${s}w`).join(", ");
+
 // Displayed at the card's rendered width: ~full width on phones, ~half on
 // tablets, ~a third on desktop — keeps the browser from over-fetching.
 const SIZES = "(max-width: 640px) 92vw, (max-width: 1024px) 46vw, 30vw";
@@ -49,6 +52,7 @@ const SIZES = "(max-width: 640px) 92vw, (max-width: 1024px) 46vw, 30vw";
     {
       countries.map((c) => (
         <article class="card" data-name={c.name.toLowerCase()} data-rendered={String(c.rendered)}>
+          <a class="card-link" href={`/${c.slug}/`}>
           {c.rendered ? (
             <figure style={`aspect-ratio:${c.aspect}`}>
               <img
@@ -62,7 +66,9 @@ const SIZES = "(max-width: 640px) 92vw, (max-width: 1024px) 46vw, 30vw";
               {c.hasBorder && (
                 <img
                   class="border-layer"
-                  src={`${HERO_BASE}${c.slug}-border.png`}
+                  src={`${HERO_BASE}${c.slug}-border-${c.borderSizes[0]}.png`}
+                  srcset={borderSrcset(c)}
+                  sizes={SIZES}
                   alt=""
                   aria-hidden="true"
                   loading="lazy"
@@ -76,6 +82,7 @@ const SIZES = "(max-width: 640px) 92vw, (max-width: 1024px) 46vw, 30vw";
               <small>rendering…</small>
             </div>
           )}
+          </a>
         </article>
       ))
     }
@@ -157,6 +164,16 @@ const SIZES = "(max-width: 640px) 92vw, (max-width: 1024px) 46vw, 30vw";
   }
   .card[hidden] {
     display: none;
+  }
+  .card-link {
+    display: block;
+    text-decoration: none;
+    color: inherit;
+    border-radius: 10px;
+  }
+  .card-link:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 3px;
   }
 
   figure {
