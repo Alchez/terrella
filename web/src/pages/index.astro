@@ -1,17 +1,259 @@
 ---
+import Base from "../layouts/Base.astro";
+import data from "../data/countries.json";
 
+// Hero variants are served from this base — a symlink in dev (public/heroes ->
+// the render store), an nginx static mount in prod. Overridable at build time.
+const HERO_BASE = import.meta.env.PUBLIC_HERO_BASE ?? "/heroes/";
+
+type Country = (typeof data.countries)[number];
+
+// Rendered heroes first (so real imagery leads while the sweep fills in), then
+// everything else alphabetically.
+const countries = [...data.countries].sort(
+  (a, b) => Number(b.rendered) - Number(a.rendered) || a.name.localeCompare(b.name),
+);
+
+const srcset = (c: Country) =>
+  c.sizes.map((s) => `${HERO_BASE}${c.slug}-${s}.webp ${s}w`).join(", ");
+
+// Displayed at the card's rendered width: ~full width on phones, ~half on
+// tablets, ~a third on desktop — keeps the browser from over-fetching.
+const SIZES = "(max-width: 640px) 92vw, (max-width: 1024px) 46vw, 30vw";
 ---
 
-<html lang="en">
-	<head>
-		<meta charset="utf-8" />
-		<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-		<link rel="icon" href="/favicon.ico" />
-		<meta name="viewport" content="width=device-width" />
-		<meta name="generator" content={Astro.generator} />
-		<title>Astro</title>
-	</head>
-	<body>
-		<h1>Astro</h1>
-	</body>
-</html>
+<Base title="Relief Globe — Gallery">
+  <header class="site-head">
+    <div class="head-row">
+      <h1>Relief Globe</h1>
+      <label class="toggle">
+        <input type="checkbox" id="border-toggle" />
+        <span>Borders</span>
+      </label>
+    </div>
+    <p class="tagline">
+      Ray-traced relief maps of every country.
+      <span class="count" id="count">{data.rendered} of {data.count} rendered</span>
+    </p>
+    <input
+      class="search"
+      id="search"
+      type="search"
+      placeholder="Search countries…"
+      autocomplete="off"
+      aria-label="Search countries"
+    />
+  </header>
+
+  <main class="gallery">
+    {
+      countries.map((c) => (
+        <article class="card" data-name={c.name.toLowerCase()} data-rendered={String(c.rendered)}>
+          {c.rendered ? (
+            <figure style={`aspect-ratio:${c.aspect}`}>
+              <img
+                src={`${HERO_BASE}${c.slug}-${c.sizes[0]}.webp`}
+                srcset={srcset(c)}
+                sizes={SIZES}
+                alt={`Ray-traced relief map of ${c.name}`}
+                loading="lazy"
+                decoding="async"
+              />
+              {c.hasBorder && (
+                <img
+                  class="border-layer"
+                  src={`${HERO_BASE}${c.slug}-border.png`}
+                  alt=""
+                  aria-hidden="true"
+                  loading="lazy"
+                />
+              )}
+              <figcaption>{c.name}</figcaption>
+            </figure>
+          ) : (
+            <div class="placeholder" style={`aspect-ratio:${c.aspect}`}>
+              <span>{c.name}</span>
+              <small>rendering…</small>
+            </div>
+          )}
+        </article>
+      ))
+    }
+  </main>
+
+  <p class="empty" id="empty" hidden>No countries match that search.</p>
+</Base>
+
+<style>
+  .site-head {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: clamp(1.5rem, 4vw, 3rem) clamp(1rem, 3vw, 2rem) 1rem;
+  }
+  .head-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+  h1 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: clamp(1.8rem, 5vw, 2.8rem);
+    letter-spacing: -0.01em;
+    margin: 0;
+  }
+  .tagline {
+    color: var(--muted);
+    margin: 0.4rem 0 1.2rem;
+    font-size: 0.95rem;
+  }
+  .count {
+    margin-left: 0.5rem;
+    padding-left: 0.6rem;
+    border-left: 1px solid var(--line);
+    white-space: nowrap;
+  }
+  .search {
+    width: 100%;
+    padding: 0.7rem 0.9rem;
+    font: inherit;
+    color: var(--text);
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    outline: none;
+  }
+  .search:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+  }
+  .toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    font-size: 0.9rem;
+    color: var(--muted);
+    cursor: pointer;
+    user-select: none;
+  }
+  .toggle input {
+    accent-color: var(--accent);
+    width: 1.05rem;
+    height: 1.05rem;
+  }
+
+  .gallery {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 0.5rem clamp(1rem, 3vw, 2rem) 4rem;
+    columns: 3 300px; /* masonry: flows varied hero aspects without cropping */
+    column-gap: clamp(0.8rem, 1.5vw, 1.4rem);
+  }
+  .card {
+    break-inside: avoid;
+    margin-bottom: clamp(0.8rem, 1.5vw, 1.4rem);
+  }
+  .card[hidden] {
+    display: none;
+  }
+
+  figure {
+    position: relative;
+    margin: 0;
+    border-radius: 10px;
+    overflow: hidden;
+    background: var(--bg-2);
+    box-shadow: var(--shadow);
+  }
+  figure img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  .border-layer {
+    position: absolute;
+    inset: 0;
+    display: none;
+  }
+  :global(body.borders-on) .border-layer {
+    display: block;
+  }
+  figcaption {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    padding: 1.6rem 0.8rem 0.6rem;
+    font-family: var(--serif);
+    font-size: 0.95rem;
+    color: #fff;
+    background: linear-gradient(to top, rgba(0, 0, 0, 0.55), transparent);
+  }
+
+  .placeholder {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.2rem;
+    text-align: center;
+    padding: 1rem;
+    border: 1px dashed var(--line);
+    border-radius: 10px;
+    background: var(--bg-2);
+    color: var(--muted);
+  }
+  .placeholder span {
+    font-family: var(--serif);
+    font-size: 0.95rem;
+    color: var(--text);
+  }
+  .placeholder small {
+    font-size: 0.72rem;
+    opacity: 0.7;
+  }
+
+  .empty {
+    text-align: center;
+    color: var(--muted);
+    padding: 2rem;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    figure img {
+      transition: transform 0.35s ease;
+    }
+    figure:hover img {
+      transform: scale(1.03);
+    }
+  }
+</style>
+
+<script>
+  const search = document.getElementById("search") as HTMLInputElement | null;
+  const border = document.getElementById("border-toggle") as HTMLInputElement | null;
+  const count = document.getElementById("count");
+  const empty = document.getElementById("empty");
+  const cards = Array.from(document.querySelectorAll<HTMLElement>(".card"));
+  const total = cards.length;
+  const baseLabel = count?.textContent ?? "";
+
+  function applyFilter() {
+    const q = (search?.value ?? "").trim().toLowerCase();
+    let shown = 0;
+    for (const card of cards) {
+      const match = !q || (card.dataset.name ?? "").includes(q);
+      card.hidden = !match;
+      if (match) shown++;
+    }
+    if (count) count.textContent = q ? `${shown} of ${total} shown` : baseLabel;
+    if (empty) empty.hidden = shown !== 0;
+  }
+
+  search?.addEventListener("input", applyFilter);
+  border?.addEventListener("change", () => {
+    document.body.classList.toggle("borders-on", border.checked);
+  });
+</script>
