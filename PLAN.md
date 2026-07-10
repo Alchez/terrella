@@ -66,10 +66,11 @@ Global for all ~195 countries. Changing any of these after Phase 1 starts means 
 
 - **Terrain:** vertical exaggeration 15× — Midlevel 0; Scale is per-frame unit conversion, `15 ÷ (extent_w/2 in m)`, computed by render_prep.py into frame.json (India's pinned 8.0e-6 is the hand-rounded instance — docs/framing-math.md).
 - **Light:** Sun rotation (44°, 0°, −45°) → altitude 46°, azimuth NW; Angle 12°; Strength 3. Fill sun rotation (30°, 0°, 135°) → SE, shadowless (`use_shadow` off); Angle 10°; Strength 0.45 (15% of main). World fill `F2E7D5` @ strength 0.3.
-- **Color:** View transform **Standard** (never AgX). Land ramp: heights 0→6,000 m on positions 0→1, stops E9D9C0@0 / D7AC8E@0.083 / CE9880@0.25 / C9AD97@0.5 / DCC9B2@0.75 / E9DCC8@1.0 — the top stays in the warm sand register; white/blue belongs to the snow mask alone. Sea ramp: depths 0→−3,000 m, stops C6E4E2@0 / 98C5C8@0.15 / 649BA4@0.4 / 487D8A@1.0. Snow `E8F1F6`, Mix between land ramp and Lake (water always wins). Masks 0/255 PNG, image nodes Non-Color, mask interpolation Closest, no reversed Map Ranges.
+- **Color:** View transform **Standard** (never AgX). Land ramp: heights 0→6,000 m on positions 0→1, stops E9D9C0@0 / D7AC8E@0.083 / CE9880@0.25 / C9AD97@0.5 / DCC9B2@0.75 / E9DCC8@1.0 — the top stays in the warm sand register; white/blue belongs to the snow mask alone. Sea ramp (**smooth-C, updated 2026-07-10** — re-litigated, see decision log; old was C6E4E2@0 / 98C5C8@0.15 / 649BA4@0.4 / 487D8A@1.0 which read as ice): depths 0→−3,000 m, 6 stops 8FC7C5@0 / 7CB8B8@0.10 / 68A6AC@0.22 / 56939E@0.38 / 47808F@0.62 / 3A6E7D@1.0 — shallow water a real teal. Snow `E8F1F6`, Mix between land ramp and Lake (water always wins). Masks 0/255 PNG, image nodes Non-Color, mask interpolation Closest, no reversed Map Ranges.
 - **Snow data:** ESA WorldCover 2021 v200 class 70, warped nearest per frame by pipeline/snow_mask.py (permanent snow/ice only — the annual composite excludes seasonal snowpack by construction). CC-BY 4.0; About page must credit "© ESA WorldCover project 2021 / Contains modified Copernicus Sentinel data (2021) processed by ESA WorldCover consortium". No coverage of Antarctica (special-case hero regardless).
 - **Camera:** orthographic, straight down; ortho scale = plane's larger dimension × 1.0006 (India: 2.06 over a 2 × 2.0588 plane); render resolution: 7680 px on the raster's *longer* axis, short axis from aspect (2026-07-09; `hero_long_edge` in config/countries.toml, per-country overridable — India pinned at its fixed-width-era 7680×7906; 2048-wide tests).
 - **Render:** Cycles, OptiX backend, OIDN denoiser (GPU off for 8K frames — VRAM contention), adaptive subdivision dicing 1 px (≈6.8 GB peak at 8K).
+- **Post-render shading (added 2026-07-10):** `pipeline/sky_view.py` — burn-only horizon sky-view-factor from `heightfield_aea`, darkens land valleys (strength ~0.38) for topographic depth so low-relief countries read; composited onto the hero by `batch.py` before the atomic promote; open ground and sea unchanged. Chosen over adaptive exaggeration + Cycles AO (decision log).
 - **Borders (overlay, not scene):** land white 95% @ 10 px + casing #3D2B1F 35% @ 14 px; disputed/LoC dash [30, 20]; maritime white 80% @ 7 px + casing 25% @ 10.5 px, dash [40, 25]. Widths are 8K-canvas pixels; scale linearly with render width. NE default worldview.
 
 ## Open questions
@@ -81,7 +82,100 @@ Resolved questions move to the decision log — one home per fact. Each question
 - Storage location for the tile pyramid on rohome (which mount, backup exclusion). **Decided by:** the start of Phase 2 production runs on rohome, before the planet heightfield and pyramid (tens of GB) start landing on disk.
 - Caspian Sea routing (first frame that contains it): its surface sits at −28 m, so neither the ocean rule nor the land ramp handles it cleanly; check its WBM class and whether GEBCO already carries its measured bathymetry. **Decided at:** Phase 1 config of the first Caspian-bordering frame (Kazakhstan / Azerbaijan / Iran / Russia / Turkmenistan); the probe itself is a cheap fusion-window check and can run any time earlier.
 
+- **Prep-ahead producer/consumer runner (Phase 1.5 — timing, not correctness).** `batch.py` today
+  serializes prep (stages 0–4: download/mosaic/fuse/warp/snow — network/CPU/disk, GPU-idle) with the
+  render (stage 5 — GPU) per country, so the GPU idles during downloads. Measured on the 2026-07-09
+  overnight sweep: **~9% GPU duty cycle** (≈15 min of rendering in ~2h49m; Canada's 6376-tile download
+  alone idled the GPU ~40 min; renders themselves are only ~1–4 min each). The render is VRAM-locked
+  to one-at-a-time (8K peaks ~11–12 GB of 12 GB) so *render must stay serial*; the win is **overlapping
+  prep with render** (disjoint hardware). Design: **one render worker = the sole GPU lease**, draining
+  a queue; **1–few prep workers** (network/CPU) staying N countries ahead. The "ready queue" is
+  *implicit* — countries whose `render/`+snowmask exist but hero doesn't, discoverable by filesystem
+  scan, so **resume stays filesystem-only (no durable queue state)**. Safety invariants that must NOT
+  regress (crash-safety + the 2026-07-09 two-runner collision): (1) **single-instance `flock`** — refuse
+  to start if another orchestrator holds it (the collision was exactly this missing guard); (2) **per-country
+  claim** (atomic `mkdir data/work/<slug>/.claim`) so no two workers share a work dir (prevents the
+  `--clean`-vs-fuse race that produced the `heightfield.tmp: No such file` errors); (3) **`--clean` stays
+  post-render, done by the render worker only**; (4) atomic stage finalization unchanged; (5) **RAM-aware
+  gating** — with prep+render concurrent, cap concurrent memory-heavy ops (≤1 fuse) and keep the render's
+  MemAvailable pre-gate + cgroup cap, since a big fuse (GB) + a render (~12 GB host) can blow past 30 GB.
+  Scheduling: **prep smallest-first** (by GLO-30 tile count) to fill the queue fast and never starve the
+  renderer behind a giant download. Disk budget: queue depth N holds N un-pruned work dirs (up to ~4.5 GB
+  each) → bound N by free space. Expected win: wall-clock → ~`max(total_prep, total_render)` instead of the
+  sum (~2–4× on download-heavy runs). **Decided at:** after Phase 1 hero renders complete — do NOT build
+  mid-sweep. Zero-complexity 90% alternative: the existing phase split (`--through prep` to completion,
+  *then* `--through render` = pure GPU), which suffices if prep is allowed to finish first.
+
 ## Decision log
+
+### 2026-07-10 — Overnight render sweep ran to 123/204, then STOPPED to fix hero quality; pipeline hardened
+
+- **The sweep.** `batch.py --through render --clean` ran ~14 h and produced **123 heroes** before Rohan
+  reviewed them and stopped it to re-assess (next entry). Single-runner throughput ~9–10 heroes/h
+  (blended, incl. giant-download lulls); GPU duty cycle only ~9 % (renders are 1–4 min; most wall-clock
+  is downloads — the prep-ahead redesign would reclaim this). Thermals a non-issue: GPU peaked 61 °C even
+  at 98 % render load; the CPU briefly hits its 95 °C Tjmax cap during the CPU-OIDN denoise of each 8K
+  frame (self-throttling, safe — a lone 95 °C read is normal, only *sustained* would be a fault). A 60 s
+  GPU temp logger + a 30-min watchdog loop ran throughout (both stopped now).
+- **Bug #1 — two-runner collision (Claude's error).** Rohan launched the sweep; then asked Claude to
+  run+monitor it and Claude launched a **second** runner without checking → two `batch.py` raced a→z,
+  `--clean`-pruning each other's `data/work/<slug>` (⇒ `heightfield.tmp: No such file` fuse errors) and
+  double-downloading tiles (~30 % download failures). Killed the duplicate ~1 h in. Most of the run's ~53
+  failure log-lines (27 distinct countries) trace to that hour; recoverable on re-run. **Lesson: a
+  single-instance guard is needed** (the `flock` in the prep-ahead design); check
+  `pgrep -af pipeline/batch.py` before launching.
+- **Bug #2 — snow_mask non-idempotent (FIXED, uncommitted).** `snow_mask.py` `sys.exit`'d non-zero when
+  its output existed instead of skip-exit-0 like fuse/render_prep → every already-prepped country FAIL@4'd
+  and never rendered. Now prints "… exists — skipping" and returns 0.
+- **Bug #3 — silent partial-data renders (GUARDED, uncommitted).** Georgia shipped with a flat nodata
+  block (missing GLO-30 tiles, likely corrupted when its Caucasus tiles were fetched during the
+  collision) and the runner never noticed. Added a **coverage-validation guard** to `fuse_heightfield`:
+  counts land px with no GLO-30 tile (`DEM==nodata & WBM==land`) and `sys.exit`'s above 1 % → the re-run
+  auto-flags + re-downloads these instead of rendering garbage.
+- **Antimeridian snow_mask edge (deferred).** fiji + newzealand (+ russia, unreached) FAIL@4 — frames
+  at/near 180°E hit a WorldCover edge case. A small AM snow_mask fix is needed later; those 3 (plus
+  kiribati) stay unrendered until then.
+- **Broken heroes on disk:** brazil + cambodia are flat/empty (collision fuse-race casualties;
+  relief-detail 4.1 vs 70 median — the *only* two empties, per a full audit). The forced re-run redoes them.
+
+### 2026-07-10 — Hero look v3: shallow-sea ramp + sky-view shading; full re-run tonight
+
+Rohan reviewed the 123 heroes and flagged: shallow shelf seas render as white "ice" (Denmark/Ireland/
+Kuwait/Netherlands/Estonia/Malaysia/El Salvador); flat countries look basic (Paraguay/Qatar); atoll
+nations show ~no land (Maldives/Palau/Marshall Is./Micronesia/Mauritius/Cape Verde); Georgia/Iran partial
+gaps; Monaco/Nauru banding; brazil/cambodia empty. Decisions (each validated with rendered/post-processed
+demos before adopting):
+
+- **Sea ramp → "smooth-C" (6-stop), uncommitted.** The shallowest `SEA_STOPS` stop was C6E4E2 (near-white)
+  so shelf seas read as ice. New 6-stop ramp from **8FC7C5** (a real teal) with a smooth shelf→deep
+  gradient, set in `scene_build.SEA_STOPS` (linear values from sRGB). Fixes the ice look AND turns
+  Maldives' lagoons teal. **Supersedes the locked sea-ramp constant.** (Candidate "D" was stronger/moodier
+  but needed the whole ramp re-toned; Rohan chose C.)
+- **Shading → post-composite horizon sky-view-factor, burn-only. New file `pipeline/sky_view.py`,
+  uncommitted.** Horizon openness (16 dir) from `heightfield_aea`, computed at reduced res + upsampled
+  (~20–30 s CPU, overlaps the GPU render), **burn-only**: darkens genuinely-occluded valleys above a
+  threshold and leaves open ground at rendered brightness — so flat countries gain drainage/valley depth
+  with no dimming and no "desert" wash (dodge-and-burn was rejected: brightening the dominant open flats
+  read as desert). Land only (ocean mask). Wired into `batch.py`'s render stage: shades the `.tmp.png`
+  before the atomic promote ⇒ applied **exactly once**, never compounds; a sky_view failure fails the
+  country cleanly. Strength **~0.38** (tunable). **Chosen over per-country adaptive exaggeration** (breaks
+  the one-consistent-vertical-scale look) **and over in-Blender Cycles AO** (dims the whole scene, grainy
+  "dirt" at ridge bases even at tight AO distance, +2.5 min/render; SVF is free by comparison).
+- **Shelf edge: kept, equal exaggeration.** The shelf→deep abruptness is real geography (continental
+  slope) plus the 15× exaggeration applied equally to bathymetry; Rohan chose to keep it ("truest picture
+  even if shocking"). No sea-exaggeration change.
+- **Maldives / atolls: accept as mostly ocean.** Tested 1″ + max-resampling (added `--land-resampling` to
+  fuse; **default unchanged = average, status quo**) — **no gain** (0.46 %→0.46 % land; frame is 99.9 %
+  ocean). Data reality; the stronger sea ramp handles the look.
+- **THE RE-RUN (do this next):** `python pipeline/batch.py --through render --force` — **no `--clean`**
+  (keep prep for fast iteration) and **`--force`** so all 204 re-render with the new ramp + SVF (the sea
+  change is baked in Blender ⇒ every hero must re-render; prep re-fuses from the **cached raw GLO-30
+  tiles** — no re-download except gaps/remaining countries). **SINGLE RUNNER ONLY** (`pgrep` first). The
+  coverage guard + snow_mask fix + single runner prevent the earlier damage. fiji/nz/russia + kiribati
+  stay unrendered pending the AM snow_mask fix. Expect a full overnight (~re-prep all 123 done + download
+  the ~81 remaining + render all + SVF).
+- **Uncommitted (Rohan commits):** `snow_mask.py`, `fuse_heightfield.py`, `scene_build.py`, `batch.py`,
+  `pipeline/sky_view.py` (new), `PLAN.md`.
 
 ### 2026-07-09 — Hero presentation explored (spike): no single universal design; geography-conditional; margins read flat
 

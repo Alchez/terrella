@@ -120,12 +120,21 @@ land, desaturated teal sea with visible shelf bathymetry, data-driven snow.
   reserve, on evidence only.
 
 ### Sea color ramp (depth-keyed) — `SEA_STOPS` + `SEA_RANGE` (scene_build.py)
-- Baseline: depths 0→−3,000 m onto position 0→1, stops
-  `C6E4E2@0.0 / 98C5C8@0.15 / 649BA4@0.4 / 487D8A@1.0`.
+- Baseline (**smooth-C, 2026-07-10**): depths 0→−3,000 m onto position 0→1, 6 stops
+  `8FC7C5@0 / 7CB8B8@0.10 / 68A6AC@0.22 / 56939E@0.38 / 47808F@0.62 / 3A6E7D@1.0`.
+  (Old `C6E4E2@0 / 98C5C8@0.15 / 649BA4@0.4 / 487D8A@1.0` made shallow shelves read as white "ice".)
 - The signature shelf-sea look lives in the **low-position stops** (0–0.15): the
   0–450 m band — Palk Strait, Gulf of Khambhat, the Sundarbans shelf.
 - The −3,000 m cap controls how fast open ocean saturates to the darkest teal.
 - **Adjust:** SEA_STOPS / SEA_RANGE constants; same ramp gotchas as land.
+
+### Sky-view shading (post-render, added 2026-07-10) — `pipeline/sky_view.py`
+- Burn-only horizon sky-view-factor from `heightfield_aea`: darkens land *valleys* for
+  topographic depth (so flat/low-relief countries read), open ground left at rendered
+  brightness. Applied by `batch.py` after the render, before the atomic promote. Land only.
+- **Adjust:** `--strength` (~0.38), `--threshold` (0.45), `--svf-long` (compute res).
+- Chosen over per-country adaptive exaggeration (breaks consistent vertical scale) and
+  in-Blender Cycles AO (dims scene, grainy "dirt", +2.5 min/render). See PLAN.md decision log.
 
 ### Inland water (in-scene raster, decided 2026-07-07) — `WATER_RGBA` (scene_build.py)
 - Lakes and rivers come from the WBM masks (inlandlake_aea.png / river_aea.png) through

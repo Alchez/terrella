@@ -115,6 +115,10 @@ def main():
     ap.add_argument("--bounds", nargs=4, type=float,
                     metavar=("W", "S", "E", "N"))
     ap.add_argument("--res-arcsec", type=float, required=True)
+    ap.add_argument("--land-resampling", default="average",
+                    choices=["average", "max", "bilinear", "cubic"],
+                    help="DEM->grid resampling; 'max' preserves thin high land "
+                         "(atolls) that 'average' washes to sea level")
     ap.add_argument("--outdir", type=Path, required=True)
     ap.add_argument("--gebco", type=Path, default=GEBCO,
                     help="bathymetry source (default: the global GEBCO_2026 mosaic)")
@@ -167,7 +171,7 @@ def main():
     with rasterio.open(DEM_VRT) as dem_src, \
          rasterio.open(WBM_VRT) as wbm_src, \
          rasterio.open(args.gebco) as geb_src, \
-         WarpedVRT(dem_src, resampling=Resampling.average, **vrt_kw) as dem, \
+         WarpedVRT(dem_src, resampling=getattr(Resampling, args.land_resampling), **vrt_kw) as dem, \
          WarpedVRT(wbm_src, resampling=Resampling.nearest, **vrt_kw) as wbm, \
          WarpedVRT(geb_src, resampling=Resampling.cubic_spline, **vrt_kw) as geb, \
          rasterio.open(tmp_height, "w", dtype="float32", predictor=3,
@@ -178,6 +182,7 @@ def main():
         nwin = ((height + BLOCK - 1) // BLOCK) * ((width + BLOCK - 1) // BLOCK)
         done = 0
         counts = np.zeros(4, dtype=np.int64)
+        gap_px = land_px = 0
         for row in range(0, height, BLOCK):
             for col in range(0, width, BLOCK):
                 win = Window(col, row,  # pyright: ignore[reportCallIssue] — rasterio untyped, attrs init invisible
@@ -189,6 +194,8 @@ def main():
                 land = np.where(d == DEM_NODATA, 0, d)
                 coastal_water = ((w == 2) | (w == 3)) & (np.abs(land) <= 1.0)
                 ocean = (w == 1) | (w == WBM_NODATA) | coastal_water
+                gap_px += int(((d == DEM_NODATA) & (w == 0)).sum())  # WBM-land, no DEM tile
+                land_px += int((w == 0).sum())
                 fused = np.where(ocean, np.minimum(g, -1.0), land)
 
                 fh.write(fused.astype("float32"), 1, window=win)
@@ -200,6 +207,15 @@ def main():
                 print(f"[{done}/{nwin}] windows", flush=True)
 
     print_class_counts(counts)
+    gap_frac = gap_px / max(land_px, 1)
+    if gap_frac > 0.01:
+        sys.exit(f"COVERAGE GAP: {gap_frac:.1%} of land pixels ({gap_px:,}) have no "
+                 f"GLO-30 tile — a DEM tile is missing/corrupt in this frame and would "
+                 f"render as a flat nodata block (the Georgia bug). Re-download the "
+                 f"frame's tiles and re-fuse.")
+    if gap_px:
+        print(f"coverage: {gap_frac:.3%} land gap ({gap_px:,} px) — below fail "
+              f"threshold, flat-filled", flush=True)
     # class codes must not be averaged — a 2 next to a 0 is not a 1
     for path, rs in ((tmp_height, Resampling.average),
                      (tmp_mask, Resampling.average),

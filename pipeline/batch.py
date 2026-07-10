@@ -160,6 +160,14 @@ def run_country(slug, r, through, force, dry, cap_gib, use_cap, floor,
             log_failure(slug, idx, cmd, rc, kind)
             return f"FAIL@{idx} ({kind})"
         if idx == RENDER_STAGE and tmp and final:
+            # sky-view shading: darken land valleys for depth, before promoting
+            sv = subprocess.run(
+                f"python pipeline/sky_view.py --render-dir data/work/{slug}/render"
+                f" --hero {tmp}", shell=True, cwd=ROOT, env=ENV).returncode
+            if sv != 0:
+                (ROOT / tmp).unlink(missing_ok=True)
+                log_failure(slug, idx, "sky_view", sv, "error")
+                return f"FAIL@{idx} (sky_view)"
             os.replace(ROOT / tmp, ROOT / final)
     if do_clean:
         prune_intermediates(slug)

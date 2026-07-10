@@ -110,7 +110,8 @@ def main():
 
     out_png = render_dir / "snowmask_aea.png"
     if out_png.exists():
-        sys.exit(f"{out_png} already exists — delete it to redo")
+        print(f"{out_png} exists — skipping", flush=True)
+        return
 
     # grid + CRS from the existing heightfield (render_prep.py pattern):
     # the mask must land pixel-for-pixel on the grid the render was made from
