@@ -25,14 +25,11 @@ const borderSrcset = (c: Country) =>
 const SIZES = "(max-width: 640px) 92vw, (max-width: 1024px) 46vw, 30vw";
 ---
 
-<Base title="Relief Globe — Gallery">
+<Base title="Relief Globe — Gallery" borders={true}>
   <header class="site-head">
     <div class="head-row">
       <h1>Relief Globe</h1>
-      <label class="toggle">
-        <input type="checkbox" id="border-toggle" />
-        <span>Borders</span>
-      </label>
+      <a class="about-link" href="/about/">About</a>
     </div>
     <p class="tagline">
       Ray-traced relief maps of every country.
@@ -136,19 +133,13 @@ const SIZES = "(max-width: 640px) 92vw, (max-width: 1024px) 46vw, 30vw";
     border-color: var(--accent);
     box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
   }
-  .toggle {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.45rem;
+  .about-link {
     font-size: 0.9rem;
     color: var(--muted);
-    cursor: pointer;
-    user-select: none;
+    text-decoration: none;
   }
-  .toggle input {
-    accent-color: var(--accent);
-    width: 1.05rem;
-    height: 1.05rem;
+  .about-link:hover {
+    color: var(--accent);
   }
 
   .gallery {
@@ -250,7 +241,6 @@ const SIZES = "(max-width: 640px) 92vw, (max-width: 1024px) 46vw, 30vw";
 
 <script>
   const search = document.getElementById("search") as HTMLInputElement | null;
-  const border = document.getElementById("border-toggle") as HTMLInputElement | null;
   const count = document.getElementById("count");
   const empty = document.getElementById("empty");
   const cards = Array.from(document.querySelectorAll<HTMLElement>(".card"));
@@ -270,7 +260,4 @@ const SIZES = "(max-width: 640px) 92vw, (max-width: 1024px) 46vw, 30vw";
   }
 
   search?.addEventListener("input", applyFilter);
-  border?.addEventListener("change", () => {
-    document.body.classList.toggle("borders-on", border.checked);
-  });
 </script>

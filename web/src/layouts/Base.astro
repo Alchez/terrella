@@ -2,10 +2,12 @@
 interface Props {
   title?: string;
   description?: string;
+  borders?: boolean;
 }
 const {
   title = "Relief Globe",
   description = "Ray-traced relief maps of every country.",
+  borders = false,
 } = Astro.props;
 ---
 
@@ -20,6 +22,14 @@ const {
   </head>
   <body>
     <slot />
+    {
+      borders && (
+        <label class="borders-fab" title="Toggle country borders">
+          <input type="checkbox" id="border-toggle" />
+          <span>Borders</span>
+        </label>
+      )
+    }
   </body>
 </html>
 
@@ -68,4 +78,54 @@ const {
   a {
     color: var(--accent);
   }
+
+  /* Floating, always-reachable border toggle (tall heroes scroll past a header
+     control). Shown only when the page passes borders={true}. */
+  .borders-fab {
+    position: fixed;
+    bottom: 1.2rem;
+    right: 1.2rem;
+    z-index: 20;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.55rem 0.95rem;
+    background: color-mix(in srgb, var(--bg-2) 92%, transparent);
+    -webkit-backdrop-filter: blur(6px);
+    backdrop-filter: blur(6px);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    box-shadow: var(--shadow);
+    font-size: 0.9rem;
+    color: var(--text);
+    cursor: pointer;
+    user-select: none;
+  }
+  .borders-fab input {
+    accent-color: var(--accent);
+    width: 1.05rem;
+    height: 1.05rem;
+    margin: 0;
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .borders-fab {
+      transition: box-shadow 0.2s ease;
+    }
+  }
 </style>
+
+<script>
+  // Shared border toggle — the floating control lives in the layout so it's
+  // always reachable, and its state persists across gallery <-> detail nav.
+  const cb = document.getElementById("border-toggle") as HTMLInputElement | null;
+  const KEY = "rg:borders";
+  if (cb) {
+    const on = localStorage.getItem(KEY) === "1";
+    cb.checked = on;
+    document.body.classList.toggle("borders-on", on);
+    cb.addEventListener("change", () => {
+      document.body.classList.toggle("borders-on", cb.checked);
+      localStorage.setItem(KEY, cb.checked ? "1" : "0");
+    });
+  }
+</script>

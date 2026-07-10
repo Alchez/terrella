@@ -26,19 +26,12 @@ const SIZES = "(max-width: 1240px) 94vw, 1200px";
 <Base
   title={`${c.name} — Relief Globe`}
   description={`Ray-traced relief map of ${c.name}.`}
+  borders={c.hasBorder}
 >
   <header class="detail-head">
     <a class="back" href="/">← All countries</a>
     <div class="title-row">
       <h1>{c.name}</h1>
-      {
-        c.hasBorder && (
-          <label class="toggle">
-            <input type="checkbox" id="border-toggle" />
-            <span>Borders</span>
-          </label>
-        )
-      }
     </div>
   </header>
 
@@ -109,21 +102,6 @@ const SIZES = "(max-width: 1240px) 94vw, 1200px";
     letter-spacing: -0.01em;
     margin: 0;
   }
-  .toggle {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.45rem;
-    font-size: 0.9rem;
-    color: var(--muted);
-    cursor: pointer;
-    user-select: none;
-  }
-  .toggle input {
-    accent-color: var(--accent);
-    width: 1.05rem;
-    height: 1.05rem;
-  }
-
   .stage {
     max-width: 1240px;
     margin: 0 auto;
@@ -174,10 +152,3 @@ const SIZES = "(max-width: 1240px) 94vw, 1200px";
     margin: 0.9rem 0 0;
   }
 </style>
-
-<script>
-  const border = document.getElementById("border-toggle") as HTMLInputElement | null;
-  border?.addEventListener("change", () => {
-    document.body.classList.toggle("borders-on", border.checked);
-  });
-</script>

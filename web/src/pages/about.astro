@@ -1,0 +1,175 @@
+---
+import Base from "../layouts/Base.astro";
+---
+
+<Base
+  title="About — Relief Globe"
+  description="How Relief Globe is made: open elevation data, ray-traced relief, and the data licenses behind it."
+>
+  <article class="about">
+    <a class="back" href="/">← All countries</a>
+    <h1>About</h1>
+
+    <p class="lede">
+      <strong>Relief Globe</strong> is a ray-traced relief map of every country, rendered
+      from open elevation data and served as a static site. The look follows the
+      “3D-render topographic” aesthetic — soft ray-traced shadows, heavy vertical
+      exaggeration, warm land tones over a desaturated teal sea with bathymetry.
+    </p>
+
+    <h2>How it’s made</h2>
+    <p>Each hero is a physically-based render, not a hillshade filter:</p>
+    <ol>
+      <li>
+        <strong>Fusion.</strong> Copernicus GLO-30 land elevation is fused with GEBCO
+        bathymetry into one seamless heightfield — the sea floor is part of the picture,
+        so shelf seas and ocean trenches read as terrain.
+      </li>
+      <li>
+        <strong>Render.</strong> The heightfield drives displacement in Blender’s Cycles
+        renderer (OptiX, with OpenImageDenoise), lit by a low sun for long relief shadows,
+        coloured by elevation- and depth-keyed ramps.
+      </li>
+      <li>
+        <strong>Borders.</strong> Natural Earth boundaries are composited on top as crisp
+        vector lines — never baked into the terrain — so they stay sharp and can be toggled.
+      </li>
+      <li>
+        <strong>Snow.</strong> A permanent snow/ice mask (ESA WorldCover, class 70) whitens
+        glaciers and ice caps.
+      </li>
+    </ol>
+    <p class="note">
+      Coming next: an interactive globe draping pre-shaded raster tiles, served via MapLibre
+      GL and PMTiles.
+    </p>
+
+    <h2>Boundaries &amp; worldview</h2>
+    <p>
+      Borders and coastlines use Natural Earth’s <strong>de-facto</strong> worldview, applied
+      consistently everywhere. Disputed boundaries and lines of control are drawn
+      <strong>dashed</strong>, as are maritime-indicator lines. This is a cartographic default,
+      not a political statement.
+    </p>
+
+    <h2>Data</h2>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Dataset</th><th>Role</th><th>License</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Copernicus DEM GLO-30</td><td>Land elevation</td><td>Copernicus free/open license</td></tr>
+          <tr><td>GEBCO 2026 Grid</td><td>Bathymetry</td><td>Public domain</td></tr>
+          <tr><td>ESA WorldCover 2021 v200</td><td>Permanent snow/ice mask</td><td>CC-BY 4.0</td></tr>
+          <tr><td>Natural Earth</td><td>Borders &amp; coastlines</td><td>Public domain</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <ul class="attrib">
+      <li>Contains modified Copernicus DEM data (source WorldDEM-30, © DLR e.V. and © Airbus
+        Defence and Space; provided under COPERNICUS by the European Union and ESA).</li>
+      <li>Reproduced from the GEBCO_2026 Grid, GEBCO Compilation Group (2026).</li>
+      <li>© ESA WorldCover project 2021 / Contains modified Copernicus Sentinel data (2021)
+        processed by the ESA WorldCover consortium.</li>
+      <li>Natural Earth — <a href="https://www.naturalearthdata.com">naturalearthdata.com</a> (public domain).</li>
+    </ul>
+
+    <h2>Tools &amp; technique</h2>
+    <ul>
+      <li><strong>Rendering</strong> — <a href="https://www.blender.org">Blender</a> (Cycles, OptiX, OpenImageDenoise).</li>
+      <li><strong>Geoprocessing</strong> — GDAL, rasterio, WhiteboxTools.</li>
+      <li><strong>Web</strong> — <a href="https://maplibre.org">MapLibre GL JS</a> (globe projection), <a href="https://github.com/protomaps/PMTiles">PMTiles</a> (Protomaps).</li>
+      <li><strong>Technique</strong> — shaded relief in Blender after Daniel Huffman’s canonical
+        method; aesthetic reference: Frank Ramspott, “3D Render Topographic Map — Neutral.”</li>
+    </ul>
+
+    <h2>Made with AI</h2>
+    <p>
+      Built in collaboration with AI: the pipeline code, documentation, and Blender rendering
+      setup were developed in a pair-programming workflow with Anthropic’s Claude (via Claude
+      Code). Data-source selection, design decisions, and final review are the author’s.
+    </p>
+  </article>
+</Base>
+
+<style>
+  .about {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: clamp(1.2rem, 3vw, 2rem) clamp(1rem, 3vw, 1.5rem) 4rem;
+  }
+  .back {
+    display: inline-block;
+    color: var(--muted);
+    text-decoration: none;
+    font-size: 0.9rem;
+    margin-bottom: 0.8rem;
+  }
+  .back:hover {
+    color: var(--accent);
+  }
+  h1 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: clamp(1.8rem, 5vw, 2.6rem);
+    letter-spacing: -0.01em;
+    margin: 0 0 0.6rem;
+  }
+  h2 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: 1.25rem;
+    margin: 2rem 0 0.6rem;
+  }
+  .lede {
+    font-size: 1.05rem;
+  }
+  p,
+  li {
+    color: var(--text);
+  }
+  ol,
+  ul {
+    padding-left: 1.2rem;
+  }
+  li {
+    margin: 0.35rem 0;
+  }
+  .note {
+    color: var(--muted);
+    font-size: 0.95rem;
+  }
+  .table-wrap {
+    overflow-x: auto;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.92rem;
+    margin: 0.5rem 0;
+  }
+  th,
+  td {
+    text-align: left;
+    padding: 0.5rem 0.7rem;
+    border-bottom: 1px solid var(--line);
+    vertical-align: top;
+  }
+  th {
+    color: var(--muted);
+    font-weight: 600;
+  }
+  .attrib {
+    list-style: none;
+    padding: 0;
+    margin: 0.8rem 0 0;
+    font-size: 0.82rem;
+    color: var(--muted);
+  }
+  .attrib li {
+    margin: 0.35rem 0;
+    padding-left: 0.9rem;
+    border-left: 2px solid var(--line);
+  }
+</style>
