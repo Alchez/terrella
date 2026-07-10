@@ -10,9 +10,11 @@ abrupt shutdown (OOM / brownout / blackout):
     snow_mask), so a file at its final path always means "complete." Resume
     is therefore just filesystem existence: a country whose phase target
     exists is skipped; a partially-prepped one resumes stage-by-stage
-    (each stage skips what it already finished). The renderer writes to a
-    .tmp.png that this runner promotes on exit 0. No durable in-memory state
-    — a killed runner just re-runs and picks up where it left off.
+    (each stage skips what it already finished). The renderer writes the raw
+    Cycles frame to heroes/raw/<slug>.png (kept); sky_view then derives the
+    shaded heroes/<slug>.png from it — so a cached raw skips the GPU and a look
+    re-tune re-shades only. No durable in-memory state — a killed runner just
+    re-runs and picks up where it left off.
   * Dynamic OOM defense. Sequential (the 8K render is GPU-bound). Before the
     render, a memory gate waits (bounded) if MemAvailable is below a floor,
     then skips the country rather than starting a doomed render. Heavy stages
@@ -145,30 +147,43 @@ def run_country(slug, r, through, force, dry, cap_gib, use_cap, floor,
             prefix = (f"systemd-run --user --scope -q "
                       f"-p MemoryMax={int(cap_gib * 1024)}M "
                       f"-p MemorySwapMax=0 -- ")
-        final = tmp = None
+        final = raw = raw_tmp = None
         run_cmd = cmd
-        if idx == RENDER_STAGE:  # render to .tmp.png, promote atomically
+        if idx == RENDER_STAGE:  # keep the raw Cycles frame; shade a derived hero
             final = f"blender/renders/heroes/{slug}.png"
-            tmp = f"blender/renders/heroes/{slug}.tmp.png"
-            run_cmd = cmd.replace(final, tmp)
-        rc = subprocess.run(prefix + run_cmd, shell=True, cwd=ROOT,
-                            env=ENV).returncode
-        if rc != 0:
-            kind = "oom" if rc in (137, -9) else "error"
-            if tmp:
-                (ROOT / tmp).unlink(missing_ok=True)
-            log_failure(slug, idx, cmd, rc, kind)
-            return f"FAIL@{idx} ({kind})"
-        if idx == RENDER_STAGE and tmp and final:
-            # sky-view shading: darken land valleys for depth, before promoting
+            raw = f"blender/renders/heroes/raw/{slug}.png"
+            raw_tmp = f"blender/renders/heroes/raw/{slug}.tmp.png"
+            (ROOT / raw).parent.mkdir(parents=True, exist_ok=True)
+            run_cmd = cmd.replace(final, raw_tmp)
+
+        # Skip the GPU when a raw already exists (and we're not forcing): a look
+        # re-tune then re-shades from the pristine raw with no re-render.
+        if raw and raw_tmp and (ROOT / raw).exists() and not force:
+            print(f"    {slug}: raw render cached — re-shading only, no GPU",
+                  flush=True)
+        else:
+            rc = subprocess.run(prefix + run_cmd, shell=True, cwd=ROOT,
+                                env=ENV).returncode
+            if rc != 0:
+                kind = "oom" if rc in (137, -9) else "error"
+                if raw_tmp:
+                    (ROOT / raw_tmp).unlink(missing_ok=True)
+                log_failure(slug, idx, cmd, rc, kind)
+                return f"FAIL@{idx} ({kind})"
+            if raw and raw_tmp:
+                os.replace(ROOT / raw_tmp, ROOT / raw)  # durable raw, atomic
+
+        if raw and final:
+            # sky-view shading darkens land valleys for depth; it reads the raw and
+            # writes the shaded hero as a SEPARATE file (atomic, internal .tmp), so
+            # the raw stays pristine and post-look tweaks never re-render.
             sv = subprocess.run(
                 f"python pipeline/sky_view.py --render-dir data/work/{slug}/render"
-                f" --hero {tmp}", shell=True, cwd=ROOT, env=ENV).returncode
+                f" --hero {raw} --out {final}", shell=True, cwd=ROOT,
+                env=ENV).returncode
             if sv != 0:
-                (ROOT / tmp).unlink(missing_ok=True)
                 log_failure(slug, idx, "sky_view", sv, "error")
                 return f"FAIL@{idx} (sky_view)"
-            os.replace(ROOT / tmp, ROOT / final)
     if do_clean:
         prune_intermediates(slug)
     return "ok"

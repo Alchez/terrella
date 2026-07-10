@@ -31,6 +31,19 @@ Goal: a single Ramspott-style render of **India** that looks right, before build
 
 ## Phase 2 — Global tile pyramid
 
+**Scoped 2026-07-10 (toolchain + decisions):** ceiling **locked at z8** (~300 m/px; z9/z10 are additive
+over the same mosaic+shading, so deferred until deep zoom is proven necessary). Toolchain audit found the
+stack is almost entirely **GDAL 3.12, already installed** (`gdal raster tile` with WebMercatorQuad + min/max
+zoom supersedes gdal2tiles; gdaldem hillshade/color-relief; gdalwarp/buildvrt; native MBTiles r/w). **Only
+one mandatory new dependency: the `pmtiles` CLI** (GDAL writes MBTiles but not PMTiles → convert as the last
+step). **One open engine choice — the SVF/openness step:** reuse our own `sky_view.py` horizon code (palette/
+shading consistency with the heroes, no new dep, learning-first; numpy, so compute at reduced res) vs
+**WhiteboxTools/RVT** (faster Rust/Python, purpose-built, but a second implementation) — decided empirically
+at the sample-region prototype. color-relief ramp file to be generated from the hero `SEA_STOPS`/land arrays
+(single source of truth). Tile storage mount on rohome is a **Phase 4 deploy concern** (build on the dev box,
+ship the finished `.pmtiles`), not a Phase 2 blocker. Tuning loop + the raster-vs-Blender-tile fork
+(open-Q below) both gated on a **frozen hero look**.
+
 - [ ] Build planet-wide fused heightfield (chunked; will not fit in RAM)
 - [ ] Raster shading pipeline: multidirectional hillshade + sky-view factor (WhiteboxTools) + land/sea color ramps, composited to match hero-render palette; tune *quieter* than the heroes — tiles are background under labels/borders (Huffman 2022), and resolution bumping is available where native 30 m reads as noise at high zooms
 - [ ] Compare a tile region side-by-side with the Cycles render; tune until acceptable
@@ -174,6 +187,27 @@ demos before adopting):
   coverage guard + snow_mask fix + single runner prevent the earlier damage. fiji/nz/russia + kiribati
   stay unrendered pending the AM snow_mask fix. Expect a full overnight (~re-prep all 123 done + download
   the ~81 remaining + render all + SVF).
+- **Raw-render preservation (uncommitted `batch.py`).** The render stage now writes the raw Cycles frame to
+  `blender/renders/heroes/raw/<slug>.png` (kept) and sky_view derives the shaded `heroes/<slug>.png` as a
+  separate file. A cached raw + no `--force` **skips the GPU and re-shades only**, so future post tweaks
+  (sky_view strength/threshold, border overlay, grading) re-composite over every hero in minutes with no
+  re-render — provided `data/work/<slug>/render/` (heightfield+oceanmask) is kept, i.e. still **no
+  `--clean`**. ~12 GB for 203 8K raws vs 556 GB of tiles. Landed *before* the render pass so tonight's run
+  captures the raws (retrofitting would mean re-rendering to recover discarded raws).
+- **Workflow split (2026-07-10):** prep-all now (`--through prep`, running — dry-run: 179 would-run, 24
+  skip-done, only Kiribati skipped; russia/usa/nz/fiji now resolve via frame overrides and are attempted —
+  their snow_mask outcome is the open question the prep run answers), then a GPU-only `--through render
+  --force` pass tonight (prep stages skip in seconds). GPU has large thermal headroom (61 °C peak vs ~83 °C
+  throttle) — run renders back-to-back, no throttle; steady load is gentler than thermal cycling.
+- **Antimeridian/polar snow_mask fix (uncommitted `snow_mask.py`).** Root-caused the canada/nz/fiji
+  stage-4 failures: `snow_mask` derived its WorldCover tile window from `transform_bounds` of the AEA
+  raster, which for a large high-latitude or antimeridian frame fans past the pole/dateline and returns a
+  wrapped window (west ≥ east) → `tiles_for_bounds` selects 0 tiles → false "every tile absent" abort. Fix:
+  keep `transform_bounds` as primary (byte-identical for normal countries — verified chile 135, cambodia 9,
+  chad 35, bulgaria 6 unchanged), fall back to render_prep's `frame_lonlat` **only** when the window wraps
+  (canada 0→594, nz→42, fiji→8). Self-contained in `snow_mask.py`, so russia/usa are auto-handled when the
+  running prep reaches them, and canada/nz/fiji regenerate their snowmask during tonight's `--force` render.
+  Resolves the deferred antimeridian snow_mask item; russia/usa/nz/fiji can now render.
 - **Uncommitted (Rohan commits):** `snow_mask.py`, `fuse_heightfield.py`, `scene_build.py`, `batch.py`,
   `pipeline/sky_view.py` (new), `PLAN.md`.
 

@@ -30,6 +30,7 @@ Usage:
 
 import argparse
 import concurrent.futures as cf
+import json
 import os
 import shutil
 import subprocess
@@ -119,13 +120,30 @@ def main():
     with rasterio.open(hf) as f:
         dst_crs, transform = f.crs, f.transform
         width, height = f.width, f.height
-        frame = transform_bounds(f.crs, "EPSG:4326", *f.bounds, densify_pts=64)
+        aea_bounds = f.bounds
     xres = transform.a  # pyright: ignore[reportAttributeAccessIssue] — affine untyped
-    print(f"grid from {hf.name}: {width} x {height}, {xres:.0f} m/px; "
-          f"lon/lat window {frame[0]:.2f} {frame[1]:.2f} "
-          f"{frame[2]:.2f} {frame[3]:.2f}", flush=True)
 
-    names = tiles_for_bounds(*frame)
+    # WorldCover tile window = the geographic footprint of the AEA raster. For
+    # most countries transform_bounds of the AEA bounds is exactly right (and
+    # slightly wider than the input frame, correctly covering neighbouring land
+    # visible in the frame corners). But for a large, high-latitude or
+    # antimeridian frame (Canada, NZ, Fiji) the AEA rectangle's corners fan past
+    # the pole/dateline, so transform_bounds returns a wrapped/degenerate window
+    # (west >= east) -> tiles_for_bounds selects zero tiles -> a false "every
+    # tile absent" abort. Only in that case fall back to render_prep's
+    # frame_lonlat (the country's true bbox, written before this stage). Normal
+    # frames are unchanged, so their snow coverage is byte-identical.
+    w, s, e, n = transform_bounds(dst_crs, "EPSG:4326", *aea_bounds,
+                                  densify_pts=64)
+    if not (w < e and s < n):
+        w, s, e, n = json.loads(
+            (render_dir / "frame.json").read_text())["frame_lonlat"]
+        print("  AEA footprint wraps the pole/dateline — using geographic "
+              "frame_lonlat for WorldCover tile selection", flush=True)
+    print(f"grid from {hf.name}: {width} x {height}, {xres:.0f} m/px; "
+          f"lon/lat window {w:.2f} {s:.2f} {e:.2f} {n:.2f}", flush=True)
+
+    names = tiles_for_bounds(w, s, e, n)
     print(f"{len(names)} candidate WorldCover tiles in the frame", flush=True)
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
