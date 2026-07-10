@@ -1,5 +1,5 @@
 // @ts-check
-import { defineConfig } from 'astro/config';
+import { defineConfig, fontProviders } from 'astro/config';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -37,5 +37,17 @@ function heroDevServer() {
 
 // https://astro.build/config
 export default defineConfig({
+  // Self-hosted display serif (Astro 7 Fonts API) — Fraunces, an optical
+  // old-style serif. Downloaded at build, served from _astro/fonts; no runtime
+  // external requests. Exposed as --font-serif, wired into --serif in global.css.
+  fonts: [
+    {
+      provider: fontProviders.fontsource(),
+      name: 'Fraunces',
+      cssVariable: '--font-serif',
+      weights: [400, 600],
+      fallbacks: ['Georgia', 'Times New Roman', 'serif'],
+    },
+  ],
   vite: { plugins: [heroDevServer()] },
 });

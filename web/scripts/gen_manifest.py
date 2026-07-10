@@ -28,6 +28,18 @@ def variant_sizes(variants_dir: Path, slug: str) -> list[int]:
     return sorted(set(sizes))
 
 
+def continent_by_admin(repo: Path) -> dict:
+    """ADMIN -> CONTINENT from the Natural Earth countries shapefile."""
+    import shapefile
+    shp = repo / "data/raw/naturalearth/ne_10m_admin_0_countries/ne_10m_admin_0_countries.shp"
+    reader = shapefile.Reader(str(shp))
+    out = {}
+    for record in reader.iterRecords():
+        fields = record.as_dict()
+        out[str(fields.get("ADMIN"))] = str(fields.get("CONTINENT", ""))
+    return out
+
+
 def border_sizes(variants_dir: Path, slug: str) -> list[int]:
     """Long-edge sizes of the standalone border layer, e.g. [1920, 7680]."""
     sizes = []
@@ -62,6 +74,7 @@ def main() -> int:
     cfg = load_config()
     _sf, rows = load_ne_rows()
     scope = build_scope(cfg, rows)
+    continents = continent_by_admin(args.repo)
 
     countries = []
     for slug in sorted(scope):
@@ -73,6 +86,7 @@ def main() -> int:
         countries.append(dict(
             slug=slug,
             name=r["admin"],
+            continent=continents.get(r["admin"], ""),
             aspect=aspect_of(variants_dir, slug, sizes),
             sizes=sizes,
             native=sizes[-1] if sizes else None,

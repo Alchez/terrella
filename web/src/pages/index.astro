@@ -1,5 +1,6 @@
 ---
 import Base from "../layouts/Base.astro";
+import Masthead from "../components/Masthead.astro";
 import data from "../data/countries.json";
 
 // Hero variants are served from this base — a symlink in dev (public/heroes ->
@@ -26,25 +27,14 @@ const SIZES = "(max-width: 640px) 92vw, (max-width: 1024px) 46vw, 30vw";
 ---
 
 <Base title="Relief Globe — Gallery" borders={true}>
-  <header class="site-head">
-    <div class="head-row">
-      <div class="head-title">
-        <h2 class="eyebrow">Atlas</h2>
-        <h1>Relief Globe</h1>
-      </div>
-      <a class="about-link" href="/about/">About</a>
-    </div>
+  <Masthead eyebrow="Atlas" heading="Relief Globe" maxWidth="1400px">
+    <a slot="actions" class="about-link" href="/about/">About</a>
     <p class="tagline">
       Ray-traced relief maps of every country.
       <span class="count" id="count">{data.rendered} of {data.count} rendered</span>
     </p>
-    <figure class="legend" aria-label="Elevation legend, sea floor to peak">
-      <div class="ramp"></div>
-      <figcaption>
-        <span>Sea floor</span><span>Coast</span><span>Peak</span>
-      </figcaption>
-    </figure>
     <input
+      slot="after"
       class="search"
       id="search"
       type="search"
@@ -52,7 +42,7 @@ const SIZES = "(max-width: 640px) 92vw, (max-width: 1024px) 46vw, 30vw";
       autocomplete="off"
       aria-label="Search countries"
     />
-  </header>
+  </Masthead>
 
   <main class="gallery">
     {
@@ -98,25 +88,6 @@ const SIZES = "(max-width: 640px) 92vw, (max-width: 1024px) 46vw, 30vw";
 </Base>
 
 <style>
-  .site-head {
-    max-width: 1400px;
-    margin: 0 auto;
-    padding: clamp(1.5rem, 4vw, 3rem) clamp(1rem, 3vw, 2rem) 1rem;
-  }
-  .head-row {
-    display: flex;
-    align-items: flex-end;
-    justify-content: space-between;
-    gap: 1rem;
-    flex-wrap: wrap;
-  }
-  h1 {
-    font-family: var(--serif);
-    font-weight: 600;
-    font-size: clamp(1.8rem, 5vw, 2.8rem);
-    letter-spacing: -0.01em;
-    margin: 0;
-  }
   .tagline {
     color: var(--muted);
     margin: 0.5rem 0 0;
@@ -155,7 +126,7 @@ const SIZES = "(max-width: 640px) 92vw, (max-width: 1024px) 46vw, 30vw";
   .gallery {
     max-width: 1400px;
     margin: 0 auto;
-    padding: 0.5rem clamp(1rem, 3vw, 2rem) 4rem;
+    padding: clamp(1.4rem, 3vw, 2rem) clamp(1.1rem, 4vw, 2.5rem) 4rem;
     columns: 3 300px; /* masonry: flows varied hero aspects without cropping */
     column-gap: clamp(0.8rem, 1.5vw, 1.4rem);
   }

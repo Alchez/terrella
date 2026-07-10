@@ -1,5 +1,6 @@
 ---
 import Base from "../layouts/Base.astro";
+import Masthead from "../components/Masthead.astro";
 import data from "../data/countries.json";
 
 // One statically-built page per country.
@@ -28,12 +29,7 @@ const SIZES = "(max-width: 1240px) 94vw, 1200px";
   description={`Ray-traced relief map of ${c.name}.`}
   borders={c.hasBorder}
 >
-  <header class="detail-head">
-    <a class="back" href="/">← All countries</a>
-    <div class="title-row">
-      <h1>{c.name}</h1>
-    </div>
-  </header>
+  <Masthead heading={c.name} eyebrow={c.continent} back="/" maxWidth="1240px" />
 
   <main class="stage">
     {
@@ -73,41 +69,12 @@ const SIZES = "(max-width: 1240px) 94vw, 1200px";
 </Base>
 
 <style>
-  .detail-head {
-    max-width: 1240px;
-    margin: 0 auto;
-    padding: clamp(1.2rem, 3vw, 2rem) clamp(1rem, 3vw, 2rem) 0.5rem;
-  }
-  .back {
-    display: inline-block;
-    color: var(--muted);
-    text-decoration: none;
-    font-size: 0.9rem;
-    margin-bottom: 0.8rem;
-  }
-  .back:hover {
-    color: var(--accent);
-  }
-  .title-row {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 1rem;
-    flex-wrap: wrap;
-  }
-  h1 {
-    font-family: var(--serif);
-    font-weight: 600;
-    font-size: clamp(1.6rem, 5vw, 2.6rem);
-    letter-spacing: -0.01em;
-    margin: 0;
-  }
   .stage {
     max-width: 1240px;
     margin: 0 auto;
-    padding: 0.5rem clamp(1rem, 3vw, 2rem) 3rem;
+    padding: clamp(1rem, 2vw, 1.4rem) clamp(1.1rem, 4vw, 2.5rem) 3rem;
   }
-  figure {
+  .stage figure {
     position: relative;
     margin: 0;
     border-radius: 12px;
@@ -115,7 +82,7 @@ const SIZES = "(max-width: 1240px) 94vw, 1200px";
     background: var(--bg-2);
     box-shadow: var(--shadow);
   }
-  figure img {
+  .stage figure img {
     width: 100%;
     height: 100%;
     object-fit: cover;
