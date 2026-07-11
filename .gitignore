@@ -17,3 +17,10 @@ CLAUDE.md
 __pycache__/
 *.pyc
 .venv/
+
+# Phase 2 geotools binaries — vendored, reinstall with pipeline/install_geotools.sh
+tools/
+
+# Secrets — never commit (holds OPENTOPOGRAPHY_API_KEY; OT prohibits sharing keys)
+.env
+.env.*

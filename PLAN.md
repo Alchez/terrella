@@ -33,19 +33,24 @@ Goal: a single Ramspott-style render of **India** that looks right, before build
 
 **Scoped 2026-07-10 (toolchain + decisions):** ceiling **locked at z8** (~300 m/px; z9/z10 are additive
 over the same mosaic+shading, so deferred until deep zoom is proven necessary). Toolchain audit found the
-stack is almost entirely **GDAL 3.12, already installed** (`gdal raster tile` with WebMercatorQuad + min/max
-zoom supersedes gdal2tiles; gdaldem hillshade/color-relief; gdalwarp/buildvrt; native MBTiles r/w). **Only
-one mandatory new dependency: the `pmtiles` CLI** (GDAL writes MBTiles but not PMTiles → convert as the last
-step). **One open engine choice — the SVF/openness step:** reuse our own `sky_view.py` horizon code (palette/
-shading consistency with the heroes, no new dep, learning-first; numpy, so compute at reduced res) vs
-**WhiteboxTools/RVT** (faster Rust/Python, purpose-built, but a second implementation) — decided empirically
-at the sample-region prototype. color-relief ramp file to be generated from the hero `SEA_STOPS`/land arrays
+stack is almost entirely **GDAL, already installed** (`gdal raster tile` with WebMercatorQuad + min/max
+zoom supersedes gdal2tiles; gdaldem hillshade/color-relief; gdalwarp/buildvrt; native MBTiles r/w). **GDAL
+pinned to 3.13.1** (latest, 2026-06-05) for the production run via the official OSGeo GDAL container; apt on
+Ubuntu 26.04 tops out at 3.12.2 and 3.13 adds nothing our recipe needs (its tiling headline just default-remaps
+gdal2tiles→`gdal raster tile`, a path we already call directly), so the step-B prototype runs on the box's
+3.12.2 — the prep sweep is unaffected either way (venv rasterio bundles its own GDAL, not the system one).
+**Only one mandatory new dependency: the `pmtiles` CLI** (GDAL writes MBTiles but not PMTiles → convert as the
+last step). **SVF/openness step — decided 2026-07-10:** our own `sky_view.py` horizon code (already the
+production openness pass burned into every hero → palette-consistent by construction, no dep, learning-first).
+WhiteboxTools was dropped (legacy); RVT (`rvt-py`, the community SVF specialist, but Python <3.12 so its own
+env) is kept only as an optional one-off numeric oracle. color-relief ramp file to be generated from the hero `SEA_STOPS`/land arrays
 (single source of truth). Tile storage mount on rohome is a **Phase 4 deploy concern** (build on the dev box,
 ship the finished `.pmtiles`), not a Phase 2 blocker. Tuning loop + the raster-vs-Blender-tile fork
 (open-Q below) both gated on a **frozen hero look**.
 
+- [x] Toolchain locked (2026-07-10): `pmtiles` 1.31.0 = sole vendored tool (`pipeline/install_geotools.sh`); SVF via our own `sky_view.py`; **GDAL pinned 3.13.1** (OSGeo container for prod; prototype on apt 3.12.2). WhiteboxTools dropped as legacy.
 - [ ] Build planet-wide fused heightfield (chunked; will not fit in RAM)
-- [ ] Raster shading pipeline: multidirectional hillshade + sky-view factor (WhiteboxTools) + land/sea color ramps, composited to match hero-render palette; tune *quieter* than the heroes — tiles are background under labels/borders (Huffman 2022), and resolution bumping is available where native 30 m reads as noise at high zooms
+- [ ] Raster shading pipeline: multidirectional hillshade + sky-view factor (our `sky_view.py`) + land/sea color ramps, composited to **match the hero family** (same ramps/warmth/contrast → globe↔hero continuity); **final restraint decided in-context on the globe, not chased in the abstract** — the "quieter basemap" convention (relief recedes under overlays, Huffman 2022) applies weakly here (the relief *is* the subject; typography is minimal; borders already read on the dramatic heroes), so restrain only enough to keep white borders/labels legible and tame native-30 m noise at high zoom (resolution bumping held in reserve)
 - [ ] Compare a tile region side-by-side with the Cycles render; tune until acceptable
 - [ ] Cut 512px tiles, zoom 0–8 (extend to 10 later if quality/storage allows)
 - [ ] Package as PMTiles
@@ -54,6 +59,17 @@ ship the finished `.pmtiles`), not a Phase 2 blocker. Tuning loop + the raster-v
 ## Phase 3 — Frontend
 
 Baked-vs-live rule (2026-07-07): too expensive to compute live → baked, always; depends on view state/interaction → live, always; otherwise context-dependent or variant-multiplying → live but pinned to authored constants; invariant and physics-coupled → baked. Live raster grading (dark mode) OK — it commutes with the look; runtime terrain exaggeration only in a narrow range — baked shadows don't move. User-exposed settings only where the user's context genuinely varies (quality tier, border toggle, motion).
+
+**Phase 3 started 2026-07-10 — Tier 1 shipped (branch `feat/frontend`, git worktree `../maps-frontend`; merge to `main` later; all committed).** An Astro 7 static site under `web/`: a responsive gallery of country heroes, per-country detail pages, and an About page — all data-driven so they fill in as renders complete. Decisions:
+- **Astro 7 + pnpm.** Self-hosted **Fraunces** display serif via the stable Fonts API (`_astro/fonts`, no runtime external requests); system sans + mono utility face. Component hierarchy: `Base` (shell + fonts + the floating, persistent border toggle) → `Masthead` (eyebrow + heading + optional back link + the elevation legend, per-page via props/slots) → `Legend` (the hypsometric ramp — the signature). Design tokens in `src/styles/global.css` (moved out of a component `<style is:global>` for reliable CSS HMR).
+- **Assets are external, never bundled.** Hero WebP + border PNGs live in the render store: a dev-only Vite middleware in `astro.config.mjs` maps `/heroes/*` → `blender/renders/variants/`; in prod nginx serves the same path. The build only emits HTML/CSS/JS that references `/heroes/…` (tens of GB never copied into `dist`).
+- **Manifest bridge:** `web/scripts/gen_manifest.py` reads `country_config` + scans the variant store → `src/data/countries.json` (name, continent, aspect, variant sizes, `hasBorder`). Re-run after each asset pass.
+- **Borders:** `pipeline/gen_borders.py` (on `main`) draws the standalone transparent border layer + gallery-sized variants from prep outputs only (reuses `overlay_borders`' AEA→pixel mapping), independent of the render.
+- **Responsive:** two width tiers — browse grid `min(2200px, 94vw)` with column-*width*-driven masonry (~6 cols at 2K → 1 on mobile); content pages `min(1500px, 92vw)`; prose kept to a readable measure; search capped 720px. Scoped component selectors must not collide with the shared `.legend`/`.card` (Astro `figure[data-astro-cid]` outspecifies a global `.legend` — scope to `.card figure`/`.stage figure`).
+
+**POST-RENDER ASSET WORKFLOW** (run after tonight's `--through render --force` fills all 203 heroes): `python pipeline/hero_variants.py` → `python pipeline/gen_borders.py` → `python web/scripts/gen_manifest.py --repo <repo> --out web/src/data/countries.json` → `pnpm --dir web build`. Gallery + detail + border toggle then populate for every country (only india/srilanka/switzerland are live today).
+
+Still **Phase-2-blocked** (need the tile pyramid): the MapLibre globe (Tier 2), terrain-RGB 3D + country fly-to (Tier 3), and the Lite/Globe/Full capability probe. Detail pages are the static Tier-1 hero view until then.
 
 - [ ] MapLibre GL v5 globe with the PMTiles raster source
 - [ ] Natural Earth borders as vector overlay layer, with show/hide toggle (gallery tier: stacked transparent border image over the hero, same toggle)
@@ -120,6 +136,70 @@ Resolved questions move to the decision log — one home per fact. Each question
   *then* `--through render` = pure GPU), which suffices if prep is allowed to finish first.
 
 ## Decision log
+
+### 2026-07-11 — Full v3 hero render sweep (in progress): 2 bugs found + post-sweep to-do
+Full v3 re-render of all 201 prepped countries (`batch.py --through render --force`, launched
+2026-07-10 ~22:00), watched by a self-firing ScheduleWakeup loop + `~/render_watch.sh` logger +
+`~/hero_montage.py` visual QA of every batch. Interrupted at 147/201 by an OOM at russia; **resumed**
+via `batch.py --through render --only <54 remaining> --force` (russia+canada excluded — their cached
+prep is absent so the OOM-prone stage is skipped). On completion the 201 prepped countries have v3
+heroes; the items below are **outstanding, to handle after the sweep**:
+- **BUG — snow_mask OOM on continent-scale frames.** russia + canada both die at stage 4 (`snow_mask.py`)
+  loading their huge WorldCover mask (~2542 tiles) into one ~29 GB array on the 29 GB box (russia's
+  killed the runner+terminal — shared cgroup). FIX: memory-bound `snow_mask.py`'s WorldCover reads
+  (tile/stream the window) for huge high-lat frames; then re-prep + re-render russia + canada. Their
+  download/fuse/render_prep are fine (russia's download self-healed on retry) — only snow_mask OOMs.
+- **BUG — South Caucasus oceanmask over-marks water.** armenia (84% ocean) + azerbaijan (76%) render
+  mostly flat featureless teal (land jammed in a corner). Confined to those two: georgia (37% = real
+  Black Sea) and kazakhstan (Caspian) both render CLEAN. FIX: correct the oceanmask for armenia +
+  azerbaijan, re-render. (Prep/data bug — the terrain itself renders fine.)
+- **NOTE — ecuador framing.** Sea-heavy frame (Galápagos in-frame; coherent render *with* bathymetry,
+  NOT the oceanmask bug) pushes the mainland to the edge — optional framing revisit, low priority.
+- **VERIFY — usa** antimeridian CONUS render looks right (Rohan's request); check at/after completion.
+- **VALIDATED:** antimeridian handling works end-to-end — fiji + newzealand render correctly, usa in
+  the resume batch. ~197 of 201 heroes clean on visual QA (only armenia/azerbaijan broken).
+- **THEN — post-render asset workflow** for the good heroes: `pipeline/hero_variants.py` →
+  `pipeline/gen_borders.py` → `web/scripts/gen_manifest.py` → `pnpm build` (Phase 3, populates gallery/
+  detail/borders for all countries).
+
+### 2026-07-10 — Phase 2 step B prototype: raster recipe viable; "quieter tiles" reframed
+- **Result (`experiments/tile_recipe.py`, Switzerland):** gdaldem color-relief × gdaldem hillshade
+  (`-z 15`, exaggeration read from frame.json) × our `horizon_svf`, reusing the hero's exact ramps +
+  WATER_RGBA/SNOW_RGBA under the Standard view transform, reproduces the hero's structure and palette;
+  inland lakes/rivers and snow composite in; ~20 s/run. The raster arm is viable (the raster-vs-Blender
+  -tile open question leans raster), and reusing `sky_view.py` verbatim settles the SVF engine (our own
+  code, not WBT/RVT). Runs on the AEA `render_1s` grid so output overlays 1:1 on the Cycles hero.
+- **"Tune quieter than the heroes" → "match the hero family; decide final restraint in-context."** The
+  old note borrowed a real convention (relief recedes under overlays, Huffman) that applies weakly here:
+  the relief *is* the brand, typography is minimal, and borders already read on the dramatic heroes — so
+  a muted globe would only break Tier 2↔Tier 3 (globe↔hero) continuity. Surviving tile-only constraints
+  are high-zoom 30 m noise (fix: shelved resolution-bumping) and border/label legibility headroom — both
+  argue for *slight* restraint, not flattening. "How quiet" is only fairly judged against the actual
+  overlays, so decide it on the MapLibre globe with borders at several zooms, not a static side-by-side.
+
+### 2026-07-10 — Phase 2 step A: tiling toolchain locked (WhiteboxTools dropped)
+- **Locked stack:** GDAL (gdaldem hillshade/color-relief + `gdal raster tile`) + our own
+  `pipeline/sky_view.py` for the SVF/openness term + `pmtiles` for packaging. `pmtiles` 1.31.0 is the
+  sole vendored binary (pinned github release, installed by `pipeline/install_geotools.sh` into
+  gitignored `tools/`; no brew, no `.venv` touch → reproduces in the rohome container and is safe to
+  run during a live prep sweep).
+- **WhiteboxTools dropped.** It was briefly installed (v2.4.0, whiteboxgeo prebuilt) as the SVF
+  comparison arm, then removed the same day on two findings: (1) its repo is now **legacy** — the
+  README redirects to a next-gen rewrite (`whitebox_next_gen`, Rust, no releases/binaries yet, and
+  GDAL-free so no architectural fit for us); (2) the community SVF specialist is **RVT** (`rvt-py`
+  2.2.3, 2025-07-04 — SVF / anisotropic SVF / openness; built on numpy/scipy/gdal/rasterio), which
+  supersedes WBT for the one job it had. Decisive: our own `sky_view.py` is **already the production
+  openness pass** burned into every hero, so reusing it for tiles makes them palette-consistent by
+  construction. RVT is kept only as an **optional one-off numeric oracle** (needs Python <3.12; our
+  venv is 3.12.10, so a throwaway 3.11 env), never a pipeline dependency.
+- **GDAL pinned to 3.13.1** (latest; 2026-06-05) as the production target, delivered via the official
+  OSGeo GDAL container (reproducible on dev + rohome). apt on Ubuntu 26.04 tops out at 3.12.2, and
+  3.13 brings nothing our recipe needs over 3.12 (its tiling headline is the gdal2tiles→`gdal raster
+  tile` default-remap of a path we already call directly) — so the step-B prototype runs on the box's
+  3.12.2 and we adopt 3.13.1 at containerization. The prep sweep is unaffected either way: the venv's
+  rasterio bundles its own GDAL (3.12.1) rather than linking the system `gdal-bin`.
+- **Deferred:** `tippecanoe` (vector borders/coastlines → vector tiles) — a from-source build needed
+  only when the vector-tile step lands, not for the raster recipe.
 
 ### 2026-07-10 — Overnight render sweep ran to 123/204, then STOPPED to fix hero quality; pipeline hardened
 

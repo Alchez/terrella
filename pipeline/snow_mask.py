@@ -42,16 +42,12 @@ from typing import Any
 
 import numpy as np
 import rasterio
-from rasterio.enums import Resampling
-from rasterio.vrt import WarpedVRT
 from rasterio.warp import transform_bounds
-from rasterio.windows import Window
 
 BUCKET_URL = "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map"
 DATA_DIR = Path.home() / "projects/maps/data/raw/worldcover"
 SNOW_CLASS = 70
 TILE_DEG = 3
-BLOCK = 4096
 WORKERS = 6
 
 
@@ -179,18 +175,29 @@ def main():
           flush=True)
 
     # nearest-warp the classification onto the render grid, then threshold:
-    # uncovered pixels read 0 (WorldCover nodata) -> never class 70 -> no snow
-    mask = np.zeros((height, width), dtype="uint8")
-    with rasterio.open(vrt) as src, \
-         WarpedVRT(src, crs=dst_crs, transform=transform, width=width,
-                   height=height, resampling=Resampling.nearest) as wv:
-        for row in range(0, height, BLOCK):
-            for col in range(0, width, BLOCK):
-                win = Window(col, row,  # pyright: ignore[reportCallIssue] — rasterio untyped, attrs init invisible
-                             min(BLOCK, width - col), min(BLOCK, height - row))
-                block = wv.read(1, window=win)
-                mask[row:row + win.height, col:col + win.width] = \
-                    (block == SNOW_CLASS).astype("uint8") * 255
+    # uncovered pixels read 0 (WorldCover nodata) -> never class 70 -> no snow.
+    # Use gdalwarp (streaming, warp-memory-capped) rather than an in-process
+    # WarpedVRT block read: on a continent-scale frame a single destination block
+    # spans a huge lon/lat source window (russia covers 161 deg of longitude =
+    # thousands of 10 m tiles), and materialising that window in one read OOMs
+    # (~29 GB, killed russia+canada). gdalwarp chunks the warp to the -wm cap and
+    # reads only the source tiles each chunk needs. -te/-ts reproduce the
+    # heightfield grid exactly, so the mask still registers pixel-for-pixel.
+    tmp_cls = out_png.with_name(out_png.name + ".cls.tif.tmp")
+    left, bottom, right, top = aea_bounds
+    subprocess.run(
+        ["gdalwarp", "-overwrite", "-q", "-of", "GTiff",
+         "-t_srs", dst_crs.to_wkt(),
+         "-te", repr(left), repr(bottom), repr(right), repr(top),
+         "-ts", str(width), str(height),
+         "-r", "near", "-ot", "Byte",
+         "-wm", "512", "-multi", "-wo", "NUM_THREADS=ALL_CPUS",
+         "-co", "TILED=YES", "-co", "COMPRESS=DEFLATE",
+         str(vrt), str(tmp_cls)],
+        check=True, capture_output=True)
+    with rasterio.open(tmp_cls) as cls:
+        mask = np.where(cls.read(1) == SNOW_CLASS, 255, 0).astype("uint8")
+    tmp_cls.unlink(missing_ok=True)
 
     profile: dict[str, Any] = dict(driver="PNG", width=width, height=height,
                                    count=1, dtype="uint8", crs=dst_crs,

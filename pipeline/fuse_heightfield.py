@@ -122,6 +122,12 @@ def main():
     ap.add_argument("--outdir", type=Path, required=True)
     ap.add_argument("--gebco", type=Path, default=GEBCO,
                     help="bathymetry source (default: the global GEBCO_2026 mosaic)")
+    ap.add_argument("--dem-vrt", type=Path, default=DEM_VRT,
+                    help="land-elevation mosaic (default: the GLO-30 mosaic); override "
+                         "to splice a fallback DEM under GLO-30 over source voids")
+    ap.add_argument("--wbm-vrt", type=Path, default=WBM_VRT,
+                    help="water-body mask mosaic (default: the GLO-30 WBM mosaic); "
+                         "override alongside --dem-vrt so void-fill land is classified")
     ap.add_argument("--watermask-only", action="store_true",
                     help="backfill the water mask from an existing fusion")
     args = ap.parse_args()
@@ -168,8 +174,8 @@ def main():
     vrt_kw = dict(crs="EPSG:4326", transform=transform,
                   width=width, height=height)
 
-    with rasterio.open(DEM_VRT) as dem_src, \
-         rasterio.open(WBM_VRT) as wbm_src, \
+    with rasterio.open(args.dem_vrt) as dem_src, \
+         rasterio.open(args.wbm_vrt) as wbm_src, \
          rasterio.open(args.gebco) as geb_src, \
          WarpedVRT(dem_src, resampling=getattr(Resampling, args.land_resampling), **vrt_kw) as dem, \
          WarpedVRT(wbm_src, resampling=Resampling.nearest, **vrt_kw) as wbm, \

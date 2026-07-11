@@ -17,10 +17,20 @@ set -euo pipefail
 
 DATA="$(cd "$(dirname "$0")/.." && pwd)/data"
 
+# Sources: the AWS GLO-30 tiles plus the OpenTopography 2023_1 void-fill tiles
+# (download_cop30_void.py) and their WorldCover-derived WBM (build_void_wbm.py).
+# nullglob keeps the void dirs optional — a machine without them builds the
+# AWS-only mosaic. The two sets are spatially disjoint (void = the tiles AWS
+# withholds), so there is no overlap to prioritise.
+shopt -s nullglob
+dem_src=("$DATA"/raw/glo30/dem/*.tif "$DATA"/raw/cop30_void/dem/*.tif)
+wbm_src=("$DATA"/raw/glo30/wbm/*.tif "$DATA"/raw/cop30_void/wbm/*.tif)
+shopt -u nullglob
+
 gdalbuildvrt -overwrite -vrtnodata -9999 \
-  "$DATA/work/dem_mosaic.vrt" "$DATA"/raw/glo30/dem/*.tif
+  "$DATA/work/dem_mosaic.vrt" "${dem_src[@]}"
 gdalbuildvrt -overwrite -vrtnodata 255 \
-  "$DATA/work/wbm_mosaic.vrt" "$DATA"/raw/glo30/wbm/*.tif
+  "$DATA/work/wbm_mosaic.vrt" "${wbm_src[@]}"
 
 echo "done: $(grep -c '<SimpleSource' "$DATA/work/dem_mosaic.vrt") DEM sources,"\
      "$(grep -c '<SimpleSource' "$DATA/work/wbm_mosaic.vrt") WBM sources"
