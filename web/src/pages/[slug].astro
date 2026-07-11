@@ -12,12 +12,20 @@ export function getStaticPaths() {
 }
 
 type Country = (typeof data.countries)[number];
-const { country: c } = Astro.props as { country: Country };
+const { country } = Astro.props as { country: Country };
 
 const HERO_BASE = import.meta.env.PUBLIC_HERO_BASE ?? "/heroes/";
-const heroSrcset = c.sizes.map((s) => `${HERO_BASE}${c.slug}-${s}.webp ${s}w`).join(", ");
-const borderSrcset = c.borderSizes
-  .map((s) => `${HERO_BASE}${c.slug}-border-${s}.png ${s}w`)
+// Variants are keyed by long edge, but srcset w-descriptors must be the actual
+// pixel WIDTH. For a portrait country the file keyed "1920" is only ~450px wide
+// (Maldives), so advertising it as 1920w makes the browser under-select and
+// upscale ~3x. aspect is w/h: width = long edge (landscape) or long edge*aspect.
+const variantWidth = (longEdge: number) =>
+  Math.round(longEdge * Math.min(1, country.aspect));
+const heroSrcset = country.sizes
+  .map((longEdge) => `${HERO_BASE}${country.slug}-${longEdge}.webp ${variantWidth(longEdge)}w`)
+  .join(", ");
+const borderSrcset = country.borderSizes
+  .map((longEdge) => `${HERO_BASE}${country.slug}-border-${longEdge}.png ${variantWidth(longEdge)}w`)
   .join(", ");
 // Detail view is a single large stage, capped ~1200px; DPR-2 phones still pull
 // a sharp variant without fetching the full native frame.
@@ -25,28 +33,28 @@ const SIZES = "(max-width: 1240px) 94vw, 1200px";
 ---
 
 <Base
-  title={`${c.name} — Relief Globe`}
-  description={`Ray-traced relief map of ${c.name}.`}
-  borders={c.hasBorder}
+  title={`${country.name} — Relief Globe`}
+  description={`Ray-traced relief map of ${country.name}.`}
+  borders={country.hasBorder}
 >
-  <Masthead heading={c.name} eyebrow={c.continent} back="/" maxWidth="min(1500px, 92vw)" />
+  <Masthead heading={country.name} eyebrow={country.continent} back="/" maxWidth="min(1500px, 92vw)" />
 
   <main class="stage">
     {
-      c.rendered ? (
-        <figure style={`aspect-ratio:${c.aspect}`}>
+      country.rendered ? (
+        <figure style={`aspect-ratio:${country.aspect}`}>
           <img
-            src={`${HERO_BASE}${c.slug}-${c.sizes[0]}.webp`}
+            src={`${HERO_BASE}${country.slug}-${country.sizes[0]}.webp`}
             srcset={heroSrcset}
             sizes={SIZES}
-            alt={`Ray-traced relief map of ${c.name}`}
+            alt={`Ray-traced relief map of ${country.name}`}
             decoding="async"
             fetchpriority="high"
           />
-          {c.hasBorder && (
+          {country.hasBorder && (
             <img
               class="border-layer"
-              src={`${HERO_BASE}${c.slug}-border-${c.borderSizes[0]}.png`}
+              src={`${HERO_BASE}${country.slug}-border-${country.borderSizes[0]}.png`}
               srcset={borderSrcset}
               sizes={SIZES}
               alt=""
@@ -55,15 +63,15 @@ const SIZES = "(max-width: 1240px) 94vw, 1200px";
           )}
         </figure>
       ) : (
-        <div class="placeholder" style={`aspect-ratio:${c.aspect}`}>
-          <span>{c.name}</span>
+        <div class="placeholder" style={`aspect-ratio:${country.aspect}`}>
+          <span>{country.name}</span>
           <small>This hero is still rendering — check back soon.</small>
         </div>
       )
     }
     <p class="meta">
       Ray-traced relief · Copernicus GLO-30 + GEBCO bathymetry
-      {c.hasBorder && <span> · Natural Earth boundaries</span>}
+      {country.hasBorder && <span> · Natural Earth boundaries</span>}
     </p>
   </main>
 </Base>

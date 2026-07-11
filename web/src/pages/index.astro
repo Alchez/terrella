@@ -12,14 +12,27 @@ type Country = (typeof data.countries)[number];
 // Rendered heroes first (so real imagery leads while the sweep fills in), then
 // everything else alphabetically.
 const countries = [...data.countries].sort(
-  (a, b) => Number(b.rendered) - Number(a.rendered) || a.name.localeCompare(b.name),
+  (first, second) =>
+    Number(second.rendered) - Number(first.rendered) ||
+    first.name.localeCompare(second.name),
 );
 
-const srcset = (c: Country) =>
-  c.sizes.map((s) => `${HERO_BASE}${c.slug}-${s}.webp ${s}w`).join(", ");
+// srcset w-descriptors must be the actual pixel WIDTH, not the long-edge key:
+// for a portrait country the file keyed "1920" is only ~450px wide, so
+// advertising it as 1920w makes the browser under-select and upscale. aspect is
+// w/h, so width = long edge (landscape) or long edge*aspect (portrait).
+const variantWidth = (country: Country, longEdge: number) =>
+  Math.round(longEdge * Math.min(1, country.aspect));
 
-const borderSrcset = (c: Country) =>
-  c.borderSizes.map((s) => `${HERO_BASE}${c.slug}-border-${s}.png ${s}w`).join(", ");
+const srcset = (country: Country) =>
+  country.sizes
+    .map((longEdge) => `${HERO_BASE}${country.slug}-${longEdge}.webp ${variantWidth(country, longEdge)}w`)
+    .join(", ");
+
+const borderSrcset = (country: Country) =>
+  country.borderSizes
+    .map((longEdge) => `${HERO_BASE}${country.slug}-border-${longEdge}.png ${variantWidth(country, longEdge)}w`)
+    .join(", ");
 
 // Displayed at the card's rendered width: ~full width on phones, ~half on
 // tablets, ~a third on desktop — keeps the browser from over-fetching.
@@ -46,35 +59,35 @@ const SIZES = "(max-width: 640px) 92vw, (max-width: 1024px) 46vw, 30vw";
 
   <main class="gallery">
     {
-      countries.map((c) => (
-        <article class="card" data-name={c.name.toLowerCase()} data-rendered={String(c.rendered)}>
-          <a class="card-link" href={`/${c.slug}/`}>
-          {c.rendered ? (
-            <figure style={`aspect-ratio:${c.aspect}`}>
+      countries.map((country) => (
+        <article class="card" data-name={country.name.toLowerCase()} data-rendered={String(country.rendered)}>
+          <a class="card-link" href={`/${country.slug}/`}>
+          {country.rendered ? (
+            <figure style={`aspect-ratio:${country.aspect}`}>
               <img
-                src={`${HERO_BASE}${c.slug}-${c.sizes[0]}.webp`}
-                srcset={srcset(c)}
+                src={`${HERO_BASE}${country.slug}-${country.sizes[0]}.webp`}
+                srcset={srcset(country)}
                 sizes={SIZES}
-                alt={`Ray-traced relief map of ${c.name}`}
+                alt={`Ray-traced relief map of ${country.name}`}
                 loading="lazy"
                 decoding="async"
               />
-              {c.hasBorder && (
+              {country.hasBorder && (
                 <img
                   class="border-layer"
-                  src={`${HERO_BASE}${c.slug}-border-${c.borderSizes[0]}.png`}
-                  srcset={borderSrcset(c)}
+                  src={`${HERO_BASE}${country.slug}-border-${country.borderSizes[0]}.png`}
+                  srcset={borderSrcset(country)}
                   sizes={SIZES}
                   alt=""
                   aria-hidden="true"
                   loading="lazy"
                 />
               )}
-              <figcaption>{c.name}</figcaption>
+              <figcaption>{country.name}</figcaption>
             </figure>
           ) : (
-            <div class="placeholder" style={`aspect-ratio:${c.aspect}`}>
-              <span>{c.name}</span>
+            <div class="placeholder" style={`aspect-ratio:${country.aspect}`}>
+              <span>{country.name}</span>
               <small>rendering…</small>
             </div>
           )}
@@ -232,14 +245,14 @@ const SIZES = "(max-width: 640px) 92vw, (max-width: 1024px) 46vw, 30vw";
   const baseLabel = count?.textContent ?? "";
 
   function applyFilter() {
-    const q = (search?.value ?? "").trim().toLowerCase();
+    const query = (search?.value ?? "").trim().toLowerCase();
     let shown = 0;
     for (const card of cards) {
-      const match = !q || (card.dataset.name ?? "").includes(q);
+      const match = !query || (card.dataset.name ?? "").includes(query);
       card.hidden = !match;
       if (match) shown++;
     }
-    if (count) count.textContent = q ? `${shown} of ${total} shown` : baseLabel;
+    if (count) count.textContent = query ? `${shown} of ${total} shown` : baseLabel;
     if (empty) empty.hidden = shown !== 0;
   }
 
