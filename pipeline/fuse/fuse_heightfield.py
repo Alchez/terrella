@@ -193,20 +193,20 @@ def main():
             for col in range(0, width, BLOCK):
                 win = Window(col, row,  # pyright: ignore[reportCallIssue] — rasterio untyped, attrs init invisible
                              min(BLOCK, width - col), min(BLOCK, height - row))
-                d = dem.read(1, window=win)
-                w = wbm.read(1, window=win)
-                g = geb.read(1, window=win)
+                dem_win = dem.read(1, window=win)
+                wbm_win = wbm.read(1, window=win)
+                geb_win = geb.read(1, window=win)
 
-                land = np.where(d == DEM_NODATA, 0, d)
-                coastal_water = ((w == 2) | (w == 3)) & (np.abs(land) <= 1.0)
-                ocean = (w == 1) | (w == WBM_NODATA) | coastal_water
-                gap_px += int(((d == DEM_NODATA) & (w == 0)).sum())  # WBM-land, no DEM tile
-                land_px += int((w == 0).sum())
-                fused = np.where(ocean, np.minimum(g, -1.0), land)
+                land = np.where(dem_win == DEM_NODATA, 0, dem_win)
+                coastal_water = ((wbm_win == 2) | (wbm_win == 3)) & (np.abs(land) <= 1.0)
+                ocean = (wbm_win == 1) | (wbm_win == WBM_NODATA) | coastal_water
+                gap_px += int(((dem_win == DEM_NODATA) & (wbm_win == 0)).sum())  # WBM-land, no DEM tile
+                land_px += int((wbm_win == 0).sum())
+                fused = np.where(ocean, np.minimum(geb_win, -1.0), land)
 
                 fh.write(fused.astype("float32"), 1, window=win)
                 fm.write(ocean.astype("uint8"), 1, window=win)
-                wm = classify_water(ocean, w)
+                wm = classify_water(ocean, wbm_win)
                 fw.write(wm, 1, window=win)
                 counts += np.bincount(wm.ravel(), minlength=4)
                 done += 1

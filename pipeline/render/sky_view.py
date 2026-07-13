@@ -35,7 +35,7 @@ from scipy.ndimage import zoom
 warnings.filterwarnings("ignore")
 
 
-def horizon_svf(z: np.ndarray, m_per_px: float, n_dir: int = 16,
+def horizon_svf(heights: np.ndarray, m_per_px: float, n_dir: int = 16,
                 max_px: int = 42, exag: float = 22.0) -> np.ndarray:
     """Sky-view factor 0..1 (1 = fully open sky, lower = occluded/valley).
 
@@ -43,15 +43,15 @@ def horizon_svf(z: np.ndarray, m_per_px: float, n_dir: int = 16,
     elevation angle; SVF = 1 - mean sin(horizon angle). `exag` is a sensitivity
     lever so low-relief terrain still produces usable occlusion (the burn below
     re-normalises per country, so the absolute scale only shapes the falloff)."""
-    z = z * exag
-    acc = np.zeros_like(z)
-    for k in range(n_dir):
-        az = 2.0 * np.pi * k / n_dir
+    heights = heights * exag
+    acc = np.zeros_like(heights)
+    for direction_index in range(n_dir):
+        az = 2.0 * np.pi * direction_index / n_dir
         dy, dx = np.sin(az), np.cos(az)
-        mh = np.full_like(z, -1e9)
-        for d in range(1, max_px):
-            zi = np.roll(np.roll(z, -int(round(dy * d)), 0), -int(round(dx * d)), 1)
-            np.maximum(mh, (zi - z) / (d * m_per_px), out=mh)
+        mh = np.full_like(heights, -1e9)
+        for distance_px in range(1, max_px):
+            zi = np.roll(np.roll(heights, -int(round(dy * distance_px)), 0), -int(round(dx * distance_px)), 1)
+            np.maximum(mh, (zi - heights) / (distance_px * m_per_px), out=mh)
         acc += 1.0 - np.sin(np.arctan(np.clip(mh, 0, None)))
     return acc / n_dir
 
@@ -74,36 +74,44 @@ def main() -> int:
     hf_path = args.render_dir / "heightfield_aea.tif"
     om_path = args.render_dir / "oceanmask_aea.tif"
 
-    with rasterio.open(args.hero) as h:
-        hero = h.read()                      # (bands, H, W) uint8
-        prof: dict[str, Any] = h.profile
-    _, H, W = hero.shape
+    with rasterio.open(args.hero) as hero_src:
+        hero = hero_src.read()               # (bands, H, W) uint8
+        prof: dict[str, Any] = hero_src.profile
+    _, hero_height, hero_width = hero.shape
 
     # openness at reduced res, from the warped heightfield
-    with rasterio.open(hf_path) as d:
-        sw = max(1, round(d.width / max(d.width, d.height) * args.svf_long))
-        sh = max(1, round(d.height / max(d.width, d.height) * args.svf_long))
-        hf = d.read(1, out_shape=(sh, sw), resampling=Resampling.average).astype(float)
-        m_per_px = (d.bounds.right - d.bounds.left) / sw
+    with rasterio.open(hf_path) as heightfield_src:
+        sw = max(1, round(heightfield_src.width
+                          / max(heightfield_src.width, heightfield_src.height)
+                          * args.svf_long))
+        sh = max(1, round(heightfield_src.height
+                          / max(heightfield_src.width, heightfield_src.height)
+                          * args.svf_long))
+        hf = heightfield_src.read(1, out_shape=(sh, sw),
+                                  resampling=Resampling.average).astype(float)
+        m_per_px = (heightfield_src.bounds.right
+                    - heightfield_src.bounds.left) / sw
     hf = np.nan_to_num(np.where(hf < -500, np.nan, hf), nan=0.0)
     svf = horizon_svf(hf, m_per_px)
     occ = 1.0 - (svf - svf.min()) / (svf.max() - svf.min() + 1e-6)   # 0 open .. 1 occluded
     # burn-only: darken above threshold, open ground untouched
     burn = args.strength * np.clip((occ - args.threshold) / (1 - args.threshold), 0, 1) ** 1.4
-    up = np.asarray(zoom(1.0 - burn, (H / sh, W / sw), order=1))     # upsample to hero
+    up = np.asarray(zoom(1.0 - burn, (hero_height / sh, hero_width / sw), order=1))     # upsample to hero
     factor = np.clip(up, 0.0, 1.0)
 
     # land only — the ocean mask (1 = ocean) resampled to the hero grid
-    with rasterio.open(om_path) as d:
-        land = d.read(1, out_shape=(H, W), resampling=Resampling.nearest) == 0
+    with rasterio.open(om_path) as oceanmask_src:
+        land = oceanmask_src.read(1, out_shape=(hero_height, hero_width),
+                                  resampling=Resampling.nearest) == 0
 
-    f = np.where(land, factor, 1.0)[None, :, :]                      # (1,H,W)
-    n = min(3, hero.shape[0])                                        # RGB, keep alpha
-    hero[:n] = np.clip(hero[:n].astype(float) * f, 0, 255).astype("uint8")
+    land_factor = np.where(land, factor, 1.0)[None, :, :]           # (1,H,W)
+    band_count = min(3, hero.shape[0])                              # RGB, keep alpha
+    hero[:band_count] = np.clip(
+        hero[:band_count].astype(float) * land_factor, 0, 255).astype("uint8")
 
     tmp = out.with_name(out.name + ".tmp")
-    with rasterio.open(tmp, "w", **prof) as o:
-        o.write(hero)
+    with rasterio.open(tmp, "w", **prof) as out_dataset:
+        out_dataset.write(hero)
     aux = out.with_name(out.name + ".aux.xml")
     if (tmp_aux := tmp.with_name(tmp.name + ".aux.xml")).exists():
         os.replace(tmp_aux, aux)

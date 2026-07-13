@@ -17,7 +17,7 @@
 #     GDAL 3.13.x      hillshade / color-relief / `gdal raster tile` — pinned via
 #                      the official OSGeo GDAL container for the production run
 #                      (apt on Ubuntu 26.04 tops out at 3.12.2).
-#     sky-view factor  our own pipeline/sky_view.py — no external dep. WhiteboxTools
+#     sky-view factor  our own pipeline/render/sky_view.py — no external dep. WhiteboxTools
 #                      was dropped (legacy); RVT (rvt-py) kept only as an optional
 #                      one-off numeric oracle, never a pipeline dependency.
 #     tippecanoe       Natural Earth borders -> vector tiles; a from-source build,
@@ -32,7 +32,7 @@ if [ "$ARCH" != "x86_64" ]; then
   exit 1
 fi
 
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 TOOLS="$ROOT/tools"
 BIN="$HOME/.local/bin"
 mkdir -p "$TOOLS" "$BIN"

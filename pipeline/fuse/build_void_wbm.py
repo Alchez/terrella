@@ -36,7 +36,8 @@ from typing import Any
 import numpy as np
 import rasterio
 
-from snow_mask import BUCKET_URL, DATA_DIR as WC_DIR, WORKERS, download_one, tiles_for_bounds
+from pipeline.render.snow_mask import (BUCKET_URL, DATA_DIR as WC_DIR, WORKERS,
+                                       download_one, tiles_for_bounds)
 
 VOID_DIR = Path.home() / "projects/maps/data/raw/cop30_void"
 WATER_CLASS = 80   # ESA WorldCover "permanent water bodies"
@@ -44,16 +45,16 @@ WBM_LAKE = 2       # fuse_heightfield inland-lake class
 
 
 def union_bounds(tiles: list[Path]):
-    """(w, s, e, n) enclosing every tile — the WorldCover fetch window."""
-    w = s = e = n = None
-    for t in tiles:
-        with rasterio.open(t) as d:
-            b = d.bounds
-        w = b.left if w is None else min(w, b.left)
-        s = b.bottom if s is None else min(s, b.bottom)
-        e = b.right if e is None else max(e, b.right)
-        n = b.top if n is None else max(n, b.top)
-    return w, s, e, n
+    """(west, south, east, north) enclosing every tile — the WorldCover fetch window."""
+    west = south = east = north = None
+    for tile in tiles:
+        with rasterio.open(tile) as dataset:
+            bounds = dataset.bounds
+        west = bounds.left if west is None else min(west, bounds.left)
+        south = bounds.bottom if south is None else min(south, bounds.bottom)
+        east = bounds.right if east is None else max(east, bounds.right)
+        north = bounds.top if north is None else max(north, bounds.top)
+    return west, south, east, north
 
 
 def ensure_worldcover(bounds) -> Path:
@@ -84,16 +85,16 @@ def ensure_worldcover(bounds) -> Path:
         print(f"  NOTE: {counts['absent']} tiles absent (ocean cells) — any Caspian "
               f"there falls back to land; check the per-tile water% below", flush=True)
     vrt = VOID_DIR / "worldcover_void.vrt"
-    subprocess.run(["gdalbuildvrt", "-overwrite", str(vrt)] + [str(p) for p in held],
+    subprocess.run(["gdalbuildvrt", "-overwrite", str(vrt)] + [str(path) for path in held],
                    check=True, capture_output=True)
     return vrt
 
 
 def build_wbm(dem_tile: Path, wbm_tile: Path, wc_vrt: Path) -> int:
     """Warp WorldCover onto the DEM tile grid, threshold class 80. Returns water px."""
-    with rasterio.open(dem_tile) as d:
-        b, W, H = d.bounds, d.width, d.height
-        crs, transform = d.crs, d.transform
+    with rasterio.open(dem_tile) as dataset:
+        bounds, width, height = dataset.bounds, dataset.width, dataset.height
+        crs, transform = dataset.crs, dataset.transform
     # gdalwarp -te/-ts reproduces the DEM grid exactly, so the WBM registers
     # pixel-for-pixel; mode downsamples 10 m classes to the 1-arcsec cell by
     # majority (categorical — never average class codes).
@@ -101,16 +102,16 @@ def build_wbm(dem_tile: Path, wbm_tile: Path, wc_vrt: Path) -> int:
     subprocess.run(
         ["gdalwarp", "-overwrite", "-q", "-of", "GTiff",
          "-t_srs", crs.to_wkt(),
-         "-te", repr(b.left), repr(b.bottom), repr(b.right), repr(b.top),
-         "-ts", str(W), str(H), "-r", "mode", "-ot", "Byte",
+         "-te", repr(bounds.left), repr(bounds.bottom), repr(bounds.right), repr(bounds.top),
+         "-ts", str(width), str(height), "-r", "mode", "-ot", "Byte",
          "-wm", "512", "-multi", "-wo", "NUM_THREADS=ALL_CPUS",
          str(wc_vrt), str(tmp_cls)], check=True, capture_output=True)
-    with rasterio.open(tmp_cls) as c:
-        wbm = np.where(c.read(1) == WATER_CLASS, WBM_LAKE, 0).astype("uint8")
+    with rasterio.open(tmp_cls) as class_ds:
+        wbm = np.where(class_ds.read(1) == WATER_CLASS, WBM_LAKE, 0).astype("uint8")
     tmp_cls.unlink(missing_ok=True)
 
     profile: dict[str, Any] = dict(
-        driver="GTiff", width=W, height=H, count=1, dtype="uint8",
+        driver="GTiff", width=width, height=height, count=1, dtype="uint8",
         crs=crs, transform=transform, tiled=True, blockxsize=512,
         blockysize=512, compress="deflate")
     tmp = wbm_tile.with_name(wbm_tile.name + ".tmp")
@@ -136,8 +137,8 @@ def main() -> int:
             print(f"  {wbm_tile.name}  skipped (exists)", flush=True)
             continue
         px = build_wbm(dem_tile, wbm_tile, wc_vrt)
-        with rasterio.open(dem_tile) as d:
-            tot = d.width * d.height
+        with rasterio.open(dem_tile) as dataset:
+            tot = dataset.width * dataset.height
         print(f"  {wbm_tile.name}  water {px:,} px ({100 * px / tot:.1f}%)", flush=True)
     print("complete", flush=True)
     return 0

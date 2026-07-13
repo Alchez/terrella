@@ -30,9 +30,9 @@ render sweep. `--through render` adds the render stage. `--dry-run` prints the
 plan and runs nothing — the sweep preview.
 
 Usage:
-  batch.py --dry-run                          # preview, run nothing
-  batch.py --through prep                      # prep sweep (default)
-  batch.py --through render --only bhutan       # one hero, end to end
+  python -m pipeline.batch --dry-run                       # preview, run nothing
+  python -m pipeline.batch --through prep                   # prep sweep (default)
+  python -m pipeline.batch --through render --only bhutan   # one hero, end to end
 """
 
 import argparse
@@ -45,8 +45,9 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from country_config import (build_scope, load_config, load_ne_rows,
-                            preflight_gebco, resolve, stage_commands)
+from pipeline.frame.country_config import (build_scope, load_config,
+                                           load_ne_rows, preflight_gebco,
+                                           resolve, stage_commands)
 
 ROOT = Path(__file__).resolve().parent.parent
 # Stage commands say "python …" assuming a venv-active shell; put this runner's
@@ -63,8 +64,8 @@ GATE_MAX_WAIT_S = 1800    # wait up to 30 min for other load to clear, then skip
 
 
 def meminfo_gib(key: str) -> float:
-    with open("/proc/meminfo") as f:
-        for line in f:
+    with open("/proc/meminfo") as meminfo:
+        for line in meminfo:
             if line.startswith(key + ":"):
                 return int(line.split()[1]) / (1024 * 1024)  # kB -> GiB
     return 0.0
@@ -96,15 +97,16 @@ def wait_for_mem(floor_gib: float) -> bool:
 def log_failure(slug, stage_index, cmd, returncode, kind) -> None:
     FAIL_LOG.parent.mkdir(parents=True, exist_ok=True)
     ts = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    with open(FAIL_LOG, "a") as f:
-        f.write(json.dumps(dict(ts=ts, slug=slug, stage_index=stage_index,
-                                cmd=cmd, returncode=returncode, kind=kind)) + "\n")
+    with open(FAIL_LOG, "a") as log_file:
+        log_file.write(json.dumps(dict(
+            ts=ts, slug=slug, stage_index=stage_index,
+            cmd=cmd, returncode=returncode, kind=kind)) + "\n")
 
 
 def bootstrap() -> None:
     """One-time, idempotent global data: Natural Earth + global GEBCO."""
-    for cmd in ("bash pipeline/download_naturalearth.sh",
-                "python pipeline/download_gebco.py"):
+    for cmd in ("bash pipeline/acquire/download_naturalearth.sh",
+                "python -m pipeline.acquire.download_gebco"):
         print(f"[bootstrap] {cmd}", flush=True)
         if subprocess.run(cmd, shell=True, cwd=ROOT, env=ENV).returncode != 0:
             sys.exit(f"bootstrap failed: {cmd} — cannot proceed without it")
@@ -122,7 +124,7 @@ def prune_intermediates(slug: str) -> None:
     print(f"    cleaned intermediates for {slug}", flush=True)
 
 
-def run_country(slug, r, through, force, dry, cap_gib, use_cap, floor,
+def run_country(slug, resolved, through, force, dry, cap_gib, use_cap, floor,
                 clean) -> str:
     """Run one country's stages; return a short outcome string."""
     do_clean = clean and through == "render" and not dry
@@ -133,10 +135,10 @@ def run_country(slug, r, through, force, dry, cap_gib, use_cap, floor,
             prune_intermediates(slug)
         return "skip-done"
 
-    n = 6 if through == "render" else PREP_STAGES
-    stages = stage_commands(r)[:n]
+    stage_count = 6 if through == "render" else PREP_STAGES
+    stages = stage_commands(resolved)[:stage_count]
     if dry:
-        return f"would-run ({n} stages)"
+        return f"would-run ({stage_count} stages)"
 
     for idx, cmd in enumerate(stages):
         if idx in GATE_STAGES and not wait_for_mem(floor):
@@ -178,7 +180,7 @@ def run_country(slug, r, through, force, dry, cap_gib, use_cap, floor,
             # writes the shaded hero as a SEPARATE file (atomic, internal .tmp), so
             # the raw stays pristine and post-look tweaks never re-render.
             sv = subprocess.run(
-                f"python pipeline/sky_view.py --render-dir data/work/{slug}/render"
+                f"python -m pipeline.render.sky_view --render-dir data/work/{slug}/render"
                 f" --hero {raw} --out {final}", shell=True, cwd=ROOT,
                 env=ENV).returncode
             if sv != 0:
@@ -217,7 +219,7 @@ def main() -> int:
         want = set(args.only.split(","))
         if unknown := want - set(slugs):
             sys.exit(f"unknown slugs: {sorted(unknown)}")
-        slugs = [s for s in slugs if s in want]
+        slugs = [slug for slug in slugs if slug in want]
     if args.limit:
         slugs = slugs[:args.limit]
 
@@ -230,32 +232,32 @@ def main() -> int:
 
     outcomes: dict[str, list[str]] = {}
     for slug in slugs:
-        r = resolve(slug, scope[slug], cfg)
-        if r is None:
+        resolved = resolve(slug, scope[slug], cfg)
+        if resolved is None:
             outcome = "skip-antimeridian"
-        elif preflight_gebco(r["frame"]):
+        elif preflight_gebco(resolved["frame"]):
             outcome = "skip-gebco"
         else:
-            outcome = run_country(slug, r, args.through, args.force,
+            outcome = run_country(slug, resolved, args.through, args.force,
                                   args.dry_run, cap_gib, use_cap,
                                   args.mem_floor_gib, args.clean)
         key = outcome.split(" ")[0].split("@")[0]
         outcomes.setdefault(key, []).append(slug)
         print(f"  {slug:28} {outcome}", flush=True)
 
-    print("\nsummary: " + ", ".join(f"{k}={len(v)}"
-                                    for k, v in sorted(outcomes.items())),
+    print("\nsummary: " + ", ".join(f"{key}={len(members)}"
+                                    for key, members in sorted(outcomes.items())),
           flush=True)
     # roster the countries that did NOT produce output, by name, so a re-run is
     # informed at a glance (the JSONL has the per-run stage/returncode detail).
-    attention = {k: v for k, v in sorted(outcomes.items())
-                 if k.startswith("FAIL") or k == "skip-low-mem"}
-    for k, v in attention.items():
-        print(f"  {k} ({len(v)}): {', '.join(v)}", flush=True)
+    attention = {key: members for key, members in sorted(outcomes.items())
+                 if key.startswith("FAIL") or key == "skip-low-mem"}
+    for key, members in attention.items():
+        print(f"  {key} ({len(members)}): {', '.join(members)}", flush=True)
     if attention:
         print(f"re-run the same command to retry these; "
               f"per-run detail in {FAIL_LOG}", flush=True)
-    return 1 if any(k.startswith("FAIL") for k in attention) else 0
+    return 1 if any(key.startswith("FAIL") for key in attention) else 0
 
 
 if __name__ == "__main__":

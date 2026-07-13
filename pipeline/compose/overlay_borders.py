@@ -101,9 +101,9 @@ def render_mapping(heightfield, render_w, render_h):
     ortho_scale = json.loads(frame_path.read_text())["ortho_scale"]
 
     with rasterio.open(heightfield) as src:
-        b, crs = src.bounds, src.crs
-    extent_w = b.right - b.left
-    extent_h = b.top - b.bottom
+        bounds, crs = src.bounds, src.crs
+    extent_w = bounds.right - bounds.left
+    extent_h = bounds.top - bounds.bottom
 
     render_aspect = render_h / render_w
     raster_aspect = extent_h / extent_w
@@ -113,25 +113,25 @@ def render_mapping(heightfield, render_w, render_h):
 
     units_per_px = ortho_scale / max(render_w, render_h)
     m_per_px = units_per_px * extent_w / PLANE_WIDTH_UNITS
-    cx = (b.left + b.right) / 2.0
-    cy = (b.bottom + b.top) / 2.0
+    cx = (bounds.left + bounds.right) / 2.0
+    cy = (bounds.bottom + bounds.top) / 2.0
 
-    def to_px(x, y):
-        col = render_w / 2.0 + (np.asarray(x) - cx) / m_per_px
-        row = render_h / 2.0 - (np.asarray(y) - cy) / m_per_px
+    def to_px(x_coord, y_coord):
+        col = render_w / 2.0 + (np.asarray(x_coord) - cx) / m_per_px
+        row = render_h / 2.0 - (np.asarray(y_coord) - cy) / m_per_px
         return col, row
 
-    return to_px, m_per_px, crs, b
+    return to_px, m_per_px, crs, bounds
 
 
 def frame_bbox_lonlat(bounds, crs, pad_deg=2.0):
     """Geographic bbox of the AEA frame, for cheap feature prefiltering."""
     inv = pyproj.Transformer.from_crs(crs, "EPSG:4326", always_xy=True)
-    n = 25
-    xs = np.linspace(bounds.left, bounds.right, n)
-    ys = np.linspace(bounds.bottom, bounds.top, n)
-    ex = np.concatenate([xs, xs, np.full(n, bounds.left), np.full(n, bounds.right)])
-    ey = np.concatenate([np.full(n, bounds.bottom), np.full(n, bounds.top), ys, ys])
+    sample_count = 25
+    xs = np.linspace(bounds.left, bounds.right, sample_count)
+    ys = np.linspace(bounds.bottom, bounds.top, sample_count)
+    ex = np.concatenate([xs, xs, np.full(sample_count, bounds.left), np.full(sample_count, bounds.right)])
+    ey = np.concatenate([np.full(sample_count, bounds.bottom), np.full(sample_count, bounds.top), ys, ys])
     lon, lat = inv.transform(ex, ey)
     return (lon.min() - pad_deg, lat.min() - pad_deg,
             lon.max() + pad_deg, lat.max() + pad_deg)
@@ -152,7 +152,7 @@ def read_lines(shp_path, bbox):
             continue
         pts = np.asarray(sr.shape.points)
         parts = list(sr.shape.parts) + [len(pts)]
-        yield sr.record, [pts[parts[i]:parts[i + 1]] for i in range(len(parts) - 1)]
+        yield sr.record, [pts[parts[part_index]:parts[part_index + 1]] for part_index in range(len(parts) - 1)]
 
 
 def stroke(ctx, fwd, to_px, features, rgba, width, dash=None):
@@ -166,11 +166,11 @@ def stroke(ctx, fwd, to_px, features, rgba, width, dash=None):
     for _, parts in features:
         count += 1
         for pts in parts:
-            x, y = fwd.transform(pts[:, 0], pts[:, 1])
-            col, row = to_px(x, y)
+            x_coords, y_coords = fwd.transform(pts[:, 0], pts[:, 1])
+            col, row = to_px(x_coords, y_coords)
             ctx.move_to(col[0], row[0])
-            for c, r in zip(col[1:], row[1:]):
-                ctx.line_to(c, r)
+            for col_val, row_val in zip(col[1:], row[1:]):
+                ctx.line_to(col_val, row_val)
     ctx.stroke()
     return count
 
@@ -184,11 +184,11 @@ def fill_polys(ctx, fwd, to_px, features, rgba):
     for _, parts in features:
         count += 1
         for pts in parts:
-            x, y = fwd.transform(pts[:, 0], pts[:, 1])
-            col, row = to_px(x, y)
+            x_coords, y_coords = fwd.transform(pts[:, 0], pts[:, 1])
+            col, row = to_px(x_coords, y_coords)
             ctx.move_to(col[0], row[0])
-            for c, r in zip(col[1:], row[1:]):
-                ctx.line_to(c, r)
+            for col_val, row_val in zip(col[1:], row[1:]):
+                ctx.line_to(col_val, row_val)
             ctx.close_path()
         ctx.fill()
     return count
@@ -203,11 +203,11 @@ def stroke_rivers(ctx, fwd, to_px, rivers, rgba, width_base, width_per_rank):
     for rank, parts in rivers:
         ctx.set_line_width(width_base + width_per_rank * (10 - rank))
         for pts in parts:
-            x, y = fwd.transform(pts[:, 0], pts[:, 1])
-            col, row = to_px(x, y)
+            x_coords, y_coords = fwd.transform(pts[:, 0], pts[:, 1])
+            col, row = to_px(x_coords, y_coords)
             ctx.move_to(col[0], row[0])
-            for c, r in zip(col[1:], row[1:]):
-                ctx.line_to(c, r)
+            for col_val, row_val in zip(col[1:], row[1:]):
+                ctx.line_to(col_val, row_val)
         ctx.stroke()
     return len(rivers)
 
@@ -215,8 +215,8 @@ def stroke_rivers(ctx, fwd, to_px, rivers, rgba, width_base, width_per_rank):
 def surface_alpha(surface):
     """Alpha channel of an ARGB32 surface as a (H, W) uint8 array."""
     surface.flush()
-    h, stride = surface.get_height(), surface.get_stride()
-    buf = np.ndarray((h, stride // 4, 4), dtype=np.uint8, buffer=surface.get_data())
+    height, stride = surface.get_height(), surface.get_stride()
+    buf = np.ndarray((height, stride // 4, 4), dtype=np.uint8, buffer=surface.get_data())
     return buf[:, :surface.get_width(), 3].copy()
 
 
@@ -225,20 +225,20 @@ def coast_agreement(mask_path, drawn, to_px, m_per_px):
     ocean-mask land/sea boundary. Low numbers at 2500 m = the mapping is
     systematically off (per-country m/px is divided out; see docstring)."""
     with rasterio.open(mask_path) as src:
-        m = src.read(1)
-        t = src.transform
-    edge = np.zeros(m.shape, bool)
-    edge[:, 1:] |= m[:, 1:] != m[:, :-1]
-    edge[1:, :] |= m[1:, :] != m[:-1, :]
+        mask = src.read(1)
+        transform = src.transform
+    edge = np.zeros(mask.shape, bool)
+    edge[:, 1:] |= mask[:, 1:] != mask[:, :-1]
+    edge[1:, :] |= mask[1:, :] != mask[:-1, :]
     rr, cc = np.nonzero(edge)  # pyright: ignore[reportGeneralTypeIssues, reportAssignmentType] — numpy stubs see a 1-tuple for unknown-dim input
-    xs = t.c + (cc + 0.5) * t.a
-    ys = t.f + (rr + 0.5) * t.e
+    xs = transform.c + (cc + 0.5) * transform.a
+    ys = transform.f + (rr + 0.5) * transform.e
     col, row = to_px(xs, ys)
     col = np.round(col).astype(np.int64)
     row = np.round(row).astype(np.int64)
-    h, w = drawn.shape
-    ok = (col >= 0) & (col < w) & (row >= 0) & (row < h)
-    edge_img = np.zeros((h, w), bool)
+    height, width = drawn.shape
+    ok = (col >= 0) & (col < width) & (row >= 0) & (row < height)
+    edge_img = np.zeros((height, width), bool)
     edge_img[row[ok], col[ok]] = True
 
     drawn_px = int(drawn.sum())
@@ -247,11 +247,11 @@ def coast_agreement(mask_path, drawn, to_px, m_per_px):
     px_buckets = {max(1, round(meters / m_per_px)): meters
                   for meters in (600, 1200, 2500)}
     stats, grown = {}, edge_img
-    for n in range(1, max(px_buckets) + 1):
+    for radius in range(1, max(px_buckets) + 1):
         grown = (grown | np.roll(grown, 1, 0) | np.roll(grown, -1, 0)
                  | np.roll(grown, 1, 1) | np.roll(grown, -1, 1))
-        if n in px_buckets:
-            stats[px_buckets[n]] = (n, 100.0 * int((drawn & grown).sum())
+        if radius in px_buckets:
+            stats[px_buckets[radius]] = (radius, 100.0 * int((drawn & grown).sum())
                                     / drawn_px)
     return stats
 
@@ -269,8 +269,8 @@ def save_scaled(surface, out_path, target_w=2048):
 
 def save_crops(surface, fwd, to_px, outdir, tag):
     for name, (lon, lat) in CROP_SITES.items():
-        x, y = fwd.transform(lon, lat)
-        col, row = to_px(x, y)
+        x_coord, y_coord = fwd.transform(lon, lat)
+        col, row = to_px(x_coord, y_coord)
         crop = cairo.ImageSurface(cairo.FORMAT_ARGB32, CROP_SIZE, CROP_SIZE)
         ctx = cairo.Context(crop)
         ctx.set_source_surface(surface, -(float(col) - CROP_SIZE // 2),
@@ -294,25 +294,25 @@ def main():
     args.outdir.mkdir(parents=True, exist_ok=True)
 
     comp = cairo.ImageSurface.create_from_png(str(args.render))
-    w, h = comp.get_width(), comp.get_height()
-    print(f"render: {w} x {h}", flush=True)
+    width, height = comp.get_width(), comp.get_height()
+    print(f"render: {width} x {height}", flush=True)
 
-    to_px, m_per_px, crs, bounds = render_mapping(args.heightfield, w, h)
+    to_px, m_per_px, crs, bounds = render_mapping(args.heightfield, width, height)
     fwd = pyproj.Transformer.from_crs("EPSG:4326", crs, always_xy=True)
     bbox = frame_bbox_lonlat(bounds, crs)
-    print(f"frame lon/lat bbox (padded): {['%.1f' % v for v in bbox]}", flush=True)
+    print(f"frame lon/lat bbox (padded): {['%.1f' % value for value in bbox]}", flush=True)
 
-    overlay = cairo.ImageSurface(cairo.FORMAT_ARGB32, w, h)
+    overlay = cairo.ImageSurface(cairo.FORMAT_ARGB32, width, height)
     octx = cairo.Context(overlay)
 
     def ne(name):
         return args.ne_dir / name / f"{name}.shp"
 
     if args.mode == "oracle":
-        n = stroke(octx, fwd, to_px,
+        count = stroke(octx, fwd, to_px,
                    read_lines(ne("ne_10m_coastline"), bbox), **ORACLE_STYLE)
-        print(f"coastline features drawn: {n}", flush=True)
-        if n == 0:
+        print(f"coastline features drawn: {count}", flush=True)
+        if count == 0:
             sys.exit("no coastline features in frame — prefilter or data broken")
         stats = coast_agreement(args.mask, surface_alpha(overlay) > 0, to_px,
                                 m_per_px)
@@ -327,14 +327,14 @@ def main():
         rivers, centerlines = [], 0
         for rec, parts in read_lines(ne("ne_10m_rivers_lake_centerlines"),
                                      bbox):
-            d = rec.as_dict()
-            if "featurecla" not in d or "scalerank" not in d:
+            record_dict = rec.as_dict()
+            if "featurecla" not in record_dict or "scalerank" not in record_dict:
                 sys.exit(f"expected lowercase featurecla/scalerank in rivers "
-                         f"file; fields are {list(d)}")
-            if d["featurecla"] == "Lake Centerline":
+                         f"file; fields are {list(record_dict)}")
+            if record_dict["featurecla"] == "Lake Centerline":
                 centerlines += 1  # lake polygons cover these
                 continue
-            rivers.append((d["scalerank"], parts))
+            rivers.append((record_dict["scalerank"], parts))
         lakes = list(read_lines(ne("ne_10m_lakes"), bbox))
         if not rivers or not lakes:
             sys.exit("zero rivers or lakes in an India frame — data or "
@@ -354,16 +354,16 @@ def main():
         land = ne("ne_10m_admin_0_boundary_lines_land")
         classes = {}
         for rec, _ in read_lines(land, bbox):
-            d = rec.as_dict()
-            if "FEATURECLA" not in d:
-                sys.exit(f"FEATURECLA field missing; fields are {list(d)}")
-            classes[d["FEATURECLA"]] = classes.get(d["FEATURECLA"], 0) + 1
+            record_dict = rec.as_dict()
+            if "FEATURECLA" not in record_dict:
+                sys.exit(f"FEATURECLA field missing; fields are {list(record_dict)}")
+            classes[record_dict["FEATURECLA"]] = classes.get(record_dict["FEATURECLA"], 0) + 1
         print(f"border classes in frame: {classes}", flush=True)
 
-        solid = [(r, p) for r, p in read_lines(land, bbox)
-                 if r.as_dict()["FEATURECLA"] in SOLID_CLASSES]
-        dashed = [(r, p) for r, p in read_lines(land, bbox)
-                  if r.as_dict()["FEATURECLA"] in DASHED_CLASSES]
+        solid = [(record, parts) for record, parts in read_lines(land, bbox)
+                 if record.as_dict()["FEATURECLA"] in SOLID_CLASSES]
+        dashed = [(record, parts) for record, parts in read_lines(land, bbox)
+                  if record.as_dict()["FEATURECLA"] in DASHED_CLASSES]
         maritime = list(read_lines(
             ne("ne_10m_admin_0_boundary_lines_maritime_indicator"), bbox))
         if not solid:

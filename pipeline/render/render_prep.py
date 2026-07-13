@@ -67,10 +67,10 @@ BLOCK = 8192
 def aea_crs(frame):
     """Albers equal-area conic centered on a (W, S, E, N) lon/lat frame:
     standard parallels 1/6 in from the latitude edges, origin at center."""
-    w, s, e, n = frame
-    return (f"+proj=aea +lat_1={s + (n - s) / 6.0:g} "
-            f"+lat_2={n - (n - s) / 6.0:g} "
-            f"+lat_0={(s + n) / 2.0:g} +lon_0={(w + e) / 2.0:g} "
+    west, south, east, north = frame
+    return (f"+proj=aea +lat_1={south + (north - south) / 6.0:g} "
+            f"+lat_2={north - (north - south) / 6.0:g} "
+            f"+lat_0={(south + north) / 2.0:g} +lon_0={(west + east) / 2.0:g} "
             f"+datum=WGS84 +units=m")
 
 
@@ -168,9 +168,11 @@ def main():
     args.outdir.mkdir(parents=True, exist_ok=True)
 
     if out_h.exists():
-        with rasterio.open(out_h) as f:
-            dst_crs = f.crs
-            transform, width, height = f.transform, f.width, f.height
+        with rasterio.open(out_h) as heightfield_dataset:
+            dst_crs = heightfield_dataset.crs
+            transform, width, height = (heightfield_dataset.transform,
+                                        heightfield_dataset.width,
+                                        heightfield_dataset.height)
         xres = transform.a  # pyright: ignore[reportAttributeAccessIssue] — affine untyped
         print(f"grid + CRS from existing {out_h.name}: {width} x {height}, "
               f"{xres:.0f} m/px (--width/--frame ignored)", flush=True)

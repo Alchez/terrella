@@ -29,8 +29,8 @@ import rasterio
 from rasterio.enums import Resampling
 from scipy.ndimage import zoom
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "pipeline"))
-from sky_view import horizon_svf  # noqa: E402  reuse the production SVF verbatim
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from pipeline.render.sky_view import horizon_svf  # noqa: E402  reuse the production SVF verbatim
 
 # Hero colour ramp — mirror of scene_build.py (linear RGB, EASE interpolation,
 # Standard view transform so linear->sRGB is the only encode). Land 0..6000 m,

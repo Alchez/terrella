@@ -30,7 +30,7 @@ from pathlib import Path
 
 import rasterio
 
-from download_glo30 import download_one
+from pipeline.acquire.download_glo30 import download_one
 
 BASE_URL = ("https://dap.ceda.ac.uk/bodc/gebco/global/gebco_2026"
             "/ice_surface_elevation/geotiff")
@@ -43,25 +43,25 @@ WORKERS = 4
 # longitude quadrants. Names match the bucket's convention exactly.
 LAT_BANDS = ((90, 0), (0, -90))
 LON_BANDS = ((-180, -90), (-90, 0), (0, 90), (90, 180))
-TILES = [f"gebco_2026_n{n}.0_s{s}.0_w{w}.0_e{e}.0_geotiff.tif"
-         for n, s in LAT_BANDS for w, e in LON_BANDS]
+TILES = [f"gebco_2026_n{north}.0_s{south}.0_w{west}.0_e{east}.0_geotiff.tif"
+         for north, south in LAT_BANDS for west, east in LON_BANDS]
 
 
 def build_vrt() -> None:
     """Rebuild the global mosaic VRT over exactly the 8 tiles."""
-    tifs = [str(DATA_DIR / t) for t in TILES]
+    tifs = [str(DATA_DIR / tile) for tile in TILES]
     subprocess.run(["gdalbuildvrt", "-overwrite", "-vrtnodata", str(NODATA),
                     str(VRT_PATH), *tifs], check=True)
-    with rasterio.open(VRT_PATH) as v:
-        b = v.bounds
-    print(f"built {VRT_PATH.name}: {v.width} x {v.height}, "
-          f"bounds ({b.left:g}, {b.bottom:g}, {b.right:g}, {b.top:g})",
+    with rasterio.open(VRT_PATH) as vrt_ds:
+        bounds = vrt_ds.bounds
+    print(f"built {VRT_PATH.name}: {vrt_ds.width} x {vrt_ds.height}, "
+          f"bounds ({bounds.left:g}, {bounds.bottom:g}, {bounds.right:g}, {bounds.top:g})",
           flush=True)
 
 
 def main() -> int:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    jobs = [(f"{BASE_URL}/{t}", DATA_DIR / t) for t in TILES]
+    jobs = [(f"{BASE_URL}/{tile}", DATA_DIR / tile) for tile in TILES]
     print(f"{len(jobs)} GEBCO_2026 ice-surface tiles -> {DATA_DIR}", flush=True)
 
     counts = {"ok": 0, "skipped": 0}

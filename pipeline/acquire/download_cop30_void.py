@@ -26,7 +26,8 @@ import re
 import sys
 from pathlib import Path
 
-from download_glo30 import TILE_LIST, WORKERS, download_one, fetch_tile_list
+from pipeline.acquire.download_glo30 import (TILE_LIST, WORKERS, download_one,
+                                             fetch_tile_list)
 
 OT_ENDPOINT = "https://opentopography.s3.sdsc.edu"
 OT_PREFIX = "raster/COP30/COP30_hh"          # keyless public COG mirror, DGED 2023_1
@@ -38,7 +39,7 @@ def ot_index(vrt_path: Path) -> dict[str, str]:
     """{tile key: OT DEM filename} for every tile in OpenTopography's COP30 index."""
     stems = set(re.findall(r"Copernicus_DSM_10_[NS]\d\d_00_[EW]\d\d\d_00_DEM",
                            vrt_path.read_text()))
-    return {KEY_RE.search(s).group(): s + ".tif" for s in stems}
+    return {KEY_RE.search(stem).group(): stem + ".tif" for stem in stems}
 
 
 def main() -> int:
@@ -64,18 +65,18 @@ def main() -> int:
         print("nothing withheld — AWS and OT indices agree")
         return 0
 
-    jobs = [(f"{OT_ENDPOINT}/{OT_PREFIX}/{ot[k]}", dem_dir / ot[k]) for k in withheld]
+    jobs = [(f"{OT_ENDPOINT}/{OT_PREFIX}/{ot[key]}", dem_dir / ot[key]) for key in withheld]
     counts = {"ok": 0, "skipped": 0}
     failures: list[str] = []
     with cf.ThreadPoolExecutor(WORKERS) as pool:
         futs = {pool.submit(download_one, url, dest): dest for url, dest in jobs}
-        for i, fut in enumerate(cf.as_completed(futs), 1):
+        for index, fut in enumerate(cf.as_completed(futs), 1):
             status = fut.result()
             if status.startswith("failed"):
                 failures.append(f"{futs[fut].name}  {status}")
             else:
                 counts[status] += 1
-            print(f"[{i}/{len(jobs)}] {futs[fut].name} {status}", flush=True)
+            print(f"[{index}/{len(jobs)}] {futs[fut].name} {status}", flush=True)
 
     if failures:
         log = DATA_DIR / "failures.txt"

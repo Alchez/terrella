@@ -51,12 +51,13 @@ import rasterio
 import shapefile
 from rasterio.warp import transform_bounds
 
-from download_glo30 import TILE_LIST, in_extent, parse_tile_name, tile_files
-from frame_country import NE_DIR, pad_frame
-from fuse_heightfield import GEBCO
-from render_prep import aea_crs
+from pipeline.acquire.download_glo30 import (TILE_LIST, in_extent,
+                                             parse_tile_name, tile_files)
+from pipeline.frame.frame_country import NE_DIR, pad_frame
+from pipeline.fuse.fuse_heightfield import GEBCO
+from pipeline.render.render_prep import aea_crs
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parents[2]
 CONFIG_PATH = ROOT / "config/countries.toml"
 PIN_DIR = ROOT / "config/frames"
 BLENDER = Path.home() / "software/blender-5.1.2-linux-x64/blender"
@@ -95,8 +96,8 @@ def load_config() -> dict:
         if "frame" in tbl:
             if tbl.get("status") == "antimeridian":
                 bad.append(f"{where}: frame + antimeridian status contradict")
-            w, s, e, n = tbl["frame"]
-            if not (-180 <= w < e <= 180 and -90 <= s < n <= 90):
+            west, south, east, north = tbl["frame"]
+            if not (-180 <= west < east <= 180 and -90 <= south < north <= 90):
                 bad.append(f"{where}: malformed frame {tbl['frame']}")
     if bad:
         sys.exit(f"{CONFIG_PATH.name} is invalid:\n  " + "\n  ".join(bad))
@@ -111,7 +112,7 @@ def load_ne_rows():
     pays for parsing the whole world's rings."""
     shp = NE_DIR / "ne_10m_admin_0_countries/ne_10m_admin_0_countries.shp"
     if not shp.exists():
-        sys.exit(f"{shp} not found — run download_naturalearth.sh")
+        sys.exit(f"{shp} not found — run pipeline/acquire/download_naturalearth.sh")
     sf = shapefile.Reader(str(shp))
     rows = []
     for idx, sr in enumerate(sf.iterShapeRecords()):
@@ -125,8 +126,8 @@ def load_ne_rows():
 
 def build_scope(cfg, rows) -> dict[str, dict]:
     """slug -> NE row for every in-scope country, cross-validated loudly."""
-    by_admin = {r["admin"]: r for r in rows}
-    strict = {r["admin"] for r in rows if r["admin"] == r["sov"]}
+    by_admin = {row["admin"]: row for row in rows}
+    strict = {row["admin"] for row in rows if row["admin"] == row["sov"]}
     bad = []
     for name in cfg["scope"]["exclude"]:
         if name not in strict:
@@ -162,26 +163,26 @@ def build_scope(cfg, rows) -> dict[str, dict]:
 
 def resolve(slug: str, row: dict, cfg: dict) -> dict | None:
     """All derived parameters for one country; None if antimeridian-skipped."""
-    d, tbl = cfg["defaults"], cfg.get("countries", {}).get(slug, {})
+    defaults, tbl = cfg["defaults"], cfg.get("countries", {}).get(slug, {})
     if tbl.get("status") == "antimeridian":
         return None
-    w, s, e, n = row["bbox"]
+    west, south, east, north = row["bbox"]
     # A frame override is authoritative, so a raw bbox that spans 180 (the
     # country has parts on both sides) is fine — the override frame does not.
-    if "frame" not in tbl and w <= -179.99 and e >= 179.99:
+    if "frame" not in tbl and west <= -179.99 and east >= 179.99:
         sys.exit(f"{slug}: bbox spans the antimeridian but countries.toml "
                  f"has no status marker — mark it or add a frame override")
     frame = tuple(tbl["frame"]) if "frame" in tbl \
-        else pad_frame(row["bbox"], d["pad_pct"])
+        else pad_frame(row["bbox"], defaults["pad_pct"])
     left, bottom, right, top = transform_bounds(
         "EPSG:4326", aea_crs(frame), *frame, densify_pts=64)
     aspect = (top - bottom) / (right - left)  # projected h/w
-    warp_long = d["warp_long_edge"]
+    warp_long = defaults["warp_long_edge"]
     warp_w = round(warp_long / aspect) if aspect > 1 else warp_long
-    hero_long = tbl.get("hero_long_edge", d["hero_long_edge"])
+    hero_long = tbl.get("hero_long_edge", defaults["hero_long_edge"])
     hero = (round(hero_long / aspect), hero_long) if aspect > 1 \
         else (hero_long, round(hero_long * aspect))
-    fusion = tbl.get("fusion", d["fusion"])
+    fusion = tbl.get("fusion", defaults["fusion"])
     src_px_3s = round((frame[2] - frame[0]) * 1200)  # 3"/px = 1200 px/degree
     if fusion == "auto":
         fusion = "1s" if src_px_3s < warp_w else "3s"
@@ -208,20 +209,23 @@ def main_part_fraction(sf, row) -> float:
     pts = np.asarray(shape.points)
     starts = list(shape.parts) + [len(pts)]
     best_area, best_bb = -1.0, (0.0, 0.0, 0.0, 0.0)
-    for a, b in zip(starts, starts[1:]):
-        x, y = pts[a:b, 0], pts[a:b, 1]
-        area = 0.5 * abs(np.sum(x * np.roll(y, -1) - np.roll(x, -1) * y))
-        area *= math.cos(math.radians(float(y.mean())))
+    for start, end in zip(starts, starts[1:]):
+        x_coords, y_coords = pts[start:end, 0], pts[start:end, 1]
+        area = 0.5 * abs(np.sum(
+            x_coords * np.roll(y_coords, -1) - np.roll(x_coords, -1) * y_coords))
+        area *= math.cos(math.radians(float(y_coords.mean())))
         if area > best_area:
             best_area = area
-            best_bb = (x.min(), y.min(), x.max(), y.max())
-    w, s, e, n = row["bbox"]
-    bw, bs, be, bn = best_bb
-    return min((be - bw) / (e - w), (bn - bs) / (n - s))
+            best_bb = (x_coords.min(), y_coords.min(),
+                       x_coords.max(), y_coords.max())
+    west, south, east, north = row["bbox"]
+    best_west, best_south, best_east, best_north = best_bb
+    return min((best_east - best_west) / (east - west),
+               (best_north - best_south) / (north - south))
 
 
 def fmt_frame(frame) -> str:
-    return " ".join(f"{v:g}" for v in frame)
+    return " ".join(f"{value:g}" for value in frame)
 
 
 def preflight_glo30(frame):
@@ -230,8 +234,8 @@ def preflight_glo30(frame):
     tileList.txt lists land tiles only, so ocean cells never count as
     missing; a needed tile is held iff both its DEM and WBM files exist."""
     if not TILE_LIST.exists():
-        sys.exit(f"{TILE_LIST} not found — run download_glo30.py once "
-                 f"(any extent) to fetch the bucket index")
+        sys.exit(f"{TILE_LIST} not found — run python -m pipeline.acquire.download_glo30 "
+                 f"once (any extent) to fetch the bucket index")
     needed = [name for name in TILE_LIST.read_text().split()
               if in_extent(*parse_tile_name(name), frame)]
     missing = [name for name in needed
@@ -242,78 +246,81 @@ def preflight_glo30(frame):
 def preflight_gebco(frame) -> str | None:
     """None if the GEBCO mosaic covers the frame, else the failure."""
     if not GEBCO.exists():
-        return f"{GEBCO} not found — run pipeline/download_gebco.py"
-    with rasterio.open(GEBCO) as g:
-        b = g.bounds
-    w, s, e, n = frame
-    if b.left <= w and b.bottom <= s and e <= b.right and n <= b.top:
+        return f"{GEBCO} not found — run python -m pipeline.acquire.download_gebco"
+    with rasterio.open(GEBCO) as gebco:
+        bounds = gebco.bounds
+    west, south, east, north = frame
+    if (bounds.left <= west and bounds.bottom <= south
+            and east <= bounds.right and north <= bounds.top):
         return None
-    def fmt(v):  # geotiff transforms carry float noise: -7.1e-15 for 0
-        return f"{round(v, 6) + 0.0:g}"
+    def fmt(value):  # geotiff transforms carry float noise: -7.1e-15 for 0
+        return f"{round(value, 6) + 0.0:g}"
     return (f"frame outside the GEBCO mosaic "
-            f"({fmt(b.left)}..{fmt(b.right)}E {fmt(b.bottom)}..{fmt(b.top)}N) — "
+            f"({fmt(bounds.left)}..{fmt(bounds.right)}E "
+            f"{fmt(bounds.bottom)}..{fmt(bounds.top)}N) — "
             f"a frame reaching past ±180° needs the antimeridian item")
 
 
-def stage_commands(r: dict) -> list[str]:
+def stage_commands(resolved: dict) -> list[str]:
     """The exact pipeline for one resolved country, in run order."""
-    fr = fmt_frame(r["frame"])
-    tag = f"{FUSION_RES[r['fusion']]}s"
-    work = f"data/work/{r['slug']}"
+    fr = fmt_frame(resolved["frame"])
+    tag = f"{FUSION_RES[resolved['fusion']]}s"
+    work = f"data/work/{resolved['slug']}"
     rd = f"{work}/render"
-    prep = (f"python pipeline/render_prep.py --heightfield {work}/heightfield_{tag}.tif"
+    prep = (f"python -m pipeline.render.render_prep --heightfield {work}/heightfield_{tag}.tif"
             f" --mask {work}/oceanmask_{tag}.tif"
             f" --watermask {work}/watermask_{tag}.tif"
-            f" --frame {fr} --outdir {rd} --width {r['warp'][0]}")
-    if r["hero_long_overridden"]:
-        prep += f" --hero-long-edge {r['hero_long']}"
+            f" --frame {fr} --outdir {rd} --width {resolved['warp'][0]}")
+    if resolved["hero_long_overridden"]:
+        prep += f" --hero-long-edge {resolved['hero_long']}"
     return [
-        f"python pipeline/download_glo30.py --extent {fr}",
-        "bash pipeline/build_mosaics.sh",
-        f"python pipeline/fuse_heightfield.py --bounds {fr}"
-        f" --res-arcsec {FUSION_RES[r['fusion']]} --outdir {work}",
+        f"python -m pipeline.acquire.download_glo30 --extent {fr}",
+        "bash pipeline/fuse/build_mosaics.sh",
+        f"python -m pipeline.fuse.fuse_heightfield --bounds {fr}"
+        f" --res-arcsec {FUSION_RES[resolved['fusion']]} --outdir {work}",
         prep,
-        f"python pipeline/snow_mask.py --render-dir {rd}",
-        f"{BLENDER} -b --python pipeline/scene_build.py --"
-        f" --render-dir {rd} --out blender/{r['slug']}_hero.blend"
-        f" --render blender/renders/heroes/{r['slug']}.png",
+        f"python -m pipeline.render.snow_mask --render-dir {rd}",
+        f"{BLENDER} -b --python pipeline/render/scene_build.py --"
+        f" --render-dir {rd} --out blender/{resolved['slug']}_hero.blend"
+        f" --render blender/renders/heroes/{resolved['slug']}.png",
     ]
 
 
 def print_country(sf, scope, cfg, slug: str, emit_pin: bool) -> int:
     if slug not in scope:
         hints = difflib.get_close_matches(slug, scope, n=3, cutoff=0.5)
-        by_admin = {r["admin"].lower(): s for s, r in scope.items()}
+        by_admin = {row["admin"].lower(): other_slug
+                    for other_slug, row in scope.items()}
         if slug.lower() in by_admin:
             hints = [by_admin[slug.lower()]]
         hint = f"; did you mean {', '.join(hints)}?" if hints else ""
         sys.exit(f"no country with slug {slug!r} in scope{hint}")
     row = scope[slug]
-    r = resolve(slug, row, cfg)
-    if r is None:
+    resolved = resolve(slug, row, cfg)
+    if resolved is None:
         print(f"{row['admin']} is marked status=antimeridian — a deferred "
               f"special-case with no representative non-crossing frame "
               f"(see countries.toml notes); skipping resolution")
         return 0
 
-    src = "override (countries.toml)" if r["frame_overridden"] \
+    src = "override (countries.toml)" if resolved["frame_overridden"] \
         else f"computed (bbox + {cfg['defaults']['pad_pct']:g}% pad)"
-    print(f"country: {r['admin']}  (slug: {slug})")
-    print(f"frame:   {fmt_frame(r['frame'])}   [{src}]")
-    if r["notes"]:
-        print(f"notes:   {r['notes']}")
-    print(f"aspect:  {r['aspect']:.3f} h/w (projected)")
-    print(f"warp:    {r['warp'][0]} x {r['warp'][1]} px"
-          f"  (~{r['extent_w_m'] / r['warp'][0]:.0f} m/px)")
-    print(f"hero:    {r['hero'][0]} x {r['hero'][1]} px  (preview — "
+    print(f"country: {resolved['admin']}  (slug: {slug})")
+    print(f"frame:   {fmt_frame(resolved['frame'])}   [{src}]")
+    if resolved["notes"]:
+        print(f"notes:   {resolved['notes']}")
+    print(f"aspect:  {resolved['aspect']:.3f} h/w (projected)")
+    print(f"warp:    {resolved['warp'][0]} x {resolved['warp'][1]} px"
+          f"  (~{resolved['extent_w_m'] / resolved['warp'][0]:.0f} m/px)")
+    print(f"hero:    {resolved['hero'][0]} x {resolved['hero'][1]} px  (preview — "
           f"frame.json is authoritative)")
-    fsrc = "override" if r["fusion_overridden"] else \
-        (f"auto: {r['src_px_3s']} 3\" px across < warp {r['warp'][0]}"
-         if r["fusion"] == "1s" else
-         f"auto: {r['src_px_3s']} 3\" px across >= warp {r['warp'][0]}")
-    print(f"fusion:  {r['fusion']}  [{fsrc}]")
-    print(f"pin:     {r['pin'] if r['pin'] else 'none committed'}")
-    if not r["frame_overridden"]:
+    fsrc = "override" if resolved["fusion_overridden"] else \
+        (f"auto: {resolved['src_px_3s']} 3\" px across < warp {resolved['warp'][0]}"
+         if resolved["fusion"] == "1s" else
+         f"auto: {resolved['src_px_3s']} 3\" px across >= warp {resolved['warp'][0]}")
+    print(f"fusion:  {resolved['fusion']}  [{fsrc}]")
+    print(f"pin:     {resolved['pin'] if resolved['pin'] else 'none committed'}")
+    if not resolved["frame_overridden"]:
         frac = main_part_fraction(sf, row)
         if frac < FAR_FLUNG_FRACTION:
             print(f"WARNING: far-flung — main landmass spans {frac:.0%} of a "
@@ -321,43 +328,43 @@ def print_country(sf, scope, cfg, slug: str, emit_pin: bool) -> int:
                   f"override in countries.toml if catastrophic)")
 
     print("\ndata preflights:")
-    needed, missing = preflight_glo30(r["frame"])
+    needed, missing = preflight_glo30(resolved["frame"])
     state = "all held" if not missing else f"{len(missing)} MISSING (stage 1 fetches)"
     print(f"  GLO-30: {len(needed)} land tiles in frame — {state}")
-    gebco_err = preflight_gebco(r["frame"])
+    gebco_err = preflight_gebco(resolved["frame"])
     print(f"  GEBCO:  {'window covers the frame' if not gebco_err else gebco_err}")
 
     if emit_pin:
         print()
-        do_emit_pin(slug, r)
+        do_emit_pin(slug, resolved)
 
     print("\nstages (repo root, venv active):")
     print("  0. (once per machine, skips if data present) "
-          "bash pipeline/download_naturalearth.sh && "
-          "python pipeline/download_gebco.py")
+          "bash pipeline/acquire/download_naturalearth.sh && "
+          "python -m pipeline.acquire.download_gebco")
     if gebco_err:
         print("     ^ complete the bootstrap above; then this country resolves"
               if "download_gebco" in gebco_err else
               f"     (this frame still won't fuse: {gebco_err})")
         return 1
-    for i, cmd in enumerate(stage_commands(r), 1):
-        print(f"  {i}. {cmd}")
+    for index, cmd in enumerate(stage_commands(resolved), 1):
+        print(f"  {index}. {cmd}")
     return 0
 
 
-def do_emit_pin(slug: str, r: dict):
+def do_emit_pin(slug: str, resolved: dict):
     dest = ROOT / f"data/work/{slug}/render/frame.json"
-    if not r["pin"]:
+    if not resolved["pin"]:
         sys.exit(f"no committed pin at {PIN_DIR / f'{slug}.json'}")
     if dest.exists():
-        if filecmp.cmp(r["pin"], dest, shallow=False):
+        if filecmp.cmp(resolved["pin"], dest, shallow=False):
             print(f"pin already emitted: {dest} is byte-identical")
             return
         sys.exit(f"{dest} exists and DIFFERS from the committed pin — "
                  f"reconcile by hand (is the pin stale, or the workdir?)")
     dest.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(r["pin"], dest)
-    print(f"pin emitted: {r['pin']} -> {dest}")
+    shutil.copyfile(resolved["pin"], dest)
+    print(f"pin emitted: {resolved['pin']} -> {dest}")
 
 
 def print_all(sf, scope, cfg) -> int:
@@ -367,14 +374,14 @@ def print_all(sf, scope, cfg) -> int:
     print("-" * len(header))
     counts = dict(resolved=0, skipped=0, pins=0, overrides=0, far_flung=0)
     for slug in sorted(scope):
-        r = resolve(slug, scope[slug], cfg)
-        if r is None:
+        resolved = resolve(slug, scope[slug], cfg)
+        if resolved is None:
             print(f"{slug:28} {'SKIP: antimeridian':28}")
             counts["skipped"] += 1
             continue
         counts["resolved"] += 1
         flags = []
-        if r["frame_overridden"]:
+        if resolved["frame_overridden"]:
             counts["overrides"] += 1
             flags.append("override")
         else:
@@ -382,14 +389,14 @@ def print_all(sf, scope, cfg) -> int:
             if frac < FAR_FLUNG_FRACTION:
                 counts["far_flung"] += 1
                 flags.append(f"far-flung {frac:.0%}")
-        if r["pin"]:
+        if resolved["pin"]:
             counts["pins"] += 1
             flags.append("pin")
-        if r["fusion_overridden"]:
+        if resolved["fusion_overridden"]:
             flags.append("fusion!")
-        print(f"{slug:28} {fmt_frame(r['frame']):28} {r['aspect']:6.2f} "
-              f"{r['hero'][0]:>5}x{r['hero'][1]:<5} "
-              f"{r['warp'][0]:>5}x{r['warp'][1]:<5} {r['fusion']:3} "
+        print(f"{slug:28} {fmt_frame(resolved['frame']):28} {resolved['aspect']:6.2f} "
+              f"{resolved['hero'][0]:>5}x{resolved['hero'][1]:<5} "
+              f"{resolved['warp'][0]:>5}x{resolved['warp'][1]:<5} {resolved['fusion']:3} "
               f"{' '.join(flags)}")
     print(f"\n{len(scope)} in scope: {counts['resolved']} resolved, "
           f"{counts['skipped']} antimeridian-skipped; "

@@ -15,7 +15,7 @@
 # Python venv (rasterio's wheels bundle the GDAL library but not its tools).
 set -euo pipefail
 
-DATA="$(cd "$(dirname "$0")/.." && pwd)/data"
+DATA="$(cd "$(dirname "$0")/../.." && pwd)/data"
 
 # Sources: the AWS GLO-30 tiles plus the OpenTopography 2023_1 void-fill tiles
 # (download_cop30_void.py) and their WorldCover-derived WBM (build_void_wbm.py).

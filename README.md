@@ -9,7 +9,7 @@ This README is the operational entry point: how to set up a fresh machine and re
 **Every hero is reproducible from committed source.** No rendered asset or DEM tile is in git — only code, config, and the per-country frame pins. The single source of truth for "what commands rebuild country X" is the resolver itself:
 
 ```bash
-python pipeline/country_config.py --country nepal
+python -m pipeline.frame.country_config --country nepal
 ```
 
 That prints Nepal's frame, its derived render numbers, its data preflights, and **the exact stage commands** — the same commands the batch runner executes. When in doubt about how a country is built, ask `country_config`; this doc explains the workflow around it, not a frozen command list that would drift.
@@ -18,7 +18,7 @@ That prints Nepal's frame, its derived render numbers, its data preflights, and 
 
 | Path | What lives here |
 |---|---|
-| `pipeline/` | Every pipeline stage (Python + a few shell scripts). Boring, debuggable, idempotent. |
+| `pipeline/` | Every pipeline stage, a Python package grouped by phase: `acquire/` (downloads), `fuse/` (mosaics + heightfield), `frame/` (framing + the `country_config` resolver), `render/` (prep, snow, Blender scene, sky-view), `compose/` (borders, variants) — with `batch.py` (orchestrator) and `ot_oracle.py` at the root. Stages run as modules: `python -m pipeline.<sub>.<module>`. Boring, debuggable, idempotent. |
 | `config/countries.toml` | The scope (~204 heroes) and per-country overrides: frames, curated includes, exclusions, antimeridian markers. The editable source of truth. |
 | `config/frames/*.json` | Committed frame pins for countries whose framing was hand-tuned (e.g. India). |
 | `data/` | DEM/bathymetry rasters and work intermediates. **Gitignored** — regenerated, never committed. |
@@ -35,7 +35,7 @@ The project runs natively on Ubuntu (dev box and the rohome host share the distr
 
 1. **Blender 5.1.2** — a tarball install, *not* on PATH. This project expects it at `~/software/blender-5.1.2-linux-x64/blender`. Render headless with `blender -b`; the GUI needs far more RAM and is not used for production.
 2. **Python venv** — uv-managed. `uv sync` rebuilds `.venv` exactly from `pyproject.toml` + `uv.lock`. Activate it for every pipeline command: `source .venv/bin/activate`. (Blender's bundled Python 3.13 is a *separate* interpreter — `bpy` scripts cannot import the venv's packages, which is why geographic numbers are computed outside Blender and handed over in `frame.json`.)
-3. **Vendored geotools** — `bash pipeline/install_geotools.sh` installs the pinned `pmtiles` binary into gitignored `tools/`. Only needed for the Phase 2 tile pyramid, not for hero renders.
+3. **Vendored geotools** — `bash pipeline/acquire/install_geotools.sh` installs the pinned `pmtiles` binary into gitignored `tools/`. Only needed for the Phase 2 tile pyramid, not for hero renders.
 4. **`.env`** *(optional)* — holds `OPENTOPOGRAPHY_API_KEY`, used only by `pipeline/ot_oracle.py` (a dev-time fusion validation oracle). Gitignored; not required to render.
 
 Keep all project data on the ext4 filesystem — never read or write large rasters from NTFS.
@@ -45,8 +45,8 @@ Keep all project data on the ext4 filesystem — never read or write large raste
 Two global datasets are fetched once and reused by every country. The batch runner does this automatically on first run, but you can run them by hand:
 
 ```bash
-bash pipeline/download_naturalearth.sh   # borders, framing polygons, coastline oracle (pinned release)
-python pipeline/download_gebco.py        # global bathymetry
+bash pipeline/acquire/download_naturalearth.sh   # borders, framing polygons, coastline oracle (pinned release)
+python -m pipeline.acquire.download_gebco        # global bathymetry
 ```
 
 Copernicus GLO-30 land tiles are **not** bootstrapped globally — they are downloaded per country, on demand, only for the tiles a frame needs (a full planet's worth is hundreds of GB). Russia alone pulls ~4900 tiles.
@@ -58,19 +58,19 @@ The batch runner drives the whole chain and is the normal way in. It reuses `cou
 **One country, end to end** (prep + render):
 
 ```bash
-python pipeline/batch.py --through render --only nepal
+python -m pipeline.batch --through render --only nepal
 ```
 
 **Preview the plan without running anything:**
 
 ```bash
-python pipeline/batch.py --through render --only nepal --dry-run
+python -m pipeline.batch --through render --only nepal --dry-run
 ```
 
 **The full sweep** (all in-scope countries; `--clean` reclaims per-country intermediates as it goes):
 
 ```bash
-python pipeline/batch.py --through render --clean
+python -m pipeline.batch --through render --clean
 ```
 
 Useful flags: `--through prep` stops before the render stage (the default, for a prep-ahead pass); `--force` redoes countries already marked done; `--limit N` caps the count; `--mem-floor-gib` tunes the defer-under-load threshold.
@@ -79,15 +79,17 @@ Useful flags: `--through prep` stops before the render stage (the default, for a
 
 The chain `country_config` prints per country, in order. Each stage finalizes its output atomically, so re-running skips completed work.
 
-| # | Stage | Script | Produces |
+| # | Stage | Module / script | Produces |
 |---|---|---|---|
-| 0 | Bootstrap *(once)* | `download_naturalearth.sh`, `download_gebco.py` | Global vectors + bathymetry |
-| 1 | Download land DEM | `download_glo30.py --extent W S E N` | GLO-30 tiles for the frame |
-| 2 | Build mosaics | `build_mosaics.sh` | VRT mosaics of DEM + water-body mask |
-| 3 | Fuse heightfield | `fuse_heightfield.py --bounds … --res-arcsec …` | Seamless land+sea heightfield + ocean/lake/river masks |
-| 4 | Render prep | `render_prep.py --frame W S E N …` | Projected rasters + `frame.json` (every derived number) |
-| 5 | Snow mask | `snow_mask.py --render-dir …` | Snow/ice mask (ESA WorldCover class 70) |
-| 6 | Render | `scene_build.py` via `blender -b` | The hero PNG |
+| 0 | Bootstrap *(once)* | `acquire/download_naturalearth.sh`, `pipeline.acquire.download_gebco` | Global vectors + bathymetry |
+| 1 | Download land DEM | `pipeline.acquire.download_glo30` | GLO-30 tiles for the frame |
+| 2 | Build mosaics | `fuse/build_mosaics.sh` | VRT mosaics of DEM + water-body mask |
+| 3 | Fuse heightfield | `pipeline.fuse.fuse_heightfield` | Seamless land+sea heightfield + ocean/lake/river masks |
+| 4 | Render prep | `pipeline.render.render_prep` | Projected rasters + `frame.json` (every derived number) |
+| 5 | Snow mask | `pipeline.render.snow_mask` | Snow/ice mask (ESA WorldCover class 70) |
+| 6 | Render | `render/scene_build.py` via `blender -b` | The hero PNG |
+
+`pipeline/` is a Python package: **Python stages run as `python -m <module>`** (e.g. `python -m pipeline.render.render_prep …`), shell stages as `bash pipeline/<sub>/<script>.sh`, and the Blender scene as `blender -b --python pipeline/render/scene_build.py`. Ask `country_config --country <slug>` for the exact, filled-in commands.
 
 The geometry behind stages 1–6 — how a lon/lat box becomes projected pixels, displacement scale, and camera framing — is explained in plain English in [`docs/framing-math.md`](docs/framing-math.md). The pipeline diagrams are [`docs/pipeline-overview.mmd`](docs/pipeline-overview.mmd) and [`docs/pipeline-detail.mmd`](docs/pipeline-detail.mmd) (Mermaid).
 
@@ -98,8 +100,8 @@ Borders are **never** rendered inside the Blender scene — they are composited 
 Once heroes exist, three steps turn them into what the site serves:
 
 ```bash
-python pipeline/hero_variants.py            # 2K/4K/native WebP variants per hero (downscale-only, idempotent)
-python pipeline/gen_borders.py              # transparent white border layer per country
+python -m pipeline.compose.hero_variants    # 2K/4K/native WebP variants per hero (downscale-only, idempotent)
+python -m pipeline.compose.gen_borders      # transparent white border layer per country
 ```
 
 Both take `--only <slug,slug>` to process a subset and `--force` to redo existing outputs. Then the frontend (a separate Astro site in the `../maps-frontend` git worktree) regenerates its manifest and builds:

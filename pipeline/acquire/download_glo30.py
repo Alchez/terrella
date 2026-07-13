@@ -126,23 +126,23 @@ def main() -> int:
     for sub in ("dem", "wbm"):
         (DATA_DIR / sub).mkdir(parents=True, exist_ok=True)
 
-    names = [n for n in fetch_tile_list()
-             if in_extent(*parse_tile_name(n), args.extent)]
-    jobs = [pair for n in names for pair in tile_files(n)]
+    names = [tile_name for tile_name in fetch_tile_list()
+             if in_extent(*parse_tile_name(tile_name), args.extent)]
+    jobs = [pair for tile_name in names for pair in tile_files(tile_name)]
     print(f"{len(names)} tiles in extent -> {len(jobs)} files")
 
     counts = {"ok": 0, "skipped": 0}
     failures: list[str] = []
     with cf.ThreadPoolExecutor(WORKERS) as pool:
         futures = {pool.submit(download_one, url, dest): url for url, dest in jobs}
-        for i, fut in enumerate(cf.as_completed(futures), 1):
+        for index, fut in enumerate(cf.as_completed(futures), 1):
             status = fut.result()
             if status.startswith("failed"):
                 failures.append(f"{futures[fut]}  {status}")
             else:
                 counts[status] += 1
-            if i % 25 == 0 or i == len(jobs):
-                print(f"[{i}/{len(jobs)}] ok={counts['ok']} "
+            if index % 25 == 0 or index == len(jobs):
+                print(f"[{index}/{len(jobs)}] ok={counts['ok']} "
                       f"skipped={counts['skipped']} failed={len(failures)}",
                       flush=True)
 

@@ -20,7 +20,7 @@ set -euo pipefail
 
 TAG="v5.1.2"
 BASE="https://raw.githubusercontent.com/nvkelso/natural-earth-vector/$TAG"
-DEST="$(cd "$(dirname "$0")/.." && pwd)/data/raw/naturalearth"
+DEST="$(cd "$(dirname "$0")/../.." && pwd)/data/raw/naturalearth"
 
 LAYERS=(
   "10m_cultural/ne_10m_admin_0_boundary_lines_land"

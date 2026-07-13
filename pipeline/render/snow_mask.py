@@ -113,10 +113,10 @@ def main():
     # grid + CRS from the existing heightfield (render_prep.py pattern):
     # the mask must land pixel-for-pixel on the grid the render was made from
     hf = render_dir / "heightfield_aea.tif"
-    with rasterio.open(hf) as f:
-        dst_crs, transform = f.crs, f.transform
-        width, height = f.width, f.height
-        aea_bounds = f.bounds
+    with rasterio.open(hf) as heightfield_dataset:
+        dst_crs, transform = heightfield_dataset.crs, heightfield_dataset.transform
+        width, height = heightfield_dataset.width, heightfield_dataset.height
+        aea_bounds = heightfield_dataset.bounds
     xres = transform.a  # pyright: ignore[reportAttributeAccessIssue] — affine untyped
 
     # WorldCover tile window = the geographic footprint of the AEA raster. For
@@ -129,33 +129,34 @@ def main():
     # tile absent" abort. Only in that case fall back to render_prep's
     # frame_lonlat (the country's true bbox, written before this stage). Normal
     # frames are unchanged, so their snow coverage is byte-identical.
-    w, s, e, n = transform_bounds(dst_crs, "EPSG:4326", *aea_bounds,
-                                  densify_pts=64)
-    if not (w < e and s < n):
-        w, s, e, n = json.loads(
+    west, south, east, north = transform_bounds(dst_crs, "EPSG:4326",
+                                                 *aea_bounds, densify_pts=64)
+    if not (west < east and south < north):
+        west, south, east, north = json.loads(
             (render_dir / "frame.json").read_text())["frame_lonlat"]
         print("  AEA footprint wraps the pole/dateline — using geographic "
               "frame_lonlat for WorldCover tile selection", flush=True)
     print(f"grid from {hf.name}: {width} x {height}, {xres:.0f} m/px; "
-          f"lon/lat window {w:.2f} {s:.2f} {e:.2f} {n:.2f}", flush=True)
+          f"lon/lat window {west:.2f} {south:.2f} {east:.2f} {north:.2f}",
+          flush=True)
 
-    names = tiles_for_bounds(w, s, e, n)
+    names = tiles_for_bounds(west, south, east, north)
     print(f"{len(names)} candidate WorldCover tiles in the frame", flush=True)
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     counts = {"ok": 0, "skipped": 0, "absent": 0}
     failures = []
     with cf.ThreadPoolExecutor(WORKERS) as pool:
-        futures = {pool.submit(download_one, f"{BUCKET_URL}/{n}",
-                               DATA_DIR / n): n for n in names}
-        for i, fut in enumerate(cf.as_completed(futures), 1):
+        futures = {pool.submit(download_one, f"{BUCKET_URL}/{name}",
+                               DATA_DIR / name): name for name in names}
+        for index, fut in enumerate(cf.as_completed(futures), 1):
             status = fut.result()
             if status.startswith("failed"):
                 failures.append(f"{futures[fut]}  {status}")
             else:
                 counts[status] += 1
-            if i % 10 == 0 or i == len(names):
-                print(f"  [{i}/{len(names)}] ok={counts['ok']} "
+            if index % 10 == 0 or index == len(names):
+                print(f"  [{index}/{len(names)}] ok={counts['ok']} "
                       f"skipped={counts['skipped']} "
                       f"absent(ocean)={counts['absent']} "
                       f"failed={len(failures)}", flush=True)
@@ -169,7 +170,7 @@ def main():
     # VRT over every held tile (build_mosaics.sh pattern; instant XML index)
     vrt = DATA_DIR / "worldcover.vrt"
     subprocess.run(["gdalbuildvrt", "-overwrite", str(vrt)]
-                   + [str(p) for p in sorted(DATA_DIR.glob("*.tif"))],
+                   + [str(path) for path in sorted(DATA_DIR.glob("*.tif"))],
                    check=True, capture_output=True)
     print(f"rebuilt {vrt.name} over {len(list(DATA_DIR.glob('*.tif')))} tiles",
           flush=True)

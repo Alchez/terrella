@@ -28,7 +28,7 @@ from rasterio.errors import NotGeoreferencedWarning
 
 warnings.filterwarnings("ignore", category=NotGeoreferencedWarning)  # PNGs
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parents[2]
 HEROES = ROOT / "blender/renders/heroes"
 VARIANTS = ROOT / "blender/renders/variants"
 TARGETS = (1920, 3840)   # plus each hero's native long edge (full-res WebP)
@@ -36,8 +36,8 @@ QUALITY = 85
 
 
 def dims(path: Path) -> tuple[int, int]:
-    with rasterio.open(path) as d:
-        return d.width, d.height
+    with rasterio.open(path) as dataset:
+        return dataset.width, dataset.height
 
 
 def make_variant(src: Path, wide: bool, long_px: int, out: Path) -> None:
@@ -57,20 +57,20 @@ def main() -> int:
     heroes = sorted(HEROES.glob("*.png"))
     if args.only:
         want = set(args.only.split(","))
-        heroes = [h for h in heroes if h.stem in want]
+        heroes = [hero for hero in heroes if hero.stem in want]
     if not heroes:
         sys.exit("no heroes to process (check blender/renders/heroes/ and --only)")
 
     made = skipped = 0
     for hero in heroes:
-        w, h = dims(hero)
-        native = max(w, h)
-        for long_px in sorted({t for t in TARGETS if t < native} | {native}):
+        width, height = dims(hero)
+        native = max(width, height)
+        for long_px in sorted({target for target in TARGETS if target < native} | {native}):
             out = VARIANTS / f"{hero.stem}-{long_px}.webp"
             if out.exists():
                 skipped += 1
                 continue
-            make_variant(hero, w >= h, long_px, out)
+            make_variant(hero, width >= height, long_px, out)
             print(f"  {out.name}", flush=True)
             made += 1
     print(f"complete: {made} written, {skipped} skipped", flush=True)

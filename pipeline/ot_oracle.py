@@ -79,45 +79,44 @@ def load_api_key() -> str:
              "(repo root or the frontend worktree)")
 
 
-def bbox_area_km2(w: float, s: float, e: float, n: float) -> float:
+def bbox_area_km2(west: float, south: float, east: float, north: float) -> float:
     """Rough cos-lat rectangle area — enough to enforce the API's caps."""
-    mid = math.radians((s + n) / 2)
-    return abs(e - w) * 111.320 * math.cos(mid) * abs(n - s) * 110.574
+    mid = math.radians((south + north) / 2)
+    return abs(east - west) * 111.320 * math.cos(mid) * abs(north - south) * 110.574
 
 
 def resolve_frame(slug: str) -> tuple:
     """The exact frame the pipeline fuses for this country (via country_config)."""
-    sys.path.insert(0, str(ROOT / "pipeline"))
-    import country_config as cc
+    import pipeline.frame.country_config as cc
     cfg = cc.load_config()
     sf, rows = cc.load_ne_rows()
     scope = cc.build_scope(cfg, rows)
     if slug not in scope:
         sys.exit(f"no country with slug {slug!r} in scope (see country_config --all)")
-    r = cc.resolve(slug, scope[slug], cfg)
-    if r is None:
+    resolved = cc.resolve(slug, scope[slug], cfg)
+    if resolved is None:
         sys.exit(f"{slug} is antimeridian-skipped — pass --bounds instead")
-    return tuple(r["frame"])
+    return tuple(resolved["frame"])
 
 
 def fetch(dataset: str, frame: tuple, out: Path, key: str) -> None:
     """Download the clip to out (crash-safe via a .tmp sibling)."""
-    w, s, e, n = frame
+    west, south, east, north = frame
     query = urllib.parse.urlencode(dict(
-        demtype=dataset, south=s, north=n, west=w, east=e,
+        demtype=dataset, south=south, north=north, west=west, east=east,
         outputFormat="GTiff", API_Key=key))
     tmp = out.with_name(out.name + ".tmp")
     try:
         # key is in the URL — never log it
         with urllib.request.urlopen(f"{API}?{query}", timeout=600) as resp, \
-             open(tmp, "wb") as f:
-            shutil.copyfileobj(resp, f)
+             open(tmp, "wb") as out_file:
+            shutil.copyfileobj(resp, out_file)
     except urllib.error.HTTPError as ex:
         body = ex.read().decode("utf-8", "replace")[:400]
         tmp.unlink(missing_ok=True)
         sys.exit(f"OpenTopography API HTTP {ex.code}: {body}")
-    with open(tmp, "rb") as f:
-        magic = f.read(2)
+    with open(tmp, "rb") as probe_file:
+        magic = probe_file.read(2)
     if magic not in (b"II", b"MM"):  # not a TIFF — an error slipped through as 200
         body = tmp.read_text("utf-8", "replace")[:400]
         tmp.unlink(missing_ok=True)
@@ -127,18 +126,18 @@ def fetch(dataset: str, frame: tuple, out: Path, key: str) -> None:
 
 def summarize(path: Path, label: str) -> None:
     with rasterio.open(path) as ds:
-        a = ds.read(1, masked=True)
+        values = ds.read(1, masked=True)
         px = f"{ds.width}x{ds.height}"
-        print(f"  {label:22} {px:>11}  min {a.min():8.1f}  "
-              f"max {a.max():8.1f}  mean {a.mean():8.1f} m")
+        print(f"  {label:22} {px:>11}  min {values.min():8.1f}  "
+              f"max {values.max():8.1f}  mean {values.mean():8.1f} m")
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    g = ap.add_mutually_exclusive_group(required=True)
-    g.add_argument("--country", help="slug per the countries.toml rule")
-    g.add_argument("--bounds", nargs=4, type=float, metavar=("W", "S", "E", "N"))
+    group = ap.add_mutually_exclusive_group(required=True)
+    group.add_argument("--country", help="slug per the countries.toml rule")
+    group.add_argument("--bounds", nargs=4, type=float, metavar=("W", "S", "E", "N"))
     ap.add_argument("--dataset", default="SRTM15Plus", choices=DATASETS,
                     help="reference dataset (default: SRTM15Plus)")
     ap.add_argument("--out", type=Path,
@@ -162,7 +161,7 @@ def main() -> int:
         sys.exit(f"{out} exists — --force or delete it to redo")
     out.parent.mkdir(parents=True, exist_ok=True)
 
-    fr = " ".join(f"{v:g}" for v in frame)
+    fr = " ".join(f"{value:g}" for value in frame)
     print(f"{args.dataset} over [{fr}]  ({area:,.0f} km^2, cap {cap:,})", flush=True)
     fetch(args.dataset, frame, out, load_api_key())
     print(f"wrote {out}", flush=True)

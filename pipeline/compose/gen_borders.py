@@ -19,17 +19,16 @@ Line widths are tuned for the full 8K render and survive downscaling (see ART.md
 
 import argparse
 import json
-import sys
 from pathlib import Path
 
 import cairo
 
-ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT / "pipeline"))
+ROOT = Path(__file__).resolve().parents[2]
 
 import pyproj  # noqa: E402
-from country_config import build_scope, load_config, load_ne_rows  # noqa: E402
-from overlay_borders import (DASHED_CLASSES, DISPUTED_STYLE,  # noqa: E402
+from pipeline.frame.country_config import (build_scope, load_config,  # noqa: E402
+                                           load_ne_rows)
+from pipeline.compose.overlay_borders import (DASHED_CLASSES, DISPUTED_STYLE,  # noqa: E402
                              LAND_STYLE, MARITIME_STYLE, SOLID_CLASSES,
                              frame_bbox_lonlat, read_lines, render_mapping,
                              stroke)
@@ -48,27 +47,27 @@ def ne(name: str) -> Path:
 def find_render_dir(slug: str) -> Path | None:
     """work/<slug>/render, else the first render* dir with the prep outputs."""
     cand = [WORK / slug / "render", *sorted((WORK / slug).glob("render*"))]
-    for d in cand:
-        if (d / "frame.json").exists() and (d / "heightfield_aea.tif").exists():
-            return d
+    for candidate in cand:
+        if (candidate / "frame.json").exists() and (candidate / "heightfield_aea.tif").exists():
+            return candidate
     return None
 
 
 def draw_layer(rdir: Path):
     """Draw casing + white ink at the hero render resolution; return the surface."""
     meta = json.loads((rdir / "frame.json").read_text())
-    w, h = int(meta["res_x"]), int(meta["res_y"])
-    to_px, _m, crs, bounds = render_mapping(rdir / "heightfield_aea.tif", w, h)
+    width, height = int(meta["res_x"]), int(meta["res_y"])
+    to_px, _m, crs, bounds = render_mapping(rdir / "heightfield_aea.tif", width, height)
     fwd = pyproj.Transformer.from_crs("EPSG:4326", crs, always_xy=True)
     bbox = frame_bbox_lonlat(bounds, crs)
 
     land = list(read_lines(ne("ne_10m_admin_0_boundary_lines_land"), bbox))
-    solid = [(r, p) for r, p in land if r.as_dict()["FEATURECLA"] in SOLID_CLASSES]
-    dashed = [(r, p) for r, p in land if r.as_dict()["FEATURECLA"] in DASHED_CLASSES]
+    solid = [(record, parts) for record, parts in land if record.as_dict()["FEATURECLA"] in SOLID_CLASSES]
+    dashed = [(record, parts) for record, parts in land if record.as_dict()["FEATURECLA"] in DASHED_CLASSES]
     maritime = list(read_lines(
         ne("ne_10m_admin_0_boundary_lines_maritime_indicator"), bbox))
 
-    surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, w, h)
+    surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, width, height)
     ctx = cairo.Context(surface)
     layer_sets = [(maritime, MARITIME_STYLE), (solid, LAND_STYLE),
                   (dashed, DISPUTED_STYLE)]
@@ -80,19 +79,19 @@ def draw_layer(rdir: Path):
     for feats, style in layer_sets:          # white ink on top
         stroke(ctx, fwd, to_px, feats, style["rgba"], style["width"],
                dash=style.get("dash"))
-    return surface, (w, h), len(solid) + len(dashed) + len(maritime)
+    return surface, (width, height), len(solid) + len(dashed) + len(maritime)
 
 
 def write_png(surface, long_px: int, out: Path) -> None:
     """Downscale the layer to long_px on its long edge (preserving alpha), atomic."""
-    w, h = surface.get_width(), surface.get_height()
-    sf = long_px / max(w, h)
+    width, height = surface.get_width(), surface.get_height()
+    sf = long_px / max(width, height)
     small = cairo.ImageSurface(cairo.FORMAT_ARGB32,
-                               max(1, round(w * sf)), max(1, round(h * sf)))
-    c = cairo.Context(small)
-    c.scale(sf, sf)
-    c.set_source_surface(surface, 0, 0)
-    c.paint()
+                               max(1, round(width * sf)), max(1, round(height * sf)))
+    context = cairo.Context(small)
+    context.scale(sf, sf)
+    context.set_source_surface(surface, 0, 0)
+    context.paint()
     tmp = out.with_name(out.name + ".tmp")
     small.write_to_png(str(tmp))
     tmp.replace(out)
@@ -109,7 +108,7 @@ def main() -> int:
     scope = build_scope(cfg, rows)
     slugs = sorted(scope)
     if args.only:
-        slugs = [s for s in slugs if s in set(args.only.split(","))]
+        slugs = [slug for slug in slugs if slug in set(args.only.split(","))]
 
     BORDERS.mkdir(parents=True, exist_ok=True)
     VARIANTS.mkdir(parents=True, exist_ok=True)
@@ -123,21 +122,21 @@ def main() -> int:
         native = max(int(meta["res_x"]), int(meta["res_y"]))
         sizes = sorted(set(TARGETS) | {native})
         full = BORDERS / f"{slug}.png"
-        variants = [VARIANTS / f"{slug}-border-{s}.png" for s in sizes]
-        if full.exists() and all(v.exists() for v in variants) and not args.force:
+        variants = [VARIANTS / f"{slug}-border-{size}.png" for size in sizes]
+        if full.exists() and all(variant.exists() for variant in variants) and not args.force:
             skipped += 1
             continue
 
-        surface, (w, h), n = draw_layer(rdir)
-        if n == 0:                # island with no land/maritime lines in frame
+        surface, (width, height), count = draw_layer(rdir)
+        if count == 0:            # island with no land/maritime lines in frame
             empty += 1
             continue
         tmp = full.with_name(full.name + ".tmp")
         surface.write_to_png(str(tmp))
         tmp.replace(full)
-        for s in sizes:
-            write_png(surface, s, VARIANTS / f"{slug}-border-{s}.png")
-        print(f"{slug:22} {w}x{h}  {n} features -> border + "
+        for size in sizes:
+            write_png(surface, size, VARIANTS / f"{slug}-border-{size}.png")
+        print(f"{slug:22} {width}x{height}  {count} features -> border + "
               f"{len(sizes)} variants {sizes}", flush=True)
         done += 1
 

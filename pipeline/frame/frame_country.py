@@ -29,7 +29,7 @@ from pathlib import Path
 
 import shapefile
 
-NE_DIR = Path(__file__).resolve().parent.parent / "data/raw/naturalearth"
+NE_DIR = Path(__file__).resolve().parents[2] / "data/raw/naturalearth"
 
 
 def country_bbox(shp_path, name):
@@ -56,12 +56,12 @@ def pad_frame(bbox, pad_pct):
     """Pad all sides by pad_pct of the larger span; round outward to 0.1°,
     clamped to the world. The clamp matters near the edges: an island at
     179.9°E pads to 180.1° and would cross the antimeridian (Tuvalu)."""
-    w, s, e, n = bbox
-    pad = pad_pct / 100.0 * max(e - w, n - s)
-    return (max(-180.0, math.floor((w - pad) * 10) / 10),
-            max(-90.0, math.floor((s - pad) * 10) / 10),
-            min(180.0, math.ceil((e + pad) * 10) / 10),
-            min(90.0, math.ceil((n + pad) * 10) / 10))
+    west, south, east, north = bbox
+    pad = pad_pct / 100.0 * max(east - west, north - south)
+    return (max(-180.0, math.floor((west - pad) * 10) / 10),
+            max(-90.0, math.floor((south - pad) * 10) / 10),
+            min(180.0, math.ceil((east + pad) * 10) / 10),
+            min(90.0, math.ceil((north + pad) * 10) / 10))
 
 
 def main():

@@ -102,8 +102,8 @@ def build_plane(height):
     bpy.ops.mesh.primitive_plane_add(size=2.0)
     ob = bpy.context.active_object
     ob.name = "Plane"
-    for v in ob.data.vertices:
-        v.co.y *= height / 2.0
+    for vertex in ob.data.vertices:
+        vertex.co.y *= height / 2.0
     mod = ob.modifiers.new("Subdivision", "SUBSURF")
     mod.subdivision_type = "SIMPLE"
     mod.levels = 1
@@ -147,12 +147,12 @@ def build_fill():
 
 
 def build_world():
-    w = bpy.data.worlds.new("World")
-    w.use_nodes = True
-    bg = w.node_tree.nodes["Background"]
+    world = bpy.data.worlds.new("World")
+    world.use_nodes = True
+    bg = world.node_tree.nodes["Background"]
     bg.inputs["Color"].default_value = WORLD_RGBA
     bg.inputs["Strength"].default_value = WORLD_STRENGTH
-    bpy.context.scene.world = w
+    bpy.context.scene.world = world
 
 
 def load_image(render_dir, filename):
@@ -162,9 +162,9 @@ def load_image(render_dir, filename):
 
 
 def make_ramp(nt, name, label, stops):
-    n = nt.nodes.new("ShaderNodeValToRGB")
-    n.name, n.label = name, label
-    cr = n.color_ramp
+    ramp_node = nt.nodes.new("ShaderNodeValToRGB")
+    ramp_node.name, ramp_node.label = name, label
+    cr = ramp_node.color_ramp
     cr.interpolation = RAMP_INTERPOLATION
     # bpy gotcha (API edition of "stops re-sort by position"): elements.new()
     # and position writes re-sort the collection and invalidate held element
@@ -176,34 +176,35 @@ def make_ramp(nt, name, label, stops):
     cr.elements[0].position, cr.elements[0].color = stops[0]
     for pos, rgba in stops[1:]:
         cr.elements.new(pos).color = rgba
-    return n
+    return ramp_node
 
 
 def make_map_range(nt, name, label, from_range, to_range):
-    n = nt.nodes.new("ShaderNodeMapRange")
-    n.name, n.label = name, label
-    n.data_type = "FLOAT"
-    n.clamp = True
-    n.inputs["From Min"].default_value = from_range[0]
-    n.inputs["From Max"].default_value = from_range[1]
-    n.inputs["To Min"].default_value = to_range[0]
-    n.inputs["To Max"].default_value = to_range[1]
-    return n
+    map_range_node = nt.nodes.new("ShaderNodeMapRange")
+    map_range_node.name, map_range_node.label = name, label
+    map_range_node.data_type = "FLOAT"
+    map_range_node.clamp = True
+    map_range_node.inputs["From Min"].default_value = from_range[0]
+    map_range_node.inputs["From Max"].default_value = from_range[1]
+    map_range_node.inputs["To Min"].default_value = to_range[0]
+    map_range_node.inputs["To Max"].default_value = to_range[1]
+    return map_range_node
 
 
 def make_mix(nt, name, label):
-    n = nt.nodes.new("ShaderNodeMix")
-    n.name, n.label = name, label
-    n.data_type = "RGBA"
-    n.blend_type = "MIX"
-    n.clamp_factor = True
-    return n
+    mix_node = nt.nodes.new("ShaderNodeMix")
+    mix_node.name, mix_node.label = name, label
+    mix_node.data_type = "RGBA"
+    mix_node.blend_type = "MIX"
+    mix_node.clamp_factor = True
+    return mix_node
 
 
-def mix_socket(n, sock):
+def mix_socket(mix_node, sock):
     """A/B/Result sockets of a Mix node for its RGBA data type."""
-    coll = n.outputs if sock == "Result" else n.inputs
-    return next(s for s in coll if s.name == sock and s.type == "RGBA")
+    coll = mix_node.outputs if sock == "Result" else mix_node.inputs
+    return next(socket for socket in coll
+                if socket.name == sock and socket.type == "RGBA")
 
 
 def build_material(ob, render_dir, displacement_scale):
@@ -211,17 +212,17 @@ def build_material(ob, render_dir, displacement_scale):
     mat.use_nodes = True
     mat.displacement_method = "DISPLACEMENT"
     nt = mat.node_tree
-    for n in list(nt.nodes):
-        nt.nodes.remove(n)
+    for node in list(nt.nodes):
+        nt.nodes.remove(node)
 
     tex = {}
     for name, (filename, interp) in IMAGES.items():
-        n = nt.nodes.new("ShaderNodeTexImage")
-        n.name = name
-        n.image = load_image(render_dir, filename)
-        n.interpolation = interp
-        n.extension = "REPEAT"
-        tex[name] = n
+        image_node = nt.nodes.new("ShaderNodeTexImage")
+        image_node.name = name
+        image_node.image = load_image(render_dir, filename)
+        image_node.interpolation = interp
+        image_node.extension = "REPEAT"
+        tex[name] = image_node
 
     disp = nt.nodes.new("ShaderNodeDisplacement")
     disp.name = "Displacement"
@@ -248,12 +249,12 @@ def build_material(ob, render_dir, displacement_scale):
     # -> graph identical to the pre-snow scene
     snow = None
     if (render_dir / "snowmask_aea.png").exists():
-        n = nt.nodes.new("ShaderNodeTexImage")
-        n.name = "Image Texture.004"
-        n.image = load_image(render_dir, "snowmask_aea.png")
-        n.interpolation = "Closest"
-        n.extension = "REPEAT"
-        tex["Image Texture.004"] = n
+        snow_image_node = nt.nodes.new("ShaderNodeTexImage")
+        snow_image_node.name = "Image Texture.004"
+        snow_image_node.image = load_image(render_dir, "snowmask_aea.png")
+        snow_image_node.interpolation = "Closest"
+        snow_image_node.extension = "REPEAT"
+        tex["Image Texture.004"] = snow_image_node
         snow = make_mix(nt, "Mix.003", "Snow")
         mix_socket(snow, "B").default_value = SNOW_RGBA
         print("snowmask_aea.png found — wiring Snow mix", flush=True)
@@ -264,57 +265,57 @@ def build_material(ob, render_dir, displacement_scale):
     out = nt.nodes.new("ShaderNodeOutputMaterial")
     out.name = "Material Output"
 
-    L = nt.links.new
+    link = nt.links.new
     hf = tex["Image Texture"]
-    L(hf.outputs["Color"], disp.inputs["Height"])
-    L(disp.outputs["Displacement"], out.inputs["Displacement"])
-    L(hf.outputs["Color"], land_range.inputs["Value"])
-    L(hf.outputs["Color"], sea_range.inputs["Value"])
-    L(land_range.outputs["Result"], land_ramp.inputs["Factor"])
-    L(sea_range.outputs["Result"], sea_ramp.inputs["Factor"])
+    link(hf.outputs["Color"], disp.inputs["Height"])
+    link(disp.outputs["Displacement"], out.inputs["Displacement"])
+    link(hf.outputs["Color"], land_range.inputs["Value"])
+    link(hf.outputs["Color"], sea_range.inputs["Value"])
+    link(land_range.outputs["Result"], land_ramp.inputs["Factor"])
+    link(sea_range.outputs["Result"], sea_ramp.inputs["Factor"])
     land_color = land_ramp.outputs["Color"]
     if snow is not None:
-        L(land_color, mix_socket(snow, "A"))
-        L(tex["Image Texture.004"].outputs["Color"], snow.inputs[0])
+        link(land_color, mix_socket(snow, "A"))
+        link(tex["Image Texture.004"].outputs["Color"], snow.inputs[0])
         land_color = mix_socket(snow, "Result")
-    L(land_color, mix_socket(lake, "A"))
-    L(tex["Image Texture.002"].outputs["Color"], lake.inputs[0])
-    L(rgb.outputs["Color"], mix_socket(lake, "B"))
-    L(mix_socket(lake, "Result"), mix_socket(river, "A"))
-    L(tex["Image Texture.003"].outputs["Color"], river.inputs[0])
-    L(rgb.outputs["Color"], mix_socket(river, "B"))
-    L(mix_socket(river, "Result"), mix_socket(ocean, "A"))
-    L(sea_ramp.outputs["Color"], mix_socket(ocean, "B"))
-    L(tex["Image Texture.001"].outputs["Color"], ocean.inputs[0])
-    L(mix_socket(ocean, "Result"), bsdf.inputs["Base Color"])
-    L(bsdf.outputs["BSDF"], out.inputs["Surface"])
+    link(land_color, mix_socket(lake, "A"))
+    link(tex["Image Texture.002"].outputs["Color"], lake.inputs[0])
+    link(rgb.outputs["Color"], mix_socket(lake, "B"))
+    link(mix_socket(lake, "Result"), mix_socket(river, "A"))
+    link(tex["Image Texture.003"].outputs["Color"], river.inputs[0])
+    link(rgb.outputs["Color"], mix_socket(river, "B"))
+    link(mix_socket(river, "Result"), mix_socket(ocean, "A"))
+    link(sea_ramp.outputs["Color"], mix_socket(ocean, "B"))
+    link(tex["Image Texture.001"].outputs["Color"], ocean.inputs[0])
+    link(mix_socket(ocean, "Result"), bsdf.inputs["Base Color"])
+    link(bsdf.outputs["BSDF"], out.inputs["Surface"])
 
     ob.data.materials.append(mat)
 
 
 def configure_render(res_x, res_y):
-    s = bpy.context.scene
-    r, c = s.render, s.cycles
-    r.engine = "CYCLES"
-    r.resolution_x, r.resolution_y = res_x, res_y
-    r.image_settings.file_format = "PNG"
-    r.image_settings.color_mode = "RGBA"
-    c.device = "GPU"
-    c.samples = SAMPLES
-    c.use_adaptive_sampling = True
-    c.adaptive_threshold = ADAPTIVE_THRESHOLD
-    c.use_denoising = True
-    c.denoiser = "OPENIMAGEDENOISE"
-    c.denoising_input_passes = "RGB_ALBEDO_NORMAL"
-    c.denoising_prefilter = "ACCURATE"
-    c.denoising_quality = "HIGH"
-    c.denoising_use_gpu = False
-    c.dicing_rate = DICING_RATE
-    c.max_subdivisions = MAX_SUBDIVISIONS
+    scene = bpy.context.scene
+    render_settings, cycles_settings = scene.render, scene.cycles
+    render_settings.engine = "CYCLES"
+    render_settings.resolution_x, render_settings.resolution_y = res_x, res_y
+    render_settings.image_settings.file_format = "PNG"
+    render_settings.image_settings.color_mode = "RGBA"
+    cycles_settings.device = "GPU"
+    cycles_settings.samples = SAMPLES
+    cycles_settings.use_adaptive_sampling = True
+    cycles_settings.adaptive_threshold = ADAPTIVE_THRESHOLD
+    cycles_settings.use_denoising = True
+    cycles_settings.denoiser = "OPENIMAGEDENOISE"
+    cycles_settings.denoising_input_passes = "RGB_ALBEDO_NORMAL"
+    cycles_settings.denoising_prefilter = "ACCURATE"
+    cycles_settings.denoising_quality = "HIGH"
+    cycles_settings.denoising_use_gpu = False
+    cycles_settings.dicing_rate = DICING_RATE
+    cycles_settings.max_subdivisions = MAX_SUBDIVISIONS
     for attr, val in BOUNCES.items():
-        setattr(c, attr, val)
-    c.sample_clamp_indirect = CLAMP_INDIRECT
-    s.view_settings.view_transform = "Standard"
+        setattr(cycles_settings, attr, val)
+    cycles_settings.sample_clamp_indirect = CLAMP_INDIRECT
+    scene.view_settings.view_transform = "Standard"
 
 
 def main():
