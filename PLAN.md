@@ -1,4 +1,4 @@
-# Relief Globe — living plan
+# Terrella — living plan
 
 Status legend: [ ] todo · [~] in progress · [x] done · [!] blocked
 Update this file at the end of every work session. Record decisions in the log at the bottom.

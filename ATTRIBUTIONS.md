@@ -1,6 +1,6 @@
 # Attributions & credits
 
-Relief Globe is built entirely from open data and open-source tools. This file is the single source of truth for credits; the site's About page draws from it. Where a license requires a specific on-page or in-metadata statement, the exact string is given below.
+Terrella is built entirely from open data and open-source tools. This file is the single source of truth for credits; the site's About page draws from it. Where a license requires a specific on-page or in-metadata statement, the exact string is given below.
 
 ## Data sources
 
