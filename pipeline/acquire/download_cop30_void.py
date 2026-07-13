@@ -37,9 +37,11 @@ KEY_RE = re.compile(r"[NS]\d\d_00_[EW]\d\d\d_00")  # the N40_00_E044_00 tile key
 
 def ot_index(vrt_path: Path) -> dict[str, str]:
     """{tile key: OT DEM filename} for every tile in OpenTopography's COP30 index."""
-    stems = set(re.findall(r"Copernicus_DSM_10_[NS]\d\d_00_[EW]\d\d\d_00_DEM",
-                           vrt_path.read_text()))
-    return {KEY_RE.search(stem).group(): stem + ".tif" for stem in stems}
+    # Two groups: the full DEM stem and the tile key it contains, so the key
+    # falls out of the match directly (no separate, possibly-None re-search).
+    matches = set(re.findall(r"(Copernicus_DSM_10_([NS]\d\d_00_[EW]\d\d\d_00)_DEM)",
+                             vrt_path.read_text()))
+    return {key: stem + ".tif" for stem, key in matches}
 
 
 def main() -> int:

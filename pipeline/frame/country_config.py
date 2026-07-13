@@ -137,8 +137,10 @@ def build_scope(cfg, rows) -> dict[str, dict]:
             bad.append(f"include {name!r}: no such ADMIN")
         elif name in strict:
             bad.append(f"include {name!r}: already passes the strict selector")
+    # Only valid includes join the scope; an unknown one is already recorded in
+    # `bad` above and must reach the clean sys.exit below, not KeyError here.
     admins = ((strict - set(cfg["scope"]["exclude"]))
-              | set(cfg["scope"]["include"]))
+              | {name for name in cfg["scope"]["include"] if name in by_admin})
     # hand-picked slugs: [countries.<slug>] admin = "..." binds slug -> ADMIN
     bound = {slug: tbl["admin"] for slug, tbl in cfg.get("countries", {}).items()
              if "admin" in tbl}
