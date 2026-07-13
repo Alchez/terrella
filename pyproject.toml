@@ -1,5 +1,5 @@
 [project]
-name = "relief-globe"
+name = "terrella"
 version = "0.1.0"
 description = "Pipeline for ray-traced relief maps: DEM/bathymetry fusion, render prep, overlays"
 requires-python = ">=3.12"

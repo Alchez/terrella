@@ -276,37 +276,6 @@ wheels = [
 ]
 
 [[package]]
-name = "relief-globe"
-version = "0.1.0"
-source = { virtual = "." }
-dependencies = [
-    { name = "numpy" },
-    { name = "pycairo" },
-    { name = "pyproj" },
-    { name = "pyshp" },
-    { name = "rasterio" },
-    { name = "scipy" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "pyright" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "numpy", specifier = ">=2.5" },
-    { name = "pycairo", specifier = ">=1.29" },
-    { name = "pyproj", specifier = ">=3.7" },
-    { name = "pyshp", specifier = ">=3.1" },
-    { name = "rasterio", specifier = ">=1.5" },
-    { name = "scipy", specifier = ">=1.18" },
-]
-
-[package.metadata.requires-dev]
-dev = [{ name = "pyright", specifier = ">=1.1.411" }]
-
-[[package]]
 name = "scipy"
 version = "1.18.0"
 source = { registry = "https://pypi.org/simple" }
@@ -356,6 +325,37 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/31/8e/f04c68e39919a010d34f2ee1367fd705b0a25a02f609d755f0bfbc0a15fc/scipy-1.18.0-cp314-cp314t-win_amd64.whl", hash = "sha256:e40baea28ae7f5475c779741e2d90b1247c78531207b49c7030e698ff81cee3f", size = 37365390, upload-time = "2026-06-19T15:01:38.091Z" },
     { url = "https://files.pythonhosted.org/packages/d5/19/969dc072906c84dd0a3b05dcf57ea750936087d7873549e408b35cfc3f97/scipy-1.18.0-cp314-cp314t-win_arm64.whl", hash = "sha256:368e0a705903c466aa5f08eefb39e6b1b6b2d659e7352a31fd9e2438365be0f8", size = 25279661, upload-time = "2026-06-19T15:01:40.817Z" },
 ]
+
+[[package]]
+name = "terrella"
+version = "0.1.0"
+source = { virtual = "." }
+dependencies = [
+    { name = "numpy" },
+    { name = "pycairo" },
+    { name = "pyproj" },
+    { name = "pyshp" },
+    { name = "rasterio" },
+    { name = "scipy" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pyright" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "numpy", specifier = ">=2.5" },
+    { name = "pycairo", specifier = ">=1.29" },
+    { name = "pyproj", specifier = ">=3.7" },
+    { name = "pyshp", specifier = ">=3.1" },
+    { name = "rasterio", specifier = ">=1.5" },
+    { name = "scipy", specifier = ">=1.18" },
+]
+
+[package.metadata.requires-dev]
+dev = [{ name = "pyright", specifier = ">=1.1.411" }]
 
 [[package]]
 name = "typing-extensions"
