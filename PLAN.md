@@ -54,9 +54,10 @@ ship the finished `.pmtiles`), not a Phase 2 blocker. Tuning loop + the raster-v
   z8 1:1 at every latitude), 12-wide subprocess runner. Antarctica deferred (`--skip-south -60`).
   Output: 540 chunks -> `data/work/planet/planet_{heightfield,oceanmask,watermask}.vrt` (12 GB,
   129600 x 54000, lat -60..90). Swept in ~15 min, 0 failures. See decision log.
-- [ ] Raster shading pipeline: multidirectional hillshade + sky-view factor (our `sky_view.py`) + land/sea color ramps, composited to **match the hero family** (same ramps/warmth/contrast → globe↔hero continuity); **final restraint decided in-context on the globe, not chased in the abstract** — the "quieter basemap" convention (relief recedes under overlays, Huffman 2022) applies weakly here (the relief *is* the subject; typography is minimal; borders already read on the dramatic heroes), so restrain only enough to keep white borders/labels legible and tame native-30 m noise at high zoom (resolution bumping held in reserve)
-- [ ] Compare a tile region side-by-side with the Cycles render; tune until acceptable
-- [ ] Cut 512px tiles, zoom 0–8 (extend to 10 later if quality/storage allows)
+- [~] Raster shading pipeline (in progress 2026-07-13 — see decision log): **single-NW** hillshade (multidirectional greyed the high country — rejected) + sky-view factor (our `sky_view.py`) + land/sea color ramps (shared `palette.py`), shaded **natively in Web Mercator** with a per-latitude z-factor (`relief.py`), composited to **match the hero family** (same ramps/warmth/contrast → globe↔hero continuity); **final restraint decided in-context on the globe, not chased in the abstract** — the "quieter basemap" convention (relief recedes under overlays, Huffman 2022) applies weakly here (the relief *is* the subject; typography is minimal; borders already read on the dramatic heroes), so restrain only enough to keep white borders/labels legible and tame native-30 m noise at high zoom (resolution bumping held in reserve)
+- [~] Compare a tile region side-by-side with the Cycles render; tune until acceptable (Nepal chunk done 2026-07-13 — recipe reproduces the hero family, single-NW confirmed; composite tuning + on-globe judgment pending)
+- [ ] Global snow layer for tiles (`planet_snowmask` from ESA WorldCover class 70, aligned to the shading grid) — **required, not optional**: the shaded tiles are the skin for Tier 2 *and* Tier 3, so without snow the globe's peaks read bare while the heroes (Tier 1 + Tier-3 click) show them snow-capped (2026-07-13, see decision log)
+- [ ] Cut 512px tiles, zoom 0–8 (extend to 10 later if quality/storage allows — z10 = a full re-fuse at ~2.5″, not a tiling flag; see the z8-vs-z10 open question for the cost)
 - [ ] Package as PMTiles
 - [ ] (Stretch) terrain-RGB elevation tiles for Tier 3 displacement
 
@@ -110,10 +111,11 @@ Global for all ~195 countries. Changing any of these after Phase 1 starts means 
 
 Resolved questions move to the decision log — one home per fact. Each question names the point where it gets decided.
 
-- Tile shading: is pure raster compositing good enough, or render z0–z6 tiles in Blender for true shadows and switch to raster at higher zooms? **Decided at:** Phase 2's side-by-side step — judge one region's raster composite against its Cycles reference; the Blender-tile arm only gets costed if that comparison fails. (Prior-art audit 2026-07-09: the closest neighbour, LuisSevillano/relievo, colors its relief in gdaldem/Pillow *outside* Blender — exactly the raster-composite arm we plan for tiles — reinforcing that the hero=in-Blender / tile=GDAL-post split is the standard division, not an idiosyncrasy.)
+- Tile shading: is pure raster compositing good enough, or render z0–z6 tiles in Blender for true shadows and switch to raster at higher zooms? **Decided at:** Phase 2's side-by-side step — judge one region's raster composite against its Cycles reference; the Blender-tile arm only gets costed if that comparison fails. (Prior-art audit 2026-07-09: the closest neighbour, LuisSevillano/relievo, colors its relief in gdaldem/Pillow *outside* Blender — exactly the raster-composite arm we plan for tiles — reinforcing that the hero=in-Blender / tile=GDAL-post split is the standard division, not an idiosyncrasy.) **First side-by-side 2026-07-13 (Nepal chunk `e080_n20`, shaded in Mercator): the raster composite reproduces the hero family cleanly → strongly leans raster; the Blender-tile arm is not needed pending the on-globe view with borders.**
 - **Hero presentation — geography-conditional, not finalised** (explored 2026-07-09 spike; full findings + reusable machinery in the decision log). The country-shape cutout was tried and generalised: cutout-cream suits continental/landlocked, real generous ocean suits genuinely water-surrounded (island) countries, but no single universal design holds (the trilemma: consistent / coherent / neighbour-free can't all hold at once). Two problems stay open: (a) most countries are *both* coastal and bordered (France, USA, India…) and need a tier-classification rule; (b) every treatment reads **flat at the country margin** (wants its own edge-depth pass). cutout-cream and everyone-island are post-processes of the tight renders (free); only the island real-ocean tier needs bigger-frame renders (cost path C). **Decided at:** Phase 3 gallery/globe design, once rectangular heroes exist to judge against; not a look change to the heroes, so it does not touch the locked constants.
 - Storage location for the tile pyramid on rohome (which mount, backup exclusion). **Decided by:** the start of Phase 2 production runs on rohome, before the planet heightfield and pyramid (tens of GB) start landing on disk.
 - Caspian Sea routing (first frame that contains it): its surface sits at −28 m, so neither the ocean rule nor the land ramp handles it cleanly; check its WBM class and whether GEBCO already carries its measured bathymetry. **Decided at:** Phase 1 config of the first Caspian-bordering frame (Kazakhstan / Azerbaijan / Iran / Russia / Turkmenistan); the probe itself is a cheap fusion-window check and can run any time earlier.
+- **z8 vs z10 tile ceiling.** Locked at z8 (10″ master, 306 m/px). Going to z10 is **not a tiling flag — it's a re-fuse**: tiling the 10″ master deeper just upsamples (16× tiles, zero new detail); real z10 detail needs re-fusing the planet at **~2.5″ (76 m)** → 16× pixels → **~4 h fusion, ~190 GB master, ~16× the PMTiles (~2.5 → ~30–40 GB)**. (Native 1″/z11 = ~100× / ~1.2 TB, infeasible on current disk.) **Runtime on Tier 2/3 is unaffected** — MapLibre fetches only viewport tiles at the current zoom and PMTiles serves by HTTP range request, so a deeper pyramid is *crisper on zoom-in, not heavier to render*; the cost is build-time + hosting storage, paid once, and is **additive/deferrable** (add later by re-fusing finer, no frontend change). Mitigation if pursued: z10 **over land only** (per-region max-zoom; ocean has no detail to reveal) cuts ~16× toward ~5×. **Decided at:** after the z8 globe is viewable live — "z8 feels coarse" can't be judged until seen on the sphere (a full 10° cell shrunk to a 900 px panel reads coarser than z8 will on-screen). Resolution facts (our 512 px @2x): res(z)=78271.5/2^z m/px → z8=306, z9=153, z10=76, z11≈38 ≈ native 30 m (so GLO-30 native ≈ z11 here, z12 in the standard 256 px zoom numbering).
 
 - **Prep-ahead producer/consumer runner (Phase 1.5 — timing, not correctness).** `batch.py` today
   serializes prep (stages 0–4: download/mosaic/fuse/warp/snow — network/CPU/disk, GPU-idle) with the
@@ -140,6 +142,79 @@ Resolved questions move to the decision log — one home per fact. Each question
   *then* `--through render` = pure GPU), which suffices if prep is allowed to finish first.
 
 ## Decision log
+
+### 2026-07-13 — First MapLibre globe: Tier-2 stack validated end-to-end (region-first)
+
+Built the first working globe over our z8 tiles — the full chain **shade → tile → MapLibre globe** — on a
+South Asia region (6 cells, 70–100°E / 20–40°N: N India, Himalaya, Tibet, Myanmar), to de-risk the whole
+stack before a full-planet build. **Judge the z8 look on the sphere here — this is what the z8-vs-z10 call was
+waiting on.** Reopen: `python -m http.server 8765` in the tiles dir, open `localhost:8765` (scratchpad artifact,
+regenerable via the commands below).
+
+- **`pipeline/tile/shade.py`** (new, production) — shades a set of chunks into ONE seamless Web Mercator RGB.
+  Reprojects each chunk's height+masks to a **WebMercatorQuad-aligned 3857 grid** (`gdalwarp -tap -tr 305.7483`,
+  which snaps to the z8 tile grid because 20037508.34 = 65536 × 305.7483), VRT-mosaics them, then shades the
+  **mosaic once** (color-relief × hillshade × SVF, mask-composited) so there are **no chunk-edge seams** (shading
+  per-chunk would seam at the hillshade 3×3 / SVF halo). Locked knobs (single-NW, physical 15× via
+  `relief.mercator_zfactor` at the region mid-latitude, tuned composite defaults). Composite loads the whole
+  region into RAM — **a planet run must window it**. ~27 s for 6 cells; pyright-clean.
+- **Tiling path:** `gdal raster tile --tiling-scheme WebMercatorQuad --min-zoom 0 --max-zoom 8 region_rgb.tif
+  DIR/tiles` → XYZ dir (z0–8; 571 tiles / 70 MB for the region; ~3 s). **Default tile size is 256 px — production
+  wants 512 px** (still to set). gdal's default `xyz` convention matches MapLibre's raster scheme (no y-flip).
+  **For local dev, serve the XYZ dir with `http.server` + a MapLibre raster source at `/tiles/{z}/{x}/{y}.png` —
+  no PMTiles needed.** PMTiles is the Phase-4 single-file deploy; `pmtiles convert` only reads **MBTiles**, so the
+  eventual pack path is gdal→MBTiles→`pmtiles convert` (or gdal→dir→mb-util→pmtiles).
+- **The globe page** (MapLibre GL JS v5 via CDN, `projection: {type:'globe'}`, a raster XYZ source + a background
+  ocean layer + `setSky` atmosphere) is a ~40-line `index.html` in scratchpad — trivial to rebuild.
+- **Validated:** MapLibre globe + our shaded z8 tiles render correctly, seamless across chunks, correctly placed.
+  The Tier-2 stack works on our data.
+- **Caveats (all deliberate):** region-only (rest of sphere = flat ocean bg); 256 px; snow only where WorldCover
+  is already on disk; the untuned grey high-country gap; single mid-lat z-factor per region (planet bands it).
+- **Next:** judge z8 on the sphere → the z8-vs-z10 call; then scale to the full planet (+ global snow layer,
+  512 px, latitude-band the z-factor, window the composite, PMTiles); optionally a composite-knob sweep first to
+  warm the high country.
+- **Uncommitted (Rohan commits):** `pipeline/tile/shade.py` + `pipeline/tile/__init__.py` (this milestone) — plus
+  the still-uncommitted `pipeline/render/palette.py`, `relief.py`, `tests/test_palette.py`, `test_relief.py`,
+  `pipeline/experiments/tile_chunk.py`, and `PLAN.md`.
+
+### 2026-07-13 — Shading stage designed + first Mercator chunk vs hero; Antarctica prefetched; snow is tile-scope
+
+Started Phase 2 step 2 (raster shading). Design decided and validated on one chunk before a global build.
+
+- **Antarctica prefetched (data only).** All **26,450** GLO-30 land tiles now on disk (the deferred ~7,042
+  Antarctic tiles added, ~55 GB — they compress small). Antarctica *fusion* stays a separate special-case
+  pass: GEBCO_2026 is ice-SURFACE elevation, not bathymetry, so the fusion's no-tile→ocean rule would clamp
+  it to −1 m. New `download_glo30 --tiles` + `fuse_planet --emit-missing` drive precise scattered-gap fetches.
+- **Tier scope clarified — the shaded raster tiles are the visual skin for BOTH Tier 2 and Tier 3.** Tier 3 =
+  the same draped tiles + a terrain-RGB *displacement* layer (elevation encoded as RGB, carries no color) +
+  click-to-hero. So **snow must be visible on the tiles**, else Tier-3 fly-to shows bare peaks while the heroes
+  (Tier 1, and the Tier-3 click-to-hero) show them snow-capped. → a **global snow layer is required tile-scope**,
+  not merely a Tier-1 hero input.
+- **Projection: shade natively in Web Mercator with a per-latitude-band z-factor** (`relief.mercator_zfactor =
+  exaggeration / cos(latitude)`; `pipeline/render/relief.py`, TDD'd). Reversed an initial equal-area-then-
+  reproject lean, on this reasoning: hillshade needs correct slope *aspect* (an angle), and the projection
+  property that preserves angles is **conformality**, not equal-area. **Mercator IS conformal** → aspect is
+  already correct; its only error is scale (`1/cos φ`, flattening relief poleward), fixed exactly by the band
+  z-factor. Equal-area would distort aspect (wrong-facing slopes) *and* needs a lossy reproject before tiling.
+  So Mercator-native is both **more faithful and simpler** (tiling is a pass-through, no resample). The heroes'
+  per-country AEA works only because a small area is near-conformal in any projection.
+- **Recipe = `gdaldem color-relief` (shared palette) × `gdaldem hillshade` × SVF, composited by mask** — ported
+  from the `experiments/tile_recipe.py` prototype. New `pipeline/render/palette.py` is the **single source of
+  truth** for the land/sea/snow/water ramps (bpy-free so the hero scene can import it too), TDD'd with an
+  independent-oracle drift guard against the frozen hero hex (E9D9C0/E9DCC8, 8FC7C5/3A6E7D). pytest is back in.
+- **First artifact — Nepal cell `e080_n20`, ~27 s** (`experiments/tile_chunk.py`, which shades one chunk and
+  knob-sweeps vs a hero). The Mercator recipe **reproduces the hero family** (warm land, brown mountains, snow,
+  teal water). Findings: **single-NW sun beats multidirectional** (multidir greys the high country; matches the
+  hero's baked NW convention) → the `[ ]` shading checkbox's "multidirectional" is superseded; exaggeration
+  ~×1.0–1.2; the one real gap is the high Himalaya/Tibet reading grey/desaturated vs the hero's warm brown,
+  which the *composite* knobs (saturation/warmth/exposure) address. This **leans the raster-vs-Blender fork
+  toward raster.**
+- **Cost model (why tuning is cheap):** the expensive layers (reproject, color-relief, SVF, snow) are computed
+  once per chunk (~30 s); hillshade re-runs per light/exaggeration (~5 s); the composite is pure numpy (~ms) —
+  so a whole knob grid costs about one build. Next: sweep the composite knobs to warm the high country, then
+  judge final restraint on the real MapLibre globe (not in the abstract).
+- **Uncommitted (Rohan commits):** `pipeline/render/palette.py`, `pipeline/render/relief.py`,
+  `tests/test_palette.py`, `tests/test_relief.py`, `pipeline/experiments/tile_chunk.py`.
 
 ### 2026-07-13 — Planet-wide fused heightfield built (Phase 2, step 1)
 
