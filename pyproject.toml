@@ -21,6 +21,7 @@ package = false
 [dependency-groups]
 dev = [
     "pyright>=1.1.411",
+    "pytest>=9.1.1",
 ]
 
 # Same engine as Pylance, so `uv run pyright` reproduces the IDE's findings.
@@ -31,3 +32,12 @@ exclude = ["pipeline/experiments"]
 venvPath = "."
 venv = ".venv"
 typeCheckingMode = "standard"
+
+# Tests cover the pure geometry/config resolution layer (framing math, config
+# validation, scope + frame resolution) — the deterministic core where a silent
+# regression would render a wrong hero. Rendering/fusion/downloads are not unit
+# tested (data- and GPU-bound). pythonpath="." makes `pipeline` importable.
+# Native [tool.pytest] table (pytest 9.0+), not the legacy [tool.pytest.ini_options].
+[tool.pytest]
+pythonpath = ["."]
+testpaths = ["tests"]
