@@ -116,18 +116,26 @@ def fetch_tile_list() -> list[str]:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--extent", nargs=4, type=float, required=True,
-                    metavar=("W", "S", "E", "N"),
-                    help="lon/lat window; overlapping 1x1 degree land tiles "
-                         "are fetched (Phase 0 window was 60 0 100 40)")
+    source = ap.add_mutually_exclusive_group(required=True)
+    source.add_argument("--extent", nargs=4, type=float,
+                        metavar=("W", "S", "E", "N"),
+                        help="lon/lat window; overlapping 1x1 degree land tiles "
+                             "are fetched (Phase 0 window was 60 0 100 40)")
+    source.add_argument("--tiles", type=Path,
+                        help="file of explicit tile names, one per line (e.g. from "
+                             "`fuse_planet --emit-missing`) — fetches exactly those, for "
+                             "the scattered planet-coverage gap or a targeted re-download")
     args = ap.parse_args()
 
     bucket_preflight()
     for sub in ("dem", "wbm"):
         (DATA_DIR / sub).mkdir(parents=True, exist_ok=True)
 
-    names = [tile_name for tile_name in fetch_tile_list()
-             if in_extent(*parse_tile_name(tile_name), args.extent)]
+    if args.tiles:
+        names = args.tiles.read_text().split()
+    else:
+        names = [tile_name for tile_name in fetch_tile_list()
+                 if in_extent(*parse_tile_name(tile_name), args.extent)]
     jobs = [pair for tile_name in names for pair in tile_files(tile_name)]
     print(f"{len(names)} tiles in extent -> {len(jobs)} files")
 

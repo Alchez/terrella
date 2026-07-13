@@ -130,6 +130,12 @@ def main():
                          "override alongside --dem-vrt so void-fill land is classified")
     ap.add_argument("--watermask-only", action="store_true",
                     help="backfill the water mask from an existing fusion")
+    ap.add_argument("--coverage-warn", action="store_true",
+                    help="downgrade the >1%% coverage-gap abort to a warning. For the "
+                         "planet sweep, where fuse_planet's tileList preflight already "
+                         "proved every land tile is on disk, so an in-window gap means a "
+                         "corrupt (not missing) tile — worth flagging, not worth aborting "
+                         "the cell mid-sweep. The country path leaves this off (fail loud).")
     args = ap.parse_args()
 
     tag = f"{args.res_arcsec:g}s".replace(".", "p")
@@ -215,10 +221,13 @@ def main():
     print_class_counts(counts)
     gap_frac = gap_px / max(land_px, 1)
     if gap_frac > 0.01:
-        sys.exit(f"COVERAGE GAP: {gap_frac:.1%} of land pixels ({gap_px:,}) have no "
-                 f"GLO-30 tile — a DEM tile is missing/corrupt in this frame and would "
-                 f"render as a flat nodata block (the Georgia bug). Re-download the "
-                 f"frame's tiles and re-fuse.")
+        message = (f"COVERAGE GAP: {gap_frac:.1%} of land pixels ({gap_px:,}) have no "
+                   f"GLO-30 tile — a DEM tile is missing/corrupt in this frame and would "
+                   f"render as a flat nodata block (the Georgia bug). Re-download the "
+                   f"frame's tiles and re-fuse.")
+        if not args.coverage_warn:
+            sys.exit(message)
+        print(f"WARNING: {message}", flush=True)
     if gap_px:
         print(f"coverage: {gap_frac:.3%} land gap ({gap_px:,} px) — below fail "
               f"threshold, flat-filled", flush=True)

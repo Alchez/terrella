@@ -49,7 +49,11 @@ ship the finished `.pmtiles`), not a Phase 2 blocker. Tuning loop + the raster-v
 (open-Q below) both gated on a **frozen hero look**.
 
 - [x] Toolchain locked (2026-07-10): `pmtiles` 1.31.0 = sole vendored tool (`pipeline/install_geotools.sh`); SVF via our own `sky_view.py`; **GDAL pinned 3.13.1** (OSGeo container for prod; prototype on apt 3.12.2). WhiteboxTools dropped as legacy.
-- [ ] Build planet-wide fused heightfield (chunked; will not fit in RAM)
+- [x] Build planet-wide fused heightfield (chunked; will not fit in RAM). Complete 2026-07-13:
+  `pipeline/fuse/fuse_planet.py` fuses the globe as 10x10-degree cells at 10" EPSG:4326 (matches
+  z8 1:1 at every latitude), 12-wide subprocess runner. Antarctica deferred (`--skip-south -60`).
+  Output: 540 chunks -> `data/work/planet/planet_{heightfield,oceanmask,watermask}.vrt` (12 GB,
+  129600 x 54000, lat -60..90). Swept in ~15 min, 0 failures. See decision log.
 - [ ] Raster shading pipeline: multidirectional hillshade + sky-view factor (our `sky_view.py`) + land/sea color ramps, composited to **match the hero family** (same ramps/warmth/contrast → globe↔hero continuity); **final restraint decided in-context on the globe, not chased in the abstract** — the "quieter basemap" convention (relief recedes under overlays, Huffman 2022) applies weakly here (the relief *is* the subject; typography is minimal; borders already read on the dramatic heroes), so restrain only enough to keep white borders/labels legible and tame native-30 m noise at high zoom (resolution bumping held in reserve)
 - [ ] Compare a tile region side-by-side with the Cycles render; tune until acceptable
 - [ ] Cut 512px tiles, zoom 0–8 (extend to 10 later if quality/storage allows)
@@ -137,8 +141,52 @@ Resolved questions move to the decision log — one home per fact. Each question
 
 ## Decision log
 
+### 2026-07-13 — Planet-wide fused heightfield built (Phase 2, step 1)
+
+The first Phase-2 artifact: a seamless global land+bathymetry heightfield, the analysis-ready
+input the tile pyramid is shaded and cut from. New `pipeline/fuse/fuse_planet.py` orchestrates
+`fuse_heightfield.py` over the globe; `fuse_heightfield` gained `--coverage-warn`, `download_glo30`
+gained `--tiles` (both leave existing paths unchanged).
+
+- **Grid: EPSG:4326 @ 10 arcsec, chunked into 10x10-degree whole-degree cells** (3600x3600 px;
+  648 global, 540 run). 4326 over 3857 because a constant-degree grid and WebMercator both scale
+  ground-res by cos(lat), so 10" feeds the locked z8 ceiling 1:1 at every latitude with no polar
+  oversampling — and a projection-agnostic master keeps the 3857 warp + latitude-varying hillshade
+  z-factor as the *shading* stage's job. Whole-degree cells put every edge on an exact output-pixel
+  boundary, so adjacent cells share bit-identical seams (the fusion mask is purely window-local, no
+  neighbour lookup). Verified: 80E boundary reads seamless from the VRT, 0 nodata.
+- **Memory was never the constraint** — `fuse_heightfield` is already windowed (~1.3 GB peak/process
+  regardless of extent). Chunking buys parallelism, resume, and per-cell coverage, not RAM. Measured:
+  43 s/dense-land cell, 12 workers ~9 GiB aggregate RSS, whole sweep ~15 min (the earlier "overnight"
+  guess was wrong — dominated by ocean/sparse cells that fuse in ~5 s). CPU-bound at 12-wide, not
+  RAM-bound; ulimit -n on this box is 524288 so the flat-VRT FD concern was moot.
+- **The coverage oracle (the reason fuse_planet exists).** At fusion time an un-downloaded 1x1 land
+  cell (dem=-9999, wbm=255) is pixel-identical to open ocean and `fuse_heightfield` routes it to
+  min(gebco,-1) — silently flooding real land as sea, uncounted by its in-window gap check. Only
+  `tileList.txt` (the AWS land index) distinguishes the two, so `fuse_planet` asserts every listed
+  tile intersecting a land cell is on disk *before* fusing, and fails loudly (naming cell + missing
+  keys) otherwise. `--emit-missing` prints the exact gap list for `download_glo30 --tiles`. Verified:
+  deep-interior land (Kazakhstan/Sahara/Congo/Australia/Tibet) all 100% land, no flooding.
+- **Antarctica deferred** (`--skip-south -60`), consistent with PLAN's special-case stance. It was
+  92% of the missing tiles (7,044 of 7,659); deferring shrank the download to 615 tiles (~14 GB,
+  ~2 min) from ~180 GB. Cost: the WebMercator basemap's southern cap (-60..-85, which Mercator does
+  show) is blank until a later Antarctica pass. GEBCO_2026 is ice-SURFACE elevation, so a proper
+  Antarctica needs its own GLO-30 ice tiles (not a bathymetry clamp) — a reason it's its own step.
+- **Output as per-chunk GTiffs + VRTs, not one BigTIFF** — parallel writes/overviews/resume, and the
+  tiler reads reduced-res through the VRT down to per-chunk overviews (z0-z4 mosaic with no global
+  overview pass). Emits all three layers (heightfield/oceanmask/watermask) the shading recipe needs.
+- **Uncommitted (Rohan commits):** `pipeline/fuse/fuse_planet.py` (new), `fuse_heightfield.py`,
+  `pipeline/acquire/download_glo30.py`, `PLAN.md`. Outputs live in gitignored `data/`.
+- **Next:** the raster shading stage — reproject 4326->3857, multidirectional hillshade (with the
+  latitude z-factor) + `sky_view.py` SVF + the hero land/sea ramps, matched to the hero family.
+
 ### 2026-07-13 — Test suite + CI on the resolver layer (a bug caught on day one)
 Added `pytest` (dev dep) + `tests/` covering the pure geometry/config layer — `pad_frame` (incl. the ±180 antimeridian clamp), `country_config` validation (the fail-loudly contract), `build_scope`, `resolve` (frame/aspect/size/fusion + the "no resolved frame escapes the world" invariant), and `main_part_fraction` — all on synthetic countries, **no external data**. Rendering/fusion/downloads are deliberately not unit-tested (GPU/data-bound). `.github/workflows/ci.yml` runs the fast gate on push-to-main + PRs: `uv sync` → `pyright pipeline/` → `pytest` (needs `libcairo2-dev` for pycairo). The suite earned its keep immediately — it caught a real fail-loudly bug: `build_scope` with an unknown `[scope].include` ADMIN recorded the error but then crashed with a raw `KeyError` before its clean `sys.exit`; fixed to build the admin set from valid includes only. Also cleared the one standing pyright finding (`download_cop30_void.ot_index` did `.search(...).group()` on a possibly-`None` match → rewritten to capture the key in the `findall`) so the CI baseline is green. A heavier data-dependent job (download Natural Earth, assert `--all` = 204/203/1 across the real scope) is a deliberate follow-up, not built.
+
+### 2026-07-13 — Known latent bugs (recorded pre-compaction; UNFIXED in tree)
+Two real defects surfaced this session by a data-free pytest suite on the resolver layer (the suite + a fast GitHub-Actions CI job were built and exercised — pyright + pytest — but are not committed to the tree). Both are latent (no live-operation crash), which is exactly why they're easy to forget — so they're recorded here with the known fix:
+- **`pipeline/acquire/download_cop30_void.py` → `ot_index`** — `KEY_RE.search(stem).group()` dereferences an `Optional[Match]` (the sole pyright finding). Safe *today*: every `stem` comes from a `re.findall` whose pattern contains the tile key, so `search` never returns `None` — but brittle if that DEM-name pattern ever drifts. **Fix:** capture the key as a second group in the `findall` (`r"(Copernicus_DSM_10_([NS]\d\d_00_[EW]\d\d\d_00)_DEM)"`) and drop the separate `search`.
+- **`pipeline/frame/country_config.py` → `build_scope`** — an unknown ADMIN in `[scope].include` (a `countries.toml` typo) raises a raw `KeyError` at `scope[slug] = by_admin[admin]` *before* the function's clean `sys.exit`, degrading the fail-loudly contract to a traceback. **Fix:** build the admin set from valid includes only — `… | {name for name in cfg["scope"]["include"] if name in by_admin}` — so the already-recorded "no such ADMIN" error reaches the exit.
 
 ### 2026-07-13 — Renamed to Terrella; `pipeline/` reorganized into a package; single-letter names purged
 Three pre-Phase-2 cleanups, all on `main` (`feat/frontend` stays unmerged until Phase 3; it barely touches `pipeline/`, so the eventual merge mostly takes main's version):
