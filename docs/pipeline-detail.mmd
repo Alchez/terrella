@@ -7,6 +7,8 @@ flowchart TD
     S1["Copernicus GLO-30 — ESA<br/>AWS Open Data, public S3<br/>1-arcsec land DSM, 1x1 deg COG tiles"]
     S2["GEBCO_2026 — Seabed 2030<br/>download.gebco.net subset<br/>15-arcsec global land+sea grid"]
     S3["Natural Earth<br/>country / coastline / border vectors<br/>1:10m, default worldview"]
+    S4["NSIDC-0791 — MODIS/Terra<br/>global annual snow-cover climatology<br/>0.01 deg, snow_persistence 2001-2023"]
+    S5["RGI 7.0 — Randolph Glacier Inventory<br/>global glacier outlines (GTN-G regions)<br/>via open UNESCO IHP-WINS mirror"]
   end
 
   subgraph ACQ["Acquisition — done"]
@@ -58,14 +60,22 @@ flowchart TD
   R4 --> OV
   OV --> HF
 
-  subgraph TILES["Tile pyramid — Phase 2"]
-    T1["raster shading approximation:<br/>multidirectional hillshade + sky-view factor<br/>+ the same two color ramps"]
-    T2["512 px tiles, z0-8<br/>packaged as single PMTiles file"]
+  subgraph TILES["Tile pyramid — Phase 2, in progress"]
+    PF["fuse_planet.py — globe as 10x10-deg cells<br/>10-arcsec EPSG:4326, 12-wide subprocess runner<br/>tileList coverage gate; Antarctica deferred"]
+    PH[("work/planet/planet_heightfield.vrt<br/>129600x54000, lat -60..90<br/>540 chunks, 12 GB")]
+    SN["render/snow.py — NSIDC-0791 persistence to a<br/>latitude-ramped soft alpha (0.40@45 to 0.60@63)<br/>unioned with an RGI 7.0 glacier raster"]
+    SH["tile/shade.py — reproject cells to WMQ 3857 (-tap),<br/>mosaic, shade once: color-relief x single-NW hillshade<br/>(per-lat z-factor, relief.py) x sky-view (sky_view.py) + snow"]
+    T2["gdal raster tile: 512 px, z0-8<br/>to MBTiles, then pmtiles convert"]
   end
 
-  O1 -.-> T1
-  O2 -.-> T1
-  T1 -.-> T2
+  S1 -.->|all land cells, global| PF
+  S2 -.-> PF
+  PF --> PH
+  PH --> SH
+  S4 --> SN
+  S5 --> SN
+  SN --> SH
+  SH --> T2
 
   subgraph SITE["Site — Phases 3-4"]
     W["three-tier static site on rohome (nginx)<br/>Tier 1 gallery / Tier 2 MapLibre globe<br/>Tier 3 globe + terrain-RGB relief"]
@@ -80,7 +90,9 @@ flowchart TD
   classDef next fill:#fdf3d7,stroke:#b8860b,color:#4a3a10
   classDef plan fill:#eceff1,stroke:#78909c,color:#37474f
 
-  class S1,S2,S3 ext
+  class S1,S2,S3,S4,S5 ext
   class D1,R1,R2,R3,D2,R4,V,F,O1,O2,O3 done
   class P,B,H8,OV,HF done
-  class T1,T2,W plan
+  class PF,PH done
+  class SN,SH,T2 next
+  class W plan

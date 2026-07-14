@@ -41,7 +41,8 @@ SEA_STOPS: list[Stop] = [
     (1.000, (0.042311, 0.155926, 0.205079)),
 ]
 WATER_RGB: RGB8 = (152, 197, 200)  # 98C5C8 — flat inland lake/river teal
-SNOW_RGB: RGB8 = (232, 241, 246)   # E8F1F6 — glacial blue-white
+SNOW_RGB: RGB8 = (232, 241, 246)         # E8F1F6 — sunlit snow (bright glacial white)
+SNOW_SHADOW_RGB: RGB8 = (176, 199, 219)  # B0C7DB — shaded snow (cool blue-white, not grey)
 
 LAND_MAX_M = 6000.0
 SEA_MIN_M = -3000.0

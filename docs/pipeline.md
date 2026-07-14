@@ -78,6 +78,20 @@ The geometry behind stages 1–6 — how a lon/lat box becomes projected pixels,
 
 Borders are **never** rendered inside the Blender scene — they are composited in post as a standalone transparent layer, so the website can toggle them over the hero.
 
+### Phase 2 — the tile pyramid (in progress)
+
+The zoomable globe is a separate, raster-only path that does **not** use Blender: fuse the whole planet once, shade it to imitate the hero look, and cut tiles.
+
+| Module | Produces |
+|---|---|
+| `pipeline.fuse.fuse_planet` | the planet heightfield (10×10° cells at 10″, `data/work/planet/*.vrt`) |
+| `pipeline.acquire.download_snow` | NSIDC-0791 snow-persistence granule (Earthdata token in `.env`) |
+| `pipeline.acquire.download_rgi` | RGI 7.0 glacier shapefiles merged to `data/raw/rgi/rgi7_g_3857.gpkg` |
+| `pipeline.render.snow` | tile snow: persistence → latitude-ramped soft alpha, unioned with RGI glaciers |
+| `pipeline.tile.shade` | reproject cells to Web-Mercator, mosaic, shade once (color-relief × single-NW hillshade × sky-view + snow) → `region_rgb.tif` |
+
+Snow here is **not** the hero's WorldCover class-70 mask (permanent ice only, which left mid/high-latitude ranges bare) — it is observed MODIS snow *persistence* as a soft alpha, ramped by latitude, with RGI glaciers crisp on top. See the [decision log](../PLAN.md) and the pipeline diagrams. Tiling → PMTiles and the seamless full-planet shade (latitude-banded z-factor / windowed composite) are the remaining pieces.
+
 ## From heroes to the website
 
 Once heroes exist, three steps turn them into what the site serves:

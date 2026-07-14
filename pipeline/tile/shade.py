@@ -7,9 +7,9 @@ to a WebMercatorQuad-aligned 3857 grid, mosaic them (VRT), then shade the MOSAIC
 Knobs are locked to the values validated on the Nepal chunk (single-NW sun, the physical
 15x exaggeration via the latitude z-factor, the tuned composite defaults).
 
-Snow comes from whatever ESA WorldCover is on disk (worldcover.vrt); a full-planet run
-needs a global snow layer first (PLAN Phase 2). The composite loads the whole region into
-RAM — fine per-region; a planet run must window it.
+Snow comes from NSIDC-0791 snow persistence (pipeline/render/snow.py) as a latitude-ramped
+soft alpha — replacing WorldCover class 70, which left mid/high-latitude ranges bare. The
+composite loads the whole region into RAM — fine per-region; a planet run must window it.
 
     python -m pipeline.tile.shade --cells e070_n20 e080_n20 ... --out data/work/tiles/southasia
 """
@@ -25,19 +25,18 @@ import rasterio
 from rasterio.enums import Resampling
 from scipy.ndimage import zoom
 
-from pipeline.render import palette, relief
+from pipeline.render import hillshade, palette, relief, snow
 from pipeline.render.sky_view import horizon_svf
 
 DATA = Path.home() / "projects/maps/data"
-WORLDCOVER_VRT = DATA / "raw/worldcover/worldcover.vrt"
 CHUNKS = DATA / "work/planet/chunks"
 Z8_MERC_RES = 305.7483  # metres/pixel of a 512px WebMercatorQuad tile at zoom 8
 EXAG = 15.0
 MERCATOR = "EPSG:3857"
 
-KNOBS = dict(alt=45.0, ambient=0.50, hi=1.30, exposure=1.30, saturation=1.18, warmth=0.06,
+KNOBS = dict(alt=45.0, ambient=0.50, hi=1.30, exposure=1.05, saturation=1.18, warmth=0.06,
              svf_strength=0.20, svf_threshold=0.45, sea_shade=0.26, sea_lift=1.08,
-             sea_saturation=0.90, snow_floor=0.78)
+             sea_saturation=0.90, snow_lo=0.55, snow_hi_pt=1.05)
 
 
 def run(cmd):
@@ -87,7 +86,21 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--cells", nargs="+", required=True)
     ap.add_argument("--out", type=Path, required=True)
+    ap.add_argument("--knob", action="append", default=[], metavar="KEY=VALUE",
+                    help="override a locked KNOBS entry (repeatable), e.g. --knob snow_floor=0.85")
+    ap.add_argument("--zfactor", type=float, default=None,
+                    help="use a single global hillshade z-factor instead of the per-region "
+                         "mid-latitude one — for seamless multi-block planet shading")
+    ap.add_argument("--per-row-z", action="store_true",
+                    help="hillshade with a per-latitude-row z-factor (EXAG/cos(lat)) via the "
+                         "custom seamless shader — correct exaggeration at every latitude")
     args = ap.parse_args()
+    for override in args.knob:
+        key, _, value = override.partition("=")
+        if key not in KNOBS:
+            raise SystemExit(f"unknown knob {key!r}; valid: {', '.join(sorted(KNOBS))}")
+        KNOBS[key] = float(value)
+        print(f"knob override: {key} = {KNOBS[key]}", flush=True)
     merc = args.out / "merc"
     merc.mkdir(parents=True, exist_ok=True)
 
@@ -103,15 +116,9 @@ def main():
     build_vrt(water_vrt, [merc / f"{n}_watermask.tif" for n in args.cells])
 
     with rasterio.open(height_vrt) as dataset:
-        te = [repr(value) for value in dataset.bounds]
-        ts = [str(dataset.width), str(dataset.height)]
+        bounds = dataset.bounds
         grid_h, grid_w = dataset.height, dataset.width
     print(f"region mosaic: {grid_w} x {grid_h} px in Mercator", flush=True)
-
-    # snow from whatever WorldCover is on disk (partial coverage -> no snow where absent)
-    snow_cls = args.out / "snow_cls.tif"
-    run(["gdalwarp", "-overwrite", "-q", "-t_srs", MERCATOR, "-te", *te, "-ts", *ts,
-         "-r", "near", "-ot", "Byte", WORLDCOVER_VRT, snow_cls])
 
     # color-relief (shared palette) on the mosaic; hillshade with the physical z-factor
     # at the region's centre latitude (single band is fine per-region; planet bands it)
@@ -122,18 +129,33 @@ def main():
     run(["gdaldem", "color-relief", height_vrt, land_ramp, land_tif])
     run(["gdaldem", "color-relief", height_vrt, sea_ramp, sea_tif])
     mid_lat = sum(cell_mid_lat(n) for n in args.cells) / len(args.cells)
-    zfactor = relief.mercator_zfactor(mid_lat, EXAG)
-    print(f"hillshade z-factor at region mid-lat {mid_lat:.1f} = {zfactor:.2f}", flush=True)
-    run(["gdaldem", "hillshade", height_vrt, hs_tif, "-z", f"{zfactor:.4f}",
-         "-alt", str(KNOBS["alt"]), "-az", "315", "-compute_edges"])
+    if args.per_row_z:
+        print(f"hillshade: per-row z-factor (EXAG={EXAG}/cos(lat)), custom seamless shader", flush=True)
+        hillshade.per_row_zfactor_hillshade(height_vrt, hs_tif, EXAG, KNOBS["alt"], 315.0)
+    else:
+        zfactor = args.zfactor if args.zfactor is not None else relief.mercator_zfactor(mid_lat, EXAG)
+        print(f"hillshade z-factor {zfactor:.2f} (region mid-lat {mid_lat:.1f})", flush=True)
+        run(["gdaldem", "hillshade", height_vrt, hs_tif, "-z", f"{zfactor:.4f}",
+             "-alt", str(KNOBS["alt"]), "-az", "315", "-compute_edges"])
 
     # composite (whole region in RAM)
     land, sea = read3(land_tif), read3(sea_tif)
     ocean = read1(ocean_vrt) != 0
     watercode = read1(water_vrt)
     water = (watercode == 2) | (watercode == 3)
-    snow_mask = read1(snow_cls) == 70
     hs = read1(hs_tif).astype(float)
+
+    # snow: NSIDC-0791 persistence -> latitude-ramped soft alpha (pipeline/render/snow.py)
+    persistence = snow.warp_persistence(
+        (bounds.left, bounds.bottom, bounds.right, bounds.top), grid_w, grid_h,
+        args.out / "sp_merc.tif")
+    snow_a = snow.snow_alpha(persistence, bounds.top, bounds.bottom)
+    glacier = snow.rasterize_glaciers(
+        (bounds.left, bounds.bottom, bounds.right, bounds.top), grid_w, grid_h,
+        args.out / "rgi_merc.tif")
+    if glacier is not None:
+        snow_a = np.maximum(snow_a, glacier.astype(float))
+        print(f"unioned RGI glaciers: {int((glacier > 0).sum()):,} px", flush=True)
 
     with rasterio.open(height_vrt) as dataset:
         long_edge = 2400
@@ -145,7 +167,7 @@ def main():
     svf = horizon_svf(low, m_per_px)
     occ = 1.0 - (svf - svf.min()) / (svf.max() - svf.min() + 1e-6)
 
-    rgb = composite(land, sea, ocean, water, snow_mask, hs, occ, (sh, sw), (grid_h, grid_w))
+    rgb = composite(land, sea, ocean, water, snow_a, hs, occ, (sh, sw), (grid_h, grid_w))
 
     out_tif = args.out / "region_rgb.tif"
     with rasterio.open(height_vrt) as src:
@@ -158,7 +180,7 @@ def main():
     print(f"wrote {out_tif}", flush=True)
 
 
-def composite(land, sea, ocean, water, snow_mask, hs, occ, occ_shape, grid):
+def composite(land, sea, ocean, water, snow_a, hs, occ, occ_shape, grid):
     height, width = grid
     lum = 0.299 * land[0] + 0.587 * land[1] + 0.114 * land[2]
     land = np.clip((lum[None] + (land - lum[None]) * KNOBS["saturation"])
@@ -167,7 +189,6 @@ def composite(land, sea, ocean, water, snow_mask, hs, occ, occ_shape, grid):
     sea_lum = 0.299 * sea[0] + 0.587 * sea[1] + 0.114 * sea[2]
     sea = np.clip(sea_lum[None] + (sea - sea_lum[None]) * KNOBS["sea_saturation"], 0, 255)
     color = np.where(ocean[None], sea, land)
-    color = np.where(snow_mask[None], np.array(palette.SNOW_RGB, float).reshape(3, 1, 1), color)
     color = np.where(water[None], np.array(palette.WATER_RGB, float).reshape(3, 1, 1), color)
 
     flat = 255.0 * math.sin(math.radians(KNOBS["alt"]))
@@ -179,10 +200,21 @@ def composite(land, sea, ocean, water, snow_mask, hs, occ, occ_shape, grid):
     svf_factor = np.where(ocean | water, 1.0, svf_factor)
     light = np.where(water, np.clip(light, 0.85, KNOBS["hi"]), light)
     light = np.where(ocean, KNOBS["sea_lift"] + (light - 1.0) * KNOBS["sea_shade"], light)
-    light = np.where(snow_mask, np.maximum(light, KNOBS["snow_floor"]), light)
     light = np.where(ocean | water, light,
                      KNOBS["ambient"] + (light - KNOBS["ambient"]) * KNOBS["exposure"])
-    return np.clip(color * (light * svf_factor), 0, 255).astype("uint8")
+    base_rgb = color * (light * svf_factor)
+
+    # soft-alpha snow: blend snow over land by the ramped persistence alpha (no snow on water).
+    # Snow colour is keyed to the hillshade light: glacial blue-white in shadow -> bright white
+    # in sun (a two-colour ramp, not a neutral multiply), so snow keeps relief form instead of
+    # muddying to grey on rugged terrain the way SNOW_RGB*light did.
+    alpha = np.where(ocean | water, 0.0, snow_a)
+    snow_t = np.clip((light - KNOBS["snow_lo"]) / (KNOBS["snow_hi_pt"] - KNOBS["snow_lo"]), 0.0, 1.0)
+    snow_shadow = np.array(palette.SNOW_SHADOW_RGB, float).reshape(3, 1, 1)
+    snow_lit = np.array(palette.SNOW_RGB, float).reshape(3, 1, 1)
+    snow_rgb = snow_shadow + (snow_lit - snow_shadow) * snow_t[None]
+    final = base_rgb * (1.0 - alpha)[None] + snow_rgb * alpha[None]
+    return np.clip(final, 0, 255).astype("uint8")
 
 
 if __name__ == "__main__":

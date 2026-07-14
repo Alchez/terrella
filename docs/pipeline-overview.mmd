@@ -4,6 +4,8 @@ flowchart TD
     S1["Copernicus GLO-30<br/>satellite-measured land heights<br/>(detail: ~30 m per pixel)"]
     S2["GEBCO 2026<br/>worldwide seafloor depths<br/>(detail: ~450 m per pixel)"]
     S3["Natural Earth<br/>country outlines and borders"]
+    S4["MODIS snow climatology<br/>how often each place is snow-covered<br/>(NSIDC-0791, 2001–2023)"]
+    S5["Randolph Glacier Inventory 7.0<br/>outlines of the world's glaciers"]
   end
 
   subgraph ACQ["Getting it — done"]
@@ -49,13 +51,18 @@ flowchart TD
   S3 --> OV
   OV --> HF
 
-  subgraph TILES["Zoomable world — later"]
-    T1["Fast shading that imitates<br/>the Blender look without ray tracing"]
-    T2["Map tiles at 9 zoom levels,<br/>packed into a single file"]
+  subgraph TILES["Zoomable world — Phase 2, in progress"]
+    PF[("Whole-planet height map:<br/>every country fused into one<br/>seamless world grid")]
+    T3["Snow, latitude-aware:<br/>white where MODIS says snow persists,<br/>fading softly; glaciers crisp on top"]
+    T1["Fast shading that imitates the Blender look<br/>without ray tracing: hillshade + sky-view shadows<br/>+ the same land/sea colors + snow"]
+    T2["512 px map tiles, zoom 0–8,<br/>packed into one PMTiles file"]
   end
 
-  O1 -.-> T1
-  O2 -.-> T1
+  O1 -.-> PF
+  PF -.-> T1
+  S4 -.-> T3
+  S5 -.-> T3
+  T3 -.-> T1
   T1 -.-> T2
 
   subgraph SITE["The website — later"]
@@ -71,8 +78,9 @@ flowchart TD
   classDef next fill:#fdf3d7,stroke:#b8860b,color:#4a3a10
   classDef plan fill:#eceff1,stroke:#78909c,color:#37474f
 
-  class S1,S2,S3 ext
+  class S1,S2,S3,S4,S5 ext
   class D1,R1,R2,R3 done
   class F,O1,O2,O3 done
   class P,B,H8,OV,HF done
-  class T1,T2,W plan
+  class PF,T1,T2,T3 next
+  class W plan

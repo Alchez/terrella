@@ -1,0 +1,228 @@
+#!/usr/bin/env python3
+"""Shade the whole (non-Antarctic) planet into ONE seamless Web-Mercator RGB raster.
+
+Supersedes the 194-strip `tile_planet.py`, whose seam-avoidance hacks (a single global
+z-factor, SVF off, per-strip `gdaldem` edges) caused the defects seen on the first globe:
+blown-out tropics / flat high latitudes (wrong exaggeration), and faint block seams.
+
+The fix is to compute every shading input GLOBALLY and STREAMING, so nothing is normalised
+or edge-extrapolated per block, then composite in RAM-budgeted horizontal windows (the
+composite is per-pixel, so windowing it cannot seam):
+
+  1. warp the 4326 planet heightfield + masks once to a WebMercatorQuad-aligned 3857 grid;
+  2. `gdaldem color-relief` the height globally (per-pixel -> seamless);
+  3. custom per-row-z hillshade (pipeline/render/hillshade.py) -> seamless + correct 15x;
+  4. sky-view factor once on a global downsample with a single global normalisation;
+  5. composite each full-width horizontal window (reusing tile/shade.py::composite) with the
+     latitude-ramped snow (blue-white shadows) and RGI glaciers, and cap both polar edges
+     (>84N, <-59.5S -> flat deep-sea) so MapLibre's globe shows clean polar discs;
+  6. add overviews and cut z0-8 512px tiles.
+
+Every stage skips if its output already exists (resumable). Grid matches the existing tile
+pyramid exactly (131072 x 93009).
+
+    python -m pipeline.tile.shade_planet --out data/work/planet_tiles            # shade only
+    python -m pipeline.tile.shade_planet --out data/work/planet_tiles --tiles    # + cut tiles
+"""
+
+import argparse
+import math
+import subprocess
+import sys
+from pathlib import Path
+
+import numpy as np
+import rasterio
+from rasterio.enums import Resampling
+from rasterio.windows import Window
+
+from pipeline.render import hillshade, palette, snow
+from pipeline.render.sky_view import horizon_svf
+from pipeline.tile import shade
+from pipeline.tile.shade import KNOBS
+
+ROOT = Path.home() / "projects/maps"
+PLANET = ROOT / "data/work/planet"
+Z8_RES = 305.7483          # metres/pixel of a 512px WebMercatorQuad tile at zoom 8
+EXAG = 15.0
+ALT, AZ = KNOBS["alt"], 315.0
+WINDOW_ROWS = 384          # full-width composite window; ~50 Mpx float budget (peak ~9 GB)
+SVF_LONG_EDGE = 4096       # global sky-view downsample (long edge = raster width)
+CAP_NORTH, CAP_SOUTH = 84.0, -59.5   # latitudes above/below which the poles are capped flat
+CAP_RGB = (67, 118, 132)   # flat deep-sea colour for the polar caps (matches deep-ocean render)
+
+
+def _run(cmd):
+    subprocess.run([str(part) for part in cmd], check=True)
+
+
+def warp_inputs(work: Path):
+    """Warp height + ocean/water masks to the shared WMQ-aligned 3857 grid (skip if present)."""
+    height = work / "height_3857.tif"
+    if not height.exists():
+        print("warp height -> 3857 ...", flush=True)
+        _run(["gdalwarp", "-q", "-t_srs", "EPSG:3857", "-tr", Z8_RES, Z8_RES, "-tap",
+              "-r", "bilinear", "-ot", "Float32", "-co", "TILED=YES", "-co", "COMPRESS=DEFLATE",
+              "-co", "BIGTIFF=YES", "-co", "NUM_THREADS=ALL_CPUS",
+              PLANET / "planet_heightfield.vrt", height])
+    with rasterio.open(height) as dataset:
+        bounds = [repr(value) for value in dataset.bounds]
+        size = [str(dataset.width), str(dataset.height)]
+    for name, src in (("ocean", "planet_oceanmask.vrt"), ("water", "planet_watermask.vrt")):
+        out = work / f"{name}_3857.tif"
+        if not out.exists():
+            print(f"warp {name} -> 3857 ...", flush=True)
+            _run(["gdalwarp", "-q", "-t_srs", "EPSG:3857", "-te", *bounds, "-ts", *size,
+                  "-r", "near", "-ot", "Byte", "-co", "TILED=YES", "-co", "COMPRESS=DEFLATE",
+                  "-co", "BIGTIFF=YES", PLANET / src, out])
+    return height
+
+
+def color_and_hillshade(work: Path, height: Path):
+    """Global color-relief (land + sea) and the seamless per-row-z hillshade (skip if present)."""
+    land, sea, hs = work / "land_3857.tif", work / "sea_3857.tif", work / "hs_3857.tif"
+    if not land.exists() or not sea.exists():
+        land_ramp, sea_ramp = work / "ramp_land.txt", work / "ramp_sea.txt"
+        palette.write_color_relief(land_ramp, "land")
+        palette.write_color_relief(sea_ramp, "sea")
+        print("color-relief (land, sea) ...", flush=True)
+        _run(["gdaldem", "color-relief", "-q", height, land_ramp, land,
+              "-co", "TILED=YES", "-co", "COMPRESS=DEFLATE", "-co", "BIGTIFF=YES"])
+        _run(["gdaldem", "color-relief", "-q", height, sea_ramp, sea,
+              "-co", "TILED=YES", "-co", "COMPRESS=DEFLATE", "-co", "BIGTIFF=YES"])
+    if not hs.exists():
+        print(f"per-row-z hillshade (EXAG={EXAG}) ...", flush=True)
+        hillshade.per_row_zfactor_hillshade(height, hs, EXAG, ALT, AZ)
+    return land, sea, hs
+
+
+def global_occlusion(height: Path):
+    """Sky-view occlusion (1 = valley, 0 = open) on a global downsample, normalised globally."""
+    with rasterio.open(height) as dataset:
+        full_w, full_h = dataset.width, dataset.height
+        small_w = SVF_LONG_EDGE
+        small_h = max(1, round(full_h / full_w * small_w))
+        low = dataset.read(1, out_shape=(small_h, small_w),
+                           resampling=Resampling.average).astype(float)
+    low = np.nan_to_num(np.where(low < -500, np.nan, low), nan=0.0)
+    m_per_px = Z8_RES * (full_w / small_w)
+    svf = horizon_svf(low, m_per_px)
+    occ = 1.0 - (svf - svf.min()) / (svf.max() - svf.min() + 1e-6)
+    return occ  # shape (small_h, small_w)
+
+
+def read3_window(path, window):
+    with rasterio.open(path) as dataset:
+        return dataset.read([1, 2, 3], window=window).astype(float)
+
+
+def read1_window(path, window):
+    with rasterio.open(path) as dataset:
+        return dataset.read(1, window=window)
+
+
+def composite_planet(work: Path, land, sea, hs, occ):
+    """Composite the whole planet window-by-window into one seamless RGB GeoTIFF."""
+    out_tif = work / "planet_rgb.tif"
+    done = work / "planet_rgb.done"
+    if out_tif.exists() and done.exists():
+        print("planet_rgb.tif present -> skip composite", flush=True)
+        return out_tif
+    with rasterio.open(work / "height_3857.tif") as h:
+        width, height, transform = h.width, h.height, h.transform
+        top, bottom = h.bounds.top, h.bounds.bottom
+    small_h, small_w = occ.shape
+    profile = dict(driver="GTiff", width=width, height=height, count=3, dtype="uint8",
+                   crs="EPSG:3857", transform=transform, tiled=True, blockxsize=512,
+                   blockysize=512, compress="deflate", photometric="RGB", BIGTIFF="YES")
+    ocean_p, water_p = work / "ocean_3857.tif", work / "water_3857.tif"
+    with rasterio.open(out_tif, "w", **profile) as dst:
+        for row0 in range(0, height, WINDOW_ROWS):
+            row1 = min(height, row0 + WINDOW_ROWS)
+            win = Window(0, row0, width, row1 - row0)
+            win_h = row1 - row0
+            win_top = transform.f + row0 * transform.e
+            win_bottom = transform.f + row1 * transform.e
+            win_bounds = (transform.c, win_bottom, transform.c + width * transform.a, win_top)
+
+            land_win, sea_win = read3_window(land, win), read3_window(sea, win)
+            ocean_win = read1_window(ocean_p, win) != 0
+            watercode = read1_window(water_p, win)
+            water_win = (watercode == 2) | (watercode == 3)
+            hs_win = read1_window(hs, win).astype(float)
+
+            # snow: warp persistence + rasterize glaciers for this window's bounds.
+            # Clear temps first — gdal_rasterize opens an existing file in UPDATE mode (would
+            # burn onto the previous window's glaciers), and window heights differ at the edge.
+            for temp in ("_sp_win.tif", "_rgi_win.tif"):
+                (work / temp).unlink(missing_ok=True)
+            persistence = snow.warp_persistence(win_bounds, width, win_h, work / "_sp_win.tif")
+            snow_a = snow.snow_alpha(persistence, win_top, win_bottom)
+            glacier = snow.rasterize_glaciers(win_bounds, width, win_h, work / "_rgi_win.tif")
+            if glacier is not None:
+                snow_a = np.maximum(snow_a, glacier.astype(float))
+
+            # sky-view occlusion slice for this window (smooth -> nearest rows are fine)
+            sr0 = int(row0 / height * small_h)
+            sr1 = max(sr0 + 1, int(round(row1 / height * small_h)))
+            occ_win = occ[sr0:sr1]
+
+            rgb = shade.composite(land_win, sea_win, ocean_win, water_win, snow_a, hs_win,
+                                  occ_win, (sr1 - sr0, small_w), (win_h, width))
+
+            # polar caps: force the smeared edges to a flat deep-sea disc
+            latitude = snow.latitude_per_row(win_top, win_bottom, win_h)
+            cap = (latitude > CAP_NORTH) | (latitude < CAP_SOUTH)
+            if cap.any():
+                for band in range(3):
+                    rgb[band][cap] = CAP_RGB[band]
+
+            dst.write(rgb, window=win)
+            if (row0 // WINDOW_ROWS) % 20 == 0:
+                print(f"  composited rows {row0}/{height}", flush=True)
+    for temp in ("_sp_win.tif", "_rgi_win.tif"):
+        (work / temp).unlink(missing_ok=True)
+    done.touch()
+    print(f"wrote {out_tif}", flush=True)
+    return out_tif
+
+
+def build_tiles(planet_tif: Path, out: Path):
+    """Overviews + z0-8 512px tiles into a staging dir, then swap over the live tiles."""
+    print("overviews ...", flush=True)
+    _run(["gdaladdo", "-r", "average", planet_tif, "2", "4", "8", "16", "32", "64", "128", "256"])
+    staging = out / "tiles_new"
+    print(f"cutting z0-8 512px tiles -> {staging} ...", flush=True)
+    _run(["gdal", "raster", "tile", "--min-zoom=0", "--max-zoom=8", "--tile-size=512",
+          "--resampling=cubic", "--convention=xyz", "--skip-blank", "--resume",
+          str(planet_tif), str(staging)])
+    live = out / "tiles"
+    if live.exists():
+        old = out / "tiles_old"
+        if old.exists():
+            _run(["rm", "-rf", str(old)])
+        live.rename(old)
+    staging.rename(live)
+    print(f"tiles live -> {live} (previous kept at {out / 'tiles_old'})", flush=True)
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--out", type=Path, default=ROOT / "data/work/planet_tiles")
+    ap.add_argument("--tiles", action="store_true", help="also cut z0-8 tiles from the mosaic")
+    args = ap.parse_args()
+    work = args.out
+    work.mkdir(parents=True, exist_ok=True)
+
+    height = warp_inputs(work)
+    land, sea, hs = color_and_hillshade(work, height)
+    print("global sky-view factor ...", flush=True)
+    occ = global_occlusion(height)
+    planet_tif = composite_planet(work, land, sea, hs, occ)
+    if args.tiles:
+        build_tiles(planet_tif, work)
+    print("DONE", flush=True)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
