@@ -49,18 +49,18 @@ function heroDevServer() {
   };
 }
 
-// Dev-only: serve /tiles/{z}/{x}/{y}.png straight from the built pyramid, same
-// origin as the dev server so MapLibre's tile fetches need no CORS. Mirrors
+// Dev-only: serve {urlPrefix}/{z}/{x}/{y}.png straight from a tile pyramid on disk,
+// same origin as the dev server so MapLibre's tile fetches need no CORS. Mirrors
 // heroDevServer(); prod nginx serves /tiles/ from the same store.
-function tilesDevServer() {
+function tilesDevServer(urlPrefix, store) {
   return {
-    name: 'tiles-dev-server',
+    name: `tiles-dev-server:${urlPrefix}`,
     /** @param {import('vite').ViteDevServer} server */
     configureServer(server) {
-      server.middlewares.use('/tiles', (req, res, next) => {
+      server.middlewares.use(urlPrefix, (req, res, next) => {
         const rel = decodeURIComponent((req.url || '').split('?')[0]).replace(/^\/+/, '');
-        const file = path.resolve(TILES_STORE, rel);
-        if (!file.startsWith(path.resolve(TILES_STORE)) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) {
+        const file = path.resolve(store, rel);
+        if (!file.startsWith(path.resolve(store)) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) {
           return next();
         }
         res.setHeader('Content-Type', file.endsWith('.png') ? 'image/png' : 'application/octet-stream');
@@ -106,5 +106,11 @@ export default defineConfig({
       fallbacks: ['Georgia', 'Times New Roman', 'serif'],
     },
   ],
-  vite: { plugins: [heroDevServer(), tilesDevServer(), bordersDevServer()] },
+  vite: {
+    plugins: [
+      heroDevServer(),
+      tilesDevServer('/tiles', TILES_STORE),
+      bordersDevServer(),
+    ],
+  },
 });
