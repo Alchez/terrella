@@ -66,9 +66,9 @@ def main() -> int:
     ap.add_argument("--out", type=Path, required=True)
     args = ap.parse_args()
 
-    sys.path.insert(0, str(args.repo / "pipeline"))
-    from country_config import (build_scope, load_config,  # noqa: E402
-                                load_ne_rows, resolve)
+    sys.path.insert(0, str(args.repo))  # repo root: country_config uses pipeline.* imports
+    from pipeline.frame.country_config import (build_scope, load_config,  # noqa: E402
+                                               load_ne_rows, resolve)
 
     variants_dir = args.repo / "blender/renders/variants"
     cfg = load_config()
@@ -87,6 +87,11 @@ def main() -> int:
             slug=slug,
             name=r["admin"],
             continent=continents.get(r["admin"], ""),
+            # Authored (w,s,e,n) EPSG:4326 hero frame — the globe's fly-to target.
+            # Same framing as the hero renders, so overrides (France→metropolitan,
+            # US/Chile/Russia) already fix the far-flung multipolygon cases that a
+            # raw country bbox would frame badly.
+            bbox=[round(v, 5) for v in r["frame"]],
             aspect=aspect_of(variants_dir, slug, sizes),
             sizes=sizes,
             native=sizes[-1] if sizes else None,

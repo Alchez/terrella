@@ -9,6 +9,26 @@ import Base from "../layouts/Base.astro";
 >
   <div id="globe" class="globe" role="application" aria-label="Interactive relief globe"></div>
   <a class="globe-home" href="/">← Gallery</a>
+
+  <!-- Country detail: populated + revealed on click, framed by fitBounds so the
+       flown-to country sits clear of this card. -->
+  <aside id="hero-panel" class="hero-panel" hidden aria-hidden="true" aria-label="Country detail">
+    <button id="hero-close" class="hp-close" type="button" aria-label="Close">×</button>
+    <figure class="hp-figure">
+      <img class="hp-hero" alt="" decoding="async" />
+      <img class="hp-border" alt="" aria-hidden="true" />
+    </figure>
+    <div class="hp-body">
+      <p class="hp-eyebrow"></p>
+      <h2 class="hp-name"></h2>
+      <p class="hp-note">
+        A ray-traced relief render — softer shadows and heightened terrain than the
+        globe's live tiles.
+      </p>
+      <a class="hp-link" href="/">Open full-size render →</a>
+    </div>
+  </aside>
+
   <noscript>
     <p class="globe-noscript">
       The interactive globe needs JavaScript. <a href="/">Browse the gallery instead.</a>
@@ -61,11 +81,112 @@ import Base from "../layouts/Base.astro";
     border-radius: 12px;
     color: var(--muted);
   }
+
+  /* Country detail card — a floating panel, not a full-screen takeover, so the
+     globe stays live behind it. Same token treatment as .globe-home. */
+  .hero-panel {
+    position: fixed;
+    top: 1.2rem;
+    right: 1.2rem;
+    z-index: 30;
+    width: min(420px, calc(100vw - 2.4rem));
+    max-height: calc(100vh - 2.4rem);
+    overflow: auto;
+    display: flex;
+    flex-direction: column;
+    background: color-mix(in srgb, var(--bg-2) 94%, transparent);
+    -webkit-backdrop-filter: blur(8px);
+    backdrop-filter: blur(8px);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    box-shadow: var(--shadow);
+  }
+  .hero-panel[hidden] {
+    display: none;
+  }
+  .hp-close {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.5rem;
+    z-index: 1;
+    width: 2rem;
+    height: 2rem;
+    display: grid;
+    place-items: center;
+    padding: 0;
+    font-size: 1.3rem;
+    line-height: 1;
+    color: var(--text);
+    background: color-mix(in srgb, var(--bg-2) 80%, transparent);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    cursor: pointer;
+  }
+  .hp-close:hover {
+    color: var(--accent);
+  }
+  .hp-figure {
+    position: relative;
+    margin: 0;
+    border-radius: 14px 14px 0 0;
+    overflow: hidden;
+    background: var(--bg);
+  }
+  .hp-figure img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  /* display:block only on the hero — a shared `.hp-figure img` rule would outrank
+     `.hp-border`'s display:none and force the border overlay on regardless of the toggle. */
+  .hp-hero {
+    display: block;
+  }
+  .hp-border {
+    position: absolute;
+    inset: 0;
+    display: none;
+  }
+  :global(body.borders-on) .hp-border {
+    display: block;
+  }
+  .hp-body {
+    padding: 0.9rem 1.1rem 1.1rem;
+  }
+  .hp-eyebrow {
+    margin: 0 0 0.15rem;
+    font-size: 0.75rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .hp-name {
+    margin: 0 0 0.4rem;
+    font-family: var(--serif);
+    font-size: 1.4rem;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .hp-note {
+    margin: 0 0 0.85rem;
+    font-size: 0.82rem;
+    line-height: 1.4;
+    color: var(--muted);
+  }
+  .hp-link {
+    font-size: 0.9rem;
+    color: var(--accent);
+    text-decoration: none;
+  }
+  .hp-link:hover {
+    text-decoration: underline;
+  }
 </style>
 
 <script>
   import maplibregl from "maplibre-gl";
   import "maplibre-gl/dist/maplibre-gl.css";
+  import manifest from "../data/countries.json";
 
   // Data credits (MapLibre requires attribution; matches the About page colophon).
   const CREDITS =
@@ -167,6 +288,174 @@ import Base from "../layouts/Base.astro";
   );
   borderToggle?.addEventListener("change", () => setBordersVisible(borderToggle.checked));
 
+  // --- Click a country -> fly to it -> show its hero -------------------------
+  // The globe is raster, so an invisible fill of the Natural Earth country
+  // polygons is the click target. We filter it to our in-scope names (the join
+  // is free: manifest name === NE ADMIN), so only rendered countries are
+  // hoverable/clickable — everything else is a no-op. The fly-to frame is the
+  // authored hero bbox carried in the manifest, so it matches the hero's own
+  // framing (metropolitan France, CONUS, etc.).
+  const HERO_BASE = "/heroes/";
+  const byName = new Map(manifest.countries.map((c) => [c.name, c]));
+  const inScope = manifest.countries.map((c) => c.name);
+  // Only in-scope (rendered) countries are interactive; reused by every country layer.
+  const inScopeFilter = ["in", ["get", "ADMIN"], ["literal", inScope]];
+  // Hover highlight: warm gold reads on all three grounds (teal sea, warm sand, white
+  // snow) where the teal accent would vanish along coasts; a dark casing carries it
+  // over snow, and the hue marks it as an interactive pick, distinct from white borders.
+  const HL = "#eca834";
+  const HL_CASING = "#1c140c";
+  const HOVER_ON = ["boolean", ["feature-state", "hover"], false];
+
+  /** srcset w-descriptor is the real pixel WIDTH, not the long edge (portrait
+   * variants are narrower than their key) — mirrors the gallery detail page. */
+  const variantWidth = (longEdge, aspect) => Math.round(longEdge * Math.min(1, aspect));
+  const srcsetFor = (slug, sizes, aspect, border = false) =>
+    sizes
+      .map((size) => {
+        const suffix = border ? `-border-${size}.png` : `-${size}.webp`;
+        return `${HERO_BASE}${slug}${suffix} ${variantWidth(size, aspect)}w`;
+      })
+      .join(", ");
+
+  function addCountries() {
+    map.addSource("countries", {
+      type: "geojson",
+      data: location.origin + "/borders/countries.geojson",
+      promoteId: "ADMIN", // feature id = ADMIN string, for feature-state hover
+      attribution: "Natural Earth",
+    });
+    // Invisible except on hover; a warm silhouette wash so the whole landmass lights up.
+    map.addLayer({
+      id: "country-fill",
+      type: "fill",
+      source: "countries",
+      filter: inScopeFilter,
+      paint: {
+        "fill-color": HL,
+        "fill-opacity": ["case", HOVER_ON, 0.16, 0],
+      },
+    });
+  }
+
+  // The hovered country's outline — added ABOVE the borders so its edge stays crisp.
+  // A soft dark casing under a gold line: the country's boundary (coast + land borders)
+  // pops as one glowing silhouette, legible on sea, sand, and snow alike.
+  function addCountryHighlight() {
+    map.addLayer({
+      id: "country-hl-casing",
+      type: "line",
+      source: "countries",
+      filter: inScopeFilter,
+      layout: { "line-cap": "round", "line-join": "round" },
+      paint: {
+        "line-color": HL_CASING,
+        "line-width": ["interpolate", ["linear"], ["zoom"], 0.5, 3.4, 4, 4.8, 8, 6.0],
+        "line-blur": 1.2,
+        "line-opacity": ["case", HOVER_ON, 0.5, 0],
+      },
+    });
+    map.addLayer({
+      id: "country-hl-line",
+      type: "line",
+      source: "countries",
+      filter: inScopeFilter,
+      layout: { "line-cap": "round", "line-join": "round" },
+      paint: {
+        "line-color": HL,
+        "line-width": ["interpolate", ["linear"], ["zoom"], 0.5, 1.8, 4, 2.8, 8, 3.6],
+        "line-blur": 0.4,
+        "line-opacity": ["case", HOVER_ON, 1, 0],
+      },
+    });
+  }
+
+  // Hover: pointer + faint tint, only over the (filtered) in-scope fill.
+  let hovered = null;
+  const clearHover = () => {
+    if (hovered !== null) map.setFeatureState({ source: "countries", id: hovered }, { hover: false });
+    hovered = null;
+  };
+  map.on("mousemove", "country-fill", (event) => {
+    map.getCanvas().style.cursor = "pointer";
+    const id = event.features?.[0]?.id;
+    if (id == null || id === hovered) return;
+    clearHover();
+    hovered = id;
+    map.setFeatureState({ source: "countries", id }, { hover: true });
+  });
+  map.on("mouseleave", "country-fill", () => {
+    map.getCanvas().style.cursor = "";
+    clearHover();
+  });
+
+  // --- The detail card --------------------------------------------------------
+  const panel = /** @type {HTMLElement} */ (document.getElementById("hero-panel"));
+  const heroImg = /** @type {HTMLImageElement} */ (panel.querySelector(".hp-hero"));
+  const borderImg = /** @type {HTMLImageElement} */ (panel.querySelector(".hp-border"));
+  const figure = /** @type {HTMLElement} */ (panel.querySelector(".hp-figure"));
+
+  function openPanel(country) {
+    panel.querySelector(".hp-eyebrow").textContent = country.continent || "";
+    panel.querySelector(".hp-name").textContent = country.name;
+    panel.querySelector(".hp-link").setAttribute("href", `/${country.slug}/`);
+    figure.style.aspectRatio = String(country.aspect);
+    // Card is ~420px wide; ask for a sensibly-sized variant (DPR handled by srcset).
+    const sizesAttr = "(max-width: 460px) 92vw, 420px";
+    heroImg.src = `${HERO_BASE}${country.slug}-${country.sizes[0]}.webp`;
+    heroImg.srcset = srcsetFor(country.slug, country.sizes, country.aspect);
+    heroImg.sizes = sizesAttr;
+    heroImg.alt = `Ray-traced relief map of ${country.name}`;
+    if (country.hasBorder && country.borderSizes.length) {
+      borderImg.src = `${HERO_BASE}${country.slug}-border-${country.borderSizes[0]}.png`;
+      borderImg.srcset = srcsetFor(country.slug, country.borderSizes, country.aspect, true);
+      borderImg.sizes = sizesAttr;
+      borderImg.style.removeProperty("display"); // let the body.borders-on rule decide
+    } else {
+      borderImg.removeAttribute("srcset");
+      borderImg.removeAttribute("src");
+      borderImg.style.display = "none";
+    }
+    panel.hidden = false;
+    panel.setAttribute("aria-hidden", "false");
+  }
+
+  function closePanel() {
+    panel.hidden = true;
+    panel.setAttribute("aria-hidden", "true");
+  }
+
+  document.getElementById("hero-close")?.addEventListener("click", closePanel);
+  window.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !panel.hidden) closePanel();
+  });
+
+  function flyToCountry(country) {
+    const [west, south, east, north] = country.bbox;
+    // Pad the side the card occupies so the country frames in the clear area.
+    const wide = window.innerWidth > 640;
+    map.fitBounds(
+      [[west, south], [east, north]],
+      {
+        padding: wide
+          ? { top: 60, bottom: 60, left: 60, right: 460 }
+          : { top: 60, bottom: 60, left: 30, right: 30 },
+        maxZoom: 6, // small countries shouldn't slam to the z8 ceiling
+        duration: 2200,
+        essential: true, // run even under prefers-reduced-motion
+      },
+    );
+  }
+
+  map.on("click", "country-fill", (event) => {
+    const name = event.features?.[0]?.properties?.ADMIN;
+    const country = name && byName.get(name);
+    if (!country) return;
+    spinning = false; // a deliberate pick retires the idle spin
+    flyToCountry(country);
+    openPanel(country);
+  });
+
   map.on("style.load", () => {
     // A soft atmosphere so the sphere reads against the deep-sea background.
     map.setSky({
@@ -178,7 +467,9 @@ import Base from "../layouts/Base.astro";
       "fog-ground-blend": 0.1,
       "atmosphere-blend": 0.7,
     });
+    addCountries(); // fill/hit layer under the borders, so border lines stay on top
     addBorders();
+    addCountryHighlight(); // hover outline on top of everything, so the edge stays crisp
   });
 
   // Gentle idle rotation — a "living globe". Off entirely under reduced-motion,
