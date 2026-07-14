@@ -1,0 +1,204 @@
+---
+import Base from "../layouts/Base.astro";
+---
+
+<Base
+  title="Terrella — Globe"
+  description="An interactive globe of ray-traced relief, every country."
+  borders={true}
+>
+  <div id="globe" class="globe" role="application" aria-label="Interactive relief globe"></div>
+  <a class="globe-home" href="/">← Gallery</a>
+  <noscript>
+    <p class="globe-noscript">
+      The interactive globe needs JavaScript. <a href="/">Browse the gallery instead.</a>
+    </p>
+  </noscript>
+</Base>
+
+<style>
+  /* The globe is the page: a fixed, full-viewport map canvas. */
+  :global(html),
+  :global(body) {
+    height: 100%;
+    overflow: hidden;
+  }
+  .globe {
+    position: fixed;
+    inset: 0;
+    background: var(--bg);
+  }
+  /* Floating "home" chrome, matching the .borders-fab token treatment. */
+  .globe-home {
+    position: fixed;
+    top: 1.2rem;
+    left: 1.2rem;
+    z-index: 20;
+    display: inline-flex;
+    align-items: center;
+    padding: 0.55rem 0.95rem;
+    background: color-mix(in srgb, var(--bg-2) 92%, transparent);
+    -webkit-backdrop-filter: blur(6px);
+    backdrop-filter: blur(6px);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    box-shadow: var(--shadow);
+    font-size: 0.9rem;
+    color: var(--text);
+    text-decoration: none;
+  }
+  .globe-home:hover {
+    color: var(--accent);
+  }
+  .globe-noscript {
+    position: fixed;
+    inset: auto 1.2rem 1.2rem;
+    z-index: 20;
+    margin: 0;
+    padding: 1rem 1.2rem;
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    color: var(--muted);
+  }
+</style>
+
+<script>
+  import maplibregl from "maplibre-gl";
+  import "maplibre-gl/dist/maplibre-gl.css";
+
+  // Data credits (MapLibre requires attribution; matches the About page colophon).
+  const CREDITS =
+    "Copernicus DEM GLO-30 · GEBCO 2026 · NSIDC-0791 snow · RGI 7.0 glaciers · Natural Earth";
+  // The baked polar-cap colour (shade_planet.py CAP_RGB 67,118,132) — used behind
+  // the sphere so any gap at the capped poles blends into the disc.
+  const DEEP_SEA = "#437684";
+
+  const map = new maplibregl.Map({
+    container: "globe",
+    style: {
+      version: 8,
+      // Globe projection is declared in the style (v5 stable) — the proven
+      // planet_tiles/index.html viewer does the same with our exact tiles.
+      projection: { type: "globe" },
+      sources: {
+        relief: {
+          type: "raster",
+          tiles: [location.origin + "/tiles/{z}/{x}/{y}.png"],
+          tileSize: 256, // 512px assets served @2x for crisp high-DPI shading
+          minzoom: 0,
+          maxzoom: 8, // the pyramid ceiling
+          attribution: CREDITS,
+        },
+      },
+      layers: [
+        { id: "space", type: "background", paint: { "background-color": DEEP_SEA } },
+        { id: "relief", type: "raster", source: "relief", paint: { "raster-fade-duration": 0 } },
+      ],
+    },
+    center: [20, 25],
+    zoom: 1.6,
+    minZoom: 0.4,
+    maxZoom: 8, // never reach the z12 globe→mercator auto-switch
+    dragRotate: true,
+    attributionControl: false, // re-added bottom-left below, clear of the border toggle
+  });
+
+  map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-right");
+  map.addControl(new maplibregl.GlobeControl(), "top-right"); // globe⇄flat toggle
+  map.addControl(new maplibregl.ScaleControl({ maxWidth: 120, unit: "metric" }), "bottom-left");
+  map.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-left");
+
+  // --- Country borders (Natural Earth vector lines) ---------------------------
+  // One GeoJSON source; solid international vs dashed disputed/LoC split by a
+  // layer filter on FEATURECLA. White "ink" over a dark "casing" so lines read on
+  // both pale land and deep sea — MapLibre has no line outline, so the casing is a
+  // wider, darker line drawn underneath. Shown/hidden via layer visibility, off
+  // the same localStorage key the gallery's border toggle uses.
+  const BORDER_KEY = "rg:borders";
+  const INTL = "International boundary (verify)";
+  const isSolid = ["==", ["get", "FEATURECLA"], INTL];
+  const isDashed = ["!=", ["get", "FEATURECLA"], INTL];
+  const inkWidth = ["interpolate", ["linear"], ["zoom"], 1, 0.6, 4, 1.0, 8, 1.7];
+  // Casing is a real dark halo (wider than the ink, so a dark rim always shows on
+  // both sides), softened with a touch of blur — this is what keeps the white line
+  // legible over pale highlands and snow, where white-on-white has no contrast.
+  const casingWidth = ["interpolate", ["linear"], ["zoom"], 1, 2.2, 4, 3.4, 8, 5.0];
+  const casingBlur = ["interpolate", ["linear"], ["zoom"], 1, 0.5, 8, 1.2];
+  const BORDER_LAYERS = ["b-casing-solid", "b-casing-dashed", "b-ink-solid", "b-ink-dashed"];
+  const bordersOn = () => localStorage.getItem(BORDER_KEY) === "1";
+
+  function addBorders() {
+    map.addSource("borders", {
+      type: "geojson",
+      data: location.origin + "/borders/boundary_lines.geojson",
+      maxzoom: 8, // matches the raster pyramid ceiling
+      tolerance: 1.2, // thin dense NE geometry at low zoom
+      attribution: "Natural Earth",
+    });
+    const layout = {
+      visibility: bordersOn() ? "visible" : "none",
+      "line-cap": "round",
+      "line-join": "round",
+    };
+    const casing = { "line-color": "#2b2118", "line-opacity": 0.85, "line-blur": casingBlur };
+    const ink = { "line-color": "#ffffff", "line-opacity": 0.95 };
+    // Casings first (drawn under), then the white ink on top.
+    map.addLayer({ id: "b-casing-solid", type: "line", source: "borders", filter: isSolid,
+      layout: { ...layout }, paint: { ...casing, "line-width": casingWidth } });
+    map.addLayer({ id: "b-casing-dashed", type: "line", source: "borders", filter: isDashed,
+      layout: { ...layout }, paint: { ...casing, "line-width": casingWidth, "line-dasharray": [1.4, 1.0] } });
+    map.addLayer({ id: "b-ink-solid", type: "line", source: "borders", filter: isSolid,
+      layout: { ...layout }, paint: { ...ink, "line-width": inkWidth } });
+    map.addLayer({ id: "b-ink-dashed", type: "line", source: "borders", filter: isDashed,
+      layout: { ...layout }, paint: { ...ink, "line-width": inkWidth, "line-dasharray": [2.2, 1.6] } });
+  }
+
+  function setBordersVisible(on) {
+    for (const id of BORDER_LAYERS) {
+      if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", on ? "visible" : "none");
+    }
+  }
+
+  // The shared floating toggle lives in the Base layout (borders={true}); its
+  // localStorage + body-class handling is Base's, we only drive the map layers.
+  const borderToggle = /** @type {HTMLInputElement | null} */ (
+    document.getElementById("border-toggle")
+  );
+  borderToggle?.addEventListener("change", () => setBordersVisible(borderToggle.checked));
+
+  map.on("style.load", () => {
+    // A soft atmosphere so the sphere reads against the deep-sea background.
+    map.setSky({
+      "sky-color": "#8fb8d6",
+      "horizon-color": "#cbd8dd",
+      "fog-color": "#dfe7ea",
+      "sky-horizon-blend": 0.5,
+      "horizon-fog-blend": 0.5,
+      "fog-ground-blend": 0.1,
+      "atmosphere-blend": 0.7,
+    });
+    addBorders();
+  });
+
+  // Gentle idle rotation — a "living globe". Off entirely under reduced-motion,
+  // and it retires the moment the visitor takes control. Pausing off the map's
+  // own gesture events (not our easeTo) replaces ad-hoc DOM listeners cleanly.
+  const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  let spinning = !reduceMotion;
+  const DEGREES_PER_STEP = 2; // ~one 360° revolution every 3 minutes at 1s steps
+
+  function spin() {
+    if (!spinning || map.getZoom() > 3) return;
+    const center = map.getCenter();
+    center.lng -= DEGREES_PER_STEP;
+    map.easeTo({ center, duration: 1000, easing: (progress) => progress });
+  }
+  for (const gesture of ["dragstart", "rotatestart", "zoomstart", "pitchstart"]) {
+    map.on(gesture, () => {
+      spinning = false;
+    });
+  }
+  map.on("moveend", spin);
+  map.on("load", spin);
+</script>

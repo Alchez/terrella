@@ -41,7 +41,10 @@ const SIZES = "(max-width: 640px) 92vw, (max-width: 1024px) 46vw, 30vw";
 
 <Base title="Terrella — Gallery" borders={true}>
   <Masthead eyebrow="Atlas" heading="Terrella" maxWidth="min(2200px, 94vw)">
-    <a slot="actions" class="about-link" href="/about/">About</a>
+    <nav slot="actions" class="head-links">
+      <a href="/globe/">Globe</a>
+      <a href="/about/">About</a>
+    </nav>
     <p class="tagline">
       Ray-traced relief maps of every country.
       <span class="count" id="count">{data.rendered} of {data.count} rendered</span>
@@ -128,12 +131,16 @@ const SIZES = "(max-width: 640px) 92vw, (max-width: 1024px) 46vw, 30vw";
     border-color: var(--accent);
     box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
   }
-  .about-link {
+  .head-links {
+    display: flex;
+    gap: 1.1rem;
+  }
+  .head-links a {
     font-size: 0.9rem;
     color: var(--muted);
     text-decoration: none;
   }
-  .about-link:hover {
+  .head-links a:hover {
     color: var(--accent);
   }
 
