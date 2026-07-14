@@ -4,6 +4,111 @@ Chronological archive of decisions and their rationale, split out of PLAN.md on 
 
 ## Decision log
 
+### 2026-07-14 (evening) — Click-to-fly-to → in-globe hero panel (BUILT, `feat/frontend`)
+
+Globe interaction: click a country → `fitBounds` to it → show its hero in a floating panel.
+Built exactly on the design below; Rohan's two calls were **in-globe overlay panel** (not detail-page
+nav) and **one pass**. Pieces: `pipeline/compose/countries_geojson.py` (new; NE country polygons
+simplified at 0.05° → `data/work/borders/countries.geojson`, 1.5 MB, served via the existing
+`/borders` middleware), `bbox=list(r["frame"])` added to `gen_manifest.py`, and the interaction +
+floating `.hero-panel` in `globe.astro`. The panel reuses the hero `srcset`/`variantWidth` math and
+the shared `body.borders-on` toggle from the detail page.
+
+Latent bug fixed in passing: `gen_manifest.py`'s import was stale (`sys.path` at `pipeline/` +
+`from country_config import …`) since `country_config` moved to `pipeline/frame/` and switched to
+absolute `pipeline.*` imports — now inserts the repo **root** and imports `pipeline.frame.country_config`.
+
+Verified live (Chrome): the invisible `fill-opacity:0` layer is queryable (click hit "Chad",
+`promoteId:'ADMIN'` gives feature id = ADMIN), panel populates (eyebrow/name/`/slug/` link/hero),
+border overlay follows the toggle, and the `padding.right:460` frames the country **clear of the
+panel**. Note: the `fitBounds` *animation* couldn't be observed in the harness (the automation tab is
+`visibilityState:hidden` → `requestAnimationFrame` is paused, so all easing/tile-fade/`load`/`idle`
+stall; screenshots still force a one-off paint). Destination framing validated via a synchronous
+`jumpTo(cameraForBounds(...))`; the animation is stock MapLibre and runs when the tab is visible.
+
+UX refinement (same session, on Rohan's feedback): (1) the flat white hover *tint* didn't delineate
+the boundary, so hover now draws a **gold silhouette wash + gold outline over a soft dark casing**
+(`country-hl-casing`/`country-hl-line`, added above the borders). Gold is the one hue that pops on all
+three grounds — the teal accent would vanish along coasts against the teal sea — and it reads as an
+interactive pick, distinct from the white informational borders. (2) The panel's "View full render"
+was opaque about what it offered, so it now carries a descriptor ("A ray-traced relief render — softer
+shadows and heightened terrain than the globe's live tiles") and the link reads "Open full-size render
+→". Fixed in passing: a shared `.hp-figure img { display:block }` outranked `.hp-border`'s
+`display:none`, forcing the panel's border overlay **on regardless of the toggle** — scoped the
+`display:block` to `.hp-hero` (the detail page dodges this by not putting `display` on the shared rule).
+
+Original design (discovered from `country_config.resolve()`, `gen_manifest.py`, and the NE countries
+shapefile), for reference:
+
+- **Hit detection:** the globe is raster, so add NE `ne_10m_admin_0_countries` polygons (258,
+  EPSG:4326, attrs `ADMIN`/`ISO_A3`) as an *invisible fill* layer; `map.on('click','country-fill')`
+  + `queryRenderedFeatures` returns the clicked country. Shapefile is 8.8 MB → **simplify hard**
+  (`ogr2ogr -simplify`) to a few hundred KB (only needed for hit-testing + a hover tint, not
+  coastline detail). New generator `pipeline/compose/countries_geojson.py` (mirror
+  `borders_geojson.py`), served via the `/borders`-style middleware.
+- **The join is FREE:** `countries.json.name` IS the NE `ADMIN` string (`gen_manifest` sets
+  `name = resolve()["admin"]`). So clicked `feature.properties.ADMIN` → our record by
+  `name === ADMIN`; no ISO matching. NE 258 polygons vs our ~204 scope → gate hover/pointer/click
+  to matched names; unmatched (Antarctica, micro-territories, excludes) are no-ops.
+- **Fly-to bbox = the authored hero frame:** `resolve()["frame"]` = (w,s,e,n) 4326 — same framing
+  as the heroes, and it already fixes the awkward multipolygon cases (France's *raw* bbox spans to
+  French Guiana; the override frame uses metropolitan France; same for US/Chile/Russia). Surface
+  via ONE line in `gen_manifest.py` (`bbox=list(r["frame"])`), regenerate countries.json, then
+  `fitBounds(bbox)` or `cameraForBounds→flyTo` (curved). **VERIFY on build:** MapLibre accepts the
+  flat `[w,s,e,n]` bounds form, and `fitBounds` frames sanely under *globe* projection for big/
+  high-lat countries (Russia/Canada).
+- **Hover polish:** pointer + faint fill tint via `feature-state` + `promoteId:'ADMIN'`; a click
+  stops the idle spin; Esc/close returns to the globe.
+- **RESOLVED:** hero display → in-globe overlay panel (lazy `<img srcset>` from `/heroes/` + close/Esc,
+  a "View full render →" link to `/[slug]/`); built in one pass. The "rendering…" placeholder path is
+  moot — all 203 in-scope countries are rendered, and the fill layer is filtered to those names, so an
+  unrendered country is simply not clickable.
+
+### 2026-07-14 (evening) — Tier 2 globe + Natural Earth vector borders (frontend, `feat/frontend`)
+
+First interactive globe. Standalone `/globe` route (deliberately independent of the not-yet-built
+capability probe, so Tier 2 can be judged in isolation; the probe will later route `/` here with the
+gallery as fallback).
+
+- **Library:** MapLibre GL **5.24.0** (current stable; v6 is prerelease). Verified via research that
+  v6 (ESM-only, WebGL1-drop, raster mipmaps) and WebGPU are *below-the-API* changes — nothing we'd
+  author differently today; authored v6-safe anyway (ESM `import`, public API only, no `map.transform`,
+  modern array expressions). WebGPU in GL JS is Phase 4 of a 5-phase plan (mid-Phase-1 in mid-2026),
+  realistically 2027+, and lands as an opt-in over a WebGL2 default — a future no-op tier, not a rewrite.
+- **Config lifted from the proven `planet_tiles/index.html` viewer:** raster source
+  `/tiles/{z}/{x}/{y}.png`, `tileSize:256` (512px assets @2x for crisp DPI), globe projection declared
+  in the style (v5 stable), soft sky, `maxZoom:8` (data ceiling; never reaches the z12 globe→mercator
+  auto-switch). Baked polar caps show as clean discs on the sphere — no starburst.
+- **Framework-free integration:** the Astro site has no UI framework, so MapLibre lives in a plain
+  Astro-bundled `<script>` (code-split — absent from the gallery bundle). Dev serving mirrors the
+  existing `heroDevServer()`: added `/tiles` + `/borders` Vite middlewares in `astro.config.mjs`
+  (same-origin → no CORS; nginx serves the same paths in prod; PMTiles is a Phase-4 packaging swap).
+- **Controls:** Navigation + Globe (globe⇄flat toggle) + Scale + Attribution (bottom-left, clear of
+  the border toggle). **Idle spin** refactored onto the map's own gesture events
+  (`dragstart`/`zoomstart`/…) rather than ad-hoc DOM listeners — pauses cleanly, never fights its own
+  `easeTo`, and is skipped entirely under `prefers-reduced-motion`.
+- **Vector borders (land-only v1):** the hero border PNGs are baked into each country's Albers camera
+  and cannot drape on a sphere, so the globe needs live vector geometry (CLAUDE.md already mandates a
+  vector overlay, never baked). `pipeline/compose/borders_geojson.py` = one `ogr2ogr` call translating
+  NE `ne_10m_admin_0_boundary_lines_land` (already EPSG:4326 → format change, not reprojection) →
+  `data/work/borders/boundary_lines.geojson` (505 lines, FEATURECLA carried, 3 non-rendered classes
+  dropped, ~1 m precision, 2.0 MB, gitignored). One MapLibre `geojson` source (`maxzoom:8`, `tolerance`
+  for low-zoom thinning, NE attribution) → four `line` layers: dark casing under white ink, each split
+  solid-international vs dashed-disputed/LoC by a **layer `filter` on FEATURECLA** (not a source filter,
+  not `promoteId`). Toggled by layer `visibility` off the shared `rg:borders` key (one control across
+  gallery/detail/globe). **Maritime indicator lines: added then dropped (2026-07-14)** —
+  NE's maritime "indicator" data is open `LineString` segments (median/treaty/200 nm limits)
+  that *divide* seas rather than enclose territory, so on a relief-first globe they read as
+  disconnected offshore noise, not boundaries; land borders already carry country identity.
+  Generator (`borders_geojson.py`) and frontend reverted to land-only. (EEZ *polygon* zones
+  would be a different, larger, more political dataset if maritime territory is ever wanted.)
+- **Border legibility fix (same day):** the white line vanished over pale highlands + snow
+  (Tibet/Himalaya) — a single-colour line can't self-contrast against both light and dark ground, and
+  the casing (`#3d2b1f` @ 0.5, thin) was decorative. Fix (Option A + blur): strengthened the casing
+  into a real dark halo — darker/near-neutral colour, higher opacity, wider rim, slight `line-blur` to
+  match the soft raytraced aesthetic. Rejected terrain-adaptive line colour (MapLibre can't condition
+  line colour on the raster beneath it; cased line is the correct tool).
+
 ### 2026-07-14 (day) — Tile-shading rework: readable snow, exposure, seamless per-latitude relief, pole caps, float32/window RAM fix
 
 Fixes to the overnight globe, driven by on-8765 review. **Three distinct defects, three causes** (do not conflate):

@@ -76,11 +76,12 @@ Baked-vs-live rule (2026-07-07): too expensive to compute live → baked, always
 
 **POST-RENDER ASSET WORKFLOW** (run after tonight's `--through render --force` fills all 203 heroes): `python pipeline/hero_variants.py` → `python pipeline/gen_borders.py` → `python web/scripts/gen_manifest.py --repo <repo> --out web/src/data/countries.json` → `pnpm --dir web build`. Gallery + detail + border toggle then populate for every country (only india/srilanka/switzerland are live today).
 
-Still **Phase-2-blocked** (need the tile pyramid): the MapLibre globe (Tier 2), terrain-RGB 3D + country fly-to (Tier 3), and the Lite/Globe/Full capability probe. Detail pages are the static Tier-1 hero view until then.
+No longer Phase-2-blocked — the pyramid exists. **Tier 2 globe + vector borders shipped 2026-07-14** (`feat/frontend`, `/globe` route; build notes → [HISTORY.md](HISTORY.md)).
 
-- [ ] MapLibre GL v5 globe with the PMTiles raster source
-- [ ] Natural Earth borders as vector overlay layer, with show/hide toggle (gallery tier: stacked transparent border image over the hero, same toggle)
-- [ ] Country click → fly-to → hero render view (lazy-loaded)
+- [x] MapLibre GL globe over the raster pyramid (PMTiles source deferred to Phase 4)
+- [x] Natural Earth borders as vector line overlay, with show/hide toggle (land-only; maritime deferred)
+- [x] Border legibility over pale highlands/snow — strengthened casing into a soft dark halo (2026-07-14)
+- [x] Country click → fly-to → in-globe hero panel (2026-07-14 — invisible NE country-polygon hit layer, authored-frame `fitBounds`, lazy hero panel honouring the border toggle; build notes → [HISTORY.md](HISTORY.md))
 - [ ] Tier 1 fallback: plain HTML gallery over the same hero images, country list/search
 - [ ] Capability probe (~100 LOC): WebGL2 check → GPU tier (detect-gpu or renderer string) → network (Network Information API where present, else tile-timing)
 - [ ] Quality toggle (Lite / Globe / Full), persisted in localStorage
