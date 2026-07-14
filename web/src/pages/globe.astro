@@ -7,6 +7,9 @@ import Base from "../layouts/Base.astro";
   description="An interactive globe of ray-traced relief, every country."
   borders={true}
 >
+  <!-- Static space backdrop: a sparse starfield painted behind the transparent
+       map, so it shows only in the space around the sphere (zoomed out). -->
+  <canvas id="starfield" class="starfield" aria-hidden="true"></canvas>
   <div id="globe" class="globe" role="application" aria-label="Interactive relief globe"></div>
   <a class="globe-home" href="/">← Gallery</a>
 
@@ -43,10 +46,19 @@ import Base from "../layouts/Base.astro";
     height: 100%;
     overflow: hidden;
   }
+  /* The starfield sits behind the map; the map paints transparent in space so
+     the stars read through only where the sphere and its atmosphere don't. */
+  .starfield {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    display: block;
+    background: #0e1519; /* very dark desaturated navy — space, not pure black */
+  }
   .globe {
     position: fixed;
     inset: 0;
-    background: var(--bg);
+    z-index: 1;
   }
   /* Floating "home" chrome, matching the .borders-fab token treatment. */
   .globe-home {
@@ -184,6 +196,56 @@ import Base from "../layouts/Base.astro";
 </style>
 
 <script>
+  // --- Starfield backdrop -----------------------------------------------------
+  // A static field of faint stars on a dark navy ground, painted once (and on
+  // resize) to a full-viewport canvas behind the transparent map. Static by
+  // design: no twinkle, so it's inherently calm and reduced-motion-safe. Only
+  // visible in the space around the globe when zoomed out — the sphere covers it
+  // otherwise, so no zoom-conditional logic is needed.
+  const starCanvas = /** @type {HTMLCanvasElement} */ (document.getElementById("starfield"));
+  const drawingContext = starCanvas.getContext("2d");
+  const SPACE_COLOR = "#0e1519";
+  const STAR_TINT = "230, 235, 240"; // pale, faintly cool white
+
+  function paintStarfield() {
+    if (!drawingContext) return;
+    const pixelRatio = window.devicePixelRatio || 1;
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+    // Back the canvas with device pixels for crisp sub-pixel stars on hi-DPI screens.
+    starCanvas.width = Math.round(viewportWidth * pixelRatio);
+    starCanvas.height = Math.round(viewportHeight * pixelRatio);
+    starCanvas.style.width = viewportWidth + "px";
+    starCanvas.style.height = viewportHeight + "px";
+    drawingContext.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+
+    drawingContext.fillStyle = SPACE_COLOR;
+    drawingContext.fillRect(0, 0, viewportWidth, viewportHeight);
+
+    // Sparse: roughly one star per 5200 CSS px² (~700 on a 2560×1440 screen).
+    const starCount = Math.round((viewportWidth * viewportHeight) / 5200);
+    for (let starIndex = 0; starIndex < starCount; starIndex += 1) {
+      const positionX = Math.random() * viewportWidth;
+      const positionY = Math.random() * viewportHeight;
+      const radius = 0.4 + Math.random() * 0.9;
+      const brightness = 0.16 + Math.random() * 0.5;
+      drawingContext.beginPath();
+      drawingContext.arc(positionX, positionY, radius, 0, Math.PI * 2);
+      drawingContext.fillStyle = `rgba(${STAR_TINT}, ${brightness.toFixed(3)})`;
+      drawingContext.fill();
+    }
+  }
+
+  paintStarfield();
+  // Repaint on resize (debounced) so the field stays crisp and full-bleed.
+  let resizeTimer = 0;
+  window.addEventListener("resize", () => {
+    window.clearTimeout(resizeTimer);
+    resizeTimer = window.setTimeout(paintStarfield, 150);
+  });
+</script>
+
+<script>
   import maplibregl from "maplibre-gl";
   import "maplibre-gl/dist/maplibre-gl.css";
   import manifest from "../data/countries.json";
@@ -191,9 +253,6 @@ import Base from "../layouts/Base.astro";
   // Data credits (MapLibre requires attribution; matches the About page colophon).
   const CREDITS =
     "Copernicus DEM GLO-30 · GEBCO 2026 · NSIDC-0791 snow · RGI 7.0 glaciers · Natural Earth";
-  // The baked polar-cap colour (shade_planet.py CAP_RGB 67,118,132) — used behind
-  // the sphere so any gap at the capped poles blends into the disc.
-  const DEEP_SEA = "#437684";
 
   const map = new maplibregl.Map({
     container: "globe",
@@ -213,7 +272,8 @@ import Base from "../layouts/Base.astro";
         },
       },
       layers: [
-        { id: "space", type: "background", paint: { "background-color": DEEP_SEA } },
+        // No background layer: space stays transparent so the starfield canvas
+        // behind the map shows through around the sphere.
         { id: "relief", type: "raster", source: "relief", paint: { "raster-fade-duration": 0 } },
       ],
     },
