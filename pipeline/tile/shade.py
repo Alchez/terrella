@@ -35,8 +35,8 @@ EXAG = 15.0
 MERCATOR = "EPSG:3857"
 
 KNOBS = dict(alt=45.0, ambient=0.50, hi=1.30, exposure=1.05, saturation=1.18, warmth=0.06,
-             svf_strength=0.20, svf_threshold=0.45, sea_shade=0.26, sea_lift=1.08,
-             sea_saturation=0.90, snow_lo=0.55, snow_hi_pt=1.05)
+             svf_strength=0.20, svf_threshold=0.45, sea_shade=0.55, sea_lift=1.00,
+             sea_saturation=0.90, sea_svf=0.5, snow_lo=0.55, snow_hi_pt=1.05)
 
 
 def run(cmd):
@@ -205,7 +205,10 @@ def composite(land, sea, ocean, water, snow_a, hs, occ, occ_shape, grid):
         (occ - KNOBS["svf_threshold"]) / (1 - KNOBS["svf_threshold"]), 0, 1) ** 1.4
     sh, sw = occ_shape
     svf_factor = np.clip(np.asarray(zoom(1.0 - burn, (height / sh, width / sw), order=1)), 0, 1)
-    svf_factor = np.where(ocean | water, 1.0, svf_factor)
+    # Inland water stays flat; ocean gets a fraction (sea_svf) of the land-style occlusion
+    # so basins and shelf edges read as recessed instead of a flat sheet.
+    svf_factor = np.where(water, 1.0, svf_factor)
+    svf_factor = np.where(ocean, 1.0 - (1.0 - svf_factor) * KNOBS["sea_svf"], svf_factor)
     light = np.where(water, np.clip(light, 0.85, KNOBS["hi"]), light)
     light = np.where(ocean, KNOBS["sea_lift"] + (light - 1.0) * KNOBS["sea_shade"], light)
     light = np.where(ocean | water, light,

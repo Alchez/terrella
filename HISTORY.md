@@ -4,6 +4,161 @@ Chronological archive of decisions and their rationale, split out of PLAN.md on 
 
 ## Decision log
 
+### 2026-07-14 (night) — Sea rework (#3): levers 1+2 prototyped, **V1 chosen** (lock + winner z0-8 pending)
+
+The sea read as a flat, tacked-on backdrop with no depth. Diagnosis (from the code): `shade.py`
+shaded the seafloor at only `sea_shade=0.26` off a land-exaggerated hillshade (near-flat on gentle
+bathymetry), forced ocean SVF to 1.0 (no ambient occlusion), and `palette.py` `SEA_MIN_M=-3000`
+clamped all deep ocean to one slab while the ramp squeezed shelves into ~7% of its range.
+
+**Levers applied (PROTOTYPE — uncommitted, not yet locked):**
+- `palette.py`: `SEA_STOPS` redistributed so the two brightest bands sit in the top 800 m (shelves
+  read as a gradient); `SEA_MIN_M` -3000 → **-6000** (deep ocean varies, e.g. Gulf of Aden);
+  surface + shelf stops **deepened ~15%** (pull the bright cyan toward a richer teal — Rohan's ask).
+- `shade.py`: new `sea_svf` knob (ocean gets a fraction of the land occlusion); un-compressed
+  `sea_shade`. Caveat: the SVF input zeroes bathy below -500 m, so deep-basin AO is limited — shelves
+  and shelf-edges carry it; deep gets depth from ramp+hillshade. (Lever 3 = a sea-specific
+  high-exaggeration hillshade — deferred; would sculpt the abyss but wasn't needed for 1+2.)
+
+**Candidates (sea knobs; shared palette/tone):** V1 `{sea_shade 0.55, sea_lift 1.00, sea_svf 0.5}`
+(calmer, water-like sheen), V2 `{0.72, 0.98, 0.7}` (stronger relief). Prototyped on the Red Sea via
+`shade.py --cells` (fast, no planet re-shade). **Rohan chose V1** — pending his final go to lock.
+
+**A/B infra (all verified live on the globe):** `pipeline/experiments/sea_ab.py` drives a
+dual-output planet composite (both variants in one pass) → non-destructive `tiles_v1`/`tiles_v2`
+(z0-7; z8 deferred to the winner), live tiles untouched. Frontend: `globe.astro` Current/V1/V2
+segmented toggle + two hidden raster sources; `astro.config.mjs` serves `/tiles-v1` `/tiles-v2`.
+Both sets built (15,585 tiles each).
+
+**Profiling (measured, `composite_bench.py`):** the hotspot is the **composite numpy math**
+(~2 s/window, run once per variant), then the per-window snow-warp + glacier-rasterize gdal
+subprocesses (~2 s combined). Optimizations tested: **#1** share-across-variants — pixel-identical
+but only ~4% faster, **dropped**; **#3** bigger windows — **dropped** (caused an OOM, below);
+**#2 precompute global snow_alpha + glacier rasters once** (warp+rasterize to two 3857 rasters,
+~24 GB disk, composite reads slices) — **saves ~2.9 s/window; BUILD THIS for the winner z0-8 pass.**
+
+**OOM incident (20:40):** ran `composite_bench` concurrently with the v2 tiling; the benchmark held
+all 5 windows + composited a 768-row window (~19 GB RSS) and the box (29 GB RAM, 8 GB swap already
+**full**) OOM-killed it, interrupting the v2 tile cut (since resumed). **Operating rule: one heavy
+pipeline job at a time — no second pass or benchmark alongside it.** (`composite_bench` has this
+memory bug: holds all windows + a 768-row composite — bound it before any re-run.)
+
+**NOT DONE / next (blocked on Rohan's go to lock V1):**
+1. Bake V1 knobs into `shade.py` KNOBS defaults (currently the OLD `sea_shade=0.26, sea_lift=1.08,
+   sea_svf=0.0`); `palette.py` already holds the new ramp/tone as prototype.
+2. Update `tests/test_palette.py` + the CLAUDE.md locked sea constants (still the OLD `8FC7C5`/
+   `3A6E7D` at 0/-3000 — the frozen set Rohan OK'd moving; the test will fail until updated).
+3. Run the winner's full **z0-8** into the live tiles, built with the **#2 precompute** optimization,
+   run **solo**. Then a globe re-check + commit.
+
+Uncommitted prototype state: `palette.py`, `shade.py`, `shade_planet.py`, `sea_ab.py`,
+`composite_bench.py` (main worktree); `globe.astro`, `astro.config.mjs` (frontend worktree).
+
+### 2026-07-14 (evening) — #4 "highest point" stat attempted then dropped; Google Earth datasets assessed
+
+**Highest-point stat — dropped.** Tried computing a per-country highest point from our fused
+heightfields (`data/work/<slug>/heightfield_{1s,3s}.tif`, EPSG:4326 float32 m) by masking with the
+NE country polygon (zonal max). Prototyped thoroughly; dropped for two reasons:
+- **Accuracy wart from generalised NE borders.** NE 10m borders assign border-straddling summits to
+  one side, so the masked max misattributes marquee peaks. Worst case **Nepal → ~8,140 m, not Everest
+  8,849** (NE draws the border south of the summit; the 8,731 m pixel lands on the China side, and even
+  ~600 m of mask dilation only reached 8,371). Most countries were within ~2 % (France nailed Mont
+  Blanc 4,804; India 8,535≈Kangchenjunga; Netherlands 325≈Vaalserberg) — but a visibly-wrong Nepal on
+  a relief site isn't worth shipping. This is inherent to our committed NE-default worldview, not a bug.
+- **Compute cost for giants.** An accurate masked max must scan all interior pixels; native block-stream
+  of Russia's 3s field (10 G cells) exceeded 2 min *per country* (~15 giants → 30 min+). The coarse
+  global `planet_heightfield.vrt` (10 arc-sec) is fast (Russia 18 s) but its coarse mask **leaks foreign
+  terrain into small countries** (Netherlands → 819 m, grabbing German uplands). A size-gated hybrid
+  (native for small, decimated for giants) would work but wasn't worth the complexity for a card stat.
+
+Verdict: the panel keeps its current copy; no computed elevation. Revisit only if we want a curated
+highest-point table (hand-authored, off our data) — deliberately not doing that now.
+
+**Google Earth datasets vs ours (from its Data-attribution panel).** Its list — *SIO/NOAA/US Navy/NGA/
+GEBCO, Landsat/Copernicus, IBCAO, USGS, PGC/NASA* — maps to: ocean floor = SRTM15+ (Scripps) blended
+with GEBCO, i.e. **the same ~15″ (~450 m) altimetry-predicted bathymetry class we use** (so Google's
+oceans are smooth for the same reason — confirms the **#3** finding that our blurry/flat deep sea is a
+data limit, fix is aesthetic not data); Landsat/Copernicus = optical *imagery* (Sentinel-2, a different
+product from the Copernicus **DEM** GLO-30 we use — not our medium); IBCAO = Arctic bathymetry already
+inside GEBCO; USGS = SRTM-class land (older/inferior to our TanDEM-X-derived GLO-30 globally).
+**The one genuinely-better source is PGC/NASA = REMA (Antarctica) + ArcticDEM (Greenland/Arctic), 2 m
+native** — relevant only to our deferred polar work (both currently flat-capped). Filed for the
+Antarctica/Greenland pass; no change to land (GLO-30) or bathymetry (GEBCO) choices.
+
+### 2026-07-14 (evening) — Starfield space backdrop shipped (`feat/frontend`)
+
+Built #5. The globe now sits in dark space with a sparse, static starfield instead of the flat teal
+fill. Approach: a full-viewport `<canvas id="starfield">` painted **behind** a now-transparent map
+(dropped the solid-teal `space` background layer, so MapLibre's canvas is transparent in space and
+the stars read through around the sphere). Ground is `#0e1519` (very dark desaturated navy, not pure
+black — stays in the Neutral palette); ~1 pale star per 5200 CSS px², radius 0.4–1.3 px, opacity
+0.16–0.66. **Static — no twinkle**, so it's inherently calm and reduced-motion-safe; repainted only
+on resize (DPR-backed for crisp hi-DPI stars). No "when zoomed out" logic needed — the sphere covers
+the field when zoomed in.
+
+The one risk flagged when scoping — that dropping the teal background (which also "blends any gap at
+the capped poles into the disc") would expose stars through the un-tiled sliver above +85°/below −60°
+— proved a **non-issue**: the flat polar caps baked into the tiles plus the atmosphere fully cover
+the top, verified by zooming the north pole (Greenland's white cap, no stars poking through). The
+soft blue `setSky` atmosphere, kept unchanged, reads as a gentle earth-glow against the dark space
+(the earlier worry it would wash to light grey was unfounded).
+
+### 2026-07-14 (evening) — Globe experience polish: remaining items scoped (from using the globe)
+
+Five notes from living with the globe. #1 (in-place render zoom) is BUILT — see the next entry.
+The rest are scoped-not-built; capturing so they survive compaction:
+
+- **#5 Starfield (NEXT UP):** a space backdrop when zoomed out. MapLibre `setSky` has **no star
+  support** (Mapbox-only) → DIY: replace the solid teal `space` background layer with a transparent
+  space + a sparse, faint starfield on a **very dark desaturated navy** (not pure black — stay in the
+  Neutral palette), **no twinkle** (or honour `prefers-reduced-motion`). Needs no "when zoomed out"
+  logic: space is only visible when the globe is small, so stars appear only zoomed out.
+- **#4 Richer hero panel:** add **elevation range / highest point** — computable from our own fused
+  heightfield in `gen_manifest.py` (sample per-country min/max), reinforces the relief theme; and/or
+  the hypsometric `Legend` scaled to the country. **Push back on population/area/capital** (off-brand
+  almanac data).
+- **#3 Bathymetry reads blurry + flat** — **not a Tier-3 issue** (Tier 3 = 3D displacement). Two
+  separate causes: (a) *blurry* is a hard data limit — GEBCO ~450 m (15″) vs GLO-30 30 m land, ~15×
+  coarser → upsampled = smooth; unfixable globally. (b) *flat* is **our own tunable choice** —
+  `palette.py` `SEA_MIN_M = -3000` clamps every depth past 3 km to one deepest colour (most open
+  ocean → featureless slab), and the sea hillshade is faint on GEBCO's gentle gradients at the current
+  z. Fix direction: extend/band the depth ramp (hypsometric sea tint = the "shelf seas" signature) +
+  a stronger sea-specific hillshade — a `palette.py` + `shade_planet.py` tune; **prototype on Red Sea /
+  Mediterranean** (good shelf structure) before any planet re-shade. Lives under the Phase-2 "on-globe
+  tile judgment" item.
+- **#2 Mumbai-in-viewport (answered, no work):** pyramid ceiling is z8 ≈ 290 m/px at 19°N → a laptop
+  viewport frames ~250 km (Mumbai ~70 px). Filling the screen with the city needs ~z11 (~30 m, GLO-30
+  native) = the deferred finer re-fuse (the z10+ open question), not available today.
+
+Sequence: #1 done → **#5 starfield next** → #3 as its own focused session; #4 opportunistic.
+
+### 2026-07-14 (evening) — Detail-page hero: in-place pan/zoom (`feat/frontend`)
+
+The full-size render (`/[slug]/`) now zooms in-place: wheel / double-click / pinch to zoom,
+drag or arrow-keys to pan, a Reset control, edge-clamped so no gutters. The **native full-res
+variant is lazy-loaded the first time you zoom** so the page still loads on the light display
+variant. Vanilla pointer-events, no library; descriptive names throughout.
+
+**Perf rewrite (do not regress to CSS transform).** First cut CSS-`transform: scale()`-ed a
+`<img>` of the 7680 px hero: catastrophically janky — wheel sluggish, the Reset *click* delayed
+5–10 s and worse the more you'd zoomed. Cause: transform-scaling the bitmap forces the browser to
+re-rasterise the whole scaled image each frame, and once scaled dims pass the ~8192 px GPU max
+texture size it falls back to CPU-tiled raster; those multi-hundred-ms tasks starve the input queue.
+Fix: render into a viewport-sized box and sample the source via **`background-size` +
+`background-position`** (`.zoom-hero`/`.zoom-border` divs) — the painted element stays frame-sized
+(verified 1420×1338 even at scale), so every frame is one small raster, never a giant re-raster.
+No `will-change`, no rAF batching (background-* are paint-only → the browser already coalesces to one
+paint/frame; rAF also went dead in backgrounded tabs, which broke local verification).
+
+Follow-up fixes (same session): (1) **Reset needed a few tries** — the figure's `pointerdown` did
+`setPointerCapture`, which retargets the pointerup and swallows the Reset button's `click`; guard with
+`resetButton.contains(event.target) → return`. (2) **Black flash on first zoom** — swapping
+`background-image` to the not-yet-loaded native URL showed the dark figure background through the gap;
+now preload + `img.decode()` and only swap on `.finally()`, so the display variant holds until native
+is ready. (3) **Globe → hero navigation spammed `AJAXError: NetworkError`** — MapLibre tiles in flight
+abort on navigation; added a `map.on("error")` gate that silences AJAX/Network errors once a `pagehide`
+flag is set, but still surfaces genuine errors during use.
+
 ### 2026-07-14 (evening) — Click-to-fly-to → in-globe hero panel (BUILT, `feat/frontend`)
 
 Globe interaction: click a country → `fitBounds` to it → show its hero in a floating panel.

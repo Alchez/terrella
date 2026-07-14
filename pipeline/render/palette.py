@@ -12,8 +12,8 @@ image. `color_relief_rows` densely samples each ramp and sRGB-encodes it into th
 `gdaldem color-relief` consumes. Land and sea are separate ramps chosen later by the
 ocean mask (not the elevation sign), which keeps the coastline crisp.
 
-The frozen endpoints (CLAUDE.md → Locked global constants → Color) are E9D9C0/E9DCC8
-for land at 0/6000 m and 8FC7C5/3A6E7D for sea at 0/-3000 m; `test_palette.py` guards
+The frozen endpoints (PLAN.md → Locked global constants → Color) are E9D9C0/E9DCC8
+for land at 0/6000 m and 85B9B7/3A6E7D for sea at 0/-6000 m; `test_palette.py` guards
 against drift off those values.
 """
 
@@ -32,20 +32,24 @@ LAND_STOPS: list[Stop] = [
     (0.750, (0.715694, 0.584078, 0.445201)),
     (1.000, (0.814847, 0.715694, 0.577580)),
 ]
+# Positions redistributed by depth (SEA_MIN_M = -6000): the two brightest bands sit
+# in the top 800 m so continental SHELVES read as a bright->mid gradient (the "shelf
+# seas" signature), while the deeper stops spread across 0.8..6 km so abyssal plains
+# and trenches vary tonally instead of clamping to one slab. Same committed colours.
 SEA_STOPS: list[Stop] = [
-    (0.000, (0.274677, 0.571125, 0.558340)),
-    (0.100, (0.201556, 0.479320, 0.479320)),
-    (0.220, (0.138432, 0.381326, 0.412543)),
-    (0.380, (0.093059, 0.291771, 0.341914)),
-    (0.620, (0.063010, 0.215861, 0.274677)),
-    (1.000, (0.042311, 0.155926, 0.205079)),
+    (0.0000, (0.233475, 0.485456, 0.474589)),  #     0 m  surface teal (deepened ~15% from 8FC7C5)
+    (0.0333, (0.171323, 0.407422, 0.407422)),  #  -200 m  shelf break (deepened ~15%)
+    (0.1333, (0.138432, 0.381326, 0.412543)),  #  -800 m  upper slope
+    (0.3333, (0.093059, 0.291771, 0.341914)),  # -2000 m  lower slope / basin
+    (0.6333, (0.063010, 0.215861, 0.274677)),  # -3800 m  abyssal plain
+    (1.0000, (0.042311, 0.155926, 0.205079)),  # -6000 m  deepest / trench
 ]
 WATER_RGB: RGB8 = (152, 197, 200)  # 98C5C8 — flat inland lake/river teal
 SNOW_RGB: RGB8 = (232, 241, 246)         # E8F1F6 — sunlit snow (bright glacial white)
 SNOW_SHADOW_RGB: RGB8 = (176, 199, 219)  # B0C7DB — shaded snow (cool blue-white, not grey)
 
 LAND_MAX_M = 6000.0
-SEA_MIN_M = -3000.0
+SEA_MIN_M = -6000.0  # extended from -3000 (2026-07-14 sea rework) so the deep sea varies tonally
 
 
 def smoothstep(t: float) -> float:
@@ -82,7 +86,7 @@ def color_relief_rows(kind: str, step: float = 25.0) -> list[tuple[float, RGB8]]
     """(elevation, sRGB) rows for one surface, densely sampled so `gdaldem`'s linear
     interpolation between rows reproduces the EASE ramp.
 
-    'land' maps elevation 0..6000 m; 'sea' maps depth -3000..0 m (deepest first). Each
+    'land' maps elevation 0..6000 m; 'sea' maps depth -6000..0 m (deepest first). Each
     ramp only has to be correct on its own side — the ocean mask selects between them."""
     if kind == "land":
         count = round(LAND_MAX_M / step)

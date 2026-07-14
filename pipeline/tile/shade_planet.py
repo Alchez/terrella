@@ -85,15 +85,15 @@ def warp_inputs(work: Path):
 def color_and_hillshade(work: Path, height: Path):
     """Global color-relief (land + sea) and the seamless per-row-z hillshade (skip if present)."""
     land, sea, hs = work / "land_3857.tif", work / "sea_3857.tif", work / "hs_3857.tif"
-    if not land.exists() or not sea.exists():
-        land_ramp, sea_ramp = work / "ramp_land.txt", work / "ramp_sea.txt"
-        palette.write_color_relief(land_ramp, "land")
-        palette.write_color_relief(sea_ramp, "sea")
-        print("color-relief (land, sea) ...", flush=True)
-        _run(["gdaldem", "color-relief", "-q", height, land_ramp, land,
-              "-co", "TILED=YES", "-co", "COMPRESS=DEFLATE", "-co", "BIGTIFF=YES"])
-        _run(["gdaldem", "color-relief", "-q", height, sea_ramp, sea,
-              "-co", "TILED=YES", "-co", "COMPRESS=DEFLATE", "-co", "BIGTIFF=YES"])
+    # Land and sea are guarded independently so a palette change to one surface only
+    # re-colours that surface (delete sea_3857.tif -> only sea regenerates; land stays).
+    for surface, out in (("land", land), ("sea", sea)):
+        if not out.exists():
+            ramp = work / f"ramp_{surface}.txt"
+            palette.write_color_relief(ramp, surface)
+            print(f"color-relief ({surface}) ...", flush=True)
+            _run(["gdaldem", "color-relief", "-q", height, ramp, out,
+                  "-co", "TILED=YES", "-co", "COMPRESS=DEFLATE", "-co", "BIGTIFF=YES"])
     if not hs.exists():
         print(f"per-row-z hillshade (EXAG={EXAG}) ...", flush=True)
         hillshade.per_row_zfactor_hillshade(height, hs, EXAG, ALT, AZ)
@@ -125,24 +125,38 @@ def read1_window(path, window):
         return dataset.read(1, window=window)
 
 
-def composite_planet(work: Path, land, sea, hs, occ):
-    """Composite the whole planet window-by-window into one seamless RGB GeoTIFF."""
-    out_tif = work / "planet_rgb.tif"
-    done = work / "planet_rgb.done"
-    if out_tif.exists() and done.exists():
-        print("planet_rgb.tif present -> skip composite", flush=True)
-        return out_tif
+def composite_planet(work: Path, land, sea, hs, occ, variants=None,
+                     window_rows=WINDOW_ROWS, max_windows=None):
+    """Composite the whole planet window-by-window into seamless RGB GeoTIFF(s).
+
+    `variants` maps a name -> a dict of sea-knob overrides (sea_shade/sea_lift/sea_svf);
+    each name is emitted as planet_rgb_<name>.tif in ONE shared pass — the expensive
+    per-window work (reads, snow warp, glacier rasterize) is done once and only the cheap
+    sea-light math + write differs per variant. `variants=None` keeps the production path:
+    a single planet_rgb.tif shaded with the default KNOBS. `window_rows` is the RAM lever;
+    `max_windows` (smoke test) stops after N windows, leaving a partially-filled raster.
+    """
+    if variants is None:
+        variants = {None: None}
+    outs = {name: (work / f"planet_rgb{f'_{name}' if name else ''}.tif",
+                   work / f"planet_rgb{f'_{name}' if name else ''}.done")
+            for name in variants}
+    if max_windows is None and all(tif.exists() and dn.exists() for tif, dn in outs.values()):
+        print("planet_rgb present -> skip composite", flush=True)
+        return {name: tif for name, (tif, _) in outs.items()}
     with rasterio.open(work / "height_3857.tif") as h:
         width, height, transform = h.width, h.height, h.transform
-        top, bottom = h.bounds.top, h.bounds.bottom
     small_h, small_w = occ.shape
     profile = dict(driver="GTiff", width=width, height=height, count=3, dtype="uint8",
                    crs="EPSG:3857", transform=transform, tiled=True, blockxsize=512,
                    blockysize=512, compress="deflate", photometric="RGB", BIGTIFF="YES")
     ocean_p, water_p = work / "ocean_3857.tif", work / "water_3857.tif"
-    with rasterio.open(out_tif, "w", **profile) as dst:
-        for row0 in range(0, height, WINDOW_ROWS):
-            row1 = min(height, row0 + WINDOW_ROWS)
+    writers = {name: rasterio.open(tif, "w", **profile) for name, (tif, _) in outs.items()}
+    try:
+        for index, row0 in enumerate(range(0, height, window_rows)):
+            if max_windows is not None and index >= max_windows:
+                break
+            row1 = min(height, row0 + window_rows)
             win = Window(0, row0, width, row1 - row0)
             win_h = row1 - row0
             win_top = transform.f + row0 * transform.e
@@ -171,28 +185,38 @@ def composite_planet(work: Path, land, sea, hs, occ):
             sr1 = max(sr0 + 1, int(round(row1 / height * small_h)))
             occ_win = occ[sr0:sr1]
 
-            rgb = shade.composite(land_win, sea_win, ocean_win, water_win, snow_a, hs_win,
-                                  occ_win, (sr1 - sr0, small_w), (win_h, width))
-
-            # polar caps: force the smeared edges to a flat deep-sea disc
+            # polar cap mask is shared across variants (geometry, not colour).
             latitude = snow.latitude_per_row(win_top, win_bottom, win_h)
             cap = (latitude > CAP_NORTH) | (latitude < CAP_SOUTH)
-            if cap.any():
-                for band in range(3):
-                    rgb[band][cap] = CAP_RGB[band]
 
-            dst.write(rgb, window=win)
+            for name, knobs in variants.items():
+                if knobs:
+                    KNOBS.update(knobs)  # only the sea knobs differ between variants
+                rgb = shade.composite(land_win, sea_win, ocean_win, water_win, snow_a, hs_win,
+                                      occ_win, (sr1 - sr0, small_w), (win_h, width))
+                if cap.any():  # force the smeared polar edges to a flat deep-sea disc
+                    for band in range(3):
+                        rgb[band][cap] = CAP_RGB[band]
+                writers[name].write(rgb, window=win)
+                del rgb
+
             # release the window's big arrays each iteration so RSS can't creep up over the
             # hundreds of windows (fragmentation growth OOM-killed the earlier float64 runs).
-            del land_win, sea_win, hs_win, persistence, snow_a, glacier, occ_win, rgb
-            if (row0 // WINDOW_ROWS) % 20 == 0:
+            del land_win, sea_win, hs_win, persistence, snow_a, glacier, occ_win
+            if index % 20 == 0:
                 gc.collect()
                 print(f"  composited rows {row0}/{height}", flush=True)
+    finally:
+        for writer in writers.values():
+            writer.close()
     for temp in ("_sp_win.tif", "_rgi_win.tif"):
         (work / temp).unlink(missing_ok=True)
-    done.touch()
-    print(f"wrote {out_tif}", flush=True)
-    return out_tif
+    if max_windows is None:  # a smoke test leaves a partial raster -> don't mark it done
+        for _, dn in outs.values():
+            dn.touch()
+    for name, (tif, _) in outs.items():
+        print(f"wrote {tif}", flush=True)
+    return {name: tif for name, (tif, _) in outs.items()}
 
 
 def build_tiles(planet_tif: Path, out: Path):
@@ -226,7 +250,7 @@ def main():
     land, sea, hs = color_and_hillshade(work, height)
     print("global sky-view factor ...", flush=True)
     occ = global_occlusion(height)
-    planet_tif = composite_planet(work, land, sea, hs, occ)
+    planet_tif = composite_planet(work, land, sea, hs, occ)[None]
     if args.tiles:
         build_tiles(planet_tif, work)
     print("DONE", flush=True)
