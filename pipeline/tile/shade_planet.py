@@ -26,6 +26,7 @@ pyramid exactly (131072 x 93009).
 """
 
 import argparse
+import gc
 import math
 import subprocess
 import sys
@@ -46,7 +47,10 @@ PLANET = ROOT / "data/work/planet"
 Z8_RES = 305.7483          # metres/pixel of a 512px WebMercatorQuad tile at zoom 8
 EXAG = 15.0
 ALT, AZ = KNOBS["alt"], 315.0
-WINDOW_ROWS = 384          # full-width composite window; ~50 Mpx float budget (peak ~9 GB)
+WINDOW_ROWS = 256          # full-width composite window. Height is the hard RAM lever (windows
+                           # are full 131072-wide): with float32 composite this peaks ~6 GB. 384
+                           # rows in float64 peaked ~18 GB and got OOM-killed. Launch the job with
+                           # GDAL_CACHEMAX=512 to leave headroom for other work.
 SVF_LONG_EDGE = 4096       # global sky-view downsample (long edge = raster width)
 CAP_NORTH, CAP_SOUTH = 84.0, -59.5   # latitudes above/below which the poles are capped flat
 CAP_RGB = (67, 118, 132)   # flat deep-sea colour for the polar caps (matches deep-ocean render)
@@ -113,7 +117,7 @@ def global_occlusion(height: Path):
 
 def read3_window(path, window):
     with rasterio.open(path) as dataset:
-        return dataset.read([1, 2, 3], window=window).astype(float)
+        return dataset.read([1, 2, 3], window=window).astype(np.float32)
 
 
 def read1_window(path, window):
@@ -178,7 +182,11 @@ def composite_planet(work: Path, land, sea, hs, occ):
                     rgb[band][cap] = CAP_RGB[band]
 
             dst.write(rgb, window=win)
+            # release the window's big arrays each iteration so RSS can't creep up over the
+            # hundreds of windows (fragmentation growth OOM-killed the earlier float64 runs).
+            del land_win, sea_win, hs_win, persistence, snow_a, glacier, occ_win, rgb
             if (row0 // WINDOW_ROWS) % 20 == 0:
+                gc.collect()
                 print(f"  composited rows {row0}/{height}", flush=True)
     for temp in ("_sp_win.tif", "_rgi_win.tif"):
         (work / temp).unlink(missing_ok=True)

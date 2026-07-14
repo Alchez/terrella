@@ -4,6 +4,41 @@ Chronological archive of decisions and their rationale, split out of PLAN.md on 
 
 ## Decision log
 
+### 2026-07-14 (day) — Tile-shading rework: readable snow, exposure, seamless per-latitude relief, pole caps, float32/window RAM fix
+
+Fixes to the overnight globe, driven by on-8765 review. **Three distinct defects, three causes** (do not conflate):
+
+- **Himalaya grey smear vs white Greenland** — a *rendering* issue, not data. Snow is a soft alpha
+  over the hillshade; the neutral `SNOW_RGB × light` floored shaded snow on rugged terrain to grey,
+  while flat Greenland (persistence≈1) stayed white. Fix: two-colour snow ramp —
+  `palette.SNOW_SHADOW_RGB` (blue-white) → `SNOW_RGB`, keyed by light. Verified Karakoram/Alps/Greenland.
+- **Sri Lanka "washed out / too bright"** — a *land-exposure* blow-out, unrelated to snow. Pale-sand
+  lowland (233,217,192) × `exposure=1.30`'s 1.15× flat-lit gain clipped to white (30% of land ≥235).
+  Fix: `exposure` 1.30 → **1.05** (flat land ≈ true colour; mountains keep punch — `ambient`/`hi`
+  unchanged). Knobs were Nepal-tuned, so flat bright lowland was never seen. Verified Sri Lanka + Alps.
+- **North-pole starburst** — MapLibre's globe smears the non-uniform ±85.05° edge row into the pole.
+  Fix: flat deep-sea pole caps (>84°N, <−59.5°S). Same for the −60°S (Antarctica-deferred) edge.
+- **Seams + wrong exaggeration** (the "refinements") — retired per-strip `tile_planet.py` (single
+  global z=20 blew out tropics; per-strip `--compute_edges` seamed ocean) for **one global streaming
+  pass** `pipeline/tile/shade_planet.py`: warp→3857 once, global color-relief, a **custom per-row-z
+  hillshade** `render/hillshade.py` (z=15/cos(lat), full-width + 1-row halo → seamless + correct 15×
+  everywhere; matches gdaldem ≤1 DN), globally-normalised SVF (back on), per-window composite.
+- **OOM fix** — the full-width float64 composite at 384 rows peaked ~18 GB (numpy temporaries stack
+  on persistent arrays; memory *creeps* over windows) and was OOM-killed under browser load. Fix:
+  `composite()` in **float32** (output-identical, ≤1 DN), `WINDOW_ROWS=256`, per-window `del`+`gc`,
+  launch `GDAL_CACHEMAX=512` → ~2.6 GB RSS in practice.
+- **Docs** — split the 726-line decision log into HISTORY.md; PLAN.md 870→~185 lines + a new "Active
+  learnings" section; CLAUDE.md +4 gotchas (Earthdata/RGI access, GLO-30 withheld tiles, OptiX crash,
+  8K-CPU-denoise reconcile); new INVENTORY.md (storage map).
+
+**Status:** all crop-verified; the full-planet z0–8 rebuild is running on the float32 path (~2.6 GB,
+past the prior OOM point). **On-globe 8765 verification is the last open step.** Relaunch (skips cached
+head stages, resumes at composite): `GDAL_CACHEMAX=512 python -m pipeline.tile.shade_planet --out
+data/work/planet_tiles --tiles`. When checking if it's running, filter on `comm==python` — a bare
+`pgrep -f shade_planet` self-matches the launch shell and false-aborts. After tiling it swaps
+`tiles_new`→`tiles` (old kept as `tiles_old`); verify via `cd data/work/planet_tiles && python3 -m
+http.server 8765`.
+
 ### 2026-07-14 (overnight) — First full planet tile pyramid: snow + glaciers, z0–8, served & verified
 
 **`pipeline/tile/tile_planet.py`** shades the non-Antarctic planet as **194 RAM-safe horizontal

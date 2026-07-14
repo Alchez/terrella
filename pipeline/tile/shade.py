@@ -182,14 +182,22 @@ def main():
 
 def composite(land, sea, ocean, water, snow_a, hs, occ, occ_shape, grid):
     height, width = grid
+    # float32 throughout — the output is 8-bit, and on the full-width planet windows float64
+    # doubled peak RAM (~18 GB) and OOM-killed the box. asarray is a no-op when already float32.
+    land = np.asarray(land, dtype=np.float32)
+    sea = np.asarray(sea, dtype=np.float32)
+    hs = np.asarray(hs, dtype=np.float32)
+    snow_a = np.asarray(snow_a, dtype=np.float32)
+    occ = np.asarray(occ, dtype=np.float32)
     lum = 0.299 * land[0] + 0.587 * land[1] + 0.114 * land[2]
     land = np.clip((lum[None] + (land - lum[None]) * KNOBS["saturation"])
-                   * np.array([1.0, 1.0 - 0.5 * KNOBS["warmth"], 1.0 - KNOBS["warmth"]]).reshape(3, 1, 1),
+                   * np.array([1.0, 1.0 - 0.5 * KNOBS["warmth"], 1.0 - KNOBS["warmth"]],
+                              dtype=np.float32).reshape(3, 1, 1),
                    0, 255)
     sea_lum = 0.299 * sea[0] + 0.587 * sea[1] + 0.114 * sea[2]
     sea = np.clip(sea_lum[None] + (sea - sea_lum[None]) * KNOBS["sea_saturation"], 0, 255)
     color = np.where(ocean[None], sea, land)
-    color = np.where(water[None], np.array(palette.WATER_RGB, float).reshape(3, 1, 1), color)
+    color = np.where(water[None], np.array(palette.WATER_RGB, dtype=np.float32).reshape(3, 1, 1), color)
 
     flat = 255.0 * math.sin(math.radians(KNOBS["alt"]))
     light = np.clip(hs / flat, KNOBS["ambient"], KNOBS["hi"])
@@ -210,8 +218,8 @@ def composite(land, sea, ocean, water, snow_a, hs, occ, occ_shape, grid):
     # muddying to grey on rugged terrain the way SNOW_RGB*light did.
     alpha = np.where(ocean | water, 0.0, snow_a)
     snow_t = np.clip((light - KNOBS["snow_lo"]) / (KNOBS["snow_hi_pt"] - KNOBS["snow_lo"]), 0.0, 1.0)
-    snow_shadow = np.array(palette.SNOW_SHADOW_RGB, float).reshape(3, 1, 1)
-    snow_lit = np.array(palette.SNOW_RGB, float).reshape(3, 1, 1)
+    snow_shadow = np.array(palette.SNOW_SHADOW_RGB, dtype=np.float32).reshape(3, 1, 1)
+    snow_lit = np.array(palette.SNOW_RGB, dtype=np.float32).reshape(3, 1, 1)
     snow_rgb = snow_shadow + (snow_lit - snow_shadow) * snow_t[None]
     final = base_rgb * (1.0 - alpha)[None] + snow_rgb * alpha[None]
     return np.clip(final, 0, 255).astype("uint8")

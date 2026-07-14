@@ -172,3 +172,14 @@ approaches → HISTORY.md.
 - **Mercator polar hole**: the raster stops at ±85.05°; MapLibre's globe smears the non-uniform edge
   row into a pole starburst → cap the edge bands flat deep-sea (>84°N, <−59.5°S). Antarctica (south
   of −60°) is still deferred; the south cap is a clean-disc placeholder.
+- **WebMercatorQuad grid alignment**: warp the 3857 grid with `-tap -tr 305.7483` so pixels snap to
+  the z8 tile grid — `20037508.34 = 65536 × 305.7483`; an unaligned grid seams the tiles or forces a
+  resample. The planet grid is **131072 × 93009**, top 85.05°N, bottom −60°S.
+- **GEBCO_2026 is ice-*surface* elevation, not sub-ice bathymetry** — the fusion "no-tile → ocean"
+  rule would clamp Antarctica/Greenland ice to −1 m, so a proper Antarctica needs its own GLO-30 ice
+  tiles as a special-case pass, **never a bathymetry clamp**.
+- **The planet composite is full-width, so window *height* is a hard RAM lever.** At 384 rows × 131072
+  wide the float64 composite peaked ~18 GB (numpy compound-expression temporaries stack on the
+  persistent arrays) and was **OOM-killed** on the 29 GB box under browser load (2026-07-14). Fix
+  shipped: `composite()` computes in **float32** (halves every array) + `WINDOW_ROWS=256` (~6 GB);
+  launch with `GDAL_CACHEMAX=512`.
