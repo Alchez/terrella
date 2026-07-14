@@ -230,6 +230,19 @@ import Base from "../layouts/Base.astro";
   map.addControl(new maplibregl.ScaleControl({ maxWidth: 120, unit: "metric" }), "bottom-left");
   map.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-left");
 
+  // Tiles still in flight when you navigate away (e.g. clicking through to a hero)
+  // abort with a network error — expected teardown, not a real failure. Silence those
+  // once we're leaving the page, but still surface any genuine map error during use.
+  let navigatingAway = false;
+  window.addEventListener("pagehide", () => {
+    navigatingAway = true;
+  });
+  map.on("error", (event) => {
+    const message = event.error && event.error.message ? event.error.message : "";
+    if (navigatingAway && /AJAXError|NetworkError|Failed to fetch/i.test(message)) return;
+    console.error("[globe]", event.error);
+  });
+
   // --- Country borders (Natural Earth vector lines) ---------------------------
   // One GeoJSON source; solid international vs dashed disputed/LoC split by a
   // layer filter on FEATURECLA. White "ink" over a dark "casing" so lines read on
@@ -303,9 +316,9 @@ import Base from "../layouts/Base.astro";
   // Hover highlight: warm gold reads on all three grounds (teal sea, warm sand, white
   // snow) where the teal accent would vanish along coasts; a dark casing carries it
   // over snow, and the hue marks it as an interactive pick, distinct from white borders.
-  const HL = "#eca834";
-  const HL_CASING = "#1c140c";
-  const HOVER_ON = ["boolean", ["feature-state", "hover"], false];
+  const HIGHLIGHT_GOLD = "#eca834";
+  const HIGHLIGHT_CASING = "#1c140c";
+  const whenHovered = ["boolean", ["feature-state", "hover"], false];
 
   /** srcset w-descriptor is the real pixel WIDTH, not the long edge (portrait
    * variants are narrower than their key) — mirrors the gallery detail page. */
@@ -332,8 +345,8 @@ import Base from "../layouts/Base.astro";
       source: "countries",
       filter: inScopeFilter,
       paint: {
-        "fill-color": HL,
-        "fill-opacity": ["case", HOVER_ON, 0.16, 0],
+        "fill-color": HIGHLIGHT_GOLD,
+        "fill-opacity": ["case", whenHovered, 0.16, 0],
       },
     });
   }
@@ -349,10 +362,10 @@ import Base from "../layouts/Base.astro";
       filter: inScopeFilter,
       layout: { "line-cap": "round", "line-join": "round" },
       paint: {
-        "line-color": HL_CASING,
+        "line-color": HIGHLIGHT_CASING,
         "line-width": ["interpolate", ["linear"], ["zoom"], 0.5, 3.4, 4, 4.8, 8, 6.0],
         "line-blur": 1.2,
-        "line-opacity": ["case", HOVER_ON, 0.5, 0],
+        "line-opacity": ["case", whenHovered, 0.5, 0],
       },
     });
     map.addLayer({
@@ -362,10 +375,10 @@ import Base from "../layouts/Base.astro";
       filter: inScopeFilter,
       layout: { "line-cap": "round", "line-join": "round" },
       paint: {
-        "line-color": HL,
+        "line-color": HIGHLIGHT_GOLD,
         "line-width": ["interpolate", ["linear"], ["zoom"], 0.5, 1.8, 4, 2.8, 8, 3.6],
         "line-blur": 0.4,
-        "line-opacity": ["case", HOVER_ON, 1, 0],
+        "line-opacity": ["case", whenHovered, 1, 0],
       },
     });
   }
