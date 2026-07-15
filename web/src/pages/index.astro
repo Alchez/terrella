@@ -37,6 +37,35 @@ const borderSrcset = (country: Country) =>
 // Displayed at the card's rendered width: ~full width on phones, ~half on
 // tablets, ~a third on desktop — keeps the browser from over-fetching.
 const SIZES = "(max-width: 640px) 92vw, (max-width: 1024px) 46vw, 30vw";
+
+// --- Gazetteer index (the atlas's own find-by-name tool; pure links, works with
+// no JS, and the browser's native Cmd/Ctrl+F searches its text). The grid above
+// stays rendered-first; the index is always the full alphabetical listing.
+const alphabetical = [...data.countries].sort((first, second) =>
+  first.name.localeCompare(second.name),
+);
+
+// A gazetteer entry carries its coordinates: the centroid of the manifest bbox
+// [west, south, east, north], rounded to whole degrees with a hemisphere letter.
+const coordinates = (country: Country) => {
+  const [west, south, east, north] = country.bbox;
+  const latitude = (south + north) / 2;
+  const longitude = (west + east) / 2;
+  const northSouth = `${Math.round(Math.abs(latitude))}° ${latitude >= 0 ? "N" : "S"}`;
+  const eastWest = `${Math.round(Math.abs(longitude))}° ${longitude >= 0 ? "E" : "W"}`;
+  return `${northSouth}, ${eastWest}`;
+};
+
+// Bucket by first letter for the lettered sections + the A–Z jump rail. Insertion
+// order follows `alphabetical`, so the letter keys come out already sorted.
+const byLetter = new Map<string, Country[]>();
+for (const country of alphabetical) {
+  const letter = country.name[0].toUpperCase();
+  const bucket = byLetter.get(letter);
+  if (bucket) bucket.push(country);
+  else byLetter.set(letter, [country]);
+}
+const indexLetters = [...byLetter.keys()];
 ---
 
 <Base title="Terrella — Gallery" borders={true} quality={true}>
@@ -44,20 +73,12 @@ const SIZES = "(max-width: 640px) 92vw, (max-width: 1024px) 46vw, 30vw";
     <nav slot="actions" class="head-links">
       <a href="/globe/">Globe</a>
       <a href="/about/">About</a>
+      <a href="#index">Index</a>
     </nav>
     <p class="tagline">
       Ray-traced relief maps of every country.
-      <span class="count" id="count">{data.rendered} of {data.count} rendered</span>
+      <span class="count">{data.rendered} of {data.count} rendered</span>
     </p>
-    <input
-      slot="after"
-      class="search"
-      id="search"
-      type="search"
-      placeholder="Search countries…"
-      autocomplete="off"
-      aria-label="Search countries"
-    />
   </Masthead>
 
   <main class="gallery">
@@ -100,7 +121,38 @@ const SIZES = "(max-width: 640px) 92vw, (max-width: 1024px) 46vw, 30vw";
     }
   </main>
 
-  <p class="empty" id="empty" hidden>No countries match that search.</p>
+  <section class="gazetteer" id="index" role="dialog" aria-label="Country index">
+    <div class="gz-bar">
+      <div class="gz-head">
+        <p class="eyebrow">Index</p>
+        <a class="gz-close" href="#" aria-label="Close index">Close ×</a>
+      </div>
+      <nav class="az-rail" aria-label="Jump to letter">
+        {indexLetters.map((letter) => <a href={`#ix-${letter}`}>{letter}</a>)}
+      </nav>
+    </div>
+    <div class="index-groups">
+      {
+        indexLetters.map((letter) => (
+          <section class="letter-group" aria-labelledby={`ix-${letter}`}>
+            <h2 class="letter" id={`ix-${letter}`}>
+              {letter}
+            </h2>
+            <ul class="entries">
+              {byLetter.get(letter)!.map((country) => (
+                <li>
+                  <a href={`/${country.slug}/`}>
+                    <span class="entry-name">{country.name}</span>
+                    <span class="coord">{coordinates(country)}</span>
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ))
+      }
+    </div>
+  </section>
 </Base>
 
 <style>
@@ -114,22 +166,6 @@ const SIZES = "(max-width: 640px) 92vw, (max-width: 1024px) 46vw, 30vw";
     padding-left: 0.6rem;
     border-left: 1px solid var(--line);
     white-space: nowrap;
-  }
-  .search {
-    width: 100%;
-    max-width: 720px;
-    margin-top: clamp(1.4rem, 3vw, 2rem);
-    padding: 0.7rem 0.9rem;
-    font: inherit;
-    color: var(--text);
-    background: var(--bg-2);
-    border: 1px solid var(--line);
-    border-radius: 10px;
-    outline: none;
-  }
-  .search:focus {
-    border-color: var(--accent);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
   }
   .head-links {
     display: flex;
@@ -156,9 +192,6 @@ const SIZES = "(max-width: 640px) 92vw, (max-width: 1024px) 46vw, 30vw";
   .card {
     break-inside: avoid;
     margin-bottom: clamp(0.8rem, 1.5vw, 1.4rem);
-  }
-  .card[hidden] {
-    display: none;
   }
   .card-link {
     display: block;
@@ -227,10 +260,148 @@ const SIZES = "(max-width: 640px) 92vw, (max-width: 1024px) 46vw, 30vw";
     opacity: 0.7;
   }
 
-  .empty {
-    text-align: center;
+  /* The gazetteer — the atlas's alphabetical index, every country a link with its
+     centroid coordinates. It opens as a full-screen panel over the gallery (tap
+     "Index" in the header) so it's reachable from the top on any screen, rather than
+     buried below the grid. Pure CSS: :target opens it; :has(:target) keeps it open
+     while an A–Z letter anchor is active — so it works with no JavaScript, and the
+     browser's Cmd/Ctrl+F searches its text once open. */
+  .gazetteer {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    background: var(--bg);
+    visibility: hidden;
+    opacity: 0;
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .gazetteer {
+      transition: opacity 0.2s ease, visibility 0.2s ease;
+    }
+  }
+  /* Separate rulesets (not a selector list) so browsers without :has() still honour
+     the :target rule and can at least open the panel. */
+  .gazetteer:target {
+    visibility: visible;
+    opacity: 1;
+  }
+  .gazetteer:has(:target) {
+    visibility: visible;
+    opacity: 1;
+  }
+  .gz-bar {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    max-width: min(2200px, 94vw);
+    margin: 0 auto;
+    padding: clamp(1rem, 3vw, 1.6rem) clamp(1.1rem, 4vw, 2.5rem) 0.4rem;
+    background: color-mix(in srgb, var(--bg) 90%, transparent);
+    -webkit-backdrop-filter: blur(8px);
+    backdrop-filter: blur(8px);
+  }
+  .gz-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+  }
+  .gz-head .eyebrow {
+    margin: 0;
+  }
+  .gz-close {
+    flex: none;
+    font-family: var(--mono);
+    font-size: 0.74rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
     color: var(--muted);
-    padding: 2rem;
+    text-decoration: none;
+    padding: 0.4rem 0.1rem 0.4rem 0.6rem;
+  }
+  .gz-close:hover,
+  .gz-close:focus-visible {
+    color: var(--accent);
+  }
+  .az-rail {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.15rem 0.55rem;
+    padding: 0.5rem 0 0.15rem;
+    font-family: var(--mono);
+    font-size: 0.82rem;
+    letter-spacing: 0.06em;
+  }
+  .index-groups {
+    max-width: min(2200px, 94vw);
+    margin: 0 auto;
+    padding: clamp(1rem, 3vw, 1.6rem) clamp(1.1rem, 4vw, 2.5rem) 5rem;
+  }
+  .az-rail a {
+    color: var(--muted);
+    text-decoration: none;
+    padding: 0.1rem 0.15rem;
+  }
+  .az-rail a:hover,
+  .az-rail a:focus-visible {
+    color: var(--accent);
+  }
+  .letter-group {
+    margin-bottom: clamp(1.6rem, 3vw, 2.4rem);
+    /* clear the sticky bar (head + A–Z rail) when you jump to a letter */
+    scroll-margin-top: 6rem;
+  }
+  .letter {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: clamp(1.6rem, 3vw, 2.2rem);
+    line-height: 1;
+    color: var(--accent);
+    margin: 0 0 0.7rem;
+    padding-bottom: 0.4rem;
+    border-bottom: 1px solid var(--line);
+  }
+  .entries {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    columns: 260px;
+    column-gap: clamp(1.5rem, 3vw, 2.6rem);
+  }
+  .entries li {
+    break-inside: avoid;
+  }
+  .entries a {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.34rem 0;
+    text-decoration: none;
+    color: var(--text);
+    border-bottom: 1px dotted var(--line);
+  }
+  .entry-name {
+    font-size: 0.95rem;
+  }
+  .coord {
+    flex: none;
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.02em;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+  .entries a:hover .entry-name,
+  .entries a:focus-visible .entry-name {
+    color: var(--accent);
+  }
+  .entries a:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 3px;
   }
 
   @media (prefers-reduced-motion: no-preference) {
@@ -251,25 +422,4 @@ const SIZES = "(max-width: 640px) 92vw, (max-width: 1024px) 46vw, 30vw";
   if (!(gpu.webgl2 && !gpu.softwareGpu)) {
     document.querySelector<HTMLAnchorElement>('.head-links a[href="/globe/"]')?.remove();
   }
-
-  const search = document.getElementById("search") as HTMLInputElement | null;
-  const count = document.getElementById("count");
-  const empty = document.getElementById("empty");
-  const cards = Array.from(document.querySelectorAll<HTMLElement>(".card"));
-  const total = cards.length;
-  const baseLabel = count?.textContent ?? "";
-
-  function applyFilter() {
-    const query = (search?.value ?? "").trim().toLowerCase();
-    let shown = 0;
-    for (const card of cards) {
-      const match = !query || (card.dataset.name ?? "").includes(query);
-      card.hidden = !match;
-      if (match) shown++;
-    }
-    if (count) count.textContent = query ? `${shown} of ${total} shown` : baseLabel;
-    if (empty) empty.hidden = shown !== 0;
-  }
-
-  search?.addEventListener("input", applyFilter);
 </script>

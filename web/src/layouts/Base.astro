@@ -19,10 +19,16 @@ const {
 ---
 
 <!doctype html>
-<html lang="en">
+<html lang="en" class="no-js">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    {/* Progressive-enhancement hook: flip no-js → js before paint so CSS can hide
+        controls that only work with JavaScript (see .no-js rules in global.css).
+        No JS → the class stays `no-js` and those controls never show. */}
+    <script is:inline>
+      document.documentElement.classList.replace("no-js", "js");
+    </script>
     {/* Pre-paint tier guard: runs synchronously BEFORE the gallery paints, so a
         capable visitor is redirected to /globe with no flash of gallery, and an
         incapable/Lite visitor who deep-links /globe bounces straight back. This

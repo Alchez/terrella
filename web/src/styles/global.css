@@ -108,6 +108,11 @@ a {
   gap: 0.6rem;
   max-width: calc(100vw - 2.4rem);
 }
+/* The border / quality / spin controls are pure JS enhancements — a dead toggle is
+   worse than none, so hide the cluster when JavaScript is unavailable. */
+.no-js .fab-stack {
+  display: none;
+}
 
 /* Always-reachable labeled toggles (border overlay; globe auto-rotate). */
 .borders-fab,
