@@ -109,8 +109,9 @@ a {
   max-width: calc(100vw - 2.4rem);
 }
 
-/* Always-reachable border toggle (tall heroes scroll past a header control). */
-.borders-fab {
+/* Always-reachable labeled toggles (border overlay; globe auto-rotate). */
+.borders-fab,
+.spin-fab {
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
@@ -126,14 +127,16 @@ a {
   cursor: pointer;
   user-select: none;
 }
-.borders-fab input {
+.borders-fab input,
+.spin-fab input {
   accent-color: var(--accent);
   width: 1.05rem;
   height: 1.05rem;
   margin: 0;
 }
 @media (prefers-reduced-motion: no-preference) {
-  .borders-fab {
+  .borders-fab,
+  .spin-fab {
     transition: box-shadow 0.2s ease;
   }
 }

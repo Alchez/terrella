@@ -7,6 +7,7 @@ import Base from "../layouts/Base.astro";
   description="An interactive globe of ray-traced relief, every country."
   borders={true}
   quality={true}
+  spin={true}
 >
   <!-- Static space backdrop: a sparse starfield painted behind the transparent
        map, so it shows only in the space around the sphere (zoomed out). -->
@@ -563,7 +564,7 @@ import Base from "../layouts/Base.astro";
     const name = event.features?.[0]?.properties?.ADMIN;
     const country = name && byName.get(name);
     if (!country) return;
-    spinning = false; // a deliberate pick retires the idle spin
+    setSpinning(false); // a deliberate pick retires the idle spin
     flyToCountry(country);
     openPanel(country);
   });
@@ -584,13 +585,23 @@ import Base from "../layouts/Base.astro";
     addCountryHighlight(); // hover outline on top of everything, so the edge stays crisp
   });
 
-  // Gentle idle rotation — a "living globe". Off entirely under reduced-motion,
-  // and it retires the moment the visitor takes control. Pausing off the map's
-  // own gesture events (not our easeTo) replaces ad-hoc DOM listeners cleanly.
+  // Idle rotation — a "living globe" at low zoom. Any interaction retires the spin (the
+  // Spin checkbox unticks); the toggle restarts it. Above z3 the fixed 2°/s sweep is too
+  // fast to follow, so spin() is a no-op there. Kept deliberately simple: a single spin
+  // easeTo driven off `moveend`, and interactions only flip the flag — no easeTo is ever
+  // called re-entrantly from the map's own animation events.
   const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  // Full tier gets the idle spin; Globe tier (and reduced-motion) stays still.
-  let spinning = currentTier() === "full" && !reduceMotion;
   const DEGREES_PER_STEP = 2; // ~one 360° revolution every 3 minutes at 1s steps
+  let spinning = currentTier() === "full" && !reduceMotion;
+  const spinToggle = document.getElementById("spin-toggle") as HTMLInputElement | null;
+
+  // Single writer for `spinning` so the toggle checkbox always mirrors reality — user
+  // toggle, an interaction retiring it, a country pick, or the FPS watchdog.
+  function setSpinning(value: boolean) {
+    spinning = value;
+    if (spinToggle) spinToggle.checked = value;
+    if (value) spin(); // kick off now; spin() itself no-ops when zoomed in (>z3)
+  }
 
   function spin() {
     if (!spinning || map.getZoom() > 3) return;
@@ -598,10 +609,24 @@ import Base from "../layouts/Base.astro";
     center.lng -= DEGREES_PER_STEP;
     map.easeTo({ center, duration: 1000, easing: (progress) => progress });
   }
+
+  if (spinToggle) {
+    spinToggle.checked = spinning;
+    spinToggle.addEventListener("change", () => setSpinning(spinToggle.checked));
+  }
+
+  // On pointer-down we retire the spin AND map.stop() the in-flight easeTo — otherwise a
+  // pan starting mid-animation fights the running spin (the visible "break") and its
+  // release registers as a click, firing the country fly-to. setSpinning(false) first, so
+  // the moveend that map.stop() emits finds spinning=false and does NOT restart the ease.
+  function haltSpin() {
+    setSpinning(false);
+    map.stop();
+  }
+  map.on("mousedown", haltSpin);
+  map.on("touchstart", haltSpin);
   for (const gesture of ["dragstart", "rotatestart", "zoomstart", "pitchstart"]) {
-    map.on(gesture, () => {
-      spinning = false;
-    });
+    map.on(gesture, () => setSpinning(false));
   }
   map.on("moveend", spin);
   map.on("load", spin);
@@ -627,7 +652,7 @@ import Base from "../layouts/Base.astro";
         if (medianMs > 34) {
           // sustained below ~30 fps
           downgraded = true;
-          spinning = false;
+          setSpinning(false);
           console.info("[globe] low frame rate — idle animation disabled");
         }
       }

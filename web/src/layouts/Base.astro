@@ -7,12 +7,14 @@ interface Props {
   description?: string;
   borders?: boolean;
   quality?: boolean;
+  spin?: boolean;
 }
 const {
   title = "Terrella",
   description = "Ray-traced relief maps of every country.",
   borders = false,
   quality = false,
+  spin = false,
 } = Astro.props;
 ---
 
@@ -75,8 +77,20 @@ const {
   <body>
     <slot />
     {
-      (borders || quality) && (
+      (borders || quality || spin) && (
         <div class="fab-stack">
+          {spin && (
+            <label class="spin-fab" title="Toggle globe auto-rotate">
+              <input type="checkbox" id="spin-toggle" />
+              <span>Spin</span>
+            </label>
+          )}
+          {borders && (
+            <label class="borders-fab" title="Toggle country borders">
+              <input type="checkbox" id="border-toggle" />
+              <span>Borders</span>
+            </label>
+          )}
           {quality && (
             <div class="quality-fab" role="radiogroup" aria-label="Experience quality">
               <button type="button" data-quality="lite" aria-pressed="false">
@@ -89,12 +103,6 @@ const {
                 Full
               </button>
             </div>
-          )}
-          {borders && (
-            <label class="borders-fab" title="Toggle country borders">
-              <input type="checkbox" id="border-toggle" />
-              <span>Borders</span>
-            </label>
           )}
         </div>
       )
