@@ -204,7 +204,7 @@ import Base from "../layouts/Base.astro";
   // design: no twinkle, so it's inherently calm and reduced-motion-safe. Only
   // visible in the space around the globe when zoomed out — the sphere covers it
   // otherwise, so no zoom-conditional logic is needed.
-  const starCanvas = /** @type {HTMLCanvasElement} */ (document.getElementById("starfield"));
+  const starCanvas = document.getElementById("starfield") as HTMLCanvasElement;
   const drawingContext = starCanvas.getContext("2d");
   const SPACE_COLOR = "#0e1519";
   const STAR_TINT = "230, 235, 240"; // pale, faintly cool white
@@ -249,9 +249,18 @@ import Base from "../layouts/Base.astro";
 
 <script>
   import maplibregl from "maplibre-gl";
+  import type {
+    ExpressionSpecification,
+    FilterSpecification,
+    LineLayerSpecification,
+  } from "maplibre-gl";
   import "maplibre-gl/dist/maplibre-gl.css";
   import manifest from "../data/countries.json";
   import { currentTier } from "../lib/capability";
+
+  // One rendered country as carried in the manifest — the shape of the objects the
+  // click/hover/panel handlers pass around.
+  type Country = (typeof manifest.countries)[number];
 
   // Data credits (MapLibre requires attribution; matches the About page colophon).
   const CREDITS =
@@ -299,7 +308,7 @@ import Base from "../layouts/Base.astro";
   // (2) MapLibre mounts it EXPANDED (it adds `maplibregl-compact-show` a tick later, so
   // a synchronous strip is a no-op); we watch for that class, collapse to the ⓘ once,
   // then disconnect so the ⓘ tap-to-toggle keeps working.
-  const attributionEl = document.querySelector(".maplibregl-ctrl-attrib");
+  const attributionEl = document.querySelector<HTMLElement>(".maplibregl-ctrl-attrib");
   if (attributionEl && window.matchMedia("(max-width: 640px)").matches) {
     document.body.appendChild(attributionEl);
     Object.assign(attributionEl.style, {
@@ -345,14 +354,14 @@ import Base from "../layouts/Base.astro";
   // the same localStorage key the gallery's border toggle uses.
   const BORDER_KEY = "rg:borders";
   const INTL = "International boundary (verify)";
-  const isSolid = ["==", ["get", "FEATURECLA"], INTL];
-  const isDashed = ["!=", ["get", "FEATURECLA"], INTL];
-  const inkWidth = ["interpolate", ["linear"], ["zoom"], 1, 0.6, 4, 1.0, 8, 1.7];
+  const isSolid: FilterSpecification = ["==", ["get", "FEATURECLA"], INTL];
+  const isDashed: FilterSpecification = ["!=", ["get", "FEATURECLA"], INTL];
+  const inkWidth: ExpressionSpecification = ["interpolate", ["linear"], ["zoom"], 1, 0.6, 4, 1.0, 8, 1.7];
   // Casing is a real dark halo (wider than the ink, so a dark rim always shows on
   // both sides), softened with a touch of blur — this is what keeps the white line
   // legible over pale highlands and snow, where white-on-white has no contrast.
-  const casingWidth = ["interpolate", ["linear"], ["zoom"], 1, 2.2, 4, 3.4, 8, 5.0];
-  const casingBlur = ["interpolate", ["linear"], ["zoom"], 1, 0.5, 8, 1.2];
+  const casingWidth: ExpressionSpecification = ["interpolate", ["linear"], ["zoom"], 1, 2.2, 4, 3.4, 8, 5.0];
+  const casingBlur: ExpressionSpecification = ["interpolate", ["linear"], ["zoom"], 1, 0.5, 8, 1.2];
   const BORDER_LAYERS = ["b-casing-solid", "b-casing-dashed", "b-ink-solid", "b-ink-dashed"];
   const bordersOn = () => localStorage.getItem(BORDER_KEY) === "1";
 
@@ -370,7 +379,7 @@ import Base from "../layouts/Base.astro";
       buffer: 256,
       attribution: "Natural Earth",
     });
-    const layout = {
+    const layout: LineLayerSpecification["layout"] = {
       visibility: bordersOn() ? "visible" : "none",
       "line-cap": "round",
       "line-join": "round",
@@ -388,7 +397,7 @@ import Base from "../layouts/Base.astro";
       layout: { ...layout }, paint: { ...ink, "line-width": inkWidth, "line-dasharray": [2.2, 1.6] } });
   }
 
-  function setBordersVisible(on) {
+  function setBordersVisible(on: boolean) {
     for (const id of BORDER_LAYERS) {
       if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", on ? "visible" : "none");
     }
@@ -396,9 +405,7 @@ import Base from "../layouts/Base.astro";
 
   // The shared floating toggle lives in the Base layout (borders={true}); its
   // localStorage + body-class handling is Base's, we only drive the map layers.
-  const borderToggle = /** @type {HTMLInputElement | null} */ (
-    document.getElementById("border-toggle")
-  );
+  const borderToggle = document.getElementById("border-toggle") as HTMLInputElement | null;
   borderToggle?.addEventListener("change", () => setBordersVisible(borderToggle.checked));
 
   // --- Click a country -> fly to it -> show its hero -------------------------
@@ -412,18 +419,18 @@ import Base from "../layouts/Base.astro";
   const byName = new Map(manifest.countries.map((c) => [c.name, c]));
   const inScope = manifest.countries.map((c) => c.name);
   // Only in-scope (rendered) countries are interactive; reused by every country layer.
-  const inScopeFilter = ["in", ["get", "ADMIN"], ["literal", inScope]];
+  const inScopeFilter: FilterSpecification = ["in", ["get", "ADMIN"], ["literal", inScope]];
   // Hover highlight: warm gold reads on all three grounds (teal sea, warm sand, white
   // snow) where the teal accent would vanish along coasts; a dark casing carries it
   // over snow, and the hue marks it as an interactive pick, distinct from white borders.
   const HIGHLIGHT_GOLD = "#eca834";
   const HIGHLIGHT_CASING = "#1c140c";
-  const whenHovered = ["boolean", ["feature-state", "hover"], false];
+  const whenHovered: ExpressionSpecification = ["boolean", ["feature-state", "hover"], false];
 
   /** srcset w-descriptor is the real pixel WIDTH, not the long edge (portrait
    * variants are narrower than their key) — mirrors the gallery detail page. */
-  const variantWidth = (longEdge, aspect) => Math.round(longEdge * Math.min(1, aspect));
-  const srcsetFor = (slug, sizes, aspect, border = false) =>
+  const variantWidth = (longEdge: number, aspect: number) => Math.round(longEdge * Math.min(1, aspect));
+  const srcsetFor = (slug: string, sizes: number[], aspect: number, border = false) =>
     sizes
       .map((size) => {
         const suffix = border ? `-border-${size}.png` : `-${size}.webp`;
@@ -484,7 +491,7 @@ import Base from "../layouts/Base.astro";
   }
 
   // Hover: pointer + faint tint, only over the (filtered) in-scope fill.
-  let hovered = null;
+  let hovered: string | number | null = null;
   const clearHover = () => {
     if (hovered !== null) map.setFeatureState({ source: "countries", id: hovered }, { hover: false });
     hovered = null;
@@ -503,15 +510,15 @@ import Base from "../layouts/Base.astro";
   });
 
   // --- The detail card --------------------------------------------------------
-  const panel = /** @type {HTMLElement} */ (document.getElementById("hero-panel"));
-  const heroImg = /** @type {HTMLImageElement} */ (panel.querySelector(".hp-hero"));
-  const borderImg = /** @type {HTMLImageElement} */ (panel.querySelector(".hp-border"));
-  const figure = /** @type {HTMLElement} */ (panel.querySelector(".hp-figure"));
+  const panel = document.getElementById("hero-panel") as HTMLElement;
+  const heroImg = panel.querySelector(".hp-hero") as HTMLImageElement;
+  const borderImg = panel.querySelector(".hp-border") as HTMLImageElement;
+  const figure = panel.querySelector(".hp-figure") as HTMLElement;
 
-  function openPanel(country) {
-    panel.querySelector(".hp-eyebrow").textContent = country.continent || "";
-    panel.querySelector(".hp-name").textContent = country.name;
-    panel.querySelector(".hp-link").setAttribute("href", `/${country.slug}/`);
+  function openPanel(country: Country) {
+    panel.querySelector(".hp-eyebrow")!.textContent = country.continent || "";
+    panel.querySelector(".hp-name")!.textContent = country.name;
+    panel.querySelector(".hp-link")!.setAttribute("href", `/${country.slug}/`);
     figure.style.aspectRatio = String(country.aspect);
     // Card is ~420px wide; ask for a sensibly-sized variant (DPR handled by srcset).
     const sizesAttr = "(max-width: 460px) 92vw, 420px";
@@ -543,7 +550,7 @@ import Base from "../layouts/Base.astro";
     if (event.key === "Escape" && !panel.hidden) closePanel();
   });
 
-  function flyToCountry(country) {
+  function flyToCountry(country: Country) {
     const [west, south, east, north] = country.bbox;
     // Pad the side the card occupies so the country frames in the clear area.
     const wide = window.innerWidth > 640;
@@ -592,6 +599,7 @@ import Base from "../layouts/Base.astro";
   // called re-entrantly from the map's own animation events.
   const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const DEGREES_PER_STEP = 2; // ~one 360° revolution every 3 minutes at 1s steps
+  const SPIN_MAX_ZOOM = 3; // above this the fixed sweep is too fast to follow — spin is an overview affordance
   let spinning = currentTier() === "full" && !reduceMotion;
   const spinToggle = document.getElementById("spin-toggle") as HTMLInputElement | null;
 
@@ -600,11 +608,11 @@ import Base from "../layouts/Base.astro";
   function setSpinning(value: boolean) {
     spinning = value;
     if (spinToggle) spinToggle.checked = value;
-    if (value) spin(); // kick off now; spin() itself no-ops when zoomed in (>z3)
+    if (value) spin(); // kick off now; spin() itself no-ops above SPIN_MAX_ZOOM
   }
 
   function spin() {
-    if (!spinning || map.getZoom() > 3) return;
+    if (!spinning || map.getZoom() > SPIN_MAX_ZOOM) return;
     const center = map.getCenter();
     center.lng -= DEGREES_PER_STEP;
     map.easeTo({ center, duration: 1000, easing: (progress) => progress });
@@ -614,6 +622,20 @@ import Base from "../layouts/Base.astro";
     spinToggle.checked = spinning;
     spinToggle.addEventListener("change", () => setSpinning(spinToggle.checked));
   }
+
+  // Spin is an overview affordance: above SPIN_MAX_ZOOM the fixed sweep is too fast to
+  // follow, so the control would silently do nothing there. Reflect that in the UI —
+  // grey + disable the toggle when zoomed in, re-enable on zoom-out (a tap restarts it).
+  function syncSpinAvailability() {
+    const available = map.getZoom() <= SPIN_MAX_ZOOM;
+    if (spinToggle) spinToggle.disabled = !available;
+    const fab = spinToggle?.closest(".spin-fab");
+    fab?.classList.toggle("is-unavailable", !available);
+    if (fab instanceof HTMLElement) {
+      fab.title = available ? "Toggle globe auto-rotate" : "Zoom out to spin";
+    }
+  }
+  syncSpinAvailability();
 
   // On pointer-down we retire the spin AND map.stop() the in-flight easeTo — otherwise a
   // pan starting mid-animation fights the running spin (the visible "break") and its
@@ -629,7 +651,9 @@ import Base from "../layouts/Base.astro";
     map.on(gesture, () => setSpinning(false));
   }
   map.on("moveend", spin);
+  map.on("zoomend", syncSpinAvailability);
   map.on("load", spin);
+  map.on("load", syncSpinAvailability);
 
   // --- Runtime FPS watchdog ---------------------------------------------------
   // If the frame rate stays low WHILE the globe is actually doing work (spinning

@@ -134,6 +134,15 @@ a {
   height: 1.05rem;
   margin: 0;
 }
+/* Spin is unavailable above the overview zoom (see SPIN_MAX_ZOOM): grey it out and
+   signal it's not interactive, rather than letting the toggle silently do nothing. */
+.spin-fab.is-unavailable {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.spin-fab input:disabled {
+  cursor: not-allowed;
+}
 @media (prefers-reduced-motion: no-preference) {
   .borders-fab,
   .spin-fab {

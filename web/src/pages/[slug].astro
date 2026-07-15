@@ -183,9 +183,9 @@ const nativeBorder = country.hasBorder
   // the page stays light on load. The relief and its border overlay pan/zoom together.
   const heroFigure = document.querySelector(".hero-zoom");
   if (heroFigure instanceof HTMLElement) {
-    const heroLayer = /** @type {HTMLElement} */ (heroFigure.querySelector(".zoom-hero"));
-    const borderLayer = /** @type {HTMLElement | null} */ (heroFigure.querySelector(".zoom-border"));
-    const resetButton = /** @type {HTMLButtonElement} */ (heroFigure.querySelector(".zoom-reset"));
+    const heroLayer = heroFigure.querySelector(".zoom-hero") as HTMLElement;
+    const borderLayer = heroFigure.querySelector(".zoom-border") as HTMLElement | null;
+    const resetButton = heroFigure.querySelector(".zoom-reset") as HTMLButtonElement;
     const nativeHeroUrl = heroFigure.dataset.nativeHero;
     const nativeBorderUrl = heroFigure.dataset.nativeBorder;
 
@@ -224,7 +224,7 @@ const nativeBorder = country.hasBorder
     // Swap a layer's background only once the new image is decoded — swapping to a
     // not-yet-loaded URL flashes the (dark) figure background through the transparent
     // gap. The display variant stays visible until the native one is ready.
-    const swapWhenReady = (layer, url) => {
+    const swapWhenReady = (layer: HTMLElement, url: string) => {
       const preload = new Image();
       preload.src = url;
       preload
@@ -244,7 +244,7 @@ const nativeBorder = country.hasBorder
     };
 
     // Zoom by `factor`, keeping the point under the cursor fixed on screen.
-    const zoomAtPoint = (pointerX, pointerY, factor) => {
+    const zoomAtPoint = (pointerX: number, pointerY: number, factor: number) => {
       const nextScale = Math.min(MAX_SCALE, Math.max(1, scale * factor));
       if (nextScale === scale) return;
       offsetX = pointerX - (pointerX - offsetX) * (nextScale / scale);
@@ -261,7 +261,7 @@ const nativeBorder = country.hasBorder
       render();
     };
 
-    const pointerToLocal = (event) => {
+    const pointerToLocal = (event: MouseEvent) => {
       const bounds = heroFigure.getBoundingClientRect();
       return [event.clientX - bounds.left, event.clientY - bounds.top];
     };
@@ -312,7 +312,7 @@ const nativeBorder = country.hasBorder
         render();
       }
     });
-    const releasePointer = (event) => {
+    const releasePointer = (event: PointerEvent) => {
       activePointers.delete(event.pointerId);
       if (activePointers.size < 2) lastPinchDistance = 0;
       if (activePointers.size === 0) heroFigure.classList.remove("panning");
