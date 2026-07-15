@@ -39,7 +39,7 @@ const borderSrcset = (country: Country) =>
 const SIZES = "(max-width: 640px) 92vw, (max-width: 1024px) 46vw, 30vw";
 ---
 
-<Base title="Terrella — Gallery" borders={true}>
+<Base title="Terrella — Gallery" borders={true} quality={true}>
   <Masthead eyebrow="Atlas" heading="Terrella" maxWidth="min(2200px, 94vw)">
     <nav slot="actions" class="head-links">
       <a href="/globe/">Globe</a>
@@ -244,6 +244,14 @@ const SIZES = "(max-width: 640px) 92vw, (max-width: 1024px) 46vw, 30vw";
 </style>
 
 <script>
+  import { probeSignals } from "../lib/capability";
+  // Hide the "Globe" masthead link on devices that can't run it — the /globe head
+  // guard would only bounce them straight back, so don't offer the dead end.
+  const gpu = probeSignals();
+  if (!(gpu.webgl2 && !gpu.softwareGpu)) {
+    document.querySelector<HTMLAnchorElement>('.head-links a[href="/globe/"]')?.remove();
+  }
+
   const search = document.getElementById("search") as HTMLInputElement | null;
   const count = document.getElementById("count");
   const empty = document.getElementById("empty");

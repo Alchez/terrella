@@ -6,6 +6,7 @@ import Base from "../layouts/Base.astro";
   title="Terrella — Globe"
   description="An interactive globe of ray-traced relief, every country."
   borders={true}
+  quality={true}
 >
   <!-- Static space backdrop: a sparse starfield painted behind the transparent
        map, so it shows only in the space around the sphere (zoomed out). -->
@@ -249,6 +250,7 @@ import Base from "../layouts/Base.astro";
   import maplibregl from "maplibre-gl";
   import "maplibre-gl/dist/maplibre-gl.css";
   import manifest from "../data/countries.json";
+  import { currentTier } from "../lib/capability";
 
   // Data credits (MapLibre requires attribution; matches the About page colophon).
   const CREDITS =
@@ -289,6 +291,37 @@ import Base from "../layouts/Base.astro";
   map.addControl(new maplibregl.GlobeControl(), "top-right"); // globe⇄flat toggle
   map.addControl(new maplibregl.ScaleControl({ maxWidth: 120, unit: "metric" }), "bottom-left");
   map.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-left");
+  // Attribution on small screens: (1) it must FLOAT ABOVE the bottom-right controls
+  // when expanded, but it's trapped inside #globe's stacking context (position:fixed,
+  // z-index:1) — no z-index on the element can escape that — so we re-parent it to the
+  // body and position it just above the scale bar, where a high z-index actually wins.
+  // (2) MapLibre mounts it EXPANDED (it adds `maplibregl-compact-show` a tick later, so
+  // a synchronous strip is a no-op); we watch for that class, collapse to the ⓘ once,
+  // then disconnect so the ⓘ tap-to-toggle keeps working.
+  const attributionEl = document.querySelector(".maplibregl-ctrl-attrib");
+  if (attributionEl && window.matchMedia("(max-width: 640px)").matches) {
+    document.body.appendChild(attributionEl);
+    Object.assign(attributionEl.style, {
+      position: "fixed",
+      left: "10px",
+      bottom: "2.4rem",
+      margin: "0",
+      zIndex: "30", // above .fab-stack (z-index: 20)
+    });
+    const collapseOnce = () => attributionEl.classList.remove("maplibregl-compact-show");
+    if (attributionEl.classList.contains("maplibregl-compact-show")) {
+      collapseOnce();
+    } else {
+      const observer = new MutationObserver(() => {
+        if (attributionEl.classList.contains("maplibregl-compact-show")) {
+          collapseOnce();
+          observer.disconnect();
+        }
+      });
+      observer.observe(attributionEl, { attributes: true, attributeFilter: ["class"] });
+      setTimeout(() => observer.disconnect(), 5000); // safety: never leave it dangling
+    }
+  }
 
   // Tiles still in flight when you navigate away (e.g. clicking through to a hero)
   // abort with a network error — expected teardown, not a real failure. Silence those
@@ -326,8 +359,14 @@ import Base from "../layouts/Base.astro";
     map.addSource("borders", {
       type: "geojson",
       data: location.origin + "/borders/boundary_lines.geojson",
-      maxzoom: 8, // matches the raster pyramid ceiling
-      tolerance: 1.2, // thin dense NE geometry at low zoom
+      // Vector border detail is INDEPENDENT of the raster z8 ceiling. maxzoom:8
+      // stores the geometry undecimated at our top zoom; the earlier tolerance:1.2
+      // (3x the 0.375 default) over-simplified it, which the globe magnifies into a
+      // staircase. Back to the crisp default, with a wide buffer so lines don't drop
+      // out at tile seams when zoomed — that was the "intermittent" breakage.
+      maxzoom: 8,
+      tolerance: 0.375,
+      buffer: 256,
       attribution: "Natural Earth",
     });
     const layout = {
@@ -549,7 +588,8 @@ import Base from "../layouts/Base.astro";
   // and it retires the moment the visitor takes control. Pausing off the map's
   // own gesture events (not our easeTo) replaces ad-hoc DOM listeners cleanly.
   const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  let spinning = !reduceMotion;
+  // Full tier gets the idle spin; Globe tier (and reduced-motion) stays still.
+  let spinning = currentTier() === "full" && !reduceMotion;
   const DEGREES_PER_STEP = 2; // ~one 360° revolution every 3 minutes at 1s steps
 
   function spin() {
@@ -565,4 +605,36 @@ import Base from "../layouts/Base.astro";
   }
   map.on("moveend", spin);
   map.on("load", spin);
+
+  // --- Runtime FPS watchdog ---------------------------------------------------
+  // If the frame rate stays low WHILE the globe is actually doing work (spinning
+  // or being dragged), retire the idle animation — the one continuous cost — so a
+  // weak GPU still gets a smooth, static globe. Frames are counted only while the
+  // map is moving: an idle on-demand render sitting at 0 fps is not "slow", just
+  // still. This is the architecture's runtime-degradation, kept to one cheap lever.
+  let frameDurations: number[] = [];
+  let lastFrame = performance.now();
+  let downgraded = false;
+  function watchFps(now: number) {
+    const delta = now - lastFrame;
+    lastFrame = now;
+    if (spinning || map.isMoving()) {
+      frameDurations.push(delta);
+      if (frameDurations.length > 90) frameDurations.shift();
+      if (!downgraded && frameDurations.length >= 45) {
+        const sorted = [...frameDurations].sort((a, b) => a - b);
+        const medianMs = sorted[sorted.length >> 1];
+        if (medianMs > 34) {
+          // sustained below ~30 fps
+          downgraded = true;
+          spinning = false;
+          console.info("[globe] low frame rate — idle animation disabled");
+        }
+      }
+    } else {
+      frameDurations.length = 0; // reset when idle so stale frames don't accumulate
+    }
+    requestAnimationFrame(watchFps);
+  }
+  requestAnimationFrame(watchFps);
 </script>

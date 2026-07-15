@@ -93,13 +93,24 @@ a {
   color: var(--muted);
 }
 
-/* Floating, always-reachable border toggle (tall heroes scroll past a header
-   control). Shown only when the page passes borders={true}. */
-.borders-fab {
+/* Floating control cluster, bottom-right: the quality selector stacked above the
+   border toggle so they never collide on narrow screens (the globe's own scale +
+   attribution live bottom-left, clear of this). Shown when a page passes either
+   borders={true} or quality={true}. */
+.fab-stack {
   position: fixed;
   bottom: 1.2rem;
   right: 1.2rem;
   z-index: 20;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.6rem;
+  max-width: calc(100vw - 2.4rem);
+}
+
+/* Always-reachable border toggle (tall heroes scroll past a header control). */
+.borders-fab {
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
@@ -125,4 +136,34 @@ a {
   .borders-fab {
     transition: box-shadow 0.2s ease;
   }
+}
+
+/* Quality control (Lite / Globe / Full) — a segmented pill living in .fab-stack. */
+.quality-fab {
+  display: inline-flex;
+  gap: 0.2rem;
+  padding: 0.25rem;
+  background: color-mix(in srgb, var(--bg-2) 92%, transparent);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  box-shadow: var(--shadow);
+}
+.quality-fab button {
+  padding: 0.4rem 0.85rem;
+  font: inherit;
+  font-size: 0.82rem;
+  color: var(--muted);
+  background: transparent;
+  border: 0;
+  border-radius: 999px;
+  cursor: pointer;
+}
+.quality-fab button:hover {
+  color: var(--text);
+}
+.quality-fab button.is-active {
+  color: var(--bg);
+  background: var(--accent);
 }
