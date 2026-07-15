@@ -253,7 +253,9 @@ import Base from "../layouts/Base.astro";
     ExpressionSpecification,
     FilterSpecification,
     LineLayerSpecification,
+    Point,
   } from "maplibre-gl";
+  import type { Feature, FeatureCollection } from "geojson";
   import "maplibre-gl/dist/maplibre-gl.css";
   import manifest from "../data/countries.json";
   import { currentTier } from "../lib/capability";
@@ -438,10 +440,49 @@ import Base from "../layouts/Base.astro";
       })
       .join(", ");
 
-  function addCountries() {
+  // One invisible hit-point per polygon PART (its bbox centre), for every in-scope
+  // country. Scattered archipelagos (Maldives is 176 sub-pixel atolls) can't be
+  // pointed at via their real geometry at any zoom, so these fat circle targets stand
+  // in — each resolves back to its country's ADMIN, which drives the same whole-country
+  // highlight as hitting a large landmass directly.
+  function hitPointsFrom(countries: FeatureCollection): FeatureCollection {
+    const features: Feature[] = [];
+    for (const feature of countries.features) {
+      const admin = feature.properties?.ADMIN;
+      if (typeof admin !== "string" || !byName.has(admin)) continue;
+      const geometry = feature.geometry;
+      const parts =
+        geometry.type === "MultiPolygon"
+          ? geometry.coordinates
+          : geometry.type === "Polygon"
+            ? [geometry.coordinates]
+            : [];
+      for (const polygon of parts) {
+        const outerRing = polygon[0];
+        let minLon = Infinity;
+        let minLat = Infinity;
+        let maxLon = -Infinity;
+        let maxLat = -Infinity;
+        for (const [lon, lat] of outerRing) {
+          if (lon < minLon) minLon = lon;
+          if (lon > maxLon) maxLon = lon;
+          if (lat < minLat) minLat = lat;
+          if (lat > maxLat) maxLat = lat;
+        }
+        features.push({
+          type: "Feature",
+          properties: { ADMIN: admin },
+          geometry: { type: "Point", coordinates: [(minLon + maxLon) / 2, (minLat + maxLat) / 2] },
+        });
+      }
+    }
+    return { type: "FeatureCollection", features };
+  }
+
+  function addCountries(countries: FeatureCollection) {
     map.addSource("countries", {
       type: "geojson",
-      data: location.origin + "/borders/countries.geojson",
+      data: countries, // parsed inline — shared with the hit markers, so a single fetch
       promoteId: "ADMIN", // feature id = ADMIN string, for feature-state hover
       attribution: "Natural Earth",
     });
@@ -454,6 +495,20 @@ import Base from "../layouts/Base.astro";
       paint: {
         "fill-color": HIGHLIGHT_GOLD,
         "fill-opacity": ["case", whenHovered, 0.16, 0],
+      },
+    });
+    // Fat, invisible per-island targets. The circle's own radius IS the hit tolerance
+    // (~12px at overview, wider zoomed in), so pointing anywhere near an atoll picks the
+    // country. Kept above the fill only for query order — it's transparent, never seen.
+    map.addSource("country-hits", { type: "geojson", data: hitPointsFrom(countries) });
+    map.addLayer({
+      id: "country-hit",
+      type: "circle",
+      source: "country-hits",
+      paint: {
+        "circle-radius": ["interpolate", ["linear"], ["zoom"], 0.5, 12, 4, 14, 8, 16],
+        "circle-opacity": 0,
+        "circle-stroke-width": 0,
       },
     });
   }
@@ -490,23 +545,52 @@ import Base from "../layouts/Base.astro";
     });
   }
 
-  // Hover: pointer + faint tint, only over the (filtered) in-scope fill.
-  let hovered: string | number | null = null;
-  const clearHover = () => {
+  // Resolve which country the pointer is picking. Precise polygon fill first (so a
+  // large landmass is pickable anywhere you touch it), then fall back to the fat
+  // per-island hit circles for scattered/tiny geometry. Both carry ADMIN; the nearest
+  // circle wins the fallback. Guarded so it's a no-op before the layers load.
+  function countryAt(point: Point): string | null {
+    if (map.getLayer("country-fill")) {
+      const onLand = map.queryRenderedFeatures(point, { layers: ["country-fill"] });
+      const admin = onLand[0]?.properties?.ADMIN;
+      if (typeof admin === "string") return admin;
+    }
+    if (!map.getLayer("country-hit")) return null;
+    const nearby = map.queryRenderedFeatures(point, { layers: ["country-hit"] });
+    let best: string | null = null;
+    let bestDistance = Infinity;
+    for (const feature of nearby) {
+      const admin = feature.properties?.ADMIN;
+      if (typeof admin !== "string" || feature.geometry.type !== "Point") continue;
+      const [lon, lat] = feature.geometry.coordinates;
+      const projected = map.project([lon, lat]);
+      const distance = (projected.x - point.x) ** 2 + (projected.y - point.y) ** 2;
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        best = admin;
+      }
+    }
+    return best;
+  }
+
+  // Hover highlight, keyed on the whole country (ADMIN) so every part lights together —
+  // pointing at one Maldives atoll outlines all of Maldives, exactly as hovering Java
+  // outlines all of Indonesia.
+  let hovered: string | null = null;
+  function setHover(admin: string | null) {
+    if (admin === hovered) return;
     if (hovered !== null) map.setFeatureState({ source: "countries", id: hovered }, { hover: false });
-    hovered = null;
-  };
-  map.on("mousemove", "country-fill", (event) => {
-    map.getCanvas().style.cursor = "pointer";
-    const id = event.features?.[0]?.id;
-    if (id == null || id === hovered) return;
-    clearHover();
-    hovered = id;
-    map.setFeatureState({ source: "countries", id }, { hover: true });
+    hovered = admin;
+    if (hovered !== null) map.setFeatureState({ source: "countries", id: hovered }, { hover: true });
+  }
+  map.on("mousemove", (event) => {
+    const admin = countryAt(event.point);
+    map.getCanvas().style.cursor = admin ? "pointer" : "";
+    setHover(admin);
   });
-  map.on("mouseleave", "country-fill", () => {
+  map.on("mouseout", () => {
     map.getCanvas().style.cursor = "";
-    clearHover();
+    setHover(null);
   });
 
   // --- The detail card --------------------------------------------------------
@@ -567,16 +651,16 @@ import Base from "../layouts/Base.astro";
     );
   }
 
-  map.on("click", "country-fill", (event) => {
-    const name = event.features?.[0]?.properties?.ADMIN;
-    const country = name && byName.get(name);
+  map.on("click", (event) => {
+    const admin = countryAt(event.point);
+    const country = admin ? byName.get(admin) : undefined;
     if (!country) return;
     setSpinning(false); // a deliberate pick retires the idle spin
     flyToCountry(country);
     openPanel(country);
   });
 
-  map.on("style.load", () => {
+  map.on("style.load", async () => {
     // A soft atmosphere so the sphere reads against the deep-sea background.
     map.setSky({
       "sky-color": "#8fb8d6",
@@ -587,7 +671,12 @@ import Base from "../layouts/Base.astro";
       "fog-ground-blend": 0.1,
       "atmosphere-blend": 0.7,
     });
-    addCountries(); // fill/hit layer under the borders, so border lines stay on top
+    // Fetch the polygons ourselves so the parsed geometry can seed both the hit-test
+    // source and the per-island markers from one download (see addCountries).
+    const countries = (await fetch(location.origin + "/borders/countries.geojson").then(
+      (response) => response.json(),
+    )) as FeatureCollection;
+    addCountries(countries); // fill/hit layers under the borders, so border lines stay on top
     addBorders();
     addCountryHighlight(); // hover outline on top of everything, so the edge stays crisp
   });
