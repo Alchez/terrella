@@ -1,0 +1,74 @@
+#!/usr/bin/env python3
+"""Tile lake-depth layer: GLOBathy modelled depth -> a per-pixel depth field in metres.
+
+Sits beside snow.py by design. Lake depth is a TINT-ONLY rendering input, never terrain: at
+the locked 15x exaggeration a carved lake bed makes Namtso a 1.5 km crater and kills the flat
+plate that catches the surrounding mountains' shadows (2026-07-07). So, exactly like snow, it
+is warped onto the render grid at composite time and never enters the fusion master -- which
+is also why a future finer re-fuse would not have to redo any of this.
+
+Epistemics, because they are unusually load-bearing here (measured 2026-07-15):
+  * The SHAPE is synthetic for every one of GLOBathy's 1,427,688 lakes -- D = l x Dmax / L, a
+    cone off a shore-distance transform. No lake bed is ever observed. On the Caspian, the one
+    lake with both a survey and trustworthy GEBCO soundings, it correlates just 0.53.
+  * The SCALE is a real survey for only ~0.8% of the lakes we render (though 14 of the 15
+    deepest), and a random-forest estimate for the rest.
+Uniform modelled treatment is the deliberate choice: restricting to surveyed lakes was tested
+and rejected because 84.7% of them are in the USA, which would render survey funding as
+geology, with the discontinuity falling on the US/Canada border.
+
+The DEM's own water mask defines the shoreline, never GLOBathy's: callers must zero this
+field off watermask class 2, which both keeps rivers flat (river depth was rejected outright
+-- no global bed data exists) and makes GLOBathy's HydroLAKES-registered polygons degrade
+gracefully to today's flat tint wherever they disagree with the WBM.
+"""
+
+import subprocess
+from pathlib import Path
+
+import numpy as np
+import rasterio
+
+DATA = Path.home() / "projects/maps/data"
+LAKE_VRT = DATA / "work/globathy/lakedepth.vrt"
+GLOBATHY_NODATA = -9999.0
+
+
+def _run(cmd):
+    subprocess.run([str(part) for part in cmd], check=True, capture_output=True)
+
+
+def warp_depth(bounds, width, height, out_path, vrt=LAKE_VRT):
+    """Warp GLOBathy onto a Web-Mercator grid; return depth in metres, 0 where there is none.
+
+    bounds = (left, bottom, right, top) in EPSG:3857. Bilinear, not nearest: depth is a
+    continuous field, unlike the class codes beside it (a 2 next to a 0 is not a 1, but 40 m
+    next to 0 m really is 20 m). `-srcnodata` keeps the -9999 fill out of the resampling
+    kernel so it cannot bleed a false trench across a shoreline.
+
+    Returns None when the VRT has not been built, so shading still runs flat-water-only --
+    the same contract as snow.rasterize_glaciers when RGI is missing.
+    """
+    if not vrt.exists():
+        return None
+    left, bottom, right, top = bounds
+    _run(["gdalwarp", "-overwrite", "-q", "-s_srs", "EPSG:4326", "-t_srs", "EPSG:3857",
+          "-srcnodata", str(GLOBATHY_NODATA), "-dstnodata", "0",
+          "-te", repr(left), repr(bottom), repr(right), repr(top),
+          "-ts", str(width), str(height), "-r", "bilinear", "-ot", "Float32",
+          str(vrt), str(out_path)])
+    with rasterio.open(out_path) as dataset:
+        depth = dataset.read(1).astype("float32")
+    return np.where(np.isfinite(depth) & (depth > 0.0), depth, 0.0).astype("float32")
+
+
+def lakes_only(depth, watercode):
+    """Zero the depth field off watermask class 2 (inland lake).
+
+    Class 3 (river) stays flat by decision, and class 1 (ocean) must never be touched -- the
+    Caspian is class 1 since the 2026-07-15 re-fuse precisely so GEBCO's measured bathymetry
+    beats GLOBathy's cone there, and this is what enforces that.
+    """
+    if depth is None:
+        return None
+    return np.where(watercode == 2, depth, 0.0).astype("float32")

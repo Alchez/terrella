@@ -18,8 +18,11 @@ composite is per-pixel, so windowing it cannot seam):
      (>84N, <-59.5S -> flat deep-sea) so MapLibre's globe shows clean polar discs;
   6. add overviews and cut z0-8 512px tiles.
 
-Every stage skips if its output already exists (resumable). Grid matches the existing tile
-pyramid exactly (131072 x 93009).
+Every stage skips if its output is FRESH -- present, completed, and newer than everything it
+derives from (`is_stale`). An exists()-only guard cannot tell "built" from "still correct":
+the 2026-07-15 Caspian re-fuse rewrote 4 of the 540 chunks, and a plain re-run would have
+skipped every stage and silently re-cut tiles from the pre-Caspian, pre-sea-rework rasters.
+Grid matches the existing tile pyramid exactly (131072 x 93009).
 
     python -m pipeline.tile.shade_planet --out data/work/planet_tiles            # shade only
     python -m pipeline.tile.shade_planet --out data/work/planet_tiles --tiles    # + cut tiles
@@ -27,6 +30,7 @@ pyramid exactly (131072 x 93009).
 
 import argparse
 import gc
+import json
 import math
 import subprocess
 import sys
@@ -37,7 +41,7 @@ import rasterio
 from rasterio.enums import Resampling
 from rasterio.windows import Window
 
-from pipeline.render import hillshade, palette, snow
+from pipeline.render import hillshade, lake_depth, palette, snow
 from pipeline.render.sky_view import horizon_svf
 from pipeline.tile import shade
 from pipeline.tile.shade import KNOBS
@@ -60,44 +64,169 @@ def _run(cmd):
     subprocess.run([str(part) for part in cmd], check=True)
 
 
+def done_marker(output: Path) -> Path:
+    """The completion stamp beside `output` (height_3857.tif -> height_3857.done)."""
+    return output.with_suffix(".done")
+
+
+def mark_done(output: Path) -> None:
+    """Stamp `output` complete. Call ONLY after its stage has returned successfully."""
+    done_marker(output).touch()
+
+
+def newest_mtime(*inputs: Path) -> float:
+    """Newest mtime among `inputs`, recursing into directories. Missing paths score 0.0.
+
+    Directories are walked rather than stat'ed because a VRT's own mtime does NOT move when
+    the chunks it points at are re-fused -- which is exactly how the Caspian re-fuse stayed
+    invisible to the old guard. The planet is 540 cells x 3 rasters, so this is ~1.6k stats.
+    """
+    newest = 0.0
+    for path in inputs:
+        if not path.exists():
+            continue
+        if path.is_dir():
+            for child in path.rglob("*"):
+                if child.is_file():
+                    newest = max(newest, child.stat().st_mtime)
+        else:
+            newest = max(newest, path.stat().st_mtime)
+    return newest
+
+
+def is_stale(output: Path, *inputs: Path) -> bool:
+    """True if `output` must be rebuilt: never completed, or older than any of `inputs`.
+
+    Freshness is read from the .done marker, never from `output` itself: GDAL creates its
+    target at the START of a run, so a crashed pass leaves a full-sized, freshly-stamped,
+    half-written raster that an mtime test on the raster would happily accept as current.
+    """
+    if not output.exists() or not done_marker(output).exists():
+        return True
+    return newest_mtime(*inputs) > done_marker(output).stat().st_mtime
+
+
+def write_if_changed(path: Path, text: str) -> Path:
+    """Write `text` to `path` only when it differs, and return `path`.
+
+    The only-when-different part is load-bearing, not an optimisation: it lets a generated
+    file stand in as a dependency for `is_stale`. Tunables like KNOBS and the ramp colours
+    live in source, whose mtime moves on any `git checkout` and would force a full planet
+    rebuild; materialised here, their mtime moves if and only if a VALUE actually changed.
+    """
+    if not path.exists() or path.read_text() != text:
+        path.write_text(text)
+    return path
+
+
+def composite_params(variants) -> str:
+    """The composite's tunables, recorded as planet_rgb's dependency.
+
+    KNOBS and the palette colours never reach a file of their own, so without this a knob or
+    palette edit (WATER_RGB -> 8EC6C4, or a lake-ramp re-tune) would leave a stale planet_rgb
+    looking fresh. LAKE_STOPS earns its place the hard way: an untracked colour relationship
+    is exactly how WATER_RGB drifted silently against the sea. `lake_curve` needs no entry of
+    its own -- it rides in KNOBS. Must be read BEFORE the variant loop, which mutates KNOBS.
+    """
+    return json.dumps({"knobs": KNOBS, "water_rgb": palette.WATER_RGB,
+                       # land/sea stops moved in here on 2026-07-16 when color-relief was
+                       # deleted: they used to be tracked by ramp_{land,sea}.txt's mtime, whose
+                       # whole purpose was to gate the gdaldem stages. With those gone, nothing
+                       # else would notice a ramp re-tune and planet_rgb would sit falsely fresh
+                       # -- the exact failure this function exists to prevent.
+                       "land_stops": palette.LAND_STOPS, "sea_stops": palette.SEA_STOPS,
+                       "land_max_m": palette.LAND_MAX_M, "sea_min_m": palette.SEA_MIN_M,
+                       "lut_step_m": palette.LUT_STEP_M,
+                       "snow_rgb": palette.SNOW_RGB,
+                       "snow_shadow_rgb": palette.SNOW_SHADOW_RGB,
+                       "lake_stops": palette.LAKE_STOPS,
+                       "lake_max_m": palette.LAKE_MAX_M,
+                       "cap": [CAP_NORTH, CAP_SOUTH, list(CAP_RGB)],
+                       "variants": {str(name): knobs for name, knobs in variants.items()}},
+                      sort_keys=True, indent=2)
+
+
+def composite_deps(work, hs, params) -> tuple:
+    """Everything planet_rgb must be newer than.
+
+    `height_3857.tif` replaced land_3857/sea_3857 here on 2026-07-16: composite() now applies the
+    ramps itself from elevation, so the height raster IS the colour input. The ramp constants ride
+    in `params` (composite_params) rather than in ramp_*.txt, which no longer exists.
+    """
+    return (work / "height_3857.tif", hs, work / "ocean_3857.tif", work / "water_3857.tif",
+            work / "lakedepth_3857.tif", params)
+
+
 def warp_inputs(work: Path):
-    """Warp height + ocean/water masks to the shared WMQ-aligned 3857 grid (skip if present)."""
+    """Warp height + ocean/water masks to the shared WMQ-aligned 3857 grid (skip if fresh).
+
+    Each warp depends on the chunk DIRECTORY, not just its VRT -- re-fusing a cell leaves the
+    VRT untouched, so the directory walk is the only thing that sees the change.
+    """
+    chunks = PLANET / "chunks"
     height = work / "height_3857.tif"
-    if not height.exists():
+    if is_stale(height, PLANET / "planet_heightfield.vrt", chunks):
         print("warp height -> 3857 ...", flush=True)
+        height.unlink(missing_ok=True)  # gdalwarp UPDATES an existing target; it must be gone
         _run(["gdalwarp", "-q", "-t_srs", "EPSG:3857", "-tr", Z8_RES, Z8_RES, "-tap",
               "-r", "bilinear", "-ot", "Float32", "-co", "TILED=YES", "-co", "COMPRESS=DEFLATE",
               "-co", "BIGTIFF=YES", "-co", "NUM_THREADS=ALL_CPUS",
               PLANET / "planet_heightfield.vrt", height])
+        mark_done(height)
     with rasterio.open(height) as dataset:
         bounds = [repr(value) for value in dataset.bounds]
         size = [str(dataset.width), str(dataset.height)]
     for name, src in (("ocean", "planet_oceanmask.vrt"), ("water", "planet_watermask.vrt")):
         out = work / f"{name}_3857.tif"
-        if not out.exists():
+        if is_stale(out, PLANET / src, chunks):
             print(f"warp {name} -> 3857 ...", flush=True)
+            out.unlink(missing_ok=True)
             _run(["gdalwarp", "-q", "-t_srs", "EPSG:3857", "-te", *bounds, "-ts", *size,
                   "-r", "near", "-ot", "Byte", "-co", "TILED=YES", "-co", "COMPRESS=DEFLATE",
                   "-co", "BIGTIFF=YES", PLANET / src, out])
+            mark_done(out)
+
+    # GLOBathy lake depth, warped ONCE here rather than per window: it is an 83k-source VRT,
+    # and a many-source VRT re-reads every source on each touch (the same reason the tiler
+    # materialises before cutting). Deliberately NOT in the loop above -- depth is continuous,
+    # so it needs bilinear/Float32, while `near`/Byte is right for the class codes and would
+    # quantise every lake to whole metres and hard-step its gradient.
+    # Its dependency is the VRT alone, unlike the chunk directory above: extract_globathy
+    # rebuilds the VRT whenever the raster set changes, so its mtime really does move.
+    depth_out = work / "lakedepth_3857.tif"
+    if not lake_depth.LAKE_VRT.exists():
+        print(f"no {lake_depth.LAKE_VRT.name} -> lakes stay flat "
+              f"(run pipeline.acquire.extract_globathy)", flush=True)
+    elif is_stale(depth_out, lake_depth.LAKE_VRT):
+        print("warp lake depth -> 3857 ...", flush=True)
+        depth_out.unlink(missing_ok=True)
+        _run(["gdalwarp", "-q", "-t_srs", "EPSG:3857", "-te", *bounds, "-ts", *size,
+              "-srcnodata", str(lake_depth.GLOBATHY_NODATA), "-dstnodata", "0",
+              "-r", "bilinear", "-ot", "Float32", "-co", "TILED=YES",
+              "-co", "COMPRESS=DEFLATE", "-co", "BIGTIFF=YES",
+              "-co", "NUM_THREADS=ALL_CPUS", lake_depth.LAKE_VRT, depth_out])
+        mark_done(depth_out)
     return height
 
 
-def color_and_hillshade(work: Path, height: Path):
-    """Global color-relief (land + sea) and the seamless per-row-z hillshade (skip if present)."""
-    land, sea, hs = work / "land_3857.tif", work / "sea_3857.tif", work / "hs_3857.tif"
-    # Land and sea are guarded independently so a palette change to one surface only
-    # re-colours that surface (delete sea_3857.tif -> only sea regenerates; land stays).
-    for surface, out in (("land", land), ("sea", sea)):
-        if not out.exists():
-            ramp = work / f"ramp_{surface}.txt"
-            palette.write_color_relief(ramp, surface)
-            print(f"color-relief ({surface}) ...", flush=True)
-            _run(["gdaldem", "color-relief", "-q", height, ramp, out,
-                  "-co", "TILED=YES", "-co", "COMPRESS=DEFLATE", "-co", "BIGTIFF=YES"])
-    if not hs.exists():
+def build_hillshade(work: Path, height: Path):
+    """The seamless per-row-z hillshade (skip if fresh).
+
+    Was `color_and_hillshade`: the two `gdaldem color-relief` passes it also ran were deleted on
+    2026-07-16 (28:19 and 24.4% of all pass CPU, single-threaded; profile said `libgdal` 19.37%
+    interpolation vs `libdeflate` 4.33%, so no threading flag could reach it). composite() now
+    applies the ramps from elevation via a 17.6 KB LUT -- verified against gdaldem's own output
+    over all 12.19 G px, 6/6 bands, zero pixels beyond 1 DN.
+    """
+    hs = work / "hs_3857.tif"
+    hs_params = write_if_changed(work / "hs_params.json",
+                                 json.dumps({"exag": EXAG, "alt": ALT, "az": AZ},
+                                            sort_keys=True, indent=2))
+    if is_stale(hs, height, hs_params):
         print(f"per-row-z hillshade (EXAG={EXAG}) ...", flush=True)
         hillshade.per_row_zfactor_hillshade(height, hs, EXAG, ALT, AZ)
-    return land, sea, hs
+        mark_done(hs)
+    return hs
 
 
 def global_occlusion(height: Path):
@@ -125,7 +254,7 @@ def read1_window(path, window):
         return dataset.read(1, window=window)
 
 
-def composite_planet(work: Path, land, sea, hs, occ, variants=None,
+def composite_planet(work: Path, hs, occ, variants=None,
                      window_rows=WINDOW_ROWS, max_windows=None):
     """Composite the whole planet window-by-window into seamless RGB GeoTIFF(s).
 
@@ -138,12 +267,14 @@ def composite_planet(work: Path, land, sea, hs, occ, variants=None,
     """
     if variants is None:
         variants = {None: None}
-    outs = {name: (work / f"planet_rgb{f'_{name}' if name else ''}.tif",
-                   work / f"planet_rgb{f'_{name}' if name else ''}.done")
-            for name in variants}
-    if max_windows is None and all(tif.exists() and dn.exists() for tif, dn in outs.values()):
-        print("planet_rgb present -> skip composite", flush=True)
-        return {name: tif for name, (tif, _) in outs.items()}
+    outs = {name: work / f"planet_rgb{f'_{name}' if name else ''}.tif" for name in variants}
+    params = write_if_changed(work / "composite_params.json", composite_params(variants))
+    deps = composite_deps(work, hs, params)
+    # One shared params file is sound because every variant is composited in a single pass:
+    # the guard rebuilds all of them or none.
+    if max_windows is None and not any(is_stale(tif, *deps) for tif in outs.values()):
+        print("planet_rgb fresh -> skip composite", flush=True)
+        return outs
     with rasterio.open(work / "height_3857.tif") as h:
         width, height, transform = h.width, h.height, h.transform
     small_h, small_w = occ.shape
@@ -151,7 +282,8 @@ def composite_planet(work: Path, land, sea, hs, occ, variants=None,
                    crs="EPSG:3857", transform=transform, tiled=True, blockxsize=512,
                    blockysize=512, compress="deflate", photometric="RGB", BIGTIFF="YES")
     ocean_p, water_p = work / "ocean_3857.tif", work / "water_3857.tif"
-    writers = {name: rasterio.open(tif, "w", **profile) for name, (tif, _) in outs.items()}
+    depth_p = work / "lakedepth_3857.tif"
+    writers = {name: rasterio.open(tif, "w", **profile) for name, tif in outs.items()}
     try:
         for index, row0 in enumerate(range(0, height, window_rows)):
             if max_windows is not None and index >= max_windows:
@@ -163,11 +295,15 @@ def composite_planet(work: Path, land, sea, hs, occ, variants=None,
             win_bottom = transform.f + row1 * transform.e
             win_bounds = (transform.c, win_bottom, transform.c + width * transform.a, win_top)
 
-            land_win, sea_win = read3_window(land, win), read3_window(sea, win)
+            height_win = read1_window(work / "height_3857.tif", win)
             ocean_win = read1_window(ocean_p, win) != 0
             watercode = read1_window(water_p, win)
             water_win = (watercode == 2) | (watercode == 3)
             hs_win = read1_window(hs, win).astype(float)
+            # Lake depth, zeroed off class 2 so rivers stay flat and the (class 1) Caspian
+            # keeps GEBCO's measured bathymetry instead of GLOBathy's cone.
+            depth_win = (lake_depth.lakes_only(read1_window(depth_p, win), watercode)
+                         if depth_p.exists() else None)
 
             # snow: warp persistence + rasterize glaciers for this window's bounds.
             # Clear temps first — gdal_rasterize opens an existing file in UPDATE mode (would
@@ -192,8 +328,9 @@ def composite_planet(work: Path, land, sea, hs, occ, variants=None,
             for name, knobs in variants.items():
                 if knobs:
                     KNOBS.update(knobs)  # only the sea knobs differ between variants
-                rgb = shade.composite(land_win, sea_win, ocean_win, water_win, snow_a, hs_win,
-                                      occ_win, (sr1 - sr0, small_w), (win_h, width))
+                rgb = shade.composite(height_win, ocean_win, water_win, snow_a, hs_win,
+                                      occ_win, (sr1 - sr0, small_w), (win_h, width),
+                                      depth=depth_win)
                 if cap.any():  # force the smeared polar edges to a flat deep-sea disc
                     for band in range(3):
                         rgb[band][cap] = CAP_RGB[band]
@@ -202,7 +339,7 @@ def composite_planet(work: Path, land, sea, hs, occ, variants=None,
 
             # release the window's big arrays each iteration so RSS can't creep up over the
             # hundreds of windows (fragmentation growth OOM-killed the earlier float64 runs).
-            del land_win, sea_win, hs_win, persistence, snow_a, glacier, occ_win
+            del height_win, hs_win, persistence, snow_a, glacier, occ_win, depth_win
             if index % 20 == 0:
                 gc.collect()
                 print(f"  composited rows {row0}/{height}", flush=True)
@@ -212,11 +349,11 @@ def composite_planet(work: Path, land, sea, hs, occ, variants=None,
     for temp in ("_sp_win.tif", "_rgi_win.tif"):
         (work / temp).unlink(missing_ok=True)
     if max_windows is None:  # a smoke test leaves a partial raster -> don't mark it done
-        for _, dn in outs.values():
-            dn.touch()
-    for name, (tif, _) in outs.items():
+        for tif in outs.values():
+            mark_done(tif)
+    for tif in outs.values():
         print(f"wrote {tif}", flush=True)
-    return {name: tif for name, (tif, _) in outs.items()}
+    return outs
 
 
 def build_tiles(planet_tif: Path, out: Path):
@@ -247,10 +384,10 @@ def main():
     work.mkdir(parents=True, exist_ok=True)
 
     height = warp_inputs(work)
-    land, sea, hs = color_and_hillshade(work, height)
+    hs = build_hillshade(work, height)
     print("global sky-view factor ...", flush=True)
     occ = global_occlusion(height)
-    planet_tif = composite_planet(work, land, sea, hs, occ)[None]
+    planet_tif = composite_planet(work, hs, occ)[None]
     if args.tiles:
         build_tiles(planet_tif, work)
     print("DONE", flush=True)

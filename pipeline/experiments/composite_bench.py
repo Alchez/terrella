@@ -32,8 +32,9 @@ def load_window(row0, rows, width, transform):
     top = transform.f + row0 * transform.e
     bottom = transform.f + (row0 + rows) * transform.e
     bounds = (transform.c, bottom, transform.c + width * transform.a, top)
-    land = sp.read3_window(WORK / "land_3857.tif", win)
-    sea = sp.read3_window(WORK / "sea_3857.tif", win)
+    # land/sea_3857 were deleted with the color-relief stage (2026-07-16); composite() now
+    # takes elevation and applies the ramps itself via palette.relief_lut.
+    heights = sp.read1_window(WORK / "height_3857.tif", win)
     ocean = sp.read1_window(WORK / "ocean_3857.tif", win) != 0
     wc = sp.read1_window(WORK / "water_3857.tif", win)
     water = (wc == 2) | (wc == 3)
@@ -51,7 +52,7 @@ def load_window(row0, rows, width, transform):
 def composite_current(w, knobs):
     """Exactly the production path: set the sea knobs, run the whole composite."""
     KNOBS.update(knobs)
-    return shade.composite(w["land"], w["sea"], w["ocean"], w["water"], w["snow_a"],
+    return shade.composite(w["heights"], w["ocean"], w["water"], w["snow_a"],
                            w["hs"], w["occ"], (4, 4096), w["grid"])
 
 
@@ -59,7 +60,7 @@ def composite_shared_patch(w, knobs_a, knobs_b):
     """Optimized: full composite for A, then recompute ONLY ocean pixels for B."""
     rgb_a = composite_current(w, knobs_a).copy()
     # Recompute the pre-sea intermediates the ocean patch needs (mirrors shade.composite).
-    land, sea, hs, ocean, water = w["land"], w["sea"], w["hs"], w["ocean"], w["water"]
+    heights, hs, ocean, water = w["heights"], w["hs"], w["ocean"], w["water"]
     height, width = w["grid"]
     land = np.asarray(land, np.float32); sea = np.asarray(sea, np.float32); hs = np.asarray(hs, np.float32)
     lum = 0.299 * land[0] + 0.587 * land[1] + 0.114 * land[2]

@@ -4,6 +4,509 @@ Chronological archive of decisions and their rationale, split out of PLAN.md on 
 
 ## Decision log
 
+### 2026-07-16 — optimisation #2 landed: `gdaldem color-relief` DELETED; the ramps became a 17.6 KB LUT
+
+`composite()` now takes ELEVATION and applies the land/sea ramps itself via `palette.relief_lut`.
+Both `gdaldem color-relief` passes are gone from both shade paths.
+
+**Why a flag could never have fixed it.** color-relief was **28:19 and 24.4% of all pass CPU**,
+single-threaded, each pass reading the full 31 GB height raster to write 1 GB. The profile split it
+**`libgdal` 19.37% (interpolation) vs `libdeflate` 4.33%** — so `-co NUM_THREADS`, which threads only
+DEFLATE, could reach ~18% of it at best. That 19.37% is a per-pixel **binary search** over the 241 rows
+`color_relief_rows(step=25)` emits. gdaldem searches because its file format permits arbitrary stop
+positions. **Ours are uniform** (0..6000 every 25 m), so the bracketing index is just `elevation/step` —
+a divide, not a search. gdaldem cannot know that; numpy can. The LUT is **17.6 KB** at 1 m resolution,
+i.e. *finer* than the 25 m rows gdaldem interpolated across.
+
+**Measured, end to end (planet, 12.19 G px):**
+
+| | before | after |
+|---|---|---|
+| color-relief | 28.3 min | **0 — deleted** |
+| composite | 44.3 min | 53.8 min (+9.5: it now reads the 31 GB height, not 1.6 GB of RGB) |
+| **the pair** | **72.6 min** | **53.8 min — net −18.8 min** |
+| composite peak RSS | 6.93 GiB | **6.24 GiB** (one Float32 window replaces two RGB windows) |
+| whole pass | ~98 min | **~72 min (−26%)** with the hillshade fix |
+
+**Correctness, twice, against independent pre-existing oracles:**
+1. LUT vs `gdaldem`'s own `land_3857`/`sea_3857` (written before the LUT existed): **6/6 bands, 100%
+   coverage, 96.7% identical, 3.3% at exactly 1 DN, ZERO beyond.**
+2. LUT-fed `planet_rgb` vs the gdaldem-fed mosaic: **3/3 bands, 100% coverage, ~92% identical, ~7.5%
+   at 1 DN, ~0.35% at 2 DN, ZERO beyond.** The tolerance of 2 was **pre-registered with its reasoning**
+   (1 DN input x composite's max gain, saturation 1.18 x hi 1.30 = 1.53) — and the distribution landed
+   exactly there. A bar set before the run is a prediction; set after, it is a rationalisation.
+
+- **The trap this opened, and closed.** `LAND_STOPS`/`SEA_STOPS` were tracked *only* by
+  `ramp_{land,sea}.txt`, whose sole purpose was gating the gdaldem stages. Deleting color-relief without
+  moving them into `composite_params()` would have left `planet_rgb` **falsely fresh** after any ramp
+  re-tune — silently rendering the planet with the old palette, the exact failure the guard exists for.
+  Three new tests pin it (land stops, sea stops, `LUT_STEP_M`).
+- **The ramps are applied INSIDE `composite()`, not in each caller** — deliberately. A per-call-site copy
+  of a shared decision is precisely how the float32 fix reached `composite` and never reached
+  `hillshade` (11.6 GB). One implementation, both shade paths.
+- **Follow-up:** `composite_ram.py`'s 6.93 GiB is now stale (its inputs changed). The real pass measures
+  **6.24 GiB**, so the 12 G cap is ~1.9x — sound, but re-derive from the real number, not the fixture.
+
+### 2026-07-16 — optimisation #1 landed: hillshade float32 + 256-row windows (1.84x faster, 5.7x less RAM)
+
+Carried `composite()`'s 2026-07-14 fix to its sibling, `per_row_zfactor_hillshade`, which had never
+received it. Measured on the real planet (12.19 Gpx), not a fixture:
+
+| | before (float64 @ 1024) | after (float32 @ 256) |
+|---|---|---|
+| wall | 932 s (15:32) | **508 s (8:28)** — **1.84x** |
+| peak RSS | 11.6 GB | **2.03 GB** — **5.7x** |
+| cgroup reclaims | 122,501 | — |
+
+**Correctness, full-raster against an independent pre-existing oracle** (`hs_3857.tif`, written by the
+OLD code during the previous night's pass, before this change was designed): **99.9374% of 12.19 billion
+pixels bit-identical, 0.0626% differ by exactly 1 DN, ZERO beyond 1 DN.** Worst pixel: 1 DN at lon
+-179.408 / lat 85.051 — inside the polar band that gets capped flat regardless.
+
+- **The speed-up was not the goal and is the interesting part.** The change was made for RAM; float32
+  halved the bytes crossing cache/RAM and removed 122k reclaims, and the stage got ~2x faster for free.
+  It is still 97% CPU on one core — numpy is not threaded here — so the win is pure memory traffic.
+- **The float64 was always dead weight:** the function emits **uint8**. Tests show float32 tracks float64
+  to <=1 DN, so every one of those extra bytes was discarded on the last line.
+- **The trap that TDD caught, and that a colour test never would have.** `zfactor` is built from
+  `np.cos(latitude)` -> float64; under NEP 50 `float32 array * float64 array` -> **float64**, which
+  silently restores every byte the change saves *while all output assertions still pass*. Fixed inside
+  `hillshade_array` (`np.asarray(zfactor, dtype=heights.dtype)`) rather than at the call site, so no
+  future caller can reintroduce it. Latitude stays float64 upstream — `merc_y ~2e7` needs the mantissa.
+  `tests/test_hillshade.py` (9 tests, suite 120 -> 129) pins dtype, <=1 DN equivalence, and window
+  invariance at 256/97/1024/4096 — the last being what makes changing `window_rows` safe at all.
+- **My own proxy bug, the seventh, caught by the oracle in one shot.** The first benchmark ran
+  `altitude=46.0`, typed from CLAUDE.md's *locked constants* — but those are the **Blender hero** sun
+  altitude; the tile path uses `KNOBS["alt"] = 45.0`. Result: 10.3 billion px "differing", **mode at
+  3 DN**. 255·sin(46°) − 255·sin(45°) = **3.1 DN** — the offset was the entire histogram. Diagnosed
+  instantly by the *shape*: precision noise centres on 0, a systematic offset does not. **A sampled
+  check, or one reporting only a mean, would have read as "small float32 rounding" and shipped.**
+  Distribution over aggregate; and the re-run does `from pipeline.tile.shade_planet import EXAG, ALT, AZ`
+  — imported, not retyped, because a benchmark that retypes a constant measures a different program.
+- **A real divergence, flagged not fixed:** heroes use sun altitude **46°**, tiles **45°**. Same species
+  as the known hero/tile sea-ramp divergence — visually nil (3 DN on flat ground), but a second instance
+  of the two render families drifting. Fold into the deferred hero sea-sync, do not touch alone.
+- **The guard is blind to code changes, by design, and that was right here.** `hs_params.json` records
+  `{exag, alt, az}` — *source-level params*, not code — so this pure-performance change left
+  `hs_3857.tif` fresh and did NOT trigger a 31 GB rebuild. Correct, because equivalence was *proven*.
+  But note the general gap: had the change altered the algorithm's output, the guard would not have
+  noticed. It is the deliberate trade for not having `git checkout` force a full-planet rebuild
+  (`write_if_changed`, 2026-07-15) — so any *behavioural* change to a shading kernel must be verified
+  against an oracle by hand, exactly as this one was.
+
+### 2026-07-16 — the instrumented planet pass: the baseline, and why every warp optimisation we planned was worthless
+
+The GLOBathy + Caspian + `WATER_RGB` pass, run once under full instrumentation (`perf record -F 49 -g`
+wrapping the whole job so it inherits into every forked child; a 0.5 s cgroup sampler for RSS/threads/
+disk; the pass's own stage prints timestamped; the cgroup's own `memory.peak`). **98 min wall, exit 0,
+`planet_rgb.tif` 11.96 GB, 349,384 perf samples in 65 MB.** Shade only — tiling deliberately gated on
+looking at the mosaic first.
+
+**Mosaic verified** against a *pre-registered* known-bad (what it would read if depth never reached the
+pixels: all lakes identical at `(141,197,195)`):
+Baikal `(81,137,149)` lum 121.6 over 959,498 px · Namtso `(100,155,164)` lum 139.6 over 28,092 px —
+**18.0 lum apart** where yesterday they were the same pixel. Tanganyika `(81,136,149)` lands on Baikal,
+as absolute (not per-lake) calibration requires. Caspian: 2,372,060 class-1 px, spread **0.0 → 30.8**.
+Its planet numbers (137.1/158.9/167.8) match the region render's (137.0/158.8/167.8) to a decimal — an
+unplanned cross-validation that the two shade paths agree.
+
+**The stage timeline — the whole point, since none of this had ever been measured:**
+
+| stage | wall | CPU | threads | note |
+|---|---|---|---|---|
+| height warp (31 GB out) | **5:07** | **486%** | 17 | already parallel |
+| ocean + water warps | 2:32 | 110% | 17 | |
+| **color-relief (land)** | **12:31** | 98% | **1** | reads 31 GB → writes 1 GB |
+| **color-relief (sea)** | **15:48** | 98% | **1** | reads 31 GB again |
+| **per-row-z hillshade** | **15:32** | — | — | **anon peaks 11.6 GB** |
+| global SVF | 2:29 | — | — | free |
+| composite (364 windows) | 44:20 | — | — | 2.7 GB, comfortable |
+
+CPU attribution (6,830 CPU-s total): python 43.5% · gdalwarp 23.0% (height) · gdaldem sea 13.6% ·
+gdaldem land 10.8% · **gdal_rasterize ×363 4.0%** · **gdalwarp ×363 3.8%**.
+
+- **The morning's entire optimisation plan was aimed at the fastest stage.** The 31 GB height warp runs
+  at **486% CPU / 17 threads in 5 minutes**. `-wo NUM_THREADS=ALL_CPUS` + `-wm` would have optimised a
+  warp that is *already ~5× parallel* — and we'd have credited the flags with any noise. The correction
+  recorded on 2026-07-15 (that the lake warp's profile does not transfer) was right, and the reason is
+  now visible: **the expensive warp was the small one.** 310 MB in 62 min (masker-bound) vs 31 GB in 5.
+- **`-co NUM_THREADS` is NOT the fix for color-relief either — the third "obvious flag" to die.**
+  Measured split of gdaldem's 24.4% of all CPU: **`libgdal.so` 19.37% (the interpolation) vs
+  `libdeflate.so` 4.33% (compression)**, `libz` 0.01%. So the flag that threads only DEFLATE addresses
+  **~18%** of the stage; best case ~5 min of 28. Symbol addresses cluster tight
+  (`0x1a99c8b`–`0x1a99ca8`) = one hot loop in a stripped libgdal. Flag drift *looked* like the
+  explanation (the height warp has the flag, color-relief doesn't); the profile says otherwise.
+  Three for three: `-multi`, `-wm`/`-wo NUM_THREADS`, `-co NUM_THREADS`.
+- **The box averaged 1.16 of 16 cores** across 98 min wall / 114 min CPU. The pipeline is ~93% idle
+  silicon, and it is not I/O-bound (the height warp: 126 MB/s write vs 6 MB/s read, 720 MB RSS).
+- **The 12 G cap was sized from the wrong stage.** PLAN called it "1.7× measured" from `composite()`'s
+  6.93 GiB. Measured here, the **hillshade** peaks at **11.6 GB** — the cap is **1.03×**, and the cgroup
+  logged **122,501 reclaim events** grinding to keep it under. It survived (`oom_kill 0`), but the
+  hillshade's 15:32 is a *thrashing* number, not a clean one. The composite measurement was never wrong;
+  it was the wrong stage. Same disease as the day's proxy bugs, one level up.
+- **Instrumentation notes for next time.** `perf record -- cmd` inherits across fork+exec, so one file
+  covers gdalwarp/gdaldem/gdal_rasterize/numpy, filterable with `--comms`; use `-g none` for a flat
+  report or the call graphs swamp it; libgdal is stripped, so read the *dso* split
+  (libgdal-vs-libdeflate) rather than hunting symbols. Sample by **cgroup**, never `pgrep -f` (which
+  matched the `/usr/bin/time` wrapper on 2026-07-15 and, twice on 2026-07-16, matched the very shell
+  issuing the `pkill`). Attribute per **PID**, never comm+time-window: differencing across two
+  same-named processes produced **−0.1% CPU**, an impossible number that was caught only because it was
+  impossible on its face.
+
+### 2026-07-15 — GLOBathy lake depth: a render layer, not a fusion channel; and what the cone is actually worth
+
+Reopens the 2026-07-07 "Lake depth: flat stays" decision, whose stated bar was *"real modeled data —
+GLOBathy or better"*. Acquired, wired, validated on renders, **approved by Rohan on the Tibet + Baikal
+A/B**. The full pass is not yet run.
+
+- **Architecture reversed: a render layer beside snow, NOT the re-fuse PLAN.md:67 specified.** The
+  deciding constraint was already on the books and PLAN.md had simply not restated it — *"tint-only,
+  never carve displacement (at 15× Namtso becomes a 1.5 km crater and the shadow-catching plate dies)"*.
+  If depth never enters the heightfield, the fusion master is not its home: it is a **rendering** input,
+  exactly like snow, which is warped at composite time and has never touched fusion. Three consequences,
+  all good: **no re-fuse**; **no HydroLAKES join** (it existed only to place basins vertically, and
+  nothing is placed) → **the layer stays CC0 with no attribution obligation**; and a future z10 re-fuse
+  would not redo it, since depth is not in the master. `HISTORY.md:1110` had recorded this fork as open
+  ("post-tint stage vs fusion depth channel"); this closes it.
+- **The epistemics, measured — and my first "validation" was circular.** I checked `Dmax_use_m` against
+  published depths for Baikal/Erie/Superior/Tanganyika/Ladoga/Titicaca, got exact matches, and called
+  the calibration verified. All six sit in the **0.10% of lakes (1,487) that carry a surveyed depth**,
+  where GLOBathy *uses the published number verbatim* — I was comparing a value to itself. The real
+  split: of our 83,357 rendered lakes, **647 (0.78%) surveyed, 82,710 (99.22%) random-forest estimate**
+  — though **14 of the 15 deepest are surveyed**, so the visual weight lands on real numbers.
+- **The cone is right in scale, wrong in shape (the Caspian is the only place it can be falsified).**
+  `experiments/globathy_vs_gebco.py`: deepest point within **68 km** on a 1,200 km lake and max depth
+  within 1.6 m (1023.6 vs 1022.0) — my prediction that it would *invert* the Caspian was wrong. But
+  correlation is only **0.534**, median |error| **191 m**, and where the truth is under 20 m the cone
+  claims **155 m** — it renders the famously ~5 m north shelf as a 236 m basin, because it cannot know
+  about shelves or sills. This **empirically settles** keeping the Caspian on GEBCO.
+- **GEBCO is not a usable oracle for lakes.** Erie's true max is 64 m; GEBCO says **225** (its "deepest
+  point" lands near Buffalo, at the Niagara outflow). Superior's is 406; GEBCO says **469**. GLOBathy's
+  `Dmax` beats GEBCO on both. So two of the three checks were void — you cannot falsify a model against
+  a broken measurement — and only the Caspian (sea-like, properly surveyed) is a genuine test.
+- **Surveyed-only was tested and rejected.** Restricting depth to the 647 surveyed lakes was tempting
+  (they carry **55.7% of all lake pixels**) but **84.7% of every surveyed lake on Earth is in the USA**:
+  Canada has 41,793 lakes worth drawing and 58 real depths. It would render **survey funding as geology**,
+  with the discontinuity landing on the US/Canada border, through the Great Lakes. Worse than either
+  uniform option, and it fixes the *scale* axis while leaving the *shape* — which was the actual
+  objection — untouched. Uniform modelled treatment is the deliberate choice; caveat it on the About page.
+- **The ramp: log1p, decided by measurement not taste.** The median lake is **11.2 m** and Baikal is
+  1642 — three orders of magnitude. Linear parks the median lake at **0.7%** of the ramp (invisible);
+  sqrt at 8.3%. Across 457,722 real lake px in Tibet the p10–p90 spread is **log1p 0.38 vs sqrt 0.14** —
+  sqrt is a no-op dressed as caution. Caveat worth keeping: log1p hands most of the ramp to shallow
+  water, which is exactly where the cone is least trustworthy. `LAKE_STOPS[0]` is **derived from**
+  `WATER_RGB` rather than copied, so the shore tint cannot drift from the flat tint the way WATER_RGB
+  itself drifted from the sea.
+- **What the flat fill was costing, in one number:** today Baikal (1642 m) and Namtso (125 m) render
+  **the identical pixel colour, (141,197,195)** — 13× the depth, zero difference. With depth: (75,131,145)
+  vs (97,152,162). Coverage is fine: GLOBathy reaches 71% of WBM lake px in Tibet / 99% at Baikal, and of
+  the shortfall ~31% is whole ponds with a **median size of 2 px** (no gradient possible at any threshold)
+  while ~69% is rim inside graded lakes, invisible because the ramp starts at `WATER_RGB`.
+- **RAM measured (`experiments/composite_ram.py` + a timed region render), and the cap was already wrong.**
+  Real pipeline peak: **6.45 GiB without depth, 6.93 GiB with** — the depth branch costs **+0.48 GiB**,
+  not the ~1 GB I predicted by summing temporaries (numpy frees as it goes; the peak is not the sum).
+  The finding is that **today's code already peaked at 6.45 GiB against the 8 GB cap** — 19% headroom
+  *before* this change. That 8 GB was never sized against anything; it was picked reactively after the
+  morning's OOM, when the box had ~10 GB free because 12 GB was trapped in tmpfs. **Cap raised to 12 GB**:
+  1.7× the measured peak, still half the 24 GB now available, so it still kills the job and not the box.
+- **The one-shot 83k-source warp, profiled (`perf`, paranoid lowered to 1). Verdict: viable, ~50 min,
+  and every one of my three bottleneck hypotheses was wrong.** The warp source is the **VRT** (gdalwarp
+  sees `lakedepth.vrt [1/1]`, one logical dataset); the VRT fans out internally, holding ~450 of the
+  83,356 TIFFs open at a time. Where the CPU actually goes:
+  `GDALWarpNoDataMasker` **51.3%**, `GDALCopyWords64` 7.2%, `VRTComplexSource::RasterIO` **2.4%**.
+  - **So the bottleneck is `-srcnodata` masking, not the sources and not the resampling.** The masker
+    walks every source pixel testing it against -9999 on a raster that is ~98% nodata. The VRT read path
+    is 2.4%, so the many-source VRT is a **non-issue** — the "materialise before touching a many-source
+    VRT" learning applies to the *tiler* (which re-reads per tile), not a one-shot warp that touches each
+    source once. **No fallback pre-mosaic needed.**
+  - **Dead ends this killed:** all 83,356 sources are LZW + **STRIPED, never tiled** (GDAL's ~8 KB default
+    → Baikal gets 1-row strips of 88 KiB, an apparent 88× read amplification for a 256² window). Looks
+    damning, measures at 2.4%: chunking evidently spans each source's width, so each strip decodes about
+    once. **Re-tiling 83 k files would have bought nothing** — a fix I was about to propose.
+  - **Docs correction that matters (`gdalwarp` page):** `-multi` is *"Two threads... **Note that
+    computation is not multithreaded itself**"* — it overlaps I/O with compute and would have bought ~0
+    here. **`-wo NUM_THREADS=ALL_CPUS`** is the option that parallelises computation, and **`-wm`** (never
+    set by us, docs: *"shared among all threads... especially beneficial when running with `-wo
+    NUM_THREADS` greater than 1"*) sizes the chunks. `-co NUM_THREADS` is a **GTiff creation option** for
+    *"multi-threaded compression"* only — which is exactly the observed 17 threads / 16 idle: DEFLATE
+    workers starved by a single warp thread at 99%.
+  - **Untested lead, worth a look before optimising blindly:** `-srcnodata -9999` merely restates the
+    nodata the VRT already declares. If the sources carried **0** as their fill instead, no masking would
+    be needed at all — and bilinear blending toward 0 at a lake edge is *physically correct*, since depth
+    really does go to 0 at the shore. That could delete ~half the warp's CPU, but it is a source rewrite.
+  - **Cost is spatially non-uniform, which broke my estimate:** 10% at 2:25 and 20% at 3:32 (the polar
+    band above ~78N is empty of lakes) → I projected ~20 min; it hit the 50-70N lake belt (Canada,
+    Scandinavia, Siberia) and collapsed ~7x, landing near **50 min**. Output ~400 MB for 12.19 Gpx.
+  - **The real prize is elsewhere:** the same serial path, no `-wm` and no `-wo NUM_THREADS`, applies to
+    the **31 GB height warp**, which re-runs on *every* re-fuse — whereas this lake warp is a
+    freshness-guarded one-shot. `ocean`/`water` already use GDAL's documented fast path (`-r near
+    -ot Byte`, no nodata) and have nothing to win.
+  - **CORRECTION, same day — this profile does NOT transfer to the height warp, so the "prize" above is
+    unfounded.** Checked rather than assumed, on both counts that produced it:
+    (a) **The 51% masker cannot even run there.** `GDALWarpNoDataMasker` is driven by nodata;
+    `planet_heightfield.vrt` declares **zero** `NoDataValue` entries and the height warp passes no
+    `-srcnodata`. Half the measured cost is absent from the height warp *by construction*.
+    (b) **The "17 threads, 16 idle" is an artifact of output size.** That was `-co NUM_THREADS`' DEFLATE
+    pool with nothing to compress — the lake warp writes **310 MB**. The height warp writes **31 GB**, 100×
+    more, so the already-set `-co NUM_THREADS=ALL_CPUS` has real work and the write side may already be
+    parallel.
+    The height warp's bottleneck is therefore **unknown**, not "the same". Generalising one warp's profile
+    to another warp is the same error as the day's other five — reasoning from an unrepresentative sample.
+    **We also have no baseline wall-clock for it at all**, which is the decisive practical point: changing
+    its flags before measuring it once would destroy the only free chance to learn whether they helped.
+  - **Method note:** the first three profiling samples were of `/usr/bin/time`, not gdalwarp — `pgrep -f`
+    matched the wrapper's command line — and reported "Threads: 1, zero source opens, zero reads" while
+    progress advanced. Impossible on its face, and it *fit my pool-churn hypothesis*, so I built on it
+    instead of questioning it. Four predictions were wrong today (+1 GB RAM → +0.48; the cone would
+    invert the Caspian → 68 km; ~20 min → ~50; VRT/striping is the bottleneck → 2.4%). Measure.
+  - **Landed: `1:01:38` wall, peak RSS `2.18 GB`, 310 MB output, exit 0** (102% CPU — the single warp
+    thread plus DEFLATE workers). Grid is byte-identical to what `warp_inputs` generates (`-te`/`-ts`
+    both derive from `height_3857.tif`), so the hand-run artifact was stamped `.done` rather than
+    re-warped. **RSS is the quiet headline: 2.18 GB.** The warp is nowhere near the RAM cliff, so `-wm`
+    (which sizes warp chunks and is currently unset → GDAL's 64 MB default) has plenty of room to grow
+    alongside `-wo NUM_THREADS`. That pairing is the untested prize on the 31 GB height warp.
+- **The calibration oracle, run on the WARPED planet raster — the check the 2026-07-07 prototype lacked
+  and was rejected for.** Max depth within each lake vs its published survey: Baikal 1638.3/1642 (0.998),
+  Tanganyika 1464.7/1470 (0.996), Ladoga 229.7/230 (0.999), Titicaca 279.1/281 (0.993), Superior
+  405.5/406 (0.999), Namtso 123.9/125 (0.991). All within 1%. This proves *two* things at once: GLOBathy's
+  cone is calibrated to real surveys where they exist, **and** the 3857 warp preserved it — no shift, no
+  rescale, no nodata clobber. (The ~0.5% shortfall is expected: the cone's apex rarely lands exactly on a
+  306 m pixel centre.)
+  - **My first oracle was broken, and it cried wolf on the Caspian.** It took the **max over a lat/lon
+    bounding box**, which for the Caspian catches every Iranian, Turkmen and lower-Volga lake in the
+    rectangle — it reported a 92 m "leak" whose argmax sits at 49.88E/40.45N, *on land near Baku*. Point
+    samples on open Caspian water (deep S basin, mid S basin, middle basin, N shelf ×2) all read exactly
+    **0.0**. The lesson is the recurring one: a rectangle is not a lake, and an oracle that can't tell the
+    difference will fail on the one body you most need it to be right about.
+- **The freshness guard fired on the real thing, first time out.** The entire `planet_tiles/` derived chain
+  dates from **2026-07-14 10:38–11:24**, while the planet VRTs were rebuilt **2026-07-15 16:08** after the
+  Caspian re-fuse → `height`/`ocean`/`water` all correctly report `stale=True`, `lakedepth` `False`. Made
+  concrete: **`water_3857.tif` today reads watermask class `2` at the Caspian deep basin**, not the `1` the
+  re-fuse wrote — i.e. without the guard, a re-run would have shaded the Caspian from the pre-re-fuse mask
+  and the flat-slab bug would have survived the fix silently. This is exactly the trap the guard was built
+  for on 2026-07-15, and it is why no manual `rm` list is needed before the pass.
+  - **The two shade paths have opposite staleness exposure, which is worth keeping straight.** The
+    **region** path (`shade.py --cells`) is immune: `reproject_cell` warps from `CHUNKS/<name>/` with
+    `-overwrite` on every run, so it always sees the current chunks — that is *why* it has no skip-if-present
+    and the deferred "region idempotency" item is not costing correctness. The **planet** path caches into
+    `planet_tiles/` and is exposed by design, which is what the guard exists to cover. Practical consequence:
+    a Caspian regression check is valid via the region path today, and only valid via the planet path *after*
+    the mask re-warp.
+- **Item 6 — the Caspian regression, proven at the render level (`e040_n30`/`e050_n30`, 7281×4456).**
+  Measured over the 2,372,061 class-1 Caspian px: routing is 100% class 1 → sea ramp; **0 px** of lake
+  depth reach `composite()`; and the structure result is the one worth keeping — luminance p10/p50/p90 was
+  **182.9 / 182.9 / 182.9 before (spread 0.0 across 2.37 M pixels — a *literal* flat slab)** and is now
+  **137.0 / 158.8 / 167.8 (spread 30.8)**. The `before` is the same geographic pixels in `planet_rgb_v1.tif`,
+  proven pixel-comparable rather than assumed: exact integer lattice offset (80100, 49621 px) and land
+  correlating **0.9972** (mean |Δ| 2.7 lum = the region path's *regional* SVF normalisation vs the planet's
+  *global* one — a real difference to remember when reading any region render as a proxy for the planet).
+  The PLAN's prediction held exactly: the win is **structure, not darkness** — the Caspian stays legitimately
+  bright (p50 158.8, median depth only ~48 m); a flat slab became a shaded basin.
+  - **Why it was runnable before the pass at all:** the two shade paths differ in what they read. `shade.py`'s
+    `reproject_cell` warps from `CHUNKS/<name>/` with `-overwrite` every run → always current. The planet path
+    caches into `planet_tiles/`, whose `water_3857.tif` still reads **class 2** at the deep basin, so a planet
+    re-shade today would have tested the old bug and "confirmed" a failure that no longer exists.
+  - **The region path is NOT windowed** — it composites the whole region at once, so cell count is a direct RAM
+    multiplier. I widened the scope to 4 cells (70 Mpx = 2.1× the planet's 33.6 Mpx window) → **~14.5 GiB →
+    OOM-killed at the 12 G cap** (`constraint=CONSTRAINT_MEMCG`: the cap killed the job, not the box, which is
+    exactly what raising 8 G → 12 G was for). The morning's 6.93 GiB measurement predicted this precisely and I
+    failed to apply it. PLAN's original 2-cell scope = 32.4 Mpx ≈ one planet window, and fits.
+  - **Two false alarms in one session, same root cause: testing a proxy instead of the contract.** (a) A **bbox
+    max is not a lake oracle** — it caught Iranian and lower-Volga lakes and reported a 92 m Caspian "leak"
+    whose argmax sat on land near Baku. (b) `lakedepth_*.tif` **on disk is the raw, unmasked warp**; `lakes_only`
+    is applied in memory (`shade.py:163`), so 1,578 px of shore-lake bleed look like a leak in the file and are
+    zeroed before any pixel sees them. Both were my oracle, not the pipeline. **Select by watermask; assert on
+    what `composite()` is handed.** Also discarded: an RGB-distance test comparing shore px to the *mean* of all
+    sea px — meaningless when the population spans a 98-lum deep basin.
+- **Latent dependency gap, found while stamping (not yet fixed, bites only at z10):** the `ocean`/`water`/
+  `lakedepth` warps take their grid (`-te`/`-ts`) from `height_3857.tif`, but **none of them depends on it**
+  for freshness — `lakedepth`'s only dep is `LAKE_VRT`. Harmless while the grid is frozen at z8; the moment
+  a z10 re-fuse re-warps height to a different grid, `lakedepth` stays "fresh" at the old dimensions and the
+  composite reads mismatched windows. An mtime dep on `height` is the wrong fix (it would force a needless
+  62-min re-warp every time height rebuilds to the *same* grid) — the right one is to compare the existing
+  raster's `width/height/bounds` against the target and rebuild only on a genuine mismatch.
+- **Process, and the day's real culprit: `/tmp` is a 15 GB RAM-backed tmpfs.** Region renders had been
+  writing their intermediates into the session scratchpad — 12 GB of `c_land`/`c_sea`/`sp_merc`/`height`
+  tifs from finished experiments (`southasia`, `prod_iceland`, `seamtest`, `stress/scandinavia`), held in
+  RAM and spilling to swap. That is why **swap sat pinned at 7/7 all day**, and why the morning's region
+  render OOM-killed a box that looked like it had room: the composite's arrays were the trigger, but this
+  was why there was no headroom to absorb them. It also broke the Bash tool for ~40 minutes (Warp's
+  output-capture hook hitting the tmpfs quota). Clearing it returned 11.5 GB of /tmp, **all 7 GB of swap**,
+  and 4 GB of RAM. CLAUDE.md already says to keep project data on ext4; the scratchpad is not an exception.
+
+### 2026-07-15 — The staleness trap: freshness guards for the planet shading chain, and a 41 GB reclaim
+
+Found while auditing INVENTORY.md, which was stale only in the boring way (sizes/dates) but omitted
+enough to hide both problems below.
+
+- **`exists()` conflated "built" with "still correct" — one flaw, two symptoms.** Every stage of
+  `shade_planet.py` guarded on `if not out.exists()`. The Caspian re-fuse rewrote 4 of 540 chunks, so a
+  plain re-run would have **skipped every stage and re-cut tiles from the pre-Caspian rasters**. Worse:
+  `planet_rgb.tif` + its `.done` both existed, so the composite would have been skipped too — and that
+  file predated `ramp_sea.txt` (12:28 vs 18:59), so the run would have silently **regressed the locked sea
+  rework** on top of missing the Caspian. The same flaw also forces a 31 GB rewrite for a 0.15% change:
+  the cache granularity is the file (the planet), the change granularity is 4 cells.
+- **Fixed with content-gated mtime (`is_stale`).** A stage re-runs if its output is missing, was never
+  stamped `.done`, or is older than any input. Three decisions earn their place: (1) inputs include the
+  chunk **directory**, not just its VRT — re-fusing a cell never moves the VRT's mtime, which is exactly
+  how this hid; (2) freshness reads the **`.done` marker, never the raster** — GDAL stamps its target at
+  the *start*, so a crashed pass leaves a full-sized, freshly-dated, half-written file that any mtime test
+  on the raster would accept (this closes a partial-output hole the old guard also had, now that `.done`
+  covers all 7 outputs, not just `planet_rgb`); (3) params that live only in source (`KNOBS`,
+  `WATER_RGB`, ramp stops) are **materialised into generated files via `write_if_changed`**, which rewrites
+  only on a real value change. Hashing a 31 GB raster to decide whether to rebuild it is self-defeating,
+  and plain mtime on `palette.py` would force a full planet rebuild on every `git checkout`; a generated
+  file whose mtime moves iff a value moved gives precision without either cost. `palette.color_relief_text`
+  was split out of `write_color_relief` so a ramp can be compared without being touched (byte-identity
+  tested). `tests/test_shade_planet.py` covers all of it, including the re-fused-cell case.
+- **Windowed patching: possible, rejected for now.** The Caspian is ~0.15% of `height_3857.tif` (≈3,277 ×
+  5,462 px of 12.19 billion) — a ~680× write amplification. The prep chain *is* patchable and provably
+  seam-free: `gdalwarp` opens an existing target in update mode and resamples from the source VRT (so
+  `-te` yields bit-identical output), color-relief is per-pixel, hillshade is local given a halo. Rejected
+  because **it wouldn't help**: `WATER_RGB` is a planet-wide change, so the composite (the expensive stage)
+  must re-run regardless — and GLOBathy will force a full pass anyway, so a patch path would cost real
+  effort, risk reintroducing the seams `shade_planet.py` exists to prevent, and still not spare that pass.
+  Batch Caspian + `WATER_RGB` + GLOBathy into one pass instead. (Wrinkle if it's ever built:
+  `global_occlusion` normalises against a planet-wide `svf.min()/max()` — non-local, the same hazard flagged
+  for GLOBathy's shore-distance transform.)
+- **Reclaimed 41 GB** (487 → 529 GB free) — itemised in [INVENTORY.md](INVENTORY.md). Mostly superseded
+  generations the old one-line `planet_tiles/` summary hid: the retired 194-strip `blocks/` (8.2 GB), the
+  pre-rework `tiles_old/` (13 GB) and `planet_rgb.tif` (14 GB, also the trap above), the `redsea_proto/`
+  A/B variants (4.8 GB). Kept `planet_rgb_v1.tif` — it is the source of the live tiles and the only RGB
+  rollback until the Caspian re-shade lands.
+
+### 2026-07-15 — Inland water: the `WATER_RGB` drift, the Caspian probe (open question resolved), and the lake-depth dataset evaluation
+
+Triggered by Rohan spotting a "stark difference" between inland lakes/rivers and the reworked sea on the
+globe (Caucasus/Caspian screenshot).
+
+- **`WATER_RGB` had silently drifted, and it was a test gap.** The 2026-07-14 sea rework deepened the sea
+  surface ~15% (`8FC7C5` → `85B9B7`) but left the flat inland tint stranded at the old-era `98C5C8`
+  (152,197,200) — brighter *and* bluer than the sea it's meant to sit beside (B=200 > G=197, a cool cyan
+  lean the teal sea doesn't have). Originally the two *were* related (inland = a slightly-lighter tint of the
+  sea surface, the standard lake convention); the rework broke that silently because
+  **`tests/test_palette.py` freezes the land/sea ramp endpoints but not `WATER_RGB`** — nothing tied the
+  inland tint to the sea surface, so nothing failed. Re-synced to **`#8EC6C4` (142,198,196)** = the new sea
+  surface lightened ~7%. Worth adding a guard that pins `WATER_RGB` *relative to* `SEA_STOPS[0]` so the
+  relationship can't drift again.
+- **But the base colour was never the real problem — measured, not assumed.** The re-render moved the
+  Caspian only 184 → 180 luminance: imperceptible. Sampling the actual raster showed why: the sea spans
+  **lum 126 (deep basin) → 191 (coastal shallow)** depending on depth, so the Caspian's flat 180 already
+  sat right next to the sea's *coastal* band. The eye compares it against the **deep** basin, and no flat
+  fill can close a 126-vs-180 gap. **The clash is structural — flat fill vs depth shading — not chromatic.**
+  The `#8EC6C4` change is kept on its own merit (small/shallow lakes and rivers *should* be flat, and they
+  now sit in the sea's green-teal family), but it is not the answer to what Rohan saw.
+- **Open question resolved — "Caspian Sea routing" (both halves of its probe).** WBM class = **2 (inland
+  lake)**, and GEBCO **does** carry its measured bathymetry. The fusion consults GEBCO only where `ocean`
+  (`fuse_heightfield.py:211`), and `coastal_water` (`|land| ≤ 1`) can't fire on a −28 m surface → the
+  heightfield takes GLO-30's flat lake surface. Verified: fused = **−28.0 m at both the deep basin and the
+  north shelf**, while GEBCO holds **−464 m / −1026 m**. The data exists and fusion discards it. Fix + its
+  full rationale (why each clause of the rule earns its place; why the bbox is load-bearing against the Dead
+  Sea) now lives as the active Phase-2 item in PLAN.md.
+- **Lake-depth datasets evaluated (answers `lake_depth_prototype.py`'s "see the PLAN.md open question").**
+  GEBCO was probed across every major lake: real bathymetry for **the Caspian and the Great Lakes only** —
+  Baikal, Tanganyika, Victoria, Titicaca, Ladoga, Great Bear and the Aral all return a flat surface
+  elevation. So there is no general "lakes get bathymetry" feature available from what we already hold.
+  - **GLOBathy** (Khazaei 2022, *Sci Data*; CC0; 1.43 M waterbodies; 1″) — **chosen** as the general answer.
+    It is literally `lake_depth_prototype.py` *with* calibration: the same linear cone `D = l × Dmax / L`
+    (Hollister & Milstead distance method over HydroLAKES), but with true published `Dmax` for every lake
+    GEBCO misses. Fake but *visually plausible*, which is the stated bar. Caveats: a single deepest point per
+    lake, no sills/ridges; depth-below-surface with **no elevation column** → needs a HydroLAKES join
+    (CC-BY-4.0 attribution, unlike GLOBathy's CC0) to place basins vertically.
+  - **Architectural catch that shapes the eventual implementation:** a shore-distance transform is inherently
+    **non-local**, but `fuse_planet` is deliberately per-pixel/co-located precisely so cells are independent
+    and share bit-identical seams. A lake straddling a cell edge would compute wrong distances cell-wise —
+    which is the argument for eating GLOBathy's pre-computed, globally-consistent per-lake rasters rather
+    than rolling our own cone. (At 306 m/px only lakes more than a few km across show any gradient, so a
+    few thousand rasters, not 1.4 M.)
+  - **3D-LAKES** (Huang 2025, *Sci Data*) — **rejected.** Its bathymetry covers only the lake bed *exposed
+    by water-level variation* over Landsat 1984–2021 (the drawdown zone); anything below the historical
+    minimum water level is absent, so a stable-level lake like Baikal yields a thin rim and nothing else.
+    Also quantized to 91 elevation steps (terraced). Built for storage-change hydrology, not relief.
+  - **GLDB / Kourzeneva v2** — **rejected as a foundation, retained as a possible supplement.** Probing the
+    actual raster: **36 lakes carry real digitized bathymetry** (Great Lakes via ETOPO1, plus Ladoga,
+    Victoria, Great Bear, Great Slave, Winnipeg, Balkhash, Sevan, Onego…, from ILEC surveys and Russian navy
+    charts); everything else is a flat slab at mean depth (Baikal = a single 744 m value). Decisively, the
+    gridded file is **freshwater-only — the Caspian is absent entirely.** 30″ (~1 km ≈ 3× our z8 px, adequate),
+    10.2 MB gzipped / 2.8 GB unpacked, HTTP-only host; **GLDBv3 is unobtainable** (host 404s, only v2 served).
+  - **Decision: decouple.** Caspian now via GEBCO (measured data beats GLOBathy's cone *for that lake*, and
+    GLDB doesn't have it); GLOBathy logged as the decided answer to the general lake-depth question, to be
+    done as its own pass (needs a lake ramp + planet-wide re-fuse and re-tile).
+- **Process note (cost a real OOM):** the first preview re-render (4 cells, 70 M px) was killed entering
+  `composite()` — it materialises a stack of full-size float32 arrays at once, and the box was already at
+  0 GB free with swap full. It took the terminal *and* the astro dev server with it. Re-ran 2 cells under
+  `systemd-run --user --scope -p MemoryMax=8G -p MemorySwapMax=0` → clean. **Any region render must be
+  cgroup-capped**, per CLAUDE.md's one-heavy-job-at-a-time rule. Separately: `shade.py`'s region path
+  re-runs reprojection, colour-relief and hillshade *unconditionally* (no skip-if-present, unlike
+  `shade_planet.py`), so a crash in `composite()` discards ~2 min of prep already on disk — at odds with the
+  "idempotent and resumable" convention and worth fixing if we iterate on palette values much.
+
+### 2026-07-15 (later) — Frontend hardening: astro-check + TS, `.ts` config + `.env`, Tier-1 gazetteer, Spin option A
+
+All on `feat/frontend` (uncommitted at time of writing — Rohan's to commit).
+
+- **`astro check` wired up; 106 strict-mode errors cleared → 0/0/0.** Added `@astrojs/check`; **pinned
+  `typescript` to 6.x** — TS 7's native (Go) compiler dropped the programmatic API `astro check` relies on,
+  so it errors at startup; 6.x is the newest that works. (This *overrides* "use latest verified versions":
+  7 is latest but not *compatible* — don't bump it until `@astrojs/check` supports the native compiler.)
+  Load-bearing gotcha found: **JSDoc `@type` casts are silently ignored inside Astro `<script>` blocks**
+  (they're TS, not JS) → several `getElementById`/`querySelector` refs stayed `Element|null` and failed
+  strict; converted to real `as` casts. Maplibre paint/filter consts typed with
+  `ExpressionSpecification`/`FilterSpecification` as **annotations** (contextual typing validates the array
+  literals), not `as` assertions.
+- **`astro.config.mjs` → `astro.config.ts`.** Dev-only asset-store paths (`HERO/TILES/BORDERS_STORE`) moved
+  out of committed source into a **gitignored `.env`** (+ committed `.env.example`), read via Vite
+  `loadEnv` (needed because `.env` isn't in `process.env` at config-load). **No fallback** — the on-disk
+  layout will change when this worktree folds into the main repo, so a sibling-path guess would silently
+  resolve wrong; an unset var fails loudly instead. **Validation is per-request inside the middleware, NOT
+  at `configureServer`:** Astro's *build* creates a Vite server that runs `configureServer`, so validating
+  there breaks `astro build`; the asset routes are never *requested* during build, so a per-request check
+  keeps build green and 500s the dev route clearly when a var is unset (proven live by cycling the dev
+  server without `.env`).
+- **Spin option A shipped.** Above `SPIN_MAX_ZOOM` (z3) the Spin toggle is now **disabled + greyed with a
+  "Zoom out to spin" tooltip**, re-enabled on zoom-out (`zoomend` → `syncSpinAvailability`) — fixes the
+  dead-toggle confusion (checking it there was a silent no-op). Auto-resume still deferred (see entry below).
+- **Tier-1 no-JS fallback = the gazetteer.** The gallery already SSGs all 203 cards, so browsing needs no
+  JS; the only gaps were the dead search box + no find-by-name. Removed the search entirely; added an atlas
+  **gazetteer** — every country a link with its **bbox-centroid coordinates** (mono), grouped under Fraunces
+  letter-markers, with an A–Z rail. Rohan rejected a bottom-of-page placement (buried on mobile), so it
+  **opens as a full-screen overlay** from the header "Index" link, done in **pure CSS**: `.gazetteer:target`
+  opens it, `.gazetteer:has(:target)` keeps it open through letter-jumps (kept as *separate* rulesets so a
+  browser without `:has()` still honours `:target` and can open it) — zero JS, and Cmd/Ctrl+F searches it
+  once open. Plus a `no-js`→`js` `<html>` class flip (inline pre-paint) so `.fab-stack` (border/quality
+  toggles) hides when JS is off — no dead controls. Grid untouched. Design chosen via the frontend-design
+  skill: the atlas *gazetteer* is the subject-true find tool; coordinates are the signature detail.
+
+### 2026-07-15 — Frontend: capability probe, tier routing, quality + spin toggles, mobile polish (all committed on `feat/frontend`)
+
+Shipped the three-tier selection end-to-end and polished the globe on mobile. Commits: `a595ef9`
+(capability probe + auto-steer), `c7eda66` (spin toggle + the fixes below).
+
+- **Capability probe** (`src/lib/capability.ts`): pure `decideTier(signals, quality)` (WebGL2 hard
+  floor; software-GPU via `WEBGL_debug_renderer_info`; Save-Data / slow-net / low-mem / reduced-motion),
+  TDD, 15 vitest cases. A pre-paint inline `<head>` guard in `Base.astro` steers capable visitors
+  `/` → `/globe/` (bounces incapable/Lite deep-links back), no flash. Quality toggle persists `rg:quality`.
+- **Mobile fixes:** control-collision → single bottom-right `.fab-stack` (order Spin, Borders,
+  Lite/Globe/Full — quality at the bottom per Rohan). Borders de-jagged: the geojson source `tolerance`
+  was **1.2** (3× default) → back to **0.375** + `buffer: 256` (the staircase + intermittent breaks).
+  Attribution compact-collapses to the ⓘ on small screens and is **re-parented to `<body>`** so, when
+  expanded, it floats above the controls — it's otherwise trapped under `.fab-stack` inside `#globe`'s
+  `position:fixed; z-index:1` stacking context (no element z-index can escape that).
+- **Spin (current, committed):** idle rotation at ≤ z3; **any interaction retires it** (Spin checkbox
+  unticks) and the **Spin toggle restarts it**. `map.stop()` on pointer-down kills the in-flight easeTo
+  so a pan starting mid-spin can't fight it / misfire as a country click. Suppressed above z3 because the
+  fixed 2°/s sweep whips the surface past too fast to follow.
+- **FAILED experiment — resume-on-zoom-out (do NOT re-attempt naively).** Tried making Spin a persistent
+  auto-rotate *mode* (a `userInteracting` flag; resume by calling `spin()`/easeTo from `mouseup` /
+  `zoomend` / `moveend`; `zoomstart`/`zoomend` handlers to pause). It **broke MapLibre's render loop** —
+  re-entrant `easeTo`/`map.stop` from the map's own animation events →
+  `TypeError: this._onEaseFrame is not a function` and `Error: Attempting to run(), but is already
+  running`; the zoom handlers chopped scroll-zoom into janky micro-steps fighting the spin; and pan died
+  after zooming in. Reverted. **Lesson:** never call `easeTo`/`map.stop` re-entrantly from MapLibre's
+  `mouseup`/`zoomend`/`moveend` during an animation. Resume-on-zoom-out is still wanted but **deferred** —
+  if revisited, use MapLibre's official spin-globe pattern (no `map.stop`, no custom zoom handlers) and
+  test the full zoom + pan + click matrix in a real browser *before* declaring it done.
+
 ### 2026-07-14 (night) — Sea rework (#3): levers 1+2 prototyped, **V1 chosen** (lock + winner z0-8 pending)
 
 The sea read as a flat, tacked-on backdrop with no depth. Diagnosis (from the code): `shade.py`
@@ -24,7 +527,11 @@ clamped all deep ocean to one slab while the ramp squeezed shelves into ~7% of i
 (calmer, water-like sheen), V2 `{0.72, 0.98, 0.7}` (stronger relief). Prototyped on the Red Sea via
 `shade.py --cells` (fast, no planet re-shade). **Rohan chose V1** — pending his final go to lock.
 
-**A/B infra (all verified live on the globe):** `pipeline/experiments/sea_ab.py` drives a
+**A/B infra (all verified live on the globe):** `pipeline/experiments/sea_ab.py` **[deleted
+2026-07-16 — fully dead: its subject locked at V1, its winner's knobs baked into `shade.py`'s
+KNOBS, and both stages it drove (`color_and_hillshade`, `sea_3857.tif`) removed with the
+color-relief deletion. The dual-variant machinery it exercised SURVIVES as
+`composite_planet(variants=..., max_windows=...)` for the next A/B]** drove a
 dual-output planet composite (both variants in one pass) → non-destructive `tiles_v1`/`tiles_v2`
 (z0-7; z8 deferred to the winner), live tiles untouched. Frontend: `globe.astro` Current/V1/V2
 segmented toggle + two hidden raster sources; `astro.config.mjs` serves `/tiles-v1` `/tiles-v2`.

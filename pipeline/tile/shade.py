@@ -25,7 +25,7 @@ import rasterio
 from rasterio.enums import Resampling
 from scipy.ndimage import zoom
 
-from pipeline.render import hillshade, palette, relief, snow
+from pipeline.render import hillshade, lake_depth, palette, relief, snow
 from pipeline.render.sky_view import horizon_svf
 
 DATA = Path.home() / "projects/maps/data"
@@ -36,7 +36,8 @@ MERCATOR = "EPSG:3857"
 
 KNOBS = dict(alt=45.0, ambient=0.50, hi=1.30, exposure=1.05, saturation=1.18, warmth=0.06,
              svf_strength=0.20, svf_threshold=0.45, sea_shade=0.55, sea_lift=1.00,
-             sea_saturation=0.90, sea_svf=0.5, snow_lo=0.55, snow_hi_pt=1.05)
+             sea_saturation=0.90, sea_svf=0.5, snow_lo=0.55, snow_hi_pt=1.05,
+             lake_curve="log1p")  # depth->ramp mapping; see lake_position()
 
 
 def run(cmd):
@@ -99,7 +100,8 @@ def main():
         key, _, value = override.partition("=")
         if key not in KNOBS:
             raise SystemExit(f"unknown knob {key!r}; valid: {', '.join(sorted(KNOBS))}")
-        KNOBS[key] = float(value)
+        # Most knobs are floats; lake_curve names a mapping, so coerce by the existing type.
+        KNOBS[key] = value if isinstance(KNOBS[key], str) else float(value)
         print(f"knob override: {key} = {KNOBS[key]}", flush=True)
     merc = args.out / "merc"
     merc.mkdir(parents=True, exist_ok=True)
@@ -120,14 +122,10 @@ def main():
         grid_h, grid_w = dataset.height, dataset.width
     print(f"region mosaic: {grid_w} x {grid_h} px in Mercator", flush=True)
 
-    # color-relief (shared palette) on the mosaic; hillshade with the physical z-factor
-    # at the region's centre latitude (single band is fine per-region; planet bands it)
-    land_ramp, sea_ramp = args.out / "ramp_land.txt", args.out / "ramp_sea.txt"
-    palette.write_color_relief(land_ramp, "land")
-    palette.write_color_relief(sea_ramp, "sea")
-    land_tif, sea_tif, hs_tif = args.out / "c_land.tif", args.out / "c_sea.tif", args.out / "hs.tif"
-    run(["gdaldem", "color-relief", height_vrt, land_ramp, land_tif])
-    run(["gdaldem", "color-relief", height_vrt, sea_ramp, sea_tif])
+    # The ramps are applied inside composite() from the elevation itself (palette.relief_lut,
+    # 2026-07-16) -- the two `gdaldem color-relief` passes that used to materialise c_land/c_sea
+    # were 24.4% of all planet-pass CPU and reproduced to <=1 DN by a 17.6 KB lookup table.
+    hs_tif = args.out / "hs.tif"
     mid_lat = sum(cell_mid_lat(n) for n in args.cells) / len(args.cells)
     if args.per_row_z:
         print(f"hillshade: per-row z-factor (EXAG={EXAG}/cos(lat)), custom seamless shader", flush=True)
@@ -139,7 +137,7 @@ def main():
              "-alt", str(KNOBS["alt"]), "-az", "315", "-compute_edges"])
 
     # composite (whole region in RAM)
-    land, sea = read3(land_tif), read3(sea_tif)
+    heights = read1(height_vrt).astype("float32")
     ocean = read1(ocean_vrt) != 0
     watercode = read1(water_vrt)
     water = (watercode == 2) | (watercode == 3)
@@ -157,6 +155,17 @@ def main():
         snow_a = np.maximum(snow_a, glacier.astype(float))
         print(f"unioned RGI glaciers: {int((glacier > 0).sum()):,} px", flush=True)
 
+    # lake depth: GLOBathy modelled depth, tint-only (pipeline/render/lake_depth.py)
+    depth = lake_depth.lakes_only(
+        lake_depth.warp_depth((bounds.left, bounds.bottom, bounds.right, bounds.top),
+                              grid_w, grid_h, args.out / "lakedepth_merc.tif"),
+        watercode)
+    if depth is not None and (depth > 0).any():
+        print(f"lake depth: {int((depth > 0).sum()):,} px, max {depth.max():.0f} m, "
+              f"curve={KNOBS['lake_curve']}", flush=True)
+    else:
+        print("lake depth: none in this region -> lakes stay flat", flush=True)
+
     with rasterio.open(height_vrt) as dataset:
         long_edge = 2400
         sw = max(1, round(dataset.width / max(dataset.width, dataset.height) * long_edge))
@@ -167,7 +176,8 @@ def main():
     svf = horizon_svf(low, m_per_px)
     occ = 1.0 - (svf - svf.min()) / (svf.max() - svf.min() + 1e-6)
 
-    rgb = composite(land, sea, ocean, water, snow_a, hs, occ, (sh, sw), (grid_h, grid_w))
+    rgb = composite(heights, ocean, water, snow_a, hs, occ, (sh, sw), (grid_h, grid_w),
+                    depth=depth)
 
     out_tif = args.out / "region_rgb.tif"
     with rasterio.open(height_vrt) as src:
@@ -180,12 +190,53 @@ def main():
     print(f"wrote {out_tif}", flush=True)
 
 
-def composite(land, sea, ocean, water, snow_a, hs, occ, occ_shape, grid):
+def lake_position(depth, curve):
+    """Lake depth (m below surface) -> 0..1 along the lake ramp.
+
+    This curve is the honesty/legibility dial, and the two pull against each other. The median
+    lake is 11.2 m deep while Baikal is 1642 -- three orders of magnitude -- so a LINEAR axis
+    parks 99% of lakes in the first 2% of the ramp and shows nothing. LOG1P spreads them
+    (median -> 0.34) but hands most of the ramp to shallow water, which is exactly where
+    GLOBathy's cone is least trustworthy (on the Caspian it claims 155 m where the truth is
+    under 20 m, measured 2026-07-15), so it also maximises the visibility of the layer's worst
+    error. SQRT (median -> 0.08) is the conservative middle. Judge on renders, not in the
+    abstract.
+    """
+    if curve == "log1p":
+        # Clamped like the others: LAKE_MAX_M is Baikal, so nothing should exceed it today,
+        # but an unclamped log1p returns >1 for anything that does -- one re-tune of
+        # LAKE_MAX_M to a shallower cap away from indexing off the end of the ramp.
+        return (np.log1p(np.clip(depth, 0.0, palette.LAKE_MAX_M))
+                / math.log1p(palette.LAKE_MAX_M))
+    if curve == "sqrt":
+        return np.sqrt(np.clip(depth, 0.0, palette.LAKE_MAX_M) / palette.LAKE_MAX_M)
+    if curve == "linear":
+        return np.clip(depth, 0.0, palette.LAKE_MAX_M) / palette.LAKE_MAX_M
+    raise ValueError(f"unknown lake_curve {curve!r} (log1p | sqrt | linear)")
+
+
+def composite(heights, ocean, water, snow_a, hs, occ, occ_shape, grid, depth=None):
+    """Composite one window of the planet/region from ELEVATION, not pre-coloured rasters.
+
+    `heights` is metres on the fused heightfield; the land and sea ramps are applied here via
+    `palette.relief_lut`, which replaced two `gdaldem color-relief` passes on 2026-07-16.
+    Those cost **28:19 and 24.4% of all pass CPU**, single-threaded, each reading the full 31 GB
+    height raster to write 1 GB. Profiled: `libgdal 19.37%` (a per-pixel SEARCH over 241 ramp
+    rows) vs `libdeflate 4.33%` -- so no threading flag could fix it. Our ramp rows are uniformly
+    spaced, so the index is a divide, not a search; gdaldem cannot know that, numpy can. Verified
+    against gdaldem's own output over all 12.19 G px, 6/6 bands: 96.7% identical, 3.3% at exactly
+    1 DN, **zero beyond the uint8 contract**, and 2.5x faster in one read instead of two.
+
+    Applying the ramps HERE rather than in each caller is deliberate: a per-call-site copy of a
+    shared decision is precisely how the float32 window fix reached `composite` and never reached
+    `hillshade` (11.6 GB, 2026-07-16). One implementation, both shade paths.
+    """
     height, width = grid
     # float32 throughout — the output is 8-bit, and on the full-width planet windows float64
     # doubled peak RAM (~18 GB) and OOM-killed the box. asarray is a no-op when already float32.
-    land = np.asarray(land, dtype=np.float32)
-    sea = np.asarray(sea, dtype=np.float32)
+    heights = np.asarray(heights, dtype=np.float32)
+    land = palette.lut_lookup(palette.relief_lut("land"), "land", heights).astype(np.float32)
+    sea = palette.lut_lookup(palette.relief_lut("sea"), "sea", heights).astype(np.float32)
     hs = np.asarray(hs, dtype=np.float32)
     snow_a = np.asarray(snow_a, dtype=np.float32)
     occ = np.asarray(occ, dtype=np.float32)
@@ -197,7 +248,21 @@ def composite(land, sea, ocean, water, snow_a, hs, occ, occ_shape, grid):
     sea_lum = 0.299 * sea[0] + 0.587 * sea[1] + 0.114 * sea[2]
     sea = np.clip(sea_lum[None] + (sea - sea_lum[None]) * KNOBS["sea_saturation"], 0, 255)
     color = np.where(ocean[None], sea, land)
-    color = np.where(water[None], np.array(palette.WATER_RGB, dtype=np.float32).reshape(3, 1, 1), color)
+    # Inland water: flat WATER_RGB by default. Where a lake carries GLOBathy depth, ramp it
+    # instead -- on ABSOLUTE depth, never normalised per lake, since a per-lake normalisation
+    # is the artificial gradient the 2026-07-07 prototype was rejected for (a pond would read
+    # like Baikal). `depth` is already zeroed off watermask class 2 by the caller, so rivers
+    # and the (class 1) Caspian cannot reach this branch.
+    flat_water = np.array(palette.WATER_RGB, dtype=np.float32).reshape(3, 1, 1)
+    if depth is None or KNOBS["lake_curve"] == "off":
+        lake_color = flat_water  # 'off' is the A/B control: today's flat inland water
+    else:
+        depth = np.asarray(depth, dtype=np.float32)
+        lut = np.array(palette.lake_lut(), dtype=np.float32).T  # (3, size)
+        index = np.clip(lake_position(depth, KNOBS["lake_curve"]) * (lut.shape[1] - 1),
+                        0, lut.shape[1] - 1).astype(np.int32)
+        lake_color = np.where((depth > 0.0)[None], lut[:, index], flat_water)
+    color = np.where(water[None], lake_color, color)
 
     flat = 255.0 * math.sin(math.radians(KNOBS["alt"]))
     light = np.clip(hs / flat, KNOBS["ambient"], KNOBS["hi"])
