@@ -76,7 +76,7 @@ flowchart TD
     WI["tile/shade_planet.py warp_inputs<br/>height + masks -> one WMQ-aligned 3857 grid<br/>-tap -tr 305.7483 -> 131072 x 93009"]
     HS["render/hillshade.py — per-row z-factor 15/cos(lat)<br/>full-width, 1-row halo -> seamless;<br/>gdaldem takes only a scalar z, hence our own"]
     SH["tile/shade.py composite() — per 256-row window:<br/>land/sea ramps from elevation via a 17.6 KB LUT<br/>(replaced two gdaldem color-relief passes)<br/>x hillshade x sky-view + snow + lake depth"]
-    T2["gdal raster tile: 512 px, z0-8, xyz convention<br/>~62,000 tiles; tiles_old kept as rollback"]
+    T2["gdal raster tile: 512 px, z0-8, xyz convention<br/>~62,000 tiles; tiles_old kept as rollback<br/>(cut/pyramid/@2x/serve mechanics: see docs/tiling.mmd)"]
     T5["pmtiles convert — Phase 4, not yet run"]
   end
 
