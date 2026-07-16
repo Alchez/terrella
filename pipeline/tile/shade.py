@@ -18,7 +18,7 @@ import argparse
 import math
 import subprocess
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict, cast
 
 import numpy as np
 import rasterio
@@ -34,10 +34,42 @@ Z8_MERC_RES = 305.7483  # metres/pixel of a 512px WebMercatorQuad tile at zoom 8
 EXAG = 15.0
 MERCATOR = "EPSG:3857"
 
-KNOBS = dict(alt=45.0, ambient=0.50, hi=1.30, exposure=1.05, saturation=1.18, warmth=0.06,
-             svf_strength=0.20, svf_threshold=0.45, sea_shade=0.55, sea_lift=1.00,
-             sea_saturation=0.90, sea_svf=0.5, snow_lo=0.55, snow_hi_pt=1.05,
-             lake_curve="log1p")  # depth->ramp mapping; see lake_position()
+class Knobs(TypedDict):
+    """The locked composite tunables.
+
+    A TypedDict, not a plain dict, because `lake_curve` is a str among fourteen floats: inferred
+    as `dict[str, float | str]`, every one of the ~20 `KNOBS["..."]` reads below became
+    `float | str` and none of the arithmetic type-checked. Declaring it here types each key
+    exactly, and turns a mistyped key into an error rather than a KeyError at composite time.
+
+    It stays ONE dict rather than splitting `lake_curve` out into its own constant, because
+    `shade_planet.composite_params()` serialises KNOBS wholesale as planet_rgb's freshness
+    dependency -- a curve that rode outside would have to be remembered into that record by
+    hand, which is exactly the untracked-constant bug the guard exists to catch. TypedDict is
+    a pure annotation: at runtime this is still a plain dict, so the params JSON is unchanged.
+    """
+
+    alt: float
+    ambient: float
+    hi: float
+    exposure: float
+    saturation: float
+    warmth: float
+    svf_strength: float
+    svf_threshold: float
+    sea_shade: float
+    sea_lift: float
+    sea_saturation: float
+    sea_svf: float
+    snow_lo: float
+    snow_hi_pt: float
+    lake_curve: str  # depth->ramp mapping; see lake_position()
+
+
+KNOBS = Knobs(alt=45.0, ambient=0.50, hi=1.30, exposure=1.05, saturation=1.18, warmth=0.06,
+              svf_strength=0.20, svf_threshold=0.45, sea_shade=0.55, sea_lift=1.00,
+              sea_saturation=0.90, sea_svf=0.5, snow_lo=0.55, snow_hi_pt=1.05,
+              lake_curve="log1p")
 
 
 def run(cmd):
@@ -96,13 +128,16 @@ def main():
                     help="hillshade with a per-latitude-row z-factor (EXAG/cos(lat)) via the "
                          "custom seamless shader — correct exaggeration at every latitude")
     args = ap.parse_args()
+    # A key off argv is dynamic by construction, so a TypedDict cannot check it -- this view is
+    # the honest escape hatch, and the membership test below is what actually validates the key.
+    knobs = cast(dict[str, Any], KNOBS)
     for override in args.knob:
         key, _, value = override.partition("=")
-        if key not in KNOBS:
-            raise SystemExit(f"unknown knob {key!r}; valid: {', '.join(sorted(KNOBS))}")
+        if key not in knobs:
+            raise SystemExit(f"unknown knob {key!r}; valid: {', '.join(sorted(knobs))}")
         # Most knobs are floats; lake_curve names a mapping, so coerce by the existing type.
-        KNOBS[key] = value if isinstance(KNOBS[key], str) else float(value)
-        print(f"knob override: {key} = {KNOBS[key]}", flush=True)
+        knobs[key] = value if isinstance(knobs[key], str) else float(value)
+        print(f"knob override: {key} = {knobs[key]}", flush=True)
     merc = args.out / "merc"
     merc.mkdir(parents=True, exist_ok=True)
 

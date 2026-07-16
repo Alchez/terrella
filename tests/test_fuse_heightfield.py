@@ -20,8 +20,8 @@ RES = 10 / 3600.0  # the 10-arcsecond planet master
 def _probe(cell_west, cell_north, lon, lat, wbm_value, land_value):
     """Run is_caspian on a small window centred on one lon/lat of a 10-degree cell."""
     transform = from_origin(cell_west, cell_north, RES, RES)
-    window = Window(  # pyright: ignore[reportCallIssue] — rasterio untyped
-        int((lon - cell_west) / RES), int((cell_north - lat) / RES), 4, 4)
+    window = Window(int((lon - cell_west) / RES),  # pyright: ignore[reportCallIssue] — rasterio untyped
+                    int((cell_north - lat) / RES), 4, 4)
     wbm = np.full((4, 4), wbm_value, dtype=np.uint8)
     land = np.full((4, 4), land_value, dtype=np.float32)
     result = fuse_heightfield.is_caspian(transform, window, wbm, land)

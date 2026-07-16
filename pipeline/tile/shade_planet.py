@@ -35,6 +35,7 @@ import math
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any, cast
 
 import numpy as np
 import rasterio
@@ -278,9 +279,12 @@ def composite_planet(work: Path, hs, occ, variants=None,
     with rasterio.open(work / "height_3857.tif") as h:
         width, height, transform = h.width, h.height, h.transform
     small_h, small_w = occ.shape
-    profile = dict(driver="GTiff", width=width, height=height, count=3, dtype="uint8",
-                   crs="EPSG:3857", transform=transform, tiled=True, blockxsize=512,
-                   blockysize=512, compress="deflate", photometric="RGB", BIGTIFF="YES")
+    # dict[str, Any]: GDAL creation options are a heterogeneous bag, and `**profile` otherwise
+    # hands rasterio.open's bool-typed `sharing`/`thread_safe` an inferred `str | int`.
+    profile: dict[str, Any] = dict(
+        driver="GTiff", width=width, height=height, count=3, dtype="uint8",
+        crs="EPSG:3857", transform=transform, tiled=True, blockxsize=512,
+        blockysize=512, compress="deflate", photometric="RGB", BIGTIFF="YES")
     ocean_p, water_p = work / "ocean_3857.tif", work / "water_3857.tif"
     depth_p = work / "lakedepth_3857.tif"
     writers = {name: rasterio.open(tif, "w", **profile) for name, tif in outs.items()}
@@ -289,7 +293,8 @@ def composite_planet(work: Path, hs, occ, variants=None,
             if max_windows is not None and index >= max_windows:
                 break
             row1 = min(height, row0 + window_rows)
-            win = Window(0, row0, width, row1 - row0)
+            win = Window(0, row0, width,  # pyright: ignore[reportCallIssue] — rasterio untyped, attrs init invisible
+                         row1 - row0)
             win_h = row1 - row0
             win_top = transform.f + row0 * transform.e
             win_bottom = transform.f + row1 * transform.e
@@ -327,7 +332,9 @@ def composite_planet(work: Path, hs, occ, variants=None,
 
             for name, knobs in variants.items():
                 if knobs:
-                    KNOBS.update(knobs)  # only the sea knobs differ between variants
+                    # Variant keys are data, not literals, so they take the same untyped view
+                    # of KNOBS that shade.py's --knob override does.
+                    cast(dict[str, Any], KNOBS).update(knobs)  # only the sea knobs differ
                 rgb = shade.composite(height_win, ocean_win, water_win, snow_a, hs_win,
                                       occ_win, (sr1 - sr0, small_w), (win_h, width),
                                       depth=depth_win)

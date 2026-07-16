@@ -84,7 +84,9 @@ class Comparison:
             lines.append(f"  ... and {len(nonzero) - 12} further difference levels")
         lines.append("")
         lines.append(f"  worst: {self.worst} (tolerance {self.tolerance})")
-        if self.worst_lonlat:
+        # Both are set together or not at all, but say so explicitly: a witness printed with
+        # half its evidence would be the bare aggregate this module exists to refuse.
+        if self.worst_lonlat and self.worst_values:
             lines.append(f"  witness: lon {self.worst_lonlat[0]:.3f}, lat {self.worst_lonlat[1]:.3f}"
                          f"  reference={self.worst_values[0]} candidate={self.worst_values[1]}")
         lines.append(f"  beyond tolerance: {self.beyond_tolerance:,} px")
@@ -114,7 +116,8 @@ def compare_rasters(reference_path, candidate_path, tolerance: int = 1, band: in
 
         for row0 in range(0, height, window_rows):
             row1 = min(height, row0 + window_rows)
-            window = Window(0, row0, width, row1 - row0)
+            window = Window(0, row0, width,  # pyright: ignore[reportCallIssue] — rasterio untyped, attrs init invisible
+                            row1 - row0)
             a = ref.read(band, window=window).astype(np.int32)
             b = cand.read(band, window=window).astype(np.int32)
             delta = np.abs(a - b)
@@ -125,12 +128,16 @@ def compare_rasters(reference_path, candidate_path, tolerance: int = 1, band: in
                 worst = block_worst
                 index = np.unravel_index(np.argmax(delta), delta.shape)
                 easting, northing = ref.xy(row0 + int(index[0]), int(index[1]))
-                lon, lat = transform(ref.crs, "EPSG:4326", [easting], [northing])
-                worst_lonlat = (lon[0], lat[0])
+                # transform() returns (xs, ys) or (xs, ys, zs) depending on whether zs was
+                # passed, so index the pair off rather than unpacking a variable-length tuple.
+                projected = transform(ref.crs, "EPSG:4326", [easting], [northing])
+                worst_lonlat = (projected[0][0], projected[1][0])
                 worst_values = (int(a[index]), int(b[index]))
 
         # Control: prove 0 is reachable by this code path, so "no differences" means something.
-        probe = ref.read(band, window=Window(0, height // 2, width, min(32, height)))
+        probe_window = Window(0, height // 2, width,  # pyright: ignore[reportCallIssue] — rasterio untyped, attrs init invisible
+                              min(32, height))
+        probe = ref.read(band, window=probe_window)
         control_passed = bool(np.abs(probe.astype(np.int32) - probe.astype(np.int32)).max() == 0)
 
         return Comparison(histogram=histogram, worst=worst, worst_lonlat=worst_lonlat,

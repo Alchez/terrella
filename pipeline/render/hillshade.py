@@ -21,6 +21,7 @@ exact convention `tile/shade.py`'s composite already divides by, so it is a drop
 """
 
 import math
+from typing import Any
 
 import numpy as np
 import rasterio
@@ -83,14 +84,18 @@ def per_row_zfactor_hillshade(height_path, out_path, exaggeration: float = 15.0,
     with rasterio.open(height_path) as src:
         height, width = src.height, src.width
         cellsize = abs(src.transform.a)
-        profile = dict(src.profile, driver="GTiff", count=1, dtype="uint8", nodata=None,
-                       compress="deflate", tiled=True, blockxsize=512, blockysize=512,
-                       BIGTIFF="YES")
+        # dict[str, Any]: GDAL creation options are a heterogeneous bag, and `**profile`
+        # otherwise hands rasterio.open's bool-typed `sharing`/`thread_safe` a `str | int | None`.
+        profile: dict[str, Any] = dict(
+            src.profile, driver="GTiff", count=1, dtype="uint8", nodata=None,
+            compress="deflate", tiled=True, blockxsize=512, blockysize=512, BIGTIFF="YES")
         with rasterio.open(out_path, "w", **profile) as dst:
             for row0 in range(0, height, window_rows):
                 row1 = min(height, row0 + window_rows)
                 read0, read1 = max(0, row0 - 1), min(height, row1 + 1)
-                block = src.read(1, window=Window(0, read0, width, read1 - read0)).astype(np.float32)
+                read_window = Window(0, read0, width,  # pyright: ignore[reportCallIssue] — rasterio untyped, attrs init invisible
+                                     read1 - read0)
+                block = src.read(1, window=read_window).astype(np.float32)
                 block = np.where(block < -1e4, 0.0, block)  # DEM/ocean nodata -> flat
                 # edge-replicate the missing halo row at the global top/bottom only
                 block = np.pad(block, ((1 if read0 == row0 else 0, 1 if read1 == row1 else 0),
@@ -99,5 +104,6 @@ def per_row_zfactor_hillshade(height_path, out_path, exaggeration: float = 15.0,
                 latitude = np.clip(_latitude_of_rows(src.transform, out_rows), -85.05, 85.05)
                 zfactor = (exaggeration / np.cos(np.radians(latitude))).reshape(-1, 1)
                 shaded = hillshade_array(block, cellsize, zfactor, altitude, azimuth)
-                dst.write(np.rint(shaded).astype("uint8"), 1,
-                          window=Window(0, row0, width, row1 - row0))
+                write_window = Window(0, row0, width,  # pyright: ignore[reportCallIssue] — rasterio untyped, attrs init invisible
+                                      row1 - row0)
+                dst.write(np.rint(shaded).astype("uint8"), 1, window=write_window)

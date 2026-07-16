@@ -85,7 +85,7 @@ def build_vrt(picks: list[tuple[int, str]]) -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    parser = argparse.ArgumentParser(description=(__doc__ or "").split("\n")[0])
     parser.add_argument("--vrt-only", action="store_true",
                         help="rebuild the VRT over already-extracted rasters")
     args = parser.parse_args()

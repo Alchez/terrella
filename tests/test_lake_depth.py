@@ -17,6 +17,7 @@ companion proving it FAILS on a known-bad input.
 """
 
 import math
+from typing import Any, cast
 
 import numpy as np
 import pytest
@@ -127,6 +128,7 @@ class TestLakesOnly:
     def test_mixed_window_masks_per_pixel(self):
         watercode = np.array([[2, 1], [3, 0]], dtype="uint8")
         result = lake_depth.lakes_only(self._depth(), watercode)
+        assert result is not None  # lakes_only returns None only for a None depth; not this case
         assert result.tolist() == [[40.0, 0.0], [0.0, 0.0]]
 
     def test_none_passes_through(self):
@@ -143,10 +145,13 @@ class TestCompositeUsesDepth:
         here leaks into every later test -- including composite_params(), which records KNOBS
         verbatim into the freshness sidecar. Benign today only because of definition order.
         """
-        original = dict(shade.KNOBS)
+        # Save/restore is wholesale and key-agnostic, so it takes the same untyped view of the
+        # Knobs TypedDict that shade.py's --knob override and the variant loop do.
+        knobs = cast(dict[str, Any], shade.KNOBS)
+        original = dict(knobs)
         yield
-        shade.KNOBS.clear()
-        shade.KNOBS.update(original)
+        knobs.clear()
+        knobs.update(original)
 
     def _composite(self, watercode, depth, curve="log1p"):
         """Composite one tiny window with the hillshade neutralised.

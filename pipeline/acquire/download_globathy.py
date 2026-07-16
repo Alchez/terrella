@@ -115,7 +115,7 @@ def fetch(entry: dict, verify_existing: bool) -> str:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    parser = argparse.ArgumentParser(description=(__doc__ or "").split("\n")[0])
     parser.add_argument("--only", choices=sorted(FILES),
                         help="fetch just one archive ('csv' is the 115 MB parameters table)")
     parser.add_argument("--verify", action="store_true",

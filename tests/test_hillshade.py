@@ -21,6 +21,7 @@ import math
 import numpy as np
 import pytest
 import rasterio
+import rasterio.transform  # rasterio's __init__ pulls this in at runtime; name it for the checker
 
 from pipeline.render.hillshade import hillshade_array, per_row_zfactor_hillshade
 

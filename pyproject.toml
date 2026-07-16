@@ -27,8 +27,11 @@ dev = [
 
 # Same engine as Pylance, so `uv run pyright` reproduces the IDE's findings.
 # experiments/ = archival one-off prototypes (kept for history, not maintained).
+# tests/ joined `include` on 2026-07-16: it had never been checked, so typing shade.KNOBS as a
+# TypedDict silently broke three test files that the pipeline-only scan could not see. An
+# unchecked directory is where a "zero errors" claim quietly rots.
 [tool.pyright]
-include = ["pipeline"]
+include = ["pipeline", "tests"]
 exclude = ["pipeline/experiments"]
 venvPath = "."
 venv = ".venv"
