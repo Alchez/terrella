@@ -4,95 +4,110 @@
 flowchart TD
 
   subgraph SRC["External sources"]
-    S1["Copernicus GLO-30 — ESA<br/>AWS Open Data, public S3<br/>1-arcsec land DSM, 1x1 deg COG tiles"]
-    S2["GEBCO_2026 — Seabed 2030<br/>download.gebco.net subset<br/>15-arcsec global land+sea grid"]
+    S1["Copernicus GLO-30 — ESA<br/>AWS Open Data + OpenTopography 2023_1<br/>(AWS withholds ~25 S-Caucasus tiles)<br/>1-arcsec land DSM, 1x1 deg COG tiles"]
+    S2["GEBCO_2026 — Seabed 2030<br/>15-arcsec global land+sea grid<br/>ice-SURFACE, not sub-ice bathymetry"]
     S3["Natural Earth<br/>country / coastline / border vectors<br/>1:10m, default worldview"]
     S4["NSIDC-0791 — MODIS/Terra<br/>global annual snow-cover climatology<br/>0.01 deg, snow_persistence 2001-2023"]
-    S5["RGI 7.0 — Randolph Glacier Inventory<br/>global glacier outlines (GTN-G regions)<br/>via open UNESCO IHP-WINS mirror"]
+    S5["RGI 7.0 — Randolph Glacier Inventory<br/>global glacier outlines<br/>via open UNESCO IHP-WINS mirror"]
+    S6["GLOBathy — figshare, CC0<br/>1.43 M modelled lake-depth rasters, 1 arcsec<br/>cone shape x published Dmax"]
   end
 
   subgraph ACQ["Acquisition — done"]
-    D1["download_glo30.py<br/>idempotent: .part, size check, atomic rename<br/>extent 60-100E / 0-40N"]
-    R1[("raw/glo30/dem — 979 tiles<br/>elevation Float32, 34 GB with wbm")]
-    R2[("raw/glo30/wbm — 979 tiles<br/>water class Byte: 0 dry, 1 ocean, 2 lake, 3 river")]
-    R3[("raw/gebco/*.tif<br/>bathymetry Int16, 184 MB + TID provenance")]
-    D2["download_naturalearth.sh<br/>idempotent fetch of 1:10m vectors"]
-    R4[("raw/naturalearth/ — boundary lines,<br/>maritime indicators, countries, coastline")]
+    D1["acquire/download_glo30.py<br/>idempotent: .part, size check, atomic rename"]
+    R1[("raw/glo30 — dem + wbm<br/>Float32 elevation + Byte water class<br/>0 dry / 1 ocean / 2 lake / 3 river, ~551 GB")]
+    D3["acquire/download_gebco.py<br/>self-pinning by version"]
+    R3[("raw/gebco — 7.3 GB<br/>Int16 bathymetry + TID provenance")]
+    D2["acquire/download_naturalearth.sh"]
+    R4[("raw/naturalearth — boundary lines,<br/>maritime indicators, countries, coastline")]
+    D4["acquire/download_globathy.py + extract_globathy.py<br/>figshare v1 pinned by size+md5;<br/>selective unzip of rasters >= 10 KB"]
+    R5[("work/globathy/lakedepth.vrt<br/>83,357 per-lake rasters (Caspian excluded)")]
   end
 
   S1 --> D1
   D1 --> R1
-  D1 --> R2
-  S2 -->|manual subset via download app| R3
+  S2 --> D3
+  D3 --> R3
   S3 --> D2
   D2 --> R4
+  S6 --> D4
+  D4 --> R5
 
-  subgraph FUSE["Fusion — done for India frame at 3 arcsec"]
+  subgraph FUSE["Fusion — done, planet-wide"]
     V["VRT virtual mosaics<br/>gdalbuildvrt, explicit nodata fills<br/>no tile means open ocean"]
-    F["fuse_heightfield.py --bounds --res-arcsec<br/>land = GLO-30 area-average<br/>sea = GEBCO cubic-spline, clamped to -1 m max<br/>ocean = WBM 1, or no coverage,<br/>or WBM 2/3 within 1 m of sea level"]
-    O1[("work/india/heightfield_3s.tif<br/>39600x40800 Float32, tiled + overviews, 3.4 GB")]
-    O2[("work/india/oceanmask_3s.tif<br/>Byte 0/1, 3 MB — drives material split")]
-    O3[("work/india/watermask_3s.tif<br/>Byte 4-class: land / ocean /<br/>inland lake / river")]
+    F["fuse/fuse_heightfield.py — land = GLO-30 area-average,<br/>sea = GEBCO cubic-spline clamped to -1 m max,<br/>ocean = WBM 1 | no coverage | WBM 2/3 within 1 m of sea level<br/>| is_caspian (WBM 2 & land < -5 m & in bbox)"]
+    PF["fuse/fuse_planet.py — globe as 10x10-deg cells<br/>10-arcsec EPSG:4326 (matches z8 1:1 at every latitude)<br/>12-wide subprocess runner; Antarctica deferred (--skip-south -60)"]
+    PH[("work/planet/planet_{heightfield,oceanmask,watermask}.vrt<br/>129600x54000, lat -60..90, 540 chunks, 12 GB")]
+    O1[("work/&lt;country&gt;/heightfield_{1s,3s}.tif<br/>per-country frame, Float32, tiled + overviews")]
+    O2[("oceanmask — Byte 0/1<br/>drives the material split")]
+    O3[("watermask — Byte 4-class<br/>land / ocean / inland lake / river")]
   end
 
   R1 --> V
-  R2 --> V
   V --> F
   R3 --> F
   F --> O1
   F --> O2
   F --> O3
+  F --> PF
+  PF --> PH
 
-  subgraph HERO["Hero render path — India done; batch all countries = Phase 1"]
-    P["render_prep.py<br/>warp EPSG:4326 to Albers equal-area conic,<br/>~16k Float32 TIFF + nearest-warped masks<br/>+ 0/255 lake & river PNGs for the shader"]
-    B["Blender Cycles on RTX 4070S / OptiX, headless -b<br/>true displacement + adaptive subdivision<br/>two ColorRamps switched by ocean mask<br/>+ in-scene lake/river teal (raster water)<br/>locked look: 15x, sun alt 46, OIDN denoise"]
-    H8["8K hero render (7680x7906)<br/>2K / 4K / 8K WebP variants in Phase 1"]
-    OV["overlay_borders.py<br/>pyshp + pyproj + pycairo, same Albers +<br/>ortho-margin mapping; coastline oracle;<br/>cased white borders, dashed disputed/maritime"]
-    HF[("hero_bordered_8k.png +<br/>transparent border layer<br/>(gallery border-toggle asset)")]
+  subgraph HERO["Hero render path — done, ~204 countries"]
+    P["render/render_prep.py<br/>warp EPSG:4326 to Albers equal-area conic,<br/>~16k Float32 TIFF + nearest-warped masks<br/>+ 0/255 lake & river PNGs for the shader"]
+    B["render/scene_build.py — Blender Cycles, RTX 4070S / OptiX, headless -b<br/>true displacement + adaptive subdivision<br/>two ColorRamps switched by ocean mask<br/>+ in-scene flat lake/river teal<br/>locked look: 15x, sun alt 46, OIDN denoise"]
+    SV["render/sky_view.py — burn-only horizon SVF<br/>darkens land valleys post-render"]
+    H8["8K hero (long edge 7680) + 2K/4K WebP variants<br/>(compose/hero_variants.py)"]
+    OV["compose/overlay_borders.py<br/>pyshp + pyproj + pycairo, same Albers +<br/>ortho-margin mapping; coastline oracle;<br/>cased white borders, dashed disputed/maritime"]
+    HF[("bordered hero + transparent border layer<br/>(compose/gen_borders.py — the gallery toggle asset)")]
   end
 
   O1 --> P
   O2 --> P
   O3 --> P
   P --> B
-  B --> H8
+  B --> SV
+  SV --> H8
   H8 --> OV
   R4 --> OV
   OV --> HF
 
-  subgraph TILES["Tile pyramid — Phase 2, in progress"]
-    PF["fuse_planet.py — globe as 10x10-deg cells<br/>10-arcsec EPSG:4326, 12-wide subprocess runner<br/>tileList coverage gate; Antarctica deferred"]
-    PH[("work/planet/planet_heightfield.vrt<br/>129600x54000, lat -60..90<br/>540 chunks, 12 GB")]
+  subgraph TILES["Tile pyramid — built and serving (z0-8)"]
     SN["render/snow.py — NSIDC-0791 persistence to a<br/>latitude-ramped soft alpha (0.40@45 to 0.60@63)<br/>unioned with an RGI 7.0 glacier raster"]
-    SH["tile/shade.py — reproject cells to WMQ 3857 (-tap),<br/>mosaic, shade once: color-relief x single-NW hillshade<br/>(per-lat z-factor, relief.py) x sky-view (sky_view.py) + snow"]
-    T2["gdal raster tile: 512 px, z0-8<br/>to MBTiles, then pmtiles convert"]
+    LD["render/lake_depth.py — GLOBathy depth warped once<br/>to the 3857 grid, masked to watermask class 2<br/>(tint-only: never carved into the heightfield)"]
+    WI["tile/shade_planet.py warp_inputs<br/>height + masks -> one WMQ-aligned 3857 grid<br/>-tap -tr 305.7483 -> 131072 x 93009"]
+    HS["render/hillshade.py — per-row z-factor 15/cos(lat)<br/>full-width, 1-row halo -> seamless;<br/>gdaldem takes only a scalar z, hence our own"]
+    SH["tile/shade.py composite() — per 256-row window:<br/>land/sea ramps from elevation via a 17.6 KB LUT<br/>(replaced two gdaldem color-relief passes)<br/>x hillshade x sky-view + snow + lake depth"]
+    T2["gdal raster tile: 512 px, z0-8, xyz convention<br/>~62,000 tiles; tiles_old kept as rollback"]
+    T5["pmtiles convert — Phase 4, not yet run"]
   end
 
-  S1 -.->|all land cells, global| PF
-  S2 -.-> PF
-  PF --> PH
-  PH --> SH
+  PH --> WI
+  WI --> HS
+  HS --> SH
+  WI --> SH
   S4 --> SN
   S5 --> SN
+  R5 --> LD
   SN --> SH
+  LD --> SH
   SH --> T2
+  T2 -.-> T5
 
-  subgraph SITE["Site — Phases 3-4"]
-    W["three-tier static site on rohome (nginx)<br/>Tier 1 gallery / Tier 2 MapLibre globe<br/>Tier 3 globe + terrain-RGB relief"]
+  subgraph SITE["Site — Tiers 1+2 live on `feat/frontend`; deploy is Phase 4"]
+    W["three-tier static Astro site, nginx on rohome<br/>Tier 1 gallery / Tier 2 MapLibre globe (live)<br/>Tier 3 globe + terrain-RGB relief (deferred:<br/>needs an elevation pyramid we have not built)"]
   end
 
-  T2 -.-> W
-  HF -.-> W
-  S3 -.->|vector border overlay| W
+  T2 --> W
+  HF --> W
+  S3 -->|vector border overlay| W
 
   classDef ext fill:#dbe9f6,stroke:#3572a5,color:#173a5e
   classDef done fill:#dcefe2,stroke:#2e7d4f,color:#1a3a28
   classDef next fill:#fdf3d7,stroke:#b8860b,color:#4a3a10
   classDef plan fill:#eceff1,stroke:#78909c,color:#37474f
 
-  class S1,S2,S3,S4,S5 ext
-  class D1,R1,R2,R3,D2,R4,V,F,O1,O2,O3 done
-  class P,B,H8,OV,HF done
-  class PF,PH done
-  class SN,SH,T2 next
-  class W plan
+  class S1,S2,S3,S4,S5,S6 ext
+  class D1,R1,D2,R4,D3,R3,D4,R5,V,F,PF,PH,O1,O2,O3 done
+  class P,B,SV,H8,OV,HF done
+  class SN,LD,WI,HS,SH,T2 done
+  class T5 next
+  class W done

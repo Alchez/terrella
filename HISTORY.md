@@ -4,6 +4,53 @@ Chronological archive of decisions and their rationale, split out of PLAN.md on 
 
 ## Decision log
 
+### 2026-07-16 — the composite parallelises with THREADS, and the xarray/dask question is settled by that
+
+Asked whether the pipeline should move to the xarray/dask ecosystem. Answered by measurement rather than
+by argument, because the first answer given was argued from memory and three of its four reasons did not
+survive checking (below).
+
+**The measurement.** `shade.composite` — the production function, imported, not retyped — over real
+windows read off the real `height/ocean/water/hs/lakedepth_3857` rasters, 8 windows × 32 rows × 131072,
+under the usual 12 G scope. (Honest caveat: `snow_a` is zeros and `occ` synthetic; both are
+elementwise/interpolation ops whose *cost* is value-independent, so this times the same work. The
+bandwidth-driving arrays are real.)
+
+| threads | wall | cpu | cores | speedup | efficiency |
+|---|---|---|---|---|---|
+| 1 | 3.84 s | 3.83 s | 1.00 | 1.00× | 100% |
+| 2 | 2.14 s | 4.05 s | 1.90 | 1.80× | 90% |
+| 4 | 1.36 s | 4.80 s | 3.54 | **2.83×** | 71% |
+| 8 | 1.08 s | 6.97 s | 6.48 | 3.57× | 45% |
+
+- **numpy releases the GIL, so plain threads work.** 4 threads genuinely occupy 3.54 cores. This kills the
+  `ProcessPoolExecutor` design drafted the same morning — it existed to dodge a GIL that does not bind,
+  and would have paid ~36 GB of pickling across 1456 windows to do it. Threads need no IPC, no fork-safe
+  handle juggling, and no serialisation. **~10 lines around the existing loop.**
+- **Memory bandwidth is the real ceiling, not the GIL and not the scheduler.** Efficiency decays 90%→45%
+  between 2 and 8 threads; CPU time inflates 3.83→6.97 s for the same work. **~3× is the ceiling and 4 is
+  the knee.** No framework changes this — it is a property of streaming 100 MB float32 arrays.
+- **Therefore the xarray/dask case collapses on its own merits, not on taste.** Dask's headline benefit
+  here is parallel scheduling, and its threaded scheduler would reach the same ~3× by the same mechanism
+  (threads + GIL-releasing ufuncs) that a `ThreadPoolExecutor` reaches for free. Two supporting facts,
+  both verified rather than recalled: **rioxarray does not replace rasterio** — it is "a geospatial xarray
+  extension *powered by rasterio*" (PyPI, 0.22.0), so adopting it *adds* a layer; and **xarray-spatial
+  cannot do our hillshade at all** — `hillshade(agg, azimuth, angle_altitude, name, shadows, boundary)`
+  has **no z-factor parameter**, which is the entire reason `render/hillshade.py` exists.
+- **What dask would genuinely buy, recorded honestly so this can be reopened:** `map_overlap` expresses
+  the 1-row halo we hand-rolled; named dims/coords make the per-row latitude z a natural broadcast
+  instead of a `.reshape(-1, 1)`; chunk management would retire the manual `del` + `gc.collect()`. All
+  real, none worth a migration of code that was verified bit-for-bit this week — and none of it is
+  parallelism, which was the thing we wanted.
+- **The retracted argument, kept as the lesson.** The first answer gave four reasons to reject dask. Only
+  one survived: CLAUDE.md's "prefer boring, debuggable scripts over frameworks" (a real, quotable
+  convention). "Zero RAM headroom" was false (`free`: 20 GB available). "OOM-killed twice this week" was
+  false (`journalctl -k`: exactly one, 2026-07-15 22:17). "Dask replaces a measured number with a
+  scheduler that decides for you" was wrong — dask chunks are explicit. And "dask graphs are harder to
+  debug" was judgment presented as finding. **Four reasons felt more rigorous than one; three were
+  decoration.** Same disease as the proxy bugs, one level up: the check felt thorough because there were
+  several of them. → § 2026-07-16 — the instrumented planet pass
+
 ### 2026-07-16 — optimisation #2 landed: `gdaldem color-relief` DELETED; the ramps became a 17.6 KB LUT
 
 `composite()` now takes ELEVATION and applies the land/sea ramps itself via `palette.relief_lut`.
@@ -200,8 +247,11 @@ A/B**. The full pass is not yet run.
 - **What the flat fill was costing, in one number:** today Baikal (1642 m) and Namtso (125 m) render
   **the identical pixel colour, (141,197,195)** — 13× the depth, zero difference. With depth: (75,131,145)
   vs (97,152,162). Coverage is fine: GLOBathy reaches 71% of WBM lake px in Tibet / 99% at Baikal, and of
-  the shortfall ~31% is whole ponds with a **median size of 2 px** (no gradient possible at any threshold)
-  while ~69% is rim inside graded lakes, invisible because the ramp starts at `WATER_RGB`.
+  the shortfall ~31% is whole ponds with a **median size of 2 px** (no gradient possible at any threshold,
+  so lowering `MIN_BYTES` buys nothing) while ~69% is rim inside graded lakes — the HydroLAKES↔WBM
+  shoreline mismatch — invisible because the ramp starts at `WATER_RGB` and reads as a shelf.
+  **528 bodies carry 91% of all lake pixels**, which is why a threshold that keeps 83,357 of 1.43 M
+  rasters loses nothing visible.
 - **RAM measured (`experiments/composite_ram.py` + a timed region render), and the cap was already wrong.**
   Real pipeline peak: **6.45 GiB without depth, 6.93 GiB with** — the depth branch costs **+0.48 GiB**,
   not the ~1 GB I predicted by summing temporaries (numpy frees as it goes; the peak is not the sum).
@@ -400,9 +450,27 @@ globe (Caucasus/Caspian screenshot).
   lake)**, and GEBCO **does** carry its measured bathymetry. The fusion consults GEBCO only where `ocean`
   (`fuse_heightfield.py:211`), and `coastal_water` (`|land| ≤ 1`) can't fire on a −28 m surface → the
   heightfield takes GLO-30's flat lake surface. Verified: fused = **−28.0 m at both the deep basin and the
-  north shelf**, while GEBCO holds **−464 m / −1026 m**. The data exists and fusion discards it. Fix + its
-  full rationale (why each clause of the rule earns its place; why the bbox is load-bearing against the Dead
-  Sea) now lives as the active Phase-2 item in PLAN.md.
+  north shelf**, while GEBCO holds **−464 m / −1026 m**. The data exists and fusion discards it.
+- **The fix, as shipped** (`fuse_heightfield.is_caspian`, re-fused 2026-07-15; migrated here from PLAN on
+  2026-07-16 once it stopped being a forward plan). One rule absorbs the Caspian into `ocean`, after which
+  *everything downstream flows with no shading change* — oceanmask → sea ramp + `sea_lift`/`sea_shade`/
+  `sea_svf`, and `classify_water` reclassifies 2→1 so the flat-water branch stops catching it:
+
+      (wbm == 2) & (land < CASPIAN_MAX_SURFACE_M) & in_bbox(46.5, 36.5 → 55.5, 47.5)
+
+  **Each clause earns its place, and the bbox is load-bearing rather than laziness:**
+  - `wbm == 2` gives the **DEM's own shoreline**, so GEBCO's coarse 15″ coast never defines the edge
+    (`min(gebco, -1)` then keeps shallow margins continuous instead of cutting a ring).
+  - `land < −5 m` excludes the **Mingevir Reservoir** (+83 m); the Caspian's surface is a uniform −28 m.
+  - The **bbox** excludes the **Dead Sea** (−430 m, WBM lake, but **no GEBCO bathymetry**). Without it the
+    rule catches the Dead Sea, which collapses to `min(gebco, -1) = −1` and renders as a flat bright slab —
+    a regression. This is why the rule is not simply "below-sea-level lakes".
+  - Uniquely cheap **because the Caspian is below sea level throughout**, so absolute elevation maps onto the
+    existing sea ramp: no new ramp, no per-lake datum. Nothing else on the planet qualifies.
+  - **Expected result was structure, not darkness** — median Caspian depth is only ~48 m, so it stays
+    legitimately bright. Predicted lum 180 → 168 shelf / 152 mid / 146 deep (vs Black Sea 129). The
+    2026-07-15 regression render measured p10/p50/p90 = **137.0 / 158.8 / 167.8** against a *literal* flat
+    slab (spread **0.0** over 2.37 M px). A flat slab became a shaded basin, as predicted.
 - **Lake-depth datasets evaluated (answers `lake_depth_prototype.py`'s "see the PLAN.md open question").**
   GEBCO was probed across every major lake: real bathymetry for **the Caspian and the Great Lakes only** —
   Baikal, Tanganyika, Victoria, Titicaca, Ladoga, Great Bear and the Aral all return a flat surface
@@ -824,6 +892,32 @@ tiles, 13 GB** at `data/work/planet_tiles/tiles/{z}/{x}/{y}.png`. Globe page: `d
 **Verified** on 8765 (whole-planet mosaic + Alps z5 tile): seamless across strips, global persistence+ramp
 snow, RGI glaciers crisp (Greenland/Arctic/Himalaya/Andes/Alps), full bathymetry.
 
+> **`tile_planet.py` DELETED 2026-07-16.** Recover with
+> `git show a7b7223:pipeline/tile/tile_planet.py` — a7b7223 is an ancestor of main, so the copy is
+> permanent and byte-identical to what was removed. This entry is now the record; the file was not.
+>
+> **Why it went, beyond being superseded** — the reasons are the transferable part:
+> - **A retired path kept in production aims at production.** Both scripts defaulted `--out` to
+>   `data/work/planet_tiles`, so `tile_planet --tiles` would re-shade 194 strips for hours, then hit
+>   `if not planet_tif.exists()` — silently **skipping its own mosaic** because the *good* verified
+>   `planet_rgb.tif` was sitting there — and cut tiles **straight into the live `tiles/`** with
+>   `--resume`, which *skips existing tiles*. Result: a hybrid of new and pre-Caspian tiles with **no
+>   `tiles_old` rollback**. It predates every safety mechanism that replaced it (`.done`, `is_stale`,
+>   stage-into-`tiles_new`-then-swap). It still parsed, and `shade.py` still exposed the `--zfactor` and
+>   `svf_strength=0` it shelled out to — so it **ran**. Dead code that still runs and still points at the
+>   live outputs is not clutter; it is a loaded gun.
+> - **It had stopped being a faithful record — the thing it was being kept for.** It shelled out to
+>   `shade.py`, which moved underneath it: LUT ramps replaced color-relief, lake depth arrived,
+>   `WATER_RGB` changed, float32 replaced float64. Running it would reproduce **neither** the strip
+>   output documented above **nor** the current look — only a chimera of today's palette with the
+>   retired z=20/no-SVF geometry. Its own line 32 already admitted the drift ("safe for the float64
+>   composite"). The experiments audit's bar for keeping things is that *a **working** experiment is the
+>   record of a decision*; a script whose dependencies have drifted under it cannot reproduce what it
+>   records, so it fails that bar even though it is not "broken".
+> - **Retirement hygiene, stated generally:** when a path is superseded, *delete it or move it out of
+>   the production package the same day*. Prose calling it "retired" (PLAN, INVENTORY, and
+>   `shade_planet.py`'s own docstring all did) does not disarm an entry point. git is the archive.
+
 **First-pass caveats — refinements, not blockers:**
 1. Faint **vertical lines in deep ocean** = lon-adjacent strip boundaries; `gdaldem hillshade --compute_edges`
    extrapolates each strip's shared edge ~1px differently. Fix: shade strips with a small overlap and crop,
@@ -1051,6 +1145,34 @@ heroes; the items below are **outstanding, to handle after the sweep**:
 - **THEN — post-render asset workflow** for the good heroes: `pipeline/hero_variants.py` →
   `pipeline/gen_borders.py` → `web/scripts/gen_manifest.py` → `pnpm build` (Phase 3, populates gallery/
   detail/borders for all countries).
+
+### 2026-07-10 — Phase 3 begins: Tier 1 gallery shipped (Astro 7, `feat/frontend`)
+
+Migrated here from PLAN.md on 2026-07-16 — these are shipped architecture decisions, not forward plan.
+An Astro 7 static site under `web/` (git worktree `../maps-frontend`, merge to `main` later): responsive
+gallery of country heroes, per-country detail pages, About page — all data-driven so they fill in as
+renders complete.
+
+- **Astro 7 + pnpm.** Self-hosted **Fraunces** display serif via the stable Fonts API (`_astro/fonts`,
+  **no runtime external requests**); system sans + mono utility face. Component hierarchy: `Base` (shell +
+  fonts + the floating persistent border toggle) → `Masthead` (eyebrow + heading + optional back link +
+  legend, per-page via props/slots) → `Legend` (the hypsometric ramp — the signature element). Design
+  tokens live in `src/styles/global.css`, moved out of a component `<style is:global>` for reliable CSS HMR.
+- **Assets are external, never bundled** — the rule that keeps `dist` small. Hero WebP + border PNGs live
+  in the render store: a dev-only Vite middleware maps `/heroes/*` → `blender/renders/variants/`; in prod
+  nginx serves the same path. The build emits only HTML/CSS/JS referencing `/heroes/…`, so **tens of GB are
+  never copied into `dist`**.
+- **Manifest bridge:** `gen_manifest.py` reads `country_config` + scans the variant store → `countries.json`
+  (name, continent, aspect, variant sizes, `hasBorder`). Re-run after each asset pass. Operational command
+  chain lives in `docs/pipeline.md` § From heroes to the website — **not** in PLAN, where a stale copy
+  rotted against moved paths (`pipeline/hero_variants.py`, `web/scripts/`) before being deleted 2026-07-16.
+- **Borders** are drawn by `gen_borders.py` from prep outputs only (reusing `overlay_borders`' AEA→pixel
+  mapping), independent of the render — which is what lets the gallery toggle them.
+- **Responsive: two width tiers.** Browse grid `min(2200px, 94vw)` with column-*width*-driven masonry
+  (~6 cols at 2K → 1 on mobile); content pages `min(1500px, 92vw)`; prose kept to a readable measure.
+  **CSS gotcha worth keeping:** scoped component selectors must not collide with the shared
+  `.legend`/`.card` — Astro's `figure[data-astro-cid]` **outspecifies** a global `.legend`, so scope to
+  `.card figure` / `.stage figure` instead.
 
 ### 2026-07-10 — Phase 2 step B prototype: raster recipe viable; "quieter tiles" reframed
 - **Result (`experiments/tile_recipe.py`, Switzerland):** gdaldem color-relief × gdaldem hillshade
@@ -1294,6 +1416,31 @@ demos before adopting):
   degrades to no-cap where unavailable (container). An OOM-kill (rc 137) is logged `kind:oom`
   and the country skipped — **no silent quality-degrade** (locked-look consistency); the human
   decides from the log. Runner keeps no durable in-memory state → a killed runner just re-runs.
+- **Prep-ahead producer/consumer runner: designed, measured, DEFERRED — and probably permanently.**
+  (Migrated here from PLAN.md on 2026-07-16; it sat as an unbuilt 25-line design in the living plan long
+  after its gate passed.) `batch.py` serialises prep (stages 0–4: download/mosaic/fuse/warp/snow —
+  network/CPU/disk, GPU-idle) with the render (stage 5 — GPU) per country, so the GPU idles through
+  downloads. **Measured on the 2026-07-09 sweep: ~9% GPU duty cycle** — ≈15 min of rendering inside
+  ~2h49m; Canada's 6376-tile download alone idled the GPU ~40 min, while renders are only ~1–4 min each.
+  - **Design, if ever built.** Render is VRAM-locked to one-at-a-time (8K peaks ~11–12 GB of 12 GB), so
+    *render must stay serial*; the win is overlapping prep with render (disjoint hardware). One render
+    worker holds **the sole GPU lease**, draining a queue; 1–few prep workers stay N countries ahead.
+    The ready queue is **implicit** — countries whose `render/`+snowmask exist but hero doesn't,
+    discoverable by filesystem scan — so **resume stays filesystem-only, with no durable queue state**.
+    Prep **smallest-first** (by GLO-30 tile count) so the renderer never starves behind a giant download.
+    Disk bounds the queue depth N (each un-pruned work dir is up to ~4.5 GB).
+  - **Safety invariants that must NOT regress** — each one is a bug this project already paid for:
+    (1) **single-instance `flock`** — the 2026-07-09 two-runner collision was exactly this missing guard;
+    (2) **per-country claim** (atomic `mkdir data/work/<slug>/.claim`) so no two workers share a work dir
+    — this is what produced the `--clean`-vs-fuse race and its `heightfield.tmp: No such file` errors;
+    (3) `--clean` stays post-render and render-worker-only; (4) atomic stage finalisation unchanged;
+    (5) **RAM-aware gating** — cap concurrent memory-heavy ops (≤1 fuse) and keep the pre-render
+    `MemAvailable` gate + cgroup cap, since a big fuse plus a ~12 GB render can blow past 30 GB.
+  - **Why it is probably moot.** Expected win was wall-clock → `max(total_prep, total_render)` instead of
+    the sum (~2–4× on download-heavy runs). Its gate was "after Phase 1 hero renders complete" — which
+    passed on 2026-07-13, with the sweep already done. The **zero-complexity 90% alternative** is the
+    existing phase split (`--through prep` to completion, *then* `--through render` = pure GPU), which
+    suffices whenever prep may finish first. Build it only if a full re-render sweep is ever needed again.
 
 ### 2026-07-09 — Global GEBCO acquired: batch renders unblocked 6 → 198 countries
 

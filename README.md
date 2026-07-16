@@ -18,14 +18,14 @@ The probe upgrades optimistically and the visitor can override the choice. Every
 
 ## How it's built
 
-Two asset pipelines feed one site. Heroes are pre-rendered offline in Blender from the fused heightfield (one scene rig, framed per country). A global **raster tile pyramid** approximates the same look with hillshade + sky-view shading and the same color ramps, packaged as a single **PMTiles** archive so the globe needs no tile server. The frontend is a static Astro site; it's served behind nginx on self-hosted infrastructure with aggressive caching. Everything is reproducible from committed source — **no rendered assets or DEM data live in git**, only code, config, and per-country frame pins.
+Two asset pipelines feed one site. Heroes are pre-rendered offline in Blender from the fused heightfield (one scene rig, framed per country). A global **raster tile pyramid** approximates the same look without ray tracing — hillshade + sky-view shading and the same color ramps — and will ship as a single **PMTiles** archive so the globe needs no tile server. The frontend is a static Astro site; it's served behind nginx on self-hosted infrastructure with aggressive caching. Everything is reproducible from committed source — **no rendered assets or DEM data live in git**, only code, config, and per-country frame pins.
 
 ## Status
 
 - **Phase 1 — done.** The all-country hero render pipeline; ~200 heroes, each reproducible from source.
-- **Phase 2 — next.** The global raster tile pyramid (PMTiles) that becomes the globe basemap.
-- **Phase 3.** The interactive MapLibre globe and the tiered frontend (the Tier-1 gallery already ships).
-- **Phase 4.** Deploy and polish.
+- **Phase 2 — done bar the packaging.** The global raster tile pyramid is built and serving the globe (512 px tiles, zoom 0–8, planet-wide land + bathymetry + snow + lake depth). Packaging it as PMTiles is a Phase 4 step.
+- **Phase 3 — Tiers 1 and 2 ship.** The gallery and the interactive MapLibre globe are both live, with a capability probe steering each visitor to the one their device can take. Tier 3's 3D terrain displacement is deferred — it needs an elevation-tile pyramid that isn't built yet.
+- **Phase 4 — next.** Deploy and polish.
 
 ## Read next
 

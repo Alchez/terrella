@@ -3,7 +3,10 @@
 
 Supersedes the 194-strip `tile_planet.py`, whose seam-avoidance hacks (a single global
 z-factor, SVF off, per-strip `gdaldem` edges) caused the defects seen on the first globe:
-blown-out tropics / flat high latitudes (wrong exaggeration), and faint block seams.
+blown-out tropics / flat high latitudes (wrong exaggeration), and faint block seams. That
+script was deleted on 2026-07-16 rather than left runnable beside this one -- it defaulted
+to the same --out and would have cut tiles into the LIVE pyramid with no rollback. Read it
+with `git show a7b7223:pipeline/tile/tile_planet.py`; the record is HISTORY 2026-07-14.
 
 The fix is to compute every shading input GLOBALLY and STREAMING, so nothing is normalised
 or edge-extrapolated per block, then composite in RAM-budgeted horizontal windows (the
