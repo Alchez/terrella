@@ -88,7 +88,8 @@ def per_row_zfactor_hillshade(height_path, out_path, exaggeration: float = 15.0,
         # otherwise hands rasterio.open's bool-typed `sharing`/`thread_safe` a `str | int | None`.
         profile: dict[str, Any] = dict(
             src.profile, driver="GTiff", count=1, dtype="uint8", nodata=None,
-            compress="deflate", tiled=True, blockxsize=512, blockysize=512, BIGTIFF="YES")
+            compress="deflate", tiled=True, blockxsize=512, blockysize=512, BIGTIFF="YES",
+            num_threads="ALL_CPUS")
         with rasterio.open(out_path, "w", **profile) as dst:
             for row0 in range(0, height, window_rows):
                 row1 = min(height, row0 + window_rows)

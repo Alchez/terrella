@@ -219,7 +219,8 @@ def main():
         profile: dict[str, Any] = dict(
             driver="GTiff", height=grid_h, width=grid_w, count=3, dtype="uint8",
             crs=src.crs, transform=src.transform, tiled=True, blockxsize=512,
-            blockysize=512, compress="deflate", photometric="RGB")
+            blockysize=512, compress="deflate", photometric="RGB",
+            num_threads="ALL_CPUS")
     with rasterio.open(out_tif, "w", **profile) as out:
         out.write(rgb)
     print(f"wrote {out_tif}", flush=True)

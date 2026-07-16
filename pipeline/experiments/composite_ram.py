@@ -2,13 +2,20 @@
 """Measure composite()'s peak RSS on ONE production-shaped planet window.
 
 The planet composite is the stage that has actually OOM-killed this box: windows are the full
-131072 px width, so window HEIGHT is the only RAM lever, and shade_planet.py records ~6 GB at
-WINDOW_ROWS=256 in float32 (384 rows in float64 peaked ~18 GB and died). The lake-depth branch
-adds arrays to exactly that hot spot -- lut[:, index] alone is ~400 MB at this shape -- so the
-question is whether it still fits under the cgroup cap.
+131072 px width, so window HEIGHT is the only RAM lever (384 rows in float64 peaked ~18 GB and
+died). The lake-depth branch adds arrays to exactly that hot spot -- lut[:, index] alone is
+~400 MB at this shape -- so the question is whether it still fits under the cgroup cap.
 
 Measured, not estimated, because estimating this from pixel count is the specific mistake that
 OOM-killed the box on 2026-07-15: the intermediates, not the inputs, are what blow up.
+
+SCOPE -- this is a LOWER BOUND on the pass, not a model of it. It measures composite() in
+isolation and opens no dataset; the real pass adds five readers, the writers, the GDAL block
+cache (GDAL_CACHEMAX=512) and runtime overhead. Re-measured 2026-07-16: this fixture reports
+3.88 GiB without depth / 4.50 GiB with, where the real pass peaks at 6.24 GiB against the 12 G
+cap (1.9x). The ~1.7 GiB gap is the machinery above and will not close by re-running -- PLAN
+spent a while chasing it as a stale number before noticing the two figures measure different
+things. See HISTORY 2026-07-16 "composite_ram.py was never the number PLAN said it was".
 
 Reports ru_maxrss: the process high-water mark, which is what a cgroup MemoryMax accounts
 against. Run the two arms in SEPARATE processes -- ru_maxrss never decreases, so a single

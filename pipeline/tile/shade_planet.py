@@ -287,7 +287,8 @@ def composite_planet(work: Path, hs, occ, variants=None,
     profile: dict[str, Any] = dict(
         driver="GTiff", width=width, height=height, count=3, dtype="uint8",
         crs="EPSG:3857", transform=transform, tiled=True, blockxsize=512,
-        blockysize=512, compress="deflate", photometric="RGB", BIGTIFF="YES")
+        blockysize=512, compress="deflate", photometric="RGB", BIGTIFF="YES",
+        num_threads="ALL_CPUS")
     ocean_p, water_p = work / "ocean_3857.tif", work / "water_3857.tif"
     depth_p = work / "lakedepth_3857.tif"
     writers = {name: rasterio.open(tif, "w", **profile) for name, tif in outs.items()}

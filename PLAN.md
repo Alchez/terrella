@@ -69,21 +69,26 @@ yet. That, not effort, is why it is unstarted.
 
 1. ~~Hillshade → float32 + `window_rows=256`~~ **DONE** — 932→508 s, 11.6→2.03 GB. → HISTORY § optimisation #1 landed
 2. ~~Delete the color-relief stage~~ **DONE** — pass 98→72 min; ramps are now a 17.6 KB LUT. → HISTORY § optimisation #2 landed
-3. **`num_threads="ALL_CPUS"` on the two rasterio writers** (`shade_planet.py` composite, `hillshade.py`) — measured 2026-07-16: libdeflate is **9.93% of python-side CPU** and neither writer passes the flag, though both warps do. One line each, lossless, no params change. Cheapest win left.
+3. ~~`num_threads="ALL_CPUS"` on the rasterio writers~~ **DONE** — **10.0× on the writer** (8.79→0.88 s), byte-identical output, no rebuild forced; ~6 min of the composite's 53.8 (upper bound), on the next pass. Three writers, not PLAN's two — `shade.py`'s region writer is the sibling. → HISTORY § optimisation #3 landed
 4. **Warp snow + glaciers ONCE to the planet grid** — 728 forks, 7.8% CPU; also deletes the fixed-path `_sp_win.tif`/`_rgi_win.tif` temps, which are a hard blocker for #5.
 5. **Parallelise the composite with `ThreadPoolExecutor`, ~4 threads** — *not* processes. Measured 2026-07-16 on real windows through `shade.composite`: numpy releases the GIL, so threads scale **1.80× @2 / 2.83× @4 / 3.57× @8**, using 3.54 cores at 4. Efficiency falls 90%→45% as memory bandwidth saturates, so **~3× is the ceiling and 4 threads is the knee** (54→~19 min). Threads need no IPC, no pickling and no per-worker GDAL handles — a `ProcessPoolExecutor` design was drafted and killed by this measurement. Gated on #4 (the fixed-path snow temps are not concurrency-safe). Read/write stay on the main thread; rasterio datasets are not thread-safe.
 6. **`-srcnodata`→0-fill on GLOBathy** — `GDALWarpNoDataMasker` is 51% of the 62-min lake warp. Pays only on a re-extract.
 
 **Commonify: yes.** The same fix has landed at one call site and been missed at its siblings **four**
 times — float32+window (composite had it, hillshade didn't), warp-once (lakedepth had it, snow didn't),
-`NUM_THREADS` (warps have it, both writers don't), and `# pyright: ignore` for rasterio's untyped
+`NUM_THREADS` (warps had it, writers didn't), and `# pyright: ignore` for rasterio's untyped
 `Window` (fuse/render_prep had it, four new sites didn't). Plus four copies of A/B-crop tooling.
+`GTIFF_CREATE` now has live evidence *and* a constraint: the 2026-07-16 `NUM_THREADS` fix took the **three**
+tile writers and left three more unflagged — and **fusion's two must stay that way**, since `fuse_planet.py`
+sets `GDAL_NUM_THREADS=1` on purpose (parallelism is across cells) and an explicit creation option would
+override it. So the constant carries the **format** options only; **threading is per-call-site policy**, or
+it silently oversubscribes fusion. → HISTORY § optimisation #3 landed
 Smallest first, independently useful: a shared `GTIFF_CREATE` constant · `stream_windows(src, rows,
 dtype)` (the one with real money — it is what would have carried float32 to the hillshade) ·
 `warp_once(...)` behind `is_stale` · generalise `lake_ab.py` to `--left/--right`.
 
 - **Experiments audit (2026-07-16):** retired `sea_ab.py` and `ab_crops.py` (bar: broken + subject concluded + conclusion already in production + zero refs). The other twelve stay — a *working* experiment is the record of a decision. → HISTORY § 2026-07-16
-- **`composite_ram.py`'s 6.93 GiB is STALE** — the real pass measures **6.24 GiB**, so the 12 G cap is ~1.9× and sound; re-run the fixture so it stops disagreeing with reality.
+- **`composite_ram.py` measures `composite()` alone — a lower bound, not the pass** (re-measured 2026-07-16: 3.88 GiB no-depth / **4.50 with**, vs the pass's **6.24**; the ~1.7 GiB gap is readers/writers/GDAL cache and will never close). 12 G cap = 1.9× the real peak, sound. The old "6.93 is stale" line conflated two scopes. → HISTORY § composite_ram.py was never the number
 - **Code in `pipeline/`, output in `data/`** — `data/` is gitignored, so the profiling harness that lived in `data/work/_profile/` was never tracked. Now `pipeline/profile/`. A rule, not an incident.
 
 ## Phase 3 — Frontend

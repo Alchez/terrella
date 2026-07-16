@@ -4,6 +4,71 @@ Chronological archive of decisions and their rationale, split out of PLAN.md on 
 
 ## Decision log
 
+### 2026-07-16 — optimisation #3 landed: `NUM_THREADS` on the GTiff writers (10x), and the "three for three" record explained
+
+`-co NUM_THREADS` had been measured and **rejected three times** here (`-multi`, `-wm`/`-wo NUM_THREADS`,
+and `-co NUM_THREADS` for color-relief — see § the profile that killed three flags). PLAN then proposed a
+fourth instance on the strength of one number, *libdeflate = 9.93% of python-side CPU*, which lived
+nowhere but PLAN and had **no surviving perf artifact**. So it was measured rather than trusted, on real
+data (`pipeline/experiments/writer_threads.py`).
+
+**Result: 8.79 s → 0.88 s, a 10.0x speedup on the writer**, with output **byte-identical** (same MD5, with
+an LZW control proving the comparison can fail).
+
+**Why this is not a contradiction of the three rejections — the reason matters more than the result.**
+Every earlier rejection was Amdahl's law, not a broken flag: for color-relief, libdeflate was **4.33%** of
+a stage dominated by libgdal's **19.37%** interpolation, so threading DEFLATE could touch ~18% of it at
+best. A *pure writer* has no interpolation — it is essentially all DEFLATE — so the same flag addresses
+~100% of the stage. **The flag was never useless; it was pointed at stages that were not compression-bound.**
+The rejections and this acceptance are the same finding read at two different call sites.
+
+- **Three writers, not the two PLAN named.** `shade.py`'s region writer is the composite writer's sibling,
+  and the "one implementation, both shade paths" rule (§ optimisation #2 landed) exists precisely because
+  the float32 fix reached `composite` and never reached `hillshade`. Taking only PLAN's two would have been
+  the **fifth** instance of that bug. Applied to `shade_planet.py` (composite), `hillshade.py`, `shade.py`.
+- **Two of the remaining writers must STAY unflagged — and that is a hard constraint on `GTIFF_CREATE`.**
+  `fuse_heightfield.py:212` and `build_void_wbm.py:116` run under `fuse_planet.py`'s `FUSE_ENV`, which sets
+  **`GDAL_NUM_THREADS=1` deliberately**: *"parallelism is across cells, not within a warp"*, with
+  `--workers W` cells in flight at a budgeted ~1.5 GB each. An **explicit creation option overrides that
+  config**, so flagging them would oversubscribe W x 16 threads against a sized RAM envelope. A shared
+  `GTIFF_CREATE` that carried `num_threads` everywhere would therefore silently break fusion's design —
+  **the constant must carry the FORMAT options; threading is per-call-site policy.** `render_prep.py:117`
+  (hero path) is merely unpaid, not unsafe.
+- **Verified in the pass's own environment, not just a clean one.** The first benchmark ran without
+  `GDAL_CACHEMAX=512`, which `run_pass.sh` sets and which changes block-cache flush timing — the exact
+  shape of this project's seven proxy bugs (the check diverging from the real thing). Re-run under it:
+  **10.10x**, unchanged. The tile pass sets no `GDAL_NUM_THREADS`, so the creation option governs there.
+- **No rebuild forced.** `composite_params()` serialises KNOBS + palette, never creation options, and
+  `hs_params.json` is only `{alt, az, exag}` — verified: params byte-identical, `planet_rgb` still fresh,
+  **with a control that fires** (a just-edited source as a dep returns True). The first control tried was
+  itself blind — `is_stale` reads `newest_mtime`, which ignores a path that does not exist, so a missing
+  dependency can never mark anything stale. The blind-oracle bug (§ 2026-07-06), caught in its own control.
+- **Extrapolated saving: ~6 min of the composite's 53.8**, and that is an **upper bound** — the benchmark
+  band compresses 2.0x against the planet's 3.0x average, and flatter data deflates faster. The hillshade's
+  share is unmeasured; the 3-band RGB number does not transfer to a 1-band raster. **Pays only on the next
+  pass**, which is why it is worth exactly one line each and no more.
+
+### 2026-07-16 — `composite_ram.py` was never the number PLAN said it was
+
+PLAN carried *"`composite_ram.py`'s 6.93 GiB is STALE — re-run the fixture so it stops disagreeing with
+reality."* Re-running it moves it **further** from the real pass, not closer, because the premise was wrong:
+**6.93 GiB was never the fixture's output.** It was the *pipeline* peak measured on 2026-07-15 with the
+fixture's help (§ GLOBathy lake depth), and the fixture was rewritten for the post-LUT signature in the same
+commit that landed it — so nobody had re-run it since its inputs changed.
+
+Measured today, capped, both arms in separate processes: **3.88 GiB without depth, 4.50 GiB with** — the
+depth branch costs **+0.62 GiB** (the 07-15 pipeline-scope figure was +0.48).
+
+**The fixture and the pass measure different things, and always did.** `composite_ram.py` measures
+`composite()` *in isolation*; it opens no dataset. The real pass adds five readers, the writers, the GDAL
+block cache (`GDAL_CACHEMAX=512`) and runtime overhead — so the fixture is a **lower bound on the pass**,
+by ~1.7 GiB, and no amount of re-running will reconcile 4.50 with 6.24. That is not a defect: the docstring
+says exactly what it measures. The defect was PLAN conflating two scopes into one number.
+
+**Nothing needs resizing.** The real pass peaks at **6.24 GiB** (§ optimisation #2 landed) against the 12 G
+cap = **1.9x**, and composite is once again the peak stage now that the hillshade fix took it 11.6 → 2.03 GB.
+`watchdog.py`'s `ANON_WARN_MB = 10_000` sits correctly between the two. Only the quoted numbers were stale.
+
 ### 2026-07-16 — the composite parallelises with THREADS, and the xarray/dask question is settled by that
 
 Asked whether the pipeline should move to the xarray/dask ecosystem. Answered by measurement rather than

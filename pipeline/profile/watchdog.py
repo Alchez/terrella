@@ -34,7 +34,7 @@ from pathlib import Path
 POLL_S = 10.0
 HEARTBEAT_S = 1200.0     # 20 min: quiet enough not to nag, often enough that silence is not scary
 STALL_S = 420.0          # 7 min of zero CPU AND zero disk anywhere in the cgroup
-ANON_WARN_MB = 10_000    # the cap is 12 G; composite measures 6.93 GiB of anon
+ANON_WARN_MB = 10_000    # the cap is 12 G; composite peaks at 6.24 GiB of anon (re-measured 07-16)
 SWAP_WARN_MB = 1_500     # swap sat pinned 7/7 all of 2026-07-15; never again unnoticed
 
 # Stage markers shade_planet.py already prints. "composited rows" is deliberately excluded.
