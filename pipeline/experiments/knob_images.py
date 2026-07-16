@@ -79,8 +79,8 @@ def load_base(region, mid_lat, long_edge):
     """Read the cached shade layers at preview resolution + recompute SVF once."""
     shape = preview_shape(region, long_edge)
     height, width = shape
-    land = read3(region / "c_land.tif", shape)
-    sea = read3(region / "c_sea.tif", shape)
+    # c_land/c_sea were deleted with the color-relief stage (2026-07-16).
+    heights = read1(region / "height.vrt", shape).astype("float32")
     ocean = read1(region / "ocean.vrt", shape, Resampling.nearest) != 0
     watercode = read1(region / "water.vrt", shape, Resampling.nearest)
     water = (watercode == 2) | (watercode == 3)

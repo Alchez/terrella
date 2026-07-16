@@ -5,7 +5,8 @@ Recipe (decided 2026-07-04, refined same day, see PLAN.md):
   ocean  = WBM class 1, or outside GLO-30 tile coverage (open-ocean cells),
            or WBM lake/river (2/3) within 1 m of sea level - ESA classifies
            coastal lagoons and tidal channels as lake/river; at sea level
-           they are visually sea (Chilika, backwaters, Sundarbans)
+           they are visually sea (Chilika, backwaters, Sundarbans),
+           or the Caspian Sea (2026-07-15, see is_caspian)
   sea    = GEBCO upsampled with cubic spline, clamped to <= -1 m
   land   = GLO-30 resampled with area average
 Outputs, on the same grid, tiled with overviews:
@@ -49,6 +50,22 @@ DEM_NODATA = -9999  # VRT fill where no GLO-30 tile exists
 WBM_NODATA = 255
 BLOCK = 8192  # processing window size in pixels
 
+# The Caspian: the one inland water body we route through GEBCO + the sea ramp.
+# WBM calls it a lake (class 2) and its surface sits at -28 m, so the coastal_water
+# rule (|land| <= 1) can't reach it and the heightfield would take GLO-30's FLAT lake
+# surface -- discarding real measured bathymetry GEBCO already holds (-464 m mid-basin,
+# -1026 m deepest; probed 2026-07-15). It is uniquely safe to treat as ocean because it
+# lies below sea level THROUGHOUT, so its absolute elevations map onto the existing sea
+# ramp with no new ramp and no per-lake datum -- unlike Baikal (+456 m) or the Great
+# Lakes (+183 m), whose margins would hit the land ramp.
+#
+# The bbox is load-bearing, not laziness: it is what stops the rule reaching the Dead
+# Sea (-430 m surface, also a WBM lake), which has NO GEBCO bathymetry and would collapse
+# to min(gebco, -1) = -1 -- a flat bright slab, i.e. a regression. The surface test then
+# excludes the Mingevir Reservoir (+83 m), the only other lake inside the box.
+CASPIAN_BBOX = (46.5, 36.5, 55.5, 47.5)  # west, south, east, north (EPSG:4326)
+CASPIAN_MAX_SURFACE_M = -5.0  # its surface is a uniform -28 m; +83 m Mingevir is not
+
 
 def make_grid(bounds, res_arcsec):
     west, south, east, north = bounds
@@ -56,6 +73,24 @@ def make_grid(bounds, res_arcsec):
     width = round((east - west) / res)
     height = round((north - south) / res)
     return from_origin(west, north, res, res), width, height
+
+
+def is_caspian(transform, win, wbm, land):
+    """Caspian pixels in this window: WBM lake, below-sea-level surface, inside the bbox.
+
+    Intersecting with WBM class 2 means the DEM's own shoreline defines the edge, so
+    GEBCO's coarse 15" coast never does (and `min(gebco, -1)` keeps shallow margins
+    continuous rather than cutting a ring). Returns a plain False for windows that miss
+    the bbox entirely -- the planet is 648 cells and only four touch the Caspian, so
+    this must not allocate a BLOCK-sized array 644 times for nothing."""
+    west, south, east, north = CASPIAN_BBOX
+    lons = transform.c + (win.col_off + np.arange(win.width) + 0.5) * transform.a
+    lats = transform.f - (win.row_off + np.arange(win.height) + 0.5) * -transform.e
+    in_lon = (lons >= west) & (lons <= east)
+    in_lat = (lats >= south) & (lats <= north)
+    if not in_lon.any() or not in_lat.any():
+        return False
+    return (wbm == 2) & (land < CASPIAN_MAX_SURFACE_M) & (in_lat[:, None] & in_lon[None, :])
 
 
 def classify_water(ocean, wbm):
@@ -205,7 +240,8 @@ def main():
 
                 land = np.where(dem_win == DEM_NODATA, 0, dem_win)
                 coastal_water = ((wbm_win == 2) | (wbm_win == 3)) & (np.abs(land) <= 1.0)
-                ocean = (wbm_win == 1) | (wbm_win == WBM_NODATA) | coastal_water
+                caspian = is_caspian(transform, win, wbm_win, land)
+                ocean = (wbm_win == 1) | (wbm_win == WBM_NODATA) | coastal_water | caspian
                 gap_px += int(((dem_win == DEM_NODATA) & (wbm_win == 0)).sum())  # WBM-land, no DEM tile
                 land_px += int((wbm_win == 0).sum())
                 fused = np.where(ocean, np.minimum(geb_win, -1.0), land)

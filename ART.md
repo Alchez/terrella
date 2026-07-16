@@ -127,6 +127,9 @@ land, desaturated teal sea with visible shelf bathymetry, data-driven snow.
   0–450 m band — Palk Strait, Gulf of Khambhat, the Sundarbans shelf.
 - The −3,000 m cap controls how fast open ocean saturates to the darkest teal.
 - **Adjust:** SEA_STOPS / SEA_RANGE constants; same ramp gotchas as land.
+- **Tile ramp diverged (2026-07-14):** the globe sea rework deepened the surface ~15% and
+  extended depth to −6,000 m in the *tile* palette (`palette.py`) — `85B9B7@0 … 3A6E7D@1.0`.
+  These hero `SEA_STOPS` are unchanged; re-rendering heroes to match is an open item (HISTORY.md).
 
 ### Sky-view shading (post-render, added 2026-07-10) — `pipeline/sky_view.py`
 - Burn-only horizon sky-view-factor from `heightfield_aea`: darkens land *valleys* for

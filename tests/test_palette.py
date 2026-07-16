@@ -18,8 +18,8 @@ def _hex(code: str) -> tuple[int, int, int]:
 # The frozen hero ramp endpoints (CLAUDE.md → Locked global constants → Color).
 LAND_COAST = _hex("E9D9C0")   # land ramp @ 0 m
 LAND_PEAK = _hex("E9DCC8")    # land ramp @ 6000 m
-SEA_SHALLOW = _hex("8FC7C5")  # sea ramp @ 0 m (shallowest)
-SEA_DEEP = _hex("3A6E7D")     # sea ramp @ -3000 m (deepest)
+SEA_SHALLOW = _hex("85B9B7")  # sea ramp @ 0 m (shallowest; deepened ~15% from 8FC7C5, 2026-07-14)
+SEA_DEEP = _hex("3A6E7D")     # sea ramp @ -6000 m (deepest; depth extended from -3000, 2026-07-14)
 
 
 class TestScalarHelpers:
@@ -88,7 +88,7 @@ class TestColorRelief:
         assert land[0][1] == LAND_COAST
         assert land[-1][1] == LAND_PEAK
         assert sea[-1][1] == SEA_SHALLOW   # shallowest is at elevation 0 (last sea row)
-        assert sea[0][1] == SEA_DEEP       # deepest is at -3000 (first sea row)
+        assert sea[0][1] == SEA_DEEP       # deepest is at -6000 (first sea row)
 
 
 class TestWriteColorRelief:
