@@ -4,6 +4,50 @@ Chronological archive of decisions and their rationale, split out of PLAN.md on 
 
 ## Decision log
 
+### 2026-07-16 — the gdaladdo step DELETED: I optimised it 4.5x an hour before proving it does nothing
+
+Read the gdaladdo docs before the cut, found three candidate flags, killed two on measurement, landed the
+third at **4.5x** — and then read the `gdal raster tile` docs and discovered **the whole step is inert.**
+The 4.5x was a speed-up of a no-op. HISTORY's own 2026-07-15 lesson — *"the morning's entire optimisation
+plan was aimed at the fastest stage"* — was read the same day and walked into anyway. **Optimise only after
+proving the stage is on the critical path; "it runs every pass" is not that proof.**
+
+**`gdal raster tile` NEVER reads the source's overviews.** It builds each low zoom from the tiles it just
+generated — which is precisely why `--resampling` is documented as *"for max zoom"* and
+`--overview-resampling` exists separately. Proven by tiling one raster with and without overviews:
+**byte-identical manifest over every tile, identical wall time.** GDAL's RasterIO auto-uses overviews for
+any downsampled *source* read, so had low zooms come from the source, both bytes and time would have moved.
+
+- **Where the false belief came from — a confounded fix.** The 2026-07-14 note (*"tiling the 194-source VRT
+  directly re-reads every block per low-zoom tile — far too slow"*) bundled **two** changes: materialising
+  the VRT to a GTiff, and adding overviews. Materialisation was the real fix; the overviews rode along on
+  the same commit and were **never tested separately**. Two changes, one measurement, credit to both.
+- **Cost of the belief:** ~3 min and ~4 GB appended to the master, every cut, for nothing — plus the
+  "`build_tiles` is the only unguarded stage" wart, which **dissolves**: the unguarded stage no longer exists.
+- **Two GDAL facts, still true, still worth keeping** (they apply to `fuse_heightfield`'s `build_overviews`,
+  which is real). Recorded *because* they are dead ends — each is plausible enough to be re-proposed:
+  **`COMPRESS_OVERVIEW`** is a no-op (internal overviews already inherit the main image's DEFLATE — the docs
+  say it is "honoured" since 3.6 but never state the default, which is why it needed checking), and
+  **`GDAL_TIFF_OVR_BLOCKSIZE`** is a no-op (they already build at 512, inherited; the documented default of
+  128 never applies).
+
+**Two more landed from the same doc read, both proven byte-safe on a tile-ALIGNED rig** (col/row multiples
+of 512, matching `planet_rgb`'s `-tap` alignment — the first probe used col 60,000, off-grid, which would
+have forced resampling production never does):
+
+- **`--webviewer=none`.** The default is `all`. The live pyramid has been carrying `leaflet.html`,
+  `openlayers.html`, `mapml.mapml` and `stacta.json` since 07-14 — dead weight we never serve, and they
+  would have ridden into PMTiles. Tiles byte-identical; only the four files disappear.
+- **`--overview-resampling=cubic` — a PIN, not a change.** Identified by elimination: unset, it silently
+  inherits `--resampling`, so **z0-7 have always been cubic**. `average` was proposed and **rejected on
+  test — it is NOT the default and changes z0-7 pixels**; cubic is what built the verified 07-14 pyramid,
+  and there is no evidence against it. Pinned so most of the globe's zoomed-out surface stops depending on
+  an undocumented default. (Full elimination table: only `cubic` reproduced the default's bytes; `q1`
+  degenerates to `min` at these block sizes.)
+- **Hazard, docs-derived and NOT measured:** `--resume` "generates only missing files" with **no
+  verification**, so a tile left truncated by a kill is skipped rather than repaired. Not hypothetical —
+  the 07-15 cut was OOM-interrupted and resumed. Worth a verify pass before trusting a resumed pyramid.
+
 ### 2026-07-16 — optimisation #3 landed: `NUM_THREADS` on the GTiff writers (10x), and the "three for three" record explained
 
 `-co NUM_THREADS` had been measured and **rejected three times** here (`-multi`, `-wm`/`-wo NUM_THREADS`,

@@ -19,7 +19,7 @@ composite is per-pixel, so windowing it cannot seam):
   5. composite each full-width horizontal window (reusing tile/shade.py::composite) with the
      latitude-ramped snow (blue-white shadows) and RGI glaciers, and cap both polar edges
      (>84N, <-59.5S -> flat deep-sea) so MapLibre's globe shows clean polar discs;
-  6. add overviews and cut z0-8 512px tiles.
+  6. cut z0-8 512px tiles (no overview step -- `gdal raster tile` never reads them; see build_tiles).
 
 Every stage skips if its output is FRESH -- present, completed, and newer than everything it
 derives from (`is_stale`). An exists()-only guard cannot tell "built" from "still correct":
@@ -368,14 +368,28 @@ def composite_planet(work: Path, hs, occ, variants=None,
 
 
 def build_tiles(planet_tif: Path, out: Path):
-    """Overviews + z0-8 512px tiles into a staging dir, then swap over the live tiles."""
-    print("overviews ...", flush=True)
-    _run(["gdaladdo", "-r", "average", planet_tif, "2", "4", "8", "16", "32", "64", "128", "256"])
+    """Cut z0-8 512px tiles into a staging dir, then swap over the live tiles.
+
+    THERE IS NO gdaladdo STEP, deliberately. `gdal raster tile` builds each low zoom from the tiles
+    it just generated, never from the source's overviews -- proven 2026-07-16 by tiling one raster
+    with and without them for byte-identical output at identical wall time. The overviews this
+    function used to build cost ~3 min and ~4 GB appended to the master, for nothing. The
+    2026-07-14 note that justified them credited a confounded fix: materialising the 194-source VRT
+    to a GTiff was the real speed-up; the overviews rode along on the same commit untested.
+
+    `--overview-resampling=cubic` pins what is otherwise an UNDOCUMENTED default -- identified by
+    elimination (2026-07-16): unset, it silently inherits `--resampling`. This is byte-identical to
+    today and is what built the verified 07-14 pyramid, so it is a pin, not a change. z0-7 carry
+    most of the globe's zoomed-out surface; they should not ride on a default GDAL may alter.
+
+    `--webviewer=none`: the default is `all`, which emits leaflet/openlayers/mapml/stac files into
+    the pyramid. We serve our own MapLibre page, and they would ride into PMTiles.
+    """
     staging = out / "tiles_new"
     print(f"cutting z0-8 512px tiles -> {staging} ...", flush=True)
     _run(["gdal", "raster", "tile", "--min-zoom=0", "--max-zoom=8", "--tile-size=512",
-          "--resampling=cubic", "--convention=xyz", "--skip-blank", "--resume",
-          str(planet_tif), str(staging)])
+          "--resampling=cubic", "--overview-resampling=cubic", "--convention=xyz",
+          "--skip-blank", "--webviewer=none", "--resume", str(planet_tif), str(staging)])
     live = out / "tiles"
     if live.exists():
         old = out / "tiles_old"
