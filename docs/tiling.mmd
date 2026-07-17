@@ -1,0 +1,36 @@
+%% Tiling and serving — how the shaded 3857 master becomes a served tile pyramid.
+%% Companion to pipeline-detail.mmd, which compresses all of this into its single
+%% "gdal raster tile" node (T2). Update both when the tiling stage changes.
+
+flowchart TD
+
+  M[("Shaded planet master — tile/shade_planet.py<br/>planet_rgb.tif, EPSG:3857, uint8 RGB<br/>131072 x 93009, 305.7483 m/px<br/>z8-NATIVE: width = 512 x 2^8, so its pixels ARE the z8 grid")]
+
+  subgraph CUT["gdal raster tile — build_tiles (one call, two phases)"]
+    P1["Phase 1 — max-zoom cut (z8)<br/>each z8 tile = the source region it covers, 512 px<br/>source is already 3857, grid-aligned, at z8 resolution, so this is a<br/>pure copy: --resampling=cubic is INERT here (proven byte-identical to nearest)"]
+    Z8["z8 tiles — 46,592 (256 wide x 182 tall band; poles clipped)<br/>the finest level; holds the whole master, no loss yet"]
+    P2["Phase 2 — recursive overviews (z7 down to z0)<br/>each tile built from the 2x2 tiles BELOW it, never from the source<br/>(proven: tiling with vs without source overviews is byte-identical,<br/>which is why the old gdaladdo step was deleted)<br/>--overview-resampling=cubic pins an otherwise-undocumented default;<br/>cubic ringing compounds across the 8 levels"]
+  end
+
+  subgraph OUT["Tile directory — the addressing IS the API"]
+    DIR["planet_tiles/tiles/&lt;z&gt;/&lt;x&gt;/&lt;y&gt;.png<br/>XYZ convention (y counts down from the top-left)<br/>~62,177 tiles, ~4x per level (z0=1, z4=192, ... z8=46,592)<br/>--skip-blank omits empty tiles; --webviewer=none (no leaflet/ol junk)<br/>--resume skips EXISTING files without verifying them<br/>staged in tiles_new, swapped atomically, tiles_old kept as rollback"]
+  end
+
+  subgraph SERVE["Serving"]
+    ML["MapLibre GL raster source — globe.astro (LIVE today)<br/>tiles /tiles/&lt;z&gt;/&lt;x&gt;/&lt;y&gt;.png, maxzoom 8, same-origin<br/>tileSize:256 declared + 512 px assets = @2x retina crispness<br/>the globe projection re-warps the mercator tiles onto a sphere, GPU-side<br/>(WebMercatorQuad is dictated by this renderer, not chosen for itself)"]
+    PM["pmtiles convert — Phase 4, not yet run<br/>packs the whole directory into ONE .pmtiles file + index<br/>served by HTTP range request, no tile server<br/>dedupes identical ocean / polar-cap tiles<br/>frontend will need the pmtiles JS protocol handler (absent today)"]
+  end
+
+  M --> P1
+  P1 --> Z8
+  Z8 --> P2
+  P2 --> DIR
+  DIR --> ML
+  DIR -.-> PM
+  PM -.-> ML
+
+  classDef done fill:#dcefe2,stroke:#2e7d4f,color:#1a3a28
+  classDef next fill:#fdf3d7,stroke:#b8860b,color:#4a3a10
+
+  class M,P1,Z8,P2,DIR,ML done
+  class PM next

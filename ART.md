@@ -2,7 +2,7 @@
 
 The knobs that shape the final look, what each one does, where each one lives, and
 which are safe to play with. Baseline = the adopted 2026-07-08 look (v2 tuning session
-2026-07-05 + snow / fill sun / ramp-top amendment — constants in `pipeline/scene_build.py`,
+2026-07-05 + snow / fill sun / ramp-top amendment — constants in `pipeline/render/scene_build.py`,
 recorded in PLAN.md "Locked global constants"; canonical renders
 `blender/renders/heroes/<country>.png`). Everything here is about matching the Ramspott
 "Neutral" reference: soft raytraced shadows, heavy vertical exaggeration, warm sand/rose
@@ -10,13 +10,13 @@ land, desaturated teal sea with visible shelf bathymetry, data-driven snow.
 
 ## Where levers live (the "how" for every Adjust line below)
 
-- **`pipeline/scene_build.py` constants** — the global look. The .blend is *generated*
+- **`pipeline/render/scene_build.py` constants** — the global look. The .blend is *generated*
   from these; editing a constant means rebuild scene + re-render, for every country
   (that's the point: one look, ~195 posters). Record changes in PLAN.md's locked section.
 - **`config/countries.toml`** — which countries get heroes, and per-country knobs:
   scope (strict NE selector ± curated lists), mainland frame overrides for far-flung
   territories, `hero_long_edge` (default 7680), fusion 1″/3″ override, antimeridian
-  markers. `pipeline/country_config.py` resolves it into frames, sizes, preflights, and
+  markers. `pipeline/frame/country_config.py` resolves it into frames, sizes, preflights, and
   ready-to-run stage commands; committed frame.json pins live beside it in
   `config/frames/<slug>.json` (`--emit-pin` places them).
 - **`data/work/<country>/render/frame.json`** — per-country numbers (displacement_scale,
@@ -36,7 +36,7 @@ land, desaturated teal sea with visible shelf bathymetry, data-driven snow.
   without re-saving the .blend. Cut matched crops of each arm into a labeled strip and
   judge side by side. Ramp gotcha for such scripts: only `elements.new()` and *position*
   writes re-sort/invalidate — color-only writes on held references are safe.
-- **`pipeline/overlay_borders.py` style dicts** — border levers. Compositing only:
+- **`pipeline/compose/overlay_borders.py` style dicts** — border levers. Compositing only:
   iterate freely with no re-render.
 
 ## Levers (play with these)
@@ -84,6 +84,38 @@ land, desaturated teal sea with visible shelf bathymetry, data-driven snow.
 - **Adjust:** FILL_STRENGTH / FILL_ANGLE / FILL_ROTATION constants; in-blend A/B: select
   the "Fill" light and mute/delete it, or scale its Strength.
 
+### Fill sun — TILES (`KNOBS["fill_strength"]`, tile/shade.py; ported 2026-07-17)
+
+The section above, ported. The tiles copied the hero's *main* sun in 2026-07-14 and never got its
+fill, which was added later — so the same 15× produced sculpture in Cycles and crunch in a hillshade
+for three days. This closes that; it is not a new tile-side dial.
+
+- Baseline **0.15** — the hero's own ratio (`FILL_STRENGTH 0.45` / `SUN_STRENGTH 3`). Geometry is the
+  hero's too: **60° up, azimuth 135° (SE)**, in `render/hillshade.py` as `FILL_ALTITUDE`/`FILL_AZIMUTH`.
+  A hillshade has no cast shadows, so "shadowless" reproduces for free.
+- **Why the tiles needed it:** a single 45° sun on the 15×-exaggerated 305 m grid makes the slope term
+  `arctan(15 · gradient)`, so a **4° real slope presents as 46°** — past the sun — and the face goes to
+  hillshade **0**. Measured 2026-07-17: **43.7% of the Alps**, 38.0% Andes, 32.4% Scotland, 30.5%
+  Himalaya, 12.4% Sri Lanka. Flat black slabs with no information in them, and the bimodality they
+  create (p10 = 0, p25 = 85) *is* what reads as harsh. Any fill ≥ 0.10 → **0.00% on every site**.
+- **Self-regulating, exactly as the hero's is:** Amazon 0.02%, Great Plains 0.29% — flat country is
+  untouched, the fill only registers where resolved slopes are steep. If flat terrain ever moves, the
+  port is broken.
+- **DO NOT raise `ambient` to soften. This will look like the obvious fix. It is the rejected one.**
+  Swept 0.50 / 0.56 / 0.62 on 2026-07-17: every metric improved monotonically (Andes crunch 39.1 →
+  30.8) and every render got worse — hazy, i.e. the "washed rosy and flat" the hero's 2026-07-08 A/B
+  already rejected. **The fill IS the shadow floor** (see the division of labour below); a flat clamp
+  underneath it only lifts the pale high-elevation ramp into milk. `ambient` stays **0.50**.
+- **`hi` 1.30 → 1.12 rides with it** — tune the pair, never each alone. The fill lowers peak light
+  (max DN 255 → 226), so the old ceiling no longer binds and only clips the pale ramp.
+- **Still missing vs the hero, and worth knowing:** no `SUN_ANGLE` equivalent (no penumbra — its real
+  analogue is a cone-averaged/multidirectional hillshade, which HISTORY:1219 records as superseded by
+  the single NW sun) and no world ambient. The fill was the biggest of the three, not the only one.
+- **Adjust:** `KNOBS["fill_strength"]` in tile/shade.py, or `--knob fill_strength=0.20` for a region
+  A/B via `shade.py --cells` (which now runs the same light model as the planet path — verified to
+  2 DN). 0.20 is defensibly softer; past ~0.20 the compression reads flat rather than soft. Changing
+  it restages hillshade → composite → tiles.
+
 ### Light balance — Sun Strength + World (scene_build.py)
 - Sun `SUN_STRENGTH 3`; World `WORLD_RGBA F2E7D5` @ `WORLD_STRENGTH 0.3` — the ambient:
   tints everything and is the backdrop color around the map plane.
@@ -106,7 +138,7 @@ land, desaturated teal sea with visible shelf bathymetry, data-driven snow.
   and read its color/position. In bpy scripts: color writes safe, position writes invalidate.
 
 ### Snow — mask + color (`SNOW_RGBA`, scene_build.py; adopted 2026-07-08)
-- Data, not paint: `snowmask_aea.png` from `pipeline/snow_mask.py` (ESA WorldCover 2021
+- Data, not paint: `snowmask_aea.png` from `pipeline/render/snow_mask.py` (ESA WorldCover 2021
   v200 class 70 — permanent snow/ice only, seasonal excluded by the annual composite).
   The shader branch keys on the file existing in the render dir; no mask → graph
   identical to pre-snow.
@@ -127,8 +159,11 @@ land, desaturated teal sea with visible shelf bathymetry, data-driven snow.
   0–450 m band — Palk Strait, Gulf of Khambhat, the Sundarbans shelf.
 - The −3,000 m cap controls how fast open ocean saturates to the darkest teal.
 - **Adjust:** SEA_STOPS / SEA_RANGE constants; same ramp gotchas as land.
+- **Tile ramp diverged (2026-07-14):** the globe sea rework deepened the surface ~15% and
+  extended depth to −6,000 m in the *tile* palette (`palette.py`) — `85B9B7@0 … 3A6E7D@1.0`.
+  These hero `SEA_STOPS` are unchanged; re-rendering heroes to match is an open item (HISTORY.md).
 
-### Sky-view shading (post-render, added 2026-07-10) — `pipeline/sky_view.py`
+### Sky-view shading (post-render, added 2026-07-10) — `pipeline/render/sky_view.py`
 - Burn-only horizon sky-view-factor from `heightfield_aea`: darkens land *valleys* for
   topographic depth (so flat/low-relief countries read), open ground left at rendered
   brightness. Applied by `batch.py` after the render, before the atomic promote. Land only.
@@ -139,13 +174,27 @@ land, desaturated teal sea with visible shelf bathymetry, data-driven snow.
 ### Inland water (in-scene raster, decided 2026-07-07) — `WATER_RGBA` (scene_build.py)
 - Lakes and rivers come from the WBM masks (inlandlake_aea.png / river_aea.png) through
   the Lake/River Mix switches; the color is the single RGB node feeding both — baseline
-  `98C5C8` (the sea ramp's 0.15 stop). **The color node is the lever; the masks are not.**
+  `98C5C8`. **The color node is the lever; the masks are not.**
+- **⚠ `98C5C8` has DRIFTED — it is no longer any sea stop** (caught 2026-07-16 auditing this
+  file). It *was* the old sea ramp's 0.15 stop, back when that ramp was
+  `C6E4E2@0 / 98C5C8@0.15 / 649BA4@0.4 / 487D8A@1.0`; the 2026-07-10 smooth-C rework moved the
+  ramp and left the inland tint stranded — brighter and bluer (B 200 > G 197) than the teal it
+  sits beside. **This is the exact bug found in the *tile* palette on 2026-07-15** (`WATER_RGB`
+  → `8EC6C4`); the heroes were simply never checked. Nothing ties the tint to `SEA_STOPS[0]`,
+  so nothing failed. Fix in the hero sea-sync (PLAN Phase 3) — it re-renders anyway — and pin
+  it *relationally* then, the way the tile palette now does.
 - **Adjust:** WATER_RGBA constant; in-blend A/B: mute the River (or Lake) Mix node.
   Judge on the 2K preview, like borders.
-- Flat water is ground truth (GLO-30 hydro-flattens surfaces — Namtso is one plate at
-  4,725 m) and the decided look: the distance-transform depth prototype read well and
-  was rejected as an artificial gradient — reopen only with real modeled depths
-  (GLOBathy class). River depth rejected outright: no data, wouldn't read.
+- Flat water stays the hero look — but it is now a **divergence, not a decision.** The
+  2026-07-07 distance-transform prototype was rejected as an artificial gradient, to "reopen
+  only with real modeled depths (GLOBathy class)". **That condition was met: GLOBathy landed
+  2026-07-15 and the tiles took it** (`render/lake_depth.py`, tint-only, calibrated to
+  published Dmax within 1%) — Baikal and Namtso were the same pixel colour on the globe and
+  are now 18 lum apart. The heroes are what is left behind; a hero layer would be a parallel
+  module, as `snow_mask.py` parallels `snow.py`. Flat water stays *locally* honest (GLO-30
+  hydro-flattens surfaces — Namtso is one plate at 4,725 m), and **depth must stay tint-only:
+  never carve it into displacement** — at 15× Namtso becomes a 1.5 km crater and the
+  shadow-catching plate dies. River depth stays rejected outright: no global bed data exists.
 - Rivers read faint by design: nearest sampling keeps water *area*, not line continuity —
   the honest trace, chosen over a drawn cartographic line.
 
@@ -155,7 +204,7 @@ land, desaturated teal sea with visible shelf bathymetry, data-driven snow.
   near-verbatim — locked, not a lever.
 
 ### Borders (composited overlay — baseline 2026-07-06)
-- Drawn by `pipeline/overlay_borders.py` over the finished render; **iterate freely, no
+- Drawn by `pipeline/compose/overlay_borders.py` over the finished render; **iterate freely, no
   re-render**. Alignment is verified by the coastline oracle before any tuning.
 - **Judge width on the 2K preview (≈ fit-to-screen), never on the 1:1 crops** — the
   first attempt (4 px) looked right in crops and vanished at viewing scale.
@@ -180,6 +229,13 @@ land, desaturated teal sea with visible shelf bathymetry, data-driven snow.
 
 ## Tuning protocol
 
+- **A metric is a diagnostic, never the objective. Judge on renders.** Proven the hard way
+  2026-07-17: sweeping `ambient` 0.50→0.62 under the new fill improved *every* number monotonically
+  — luminance floor up, clipping down, "crunch" (luminance std) 39.1→30.8 on the Andes — while the
+  image visibly degraded into haze. The recommendation built on those numbers was wrong and was
+  only caught by looking. Contrast metrics cannot distinguish **softer** from **flatter**; that is
+  precisely the distinction every lever on this page turns on. Compute them to know where to look,
+  then decide with your eyes. → HISTORY § 2026-07-17 — the tiles were missing the hero's fill sun
 - Reference image on one screen, render on the other. **One lever per iteration.**
 - Cheap arms: the scripted-A/B pattern above at `resolution_percentage 27` (~2K, well
   under a minute per arm on the GPU) — matched-crop strips beat memory every time.

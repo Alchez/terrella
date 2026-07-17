@@ -1,28 +1,34 @@
+%% Plain-language overview. Technical companion: pipeline-detail.mmd — update both together.
+
 flowchart TD
 
   subgraph SRC["Where the data comes from"]
     S1["Copernicus GLO-30<br/>satellite-measured land heights<br/>(detail: ~30 m per pixel)"]
     S2["GEBCO 2026<br/>worldwide seafloor depths<br/>(detail: ~450 m per pixel)"]
     S3["Natural Earth<br/>country outlines and borders"]
+    S4["MODIS snow climatology<br/>how often each place is snow-covered<br/>(NSIDC-0791, 2001–2023)"]
+    S5["Randolph Glacier Inventory 7.0<br/>outlines of the world's glaciers"]
+    S6["GLOBathy<br/>modelled depth for 1.4 M lakes<br/>(how deep, not just where)"]
   end
 
   subgraph ACQ["Getting it — done"]
-    D1["Downloader script<br/>fetches the 979 one-degree squares<br/>around India; safe to re-run anytime"]
-    R1[("Land heights<br/>979 files, part of 34 GB")]
+    D1["Downloader scripts<br/>one per source; safe to re-run anytime<br/>(a part-file is never mistaken for a finished one)"]
+    R1[("Land heights<br/>~550 GB of one-degree tiles")]
     R2[("Water map<br/>per pixel: dry / sea / lake / river")]
-    R3[("Seafloor depths<br/>one file for the whole region")]
+    R3[("Seafloor depths<br/>one global grid")]
   end
 
   S1 --> D1
+  S2 --> D1
   D1 --> R1
   D1 --> R2
-  S2 -->|downloaded by hand from their site| R3
+  D1 --> R3
 
-  subgraph FUSE["Combining land and sea — done"]
-    F["Fusion script — makes one seamless height map:<br/>land keeps its measured height,<br/>sea floor comes from GEBCO, always below zero,<br/>sea-level lagoons and deltas count as sea"]
-    O1[("India height map<br/>one elevation value per ~90 m,<br/>Himalaya summits to ocean trenches")]
-    O2[("Sea/land map<br/>remembers which pixels are sea —<br/>later picks sand vs teal coloring")]
-    O3[("Inland water map<br/>which pixels are lake or river —<br/>painted flat teal in the scene")]
+  subgraph FUSE["Combining land and sea — done, worldwide"]
+    F["Fusion script — makes one seamless height map:<br/>land keeps its measured height,<br/>sea floor comes from GEBCO, always below zero,<br/>sea-level lagoons and deltas count as sea.<br/>The Caspian is treated as sea, so its real<br/>measured depths survive instead of a flat lid"]
+    O1[("Whole-planet height map<br/>every country fused into one world grid,<br/>Himalaya summits to ocean trenches")]
+    O2[("Sea/land map<br/>which pixels are sea —<br/>later picks sand vs teal coloring")]
+    O3[("Inland water map<br/>which pixels are lake or river")]
   end
 
   R1 --> F
@@ -32,10 +38,10 @@ flowchart TD
   F --> O2
   F --> O3
 
-  subgraph HERO["Country portraits — India done; every country = Phase 1, next"]
+  subgraph HERO["Country portraits — done, ~200 countries"]
     P["Prepare for rendering:<br/>undo the map stretch (projection),<br/>shrink to a renderable size"]
     B["Blender 3D scene:<br/>heights become sculpted terrain,<br/>a low sun casts soft real shadows,<br/>color from height on land, depth at sea,<br/>lakes and rivers in flat teal"]
-    H8["8K portrait of India"]
+    H8["8K portrait of each country"]
     OV["Borders drawn onto the finished image:<br/>solid white between countries, dashed for<br/>disputed and sea boundaries; positions<br/>double-checked against the coastline"]
     HF[("Final bordered portrait, plus a<br/>separate border-only layer so the<br/>website can toggle borders off")]
   end
@@ -49,30 +55,42 @@ flowchart TD
   S3 --> OV
   OV --> HF
 
-  subgraph TILES["Zoomable world — later"]
-    T1["Fast shading that imitates<br/>the Blender look without ray tracing"]
-    T2["Map tiles at 9 zoom levels,<br/>packed into a single file"]
+  subgraph TILES["Zoomable world — built and serving"]
+    T3["Snow, latitude-aware:<br/>white where MODIS says snow persists,<br/>fading softly; glaciers crisp on top"]
+    T4["Lake depth:<br/>deep lakes shade like the sea instead of<br/>reading as flat plates"]
+    T1["Fast shading that imitates the Blender look<br/>without ray tracing: hillshade + sky-view shadows<br/>+ the same land/sea colors + snow + lake depth"]
+    T2["512 px map tiles, zoom 0–8<br/>(~62,000 tiles)"]
+    T5["Packed into one PMTiles file<br/>— still to do"]
   end
 
-  O1 -.-> T1
-  O2 -.-> T1
-  T1 -.-> T2
+  O1 --> T1
+  O2 --> T1
+  O3 --> T1
+  S4 --> T3
+  S5 --> T3
+  S6 --> T4
+  T3 --> T1
+  T4 --> T1
+  T1 --> T2
+  T2 -.-> T5
 
-  subgraph SITE["The website — later"]
-    W["Three versions, picked to fit your device:<br/>photo gallery / spinning globe / full 3D globe"]
+  subgraph SITE["The website — gallery and globe are live"]
+    W["Three versions, picked to fit your device:<br/>photo gallery / spinning globe / full 3D globe.<br/>The 3D-terrain version is still to come"]
   end
 
-  T2 -.-> W
-  HF -.-> W
-  S3 -.->|clickable borders| W
+  T2 --> W
+  HF --> W
+  S3 -->|clickable borders| W
 
   classDef ext fill:#dbe9f6,stroke:#3572a5,color:#173a5e
   classDef done fill:#dcefe2,stroke:#2e7d4f,color:#1a3a28
   classDef next fill:#fdf3d7,stroke:#b8860b,color:#4a3a10
   classDef plan fill:#eceff1,stroke:#78909c,color:#37474f
 
-  class S1,S2,S3 ext
+  class S1,S2,S3,S4,S5,S6 ext
   class D1,R1,R2,R3 done
   class F,O1,O2,O3 done
   class P,B,H8,OV,HF done
-  class T1,T2,W plan
+  class T1,T2,T3,T4 done
+  class T5 next
+  class W done
