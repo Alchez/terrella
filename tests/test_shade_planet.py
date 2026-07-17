@@ -128,6 +128,24 @@ class TestCompositeParams:
         monkeypatch.setitem(shade_planet.KNOBS, "lake_curve", "sqrt")
         assert shade_planet.composite_params({None: None}) != before
 
+    def test_fill_strength_is_NOT_recorded_here(self, monkeypatch):
+        """The deliberate exception, and the only one. `fill_strength` rides in KNOBS (beside
+        `alt`, likewise consumed by the hillshade) but composite() never reads it -- it reaches
+        planet_rgb through composite_deps' dependency on `hs`. Recording it here too would restage
+        a 53.8 min composite + 3:44 tile cut for byte-identical pixels merely because the knob
+        exists at strength 0. Caught 2026-07-17 when the fill port first landed it in KNOBS."""
+        before = shade_planet.composite_params({None: None})
+        monkeypatch.setitem(shade_planet.KNOBS, "fill_strength", 0.15)
+        assert shade_planet.composite_params({None: None}) == before
+
+    def test_the_exclusion_is_narrow(self, monkeypatch):
+        """Companion: the filter must drop `fill_strength` and nothing else. `alt` is the one that
+        would be wrongly caught by a lazy 'hillshade knobs' rule -- composite reads it too
+        (`flat = 255*sin(alt)`), so a change to it MUST still be recorded here."""
+        before = shade_planet.composite_params({None: None})
+        monkeypatch.setitem(shade_planet.KNOBS, "alt", 46.0)
+        assert shade_planet.composite_params({None: None}) != before
+
     def test_a_land_ramp_retune_changes_the_params(self, monkeypatch):
         """The trap opened by deleting color-relief on 2026-07-16. LAND_STOPS/SEA_STOPS used to
         be tracked by ramp_{land,sea}.txt, whose only reason to exist was gating the gdaldem
@@ -181,6 +199,20 @@ class TestCompositeDeps:
             _age(path, 500)
         assert shade_planet.is_stale(planet_rgb, *deps) is False
         (tmp_path / "lakedepth_3857.tif").write_text("re-extracted")  # now newer
+        assert shade_planet.is_stale(planet_rgb, *deps) is True
+
+    def test_a_rebuilt_hillshade_makes_planet_rgb_stale(self, tmp_path):
+        """What makes it SAFE to keep `fill_strength` out of composite_params: a fill change
+        restages the hillshade (hs_params.json tracks it), and this is the link that carries that
+        through to the composite and the tiles. Break this and the exclusion becomes the very
+        untracked-constant bug composite_params exists to prevent."""
+        planet_rgb = _built(tmp_path, "planet_rgb.tif")
+        deps = self._deps(tmp_path)
+        for path in deps:
+            path.write_text("x")
+            _age(path, 500)
+        assert shade_planet.is_stale(planet_rgb, *deps) is False
+        (tmp_path / "hs_3857.tif").write_text("re-shaded with the fill sun")  # now newer
         assert shade_planet.is_stale(planet_rgb, *deps) is True
 
 

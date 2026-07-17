@@ -124,6 +124,22 @@ def write_if_changed(path: Path, text: str) -> Path:
     return path
 
 
+# KNOBS entries consumed by the HILLSHADE stage rather than by composite(). Excluded from
+# composite_params below.
+#
+# The exclusion is not an optimisation, it is correctness: these already have a file of their own
+# (hs_params.json), and they reach planet_rgb through composite_deps' dependency on `hs` -- change
+# one, the hillshade restages, its mtime moves, and the composite restages behind it. Recording
+# them HERE as well would restage a 53.8 min composite + 3:44 tile cut for byte-identical pixels
+# every time the fill is merely present at strength 0 -- which is exactly what it did when
+# `fill_strength` was first added to KNOBS (caught 2026-07-17, before any pass ran).
+#
+# `alt` is deliberately NOT in here: the hillshade takes it AND composite reads it (`flat =
+# 255*sin(alt)`), so it belongs in both records. The filter defaults to INCLUDE, so a new composite
+# knob is tracked unless someone deliberately names it here.
+HILLSHADE_ONLY_KNOBS = frozenset({"fill_strength"})
+
+
 def composite_params(variants) -> str:
     """The composite's tunables, recorded as planet_rgb's dependency.
 
@@ -132,8 +148,12 @@ def composite_params(variants) -> str:
     looking fresh. LAKE_STOPS earns its place the hard way: an untracked colour relationship
     is exactly how WATER_RGB drifted silently against the sea. `lake_curve` needs no entry of
     its own -- it rides in KNOBS. Must be read BEFORE the variant loop, which mutates KNOBS.
+
+    HILLSHADE_ONLY_KNOBS are filtered out -- see its comment: they are tracked by hs_params.json and
+    arrive here through `hs`, so repeating them would force composites that change nothing.
     """
-    return json.dumps({"knobs": KNOBS, "water_rgb": palette.WATER_RGB,
+    knobs = {key: value for key, value in KNOBS.items() if key not in HILLSHADE_ONLY_KNOBS}
+    return json.dumps({"knobs": knobs, "water_rgb": palette.WATER_RGB,
                        # land/sea stops moved in here on 2026-07-16 when color-relief was
                        # deleted: they used to be tracked by ramp_{land,sea}.txt's mtime, whose
                        # whole purpose was to gate the gdaldem stages. With those gone, nothing
@@ -224,12 +244,23 @@ def build_hillshade(work: Path, height: Path):
     over all 12.19 G px, 6/6 bands, zero pixels beyond 1 DN.
     """
     hs = work / "hs_3857.tif"
+    # The fill sun's geometry is recorded ONLY when it is actually on. hs_params exists to answer
+    # "would a rerun produce different pixels?", and at strength 0 the fill provably cannot -- it is
+    # skipped entirely and the result is bit-identical (tests/test_hillshade.py). Recording it
+    # unconditionally would restage an 8:28 hillshade, a 53.8 min composite and a 3:44 tile cut to
+    # reproduce the same bytes, and would falsely report the LIVE pyramid as stale. Turning the fill
+    # on flips this dict and correctly restages all three.
+    params: dict[str, Any] = {"exag": EXAG, "alt": ALT, "az": AZ}
+    if KNOBS["fill_strength"] != 0.0:
+        params["fill"] = {"strength": KNOBS["fill_strength"],
+                          "alt": hillshade.FILL_ALTITUDE, "az": hillshade.FILL_AZIMUTH}
     hs_params = write_if_changed(work / "hs_params.json",
-                                 json.dumps({"exag": EXAG, "alt": ALT, "az": AZ},
-                                            sort_keys=True, indent=2))
+                                 json.dumps(params, sort_keys=True, indent=2))
     if is_stale(hs, height, hs_params):
-        print(f"per-row-z hillshade (EXAG={EXAG}) ...", flush=True)
-        hillshade.per_row_zfactor_hillshade(height, hs, EXAG, ALT, AZ)
+        fill_note = (f", fill {KNOBS['fill_strength']:.2f}" if KNOBS["fill_strength"] else "")
+        print(f"per-row-z hillshade (EXAG={EXAG}{fill_note}) ...", flush=True)
+        hillshade.per_row_zfactor_hillshade(height, hs, EXAG, ALT, AZ,
+                                            fill_strength=KNOBS["fill_strength"])
         mark_done(hs)
     return hs
 

@@ -84,6 +84,38 @@ land, desaturated teal sea with visible shelf bathymetry, data-driven snow.
 - **Adjust:** FILL_STRENGTH / FILL_ANGLE / FILL_ROTATION constants; in-blend A/B: select
   the "Fill" light and mute/delete it, or scale its Strength.
 
+### Fill sun — TILES (`KNOBS["fill_strength"]`, tile/shade.py; ported 2026-07-17)
+
+The section above, ported. The tiles copied the hero's *main* sun in 2026-07-14 and never got its
+fill, which was added later — so the same 15× produced sculpture in Cycles and crunch in a hillshade
+for three days. This closes that; it is not a new tile-side dial.
+
+- Baseline **0.15** — the hero's own ratio (`FILL_STRENGTH 0.45` / `SUN_STRENGTH 3`). Geometry is the
+  hero's too: **60° up, azimuth 135° (SE)**, in `render/hillshade.py` as `FILL_ALTITUDE`/`FILL_AZIMUTH`.
+  A hillshade has no cast shadows, so "shadowless" reproduces for free.
+- **Why the tiles needed it:** a single 45° sun on the 15×-exaggerated 305 m grid makes the slope term
+  `arctan(15 · gradient)`, so a **4° real slope presents as 46°** — past the sun — and the face goes to
+  hillshade **0**. Measured 2026-07-17: **43.7% of the Alps**, 38.0% Andes, 32.4% Scotland, 30.5%
+  Himalaya, 12.4% Sri Lanka. Flat black slabs with no information in them, and the bimodality they
+  create (p10 = 0, p25 = 85) *is* what reads as harsh. Any fill ≥ 0.10 → **0.00% on every site**.
+- **Self-regulating, exactly as the hero's is:** Amazon 0.02%, Great Plains 0.29% — flat country is
+  untouched, the fill only registers where resolved slopes are steep. If flat terrain ever moves, the
+  port is broken.
+- **DO NOT raise `ambient` to soften. This will look like the obvious fix. It is the rejected one.**
+  Swept 0.50 / 0.56 / 0.62 on 2026-07-17: every metric improved monotonically (Andes crunch 39.1 →
+  30.8) and every render got worse — hazy, i.e. the "washed rosy and flat" the hero's 2026-07-08 A/B
+  already rejected. **The fill IS the shadow floor** (see the division of labour below); a flat clamp
+  underneath it only lifts the pale high-elevation ramp into milk. `ambient` stays **0.50**.
+- **`hi` 1.30 → 1.12 rides with it** — tune the pair, never each alone. The fill lowers peak light
+  (max DN 255 → 226), so the old ceiling no longer binds and only clips the pale ramp.
+- **Still missing vs the hero, and worth knowing:** no `SUN_ANGLE` equivalent (no penumbra — its real
+  analogue is a cone-averaged/multidirectional hillshade, which HISTORY:1219 records as superseded by
+  the single NW sun) and no world ambient. The fill was the biggest of the three, not the only one.
+- **Adjust:** `KNOBS["fill_strength"]` in tile/shade.py, or `--knob fill_strength=0.20` for a region
+  A/B via `shade.py --cells` (which now runs the same light model as the planet path — verified to
+  2 DN). 0.20 is defensibly softer; past ~0.20 the compression reads flat rather than soft. Changing
+  it restages hillshade → composite → tiles.
+
 ### Light balance — Sun Strength + World (scene_build.py)
 - Sun `SUN_STRENGTH 3`; World `WORLD_RGBA F2E7D5` @ `WORLD_STRENGTH 0.3` — the ambient:
   tints everything and is the backdrop color around the map plane.
@@ -197,6 +229,13 @@ land, desaturated teal sea with visible shelf bathymetry, data-driven snow.
 
 ## Tuning protocol
 
+- **A metric is a diagnostic, never the objective. Judge on renders.** Proven the hard way
+  2026-07-17: sweeping `ambient` 0.50→0.62 under the new fill improved *every* number monotonically
+  — luminance floor up, clipping down, "crunch" (luminance std) 39.1→30.8 on the Andes — while the
+  image visibly degraded into haze. The recommendation built on those numbers was wrong and was
+  only caught by looking. Contrast metrics cannot distinguish **softer** from **flatter**; that is
+  precisely the distinction every lever on this page turns on. Compute them to know where to look,
+  then decide with your eyes. → HISTORY § 2026-07-17 — the tiles were missing the hero's fill sun
 - Reference image on one screen, render on the other. **One lever per iteration.**
 - Cheap arms: the scripted-A/B pattern above at `resolution_percentage 27` (~2K, well
   under a minute per arm on the GPU) — matched-crop strips beat memory every time.

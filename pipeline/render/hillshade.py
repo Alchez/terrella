@@ -17,7 +17,9 @@ when the z-factor is held constant.
 
 Output is a uint8 hillshade on the same grid, where flat ground = 255*sin(altitude) — the
 exact convention `tile/shade.py`'s composite already divides by, so it is a drop-in for the
-`gdaldem hillshade` call there.
+`gdaldem hillshade` call there. `fill_strength` optionally mixes in the hero's fill sun and
+**preserves that convention exactly** (see `fill_scale`), which is why the composite needs no
+change to consume it.
 """
 
 import math
@@ -28,6 +30,68 @@ import rasterio
 from rasterio.windows import Window
 
 EARTH_RADIUS = 6378137.0  # Web Mercator sphere radius
+
+# The hero's fill sun, ported to the tiles (scene_build.FILL_ROTATION (30, 0, 135) -> 60 deg up
+# from the SE; FILL_ANGLE 10; use_shadow off). A hillshade has no cast shadows, so "shadowless"
+# reproduces for free.
+#
+# WHY THE TILES NEED IT (measured 2026-07-17): a single 45-deg sun on a 15x-exaggerated 305 m grid
+# turns the slope term into arctan(15 * gradient), so a 4-deg real slope presents as 46 deg -- past
+# the sun -- and the face goes to hillshade 0. That is 12.4% of Sri Lanka's land, 30.5% of the
+# Himalaya and **43.7% of the Alps**: flat black slabs carrying no information, and the bimodality
+# (p10 = 0, p25 = 85) that reads as harshness. Any fill >= 0.10 drives it to 0.00% everywhere.
+# The hero has never had this problem because it has a fill sun, a 12-deg penumbra and a world
+# ambient; the tiles copied its main sun and none of the three. See ART.md "Fill sun".
+#
+# GEOMETRY, NOT AN ART DIAL: the main sun's NW azimuth is a locked cartographic convention
+# (ART.md:63) and the fill is its mirror. The STRENGTH is the art lever and lives in
+# `shade.KNOBS["fill_strength"]`, beside `alt`, which is likewise consumed at this stage.
+FILL_ALTITUDE = 60.0
+FILL_AZIMUTH = 135.0
+
+
+def fill_scale(strength: float, altitude: float, fill_altitude: float = FILL_ALTITUDE) -> float:
+    """Factor returning main+fill light to the `flat ground = 255*sin(altitude)` contract.
+
+    On flat ground the main sun reads 255*sin(altitude) and the fill reads 255*sin(fill_altitude),
+    so their sum is 255*(sin(altitude) + strength*sin(fill_altitude)); dividing by that ratio lands
+    flat ground back on 255*sin(altitude) exactly. That is the whole reason `shade.composite` needs
+    no change: its `flat = 255*sin(KNOBS["alt"])` stays correct, and `ambient`/`hi`/`exposure` keep
+    their meanings, because 1.0 still means "flat ground" after the port.
+
+    Returns exactly 1.0 at strength 0 -- the bit-identical control, not an approximation of one.
+    """
+    if strength == 0.0:
+        return 1.0
+    return (math.sin(math.radians(altitude))
+            / (math.sin(math.radians(altitude)) + strength * math.sin(math.radians(fill_altitude))))
+
+
+def combine_fill(main: np.ndarray, fill: np.ndarray, strength: float, altitude: float,
+                 fill_altitude: float = FILL_ALTITUDE) -> np.ndarray:
+    """Blend a main and a fill hillshade into one light raster on the flat-ground contract.
+
+    THE one implementation, called by both shade paths. `shade_planet` reaches it through
+    `per_row_zfactor_hillshade`; `tile/shade.py`'s gdaldem branch calls it directly on a second
+    gdaldem pass. A per-call-site copy of this arithmetic is exactly how the float32 window fix
+    reached `composite` and never reached this module (HISTORY 2026-07-16), so it lives here once.
+
+    The fill COMPRESSES rather than brightens: it lifts faces the main sun cannot reach and, via the
+    rescale, darkens the ones it can. Measured max output DN therefore FALLS with strength (255 ->
+    226 at 0.15 -> 213 at 0.25 on real terrain).
+
+    That is not luck, and it does not depend on the terrain sampled. Bounding both suns by their
+    255 maximum simultaneously gives max = 255*(1+s)*sin(alt) / (sin(alt) + s*sin(fill_alt)), which
+    is <= 255 exactly when sin(alt) <= sin(fill_alt) -- i.e. **whenever the fill sits at or above
+    the main sun**. At 45 vs 60 it cannot overflow for ANY strength. The clip is therefore a
+    backstop against one specific future change (dropping the fill BELOW the sun, which would wrap
+    the uint8 silently); `tests/test_hillshade.py` pins both that it never engages at production
+    geometry and that it does engage for a fill below the sun.
+    """
+    if strength == 0.0:
+        return main
+    return np.clip((main + strength * fill) * fill_scale(strength, altitude, fill_altitude),
+                   0.0, 255.0)
 
 
 def _latitude_of_rows(transform, row_indices: np.ndarray) -> np.ndarray:
@@ -68,8 +132,17 @@ def hillshade_array(heights: np.ndarray, cellsize: float, zfactor,
 
 def per_row_zfactor_hillshade(height_path, out_path, exaggeration: float = 15.0,
                               altitude: float = 45.0, azimuth: float = 315.0,
-                              window_rows: int = 256) -> None:
+                              window_rows: int = 256, fill_strength: float = 0.0) -> None:
     """Stream a seamless, per-latitude-z hillshade over a whole EPSG:3857 height raster.
+
+    `fill_strength` mixes in the hero's fill sun (see `combine_fill`); 0.0 skips the second
+    hillshade entirely and is bit-identical to a no-fill pass. It defaults OFF so the fill is
+    opt-in at the call site, matching how `exaggeration`/`altitude`/`azimuth` are already passed
+    explicitly by `shade_planet` rather than inherited from a default here.
+
+    The fill rides the SAME haloed block and z-factor as the main sun, so it costs a second
+    `hillshade_array` (CPU) and no extra I/O, and window-invariance is unaffected -- both suns see
+    identical neighbourhoods.
 
     `window_rows` is a hard RAM lever, exactly as it is for `shade.composite`: windows are the
     raster's FULL width (131072 px on the planet), so rows are the only dimension that shrinks.
@@ -105,6 +178,9 @@ def per_row_zfactor_hillshade(height_path, out_path, exaggeration: float = 15.0,
                 latitude = np.clip(_latitude_of_rows(src.transform, out_rows), -85.05, 85.05)
                 zfactor = (exaggeration / np.cos(np.radians(latitude))).reshape(-1, 1)
                 shaded = hillshade_array(block, cellsize, zfactor, altitude, azimuth)
+                if fill_strength != 0.0:
+                    fill = hillshade_array(block, cellsize, zfactor, FILL_ALTITUDE, FILL_AZIMUTH)
+                    shaded = combine_fill(shaded, fill, fill_strength, altitude)
                 write_window = Window(0, row0, width,  # pyright: ignore[reportCallIssue] — rasterio untyped, attrs init invisible
                                       row1 - row0)
                 dst.write(np.rint(shaded).astype("uint8"), 1, window=write_window)

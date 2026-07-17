@@ -37,7 +37,7 @@ MERCATOR = "EPSG:3857"
 class Knobs(TypedDict):
     """The locked composite tunables.
 
-    A TypedDict, not a plain dict, because `lake_curve` is a str among fourteen floats: inferred
+    A TypedDict, not a plain dict, because `lake_curve` is a str among fifteen floats: inferred
     as `dict[str, float | str]`, every one of the ~20 `KNOBS["..."]` reads below became
     `float | str` and none of the arithmetic type-checked. Declaring it here types each key
     exactly, and turns a mistyped key into an error rather than a KeyError at composite time.
@@ -50,6 +50,7 @@ class Knobs(TypedDict):
     """
 
     alt: float
+    fill_strength: float
     ambient: float
     hi: float
     exposure: float
@@ -66,8 +67,25 @@ class Knobs(TypedDict):
     lake_curve: str  # depth->ramp mapping; see lake_position()
 
 
-KNOBS = Knobs(alt=45.0, ambient=0.50, hi=1.30, exposure=1.05, saturation=1.18, warmth=0.06,
-              svf_strength=0.20, svf_threshold=0.45, sea_shade=0.55, sea_lift=1.00,
+# `fill_strength` is the hero's fill sun as a fraction of the main sun (its FILL_STRENGTH 0.45 /
+# SUN_STRENGTH 3.0 = 0.15). It rides in KNOBS beside `alt` because, like `alt`, it is consumed at
+# the HILLSHADE stage rather than by composite() -- which also makes it reachable from `--knob` for
+# region A/Bs, the way every other art value here is tuned. `shade_planet.build_hillshade` records
+# it in hs_params.json, so a change to it correctly restages the hillshade (and, through
+# composite_deps' dependency on hs, the composite and the tiles).
+#
+# **0.15, chosen 2026-07-17 (Rohan)** off a five-strength sweep on real tiles under production's own
+# global SVF. It is the hero's own ratio, and any value >= 0.10 already drives pure black to 0.00%
+# everywhere; past ~0.20 the compression starts reading flat rather than soft.
+#
+# `hi` 1.30 -> 1.12 lands with it, as ART.md:56 demands (tune the pair, never each alone): the fill
+# lowers peak light, so the old 1.30 ceiling no longer binds and only clips the pale ramp.
+# `ambient` deliberately STAYS 0.50 -- the sweep tried 0.56/0.62 and both re-created the "washed
+# rosy and flat" failure the hero's 2026-07-08 A/B already rejected. The fill IS the shadow floor
+# (ART.md:90); a second floor under it only hazes the pale high country. Every metric said 0.62 was
+# best and every metric was wrong -- see ~/.claude-personal/plans/fill-sun-port.md.
+KNOBS = Knobs(alt=45.0, fill_strength=0.15, ambient=0.50, hi=1.12, exposure=1.05, saturation=1.18,
+              warmth=0.06, svf_strength=0.20, svf_threshold=0.45, sea_shade=0.55, sea_lift=1.00,
               sea_saturation=0.90, sea_svf=0.5, snow_lo=0.55, snow_hi_pt=1.05,
               lake_curve="log1p")
 
@@ -113,6 +131,38 @@ def read1(path, shape=None):
         if shape is None:
             return dataset.read(1)
         return dataset.read(1, out_shape=shape, resampling=Resampling.nearest)
+
+
+def add_fill_gdaldem(height_vrt, hs_tif: Path, zfactor: float, out: Path) -> None:
+    """Mix the fill sun into a `gdaldem`-produced hillshade, in place. No-op at strength 0.
+
+    This exists so the REGION path and the planet path share one light model. `shade_planet` gets
+    the fill inside `per_row_zfactor_hillshade`; this branch shades with `gdaldem`, which takes one
+    sun, so the fill needs its own pass. Both then meet at `hillshade.combine_fill` -- the point
+    being that the arithmetic is not copied here. Skipping this would leave `--cells` (the A/B tool
+    the sea and lake ramps were judged on) rendering a DIFFERENT light model from production, which
+    is how an A/B silently stops predicting the thing it is judging.
+
+    Region-scale only: it reads the whole hillshade into RAM, exactly as `composite` already does
+    on this path ("the composite loads the whole region into RAM — fine per-region").
+    """
+    if KNOBS["fill_strength"] == 0.0:
+        return
+    fill_tif = out / "hs_fill.tif"
+    print(f"hillshade: + fill sun {KNOBS['fill_strength']:.2f} "
+          f"(alt {hillshade.FILL_ALTITUDE:.0f}, az {hillshade.FILL_AZIMUTH:.0f})", flush=True)
+    run(["gdaldem", "hillshade", height_vrt, fill_tif, "-z", f"{zfactor:.4f}",
+         "-alt", str(hillshade.FILL_ALTITUDE), "-az", str(hillshade.FILL_AZIMUTH),
+         "-compute_edges"])
+    with rasterio.open(hs_tif) as dataset:
+        profile: dict[str, Any] = dict(dataset.profile)
+        main_hs = dataset.read(1).astype(np.float32)
+    with rasterio.open(fill_tif) as dataset:
+        fill_hs = dataset.read(1).astype(np.float32)
+    combined = hillshade.combine_fill(main_hs, fill_hs, KNOBS["fill_strength"], KNOBS["alt"])
+    with rasterio.open(hs_tif, "w", **profile) as dst:
+        dst.write(np.rint(combined).astype("uint8"), 1)
+    fill_tif.unlink()
 
 
 def main():
@@ -164,12 +214,14 @@ def main():
     mid_lat = sum(cell_mid_lat(n) for n in args.cells) / len(args.cells)
     if args.per_row_z:
         print(f"hillshade: per-row z-factor (EXAG={EXAG}/cos(lat)), custom seamless shader", flush=True)
-        hillshade.per_row_zfactor_hillshade(height_vrt, hs_tif, EXAG, KNOBS["alt"], 315.0)
+        hillshade.per_row_zfactor_hillshade(height_vrt, hs_tif, EXAG, KNOBS["alt"], 315.0,
+                                            fill_strength=KNOBS["fill_strength"])
     else:
         zfactor = args.zfactor if args.zfactor is not None else relief.mercator_zfactor(mid_lat, EXAG)
         print(f"hillshade z-factor {zfactor:.2f} (region mid-lat {mid_lat:.1f})", flush=True)
         run(["gdaldem", "hillshade", height_vrt, hs_tif, "-z", f"{zfactor:.4f}",
              "-alt", str(KNOBS["alt"]), "-az", "315", "-compute_edges"])
+        add_fill_gdaldem(height_vrt, hs_tif, zfactor, args.out)
 
     # composite (whole region in RAM)
     heights = read1(height_vrt).astype("float32")

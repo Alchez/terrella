@@ -31,19 +31,40 @@ Two stages are the exceptions, and they are the whole story of a re-run:
 | 1 | warp height → 3857 | **5 min** (486% CPU, 17 threads) | ~0 s | `height_3857.tif` 33 GB | `is_stale` |
 | 2 | warp ocean + water masks → 3857 | **< 1 min** | ~0 s | 69 MB | `is_stale` |
 | 3 | warp GLOBathy lake depth → 3857 | **1:01:38** (nodata-masker-bound, 102% CPU) | ~0 s | `lakedepth_3857.tif` 310 MB | `is_stale` |
-| 4 | `render/hillshade.py` — per-row z-factor | **8:28** (float32 @ 256 rows) | ~0 s | `hs_3857.tif` 8.4 GB | `is_stale` |
-| 5 | `global_occlusion` — sky-view factor | **2:33** (single-threaded, reads all 31 GB) | ~0 s | in-memory only | **lazy** (2026-07-17) |
-| 6 | `composite_planet` — ramps × hillshade × SVF + snow + lake depth | **53.8 min** (1 core; peak 6.24 GiB) | ~0 s | `planet_rgb.tif` 12 GB | `is_stale` |
-| 7 | `build_tiles` — `gdal raster tile` z0–8 | **3:44** (12.0 of 16 cores, 502 MB/s read) | **3:44 — no guard** | `tiles/` 16 GB, 62,177 tiles | none |
+| 4 | `render/hillshade.py` — per-row z-factor **+ fill sun** | **11:48** (1.17 cores, 44.9 MB/s r) | ~0 s | `hs_3857.tif` 7.9 GB | `is_stale` |
+| 5 | `global_occlusion` — sky-view factor | **2:44** (0.78 cores, **193 MB/s r** — I/O-bound) | ~0 s | in-memory only | **lazy** (2026-07-17) |
+| 6 | `composite_planet` — ramps × hillshade × SVF + snow + lake depth | **49:40** (0.78 cores, 7.4 MB/s r; peak 6.44 GB) | ~0 s | `planet_rgb.tif` 12 GB | `is_stale` |
+| 7 | `build_tiles` — `gdal raster tile` z0–8 | **3:32** (12.0 of 16 cores, 502 MB/s read) | **3:32 — no guard** | `tiles/` 14 GB, 62,177 tiles | none |
+
+Stages 4–7 re-measured **2026-07-17** on the fill-sun pass (`run_pass.sh --tiles`, exit 0, **67:44 total**),
+which is also the first run to record **cores and disk rate per stage** — PROCESS.md previously had wall
+times only, which is why "is the hillshade compute- or I/O-bound?" was unanswerable this morning. Now:
+
+- **hillshade 11:48** — was 8:28; the fill adds a second `hillshade_array` per window (same block, no
+  extra I/O) for **+3:20**. Projected +4:30 from a synthetic benchmark, so the projection was ~35% high
+  on the delta: pure compute is 1.41 s/window but only ~half the stage is arithmetic (1.17 cores).
+- **composite 49:40** — was 53.8 min. The **−4.1 min is optimisation #3** (`num_threads="ALL_CPUS"` on the
+  writers, landed 2026-07-16) cashing in for the first time; PLAN predicted "~6 min, upper bound".
+- **0.78 of 16 cores** is the composite's headline number: it is neither I/O-bound (7.4 MB/s) nor
+  parallel. It is **single-threaded and DRAM-bandwidth-bound** — full-width windows make every 3-channel
+  array 402 MB against ~32 MB of L3, so all ~30 numpy ops are DRAM round-trips. That is *why* threading
+  caps at ~3× (PLAN § Pipeline optimisation #5), and why bigger windows would not help.
 
 **End-to-end, measured:**
 
 | Scenario | Wall | Notes |
 |---|---|---|
+| **A light/palette re-tune** (knob → live tiles) | **67:44** | measured 2026-07-17 (fill sun). Warps all skip; hillshade + SVF + composite + tile cut all run. **This is the real cost of an art iteration.** |
 | Everything cold, shade only | **~72 min** | 2026-07-16, after color-relief was deleted (was ~98 min) |
 | `--tiles`, everything fresh | **~3:45** | was 6:17 before the SVF guard — 41% of it was discarded work |
 | No `--tiles`, everything fresh | **0.29 s** | every stage skips; this is the guard working |
 | Lake-depth warp (stage 3) | **1:01:38** | one-time; its `.done` is what stops a pass paying that hour again |
+
+**What a knob actually restages** (measured, not inferred — `fill_strength` + `hi`, 2026-07-17): all four
+warps skip, including the 1:01:38 lake warp. A **hillshade-stage** knob (`fill_strength`, tracked in
+`hs_params.json`) restages hillshade → composite → tiles. A **composite-stage** knob (`hi`, `ambient`,
+ramp colours, tracked in `composite_params.json`) restages composite → tiles, ~53 min. The composite is
+**~71% of any art iteration** — see PLAN § Pipeline optimisation #5 (~3× is available and unclaimed).
 
 Peak RSS is **6.24 GiB** (the composite) — run under `MemoryMax=12G` (~1.9× measured). Tiling peaks at
 only 2.02 GiB across 18 processes. **`memory.current` is not RSS**: during tiling the cgroup sits at

@@ -31,17 +31,20 @@ snapshot: **487 GB** of a 1.8 TB ext4 root. Sizes approximate.
 ### `planet_tiles/` breakdown
 
 Itemised because a previous snapshot summarised this dir in one line, which is precisely how
-~43 GB of superseded generations sat unnoticed. **As of 2026-07-16 the whole derived chain is
-FRESH** — the batched Caspian + GLOBathy pass rebuilt it and `is_stale` reports False for every
-raster below.
+~43 GB of superseded generations sat unnoticed. **Re-measured 2026-07-17** after the fill-sun pass
+(`run_pass.sh --tiles`, exit 0, 67:44); the whole derived chain is FRESH and `is_stale` reports False
+for every raster below. *This table was ~a day stale before that: it still called the live pyramid
+"PRE-Caspian, PRE-GLOBathy" and `planet_rgb.tif` "not yet tiled", both untrue since the 07-17 morning
+cut. A storage map that lags is how the 43 GB hid — re-measure it when the chain moves, not later.*
 
 | File | Size | What it is | Reclaim? |
 |---|---|---|---|
-| `height_3857.tif` + `.done` | 33 GB | planet heightfield on the WMQ 3857 grid (131072 × 93009 Float32) | Keep — **fresh**; it is now the composite's direct colour input (the ramps are applied from elevation) |
-| `planet_rgb_v1.tif` + `.done` | 18 GB | the **source of the LIVE `tiles/`** (sea rework, locked 2026-07-14) | Keep until the new pyramid is cut & judged — **it is the rollback** |
-| `tiles/` | 16 GB | **live** z0–8 512px pyramid, 62,177 tiles — served via `TILES_STORE`. **PRE-Caspian, PRE-GLOBathy** | Keep (live) until re-cut |
-| `planet_rgb.tif` + `.done` | 12 GB | **the new composite (2026-07-16)** — GLOBathy lake depth + Caspian bathymetry + `WATER_RGB`. Verified against oracles; **not yet tiled** | Keep — `--tiles` reads it |
-| `hs_3857.tif` + `.done` | 8.4 GB | per-row-z hillshade (EXAG=15) | Keep — **fresh** |
+| `height_3857.tif` + `.done` | 31 GB | planet heightfield on the WMQ 3857 grid (131072 × 93009 Float32) | Keep — **fresh**; it is now the composite's direct colour input (the ramps are applied from elevation) |
+| `planet_rgb_v1.tif` + `.done` | **17 GB** | the 2026-07-14 sea-rework composite. **Superseded TWICE** (Caspian+GLOBathy on 07-16, fill sun on 07-17) and last written 07-14 20:32. It is **no longer the source of the live tiles and no longer the rollback** — `tiles_old` is. | **Reclaimable — the largest single win in this dir, and the row most likely to be wrong again.** Rolling back to it means the pre-Caspian, pre-GLOBathy, pre-fill look, which was deliberately superseded. Rohan's call: `data/` is gitignored, so deletion is permanent |
+| `tiles_old/` | 16 GB | the **pre-fill** pyramid (the 07-17 morning cut: Caspian + GLOBathy, no fill sun), 62,177 tiles. **This is the rollback for the fill** — `mv tiles tiles_bad && mv tiles_old tiles` | Keep until the fill is judged on `/globe` |
+| `tiles/` | 14 GB | **live** z0–8 512px pyramid, 62,177 tiles — served via `TILES_STORE`. **Caspian + GLOBathy + the 0.15 fill sun** (2026-07-17); served md5 == disk md5 | Keep (live) until re-cut |
+| `planet_rgb.tif` + `.done` | 11 GB | **the fill-sun composite (2026-07-17 18:01)** — the source of the live `tiles/`. `fill_strength=0.15`, `hi=1.12` | Keep — `--tiles` reads it |
+| `hs_3857.tif` + `.done` | 7.4 GB | per-row-z hillshade (EXAG=15) **+ the 0.15 fill sun, baked** — despite the name this is *combined light*, not a bare hillshade (2026-07-17). Still on the `flat = 255*sin(alt)` contract, which is why `composite` needed no change; max DN 226, not 255 | Keep — **fresh** |
 | `lakedepth_3857.tif` + `.done` | 310 MB | GLOBathy lake depth on the 3857 grid (built 2026-07-15, `1:01:38`) — deflates small because it is ~98% zero | Keep — its `.done` is what stops a pass paying that hour again; only dep is `lakedepth.vrt` |
 | `water_3857.tif` / `ocean_3857.tif` + `.done` | 69 MB | 3857 masks | Keep — **fresh**; `water_3857` now correctly reads **class 1** at the Caspian |
 | `hs_params.json`, `composite_params.json` | ~2 KB | materialised palette/knob params — **the freshness guard's dependency records**. `composite_params` gained LAND_STOPS/SEA_STOPS/LUT_STEP_M on 2026-07-16 when `ramp_{land,sea}.txt` were deleted with color-relief | Keep (regenerated; **mtime is load-bearing**) |
@@ -49,6 +52,13 @@ raster below.
 
 **Gone 2026-07-16** (deleted with the `gdaldem color-relief` stage — `composite()` applies the ramps
 from elevation via a 17.6 KB LUT): `land_3857.tif`, `sea_3857.tif`, `ramp_land.txt`, `ramp_sea.txt`.
+
+**Profiling output** (`data/work/`, gitignored; the *code* is tracked at `pipeline/profile/`):
+
+| Dir | Size | What it is | Reclaim? |
+|---|---|---|---|
+| `_profile_tiles/` | 6.0 MB | the latest `run_pass.sh --tiles` run — `pass.log` (stage timings) + `samples.jsonl` (0.5 s RSS/CPU/disk per process). **`run_pass.sh` truncates `pass.log` on every run**, so this is only ever the most recent pass | Keep — it is the source of PROCESS.md's numbers |
+| `_profile_tiles_prefill_baseline/` | 2.8 MB | a hand copy of the 07-17 *morning* (pre-fill) profile, taken because the harness would have overwritten it and it was the only baseline for the fill's cost | **Reclaimable** — its numbers are now in PROCESS.md and HISTORY. Keep only if a fill-vs-no-fill CPU comparison is still wanted |
 
 ## The freshness guard (why no manual `rm` list is ever needed)
 
