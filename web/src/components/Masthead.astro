@@ -1,0 +1,70 @@
+---
+import Legend from "./Legend.astro";
+
+interface Props {
+  heading: string;
+  eyebrow?: string;
+  legend?: boolean;
+  back?: string; // href for a back link; omit to hide
+  backLabel?: string;
+  maxWidth?: string; // container width, matched to the page's content
+}
+const {
+  heading,
+  eyebrow,
+  legend = true,
+  back,
+  backLabel = "← All countries",
+  maxWidth = "1240px",
+} = Astro.props;
+---
+
+<header class="masthead" style={`--masthead-max:${maxWidth}`}>
+  {back && <a class="back" href={back}>{backLabel}</a>}
+  <div class="masthead-row">
+    <div class="masthead-title">
+      {eyebrow && <p class="eyebrow">{eyebrow}</p>}
+      <h1>{heading}</h1>
+    </div>
+    <slot name="actions" />
+  </div>
+  <slot />
+  {legend && <Legend />}
+  <slot name="after" />
+</header>
+
+<style>
+  .masthead {
+    max-width: var(--masthead-max, 1240px);
+    margin: 0 auto;
+    padding: clamp(1.2rem, 3vw, 2rem) clamp(1.1rem, 4vw, 2.5rem) 0;
+  }
+  .back {
+    display: inline-block;
+    color: var(--muted);
+    text-decoration: none;
+    font-size: 0.9rem;
+    margin-bottom: clamp(1rem, 3vw, 1.6rem);
+  }
+  .back:hover {
+    color: var(--accent);
+  }
+  .masthead-row {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+  .masthead-title {
+    min-width: 0;
+  }
+  h1 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: clamp(2rem, 5vw, 3.2rem);
+    letter-spacing: -0.02em;
+    line-height: 1.08;
+    margin: 0;
+  }
+</style>

@@ -1,0 +1,170 @@
+---
+import "../styles/global.css";
+import { Font } from "astro:assets";
+
+interface Props {
+  title?: string;
+  description?: string;
+  borders?: boolean;
+  quality?: boolean;
+  spin?: boolean;
+}
+const {
+  title = "Terrella",
+  description = "Ray-traced relief maps of every country.",
+  borders = false,
+  quality = false,
+  spin = false,
+} = Astro.props;
+---
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    {/* Progressive-enhancement hook: flip no-js → js before paint so CSS can hide
+        controls that only work with JavaScript (see .no-js rules in global.css).
+        No JS → the class stays `no-js` and those controls never show. */}
+    <script is:inline>
+      document.documentElement.classList.replace("no-js", "js");
+    </script>
+    {/* Pre-paint tier guard: runs synchronously BEFORE the gallery paints, so a
+        capable visitor is redirected to /globe with no flash of gallery, and an
+        incapable/Lite visitor who deep-links /globe bounces straight back. This
+        is the minimal gallery-vs-globe boundary of src/lib/capability.ts
+        decideTier() — it can't import (it must run before the bundle), so it is
+        deliberately kept tiny and mirrors only that boundary; the nuanced
+        globe-vs-full decision + software-GPU check run in the page module. */}
+    <script is:inline>
+      (function () {
+        try {
+          var quality = localStorage.getItem("rg:quality") || "auto";
+          var path = location.pathname;
+          var atEntry = path === "/";
+          var atGlobe = path === "/globe" || path === "/globe/";
+          if (!atEntry && !atGlobe) return;
+
+          function webgl2() {
+            try {
+              return !!document.createElement("canvas").getContext("webgl2");
+            } catch (e) {
+              return false;
+            }
+          }
+          var conn = navigator.connection || {};
+          var saveData =
+            !!conn.saveData ||
+            (typeof matchMedia === "function" &&
+              matchMedia("(prefers-reduced-data: reduce)").matches);
+
+          if (atGlobe) {
+            // Can't run the globe here, or the user forced Lite → back to gallery.
+            if (quality === "lite" || !webgl2()) location.replace("/");
+            return;
+          }
+          // atEntry: steer capable visitors onto the globe, pessimistically.
+          if (quality === "lite") return; // user forced the gallery
+          if (sessionStorage.getItem("rg:steered")) return; // steer once per session
+          if (!webgl2()) return; // no globe floor
+          if (quality === "auto" && saveData) return; // respect data-saver on auto
+          sessionStorage.setItem("rg:steered", "1");
+          location.replace("/globe/");
+        } catch (e) {
+          /* never let the guard break the page */
+        }
+      })();
+    </script>
+    <meta name="description" content={description} />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <Font cssVariable="--font-serif" />
+    <title>{title}</title>
+  </head>
+  <body>
+    <slot />
+    {
+      (borders || quality || spin) && (
+        <div class="fab-stack">
+          {spin && (
+            <label class="spin-fab" title="Toggle globe auto-rotate">
+              <input type="checkbox" id="spin-toggle" />
+              <span>Spin</span>
+            </label>
+          )}
+          {borders && (
+            <label class="borders-fab" title="Toggle country borders">
+              <input type="checkbox" id="border-toggle" />
+              <span>Borders</span>
+            </label>
+          )}
+          {quality && (
+            <div class="quality-fab" role="radiogroup" aria-label="Experience quality">
+              <button type="button" data-quality="lite" aria-pressed="false">
+                Lite
+              </button>
+              <button type="button" data-quality="globe" aria-pressed="false">
+                Globe
+              </button>
+              <button type="button" data-quality="full" aria-pressed="false">
+                Full
+              </button>
+            </div>
+          )}
+        </div>
+      )
+    }
+  </body>
+</html>
+
+<script>
+  // Shared border toggle — the floating control lives in the layout so it's
+  // always reachable, and its state persists across gallery <-> detail nav.
+  const cb = document.getElementById("border-toggle") as HTMLInputElement | null;
+  const KEY = "rg:borders";
+  if (cb) {
+    const on = localStorage.getItem(KEY) === "1";
+    cb.checked = on;
+    document.body.classList.toggle("borders-on", on);
+    cb.addEventListener("change", () => {
+      document.body.classList.toggle("borders-on", cb.checked);
+      localStorage.setItem(KEY, cb.checked ? "1" : "0");
+    });
+  }
+</script>
+
+<script>
+  // Quality control (Lite / Globe / Full) — the persisted, always-reachable
+  // override that beats the auto-probe. The active button reflects the CURRENT
+  // experience (the gallery is "Lite"; on the globe it's Globe or Full by whether
+  // the idle animation runs), so it reads as "what am I seeing" not "what did the
+  // probe guess". A pick persists via setQuality and navigates to that tier's
+  // canonical page; the head guard + globe module enforce it from there.
+  import { setQuality, currentTier, type Quality } from "../lib/capability";
+
+  const control = document.querySelector<HTMLElement>(".quality-fab");
+  if (control) {
+    const buttons = Array.from(control.querySelectorAll<HTMLButtonElement>("button"));
+    const onGlobe = location.pathname === "/globe" || location.pathname === "/globe/";
+    const active: Quality = !onGlobe ? "lite" : currentTier() === "full" ? "full" : "globe";
+    for (const button of buttons) {
+      const isActive = button.dataset.quality === active;
+      button.classList.toggle("is-active", isActive);
+      button.setAttribute("aria-pressed", String(isActive));
+    }
+    for (const button of buttons) {
+      button.addEventListener("click", () => {
+        const choice = button.dataset.quality as Quality;
+        setQuality(choice);
+        // Let the new choice steer this session even if we already auto-steered once.
+        try {
+          sessionStorage.removeItem("rg:steered");
+        } catch (e) {
+          /* private mode — ignore */
+        }
+        const target = choice === "lite" ? "/" : "/globe/";
+        if (location.pathname === target) location.reload();
+        else location.assign(target);
+      });
+    }
+  }
+</script>

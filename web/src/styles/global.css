@@ -1,0 +1,186 @@
+/* Global design tokens + resets. Imported once by Base.astro. Kept as a
+   standalone stylesheet (not a component <style is:global>) so Vite hot-reloads
+   it reliably in dev — a shared-layout is:global block can miss HMR updates. */
+
+:root {
+  --bg: #e9e5da;
+  --bg-2: #f3f0e8;
+  --text: #2c2822;
+  --muted: #6b6458;
+  --line: #d6d0c2;
+  --accent: #3a6e7d; /* deep-sea teal, from the hero ramp */
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.06), 0 6px 18px rgba(0, 0, 0, 0.08);
+  --serif: var(--font-serif, Georgia, "Times New Roman", serif);
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1b1a16;
+    --bg-2: #24221b;
+    --text: #e7e2d5;
+    --muted: #9a9384;
+    --line: #35312a;
+    --accent: #7cb8b8; /* shallow teal in the dark */
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 22px rgba(0, 0, 0, 0.45);
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+html {
+  -webkit-text-size-adjust: 100%;
+}
+body {
+  margin: 0;
+  font-family: var(--sans);
+  color: var(--text);
+  background: var(--bg);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+img {
+  display: block;
+  max-width: 100%;
+}
+a {
+  color: var(--accent);
+}
+
+/* Shared brand elements (used by the About page and the gallery masthead) --- */
+
+/* Small mono label above a heading — cartographic marginalia. */
+.eyebrow {
+  font-family: var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 0.7rem;
+  font-weight: 500;
+  color: var(--muted);
+  margin: 0 0 0.9rem;
+}
+
+/* The site's hypsometric elevation legend — deep sea to snow peak. The signature. */
+.legend {
+  margin: clamp(1.4rem, 3.5vw, 2.2rem) 0 0;
+}
+.ramp {
+  height: 18px;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    #2f5b68 0%,
+    #4d8886 14%,
+    #8bbcb7 25%,
+    #cfe0d3 34%,
+    #ecdfc6 45%,
+    #ddc3a2 60%,
+    #c49a72 74%,
+    #96693f 89%,
+    #f1ece0 100%
+  );
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.08);
+}
+.legend figcaption {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 0.55rem;
+  font-family: var(--mono);
+  font-size: 0.64rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* Floating control cluster, bottom-right: the quality selector stacked above the
+   border toggle so they never collide on narrow screens (the globe's own scale +
+   attribution live bottom-left, clear of this). Shown when a page passes either
+   borders={true} or quality={true}. */
+.fab-stack {
+  position: fixed;
+  bottom: 1.2rem;
+  right: 1.2rem;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.6rem;
+  max-width: calc(100vw - 2.4rem);
+}
+/* The border / quality / spin controls are pure JS enhancements — a dead toggle is
+   worse than none, so hide the cluster when JavaScript is unavailable. */
+.no-js .fab-stack {
+  display: none;
+}
+
+/* Always-reachable labeled toggles (border overlay; globe auto-rotate). */
+.borders-fab,
+.spin-fab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.55rem 0.95rem;
+  background: color-mix(in srgb, var(--bg-2) 92%, transparent);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  box-shadow: var(--shadow);
+  font-size: 0.9rem;
+  color: var(--text);
+  cursor: pointer;
+  user-select: none;
+}
+.borders-fab input,
+.spin-fab input {
+  accent-color: var(--accent);
+  width: 1.05rem;
+  height: 1.05rem;
+  margin: 0;
+}
+/* Spin is unavailable above the overview zoom (see SPIN_MAX_ZOOM): grey it out and
+   signal it's not interactive, rather than letting the toggle silently do nothing. */
+.spin-fab.is-unavailable {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.spin-fab input:disabled {
+  cursor: not-allowed;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .borders-fab,
+  .spin-fab {
+    transition: box-shadow 0.2s ease;
+  }
+}
+
+/* Quality control (Lite / Globe / Full) — a segmented pill living in .fab-stack. */
+.quality-fab {
+  display: inline-flex;
+  gap: 0.2rem;
+  padding: 0.25rem;
+  background: color-mix(in srgb, var(--bg-2) 92%, transparent);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  box-shadow: var(--shadow);
+}
+.quality-fab button {
+  padding: 0.4rem 0.85rem;
+  font: inherit;
+  font-size: 0.82rem;
+  color: var(--muted);
+  background: transparent;
+  border: 0;
+  border-radius: 999px;
+  cursor: pointer;
+}
+.quality-fab button:hover {
+  color: var(--text);
+}
+.quality-fab button.is-active {
+  color: var(--bg);
+  background: var(--accent);
+}

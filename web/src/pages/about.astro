@@ -1,0 +1,313 @@
+---
+import Base from "../layouts/Base.astro";
+import Masthead from "../components/Masthead.astro";
+
+const sources = [
+  {
+    name: "Copernicus DEM GLO-30",
+    href: "https://opentopography.org",
+    role: "Land elevation",
+    license: "Copernicus",
+    attribution:
+      "Contains modified Copernicus DEM data (WorldDEM-30, © DLR e.V. and © Airbus Defence and Space; provided under COPERNICUS by the European Union and ESA).",
+  },
+  {
+    name: "GEBCO 2026 Grid",
+    href: "https://www.gebco.net",
+    role: "Bathymetry",
+    license: "Public domain",
+    attribution:
+      "Reproduced from the GEBCO_2026 Grid, GEBCO Compilation Group (2026).",
+  },
+  {
+    name: "ESA WorldCover 2021",
+    href: "https://esa-worldcover.org",
+    role: "Snow / ice mask",
+    license: "CC-BY 4.0",
+    attribution:
+      "© ESA WorldCover project 2021 / Contains modified Copernicus Sentinel data (2021), processed by the ESA WorldCover consortium.",
+  },
+  {
+    name: "Natural Earth",
+    href: "https://www.naturalearthdata.com",
+    role: "Borders & coastlines",
+    license: "Public domain",
+    attribution: "naturalearthdata.com.",
+  },
+];
+
+const steps = [
+  {
+    title: "Fusion",
+    body: "Copernicus GLO-30 land elevation is fused with GEBCO bathymetry into one seamless heightfield — the sea floor is part of the picture, so shelves and trenches read as terrain.",
+  },
+  {
+    title: "Render",
+    body: "The heightfield drives displacement in Blender's Cycles renderer, lit by a low sun for long relief shadows and coloured by elevation- and depth-keyed ramps.",
+  },
+  {
+    title: "Borders",
+    body: "Natural Earth boundaries composite on top as crisp vector lines — never baked into the terrain, so they stay sharp and toggle on demand.",
+  },
+  {
+    title: "Snow",
+    body: "A permanent snow / ice mask from ESA WorldCover whitens glaciers and ice caps.",
+  },
+];
+
+const tools = [
+  {
+    label: "Rendering",
+    html: '<a href="https://www.blender.org" target="_blank" rel="noopener noreferrer">Blender</a> — Cycles, OptiX, OpenImageDenoise',
+  },
+  { label: "Geoprocessing", html: "GDAL, rasterio, WhiteboxTools" },
+  {
+    label: "Web",
+    html: '<a href="https://maplibre.org" target="_blank" rel="noopener noreferrer">MapLibre GL JS</a>, <a href="https://github.com/protomaps/PMTiles" target="_blank" rel="noopener noreferrer">PMTiles</a>',
+  },
+  {
+    label: "Technique",
+    html: 'Shaded relief after <a href="https://somethingaboutmaps.wordpress.com/2017/11/16/creating-shaded-relief-in-blender/" target="_blank" rel="noopener noreferrer">Daniel Huffman</a>; aesthetic after <a href="https://frank-ramspott.pixels.com/" target="_blank" rel="noopener noreferrer">Frank Ramspott</a>',
+  },
+];
+---
+
+<Base
+  title="About — Terrella"
+  description="How Terrella is made: open elevation data, ray-traced relief, and the licenses behind it."
+>
+  <Masthead eyebrow="Colophon" heading="About" back="/" maxWidth="min(1500px, 92vw)">
+    <p class="lede">
+      A ray-traced relief map of every country — rendered from open elevation
+      data, not drawn. Warm land, teal seas with real bathymetry, white vector
+      borders. A <em>terrella</em> — a "little Earth" — is the model globe early
+      scientists spun to study the whole planet at once; this is a modern one.
+    </p>
+  </Masthead>
+
+  <main class="about">
+    <section class="block">
+      <h2 class="eyebrow">How it's made</h2>
+      <ol class="steps">
+        {
+          steps.map((step, index) => (
+            <li>
+              <span class="num">{index + 1}</span>
+              <h3>{step.title}</h3>
+              <p>{step.body}</p>
+            </li>
+          ))
+        }
+      </ol>
+    </section>
+
+    <section class="block">
+      <h2 class="eyebrow">Data &amp; licenses</h2>
+      <div class="sources">
+        {
+          sources.map((source) => (
+            <article class="source">
+              <h3>
+                <a href={source.href} target="_blank" rel="noopener noreferrer">
+                  {source.name}
+                </a>
+              </h3>
+              <p class="role">{source.role}</p>
+              <p class="lic">{source.license}</p>
+              <p class="attr">{source.attribution}</p>
+            </article>
+          ))
+        }
+      </div>
+    </section>
+
+    <section class="block worldview">
+      <h2 class="eyebrow">Boundaries</h2>
+      <p class="note">
+        Borders and coastlines use Natural Earth's <strong>de-facto</strong> worldview,
+        applied consistently everywhere. Disputed boundaries and lines of control
+        are drawn <strong>dashed</strong>. A cartographic default, not a
+        political statement.
+      </p>
+    </section>
+
+    <section class="block">
+      <h2 class="eyebrow">Tools &amp; technique</h2>
+      <dl class="tools">
+        {
+          tools.map((tool) => (
+            <div>
+              <dt>{tool.label}</dt>
+              <dd set:html={tool.html} />
+            </div>
+          ))
+        }
+      </dl>
+    </section>
+
+    <footer class="colophon">
+      <p>
+        Built in collaboration with AI: the pipeline, documentation, and Blender
+        render setup were developed with Anthropic's Claude. Data-source
+        selection, design, and final review are the author's.
+      </p>
+    </footer>
+  </main>
+</Base>
+
+<style>
+  .about {
+    max-width: min(1500px, 92vw);
+    margin: 0 auto;
+    padding: 0 clamp(1.1rem, 4vw, 2.5rem) 5rem;
+  }
+  .lede {
+    font-family: var(--serif);
+    font-size: clamp(1.1rem, 2.2vw, 1.5rem);
+    line-height: 1.45;
+    color: var(--text);
+    max-width: 22ch;
+    margin: 0.9rem 0 0;
+  }
+  @media (min-width: 640px) {
+    .lede {
+      max-width: 44ch;
+    }
+  }
+
+  .block {
+    margin-top: clamp(2.6rem, 6vw, 4rem);
+  }
+
+  /* How it's made — a real pipeline, so numbered; a map-sheet process strip */
+  .steps {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: clamp(1rem, 2.5vw, 1.8rem);
+  }
+  .steps li {
+    padding-top: 0.9rem;
+    border-top: 2px solid var(--line);
+  }
+  .steps .num {
+    font-family: var(--serif);
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--accent);
+  }
+  .steps h3 {
+    font-family: var(--serif);
+    font-size: 1.1rem;
+    font-weight: 600;
+    margin: 0.15rem 0 0.45rem;
+  }
+  .steps p {
+    margin: 0;
+    font-size: 0.88rem;
+    line-height: 1.55;
+    color: var(--muted);
+  }
+
+  /* Data — one card per source: name (linked), role, license badge, attribution */
+  .sources {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: clamp(0.8rem, 1.5vw, 1.2rem);
+  }
+  .source {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.45rem;
+    padding: 1.15rem 1.15rem 1.25rem;
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+  }
+  .source h3 {
+    font-family: var(--serif);
+    font-size: 1.02rem;
+    font-weight: 600;
+    margin: 0;
+  }
+  .source h3 a {
+    color: inherit;
+    text-decoration: none;
+  }
+  .source h3 a:hover {
+    color: var(--accent);
+  }
+  .source .role {
+    margin: 0;
+    font-size: 0.82rem;
+    color: var(--muted);
+  }
+  .source .lic {
+    font-family: var(--mono);
+    font-size: 0.64rem;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    color: var(--accent);
+    border: 1px solid color-mix(in srgb, var(--accent) 38%, var(--line));
+    border-radius: 999px;
+    padding: 0.18rem 0.55rem;
+    margin: 0.05rem 0;
+  }
+  .source .attr {
+    margin: 0;
+    font-size: 0.76rem;
+    line-height: 1.5;
+    color: var(--muted);
+  }
+
+  /* Boundaries — an emphasised note (it's a disclaimer, not body copy) */
+  .worldview .note {
+    max-width: 62ch;
+    margin: 0;
+    padding: 1rem 1.3rem;
+    border-left: 3px solid var(--accent);
+    background: color-mix(in srgb, var(--accent) 8%, var(--bg-2));
+    border-radius: 0 10px 10px 0;
+    font-size: 0.98rem;
+    line-height: 1.6;
+  }
+
+  .tools {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: clamp(0.9rem, 2vw, 1.6rem) clamp(1.5rem, 3vw, 2.5rem);
+    margin: 0;
+  }
+  .tools > div {
+    border-top: 1px solid var(--line);
+    padding-top: 0.7rem;
+  }
+  .tools dt {
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--muted);
+  }
+  .tools dd {
+    margin: 0.4rem 0 0;
+    font-size: 0.95rem;
+    line-height: 1.5;
+  }
+
+  .colophon {
+    margin-top: clamp(3rem, 7vw, 4.5rem);
+    padding-top: 1.4rem;
+    border-top: 1px solid var(--line);
+  }
+  .colophon p {
+    max-width: 62ch;
+    margin: 0;
+    font-size: 0.82rem;
+    line-height: 1.6;
+    color: var(--muted);
+  }
+</style>

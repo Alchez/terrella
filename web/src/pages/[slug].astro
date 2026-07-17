@@ -1,0 +1,344 @@
+---
+import Base from "../layouts/Base.astro";
+import Masthead from "../components/Masthead.astro";
+import data from "../data/countries.json";
+
+// One statically-built page per country.
+export function getStaticPaths() {
+  return data.countries.map((country) => ({
+    params: { slug: country.slug },
+    props: { country },
+  }));
+}
+
+type Country = (typeof data.countries)[number];
+const { country } = Astro.props as { country: Country };
+
+const HERO_BASE = import.meta.env.PUBLIC_HERO_BASE ?? "/heroes/";
+// The hero starts at the smallest variant for a fast, light initial paint; the zoom
+// script swaps in the native variant the first time you zoom in (see the <script>).
+const displayHero = `${HERO_BASE}${country.slug}-${country.sizes[0]}.webp`;
+const displayBorder = country.hasBorder
+  ? `${HERO_BASE}${country.slug}-border-${country.borderSizes[0]}.png`
+  : "";
+const nativeHero = `${HERO_BASE}${country.slug}-${country.native}.webp`;
+const nativeBorder = country.hasBorder
+  ? `${HERO_BASE}${country.slug}-border-${country.borderSizes[country.borderSizes.length - 1]}.png`
+  : "";
+---
+
+<Base
+  title={`${country.name} — Terrella`}
+  description={`Ray-traced relief map of ${country.name}.`}
+  borders={country.hasBorder}
+>
+  <Masthead heading={country.name} eyebrow={country.continent} back="/" maxWidth="min(1500px, 92vw)" />
+
+  <main class="stage">
+    {
+      country.rendered ? (
+        <figure
+          class="hero-zoom"
+          style={`aspect-ratio:${country.aspect}`}
+          data-native-hero={nativeHero}
+          data-native-border={nativeBorder}
+          tabindex="0"
+          aria-label={`Ray-traced relief map of ${country.name} — scroll or double-click to zoom, drag to pan`}
+        >
+          <div class="zoom-inner">
+            <div class="zoom-hero" aria-hidden="true" style={`background-image:url(${displayHero})`}></div>
+            {country.hasBorder && (
+              <div class="zoom-border" aria-hidden="true" style={`background-image:url(${displayBorder})`}></div>
+            )}
+          </div>
+          <button type="button" class="zoom-reset" hidden>Reset zoom</button>
+          <p class="zoom-hint" aria-hidden="true">Scroll or double-click to zoom</p>
+        </figure>
+      ) : (
+        <div class="placeholder" style={`aspect-ratio:${country.aspect}`}>
+          <span>{country.name}</span>
+          <small>This hero is still rendering — check back soon.</small>
+        </div>
+      )
+    }
+    <p class="meta">
+      Ray-traced relief · Copernicus GLO-30 + GEBCO bathymetry
+      {country.hasBorder && <span> · Natural Earth boundaries</span>}
+    </p>
+  </main>
+</Base>
+
+<style>
+  .stage {
+    max-width: min(1500px, 92vw);
+    margin: 0 auto;
+    padding: clamp(1rem, 2vw, 1.4rem) clamp(1.1rem, 4vw, 2.5rem) 3rem;
+  }
+  .stage figure {
+    position: relative;
+    margin: 0;
+    border-radius: 12px;
+    overflow: hidden;
+    background: var(--bg-2);
+    box-shadow: var(--shadow);
+  }
+  /* Zoomable hero: the image is sampled into a viewport-sized box via
+     background-size/position, so the painted layer is always just the visible frame —
+     the bitmap is never scaled into one giant, texture-limit-busting composited layer
+     (transform-scaling a 7680px image was janky and starved input on every frame). */
+  .hero-zoom {
+    cursor: zoom-in;
+    touch-action: pan-y; /* let the page scroll until zoomed in */
+  }
+  .hero-zoom.zoomed {
+    cursor: grab;
+    touch-action: none; /* capture drag + pinch once zoomed */
+  }
+  .hero-zoom.panning {
+    cursor: grabbing;
+  }
+  .zoom-inner {
+    position: absolute;
+    inset: 0;
+  }
+  .zoom-hero,
+  .zoom-border {
+    position: absolute;
+    inset: 0;
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: cover;
+  }
+  .zoom-border {
+    display: none;
+  }
+  :global(body.borders-on) .zoom-border {
+    display: block;
+  }
+  .zoom-reset {
+    position: absolute;
+    top: 0.7rem;
+    right: 0.7rem;
+    z-index: 2;
+    padding: 0.4rem 0.8rem;
+    font-size: 0.82rem;
+    color: var(--text);
+    background: color-mix(in srgb, var(--bg-2) 88%, transparent);
+    -webkit-backdrop-filter: blur(6px);
+    backdrop-filter: blur(6px);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    cursor: pointer;
+  }
+  .zoom-reset:hover {
+    color: var(--accent);
+  }
+  .zoom-hint {
+    position: absolute;
+    bottom: 0.7rem;
+    left: 0.7rem;
+    z-index: 2;
+    margin: 0;
+    padding: 0.35rem 0.7rem;
+    font-size: 0.75rem;
+    color: var(--text);
+    background: color-mix(in srgb, var(--bg-2) 80%, transparent);
+    -webkit-backdrop-filter: blur(6px);
+    backdrop-filter: blur(6px);
+    border-radius: 999px;
+    pointer-events: none;
+    transition: opacity 0.3s;
+  }
+  .hero-zoom.zoomed .zoom-hint {
+    opacity: 0;
+  }
+  .placeholder {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    text-align: center;
+    padding: 2rem;
+    border: 1px dashed var(--line);
+    border-radius: 12px;
+    background: var(--bg-2);
+    color: var(--muted);
+  }
+  .placeholder span {
+    font-family: var(--serif);
+    font-size: 1.3rem;
+    color: var(--text);
+  }
+  .meta {
+    color: var(--muted);
+    font-size: 0.85rem;
+    margin: 0.9rem 0 0;
+  }
+</style>
+
+<script>
+  // In-place zoom for the detail hero: wheel / double-click / pinch to zoom, drag to
+  // pan. The full-resolution variant is swapped in lazily the first time you zoom, so
+  // the page stays light on load. The relief and its border overlay pan/zoom together.
+  const heroFigure = document.querySelector(".hero-zoom");
+  if (heroFigure instanceof HTMLElement) {
+    const heroLayer = heroFigure.querySelector(".zoom-hero") as HTMLElement;
+    const borderLayer = heroFigure.querySelector(".zoom-border") as HTMLElement | null;
+    const resetButton = heroFigure.querySelector(".zoom-reset") as HTMLButtonElement;
+    const nativeHeroUrl = heroFigure.dataset.nativeHero;
+    const nativeBorderUrl = heroFigure.dataset.nativeBorder;
+
+    let scale = 1;
+    let offsetX = 0;
+    let offsetY = 0;
+    let nativeLoaded = false;
+    const MAX_SCALE = 6;
+
+    // The painted surface is always the visible frame: we scale/pan by sampling the
+    // source through background-size + background-position, never by transforming the
+    // whole (huge) bitmap. So a frame costs one viewport-sized raster, not a re-raster
+    // of a multi-thousand-pixel scaled image. background-size/position are paint-only,
+    // so the browser already coalesces these writes to one paint per frame — no rAF needed.
+    const render = () => {
+      const frameWidth = heroFigure.clientWidth;
+      const frameHeight = heroFigure.clientHeight;
+      const backgroundWidth = frameWidth * scale;
+      const backgroundHeight = frameHeight * scale;
+      // Clamp so the image edges never pull inside the frame (no empty gutters).
+      offsetX = Math.min(0, Math.max(frameWidth - backgroundWidth, offsetX));
+      offsetY = Math.min(0, Math.max(frameHeight - backgroundHeight, offsetY));
+      const backgroundSize = `${backgroundWidth}px ${backgroundHeight}px`;
+      const backgroundPosition = `${offsetX}px ${offsetY}px`;
+      heroLayer.style.backgroundSize = backgroundSize;
+      heroLayer.style.backgroundPosition = backgroundPosition;
+      if (borderLayer) {
+        borderLayer.style.backgroundSize = backgroundSize;
+        borderLayer.style.backgroundPosition = backgroundPosition;
+      }
+      const isZoomed = scale > 1.001;
+      heroFigure.classList.toggle("zoomed", isZoomed);
+      resetButton.hidden = !isZoomed;
+    };
+
+    // Swap a layer's background only once the new image is decoded — swapping to a
+    // not-yet-loaded URL flashes the (dark) figure background through the transparent
+    // gap. The display variant stays visible until the native one is ready.
+    const swapWhenReady = (layer: HTMLElement, url: string) => {
+      const preload = new Image();
+      preload.src = url;
+      preload
+        .decode()
+        .catch(() => {})
+        .finally(() => {
+          layer.style.backgroundImage = `url(${url})`;
+        });
+    };
+
+    // Upgrade to the native full-resolution variant the first time we zoom.
+    const loadNativeVariant = () => {
+      if (nativeLoaded) return;
+      nativeLoaded = true;
+      if (nativeHeroUrl) swapWhenReady(heroLayer, nativeHeroUrl);
+      if (borderLayer && nativeBorderUrl) swapWhenReady(borderLayer, nativeBorderUrl);
+    };
+
+    // Zoom by `factor`, keeping the point under the cursor fixed on screen.
+    const zoomAtPoint = (pointerX: number, pointerY: number, factor: number) => {
+      const nextScale = Math.min(MAX_SCALE, Math.max(1, scale * factor));
+      if (nextScale === scale) return;
+      offsetX = pointerX - (pointerX - offsetX) * (nextScale / scale);
+      offsetY = pointerY - (pointerY - offsetY) * (nextScale / scale);
+      scale = nextScale;
+      if (scale > 1) loadNativeVariant();
+      render();
+    };
+
+    const resetZoom = () => {
+      scale = 1;
+      offsetX = 0;
+      offsetY = 0;
+      render();
+    };
+
+    const pointerToLocal = (event: MouseEvent) => {
+      const bounds = heroFigure.getBoundingClientRect();
+      return [event.clientX - bounds.left, event.clientY - bounds.top];
+    };
+
+    heroFigure.addEventListener("wheel", (event) => {
+      event.preventDefault();
+      const [pointerX, pointerY] = pointerToLocal(event);
+      zoomAtPoint(pointerX, pointerY, event.deltaY < 0 ? 1.15 : 1 / 1.15);
+    }, { passive: false });
+
+    heroFigure.addEventListener("dblclick", (event) => {
+      if (scale > 1.001) return resetZoom();
+      const [pointerX, pointerY] = pointerToLocal(event);
+      zoomAtPoint(pointerX, pointerY, 3);
+    });
+
+    // Drag to pan (one pointer); pinch to zoom (two pointers).
+    const activePointers = new Map();
+    let lastPinchDistance = 0;
+    heroFigure.addEventListener("pointerdown", (event) => {
+      // Don't hijack the Reset control: capturing the pointer on the figure would
+      // retarget the pointerup and swallow the button's click (it took "a few tries").
+      if (event.target instanceof Node && resetButton.contains(event.target)) return;
+      heroFigure.setPointerCapture(event.pointerId);
+      activePointers.set(event.pointerId, [event.clientX, event.clientY]);
+      if (scale > 1) heroFigure.classList.add("panning");
+    });
+    heroFigure.addEventListener("pointermove", (event) => {
+      if (!activePointers.has(event.pointerId)) return;
+      const [previousX, previousY] = activePointers.get(event.pointerId);
+      activePointers.set(event.pointerId, [event.clientX, event.clientY]);
+      if (activePointers.size === 2) {
+        const [firstPointer, secondPointer] = [...activePointers.values()];
+        const pinchDistance = Math.hypot(
+          firstPointer[0] - secondPointer[0],
+          firstPointer[1] - secondPointer[1],
+        );
+        if (lastPinchDistance) {
+          const bounds = heroFigure.getBoundingClientRect();
+          const midpointX = (firstPointer[0] + secondPointer[0]) / 2 - bounds.left;
+          const midpointY = (firstPointer[1] + secondPointer[1]) / 2 - bounds.top;
+          zoomAtPoint(midpointX, midpointY, pinchDistance / lastPinchDistance);
+        }
+        lastPinchDistance = pinchDistance;
+      } else if (scale > 1) {
+        offsetX += event.clientX - previousX;
+        offsetY += event.clientY - previousY;
+        render();
+      }
+    });
+    const releasePointer = (event: PointerEvent) => {
+      activePointers.delete(event.pointerId);
+      if (activePointers.size < 2) lastPinchDistance = 0;
+      if (activePointers.size === 0) heroFigure.classList.remove("panning");
+    };
+    heroFigure.addEventListener("pointerup", releasePointer);
+    heroFigure.addEventListener("pointercancel", releasePointer);
+
+    // Keyboard: +/- to zoom, arrows to pan when zoomed, 0 to reset.
+    heroFigure.addEventListener("keydown", (event) => {
+      const centerX = heroFigure.clientWidth / 2;
+      const centerY = heroFigure.clientHeight / 2;
+      if (event.key === "+" || event.key === "=") zoomAtPoint(centerX, centerY, 1.3);
+      else if (event.key === "-" || event.key === "_") zoomAtPoint(centerX, centerY, 1 / 1.3);
+      else if (event.key === "0") resetZoom();
+      else if (scale > 1 && event.key.startsWith("Arrow")) {
+        const panStep = 48;
+        if (event.key === "ArrowLeft") offsetX += panStep;
+        else if (event.key === "ArrowRight") offsetX -= panStep;
+        else if (event.key === "ArrowUp") offsetY += panStep;
+        else if (event.key === "ArrowDown") offsetY -= panStep;
+        render();
+      } else return;
+      event.preventDefault();
+    });
+
+    resetButton.addEventListener("click", resetZoom);
+    window.addEventListener("resize", render);
+  }
+</script>
