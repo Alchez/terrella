@@ -2,8 +2,8 @@
 """Prefix each stdout line with wall-clock + elapsed seconds.
 
 shade_planet.py already prints a marker at every stage boundary ("warp height -> 3857 ...",
-"color-relief (land) ...", "per-row-z hillshade ...", "global sky-view factor ...", "composited
-rows N/93009" every 20 windows). Timestamping those lines is the entire per-stage timing story,
+"per-row-z hillshade ...", "global sky-view factor ...", "composited rows N/93009" every 20
+windows, "cutting z0-8 512px tiles -> ..."). Timestamping those lines is the per-stage timing story,
 at zero overhead and zero code change -- and the composite's every-20-windows marker turns into a
 rows/second curve over latitude for free, which is how the lake warp's spatially non-uniform rate
 would have been caught before it broke the estimate.

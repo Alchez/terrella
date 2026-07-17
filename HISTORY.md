@@ -4,6 +4,63 @@ Chronological archive of decisions and their rationale, split out of PLAN.md on 
 
 ## Decision log
 
+### 2026-07-17 — THE TILE CUT LANDED (6:17 total), and it was never the expensive stage
+
+The pre-Caspian, pre-GLOBathy pyramid is gone: **62,177 tiles swapped live**, `tiles_old` kept as
+rollback, exit 0, first cut ever run under instrumentation (`run_pass.sh --tiles`).
+
+**The headline is that every estimate of this step was wrong, in the same direction.** PLAN carried it as
+the gated blocker for days; I guessed "30–60 min" (flagged as a guess — the only reason it wasn't worse).
+
+| stage | wall | cores (of 16) | read | write |
+|---|---|---|---|---|
+| **SVF — entirely wasted** | **153.5 s (41% of the pass)** | **0.80** (single-threaded) | 30.88 GiB | 0 |
+| **tiling** | **223.7 s** | **12.03** (75% util) | 109.77 GiB @ 502 MB/s | 30.25 GiB |
+| total | **377.5 s** | | | |
+
+- **`global_occlusion` has no freshness guard, and its consumer does.** `main()` calls it
+  unconditionally (`shade_planet.py:414`), then `composite_planet` returns at `:280`
+  (`planet_rgb fresh -> skip composite`) **without ever reading `occ`**. So a tiles-only re-run spends
+  **2:33 single-threaded reading the whole 31 GB master to compute an array it throws away** — 41% of
+  the pass. This is the "only unguarded stage" problem I declared dissolved when gdaladdo was deleted:
+  it did not dissolve, it **moved**, and I only found it because the instrumentation printed the stage
+  boundaries. Fixing the guard makes the tiles-only pass **377 s → 224 s for free**.
+- **The cut is well-parallelised already**: 12.03 of 16 cores, 502 MB/s read. `gdal raster tile`'s
+  `-j ALL_CPUS` default needs no help. There is no cheap win left in the tiler itself.
+- **`perf` was OFF (paranoid=4) and it did not matter — the right call, for the right reason.**
+  `gdal raster tile` is an external black box whose only levers are already flags (`-j`, `--tile-size`,
+  `--output-format`); symbol-level attribution pays off on code we own (it is what found the LUT win in
+  *our* composite), not here. `stamp.py` — the cheapest instrument, a timestamp per stdout line — found
+  the 2:33 waste that perf would not have flagged as waste at all, because perf shows where CPU goes,
+  never whether the answer is discarded. **The harness now degrades instead of blocking**, so a missing
+  optional instrument can never cost a pass.
+- **`memory.current` is not RSS, and believing it would have caused a false alarm.** The cgroup pressed
+  its 16 G cap the whole run — but `anon` was **0.58 GiB** against `file` **14.49 GiB**: reclaimable page
+  cache from streaming the master, with `oom_kill 0, max 0`. Real peak RSS: **0.71 GiB (SVF) / 2.02 GiB
+  (tiling, 18 procs)**. The cap was throttling page cache, not guarding real memory. This is exactly why
+  `watchdog.py` tracks **anon**, and I nearly panicked at the total before checking.
+- **Verified at the pixel, not the count.** 62,177 tiles matches 07-14 exactly, which proves nothing
+  about content. Oracle: Caspian z8/164/96 **100% of px >2 DN, max 78** (the re-fuse landed);
+  control Sahara z8/136/111 **0.0% >2 DN, max exactly 2** — the pre-registered LUT/float32 noise floor
+  and not one DN more. The change is where it should be and nowhere else. Served tile md5 == disk md5.
+- **`--webviewer=none` confirmed at planet scale**: zero leaflet/openlayers/mapml/stac files in the new
+  pyramid, where the 07-14 cut left four.
+- **The SVF guard, landed the same day: a fully-fresh pass is 153.5 s → 0.29 s.** SVF has no output file,
+  so it cannot be `is_stale`-gated like everything else; the guard is **laziness** — `composite_planet`
+  now takes `compute_occlusion: Callable[[], np.ndarray]` and invokes it *below* the early return, so it
+  runs if and only if the composite is stale. One caller, and `occ` was already first used after that
+  return, so no restructuring. Proven with **both arms**: fresh → the callable is never invoked; stale →
+  it is (without the second arm the first is vacuous, since an ignored argument would also pass). Every
+  stage in the pass is now guarded, and `build_tiles` inherits the "only unguarded stage" title honestly.
+- **A viewer, not the tiles, nearly read as a regression.** Post-cut the starfield "disappeared" — because
+  the check was run on `planet_tiles/index.html` (a zero-dependency tile smoke test with a daytime-blue
+  sky, no stars) rather than `globe.astro` at `/globe`, which is what PLAN's gate actually names. I had
+  pointed at the wrong viewer by following a 07-14 HISTORY instruction written before the frontend
+  existed. **Dated instructions outlive their context; the viewer is now labelled in-page and in its
+  `<title>` so it cannot impersonate the product again.** Kept rather than deleted: it is a *different
+  tool* (proves tiles render without the Astro stack), it is read-only rather than a loaded gun like
+  `tile_planet.py`, and being gitignored means deletion is permanent — git is not its archive.
+
 ### 2026-07-16 — the gdaladdo step DELETED: I optimised it 4.5x an hour before proving it does nothing
 
 Read the gdaladdo docs before the cut, found three candidate flags, killed two on measurement, landed the

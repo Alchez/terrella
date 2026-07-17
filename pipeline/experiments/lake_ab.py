@@ -5,9 +5,17 @@ Mirrors lake_depth_prototype.py's A/B output so the 2026-07-07 judgement ("gradi
 hero scale, rejected as an artificial gradient") can be compared like-for-like against the
 calibrated version -- same sites, same framing. Sized for a phone screen, not a workstation.
 
+--left/--right take either a render DIRECTORY (dir/region_rgb.tif, the shade.py --cells shape) or a
+raster FILE directly. The file form exists because the planet A/B is two files in ONE directory
+(planet_rgb_v1.tif vs planet_rgb.tif) -- dir-only would have forced a second copy of this tool,
+which is the exact duplication PLAN's commonification item is about.
+
 Usage:
   python3 -m pipeline.experiments.lake_ab --left data/work/lakeproto_off \
       --right data/work/lakeproto_log1p --outdir data/work/lakeproto_ab
+  python3 -m pipeline.experiments.lake_ab --left data/work/planet_tiles/planet_rgb_v1.tif \
+      --right data/work/planet_tiles/planet_rgb.tif --outdir data/work/planet_tiles/_mosaic_check \
+      --site caspian=51.0,40.0 --crop 3000
 """
 
 import argparse
@@ -29,6 +37,11 @@ def to_rowcol(dataset, lon, lat):
     return int(row), int(col)
 
 
+def resolve_render(path: Path) -> Path:
+    """A render DIRECTORY (-> its region_rgb.tif) or a raster FILE, passed straight through."""
+    return path / "region_rgb.tif" if path.is_dir() else path
+
+
 def crop_at(dataset, lon, lat, size):
     row, col = to_rowcol(dataset, lon, lat)
     row0 = max(0, min(dataset.height - size, row - size // 2))
@@ -39,8 +52,10 @@ def crop_at(dataset, lon, lat, size):
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    parser.add_argument("--left", type=Path, required=True, help="control render dir")
-    parser.add_argument("--right", type=Path, required=True, help="candidate render dir")
+    parser.add_argument("--left", type=Path, required=True,
+                        help="control: a render dir (dir/region_rgb.tif) or a raster file")
+    parser.add_argument("--right", type=Path, required=True,
+                        help="candidate: a render dir (dir/region_rgb.tif) or a raster file")
     parser.add_argument("--outdir", type=Path, required=True)
     parser.add_argument("--label", default="ab")
     parser.add_argument("--site", action="append", default=[], metavar="NAME=LON,LAT",
@@ -58,11 +73,11 @@ def main() -> int:
             lon, _, lat = coords.partition(",")
             sites[name] = (float(lon), float(lat))
 
-    left_tif = args.left / "region_rgb.tif"
-    right_tif = args.right / "region_rgb.tif"
+    left_tif = resolve_render(args.left)
+    right_tif = resolve_render(args.right)
     for path in (left_tif, right_tif):
         if not path.exists():
-            sys.exit(f"missing {path} -- run shade.py --cells for that variant first")
+            sys.exit(f"missing {path} -- for a render dir, run shade.py --cells for that variant first")
 
     with rasterio.open(left_tif) as left_ds, rasterio.open(right_tif) as right_ds:
         if left_ds.shape != right_ds.shape:

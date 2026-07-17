@@ -45,7 +45,7 @@ raster below.
 | `lakedepth_3857.tif` + `.done` | 310 MB | GLOBathy lake depth on the 3857 grid (built 2026-07-15, `1:01:38`) — deflates small because it is ~98% zero | Keep — its `.done` is what stops a pass paying that hour again; only dep is `lakedepth.vrt` |
 | `water_3857.tif` / `ocean_3857.tif` + `.done` | 69 MB | 3857 masks | Keep — **fresh**; `water_3857` now correctly reads **class 1** at the Caspian |
 | `hs_params.json`, `composite_params.json` | ~2 KB | materialised palette/knob params — **the freshness guard's dependency records**. `composite_params` gained LAND_STOPS/SEA_STOPS/LUT_STEP_M on 2026-07-16 when `ramp_{land,sea}.txt` were deleted with color-relief | Keep (regenerated; **mtime is load-bearing**) |
-| `index.html` | 1.8 KB | local MapLibre preview harness for the live tiles (see `globe.astro:276`) | Keep (tiny, useful) |
+| `index.html` | 2.6 KB | **tile SMOKE TEST, not the product globe** — proves the raw pyramid renders using only `python -m http.server`, so broken tiles and a broken frontend can be told apart. No starfield/borders/atmosphere; the product (`globe.astro`, `/globe`) has all three. Labelled in-page + in `<title>` after it was mistaken for the product on 2026-07-17 | Keep — it is a *different tool*, not a superseded one, and being gitignored means deleting is permanent (git is not its archive) |
 
 **Gone 2026-07-16** (deleted with the `gdaldem color-relief` stage — `composite()` applies the ramps
 from elevation via a 17.6 KB LUT): `land_3857.tif`, `sea_3857.tif`, `ramp_land.txt`, `ramp_sea.txt`.

@@ -40,7 +40,8 @@ SWAP_WARN_MB = 1_500     # swap sat pinned 7/7 all of 2026-07-15; never again un
 # Stage markers shade_planet.py already prints. "composited rows" is deliberately excluded.
 STAGE_RE = re.compile(
     r"(warp height ->|warp ocean ->|warp water ->|warp lake depth ->|no lakedepth|"
-    r"color-relief \(|per-row-z hillshade|global sky-view factor|planet_rgb fresh|"
+    r"per-row-z hillshade|global sky-view factor|planet_rgb fresh|"
+    r"cutting z0-8|tiles live ->|"          # build_tiles: added 07-16, the first instrumented cut
     r"wrote |DONE|Traceback|Error|error|Killed|MemoryError)")
 
 

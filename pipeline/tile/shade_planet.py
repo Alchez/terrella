@@ -37,6 +37,7 @@ import json
 import math
 import subprocess
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, cast
 
@@ -258,7 +259,7 @@ def read1_window(path, window):
         return dataset.read(1, window=window)
 
 
-def composite_planet(work: Path, hs, occ, variants=None,
+def composite_planet(work: Path, hs, compute_occlusion: Callable[[], np.ndarray], variants=None,
                      window_rows=WINDOW_ROWS, max_windows=None):
     """Composite the whole planet window-by-window into seamless RGB GeoTIFF(s).
 
@@ -268,6 +269,13 @@ def composite_planet(work: Path, hs, occ, variants=None,
     sea-light math + write differs per variant. `variants=None` keeps the production path:
     a single planet_rgb.tif shaded with the default KNOBS. `window_rows` is the RAM lever;
     `max_windows` (smoke test) stops after N windows, leaving a partially-filled raster.
+
+    `compute_occlusion` is a CALLABLE, not the array itself, and that IS the sky-view guard.
+    Measured 2026-07-17 on the first instrumented tile cut: computing it costs 2:33
+    single-threaded reading the whole 31 GB master -- and on a tiles-only re-run the composite
+    is fresh, so the array was built and discarded, 41% of that pass. Every other stage is
+    gated by `is_stale`, but SVF has no file of its own to stamp, so deferring it behind the
+    same freshness check is the equivalent guard. Keep the call BELOW the early return.
     """
     if variants is None:
         variants = {None: None}
@@ -279,6 +287,8 @@ def composite_planet(work: Path, hs, occ, variants=None,
     if max_windows is None and not any(is_stale(tif, *deps) for tif in outs.values()):
         print("planet_rgb fresh -> skip composite", flush=True)
         return outs
+    print("global sky-view factor ...", flush=True)
+    occ = compute_occlusion()
     with rasterio.open(work / "height_3857.tif") as h:
         width, height, transform = h.width, h.height, h.transform
     small_h, small_w = occ.shape
@@ -410,9 +420,8 @@ def main():
 
     height = warp_inputs(work)
     hs = build_hillshade(work, height)
-    print("global sky-view factor ...", flush=True)
-    occ = global_occlusion(height)
-    planet_tif = composite_planet(work, hs, occ)[None]
+    # Passed unevaluated: composite_planet runs it only if the composite is actually stale.
+    planet_tif = composite_planet(work, hs, lambda: global_occlusion(height))[None]
     if args.tiles:
         build_tiles(planet_tif, work)
     print("DONE", flush=True)
