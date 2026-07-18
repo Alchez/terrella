@@ -151,6 +151,33 @@ for three days. This closes that; it is not a new tile-side dial.
   class are pinned provenance; a majority filter against 10 m edge speckle is held in
   reserve, on evidence only.
 
+### Snow curve — TILES (`KNOBS["snow_curve"]`, tile/shade.py; new 2026-07-17)
+- **The one thing to understand here:** over full snow, `composite` does `final = base_rgb * (1 - alpha)
+  + snow_rgb * alpha`, so at `alpha = 1` **`base_rgb` is multiplied by zero**. Every bit of hillshade and
+  sky-view modelling is discarded. Relief reaches an ice sheet through **one** channel — `snow_t` — and
+  the whole contrast budget is the luminance gap from `SNOW_SHADOW_RGB` `B0C7DB` to `SNOW_RGB` `E8F1F6`:
+  **43.9 DN. That is all there is.** Every question about ice legibility is a question about how `snow_t`
+  spends those 43.9 DN.
+- **Why a curve and not the window.** Greenland's interior spans light **1.017–1.052**; Alpine snow spans
+  **0.50–1.11** — a **17× mismatch, and the ranges are NESTED** (Greenland sits inside the Alps' top).
+  A window wide enough for the Alps hands Greenland 7% of its travel (**2.87 DN delivered — blank**);
+  a window narrow enough for Greenland is a *threshold* for the Alps (binary blue/white cartoon).
+  **`snow_lo`/`snow_hi_pt` are NOT the lever. This will look like the obvious fix. It is the rejected
+  one.** Same shape as `EXAG 15`: one global constant straddling two terrains an order of magnitude apart.
+- **`gamma8` (chosen 2026-07-17).** Greenland Summit **3.14 → 18.84 DN (6.0×)**, north 4.35 → 24.12 (5.5×).
+  `gamma4` is the timid version (3.4×); `knee` ties at Summit, loses in the north, costs two constants.
+- **It is nearly free, and that is luck, not design.** The curve borrows slope from the midtones — but
+  rugged snow's light is **bimodal** (62–65% pinned at the `ambient` floor, a few % at the top), so it
+  barely lives there: only ~34% of Alpine snow moves at all, mean 6.99 DN. **If a future re-tune
+  un-pins that floor, the bill arrives.** The trade is real; the terrain is currently paying it for us.
+- **Adjust:** `KNOBS["snow_curve"]` — `linear` (the pre-2026-07-17 look, kept as the A/B control) |
+  `gamma4` | `gamma8` | `knee`. A composite-stage knob: restages SVF + composite + tiles (~56 min),
+  **not** the hillshade, which cannot see it.
+- **What this does NOT fix:** the ice still has whatever relief the DEM gives it. **REMA/ArcticDEM is not
+  the first lever** — better elevation feeds a stage that was discarding 93% of what it already had. Ask
+  again *after* judging gamma8, not before. Antarctica inherits every word of this.
+- → HISTORY § 2026-07-17 Greenland's interior is blank
+
 ### Sea color ramp (depth-keyed) — `SEA_STOPS` + `SEA_RANGE` (scene_build.py)
 - Baseline (**smooth-C, 2026-07-10**): depths 0→−3,000 m onto position 0→1, 6 stops
   `8FC7C5@0 / 7CB8B8@0.10 / 68A6AC@0.22 / 56939E@0.38 / 47808F@0.62 / 3A6E7D@1.0`.

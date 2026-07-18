@@ -64,6 +64,7 @@ class Knobs(TypedDict):
     sea_svf: float
     snow_lo: float
     snow_hi_pt: float
+    snow_curve: str  # light->snow ramp mapping; see snow_position()
     lake_curve: str  # depth->ramp mapping; see lake_position()
 
 
@@ -84,10 +85,17 @@ class Knobs(TypedDict):
 # rosy and flat" failure the hero's 2026-07-08 A/B already rejected. The fill IS the shadow floor
 # (ART.md:90); a second floor under it only hazes the pale high country. Every metric said 0.62 was
 # best and every metric was wrong -- see ~/.claude-personal/plans/fill-sun-port.md.
+#
+# `snow_curve` **"gamma8", chosen 2026-07-17 (Rohan)** off a four-curve A/B (linear/gamma4/gamma8/
+# knee) rendered through composite() at Greenland Summit + north and the Alps + Himalaya. It rides
+# here, not as a function parameter, for the same reason `lake_curve` does: it is a tunable, so
+# composite_params must see it. `snow_lo`/`snow_hi_pt` deliberately stay 0.55/1.05 -- the window is
+# not the lever, the CURVE is; a window narrow enough for Greenland is a threshold for the Alps.
+# -> HISTORY 2026-07-17 Greenland
 KNOBS = Knobs(alt=45.0, fill_strength=0.15, ambient=0.50, hi=1.12, exposure=1.05, saturation=1.18,
               warmth=0.06, svf_strength=0.20, svf_threshold=0.45, sea_shade=0.55, sea_lift=1.00,
               sea_saturation=0.90, sea_svf=0.5, snow_lo=0.55, snow_hi_pt=1.05,
-              lake_curve="log1p")
+              snow_curve="gamma8", lake_curve="log1p")
 
 
 def run(cmd):
@@ -303,6 +311,50 @@ def lake_position(depth, curve):
     raise ValueError(f"unknown lake_curve {curve!r} (log1p | sqrt | linear)")
 
 
+# Greenland's interior spans light 1.017-1.052 while Alpine snow spans 0.50-1.11 -- a 17x
+# dynamic-range mismatch, and the ranges are NESTED (Greenland sits inside the Alps' top). The
+# snow window is the only channel relief has over full snow, because base_rgb is multiplied by
+# (1 - alpha) = 0 there. So a LINEAR window is forced to choose: wide enough for the Alps hands
+# Greenland 7% of its travel (2.87 DN delivered, i.e. blank); narrow enough for Greenland is a
+# threshold for the Alps. A curve is the only single global knob that can serve both, exactly as
+# `lake_curve` answers the pond-vs-Baikal version of this. -> HISTORY 2026-07-17 Greenland
+KNEE_X = 0.93      # where Greenland's band starts on the normalised window
+KNEE_SHARE = 0.45  # fraction of the ramp handed to everything above KNEE_X
+
+
+def snow_position(light, curve):
+    """Hillshade light -> 0..1 along the snow_shadow->snow_lit ramp.
+
+    The budget is fixed: snow_shadow B0C7DB to snow_lit E8F1F6 is 43.9 DN of luminance, and that
+    is ALL the contrast any fully-snow pixel can receive. A curve cannot create range, only
+    redistribute it -- so a gain for flat ice is in principle paid for by rugged snow. MEASURED,
+    the bill is small: rugged snow's light is bimodal (62-65% pinned at the `ambient` floor, a few
+    % at the top), so it barely occupies the midtones the curve borrows from. Under gamma8 only
+    ~34% of Alpine snow pixels move at all (mean 6.99 DN) against 99% of Greenland's (mean 13.03).
+
+    LINEAR is retained as the A/B control and is what shipped before 2026-07-17. GAMMA8 delivers
+    Greenland Summit 3.14 -> 18.84 DN (6.0x) and north 4.35 -> 24.12 DN (5.5x). KNEE matches it at
+    Summit but is weaker in the north (4.3x) for two more constants, so it was not chosen.
+
+    `position ** 8` is deliberately left as a pow: repeated squaring is 1.7x faster on it but saves
+    6.8 s of a ~2,980 s composite (0.23%) and is not bit-identical (1.8e-7). Measured 2026-07-17,
+    not assumed -- this is the fast-stage trap the gdaladdo entry records.
+    """
+    position = np.clip((light - KNOBS["snow_lo"]) / (KNOBS["snow_hi_pt"] - KNOBS["snow_lo"]),
+                       0.0, 1.0)
+    if curve == "linear":
+        return position  # pre-2026-07-17 look, bit-identical -- a real control, not an approximation
+    if curve == "gamma4":
+        return position ** 4
+    if curve == "gamma8":
+        return position ** 8
+    if curve == "knee":
+        return np.where(position <= KNEE_X,
+                        position / KNEE_X * (1.0 - KNEE_SHARE),
+                        (1.0 - KNEE_SHARE) + (position - KNEE_X) / (1.0 - KNEE_X) * KNEE_SHARE)
+    raise ValueError(f"unknown snow_curve {curve!r} (linear | gamma4 | gamma8 | knee)")
+
+
 def composite(heights, ocean, water, snow_a, hs, occ, occ_shape, grid, depth=None):
     """Composite one window of the planet/region from ELEVATION, not pre-coloured rasters.
 
@@ -373,7 +425,7 @@ def composite(heights, ocean, water, snow_a, hs, occ, occ_shape, grid, depth=Non
     # in sun (a two-colour ramp, not a neutral multiply), so snow keeps relief form instead of
     # muddying to grey on rugged terrain the way SNOW_RGB*light did.
     alpha = np.where(ocean | water, 0.0, snow_a)
-    snow_t = np.clip((light - KNOBS["snow_lo"]) / (KNOBS["snow_hi_pt"] - KNOBS["snow_lo"]), 0.0, 1.0)
+    snow_t = snow_position(light, KNOBS["snow_curve"])
     snow_shadow = np.array(palette.SNOW_SHADOW_RGB, dtype=np.float32).reshape(3, 1, 1)
     snow_lit = np.array(palette.SNOW_RGB, dtype=np.float32).reshape(3, 1, 1)
     snow_rgb = snow_shadow + (snow_lit - snow_shadow) * snow_t[None]

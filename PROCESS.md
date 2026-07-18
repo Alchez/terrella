@@ -33,7 +33,7 @@ Two stages are the exceptions, and they are the whole story of a re-run:
 | 3 | warp GLOBathy lake depth → 3857 | **1:01:38** (nodata-masker-bound, 102% CPU) | ~0 s | `lakedepth_3857.tif` 310 MB | `is_stale` |
 | 4 | `render/hillshade.py` — per-row z-factor **+ fill sun** | **11:48** (1.17 cores, 44.9 MB/s r) | ~0 s | `hs_3857.tif` 7.9 GB | `is_stale` |
 | 5 | `global_occlusion` — sky-view factor | **2:44** (0.78 cores, **193 MB/s r** — I/O-bound) | ~0 s | in-memory only | **lazy** (2026-07-17) |
-| 6 | `composite_planet` — ramps × hillshade × SVF + snow + lake depth | **49:40** (0.78 cores, 7.4 MB/s r; peak 6.44 GB) | ~0 s | `planet_rgb.tif` 12 GB | `is_stale` |
+| 6 | `composite_planet` — ramps × hillshade × SVF + snow + lake depth | **10:45 threaded 128/N4** (peak **10.55 GiB**); was **49:40** serial 256 | ~0 s | `planet_rgb.tif` 11 GB | `is_stale` |
 | 7 | `build_tiles` — `gdal raster tile` z0–8 | **3:32** (12.0 of 16 cores, 502 MB/s read) | **3:32 — no guard** | `tiles/` 14 GB, 62,177 tiles | none |
 
 Stages 4–7 re-measured **2026-07-17** on the fill-sun pass (`run_pass.sh --tiles`, exit 0, **67:44 total**),
@@ -45,16 +45,22 @@ times only, which is why "is the hillshade compute- or I/O-bound?" was unanswera
   on the delta: pure compute is 1.41 s/window but only ~half the stage is arithmetic (1.17 cores).
 - **composite 49:40** — was 53.8 min. The **−4.1 min is optimisation #3** (`num_threads="ALL_CPUS"` on the
   writers, landed 2026-07-16) cashing in for the first time; PLAN predicted "~6 min, upper bound".
-- **0.78 of 16 cores** is the composite's headline number: it is neither I/O-bound (7.4 MB/s) nor
-  parallel. It is **single-threaded and DRAM-bandwidth-bound** — full-width windows make every 3-channel
+- **0.78 of 16 cores** was the composite's headline number when serial: neither I/O-bound (7.4 MB/s) nor
+  parallel, it was **single-threaded and DRAM-bandwidth-bound** — full-width windows make every 3-channel
   array 402 MB against ~32 MB of L3, so all ~30 numpy ops are DRAM round-trips. That is *why* threading
-  caps at ~3× (PLAN § Pipeline optimisation #5), and why bigger windows would not help.
+  caps at ~3× and why bigger windows do not help.
+- **composite 10:45, threaded 128/N4 (optimisation #5 LANDED 2026-07-18).** ~3.5× the serial rate, peak
+  **10.55 GiB** (up from the bench's 8.5 on 24 windows — full-pass fragmentation, still under the 12 G cap;
+  N=6 would OOM a full pass). The 128-row window is NOT for speed (128 ties 256 serial per row) but to fit
+  4 workers under the cap — 256/N3 OOMs. It shifts the look sub-perceptibly (worst 20 DN on mountain snow,
+  invisible at true scale). → HISTORY § 2026-07-18 — the composite is threaded.
 
 **End-to-end, measured:**
 
 | Scenario | Wall | Notes |
 |---|---|---|
-| **A light/palette re-tune** (knob → live tiles) | **67:44** | measured 2026-07-17 (fill sun). Warps all skip; hillshade + SVF + composite + tile cut all run. **This is the real cost of an art iteration.** |
+| **A hillshade-stage re-tune** (`fill_strength` → live tiles) | **67:44** | measured 2026-07-17 (fill sun). Warps all skip; hillshade + SVF + composite + tile cut all run. |
+| **A composite-stage re-tune** (`snow_curve` → live tiles) | **~17 min** (was 55:48) | 2026-07-17 gamma8 was SVF 167 s + composite **49:33** + tiles 3:28 = 55:48. With #5 landed (128/N4) the composite is **10:45**, so a composite-knob iteration is now **≈ 167 s SVF + 10:45 + ~3:30 tiles ≈ 17 min** — the ~3× that motivated Phase B, and it matters most for Antarctica's many ice-look iterations. |
 | Everything cold, shade only | **~72 min** | 2026-07-16, after color-relief was deleted (was ~98 min) |
 | `--tiles`, everything fresh | **~3:45** | was 6:17 before the SVF guard — 41% of it was discarded work |
 | No `--tiles`, everything fresh | **0.29 s** | every stage skips; this is the guard working |

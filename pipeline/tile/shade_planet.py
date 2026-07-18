@@ -37,7 +37,11 @@ import json
 import math
 import subprocess
 import sys
+import time
+from collections import deque
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
@@ -56,13 +60,29 @@ PLANET = ROOT / "data/work/planet"
 Z8_RES = 305.7483          # metres/pixel of a 512px WebMercatorQuad tile at zoom 8
 EXAG = 15.0
 ALT, AZ = KNOBS["alt"], 315.0
-WINDOW_ROWS = 256          # full-width composite window. Height is the hard RAM lever (windows
-                           # are full 131072-wide): with float32 composite this peaks ~6 GB. 384
-                           # rows in float64 peaked ~18 GB and got OOM-killed. Launch the job with
-                           # GDAL_CACHEMAX=512 to leave headroom for other work.
+WINDOW_ROWS = 256          # the snow-persistence banded-warp height (Phase A) AND composite_planet's
+                           # DEFAULT window. Must stay 256: the persistence raster is banded at this
+                           # height to be byte-identical to the per-window warp it replaced, and the
+                           # composite reads slices of that fixed raster. Also the RAM lever for the
+                           # serial default (full 131072-wide float32 windows peak ~6 GB; 384 rows in
+                           # float64 peaked ~18 GB, OOM). Launch with GDAL_CACHEMAX=512 for headroom.
+COMPOSITE_ROWS = 128       # PRODUCTION composite window (optimisation #5, 2026-07-18). Smaller than
+                           # WINDOW_ROWS purely to fit N_WORKERS concurrent windows under the 12 G cap
+                           # -- 256/N3 OOMs, and 128 is not a speed lever by itself (serial rows/s ~
+                           # equal). It shifts the look sub-perceptibly (SVF window slicing; worst 15
+                           # DN on amplified mountain-snow edges, invisible at true scale -- Rohan
+                           # judged it on a render 2026-07-18). Reads 128-row slices of the 256-banded
+                           # persistence, exactly as the delta A/B validated. → HISTORY 2026-07-18.
+N_WORKERS = 4              # composite worker threads. The knee: numpy is DRAM-bandwidth-bound, so
+                           # threads scale 1.8×@2 / 3.1×@4 / 3.4×@6, and RAM grows linearly (128-row
+                           # peak: N4 8.5 G, N6 11.3 G). 4 = ~3.1× at safe margin under 12 G.
 SVF_LONG_EDGE = 4096       # global sky-view downsample (long edge = raster width)
 CAP_NORTH, CAP_SOUTH = 84.0, -59.5   # latitudes above/below which the poles are capped flat
 CAP_RGB = (67, 118, 132)   # flat deep-sea colour for the polar caps (matches deep-ocean render)
+INFLIGHT_BUFFER = 2        # windows read AHEAD of the workers (optimisation #5): the main thread
+                           # may queue max_workers + this many window-input bundles before it must
+                           # block on the oldest result and write it. Bounds peak RAM to
+                           # (max_workers + INFLIGHT_BUFFER) windows in flight; keep it small.
 
 
 def _run(cmd):
@@ -140,7 +160,32 @@ def write_if_changed(path: Path, text: str) -> Path:
 HILLSHADE_ONLY_KNOBS = frozenset({"fill_strength"})
 
 
-def composite_params(variants) -> str:
+def hs_params() -> str:
+    """The hillshade's tunables, recorded as hs_3857's dependency — composite_params' sibling.
+
+    Split out of build_hillshade on 2026-07-17 so BOTH halves of the freshness contract are
+    testable from the outside. The asymmetry was itself the hazard: composite_params had tests
+    pinning what it must and must not record, and this side had none, while every freshness bug so
+    far has been a tunable that failed to reach one of these two records.
+
+    The fill sun's geometry is recorded ONLY when it is actually on. This exists to answer "would a
+    rerun produce different pixels?", and at strength 0 the fill provably cannot -- it is skipped
+    entirely and the result is bit-identical (tests/test_hillshade.py). Recording it unconditionally
+    would restage an 8:28 hillshade, a 53.8 min composite and a 3:44 tile cut to reproduce the same
+    bytes, and would falsely report the LIVE pyramid as stale. Turning the fill on flips this dict
+    and correctly restages all three.
+
+    Composite-stage knobs must NOT appear here: this raster cannot see them, so recording one
+    restages an 11:48 hillshade that would produce identical bytes.
+    """
+    params: dict[str, Any] = {"exag": EXAG, "alt": ALT, "az": AZ}
+    if KNOBS["fill_strength"] != 0.0:
+        params["fill"] = {"strength": KNOBS["fill_strength"],
+                          "alt": hillshade.FILL_ALTITUDE, "az": hillshade.FILL_AZIMUTH}
+    return json.dumps(params, sort_keys=True, indent=2)
+
+
+def composite_params(variants, window_rows=WINDOW_ROWS) -> str:
     """The composite's tunables, recorded as planet_rgb's dependency.
 
     KNOBS and the palette colours never reach a file of their own, so without this a knob or
@@ -149,11 +194,18 @@ def composite_params(variants) -> str:
     is exactly how WATER_RGB drifted silently against the sea. `lake_curve` needs no entry of
     its own -- it rides in KNOBS. Must be read BEFORE the variant loop, which mutates KNOBS.
 
+    `window_rows` (the composite window height) is recorded because it is NOT just a RAM lever:
+    it slices the SVF occlusion per window, so a change perturbs the output sub-perceptibly (the
+    256->128 A/B, 2026-07-18). Without it here, switching the production window height would leave a
+    stale planet_rgb looking fresh -- the same untracked-input trap as WATER_RGB. `max_workers` is
+    deliberately NOT recorded: threading is byte-identical (proven), so it changes no pixel.
+
     HILLSHADE_ONLY_KNOBS are filtered out -- see its comment: they are tracked by hs_params.json and
     arrive here through `hs`, so repeating them would force composites that change nothing.
     """
     knobs = {key: value for key, value in KNOBS.items() if key not in HILLSHADE_ONLY_KNOBS}
     return json.dumps({"knobs": knobs, "water_rgb": palette.WATER_RGB,
+                       "composite_window_rows": window_rows,
                        # land/sea stops moved in here on 2026-07-16 when color-relief was
                        # deleted: they used to be tracked by ramp_{land,sea}.txt's mtime, whose
                        # whole purpose was to gate the gdaldem stages. With those gone, nothing
@@ -177,9 +229,17 @@ def composite_deps(work, hs, params) -> tuple:
     `height_3857.tif` replaced land_3857/sea_3857 here on 2026-07-16: composite() now applies the
     ramps itself from elevation, so the height raster IS the colour input. The ramp constants ride
     in `params` (composite_params) rather than in ramp_*.txt, which no longer exists.
+
+    `snow_persistence_3857.tif` + `glacier_3857.tif` joined on 2026-07-18 (optimisation #4): the
+    composite reads pre-warped snow slices per window instead of forking gdalwarp/gdal_rasterize in
+    the loop, so a re-warp (new NSIDC/RGI, or a re-fuse to a new grid) must restage it. `glacier`
+    may be absent (RGI not downloaded) -- `newest_mtime` scores a missing path 0.0, so listing it
+    unconditionally is safe. The ramp TUNABLES (`RAMP_*`) run at composite time inside `snow_alpha`,
+    so they ride in `composite_params`, NOT here -- this pair tracks the warp SOURCES only.
     """
     return (work / "height_3857.tif", hs, work / "ocean_3857.tif", work / "water_3857.tif",
-            work / "lakedepth_3857.tif", params)
+            work / "lakedepth_3857.tif", work / "snow_persistence_3857.tif",
+            work / "glacier_3857.tif", params)
 
 
 def warp_inputs(work: Path):
@@ -201,6 +261,10 @@ def warp_inputs(work: Path):
     with rasterio.open(height) as dataset:
         bounds = [repr(value) for value in dataset.bounds]
         size = [str(dataset.width), str(dataset.height)]
+        # Numeric forms for the snow warps below, which take a (left, bottom, right, top) tuple and
+        # int width/height rather than the gdalwarp -te/-ts string lists the mask warps splice in.
+        grid_bounds = tuple(dataset.bounds)
+        grid_width, grid_height = dataset.width, dataset.height
     for name, src in (("ocean", "planet_oceanmask.vrt"), ("water", "planet_watermask.vrt")):
         out = work / f"{name}_3857.tif"
         if is_stale(out, PLANET / src, chunks):
@@ -231,6 +295,34 @@ def warp_inputs(work: Path):
               "-co", "COMPRESS=DEFLATE", "-co", "BIGTIFF=YES",
               "-co", "NUM_THREADS=ALL_CPUS", lake_depth.LAKE_VRT, depth_out])
         mark_done(depth_out)
+
+    # Snow persistence + RGI glaciers, warped ONCE here rather than per window (optimisation #4).
+    # The old composite loop forked gdalwarp + gdal_rasterize for every window (~728 subprocesses)
+    # into two fixed-path temps -- the shared paths that blocked threading the composite. Same
+    # precedent as lakedepth above. Persistence stores the RAW PACKED Float32 (snow.warp_persistence_
+    # raster's docstring: the composite unpacks per window in float64, so a slice is bit-identical to
+    # the old per-window warp). Glacier is a 0/1 Byte mask; absent RGI leaves it unbuilt and the snow
+    # is persistence-only, exactly as before.
+    persistence_out = work / "snow_persistence_3857.tif"
+    if not snow.SP_NC.exists():
+        print(f"no {snow.SP_NC.name} -> snow layer unavailable (composite would fail)", flush=True)
+    elif is_stale(persistence_out, snow.SP_NC):
+        print("warp snow persistence -> 3857 (banded) ...", flush=True)
+        persistence_out.unlink(missing_ok=True)
+        # band_rows == the composite window height, aligned to it: each band is exactly the
+        # per-window warp it replaces, so the mosaic is byte-identical to the old per-window path.
+        # A single whole-grid warp would DECIMATE this coarse source (snow.warp_persistence_raster).
+        snow.warp_persistence_raster(grid_bounds, grid_width, grid_height, persistence_out,
+                                     band_rows=WINDOW_ROWS)
+        mark_done(persistence_out)
+
+    glacier_out = work / "glacier_3857.tif"
+    if not snow.RGI_GPKG.exists():
+        print(f"no {snow.RGI_GPKG.name} -> glaciers skipped (persistence-only snow)", flush=True)
+    elif is_stale(glacier_out, snow.RGI_GPKG):
+        print("rasterize RGI glaciers -> 3857 ...", flush=True)
+        snow.rasterize_glaciers_raster(grid_bounds, grid_width, grid_height, glacier_out)
+        mark_done(glacier_out)
     return height
 
 
@@ -244,19 +336,8 @@ def build_hillshade(work: Path, height: Path):
     over all 12.19 G px, 6/6 bands, zero pixels beyond 1 DN.
     """
     hs = work / "hs_3857.tif"
-    # The fill sun's geometry is recorded ONLY when it is actually on. hs_params exists to answer
-    # "would a rerun produce different pixels?", and at strength 0 the fill provably cannot -- it is
-    # skipped entirely and the result is bit-identical (tests/test_hillshade.py). Recording it
-    # unconditionally would restage an 8:28 hillshade, a 53.8 min composite and a 3:44 tile cut to
-    # reproduce the same bytes, and would falsely report the LIVE pyramid as stale. Turning the fill
-    # on flips this dict and correctly restages all three.
-    params: dict[str, Any] = {"exag": EXAG, "alt": ALT, "az": AZ}
-    if KNOBS["fill_strength"] != 0.0:
-        params["fill"] = {"strength": KNOBS["fill_strength"],
-                          "alt": hillshade.FILL_ALTITUDE, "az": hillshade.FILL_AZIMUTH}
-    hs_params = write_if_changed(work / "hs_params.json",
-                                 json.dumps(params, sort_keys=True, indent=2))
-    if is_stale(hs, height, hs_params):
+    hs_params_path = write_if_changed(work / "hs_params.json", hs_params())
+    if is_stale(hs, height, hs_params_path):
         fill_note = (f", fill {KNOBS['fill_strength']:.2f}" if KNOBS["fill_strength"] else "")
         print(f"per-row-z hillshade (EXAG={EXAG}{fill_note}) ...", flush=True)
         hillshade.per_row_zfactor_hillshade(height, hs, EXAG, ALT, AZ,
@@ -290,8 +371,98 @@ def read1_window(path, window):
         return dataset.read(1, window=window)
 
 
+@dataclass
+class _WindowInputs:
+    """One window's RAW reads plus its geometry — everything a window needs from disk.
+
+    Populated on the MAIN thread only: rasterio datasets are not thread-safe, so every GDAL
+    read lives here and the pure-numpy compute (`_compute_shared`/`_compose`) takes this bundle.
+    The fields are the untransformed slices (`ocean_raw`, not `ocean != 0`); the cheap numpy
+    that derives masks/alpha from them runs on the worker, which is where optimisation #5 wants
+    the CPU. `depth_raw`/`glacier_raw` are None when that optional input was never built.
+    """
+
+    win: Window
+    win_h: int
+    win_top: float
+    win_bottom: float
+    height_win: np.ndarray
+    ocean_raw: np.ndarray
+    watercode: np.ndarray
+    hs_raw: np.ndarray
+    depth_raw: np.ndarray | None
+    persistence_raw: np.ndarray
+    glacier_raw: np.ndarray | None
+    occ_win: np.ndarray
+
+
+@dataclass
+class _WindowShared:
+    """The per-window work that does NOT depend on the sea knobs, so a multi-variant pass
+    computes it once and every variant's `_compose` reuses it. Snow alpha, the polar-cap mask
+    and the three masks are all variant-independent; only `shade.composite`'s sea-light math
+    (and thus the KNOBS it reads) differs between variants.
+    """
+
+    ocean_win: np.ndarray
+    water_win: np.ndarray
+    hs_win: np.ndarray
+    depth_win: np.ndarray | None
+    snow_a: np.ndarray
+    cap: np.ndarray
+
+
+def _compute_shared(inputs: _WindowInputs) -> _WindowShared:
+    """Derive the variant-independent per-window arrays from the raw reads (pure numpy).
+
+    This is exactly the old loop's pre-variant body, lifted out verbatim so the serial and
+    threaded paths run identical arithmetic on identical inputs — byte-identity by construction.
+    Runs on a worker thread in the threaded path; numpy releases the GIL, which is the whole
+    basis of optimisation #5.
+    """
+    ocean_win = inputs.ocean_raw != 0
+    watercode = inputs.watercode
+    water_win = (watercode == 2) | (watercode == 3)
+    hs_win = inputs.hs_raw.astype(float)
+    # Lake depth, zeroed off class 2 so rivers stay flat and the (class 1) Caspian keeps GEBCO's
+    # measured bathymetry instead of GLOBathy's cone.
+    depth_win = (lake_depth.lakes_only(inputs.depth_raw, watercode)
+                 if inputs.depth_raw is not None else None)
+    # unpack_persistence runs the float64 unpack per window (as the old per-window path did), so
+    # snow_alpha sees bit-identical input. Glacier is optional (persistence-only when RGI absent).
+    persistence_win = snow.unpack_persistence(inputs.persistence_raw)
+    snow_a = snow.snow_alpha(persistence_win, inputs.win_top, inputs.win_bottom)
+    if inputs.glacier_raw is not None:
+        snow_a = np.maximum(snow_a, inputs.glacier_raw.astype(float))
+    latitude = snow.latitude_per_row(inputs.win_top, inputs.win_bottom, inputs.win_h)
+    cap = (latitude > CAP_NORTH) | (latitude < CAP_SOUTH)
+    return _WindowShared(ocean_win, water_win, hs_win, depth_win, snow_a, cap)
+
+
+def _compose(inputs: _WindowInputs, shared: _WindowShared) -> np.ndarray:
+    """Shade one window into RGB with the CURRENT KNOBS, then force the polar edges flat.
+
+    Reads KNOBS through `shade.composite`; on the threaded path KNOBS is never mutated mid-pass
+    (single variant), so this is a pure function of its two arguments there. On the serial
+    multi-variant path the caller mutates KNOBS between variants, exactly as before.
+    """
+    rgb = shade.composite(inputs.height_win, shared.ocean_win, shared.water_win, shared.snow_a,
+                          shared.hs_win, inputs.occ_win, inputs.occ_win.shape,
+                          (inputs.win_h, inputs.height_win.shape[1]), depth=shared.depth_win)
+    if shared.cap.any():  # force the smeared polar edges to a flat deep-sea disc
+        for band in range(3):
+            rgb[band][shared.cap] = CAP_RGB[band]
+    return rgb
+
+
+def _compute_window_rgb(inputs: _WindowInputs) -> tuple[Window, np.ndarray]:
+    """One worker unit: shared work + single-variant compose. Returns (window, rgb) so the main
+    thread can write it in order. Used only by the threaded single-variant path."""
+    return inputs.win, _compose(inputs, _compute_shared(inputs))
+
+
 def composite_planet(work: Path, hs, compute_occlusion: Callable[[], np.ndarray], variants=None,
-                     window_rows=WINDOW_ROWS, max_windows=None):
+                     window_rows=WINDOW_ROWS, max_windows=None, max_workers=1, row_start=0):
     """Composite the whole planet window-by-window into seamless RGB GeoTIFF(s).
 
     `variants` maps a name -> a dict of sea-knob overrides (sea_shade/sea_lift/sea_svf);
@@ -300,6 +471,16 @@ def composite_planet(work: Path, hs, compute_occlusion: Callable[[], np.ndarray]
     sea-light math + write differs per variant. `variants=None` keeps the production path:
     a single planet_rgb.tif shaded with the default KNOBS. `window_rows` is the RAM lever;
     `max_windows` (smoke test) stops after N windows, leaving a partially-filled raster.
+    `row_start` begins the window loop below the top (for compositing one region, e.g. a
+    256-vs-128 window-height A/B over a chosen latitude band); like `max_windows` it produces a
+    partial raster, so it never marks the output done.
+
+    `max_workers` > 1 threads the single-variant compute (optimisation #5): the main thread reads
+    each window and writes the finished RGB back in window order, while up to `max_workers` workers
+    run the pure-numpy `_compute_window_rgb` (numpy drops the GIL, so threads scale ~3x before DRAM
+    bandwidth saturates -- measured 2026-07-16). A bounded in-flight deque caps peak RAM at
+    `max_workers + INFLIGHT_BUFFER` windows. Multi-variant passes IGNORE it and stay serial: that
+    loop mutates the global KNOBS between variants, which is not safe to run concurrently.
 
     `compute_occlusion` is a CALLABLE, not the array itself, and that IS the sky-view guard.
     Measured 2026-07-17 on the first instrumented tile cut: computing it costs 2:33
@@ -311,7 +492,7 @@ def composite_planet(work: Path, hs, compute_occlusion: Callable[[], np.ndarray]
     if variants is None:
         variants = {None: None}
     outs = {name: work / f"planet_rgb{f'_{name}' if name else ''}.tif" for name in variants}
-    params = write_if_changed(work / "composite_params.json", composite_params(variants))
+    params = write_if_changed(work / "composite_params.json", composite_params(variants, window_rows))
     deps = composite_deps(work, hs, params)
     # One shared params file is sound because every variant is composited in a single pass:
     # the guard rebuilds all of them or none.
@@ -332,75 +513,83 @@ def composite_planet(work: Path, hs, compute_occlusion: Callable[[], np.ndarray]
         num_threads="ALL_CPUS")
     ocean_p, water_p = work / "ocean_3857.tif", work / "water_3857.tif"
     depth_p = work / "lakedepth_3857.tif"
+    persistence_p = work / "snow_persistence_3857.tif"
+    glacier_p = work / "glacier_3857.tif"
+
+    def read_window(row0: int) -> _WindowInputs:
+        """Gather one window's raw reads + geometry — MAIN thread only (GDAL is not thread-safe)."""
+        row1 = min(height, row0 + window_rows)
+        win = Window(0, row0, width,  # pyright: ignore[reportCallIssue] — rasterio untyped, attrs init invisible
+                     row1 - row0)
+        # sky-view occlusion slice for this window (smooth -> nearest rows are fine)
+        sr0 = int(row0 / height * small_h)
+        sr1 = max(sr0 + 1, int(round(row1 / height * small_h)))
+        return _WindowInputs(
+            win=win, win_h=row1 - row0,
+            win_top=transform.f + row0 * transform.e,
+            win_bottom=transform.f + row1 * transform.e,
+            height_win=read1_window(work / "height_3857.tif", win),
+            ocean_raw=read1_window(ocean_p, win),
+            watercode=read1_window(water_p, win),
+            hs_raw=read1_window(hs, win),
+            depth_raw=read1_window(depth_p, win) if depth_p.exists() else None,
+            persistence_raw=read1_window(persistence_p, win),
+            glacier_raw=read1_window(glacier_p, win) if glacier_p.exists() else None,
+            occ_win=occ[sr0:sr1])
+
+    rows = list(range(row_start, height, window_rows))
+    if max_windows is not None:  # smoke test: only the first N windows
+        rows = rows[:max_windows]
+    # Thread ONLY the production single-variant path (see the docstring): the A/B loop mutates the
+    # shared KNOBS, so it stays serial. Both paths run the SAME `_compute_shared`/`_compose`, so a
+    # single-variant threaded pass is byte-identical to the serial one by construction.
+    threaded = max_workers > 1 and len(variants) == 1
+    started = time.monotonic()
     writers = {name: rasterio.open(tif, "w", **profile) for name, tif in outs.items()}
     try:
-        for index, row0 in enumerate(range(0, height, window_rows)):
-            if max_windows is not None and index >= max_windows:
-                break
-            row1 = min(height, row0 + window_rows)
-            win = Window(0, row0, width,  # pyright: ignore[reportCallIssue] — rasterio untyped, attrs init invisible
-                         row1 - row0)
-            win_h = row1 - row0
-            win_top = transform.f + row0 * transform.e
-            win_bottom = transform.f + row1 * transform.e
-            win_bounds = (transform.c, win_bottom, transform.c + width * transform.a, win_top)
-
-            height_win = read1_window(work / "height_3857.tif", win)
-            ocean_win = read1_window(ocean_p, win) != 0
-            watercode = read1_window(water_p, win)
-            water_win = (watercode == 2) | (watercode == 3)
-            hs_win = read1_window(hs, win).astype(float)
-            # Lake depth, zeroed off class 2 so rivers stay flat and the (class 1) Caspian
-            # keeps GEBCO's measured bathymetry instead of GLOBathy's cone.
-            depth_win = (lake_depth.lakes_only(read1_window(depth_p, win), watercode)
-                         if depth_p.exists() else None)
-
-            # snow: warp persistence + rasterize glaciers for this window's bounds.
-            # Clear temps first — gdal_rasterize opens an existing file in UPDATE mode (would
-            # burn onto the previous window's glaciers), and window heights differ at the edge.
-            for temp in ("_sp_win.tif", "_rgi_win.tif"):
-                (work / temp).unlink(missing_ok=True)
-            persistence = snow.warp_persistence(win_bounds, width, win_h, work / "_sp_win.tif")
-            snow_a = snow.snow_alpha(persistence, win_top, win_bottom)
-            glacier = snow.rasterize_glaciers(win_bounds, width, win_h, work / "_rgi_win.tif")
-            if glacier is not None:
-                snow_a = np.maximum(snow_a, glacier.astype(float))
-
-            # sky-view occlusion slice for this window (smooth -> nearest rows are fine)
-            sr0 = int(row0 / height * small_h)
-            sr1 = max(sr0 + 1, int(round(row1 / height * small_h)))
-            occ_win = occ[sr0:sr1]
-
-            # polar cap mask is shared across variants (geometry, not colour).
-            latitude = snow.latitude_per_row(win_top, win_bottom, win_h)
-            cap = (latitude > CAP_NORTH) | (latitude < CAP_SOUTH)
-
-            for name, knobs in variants.items():
-                if knobs:
-                    # Variant keys are data, not literals, so they take the same untyped view
-                    # of KNOBS that shade.py's --knob override does.
-                    cast(dict[str, Any], KNOBS).update(knobs)  # only the sea knobs differ
-                rgb = shade.composite(height_win, ocean_win, water_win, snow_a, hs_win,
-                                      occ_win, (sr1 - sr0, small_w), (win_h, width),
-                                      depth=depth_win)
-                if cap.any():  # force the smeared polar edges to a flat deep-sea disc
-                    for band in range(3):
-                        rgb[band][cap] = CAP_RGB[band]
-                writers[name].write(rgb, window=win)
-                del rgb
-
-            # release the window's big arrays each iteration so RSS can't creep up over the
-            # hundreds of windows (fragmentation growth OOM-killed the earlier float64 runs).
-            del height_win, hs_win, persistence, snow_a, glacier, occ_win, depth_win
-            if index % 20 == 0:
-                gc.collect()
-                print(f"  composited rows {row0}/{height}", flush=True)
+        if threaded:
+            writer = writers[next(iter(variants))]
+            with ThreadPoolExecutor(max_workers=max_workers) as pool:
+                inflight: deque[Any] = deque()  # futures, oldest first -> writes stay in order
+                for index, row0 in enumerate(rows):
+                    inflight.append(pool.submit(_compute_window_rgb, read_window(row0)))
+                    if len(inflight) >= max_workers + INFLIGHT_BUFFER:
+                        win, rgb = inflight.popleft().result()  # block on the oldest, then write
+                        writer.write(rgb, window=win)
+                        del rgb
+                    if index % 20 == 0:
+                        gc.collect()
+                        print(f"  composited rows {row0}/{height}", flush=True)
+                while inflight:  # drain the tail in order
+                    win, rgb = inflight.popleft().result()
+                    writer.write(rgb, window=win)
+                    del rgb
+        else:
+            for index, row0 in enumerate(rows):
+                inputs = read_window(row0)
+                shared = _compute_shared(inputs)
+                for name, knobs in variants.items():
+                    if knobs:
+                        # Variant keys are data, not literals, so they take the same untyped view
+                        # of KNOBS that shade.py's --knob override does.
+                        cast(dict[str, Any], KNOBS).update(knobs)  # only the sea knobs differ
+                    rgb = _compose(inputs, shared)
+                    writers[name].write(rgb, window=inputs.win)
+                    del rgb
+                # release the window's big arrays each iteration so RSS can't creep up over the
+                # hundreds of windows (fragmentation growth OOM-killed the earlier float64 runs).
+                del inputs, shared
+                if index % 20 == 0:
+                    gc.collect()
+                    print(f"  composited rows {row0}/{height}", flush=True)
     finally:
         for writer in writers.values():
             writer.close()
-    for temp in ("_sp_win.tif", "_rgi_win.tif"):
-        (work / temp).unlink(missing_ok=True)
-    if max_windows is None:  # a smoke test leaves a partial raster -> don't mark it done
+    elapsed = time.monotonic() - started
+    mode = f"threaded x{max_workers}" if threaded else "serial"
+    print(f"composite: {len(rows)} windows in {elapsed:.1f}s "
+          f"({len(rows) / max(elapsed, 1e-9):.2f} win/s, {mode})", flush=True)
+    if max_windows is None and row_start == 0:  # a partial raster (smoke/region) is never done
         for tif in outs.values():
             mark_done(tif)
     for tif in outs.values():
@@ -452,7 +641,10 @@ def main():
     height = warp_inputs(work)
     hs = build_hillshade(work, height)
     # Passed unevaluated: composite_planet runs it only if the composite is actually stale.
-    planet_tif = composite_planet(work, hs, lambda: global_occlusion(height))[None]
+    # Production composite is threaded at COMPOSITE_ROWS/N_WORKERS (optimisation #5); the snow
+    # persistence stays banded at WINDOW_ROWS (256), sliced 128 rows at a time.
+    planet_tif = composite_planet(work, hs, lambda: global_occlusion(height),
+                                  window_rows=COMPOSITE_ROWS, max_workers=N_WORKERS)[None]
     if args.tiles:
         build_tiles(planet_tif, work)
     print("DONE", flush=True)

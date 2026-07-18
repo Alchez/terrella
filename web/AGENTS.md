@@ -1,5 +1,9 @@
 ## Development
 
+**A fresh checkout/worktree needs three setup steps before the dev server will serve — see
+[README.md](README.md) § First-run setup** (`.env`, `pnpm install`, generate
+`src/data/countries.json`). Skipping any of them 500s every route with `FailedToLoadModuleSSR`.
+
 When starting the dev server, use background mode:
 
 ```
