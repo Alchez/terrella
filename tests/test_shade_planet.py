@@ -169,6 +169,19 @@ class TestCompositeParams:
         monkeypatch.setattr(palette, "LUT_STEP_M", 25.0)
         assert shade_planet.composite_params({None: None}) != before
 
+    def test_composite_window_rows_is_recorded(self):
+        """The composite window height slices the SVF per window, so it perturbs the output
+        (the 256->128 A/B, 2026-07-18). It must be tracked, or switching the production window
+        height leaves a stale planet_rgb looking fresh -- the WATER_RGB trap again."""
+        assert (shade_planet.composite_params({None: None}, window_rows=256)
+                != shade_planet.composite_params({None: None}, window_rows=128))
+
+    def test_composite_window_rows_defaults_to_the_snow_band(self):
+        """The default is WINDOW_ROWS so callers that don't pass it (tests, the region path)
+        record the same height the serial default composites at."""
+        assert (shade_planet.composite_params({None: None})
+                == shade_planet.composite_params({None: None}, window_rows=shade_planet.WINDOW_ROWS))
+
 
 class TestCompositeDeps:
     """planet_rgb's freshness inputs. A raster missing from here is a raster whose change
@@ -184,10 +197,34 @@ class TestCompositeDeps:
         # newer than. The ramp constants ride in composite_params.json.
         "height_3857.tif", "hs_3857.tif",
         "ocean_3857.tif", "water_3857.tif", "lakedepth_3857.tif",
+        # snow became a warp-once input (optimisation #4): the composite reads pre-warped
+        # persistence + glacier rasters per window instead of forking gdalwarp in the loop. A
+        # re-warp (new NSIDC/RGI, or a re-fuse changing the grid) must restage the composite.
+        "snow_persistence_3857.tif", "glacier_3857.tif",
         "composite_params.json",
     ])
     def test_every_composite_input_is_a_dependency(self, tmp_path, name):
         assert name in {path.name for path in self._deps(tmp_path)}
+
+    def test_a_rewarped_snow_raster_makes_planet_rgb_stale(self, tmp_path):
+        """The warp-once analog of the depth/hillshade tests: re-warping snow persistence (new
+        NSIDC data, or a re-fuse to a new grid) must force a re-composite, not reprint stale snow."""
+        planet_rgb = _built(tmp_path, "planet_rgb.tif")
+        deps = self._deps(tmp_path)
+        for path in deps:
+            path.write_text("x")
+            _age(path, 500)
+        assert shade_planet.is_stale(planet_rgb, *deps) is False
+        (tmp_path / "snow_persistence_3857.tif").write_text("re-warped")  # now newer
+        assert shade_planet.is_stale(planet_rgb, *deps) is True
+
+    def test_snow_warps_are_NOT_hillshade_inputs(self, tmp_path):
+        """Snow is consumed by composite(), not the hillshade -- so its warp rasters belong in
+        composite_deps, never hs_params. Recording them there would restage an 11:48 hillshade
+        that cannot see them. (The composite-vs-hillshade split, same as snow_curve.)"""
+        hs_recorded = shade_planet.hs_params()
+        assert "snow_persistence_3857" not in hs_recorded
+        assert "glacier_3857" not in hs_recorded
 
     def test_a_refreshed_depth_raster_makes_planet_rgb_stale(self, tmp_path):
         """The end-to-end point of wiring depth into deps: re-extracting GLOBathy must

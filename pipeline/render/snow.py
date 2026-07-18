@@ -12,9 +12,12 @@ stress regions; see PLAN decision log 2026-07-13.
 import math
 import subprocess
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import rasterio
+from rasterio.transform import from_bounds
+from rasterio.windows import Window
 
 DATA = Path.home() / "projects/maps/data"
 SP_NC = DATA / "raw/snow/NSIDC-0791_SP_0.01Deg_WY2001-2023_V01.0.nc"
@@ -34,8 +37,8 @@ def _run(cmd):
     subprocess.run([str(part) for part in cmd], check=True, capture_output=True)
 
 
-def warp_persistence(bounds, width, height, out_path, sp_nc=SP_NC):
-    """Warp SP onto a Web-Mercator grid; return persistence as a float array in 0..1.
+def _warp_persistence_direct(bounds, width, height, out_path, sp_nc=SP_NC):
+    """One gdalwarp of SP onto a Web-Mercator grid, storing the RAW PACKED Float32.
 
     bounds = (left, bottom, right, top) in EPSG:3857. -srcnodata excludes the 65535 fill from the
     bilinear kernel so it cannot bleed a white fringe onto coastlines where fill borders land.
@@ -46,26 +49,109 @@ def warp_persistence(bounds, width, height, out_path, sp_nc=SP_NC):
           "-srcnodata", str(SP_FILL), "-dstnodata", str(SP_FILL),
           "-te", repr(left), repr(bottom), repr(right), repr(top),
           "-ts", str(width), str(height), "-r", "bilinear", "-ot", "Float32",
+          "-co", "TILED=YES", "-co", "COMPRESS=DEFLATE", "-co", "BIGTIFF=YES",
           sub, str(out_path)])
-    with rasterio.open(out_path) as dataset:
-        packed = dataset.read(1).astype(float)
+    return out_path
+
+
+def warp_persistence_raster(bounds, width, height, out_path, sp_nc=SP_NC, band_rows=None):
+    """Warp SP onto a Web-Mercator grid in latitude BANDS, storing the RAW PACKED Float32.
+
+    Stores the packed value (0..10000, fill 65535), NOT the 0..1 fraction, on purpose: the composite
+    unpacks per window in float64 (`unpack_persistence`) exactly as the old per-window path did, so a
+    window slice of this raster is bit-identical to warping that window alone -- storing the unpacked
+    Float32 instead would narrow snow_alpha's precision to float32 and break that.
+
+    WHY BANDS, not one whole-grid warp: SP is a COARSE source (~1.1 km / 0.01 deg). A single gdalwarp
+    of it to the fine global Web-Mercator target (~305 m) makes gdalwarp DECIMATE the source read --
+    the pole-inflated average scale picks a reduced source resolution and applies it everywhere,
+    smoothing real snow structure off mountains (measured: Ruapehu 0.756 -> 0.409, snow -> bare land;
+    4096-row bands still decimate; -et 0 and -ovr NONE do NOT fix it). A band whose latitude span is
+    small keeps the local scale honest, so it reads the source at full resolution -- exactly why the
+    old per-window strips were faithful. With band_rows == the composite window height and bands
+    aligned to it, each band IS the per-window warp it replaces, so the mosaic is byte-identical to
+    the old path by construction. band_rows=None (region path, small grids) is a single direct warp.
+    -> HISTORY 2026-07-18.
+    """
+    left, bottom, right, top = bounds
+    if band_rows is None or height <= band_rows:
+        return _warp_persistence_direct(bounds, width, height, out_path, sp_nc=sp_nc)
+
+    pixel = (top - bottom) / height  # metres/row; the band bounds walk down from `top` by this
+    profile: dict[str, Any] = dict(
+        driver="GTiff", width=width, height=height, count=1, dtype="float32",
+        crs="EPSG:3857", transform=from_bounds(left, bottom, right, top, width, height),
+        nodata=SP_FILL, tiled=True, blockxsize=256, blockysize=256, compress="deflate",
+        BIGTIFF="YES")
+    band_temp = Path(f"{out_path}.band.tmp.tif")
+    with rasterio.open(out_path, "w", **profile) as dst:
+        for row0 in range(0, height, band_rows):
+            band_h = min(band_rows, height - row0)
+            band_top = top - row0 * pixel
+            band_bottom = top - (row0 + band_h) * pixel
+            _warp_persistence_direct((left, band_bottom, right, band_top), width, band_h,
+                                     band_temp, sp_nc=sp_nc)
+            with rasterio.open(band_temp) as src:
+                dst.write(src.read(1), 1,
+                          window=Window(0, row0, width, band_h))  # pyright: ignore[reportCallIssue]
+    band_temp.unlink(missing_ok=True)
+    return out_path
+
+
+def unpack_persistence(packed):
+    """Unpack raw packed persistence (Float32) to a float64 fraction in 0..1.
+
+    Split out of warp_persistence and kept per-window: the composite's snow_alpha runs on this in
+    float64, so the unpack MUST return float64 or the final blend shifts sub-DN. SP_FILL (65535,
+    ocean / no valid MODIS) maps to 0.0 via the valid mask -- NOT clip(65535 * 1e-4) = 1.0, which
+    would paint full snow over every ocean pixel. That masking is exactly what -srcnodata and this
+    guard exist to prevent.
+    """
+    packed = np.asarray(packed, dtype=float)
     valid = np.isfinite(packed) & (packed != SP_FILL)
     return np.clip(np.where(valid, packed, 0.0) * SP_SCALE, 0.0, 1.0)
 
 
-def rasterize_glaciers(bounds, width, height, out_path, rgi=RGI_GPKG):
-    """Burn RGI 7.0 glacier polygons onto the Web-Mercator grid -> 0/1 mask (None if RGI absent).
+def warp_persistence(bounds, width, height, out_path, sp_nc=SP_NC):
+    """Warp SP and return persistence as a float64 array in 0..1 (raster + unpack) -- thin wrapper.
+
+    The region path (shade.py) calls this; kept byte-for-byte by delegating to the two halves it
+    was split into, so its output is unchanged.
+    """
+    warp_persistence_raster(bounds, width, height, out_path, sp_nc=sp_nc)
+    with rasterio.open(out_path) as dataset:
+        return unpack_persistence(dataset.read(1))
+
+
+def rasterize_glaciers_raster(bounds, width, height, out_path, rgi=RGI_GPKG):
+    """Burn RGI 7.0 glacier polygons to a Web-Mercator 0/1 Byte raster (None if RGI absent).
 
     Crisp permanent ice that a 1 km persistence field blurs (glacier tongues) or misses (small
-    glaciers). Unioned into the snow alpha as full snow. Returns None when RGI isn't downloaded
-    yet, so shading still works persistence-only.
+    glaciers). Does NOT read the result back -- a whole-planet Byte read would be ~12 GB; the
+    composite reads window slices. TILED/DEFLATE keep the mostly-empty planet mask tiny on disk and
+    cheap to read windowed. Unlinks first because gdal_rasterize opens an existing target in UPDATE
+    mode and would burn onto its old contents. Returns out_path, or None when RGI isn't downloaded
+    yet (persistence-only fallback).
     """
     if not rgi.exists():
         return None
     left, bottom, right, top = bounds
+    Path(out_path).unlink(missing_ok=True)
     _run(["gdal_rasterize", "-q", "-burn", "1", "-init", "0", "-ot", "Byte", "-of", "GTiff",
+          "-co", "TILED=YES", "-co", "COMPRESS=DEFLATE", "-co", "BIGTIFF=YES",
           "-l", "glaciers", "-te", repr(left), repr(bottom), repr(right), repr(top),
           "-ts", str(width), str(height), str(rgi), str(out_path)])
+    return out_path
+
+
+def rasterize_glaciers(bounds, width, height, out_path, rgi=RGI_GPKG):
+    """Burn RGI glaciers and return the 0/1 mask array (None if RGI absent) -- thin wrapper.
+
+    The region path (shade.py) calls this; kept byte-for-byte by delegating to
+    rasterize_glaciers_raster and reading the (region-sized) result back.
+    """
+    if rasterize_glaciers_raster(bounds, width, height, out_path, rgi=rgi) is None:
+        return None
     with rasterio.open(out_path) as dataset:
         return dataset.read(1)
 

@@ -9,6 +9,7 @@ The log below is **chronological**; this is the view it lacks. Nothing reads thi
 ### Light & shading — the look itself
 *The most re-litigated area in the project. Read before touching any lever.*
 
+- [2026-07-17 — Greenland's interior is blank because the snow blend throws the hillshade away, and no linear window can fix it](#2026-07-17--greenlands-interior-is-blank-because-the-snow-blend-throws-the-hillshade-away-and-no-linear-window-can-fix-it) — over full snow `base_rgb` is **multiplied by zero** — all hillshade + SVF discarded; only `snow_t` survives. **17× dynamic-range mismatch, ranges NESTED → no linear window serves both.** Candidate: a non-linear `snow_curve` (precedent: `lake_curve`). **REMA/ArcticDEM is not the first lever.** Antarctica inherits this
 - [2026-07-17 — the tiles were missing the hero's fill sun, and that was the "harshness"](#2026-07-17--the-tiles-were-missing-the-heros-fill-sun-and-that-was-the-harshness) — the tiles never got the hero's fill sun — a lone 45° sun at EXAG 15 left **43.7% of the Alps** at hillshade 0. **Do not raise `ambient` to soften: swept and rejected twice.** Every metric said otherwise and every metric was wrong
 - [2026-07-08 (late night) — Snow/ice adopted as a data mask; shadow fill sun; land ramp de-whitened](#2026-07-08-late-night--snowice-adopted-as-a-data-mask-shadow-fill-sun-land-ramp-de-whitened) — **the fill sun's origin.** Ambient-raise tried and rejected — *washed rosy and flat*; the fill restored modeling. Snow adopted as a data mask; land ramp de-whitened. The entry that saved the 07-17 tile port
 - [2026-07-14 (day) — Tile-shading rework: readable snow, exposure, seamless per-latitude relief, pole caps, float32/window RAM fix](#2026-07-14-day--tile-shading-rework-readable-snow-exposure-seamless-per-latitude-relief-pole-caps-float32window-ram-fix) — three distinct defects, three causes (do not conflate): readable snow, exposure, seamless per-latitude relief, pole caps, the float32/window RAM fix
@@ -16,6 +17,7 @@ The log below is **chronological**; this is the view it lacks. Nothing reads thi
 - [2026-07-10 — Hero look v3: shallow-sea ramp + sky-view shading; full re-run tonight](#2026-07-10--hero-look-v3-shallow-sea-ramp--sky-view-shading-full-re-run-tonight) — shelf seas rendered as white *ice* (Denmark/Ireland). Shallow-sea ramp + sky-view shading
 - [2026-07-13 (night) — Snow source reworked: NSIDC-0791 persistence + latitude-ramped soft alpha (replaces WorldCover class 70)](#2026-07-13-night--snow-source-reworked-nsidc-0791-persistence--latitude-ramped-soft-alpha-replaces-worldcover-class-70) — **WorldCover class 70 is permanent ice, not seasonal snow** — replaced by NSIDC-0791 persistence + a latitude-ramped soft alpha
 - [2026-07-14 — Snow integrated into shade.py; RGI 7.0 glacier union added and verified](#2026-07-14--snow-integrated-into-shadepy-rgi-70-glacier-union-added-and-verified) — snow into `shade.py` as production; RGI 7.0 glacier union added and verified
+- [2026-07-18 — snow source re-confirmed (NSIDC-0791 stays); sea-ice parked for Antarctica](#2026-07-18--snow-source-re-confirmed-nsidc-0791-stays-sea-ice-parked-for-antarctica) — evaluated 5 alternatives; none beat NSIDC-0791 (daily MODIS/VIIRS are its ingredients; Copernicus SCE is operational; SAR-drift + MODIS-AMSR2 are **sea ice**). Finer-snow self-aggregation and a future sea-ice polar layer both parked; sea ice ties to the Antarctica decision
 - [2026-07-05 — Tuning session → v2 look (supersedes v1)](#2026-07-05--tuning-session--v2-look-supersedes-v1) — **v2 look, supersedes v1.** View transform Standard locked — AgX's highlight desaturation greyed the palette
 - [2026-07-05 — v1 look baseline (superseded by v2)](#2026-07-05--v1-look-baseline-superseded-by-v2) — v1 look — the pre-tuning constants, kept deliberately as the A/B baseline
 - [2026-07-05 — First full-look render (india_hero.blend)](#2026-07-05--first-full-look-render-india_heroblend) — the first full-look render: the scene recipe (displacement, sun, two-ramp material)
@@ -61,6 +63,8 @@ The log below is **chronological**; this is the view it lacks. Nothing reads thi
 ### Performance & instrumentation
 *Everything here is measured. Three 'obvious flag' fixes died on a profiler — propose nothing from analogy.*
 
+- [2026-07-18 — the composite is threaded (opt #5): 128/N4 landed, and why 256 could not thread under 12 G](#2026-07-18--the-composite-is-threaded-opt-5-128n4-landed-and-why-256-could-not-thread-under-12-g) — read-main/compute-workers/write-main `ThreadPoolExecutor`, single-variant only; threaded==serial by construction (unit + real-scale gate). **256 threading OOMs past N=2 under 12 G → byte-identical caps at ~1.8×; the full ~3× needs 128-row windows**, which shift the look sub-perceptibly (worst 20 DN on mountain snow, invisible at true scale — judged on renders, chosen by Rohan). **128 is not a speed lever by itself** (kills the cache-window hypothesis). Full pass 645 s / 10.55 GiB peak / ~3.5×. Freshness fix: `composite_window_rows` now tracked
+- [2026-07-18 — snow warped ONCE to the planet grid (opt #4): the packed-vs-unpacked trap](#2026-07-18--snow-warped-once-to-the-planet-grid-opt-4-the-packed-vs-unpacked-trap) — the composite's ~728 per-window `gdalwarp`/`gdal_rasterize` forks replaced by warp-once rasters (lakedepth precedent). **Store the RAW PACKED Float32, not the 0..1 fraction** (composite unpacks per window in float64). **The gate then caught a real bug: a single whole-grid warp DECIMATES a coarse source** (SP 1.1 km → 305 m global Mercator smooths snow off mountains, Ruapehu snow→bare land; `-et 0`/`-ovr NONE`/4096-row bands all fail). **Fix = warp in latitude BANDS** at the composite window height → byte-identical by construction. Generalises: warp-once of any source coarser than target needs banding. Unblocks #5
 - [2026-07-16 — the instrumented planet pass: the baseline, and why every warp optimisation we planned was worthless](#2026-07-16--the-instrumented-planet-pass-the-baseline-and-why-every-warp-optimisation-we-planned-was-worthless) — **the instrumented baseline**, and why every warp optimisation we planned was worthless. 98 min wall on 1.16 of 16 cores
 - [2026-07-16 — the gdaladdo step DELETED: I optimised it 4.5x an hour before proving it does nothing](#2026-07-16--the-gdaladdo-step-deleted-i-optimised-it-45x-an-hour-before-proving-it-does-nothing) — **I optimised gdaladdo 4.5× an hour before proving the step does nothing.** The trap: aiming at the fastest stage — an hour after reading the entry warning about exactly that
 - [2026-07-16 — the composite parallelises with THREADS, and the xarray/dask question is settled by that](#2026-07-16--the-composite-parallelises-with-threads-and-the-xarraydask-question-is-settled-by-that) — **the composite parallelises with THREADS** — numpy releases the GIL. 1.80×@2 / 2.83×@4 / 3.57×@8; ~3× is the ceiling as memory bandwidth saturates. **Settles the xarray/dask question on merits**
@@ -114,6 +118,169 @@ The log below is **chronological**; this is the view it lacks. Nothing reads thi
 - [2026-07-03 — Project scoped; dev environment decided](#2026-07-03--project-scoped-dev-environment-decided) — project scoped; dev environment decided
 
 ## Decision log
+
+### 2026-07-18 — the composite is threaded (opt #5): 128/N4 landed, and why 256 could not thread under 12 G
+
+Optimisation #5, gated on #4 (the fork-free composite). **`ThreadPoolExecutor`, not processes** — settled 2026-07-16 (numpy releases the GIL). Design: **read on the main thread, compute on workers, write back on the main thread in window order** (rasterio datasets are not thread-safe). `composite_planet` factors the per-window work into pure `_compute_shared` (masks / snow-alpha / polar cap — sea-knob-independent) + `_compose` (`shade.composite` + cap); `_compute_window_rgb` chains them as one worker unit. A bounded in-flight `deque` (throttle at `max_workers + INFLIGHT_BUFFER=2`) caps RAM. Threading engages ONLY for the single-variant production path (`max_workers>1 and len(variants)==1`); the A/B multi-variant loop mutates the global KNOBS between variants, so it stays serial. Serial and threaded run the SAME `_compute_shared`/`_compose`, so **threaded == serial by construction** — proven at unit scale (`tests/test_composite_threading.py`, workers 2/4, `compare_rasters` tol=0, plus companions that the oracle can fail and that serial/multi-variant never build a pool) and at real scale (GATE 1: a serial 128 band composite == the threaded full output over the Alps, byte-identical, all 3 bands).
+
+**The 12 G cap forces the look/speed trade — the central finding.** A 24-window sizing bench: 256-serial peaks 6.33 G; **256/N3 and 256/N4 both OOM.** One 256-row full-width compute transient is >2.84 G (from `serial = base + 1× = 6.33` and the N=3 kill), so `base + 3× > 12 G` even at read-ahead 0 — algebra, not luck. So **byte-identical (256) threading caps at N=2, ~1.8×.** The full ~3× needs SMALLER windows to fit N=4: **128/N4 = 8.5 G on the bench, 10.55 G over the full 727-window pass** (fragmentation growth, still under cap; N=6 was 11.3 G on 24 windows → would OOM a full pass, for only +9% speed = the bandwidth knee the 2026-07-16 study predicted). **128 is NOT a speed lever by itself** — serial rows/s are ~equal at 256 and 128 (40.9 vs 38.7), which **kills the plan's "cache-sized windows beat 3×" hypothesis**; 128's only value is fitting more workers under the cap.
+
+**128 changes the look sub-perceptibly, judged on renders not metrics.** `window_rows` slices the SVF occlusion per window (`occ[sr0:sr1]` upsampled by `zoom`), so 256→128 perturbs the output: ~0.4–0.7% of rugged mid-latitude px shift ≥1 DN, almost all by 1–2, worst **20 DN** on the most extreme mountain snow (Karakoram/K2; 15 in the Alps). Rendered 256-vs-128 crops of both the Alps and the Karakoram worst-case witness are **indistinguishable at true scale** — the difference is a faint, structured SVF-window-boundary pattern visible only under ~10× amplification (`scratchpad/*_256_vs_128.png`). **Rohan judged the crops and chose 128/N4**: the current planet's look is z8-locked, but the change does not show, and Phase B's motive is affordable iteration (esp. Antarctica, where the look is re-judged fresh anyway). **256/N2 (~1.8×) stays the fallback** if strict bit-preservation is ever wanted.
+
+**Landed:** `COMPOSITE_ROWS=128` + `N_WORKERS=4` are the production composite; `WINDOW_ROWS=256` stays = the snow-persistence band height, sliced 128 rows at a time, so the Phase-A snow warp is untouched (a 128-row slice of the 256-banded raster is deterministic and independent of composite window height — exactly what the delta A/B used). Full pass: composite **645 s (10:45), 1.13 win/s, peak 10.55 GiB, ~3.5× the same-session serial rate**; tiles re-cut (62,177, live; 256 kept as `tiles_old` + `planet_rgb_gamma8_baseline.tif`). **Freshness fix found along the way:** window_rows changes pixels but was untracked, so `composite_params` now records `composite_window_rows` (and deliberately NOT `max_workers`, which is byte-identical) — closing the gap AND forcing the 256→128 recompose. Generalisable lesson: **a "RAM lever" that touches windowed interpolation is a look input — track it, and prove it invariant before assuming window size (or threads) are free.**
+
+### 2026-07-18 — snow warped ONCE to the planet grid (opt #4): the packed-vs-unpacked trap
+
+Optimisation #4 off the 2026-07-16 ranked list. The composite loop forked `gdalwarp` (snow persistence) and `gdal_rasterize` (RGI glaciers) **for every window** — ~728 subprocesses per pass, 7.8% CPU, writing into two **fixed-path** temps (`_sp_win.tif`/`_rgi_win.tif`). Those shared paths were the hard blocker for #5 (threading): two workers would clobber each other's temp. The fix is the precedent `warp_inputs` already sets for height/ocean/water/**lakedepth** — warp once to the whole 3857 grid, read a window slice per iteration.
+
+**The packed-vs-unpacked trap (the reason this needed care, not just a move).** The plan first said "store the unpacked 0..1 persistence." That would have broken byte-identity, caught while reading the code: the old per-window path warps to a **packed Float32** temp (0..10000, fill 65535), then `warp_persistence` does `.astype(float)` → **float64** and runs `snow_alpha` in float64 before the final blend and the uint8 quantize. Store the *unpacked* value as Float32 and read it back, and `snow_alpha` would run in float32 → the blend shifts sub-DN → not bit-identical. So the warp-once raster stores the **RAW PACKED Float32**, byte-for-byte what `_sp_win.tif` already held, just whole-grid; `unpack_persistence` (the float64 unpack, split out) stays per-window. Each window slice is then identical to the old per-window temp **by construction**, not by luck.
+
+**Factoring** (`pipeline/render/snow.py`): `warp_persistence` → `warp_persistence_raster` (gdalwarp only, no read) + `unpack_persistence` (the float64 unpack); `rasterize_glaciers` → `rasterize_glaciers_raster` (gdal_rasterize only — it does **not** read the result back, because a whole-planet Byte read is ~12 GB; the composite reads window slices). The old `warp_persistence`/`rasterize_glaciers` names survive as **thin wrappers** (raster + read [+ unpack]) so the region path (`shade.py`) is byte-for-byte unchanged. Writers gained `TILED/DEFLATE/BIGTIFF` (storage only — values identical, and a mostly-constant field DEFLATEs small: `lakedepth_3857` is 310 MB for the same grid).
+
+**Freshness:** `snow_persistence_3857.tif` + `glacier_3857.tif` joined `composite_deps`. The ramp *tunables* (`RAMP_*`) run at composite time inside `snow_alpha`, so they stay in `composite_params`, not the warp-once freshness — this pair tracks the warp SOURCES (`.nc`/`.gpkg`, re-fuse to a new grid) only. `glacier` may be absent (RGI not downloaded); `newest_mtime` scores a missing path 0.0, so listing it unconditionally is safe.
+
+**Verification.** TDD-first: `tests/test_snow_warp_once.py` warps a small Alps region whole-grid and per-window using composite's *exact* window-bounds formula, then asserts `np.array_equal` **through `unpack_persistence`** (unpacked, float64, as `snow_alpha` sees it), with a companion that shifts the slice and requires it to DIFFER (so a uniform-snow region can't pass trivially) and one pinning the wrapper's region-path output. 208 tests green, pyright 0. This proves window-slice == per-window at unit scale on the real NSIDC/RGI source; the **planet-scale gate is still pending** — a full instrumented pass whose `planet_rgb.tif` must be `compare_rasters(gamma8_baseline, new, tolerance=0)` byte-identical (copy the current `planet_rgb.tif` aside as the baseline FIRST, since the pass overwrites it). Adding the two rasters to `composite_deps` means that next pass re-composites once — that re-composite IS the gate, not wasted work. Only after it passes does #5 (threading) begin.
+
+**The gate caught a real bug: a single whole-grid warp DECIMATES a coarse source.** The first full gate FAILED — `worst 162 DN` at lon 175.6 / lat −39.3, **Mt Ruapehu, NZ**: baseline `(176,199,219)` = `SNOW_SHADOW_RGB` (full snow), warp-once `(105,72,57)` = bare land. Traced entirely to the persistence **warp** (glaciers were byte-identical — `gdal_rasterize` is exact vector burn). The NSIDC source at Ruapehu is genuinely structured (0.88–0.999 on the snowy plateau, down to 0.12); a **per-window strip warp reproduces it** (0.756 at the witness ≈ source 0.74), but the **whole-grid warp flattens it to a smooth 0.30–0.54 ramp** — persistence 0.756 → 0.409, crossing the snow threshold → snow becomes bare land. Mechanism: SP is COARSE (~1.1 km) and the target is a fine global Web-Mercator grid (~305 m); gdalwarp picks ONE source-read decimation for the whole op from the pole-inflated average scale and applies it everywhere, so mid-latitude mountains that should upsample get smoothed instead. It hits ONLY snow — height/lakedepth/masks have near-target-resolution sources, so they never trip it, and it's why the old per-window baseline (small-extent strips) was faithful. The unit test missed it because its "whole grid" was a small region, not planet-scale. **Rejected fixes, each measured:** `-et 0` (exact transformer) changed the whole warp by 5e-11 — not the transformer; `-ovr NONE` was a no-op — the source has no overviews, so the decimation isn't overview-based; **4096-row bands still decimate at Ruapehu** (0.489), while a 256-row strip is faithful. **Fix = warp in latitude BANDS** (`snow.warp_persistence_raster(band_rows=…)` mosaics band warps into the one raster; `warp_inputs` passes `band_rows == WINDOW_ROWS == 256`). At the composite window height, aligned to it, **each band IS the per-window warp** it replaces → the mosaic is byte-identical to the old path by construction, *and* fork-free in the composite (#4's whole point). The region path (`band_rows=None`) stays a single warp. Rebuilt persistence verified byte-identical vs per-window at Ruapehu / Mont Blanc / Greenland Summit / Aconcagua (`max|d|=0`); full-composite gate re-run in progress. **Watch item:** `lakedepth_3857` is also a whole-grid warp — if GLOBathy's native resolution is coarser than 305 m it may be mildly over-smoothed the same way (invisible to this gate: same in baseline and new). The lesson generalises — **warp-once of any source COARSER than the target needs banding, not one whole-grid gdalwarp.**
+
+### 2026-07-18 — snow source re-confirmed (NSIDC-0791 stays); sea-ice parked for Antarctica
+
+Rohan asked whether five alternative datasets beat NSIDC-0791 for the snow layer. **None do**, and the reasons sort them on two axes. (1) **Climatology vs daily/operational:** our layer is a *timeless* persistence climatology (why we left WorldCover class-70, 2026-07-13). *MODIS/Terra Snow Cover Daily (500 m)* and *VIIRS/NPP Daily (375 m)* are the raw DAILY products NSIDC-0791 is aggregated FROM — finer, but a single day is wrong for a timeless map and self-aggregating 22 years reproduces (worse) what NSIDC already did; VIIRS also has only a ~2012+ record. *Copernicus Global SCE (1 km)* is operational current-conditions extent — wrong temporal semantics, no resolution gain. (2) **Land snow vs sea ice:** *SAR Sea Ice Drift* is ocean ice *velocity* (wrong domain and variable); *MODIS-AMSR2 Merged Sea-Ice Concentration (1 km)* is a good product but SEA ICE, not land snow. **Two real levers this surfaced, both parked:** finer snow → self-aggregate MODIS-500/VIIRS-375 into our own climatology (big effort, marginal cartographic gain — and note the Ruapehu problem was a *warp* bug, not source resolution); and **sea ice as a future SEPARATE polar layer** (MODIS-AMSR2 is the right family, wants a climatology, interacts with sea/bathymetry) — tie it to the **Antarctica** decision, since the poles are capped flat today. Our snow pain has always been downstream (warp decimation, the gamma8 contrast curve), never source quality.
+
+### 2026-07-17 — Greenland's interior is blank because the snow blend throws the hillshade away, and no linear window can fix it
+
+Chased after the z8 lock, because Greenland's flat white interior was a deferred gap and **Antarctica is
+the same problem at ten times the area** — worth understanding *before* the re-fuse, not after.
+
+**The fill sun did nothing to Greenland, and provably could not.** A/B of `tiles_old` (pre-fill) vs the
+live `tiles` at Summit and northern Greenland: **0.0% of interior pixels changed by more than 2 DN**, max
+delta 4 DN. The Alps control in the same run moved 38.6% of pixels at up to 42 DN, so the probe could see
+change; Greenland had none. The reason is **this morning's own invariant**: the fill leaves *zero-slope
+ground exactly unchanged*. Greenland's interior is the closest thing on Earth to zero-slope land, so it is
+the one place the fill provably cannot reach. An independent confirmation of the rescale contract, on the
+terrain that best isolates it.
+
+**The mechanism — `shade.py:375-380`.** Over full snow (`alpha = 1`):
+
+```
+final = base_rgb * (1 - alpha) + snow_rgb * alpha
+```
+
+`base_rgb` is **multiplied by zero**. That term carries `light * svf_factor` — every bit of hillshade and
+sky-view modelling — and over full snow it is *discarded entirely*. Relief reaches the image through one
+surviving channel: `snow_t = clip((light - snow_lo) / (snow_hi_pt - snow_lo))`, a linear stretch across a
+**0.50-wide window**, driving a two-colour ramp whose endpoints (`B0C7DB` → `E8F1F6`) are **43.9 DN apart
+in luminance**. That is the entire contrast budget for any fully-snow pixel on the planet.
+
+This is **deliberate and correct where it was designed** — 2026-07-14 replaced a neutral `SNOW_RGB × light`
+because it *muddied to grey on rugged terrain*. It fixed the Alps. Over a nearly-flat ice sheet it leaves
+nothing.
+
+**Measured (`light` over full-snow pixels, reconstruction validated against the shipped `planet_rgb` to
+1 DN at Greenland — over full snow the output colour is a pure function of the hillshade, so `occ` never
+enters and no global SVF read is needed):**
+
+| site | `light` span p1–p99 | % of the 0.50 window used | delivered luminance |
+|---|---|---|---|
+| Greenland Summit | **0.0349** | 7% | **2.87 DN** |
+| Greenland north | 0.0524 | 10% | 4.60 DN |
+| Alps snow | **0.6105** | 122% (overflows) | 43.89 DN |
+| Himalaya snow | 0.6510 | 130% (overflows) | 43.89 DN |
+
+**A ~17× dynamic-range mismatch, and the ranges are NESTED, not adjacent** — Greenland's `[1.017, 1.052]`
+sits inside the *top* of the Alps' `[0.50, 1.11]`. A window fitted to Greenland (`[1.017, 1.052]`) buys a
+**14.3× contrast gain, ~41 DN where there is now 2.87** — the signal is in the hillshade and the window is
+throwing it away — but it turns Alpine snow into a **binary blue/white cartoon**: nearly every Alpine snow
+pixel falls below 1.017 → `snow_t = 0` → flat `snow_shadow`. **A window wide enough for the Alps gives
+Greenland 7% of its travel; a window narrow enough for Greenland is a threshold for the Alps. No single
+linear window serves both** — measured, not argued. Same shape as `EXAG 15`: one global constant
+straddling two terrains an order of magnitude apart, and the same species as the recorded learning that
+*the KNOBS were tuned on mountainous Nepal and blow out flat bright terrain*.
+
+**The candidate is a non-linear `snow_curve`, and the precedent is in our own KNOBS: `lake_curve="log1p"`**
+— the identical problem (a pond and Baikal on one ramp), solved with a curve instead of a window, and
+deliberately parked *inside* KNOBS. A composite-stage knob: ~50 min, no re-fuse, no new data.
+
+**`snow_curve="gamma8"` CHOSEN and promoted to a KNOB (Rohan, same day)**, off a four-curve A/B
+(`linear`/`gamma4`/`gamma8`/`knee`) rendered through the real `composite()` with production inputs —
+real hillshade, real masks, the real cached global SVF, real snow alpha including the RGI union and the
+ocean/water zeroing. The `linear` column reproduced the shipped `planet_rgb` at **max err 0 DN** at both
+Greenland sites, which is what proves the rig was wired to the thing and not a lookalike.
+
+| curve | Summit | north | Alps snow changed | Himalaya snow changed |
+|---|---|---|---|---|
+| linear (was shipping) | 3.14 DN | 4.35 DN | — | — |
+| gamma4 | 10.63 (3.4×) | 14.99 (3.4×) | 29.0% | 29.0% |
+| **gamma8 (chosen)** | **18.84 (6.0×)** | **24.12 (5.5×)** | **33.9%, mean 6.99 DN** | **29.3%, mean 5.75 DN** |
+| knee | 18.84 (6.0×) | 18.77 (4.3×) | 32.6% | 28.0% |
+
+**`knee` was rejected on merit, not taste:** it matches gamma8 at Summit but is weaker in the north
+(4.3× vs 5.5×) and costs two more constants (`KNEE_X`, `KNEE_SHARE`) for less.
+
+**The predicted trade did not arrive, and the prediction was mine.** "The ramp is a fixed 43.9 DN budget,
+so every gain for flat ice is paid by rugged snow" is true in the arithmetic (a test pins it), but the bill
+is small: rugged snow's light is **bimodal** — 62–65% pinned at the `ambient` floor, a few % at the top —
+so it barely occupies the midtones the curve borrows from. The curve takes its slope from a band the Alps
+hardly use. A fact about the terrain, not about the curve.
+
+**`snow_lo`/`snow_hi_pt` deliberately stay 0.55/1.05.** The window is not the lever.
+
+**Two instrument failures worth keeping, both mine, both in the checking.**
+
+- **The first A/B metric was blind.** A p1–p99 luminance span reported **45.68 DN / 1.00× for all four
+  curves** at the Alps — saturated, because `snow_t` is bimodal there, so it would have said "no change"
+  whether or not the curves hurt. This morning's lesson, re-learned within hours: *a contrast metric
+  cannot distinguish softer from flatter*. Replaced with change-vs-the-linear-control over full-snow
+  pixels — the statistic that can fail, and the one the fill A/B used.
+- **The rugged oracle reads 24–26 DN and that is the harness, not the curves.** Reproducing production's
+  SVF zoom on a 512 px crop is not exact — production zooms a full-width 4096-column occlusion slice up
+  to 131072, and a sub-window cannot reproduce that interpolation. It moves **land** tone only, and
+  identically in all four columns (`svf_factor` does not depend on `snow_curve`), so column-to-column
+  comparison stays exact. Greenland is 100% snow, so `base_rgb` is annihilated and its panels are exact.
+
+**Two structural fixes landed with it.** `hs_params()` was **split out of `build_hillshade`** so both
+halves of the freshness contract are testable from outside — the asymmetry was the hazard, since
+`composite_params` had tests pinning what it must and must not record while its sibling had none, and
+every freshness bug so far has been a tunable that missed one of the two records. And the `snow_curve`
+tests take an **autouse restore fixture**: `KNOBS` is module-level mutable state, so a test that sets it
+and walks away silently re-tunes every test after it (`test_lake_depth.py` does exactly this today).
+
+**`position ** 8` is deliberately left as a pow.** Repeated squaring is **1.7× faster** on a real
+131072×256 float32 window (44.7 → 26.1 ms) but saves **6.8 s of a ~2,980 s composite: 0.23%**, and is not
+bit-identical (1.8e-7, or 8e-6 DN). Measured before writing it, not after — this is the `gdaladdo` trap,
+which is aiming at a stage that is not the cost.
+
+**Verified before any pass ran:** `hs_params.json` **unchanged** (the 11:48 hillshade correctly stays
+fresh — `snow_curve` is composite-only and the hillshade cannot see it), `composite_params.json` changed
+by **exactly `snow_curve: None -> 'gamma8'`**. So this restages SVF + composite + tiles and nothing else.
+
+**It landed.** Instrumented pass exit 0, **55:48 total**, 62,177 tiles live, `tiles_old` = rollback (now
+this morning's fill+linear pyramid). Stage times confirmed the pre-flight prediction to the second: the
+**hillshade did not run** (composite-only knob), SVF 167 s, composite **49:33** (vs 49:40 for the fill
+pass — the `** 8` cost is inside the noise, exactly as the 0.23% benchmark said), tiles 3:28. **This is the
+first measurement of a pure composite-stage re-tune: 67:44 − 11:48 hillshade = 55:56 ≈ measured 55:48.**
+
+Greenland at planet scale, live gamma8 vs `tiles_old` linear (the isolation the rollback happens to give):
+Summit interior contrast **std 0.70 → 4.27**, north **1.16 → 6.01** (~5–6×), 96–99% of the tile changed —
+the blank field now carries modelled relief. The Alps whole tile changed only **17.3%** (its snow fraction
+alone; bare rock is `snow_curve`-invariant). The predicted asymmetry, confirmed on the sphere's own data.
+
+**REMA/ArcticDEM is NOT the first lever here** (against the 2026-07-13 filing, which assumed a data
+limit). Better elevation raises the input signal into a stage that is discarding 93% of what it already
+has. Fix the blend, then ask whether the data is short.
+
+**Two side findings.**
+
+- **62% of Alpine snow pixels sit at `light = 0.5000` exactly — the `ambient` floor.** The fill sun took
+  *hillshade pure black* to 0.00%, but `light` clips at `ambient` whenever `hs < 90`. **"0% pure black" and
+  "0% at the floor" are different claims** and this morning's write-up conflated them. This does **not**
+  reopen `ambient` — swept and rejected twice, and that stands — it means the floor does more work than
+  the black-percentage suggested.
+- **The recurring check-not-pipeline bug, instance eight.** The first probe reported the rugged oracle
+  failing by 90–123 DN. Not a finding — the probe omitted production's `alpha = np.where(ocean | water,
+  0.0, snow_a)`, so frozen lakes counted as full snow. Fixed → error fell to 2.0–2.3 DN, which is exactly
+  what an `alpha > 0.99` mask predicts (1% of `base_rgb` ≈ 200 bleeding through). **Every instance so far
+  has been in the checking, never in the pipeline.**
 
 ### 2026-07-17 — z8 LOCKED: the ceiling gate closed on the sphere, where it said it would be
 

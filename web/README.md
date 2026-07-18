@@ -1,10 +1,45 @@
-# Astro Starter Kit: Minimal
+# Terrella — frontend (`web/`)
 
+The Astro site: Tier-1 gallery, country detail pages, About, and the `/globe` route (a MapLibre
+globe over the raster tile pyramid), with a capability probe that auto-steers between tiers.
+
+## First-run setup (fresh checkout / worktree)
+
+`web/` depends on three things that are **not** in git — they are generated or machine-specific,
+so a fresh clone or worktree has none of them and **every route 500s (`FailedToLoadModuleSSR`)
+until all three exist**. In order:
+
+1. **`.env`** — store paths for the dev middleware, which serves `/heroes`, `/tiles` and
+   `/borders` straight off disk (nginx serves them in prod; the static build never reads them).
+   Copy the template and set each var to an absolute local path — there is no fallback, an unset
+   var fails the dev server with a clear message:
+   ```sh
+   cp .env.example .env
+   # edit HERO_STORE / TILES_STORE / BORDERS_STORE, e.g. TILES_STORE=/home/rohan/projects/maps/data/work/planet_tiles/tiles
+   ```
+   `.env` is gitignored (machine-specific), which is why it does not travel with the checkout.
+
+2. **Dependencies**:
+   ```sh
+   pnpm install
+   ```
+
+3. **The gallery manifest** `src/data/countries.json` — generated from the hero-variant store,
+   and imported by all three pages (index, `[slug]`, globe), so its absence 500s the whole site.
+   Also gitignored. Regenerate it whenever heroes are re-rendered:
+   ```sh
+   /home/rohan/projects/maps/.venv/bin/python scripts/gen_manifest.py \
+       --repo /home/rohan/projects/maps --out src/data/countries.json
+   ```
+   Requires the hero WebP variants and the Natural Earth admin-0 shapefile to already exist.
+
+Then start the server (add `--host` to reach it from another device on your LAN, e.g. a phone):
 ```sh
-pnpm create astro@latest -- --template minimal
+pnpm dev --host
 ```
 
-> 🧑‍🚀 **Seasoned astronaut?** Delete this file. Have fun!
+> If you rebuilt the tile pyramid while the server was running, the browser may hold stale tiles
+> and a failed SSR import can stay cached — a server restart plus a hard reload clears both.
 
 ## 🚀 Project Structure
 
