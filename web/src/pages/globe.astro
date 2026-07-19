@@ -259,6 +259,15 @@ import Base from "../layouts/Base.astro";
   import "maplibre-gl/dist/maplibre-gl.css";
   import manifest from "../data/countries.json";
   import { currentTier } from "../lib/capability";
+  import {
+    COUNTRIES_SOURCE,
+    OUTLINE_SOURCE,
+    countriesSource,
+    outlineSource,
+    outlinesFrom,
+    fillLayer,
+    highlightLayers,
+  } from "../lib/countryHighlight";
 
   // One rendered country as carried in the manifest — the shape of the objects the
   // click/hover/panel handlers pass around.
@@ -303,6 +312,18 @@ import Base from "../layouts/Base.astro";
   map.addControl(new maplibregl.GlobeControl(), "top-right"); // globe⇄flat toggle
   map.addControl(new maplibregl.ScaleControl({ maxWidth: 120, unit: "metric" }), "bottom-left");
   map.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-left");
+
+  // FEASIBILITY SPIKE (throwaway): /globe?polarspike draws a test-pattern disc at the North Pole,
+  // proving a custom layer can render ABOVE the Web-Mercator limit (where the real polar cap goes).
+  // Isolated behind the flag + dynamic import (zero cost otherwise); remove with polarCapSpike.ts.
+  if (new URLSearchParams(location.search).has("polarspike")) {
+    map.on("style.load", () => {
+      void import("../lib/polarCapSpike")
+        .then((mod) => mod.addPolarCapSpike(map))
+        .catch((err) => console.error("[polarspike] failed", err));
+    });
+  }
+
   // Attribution on small screens: (1) it must FLOAT ABOVE the bottom-right controls
   // when expanded, but it's trapped inside #globe's stacking context (position:fixed,
   // z-index:1) — no z-index on the element can escape that — so we re-parent it to the
@@ -422,12 +443,7 @@ import Base from "../layouts/Base.astro";
   const inScope = manifest.countries.map((c) => c.name);
   // Only in-scope (rendered) countries are interactive; reused by every country layer.
   const inScopeFilter: FilterSpecification = ["in", ["get", "ADMIN"], ["literal", inScope]];
-  // Hover highlight: warm gold reads on all three grounds (teal sea, warm sand, white
-  // snow) where the teal accent would vanish along coasts; a dark casing carries it
-  // over snow, and the hue marks it as an interactive pick, distinct from white borders.
-  const HIGHLIGHT_GOLD = "#eca834";
-  const HIGHLIGHT_CASING = "#1c140c";
-  const whenHovered: ExpressionSpecification = ["boolean", ["feature-state", "hover"], false];
+  const isInScope = (admin: string) => byName.has(admin);
 
   /** srcset w-descriptor is the real pixel WIDTH, not the long edge (portrait
    * variants are narrower than their key) — mirrors the gallery detail page. */
@@ -480,23 +496,9 @@ import Base from "../layouts/Base.astro";
   }
 
   function addCountries(countries: FeatureCollection) {
-    map.addSource("countries", {
-      type: "geojson",
-      data: countries, // parsed inline — shared with the hit markers, so a single fetch
-      promoteId: "ADMIN", // feature id = ADMIN string, for feature-state hover
-      attribution: "Natural Earth",
-    });
+    map.addSource(COUNTRIES_SOURCE, countriesSource(countries));
     // Invisible except on hover; a warm silhouette wash so the whole landmass lights up.
-    map.addLayer({
-      id: "country-fill",
-      type: "fill",
-      source: "countries",
-      filter: inScopeFilter,
-      paint: {
-        "fill-color": HIGHLIGHT_GOLD,
-        "fill-opacity": ["case", whenHovered, 0.16, 0],
-      },
-    });
+    map.addLayer(fillLayer(inScopeFilter));
     // Fat, invisible per-island targets. The circle's own radius IS the hit tolerance
     // (~12px at overview, wider zoomed in), so pointing anywhere near an atoll picks the
     // country. Kept above the fill only for query order — it's transparent, never seen.
@@ -511,38 +513,16 @@ import Base from "../layouts/Base.astro";
         "circle-stroke-width": 0,
       },
     });
+    // Boundary lines for the hover outline. Same ADMIN promoteId as the polygon source, so one
+    // setFeatureState id drives the fill wash and this outline together (see countryHighlight).
+    map.addSource(OUTLINE_SOURCE, outlineSource(outlinesFrom(countries, isInScope)));
   }
 
-  // The hovered country's outline — added ABOVE the borders so its edge stays crisp.
-  // A soft dark casing under a gold line: the country's boundary (coast + land borders)
-  // pops as one glowing silhouette, legible on sea, sand, and snow alike.
+  // The hovered country's outline — added ABOVE the borders so its edge stays crisp. A soft
+  // dark casing under a gold line: the boundary pops as one glowing silhouette, legible on
+  // sea, sand, and snow alike. Both layers stroke the LINE source (see highlightLayers).
   function addCountryHighlight() {
-    map.addLayer({
-      id: "country-hl-casing",
-      type: "line",
-      source: "countries",
-      filter: inScopeFilter,
-      layout: { "line-cap": "round", "line-join": "round" },
-      paint: {
-        "line-color": HIGHLIGHT_CASING,
-        "line-width": ["interpolate", ["linear"], ["zoom"], 0.5, 3.4, 4, 4.8, 8, 6.0],
-        "line-blur": 1.2,
-        "line-opacity": ["case", whenHovered, 0.5, 0],
-      },
-    });
-    map.addLayer({
-      id: "country-hl-line",
-      type: "line",
-      source: "countries",
-      filter: inScopeFilter,
-      layout: { "line-cap": "round", "line-join": "round" },
-      paint: {
-        "line-color": HIGHLIGHT_GOLD,
-        "line-width": ["interpolate", ["linear"], ["zoom"], 0.5, 1.8, 4, 2.8, 8, 3.6],
-        "line-blur": 0.4,
-        "line-opacity": ["case", whenHovered, 1, 0],
-      },
-    });
+    for (const layer of highlightLayers(inScopeFilter)) map.addLayer(layer);
   }
 
   // Resolve which country the pointer is picking. Precise polygon fill first (so a
@@ -577,11 +557,17 @@ import Base from "../layouts/Base.astro";
   // pointing at one Maldives atoll outlines all of Maldives, exactly as hovering Java
   // outlines all of Indonesia.
   let hovered: string | null = null;
+  // Both sources share the ADMIN promoteId: `countries` drives the fill wash, `country-outlines`
+  // the gold boundary line. One id toggles both so the whole country lights as a unit.
   function setHover(admin: string | null) {
     if (admin === hovered) return;
-    if (hovered !== null) map.setFeatureState({ source: "countries", id: hovered }, { hover: false });
+    const setState = (id: string, hover: boolean) => {
+      map.setFeatureState({ source: COUNTRIES_SOURCE, id }, { hover });
+      map.setFeatureState({ source: OUTLINE_SOURCE, id }, { hover });
+    };
+    if (hovered !== null) setState(hovered, false);
     hovered = admin;
-    if (hovered !== null) map.setFeatureState({ source: "countries", id: hovered }, { hover: true });
+    if (hovered !== null) setState(hovered, true);
   }
   map.on("mousemove", (event) => {
     const admin = countryAt(event.point);

@@ -190,6 +190,25 @@ for three days. This closes that; it is not a new tile-side dial.
   extended depth to −6,000 m in the *tile* palette (`palette.py`) — `85B9B7@0 … 3A6E7D@1.0`.
   These hero `SEA_STOPS` are unchanged; re-rendering heroes to match is an open item (HISTORY.md).
 
+### Polar caps — the pole look (decided 2026-07-18: a polar-stereographic custom-layer cap)
+
+The poles are NOT a colour lever. Web Mercator can't reach them (data ends ~85°N), so the composite
+flat-fills >84°N / <−59.5°S with `CAP_RGB` (`shade_planet.py`). **No flat colour works** — `(67,118,132)`
+"deep sea" read as a dark *hole* (darker than the lighter Arctic-shelf sea beside it), and a pale sea-ice
+`(216,226,233)` read as a too-clean white *plug*. The problem is **flatness, not hue** — a large
+featureless disc amid textured surroundings. Feathering the edge does not fix it (that is the rim; the
+complaint is the body).
+
+- **Decided look:** the pole is deep ocean floor UNDER floating sea ice. Render it as **sea ice draped
+  over the real (uncapped) bathymetry** — the Patterson/Blue-Earth school — not a flat fill. Uncapped, the
+  Arctic bathymetry is textured and natural (verify with `disc_preview.py`), so revealing it is the
+  *foundation* and sea ice is the surface truth on top.
+- **Delivered as a polar-stereographic cap via a MapLibre custom layer**, not baked into Mercator tiles
+  (which can't reach 90°). Pipeline + feasibility → PLAN Phase 3 + HISTORY. Both poles; south cap ties to Antarctica.
+- **`CAP_RGB` in `shade_planet.py` is now only the interim flat fill** on the live Mercator tiles, pending
+  the real cap — being retired, not a lever to tune.
+- → HISTORY § the polar cap: flat fails
+
 ### Sky-view shading (post-render, added 2026-07-10) — `pipeline/render/sky_view.py`
 - Burn-only horizon sky-view-factor from `heightfield_aea`: darkens land *valleys* for
   topographic depth (so flat/low-relief countries read), open ground left at rendered

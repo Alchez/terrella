@@ -101,11 +101,15 @@ def _latitude_of_rows(transform, row_indices: np.ndarray) -> np.ndarray:
 
 
 def hillshade_array(heights: np.ndarray, cellsize: float, zfactor,
-                    altitude: float = 45.0, azimuth: float = 315.0) -> np.ndarray:
+                    altitude: float = 45.0, azimuth: "float | np.ndarray" = 315.0) -> np.ndarray:
     """Horn hillshade of `heights` (float, one halo row already padded top+bottom).
 
     `zfactor` may be a scalar or a column vector broadcastable to the *output* rows
     (i.e. length heights.shape[0]-2). Columns wrap (planet is periodic in longitude).
+    `azimuth` (the compass bearing the light comes FROM) may likewise be a scalar or a per-pixel
+    array broadcastable to the output shape -- the array form is for non-Mercator grids where
+    grid-north diverges from true-north, so holding a fixed TRUE light bearing needs the grid
+    azimuth to rotate per pixel (the polar cap; the Mercator tiles pass a scalar).
     Returns float DN in [0, 255], flat ground = 255*sin(altitude), in `heights`' own dtype.
     """
     # Match zfactor to heights' dtype BEFORE it touches the arrays. Callers naturally build it
@@ -122,7 +126,13 @@ def hillshade_array(heights: np.ndarray, cellsize: float, zfactor,
     dz_dy = ((g + 2.0 * h + i) - (a + 2.0 * b + c)) / (8.0 * cellsize)
 
     zenith = math.radians(90.0 - altitude)
-    azimuth_math = math.radians(360.0 - azimuth + 90.0)
+    # A scalar azimuth stays on math.radians so every existing (Mercator) caller is byte-for-byte
+    # unchanged; a per-pixel array takes np.radians, cast to heights' dtype first to avoid the same
+    # float64-upcast trap the zfactor cast above guards against.
+    if isinstance(azimuth, np.ndarray):
+        azimuth_math = np.radians(360.0 - np.asarray(azimuth, dtype=heights.dtype) + 90.0)
+    else:
+        azimuth_math = math.radians(360.0 - azimuth + 90.0)
     slope = np.arctan(zfactor * np.hypot(dz_dx, dz_dy))
     aspect = np.arctan2(dz_dy, -dz_dx)
     shaded = 255.0 * (math.cos(zenith) * np.cos(slope)

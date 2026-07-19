@@ -1,8 +1,10 @@
 name: CI
 
-# Fast, data-free checks on the pipeline's pure logic layer. Rendering, fusion,
-# and downloads are not exercised here (GPU- and data-bound) — this guards the
-# geometry/config resolver, where a silent regression renders a wrong hero.
+# PR gate for the pure, data-free layers, in two independent jobs:
+#   - check: the pipeline's geometry/config resolver (pyright + pytest). Rendering,
+#     fusion, and downloads are GPU/data-bound and NOT exercised here.
+#   - web:   the frontend's logic + type layer (vitest + astro check). Pure/synthetic
+#     fixtures, no tiles or data needed.
 
 on:
   pull_request:
@@ -27,8 +29,43 @@ jobs:
       - name: Sync dependencies (incl. dev)
         run: uv sync
 
+      # No path argument: use [tool.pyright] include = pipeline + tests (excludes
+      # experiments). Was `pyright pipeline/`, which skipped tests/ — a type error in a
+      # test would pass CI while failing the local `uv run pyright`.
       - name: Type-check (pyright)
-        run: uv run pyright pipeline/
+        run: uv run pyright
 
       - name: Tests (pytest)
         run: uv run pytest -q
+
+  web:
+    name: vitest + astro check
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v7
+
+      # pnpm before setup-node, so setup-node's `cache: pnpm` finds it. pnpm 11 reads the
+      # committed lockfileVersion 9.0 lockfile (verified: frozen install is clean).
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 11
+
+      - name: Install Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Type-check (astro check)
+        run: pnpm check
+
+      - name: Tests (vitest)
+        run: pnpm test

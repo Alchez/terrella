@@ -69,6 +69,42 @@ class TestDtypeDoesNotUpcast:
         assert result.dtype == np.float64
 
 
+class TestPerPixelAzimuth:
+    """`azimuth` may be a per-pixel array, not just a scalar. The polar cap shades on a pole-centred
+    AEQD grid where grid-north diverges from true-north with longitude, so matching the tiles' fixed
+    true-NW light needs the grid azimuth to rotate per pixel (315 - longitude). The scalar path the
+    Mercator tiles use must stay untouched, which the constant-array equality below is what pins."""
+
+    def test_constant_array_azimuth_equals_scalar(self):
+        """An array filled with the scalar value must reproduce the scalar result bit-for-bit --
+        this proves the array branch computes the same thing AND that adding it left the scalar
+        branch byte-identical (output rows = heights.shape[0]-2, so the array is that shape)."""
+        heights = synthetic_terrain(40, 60, seed=3).astype(np.float32)
+        scalar = hillshade_array(heights, CELLSIZE, np.float32(15.0), ALT, AZ)
+        array_az = np.full((38, 60), AZ, dtype=np.float32)
+        arrayed = hillshade_array(heights, CELLSIZE, np.float32(15.0), ALT, array_az)
+        assert np.array_equal(scalar, arrayed)
+
+    def test_varying_azimuth_changes_the_shading(self):
+        """Companion: a light bearing that varies across the grid must actually move pixels, or the
+        array would be silently ignored and the equality above would pass vacuously."""
+        heights = synthetic_terrain(40, 60, seed=3).astype(np.float32)
+        reference = hillshade_array(heights, CELLSIZE, np.float32(15.0), ALT, AZ)
+        sweep = np.linspace(AZ - 90.0, AZ + 90.0, 60, dtype=np.float32)
+        varying = np.repeat(sweep[None, :], 38, axis=0)
+        result = hillshade_array(heights, CELLSIZE, np.float32(15.0), ALT, varying)
+        assert not np.array_equal(reference, result)
+
+    def test_float64_azimuth_does_not_upcast_float32_heights(self):
+        """The zfactor NEP-50 trap again: a longitude-derived azimuth is naturally float64, and
+        float32 * float64 -> float64 would silently restore the whole float32 saving. The array
+        branch casts azimuth to heights' dtype to prevent it."""
+        heights = synthetic_terrain(40, 60, seed=3).astype(np.float32)
+        azimuth = np.full((38, 60), AZ, dtype=np.float64)
+        result = hillshade_array(heights, CELLSIZE, np.float32(15.0), ALT, azimuth)
+        assert result.dtype == np.float32, "float64 azimuth array upcast the whole computation"
+
+
 class TestFloat32MatchesFloat64:
     """Output is uint8. Anything finer than 1 DN is precision we pay for and then discard."""
 

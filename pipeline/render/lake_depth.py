@@ -72,3 +72,16 @@ def lakes_only(depth, watercode):
     if depth is None:
         return None
     return np.where(watercode == 2, depth, 0.0).astype("float32")
+
+
+def inland_water(watercode):
+    """Boolean mask of inland water -- watermask class 2 (lake) OR 3 (river) -- selecting the
+    flat WATER_RGB / lake-ramp branch of the composite.
+
+    Class 1 (ocean) is deliberately EXCLUDED: it is sea, coloured by the depth ramp, the mirror
+    of lakes_only's rule above. This is THE one implementation of that decision, shared by both
+    shade paths and the polar cap so a per-call-site copy cannot drift: `watercode.astype(bool)`
+    is the tempting shortcut and is wrong -- it catches class 1 and paints the whole ocean flat
+    WATER_RGB over the bathymetry (the cap's 'disc glow', 2026-07-19).
+    """
+    return (watercode == 2) | (watercode == 3)
