@@ -1,7 +1,7 @@
 ---
 import Base from "../layouts/Base.astro";
 import Masthead from "../components/Masthead.astro";
-import data from "../data/countries.json";
+import { manifest as data, type Country } from "../lib/manifest";
 
 // One statically-built page per country.
 export function getStaticPaths() {
@@ -11,7 +11,6 @@ export function getStaticPaths() {
   }));
 }
 
-type Country = (typeof data.countries)[number];
 const { country } = Astro.props as { country: Country };
 
 const HERO_BASE = import.meta.env.PUBLIC_HERO_BASE ?? "/heroes/";

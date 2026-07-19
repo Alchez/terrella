@@ -1,13 +1,11 @@
 ---
 import Base from "../layouts/Base.astro";
 import Masthead from "../components/Masthead.astro";
-import data from "../data/countries.json";
+import { manifest as data, type Country } from "../lib/manifest";
 
 // Hero variants are served from this base — a symlink in dev (public/heroes ->
 // the render store), an nginx static mount in prod. Overridable at build time.
 const HERO_BASE = import.meta.env.PUBLIC_HERO_BASE ?? "/heroes/";
-
-type Country = (typeof data.countries)[number];
 
 // Rendered heroes first (so real imagery leads while the sweep fills in), then
 // everything else alphabetically.

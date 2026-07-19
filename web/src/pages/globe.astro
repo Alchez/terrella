@@ -257,7 +257,7 @@ import Base from "../layouts/Base.astro";
   } from "maplibre-gl";
   import type { Feature, FeatureCollection } from "geojson";
   import "maplibre-gl/dist/maplibre-gl.css";
-  import manifest from "../data/countries.json";
+  import { manifest, type Country } from "../lib/manifest";
   import { currentTier } from "../lib/capability";
   import {
     COUNTRIES_SOURCE,
@@ -269,9 +269,8 @@ import Base from "../layouts/Base.astro";
     highlightLayers,
   } from "../lib/countryHighlight";
 
-  // One rendered country as carried in the manifest — the shape of the objects the
+  // `Country` (imported from ../lib/manifest) is the shape of the objects the
   // click/hover/panel handlers pass around.
-  type Country = (typeof manifest.countries)[number];
 
   // Data credits (MapLibre requires attribution; matches the About page colophon).
   const CREDITS =
