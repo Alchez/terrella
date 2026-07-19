@@ -109,6 +109,14 @@ class TestCompositeParams:
         monkeypatch.setattr(palette, "WATER_RGB", (1, 2, 3))
         assert shade_planet.composite_params({None: None}) != before
 
+    def test_cap_rgb_change_is_recorded(self, monkeypatch):
+        """CAP_RGB (the polar-cap fill) reaches no file of its own; the 'cap' sidecar entry is what
+        tracks it. Without this, a cap recolour would leave a stale planet_rgb looking fresh -- the
+        recompose that switched the cap to pale sea-ice (2026-07-18) relied on exactly this restage."""
+        before = shade_planet.composite_params({None: None})
+        monkeypatch.setattr(shade_planet, "CAP_RGB", (1, 2, 3))
+        assert shade_planet.composite_params({None: None}) != before
+
     def test_none_variant_key_survives_json(self):
         """The production path keys variants by None, which JSON cannot use as a key."""
         assert "null" in shade_planet.composite_params({None: None})

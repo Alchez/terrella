@@ -136,6 +136,28 @@ class TestLakesOnly:
         assert lake_depth.lakes_only(None, np.full((2, 2), 2, "uint8")) is None
 
 
+class TestInlandWater:
+    """`inland_water` selects the flat-tint classes (2 lake, 3 river) and MUST exclude ocean
+    (class 1) -- the mirror of lakes_only's rule. The cap builder bypassed this and used
+    `watermask.astype(bool)`, which caught class 1 and painted the whole Arctic sea flat WATER_RGB
+    over the depth ramp (the 'disc glow'). These pin class 1 out for good."""
+
+    def test_selects_lakes_and_rivers_only(self):
+        codes = np.array([0, 1, 2, 3], dtype="uint8")
+        assert lake_depth.inland_water(codes).tolist() == [False, False, True, True]
+
+    def test_ocean_class_1_is_not_inland_water(self):
+        """The exact regression: ocean is class 1, so it must stay False and keep the sea ramp."""
+        assert not lake_depth.inland_water(np.full((2, 2), 1, "uint8")).any()
+
+    def test_astype_bool_is_the_bug_and_this_check_catches_it(self):
+        """Companion: the shortcut the cap used (`astype(bool)`) misclassifies ocean as inland
+        water, and inland_water must disagree with it -- on exactly class 1."""
+        codes = np.array([0, 1, 2, 3], dtype="uint8")
+        assert codes.astype(bool).tolist() == [False, True, True, True]  # class 1 wrongly True
+        assert lake_depth.inland_water(codes).tolist() != codes.astype(bool).tolist()
+
+
 class TestCompositeUsesDepth:
     """The wiring itself: depth must reach the pixels, and only the right ones."""
 

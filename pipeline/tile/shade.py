@@ -235,7 +235,7 @@ def main():
     heights = read1(height_vrt).astype("float32")
     ocean = read1(ocean_vrt) != 0
     watercode = read1(water_vrt)
-    water = (watercode == 2) | (watercode == 3)
+    water = lake_depth.inland_water(watercode)
     hs = read1(hs_tif).astype(float)
 
     # snow: NSIDC-0791 persistence -> latitude-ramped soft alpha (pipeline/render/snow.py)

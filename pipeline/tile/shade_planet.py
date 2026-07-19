@@ -18,7 +18,7 @@ composite is per-pixel, so windowing it cannot seam):
   4. sky-view factor once on a global downsample with a single global normalisation;
   5. composite each full-width horizontal window (reusing tile/shade.py::composite) with the
      latitude-ramped snow (blue-white shadows) and RGI glaciers, and cap both polar edges
-     (>84N, <-59.5S -> flat deep-sea) so MapLibre's globe shows clean polar discs;
+     (>84N, <-59.5S -> flat pale sea-ice) so MapLibre's globe shows clean polar discs;
   6. cut z0-8 512px tiles (no overview step -- `gdal raster tile` never reads them; see build_tiles).
 
 Every stage skips if its output is FRESH -- present, completed, and newer than everything it
@@ -78,7 +78,7 @@ N_WORKERS = 4              # composite worker threads. The knee: numpy is DRAM-b
                            # peak: N4 8.5 G, N6 11.3 G). 4 = ~3.1× at safe margin under 12 G.
 SVF_LONG_EDGE = 4096       # global sky-view downsample (long edge = raster width)
 CAP_NORTH, CAP_SOUTH = 84.0, -59.5   # latitudes above/below which the poles are capped flat
-CAP_RGB = (67, 118, 132)   # flat deep-sea colour for the polar caps (matches deep-ocean render)
+CAP_RGB = (216, 226, 233)   # pale sea-ice fill for the poles (web-mercator has no data past ~85 deg)
 INFLIGHT_BUFFER = 2        # windows read AHEAD of the workers (optimisation #5): the main thread
                            # may queue max_workers + this many window-input bundles before it must
                            # block on the oldest result and write it. Bounds peak RAM to
@@ -422,7 +422,7 @@ def _compute_shared(inputs: _WindowInputs) -> _WindowShared:
     """
     ocean_win = inputs.ocean_raw != 0
     watercode = inputs.watercode
-    water_win = (watercode == 2) | (watercode == 3)
+    water_win = lake_depth.inland_water(watercode)
     hs_win = inputs.hs_raw.astype(float)
     # Lake depth, zeroed off class 2 so rivers stay flat and the (class 1) Caspian keeps GEBCO's
     # measured bathymetry instead of GLOBathy's cone.

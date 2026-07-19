@@ -65,6 +65,7 @@ times only, which is why "is the hillshade compute- or I/O-bound?" was unanswera
 | `--tiles`, everything fresh | **~3:45** | was 6:17 before the SVF guard — 41% of it was discarded work |
 | No `--tiles`, everything fresh | **0.29 s** | every stage skips; this is the guard working |
 | Lake-depth warp (stage 3) | **1:01:38** | one-time; its `.done` is what stops a pass paying that hour again |
+| **A pole-look preview** (cap / sea-ice iteration, browser-free) | **~1–3 min** | `disc_preview.py`: composite only the polar band uncapped, reusing the cached SVF (`occ.npy`), then reproject to EPSG:3995 → a disc PNG. No full recompose, no tile cut, no browser. This is the right loop for the pole — the full composite + re-cut (2026-07-18 pale-C: 10:48 + 3:28) was overkill to preview one flat colour. → HISTORY § the polar cap: flat fails |
 
 **What a knob actually restages** (measured, not inferred — `fill_strength` + `hi`, 2026-07-17): all four
 warps skip, including the 1:01:38 lake warp. A **hillshade-stage** knob (`fill_strength`, tracked in
