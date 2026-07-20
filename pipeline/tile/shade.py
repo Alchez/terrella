@@ -355,7 +355,7 @@ def snow_position(light, curve):
     raise ValueError(f"unknown snow_curve {curve!r} (linear | gamma4 | gamma8 | knee)")
 
 
-def composite(heights, ocean, water, snow_a, hs, occ, occ_shape, grid, depth=None):
+def composite(heights, ocean, water, snow_a, hs, occ, occ_shape, grid, depth=None, ice_a=None):
     """Composite one window of the planet/region from ELEVATION, not pre-coloured rasters.
 
     `heights` is metres on the fused heightfield; the land and sea ramps are applied here via
@@ -430,6 +430,22 @@ def composite(heights, ocean, water, snow_a, hs, occ, occ_shape, grid, depth=Non
     snow_lit = np.array(palette.SNOW_RGB, dtype=np.float32).reshape(3, 1, 1)
     snow_rgb = snow_shadow + (snow_lit - snow_shadow) * snow_t[None]
     final = base_rgb * (1.0 - alpha)[None] + snow_rgb * alpha[None]
+
+    # soft-alpha sea ice: the sea-side mirror of the snow blend above. Gated on `ocean` (the mirror
+    # of snow's ~(ocean|water) land gate) so ice paints ONLY over open sea -- never land, never the
+    # inland-water branch (the disc-glow trap). Reuses the same light-keyed white `snow_rgb`: one
+    # white family for both cryosphere layers. `ice_a` is already zero off the ice edge (the
+    # frequency field), so ice fades to the bathymetry at the margin -- the intended pole look. None
+    # on the region path (and any caller that passes no ice), which then behaves exactly as before.
+    if ice_a is not None:
+        # Sea ice is a cooler/dimmer white than snow (palette.ICE_*), light-keyed by the same snow_t
+        # so it still takes the hillshade on pressure ridges / shelf edges. Distinct from land snow
+        # without a hard colour split -- the coastline and relief carry the rest.
+        ice_shadow = np.array(palette.ICE_SHADOW_RGB, dtype=np.float32).reshape(3, 1, 1)
+        ice_lit = np.array(palette.ICE_RGB, dtype=np.float32).reshape(3, 1, 1)
+        ice_rgb = ice_shadow + (ice_lit - ice_shadow) * snow_t[None]
+        gated_ice = np.where(ocean, np.asarray(ice_a, dtype=np.float32), 0.0)
+        final = final * (1.0 - gated_ice)[None] + ice_rgb * gated_ice[None]
     return np.clip(final, 0, 255).astype("uint8")
 
 

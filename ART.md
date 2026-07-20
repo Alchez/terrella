@@ -190,6 +190,16 @@ for three days. This closes that; it is not a new tile-side dial.
   extended depth to −6,000 m in the *tile* palette (`palette.py`) — `85B9B7@0 … 3A6E7D@1.0`.
   These hero `SEA_STOPS` are unchanged; re-rendering heroes to match is an open item (HISTORY.md).
 
+### Sea ice — TILES + caps (`ICE_*` in `render/seaice.py`, `ICE_RGB` in `palette.py`; new 2026-07-20)
+
+The sea-side mirror of the snow layer: an OSI SAF **annual ice-frequency climatology** (`render/seaice.py`, 1991–2020 — "how often is this sea frozen") drives a translucent white overlay over the bathymetry, **gated on `ocean`** in `shade.composite` where snow is gated on `~(ocean|water)`. It lands on the Mercator tiles, region renders, and both caps through the one shared composite. The dataset is pinned provenance (OSI SAF, anonymous — not a lever); the *look* levers are:
+
+- **`ICE_LO` / `ICE_BAND` (0.55 / 0.40) — the alpha ramp.** `ice_alpha` is a smoothstep on frequency from `ICE_LO` to `ICE_LO+ICE_BAND`, **no latitude term** (unlike `snow_alpha` — the field already encodes where ice is; there is no mid-latitude seasonal flooding to hold back). `ICE_LO` is the *"how much of the seasonal fringe do I paint"* knob: **raise it for LESS ice** (leaner / bleaker), lower it for more. `0.25→0.55` (2026-07-20) pulled the winter-maximum fringe (Hudson / Baffin / Kara / Laptev) back to open teal, keeping only the perennial pack solid — doubles as decline-aware. **It does NOT move the perennial core** (freq→1 saturates at any `ICE_LO` < 0.95), so it cannot make the core "bleaker": that is a *dataset / period* decision, not a threshold one.
+- **`ICE_MAX_ALPHA` (0.85) — perennial translucency.** The ramp tops out below opaque so even year-round pack stays a touch see-through and the deep bathymetry glows through (the "ocean floor under ice" reading, Rohan). 1.0 = opaque pack (bathymetry *colour* hidden, only hillshade relief shows).
+- **`ICE_RGB (212,228,240)` / `ICE_SHADOW_RGB (156,184,210)` — the ice whites** (light-keyed by the same `snow_t` as snow). A **notch cooler + dimmer than snow's** `E8F1F6` / `B0C7DB`, so floating sea ice reads distinct from the land ice-sheet **without a hard blue/white split** (rejected as gimmicky and off-Patterson — the baked coastline + relief carry the land/sea line). Cooling may be slightly strong; dial here if so.
+- **Not a lever — the dataset / period.** The metric is a 1991–2020 **winter-weighted** climatology. A recent-data check (OSI-430-a 2021–2024, 2026-07-20) moved the rendered 0.55 extent by only **−4.2% — invisible**. Reflecting the real (September-minimum) decline would take a September-specific climatology — a different `download_seaice` reduction, not a knob. → HISTORY § 2026-07-20 sea ice.
+- **Adjust:** the `ICE_*` constants in `render/seaice.py` (ramp) + `ICE_RGB` / `ICE_SHADOW_RGB` in `palette.py` (colour) — all tracked in `composite_params`, so a change restages composite → tiles (~19.6 min). The **climatology** itself (threshold, smoothing `SMOOTH_SIGMA_PX`, period) rebuilds via `download_seaice.py --build-only --force` (~40 s, no re-download), then a recomposite.
+
 ### Polar caps — the pole look (decided 2026-07-18: a polar-stereographic custom-layer cap)
 
 The poles are NOT a colour lever. Web Mercator can't reach them (data ends ~85°N), so the composite
@@ -205,6 +215,10 @@ complaint is the body).
   *foundation* and sea ice is the surface truth on top.
 - **Delivered as a polar-stereographic cap via a MapLibre custom layer**, not baked into Mercator tiles
   (which can't reach 90°). Pipeline + feasibility → PLAN Phase 3 + HISTORY. Both poles; south cap ties to Antarctica.
+- **NORTH cap DELIVERED 2026-07-20** (`pipeline/tile/cap_render.py`): sea ice + snow draped over the real
+  bathymetry on an AEQD grid, per-pixel longitude-rotated light, and a baked **dark** coastline (a white
+  coast vanishes between white snow and white ice). Sea ice now also rides the Mercator tiles (ocean-gated).
+  The **south cap (EPSG:3031, Antarctica) is Phase 2**. → HISTORY § 2026-07-20 sea ice · § Sea ice — TILES + caps above
 - **`CAP_RGB` in `shade_planet.py` is now only the interim flat fill** on the live Mercator tiles, pending
   the real cap — being retired, not a lever to tune.
 - → HISTORY § the polar cap: flat fails

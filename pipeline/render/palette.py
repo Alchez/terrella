@@ -52,6 +52,12 @@ WATER_RGB: RGB8 = (142, 198, 196)  # 8EC6C4 — flat inland lake/river teal: the
 # rework, which had deepened the sea surface and left this stranded ~15% brighter.
 SNOW_RGB: RGB8 = (232, 241, 246)         # E8F1F6 — sunlit snow (bright glacial white)
 SNOW_SHADOW_RGB: RGB8 = (176, 199, 219)  # B0C7DB — shaded snow (cool blue-white, not grey)
+# Sea ice: the same light-keyed white family but a subtle notch COOLER and dimmer than land snow,
+# so the poles read floating-thin-ice vs thick-ice-sheet without a hard colour split (the coastline
+# and relief carry the rest). Physically honest: thin sea ice over dark ocean reads less bright than
+# thick snow. Blended over the sea by seaice.ice_alpha, gated on `ocean`, in shade.composite.
+ICE_RGB: RGB8 = (212, 228, 240)          # D4E4F0 — sunlit sea ice (cool white, dimmer than snow)
+ICE_SHADOW_RGB: RGB8 = (156, 184, 210)   # 9CB8D2 — shaded sea ice (deeper cool blue)
 
 LAND_MAX_M = 6000.0
 SEA_MIN_M = -6000.0  # extended from -3000 (2026-07-14 sea rework) so the deep sea varies tonally

@@ -10,7 +10,7 @@ import time
 
 import pytest
 
-from pipeline.render import palette
+from pipeline.render import palette, seaice
 from pipeline.tile import shade_planet
 
 
@@ -171,6 +171,21 @@ class TestCompositeParams:
                             [(0.0, (0.2, 0.3, 0.4)), (1.0, (0.0, 0.1, 0.2))])
         assert shade_planet.composite_params({None: None}) != before
 
+    def test_a_sea_ice_alpha_retune_changes_the_params(self, monkeypatch):
+        """ICE_LO/ICE_BAND run at composite time inside seaice.ice_alpha, so like the snow ramp
+        they must ride in composite_params -- else a re-tune leaves a stale planet_rgb looking
+        fresh (the untracked-input trap that let snow's RAMP_* slip)."""
+        before = shade_planet.composite_params({None: None})
+        monkeypatch.setattr(seaice, "ICE_LO", seaice.ICE_LO + 0.1)
+        assert shade_planet.composite_params({None: None}) != before
+
+    def test_a_sea_ice_colour_change_is_recorded(self, monkeypatch):
+        """ICE_RGB/ICE_SHADOW_RGB are the sea-ice white (a notch cooler than snow); a change must
+        restage the composite, the same way the snow and water colours are tracked."""
+        before = shade_planet.composite_params({None: None})
+        monkeypatch.setattr(palette, "ICE_RGB", (200, 220, 235))
+        assert shade_planet.composite_params({None: None}) != before
+
     def test_the_lut_step_is_tracked(self, monkeypatch):
         """LUT_STEP_M sets how finely the ramp is sampled -- a real colour input now."""
         before = shade_planet.composite_params({None: None})
@@ -208,7 +223,7 @@ class TestCompositeDeps:
         # snow became a warp-once input (optimisation #4): the composite reads pre-warped
         # persistence + glacier rasters per window instead of forking gdalwarp in the loop. A
         # re-warp (new NSIDC/RGI, or a re-fuse changing the grid) must restage the composite.
-        "snow_persistence_3857.tif", "glacier_3857.tif",
+        "snow_persistence_3857.tif", "glacier_3857.tif", "seaice_3857.tif",
         "composite_params.json",
     ])
     def test_every_composite_input_is_a_dependency(self, tmp_path, name):
@@ -224,6 +239,18 @@ class TestCompositeDeps:
             _age(path, 500)
         assert shade_planet.is_stale(planet_rgb, *deps) is False
         (tmp_path / "snow_persistence_3857.tif").write_text("re-warped")  # now newer
+        assert shade_planet.is_stale(planet_rgb, *deps) is True
+
+    def test_a_rewarped_seaice_raster_makes_planet_rgb_stale(self, tmp_path):
+        """The sea-side twin: re-warping the ice-frequency climatology (new OSI SAF release, or a
+        re-fuse to a new grid) must force a re-composite, not reprint stale ice."""
+        planet_rgb = _built(tmp_path, "planet_rgb.tif")
+        deps = self._deps(tmp_path)
+        for path in deps:
+            path.write_text("x")
+            _age(path, 500)
+        assert shade_planet.is_stale(planet_rgb, *deps) is False
+        (tmp_path / "seaice_3857.tif").write_text("re-warped")  # now newer
         assert shade_planet.is_stale(planet_rgb, *deps) is True
 
     def test_snow_warps_are_NOT_hillshade_inputs(self, tmp_path):

@@ -61,11 +61,13 @@ times only, which is why "is the hillshade compute- or I/O-bound?" was unanswera
 |---|---|---|
 | **A hillshade-stage re-tune** (`fill_strength` → live tiles) | **67:44** | measured 2026-07-17 (fill sun). Warps all skip; hillshade + SVF + composite + tile cut all run. |
 | **A composite-stage re-tune** (`snow_curve` → live tiles) | **~17 min** (was 55:48) | 2026-07-17 gamma8 was SVF 167 s + composite **49:33** + tiles 3:28 = 55:48. With #5 landed (128/N4) the composite is **10:45**, so a composite-knob iteration is now **≈ 167 s SVF + 10:45 + ~3:30 tiles ≈ 17 min** — the ~3× that motivated Phase B, and it matters most for Antarctica's many ice-look iterations. |
+| **A sea-ice recomposite** (`ICE_LO` → live tiles) | **~19.6 min** | 2026-07-20. Warps skip (`seaice_3857` fresh); composite **13:28** (727 win, threaded 128/N4) + tile cut 3:27. The composite is **+2:43 over the 10:45 no-ice pass** — the per-window sea-ice slice read + ocean-gated blend. The FIRST sea-ice pass also paid the one-time **banded `seaice_3857` warp ~9:17** (coarse 25 km source → banded like snow). |
 | Everything cold, shade only | **~72 min** | 2026-07-16, after color-relief was deleted (was ~98 min) |
 | `--tiles`, everything fresh | **~3:45** | was 6:17 before the SVF guard — 41% of it was discarded work |
 | No `--tiles`, everything fresh | **0.29 s** | every stage skips; this is the guard working |
 | Lake-depth warp (stage 3) | **1:01:38** | one-time; its `.done` is what stops a pass paying that hour again |
 | **A pole-look preview** (cap / sea-ice iteration, browser-free) | **~1–3 min** | `disc_preview.py`: composite only the polar band uncapped, reusing the cached SVF (`occ.npy`), then reproject to EPSG:3995 → a disc PNG. No full recompose, no tile cut, no browser. This is the right loop for the pole — the full composite + re-cut (2026-07-18 pale-C: 10:48 + 3:28) was overkill to preview one flat colour. → HISTORY § the polar cap: flat fails |
+| **North polar cap render** (`pipeline/tile/cap_render.py`) | **0:21** (peak 4.07 GiB) | 2026-07-20. AEQD 4096² warps of 5 sources (height/ocean/water/snow/sea-ice) + the shared `shade.composite` + baked coastline → `web/public/dev-assets/cap_north.png` (15 MB). Cheap — sizes the Phase 2 south cap (larger −60°→−90° disc). |
 
 **What a knob actually restages** (measured, not inferred — `fill_strength` + `hi`, 2026-07-17): all four
 warps skip, including the 1:01:38 lake warp. A **hillshade-stage** knob (`fill_strength`, tracked in
@@ -99,6 +101,7 @@ Run once; all are resumable and verify against a pinned size/md5, so a re-run is
 | GEBCO 2026 | 7.3 GB | bathymetry + ice surface |
 | RGI 7.0 glaciers | 2.6 GB | tile snow |
 | NSIDC-0791 snow persistence | 1.6 GB | tile snow |
+| OSI SAF sea ice (OSI-450-a) | 640 MB | tile sea ice; **anonymous** THREDDS, **serial** (OSI SAF forbids parallel); 720 monthly files → the 1991–2020 frequency climatology |
 | Cop30 void-fill | 1.2 GB | fusion void-fill |
 | Natural Earth | 38 MB | borders, framing, coastline oracle |
 
