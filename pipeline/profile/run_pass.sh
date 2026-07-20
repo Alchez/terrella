@@ -17,16 +17,16 @@
 #   4. the cgroup    -> memory.peak for the whole scope, and the 12 G cap that kills the job not
 #                       the box (proven today: a 4-cell region render hit it and died alone).
 #
-# Shade cap 12 G: the composite peaks at 6.24 GiB (re-measured 2026-07-16 on the real pass; the
-# 6.93 this line used to quote was the pre-LUT number), so 12 G is ~1.9x measured.
+# Shade cap 12 G: the THREADED composite (opt #5, 128/N4) peaks at 10.55 GiB (2026-07-18; the serial
+# composite was 6.24 GiB), so 12 G is ~1.14x measured -- and N=6 would OOM, which is why N stays 4.
 #
 # Tiling cap 16 G, and it is NOT the same calculation. The composite is skipped when planet_rgb is
 # fresh, so the peak stage becomes `gdal raster tile`, which spawns -j ALL_CPUS workers that EACH
 # inherit GDAL_CACHEMAX -- 16 x 512 MB of block cache alone, before any tile buffers. Tiling's real
-# peak has never been measured (this run is the first that will), so the cap is sized to not kill a
-# job whose failure mode is nasty: a worker killed mid-write leaves a TRUNCATED png, and --resume
-# skips existing files without verifying them, so the bad tile would survive into the pyramid.
-# 16 G still kills the job and not the box (29 G total, ~20 G available).
+# peak has never been measured, so the cap is sized off that per-worker cache math with headroom;
+# 16 G still kills the job and not the box (29 G total, ~20 G available). A worker killed mid-write
+# still leaves a TRUNCATED png, but build_tiles no longer resumes over a partial staging dir -- it
+# removes it and cuts clean (2026-07-20), so a bad tile can no longer survive into the pyramid.
 # GDAL_CACHEMAX=512 per shade_planet.py's own launch note.
 set -uo pipefail
 

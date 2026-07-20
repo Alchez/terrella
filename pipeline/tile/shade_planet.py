@@ -632,15 +632,8 @@ def composite_planet(work: Path, hs, compute_occlusion: Callable[[], np.ndarray]
     return outs
 
 
-def build_tiles(planet_tif: Path, out: Path):
-    """Cut z0-8 512px tiles into a staging dir, then swap over the live tiles.
-
-    THERE IS NO gdaladdo STEP, deliberately. `gdal raster tile` builds each low zoom from the tiles
-    it just generated, never from the source's overviews -- proven 2026-07-16 by tiling one raster
-    with and without them for byte-identical output at identical wall time. The overviews this
-    function used to build cost ~3 min and ~4 GB appended to the master, for nothing. The
-    2026-07-14 note that justified them credited a confounded fix: materialising the 194-source VRT
-    to a GTiff was the real speed-up; the overviews rode along on the same commit untested.
+def _tile_cmd(planet_tif: Path, staging: Path) -> list[str]:
+    """The `gdal raster tile` invocation that cuts z0-8 512px tiles into `staging`.
 
     `--overview-resampling=cubic` pins what is otherwise an UNDOCUMENTED default -- identified by
     elimination (2026-07-16): unset, it silently inherits `--resampling`. This is byte-identical to
@@ -649,12 +642,59 @@ def build_tiles(planet_tif: Path, out: Path):
 
     `--webviewer=none`: the default is `all`, which emits leaflet/openlayers/mapml/stac files into
     the pyramid. We serve our own MapLibre page, and they would ride into PMTiles.
+
+    NO `--resume` (removed 2026-07-20): GDAL skips existing files by existence without reading them,
+    so a truncated png from a mid-write kill would survive a resume. build_tiles instead removes any
+    partial staging dir and cuts clean every time -- see its docstring.
     """
+    return ["gdal", "raster", "tile", "--min-zoom=0", "--max-zoom=8", "--tile-size=512",
+            "--resampling=cubic", "--overview-resampling=cubic", "--convention=xyz",
+            "--skip-blank", "--webviewer=none", str(planet_tif), str(staging)]
+
+
+def tiles_are_fresh(planet_tif: Path, out: Path) -> bool:
+    """True if the live pyramid is current: present, non-empty, and stamped newer than the composite
+    that feeds it.
+
+    Keyed off `planet_rgb`'s `.done` marker, NOT the `.tif` (GDAL stamps its target at write-start,
+    the trap `is_stale` exists to avoid). `is_stale(live, ...)` stats only `tiles/` + `tiles.done` +
+    the one input marker -- never a 62k-tile walk (the dir is the OUTPUT, not a walked input). The
+    non-empty + marker-exists checks reject a half-swapped empty dir or a missing composite stamp.
+    """
+    live = out / "tiles"
+    return (live.is_dir() and any(live.iterdir())
+            and done_marker(planet_tif).exists()
+            and not is_stale(live, done_marker(planet_tif)))
+
+
+def build_tiles(planet_tif: Path, out: Path):
+    """Cut z0-8 512px tiles into a staging dir, then swap over the live tiles.
+
+    Fresh-guarded like every other stage (`tiles_are_fresh`): a re-run whose `planet_rgb` is
+    unchanged skips the ~3:44 cut entirely. Until 2026-07-20 this was the one unguarded stage -- the
+    staging dir is renamed away on success, so `--resume` always started from empty and the cut
+    re-ran in full every time. The completion stamp is `tiles.done`, touched only after the swap.
+
+    EVERY CUT IS A CLEAN FULL CUT: the staging dir is removed first and `--resume` is not passed
+    (see `_tile_cmd`). GDAL writes each png in place, so a worker killed mid-write leaves a truncated
+    file that an existence-only `--resume` would keep; re-cutting from empty (~3:44) is the cheap
+    price of never trusting a partial tile. The one-generation rollback stays at `tiles_old`.
+
+    THERE IS NO gdaladdo STEP, deliberately. `gdal raster tile` builds each low zoom from the tiles
+    it just generated, never from the source's overviews -- proven 2026-07-16 by tiling one raster
+    with and without them for byte-identical output at identical wall time. The overviews this
+    function used to build cost ~3 min and ~4 GB appended to the master, for nothing. The
+    2026-07-14 note that justified them credited a confounded fix: materialising the 194-source VRT
+    to a GTiff was the real speed-up; the overviews rode along on the same commit untested.
+    """
+    if tiles_are_fresh(planet_tif, out):
+        print("tiles fresh -> skip cut", flush=True)
+        return
     staging = out / "tiles_new"
+    if staging.exists():
+        _run(["rm", "-rf", str(staging)])   # a partial from a prior mid-cut crash: never resume over it
     print(f"cutting z0-8 512px tiles -> {staging} ...", flush=True)
-    _run(["gdal", "raster", "tile", "--min-zoom=0", "--max-zoom=8", "--tile-size=512",
-          "--resampling=cubic", "--overview-resampling=cubic", "--convention=xyz",
-          "--skip-blank", "--webviewer=none", "--resume", str(planet_tif), str(staging)])
+    _run(_tile_cmd(planet_tif, staging))
     live = out / "tiles"
     if live.exists():
         old = out / "tiles_old"
@@ -662,6 +702,7 @@ def build_tiles(planet_tif: Path, out: Path):
             _run(["rm", "-rf", str(old)])
         live.rename(old)
     staging.rename(live)
+    mark_done(live)
     print(f"tiles live -> {live} (previous kept at {out / 'tiles_old'})", flush=True)
 
 

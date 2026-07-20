@@ -85,7 +85,7 @@ The zoomable globe is a separate, raster-only path that does **not** use Blender
 | Module | Produces |
 |---|---|
 | `pipeline.fuse.fuse_planet` | the planet heightfield (10×10° cells at 10″, `data/work/planet/*.vrt`) |
-| `pipeline.acquire.download_snow` | NSIDC-0791 snow-persistence granule (Earthdata token in `.env`) |
+| NSIDC-0791 snow persistence | the snow-persistence NetCDF, obtained from NSIDC via Earthdata (earthaccess/CMR) and placed at `data/raw/snow/` — **no committed acquire script** (unlike RGI / sea ice) |
 | `pipeline.acquire.download_rgi` | RGI 7.0 glacier shapefiles merged to `data/raw/rgi/rgi7_g_3857.gpkg` |
 | `pipeline.render.snow` | tile snow: persistence → latitude-ramped soft alpha, unioned with RGI glaciers |
 | `pipeline.tile.shade` | reproject cells to Web-Mercator, mosaic, shade once (color-relief × single-NW hillshade × sky-view + snow) → `region_rgb.tif` |
@@ -101,11 +101,11 @@ python -m pipeline.compose.hero_variants    # 2K/4K/native WebP variants per her
 python -m pipeline.compose.gen_borders      # transparent white border layer per country
 ```
 
-Both take `--only <slug,slug>` to process a subset and `--force` to redo existing outputs. Then the frontend (a separate Astro site in the `../maps-frontend` git worktree) regenerates its manifest and builds:
+Both take `--only <slug,slug>` to process a subset and `--force` to redo existing outputs. Then the frontend (the in-repo Astro site in `web/`, merged to main) regenerates its manifest and builds:
 
 ```bash
-python ../maps-frontend/web/scripts/gen_manifest.py --out ../maps-frontend/web/src/data/countries.json
-pnpm --dir ../maps-frontend/web build
+python web/scripts/gen_manifest.py --out web/src/data/countries.json
+pnpm --dir web build
 ```
 
 The manifest reads the actual variant dimensions off disk, so the gallery and detail pages fill in automatically as renders complete.

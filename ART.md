@@ -192,7 +192,7 @@ for three days. This closes that; it is not a new tile-side dial.
 
 ### Sea ice — TILES + caps (`ICE_*` in `render/seaice.py`, `ICE_RGB` in `palette.py`; new 2026-07-20)
 
-The sea-side mirror of the snow layer: an OSI SAF **annual ice-frequency climatology** (`render/seaice.py`, 1991–2020 — "how often is this sea frozen") drives a translucent white overlay over the bathymetry, **gated on `ocean`** in `shade.composite` where snow is gated on `~(ocean|water)`. It lands on the Mercator tiles, region renders, and both caps through the one shared composite. The dataset is pinned provenance (OSI SAF, anonymous — not a lever); the *look* levers are:
+The sea-side mirror of the snow layer: an OSI SAF **annual ice-frequency climatology** (`render/seaice.py`, 1991–2020 — "how often is this sea frozen") drives a translucent white overlay over the bathymetry, **gated on `ocean`** in `shade.composite` where snow is gated on `~(ocean|water)`. It lands on the Mercator tiles and both caps through the one shared composite; the region-render path (`--cells`) passes no ice, so it stays ice-free. The dataset is pinned provenance (OSI SAF, anonymous — not a lever); the *look* levers are:
 
 - **`ICE_LO` / `ICE_BAND` (0.55 / 0.40) — the alpha ramp.** `ice_alpha` is a smoothstep on frequency from `ICE_LO` to `ICE_LO+ICE_BAND`, **no latitude term** (unlike `snow_alpha` — the field already encodes where ice is; there is no mid-latitude seasonal flooding to hold back). `ICE_LO` is the *"how much of the seasonal fringe do I paint"* knob: **raise it for LESS ice** (leaner / bleaker), lower it for more. `0.25→0.55` (2026-07-20) pulled the winter-maximum fringe (Hudson / Baffin / Kara / Laptev) back to open teal, keeping only the perennial pack solid — doubles as decline-aware. **It does NOT move the perennial core** (freq→1 saturates at any `ICE_LO` < 0.95), so it cannot make the core "bleaker": that is a *dataset / period* decision, not a threshold one.
 - **`ICE_MAX_ALPHA` (0.85) — perennial translucency.** The ramp tops out below opaque so even year-round pack stays a touch see-through and the deep bathymetry glows through (the "ocean floor under ice" reading, Rohan). 1.0 = opaque pack (bathymetry *colour* hidden, only hillshade relief shows).
@@ -200,7 +200,9 @@ The sea-side mirror of the snow layer: an OSI SAF **annual ice-frequency climato
 - **Not a lever — the dataset / period.** The metric is a 1991–2020 **winter-weighted** climatology. A recent-data check (OSI-430-a 2021–2024, 2026-07-20) moved the rendered 0.55 extent by only **−4.2% — invisible**. Reflecting the real (September-minimum) decline would take a September-specific climatology — a different `download_seaice` reduction, not a knob. → HISTORY § 2026-07-20 sea ice.
 - **Adjust:** the `ICE_*` constants in `render/seaice.py` (ramp) + `ICE_RGB` / `ICE_SHADOW_RGB` in `palette.py` (colour) — all tracked in `composite_params`, so a change restages composite → tiles (~19.6 min). The **climatology** itself (threshold, smoothing `SMOOTH_SIGMA_PX`, period) rebuilds via `download_seaice.py --build-only --force` (~40 s, no re-download), then a recomposite.
 
-### Polar caps — the pole look (decided 2026-07-18: a polar-stereographic custom-layer cap)
+**Other locked tile-composite levers** (`shade.py` `KNOBS`, tuned on mountainous Nepal and LOCKED — validate any change on bright lowland / ice-sheet too, never only on mountains): tonal `saturation 1.18` / `warmth 0.06` / `exposure 1.05` / `hi 1.12` / `ambient 0.50`; sea `sea_shade 0.55` / `sea_lift 1.00` / `sea_saturation 0.90` / `sea_svf 0.5`; `svf_strength 0.20` / `svf_threshold 0.45`; and the tile lake tint `lake_curve="log1p"` over `palette.LAKE_STOPS` (depth→tint to Baikal at −1642 m). Not per-region knobs — listed so the lever set is complete.
+
+### Polar caps — the pole look (decided 2026-07-18; delivered on AEQD grids 2026-07-20)
 
 The poles are NOT a colour lever. Web Mercator can't reach them (data ends ~85°N), so the composite
 flat-fills >84°N / <−59.5°S with `CAP_RGB` (`shade_planet.py`). **No flat colour works** — `(67,118,132)`
@@ -211,17 +213,35 @@ complaint is the body).
 
 - **Decided look:** the pole is deep ocean floor UNDER floating sea ice. Render it as **sea ice draped
   over the real (uncapped) bathymetry** — the Patterson/Blue-Earth school — not a flat fill. Uncapped, the
-  Arctic bathymetry is textured and natural (verify with `disc_preview.py`), so revealing it is the
-  *foundation* and sea ice is the surface truth on top.
-- **Delivered as a polar-stereographic cap via a MapLibre custom layer**, not baked into Mercator tiles
-  (which can't reach 90°). Pipeline + feasibility → PLAN Phase 3 + HISTORY. Both poles; south cap ties to Antarctica.
-- **NORTH cap DELIVERED 2026-07-20** (`pipeline/tile/cap_render.py`): sea ice + snow draped over the real
-  bathymetry on an AEQD grid, per-pixel longitude-rotated light, and a baked **dark** coastline (a white
-  coast vanishes between white snow and white ice). Sea ice now also rides the Mercator tiles (ocean-gated).
-  The **south cap (EPSG:3031, Antarctica) is Phase 2**. → HISTORY § 2026-07-20 sea ice · § Sea ice — TILES + caps above
-- **`CAP_RGB` in `shade_planet.py` is now only the interim flat fill** on the live Mercator tiles, pending
-  the real cap — being retired, not a lever to tune.
-- → HISTORY § the polar cap: flat fails
+  Arctic bathymetry is textured and natural, so revealing it is the *foundation* and sea ice is the
+  surface truth on top.
+- **Delivered as AEQD caps via a MapLibre custom layer** (`+proj=aeqd`, centred on each pole), not baked
+  into Mercator tiles (which can't reach 90°). AEQD's radius ∝ colatitude, which the frontend's
+  linear-colatitude UV assumes — so the projection cancels on the globe. Chosen over EPSG:3031 (whose
+  radial law would force a frontend rewrite for no visible gain). Both poles.
+- **NORTH cap** (`pipeline/tile/cap_render.py`, 2026-07-20): sea ice + snow draped over the real
+  bathymetry, per-pixel longitude-rotated light, and a baked **dark** coastline (`COAST_RGB (96,122,142)`,
+  muted steel-blue — a white coast vanishes between white snow and white ice). Sea ice also rides the
+  Mercator tiles (ocean-gated).
+- **SOUTH cap — Antarctica, delivered + tuned 2026-07-20** (`render_cap_south`): the fused planet stops at
+  −60°, so height is **GEBCO-2026 direct** (ice-surface elevation, reaches −90°); land = `height ≥ 0`, and
+  snow is **forced white** over Antarctic land (NSIDC-0791 is NH-only and RGI region 19 is excluded, so
+  there is no SH snow/glacier dataset to read); **no baked coastline** (`coast_opacity=0` — white ice on
+  teal ocean self-separates, unlike the north). Its sea ice is **toned down**: `CAP_S_ICE_LO = 0.62`
+  (vs 0.55 — pull the seasonal fringe in) and `CAP_S_ICE_MAX_ALPHA = 0.55` (vs 0.85 — more translucent),
+  because Antarctica is a continent RINGED by a mostly-seasonal belt, so the full-strength climatology read
+  as a bright halo around it.
+- **Flat-pole taper** (`POLE_TAPER_COLAT = 3.0°`): at the pole every meridian converges, so the
+  longitude-rotated light azimuth sweeps 360° across a few pixels and the directional relief collapses into
+  a washed "pinwheel disc". Inside 3° colatitude the relief is ramped (smoothstep) to the local flat level,
+  so both the wheel and its hard edge dissolve into a soft dome. The north pole has the identical
+  singularity but sits under white sea ice, so it never showed.
+- **`CAP_RGB` in `shade_planet.py` is now only the interim flat fill** on the live Mercator tiles below the
+  cap seam — being retired, not a lever to tune.
+- **Known, deferred:** a faint cap↔tile ocean seam remains at the feather (~−57°→−60°) — the cap ocean
+  (GEBCO depth, no SVF, toned ice) reads a touch bluer/smoother than the tile ocean (fused depth, SVF).
+  Subtle; the durable fix is the Antarctica-in-Mercator tile extension, not a cap tweak. → PLAN.
+- → HISTORY § the polar cap: flat fails · § 2026-07-20 sea ice
 
 ### Sky-view shading (post-render, added 2026-07-10) — `pipeline/render/sky_view.py`
 - Burn-only horizon sky-view-factor from `heightfield_aea`: darkens land *valleys* for

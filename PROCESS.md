@@ -13,12 +13,16 @@ until something upstream actually changes. Tunables that never reach a file of t
 moves **only when a value really changes** — that is what makes the guard trustworthy against a
 `git checkout`.
 
-Two stages are the exceptions, and they are the whole story of a re-run:
+One stage is still the exception, and it is the interesting one:
 
-- **`build_tiles` has no guard** — it always re-cuts. `--resume` skips tiles that already exist, but the
-  staging dir is renamed away on success, so the next `--tiles` starts empty and pays full price.
 - **`global_occlusion` (sky-view) has no file to stamp**, so it is guarded by *laziness* instead: it is
   passed to the composite unevaluated and only runs if the composite is stale (added 2026-07-17).
+
+`build_tiles` was the other exception until 2026-07-20 — it always re-cut, because the staging dir is
+renamed away on success so `--resume` started empty and the pyramid had no completion stamp. It now
+carries a `tiles.done` sentinel + a `tiles_are_fresh` guard, so a fully-fresh `--tiles` re-run skips the
+cut, and it dropped `--resume` (cutting clean each time, so a truncated png can't survive). → HISTORY §
+2026-07-20 pipeline hardening.
 
 ## The planet tile pipeline
 
@@ -28,13 +32,14 @@ Two stages are the exceptions, and they are the whole story of a re-run:
 | # | Stage | First run | Re-run (fresh) | Output | Guard |
 |---|---|---|---|---|---|
 | 0 | `fuse/fuse_planet.py` — 540 cells @ 10″, 12 workers *(separate command)* | **~15 min** (43 s/dense cell) | skip | `work/planet/chunks/` (540 cells) + 3 VRTs, 12 GB | per-cell exists() |
-| 1 | warp height → 3857 | **5 min** (486% CPU, 17 threads) | ~0 s | `height_3857.tif` 33 GB | `is_stale` |
+| 1 | warp height → 3857 | **5 min** (486% CPU, 17 threads) | ~0 s | `height_3857.tif` 31 GB | `is_stale` |
 | 2 | warp ocean + water masks → 3857 | **< 1 min** | ~0 s | 69 MB | `is_stale` |
 | 3 | warp GLOBathy lake depth → 3857 | **1:01:38** (nodata-masker-bound, 102% CPU) | ~0 s | `lakedepth_3857.tif` 310 MB | `is_stale` |
-| 4 | `render/hillshade.py` — per-row z-factor **+ fill sun** | **11:48** (1.17 cores, 44.9 MB/s r) | ~0 s | `hs_3857.tif` 7.9 GB | `is_stale` |
+| 3b | warp snow persistence (banded) + rasterize glaciers + warp sea ice (banded) → 3857 (opt #4 / sea ice) | **sea-ice ~9:17**; snow + glaciers folded into the 2026-07-18 opt-#4 pass, not separately timed | ~0 s | `snow_persistence_3857.tif` 7.5 GB, `glacier_3857.tif` 23 MB, `seaice_3857.tif` 11 GB | `is_stale` |
+| 4 | `render/hillshade.py` — per-row z-factor **+ fill sun** | **11:48** (1.17 cores, 44.9 MB/s r) | ~0 s | `hs_3857.tif` 7.4 GB | `is_stale` |
 | 5 | `global_occlusion` — sky-view factor | **2:44** (0.78 cores, **193 MB/s r** — I/O-bound) | ~0 s | in-memory only | **lazy** (2026-07-17) |
-| 6 | `composite_planet` — ramps × hillshade × SVF + snow + lake depth | **10:45 threaded 128/N4** (peak **10.55 GiB**); was **49:40** serial 256 | ~0 s | `planet_rgb.tif` 11 GB | `is_stale` |
-| 7 | `build_tiles` — `gdal raster tile` z0–8 | **3:32** (12.0 of 16 cores, 502 MB/s read) | **3:32 — no guard** | `tiles/` 14 GB, 62,177 tiles | none |
+| 6 | `composite_planet` — ramps × hillshade × SVF + snow + sea ice + lake depth | **10:45 threaded 128/N4** (peak **10.55 GiB**); was **49:40** serial 256 | ~0 s | `planet_rgb.tif` 11 GB | `is_stale` |
+| 7 | `build_tiles` — `gdal raster tile` z0–8 | **3:32** (12.0 of 16 cores, 502 MB/s read) | **skip** (guarded 2026-07-20) | `tiles/` 15 GB, 62,177 tiles | `tiles.done` |
 
 Stages 4–7 re-measured **2026-07-17** on the fill-sun pass (`run_pass.sh --tiles`, exit 0, **67:44 total**),
 which is also the first run to record **cores and disk rate per stage** — PROCESS.md previously had wall
@@ -59,25 +64,27 @@ times only, which is why "is the hillshade compute- or I/O-bound?" was unanswera
 
 | Scenario | Wall | Notes |
 |---|---|---|
-| **A hillshade-stage re-tune** (`fill_strength` → live tiles) | **67:44** | measured 2026-07-17 (fill sun). Warps all skip; hillshade + SVF + composite + tile cut all run. |
-| **A composite-stage re-tune** (`snow_curve` → live tiles) | **~17 min** (was 55:48) | 2026-07-17 gamma8 was SVF 167 s + composite **49:33** + tiles 3:28 = 55:48. With #5 landed (128/N4) the composite is **10:45**, so a composite-knob iteration is now **≈ 167 s SVF + 10:45 + ~3:30 tiles ≈ 17 min** — the ~3× that motivated Phase B, and it matters most for Antarctica's many ice-look iterations. |
-| **A sea-ice recomposite** (`ICE_LO` → live tiles) | **~19.6 min** | 2026-07-20. Warps skip (`seaice_3857` fresh); composite **13:28** (727 win, threaded 128/N4) + tile cut 3:27. The composite is **+2:43 over the 10:45 no-ice pass** — the per-window sea-ice slice read + ocean-gated blend. The FIRST sea-ice pass also paid the one-time **banded `seaice_3857` warp ~9:17** (coarse 25 km source → banded like snow). |
-| Everything cold, shade only | **~72 min** | 2026-07-16, after color-relief was deleted (was ~98 min) |
-| `--tiles`, everything fresh | **~3:45** | was 6:17 before the SVF guard — 41% of it was discarded work |
+| **A hillshade-stage re-tune** (`fill_strength` → live tiles) | **~29 min** (was 67:44) | the 67:44 measured 2026-07-17 embedded the SERIAL composite (49:40); with #5 threaded it is hillshade 11:48 + SVF 2:44 + composite 10:45 + tile cut 3:32 ≈ 29 min. Warps all skip. |
+| **A composite-stage re-tune** (`snow_curve` → live tiles) | **~17 min** (was 55:48) | 2026-07-17 gamma8 was SVF 2:44 + composite **49:33** + tiles 3:28 = 55:48. With #5 landed (128/N4) the composite is **10:45**, so a composite-knob iteration is now **≈ 2:44 SVF + 10:45 + 3:32 tiles ≈ 17 min** — the ~3× that motivated Phase B, and it matters most for Antarctica's many ice-look iterations. |
+| **A sea-ice recomposite** (`ICE_LO` → live tiles) | **~19.6 min** | 2026-07-20. Warps skip (`seaice_3857` fresh); SVF 2:44 + composite **13:28** (727 win, threaded 128/N4) + tile cut 3:27 ≈ 19.6 min. The composite is **+2:43 over the 10:45 no-ice pass** — the per-window sea-ice slice read + ocean-gated blend. The FIRST sea-ice pass also paid the one-time **banded `seaice_3857` warp ~9:17** (coarse 25 km source → banded like snow). |
+| Everything cold, shade only | **~72 min** (pre-#5) → **~35 min** now | the 2026-07-16 ~72 min embedded the serial composite (~49 min); with #5 threaded (composite 10:45) a cold shade is ~35 min. Both exclude the one-time lake warp + fuse. |
+| `--tiles`, everything fresh | **~0.4 s** | `build_tiles` guarded 2026-07-20 — was ~3:45 (the 3:32 cut always re-ran, other stages skipped) before the `tiles.done` sentinel |
 | No `--tiles`, everything fresh | **0.29 s** | every stage skips; this is the guard working |
 | Lake-depth warp (stage 3) | **1:01:38** | one-time; its `.done` is what stops a pass paying that hour again |
-| **A pole-look preview** (cap / sea-ice iteration, browser-free) | **~1–3 min** | `disc_preview.py`: composite only the polar band uncapped, reusing the cached SVF (`occ.npy`), then reproject to EPSG:3995 → a disc PNG. No full recompose, no tile cut, no browser. This is the right loop for the pole — the full composite + re-cut (2026-07-18 pale-C: 10:48 + 3:28) was overkill to preview one flat colour. → HISTORY § the polar cap: flat fails |
-| **North polar cap render** (`pipeline/tile/cap_render.py`) | **0:21** (peak 4.07 GiB) | 2026-07-20. AEQD 4096² warps of 5 sources (height/ocean/water/snow/sea-ice) + the shared `shade.composite` + baked coastline → `web/public/dev-assets/cap_north.png` (15 MB). Cheap — sizes the Phase 2 south cap (larger −60°→−90° disc). |
+| **Polar cap render** (`pipeline/tile/cap_render.py`) | **~43 s** both caps (**0:21** north alone), peak ~4 GiB | 2026-07-20. AEQD 4096² warps of source rasters (height/ocean/water/snow/sea-ice) + the shared `shade.composite` + baked coastline → `web/public/dev-assets/cap_north.png` + `cap_south.png` (15 / 19 MB). The fast browser-free pole-look loop — the old `disc_preview.py` scratch tool is superseded. The south cap is GEBCO-direct Antarctica. → HISTORY § the polar cap: flat fails |
 
-**What a knob actually restages** (measured, not inferred — `fill_strength` + `hi`, 2026-07-17): all four
+**What a knob actually restages** (measured, not inferred — `fill_strength` + `hi`, 2026-07-17): all
 warps skip, including the 1:01:38 lake warp. A **hillshade-stage** knob (`fill_strength`, tracked in
-`hs_params.json`) restages hillshade → composite → tiles. A **composite-stage** knob (`hi`, `ambient`,
-ramp colours, tracked in `composite_params.json`) restages composite → tiles, ~53 min. The composite is
-**~71% of any art iteration** — see PLAN § Pipeline optimisation #5 (~3× is available and unclaimed).
+`hs_params.json`) restages hillshade → composite → tiles (~29 min). A **composite-stage** knob (`hi`,
+`ambient`, ramp colours, tracked in `composite_params.json`) restages composite → tiles, **~17 min**
+(SVF 2:44 + composite 10:45 threaded + tile cut 3:32). The composite is the bulk of any art iteration —
+optimisation #5 (composite threading, **landed 2026-07-18**) is what took it from ~53 min serial to this.
 
-Peak RSS is **6.24 GiB** (the composite) — run under `MemoryMax=12G` (~1.9× measured). Tiling peaks at
-only 2.02 GiB across 18 processes. **`memory.current` is not RSS**: during tiling the cgroup sits at
-~16 GiB, but that is reclaimable page cache (`anon` 0.58 GiB) — watch **anon**, not the total.
+Peak RSS is **10.55 GiB** — the threaded composite (128/N4) under `MemoryMax=12G` (~1.14× headroom; N=6
+would OOM; the serial composite was 6.24 GiB). Tiling runs under a **separate 16 G cap** (`run_pass.sh`,
+sized off the per-worker `GDAL_CACHEMAX` math) and peaks ~2 GiB anon across 18 processes. **`memory.current`
+is not RSS**: during tiling the cgroup sits at ~16 GiB, but that is reclaimable page cache (`anon` 0.58 GiB)
+— watch **anon**, not the total.
 
 ## Hero renders (separate pipeline — Blender, not the tiler)
 
@@ -109,13 +116,13 @@ Run once; all are resumable and verify against a pinned size/md5, so a re-run is
 
 | Process | Command | Time | Notes |
 |---|---|---|---|
-| Astro dev server — **the product globe** | `pnpm dev` in `maps-frontend/web` | ~2 s | `/globe` on Astro's default port 4321 (not pinned in config); serves `/tiles` from `TILES_STORE` (dev-only middleware, `no-cache`) |
+| Astro dev server — **the product globe** | `pnpm dev` in `web` (in-repo since the frontend merged to main) | ~2 s | `/globe` on Astro's default port 4321 (not pinned in config); serves `/tiles` from `TILES_STORE` (dev-only middleware, `no-cache`) |
 | Static build | `pnpm build` | ~seconds | emits HTML/CSS/JS only — assets stay external |
 | Tile smoke test — **not the product** | `python3 -m http.server` in `work/planet_tiles` | instant | proves the pyramid renders with zero deps; no starfield/borders/atmosphere by design |
 | PMTiles packaging | `pmtiles` CLI | **not yet run** | Phase 4; packs `tiles/` into one file for range-request serving |
 
 ## If you only remember one thing
 
-The pipeline is **fast to re-run and slow to build**: cold is ~72 min plus a one-time hour for the lake
-warp; warm is seconds. The only stage that always costs is the tile cut (**3:44**) — and that is the
-step that makes work visible on the globe.
+The pipeline is **fast to re-run and slow to build**: a cold shade is ~35 min (post-#5) plus a one-time
+hour for the lake warp; warm is seconds. Since 2026-07-20 even the tile cut is guarded, so a fully-fresh
+`--tiles` re-run is seconds too — the ~3:32 cut runs only when `planet_rgb` actually changed.

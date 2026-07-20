@@ -20,12 +20,36 @@ const sources = [
       "Reproduced from the GEBCO_2026 Grid, GEBCO Compilation Group (2026).",
   },
   {
+    name: "GLOBathy",
+    href: "https://springernature.figshare.com/collections/GLOBathy_the_Global_Lakes_Bathymetry_Dataset/5243309",
+    role: "Lake depth",
+    license: "CC0",
+    attribution:
+      "GLOBathy global lakes bathymetry (Khazaei et al., Sci Data 9:36, 2022). Public-domain dedication (CC0); depth is modelled — see the Lake depth note below.",
+  },
+  {
     name: "ESA WorldCover 2021",
     href: "https://esa-worldcover.org",
     role: "Snow / ice mask",
     license: "CC-BY 4.0",
     attribution:
       "© ESA WorldCover project 2021 / Contains modified Copernicus Sentinel data (2021), processed by the ESA WorldCover consortium.",
+  },
+  {
+    name: "NSIDC-0791 Snow Persistence",
+    href: "https://nsidc.org/data/nsidc-0791",
+    role: "Snow persistence",
+    license: "NSIDC",
+    attribution:
+      "MODIS snow-persistence climatology (water years 2001–2023), NASA NSIDC DAAC dataset NSIDC-0791.",
+  },
+  {
+    name: "RGI 7.0 Glaciers",
+    href: "https://nsidc.org/data/nsidc-0770/versions/7",
+    role: "Glaciers",
+    license: "CC-BY 4.0",
+    attribution:
+      "Randolph Glacier Inventory 7.0 (RGI Consortium, 2023), NSIDC-0770 v7. Antarctic region 19 excluded.",
   },
   {
     name: "OSI SAF Sea Ice (OSI-450-a)",
@@ -140,6 +164,20 @@ const tools = [
         applied consistently everywhere. Disputed boundaries and lines of control
         are drawn <strong>dashed</strong>. A cartographic default, not a
         political statement.
+      </p>
+    </section>
+
+    <section class="block">
+      <h2 class="eyebrow">Lake depth</h2>
+      <p class="note">
+        Lake beds here are <strong>modelled, not surveyed</strong>. Every one of GLOBathy's
+        1.43&nbsp;million lakes is given the same synthetic shape — a cone deepening with distance
+        from the shore — and no lake bed is ever observed directly. On the Caspian, the one lake we
+        can check against real soundings, that model correlates only about <strong>0.53</strong>. A
+        measured maximum depth exists for just <strong>0.8%</strong> of the lakes shown (though 14 of
+        the 15 deepest); the rest are statistical estimates. Rendering every lake the same modelled
+        way is deliberate — restricting to surveyed lakes would draw survey funding as geology, since
+        about 85% of them sit in the USA.
       </p>
     </section>
 
@@ -275,8 +313,8 @@ const tools = [
     color: var(--muted);
   }
 
-  /* Boundaries — an emphasised note (it's a disclaimer, not body copy) */
-  .worldview .note {
+  /* Emphasised note — a disclaimer / caveat callout (Boundaries, Lake depth) */
+  .note {
     max-width: 62ch;
     margin: 0;
     padding: 1rem 1.3rem;

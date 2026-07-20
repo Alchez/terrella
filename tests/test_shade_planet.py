@@ -43,6 +43,19 @@ def _built(tmp_path, name="height_3857.tif"):
     return out
 
 
+def _built_pyramid(tmp_path):
+    """A completed tile pyramid: the tiles/ dir with a tile inside, plus its .done marker.
+
+    Freshness turns on the .done markers, so callers set ages via `_at`; this only lays out the
+    files (dir non-empty, sentinel present) that `tiles_are_fresh` inspects.
+    """
+    live = tmp_path / "tiles"
+    (live / "0" / "0").mkdir(parents=True)
+    (live / "0" / "0" / "0.png").write_text("png")
+    shade_planet.mark_done(live)
+    return live
+
+
 class TestIsStale:
     def test_missing_output_is_stale(self, tmp_path):
         assert shade_planet.is_stale(tmp_path / "nope.tif") is True
@@ -343,3 +356,55 @@ class TestPaletteTextRefactor:
         path = tmp_path / f"ramp_{kind}.txt"
         palette.write_color_relief(path, kind)
         assert path.read_text() == palette.color_relief_text(kind)
+
+
+class TestBuildTilesGuard:
+    """build_tiles was the one unguarded stage -- it re-cut all 62k tiles on every --tiles run and
+    resumed over truncated pngs. A tiles.done sentinel + tiles_are_fresh + a clean cut (no --resume)
+    close both gaps. These lock the freshness decision the way TestIsStale locks is_stale.
+    """
+
+    def test_current_pyramid_is_fresh(self, tmp_path):
+        planet = _built(tmp_path, "planet_rgb.tif")
+        _built_pyramid(tmp_path)
+        _at(planet, 200)               # composite finished 200 s ago...
+        _at(tmp_path / "tiles", 100)   # ...tiles cut 100 s ago, so the pyramid is current
+        assert shade_planet.tiles_are_fresh(planet, tmp_path) is True
+
+    def test_stale_when_composite_is_newer(self, tmp_path):
+        planet = _built(tmp_path, "planet_rgb.tif")
+        _built_pyramid(tmp_path)
+        _at(planet, 100)               # recomposited 100 s ago...
+        _at(tmp_path / "tiles", 200)   # ...over a pyramid cut 200 s ago -> must re-cut
+        assert shade_planet.tiles_are_fresh(planet, tmp_path) is False
+
+    def test_stale_without_a_pyramid_marker(self, tmp_path):
+        """A tiles/ dir with content but no tiles.done -- e.g. an interrupted swap -- is not fresh."""
+        planet = _built(tmp_path, "planet_rgb.tif")
+        live = tmp_path / "tiles"
+        (live / "0").mkdir(parents=True)
+        (live / "0" / "0.png").write_text("png")
+        assert shade_planet.tiles_are_fresh(planet, tmp_path) is False
+
+    def test_stale_when_pyramid_dir_is_empty(self, tmp_path):
+        """An empty tiles/ (a half-finished swap) passes exists() but must still re-cut."""
+        planet = _built(tmp_path, "planet_rgb.tif")
+        live = tmp_path / "tiles"
+        live.mkdir()
+        shade_planet.mark_done(live)
+        assert shade_planet.tiles_are_fresh(planet, tmp_path) is False
+
+    def test_stale_when_composite_never_stamped(self, tmp_path):
+        """planet_rgb.tif with no .done (a crashed composite) must never read as fresh -- else the
+        0.0 mtime of the missing marker would slip past is_stale and skip a needed cut."""
+        planet = tmp_path / "planet_rgb.tif"
+        planet.write_text("half-written")
+        _built_pyramid(tmp_path)
+        assert shade_planet.tiles_are_fresh(planet, tmp_path) is False
+
+    def test_tile_cmd_omits_resume(self, tmp_path):
+        """No --resume: GDAL would skip a truncated png by existence. --skip-blank is asserted too so
+        a wrong or empty arg list would trip the check rather than pass vacuously."""
+        cmd = shade_planet._tile_cmd(tmp_path / "planet_rgb.tif", tmp_path / "tiles_new")
+        assert "--resume" not in cmd
+        assert "--skip-blank" in cmd

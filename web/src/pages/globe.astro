@@ -272,9 +272,10 @@ import Base from "../layouts/Base.astro";
   // `Country` (imported from ../lib/manifest) is the shape of the objects the
   // click/hover/panel handlers pass around.
 
-  // Data credits (MapLibre requires attribution; matches the About page colophon).
+  // Data baked into the relief raster (MapLibre requires attribution). Borders also carry
+  // their own Natural Earth credit; the full per-source licenses live on /about.
   const CREDITS =
-    "Copernicus DEM GLO-30 · GEBCO 2026 · NSIDC-0791 snow · RGI 7.0 glaciers · Natural Earth";
+    "Copernicus DEM GLO-30 · GEBCO 2026 · NSIDC-0791 snow · RGI 7.0 glaciers · GLOBathy lake depth · OSI SAF sea ice · Natural Earth";
 
   const map = new maplibregl.Map({
     container: "globe",
