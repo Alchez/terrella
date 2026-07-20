@@ -312,13 +312,13 @@ import Base from "../layouts/Base.astro";
   map.addControl(new maplibregl.ScaleControl({ maxWidth: 120, unit: "metric" }), "bottom-left");
   map.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-left");
 
-  // FEASIBILITY SPIKE (throwaway): /globe?polarspike draws a test-pattern disc at the North Pole,
-  // proving a custom layer can render ABOVE the Web-Mercator limit (where the real polar cap goes).
-  // Isolated behind the flag + dynamic import (zero cost otherwise); remove with polarCapSpike.ts.
+  // Polar caps (/globe?polarspike): source-shaded AEQD caps drawn ABOVE the Web-Mercator limit —
+  // north (Arctic sea ice + bathymetry) and south (Antarctica + Southern-Ocean sea ice).
+  // Isolated behind the flag + dynamic import (zero cost otherwise).
   if (new URLSearchParams(location.search).has("polarspike")) {
     map.on("style.load", () => {
       void import("../lib/polarCapSpike")
-        .then((mod) => mod.addPolarCapSpike(map))
+        .then((mod) => mod.addPolarCaps(map))
         .catch((err) => console.error("[polarspike] failed", err));
     });
   }

@@ -28,6 +28,14 @@ const sources = [
       "© ESA WorldCover project 2021 / Contains modified Copernicus Sentinel data (2021), processed by the ESA WorldCover consortium.",
   },
   {
+    name: "OSI SAF Sea Ice (OSI-450-a)",
+    href: "https://osi-saf.eumetsat.int/products/osi-450-a",
+    role: "Sea ice",
+    license: "EUMETSAT",
+    attribution:
+      "EUMETSAT Ocean and Sea Ice SAF — Global Sea Ice Concentration Climate Data Record (OSI-450-a), reduced to a 1991–2020 frequency climatology. Copyright EUMETSAT.",
+  },
+  {
     name: "Natural Earth",
     href: "https://www.naturalearthdata.com",
     role: "Borders & coastlines",
@@ -52,6 +60,10 @@ const steps = [
   {
     title: "Snow",
     body: "A permanent snow / ice mask from ESA WorldCover whitens glaciers and ice caps.",
+  },
+  {
+    title: "Sea ice",
+    body: "At the poles, translucent white sea ice floats over the real ocean-floor relief — soft where the ice is seasonal, solid over the permanent pack. It's a 1991–2020 average of how often each stretch of sea freezes, not a live snapshot.",
   },
 ];
 

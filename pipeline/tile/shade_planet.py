@@ -50,7 +50,7 @@ import rasterio
 from rasterio.enums import Resampling
 from rasterio.windows import Window
 
-from pipeline.render import hillshade, lake_depth, palette, snow
+from pipeline.render import hillshade, lake_depth, palette, seaice, snow
 from pipeline.render.sky_view import horizon_svf
 from pipeline.tile import shade
 from pipeline.tile.shade import KNOBS
@@ -216,6 +216,13 @@ def composite_params(variants, window_rows=WINDOW_ROWS) -> str:
                        "lut_step_m": palette.LUT_STEP_M,
                        "snow_rgb": palette.SNOW_RGB,
                        "snow_shadow_rgb": palette.SNOW_SHADOW_RGB,
+                       "ice_rgb": palette.ICE_RGB,
+                       "ice_shadow_rgb": palette.ICE_SHADOW_RGB,
+                       # sea-ice alpha knobs run at composite time inside seaice.ice_alpha, so they
+                       # ride here (not in composite_deps) -- the untracked-input trap that let snow's
+                       # RAMP_* constants slip freshness; do not repeat it.
+                       "ice_lo": seaice.ICE_LO, "ice_band": seaice.ICE_BAND,
+                       "ice_max_alpha": seaice.ICE_MAX_ALPHA,
                        "lake_stops": palette.LAKE_STOPS,
                        "lake_max_m": palette.LAKE_MAX_M,
                        "cap": [CAP_NORTH, CAP_SOUTH, list(CAP_RGB)],
@@ -236,10 +243,14 @@ def composite_deps(work, hs, params) -> tuple:
     may be absent (RGI not downloaded) -- `newest_mtime` scores a missing path 0.0, so listing it
     unconditionally is safe. The ramp TUNABLES (`RAMP_*`) run at composite time inside `snow_alpha`,
     so they ride in `composite_params`, NOT here -- this pair tracks the warp SOURCES only.
+
+    `seaice_3857.tif` joined 2026-07-19, the sea-side twin of snow persistence: its warp SOURCE is
+    tracked here, its ICE_LO/ICE_BAND alpha knobs in `composite_params`. Optional -- a missing path
+    scores `newest_mtime` 0.0, so listing it unconditionally is safe when the source isn't built.
     """
     return (work / "height_3857.tif", hs, work / "ocean_3857.tif", work / "water_3857.tif",
             work / "lakedepth_3857.tif", work / "snow_persistence_3857.tif",
-            work / "glacier_3857.tif", params)
+            work / "glacier_3857.tif", work / "seaice_3857.tif", params)
 
 
 def warp_inputs(work: Path):
@@ -323,6 +334,21 @@ def warp_inputs(work: Path):
         print("rasterize RGI glaciers -> 3857 ...", flush=True)
         snow.rasterize_glaciers_raster(grid_bounds, grid_width, grid_height, glacier_out)
         mark_done(glacier_out)
+
+    # Sea-ice frequency climatology, warped ONCE here like snow persistence (same banded warp: a
+    # single whole-grid warp of the coarse 0.1deg source would decimate the ice edge). Optional,
+    # like glacier/depth -- an absent source just skips it and the composite paints no ice, leaving
+    # the bathymetry bare at the poles.
+    seaice_out = work / "seaice_3857.tif"
+    if not seaice.SEAICE_SRC.exists():
+        print(f"no {seaice.SEAICE_SRC.name} -> sea ice skipped (bathymetry bare at the poles)",
+              flush=True)
+    elif is_stale(seaice_out, seaice.SEAICE_SRC):
+        print("warp sea-ice frequency -> 3857 (banded) ...", flush=True)
+        seaice_out.unlink(missing_ok=True)
+        seaice.warp_seaice_raster(grid_bounds, grid_width, grid_height, seaice_out,
+                                  band_rows=WINDOW_ROWS)
+        mark_done(seaice_out)
     return height
 
 
@@ -379,7 +405,7 @@ class _WindowInputs:
     read lives here and the pure-numpy compute (`_compute_shared`/`_compose`) takes this bundle.
     The fields are the untransformed slices (`ocean_raw`, not `ocean != 0`); the cheap numpy
     that derives masks/alpha from them runs on the worker, which is where optimisation #5 wants
-    the CPU. `depth_raw`/`glacier_raw` are None when that optional input was never built.
+    the CPU. `depth_raw`/`glacier_raw`/`sea_ice_raw` are None when that optional input was never built.
     """
 
     win: Window
@@ -393,6 +419,7 @@ class _WindowInputs:
     depth_raw: np.ndarray | None
     persistence_raw: np.ndarray
     glacier_raw: np.ndarray | None
+    sea_ice_raw: np.ndarray | None
     occ_win: np.ndarray
 
 
@@ -409,6 +436,7 @@ class _WindowShared:
     hs_win: np.ndarray
     depth_win: np.ndarray | None
     snow_a: np.ndarray
+    ice_a: np.ndarray | None
     cap: np.ndarray
 
 
@@ -434,9 +462,13 @@ def _compute_shared(inputs: _WindowInputs) -> _WindowShared:
     snow_a = snow.snow_alpha(persistence_win, inputs.win_top, inputs.win_bottom)
     if inputs.glacier_raw is not None:
         snow_a = np.maximum(snow_a, inputs.glacier_raw.astype(float))
+    # Sea-ice alpha: frequency -> smoothstep, the sea-side twin of snow_a (no latitude ramp needed).
+    # Optional (None when the seaice source was never warped); shade.composite gates it on ocean.
+    ice_a = (seaice.ice_alpha(seaice.unpack_seaice(inputs.sea_ice_raw))
+             if inputs.sea_ice_raw is not None else None)
     latitude = snow.latitude_per_row(inputs.win_top, inputs.win_bottom, inputs.win_h)
     cap = (latitude > CAP_NORTH) | (latitude < CAP_SOUTH)
-    return _WindowShared(ocean_win, water_win, hs_win, depth_win, snow_a, cap)
+    return _WindowShared(ocean_win, water_win, hs_win, depth_win, snow_a, ice_a, cap)
 
 
 def _compose(inputs: _WindowInputs, shared: _WindowShared) -> np.ndarray:
@@ -448,7 +480,8 @@ def _compose(inputs: _WindowInputs, shared: _WindowShared) -> np.ndarray:
     """
     rgb = shade.composite(inputs.height_win, shared.ocean_win, shared.water_win, shared.snow_a,
                           shared.hs_win, inputs.occ_win, inputs.occ_win.shape,
-                          (inputs.win_h, inputs.height_win.shape[1]), depth=shared.depth_win)
+                          (inputs.win_h, inputs.height_win.shape[1]), depth=shared.depth_win,
+                          ice_a=shared.ice_a)
     if shared.cap.any():  # force the smeared polar edges to a flat deep-sea disc
         for band in range(3):
             rgb[band][shared.cap] = CAP_RGB[band]
@@ -515,6 +548,7 @@ def composite_planet(work: Path, hs, compute_occlusion: Callable[[], np.ndarray]
     depth_p = work / "lakedepth_3857.tif"
     persistence_p = work / "snow_persistence_3857.tif"
     glacier_p = work / "glacier_3857.tif"
+    seaice_p = work / "seaice_3857.tif"
 
     def read_window(row0: int) -> _WindowInputs:
         """Gather one window's raw reads + geometry — MAIN thread only (GDAL is not thread-safe)."""
@@ -535,6 +569,7 @@ def composite_planet(work: Path, hs, compute_occlusion: Callable[[], np.ndarray]
             depth_raw=read1_window(depth_p, win) if depth_p.exists() else None,
             persistence_raw=read1_window(persistence_p, win),
             glacier_raw=read1_window(glacier_p, win) if glacier_p.exists() else None,
+            sea_ice_raw=read1_window(seaice_p, win) if seaice_p.exists() else None,
             occ_win=occ[sr0:sr1])
 
     rows = list(range(row_start, height, window_rows))
