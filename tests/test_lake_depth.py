@@ -16,11 +16,12 @@ very lines the bug was in, so it passed on a broken scene), each guard here also
 companion proving it FAILS on a known-bad input.
 """
 
-import math
 from typing import Any, cast
 
 import numpy as np
 import pytest
+
+from conftest import hillshade_for_light
 
 from pipeline.render import lake_depth, palette
 from pipeline.tile import shade
@@ -179,10 +180,10 @@ class TestCompositeUsesDepth:
         """Composite one tiny window with the hillshade neutralised.
 
         Inland water is NOT painted flat WATER_RGB verbatim -- it keeps taking the hillshade,
-        clamped to [0.85, hi], which is what stops lakes reading as stickers. So feed the
-        exact `flat` value the shader normalises against (255*sin(alt)) to pin light at 1.0;
-        otherwise these assertions are off-by-a-shade for reasons that have nothing to do
-        with depth.
+        clamped to [0.85, hi], which is what stops lakes reading as stickers. So pin light at
+        exactly 1.0 via `hillshade_for_light`; otherwise these assertions are off-by-a-shade
+        for reasons that have nothing to do with depth. That used to be `255*sin(alt)` outright
+        and stopped being so when the ambient floor became a softplus -- see the helper.
         """
         shape = watercode.shape
         # composite() derives land/sea colour from ELEVATION since 2026-07-16 (palette.relief_lut
@@ -191,8 +192,7 @@ class TestCompositeUsesDepth:
         heights = np.full(shape, 1500.0, dtype="float32")
         ocean = watercode == 1
         water = (watercode == 2) | (watercode == 3)
-        neutral = 255.0 * math.sin(math.radians(shade.KNOBS["alt"]))
-        hs = np.full(shape, neutral, dtype="float32")
+        hs = np.full(shape, hillshade_for_light(1.0), dtype="float32")
         occ = np.zeros((1, 1), dtype="float32")
         snow_a = np.zeros(shape, dtype="float32")
         shade.KNOBS["lake_curve"] = curve

@@ -29,11 +29,15 @@ import numpy as np
 import rasterio
 from rasterio.windows import Window
 
+from pipeline.render import cast_shadow
+
 EARTH_RADIUS = 6378137.0  # Web Mercator sphere radius
 
 # The hero's fill sun, ported to the tiles (scene_build.FILL_ROTATION (30, 0, 135) -> 60 deg up
-# from the SE; FILL_ANGLE 10; use_shadow off). A hillshade has no cast shadows, so "shadowless"
-# reproduces for free.
+# from the SE; FILL_ANGLE 10; use_shadow off). "Shadowless" used to reproduce for free, because a
+# hillshade has no cast shadows at all; since `cast_shadow` landed it is upheld deliberately --
+# `per_row_zfactor_hillshade` attenuates the MAIN term only, never this one. That is what keeps a
+# shadowed slope on the fill floor instead of dropping to black.
 #
 # WHY THE TILES NEED IT (measured 2026-07-17): a single 45-deg sun on a 15x-exaggerated 305 m grid
 # turns the slope term into arctan(15 * gradient), so a 4-deg real slope presents as 46 deg -- past
@@ -142,7 +146,8 @@ def hillshade_array(heights: np.ndarray, cellsize: float, zfactor,
 
 def per_row_zfactor_hillshade(height_path, out_path, exaggeration: float = 15.0,
                               altitude: float = 45.0, azimuth: float = 315.0,
-                              window_rows: int = 256, fill_strength: float = 0.0) -> None:
+                              window_rows: int = 256, fill_strength: float = 0.0,
+                              shadow_strength: float = 0.0, shadow_reach_px: int = 0) -> None:
     """Stream a seamless, per-latitude-z hillshade over a whole EPSG:3857 height raster.
 
     `fill_strength` mixes in the hero's fill sun (see `combine_fill`); 0.0 skips the second
@@ -161,8 +166,18 @@ def per_row_zfactor_hillshade(height_path, out_path, exaggeration: float = 15.0,
     12 G cap and forced 122,501 cgroup reclaims. float32 @ 256 halves the dtype and quarters the
     rows (~8x less per array). The precision is free: the output is uint8, and float32 tracks
     float64 to <=1 DN (tests/test_hillshade.py), so the float64 was discarded on the last line.
-    Window size does not affect the pixels -- the 1-row halo makes any size identical, which
+    Window size does not affect the pixels -- the halo makes any size identical, which
     tests/test_hillshade.py pins at 256/97/1024/4096.
+
+    `shadow_strength` mixes in `cast_shadow.shadow_mask`, attenuating the MAIN sun only (the fill
+    stays shadowless, as in the hero) so a shadowed face lands on the fill floor rather than at
+    zero. It defaults OFF and is bit-identical to a no-shadow pass at 0.0.
+
+    A cast shadow is the one term here that is NOT local, so it widens the halo from 1 row to
+    `shadow_reach_px`: a window's top rows must see the real terrain casting onto them, or every
+    window boundary becomes a seam. That is the whole reason the halo was ever a concept, applied
+    at the depth this term actually needs -- window-invariance still holds, at the cost of reading
+    `shadow_reach_px` extra rows per window instead of 1.
     """
     with rasterio.open(height_path) as src:
         height, width = src.height, src.width
@@ -173,23 +188,36 @@ def per_row_zfactor_hillshade(height_path, out_path, exaggeration: float = 15.0,
             src.profile, driver="GTiff", count=1, dtype="uint8", nodata=None,
             compress="deflate", tiled=True, blockxsize=512, blockysize=512, BIGTIFF="YES",
             num_threads="ALL_CPUS")
+        halo = max(1, shadow_reach_px) if shadow_strength != 0.0 else 1
         with rasterio.open(out_path, "w", **profile) as dst:
             for row0 in range(0, height, window_rows):
                 row1 = min(height, row0 + window_rows)
-                read0, read1 = max(0, row0 - 1), min(height, row1 + 1)
+                read0, read1 = max(0, row0 - halo), min(height, row1 + halo)
                 read_window = Window(0, read0, width,  # pyright: ignore[reportCallIssue] — rasterio untyped, attrs init invisible
                                      read1 - read0)
                 block = src.read(1, window=read_window).astype(np.float32)
                 block = np.where(block < -1e4, 0.0, block)  # DEM/ocean nodata -> flat
-                # edge-replicate the missing halo row at the global top/bottom only
-                block = np.pad(block, ((1 if read0 == row0 else 0, 1 if read1 == row1 else 0),
-                                       (0, 0)), mode="edge")
+                # edge-replicate the missing halo rows at the global top/bottom only
+                block = np.pad(block, ((halo - (row0 - read0), halo - (read1 - row1)), (0, 0)),
+                               mode="edge")
                 out_rows = np.arange(row0, row1)
                 latitude = np.clip(_latitude_of_rows(src.transform, out_rows), -85.05, 85.05)
                 zfactor = (exaggeration / np.cos(np.radians(latitude))).reshape(-1, 1)
-                shaded = hillshade_array(block, cellsize, zfactor, altitude, azimuth)
+                # hillshade_array's contract is exactly ONE halo row; a deeper shadow halo is
+                # trimmed back to it here rather than by widening that function's contract.
+                local = block if halo == 1 else block[halo - 1:block.shape[0] - (halo - 1)]
+                shaded = hillshade_array(local, cellsize, zfactor, altitude, azimuth)
+                if shadow_strength != 0.0:
+                    block_rows = np.arange(row0 - halo, row1 + halo)
+                    block_latitude = np.clip(_latitude_of_rows(src.transform, block_rows),
+                                             -85.05, 85.05)
+                    block_zfactor = (exaggeration
+                                     / np.cos(np.radians(block_latitude))).reshape(-1, 1)
+                    shadow = cast_shadow.shadow_mask(block, block_zfactor, cellsize, altitude,
+                                                     azimuth, shadow_reach_px)
+                    shaded = shaded * (1.0 - shadow_strength * shadow[halo:halo + (row1 - row0)])
                 if fill_strength != 0.0:
-                    fill = hillshade_array(block, cellsize, zfactor, FILL_ALTITUDE, FILL_AZIMUTH)
+                    fill = hillshade_array(local, cellsize, zfactor, FILL_ALTITUDE, FILL_AZIMUTH)
                     shaded = combine_fill(shaded, fill, fill_strength, altitude)
                 write_window = Window(0, row0, width,  # pyright: ignore[reportCallIssue] — rasterio untyped, attrs init invisible
                                       row1 - row0)

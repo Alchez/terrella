@@ -175,6 +175,114 @@ class TestWindowInvariance:
                 outs.append(dataset.read(1))
         assert np.array_equal(outs[0], outs[1])
 
+    def _shade_with_shadow(self, tmp_path, name, window_rows, reach_px=40, strength=1.0):
+        src = tmp_path / "h.tif"
+        if not src.exists():
+            self._write_height(src)
+        out = tmp_path / name
+        per_row_zfactor_hillshade(src, out, 15.0, ALT, AZ, window_rows=window_rows,
+                                  fill_strength=0.15, shadow_strength=strength,
+                                  shadow_reach_px=reach_px)
+        with rasterio.open(out) as dataset:
+            return dataset.read(1)
+
+    def test_window_invariance_holds_with_cast_shadows_on(self, tmp_path):
+        """The halo-widening claim, and the only thing that makes the shadow safe to stream.
+
+        A cast shadow is NON-LOCAL: with the 1-row halo it inherited, every window's top rows
+        would be lit by terrain the window cannot see, seaming the raster at each boundary. The
+        windows here are deliberately SMALLER than reach_px (40), so a wrong halo cannot pass.
+        """
+        assert np.array_equal(self._shade_with_shadow(tmp_path, "i.tif", 16),
+                              self._shade_with_shadow(tmp_path, "j.tif", 4096))
+
+    def test_ragged_final_window_with_shadows(self, tmp_path):
+        """300 rows / 97 is ragged, and the last window is the one whose halo runs off the end."""
+        assert np.array_equal(self._shade_with_shadow(tmp_path, "k.tif", 97),
+                              self._shade_with_shadow(tmp_path, "l.tif", 4096))
+
+    def test_shadow_strength_zero_is_bit_identical(self, tmp_path):
+        """Can-fail companion: the production default must provably change no pixel."""
+        src = tmp_path / "h.tif"
+        self._write_height(src)
+        off = tmp_path / "m.tif"
+        per_row_zfactor_hillshade(src, off, 15.0, ALT, AZ, fill_strength=0.15)
+        with rasterio.open(off) as dataset:
+            baseline = dataset.read(1)
+        assert np.array_equal(
+            baseline, self._shade_with_shadow(tmp_path, "n.tif", 256, strength=0.0))
+        # ...and that the same comparison DOES fail once the shadow is switched on, or the
+        # assertion above would be satisfied by a shadow term that never ran at all.
+        assert not np.array_equal(
+            baseline, self._shade_with_shadow(tmp_path, "o.tif", 256, strength=1.0))
+
+    def test_shadow_only_ever_darkens(self, tmp_path):
+        """Structural, and the cheapest catch for a sign error in the attenuation."""
+        baseline = self._shade(tmp_path, "p.tif", 256)
+        with rasterio.open(tmp_path / "h.tif") as dataset:  # same fixture, fill on for both
+            assert dataset.count == 1
+        shadowed = self._shade_with_shadow(tmp_path, "q.tif", 256, reach_px=60)
+        unshadowed = self._shade_with_shadow(tmp_path, "r.tif", 256, reach_px=60, strength=0.0)
+        assert np.all(shadowed <= unshadowed)
+        assert baseline.shape == shadowed.shape
+
+
+class TestFullShadowLandsOnTheFillFloor:
+    """Fully occluded ground must land on the FILL's contribution, never on black.
+
+    This is the 2026-07-17 fill-port invariant, extended to the term that can actually drive a
+    face to zero. The shadow attenuates the MAIN sun only — the fill stays shadowless, exactly as
+    `scene_build`'s fill lamp does with `use_shadow` off — so the floor is analytic:
+
+        (fill_strength * 255*sin(FILL_ALTITUDE)) * fill_scale(fill_strength, alt, FILL_ALTITUDE)
+
+    Applied after `combine_fill` instead of before, this would read 0 and the test would fail.
+
+    Deliberately built at the EQUATOR, unlike TestWindowInvariance's fixture: that one sits at the
+    top of Mercator where zfactor = 15/cos(85.05) ~= 174, which exaggerates terrain so hard that
+    both suns read zero on ordinary slopes. Flat ground is used here for the same reason — the
+    floor must be measured somewhere the geometry cannot confound it.
+    """
+
+    ROWS, COLS, WALL_COLUMN, WALL_HEIGHT = 8, 400, 150, 3000.0
+    FILL_STRENGTH = 0.15
+
+    def _wall_raster(self, path):
+        heights = np.zeros((self.ROWS, self.COLS), dtype=np.float32)
+        heights[:, self.WALL_COLUMN] = self.WALL_HEIGHT
+        transform = rasterio.transform.from_origin(0.0, 0.0, CELLSIZE, CELLSIZE)  # y=0 => equator
+        with rasterio.open(path, "w", driver="GTiff", height=self.ROWS, width=self.COLS, count=1,
+                           dtype="float32", crs="EPSG:3857", transform=transform) as dst:
+            dst.write(heights, 1)
+
+    def test_shadowed_flat_ground_reads_the_analytic_fill_floor(self, tmp_path):
+        src = tmp_path / "wall.tif"
+        self._wall_raster(src)
+        out = tmp_path / "wall_shaded.tif"
+        # Sun from due west: the shadow falls east of the wall along a single row, no diagonal.
+        per_row_zfactor_hillshade(src, out, 15.0, ALT, 270.0, fill_strength=self.FILL_STRENGTH,
+                                  shadow_strength=1.0, shadow_reach_px=300)
+        with rasterio.open(out) as dataset:
+            shaded = dataset.read(1)
+
+        floor = ((self.FILL_STRENGTH * 255.0 * math.sin(math.radians(FILL_ALTITUDE)))
+                 * fill_scale(self.FILL_STRENGTH, ALT, FILL_ALTITUDE))
+        just_east = shaded[0, self.WALL_COLUMN + 2]
+        assert just_east == round(floor)
+        assert just_east > 0     # the whole point: occluded, not black
+
+    def test_unshadowed_flat_ground_is_far_brighter(self, tmp_path):
+        """Can-fail companion: without it, a term that zeroed EVERYTHING would pass the floor test
+        only if the floor happened to be zero — and would pass trivially if nothing ran at all."""
+        src = tmp_path / "wall.tif"
+        self._wall_raster(src)
+        out = tmp_path / "wall_lit.tif"
+        per_row_zfactor_hillshade(src, out, 15.0, ALT, 270.0, fill_strength=self.FILL_STRENGTH)
+        with rasterio.open(out) as dataset:
+            lit = dataset.read(1)
+        # Flat ground unshadowed holds the module's contract: 255*sin(alt).
+        assert lit[0, self.WALL_COLUMN + 2] == round(255.0 * math.sin(math.radians(ALT)))
+
 
 class TestFillSunPreservesTheFlatGroundContract:
     """`shade.composite` divides by `flat = 255*sin(alt)` and was NOT changed by the fill port.
