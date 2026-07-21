@@ -7,11 +7,12 @@ sheet on the planet. Each claim here is paired with a companion that proves the 
 -> HISTORY 2026-07-17 Greenland
 """
 import json
-import math
 from typing import Any, cast
 
 import numpy as np
 import pytest
+
+from conftest import hillshade_for_light
 
 from pipeline.render import palette
 from pipeline.tile import shade
@@ -147,15 +148,25 @@ class TestFreshness:
 
 class TestCompositeHonoursTheKnob:
     def _composite(self, light_value):
-        shape = (1, 1)
-        flat = 255.0 * math.sin(math.radians(shade.KNOBS["alt"]))
-        # invert the land light chain so the pixel lands on exactly `light_value`
+        # Invert the land light chain -- exposure first, then the ambient floor -- so the pixel
+        # lands on exactly `light_value`. The floor step is not optional: under the shipped
+        # `ambient_knee` it lifts 1.035 clean out of the snow window, which reads as the curve
+        # knob having stopped working when in fact the input was never in range.
         pre = ((light_value - shade.KNOBS["ambient"]) / shade.KNOBS["exposure"]
                + shade.KNOBS["ambient"])
+        return self._composite_from_hillshade(hillshade_for_light(pre))
+
+    def _composite_from_hillshade(self, hillshade_dn):
+        """The same pixel, addressed by its raw hillshade DN rather than by the light it lands on.
+
+        Needed for the darkest end: since the ambient floor became a softplus there is no DN that
+        produces a light AT the floor, so a test aiming there has to come in from this side.
+        """
+        shape = (1, 1)
         return shade.composite(np.full(shape, 1500.0, dtype="float32"),
                                np.zeros(shape, dtype=bool), np.zeros(shape, dtype=bool),
                                np.ones(shape, dtype="float32"),
-                               np.full(shape, pre * flat, dtype="float32"),
+                               np.full(shape, hillshade_dn, dtype="float32"),
                                np.zeros((1, 1), dtype="float32"), (1, 1), shape)
 
     def test_the_knob_reaches_the_pixel(self):
@@ -174,6 +185,35 @@ class TestCompositeHonoursTheKnob:
 
     def test_full_snow_ignores_the_hillshade_except_through_snow_t(self):
         """The mechanism itself: at alpha=1 the output is snow_shadow->snow_lit and nothing else,
-        so a fully-snow pixel below snow_lo IS snow_shadow exactly, under every curve."""
-        rgb = self._composite(shade.KNOBS["snow_lo"] - 0.05)
+        so the darkest fully-snow pixel IS snow_shadow exactly, under every curve.
+
+        Addressed by the darkest hillshade DN rather than by a light below `snow_lo`, which the
+        softplus floor no longer lets a test ask for -- see below.
+        """
+        rgb = self._composite_from_hillshade(0.0)
         assert tuple(int(band) for band in rgb[:, 0, 0]) == palette.SNOW_SHADOW_RGB
+
+    def test_the_knee_does_not_lift_snow_off_its_bottom_stop(self):
+        """`ambient_knee` 0.30 made the floor asymptotic, so the darkest land light (0.5519, or
+        0.5545 after exposure) now sits ABOVE `snow_lo` and the ramp's bottom stop is no longer
+        addressable by light. The pixel is unmoved anyway, and the margin is why: 0.9% up the
+        ramp linearly = 0.50/0.38/0.24 DN, and the shipped gamma8 takes 0.009**8 to zero outright.
+
+        Pinned because it is a floor with no headroom, not a comfortable one: this is the test
+        that fails if a future knee raise starts bleaching shaded snow. Measured 2026-07-21.
+        """
+        darkest_light = float(shade.apply_ambient_floor(np.zeros((1, 1), dtype="float32"),
+                                                        shade.KNOBS["ambient"], shade.KNOBS["hi"],
+                                                        shade.KNOBS["ambient_knee"])[0, 0])
+        assert darkest_light > shade.KNOBS["snow_lo"], "the light itself is unreachable"
+        for curve in CURVES:
+            shade.KNOBS["snow_curve"] = curve
+            assert tuple(int(band) for band in self._composite_from_hillshade(0.0)[:, 0, 0]) \
+                == palette.SNOW_SHADOW_RGB, f"{curve} lifted shaded snow off its stop"
+
+    def test_a_bigger_knee_would_lift_it(self):
+        """Companion: proves the guard above tracks the knee rather than reading a constant."""
+        shade.KNOBS["ambient_knee"] = 2.0
+        shade.KNOBS["snow_curve"] = "linear"
+        assert tuple(int(band) for band in self._composite_from_hillshade(0.0)[:, 0, 0]) \
+            != palette.SNOW_SHADOW_RGB

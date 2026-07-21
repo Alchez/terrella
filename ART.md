@@ -108,13 +108,104 @@ for three days. This closes that; it is not a new tile-side dial.
   underneath it only lifts the pale high-elevation ramp into milk. `ambient` stays **0.50**.
 - **`hi` 1.30 → 1.12 rides with it** — tune the pair, never each alone. The fill lowers peak light
   (max DN 255 → 226), so the old ceiling no longer binds and only clips the pale ramp.
-- **Still missing vs the hero, and worth knowing:** no `SUN_ANGLE` equivalent (no penumbra — its real
-  analogue is a cone-averaged/multidirectional hillshade, which HISTORY:1219 records as superseded by
-  the single NW sun) and no world ambient. The fill was the biggest of the three, not the only one.
+- **Still missing vs the hero** — updated 2026-07-21, see the parameter map below. Penumbra now HAS
+  an implementation (`render/cast_shadow.py`, 12° from the sun's disc) sitting at `shadow_strength=0.0`;
+  the ambient clamp became a knee; what remains unported is the world ambient's **warmth**.
 - **Adjust:** `KNOBS["fill_strength"]` in tile/shade.py, or `--knob fill_strength=0.20` for a region
   A/B via `shade.py --cells` (which now runs the same light model as the planet path — verified to
   2 DN). 0.20 is defensibly softer; past ~0.20 the compression reads flat rather than soft. Changing
-  it restages hillshade → composite → tiles.
+  it restages hillshade → composite → tiles (~32 min with sea ice in the pass).
+- **Do NOT reach for this as a softness lever (2026-07-21).** 0.15 is not a tuned value, it is the
+  hero's own ratio — the single principled anchor the tile look has. Moving it is *breaking an
+  anchor*, not turning a dial, and it compresses the same axis `ambient_knee` already compresses.
+
+### Ambient floor — TILES (`KNOBS["ambient"]` + `KNOBS["ambient_knee"]`, knee new 2026-07-21)
+
+- Baseline **`ambient` 0.50, `ambient_knee` 0.30** (Rohan, judged on `/globe`). `ambient` used to be a
+  `np.clip` lower bound, which made it a **cliff at 90.2 DN**: 18.07% of Iran's land sat on it carrying
+  no hillshade information at all. The knee replaces the clip with a softplus, so terrain below the
+  floor still varies. `ambient_knee=0.0` restores the old hard clip bit-for-bit.
+- **This is NOT the rejected `ambient` raise.** Raising the floor flattens (every pixel below → one
+  value, then lifted); the knee preserves ordering. That distinction is the whole reason it survived
+  where 0.56/0.62 did not.
+- **It lifts the WHOLE curve, not just shadow.** Measured: flat ground rises ~5% (a fully-lit pixel
+  lands at 1.053), lit terrain's range compresses to **0.688** of its former width, and sub-floor
+  terrain gets **45%** of the contrast-per-unit that lit ground gets — up from 0%. Anything assuming
+  light 1.0 at `hs == flat` must invert the floor (`tests/conftest.py: hillshade_for_light`).
+- **The floor is now asymptotic**: darkest reachable light is 0.5519, so nothing can land AT `ambient`.
+  That puts it just above `snow_lo` 0.55 — shaded snow survives on a 0.9%-of-ramp margin, pinned by
+  `test_the_knee_does_not_lift_snow_off_its_bottom_stop`. A future knee raise bleaches snow first.
+- **Adjust:** `--knob ambient_knee=…`; composite-stage, so ~19.6 min to live tiles. Judge on `/globe`
+  at planet scale — region crops and contrast metrics both got this one wrong.
+
+### Hero → tile parameter map (audit 2026-07-21)
+
+Every dial in the tile hillshade is a port of a hero constant. **There is no unanchored hillshade
+lever** — which is the answer to "can we just tune the tiles softer?": not without deciding the tiles
+should stop matching the heroes.
+
+| Tile | Hero | Relationship |
+|---|---|---|
+| `EXAG` 15.0 (`tile/shade.py`, `shade_planet.py`) | `render_prep.EXAGGERATION` 15.0 → `displacement_scale` | same number, separate constants, deliberately matched |
+| `KNOBS["alt"]` 45°, azimuth 315° | `SUN_ROTATION (44°, 0°, −45°)` → 46° above horizon, NW | tiles ~1° flatter |
+| `KNOBS["fill_strength"]` 0.15 | `FILL_STRENGTH 0.45` / `SUN_STRENGTH 3.0` | the ratio, ported exactly (2026-07-17) |
+| `FILL_ALTITUDE 60°` / `FILL_AZIMUTH 135°` | `FILL_ROTATION (30°, 0°, 135°)`, `use_shadow` off | identical geometry |
+| `KNOBS["ambient"]` + `ambient_knee` | `WORLD_STRENGTH 0.3`, sky `F2E7D5` | **not a port** — ours is a tone curve, the hero's is light that physically arrives |
+| `shadow_strength` (0.0) + 12° penumbra | `SUN_ANGLE 12°` + ray-traced shadows | built 2026-07-20, off; the hero has always had them |
+| `svf_strength` 0.20 | Cycles GI | approximation; falsified as *the* softness term (2026-07-20) |
+
+**The three terms the tiles still lack**, in order of how promising they look:
+
+1. **Cast shadows** — implemented (`KNOBS["shadow_strength"]`, `render/cast_shadow.py`) and **REJECTED TWICE**, so it stays at 0.0. The second rejection (2026-07-21, under the knee) was on the mechanism: `shaded *= (1 - strength * shadow)` scales the main sun, and fine detail is proportional to light amplitude, so shadowed nooks lose it — 68% of local detail kept at strength 0.35, **55% in full shadow**. My "the fill is too soft to compensate" explanation was measured and is FALSE: the fill carries **88%** of the main sun's fine modeling. **Do not re-open with a new strength value.** → HISTORY § 2026-07-21 (night)
+2. **A warm shadow floor — MEASURED 2026-07-21, and it is large.** The hero fills shadow with warm sky
+   light (`F2E7D5` @ 0.3) plus a white fill, so shadowed ground is warmer in *hue*, not merely darker.
+   Sampled on the raw Cycles frame for Switzerland (40.1 M land px, snow/water/ocean excluded), inside
+   narrow elevation bands so the ramp colour is constant by construction — **linear R/B, darkest
+   quartile vs brightest quartile**:
+
+   | band | 600–900 m | 1200–1500 m | 1800–2100 m | 2400–2700 m |
+   |---|---|---|---|---|
+   | shadow is warmer by | **+77%** | **+98%** | **+82%** | **+61%** |
+
+   Confirmed as lighting rather than a binning artifact: within 1800–2100 m, R/B falls **monotonically
+   across all ten luminance deciles** (6.79 → 2.94). Our composite's figure is **exactly 0%** — and by
+   construction, not by measurement: `land = base × light`, then saturation (scales with luminance) and
+   `warmth` (fixed per-channel factors), so R/B is light-invariant at every pixel.
+   **`KNOBS["warmth"]` is not this**: it tints all land uniformly regardless of light, so it cannot
+   produce a light-keyed hue shift. Composite-side, so the cheapest of the three to try (~19.6 min).
+
+   **SHIPPED 2026-07-21 as `KNOBS["shadow_warmth"] = 0.55`** (Rohan, judged on `/globe`; 1.0 was
+   rejected on Alpine crops as too copper, so this is 55% of the measured hero). 0.0 restores the
+   pre-2026-07-21 look bit-identically.
+   `shade.SHADOW_TINT` is the world colour deepened to the measured 1.80× mid-band ratio
+   (`WORLD_RGBA ** 2.0373` — the sky's own chromaticity explains only 1.334×, the residual being
+   warm GI bounce off the rosy land ramp, which our greyscale SVF stand-in structurally cannot
+   carry), then **normalised to luminance 1.0 so the knob moves HUE ONLY**. That is deliberate: a
+   term that also brightened would be the twice-rejected `ambient` raise wearing a different hat,
+   and no A/B could separate the two effects. Land only — sea has its own light model and snow its
+   own deliberately BLUE shadow ramp. Alpine region A/B at 1.0: 37.0% of px moved >2 DN, darkest
+   quartile R/B **+35.4%**, brightest **+0.1%**, mean luminance **+0.41 DN** (i.e. no wash).
+   **Adjust:** `--knob shadow_warmth=…`; 1.0 = as warm as the hero measured, not a taste value.
+
+   **Four-terrain validation at 0.55 (2026-07-21) — self-regulating, exactly like the fill sun.**
+   The effect scales with relief and the BRIGHT quartile is untouched everywhere. That is the
+   Nepal-trap check (`KNOBS` were tuned on mountains; a term that moves flat bright terrain is
+   broken):
+
+   | site | px moved >2 DN | dark-quartile R/B | bright-quartile R/B | mean luminance |
+   |---|---|---|---|---|
+   | Alps | 35.1% | +17.9% | **+0.0%** | +0.23 DN |
+   | Scandes | 31.3% | +13.1% | **+0.0%** | +0.16 DN |
+   | Sahara (Hoggar) | 14.9% | +6.9% | **+0.0%** | +0.09 DN |
+   | SW Greenland | 2.5% | +1.0% | **+0.0%** | +0.01 DN |
+
+   **The ice margin does NOT seam** — the risk was that warming land while snow stays blue would
+   make an edge that never existed. Land within 4 px of ice moves 8.08 DN mean vs 7.81 DN for land
+   >25 px away, and warms slightly *less* in R/B (+10.3% vs +11.6%): the tint does not concentrate
+   at the edge. (A first attempt used chunk `w050_n70`, which is pure ice sheet and ocean — **0.00%**
+   of pixels moved, testing no land whatsoever. A null result, though it did confirm at scale that
+   snow and sea are untouched.)
+3. **Global illumination** — the SVF term is the stand-in, and it is not what makes the hero look soft.
 
 ### Light balance — Sun Strength + World (scene_build.py)
 - Sun `SUN_STRENGTH 3`; World `WORLD_RGBA F2E7D5` @ `WORLD_STRENGTH 0.3` — the ambient:

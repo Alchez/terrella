@@ -50,8 +50,9 @@ import rasterio
 from rasterio.enums import Resampling
 from rasterio.windows import Window
 
-from pipeline.render import hillshade, lake_depth, palette, seaice, snow
-from pipeline.render.sky_view import horizon_svf
+from pipeline.render import cast_shadow, hillshade, lake_depth, palette, seaice, snow
+from pipeline.render import sky_view
+from pipeline.render.sky_view import normalised_occlusion, occlusion_shape
 from pipeline.tile import shade
 from pipeline.tile.shade import KNOBS
 
@@ -76,7 +77,9 @@ COMPOSITE_ROWS = 128       # PRODUCTION composite window (optimisation #5, 2026-
 N_WORKERS = 4              # composite worker threads. The knee: numpy is DRAM-bandwidth-bound, so
                            # threads scale 1.8×@2 / 3.1×@4 / 3.4×@6, and RAM grows linearly (128-row
                            # peak: N4 8.5 G, N6 11.3 G). 4 = ~3.1× at safe margin under 12 G.
-SVF_LONG_EDGE = 4096       # global sky-view downsample (long edge = raster width)
+                           # (the sky-view downsample is no longer a planet-only constant: it is
+                           # derived from sky_view.OCCLUSION_TARGET_M_PER_PX, which the region path
+                           # shares, so the two cannot drift again)
 CAP_NORTH, CAP_SOUTH = 84.0, -59.5   # latitudes above/below which the poles are capped flat
 CAP_RGB = (216, 226, 233)   # pale sea-ice fill for the poles (web-mercator has no data past ~85 deg)
 INFLIGHT_BUFFER = 2        # windows read AHEAD of the workers (optimisation #5): the main thread
@@ -157,7 +160,7 @@ def write_if_changed(path: Path, text: str) -> Path:
 # `alt` is deliberately NOT in here: the hillshade takes it AND composite reads it (`flat =
 # 255*sin(alt)`), so it belongs in both records. The filter defaults to INCLUDE, so a new composite
 # knob is tracked unless someone deliberately names it here.
-HILLSHADE_ONLY_KNOBS = frozenset({"fill_strength"})
+HILLSHADE_ONLY_KNOBS = frozenset({"fill_strength", "shadow_strength", "shadow_reach"})
 
 
 def hs_params() -> str:
@@ -182,6 +185,13 @@ def hs_params() -> str:
     if KNOBS["fill_strength"] != 0.0:
         params["fill"] = {"strength": KNOBS["fill_strength"],
                           "alt": hillshade.FILL_ALTITUDE, "az": hillshade.FILL_AZIMUTH}
+    # Same rule as the fill, for the same reason: recorded only when on, so adding the knob at 0.0
+    # cannot restage a pyramid whose pixels are provably unchanged. `reach` rides inside the block
+    # because it only alters pixels while the shadow is switched on.
+    if KNOBS["shadow_strength"] != 0.0:
+        params["shadow"] = {"strength": KNOBS["shadow_strength"],
+                            "reach_px": int(KNOBS["shadow_reach"]),
+                            "disc": cast_shadow.SUN_ANGULAR_DIAMETER}
     return json.dumps(params, sort_keys=True, indent=2)
 
 
@@ -206,6 +216,13 @@ def composite_params(variants, window_rows=WINDOW_ROWS) -> str:
     knobs = {key: value for key, value in KNOBS.items() if key not in HILLSHADE_ONLY_KNOBS}
     return json.dumps({"knobs": knobs, "water_rgb": palette.WATER_RGB,
                        "composite_window_rows": window_rows,
+                       # The occlusion resolution reached NO freshness record until 2026-07-20 --
+                       # it was a module constant (`SVF_LONG_EDGE`, now OCCLUSION_TARGET_M_PER_PX)
+                       # that visibly changes planet_rgb, so moving it left a stale pyramid looking
+                       # fresh. Same untracked-input trap as WATER_RGB and snow's RAMP_* constants.
+                       # It rides in `knobs`' company rather than inside it because it is a
+                       # resolution, not an art dial, and `--knob` must not reach it.
+                       "occlusion_target_m_per_px": sky_view.OCCLUSION_TARGET_M_PER_PX,
                        # land/sea stops moved in here on 2026-07-16 when color-relief was
                        # deleted: they used to be tracked by ramp_{land,sea}.txt's mtime, whose
                        # whole purpose was to gate the gdaldem stages. With those gone, nothing
@@ -365,26 +382,40 @@ def build_hillshade(work: Path, height: Path):
     hs_params_path = write_if_changed(work / "hs_params.json", hs_params())
     if is_stale(hs, height, hs_params_path):
         fill_note = (f", fill {KNOBS['fill_strength']:.2f}" if KNOBS["fill_strength"] else "")
-        print(f"per-row-z hillshade (EXAG={EXAG}{fill_note}) ...", flush=True)
+        shadow_note = (f", shadow {KNOBS['shadow_strength']:.2f}" if KNOBS["shadow_strength"]
+                       else "")
+        print(f"per-row-z hillshade (EXAG={EXAG}{fill_note}{shadow_note}) ...", flush=True)
         hillshade.per_row_zfactor_hillshade(height, hs, EXAG, ALT, AZ,
-                                            fill_strength=KNOBS["fill_strength"])
+                                            fill_strength=KNOBS["fill_strength"],
+                                            shadow_strength=KNOBS["shadow_strength"],
+                                            shadow_reach_px=int(KNOBS["shadow_reach"]))
         mark_done(hs)
     return hs
 
 
 def global_occlusion(height: Path):
-    """Sky-view occlusion (1 = valley, 0 = open) on a global downsample, normalised globally."""
+    """Sky-view occlusion (1 = valley, 0 = open) on a global downsample, normalised globally.
+
+    Sized from `sky_view.OCCLUSION_TARGET_M_PER_PX` — the same constant the region path uses — so
+    a region preview and the planet it predicts can no longer drift apart. `SVF_LONG_EDGE` was the
+    old planet-only spelling of this and is now derived, not chosen.
+
+    KNOWN INCORRECT, deliberately unchanged here (2026-07-20): `Z8_RES` is a MAP-unit scale, and
+    ground metres in Web Mercator are `Z8_RES * cos(lat)`. Using map units understates the horizon
+    run by `1/cos(lat)` — 1.22x at 35N, 2.00x at 60N, 3.86x at 75N — so high latitudes are
+    systematically under-occluded, and the global affine renormalisation provably cannot absorb a
+    latitude-varying error. Fixing it needs a per-ROW ground scale (the hillshade's z-factor trick)
+    and changes production pixels, so it rides with the resolution change rather than sneaking in
+    under a refactor.
+    """
     with rasterio.open(height) as dataset:
         full_w, full_h = dataset.width, dataset.height
-        small_w = SVF_LONG_EDGE
-        small_h = max(1, round(full_h / full_w * small_w))
+        small_h, small_w = occlusion_shape(full_w, full_h, Z8_RES)
         low = dataset.read(1, out_shape=(small_h, small_w),
                            resampling=Resampling.average).astype(float)
     low = np.nan_to_num(np.where(low < -500, np.nan, low), nan=0.0)
     m_per_px = Z8_RES * (full_w / small_w)
-    svf = horizon_svf(low, m_per_px)
-    occ = 1.0 - (svf - svf.min()) / (svf.max() - svf.min() + 1e-6)
-    return occ  # shape (small_h, small_w)
+    return normalised_occlusion(low, m_per_px)  # shape (small_h, small_w)
 
 
 def read3_window(path, window):
@@ -710,7 +741,23 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", type=Path, default=ROOT / "data/work/planet_tiles")
     ap.add_argument("--tiles", action="store_true", help="also cut z0-8 tiles from the mosaic")
+    ap.add_argument("--knob", action="append", default=[], metavar="KEY=VALUE",
+                    help="override a locked KNOBS entry (repeatable), as tile/shade.py does. "
+                         "Look changes used to be made by EDITING the constant, which meant an "
+                         "experiment and production shared one source of truth. Overrides are "
+                         "safe for freshness by construction: composite_params/hs_params "
+                         "serialise KNOBS, so an override restages exactly what it changes and "
+                         "the recorded params always describe the pyramid that exists.")
     args = ap.parse_args()
+    # A key off argv is dynamic by construction, so a TypedDict cannot check it -- this view is
+    # the honest escape hatch, and the membership test below is what actually validates the key.
+    knobs = cast(dict[str, Any], KNOBS)
+    for override in args.knob:
+        key, _, value = override.partition("=")
+        if key not in knobs:
+            raise SystemExit(f"unknown knob {key!r}; valid: {', '.join(sorted(knobs))}")
+        knobs[key] = value if isinstance(knobs[key], str) else float(value)
+        print(f"knob override: {key} = {knobs[key]}", flush=True)
     work = args.out
     work.mkdir(parents=True, exist_ok=True)
 

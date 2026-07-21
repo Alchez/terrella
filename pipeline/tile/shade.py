@@ -26,7 +26,11 @@ from rasterio.enums import Resampling
 from scipy.ndimage import zoom
 
 from pipeline.render import hillshade, lake_depth, palette, relief, snow
-from pipeline.render.sky_view import horizon_svf
+from pipeline.render.sky_view import (
+    OCCLUSION_TARGET_M_PER_PX,
+    normalised_occlusion,
+    occlusion_shape,
+)
 
 DATA = Path.home() / "projects/maps/data"
 CHUNKS = DATA / "work/planet/chunks"
@@ -51,6 +55,10 @@ class Knobs(TypedDict):
 
     alt: float
     fill_strength: float
+    shadow_strength: float
+    shadow_reach: float
+    ambient_knee: float
+    shadow_warmth: float
     ambient: float
     hi: float
     exposure: float
@@ -92,7 +100,30 @@ class Knobs(TypedDict):
 # composite_params must see it. `snow_lo`/`snow_hi_pt` deliberately stay 0.55/1.05 -- the window is
 # not the lever, the CURVE is; a window narrow enough for Greenland is a threshold for the Alps.
 # -> HISTORY 2026-07-17 Greenland
-KNOBS = Knobs(alt=45.0, fill_strength=0.15, ambient=0.50, hi=1.12, exposure=1.05, saturation=1.18,
+# `shadow_strength` 0.0 -- **REJECTED TWICE by Rohan (2026-07-20 under the ambient clip, 2026-07-21
+# under the knee) and rejected on the MECHANISM the second time.** Do not re-open with a new strength
+# value: `per_row_zfactor_hillshade` applies `shaded *= (1 - strength * shadow)`, which scales the
+# MAIN sun, and fine detail amplitude is proportional to light amplitude -- so local high-frequency
+# detail falls with it (68% kept at 0.35, 55% in full shadow; predicted to within a point by
+# arithmetic). Any cast shadow that attenuates the main sun erases the modeling it carries. Reopening
+# requires a different mechanism, not a different number. -> HISTORY 2026-07-21 (night)
+# `shadow_reach` is a truncation distance in pixels, not a
+# safety limit -- a shadow longer than this simply stops, with no error and no visible edge. 300 px
+# covers Damavand (5,610 m -> 275 px) and the Zagros (~4,400 m -> 216 px) at the z8 grid; use
+# `cast_shadow.shadow_reach_px` to size it for any other terrain.
+# `ambient_knee` **0.30, chosen 2026-07-21 (Rohan)** on a full-planet pass judged on /globe. See
+# `apply_ambient_floor`: `ambient` is a CLIFF, not a floor -- measured 2026-07-20, 18.07% of Iran's
+# land sat under it carrying no hillshade information at all, and the knee is what gives that land
+# its form back. My metric-based recommendation was 0.15 and the eye overruled it; the local-contrast
+# std that argued for 0.15 is the same proxy that lost the 2026-07-08 fill-sun A/B, so it is now
+# twice-failed as a stand-in for perceived softness. -> HISTORY 2026-07-20 (evening) softness
+# `shadow_warmth` **0.55, chosen 2026-07-21 (Rohan)** on a full-planet pass judged on /globe, after
+# 1.0 read too copper on Alpine crops. 1.0 would reproduce the hero's MEASURED shadow warmth (see
+# SHADOW_TINT), so this is 55% of the hero -- the value is anchored to a measurement even where it
+# departs from it. 0.0 is the pre-2026-07-21 look and is bit-identical when off.
+KNOBS = Knobs(alt=45.0, fill_strength=0.15, shadow_strength=0.0, shadow_reach=300.0,
+              shadow_warmth=0.55,
+              ambient=0.50, ambient_knee=0.30, hi=1.12, exposure=1.05, saturation=1.18,
               warmth=0.06, svf_strength=0.20, svf_threshold=0.45, sea_shade=0.55, sea_lift=1.00,
               sea_saturation=0.90, sea_svf=0.5, snow_lo=0.55, snow_hi_pt=1.05,
               snow_curve="gamma8", lake_curve="log1p")
@@ -182,6 +213,9 @@ def main():
     ap.add_argument("--zfactor", type=float, default=None,
                     help="use a single global hillshade z-factor instead of the per-region "
                          "mid-latitude one — for seamless multi-block planet shading")
+    ap.add_argument("--occlusion-target", type=float, default=None, metavar="M_PER_PX",
+                    help="override sky_view.OCCLUSION_TARGET_M_PER_PX for an A/B (region only; "
+                         "production always reads the shared constant)")
     ap.add_argument("--per-row-z", action="store_true",
                     help="hillshade with a per-latitude-row z-factor (EXAG/cos(lat)) via the "
                          "custom seamless shader — correct exaggeration at every latitude")
@@ -221,9 +255,20 @@ def main():
     hs_tif = args.out / "hs.tif"
     mid_lat = sum(cell_mid_lat(n) for n in args.cells) / len(args.cells)
     if args.per_row_z:
-        print(f"hillshade: per-row z-factor (EXAG={EXAG}/cos(lat)), custom seamless shader", flush=True)
+        shadow_note = (f", shadow {KNOBS['shadow_strength']:.2f} reach {int(KNOBS['shadow_reach'])}px"
+                       if KNOBS["shadow_strength"] else "")
+        print(f"hillshade: per-row z-factor (EXAG={EXAG}/cos(lat)), custom seamless shader"
+              f"{shadow_note}", flush=True)
         hillshade.per_row_zfactor_hillshade(height_vrt, hs_tif, EXAG, KNOBS["alt"], 315.0,
-                                            fill_strength=KNOBS["fill_strength"])
+                                            fill_strength=KNOBS["fill_strength"],
+                                            shadow_strength=KNOBS["shadow_strength"],
+                                            shadow_reach_px=int(KNOBS["shadow_reach"]))
+    elif KNOBS["shadow_strength"] != 0.0:
+        # `gdaldem hillshade` is local by construction and cannot cast shadows. Silently dropping
+        # the knob here would make the two branches disagree while both reported success -- the
+        # copied-constant drift this project has hit four times. Refuse instead.
+        raise SystemExit("shadow_strength requires --per-row-z; the gdaldem branch cannot cast "
+                         "shadows. Re-run with --per-row-z (which is what production uses).")
     else:
         zfactor = args.zfactor if args.zfactor is not None else relief.mercator_zfactor(mid_lat, EXAG)
         print(f"hillshade z-factor {zfactor:.2f} (region mid-lat {mid_lat:.1f})", flush=True)
@@ -261,15 +306,20 @@ def main():
     else:
         print("lake depth: none in this region -> lakes stay flat", flush=True)
 
+    # Occlusion at the SHARED ground resolution, not a region-local pixel count. The old
+    # `long_edge = 2400` made this preview 12.9x finer than the planet it exists to predict.
+    occlusion_target = args.occlusion_target or OCCLUSION_TARGET_M_PER_PX
+    if args.occlusion_target:
+        print(f"occlusion target override: {occlusion_target:.0f} m/px "
+              f"(production is {OCCLUSION_TARGET_M_PER_PX:.0f})", flush=True)
     with rasterio.open(height_vrt) as dataset:
-        long_edge = 2400
-        sw = max(1, round(dataset.width / max(dataset.width, dataset.height) * long_edge))
-        sh = max(1, round(dataset.height / max(dataset.width, dataset.height) * long_edge))
+        full_res_m_per_px = Z8_MERC_RES * math.cos(math.radians(mid_lat))
+        sh, sw = occlusion_shape(dataset.width, dataset.height, full_res_m_per_px,
+                                 target=occlusion_target)
         low = dataset.read(1, out_shape=(sh, sw), resampling=Resampling.average).astype(float)
         m_per_px = (dataset.bounds.right - dataset.bounds.left) / sw * math.cos(math.radians(mid_lat))
     low = np.nan_to_num(np.where(low < -500, np.nan, low), nan=0.0)
-    svf = horizon_svf(low, m_per_px)
-    occ = 1.0 - (svf - svf.min()) / (svf.max() - svf.min() + 1e-6)
+    occ = normalised_occlusion(low, m_per_px)
 
     rgb = composite(heights, ocean, water, snow_a, hs, occ, (sh, sw), (grid_h, grid_w),
                     depth=depth)
@@ -320,6 +370,68 @@ def lake_position(depth, curve):
 # `lake_curve` answers the pond-vs-Baikal version of this. -> HISTORY 2026-07-17 Greenland
 KNEE_X = 0.93      # where Greenland's band starts on the normalised window
 KNEE_SHARE = 0.45  # fraction of the ramp handed to everything above KNEE_X
+
+
+def apply_ambient_floor(raw, ambient: float, hi: float, knee: float):
+    """Land the raw `hs/flat` light on its floor — hard-clipped, or over a soft knee.
+
+    `ambient` has always been a `np.clip` lower bound, which makes it a CLIFF rather than a floor:
+    every pixel below it collapses to exactly one value. Measured 2026-07-20 on Iran, **18.07% of
+    land already sits there** carrying no hillshade information, and a cast shadow pushed a further
+    6.21% under — pixels whose control spread was 36 DN, all flattened to the same number. That is
+    what "the details are gone in the mountains" looked like from inside the arithmetic.
+
+    `knee` > 0 replaces the clip with a softplus, which is the SAME shape everywhere it matters and
+    differs only near the floor: far above it the output is `raw` to within float error, and far
+    below it approaches `ambient` asymptotically while still VARYING. So shadowed terrain keeps its
+    form instead of becoming a flat plate, and open ground is untouched.
+
+    **This is not the rejected `ambient` raise.** Lifting the floor was swept and rejected twice
+    (2026-07-08 washed rosy and flat; 2026-07-17 every metric said otherwise and every metric was
+    wrong). This leaves the floor exactly where it is and changes only how terrain ARRIVES at it.
+
+    `knee = 0.0` is the hard clip, bit-identical — not an approximation of it.
+    """
+    if knee <= 0.0:
+        return np.clip(raw, ambient, hi)
+    # logaddexp, not log1p(exp(...)): the naive form overflows for raw >> ambient, which is most of
+    # the planet. Softplus is >= max(raw, ambient), so the knee lifts slightly AT the floor (by
+    # knee*ln2) and vanishes away from it.
+    softened = ambient + knee * np.logaddexp(0.0, (raw - ambient) / knee)
+    return np.minimum(softened, hi)
+
+
+# The hero's shadow is WARMER IN HUE, not merely darker: Cycles fills it with warm sky
+# (WORLD_RGBA F2E7D5 @ WORLD_STRENGTH 0.3) plus bounce off the rosy land, while our `light` is a
+# single scalar that multiplies all three channels equally and therefore cannot move hue at all.
+# Measured 2026-07-21 on heroes/raw/switzerland.png, inside narrow elevation bands so the ramp
+# colour is constant: linear R/B is 1.61-1.98x higher in the darkest quartile than the brightest,
+# monotonic across all ten luminance deciles. Ours is exactly 1.00x. -> ART.md "Hero -> tile map".
+#
+# DERIVATION: the sky's own chromaticity only accounts for 1.334x of that, so the tint is the world
+# colour DEEPENED to the measured 1.80x mid-band ratio (world ** 2.0373), the residual being warm
+# GI bounce off the land ramp -- which our greyscale SVF stand-in structurally cannot carry.
+# Then normalised to luminance 1.0, so this knob moves HUE ONLY and cannot re-create the
+# brightness wash that got `ambient` raises rejected twice. That is the point of the design.
+SHADOW_TINT = (1.205239, 0.972347, 0.669577)
+
+
+def shadow_tint(light: np.ndarray, strength: float,
+                ambient: float) -> "np.ndarray | np.floating":
+    """Per-channel multiplier warming shaded land toward `SHADOW_TINT`, unlit ground untouched.
+
+    `shadowness` is 0 on flat-lit ground (light 1.0) and 1 at the ambient floor, so the tint
+    fades in exactly where the sun stops reaching. Under `ambient_knee` nothing lands AT the floor
+    (darkest light 0.5519), so the practical maximum is ~0.90 of full strength.
+
+    Returns a (3, 1, 1)-broadcastable array; at `strength` 0.0 it returns exactly 1.0 so the
+    caller's multiply is bit-identical to not calling it.
+    """
+    if strength == 0.0:
+        return np.float32(1.0)
+    shadowness = np.clip((1.0 - light) / (1.0 - ambient), 0.0, 1.0).astype(np.float32)
+    tint = np.array(SHADOW_TINT, dtype=np.float32).reshape(3, 1, 1)
+    return 1.0 + shadowness[None] * strength * (tint - 1.0)
 
 
 def snow_position(light, curve):
@@ -405,7 +517,7 @@ def composite(heights, ocean, water, snow_a, hs, occ, occ_shape, grid, depth=Non
     color = np.where(water[None], lake_color, color)
 
     flat = 255.0 * math.sin(math.radians(KNOBS["alt"]))
-    light = np.clip(hs / flat, KNOBS["ambient"], KNOBS["hi"])
+    light = apply_ambient_floor(hs / flat, KNOBS["ambient"], KNOBS["hi"], KNOBS["ambient_knee"])
     burn = KNOBS["svf_strength"] * np.clip(
         (occ - KNOBS["svf_threshold"]) / (1 - KNOBS["svf_threshold"]), 0, 1) ** 1.4
     sh, sw = occ_shape
@@ -419,6 +531,12 @@ def composite(heights, ocean, water, snow_a, hs, occ, occ_shape, grid, depth=Non
     light = np.where(ocean | water, light,
                      KNOBS["ambient"] + (light - KNOBS["ambient"]) * KNOBS["exposure"])
     base_rgb = color * (light * svf_factor)
+    if KNOBS["shadow_warmth"] != 0.0:
+        # Land only: the sea has its own light model (`sea_lift`/`sea_shade`) and snow its own
+        # two-colour ramp below, which already carries a deliberate BLUE shadow. Warming those
+        # would fight decisions that were made on their own evidence.
+        land_tint = shadow_tint(light, KNOBS["shadow_warmth"], KNOBS["ambient"])
+        base_rgb = np.where((ocean | water)[None], base_rgb, base_rgb * land_tint)
 
     # soft-alpha snow: blend snow over land by the ramped persistence alpha (no snow on water).
     # Snow colour is keyed to the hillshade light: glacial blue-white in shadow -> bright white
