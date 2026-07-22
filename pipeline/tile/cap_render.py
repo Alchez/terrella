@@ -13,13 +13,13 @@ Both poles share the projection/warp/coastline machinery but source their inputs
     with fixed high-latitude thresholds). Inland water via lake_depth.inland_water (NEVER
     watercode.astype(bool) -- that caught class-1 ocean and flat-filled the Arctic sea, the
     2026-07-19 disc-glow bug).
-  - SOUTH (Antarctica): the fused planet stops at -60 (`--skip-south -60`), so the continent is
-    read from GEBCO DIRECT (ice-surface elevation, reaches -90). Land/ocean is the GEBCO 0 m
-    threshold: >=0 = the ice sheet + floating shelves (freeboard is positive) -> force snow white;
-    <0 = Southern Ocean -> bathymetry depth ramp + the SH half of the same sea-ice climatology.
+  - SOUTH (Antarctica): the same fused planet VRTs (they reach -90 since the 2026-07-22 fill;
+    GEBCO-direct sourcing died the same day -- it shaded ~2.5 DN darker than the tiles and read as
+    an interior ring). Ocean -> bathymetry depth ramp + the SH half of the same sea-ice climatology.
     Snow is FORCED over Antarctic land, not read from a dataset (NSIDC-0791 is NH-only, RGI region
-    19 is excluded), and gated to lat < SNOW_LAT_MAX_S so any continent tips / sub-Antarctic islands
-    intruding into the disc corners (which the frontend feathers out anyway) are not painted white.
+    19 is excluded), via snow.antarctic_snow_mask (shared with the tile composite). Since the
+    pyramid carries Antarctica itself, the cap mirrors the north exactly (edge_lat -78, feathered
+    81..84 over interior ice) and only covers the last smeared Mercator sliver.
 
 Two cap-specific twists vs the Mercator tiles:
   - the light azimuth rotates with longitude: the tiles light true-NW everywhere, and near the
@@ -29,11 +29,17 @@ Two cap-specific twists vs the Mercator tiles:
   - SVF is left off (its residual is <1% at the pole). A scalar z-factor is fine: AEQD tangential
     distortion inside the edge latitude is small.
 
-Usage: GDAL_CACHEMAX=512 uv run python -m pipeline.tile.cap_render [--north | --south]  (default: both)
+Freshness: each PNG is guarded by a recipe sidecar (data/work/cap/cap_<name>_params.json, built on
+shade_planet.composite_params so caps restage exactly when the tile look does) plus source mtimes;
+a fresh cap skips. shade_planet's pass tail invokes this module, so the guard actually runs — both
+caps sat stale against the PR-#9 look for a day because nothing did (2026-07-22).
+
+Usage: GDAL_CACHEMAX=512 uv run python -m pipeline.tile.cap_render [--north | --south] [--force]
 """
 import argparse
+import json
 import subprocess
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
@@ -45,24 +51,19 @@ from scipy.ndimage import binary_dilation
 from pipeline.render import hillshade, lake_depth, seaice, snow
 from pipeline.tile import shade
 from pipeline.tile.shade import KNOBS
-from pipeline.tile.shade_planet import ALT, AZ, EXAG, PLANET
+from pipeline.tile.shade_planet import ALT, AZ, EXAG, PLANET, composite_params
 
 ROOT = Path.home() / "projects/maps"
 WORK = ROOT / "data/work/cap"
 DEV_ASSETS = ROOT / "web/public/dev-assets"
-GEBCO = ROOT / "data/raw/gebco/gebco_2026_global.vrt"  # ice-surface elevation, reaches -90 (south cap)
 CAP_PX = 4096          # square texture side (south is a bigger disc -> coarser per px; tunable, bump for prod)
 SPHERE_R = 6371000.0   # spherical AEQD radius; the frontend's linear-colatitude UV assumes a sphere
-SNOW_LAT_MAX_S = -60.0  # south: force ice only over land below this (excludes sub-Antarctic land in the corners)
 POLE_TAPER_COLAT = 3.0  # deg: within this colatitude the AEQD light azimuth (AZ + lon) sweeps 360 deg as
                         # the meridians converge, washing relief into a pinwheel disc at the exact pole;
                         # ramp the relief to flat inside it so there is no hard-edged wheel
-# South-cap sea ice: fainter + pulled in vs the global (Arctic) strength. Antarctica is a continent
-# RINGED by a mostly-seasonal belt, so the full-strength climatology reads as a bright halo; a
-# translucent, tighter fringe lets the bathymetry show through and keeps the continent clean. South
-# ONLY -- the north cap keeps the globals (the Arctic pack IS the subject). Tuned 2026-07-20.
-CAP_S_ICE_LO = 0.62         # vs seaice.ICE_LO 0.55 -- pull the seasonal fringe in
-CAP_S_ICE_MAX_ALPHA = 0.55  # vs seaice.ICE_MAX_ALPHA 0.85 -- more translucent over the bathymetry
+# The south-cap forced-snow latitude and toned sea-ice pair moved to their shared homes so the tile
+# composite applies the identical rule (one home per concept): snow.antarctic_snow_mask's lat_max=-60,
+# and seaice.SH_ICE_LO / seaice.SH_ICE_MAX_ALPHA (used by the SOUTH grid below).
 
 
 @dataclass(frozen=True)
@@ -79,6 +80,7 @@ class CapGrid:
     coast_dilate: int = 1        # binary-dilation iterations -> ~3 px line at 4096 when 1
     ice_lo: "float | None" = None         # sea-ice threshold override; None -> seaice.ICE_LO
     ice_max_alpha: "float | None" = None  # sea-ice max opacity override; None -> seaice.ICE_MAX_ALPHA
+    pole_taper_colat: float = POLE_TAPER_COLAT  # deg; 0 disables the flat-pole taper for this cap
 
     @property
     def aeqd(self) -> str:
@@ -95,9 +97,15 @@ NORTH = CapGrid(lat_0=90.0, edge_lat=78.0, px=CAP_PX, name="north", az_sign=-1.0
 # South: NO baked coastline. The north NEEDS it (Greenland's white ice sheet abuts the white Arctic
 # pack -- without a line they merge), but on the south white ice sits on teal ocean, which already
 # separates itself; a dark line there just reads as a cartoonish outline around the continent.
-SOUTH = CapGrid(lat_0=-90.0, edge_lat=-55.0, px=CAP_PX, name="south", az_sign=1.0,
+# South: taper OFF. The taper medicates the polar pinwheel wash, which is driven by RELIEF near the
+# pole -- the Arctic has seafloor ridges there, the south has the near-flat East Antarctic dome, so
+# the south's wash amplitude is negligible while the taper's flat disc saturated the gamma8 snow tone
+# ~4 DN above the honestly-shaded dome around it: the disc edge READ as a concentric interior ring
+# (measured 2026-07-22, radial profile: disc 239.45 vs the -86 annulus 235.4).
+SOUTH = CapGrid(lat_0=-90.0, edge_lat=-78.0, px=CAP_PX, name="south", az_sign=1.0,
                 coast_opacity=0.0, coast_dilate=0,
-                ice_lo=CAP_S_ICE_LO, ice_max_alpha=CAP_S_ICE_MAX_ALPHA)
+                ice_lo=seaice.SH_ICE_LO, ice_max_alpha=seaice.SH_ICE_MAX_ALPHA,
+                pole_taper_colat=0.0)
 
 # The coastline baked into the cap texture -- the land/sea line separating land snow from sea ice
 # where MapLibre's Mercator vector borders can't reach the pole. It must be DARK, not the globe's
@@ -105,6 +113,47 @@ SOUTH = CapGrid(lat_0=-90.0, edge_lat=-55.0, px=CAP_PX, name="south", az_sign=1.
 # delicately on both whites without going harsh. Line strength/width are per-cap (CapGrid).
 COAST_SHP = ROOT / "data/raw/naturalearth/ne_10m_coastline/ne_10m_coastline.shp"
 COAST_RGB = (96, 122, 142)  # muted steel-blue
+
+
+def cap_recipe(grid: CapGrid) -> str:
+    """Everything a cap PNG's pixels depend on besides the source rasters, serialised for the
+    freshness sidecar. Reuses shade_planet.composite_params — ONE recipe home — so any look change
+    that restages the tile composite also restages the caps: exactly the coupling whose absence let
+    both cap PNGs sit stale against the PR-#9 ambient-knee tiles (found 2026-07-22, the north cap
+    −6.7 DN against the tiles it feathers into). `fill_strength` is listed explicitly because
+    composite_params filters it out as hillshade-stage — for the tiles it rides in hs_params.json,
+    but the caps have no hillshade sidecar, so it must ride here."""
+    return json.dumps({"grid": asdict(grid),
+                       "light": {"az": AZ, "alt": ALT, "exag": EXAG,
+                                 "fill_azimuth": hillshade.FILL_AZIMUTH,
+                                 "fill_altitude": hillshade.FILL_ALTITUDE,
+                                 "fill_strength": KNOBS["fill_strength"]},
+                       "coast_rgb": list(COAST_RGB),
+                       "composite": json.loads(composite_params({}))},
+                      sort_keys=True, indent=2)
+
+
+def cap_sources(grid: CapGrid) -> list[Path]:
+    """The source files whose change must re-render this cap — composite_deps' sibling. Constants
+    ride in cap_recipe; these are the mtime dependencies."""
+    sources = [PLANET / "planet_heightfield.vrt", PLANET / "planet_oceanmask.vrt",
+               PLANET / "planet_watermask.vrt", Path(seaice.SEAICE_SRC)]
+    if grid.name == "north":
+        sources.append(Path(snow.SP_NC))  # the south's snow is FORCED, not read from a dataset
+    if grid.coast_opacity > 0.0:
+        sources.append(COAST_SHP)
+    return sources
+
+
+def cap_is_fresh(recipe: str, png: Path, sidecar: Path, sources: list[Path]) -> bool:
+    """True only when the PNG exists, was rendered under exactly this recipe, and is newer than
+    every source; anything missing reads stale (fail toward re-rendering, never toward trusting).
+    The caps' first freshness guard (2026-07-22): unguarded outputs rot — the DEM mosaics, the
+    3857 warps and both cap PNGs all failed that same way in one day."""
+    if not (png.exists() and sidecar.exists() and sidecar.read_text() == recipe):
+        return False
+    png_mtime = png.stat().st_mtime
+    return all(source.exists() and source.stat().st_mtime < png_mtime for source in sources)
 
 
 def _run(cmd):
@@ -156,10 +205,10 @@ def _shade(grid: CapGrid, heights: np.ndarray, longitude: np.ndarray) -> np.ndar
     # was tried to keep texture, but the fixed/rotating shades anti-correlate into petal interference
     # -- worse than a clean flat dome.)
     colat = _colatitude(grid)
-    inner = colat < POLE_TAPER_COLAT
+    inner = colat < grid.pole_taper_colat
     if not inner.any():
         return rotating
-    t = np.clip(colat[inner] / POLE_TAPER_COLAT, 0.0, 1.0)
+    t = np.clip(colat[inner] / grid.pole_taper_colat, 0.0, 1.0)
     weight = t * t * (3.0 - 2.0 * t)  # smoothstep: 0 at the pole, 1 at the taper edge
     flat_dn = float(np.median(rotating[inner]))  # the local ambient level under the wash
     result = rotating.copy()
@@ -256,26 +305,31 @@ def render_cap_north() -> Path:
 
 
 def render_cap_south() -> Path:
-    """South (Antarctica) cap from GEBCO-direct height + the SH half of the sea-ice climatology.
+    """South (Antarctica) cap from the fused planet VRTs + the SH half of the sea-ice climatology.
 
-    Land/ocean is the GEBCO 0 m threshold (ice-surface is positive over the grounded sheet AND the
-    floating shelves); snow is FORCED over Antarctic land (no SH snow dataset, no RGI region 19).
+    Re-sourced from GEBCO-direct on 2026-07-22, the day the Antarctica fill pushed the planet VRTs
+    to -90: the cap now shades the SAME fused heightfield and masks as the tiles, so the tone across
+    the -84 cap<->tile crossfade agrees by construction (the GEBCO cap measured ~2.5 DN darker than
+    the tiles it feathered into -- the visible interior ring). Snow is FORCED over Antarctic land
+    (no SH snow dataset, no RGI region 19), exactly as the tile composite does.
     """
     WORK.mkdir(parents=True, exist_ok=True)
     grid = SOUTH
-    height = _warp(grid, GEBCO, WORK / "capS_height.tif", "bilinear", "Float32", srcnodata=-32767)
+    height = _warp(grid, PLANET / "planet_heightfield.vrt", WORK / "capS_height.tif", "bilinear", "Float32")
+    ocean_raw = _warp(grid, PLANET / "planet_oceanmask.vrt", WORK / "capS_ocean.tif", "near", "Byte")
+    watercode = _warp(grid, PLANET / "planet_watermask.vrt", WORK / "capS_water.tif", "near", "Byte")
     ice_raw = _warp(grid, seaice.SEAICE_SRC, WORK / "capS_seaice.tif",
                     "bilinear", "Float32", srcnodata=seaice.ICE_FILL)
 
-    heights = np.where(height < -1e4, 0.0, height).astype(np.float32)  # GEBCO nodata (-32767) -> flat
-    ocean = heights < 0.0                                # <0 = Southern Ocean; >=0 = ice sheet + shelves
-    water = np.zeros_like(ocean)                         # no inland-water layer south of -60
+    heights = np.where(height < -1e4, 0.0, height).astype(np.float32)  # DEM nodata -> flat, as hillshade does
+    ocean = ocean_raw != 0
+    water = lake_depth.inland_water(watercode)
     longitude, latitude = _lonlat_grid(grid)
     hillshade_dn = _shade(grid, heights, longitude)
 
-    land = heights >= 0.0
-    snow_a = (land & (latitude < SNOW_LAT_MAX_S)).astype(np.float32)  # Antarctica = permanent ice -> white
-    ice_a = seaice.ice_alpha(seaice.unpack_seaice(ice_raw),  # fainter, pulled-in fringe (CAP_S_ICE_*)
+    land = ~(ocean | water)                            # the tile composite's land definition
+    snow_a = snow.antarctic_snow_mask(land, latitude)  # Antarctica = permanent ice -> forced white
+    ice_a = seaice.ice_alpha(seaice.unpack_seaice(ice_raw),  # fainter, pulled-in fringe (seaice.SH_ICE_*)
                              ice_lo=grid.ice_lo, ice_max_alpha=grid.ice_max_alpha)
     return _write_cap(grid, heights, ocean, water, snow_a, ice_a, hillshade_dn)
 
@@ -285,12 +339,22 @@ def main() -> int:
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--north", action="store_true", help="render only the north cap")
     group.add_argument("--south", action="store_true", help="render only the south cap")
+    parser.add_argument("--force", action="store_true",
+                        help="render even when the freshness sidecar says the PNG is current")
     args = parser.parse_args()
 
-    if not args.south:
-        print(f"wrote {render_cap_north()}", flush=True)
-    if not args.north:
-        print(f"wrote {render_cap_south()}", flush=True)
+    for wanted, grid, render in ((not args.south, NORTH, render_cap_north),
+                                 (not args.north, SOUTH, render_cap_south)):
+        if not wanted:
+            continue
+        recipe = cap_recipe(grid)
+        png = DEV_ASSETS / f"cap_{grid.name}.png"
+        sidecar = WORK / f"cap_{grid.name}_params.json"
+        if not args.force and cap_is_fresh(recipe, png, sidecar, cap_sources(grid)):
+            print(f"cap {grid.name} fresh -> skip", flush=True)
+            continue
+        print(f"wrote {render()}", flush=True)
+        sidecar.write_text(recipe)  # written AFTER the render, so a crash leaves the cap stale
     return 0
 
 

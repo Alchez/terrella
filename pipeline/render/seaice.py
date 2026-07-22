@@ -40,6 +40,16 @@ ICE_LO = 0.55
 ICE_BAND = 0.40
 ICE_MAX_ALPHA = 0.85
 
+# The Southern-Ocean toned fringe (the one home for it, tuned 2026-07-20 on the south cap). Antarctica
+# is a continent RINGED by a mostly-seasonal ice belt, not an ice-filled basin, so at full strength the
+# climatology reads as a bright halo around the coast. The SH pack is rendered fainter and pulled in: a
+# higher lo trims the seasonal fringe, a lower max_alpha lets the bathymetry glow through. Applied south
+# of the equator by BOTH the tile composite and the south cap, so the cap<->tile seam matches by
+# construction; the Arctic pack keeps the globals above (it IS the subject there). Recorded in
+# composite_params, like the globals -- a re-tune must restage the composite.
+SH_ICE_LO = 0.62
+SH_ICE_MAX_ALPHA = 0.55
+
 
 def _run(cmd):
     subprocess.run([str(part) for part in cmd], check=True, capture_output=True)
@@ -118,10 +128,9 @@ def ice_alpha(frequency, ice_lo=None, ice_band=None, ice_max_alpha=None):
     No latitude term (the snow layer needs one; sea ice does not -- the frequency field is already
     zero wherever there is no ice, so there is no seasonal-snow flooding to hold back).
 
-    ice_lo / ice_band / ice_max_alpha default (None) to the module globals -- the Mercator tiles and
-    the north cap use those. The south cap overrides them to a fainter, pulled-in fringe: Antarctica
-    is a continent RINGED by a mostly-seasonal belt, not an ice-filled basin, so the full-strength
-    climatology reads as a bright halo there (see cap_render.CAP_S_ICE_*).
+    ice_lo / ice_band / ice_max_alpha default (None) to the module globals -- the Arctic pack (Mercator
+    tiles + north cap) uses those. South of the equator both the tile composite and the south cap pass
+    the toned SH_ICE_* pair instead, for the reason those constants document.
     """
     ice_lo = ICE_LO if ice_lo is None else ice_lo
     ice_band = ICE_BAND if ice_band is None else ice_band

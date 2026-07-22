@@ -80,7 +80,11 @@ N_WORKERS = 4              # composite worker threads. The knee: numpy is DRAM-b
                            # (the sky-view downsample is no longer a planet-only constant: it is
                            # derived from sky_view.OCCLUSION_TARGET_M_PER_PX, which the region path
                            # shares, so the two cannot drift again)
-CAP_NORTH, CAP_SOUTH = 84.0, -59.5   # latitudes above/below which the poles are capped flat
+# Latitudes above/below which the poles are flat-filled with CAP_RGB. CAP_SOUTH mirrors CAP_NORTH
+# (2026-07-22) now that Antarctica is fused into the pyramid: the flat fill covers only the last
+# smeared Mercator sliver past -84, not real Antarctica (which is shaded down to the -85.06 grid edge).
+# It was -59.5 while the pyramid stopped at -60 and the AEQD cap supplied everything south of it.
+CAP_NORTH, CAP_SOUTH = 84.0, -84.0
 CAP_RGB = (216, 226, 233)   # pale sea-ice fill for the poles (web-mercator has no data past ~85 deg)
 INFLIGHT_BUFFER = 2        # windows read AHEAD of the workers (optimisation #5): the main thread
                            # may queue max_workers + this many window-input bundles before it must
@@ -132,6 +136,38 @@ def is_stale(output: Path, *inputs: Path) -> bool:
     if not output.exists() or not done_marker(output).exists():
         return True
     return newest_mtime(*inputs) > done_marker(output).stat().st_mtime
+
+
+def grid_matches(path: Path, width: int, height: int, bounds) -> bool:
+    """True if `path` exists on exactly the reference grid (`width` x `height`, same `bounds`).
+
+    Every 3857 raster below `height_3857` is warped to height's grid (via -te/-ts), but each one's
+    freshness is gated on its own SOURCE, not on height. A re-fuse that GROWS the grid -- un-skipping
+    Antarctica takes the planet from 93009 to 131072 rows -- re-warps height while these sit falsely
+    fresh at the old dimensions, and the composite then reads window slices past their bottom (silent
+    corruption). A dimension/bounds comparison catches exactly that, and is deliberately NOT an mtime
+    dependency on height: that would re-warp all of them on a SAME-grid re-fuse (the 2026-07-15
+    Caspian rewrote 4 chunks without moving the grid), which is 30+ min of needless work.
+
+    Bounds are compared with a 1 m tolerance -- far below the 305 m pixel, so a real grid shift always
+    trips it, while the float noise of a -te repr round-trip never does. -> PLAN Antarctica precondition.
+    """
+    if not path.exists():
+        return False
+    with rasterio.open(path) as dataset:
+        return (dataset.width == width and dataset.height == height
+                and all(math.isclose(actual, expected, abs_tol=1.0)
+                        for actual, expected in zip(tuple(dataset.bounds), tuple(bounds))))
+
+
+def warp_needs_rebuild(out: Path, grid, *inputs: Path) -> bool:
+    """Whether a 3857 warp target must be rebuilt: `is_stale` (a source moved) OR off `grid`
+    (a re-fuse resized the planet under it). `grid` is (width, height, bounds).
+
+    Split out so the composed condition is testable on its own. The load-bearing case is the one
+    `is_stale` alone cannot see: a raster whose SOURCE is unchanged but whose grid shrank beneath it.
+    """
+    return is_stale(out, *inputs) or not grid_matches(out, *grid)
 
 
 def write_if_changed(path: Path, text: str) -> Path:
@@ -240,6 +276,10 @@ def composite_params(variants, window_rows=WINDOW_ROWS) -> str:
                        # RAMP_* constants slip freshness; do not repeat it.
                        "ice_lo": seaice.ICE_LO, "ice_band": seaice.ICE_BAND,
                        "ice_max_alpha": seaice.ICE_MAX_ALPHA,
+                       # The toned SH pack (seaice.SH_ICE_*) runs at composite time for southern
+                       # windows, so it rides here too -- the same untracked-input trap the globals
+                       # above avoid. A re-tune must restage the composite.
+                       "sh_ice_lo": seaice.SH_ICE_LO, "sh_ice_max_alpha": seaice.SH_ICE_MAX_ALPHA,
                        "lake_stops": palette.LAKE_STOPS,
                        "lake_max_m": palette.LAKE_MAX_M,
                        "cap": [CAP_NORTH, CAP_SOUTH, list(CAP_RGB)],
@@ -293,9 +333,12 @@ def warp_inputs(work: Path):
         # int width/height rather than the gdalwarp -te/-ts string lists the mask warps splice in.
         grid_bounds = tuple(dataset.bounds)
         grid_width, grid_height = dataset.width, dataset.height
+    # The reference grid every raster below is warped onto. warp_needs_rebuild re-warps a target when
+    # its source moved OR when this grid grew under it (the Antarctica re-fuse; see grid_matches).
+    grid = (grid_width, grid_height, grid_bounds)
     for name, src in (("ocean", "planet_oceanmask.vrt"), ("water", "planet_watermask.vrt")):
         out = work / f"{name}_3857.tif"
-        if is_stale(out, PLANET / src, chunks):
+        if warp_needs_rebuild(out, grid, PLANET / src, chunks):
             print(f"warp {name} -> 3857 ...", flush=True)
             out.unlink(missing_ok=True)
             _run(["gdalwarp", "-q", "-t_srs", "EPSG:3857", "-te", *bounds, "-ts", *size,
@@ -314,7 +357,7 @@ def warp_inputs(work: Path):
     if not lake_depth.LAKE_VRT.exists():
         print(f"no {lake_depth.LAKE_VRT.name} -> lakes stay flat "
               f"(run pipeline.acquire.extract_globathy)", flush=True)
-    elif is_stale(depth_out, lake_depth.LAKE_VRT):
+    elif warp_needs_rebuild(depth_out, grid, lake_depth.LAKE_VRT):
         print("warp lake depth -> 3857 ...", flush=True)
         depth_out.unlink(missing_ok=True)
         _run(["gdalwarp", "-q", "-t_srs", "EPSG:3857", "-te", *bounds, "-ts", *size,
@@ -334,7 +377,7 @@ def warp_inputs(work: Path):
     persistence_out = work / "snow_persistence_3857.tif"
     if not snow.SP_NC.exists():
         print(f"no {snow.SP_NC.name} -> snow layer unavailable (composite would fail)", flush=True)
-    elif is_stale(persistence_out, snow.SP_NC):
+    elif warp_needs_rebuild(persistence_out, grid, snow.SP_NC):
         print("warp snow persistence -> 3857 (banded) ...", flush=True)
         persistence_out.unlink(missing_ok=True)
         # band_rows == the composite window height, aligned to it: each band is exactly the
@@ -347,7 +390,7 @@ def warp_inputs(work: Path):
     glacier_out = work / "glacier_3857.tif"
     if not snow.RGI_GPKG.exists():
         print(f"no {snow.RGI_GPKG.name} -> glaciers skipped (persistence-only snow)", flush=True)
-    elif is_stale(glacier_out, snow.RGI_GPKG):
+    elif warp_needs_rebuild(glacier_out, grid, snow.RGI_GPKG):
         print("rasterize RGI glaciers -> 3857 ...", flush=True)
         snow.rasterize_glaciers_raster(grid_bounds, grid_width, grid_height, glacier_out)
         mark_done(glacier_out)
@@ -360,7 +403,7 @@ def warp_inputs(work: Path):
     if not seaice.SEAICE_SRC.exists():
         print(f"no {seaice.SEAICE_SRC.name} -> sea ice skipped (bathymetry bare at the poles)",
               flush=True)
-    elif is_stale(seaice_out, seaice.SEAICE_SRC):
+    elif warp_needs_rebuild(seaice_out, grid, seaice.SEAICE_SRC):
         print("warp sea-ice frequency -> 3857 (banded) ...", flush=True)
         seaice_out.unlink(missing_ok=True)
         seaice.warp_seaice_raster(grid_bounds, grid_width, grid_height, seaice_out,
@@ -493,11 +536,27 @@ def _compute_shared(inputs: _WindowInputs) -> _WindowShared:
     snow_a = snow.snow_alpha(persistence_win, inputs.win_top, inputs.win_bottom)
     if inputs.glacier_raw is not None:
         snow_a = np.maximum(snow_a, inputs.glacier_raw.astype(float))
-    # Sea-ice alpha: frequency -> smoothstep, the sea-side twin of snow_a (no latitude ramp needed).
-    # Optional (None when the seaice source was never warped); shade.composite gates it on ocean.
-    ice_a = (seaice.ice_alpha(seaice.unpack_seaice(inputs.sea_ice_raw))
-             if inputs.sea_ice_raw is not None else None)
     latitude = snow.latitude_per_row(inputs.win_top, inputs.win_bottom, inputs.win_h)
+    # Force Antarctic land white: NSIDC-0791 is NH-only and RGI region 19 is excluded, so snow_a is 0
+    # over the continent and it would render on the tan LAND ramp. The same shared rule the south cap
+    # uses, so the two agree across the -84 seam (snow.antarctic_snow_mask).
+    land_win = ~(ocean_win | water_win)
+    snow_a = np.maximum(snow_a, snow.antarctic_snow_mask(land_win, latitude))
+    # Sea-ice alpha: frequency -> smoothstep, the sea-side twin of snow_a (no latitude ramp needed).
+    # Optional (None when the seaice source was never warped); shade.composite gates it on ocean. South
+    # of the equator the SH pack is toned to the cap's fainter, pulled-in fringe (seaice.SH_ICE_*), else
+    # the full-strength Antarctic belt reads as a bright halo -- proven on the cap. No window straddles
+    # both hemispheres' ice, and the equator is ice-free, so the per-row split is exact.
+    if inputs.sea_ice_raw is not None:
+        frequency = seaice.unpack_seaice(inputs.sea_ice_raw)
+        ice_a = seaice.ice_alpha(frequency)
+        southern = latitude < 0.0
+        if southern.any():
+            toned = seaice.ice_alpha(frequency, ice_lo=seaice.SH_ICE_LO,
+                                     ice_max_alpha=seaice.SH_ICE_MAX_ALPHA)
+            ice_a = np.where(southern[:, None], toned, ice_a)
+    else:
+        ice_a = None
     cap = (latitude > CAP_NORTH) | (latitude < CAP_SOUTH)
     return _WindowShared(ocean_win, water_win, hs_win, depth_win, snow_a, ice_a, cap)
 
@@ -770,6 +829,15 @@ def main():
                                   window_rows=COMPOSITE_ROWS, max_workers=N_WORKERS)[None]
     if args.tiles:
         build_tiles(planet_tif, work)
+    # The polar caps are shade-stage outputs too: they run the same composite over the same
+    # sources, so a look change that restages planet_rgb must restage them. Both cap PNGs sat
+    # stale against the PR-#9 ambient-knee tiles until 2026-07-22 (the north −6.7 DN against the
+    # tiles it feathers into) because nothing coupled them to the recipe. cap_render guards
+    # itself (cap_is_fresh), so a fresh pass pays only the ~2 s import here. Subprocess, not
+    # import: cap_render imports FROM this module, and the caps' pyproj/scipy stack stays out
+    # of the tile pass.
+    print("polar caps ...", flush=True)
+    subprocess.run([sys.executable, "-m", "pipeline.tile.cap_render"], check=True)
     print("DONE", flush=True)
 
 

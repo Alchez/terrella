@@ -154,6 +154,25 @@ should stop matching the heroes.
 | `shadow_strength` (0.0) + 12° penumbra | `SUN_ANGLE 12°` + ray-traced shadows | built 2026-07-20, off; the hero has always had them |
 | `svf_strength` 0.20 | Cycles GI | approximation; falsified as *the* softness term (2026-07-20) |
 
+**Colour constants — the audit PLAN has asked for since 2026-07-17** (run 2026-07-21;
+`scene_build.py` is parsed, never imported — it needs bpy. Compare ramps in LINEAR and flat colours
+in sRGB: `scene_build` stores linear, `palette` stores 8-bit sRGB, and multiplying by 255 instead of
+applying the transfer function reports SNOW as diverged when it is not — that bug happened here.)
+
+| Constant | Hero (`scene_build`) | Tiles (`palette`) | Status |
+|---|---|---|---|
+| `LAND_STOPS` | 6 stops | 6 stops | **MATCH** |
+| land range top | 6000 m | 6000 m | **MATCH** |
+| `SNOW` lit | E8F1F6 | E8F1F6 | **MATCH** — and this is the one Antarctica can break |
+| `SEA_STOPS` | 6 stops | 6 stops | **DIVERGED** — positions *and* the two shallowest colours |
+| sea depth range | −3000 m | −6000 m | **DIVERGED** |
+| `WATER` flat | 98C5C8 | 8EC6C4 | **DIVERGED** |
+
+**The negative result is the valuable half: no NEW colour divergence exists.** The three found are
+the three already known, so "found so far, not complete" is now closed *for colour*. What remains
+unaudited is behaviour, not constants: the sun-altitude split (46° vs 45°) and hero lake depth (a
+missing feature, not a drifted value).
+
 **The three terms the tiles still lack**, in order of how promising they look:
 
 1. **Cast shadows** — implemented (`KNOBS["shadow_strength"]`, `render/cast_shadow.py`) and **REJECTED TWICE**, so it stays at 0.0. The second rejection (2026-07-21, under the knee) was on the mechanism: `shaded *= (1 - strength * shadow)` scales the main sun, and fine detail is proportional to light amplitude, so shadowed nooks lose it — 68% of local detail kept at strength 0.35, **55% in full shadow**. My "the fill is too soft to compensate" explanation was measured and is FALSE: the fill carries **88%** of the main sun's fine modeling. **Do not re-open with a new strength value.** → HISTORY § 2026-07-21 (night)

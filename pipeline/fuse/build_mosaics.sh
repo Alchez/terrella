@@ -27,10 +27,18 @@ dem_src=("$DATA"/raw/glo30/dem/*.tif "$DATA"/raw/cop30_void/dem/*.tif)
 wbm_src=("$DATA"/raw/glo30/wbm/*.tif "$DATA"/raw/cop30_void/wbm/*.tif)
 shopt -u nullglob
 
+# The source lists go via -input_file_list: 26k+ paths as argv overflow the
+# kernel's ARG_MAX (first hit at the 2026-07-22 Antarctic extent expansion).
+dem_list="$(mktemp)"
+wbm_list="$(mktemp)"
+trap 'rm -f "$dem_list" "$wbm_list"' EXIT
+printf '%s\n' "${dem_src[@]}" > "$dem_list"
+printf '%s\n' "${wbm_src[@]}" > "$wbm_list"
+
 gdalbuildvrt -overwrite -vrtnodata -9999 \
-  "$DATA/work/dem_mosaic.vrt" "${dem_src[@]}"
+  -input_file_list "$dem_list" "$DATA/work/dem_mosaic.vrt"
 gdalbuildvrt -overwrite -vrtnodata 255 \
-  "$DATA/work/wbm_mosaic.vrt" "${wbm_src[@]}"
+  -input_file_list "$wbm_list" "$DATA/work/wbm_mosaic.vrt"
 
 echo "done: $(grep -c '<SimpleSource' "$DATA/work/dem_mosaic.vrt") DEM sources,"\
      "$(grep -c '<SimpleSource' "$DATA/work/wbm_mosaic.vrt") WBM sources"
