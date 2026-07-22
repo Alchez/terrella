@@ -8,7 +8,10 @@ silently stale because the old guard only asked whether the output existed.
 import os
 import time
 
+import numpy as np
 import pytest
+import rasterio
+from rasterio.transform import from_bounds
 
 from pipeline.render import palette, seaice
 from pipeline.tile import shade_planet
@@ -56,6 +59,20 @@ def _built_pyramid(tmp_path):
     return live
 
 
+def _raster(path, width, height, bounds):
+    """A real 1-band 3857 GTiff on the given grid. grid_matches reads actual raster dimensions,
+    so these tests need rasters, not the text stand-ins the mtime tests use."""
+    transform = from_bounds(*bounds, width, height)  # pyright: ignore[reportCallIssue] — rasterio untyped, *bounds opaque
+    with rasterio.open(path, "w", driver="GTiff", width=width, height=height, count=1,
+                       dtype="uint8", crs="EPSG:3857", transform=transform) as dataset:
+        dataset.write(np.zeros((height, width), "uint8"), 1)
+    return path
+
+
+# (width, height, bounds) reference grid the warp targets below are checked against.
+GRID = (10, 10, (0.0, 0.0, 100.0, 100.0))
+
+
 class TestIsStale:
     def test_missing_output_is_stale(self, tmp_path):
         assert shade_planet.is_stale(tmp_path / "nope.tif") is True
@@ -90,6 +107,75 @@ class TestIsStale:
         cell = chunks / "e050_n40" / "heightfield_10s.tif"
         cell.write_text("re-fused")
         assert shade_planet.is_stale(out, chunks) is True
+
+
+class TestGridMatches:
+    """The dimension/bounds guard that keeps a same-source raster from sitting falsely fresh after a
+    re-fuse GROWS the planet grid under it -- the Antarctica precondition (93009 -> 131072 rows). A
+    plain mtime test cannot see this: the raster's SOURCE never moved."""
+
+    def test_same_grid_matches(self, tmp_path):
+        out = _raster(tmp_path / "ocean_3857.tif", 10, 10, (0.0, 0.0, 100.0, 100.0))
+        assert shade_planet.grid_matches(out, *GRID) is True
+
+    def test_fewer_rows_does_not_match(self, tmp_path):
+        """The exact Antarctica case: the planet gained rows at the bottom, but this raster's source
+        never changed, so it still sits at the old, shorter row count."""
+        out = _raster(tmp_path / "lakedepth_3857.tif", 10, 9, (0.0, 10.0, 100.0, 100.0))
+        assert shade_planet.grid_matches(out, *GRID) is False
+
+    def test_different_width_does_not_match(self, tmp_path):
+        out = _raster(tmp_path / "water_3857.tif", 9, 10, (0.0, 0.0, 90.0, 100.0))
+        assert shade_planet.grid_matches(out, *GRID) is False
+
+    def test_shifted_bounds_at_matching_dimensions_does_not_match(self, tmp_path):
+        """Companion: same pixel count, shifted origin -- so the check cannot be dimensions alone.
+        The 1 m tolerance sits far below a 305 m pixel, so a real grid shift always trips it."""
+        out = _raster(tmp_path / "seaice_3857.tif", 10, 10, (5000.0, 5000.0, 105000.0, 105000.0))
+        assert shade_planet.grid_matches(out, *GRID) is False
+
+    def test_missing_file_does_not_match(self, tmp_path):
+        assert shade_planet.grid_matches(tmp_path / "nope.tif", *GRID) is False
+
+
+class TestWarpNeedsRebuild:
+    """The composed decision warp_inputs uses for every 3857 raster below height: rebuild on a moved
+    source (is_stale) OR a resized grid (grid_matches). The second is the Antarctica case and is
+    invisible to mtimes alone -- pinned here so removing the grid term fails a test, not just a pass.
+    """
+
+    def _target(self, tmp_path, name, width, height, bounds, age=100):
+        """A completed warp target `age` s ago: the real raster plus its .done marker, both aged."""
+        out = _raster(tmp_path / name, width, height, bounds)
+        shade_planet.mark_done(out)
+        _age(out, age)
+        _age(shade_planet.done_marker(out), age)
+        return out
+
+    def test_fresh_source_on_grid_skips(self, tmp_path):
+        out = self._target(tmp_path, "ocean_3857.tif", 10, 10, (0.0, 0.0, 100.0, 100.0))
+        source = tmp_path / "planet_oceanmask.vrt"
+        source.write_text("vrt")
+        _age(source, 500)  # older than the output -> not stale
+        assert shade_planet.warp_needs_rebuild(out, GRID, source) is False
+
+    def test_fresh_source_off_grid_rebuilds(self, tmp_path):
+        """THE load-bearing case: the source is older than the output (is_stale is False), but the
+        planet grew under it -- only the grid term catches it, so it MUST rebuild."""
+        out = self._target(tmp_path, "lakedepth_3857.tif", 10, 9, (0.0, 10.0, 100.0, 100.0))
+        source = tmp_path / "lakedepth.vrt"
+        source.write_text("vrt")
+        _age(source, 500)
+        assert shade_planet.is_stale(out, source) is False, "the source alone must look fresh"
+        assert shade_planet.warp_needs_rebuild(out, GRID, source) is True
+
+    def test_moved_source_on_grid_rebuilds(self, tmp_path):
+        """The is_stale half still fires: a re-released source newer than the output rebuilds even
+        when the grid is unchanged."""
+        out = self._target(tmp_path, "seaice_3857.tif", 10, 10, (0.0, 0.0, 100.0, 100.0))
+        source = tmp_path / "seaice.nc"
+        source.write_text("re-released")  # written now -> newer than the output's marker
+        assert shade_planet.warp_needs_rebuild(out, GRID, source) is True
 
 
 class TestWriteIfChanged:
@@ -190,6 +276,14 @@ class TestCompositeParams:
         fresh (the untracked-input trap that let snow's RAMP_* slip)."""
         before = shade_planet.composite_params({None: None})
         monkeypatch.setattr(seaice, "ICE_LO", seaice.ICE_LO + 0.1)
+        assert shade_planet.composite_params({None: None}) != before
+
+    def test_the_toned_sh_sea_ice_is_recorded(self, monkeypatch):
+        """SH_ICE_LO/SH_ICE_MAX_ALPHA tone the Antarctic pack at composite time (southern windows),
+        so like the ICE_LO globals they must ride here -- else a re-tune leaves a stale planet_rgb
+        looking fresh (the untracked-input trap that let snow's RAMP_* slip)."""
+        before = shade_planet.composite_params({None: None})
+        monkeypatch.setattr(seaice, "SH_ICE_LO", seaice.SH_ICE_LO + 0.05)
         assert shade_planet.composite_params({None: None}) != before
 
     def test_a_sea_ice_colour_change_is_recorded(self, monkeypatch):

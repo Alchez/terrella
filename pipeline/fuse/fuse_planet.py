@@ -46,6 +46,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import rasterio
+
 from pipeline.acquire.download_glo30 import DATA_DIR, TILE_LIST, in_extent, parse_tile_name
 
 RES_ARCSEC = 10
@@ -111,7 +113,33 @@ def mem_available_gib() -> float:
     return 0.0
 
 
-def fuse_cell(name: str, bounds) -> tuple[str, str]:
+def enforce_land_guard(outdir: Path) -> bool:
+    """True if the fused ocean mask holds at least one land pixel; on pure ocean, fail the cell.
+
+    Closes the stale-mosaic route around the coverage oracle (found 2026-07-22, when the
+    first Antarctic sweep fused the whole continent as ocean): every listed tile can be on
+    disk while dem_mosaic.vrt / wbm_mosaic.vrt predate the download — a VRT enumerates its
+    sources at build time, so the tiles are invisible to fusion, and the in-window gap
+    check stays silent because its land definition reads the same stale mosaic. The one
+    input that cannot go stale is the OUTPUT: a cell tileList calls land must fuse to at
+    least one land pixel. On zero, write error.log and delete the outputs so the resume
+    contract retries the cell instead of trusting it.
+    """
+    with rasterio.open(outdir / f"oceanmask_{TAG}.tif") as mask:
+        for _block_index, window in mask.block_windows(1):
+            if not (mask.read(1, window=window) == 1).all():
+                return True
+    (outdir / "error.log").write_text(
+        "LAND GUARD: tileList lists land tiles for this cell, but the fused ocean mask is "
+        "100% ocean. The DEM/WBM mosaics are almost certainly stale (a VRT enumerates its "
+        "sources at build time) — run pipeline/fuse/build_mosaics.sh, then re-run the "
+        "sweep. Outputs were deleted so this cell retries.\n")
+    for layer in ("heightfield", "oceanmask", "watermask"):
+        (outdir / f"{layer}_{TAG}.tif").unlink(missing_ok=True)
+    return False
+
+
+def fuse_cell(name: str, bounds, expect_land: bool) -> tuple[str, str]:
     """Fuse one cell in an isolated subprocess. Returns (name, status)."""
     outdir = CHUNKS_DIR / name
     if (outdir / f"heightfield_{TAG}.tif").exists():
@@ -124,6 +152,8 @@ def fuse_cell(name: str, bounds) -> tuple[str, str]:
     if result.returncode != 0:
         outdir.mkdir(parents=True, exist_ok=True)
         (outdir / "error.log").write_text(result.stdout + "\n" + result.stderr)
+        return name, "failed"
+    if expect_land and not enforce_land_guard(outdir):
         return name, "failed"
     if "WARNING: COVERAGE GAP" in result.stdout:
         return name, "warned"
@@ -219,7 +249,7 @@ def main() -> int:
         print(f"--allow-incomplete: proceeding with {len(selected_incomplete)} partial land "
               f"cells (their un-downloaded interiors will render as ocean)", flush=True)
 
-    pending = [(name, bounds) for name, bounds, _listed, _missing in selected]
+    pending = [(name, bounds, bool(listed)) for name, bounds, listed, _missing in selected]
 
     need = args.workers * GIB_PER_WORKER
     avail = mem_available_gib()
@@ -232,8 +262,8 @@ def main() -> int:
     tally: dict[str, int] = {"ok": 0, "warned": 0, "skipped": 0, "failed": 0}
     flagged: list[str] = []
     with cf.ThreadPoolExecutor(args.workers) as pool:
-        futures = {pool.submit(fuse_cell, name, bounds): name
-                   for name, bounds in pending}
+        futures = {pool.submit(fuse_cell, name, bounds, expect_land): name
+                   for name, bounds, expect_land in pending}
         for done, fut in enumerate(cf.as_completed(futures), 1):
             name, status = fut.result()
             tally[status] += 1

@@ -31,15 +31,15 @@ cut, and it dropped `--resume` (cutting clean each time, so a truncated png can'
 
 | # | Stage | First run | Re-run (fresh) | Output | Guard |
 |---|---|---|---|---|---|
-| 0 | `fuse/fuse_planet.py` — 540 cells @ 10″, 12 workers *(separate command)* | **~15 min** (43 s/dense cell) | skip | `work/planet/chunks/` (540 cells) + 3 VRTs, 12 GB | per-cell exists() |
-| 1 | warp height → 3857 | **5 min** (486% CPU, 17 threads) | ~0 s | `height_3857.tif` 31 GB | `is_stale` |
-| 2 | warp ocean + water masks → 3857 | **< 1 min** | ~0 s | 69 MB | `is_stale` |
-| 3 | warp GLOBathy lake depth → 3857 | **1:01:38** (nodata-masker-bound, 102% CPU) | ~0 s | `lakedepth_3857.tif` 310 MB | `is_stale` |
-| 3b | warp snow persistence (banded) + rasterize glaciers + warp sea ice (banded) → 3857 (opt #4 / sea ice) | **sea-ice ~9:17**; snow + glaciers folded into the 2026-07-18 opt-#4 pass, not separately timed | ~0 s | `snow_persistence_3857.tif` 7.5 GB, `glacier_3857.tif` 23 MB, `seaice_3857.tif` 11 GB | `is_stale` |
-| 4 | `render/hillshade.py` — per-row z-factor **+ fill sun** | **11:48** (1.17 cores, 44.9 MB/s r) | ~0 s | `hs_3857.tif` 7.4 GB | `is_stale` |
-| 5 | `global_occlusion` — sky-view factor | **2:44** (0.78 cores, **193 MB/s r** — I/O-bound) | ~0 s | in-memory only | **lazy** (2026-07-17) |
-| 6 | `composite_planet` — ramps × hillshade × SVF + snow + sea ice + lake depth | **10:45 threaded 128/N4** (peak **10.55 GiB**); was **49:40** serial 256 | ~0 s | `planet_rgb.tif` 11 GB | `is_stale` |
-| 7 | `build_tiles` — `gdal raster tile` z0–8 | **3:32** (12.0 of 16 cores, 502 MB/s read) | **skip** (guarded 2026-07-20) | `tiles/` 15 GB, 62,177 tiles | `tiles.done` |
+| 0 | `fuse/fuse_planet.py` — 648 cells @ 10″, 12 workers *(separate command; run `build_mosaics.sh` first after any tile download — a stale mosaic fuses new land as ocean, 2026-07-22)* | **~15 min** (43 s/dense cell; the 108 polar cells ~2 min total — GLO-30 thins toward the pole) | skip | `work/planet/chunks/` (648 cells) + 3 VRTs, 14 GB | per-cell exists() |
+| 1 | warp height → 3857 | **6:49** (2026-07-22, 131072-row grid; was 5 min at 93009) | ~0 s | `height_3857.tif` 44 GB | `is_stale` |
+| 2 | warp ocean + water masks → 3857 | **~3:30** (1:45 + 1:47; was < 1 min at the old grid) | ~0 s | 69 MB | `warp_needs_rebuild` |
+| 3 | warp GLOBathy lake depth → 3857 | **1:01:44** (nodata-masker-bound, 102% CPU) — **UNCHANGED by the Antarctic rows**: no lakes south of −60, the cost lives in the 50–70°N belt | ~0 s | `lakedepth_3857.tif` 310 MB | `warp_needs_rebuild` |
+| 3b | warp snow persistence (banded) + rasterize glaciers + warp sea ice (banded) → 3857 (opt #4 / sea ice) | **snow 15:16, glaciers 0:19, sea-ice 14:42** (2026-07-22 grid; sea-ice was ~9:17) | ~0 s | `snow_persistence_3857.tif`, `glacier_3857.tif`, `seaice_3857.tif` | `warp_needs_rebuild` |
+| 4 | `render/hillshade.py` — per-row z-factor **+ fill sun** | **16:20** (2026-07-22 grid; was 11:48) | ~0 s | `hs_3857.tif` | `is_stale` |
+| 5 | `global_occlusion` — sky-view factor | **3:23** (2026-07-22 grid; was 2:44 — I/O-bound) | ~0 s | in-memory only | **lazy** (2026-07-17) |
+| 6 | `composite_planet` — ramps × hillshade × SVF + snow + sea ice + lake depth | **21:37 threaded 128/N4, 1024 windows** (2026-07-22 grid; was 13:28 at 727 windows with sea ice — per-window +14%, the Antarctic windows are all snow+ice work) | ~0 s | `planet_rgb.tif` 12 GB | `is_stale` |
+| 7 | `build_tiles` — `gdal raster tile` z0–8 | **4:19** (2026-07-22 grid; was 3:32) | **skip** (guarded 2026-07-20) | `tiles/` 16 GB, z8 rows now reach y=255 | `tiles.done` |
 
 Stages 4–7 re-measured **2026-07-17** on the fill-sun pass (`run_pass.sh --tiles`, exit 0, **67:44 total**),
 which is also the first run to record **cores and disk rate per stage** — PROCESS.md previously had wall
@@ -60,19 +60,26 @@ times only, which is why "is the hillshade compute- or I/O-bound?" was unanswera
   4 workers under the cap — 256/N3 OOMs. It shifts the look sub-perceptibly (worst 20 DN on mountain snow,
   invisible at true scale). → HISTORY § 2026-07-18 — the composite is threaded.
 
+**The 2026-07-22 Antarctica pass re-measured every stage at the permanent 131072-row grid** (the fill:
+93009 → 131072 rows, 1.41×; `run_pass.sh --tiles`, exit 0, **2:28:01 total** — dominated by the one-time
+grid-guarded re-warps, chiefly the 1:01:44 lake warp). Stage numbers above are the ones to quote now; the
+old-grid values stay in parens. Guard column: `warp_needs_rebuild` = mtime **or** off-grid (the 2026-07-22
+grid-freshness fix) — those stages restaged on this pass *because* the grid grew, and will again only if
+it grows again (z10).
+
 **End-to-end, measured:**
 
 | Scenario | Wall | Notes |
 |---|---|---|
-| **A hillshade-stage re-tune** (`fill_strength` → live tiles) | **~29 min** (was 67:44) | the 67:44 measured 2026-07-17 embedded the SERIAL composite (49:40); with #5 threaded it is hillshade 11:48 + SVF 2:44 + composite 10:45 + tile cut 3:32 ≈ 29 min. Warps all skip. |
+| **A hillshade-stage re-tune** (`fill_strength` → live tiles) | **~46 min** at the 2026-07-22 grid (was ~29) | hillshade 16:20 + SVF 3:23 + composite 21:37 + tile cut 4:19 ≈ 46 min. Warps all skip. |
 | **A composite-stage re-tune** (`snow_curve` → live tiles) | **~17 min** (was 55:48) | 2026-07-17 gamma8 was SVF 2:44 + composite **49:33** + tiles 3:28 = 55:48. With #5 landed (128/N4) the composite is **10:45**, so a composite-knob iteration is now **≈ 2:44 SVF + 10:45 + 3:32 tiles ≈ 17 min** — the ~3× that motivated Phase B, and it matters most for Antarctica's many ice-look iterations. |
-| **A sea-ice recomposite** (`ICE_LO` → live tiles) | **~19.6 min** | 2026-07-20. Warps skip (`seaice_3857` fresh); SVF 2:44 + composite **13:28** (727 win, threaded 128/N4) + tile cut 3:27 ≈ 19.6 min. The composite is **+2:43 over the 10:45 no-ice pass** — the per-window sea-ice slice read + ocean-gated blend. The FIRST sea-ice pass also paid the one-time **banded `seaice_3857` warp ~9:17** (coarse 25 km source → banded like snow). **Re-confirmed 2026-07-21 at 19:32** on the `ambient_knee` pass (SVF 2:36 + composite 13:28 + cut 3:28) — this row is the number to quote for any composite-knob iteration now that sea ice is in. |
+| **A sea-ice recomposite** (`ICE_LO` → live tiles) | **~19.6 min** | 2026-07-20. Warps skip (`seaice_3857` fresh); SVF 2:44 + composite **13:28** (727 win, threaded 128/N4) + tile cut 3:27 ≈ 19.6 min. The composite is **+2:43 over the 10:45 no-ice pass** — the per-window sea-ice slice read + ocean-gated blend. The FIRST sea-ice pass also paid the one-time **banded `seaice_3857` warp ~9:17** (coarse 25 km source → banded like snow). **Re-confirmed 2026-07-21 at 19:32** on the `ambient_knee` pass (SVF 2:36 + composite 13:28 + cut 3:28). **2026-07-22 grid: a composite-knob iteration is now ≈ 3:23 SVF + 21:37 composite + 4:19 cut ≈ ~29 min** — the number to quote (Antarctica grew the grid 1.41× and its windows are all snow+ice work). |
 | Everything cold, shade only | **~72 min** (pre-#5) → **~35 min** now | the 2026-07-16 ~72 min embedded the serial composite (~49 min); with #5 threaded (composite 10:45) a cold shade is ~35 min. Both exclude the one-time lake warp + fuse. |
 | `--tiles`, everything fresh | **~0.4 s** | `build_tiles` guarded 2026-07-20 — was ~3:45 (the 3:32 cut always re-ran, other stages skipped) before the `tiles.done` sentinel |
 | No `--tiles`, everything fresh | **0.29 s** | every stage skips; this is the guard working |
 | Lake-depth warp (stage 3) | **1:01:38** | one-time; its `.done` is what stops a pass paying that hour again |
 | **Cast shadows** (`shadow_strength` > 0) | **+0.625 s/Mpx** measured; est. **+2.1 h** on the planet hillshade at `shadow_reach=300` | 2026-07-21, Iran region A/B (`e040_n30 e050_n30`, 32.4 Mpx): 16.73 s control → 37.01 s with shadows, **+121%**, peak RSS unchanged at 6.3 GB (the wide halo costs time, not memory). The march is `reach_px` full-raster passes, so cost is **linear in `shadow_reach`**: 300 px → ~2.6 h full pass, 150 px → ~1.6 h, 100 px → ~1.2 h. 300 px covers 6,115 m of relief; 150 px covers 3,057 m. `shadow_strength` is hillshade-stage, so any change restages hillshade → composite → tiles. |
-| **Polar cap render** (`pipeline/tile/cap_render.py`) | **~43 s** both caps (**0:21** north alone), peak ~4 GiB | 2026-07-20. AEQD 4096² warps of source rasters (height/ocean/water/snow/sea-ice) + the shared `shade.composite` + baked coastline → `web/public/dev-assets/cap_north.png` + `cap_south.png` (15 / 19 MB). The fast browser-free pole-look loop — the old `disc_preview.py` scratch tool is superseded. The south cap is GEBCO-direct Antarctica. → HISTORY § the polar cap: flat fails |
+| **Polar cap render** (`pipeline/tile/cap_render.py`) | **~43 s** both caps (**0:21** north alone), peak ~4 GiB | 2026-07-20. AEQD 4096² warps of source rasters (height/ocean/water/snow/sea-ice) + the shared `shade.composite` + baked coastline → `web/public/dev-assets/cap_north.png` + `cap_south.png` (15 / **4.5** MB — the south shrank 19 → 4.5 MB with the 2026-07-22 `edge_lat −55 → −78` cap shrink; the pyramid carries Antarctica now). The fast browser-free pole-look loop — the old `disc_preview.py` scratch tool is superseded. The south cap sources the fused planet VRTs (GEBCO-direct retired 2026-07-22). **Freshness-guarded since 2026-07-22** (recipe sidecar on `composite_params` + source mtimes; `shade_planet`'s pass tail invokes it, so the caps restage whenever the look does — a fresh check is ~2 s). → HISTORY § the polar cap: flat fails |
 
 **What a knob actually restages** (measured, not inferred — `fill_strength` + `hi`, 2026-07-17): all
 warps skip, including the 1:01:38 lake warp. A **hillshade-stage** knob (`fill_strength`, tracked in

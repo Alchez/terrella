@@ -278,6 +278,7 @@ import Base from "../layouts/Base.astro";
     "Copernicus DEM GLO-30 · GEBCO 2026 · NSIDC-0791 snow · RGI 7.0 glaciers · GLOBathy lake depth · OSI SAF sea ice · Natural Earth";
 
   const map = new maplibregl.Map({
+    // Dev handle for console/automation debugging (used to diagnose the 2026-07-22 polar ring)
     container: "globe",
     style: {
       version: 8,
@@ -307,6 +308,7 @@ import Base from "../layouts/Base.astro";
     dragRotate: true,
     attributionControl: false, // re-added bottom-left below, clear of the border toggle
   });
+  (window as unknown as { __map: maplibregl.Map }).__map = map;
 
   map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-right");
   map.addControl(new maplibregl.GlobeControl(), "top-right"); // globe⇄flat toggle

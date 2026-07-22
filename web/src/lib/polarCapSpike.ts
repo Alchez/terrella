@@ -45,13 +45,15 @@ const SOUTH_CAP: CapOptions = {
   layerId: "polar-cap-south",
   textureUrl: "/dev-assets/cap_south.png",
   poleLat: -90,
-  latBottom: -56.5, // mesh 56.5°S → 90°S (just equatorward of the feather, inside the texture)
-  texEdgeLat: -55, // cap_render.py SOUTH edge_lat
-  featherLo: 57,
-  // Opaque poleward of 59.5°S, aligned EXACTLY to shade_planet CAP_SOUTH = −59.5 (where the pale
-  // Mercator plug begins), so that bright plug never bleeds through a partly-transparent cap as a
-  // halo ring — the north does the same (featherHi 84 == CAP_NORTH 84). Transparent by 57°S.
-  featherHi: 59.5,
+  latBottom: -80, // mesh 80°S → 90°S — the exact mirror of the north
+  texEdgeLat: -78, // cap_render.py SOUTH edge_lat
+  featherLo: 81,
+  // Opaque poleward of 84°S, aligned EXACTLY to shade_planet CAP_SOUTH = −84 (where the flat
+  // Mercator plug begins), so that plug never bleeds through a partly-transparent cap as a halo
+  // ring — the mirror of featherHi 84 == CAP_NORTH 84. Transparent by 81°S: the pyramid carries
+  // real Antarctica to the −85.06° Mercator limit (2026-07-22), so the crossfade sits entirely
+  // over featureless interior ice instead of open Southern Ocean.
+  featherHi: 84,
 };
 
 /** Unit-sphere position for a lng/lat, in MapLibre's globe convention (North Pole = (0, 1, 0)). */
@@ -105,7 +107,13 @@ void main() {
     vec4 c = texture(u_tex, v_uv);
     float absLat = ${poleSign} * v_lat;     // |lat| for either pole
     float feather = smoothstep(${opts.featherLo.toFixed(1)}, ${opts.featherHi.toFixed(1)}, absLat);
-    fragColor = vec4(c.rgb, c.a * feather);
+    // PREMULTIPLIED output — the custom-layer contract: MapLibre's framebuffer holds
+    // premultiplied colors. The straight-alpha vec4(c.rgb, a) + SRC_ALPHA blending violated it
+    // and painted a brighter-than-both-layers swell along the feather band, which 8-bit
+    // quantization then rendered as concentric contour arcs — THE polar ring (2026-07-22),
+    // which tracked the cap↔tile boundary through the Antarctica re-fuse.
+    float a = c.a * feather;
+    fragColor = vec4(c.rgb * a, a);
 }`;
 }
 
@@ -200,7 +208,13 @@ function addPolarCap(map: MaplibreMap, opts: CapOptions): void {
       image.onload = () => {
         gl.bindTexture(gl.TEXTURE_2D, this.texture!);
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        // Mipmapped minification, not plain LINEAR: at low zoom the 4096² cap shrinks ~100:1 on
+        // screen, and bilinear sampling of 4 texels per ~40×40-texel block aliases the fine relief
+        // detail — on this radial polar mapping the alias energy reads as CONCENTRIC RINGS around
+        // the pole, strongest zoomed out and gone by ~z8 (diagnosed 2026-07-22 after every
+        // texture-side tone fix left the ring visually unchanged).
+        gl.generateMipmap(gl.TEXTURE_2D);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
@@ -237,7 +251,11 @@ function addPolarCap(map: MaplibreMap, opts: CapOptions): void {
 
       const blendWas = gl.isEnabled(gl.BLEND);
       gl.enable(gl.BLEND);
-      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+      // Premultiplied-color blend (pairs with the shader's premultiplied output), and the alpha
+      // channel pinned to the DESTINATION: the old SRC_ALPHA blend also wrote α²+(1−α) into the
+      // canvas's own alpha, making the map canvas translucent along the feather band — Chrome then
+      // composited the dark starfield page through the globe there (the ring's second ingredient).
+      gl.blendFuncSeparate(gl.ONE, gl.ONE_MINUS_SRC_ALPHA, gl.ZERO, gl.ONE);
       gl.drawElements(gl.TRIANGLES, this.indexCount!, gl.UNSIGNED_SHORT, 0);
 
       // Restore GL state (custom-layer contract): don't leak BLEND or the attrib arrays downstream.

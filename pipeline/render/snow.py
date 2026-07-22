@@ -178,3 +178,22 @@ def snow_alpha(persistence, top, bottom):
     high = high.reshape(-1, 1)
     fraction = np.clip((persistence - low) / np.maximum(1e-6, high - low), 0.0, 1.0)
     return fraction * fraction * (3.0 - 2.0 * fraction)
+
+
+def antarctic_snow_mask(land, latitude, lat_max=-60.0):
+    """1.0 where Antarctic land must be forced permanent-ice white, else 0.0 (float32).
+
+    Antarctica has no snow dataset in this pipeline: NSIDC-0791 persistence is NH-only and RGI region
+    19 is excluded, so `snow_alpha` and the glacier union are both zero over the continent -- left alone
+    it would render on the tan LAND ramp. The tile composite and the south cap both force it white by a
+    latitude+land rule instead, and this is the one home for that rule so the two agree across the seam.
+
+    `land` is a 2-D boolean. `latitude` is either per-row (1-D, the Mercator tile path) or per-pixel
+    (2-D, the AEQD cap); a 1-D array is broadcast down `land`'s columns. The whole Antarctic Peninsula
+    is south of -60, so lat_max=-60 covers the continent; only tiny sub-Antarctic islands north of it
+    stay bare (deferred RGI-19 polish).
+    """
+    cold = np.asarray(latitude) < lat_max
+    if cold.ndim == 1:
+        cold = cold[:, None]
+    return (np.asarray(land) & cold).astype(np.float32)
