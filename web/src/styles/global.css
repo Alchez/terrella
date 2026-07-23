@@ -93,73 +93,23 @@ a {
   color: var(--muted);
 }
 
-/* Floating control cluster, bottom-right: the quality selector stacked above the
-   border toggle so they never collide on narrow screens (the globe's own scale +
-   attribution live bottom-left, clear of this). Shown when a page passes either
-   borders={true} or quality={true}. */
-.fab-stack {
+/* The view bar — one floating pill, bottom-right, holding every view option:
+   layer/behavior toggles (Borders, Spin), a hairline divider, then the experience
+   tier (Lite / Globe / Full). One visual system across all of it: ghost text when
+   off, accent fill when on — so the bar reads as "what am I seeing", not a form.
+   (The globe's own scale + attribution live bottom-left, clear of this.) */
+.view-bar {
   position: fixed;
   bottom: 1.2rem;
   right: 1.2rem;
   z-index: 20;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 0.6rem;
-  max-width: calc(100vw - 2.4rem);
-}
-/* The border / quality / spin controls are pure JS enhancements — a dead toggle is
-   worse than none, so hide the cluster when JavaScript is unavailable. */
-.no-js .fab-stack {
-  display: none;
-}
-
-/* Always-reachable labeled toggles (border overlay; globe auto-rotate). */
-.borders-fab,
-.spin-fab {
   display: inline-flex;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.55rem 0.95rem;
-  background: color-mix(in srgb, var(--bg-2) 92%, transparent);
-  -webkit-backdrop-filter: blur(6px);
-  backdrop-filter: blur(6px);
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  box-shadow: var(--shadow);
-  font-size: 0.9rem;
-  color: var(--text);
-  cursor: pointer;
-  user-select: none;
-}
-.borders-fab input,
-.spin-fab input {
-  accent-color: var(--accent);
-  width: 1.05rem;
-  height: 1.05rem;
-  margin: 0;
-}
-/* Spin is unavailable above the overview zoom (see SPIN_MAX_ZOOM): grey it out and
-   signal it's not interactive, rather than letting the toggle silently do nothing. */
-.spin-fab.is-unavailable {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-.spin-fab input:disabled {
-  cursor: not-allowed;
-}
-@media (prefers-reduced-motion: no-preference) {
-  .borders-fab,
-  .spin-fab {
-    transition: box-shadow 0.2s ease;
-  }
-}
-
-/* Quality control (Lite / Globe / Full) — a segmented pill living in .fab-stack. */
-.quality-fab {
-  display: inline-flex;
+  flex-wrap: wrap; /* safety on very narrow screens: the tier segment wraps under */
+  justify-content: flex-end;
   gap: 0.2rem;
   padding: 0.25rem;
+  max-width: calc(100vw - 2.4rem);
   background: color-mix(in srgb, var(--bg-2) 92%, transparent);
   -webkit-backdrop-filter: blur(6px);
   backdrop-filter: blur(6px);
@@ -167,7 +117,13 @@ a {
   border-radius: 999px;
   box-shadow: var(--shadow);
 }
-.quality-fab button {
+/* The view controls are pure JS enhancements — a dead toggle is worse than none,
+   so hide the bar when JavaScript is unavailable. */
+.no-js .view-bar {
+  display: none;
+}
+/* Every button in the bar — direct toggles and the tier segment alike. */
+.view-bar button {
   padding: 0.4rem 0.85rem;
   font: inherit;
   font-size: 0.82rem;
@@ -176,11 +132,45 @@ a {
   border: 0;
   border-radius: 999px;
   cursor: pointer;
+  user-select: none;
 }
-.quality-fab button:hover {
+.view-bar button:hover {
   color: var(--text);
 }
-.quality-fab button.is-active {
+/* Filled = on. Quality buttons keep aria-pressed in sync, so one selector rules all. */
+.view-bar button[aria-pressed="true"] {
   color: var(--bg);
   background: var(--accent);
+}
+/* Spin is unavailable above the overview zoom (see SPIN_MAX_ZOOM): grey it out and
+   signal it's not interactive, rather than letting the toggle silently do nothing. */
+.view-bar button.is-unavailable,
+.view-bar button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.view-bar-divider {
+  width: 1px;
+  align-self: stretch;
+  margin: 0.15rem 0.25rem;
+  background: var(--line);
+}
+.quality-fab {
+  display: inline-flex;
+  gap: 0.2rem; /* container chrome (pill, blur, border) now lives on .view-bar */
+}
+@media (prefers-reduced-motion: no-preference) {
+  .view-bar button {
+    transition:
+      background 0.15s ease,
+      color 0.15s ease;
+  }
+}
+/* Phones: slightly tighter buttons so the full bar sits in one row beside the
+   bottom-left attribution. */
+@media (max-width: 420px) {
+  .view-bar button {
+    padding: 0.35rem 0.7rem;
+    font-size: 0.78rem;
+  }
 }

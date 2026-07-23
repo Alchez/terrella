@@ -115,6 +115,7 @@ Cost: hero sweep **~10–13 h** + tile restage **~29 min** + caps auto-restage *
 | `COORDINATE_PRECISION` (both geojson emitters) | 4 (countries) / 5 (borders) | regen, seconds | HISTORY § blocky hover outline |
 | highlight look (web/src/lib/countryHighlight.ts) | `HIGHLIGHT_GOLD` `#eca834`, casing `#1c140c`, wash 0.16 | `pnpm build` | § Borders |
 | border line ramps (globe.astro `inkWidth`/`casingWidth`) | 0.6→1.7 px ink, 2.2→5.0 px casing over z1–8 | `pnpm build` | § Borders |
+| globe camera flatness (globe.astro `VERTICAL_FIELD_OF_VIEW_DEG`) | 15° — tested band 5–15 (MapLibre default 36.87° reads as low-orbit fisheye; 5° ≈ the hero's orthographic camera) | `pnpm build` | HISTORY § the MapLibre API survey |
 
 ## Levers (play with these)
 

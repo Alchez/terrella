@@ -104,6 +104,10 @@ The log below is **chronological**; this is the view it lacks. Nothing reads thi
 ### Frontend
 *All on `feat/frontend`.*
 
+- [2026-07-23 — the phone ladder verdict: there is no jank — the wait is the loading window itself](#2026-07-23--the-phone-ladder-verdict-there-is-no-jank--the-wait-is-the-loading-window-itself) — the `?perf` overlay + `?bare` flag on the OnePlus **exonerated the main thread entirely**: 250 ms of long tasks TOTAL on the full globe (max 75 ms) — countries JSON.parse and JS boot, both my prime suspects across two rounds, don't even register. What tracks perceived readiness exactly is **`first idle`**: 5193 (full) → 3973 (nocaps) → 1304 ms (bare) — the wait is network transfer (dev-inflated: 9.4 MB identity countries ≈ 2.7 s of it; caps 5.3 MB ≈ 1.2 s) plus GPU-side uploads as content arrives, which the Long-Tasks API structurally cannot see. Verdict: nothing left to fix in page code — **prod serving (gzip/minify/validators) erases most of the window at Phase 4**, and the `cap_render` 4096 WebP rung (mobile fetch 5.3 → ~1.5 MB) graduates from "if it still drags" to data-justified. Diagnostic flags `?perf`/`?bare` stay (the `?nocaps` culture)
+- [2026-07-23 — the phone's first four seconds: the onAdd multiplier fixed, a mobile cap rung, spin waits for idle](#2026-07-23--the-phones-first-four-seconds-the-onadd-multiplier-fixed-a-mobile-cap-rung-spin-waits-for-idle) — Rohan's OnePlus 11R lagged 3–4 s at globe open. The afternoon's "recorded, not chased" find became the prime suspect: **every projection-transition `onAdd` re-fire re-ran fetch → 268 MB decode → 268 MB `texImage2D` upload** and orphaned the old GL objects — and Adreno 730 reports MAX_TEXTURE_SIZE 16384, so the existing clamp never fired (full 8192² uploads, up to ~5× at load). Fixes, all oracle-verified: **`gl.isProgram` re-init guard** (round-trip produced +1 re-init pre-fix, 0 post; loads now exactly 1 init/upload per cap); **`capTextureBudget` mobile rung 4096** (a quality↔cost tier, not resolvability — quarters the upload, ships the previously-judged A/B rung; desktop verified still 8192); **spin defers to first `idle`**. Residue named: mobile still fetches the 8192 WebP (5.3 MB, canvas-downscaled) — a pipeline 4096 rung is the follow-up; dev serving (9.4 MB identity geojson, unminified modules) inflates everything, so the phone test of record is `astro preview --host`
+- [2026-07-23 — the view bar: one control pill; borders become opt-in AND lazy](#2026-07-23--the-view-bar-one-control-pill-borders-become-opt-in-and-lazy) — Rohan's ask (borders off by default, buttons over checkboxes, menu redesign) surfaced a false premise worth recording: **the border toggle already defaulted off** — his session showed on from his own stored preference; what was NOT off was the *loading* (the globe added the 0.55 MB gz source even when hidden). Now: `addBorders()` runs only on the first "rg:borders" on-event (fresh globe downloads zero border bytes; `beforeHighlight` anchor keeps late layers under the gold outline), and the three stray fabs (checkbox Spin/Borders + segmented quality) collapse into **one `.view-bar` pill** extending the quality control's own ghost/filled language — filled = on, `aria-pressed` is the single CSS hook, hairline divider separates layer toggles from tier. Base owns state + broadcasts a CustomEvent; globe only drives layers. Verified live: lazy fetch on real click, z-order, spin availability greying, `--host` dev serving for phone QA
+- [2026-07-23 — the MapLibre API survey: vertical FOV 15 ships, plus the web-hygiene batch](#2026-07-23--the-maplibre-api-survey-vertical-fov-15-ships-plus-the-web-hygiene-batch) — `setVerticalFieldOfView` A/B'd live (36.87/25/15/5, overview + Norway): the default is a **low-orbit fisheye**, 5° ≈ the hero's orthographic camera; **15 ships** (`VERTICAL_FIELD_OF_VIEW_DEG`, tested band 5–15, ART lever row). Same pass: `hash:"map"` shareable-camera URLs (replaceState-verified), `refreshExpiredTiles:false`, `prewarm()`, body-scoped FullscreenControl, **watchdog stage 2** — `setPixelRatio(1)` after spin retirement, ladder in `fpsDegradation.ts` (median-not-mean, 9 vitest). Survey verified against the installed typings: `prefetchZoomDelta`/`FreeCameraOptions` are Mapbox-only. Pre-existing find, PLAN'd: custom-layer `onAdd` re-fires per projection transition
 - [2026-07-23 — the blocky hover outline: a hit-layer geometry had become a display layer (0.05° → 0.002°)](#2026-07-23--the-blocky-hover-outline-a-hit-layer-geometry-had-become-a-display-layer-005--0002) — Rohan's Palawan screenshots: the gold highlight cut straight chords across bays while the raster coast underneath resolved every islet. **Both PLAN suspects innocent** (NE 1:10m has the detail; geojson-vt tolerance already crisp): `countries.geojson` was simplified at **0.05° ≈ 5.5 km ≈ 18 px at z8** for its original life as an *invisible* hit layer — then the 07-19 hover outline started stroking those very rings, and the "not a display layer" premise died silently. Fix: **0.002° (sub-pixel at z8)**, measured size ladder (9.4 MB raw / 2.5 MB gz vs 1.5 / 0.4; async fetch, cached), guard test pins the tolerance **relationally against `shade_planet.Z8_RES`**; verified in-browser on Palawan + Norway fjords (the N–S Mercator worst case). NE-worldview decision NOT re-opened — no finer source needed
 - [2026-07-23 — polar caps PRODUCTIONIZED: WebP at 8192², the caps.json contract, default-on](#2026-07-23--polar-caps-productionized-webp-at-8192-the-capsjson-contract-default-on) — 4096² PNGs (11.1+4.8 MB, dev-assets, `?polarspike`) → **8192² WebP q85 (3.16+2.05 MB)** at `web/public/caps/`, chosen by Rohan on crop A/B + `/globe`; the layer now **fetches `caps.json`** (edge_lat, feather ceiling, URLs — the hand-copied TS literals deleted, encoder quality rides in the freshness recipe); **default ON, `?polarspike` → `?nocaps`**; `MAX_TEXTURE_SIZE` canvas clamp (mobile ships 4096 either way); production re-render proved **byte-identical** to the judged A/B rung; `polarCapSpike.ts` deleted same day (→ `polarCaps.ts`), 8 pipeline + 7 vitest tests; same-day: sync 396 ms/cap `texImage2D` decode → off-thread `createImageBitmap` (premultiplyAlpha "none" — ring chemistry), ~800→~230 ms main-thread
 - [2026-07-19 — hover-highlight pole artifacts: polygon-clip stray line and tile-buffer fill double-paint](#2026-07-19--hover-highlight-pole-artifacts-polygon-clip-stray-line-and-tile-buffer-fill-double-paint) — two country-highlight bugs visible only looking down the pole: (1) a `line`-over-POLYGON strokes geojson-vt's clip-closing edge → stray gold meridian (fix: a `country-outlines` LINE source; **`maxzoom:0` was tried first and WORSENED it**); (2) the translucent fill wash double-paints in the default 128px tile-buffer overlaps, bunched by the pole's compressed tile grid → stronger patch (fix: `buffer:0`). Diagnosed by observation (mouse-off, rotate, pan-to-equator) + measurement, not guessing. Wiring extracted to `lib/countryHighlight.ts` + 11 regression tests
@@ -143,6 +147,161 @@ The log below is **chronological**; this is the view it lacks. Nothing reads thi
 - [2026-07-03 — Project scoped; dev environment decided](#2026-07-03--project-scoped-dev-environment-decided) — project scoped; dev environment decided
 
 ## Decision log
+
+### 2026-07-23 — the phone ladder verdict: there is no jank — the wait is the loading window itself
+
+Rohan ran the three-URL ladder on the OnePlus (Brave), overlay screenshots in decreasing
+order of time-to-responsive. The numbers overturned the diagnosis — both of my ranked
+suspects, twice revised, were wrong, and the measurement is what said so.
+
+- **The main thread is exonerated.** Full globe: **4 long tasks, 250 ms total, 75 ms max**.
+  `?nocaps`: 174 ms. `?bare`: 166 ms. There is no main-thread jank to fix — the countries
+  9.4 MB `JSON.parse` + traversals and the dev-mode JS boot (~450 ms uniform) never block
+  meaningfully. A worker refactor for the countries pipeline would solve a problem that does
+  not exist.
+- **What tracks his perceived readiness exactly: `first idle`** — 5193 ms (full) → 3973
+  (nocaps) → 1304 (bare), matching his reported responsiveness ordering 1:1. The
+  decomposition: **caps ≈ 1.2 s** (5.3 MB fetch + decode + downscale + GPU upload/mipmap),
+  **countries ≈ 2.7 s** (9.4 MB *identity* transfer on the dev server + worker-side parse),
+  **floor ≈ 1.3 s** (JS + tiles + first-use shader compiles). The "unusable" feel during the
+  window is GPU-side: texture uploads as tiles/caps arrive contend with frame presentation —
+  work the Long-Tasks API structurally cannot see (it watches the CPU main thread only).
+- **Consequences:**
+  - **Prod serving is most of the fix and costs nothing new**: gzip cuts countries to 2.5 MB
+    (the dev server serves identity — the phone test of record needs the nginx deploy; `astro
+    preview` can't serve the store routes, they're Vite `configureServer` dev middleware).
+  - **The `cap_render` 4096 WebP rung graduates to data-justified** (mobile fetch 5.3 →
+    ~1.5 MB + ¼ decode; the on-device downscale path already ships) — queued on the PLAN
+    web-polish line.
+  - The earlier fixes stand on their own merits (the onAdd multiplier was real waste; the
+    upload budget quarters GPU work) — they just weren't *this* symptom's cause.
+- Method note for the log: the on-screen overlay + subtractive flag ladder (`?bare` /
+  `?nocaps` / full) attributed a phone-only symptom in one round of user screenshots, no
+  USB debugging — the pattern to reuse. Flags stay in the codebase.
+
+### 2026-07-23 — the phone's first four seconds: the onAdd multiplier fixed, a mobile cap rung, spin waits for idle
+
+Rohan: the globe on his OnePlus 11R (Brave) "lags for the first 3–4 seconds before I can
+normally use it." Diagnosis ranked the suspects; the top one connected two of the day's own
+findings.
+
+- **The mechanism**: MapLibre re-invokes custom-layer `onAdd` on every projection transition
+  (bursts of up to 5 at page load — the afternoon's "recorded, not chased" find), and each
+  naive re-init re-ran the FULL texture chain: fetch → ~268 MB `createImageBitmap` decode →
+  ~268 MB `texImage2D` upload, orphaning the previous GL objects. Desktop shrugged (~117 ms
+  per upload on the 4070 Super); a phone SoC at 3–6× that, several times over, lands squarely
+  in a 3–4 s window that self-resolves — exactly the reported shape. The second ingredient:
+  **Adreno 730 reports MAX_TEXTURE_SIZE 16384**, so the "mobile" clamp never fired and the
+  phone took full 8192² uploads the clamp was assumed to be catching.
+- **Fix 1 — the `gl.isProgram` re-init guard**: resources live on the layer object and the GL
+  context SURVIVES projection transitions, so if the program is still valid in this context,
+  skip the entire re-init; `isProgram` goes false exactly when a rebuild is genuinely needed
+  (context loss/swap). Oracle before/after: a GlobeControl projection round-trip produced +1
+  re-init pre-fix, **0 post-fix**; page loads now log exactly one init + one upload per cap
+  (was ~5 bursts). Also closes the GL-object leak per transition.
+- **Fix 2 — `capTextureBudget`, the mobile rung**: mobile-class devices (UA-Client-Hints,
+  else coarse-pointer — tablets included deliberately) upload at 4096. Recorded honestly as a
+  **quality↔cost tier, not a resolvability limit** — phones RESOLVE 8192 zoomed to a pole
+  (physical pixel counts rival desktops); what they can't afford is the 268 MB upload. 4096
+  quarters it and is the rung the cap A/B already judged. Desktop verified untouched (8192,
+  no downscale log). The clamp plumbing (`clampedTextureSize` + budget param) is unit-tested.
+- **Fix 3 — spin waits for first `idle`**: animating from "load" forced a render per frame
+  through the busiest seconds; the idle spin now starts after the first full render settles.
+  A user toggle still starts it instantly.
+- **Residue, named**: mobile still downloads the 8192 WebP (5.3 MB) and downscales through a
+  canvas — if the phone still drags, `cap_render` should emit a real 4096 rung and caps.json
+  list both (mobile fetch → ~1.5 MB); countries.geojson main-thread parse + traversals remain
+  unmeasured (the `?perf` overlay is the next diagnostic); and dev serving (9.4 MB identity
+  geojson, unminified modules, no validators) inflates everything — the phone test of record
+  is `pnpm build` + `astro preview --host`, not the dev server.
+- Gates: vitest 58 (54 + 4), astro check 0, build 206 pages.
+
+### 2026-07-23 — the view bar: one control pill; borders become opt-in AND lazy
+
+Rohan asked to (a) stop loading borders by default — "the cleaner look is without it, users can
+opt in" — and (b) replace the checkboxes with buttons, or redesign the control menu outright,
+mobile + desktop.
+
+- **The premise check came first and paid**: the border toggle **already defaulted off** for a
+  fresh visitor (`localStorage "rg:borders" === "1"`, unset → off). His globe showed borders on
+  because his own stored preference was "1" from earlier sessions. The real defect was the
+  *loading*: globe.astro added the borders GeoJSON source unconditionally, so the default
+  experience still downloaded 0.55 MB gz (1.95 MB raw) of geometry it never drew. (A near-miss
+  oracle note: my earlier resource probe showed `boundary_lines: 0` fetches — MapLibre fetches
+  GeoJSON sources inside its worker, invisible to the main thread's `performance` timeline.
+  Check the oracle's units before believing a zero.)
+- **Lazy borders**: `addBorders()` now runs at style.load only when opted in, else on the first
+  `"rg:borders"` on-event — a fresh globe downloads zero border bytes. Late-added layers anchor
+  via `beforeHighlight` (`country-hl-casing`) so the gold hover outline stays on top — the
+  style.load ordering, preserved when the order of arrival changes.
+- **The view bar**: the three stray fabs (Spin checkbox, Borders checkbox, segmented quality)
+  collapse into ONE floating pill (`.view-bar`), extending the quality control's established
+  ghost/filled visual language to every control: **filled = on**, `aria-pressed` is the single
+  CSS state hook (the quality script already synced it alongside `is-active`), a hairline
+  divider separates layer/behavior toggles from the experience tier. Checkbox semantics die;
+  buttons with pressed-state fills read as "what am I seeing". Spin's unavailable-above-z3
+  greying moves onto the button itself. Mobile: same bar, tighter paddings ≤420px, flex-wrap
+  as overflow safety — no disclosure widget, fewer moving parts than the old stack.
+- **The contract seam**: Base stays the single writer of persisted state (localStorage + body
+  class) and now broadcasts `CustomEvent("rg:borders")`; the globe listens for the event and
+  only drives map layers — no more page code reading a checkbox's `.checked`, no listener-order
+  coupling on the same element.
+- Dev QA loop: `astro dev --host` is now the default `dev` script (phone testing over LAN).
+- Verified live in Chrome: fresh-visitor state (no source, zero bytes, bar unpressed), real
+  click → lazy fetch + layers mount visible + z-order under the highlight, spin disabled +
+  "Zoom out to spin" at z4.2, gallery steer intact. Gates: astro check 0, vitest 54, build 206.
+
+### 2026-07-23 — the MapLibre API survey: vertical FOV 15 ships, plus the web-hygiene batch
+
+Rohan asked which MapLibre APIs we aren't using, for performance or looks. The survey was
+grounded in what globe.astro actually calls and verified against the installed 5.24.0 typings —
+which killed two candidates I'd have pitched from memory: `prefetchZoomDelta` and
+`FreeCameraOptions` **do not exist in MapLibre** (Mapbox-only). One grep, two retracted claims.
+
+- **The headline: `setVerticalFieldOfView` 36.87° → 15°** (`VERTICAL_FIELD_OF_VIEW_DEG`,
+  globe.astro; ART lever index, no-re-render tier). A/B'd live at 36.87/25/15/5 on the overview
+  and on Norway at z4.2, screenshot pairs to Rohan:
+  - The default reads like a low-orbit fisheye — shapes smear into the limb at overview (India
+    and Madagascar illegible), and zoomed in, Iceland/Greenland lean away at the frame corners.
+  - **5° is effectively orthographic — the hero camera.** Low FOV converges the globe toward the
+    hero framing as you zoom; that consistency is the aesthetic argument for flattening.
+  - **Rohan chose 15** — near-flat country views, a whisper of roundness at overview. The tested
+    band 5–15 is recorded at the constant for retuning. Globe diameter moves only ~13% across the
+    whole band, so the initial framing survives untouched.
+- **The hygiene batch, same globe.astro pass:**
+  - `hash: "map"` — camera in the URL fragment: shareable views, and reload restores (verified:
+    `#map=4.2/64/8` round-trips through a reload to the exact camera + FOV). `replaceState`
+    semantics confirmed — history.length flat across moves, so the idle spin cannot spam
+    history. No collision with `?pmtiles`/`?nocaps` (fragment vs search string).
+  - `refreshExpiredTiles: false` — the pyramid is immutable by design; stop tracking per-tile
+    HTTP expiry.
+  - `maplibregl.prewarm()` before the pmtiles dynamic import — the worker pool spins up while
+    the module loads instead of lazily at Map construction.
+  - `FullscreenControl({ container: document.body })` — fullscreen the PAGE, not `#globe`: the
+    floating UI (gallery link, detail card, fab stack) are siblings of the map container and
+    would vanish inside a container-scoped fullscreen. Verified live, every control intact.
+  - **The FPS watchdog gains stage 2**: sustained-slow → retire the spin (existing) → still
+    slow → `map.setPixelRatio(1)` (~4× fewer fragments at DPR 2). Ladder + thresholds moved to
+    `web/src/lib/fpsDegradation.ts` (the countryHighlight factoring precedent), 9 vitest tests:
+    **median-not-mean is load-bearing** (GC/decode hitches must never degrade the globe), each
+    stage must earn its own fresh sustained-slow window, and a 1× screen has nothing to drop
+    (Rohan's desktop is DPR 1 — the lever exists for hi-DPI mobile, where the Full tier meets
+    weak GPUs).
+- **Found while verifying, recorded rather than chased:** `[caps] added` logs show custom-layer
+  `onAdd` re-firing in bursts of 2–5 per page load — present in the console history hours before
+  this batch (pre-existing). Mechanism pinned live: one GlobeControl projection round-trip fires
+  exactly one extra `onAdd` — **MapLibre re-initializes custom layers on projection
+  transitions**, and load-time internal transitions explain the bursts. The polarCaps
+  `getLayer` guard keeps it correct (resource probe: countries.geojson, caps.json, both cap
+  textures fetched exactly once; exactly 2 polar layers) — the waste is mesh rebuild + texture
+  re-upload, not duplicate fetches or wrong pixels. → PLAN Phase 4.
+- **Deferred with named homes:** hovered-country name chip (the gold outline names nothing — a
+  design pass, not a rider); `webglcontextlost` reload hint; `setMaxParallelImageRequests`
+  (first paint ≈40 tile requests vs the default cap of 16 — unmeasurable on localhost, belongs
+  to the Phase 4 Lighthouse pass). Already parked elsewhere: terrain + `TerrainControl`
+  (Phase 5 Tier 3), raster colour knobs + `setStyle(transformStyle)` (FUTURE § look presets).
+- Gates: vitest 54 (45 + 9 new), astro check 0, build 206 pages. Live round in Chrome: FOV,
+  hash round-trip, fullscreen, console clean of errors.
 
 ### 2026-07-23 — PROCESS.md goes dateless: the measurement diary consolidates here, numbers become config-qualified
 

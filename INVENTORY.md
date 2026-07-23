@@ -77,7 +77,7 @@
 | CSS + small chunks (polarCaps, capability probe) | ~15 KB total | same | same | `web/dist/_astro/` |
 | relief tiles | ~190 KB avg/tile (16 GB ÷ 87,381), viewport-driven | `/tiles/{z}/{x}/{y}.png` from the XYZ dir | **range requests into `planet.pmtiles`** — measured: first paint ≈ 40 requests, FCP 52 ms | `tiles/` (dev) / `planet.pmtiles` (prod) |
 | polar caps | 3.2 + 2.1 MB WebP + `caps.json` (fetched eagerly at globe load; decode off-thread) | identical | identical — WebP ships pre-compressed | `web/public/caps/` |
-| `boundary_lines.geojson` | 0.55 MB gz (1.95 MB raw) | uncompressed | nginx gzip | `work/borders/` |
+| `boundary_lines.geojson` | 0.55 MB gz (1.95 MB raw) — **opt-in only**: fetched on the first Borders toggle-on, never by default | uncompressed | nginx gzip | `work/borders/` |
 | `countries.geojson` | 2.5 MB gz (9.4 MB raw at the 0.002° guard-tested tolerance) | uncompressed | nginx gzip | `work/borders/` |
 | hero variants (gallery srcset + globe click panel) | 0.7 / 2.3 / 6.9 MB per rung (France 1920/3840/7680 WebP) + border overlays 0.14–1.1 MB PNG | `loading="lazy"`, srcset picks the rung | same | `blender/renders/variants/` |
 
@@ -90,8 +90,9 @@ Dev–prod differences that matter:
   aggressive cache headers.
 - **Tile source** — dev default is the XYZ directory; PMTiles is `?pmtiles` in dev and becomes
   the only prod path (one file, range requests, no tile server).
-- Both `.geojson` fetches run on every globe load (the borders *source* is added even while the
-  toggle is off; countries drives interactivity) — async, first paint never waits on them.
+- `countries.geojson` fetches on every globe load (it drives interactivity); `boundary_lines`
+  loads only after the user opts into borders (the source is added lazily on first toggle-on,
+  and the stored preference re-adds it on later visits) — async, first paint never waits.
 
 ## The freshness guard (why no manual `rm` list is ever needed)
 

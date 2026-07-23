@@ -269,6 +269,12 @@ import Base from "../layouts/Base.astro";
     fillLayer,
     highlightLayers,
   } from "../lib/countryHighlight";
+  import {
+    DEGRADED_PIXEL_RATIO,
+    MAXIMUM_SAMPLE_COUNT,
+    isSustainedSlow,
+    nextDegradationAction,
+  } from "../lib/fpsDegradation";
 
   // `Country` (imported from ../lib/manifest) is the shape of the objects the
   // click/hover/panel handlers pass around.
@@ -285,7 +291,17 @@ import Base from "../layouts/Base.astro";
   // web side stops repeating them. Registered before the Map is constructed (the
   // style references the protocol at load); dynamic import so the default path pays
   // zero bundle cost. Same-pixels-either-way is the ratification criterion.
-  const usePmtiles = new URLSearchParams(location.search).has("pmtiles");
+  // Spin up MapLibre's shared worker pool now — it's otherwise created lazily at Map
+  // construction, so on the pmtiles path the workers start while the module below loads.
+  maplibregl.prewarm();
+
+  // One parse for every URL flag. ?pmtiles = the packaged-archive source; the rest are
+  // diagnostics in the ?nocaps tradition (layer-on/off isolation): ?bare strips every
+  // non-tile layer (caps, countries, borders, highlight) to expose the raster baseline,
+  // ?perf mounts the on-screen long-task overlay (phones have no devtools console).
+  const urlFlags = new URLSearchParams(location.search);
+  const usePmtiles = urlFlags.has("pmtiles");
+  const bareDiagnostic = urlFlags.has("bare");
   if (usePmtiles) {
     const { Protocol } = await import("pmtiles");
     maplibregl.addProtocol("pmtiles", new Protocol().tile);
@@ -305,6 +321,13 @@ import Base from "../layouts/Base.astro";
         maxzoom: 8, // the pyramid ceiling
         attribution: CREDITS,
       };
+
+  // Vertical field of view — MapLibre's 36.87° default reads like a low-orbit fisheye:
+  // shapes smear into the limb at overview and lean away near the frame edges zoomed in.
+  // Lower flattens the projection toward the heroes' orthographic camera. A/B'd live at
+  // 36.87/25/15/5: country views are near-flat by 15, and 5 is effectively orthographic.
+  // 15 keeps a whisper of roundness at overview; retune within the tested 5–15 band.
+  const VERTICAL_FIELD_OF_VIEW_DEG = 15;
 
   const map = new maplibregl.Map({
     // Dev handle for console/automation debugging (used to diagnose the 2026-07-22 polar ring)
@@ -326,12 +349,22 @@ import Base from "../layouts/Base.astro";
     minZoom: 0.4,
     maxZoom: 8, // never reach the z12 globe→mercator auto-switch
     dragRotate: true,
+    // Camera in the URL fragment (#map=zoom/lat/lng/…): views become shareable links and
+    // reload restores the position — a present fragment overrides center/zoom above. Our
+    // feature flags (?pmtiles, ?nocaps) live in the search string, so no collision.
+    hash: "map",
+    // The pyramid is immutable by design — never re-request tiles on HTTP expiry.
+    refreshExpiredTiles: false,
     attributionControl: false, // re-added bottom-left below, clear of the border toggle
   });
+  map.setVerticalFieldOfView(VERTICAL_FIELD_OF_VIEW_DEG);
   (window as unknown as { __map: maplibregl.Map }).__map = map;
 
   map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-right");
   map.addControl(new maplibregl.GlobeControl(), "top-right"); // globe⇄flat toggle
+  // Fullscreen the PAGE, not the map container: the floating UI (gallery link, detail
+  // card, toggle stack) are siblings of #globe and would vanish if only it went fullscreen.
+  map.addControl(new maplibregl.FullscreenControl({ container: document.body }), "top-right");
   map.addControl(new maplibregl.ScaleControl({ maxWidth: 120, unit: "metric" }), "bottom-left");
   map.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-left");
 
@@ -341,12 +374,18 @@ import Base from "../layouts/Base.astro";
   // 2026-07-22 polar ring was isolated by exactly that comparison. Config comes from the
   // pipeline-emitted /caps/caps.json (fetched inside addPolarCaps); dynamic import keeps the
   // globe bundle lean.
-  if (!new URLSearchParams(location.search).has("nocaps")) {
+  if (!urlFlags.has("nocaps") && !bareDiagnostic) {
     map.on("style.load", () => {
       void import("../lib/polarCaps")
         .then((mod) => mod.addPolarCaps(map))
         .catch((err) => console.error("[caps] failed", err));
     });
+  }
+
+  // Performance overlay (?perf): on-screen numbers for phone diagnosis; dynamic import so
+  // the normal path pays zero bundle cost.
+  if (urlFlags.has("perf")) {
+    void import("../lib/perfOverlay").then((mod) => mod.mountPerfOverlay(map));
   }
 
   // Attribution on small screens: (1) it must FLOAT ABOVE the bottom-right controls
@@ -434,15 +473,19 @@ import Base from "../layouts/Base.astro";
     };
     const casing = { "line-color": "#2b2118", "line-opacity": 0.85, "line-blur": casingBlur };
     const ink = { "line-color": "#ffffff", "line-opacity": 0.95 };
+    // Borders load LAZILY (first toggle-on may arrive long after style.load), so the
+    // hover-highlight layers can already exist — anchor below them to keep the gold
+    // outline on top, matching the style.load ordering.
+    const beforeHighlight = map.getLayer("country-hl-casing") ? "country-hl-casing" : undefined;
     // Casings first (drawn under), then the white ink on top.
     map.addLayer({ id: "b-casing-solid", type: "line", source: "borders", filter: isSolid,
-      layout: { ...layout }, paint: { ...casing, "line-width": casingWidth } });
+      layout: { ...layout }, paint: { ...casing, "line-width": casingWidth } }, beforeHighlight);
     map.addLayer({ id: "b-casing-dashed", type: "line", source: "borders", filter: isDashed,
-      layout: { ...layout }, paint: { ...casing, "line-width": casingWidth, "line-dasharray": [1.4, 1.0] } });
+      layout: { ...layout }, paint: { ...casing, "line-width": casingWidth, "line-dasharray": [1.4, 1.0] } }, beforeHighlight);
     map.addLayer({ id: "b-ink-solid", type: "line", source: "borders", filter: isSolid,
-      layout: { ...layout }, paint: { ...ink, "line-width": inkWidth } });
+      layout: { ...layout }, paint: { ...ink, "line-width": inkWidth } }, beforeHighlight);
     map.addLayer({ id: "b-ink-dashed", type: "line", source: "borders", filter: isDashed,
-      layout: { ...layout }, paint: { ...ink, "line-width": inkWidth, "line-dasharray": [2.2, 1.6] } });
+      layout: { ...layout }, paint: { ...ink, "line-width": inkWidth, "line-dasharray": [2.2, 1.6] } }, beforeHighlight);
   }
 
   function setBordersVisible(on: boolean) {
@@ -451,10 +494,18 @@ import Base from "../layouts/Base.astro";
     }
   }
 
-  // The shared floating toggle lives in the Base layout (borders={true}); its
-  // localStorage + body-class handling is Base's, we only drive the map layers.
-  const borderToggle = document.getElementById("border-toggle") as HTMLInputElement | null;
-  borderToggle?.addEventListener("change", () => setBordersVisible(borderToggle.checked));
+  // The view-bar toggle lives in the Base layout, which owns localStorage + the body
+  // class and broadcasts "rg:borders". We only drive the map layers — and the border
+  // source is added on the FIRST turn-on, so the default (off) globe never downloads
+  // border geometry at all.
+  document.addEventListener("rg:borders", (event) => {
+    const { on } = (event as CustomEvent<{ on: boolean }>).detail;
+    if (on && !map.getSource("borders")) {
+      addBorders(); // bordersOn() is already true here, so layers mount visible
+      return;
+    }
+    setBordersVisible(on);
+  });
 
   // --- Click a country -> fly to it -> show its hero -------------------------
   // The globe is raster, so an invisible fill of the Natural Earth country
@@ -682,13 +733,14 @@ import Base from "../layouts/Base.astro";
       "fog-ground-blend": 0.1,
       "atmosphere-blend": 0.7,
     });
+    if (bareDiagnostic) return; // ?bare: the raster baseline, nothing else
     // Fetch the polygons ourselves so the parsed geometry can seed both the hit-test
     // source and the per-island markers from one download (see addCountries).
     const countries = (await fetch(location.origin + "/borders/countries.geojson").then(
       (response) => response.json(),
     )) as FeatureCollection;
     addCountries(countries); // fill/hit layers under the borders, so border lines stay on top
-    addBorders();
+    if (bordersOn()) addBorders(); // opted-in only — the default globe skips the download
     addCountryHighlight(); // hover outline on top of everything, so the edge stays crisp
   });
 
@@ -701,13 +753,13 @@ import Base from "../layouts/Base.astro";
   const DEGREES_PER_STEP = 2; // ~one 360° revolution every 3 minutes at 1s steps
   const SPIN_MAX_ZOOM = 3; // above this the fixed sweep is too fast to follow — spin is an overview affordance
   let spinning = currentTier() === "full" && !reduceMotion;
-  const spinToggle = document.getElementById("spin-toggle") as HTMLInputElement | null;
+  const spinToggle = document.getElementById("spin-toggle") as HTMLButtonElement | null;
 
-  // Single writer for `spinning` so the toggle checkbox always mirrors reality — user
+  // Single writer for `spinning` so the toggle button always mirrors reality — user
   // toggle, an interaction retiring it, a country pick, or the FPS watchdog.
   function setSpinning(value: boolean) {
     spinning = value;
-    if (spinToggle) spinToggle.checked = value;
+    spinToggle?.setAttribute("aria-pressed", String(value));
     if (value) spin(); // kick off now; spin() itself no-ops above SPIN_MAX_ZOOM
   }
 
@@ -719,8 +771,10 @@ import Base from "../layouts/Base.astro";
   }
 
   if (spinToggle) {
-    spinToggle.checked = spinning;
-    spinToggle.addEventListener("change", () => setSpinning(spinToggle.checked));
+    spinToggle.setAttribute("aria-pressed", String(spinning));
+    spinToggle.addEventListener("click", () =>
+      setSpinning(spinToggle.getAttribute("aria-pressed") !== "true"),
+    );
   }
 
   // Spin is an overview affordance: above SPIN_MAX_ZOOM the fixed sweep is too fast to
@@ -728,11 +782,10 @@ import Base from "../layouts/Base.astro";
   // grey + disable the toggle when zoomed in, re-enable on zoom-out (a tap restarts it).
   function syncSpinAvailability() {
     const available = map.getZoom() <= SPIN_MAX_ZOOM;
-    if (spinToggle) spinToggle.disabled = !available;
-    const fab = spinToggle?.closest(".spin-fab");
-    fab?.classList.toggle("is-unavailable", !available);
-    if (fab instanceof HTMLElement) {
-      fab.title = available ? "Toggle globe auto-rotate" : "Zoom out to spin";
+    if (spinToggle) {
+      spinToggle.disabled = !available;
+      spinToggle.classList.toggle("is-unavailable", !available);
+      spinToggle.title = available ? "Toggle globe auto-rotate" : "Zoom out to spin";
     }
   }
   syncSpinAvailability();
@@ -752,36 +805,50 @@ import Base from "../layouts/Base.astro";
   }
   map.on("moveend", spin);
   map.on("zoomend", syncSpinAvailability);
-  map.on("load", spin);
+  // Start the idle spin only after the FIRST full render settles ("idle"), not at "load":
+  // animating while tiles, caps, and country geometry are still landing forced a render per
+  // frame through the busiest seconds — visible as first-load jank on phones. A user toggle
+  // still starts it immediately (setSpinning calls spin() directly).
+  map.once("idle", spin);
   map.on("load", syncSpinAvailability);
 
   // --- Runtime FPS watchdog ---------------------------------------------------
   // If the frame rate stays low WHILE the globe is actually doing work (spinning
-  // or being dragged), retire the idle animation — the one continuous cost — so a
-  // weak GPU still gets a smooth, static globe. Frames are counted only while the
-  // map is moving: an idle on-demand render sitting at 0 fps is not "slow", just
-  // still. This is the architecture's runtime-degradation, kept to one cheap lever.
-  let frameDurations: number[] = [];
-  let lastFrame = performance.now();
-  let downgraded = false;
+  // or being dragged), degrade in steps: retire the idle spin first, then drop
+  // the canvas to 1x pixel ratio — so a weak GPU still gets a usable globe.
+  // Frames are counted only while the map is moving: an idle on-demand render
+  // sitting at 0 fps is not "slow", just still. The ladder and thresholds live in
+  // fpsDegradation.ts (unit-tested); every action must earn its own fresh
+  // sustained-slow window, and the loop retires once the ladder is exhausted.
+  let frameDurationsMs: number[] = [];
+  let lastFrameTime = performance.now();
+  let pixelRatioLowered = false;
   function watchFps(now: number) {
-    const delta = now - lastFrame;
-    lastFrame = now;
+    const frameDelta = now - lastFrameTime;
+    lastFrameTime = now;
     if (spinning || map.isMoving()) {
-      frameDurations.push(delta);
-      if (frameDurations.length > 90) frameDurations.shift();
-      if (!downgraded && frameDurations.length >= 45) {
-        const sorted = [...frameDurations].sort((a, b) => a - b);
-        const medianMs = sorted[sorted.length >> 1];
-        if (medianMs > 34) {
-          // sustained below ~30 fps
-          downgraded = true;
+      frameDurationsMs.push(frameDelta);
+      if (frameDurationsMs.length > MAXIMUM_SAMPLE_COUNT) frameDurationsMs.shift();
+      if (isSustainedSlow(frameDurationsMs)) {
+        const action = nextDegradationAction({
+          spinning,
+          pixelRatioLowered,
+          devicePixelRatio: window.devicePixelRatio || 1,
+        });
+        if (action === "retire-spin") {
           setSpinning(false);
           console.info("[globe] low frame rate — idle animation disabled");
+        } else if (action === "lower-pixel-ratio") {
+          pixelRatioLowered = true;
+          map.setPixelRatio(DEGRADED_PIXEL_RATIO);
+          console.info("[globe] low frame rate persists — rendering at 1x pixel ratio");
+        } else {
+          return; // ladder exhausted — stop the loop, nothing left to measure for
         }
+        frameDurationsMs = []; // the next stage must earn its own sustained-slow window
       }
     } else {
-      frameDurations.length = 0; // reset when idle so stale frames don't accumulate
+      frameDurationsMs.length = 0; // reset when idle so stale frames don't accumulate
     }
     requestAnimationFrame(watchFps);
   }

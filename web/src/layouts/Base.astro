@@ -83,20 +83,23 @@ const {
   <body>
     <slot />
     {
+      /* The view bar — ONE floating pill for every view option, replacing the old
+         stack of separate fabs. Toggle buttons (Borders, Spin) and the tier picker
+         share a single visual system: filled = on. The hairline divider separates
+         what-the-globe-shows from what-tier-you-get. */
       (borders || quality || spin) && (
-        <div class="fab-stack">
-          {spin && (
-            <label class="spin-fab" title="Toggle globe auto-rotate">
-              <input type="checkbox" id="spin-toggle" />
-              <span>Spin</span>
-            </label>
-          )}
+        <div class="view-bar" role="group" aria-label="View options">
           {borders && (
-            <label class="borders-fab" title="Toggle country borders">
-              <input type="checkbox" id="border-toggle" />
-              <span>Borders</span>
-            </label>
+            <button type="button" id="border-toggle" aria-pressed="false" title="Country borders">
+              Borders
+            </button>
           )}
+          {spin && (
+            <button type="button" id="spin-toggle" aria-pressed="false" title="Toggle globe auto-rotate">
+              Spin
+            </button>
+          )}
+          {(borders || spin) && quality && <span class="view-bar-divider" aria-hidden="true" />}
           {quality && (
             <div class="quality-fab" role="radiogroup" aria-label="Experience quality">
               <button type="button" data-quality="lite" aria-pressed="false">
@@ -119,15 +122,24 @@ const {
 <script>
   // Shared border toggle — the floating control lives in the layout so it's
   // always reachable, and its state persists across gallery <-> detail nav.
-  const cb = document.getElementById("border-toggle") as HTMLInputElement | null;
+  // Off by default: borders are an opt-in overlay, so a fresh visitor gets the
+  // clean relief (and, on the globe, never downloads the border geometry — the
+  // globe adds that source lazily on the first "rg:borders" on-event below).
+  const borderButton = document.getElementById("border-toggle") as HTMLButtonElement | null;
   const KEY = "rg:borders";
-  if (cb) {
-    const on = localStorage.getItem(KEY) === "1";
-    cb.checked = on;
-    document.body.classList.toggle("borders-on", on);
-    cb.addEventListener("change", () => {
-      document.body.classList.toggle("borders-on", cb.checked);
-      localStorage.setItem(KEY, cb.checked ? "1" : "0");
+  if (borderButton) {
+    const applyBorderState = (on: boolean) => {
+      borderButton.setAttribute("aria-pressed", String(on));
+      document.body.classList.toggle("borders-on", on);
+    };
+    applyBorderState(localStorage.getItem(KEY) === "1");
+    borderButton.addEventListener("click", () => {
+      const on = borderButton.getAttribute("aria-pressed") !== "true";
+      applyBorderState(on);
+      localStorage.setItem(KEY, on ? "1" : "0");
+      // Pages with map layers (the globe) react to this, not to the raw click —
+      // it keeps the layout as the single writer of the persisted state.
+      document.dispatchEvent(new CustomEvent("rg:borders", { detail: { on } }));
     });
   }
 </script>
