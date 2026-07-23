@@ -1,0 +1,29 @@
+# Local prod-sim of the Terrella serving block (and the template for the
+# rohome deployment — Phase 4 finalizes restart policy + Watchtower labels).
+#
+# Run from deploy/:
+#   ./make-local-cert.sh                       # once, self-signed cert for :443
+#   docker compose --env-file ../web/.env up -d
+#
+# Store paths come from web/.env — the same single source of truth the astro
+# dev middleware uses; compose interpolates ${...} below from that file.
+#
+#   http://localhost:8080  — plain HTTP (the prod-origin shape behind the tunnel)
+#   https://localhost:8443 — TLS + HTTP/2 (what a prod client experiences)
+
+services:
+  web:
+    image: nginx:1.31-alpine
+    container_name: terrella-sim
+    ports:
+      - "8080:80"
+      - "8443:443"
+    volumes:
+      - ../web/dist:/site:ro
+      - ./nginx/terrella.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx/terrella-locations.conf:/etc/nginx/includes/terrella-locations.conf:ro
+      - ./certs:/etc/nginx/certs:ro
+      - ${TILES_STORE}:/stores/tiles:ro
+      - ${HERO_STORE}:/stores/heroes:ro
+      - ${BORDERS_STORE}:/stores/borders:ro
+      - ${PMTILES_STORE}:/stores/pmtiles:ro

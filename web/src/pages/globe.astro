@@ -275,6 +275,7 @@ import Base from "../layouts/Base.astro";
     isSustainedSlow,
     nextDegradationAction,
   } from "../lib/fpsDegradation";
+  import type { PerfEventStamps } from "../lib/perfOverlay";
 
   // `Country` (imported from ../lib/manifest) is the shape of the objects the
   // click/hover/panel handlers pass around.
@@ -360,6 +361,19 @@ import Base from "../layouts/Base.astro";
   map.setVerticalFieldOfView(VERTICAL_FIELD_OF_VIEW_DEG);
   (window as unknown as { __map: maplibregl.Map }).__map = map;
 
+  // Event stamps for the ?perf overlay, recorded HERE rather than in the overlay module:
+  // the overlay arrives via dynamic import and loses the race on fast (prod-built) pages —
+  // map "load" can fire before the module mounts, and once the spin starts the map never
+  // idles again, so a late `once("load")`/`once("idle")` would render em-dashes forever.
+  // Two always-on listeners cost nothing; the overlay reads this live object when mounted.
+  const perfEventStamps: PerfEventStamps = { mapLoadMs: null, firstIdleMs: null };
+  map.once("load", () => {
+    perfEventStamps.mapLoadMs = performance.now();
+  });
+  map.once("idle", () => {
+    perfEventStamps.firstIdleMs = performance.now();
+  });
+
   map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-right");
   map.addControl(new maplibregl.GlobeControl(), "top-right"); // globe⇄flat toggle
   // Fullscreen the PAGE, not the map container: the floating UI (gallery link, detail
@@ -385,7 +399,7 @@ import Base from "../layouts/Base.astro";
   // Performance overlay (?perf): on-screen numbers for phone diagnosis; dynamic import so
   // the normal path pays zero bundle cost.
   if (urlFlags.has("perf")) {
-    void import("../lib/perfOverlay").then((mod) => mod.mountPerfOverlay(map));
+    void import("../lib/perfOverlay").then((mod) => mod.mountPerfOverlay(map, perfEventStamps));
   }
 
   // Attribution on small screens: (1) it must FLOAT ABOVE the bottom-right controls
@@ -722,7 +736,7 @@ import Base from "../layouts/Base.astro";
     openPanel(country);
   });
 
-  map.on("style.load", async () => {
+  map.on("style.load", () => {
     // A soft atmosphere so the sphere reads against the deep-sea background.
     map.setSky({
       "sky-color": "#8fb8d6",
@@ -733,16 +747,27 @@ import Base from "../layouts/Base.astro";
       "fog-ground-blend": 0.1,
       "atmosphere-blend": 0.7,
     });
-    if (bareDiagnostic) return; // ?bare: the raster baseline, nothing else
-    // Fetch the polygons ourselves so the parsed geometry can seed both the hit-test
-    // source and the per-island markers from one download (see addCountries).
-    const countries = (await fetch(location.origin + "/borders/countries.geojson").then(
-      (response) => response.json(),
-    )) as FeatureCollection;
-    addCountries(countries); // fill/hit layers under the borders, so border lines stay on top
-    if (bordersOn()) addBorders(); // opted-in only — the default globe skips the download
-    addCountryHighlight(); // hover outline on top of everything, so the edge stays crisp
   });
+
+  // Country polygons (hover/click hit-testing, highlight, island markers) are
+  // interaction data, not first-paint content — deferred to the first idle so their
+  // 2.6 MB fetch + worker parse stay out of the loading window (measured: 0.41 s of
+  // the desktop warm floor; far more on phones). Degrades gracefully by construction:
+  // a click before they land finds no country, exactly as during the fetch today.
+  // Borders toggled on in that gap land above where the highlight will sit — the
+  // highlight layers append later and still end up on top, the intended order.
+  if (!bareDiagnostic) {
+    map.once("idle", async () => {
+      // Fetch the polygons ourselves so the parsed geometry can seed both the hit-test
+      // source and the per-island markers from one download (see addCountries).
+      const countries = (await fetch(location.origin + "/borders/countries.geojson").then(
+        (response) => response.json(),
+      )) as FeatureCollection;
+      addCountries(countries); // fill/hit layers under the borders, so border lines stay on top
+      if (bordersOn()) addBorders(); // opted-in only — the default globe skips the download
+      addCountryHighlight(); // hover outline on top of everything, so the edge stays crisp
+    });
+  }
 
   // Idle rotation — a "living globe" at low zoom. Any interaction retires the spin (the
   // Spin checkbox unticks); the toggle restarts it. Above z3 the fixed 2°/s sweep is too
@@ -753,6 +778,13 @@ import Base from "../layouts/Base.astro";
   const DEGREES_PER_STEP = 2; // ~one 360° revolution every 3 minutes at 1s steps
   const SPIN_MAX_ZOOM = 3; // above this the fixed sweep is too fast to follow — spin is an overview affordance
   let spinning = currentTier() === "full" && !reduceMotion;
+  // Applying the style's globe projection fires an instant camera jump at style.load
+  // (movestart+moveend ~1 ms apart, measured at 141 ms on ?bare) — and that moveend
+  // reaches the moveend→spin chain below, starting the spin mid-load despite the
+  // once("idle") deferral. Worse, once easing, the map never fires "idle" at all.
+  // spin() therefore no-ops until the first idle has actually been seen; an explicit
+  // user toggle overrides the wait (their intent beats our pacing).
+  let firstIdleSeen = false;
   const spinToggle = document.getElementById("spin-toggle") as HTMLButtonElement | null;
 
   // Single writer for `spinning` so the toggle button always mirrors reality — user
@@ -760,11 +792,14 @@ import Base from "../layouts/Base.astro";
   function setSpinning(value: boolean) {
     spinning = value;
     spinToggle?.setAttribute("aria-pressed", String(value));
-    if (value) spin(); // kick off now; spin() itself no-ops above SPIN_MAX_ZOOM
+    if (value) {
+      firstIdleSeen = true; // user intent overrides the first-idle wait
+      spin(); // kick off now; spin() itself no-ops above SPIN_MAX_ZOOM
+    }
   }
 
   function spin() {
-    if (!spinning || map.getZoom() > SPIN_MAX_ZOOM) return;
+    if (!firstIdleSeen || !spinning || map.getZoom() > SPIN_MAX_ZOOM) return;
     const center = map.getCenter();
     center.lng -= DEGREES_PER_STEP;
     map.easeTo({ center, duration: 1000, easing: (progress) => progress });
@@ -809,7 +844,10 @@ import Base from "../layouts/Base.astro";
   // animating while tiles, caps, and country geometry are still landing forced a render per
   // frame through the busiest seconds — visible as first-load jank on phones. A user toggle
   // still starts it immediately (setSpinning calls spin() directly).
-  map.once("idle", spin);
+  map.once("idle", () => {
+    firstIdleSeen = true;
+    spin();
+  });
   map.on("load", syncSpinAvailability);
 
   // --- Runtime FPS watchdog ---------------------------------------------------

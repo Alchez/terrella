@@ -7,6 +7,16 @@
 
 import type { Map as MaplibreMap } from "maplibre-gl";
 
+/** Map-event stamps recorded by the PAGE at map construction (globe.astro), not by this
+ *  module: the overlay is dynamically imported and loses the race on fast (prod-built)
+ *  pages — "load" can fire before the module mounts, and the idle-triggered spin then
+ *  keeps the map from ever idling again. The page fills this live object; the overlay
+ *  only reads it. */
+export interface PerfEventStamps {
+  mapLoadMs: number | null;
+  firstIdleMs: number | null;
+}
+
 export interface PerfSnapshot {
   /** Module-eval → overlay mount: the JS startup cost paid before the map exists. */
   bootMs: number;
@@ -40,8 +50,10 @@ export function perfSummaryLines(snapshot: PerfSnapshot): string[] {
 
 /** Mount the overlay and start observing. Buffered observation is load-bearing: the heaviest
  *  long tasks (JS parse/eval, first JSON.parse) happen BEFORE this module loads, and
- *  `buffered: true` replays them into the observer. */
-export function mountPerfOverlay(map: MaplibreMap): void {
+ *  `buffered: true` replays them into the observer. Map-event timing comes from
+ *  `eventStamps` when the page provides it (see PerfEventStamps); own listeners are the
+ *  fallback for callers that don't. */
+export function mountPerfOverlay(map: MaplibreMap, eventStamps?: PerfEventStamps): void {
   const snapshot: PerfSnapshot = {
     bootMs: performance.now(),
     mapLoadMs: null,
@@ -69,12 +81,14 @@ export function mountPerfOverlay(map: MaplibreMap): void {
   ].join(";");
   document.body.appendChild(panel);
 
-  map.once("load", () => {
-    snapshot.mapLoadMs = performance.now();
-  });
-  map.once("idle", () => {
-    snapshot.firstIdleMs = performance.now();
-  });
+  if (!eventStamps) {
+    map.once("load", () => {
+      snapshot.mapLoadMs = performance.now();
+    });
+    map.once("idle", () => {
+      snapshot.firstIdleMs = performance.now();
+    });
+  }
 
   try {
     const observer = new PerformanceObserver((list) => {
@@ -91,7 +105,13 @@ export function mountPerfOverlay(map: MaplibreMap): void {
   }
 
   // A slow textContent refresh — the overlay must never contribute the jank it measures.
+  // Page-recorded stamps are copied here each tick: the object is live, so stamps that
+  // land after mount still appear.
   window.setInterval(() => {
+    if (eventStamps) {
+      snapshot.mapLoadMs = eventStamps.mapLoadMs;
+      snapshot.firstIdleMs = eventStamps.firstIdleMs;
+    }
     panel.textContent = perfSummaryLines(snapshot).join("\n");
   }, 300);
 }

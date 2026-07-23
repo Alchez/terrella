@@ -25,5 +25,8 @@ tools/
 .env
 .env.*
 
+# Local prod-sim TLS cert (deploy/make-local-cert.sh regenerates it)
+deploy/certs/
+
 # Coverage data (uv run pytest --cov)
 .coverage
