@@ -39,7 +39,9 @@ from rasterio.vrt import WarpedVRT
 from rasterio.windows import Window
 from rasterio.enums import Resampling
 
-DATA = Path.home() / "projects/maps/data"
+from pipeline import paths
+
+DATA = paths.DATA
 DEM_VRT = DATA / "work/dem_mosaic.vrt"
 WBM_VRT = DATA / "work/wbm_mosaic.vrt"
 GEBCO = DATA / "raw/gebco/gebco_2026_global.vrt"  # global ice-surface mosaic

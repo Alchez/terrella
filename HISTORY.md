@@ -119,6 +119,8 @@ The log below is **chronological**; this is the view it lacks. Nothing reads thi
 
 ### Engineering practice
 
+- [2026-07-23 — LICENSE lands (MIT / CC BY-NC 4.0) and the paths seam single-homes the pipeline](#2026-07-23--license-lands-mit--cc-by-nc-40-and-the-paths-seam-single-homes-the-pipeline) — MIT for code (pyproject field + LICENSE), **CC BY-NC 4.0 for rendered imagery** (Rohan's pick; trade-off recorded: Wikimedia rejects NC media; GLO-30's commercial caveat aligns with NC regardless); `pipeline/paths.py` = ROOT (source-derived, never env) / DATA (`MAPS_DATA`) / BLENDER (`MAPS_BLENDER`), **18 modules migrated** TDD-first with a drift-scan test enforcing single-homing (`snow_mask.py` on a dated freeze allowlist until the sweep ratifies); plus the zsh no-match glob that invented "no README" — a broken oracle owned
+
 - [2026-07-23 — the uncapped pmtiles convert OOM'd the box: tmpfs /tmp, a 12 GB orphan, and swapoff under pressure](#2026-07-23--the-uncapped-pmtiles-convert-oomd-the-box-tmpfs-tmp-a-12-gb-orphan-and-swapoff-under-pressure) — `pmtiles convert` launched WITHOUT the 12 G cap ("it's just IO" — an assumption); go-pmtiles funnels its working set through the system temp dir and **Ubuntu 26.04's `/tmp` is tmpfs = RAM** → swap 100%, fork failures box-wide, and Rohan's `swapoff -a` OOM-killed his session (swapoff itself was oom-reaped; slack et al. died). The SIGKILLed convert left `/tmp/pmtiles3601582229` (12 GB) holding RAM until `rm`. **The standing cap incantation would have contained it** (tmpfs charges the writer's cgroup) — the failure was purely the exemption. Same-day capped retry: **1m11s, 15 GB `planet.pmtiles`, verify clean, 5-tile byte-compare identical incl. z8 y=255; 5.3% deduped**; `?pmtiles` web flag landed same day (Range-supporting `/pmtiles` dev route TDD'd — the tiles middleware had none — + header-derived min/maxzoom; real-JS-client oracle byte-identical)
 - [2026-07-23 — commonification LANDED as `raster_io.py`, half the list was already done, and coverage joins the gates](#2026-07-23--commonification-landed-as-raster_iopy-half-the-list-was-already-done-and-coverage-joins-the-gates) — PLAN's four-item commonify list executed TDD-first: `GTIFF_CREATE` (format-only — the threading constraint is now a TEST, not prose) + `row_bands`/`band_window` (the single Window pyright-ignore home) adopted at six sites, `composite_params` byte-unchanged so nothing restaged; the planned `stream_windows(src, rows, dtype)` did NOT survive contact (read patterns irreconcilable — the band *arithmetic* is the shared part); items 3–4 found **already done** (`warp_needs_rebuild` 2026-07-22; `lake_ab --left/--right`). Same day: **pytest-cov added** (`uv run pytest --cov`), baseline 32.45%, `fail_under=32` as a ratchet
 - [2026-07-19 — CI gates the web layer; the frontend manifest gets a typed wrapper so astro check runs without it](#2026-07-19--ci-gates-the-web-layer-the-frontend-manifest-gets-a-typed-wrapper-so-astro-check-runs-without-it) — the web had ZERO CI: added a `web` job (pnpm 11 / Node 24 → `pnpm install --frozen-lockfile` → astro check → vitest) and fixed the pyright step to cover `tests/`. `astro check` needs the DATA-DERIVED, gitignored `countries.json` (absent on a clean checkout) → typed wrapper `lib/manifest.ts` decouples the type-check from the data (commit-the-manifest and drop-astro-check both rejected). **Verify CI by removing gitignored files / `git archive`, NOT rsync of the working tree — rsync copied the ignored manifest and hid the failure**
@@ -137,6 +139,52 @@ The log below is **chronological**; this is the view it lacks. Nothing reads thi
 - [2026-07-03 — Project scoped; dev environment decided](#2026-07-03--project-scoped-dev-environment-decided) — project scoped; dev environment decided
 
 ## Decision log
+
+### 2026-07-23 — LICENSE lands (MIT / CC BY-NC 4.0) and the paths seam single-homes the pipeline
+
+The afternoon docket's Task 3, executed after the PMTiles close. Two decision sets and one seam.
+
+- **Licenses (Rohan's picks, batched questions):** code = **MIT** (LICENSE at root with an
+  assets-pointer coda; pyproject gains `license = "MIT"` + `license-files`). Rendered imagery
+  (heroes, tiles, caps) = **CC BY-NC 4.0** — his intent is free educational/entertainment reuse
+  with commercial use reserved, and NC is the standard instrument for exactly that. Trade-off laid
+  out and accepted: **Wikimedia projects reject NC media**, so the maps can't illustrate Wikipedia;
+  dual-licensing (public NC + case-by-case commercial grants) stays open. Alignment note: the
+  GLO-30 EULA's commercial caveat (ATTRIBUTIONS) means commercial redistribution needed a fresh
+  license read no matter what we picked. README gained a License section; ATTRIBUTIONS gained
+  "Terrella's own outputs".
+- **The paths seam (`pipeline/paths.py`):** three constants — `ROOT` (source-tree-derived, never
+  env-driven: repo outputs like `web/public` must follow the checkout, not the data store),
+  `DATA` (`MAPS_DATA` override, default `<repo>/data`), `BLENDER` (`MAPS_BLENDER` override,
+  default the documented tarball). **18 modules migrated** by a fail-loud script (most-specific
+  regex first; abort on any surviving `Path.home()`); module attrs preserved, so every
+  monkeypatching test passed untouched. TDD: 7 tests in `tests/test_paths.py` — subprocess
+  env-override probes (import-time binding makes in-process reload a lie) + the **drift scan**
+  that fails on any `Path.home()` outside paths.py. `snow_mask.py` rides a **dated allowlist**
+  (hero-look freeze until the sweep ratifies — Step 5 must migrate it and delete the entry).
+  Consumer-level proof: `MAPS_DATA=/tmp/elsewhere` moves `shade.DATA` and `glo30.DATA_DIR`;
+  `MAPS_BLENDER` moves `country_config.BLENDER`. Gates: **pytest 421, pyright 0**.
+- **GLO-30 licence VERIFIED against the primary text (same day, Rohan's ask):** fetched
+  `License-COPDEM-30.pdf` (Copernicus Data Space) and read it whole. Article 4 grants
+  reproduction, distribution, communication to the public, and adaptation — worldwide, no time
+  limit, **no purpose restriction (commercial derived use permitted)**; Article 9: IPR in work
+  produced using the DEM is ours; the old "core prohibition is reselling the raw DEM" claim was
+  wrong (no such clause). Obligations: the EXACT Article 6(b) adapted-data notice ("produced
+  using Copernicus WorldDEM-30 © DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH
+  2014-2018…"), the 6(c) liability sentence, no implied endorsement (6(d)). Our placeholder
+  notice ("Contains modified Copernicus DEM data") was NOT the licence wording — corrected in
+  ATTRIBUTIONS. Consequence: the NC choice's "matches upstream necessity" justification was
+  retracted — upstream permits commercial; NC is purely Rohan's choice. Same pass: the
+  **OSI SAF sea-ice source was missing from ATTRIBUTIONS entirely** (ships in tiles + both
+  caps) — row + citation added (OSI-450-a v3.0, CC-BY 4.0, doi:10.15770/EUM_SAF_OSI_0013);
+  stale WhiteboxTools tool credit dropped (retired at the 2026-07-10 scoping); source links
+  added to every dataset row.
+- **The broken oracle, owned:** Task 3 nearly shipped a root README stub because `ls README*
+  LICENSE*` reported "no README". zsh's NO_MATCH on the unmatched `LICENSE*` glob aborted the
+  ENTIRE command before `ls` ran, the `|| echo` fallback printed my own words back, and I read a
+  shell artifact as a repo fact — Rohan caught it ("the repo already has a README"). The root
+  README existed and is good. A check used as proof must fail on its *target*: separate the
+  probes (`ls README*; ls LICENSE*`) or glob-guard, never compound them under one fallback.
 
 ### 2026-07-23 — the uncapped pmtiles convert OOM'd the box: tmpfs /tmp, a 12 GB orphan, and swapoff under pressure
 

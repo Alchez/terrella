@@ -50,13 +50,14 @@ import rasterio
 from pyproj import Transformer
 from scipy.ndimage import binary_dilation
 
+from pipeline import paths
 from pipeline.render import hillshade, lake_depth, seaice, snow
 from pipeline.tile import shade
 from pipeline.tile.shade import KNOBS
 from pipeline.tile.shade_planet import (ALT, AZ, CAP_NORTH, CAP_SOUTH, EXAG, PLANET,
                                         composite_params)
 
-ROOT = Path.home() / "projects/maps"
+ROOT = paths.ROOT
 WORK = ROOT / "data/work/cap"
 CAPS_DIR = ROOT / "web/public/caps"  # production home (was dev-assets/ behind ?polarspike)
 CAP_PX = 8192          # square texture side (south is a bigger disc -> coarser per px). 8192 chosen

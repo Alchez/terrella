@@ -29,7 +29,9 @@ from pathlib import Path
 import numpy as np
 import rasterio
 
-DATA = Path.home() / "projects/maps/data"
+from pipeline import paths
+
+DATA = paths.DATA
 LAKE_VRT = DATA / "work/globathy/lakedepth.vrt"
 GLOBATHY_NODATA = -9999.0
 

@@ -25,9 +25,10 @@ import numpy as np
 import rasterio
 from rasterio.transform import from_bounds
 
+from pipeline import paths
 from pipeline.raster_io import band_window, row_bands
 
-DATA = Path.home() / "projects/maps/data"
+DATA = paths.DATA
 SEAICE_SRC = DATA / "raw/seaice/seaice_frequency_1991-2020_4326.tif"
 ICE_SCALE = 1e-4    # unpacked frequency = 0.0001 x packed (0..10000 -> 0..1); matches snow.SP_SCALE
 ICE_FILL = 65535    # packed fill (land / no valid observation); matches snow.SP_FILL

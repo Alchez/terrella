@@ -18,9 +18,11 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
+from pipeline import paths
+
 CKAN = "https://ihp-wins.unesco.org/api/3/action/package_search?q=Randolph+Glacier+Inventory+7.0&rows=5"
 DATASET = "randolph-glacier-inventory-rgi-7-0-glacier-product"
-OUT = Path.home() / "projects/maps/data/raw/rgi"
+OUT = paths.DATA / "raw/rgi"
 GPKG = OUT / "rgi7_g_3857.gpkg"
 
 

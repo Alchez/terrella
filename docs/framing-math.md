@@ -24,7 +24,7 @@ The frame is the rectangle of the world the poster shows. It comes from the coun
 
 Nepal's bounding box is 80.03–88.17°E / 26.34–30.42°N; padded and rounded it becomes the frame **79.6–88.6°E / 25.9–30.9°N**.
 
-Countries with far-flung territories get absurd frames from this rule — France's whole-geometry bbox spans 118°×72° to reach French Guiana. Policy (2026-07-09): the whole bbox stands unless catastrophic (main landmass under ~25% of a bbox axis); the five catastrophic ones (France, Netherlands, Norway, Portugal, Chile) carry hand-authored mainland frames in `config/countries.toml`, derived with this same pad-and-round math from the mainland parts only. Antimeridian crossers (Russia, Fiji, Kiribati, New Zealand, US) are marked `status = "antimeridian"` there and skipped loudly until their own plan item.
+Countries with far-flung territories get absurd frames from this rule — France's whole-geometry bbox spans 118°×72° to reach French Guiana. Policy: the whole bbox stands unless catastrophic (main landmass under ~25% of a bbox axis); the five catastrophic ones (France, Netherlands, Norway, Portugal, Chile) carry hand-authored mainland frames in `config/countries.toml`, derived with this same pad-and-round math from the mainland parts only. Antimeridian crossers (Russia, Fiji, Kiribati, New Zealand, US) are marked `status = "antimeridian"` there and skipped loudly until their own plan item.
 
 ## Step 2 — the projection
 
@@ -42,7 +42,7 @@ For Nepal (25.9–30.9°N): parallels at 26.73° and 30.07°, centered at 28.4°
 
 ## Step 3 — the warped grid
 
-`render_prep.py` re-samples the fused heightfield from plain lon/lat degrees into this projection, producing the raster Blender will actually displace. Its `--width` sets the pixel width, bounded on both sides: don't exceed the source data's own width (upsampling invents nothing), and keep it near the render width (the Switzerland QA, 2026-07-08, showed this is what prevents "bumpy" over-detail — the warp grid low-passes anything finer than the render can show, so displacement can't pick up sub-pixel noise). The height follows from the frame's shape. One number falls out that everything below depends on: the frame's true width in meters, `extent_w = width_px × meters_per_pixel`.
+`render_prep.py` re-samples the fused heightfield from plain lon/lat degrees into this projection, producing the raster Blender will actually displace. Its `--width` sets the pixel width, bounded on both sides: don't exceed the source data's own width (upsampling invents nothing), and keep it near the render width (the Switzerland QA showed this is what prevents "bumpy" over-detail — the warp grid low-passes anything finer than the render can show, so displacement can't pick up sub-pixel noise). The height follows from the frame's shape. One number falls out that everything below depends on: the frame's true width in meters, `extent_w = width_px × meters_per_pixel`.
 
 ## Step 4 — the scene numbers
 

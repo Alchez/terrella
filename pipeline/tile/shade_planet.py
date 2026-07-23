@@ -50,6 +50,7 @@ import rasterio
 from rasterio.enums import Resampling
 from rasterio.windows import Window
 
+from pipeline import paths
 from pipeline.raster_io import GTIFF_CREATE, band_window
 from pipeline.render import cast_shadow, hillshade, lake_depth, palette, seaice, snow
 from pipeline.render import sky_view
@@ -57,7 +58,7 @@ from pipeline.render.sky_view import normalised_occlusion, occlusion_shape
 from pipeline.tile import shade
 from pipeline.tile.shade import KNOBS
 
-ROOT = Path.home() / "projects/maps"
+ROOT = paths.ROOT
 PLANET = ROOT / "data/work/planet"
 Z8_RES = 305.7483          # metres/pixel of a 512px WebMercatorQuad tile at zoom 8
 EXAG = 15.0

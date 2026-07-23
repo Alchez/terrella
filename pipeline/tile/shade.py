@@ -25,6 +25,7 @@ import rasterio
 from rasterio.enums import Resampling
 from scipy.ndimage import zoom
 
+from pipeline import paths
 from pipeline.raster_io import GTIFF_CREATE
 from pipeline.render import hillshade, lake_depth, palette, relief, snow
 from pipeline.render.sky_view import (
@@ -33,7 +34,7 @@ from pipeline.render.sky_view import (
     occlusion_shape,
 )
 
-DATA = Path.home() / "projects/maps/data"
+DATA = paths.DATA
 CHUNKS = DATA / "work/planet/chunks"
 Z8_MERC_RES = 305.7483  # metres/pixel of a 512px WebMercatorQuad tile at zoom 8
 EXAG = 15.0

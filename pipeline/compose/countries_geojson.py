@@ -23,7 +23,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-ROOT = Path.home() / "projects/maps"
+from pipeline import paths
+
+ROOT = paths.ROOT
 NE = ROOT / "data/raw/naturalearth"
 OUT_DIR = ROOT / "data/work/borders"
 

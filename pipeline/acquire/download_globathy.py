@@ -41,9 +41,10 @@ import sys
 import urllib.request
 from pathlib import Path
 
+from pipeline import paths
 from pipeline.acquire.download_glo30 import download_one
 
-DATA_DIR = Path.home() / "projects/maps/data/raw/globathy"
+DATA_DIR = paths.DATA / "raw/globathy"
 API = "https://api.figshare.com/v2/articles/{article}/versions/1"
 DOWNLOAD = "https://ndownloader.figshare.com/files/{file_id}"
 MD5_CHUNK = 1 << 20

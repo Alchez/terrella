@@ -36,10 +36,11 @@ from typing import Any
 import numpy as np
 import rasterio
 
+from pipeline import paths
 from pipeline.render.snow_mask import (BUCKET_URL, DATA_DIR as WC_DIR, WORKERS,
                                        download_one, tiles_for_bounds)
 
-VOID_DIR = Path.home() / "projects/maps/data/raw/cop30_void"
+VOID_DIR = paths.DATA / "raw/cop30_void"
 WATER_CLASS = 80   # ESA WorldCover "permanent water bodies"
 WBM_LAKE = 2       # fuse_heightfield inland-lake class
 
