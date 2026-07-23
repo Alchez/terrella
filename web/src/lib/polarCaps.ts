@@ -63,11 +63,40 @@ export function capOptionsFrom(manifest: CapsManifest): CapOptions[] {
   });
 }
 
-/** GPU texture-size clamp: mobile GPUs commonly cap MAX_TEXTURE_SIZE at 4096–8192, and an
- *  oversized upload fails silently to black. The 8192² production caps downscale on such
- *  devices rather than vanish. */
-export function clampedTextureSize(imageSize: number, maxTextureSize: number): number {
-  return Math.min(imageSize, maxTextureSize);
+/** GPU texture-size clamp: the upload target is the smallest of the image itself, the GPU's
+ *  MAX_TEXTURE_SIZE (an oversized upload fails silently to black — weak mobile GPUs cap at
+ *  4096–8192), and the device budget (below). */
+export function clampedTextureSize(
+  imageSize: number,
+  maxTextureSize: number,
+  deviceBudgetSize: number = Infinity,
+): number {
+  return Math.min(imageSize, maxTextureSize, deviceBudgetSize);
+}
+
+/** The mobile texture rung. Phones can RESOLVE 8192 zoomed to a pole (their physical pixel
+ *  counts rival desktops), so this is a quality↔cost tier, not a resolvability limit: a full
+ *  8192² upload pushes ~268 MB of texels through texImage2D on exactly the thread phones are
+ *  slowest at — a prime suspect in the OnePlus first-load jank. 4096 quarters the upload and
+ *  is the rung the cap A/B already judged (the pre-8192 candidate), so mobile ships a look
+ *  that was ratified, just not the top rung. */
+export const MOBILE_CAP_BUDGET_PX = 4096;
+
+/** Budget by device class — pure, so the tier rule is unit-testable. */
+export function capTextureBudget(isMobileClass: boolean): number {
+  return isMobileClass ? MOBILE_CAP_BUDGET_PX : Infinity;
+}
+
+/** UA-Client-Hints when the engine ships them (Chromium), else the coarse-pointer heuristic —
+ *  which sweeps in tablets too, deliberately: they share the upload constraint. Guarded so the
+ *  module stays importable in node (vitest). */
+function isMobileClassDevice(): boolean {
+  if (typeof navigator !== "undefined") {
+    const uaData = (navigator as Navigator & { userAgentData?: { mobile?: boolean } })
+      .userAgentData;
+    if (typeof uaData?.mobile === "boolean") return uaData.mobile;
+  }
+  return typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
 }
 
 /** Unit-sphere position for a lng/lat, in MapLibre's globe convention (North Pole = (0, 1, 0)). */
@@ -180,10 +209,12 @@ interface CapLayer extends CustomLayerInterface {
   uTex?: WebGLUniformLocation | null;
 }
 
-/** Upload the cap image, downscaling through a canvas when it exceeds MAX_TEXTURE_SIZE. */
+/** Upload the cap image, downscaling through a canvas when it exceeds the GPU's limit or the
+ *  device budget. */
 function uploadCapTexture(gl: WebGL2RenderingContext, image: ImageBitmap | HTMLImageElement): void {
   const maxSize = gl.getParameter(gl.MAX_TEXTURE_SIZE) as number;
-  const target = clampedTextureSize(image.width, maxSize);
+  const budget = capTextureBudget(isMobileClassDevice());
+  const target = clampedTextureSize(image.width, maxSize, budget);
   if (target < image.width) {
     const canvas = document.createElement("canvas");
     canvas.width = target;
@@ -191,7 +222,10 @@ function uploadCapTexture(gl: WebGL2RenderingContext, image: ImageBitmap | HTMLI
     canvas.getContext("2d")!.drawImage(image, 0, 0, target, target);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, canvas);
     // eslint-disable-next-line no-console
-    console.log(`[caps] texture ${image.width} clamped to ${target} (MAX_TEXTURE_SIZE ${maxSize})`);
+    console.log(
+      `[caps] texture ${image.width} downscaled to ${target} ` +
+        `(MAX_TEXTURE_SIZE ${maxSize}, device budget ${budget})`,
+    );
   } else {
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
   }
@@ -236,6 +270,15 @@ function addPolarCap(map: MaplibreMap, opts: CapOptions): void {
     renderingMode: "2d", // paint-over, no depth fight; drawn last so it sits above the tiles
 
     onAdd(_map, gl: WebGL2RenderingContext) {
+      // MapLibre re-invokes onAdd on every projection transition (globe ⇄ mercator — bursts
+      // of up to 5 during page load). A naive re-init recompiled the shaders, rebuilt the
+      // mesh, re-fetched + re-decoded the texture, and re-pushed the ~268 MB texImage2D
+      // upload — while orphaning the previous GL objects. Desktop shrugged; on phones those
+      // stacked uploads were a prime suspect in the first-load jank. The GL context SURVIVES
+      // projection transitions, so if our program is still valid in this context every other
+      // resource on the layer is too — skip the whole re-init. gl.isProgram goes false
+      // exactly when a rebuild is genuinely needed (a fresh context after loss/swap).
+      if (this.program && gl.isProgram(this.program)) return;
       const program = gl.createProgram()!;
       gl.attachShader(program, compile(gl, gl.VERTEX_SHADER, VERTEX_SRC));
       gl.attachShader(program, compile(gl, gl.FRAGMENT_SHADER, fragmentSrc(opts)));

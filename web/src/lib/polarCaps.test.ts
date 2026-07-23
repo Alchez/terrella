@@ -4,10 +4,12 @@
 
 import { describe, expect, it } from "vitest";
 import {
+  MOBILE_CAP_BUDGET_PX,
   RINGS,
   SECTORS,
   buildMesh,
   capOptionsFrom,
+  capTextureBudget,
   clampedTextureSize,
   type CapsManifest,
 } from "./polarCaps";
@@ -72,6 +74,27 @@ describe("buildMesh", () => {
 describe("clampedTextureSize", () => {
   it("passes a fitting texture through and clamps an oversized one", () => {
     expect(clampedTextureSize(4096, 16384)).toBe(4096);
-    expect(clampedTextureSize(8192, 4096)).toBe(4096); // the mobile-GPU case
+    expect(clampedTextureSize(8192, 4096)).toBe(4096); // the weak-GPU case
+  });
+
+  it("applies the device budget even when the GPU could take the full texture", () => {
+    // The OnePlus 11R case: Adreno 730 reports MAX_TEXTURE_SIZE 16384, so the GPU
+    // clamp never fires — the budget is what spares the phone the 268 MB upload.
+    expect(clampedTextureSize(8192, 16384, 4096)).toBe(4096);
+  });
+
+  it("leaves desktops at full size when the budget is Infinity", () => {
+    expect(clampedTextureSize(8192, 16384, Infinity)).toBe(8192);
+  });
+
+  it("never upscales past the image itself", () => {
+    expect(clampedTextureSize(4096, 16384, 8192)).toBe(4096);
+  });
+});
+
+describe("capTextureBudget", () => {
+  it("gives mobile-class devices the 4096 rung and desktops no budget", () => {
+    expect(capTextureBudget(true)).toBe(MOBILE_CAP_BUDGET_PX);
+    expect(capTextureBudget(false)).toBe(Infinity);
   });
 });

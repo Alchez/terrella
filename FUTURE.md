@@ -94,6 +94,25 @@ magnitude, so the taxonomy is the decision:
 - Kind 2 only when a specific second look earns its 15 GB; pay the parameterization day then.
 - Kind 3 only if presets become a proven headline feature; decide alongside Phase 5 terrain-RGB.
 
+## Cloud offload / offsite backup (analysed 2026-07-23; revisit after Phase 5)
+
+- **Trigger:** could stores move to S3/R2 to free local disk? **Answer: ~0 GB usefully** — the
+  taxonomy is the finding:
+  - ~680 GB of raw sources are *caches of free public clouds* (GLO-30 = AWS Open Data, WorldCover
+    = ESA's bucket, etc.) — the offload is deletion + on-demand re-fetch, already gated by the
+    INVENTORY reclaim picture, never an upload.
+  - ~360 GB of intermediates are compute-regenerable — and remote reads for full sequential scans
+    are a rejected shape (HISTORY § chasing the hero's "softness": "remote COG is the wrong shape
+    for a full sequential scan").
+  - The **~56 GB worth putting in a cloud is the backup set, not an offload**: heroes+raws+variants
+    (27 GB real bytes, hardlink archives ~free; Cycles isn't bit-deterministic so ratified pixels
+    are irreplaceable), `planet.pmtiles` (15 GB — doubles as deploy transport), `planet/` fused
+    cells (14 GB — the one expensive-to-rebuild intermediate), caps/geojson/frame pins. ≈ $1/mo on
+    R2/B2 (ballpark; R2's zero egress is the differentiator — verify pricing at pickup).
+- **The big lever:** if Phase 5 goes no-go on a finer re-fuse, `glo30/` (551 GB) drops to
+  per-country-on-demand like WorldCover — the upstream *is* the cloud store. Rohan deferred the
+  whole topic to after Phase 5.
+
 ## AVIF hero variants (analysed 2026-07-23)
 
 - **Trigger:** the astro:assets audit during the 7.1.3 bump — the one genuine feature we forgo by
