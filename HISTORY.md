@@ -167,9 +167,16 @@ already done**, which is itself the lesson: a queued refactor list rots as the c
   (source `pipeline`; bpy scripts, `experiments/`, `profile/` omitted — unit tests can never import
   bpy, and the shared constants ARE covered via the `test_scene_build_sync` stub). **On demand**
   (`uv run pytest --cov`), not in addopts — a default `--cov` would make every single-file test run
-  trip the floor. Baseline **32.45%**, `fail_under=32` floored as a ratchet: the number is not the
-  point, the *boundary* is — the 100%-covered files are the compute kernels, the 0% files are
-  network/GPU/subprocess orchestration, and the report makes that long-claimed split visible.
+  trip the floor. Local baseline **32.45%**; the number is not the point, the *boundary* is — the
+  100%-covered files are the compute kernels, the 0% files are network/GPU/subprocess orchestration,
+  and the report makes that long-claimed split visible.
+- **CI wiring (same day, after the first CI run failed):** the runner had no GDAL CLI, so the five
+  `test_build_mosaics` tests died on `gdalbuildvrt: command not found` — fixed by installing
+  `gdal-bin` in the check job, NOT by a skipif (a drift guard that silently never runs is the exact
+  class the suite documents). The pytest step became `pytest --cov`, and the floor moved to the
+  **CI-visible** baseline: CI skips 12 data-bound tests (NSIDC/RGI/OSI SAF sources absent), measured
+  locally by deselecting those classes → **30.94%**, so `fail_under=30` — one number, enforced where
+  the gate actually runs; a full local run reads ~32.45% against the same floor.
 
 ### 2026-07-23 — the prep-walk redundancy cut: mosaic freshness skip + a 24 h preflight stamp (35 s/country → 1.25 s)
 

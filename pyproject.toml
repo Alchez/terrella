@@ -47,11 +47,12 @@ typeCheckingMode = "standard"
 pythonpath = ["."]
 testpaths = ["tests"]
 
-# Coverage is ON DEMAND (`uv run pytest --cov`), not in addopts: a default --cov
-# would make every single-file test run report near-zero pipeline coverage and
-# trip fail_under. The floor is the measured 2026-07-23 baseline rounded down —
-# it exists to make coverage ROT loud, not to chase a number; raise it as real
-# coverage lands, never lower it to make a run pass.
+# Coverage is ON DEMAND (`uv run pytest --cov`, enforced in CI), not in addopts:
+# a default --cov would make every single-file test run report near-zero pipeline
+# coverage and trip fail_under. The floor is the CI-VISIBLE 2026-07-23 baseline
+# rounded down (30.94% there — 12 data-bound tests skip on CI; local reads
+# 32.45%) — it exists to make coverage ROT loud, not to chase a number; raise it
+# as real coverage lands, never lower it to make a run pass.
 [tool.coverage.run]
 source = ["pipeline"]
 omit = [
@@ -68,4 +69,4 @@ omit = [
 [tool.coverage.report]
 show_missing = true
 skip_covered = true
-fail_under = 32  # the 2026-07-23 baseline (32.45%), floored — ratchet up, never down
+fail_under = 30  # the 2026-07-23 CI-visible baseline (30.94%), floored — ratchet up, never down
