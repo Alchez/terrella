@@ -1,7 +1,13 @@
-// Polar caps (behind /globe?polarspike): draws the REAL bathymetry + sea-ice caps on the globe.
+// Polar caps (production; /globe?nocaps disables): the REAL bathymetry + sea-ice caps on the globe.
 // Web-Mercator tiles die at ~85° (1/cos φ sends the pole to infinity), so each pole is an
-// azimuthal-equidistant image built from source (pipeline/tile/cap_render.py →
-// public/dev-assets/cap_{north,south}.png), reaching ±90° with no hole.
+// azimuthal-equidistant image built from source (pipeline/tile/cap_render.py → public/caps/*.webp),
+// reaching ±90° with no hole.
+//
+// The pipeline is the single author of every value it renders into the textures: this layer
+// FETCHES /caps/caps.json (edge_lat, the ±84 feather ceiling = shade_planet's Mercator plug
+// boundary, texture URLs) instead of hand-copying them as literals — the copy-drift species that
+// bit the hero/tile colour constants four times. Only frontend aesthetics stay here (FEATHER_LO,
+// mesh extent, tessellation).
 //
 // Geometry: a tessellated mesh on the unit sphere (latBottom → pole) placed via
 // args.defaultProjectionData.mainMatrix — the manual path, because Mercator/projectTile can't
@@ -10,51 +16,59 @@
 // cap is culled behind the globe's horizon via clippingPlane.
 //
 // One factory drives BOTH poles: `poleSign` flips the pole vertex, the v/cos handedness (the south
-// AEQD winds the opposite way, y = +ρ·cos), and the feather latitude. NORTH is the small ~78° cap
-// the Mercator tiles reach; SOUTH is the big −55°→−90° Antarctica cap (the fused planet stops at
-// −60, so its texture is GEBCO-direct — see cap_render.py). Removed once the caps are productionised.
+// AEQD winds the opposite way, y = +ρ·cos), and the feather latitude.
 
 import type { CustomLayerInterface, CustomRenderMethodInput, Map as MaplibreMap } from "maplibre-gl";
 
-const RINGS = 28; // latitude subdivisions (mesh conforms to the sphere's curvature)
-const SECTORS = 160; // longitude subdivisions
+export const RINGS = 28; // latitude subdivisions (mesh conforms to the sphere's curvature)
+export const SECTORS = 160; // longitude subdivisions
 const RADIUS = 1.0004; // a hair above the globe surface (radius 1) so it paints over the tiles
+const FEATHER_LO = 81; // |lat| where the fade into the real tiles begins — frontend aesthetic
+const MESH_EDGE_LAT = 80; // mesh equatorward edge, just outside the visible feather zone
 
-/** Per-cap parameters. `texEdgeLat` MUST equal the matching cap_render.py CapGrid `edge_lat`. */
-interface CapOptions {
+/** One cap's entry in the pipeline-emitted /caps/caps.json contract. */
+export interface CapManifestEntry {
+  url: string;
+  edge_lat: number; // texture inscribed-circle latitude, signed (cap_render CapGrid.edge_lat)
+  feather_hi: number; // signed |lat| where the cap goes opaque (shade_planet CAP_NORTH/CAP_SOUTH)
+  px: number;
+}
+export type CapsManifest = Record<"north" | "south", CapManifestEntry>;
+
+/** Per-cap parameters (internal; built from the manifest by capOptionsFrom). */
+export interface CapOptions {
   layerId: string;
   textureUrl: string;
   poleLat: number; // +90 (north) or −90 (south)
-  latBottom: number; // mesh equatorward edge, signed (just outside the visible feather zone)
-  texEdgeLat: number; // texture inscribed-circle latitude, signed — MUST match cap_render.py
+  latBottom: number; // mesh equatorward edge, signed
+  texEdgeLat: number; // texture inscribed-circle latitude, signed
   featherLo: number; // |lat| where alpha starts rising from 0 (into the real tiles)
   featherHi: number; // |lat| where alpha reaches 1 (poleward, over the flat Mercator plug)
 }
 
-const NORTH_CAP: CapOptions = {
-  layerId: "polar-cap-north",
-  textureUrl: "/dev-assets/cap_north.png",
-  poleLat: 90,
-  latBottom: 80, // mesh 80°N → 90°N
-  texEdgeLat: 78, // cap_render.py NORTH edge_lat
-  featherLo: 81,
-  featherHi: 84, // opaque above 84°N (covers the flat Mercator cap), transparent by 81°N
-};
+/** Manifest → the two caps' options. Pure, so the contract mapping is unit-testable. */
+export function capOptionsFrom(manifest: CapsManifest): CapOptions[] {
+  return (["north", "south"] as const).map((name) => {
+    const entry = manifest[name];
+    const poleSign = Math.sign(entry.edge_lat);
+    return {
+      layerId: `polar-cap-${name}`,
+      textureUrl: entry.url,
+      poleLat: 90 * poleSign,
+      latBottom: MESH_EDGE_LAT * poleSign,
+      texEdgeLat: entry.edge_lat,
+      featherLo: FEATHER_LO,
+      featherHi: Math.abs(entry.feather_hi), // shader feathers on |lat|
+    };
+  });
+}
 
-const SOUTH_CAP: CapOptions = {
-  layerId: "polar-cap-south",
-  textureUrl: "/dev-assets/cap_south.png",
-  poleLat: -90,
-  latBottom: -80, // mesh 80°S → 90°S — the exact mirror of the north
-  texEdgeLat: -78, // cap_render.py SOUTH edge_lat
-  featherLo: 81,
-  // Opaque poleward of 84°S, aligned EXACTLY to shade_planet CAP_SOUTH = −84 (where the flat
-  // Mercator plug begins), so that plug never bleeds through a partly-transparent cap as a halo
-  // ring — the mirror of featherHi 84 == CAP_NORTH 84. Transparent by 81°S: the pyramid carries
-  // real Antarctica to the −85.06° Mercator limit (2026-07-22), so the crossfade sits entirely
-  // over featureless interior ice instead of open Southern Ocean.
-  featherHi: 84,
-};
+/** GPU texture-size clamp: mobile GPUs commonly cap MAX_TEXTURE_SIZE at 4096–8192, and an
+ *  oversized upload fails silently to black. The 8192² production caps downscale on such
+ *  devices rather than vanish. */
+export function clampedTextureSize(imageSize: number, maxTextureSize: number): number {
+  return Math.min(imageSize, maxTextureSize);
+}
 
 /** Unit-sphere position for a lng/lat, in MapLibre's globe convention (North Pole = (0, 1, 0)). */
 function spherePosition(lngDeg: number, latDeg: number): [number, number, number] {
@@ -69,7 +83,7 @@ function compile(gl: WebGL2RenderingContext, type: number, source: string): WebG
   gl.shaderSource(shader, source);
   gl.compileShader(shader);
   if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-    throw new Error("[polarspike] shader compile failed: " + gl.getShaderInfoLog(shader));
+    throw new Error("[caps] shader compile failed: " + gl.getShaderInfoLog(shader));
   }
   return shader;
 }
@@ -87,7 +101,7 @@ out float v_lat;
 void main() {
     v_uv = a_uv;
     v_lat = a_lat;
-    v_clip = dot(u_clip.xyz, a_pos) + u_clip.w; // >0 near side / <0 far side (verify the sign)
+    v_clip = dot(u_clip.xyz, a_pos) + u_clip.w; // >0 near side / <0 far side
     gl_Position = u_matrix * vec4(a_pos, 1.0);
 }`;
 
@@ -119,7 +133,7 @@ void main() {
 
 /** Build a cap mesh: a (RINGS+1)×(SECTORS+1) grid from latBottom to the pole. Each vertex carries
  *  its unit-sphere position, its AEQD texture UV, and its signed latitude (for the feather). */
-function buildMesh(opts: CapOptions): { vertices: Float32Array; indices: Uint16Array } {
+export function buildMesh(opts: CapOptions): { vertices: Float32Array; indices: Uint16Array } {
   const poleSign = Math.sign(opts.poleLat);
   const texColat = 90 - Math.abs(opts.texEdgeLat); // colatitude at the texture's inscribed circle
   const vertices: number[] = [];
@@ -166,6 +180,53 @@ interface CapLayer extends CustomLayerInterface {
   uTex?: WebGLUniformLocation | null;
 }
 
+/** Upload the cap image, downscaling through a canvas when it exceeds MAX_TEXTURE_SIZE. */
+function uploadCapTexture(gl: WebGL2RenderingContext, image: ImageBitmap | HTMLImageElement): void {
+  const maxSize = gl.getParameter(gl.MAX_TEXTURE_SIZE) as number;
+  const target = clampedTextureSize(image.width, maxSize);
+  if (target < image.width) {
+    const canvas = document.createElement("canvas");
+    canvas.width = target;
+    canvas.height = target;
+    canvas.getContext("2d")!.drawImage(image, 0, 0, target, target);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, canvas);
+    // eslint-disable-next-line no-console
+    console.log(`[caps] texture ${image.width} clamped to ${target} (MAX_TEXTURE_SIZE ${maxSize})`);
+  } else {
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
+  }
+}
+
+/** Decode a cap image OFF the main thread. `texImage2D` on an HTMLImageElement forces a
+ *  synchronous main-thread decode — measured 396 ms per 8192² cap (≈800 ms of first-load
+ *  stall across both poles); `createImageBitmap` moves that to Chrome's worker pool, leaving
+ *  only the ~117 ms GPU upload on the main thread. `premultiplyAlpha: "none"` is load-bearing:
+ *  the fragment shader premultiplies in-shader, and a premultiply at decode time would
+ *  double-apply it — the same alpha chemistry as the 2026-07-22 polar ring.
+ *
+ *  Firefox does not implement the `premultiplyAlpha` member (WebIDL drops unimplemented
+ *  dictionary members silently); that is safe here because the mesh only samples the cap's
+ *  fully-opaque disc, where premultiplication state cannot show. If `createImageBitmap`
+ *  itself rejects (older/exotic engines), fall back to the HTMLImageElement path — the
+ *  original sync-decode route: slower, never wrong. Network errors propagate (no fallback
+ *  that would mask a 404 as a decode problem). */
+async function loadCapImage(url: string): Promise<ImageBitmap | HTMLImageElement> {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  const blob = await response.blob();
+  try {
+    return await createImageBitmap(blob, { premultiplyAlpha: "none" });
+  } catch (decodeErr) {
+    console.warn(`[caps] off-thread decode unavailable, using Image fallback`, decodeErr);
+    return new Promise((resolve, reject) => {
+      const image = new Image();
+      image.onload = () => resolve(image);
+      image.onerror = () => reject(new Error(`Image decode failed: ${url}`));
+      image.src = url; // browser cache makes this a re-decode, not a re-download
+    });
+  }
+}
+
 /** Register one cap as a `custom` layer on the (already-loaded) map. */
 function addPolarCap(map: MaplibreMap, opts: CapOptions): void {
   if (map.getLayer(opts.layerId)) return; // idempotent — style.load can fire more than once
@@ -180,7 +241,7 @@ function addPolarCap(map: MaplibreMap, opts: CapOptions): void {
       gl.attachShader(program, compile(gl, gl.FRAGMENT_SHADER, fragmentSrc(opts)));
       gl.linkProgram(program);
       if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-        throw new Error("[polarspike] link failed: " + gl.getProgramInfoLog(program));
+        throw new Error("[caps] link failed: " + gl.getProgramInfoLog(program));
       }
       this.program = program;
       this.aPos = gl.getAttribLocation(program, "a_pos");
@@ -204,28 +265,31 @@ function addPolarCap(map: MaplibreMap, opts: CapOptions): void {
       gl.bindTexture(gl.TEXTURE_2D, this.texture);
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE,
         new Uint8Array([0, 0, 0, 0]));
-      const image = new Image();
-      image.onload = () => {
-        gl.bindTexture(gl.TEXTURE_2D, this.texture!);
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
-        // Mipmapped minification, not plain LINEAR: at low zoom the 4096² cap shrinks ~100:1 on
-        // screen, and bilinear sampling of 4 texels per ~40×40-texel block aliases the fine relief
-        // detail — on this radial polar mapping the alias energy reads as CONCENTRIC RINGS around
-        // the pole, strongest zoomed out and gone by ~z8 (diagnosed 2026-07-22 after every
-        // texture-side tone fix left the ring visually unchanged).
-        gl.generateMipmap(gl.TEXTURE_2D);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-        map.triggerRepaint();
-        // eslint-disable-next-line no-console
-        console.log(`[polarspike] ${opts.layerId} texture loaded`, image.width, "x", image.height);
-      };
-      image.onerror = () => console.error(`[polarspike] ${opts.layerId} texture failed`, opts.textureUrl);
-      image.src = opts.textureUrl;
+      void loadCapImage(opts.textureUrl)
+        .then((bitmap) => {
+          gl.bindTexture(gl.TEXTURE_2D, this.texture!);
+          uploadCapTexture(gl, bitmap);
+          // Mipmapped minification, not plain LINEAR: at low zoom the cap shrinks ~100:1 on
+          // screen, and bilinear sampling of 4 texels per ~40×40-texel block aliases the fine relief
+          // detail — on this radial polar mapping the alias energy reads as CONCENTRIC RINGS around
+          // the pole, strongest zoomed out and gone by ~z8 (diagnosed 2026-07-22 after every
+          // texture-side tone fix left the ring visually unchanged).
+          gl.generateMipmap(gl.TEXTURE_2D);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+          const size = bitmap.width; // read before close() — a closed bitmap reports 0×0
+          if ("close" in bitmap) bitmap.close(); // release the ~268 MB decode — the GPU has its copy
+          map.triggerRepaint();
+          // eslint-disable-next-line no-console
+          console.log(`[caps] ${opts.layerId} texture loaded`, size, "x", size);
+        })
+        .catch((err: unknown) =>
+          console.error(`[caps] ${opts.layerId} texture failed`, opts.textureUrl, err),
+        );
       // eslint-disable-next-line no-console
-      console.log(`[polarspike] ${opts.layerId} added; mesh`, this.indexCount! / 3, "triangles");
+      console.log(`[caps] ${opts.layerId} added; mesh`, this.indexCount! / 3, "triangles");
     },
 
     render(glCtx: WebGL2RenderingContext | WebGLRenderingContext, args: CustomRenderMethodInput) {
@@ -268,8 +332,19 @@ function addPolarCap(map: MaplibreMap, opts: CapOptions): void {
   map.addLayer(layer);
 }
 
-/** Register both polar caps (north + south) on the already-loaded map. */
-export function addPolarCaps(map: MaplibreMap): void {
-  addPolarCap(map, NORTH_CAP);
-  addPolarCap(map, SOUTH_CAP);
+/** Fetch the pipeline's caps.json contract and register both polar caps on the loaded map.
+ *  A missing/invalid manifest logs and leaves the globe capless — never breaks the page. */
+export async function addPolarCaps(map: MaplibreMap): Promise<void> {
+  let manifest: CapsManifest;
+  try {
+    const response = await fetch("/caps/caps.json");
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    manifest = (await response.json()) as CapsManifest;
+  } catch (err) {
+    console.error("[caps] manifest fetch failed — globe renders capless", err);
+    return;
+  }
+  for (const options of capOptionsFrom(manifest)) {
+    addPolarCap(map, options);
+  }
 }

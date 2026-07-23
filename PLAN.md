@@ -53,7 +53,7 @@ Scoped 2026-07-10 (→ HISTORY § 2026-07-10): ceiling z8 (~300 m/px), GDAL 3.13
 - [x] Hero-"softness" port CLOSED — `ambient_knee` 0.30 + `shadow_warmth` 0.55 SHIPPED (Rohan, `/globe`, 2026-07-21); cast shadows rejected twice (the *mechanism* erases fine modeling — reopen needs a new mechanism, not a new value); hillshade-side lever dropped (every dial is a hero anchor) → HISTORY § 2026-07-21 entries · ART § Hero → tile parameter map
 - [ ] Planet occlusion missing `cos(lat)` — PROVEN (2.00× understated at 60°N), unfixed; changes pixels so it rides with a look change; occlusion resolution also unrecorded in freshness → HISTORY § 2026-07-20 (evening)
 - [ ] Crispness = a supersampled re-fuse (transient bands, never a stored ~496 GB product); shares input with any terrain-RGB pyramid — decide the two together → HISTORY § 2026-07-20 (evening)
-- [ ] Package as PMTiles (Phase 4 deploy; gated on the look being final) — browser side confirmed: the `pmtiles` JS protocol plugin reads raster PMTiles over range requests
+- [~] Package as PMTiles — archive BUILT + VERIFIED + web flag LANDED 2026-07-23: `pack_pmtiles.py` (dir→MBTiles 33 s, TDD) → capped convert 1m11s → 15 GB `planet.pmtiles` (verify clean, 5-tile byte-compare incl. z8 y=255); `?pmtiles` flag on /globe (pmtiles 4.4.1, header-derived min/maxzoom, `/pmtiles` dev route with TDD'd Range support — the tiles middleware had none) proven with the real JS client over HTTP (→ HISTORY § the uncapped pmtiles convert); REMAINING: Rohan's visual look, then default-on + nginx serving
 - [ ] (Stretch) terrain-RGB elevation tiles for Tier 3 displacement
 
 ## Pipeline optimisation — measured 2026-07-16, now mostly landed
@@ -97,13 +97,13 @@ Baked-vs-live rule (locked 2026-07-07): too expensive live → baked; depends on
   - [x] `ice_relief_damp` 0.75 SHIPPED + RATIFIED on `/globe` (pack conceals seafloor *shading*, fringe keeps relief, colour glow survives) → HISTORY § 2026-07-22 Antarctica FILL
   - [x] Pole taper RETIRED 2026-07-23 — the damp treats the cause the taper patched → HISTORY § the flat-pole taper RETIRED
   - [x] Cap layer restores GL state each draw (premultiplied-alpha contract in `polarCapSpike.ts`)
-  - [ ] Productionize: downsize the 13.9/4.5 MB cap PNGs + bump `CAP_PX`, drop `?polarspike`; PMTiles packages only the pyramid — caps stay standalone PNGs, Tier-3 terrain-RGB would be its own archive
+  - [x] **Productionized 2026-07-23** — 8192² WebP q85 (3.2+2.1 MB, was 11.1+4.8 MB PNG; Rohan's crop+globe A/B), the `caps.json` contract replaces hand-copied TS literals, default-on with `?nocaps`, `MAX_TEXTURE_SIZE` clamp → HISTORY § polar caps PRODUCTIONIZED. PMTiles packages only the pyramid — caps stay standalone assets, Tier-3 terrain-RGB would be its own archive
 
 ## Phase 4 — Deploy & polish
 
 - [ ] nginx container on rohome, cache headers, PMTiles range-request config
 - [ ] Pangolin route: maps.alchez.dev (or chosen subdomain)
-- [ ] Lighthouse pass on all three tiers; test on a weak Android device
+- [ ] Lighthouse pass on all three tiers; test on a weak Android device — carry-ins from 2026-07-23: Firefox blocks ~1.1 s on main-thread cap decode+upload (`createImageBitmap` decodes sync there + slow `texImage2D`, bugzilla 1486454; Rohan's waterfall → HISTORY § polar caps PRODUCTIONIZED); candidate fix = decode in a Web Worker (transferable ImageBitmap). Dev middleware sends no ETag/Last-Modified → no-cache can't 304, full re-downloads every dev load (dev-only; nginx adds validators)
 - [~] About page: data credits (Copernicus, GEBCO, Natural Earth, ESA WorldCover — exact CC-BY string in the locked-constants Snow entry; OSI SAF + reference-period note; NSIDC-0791, RGI 7.0 CC-BY 4.0, GLOBathy CC0 + the lake-depth epistemics), technique notes
 - [ ] (Optional flourish) landing-page "poster mode" beauty shot — Balazh-style sphere; a weekend experiment (decomposed in chat 2026-07-07)
 - [ ] **Open-source pass** (stated goal 2026-07-23): portability seams (`MAPS_DATA` started in `build_mosaics.sh`; hardcoded `~/projects/maps` roots remain across `acquire/*`), LICENSE choice, README, licence/attribution review of every shipped data product
