@@ -1,175 +1,124 @@
 # Storage inventory
 
-Point-in-time snapshot of on-disk data stores (**2026-07-16**, after the GLOBathy/Caspian pass).
-Everything lives under `data/` (gitignored) — no assets or DEM data are in git. Free space at
-snapshot: **487 GB** of a 1.8 TB ext4 root. Sizes approximate.
+- The **current** map of on-disk data stores: what each is, who reads it, whether it is
+  reclaimable. This file is maintained, not a snapshot — **re-measure when the chain moves; if a
+  row and the disk disagree, the row is the bug.** Past states live in git history; reclaim
+  passes and their lessons live in HISTORY (§ the reclaim log moves out of INVENTORY).
+- Everything lives under `data/` (gitignored) — no assets or DEM data are in git. Free space:
+  **~401 GB** of a 1.8 TB ext4 root. Sizes approximate.
 
-## Raw sources — `data/raw/` (~677 GB)
+## Raw sources — `data/raw/` (~695 GB)
 
 | Store | Size | What it is | Used by | Reclaim? |
 |---|---|---|---|---|
-| `glo30/` | 551 GB | Copernicus GLO-30 land DEM tiles (downloaded per-country, on demand) | fusion (heroes + planet) | Keep — any re-fuse needs it; largest store |
-| `worldcover/` | 114 GB | ESA WorldCover 2021 (class-70 permanent snow/ice) | **hero snow only** (`render/snow_mask.py`) — NOT the tile pipeline | Reclaimable — see note |
-| `globathy/` | 16 GB | GLOBathy zips as downloaded (`Bathymetry_Rasters.zip` 16.7 GB + `GLOBathy_basic_parameters.zip` 116 MB), figshare v1 pinned by size+md5, **CC0** | `acquire/extract_globathy.py` → `work/globathy/` | **Reclaimable once extracted** — re-downloadable, and the download script verifies against the pinned md5 |
-| `gebco/` | 7.3 GB | GEBCO 2026 bathymetry / ice-surface | fusion (heroes + planet); Caspian bathymetry since 2026-07-15 | Keep |
+| `glo30/` | 551 GB | Copernicus GLO-30 land DEM tiles (downloaded per-country, on demand) | fusion (heroes + planet) | Keep — any re-fuse, new country, or z9/z10 extension reads it; largest store |
+| `worldcover/` | 114 GB | ESA WorldCover 2021 (class-70 permanent snow/ice) | **hero snow only** (`render/snow_mask.py`) — NOT the tile pipeline | Reclaimable — see reclaim picture |
+| `globathy/` | 16 GB | GLOBathy zips as downloaded (figshare v1, pinned by size+md5, **CC0**) | `acquire/extract_globathy.py` → `work/globathy/` | Reclaimable once extracted — re-downloadable, download verifies the pinned md5 |
+| `gebco/` | 7.3 GB | GEBCO 2026 bathymetry / ice-surface | fusion (heroes + planet); Caspian bathymetry | Keep |
 | `rgi/` | 2.6 GB | RGI 7.0 glaciers (merged `rgi7_g_3857.gpkg` + source shp) | tile snow (`render/snow.py`) | Keep |
 | `snow/` | 1.6 GB | NSIDC-0791 snow-persistence climatology | tile snow (`render/snow.py`) | Keep |
-| `seaice/` | 640 MB | OSI SAF OSI-450-a (2026-07-20): 720 monthly EASE2 files (`monthly/`, 637 MB) + the derived 1991–2020 ice-frequency climatology (`seaice_frequency_1991-2020_4326.tif`, 2.6 MB) + native `freq_{nh,sh}_ease2.tif` | tile sea ice (`render/seaice.py`) + both caps | Keep (climatology is tiny); `monthly/` regenerable from anonymous THREDDS |
+| `seaice/` | 640 MB | OSI SAF OSI-450-a monthly EASE2 files + the derived 1991–2020 ice-frequency climatology (`seaice_frequency_1991-2020_4326.tif`) + native `freq_{nh,sh}_ease2.tif` | tile sea ice (`render/seaice.py`) + both caps | Keep (climatology is tiny); `monthly/` regenerable from anonymous THREDDS |
 | `cop30_void/` | 1.2 GB | Cop30 void-fill DEM | fusion void-fill | Keep |
-| `naturalearth/` | 38 MB | NE vectors (borders, framing polygons, coastline oracle) | framing, borders | Keep (tiny) |
+| `naturalearth/` | 38 MB | NE vectors (borders, framing polygons, coastline oracle) | framing, borders, countries/boundary GeoJSON | Keep (tiny) |
 
-## Work / intermediates — `data/work/` (~281 GB)
+## Work / intermediates — `data/work/` (~376 GB)
 
 | Store | Size | What it is | Reclaim? |
 |---|---|---|---|
-| `planet_tiles/` | **91 GB** (re-measured 2026-07-22, after the Antarctica fill + same-night reclaim) | Tile-pyramid build — see breakdown below | Mixed |
-| `globathy/` | 16 GB | GLOBathy extracted: `rasters/` = **83,357** per-lake 1″ TIFFs ≥10 KB (15 GB) + `lakedepth.vrt` (83,356 sources; the Caspian is excluded — it is watermask class 1 and takes GEBCO) | Keep — the VRT is the lake-depth warp's only dependency. `rasters/` is 83 k inodes; regenerable from the raw zip |
-| `planet/` | 14 GB | Fused planet heightfield + masks, 648 cells of 10° (36 lon × 18 lat, pole to pole; Antarctica fused 2026-07-22) | Keep — input to the tiler |
-| `cap/` | 1.3 GB | Both caps' render intermediates (`pipeline/tile/cap_render.py`): AEQD warps + `cap_{north,south}.tif` (8192² since 2026-07-23) + **the cap freshness sidecars `cap_{north,south}_params.json`** + the `ab_prod/` + `ab_ice_damp/` + `ab_pole_taper/` A/B rung archives (decision records, ~10 MB). Served outputs moved 2026-07-23: `web/public/caps/cap_{north,south}.webp` (3.2 + 2.1 MB, 8192² WebP q85) + `caps.json`; the old `dev-assets/` PNGs deleted | Reclaimable — regenerated by a cap render (deleting the sidecars merely forces one) |
-| per-country dirs (`russia/` 21 GB, `canada/` 13 GB, `china/` 11 GB, … 208 dirs) | ~182 GB | **Hero render intermediates** (DEM mosaics, warps, masks per country) | Reclaimable — heroes are rendered |
+| `planet_tiles/` | **152 GB** | Tile-pyramid build — itemised below | Mixed — see breakdown |
+| per-country dirs (`russia/` 21 GB, `canada/` 13 GB, `china/` 11 GB, … 208 dirs) | ~190 GB | **Hero render intermediates** (DEM mosaics, warps, masks per country) | Reclaimable — heroes are rendered; kept while the hero sweep queue reads them |
+| `globathy/` | 16 GB | GLOBathy extracted: `rasters/` = **83,357** per-lake 1″ TIFFs (~15 GB, 83 k inodes) + `lakedepth.vrt` (the Caspian is excluded — watermask class 1, takes GEBCO) | Keep — the VRT is the lake-depth warp's only dependency; `rasters/` regenerable from the raw zip |
+| `planet/` | 14 GB | Fused planet heightfield + masks, 648 cells of 10° (36 lon × 18 lat, pole to pole) | Keep — input to the tiler |
+| `cap/` | ~2 GB | Both caps' render intermediates (`tile/cap_render.py`): AEQD warps + `cap_{north,south}.tif` + **the freshness sidecars `cap_{north,south}_params.json`** + the A/B rung archives (decision records, ~10 MB). Served outputs live at `web/public/caps/` (WebP pair + `caps.json`) | Reclaimable — regenerated by a cap render (deleting the sidecars merely forces one) |
+| `borders/` | <1 GB | `countries.geojson` + `boundary_lines.geojson` (NE → GeoJSON emitters), served at `/borders/` | Keep (tiny); regenerable from `naturalearth/` |
+| `_profile_tiles/` | 6 MB | The latest `run_pass.sh --tiles` run: `pass.log` (stage timings) + `samples.jsonl`. **Truncated on every run** — only ever the most recent pass | Keep — the source of PROCESS.md's numbers |
 
 ### `planet_tiles/` breakdown
 
-Itemised because a previous snapshot summarised this dir in one line, which is precisely how
-~43 GB of superseded generations sat unnoticed. **Re-measured 2026-07-17** after the fill-sun pass
-(`run_pass.sh --tiles`, exit 0, 67:44); the whole derived chain is FRESH and `is_stale` reports False
-for every raster below. *This table was ~a day stale before that: it still called the live pyramid
-"PRE-Caspian, PRE-GLOBathy" and `planet_rgb.tif` "not yet tiled", both untrue since the 07-17 morning
-cut. A storage map that lags is how the 43 GB hid — re-measure it when the chain moves, not later.*
-
-**Updated 2026-07-21 (the `shadow_warmth` pass + two reclaim passes).** The stack is down to **one**
-pyramid: `tiles/` (live, approved). Four older generations — `planet_rgb_v1.tif`, `tiles_preice/`,
-`tiles_256_gamma8/`, and finally `tiles_old/` — are **gone** (see Reclaimed 2026-07-21). Free space
-**470 GB**. The steady state going forward is two (`tiles/` + the `tiles_old/` that `build_tiles`
-rotates automatically on each cut); it is one only until the next cut. *The deferred "full row-by-row re-measure of the older generations"
-that sat in this note since 07-20 is what let them accumulate: three dead generations at 14–17 GB each.
-A deferred measurement of a growing directory is the same failure as a stale one.*
-
-**Updated 2026-07-22 (the Antarctica fill + same-night reclaim).** The grid grew to **131072 ×
-131072** (every 3857 raster below re-measured at the new grid). The fill was judged good on `/globe`
-the same night, which closed the keep-gate on both fill rollbacks — they went in Reclaimed
-2026-07-22, along with the gamma8 baseline (**grid-dead**: 93,009 rows can never byte-compare against
-the new grid). Same night, the `ice_relief_damp=0.75` pass re-cut the pyramid: `tiles/` (16 GB) is
-the damp-0.75 look, `tiles_old/` (16 GB) the auto-rotated damp-0 rollback — verified: Arctic tiles
-differ, an equatorial tile is byte-identical. Free space **432 GB**.
+- **Itemised deliberately** — summarising this directory in one line is how ~43 GB of dead
+  generations once hid; and a *deferred* measurement of a growing directory is the same failure
+  as a stale one. Re-measure when the chain moves (→ HISTORY § the reclaim log moves out of
+  INVENTORY).
+- Steady state is **one live pyramid + one rollback**: `tiles/` plus the `tiles_old/` that
+  `build_tiles` auto-rotates on each cut.
 
 | File | Size | What it is | Reclaim? |
 |---|---|---|---|
-| `height_3857.tif` + `.done` | 44 GB | planet heightfield on the WMQ 3857 grid (131072 × 131072 Float32 — full Mercator extent since the 2026-07-22 Antarctica fill) | Keep — **fresh**; it is now the composite's direct colour input (the ramps are applied from elevation) |
-| `tiles/` | 16 GB | **LIVE and APPROVED** — the 2026-07-22 Antarctica-fill cut (PR-#9 knobs + toned SH sea ice + forced Antarctic snow; z8 rows reach y=255, 512 px). **Judged good on `/globe` 2026-07-22 night** (north pole, SH fringe, blue-hole scan). → HISTORY § 2026-07-22 Antarctica FILL | Keep (live) |
-| `planet.mbtiles` | 16 GB | the PMTiles bridge (2026-07-23, `pack_pmtiles.py`, 33 s): all 87,381 tiles as one sqlite, byte-moved from `tiles/` (→ HISTORY § the uncapped pmtiles convert) | **RECLAIMABLE NOW** — `planet.pmtiles` (15 GB) exists + verified byte-identical 2026-07-23; 33 s to rebuild from `tiles/` |
-| `planet.pmtiles` | 15 GB | the serving archive (2026-07-23, capped `pmtiles convert`, 1m11s): spec v3, clustered, z0–8, 4,635 duplicate tiles collapsed; verified via `pmtiles verify` + 5-tile byte-compare | Keep — this is the deployment artifact; 34 s + 1m11s to rebuild from `tiles/` |
-| `planet_rgb.tif` + `.done` | 12 GB | the composite at the full 131072 × 131072 grid (2026-07-22 20:05, the Antarctica-fill step-5 pass): same knobs as the approved PR-#9 look + `sh_ice_lo=0.62` / `sh_ice_max_alpha=0.55` and the forced-snow Antarctic land. **Judged and APPROVED on `/globe` (2026-07-22 night)** | Keep — `--tiles` reads it |
-| `hs_3857.tif` + `.done` | 9.8 GB | per-row-z hillshade (EXAG=15) **+ the 0.15 fill sun, baked** — despite the name this is *combined light*, not a bare hillshade (2026-07-17). Still on the `flat = 255*sin(alt)` contract, which is why `composite` needed no change; max DN 226, not 255 | Keep — **fresh** |
-| `lakedepth_3857.tif` + `.done` | 318 MB | GLOBathy lake depth on the 3857 grid (built 2026-07-15, `1:01:38`) — deflates small because it is ~98% zero | Keep — its `.done` is what stops a pass paying that hour again; only dep is `lakedepth.vrt` |
-| `snow_persistence_3857.tif` + `.done` | 9.1 GB | **New 2026-07-18** (opt #4). NSIDC-0791 persistence warped ONCE to the 3857 grid, storing the **raw PACKED Float32** (0–10000 + 65535 fill), unpacked per-window in float64. Warped in **256-row latitude bands** (== the composite window height) because a single whole-grid warp of this ~1.1 km source **decimates** it, smoothing snow off mountains; banding makes each band == the per-window warp → byte-identical. Composite reads window slices. | Keep — **fresh**; dep is `snow/*.nc` (`SP_NC`). Regenerable |
-| `glacier_3857.tif` + `.done` | 30 MB | **New 2026-07-18** (opt #4). RGI 7.0 glacier mask (Byte 0/1) rasterized ONCE to the 3857 grid; composite `np.maximum`'s it into the snow alpha. Rasterize is an exact vector burn, so whole-grid == per-window (no banding needed). | Keep — **fresh**; dep is `rgi7_g_3857.gpkg` (`RGI_GPKG`). Regenerable |
-| `seaice_3857.tif` + `.done` | 18 GB | **New 2026-07-20** (2b). OSI SAF ice-frequency climatology warped ONCE to the 3857 grid, raw PACKED Float32, in latitude bands (== the composite window height) for the same reason as `snow_persistence_3857` — a coarse 25 km source decimates under a single whole-grid warp. Composite reads window slices, **ocean-gated** in `shade.composite`. | Keep — **fresh**; dep is `seaice_frequency_1991-2020_4326.tif` (`SEAICE_SRC`). Regenerable |
-| `water_3857.tif` / `ocean_3857.tif` + `.done` | 81 MB | 3857 masks | Keep — **fresh**; `water_3857` now correctly reads **class 1** at the Caspian |
-| `hs_params.json`, `composite_params.json` | ~2 KB | materialised palette/knob params — **the freshness guard's dependency records**. `composite_params` gained LAND_STOPS/SEA_STOPS/LUT_STEP_M on 2026-07-16 when `ramp_{land,sea}.txt` were deleted with color-relief | Keep (regenerated; **mtime is load-bearing**) |
-| `index.html` | 2.6 KB | **tile SMOKE TEST, not the product globe** — proves the raw pyramid renders using only `python -m http.server`, so broken tiles and a broken frontend can be told apart. No starfield/borders/atmosphere; the product (`globe.astro`, `/globe`) has all three. Labelled in-page + in `<title>` after it was mistaken for the product on 2026-07-17 | Keep — it is a *different tool*, not a superseded one, and being gitignored means deleting is permanent (git is not its archive) |
+| `height_3857.tif` + `.done` | 44 GB | planet heightfield on the WMQ 3857 grid (131072², Float32, full Mercator extent incl. Antarctica) | Keep — the composite's direct colour input (ramps apply from elevation) |
+| `seaice_3857.tif` + `.done` | 18 GB | OSI SAF ice-frequency climatology warped ONCE to the 3857 grid, raw packed Float32, in latitude bands (a coarse 25 km source decimates under a single whole-grid warp); composite reads window slices, ocean-gated | Keep — fresh; dep is `seaice_frequency_1991-2020_4326.tif`. Regenerable |
+| `tiles/` | 16 GB | **LIVE and APPROVED** — the ratified look (z0–8, 512 px, rows to y=255) | Keep (live) |
+| `tiles_old/` | 16 GB | the auto-rotated rollback from the last cut (pre-`ice_relief_damp` look) | Auto-reclaims — replaced at the next cut; its keep-gate is the rollback window |
+| `planet.mbtiles` | 16 GB | the PMTiles bridge (`pack_pmtiles.py`): all 87,381 tiles as one sqlite, byte-moved from `tiles/` | **RECLAIMABLE NOW** — `planet.pmtiles` exists + verified byte-identical; ~33 s to rebuild from `tiles/` |
+| `planet.pmtiles` | 15 GB | the serving archive (`pmtiles convert`, capped, `--tmpdir` on ext4): spec v3, clustered, z0–8, ~5% duplicate tiles collapsed; verified via `pmtiles verify` + 5-tile byte-compare | Keep — the deployment artifact; ~34 s + ~1m11s to rebuild from `tiles/` |
+| `planet_rgb.tif` + `.done` | 11 GB | the composite at the full 131072² grid — the approved look the tiles are cut from | Keep — `--tiles` reads it |
+| `snow_persistence_3857.tif` + `.done` | 10 GB | NSIDC-0791 persistence warped ONCE to the 3857 grid, raw packed Float32, in 256-row latitude bands (whole-grid warp decimates the ~1.1 km source; banding == the per-window warp, byte-identical); composite reads window slices | Keep — fresh; dep is `snow/*.nc`. Regenerable |
+| `hs_3857.tif` + `.done` | 10 GB | per-row-z hillshade **+ the fill sun, baked** — *combined light*, not a bare hillshade, still on the `flat = 255·sin(alt)` contract; max DN 226 | Keep — fresh |
+| `glacier_3857.tif` + `.done` | 30 MB | RGI 7.0 glacier mask (Byte 0/1) rasterized ONCE to the 3857 grid; exact vector burn, so no banding needed | Keep — fresh; dep is `rgi7_g_3857.gpkg`. Regenerable |
+| `lakedepth_3857.tif` + `.done` | 318 MB | GLOBathy lake depth on the 3857 grid (~98% zero, deflates small). Its `.done` is what stops a pass paying that ~1 h warp again; only dep is `lakedepth.vrt` | Keep |
+| `water_3857.tif` / `ocean_3857.tif` + `.done` | 81 MB | 3857 masks; `water_3857` reads class 1 at the Caspian | Keep — fresh |
+| `hs_params.json`, `composite_params.json` | ~2 KB | materialised palette/knob params — **the freshness guard's dependency records** | Keep (regenerated; **mtime is load-bearing**) |
+| `index.html` | 2.6 KB | **tile SMOKE TEST, not the product globe** — proves the raw pyramid renders with only `python -m http.server`, so broken tiles and a broken frontend can be told apart (labelled in-page after being mistaken for the product once) | Keep — a *different tool*, and gitignored means deleting is permanent |
+| `tmp/` | ~0 | `pmtiles convert --tmpdir` home (ext4, not tmpfs) — self-cleans on normal exit | Keep the dir |
 
-**Gone 2026-07-16** (deleted with the `gdaldem color-relief` stage — `composite()` applies the ramps
-from elevation via a 17.6 KB LUT): `land_3857.tif`, `sea_3857.tif`, `ramp_land.txt`, `ramp_sea.txt`.
+## What the browser loads (dev vs prod)
 
-**Profiling output** (`data/work/`, gitignored; the *code* is tracked at `pipeline/profile/`):
+- The wire view — which stores actually reach a visitor, and how dev differs from the nginx
+  target. Dev serves stores through four routes in `web/astro.config.ts`, pointed by `web/.env`
+  (`HERO_STORE` → `blender/renders/variants`, `TILES_STORE` → `planet_tiles/tiles`,
+  `BORDERS_STORE` → `work/borders`, `PMTILES_STORE` → `planet_tiles/`); prod is nginx over the
+  same stores.
+- The build (`web/dist/`, ~11 MB, ~206 pages) contains **only markup + code** — every heavy asset
+  stays in its store and is fetched at runtime, so `pnpm build` never copies gigabytes.
 
-| Dir | Size | What it is | Reclaim? |
-|---|---|---|---|
-| `_profile_tiles/` | 6.0 MB | the latest `run_pass.sh --tiles` run — `pass.log` (stage timings) + `samples.jsonl` (0.5 s RSS/CPU/disk per process). **`run_pass.sh` truncates `pass.log` on every run**, so this is only ever the most recent pass | Keep — it is the source of PROCESS.md's numbers |
+| Asset | Wire size (prod, gz) | Dev | Prod | Store |
+|---|---|---|---|---|
+| globe JS chunk (MapLibre + the **bundled** `countries.json` manifest — an import, never a fetch) | 280 KB (1.08 MB raw) | vite, unminified, larger | nginx gzip | `web/dist/_astro/` |
+| pmtiles client chunk | 7 KB | lazy `import()` behind `?pmtiles` | loads by default after the flag flip | `web/dist/_astro/` |
+| CSS + small chunks (polarCaps, capability probe) | ~15 KB total | same | same | `web/dist/_astro/` |
+| relief tiles | ~190 KB avg/tile (16 GB ÷ 87,381), viewport-driven | `/tiles/{z}/{x}/{y}.png` from the XYZ dir | **range requests into `planet.pmtiles`** — measured: first paint ≈ 40 requests, FCP 52 ms | `tiles/` (dev) / `planet.pmtiles` (prod) |
+| polar caps | 3.2 + 2.1 MB WebP + `caps.json` (fetched eagerly at globe load; decode off-thread) | identical | identical — WebP ships pre-compressed | `web/public/caps/` |
+| `boundary_lines.geojson` | 0.55 MB gz (1.95 MB raw) | uncompressed | nginx gzip | `work/borders/` |
+| `countries.geojson` | 2.5 MB gz (9.4 MB raw at the 0.002° guard-tested tolerance) | uncompressed | nginx gzip | `work/borders/` |
+| hero variants (gallery srcset + globe click panel) | 0.7 / 2.3 / 6.9 MB per rung (France 1920/3840/7680 WebP) + border overlays 0.14–1.1 MB PNG | `loading="lazy"`, srcset picks the rung | same | `blender/renders/variants/` |
+
+Dev–prod differences that matter:
+
+- **Compression** — dev sends identity bytes (the geojson pair alone is 11.4 MB on the wire vs
+  3.1 MB gz); prod nginx gzips text assets. WebP/PNG are pre-compressed either way.
+- **Validators** — the dev store routes send no ETag/Last-Modified, so every dev reload
+  re-downloads everything (recorded on the PLAN Lighthouse item); prod sends validators plus
+  aggressive cache headers.
+- **Tile source** — dev default is the XYZ directory; PMTiles is `?pmtiles` in dev and becomes
+  the only prod path (one file, range requests, no tile server).
+- Both `.geojson` fetches run on every globe load (the borders *source* is added even while the
+  toggle is off; countries drives interactivity) — async, first paint never waits on them.
 
 ## The freshness guard (why no manual `rm` list is ever needed)
 
-`shade_planet.py` used to guard each stage on `if not out.exists()`, which cannot tell *built* from
-*still correct* — a re-run would have skipped everything and re-cut tiles from pre-Caspian rasters.
-Since 2026-07-15 it is freshness-based (`is_stale`): a stage re-runs if its output is missing, was
-never stamped `.done`, or is older than any input — including the chunk **directory** (a VRT's mtime
-does not move when its chunks are re-fused) and the materialised param files. It fired correctly on
-the real re-fuse (2026-07-16) and rebuilt exactly the stale chain. **It is blind to CODE changes by
-design** (params, not source, are the dependency — so a `git checkout` cannot force a 33 GB rebuild);
-any *behavioural* change to a shading kernel must therefore be verified against an oracle by hand,
-as the hillshade float32 and color-relief LUT changes both were. → [HISTORY.md](HISTORY.md)
+- `shade_planet.py` guards every stage on **freshness** (`is_stale`), not existence: a stage
+  re-runs if its output is missing, was never stamped `.done`, or is older than any input —
+  including the chunk **directory** (a VRT's mtime does not move when its chunks are re-fused)
+  and the materialised param files. An exists()-only guard cannot tell *built* from *still
+  correct*. → HISTORY § The staleness trap
+- **It is blind to CODE changes by design** (params, not source, are the dependency — a
+  `git checkout` cannot force a 33 GB rebuild); any *behavioural* change to a shading kernel must
+  be verified against an oracle by hand.
 
-## Reclaim notes
+## Reclaim protocol
 
-- **Biggest safe reclaim ≈ the per-country `work/` intermediates (~182 GB).** Pure regenerable
-  intermediates from finished hero renders. `python -m pipeline.batch --clean` reclaims them
-  per-country as it runs; any country whose hero PNG exists can be `rm`'d and rebuilt on demand.
-- **WorldCover (114 GB)** is the hero snow-mask source (`snow_mask.py`, class 70) and is **not**
-  read by the tile pipeline (which uses NSIDC-0791 + RGI). It is reclaimable, but a future hero
-  re-render would re-download the per-frame tiles it needs (automatic, from the ESA S3 bucket).
-  It becomes *fully* retired only if the heroes also migrate to the tile snow source.
-- **`glo30/` (551 GB)** is the largest store and the one to leave alone while Phase 2 is active —
-  any new country, corrected region, or z9/z10 re-fuse reads from it.
-- **Re-shading is all-or-nothing** (the Caspian was ~0.15% of the raster and still cost a full-planet
-  rebuild; windowed patching was considered and rejected). **That pass has now been paid — 2026-07-16,
-  98 min, batched as designed** (Caspian + GLOBathy + `WATER_RGB` in one), so the argument is settled
-  and the chain is fresh. The cost is worth remembering for the NEXT such change: budget a full pass,
-  and batch everything pending into it rather than paying it repeatedly. → [PLAN.md](PLAN.md).
-
-## Reclaimed 2026-07-22 (~35 GB: 414 → 447 GB free)
-
-Same rule as 2026-07-21 (remove only what is required for nothing at all). Trigger: the Antarctica
-fill was **judged good on `/globe` the same night** (ring fixed, north pole, SH fringe, blue-hole
-scan all clean), which closed the keep-gate both rollbacks existed for. Targets `ls`'d for stray
-`.py`/`.sh` before deleting (the twice-burned code-in-`data/` rule): clean.
-
-| Removed | Size | Why it was dead |
-|---|---|---|
-| `planet_tiles/tiles_old/` | 14 GB | the pre-Antarctica pyramid — rollback for a fill now judged and approved |
-| `planet_tiles/planet_rgb_pre_antarctica.tif` + `.done` | 9.9 GB | the pre-fill composite rollback — same closed gate |
-| `planet_tiles/planet_rgb_gamma8_baseline.tif` | 11 GB | the 256-serial A/B baseline — **structurally dead since the fill**: it is 93,009 rows and every future composite is 131,072, so no byte-comparison against it can ever run again (its own question had already closed 07-18) |
-
-**Kept deliberately — the hero sea-sync sweep is why:** the per-country hero intermediates
-(~182 GB) and `raw/worldcover/` (114 GB) are read by the upcoming ~204-hero re-render; reclaim them
-only after that pass. Also kept: `raw/globathy/` zips (pinned re-extraction source), `work/cap/`
-(335 MB — active intermediates + the freshness sidecars), `_profile_tiles/` (PROCESS's numbers).
-
-## Reclaimed 2026-07-21
-
-Rule applied (Rohan): **remove only what is required for nothing at all; keep anything that is still
-an interim product for an eventual re-run.**
-
-**~46 GB reclaimed: 414 → 453 GB free** (the pass wrote a fresh 9.9 GB composite in between, which is
-why the net is smaller than the sum).
-
-| Removed | Size | Why it was dead |
-|---|---|---|
-| `planet_tiles/planet_rgb_v1.tif` + `.done` | **17 GB** | the 2026-07-14 sea-rework composite, superseded TWICE (Caspian+GLOBathy 07-16, fill sun 07-17) and not the rollback |
-| `planet_tiles/tiles_preice/` | **14 GB** | pre-sea-ice pyramid; droppable once the south cap landed, which it has |
-| `planet_tiles/tiles_256_gamma8/` | **14 GB** | the pre-threading (serial `composite_window_rows=256`) reference pyramid — 512 px tiles, *not* a 256-px-tile experiment. Its question (is 128/N4 byte-identical to serial?) closed 07-18. Regenerable from `planet_rgb_gamma8_baseline.tif` in ~3:30 |
-| `work/tiles/caspian_check/` | 852 MB | Item-6 Caspian regression render; verdict + numbers in HISTORY. Also held `ramp_land.txt`, whose stage was deleted 07-16 |
-| `work/_profile/` | 81 MB | 2026-07-16 instrumented-pass output; every conclusion is in HISTORY/PROCESS |
-| `work/_profile_tiles_prefill_baseline/` | 2.8 MB | pre-fill profile copy; its numbers are in PROCESS.md |
-
-**Rescued from `_profile/` before deleting: `lut_vs_gdaldem.py` → `pipeline/experiments/`.** It was
-the LUT-vs-`gdaldem color-relief` oracle and it existed **only** in gitignored `data/` — tracked
-nowhere, so `rm -rf` would have destroyed it permanently. It can no longer *run* (its reference
-rasters went with the color-relief stage on 07-16), but the design of the check survives. **This is
-the second time a script has been found living in `data/`** (the profile harness was the first, moved
-to `pipeline/profile/` on 07-16): before reclaiming any `work/` directory, `ls` it for `.py`/`.sh`
-and check `git ls-files` — "code in `pipeline/`, output in `data/`" is a rule that has now been
-broken twice, in the same directory.
-
-**Second pass, same day, once the `shadow_warmth` verdict landed (17 GB more → 470 GB free):**
-`planet_tiles/tiles_old/` (14 GB — the superseded `shadow_warmth=0.0` pyramid) and
-`work/_ab_warmth/` (4.6 GB — the region A/B runs, their numbers now in ART.md).
-
-**Kept deliberately under the rule above** (i.e. NOT dead, do not re-propose without a reason):
-`planet_rgb_gamma8_baseline.tif` (11 GB — the raster its pyramid regenerates from),
-`raw/globathy/*.zip` (16 GB — the pinned figshare v1 source for re-extraction),
-`work/cap/` (332 MB), the per-country hero intermediates (~182 GB) and `raw/worldcover/`
-(114 GB) — all re-run inputs.
-
-## Reclaimed 2026-07-15 (~41 GB: 487 → 529 GB free)
-
-| Removed | Size | Why it was dead |
-|---|---|---|
-| `planet_tiles/blocks/` + `planet_rgb.vrt` | 8.2 GB | output of the retired 194-strip `tile_planet.py`, superseded by `shade_planet.py`; unreferenced |
-| `planet_tiles/tiles_old/` | 13 GB | pre-sea-rework pyramid; rollback for a rework locked & live. The next `--tiles` run re-creates a fresh rollback automatically |
-| `planet_tiles/planet_rgb.tif` + `.done` | 14 GB | pre-sea-rework composite (predates `ramp_sea.txt`); superseded by `_v1` **and** an active skip-if-present trap |
-| `work/redsea_proto/` | 4.8 GB | sea-rework A/B variants (baseline/v1/v2/tones); winner locked |
-| `work/caspian_{water,bathy,north}/` | 2.4 GB | Caspian scratch — conclusions recorded in HISTORY.md; `.log` files kept |
-| `planet_tiles/_bench_{sp,rgi}.tif` | 482 MB | `experiments/composite_bench.py` temps; regenerable |
-| `raw/glo90/` | 74 MB | GLO-90 prototype tiles; experiments only |
-| `planet_tiles/planet_rgb_v2.done` | 0 | orphaned marker (its `.tif` was reclaimed 2026-07-14) |
+- **The standing rule:** remove only what is required for nothing at all; keep anything that is
+  still an interim product for an eventual re-run.
+- **Before reclaiming any `work/` directory:** `ls` it for `.py`/`.sh` and check `git ls-files` —
+  scripts have twice been found living only in gitignored `data/`, once rescued mid-`rm`
+  (→ HISTORY § the reclaim log moves out of INVENTORY).
+- **Re-measure this file after any reclaim or build** — that is its maintenance contract.
+- **Re-shading is all-or-nothing** (windowed patching was considered and rejected): budget a full
+  pass, and batch every pending look change into it rather than paying it repeatedly.
+- **The current reclaim picture:**
+  - `planet.mbtiles` (16 GB) — reclaimable **now**; the archive is verified against it.
+  - per-country hero intermediates (~190 GB) + `raw/worldcover/` (114 GB) — reclaimable **after
+    the hero sweep ratifies**; both feed it. WorldCover fully retires only if the heroes also
+    migrate to the tile snow source.
+  - `tiles_old/` (16 GB) — auto-reclaims at the next cut; its keep-gate is the rollback window.
+  - `raw/glo30/` (551 GB) — leave alone: any new country, corrected region, or finer re-fuse
+    reads it.

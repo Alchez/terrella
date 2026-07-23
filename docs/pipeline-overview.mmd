@@ -9,6 +9,7 @@ flowchart TD
     S4["MODIS snow climatology<br/>how often each place is snow-covered<br/>(NSIDC-0791, 2001–2023)"]
     S5["Randolph Glacier Inventory 7.0<br/>outlines of the world's glaciers"]
     S6["GLOBathy<br/>modelled depth for 1.4 M lakes<br/>(how deep, not just where)"]
+    S7["OSI SAF sea-ice record<br/>how often each sea is frozen<br/>(satellite record, 1991–2020)"]
   end
 
   subgraph ACQ["Getting it — done"]
@@ -40,7 +41,7 @@ flowchart TD
 
   subgraph HERO["Country portraits — done, ~200 countries"]
     P["Prepare for rendering:<br/>undo the map stretch (projection),<br/>shrink to a renderable size"]
-    B["Blender 3D scene:<br/>heights become sculpted terrain,<br/>a low sun casts soft real shadows,<br/>color from height on land, depth at sea,<br/>lakes and rivers in flat teal"]
+    B["Blender 3D scene:<br/>heights become sculpted terrain,<br/>a low sun casts soft real shadows,<br/>color from height on land, depth at sea,<br/>lakes shaded by their real depth, rivers flat teal"]
     H8["8K portrait of each country"]
     OV["Borders drawn onto the finished image:<br/>solid white between countries, dashed for<br/>disputed and sea boundaries; positions<br/>double-checked against the coastline"]
     HF[("Final bordered portrait, plus a<br/>separate border-only layer so the<br/>website can toggle borders off")]
@@ -58,9 +59,11 @@ flowchart TD
   subgraph TILES["Zoomable world — built and serving"]
     T3["Snow, latitude-aware:<br/>white where MODIS says snow persists,<br/>fading softly; glaciers crisp on top"]
     T4["Lake depth:<br/>deep lakes shade like the sea instead of<br/>reading as flat plates"]
-    T1["Fast shading that imitates the Blender look<br/>without ray tracing: hillshade + sky-view shadows<br/>+ the same land/sea colors + snow + lake depth"]
-    T2["512 px map tiles, zoom 0–8<br/>(~62,000 tiles)"]
-    T5["Packed into one PMTiles file<br/>— still to do"]
+    T6["Sea ice:<br/>translucent white where the sea is often frozen,<br/>the seafloor glowing through"]
+    T1["Fast shading that imitates the Blender look<br/>without ray tracing: hillshade + sky-view shadows<br/>+ the same land/sea colors + snow + sea ice + lake depth"]
+    T2["512 px map tiles, zoom 0–8, pole to pole<br/>(~87,000 tiles)"]
+    T5["Packed into one PMTiles file:<br/>the globe reads byte ranges of a single file<br/>— no tile server"]
+    T7["Polar caps: the two poles Mercator can't reach,<br/>drawn as separate circular images<br/>(sea ice over real seafloor)"]
   end
 
   O1 --> T1
@@ -69,16 +72,20 @@ flowchart TD
   S4 --> T3
   S5 --> T3
   S6 --> T4
+  S7 --> T6
   T3 --> T1
   T4 --> T1
+  T6 --> T1
   T1 --> T2
-  T2 -.-> T5
+  T1 --> T7
+  T2 --> T5
 
   subgraph SITE["The website — gallery and globe are live"]
     W["Three versions, picked to fit your device:<br/>photo gallery / spinning globe / full 3D globe.<br/>The 3D-terrain version is still to come"]
   end
 
   T2 --> W
+  T7 --> W
   HF --> W
   S3 -->|clickable borders| W
 
@@ -87,10 +94,9 @@ flowchart TD
   classDef next fill:#fdf3d7,stroke:#b8860b,color:#4a3a10
   classDef plan fill:#eceff1,stroke:#78909c,color:#37474f
 
-  class S1,S2,S3,S4,S5,S6 ext
+  class S1,S2,S3,S4,S5,S6,S7 ext
   class D1,R1,R2,R3 done
   class F,O1,O2,O3 done
   class P,B,H8,OV,HF done
-  class T1,T2,T3,T4 done
-  class T5 next
+  class T1,T2,T3,T4,T5,T6,T7 done
   class W done

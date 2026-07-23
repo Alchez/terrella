@@ -2,7 +2,7 @@
 
 Status legend: [ ] todo · [~] in progress · [x] done · [!] blocked
 
-Update at the end of every work session (checkboxes + open questions + active learnings). One-line summaries only — anything needing a paragraph lives in [`HISTORY.md`](HISTORY.md) (dated decisions + rationale; grep it, scan its topical index), [`PROCESS.md`](PROCESS.md) (measured runtimes), [`INVENTORY.md`](INVENTORY.md) (storage), or [`ART.md`](ART.md) (aesthetic decisions), cited as `→ HISTORY § <dated heading>`.
+Update at the end of every work session (checkboxes + open questions + active learnings). One-line summaries only — anything needing a paragraph lives in [`HISTORY.md`](HISTORY.md) (dated decisions + rationale; grep it, scan its topical index), [`PROCESS.md`](PROCESS.md) (measured runtimes), [`INVENTORY.md`](INVENTORY.md) (storage), or [`ART.md`](ART.md) (aesthetic decisions), cited as `→ HISTORY § <dated heading>`. Deferred-but-analysed ideas live in [`FUTURE.md`](FUTURE.md) (the v2 parking lot), not here.
 
 ## Phase 0 — Proof of concept (one country, end to end) — COMPLETE 2026-07-06
 
@@ -102,6 +102,7 @@ Baked-vs-live rule (locked 2026-07-07): too expensive live → baked; depends on
 - [ ] Pangolin route: maps.alchez.dev (or chosen subdomain)
 - [ ] Lighthouse pass on all three tiers; test on a weak Android device — carry-ins from 2026-07-23: Firefox blocks ~1.1 s on main-thread cap decode+upload (`createImageBitmap` decodes sync there + slow `texImage2D`, bugzilla 1486454; Rohan's waterfall → HISTORY § polar caps PRODUCTIONIZED); candidate fix = decode in a Web Worker (transferable ImageBitmap). Dev middleware sends no ETag/Last-Modified → no-cache can't 304, full re-downloads every dev load (dev-only; nginx adds validators)
 - [~] About page: data credits (Copernicus, GEBCO, Natural Earth, ESA WorldCover — exact CC-BY string in the locked-constants Snow entry; OSI SAF + reference-period note; NSIDC-0791, RGI 7.0 CC-BY 4.0, GLOBathy CC0 + the lake-depth epistemics), technique notes
+- [x] Bump astro 7.0.7 → 7.1.3 — DONE 2026-07-23 (same major, zero breaking on path; gates green: astro check 0, vitest 45, build 206 pages / 418 ms; dev server restarted on 7.1.3) — contrast: GDAL 3.13 assessed same day and SKIPPED → FUTURE.md
 - [ ] (Optional flourish) landing-page "poster mode" beauty shot — Balazh-style sphere; a weekend experiment (decomposed in chat 2026-07-07)
 - [~] **Open-source pass** (stated goal 2026-07-23) — mostly done same day: `pipeline/paths.py` seam (ROOT/DATA/BLENDER; `MAPS_DATA`/`MAPS_BLENDER` env overrides; 18 modules migrated, drift-scan test enforces single-homing), LICENSE = MIT code / CC BY-NC 4.0 imagery (README + ATTRIBUTIONS sections; NC trade-off recorded → HISTORY § LICENSE + paths seam). REMAINING: migrate `snow_mask.py` off its freeze allowlist after sweep ratification; final attribution review of shipped products at Phase 4
 - [ ] Ship. Post it somewhere.

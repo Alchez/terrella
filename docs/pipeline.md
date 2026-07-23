@@ -70,27 +70,33 @@ The chain `country_config` prints per country, in order. Each stage finalizes it
 | 3 | Fuse heightfield | `pipeline.fuse.fuse_heightfield` | Seamless land+sea heightfield + ocean/lake/river masks |
 | 4 | Render prep | `pipeline.render.render_prep` | Projected rasters + `frame.json` (every derived number) |
 | 5 | Snow mask | `pipeline.render.snow_mask` | Snow/ice mask (ESA WorldCover class 70) |
-| 6 | Render | `render/scene_build.py` via `blender -b` | The hero PNG |
+| 6 | Lake depth mask | `pipeline.render.lake_mask` | `lakedepth_aea.tif` (GLOBathy depth → ramp position; lakes shade by depth, rivers stay flat) |
+| 7 | Render | `render/scene_build.py` via `blender -b` | The hero PNG |
 
 Python stages run as `python -m <module>` (e.g. `python -m pipeline.render.render_prep …`), shell stages as `bash pipeline/<sub>/<script>.sh`, and the Blender scene as `blender -b --python pipeline/render/scene_build.py`. Ask `country_config --country <slug>` for the exact, filled-in commands.
 
-The geometry behind stages 1–6 — how a lon/lat box becomes projected pixels, displacement scale, and camera framing — is explained in plain English in [`framing-math.md`](framing-math.md). The pipeline diagrams are [`pipeline-overview.mmd`](pipeline-overview.mmd) and [`pipeline-detail.mmd`](pipeline-detail.mmd) (Mermaid).
+The geometry behind stages 1–7 — how a lon/lat box becomes projected pixels, displacement scale, and camera framing — is explained in plain English in [`framing-math.md`](framing-math.md). The pipeline diagrams are [`pipeline-overview.mmd`](pipeline-overview.mmd) and [`pipeline-detail.mmd`](pipeline-detail.mmd) (Mermaid).
 
 Borders are **never** rendered inside the Blender scene — they are composited in post as a standalone transparent layer, so the website can toggle them over the hero.
 
-### Phase 2 — the tile pyramid (in progress)
+### The tile pyramid (the zoomable globe)
 
-The zoomable globe is a separate, raster-only path that does **not** use Blender: fuse the whole planet once, shade it to imitate the hero look, and cut tiles.
+A separate, raster-only path that does **not** use Blender: fuse the whole planet once, shade it to imitate the hero look, cut tiles, and pack them into one servable archive.
 
 | Module | Produces |
 |---|---|
-| `pipeline.fuse.fuse_planet` | the planet heightfield (10×10° cells at 10″, `data/work/planet/*.vrt`) |
+| `pipeline.fuse.fuse_planet` | the planet heightfield, pole to pole (10×10° cells at 10″, `data/work/planet/*.vrt`) |
 | NSIDC-0791 snow persistence | the snow-persistence NetCDF, obtained from NSIDC via Earthdata (earthaccess/CMR) and placed at `data/raw/snow/` — **no committed acquire script** (unlike RGI / sea ice) |
 | `pipeline.acquire.download_rgi` | RGI 7.0 glacier shapefiles merged to `data/raw/rgi/rgi7_g_3857.gpkg` |
+| `pipeline.acquire.download_seaice` | OSI SAF monthly sea-ice concentration → the annual ice-frequency climatology |
 | `pipeline.render.snow` | tile snow: persistence → latitude-ramped soft alpha, unioned with RGI glaciers |
-| `pipeline.tile.shade` | reproject cells to Web-Mercator, mosaic, shade once (color-relief × single-NW hillshade × sky-view + snow) → `region_rgb.tif` |
+| `pipeline.render.seaice` | sea-ice alpha over the ocean (translucent white, seafloor glows through) |
+| `pipeline.render.lake_depth` | GLOBathy lake depth on the tile grid (depth-keyed lake tint) |
+| `pipeline.tile.shade_planet` | the production planet pass: warp everything to one Web-Mercator grid, hillshade + fill sun, sky-view, windowed composite → `planet_rgb.tif`, then `gdal raster tile` → the z0–8 pyramid (`pipeline.tile.shade` is the region-sized A/B path) |
+| `pipeline.tile.cap_render` | both polar caps (AEQD, the same composite) → `web/public/caps/` |
+| `pipeline.tile.pack_pmtiles` + `tools/pmtiles convert` | `planet.pmtiles` — the single range-request-servable archive |
 
-Snow here is **not** the hero's WorldCover class-70 mask (permanent ice only, which left mid/high-latitude ranges bare) — it is observed MODIS snow *persistence* as a soft alpha, ramped by latitude, with RGI glaciers crisp on top. See the [decision log](../PLAN.md) and the pipeline diagrams. Tiling → PMTiles and the seamless full-planet shade (latitude-banded z-factor / windowed composite) are the remaining pieces.
+Snow here is **not** the hero's WorldCover class-70 mask (permanent ice only, which left mid/high-latitude ranges bare) — it is observed MODIS snow *persistence* as a soft alpha, ramped by latitude, with RGI glaciers crisp on top. The decisions behind every piece are in [`HISTORY.md`](../HISTORY.md); the pipeline diagrams show the full graph.
 
 ## From heroes to the website
 

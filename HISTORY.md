@@ -120,7 +120,9 @@ The log below is **chronological**; this is the view it lacks. Nothing reads thi
 
 ### Engineering practice
 
-- [2026-07-23 — LICENSE lands (MIT / CC BY-NC 4.0) and the paths seam single-homes the pipeline](#2026-07-23--license-lands-mit--cc-by-nc-40-and-the-paths-seam-single-homes-the-pipeline) — MIT for code (pyproject field + LICENSE), **CC BY-NC 4.0 for rendered imagery** (Rohan's pick; trade-off recorded: Wikimedia rejects NC media; GLO-30's commercial caveat aligns with NC regardless); `pipeline/paths.py` = ROOT (source-derived, never env) / DATA (`MAPS_DATA`) / BLENDER (`MAPS_BLENDER`), **18 modules migrated** TDD-first with a drift-scan test enforcing single-homing (`snow_mask.py` on a dated freeze allowlist until the sweep ratifies); plus the zsh no-match glob that invented "no README" — a broken oracle owned
+- [2026-07-23 — LICENSE lands (MIT / CC BY-NC 4.0) and the paths seam single-homes the pipeline](#2026-07-23--license-lands-mit--cc-by-nc-40-and-the-paths-seam-single-homes-the-pipeline) — MIT for code (pyproject field + LICENSE), **CC BY-NC 4.0 for rendered imagery** (Rohan's pick; trade-off recorded: Wikimedia rejects NC media; GLO-30's commercial caveat aligns with NC regardless); `pipeline/paths.py` = ROOT (source-derived, never env) / DATA (`MAPS_DATA`) / BLENDER (`MAPS_BLENDER`), **18 modules migrated** TDD-first with a drift-scan test enforcing single-homing (`snow_mask.py` on a dated freeze allowlist until the sweep ratifies); plus the zsh no-match glob that invented "no README" — a broken oracle owned. Same day: the **dateless convention** (in-entry bullet) extended to ART.md and INVENTORY.md
+- [2026-07-23 — the reclaim log moves out of INVENTORY (passes consolidated; the twice-burned code-in-data rule gets its HISTORY home)](#2026-07-23--the-reclaim-log-moves-out-of-inventory-passes-consolidated-the-twice-burned-code-in-data-rule-gets-its-history-home) — INVENTORY joined the dateless static set → its embedded changelog moved here: the three reclaim passes (~41 / ~46+17 / ~35 GB) under the standing rule "remove only what is required for nothing at all"; the **twice-burned code-in-data rule** with the `lut_vs_gdaldem.py` mid-`rm` rescue (previously recorded only in INVENTORY); the itemise-planet_tiles and re-measure-on-change rules now stated dateless in the file itself
+- [2026-07-23 — PROCESS.md goes dateless: the measurement diary consolidates here, numbers become config-qualified](#2026-07-23--processmd-goes-dateless-the-measurement-diary-consolidates-here-numbers-become-config-qualified) — the last static-set conversion: PROCESS states current numbers **qualified by config (grid, threading), never by date**; the superseded-value ladder (hillshade 8:28→11:48→16:20, composite 53.8→49:40→10:45→13:28→21:37, scenario 55:48→17→29 min) and the instrumented-pass milestones (67:44 fill-sun = first per-stage cores/disk; 2:28:01 Antarctica re-warp pass) archived in the entry; the trigger was real rot — after the grid change PROCESS's scenario table and its knob-restage paragraph quoted **different numbers for the same operation** (~17 vs ~29 min)
 
 - [2026-07-23 — the uncapped pmtiles convert OOM'd the box: tmpfs /tmp, a 12 GB orphan, and swapoff under pressure](#2026-07-23--the-uncapped-pmtiles-convert-oomd-the-box-tmpfs-tmp-a-12-gb-orphan-and-swapoff-under-pressure) — `pmtiles convert` launched WITHOUT the 12 G cap ("it's just IO" — an assumption); go-pmtiles funnels its working set through the system temp dir and **Ubuntu 26.04's `/tmp` is tmpfs = RAM** → swap 100%, fork failures box-wide, and Rohan's `swapoff -a` OOM-killed his session (swapoff itself was oom-reaped; slack et al. died). The SIGKILLed convert left `/tmp/pmtiles3601582229` (12 GB) holding RAM until `rm`. **The standing cap incantation would have contained it** (tmpfs charges the writer's cgroup) — the failure was purely the exemption. Same-day capped retry: **1m11s, 15 GB `planet.pmtiles`, verify clean, 5-tile byte-compare identical incl. z8 y=255; 5.3% deduped**; `?pmtiles` web flag landed same day (Range-supporting `/pmtiles` dev route TDD'd — the tiles middleware had none — + header-derived min/maxzoom; real-JS-client oracle byte-identical)
 - [2026-07-23 — commonification LANDED as `raster_io.py`, half the list was already done, and coverage joins the gates](#2026-07-23--commonification-landed-as-raster_iopy-half-the-list-was-already-done-and-coverage-joins-the-gates) — PLAN's four-item commonify list executed TDD-first: `GTIFF_CREATE` (format-only — the threading constraint is now a TEST, not prose) + `row_bands`/`band_window` (the single Window pyright-ignore home) adopted at six sites, `composite_params` byte-unchanged so nothing restaged; the planned `stream_windows(src, rows, dtype)` did NOT survive contact (read patterns irreconcilable — the band *arithmetic* is the shared part); items 3–4 found **already done** (`warp_needs_rebuild` 2026-07-22; `lake_ab --left/--right`). Same day: **pytest-cov added** (`uv run pytest --cov`), baseline 32.45%, `fail_under=32` as a ratchet
@@ -136,10 +138,81 @@ The log below is **chronological**; this is the view it lacks. Nothing reads thi
 
 ### Project meta
 
+- [2026-07-23 — look presets analysed and DEFERRED; FUTURE.md created as the v2 parking lot](#2026-07-23--look-presets-analysed-and-deferred-futuremd-created-as-the-v2-parking-lot) — user-selectable globe styles decompose into **three kinds by where the variation lives** (vector-over-raster ≈ free via `MAPCOLOR13` fill; raster recolors = one 15 GB archive + ~33 min per look, gated on look parameterization since the drift guards correctly fight a second look; client-side colorization = a GLSL twin of `shade.composite`, Phase-5-sized). Rohan deferred all of it; the full taxonomy + recommendation ladder parked in **FUTURE.md** — a new doc-set slot for analysed-but-unplanned ideas, so deferred analyses stop dying in chat. Doc-set maps in PLAN header + CLAUDE.md updated
 - [2026-07-04 — Purpose reframed: learning first](#2026-07-04--purpose-reframed-learning-first) — **purpose reframed: learning first.** Understanding every piece is the primary goal; the site is secondary
 - [2026-07-03 — Project scoped; dev environment decided](#2026-07-03--project-scoped-dev-environment-decided) — project scoped; dev environment decided
 
 ## Decision log
+
+### 2026-07-23 — PROCESS.md goes dateless: the measurement diary consolidates here, numbers become config-qualified
+
+The last of the static-set conversions (Rohan: "HISTORY should be the only file that records
+history"). PROCESS.md now states **current-state numbers qualified by the config that determines
+them** (grid size, thread layout) instead of by measurement date; superseded values and the
+measurement diary move here:
+
+- **The instrumented-pass milestones:** the fill-sun pass (`run_pass.sh --tiles`, exit 0,
+  **67:44 total**) was the *first* run to record per-stage cores and disk rate — before it,
+  "is the hillshade compute- or I/O-bound?" was unanswerable. The Antarctica pass (**2:28:01**
+  end-to-end) re-measured every stage at the permanent 131072² grid, dominated by the one-time
+  grid-guarded re-warps (chiefly the 1:01:44 lake warp).
+- **Superseded numbers, for the record:** hillshade 8:28 → 11:48 with the fill (+3:20 measured vs
+  +4:30 projected — the synthetic benchmark ran ~35% high on the delta; pure compute 1.41 s/window
+  but only ~half the stage is arithmetic) → 16:20 at the grown grid. Composite: 53.8 min serial →
+  49:40 with opt #3 (`ALL_CPUS` writers, −4.1 min) → **10:45 threaded 128/N4** (~3.5×, § the
+  composite is threaded) → 13:28 with sea ice → 21:37 at the grown grid (1024 windows, per-window
+  +14% — the Antarctic windows are all snow+ice work). SVF 2:44 → 3:23; cut 3:32 → 4:19. Scenario
+  totals: composite-stage re-tune 55:48 → ~17 min → ~29 min; hillshade-stage ~29 → ~46 min.
+- **The stale derived paragraphs this caught:** after the grid change, PROCESS's scenario table and
+  its "what a knob restages" paragraph disagreed (~17 vs ~29 min for the same operation) — the
+  re-measure updated the stage rows but not the derived prose. A current-state-only file removes
+  the class: one number per fact, qualified by config.
+
+### 2026-07-23 — the reclaim log moves out of INVENTORY (passes consolidated; the twice-burned code-in-data rule gets its HISTORY home)
+
+INVENTORY.md joined the dateless static set the same day ART did (Rohan: "it should always present
+currently-true information") — which means its embedded changelog (three dated "Reclaimed" sections,
+dated re-measure paragraphs) belonged *here*. Consolidated ledger, with the lessons that had no other
+home:
+
+- **The pass ledger:** ~41 GB on 07-15 (retired `tile_planet.py` outputs, the pre-sea-rework
+  pyramid + composite, Red-Sea/Caspian scratch — details § The staleness trap); ~46 GB + 17 GB on
+  07-21 (`planet_rgb_v1` 17 GB, `tiles_preice` 14 GB, `tiles_256_gamma8` 14 GB, caspian_check,
+  profile dirs; second pass after the `shadow_warmth` verdict took `tiles_old` + `_ab_warmth`);
+  ~35 GB on 07-22 (both Antarctica-fill rollbacks + the grid-dead gamma8 baseline — § Antarctica
+  FILL). All under Rohan's standing rule: **remove only what is required for nothing at all; keep
+  anything still an interim product for an eventual re-run.**
+- **The twice-burned code-in-data rule (previously recorded ONLY in INVENTORY):** scripts have twice
+  been found living in gitignored `data/` — the profile harness (moved to `pipeline/profile/`), then
+  **`lut_vs_gdaldem.py`, rescued mid-`rm`** to `pipeline/experiments/`: it was the LUT-vs-
+  `gdaldem color-relief` oracle and was tracked *nowhere*, so deletion would have been permanent. (It
+  can no longer run — its reference rasters went with the color-relief stage — but the check's design
+  survives.) Hence the pre-`rm` protocol INVENTORY's reclaim section now states dateless: **`ls` the
+  target for `.py`/`.sh` and check `git ls-files` before reclaiming any `work/` directory.**
+- **Also formerly dated in INVENTORY, now stated as standing rules:** itemise `planet_tiles/`
+  (one-line summaries are how ~43 GB of dead generations hid; a *deferred* measurement of a growing
+  directory is the same failure as a stale one), and re-measure the map when the chain moves. The
+  running free-space ledger (487 → 529 → … GB) was point-in-time noise; git holds the old snapshots.
+
+### 2026-07-23 — look presets analysed and DEFERRED; FUTURE.md created as the v2 parking lot
+
+Sparked by a St. Patrick's green-sea hypothetical that generalised to "user-selectable looks
+(default, every-country-coloured, …)". The analysis is recorded **in FUTURE.md** (new file), not
+here — this entry exists so a grep for "presets"/"looks"/"political map" finds the fork:
+
+- **The taxonomy is the decision:** presets decompose into three kinds by *where the variation
+  lives*, and costs differ by orders of magnitude — (1) vector-over-raster (country colouring via
+  the already-shipped polygons + NE `MAPCOLOR13`, ~free, client-side); (2) raster recolors (the
+  look is baked into pixels, so one ~15 GB PMTiles archive + ~33 min per look, prerequisite: look
+  parameterization, because the palette import-sharing + relational pins + freshness guards all
+  correctly treat a second look as drift today); (3) client-side colorization (data/colour split,
+  looks become shader LUTs — but a GLSL twin of `shade.composite` is the copy-drift disease at
+  engine scale; Phase-5-sized, pairs with terrain-RGB).
+- **Rohan deferred all of it** ("maybe a v2 improvement") and asked for a place to record such
+  analyses → **FUTURE.md**, a new doc-set slot: analysed-but-unplanned ideas, each entry dated and
+  carrying the facts its numbers depend on. PLAN stays commitments-only; FUTURE holds the parked
+  thinking; graduation moves an idea to PLAN and leaves a pointer. Doc-set maps in the PLAN header
+  and CLAUDE.md gained the new file.
 
 ### 2026-07-23 — the blocky hover outline: a hit-layer geometry had become a display layer (0.05° → 0.002°)
 
@@ -198,6 +271,19 @@ The afternoon docket's Task 3, executed after the PMTiles close. Two decision se
   shell artifact as a repo fact — Rohan caught it ("the repo already has a README"). The root
   README existed and is good. A check used as proof must fail on its *target*: separate the
   probes (`ls README*; ls LICENSE*`) or glob-guard, never compound them under one fallback.
+- **Dateless convention (Rohan, same day, extended to ART.md, INVENTORY.md, and PROCESS.md later
+  that day):** static reference files (README, ATTRIBUTIONS, docs/*, **ART**, **INVENTORY**,
+  **PROCESS**) carry no decision dates and no dated breadcrumbs — **HISTORY is the only file that
+  records history**; static files state current truth and cite § headings by their *descriptive
+  tail* (dateless, greppable). PLAN stays the dated living plan. Dataset vintages and reference
+  periods (GEBCO 2026, "1991–2020") stay everywhere. Each conversion moved its embedded history
+  here first (§ the reclaim log moves out of INVENTORY; § PROCESS.md goes dateless); the shared
+  maintenance contract: current-state files are *maintained* — if a row and reality disagree, the
+  row is the bug. The same pass rewrote ART.md: all-bullets, narratives
+  compressed to operational facts + § citations, stale facts corrected to code truth (sun 45°
+  shared via `SUN_ALT_DEG`, sea ramp/water tint shared by import, lake depth wired, colour-audit
+  table superseded by the Lever index + `test_scene_build_sync`), and a new **Lever index**
+  (every tunable, grouped by measured restage cost) added as the quick-scan view.
 
 ### 2026-07-23 — the uncapped pmtiles convert OOM'd the box: tmpfs /tmp, a 12 GB orphan, and swapoff under pressure
 
