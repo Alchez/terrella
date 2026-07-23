@@ -1,21 +1,27 @@
 #!/usr/bin/env python3
-"""Simplify the Natural Earth admin-0 country POLYGONS -> one WGS84 GeoJSON for
-the globe's click-to-fly-to hit layer (an invisible MapLibre fill the click
-handler queries; also drives the hover tint).
+"""Simplify the Natural Earth admin-0 country POLYGONS -> one WGS84 GeoJSON
+shared by ALL of the globe's country layers: the click-to-fly hit fill, the
+hover wash, and the hover outline that strokes these very rings as the visible
+gold line (web/src/lib/countryHighlight.ts).
 
-This is *not* a display layer — the visible coastline is the baked raster tile.
-The polygons exist only so a click on the sphere resolves to a country, so we
-simplify hard (Douglas-Peucker at ~SIMPLIFY_DEG) to trade coastline fidelity for
-a small file: the full shapefile is ~8.8 MB, useless to ship when a few hundred
-KB hit-tests identically. We carry only ADMIN — the frontend joins it to
+That last consumer makes this a DISPLAY layer, and it sets the simplification
+budget: the outline is judged against the raster coastline it traces, so the
+Douglas-Peucker error must stay under one pixel of the sharpest tiles (z8) —
+not merely "small enough to hit-test". The file began life as a pure hit layer
+at 0.05 deg (~5.5 km) on the premise the geometry would never be seen; the
+hover outline invalidated that silently, and at z8 the chords cut ~18 px
+straight across bays (the 2026-07-23 blocky-coast report). Fidelity costs real
+bytes — 9.2 MB raw / 2.5 MB gzipped vs 1.5 / 0.4 at the old tolerance, measured
+2026-07-23 — but the fetch is async behind first paint and cached, so the
+display requirement wins. We carry only ADMIN — the frontend joins it to
 countries.json by name (gen_manifest sets name = resolve()["admin"]) and gates
 interactivity to in-scope names with a layer filter.
 
 Same format-translation shape as borders_geojson.py (a pure EPSG:4326 -> GeoJSON
 pass, no reprojection); output is gitignored under data/, served at /borders/.
 
-    python pipeline/compose/countries_geojson.py            # writes if missing
-    python pipeline/compose/countries_geojson.py --force    # regenerate
+    python -m pipeline.compose.countries_geojson            # writes if missing
+    python -m pipeline.compose.countries_geojson --force    # regenerate
 """
 
 import argparse
@@ -32,11 +38,27 @@ OUT_DIR = ROOT / "data/work/borders"
 SRC = NE / "ne_10m_admin_0_countries" / "ne_10m_admin_0_countries.shp"
 OUT = OUT_DIR / "countries.geojson"
 
-# Douglas-Peucker tolerance in degrees (~1 km at the equator). Coarse enough to
-# shrink the file an order of magnitude, fine enough that a click near a coast
-# still lands in the right polygon. Neighbour gaps this introduces are invisible
-# (the layer is transparent) and only ever cost a hover flicker at a border.
-SIMPLIFY_DEG = 0.05
+# Douglas-Peucker tolerance in degrees. 0.002 deg ~= 220 m ~= 0.7 px at z8 on
+# the equator (shade_planet.Z8_RES = 305.75 m/px) — sub-pixel where the raster
+# is sharpest, so the hover outline tracks the coast it traces. N-S error grows
+# toward the poles in Mercator pixels (~3 px at 75N: latitude degrees don't
+# shrink with cos(lat) but Mercator pixels do) — accepted; buying it back costs
+# ~1 MB more gzip for fjord vertices only a Svalbard hover would notice.
+# Pinned relationally against Z8_RES in tests/test_countries_geojson.py.
+SIMPLIFY_DEG = 0.002
+
+
+def ogr_command(source: Path, destination: Path) -> list[str]:
+    """The ogr2ogr invocation, exposed pure for tests. Argument order is
+    [options] DESTINATION SOURCE — ogr2ogr's convention, pinned by test."""
+    return [
+        "ogr2ogr", "-f", "GeoJSON",
+        "-select", "ADMIN",  # only the join key — no CONTINENT/ISO/etc.
+        "-simplify", str(SIMPLIFY_DEG),  # Douglas-Peucker; budget above
+        "-lco", "RFC7946=YES",  # standards-compliant WGS84 lon/lat GeoJSON
+        "-lco", "COORDINATE_PRECISION=4",  # ~11 m; an order under the simplify floor
+        str(destination), str(source),
+    ]
 
 
 def translate(force: bool):
@@ -47,14 +69,7 @@ def translate(force: bool):
         return
     tmp = OUT.with_suffix(".geojson.tmp")
     tmp.unlink(missing_ok=True)
-    cmd = [
-        "ogr2ogr", "-f", "GeoJSON",
-        "-select", "ADMIN",  # only the join key — no CONTINENT/ISO/etc.
-        "-simplify", str(SIMPLIFY_DEG),  # Douglas-Peucker; the whole point
-        "-lco", "RFC7946=YES",  # standards-compliant WGS84 lon/lat GeoJSON
-        "-lco", "COORDINATE_PRECISION=4",  # ~10 m; ample for a hit layer
-        str(tmp), str(SRC),
-    ]
+    cmd = ogr_command(SRC, tmp)
     print(" ".join(cmd), flush=True)
     subprocess.run(cmd, check=True)
     tmp.replace(OUT)  # atomic promote

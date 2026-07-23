@@ -81,7 +81,7 @@ Baked-vs-live rule (locked 2026-07-07): too expensive live → baked; depends on
 - [x] NE vector borders + toggle — casing strengthened to a soft dark halo for pale highlands
 - [x] Country click → fly-to → in-globe hero panel (NE hit layer, authored-frame `fitBounds`, lazy panel)
 - [x] Hover-highlight pole artifacts fixed — `lib/countryHighlight.ts` + 11 regression tests; Rohan confirmed no look regression → HISTORY § 2026-07-19 hover-highlight
-- [ ] Borders read blocky at z7–8 (Rohan, 2026-07-23) — source is already NE 1:10m (the finest NE scale, designed for overview display), so suspect its generalization limit vs geojson-vt tolerance; any finer source re-opens the NE-worldview decision — investigate before switching anything
+- [x] Blocky coasts at z6–8 FIXED 2026-07-23 — both suspects were innocent: the hover outline strokes `countries.geojson`, which was simplified at 0.05° (~5.5 km) for its original life as an invisible hit layer; retightened to 0.002° (sub-pixel at z8), guard test pins it against `Z8_RES` → HISTORY § the blocky hover outline
 - [x] Globe polish — starfield, mobile control fixes, sea rework V1 LIVE, Spin toggle
 - [x] Capability probe + tier routing + Lite/Globe/Full toggle + FPS degradation — `decideTier()`, WebGL2 hard floor, TDD'd
 - [x] Tier 1 no-JS fallback — pure-CSS gazetteer overlay; dead search removed

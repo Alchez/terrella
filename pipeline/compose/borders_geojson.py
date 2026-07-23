@@ -12,8 +12,8 @@ We carry only FEATURECLA (the frontend styles/splits on it), round coordinates t
 ~1 m, and let MapLibre thin further per-zoom via the source `tolerance`. Output is
 gitignored (under data/); served at /borders/ the same way tiles and heroes are.
 
-    python pipeline/compose/borders_geojson.py            # writes missing files
-    python pipeline/compose/borders_geojson.py --force    # regenerate all
+    python -m pipeline.compose.borders_geojson            # writes missing files
+    python -m pipeline.compose.borders_geojson --force    # regenerate all
 """
 
 import argparse
