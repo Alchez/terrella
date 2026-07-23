@@ -91,6 +91,36 @@ class TestColorRelief:
         assert sea[0][1] == SEA_DEEP       # deepest is at -6000 (first sea row)
 
 
+class TestSharedConstants:
+    """The relational pins that stop the copy-drift class of bug (2026-07-23 sea-sync).
+
+    WATER_RGB went stale against SEA_STOPS[0] once on the tiles (2026-07-15) and once
+    on the heroes (98C5C8, caught 2026-07-16) because nothing tied the tint to the sea
+    surface. These freeze the value AND the relationship."""
+
+    def test_water_rgb_exact(self):
+        assert palette.WATER_RGB == (142, 198, 196)  # 8EC6C4
+
+    def test_water_rgb_is_sea_surface_lightened(self):
+        """The lake convention: the sea surface tone lightened ~7%. A ramp rework that
+        moves SEA_STOPS[0] and forgets the flat tint fails here, not on a render."""
+        surface = palette._srgb8(palette.SEA_STOPS[0][1])
+        assert surface == SEA_SHALLOW  # the frozen 85B9B7 anchor
+        for tint_channel, surface_channel in zip(palette.WATER_RGB, surface):
+            assert abs(tint_channel - round(surface_channel * 1.07)) <= 1
+
+    def test_lake_shore_is_the_flat_tint(self):
+        assert palette.LAKE_STOPS[0][1] == palette.srgb8_to_linear(palette.WATER_RGB)
+
+    def test_sun_altitude_is_shared(self):
+        """Tile KNOBS["alt"] sources palette.SUN_ALT_DEG; the hero derives its
+        SUN_ROTATION X-tilt from the same constant (test_scene_build_sync)."""
+        from pipeline.tile import shade
+
+        assert palette.SUN_ALT_DEG == 45.0
+        assert shade.KNOBS["alt"] == palette.SUN_ALT_DEG
+
+
 class TestWriteColorRelief:
     def test_writes_gdaldem_format_with_nodata(self, tmp_path):
         out = tmp_path / "ramp_land.txt"

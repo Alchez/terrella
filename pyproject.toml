@@ -23,6 +23,7 @@ package = false
 dev = [
     "pyright>=1.1.411",
     "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
 ]
 
 # Same engine as Pylance, so `uv run pyright` reproduces the IDE's findings.
@@ -45,3 +46,26 @@ typeCheckingMode = "standard"
 [tool.pytest]
 pythonpath = ["."]
 testpaths = ["tests"]
+
+# Coverage is ON DEMAND (`uv run pytest --cov`), not in addopts: a default --cov
+# would make every single-file test run report near-zero pipeline coverage and
+# trip fail_under. The floor is the measured 2026-07-23 baseline rounded down —
+# it exists to make coverage ROT loud, not to chase a number; raise it as real
+# coverage lands, never lower it to make a run pass.
+[tool.coverage.run]
+source = ["pipeline"]
+omit = [
+    # archival one-off prototypes, kept for history, not maintained (pyright skips them too)
+    "pipeline/experiments/*",
+    # bpy scripts run under Blender's bundled Python — unit tests can never import them
+    # (their shared constants ARE covered, via tests/test_scene_build_sync.py's bpy stub)
+    "pipeline/render/scene_build.py",
+    "pipeline/render/scene_dump.py",
+    # the pass-profiling harness: wraps live 30+ min planet passes, nothing to unit test
+    "pipeline/profile/*",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+fail_under = 32  # the 2026-07-23 baseline (32.45%), floored — ratchet up, never down

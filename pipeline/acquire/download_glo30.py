@@ -26,16 +26,23 @@ Usage: python3 download_glo30.py --extent 60 0 100 40   # the Phase 0 window
 import argparse
 import concurrent.futures as cf
 import hashlib
+import json
 import os
 import shutil
 import sys
 import urllib.request
+from datetime import datetime, timezone
 from pathlib import Path
 
 BUCKET_URL = "https://copernicus-dem-30m.s3.amazonaws.com"
 DATA_DIR = Path.home() / "projects/maps/data/raw/glo30"
 TILE_LIST = DATA_DIR / "tileList.txt"
 WORKERS = 6
+# A passing preflight is stamped and reused this long. The check exists to catch
+# bucket *edition swaps* — month-scale events — while the batch runner invokes
+# this script once per country, so a daily check loses nothing and saves three
+# HEADs + three full-tile md5s per country. rm the stamp to force a re-check.
+PREFLIGHT_TTL_HOURS = 24.0
 
 
 def parse_tile_name(name: str) -> tuple[int, int]:
@@ -56,8 +63,32 @@ def in_extent(lat: int, lon: int, extent) -> bool:
     return lon < east and lon + 1 > west and lat < north and lat + 1 > south
 
 
+def preflight_stamp_path() -> Path:
+    return DATA_DIR / "preflight_ok.json"
+
+
+def preflight_cached_age_hours() -> float | None:
+    """Hours since the last successful preflight, or None if that result is
+    unusable — stamp absent, unreadable, expired, or dated in the future
+    (clock skew / a restored backup is not evidence the bucket is unchanged)."""
+    try:
+        stamp = json.loads(preflight_stamp_path().read_text())
+        checked = datetime.fromisoformat(stamp["checked_utc"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    age_hours = (datetime.now(timezone.utc) - checked).total_seconds() / 3600.0
+    if not 0.0 <= age_hours < PREFLIGHT_TTL_HOURS:
+        return None
+    return age_hours
+
+
 def bucket_preflight():
     """Abort if the bucket changed under us: md5 of held tiles vs S3 ETag."""
+    age_hours = preflight_cached_age_hours()
+    if age_hours is not None:
+        print(f"bucket preflight: cached ok ({age_hours:.1f} h old) — "
+              f"rm {preflight_stamp_path()} to re-verify", flush=True)
+        return
     held = sorted((DATA_DIR / "dem").glob("*.tif")) if (DATA_DIR / "dem").exists() else []
     sample = [held[0], held[len(held) // 2], held[-1]] if held else []
     for path in dict.fromkeys(sample):
@@ -71,6 +102,16 @@ def bucket_preflight():
             sys.exit(f"bucket preflight FAILED: {name} local md5 {local} != "
                      f"ETag {etag} — the bucket may have moved to a new "
                      f"Copernicus edition; stop and decide (PLAN.md 2026-07-08)")
+    if sample:
+        # Stamp only what was actually verified — no held tiles means nothing
+        # was checked, so there is nothing to cache. Atomic write (.tmp +
+        # replace): the stamp's existence must mean a completed pass.
+        stamp_tmp = preflight_stamp_path().with_suffix(".json.tmp")
+        stamp_tmp.write_text(json.dumps({
+            "checked_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "tiles": [path.stem for path in dict.fromkeys(sample)],
+        }, indent=1) + "\n")
+        os.replace(stamp_tmp, preflight_stamp_path())
     print(f"bucket preflight: {len(set(sample))} held tiles match their ETags"
           if sample else "bucket preflight: no held tiles yet — nothing to check",
           flush=True)

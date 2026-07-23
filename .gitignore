@@ -24,3 +24,6 @@ tools/
 # Secrets — never commit (holds OPENTOPOGRAPHY_API_KEY; OT prohibits sharing keys)
 .env
 .env.*
+
+# Coverage data (uv run pytest --cov)
+.coverage

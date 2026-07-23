@@ -24,7 +24,8 @@ from typing import Any
 import numpy as np
 import rasterio
 from rasterio.transform import from_bounds
-from rasterio.windows import Window
+
+from pipeline.raster_io import band_window, row_bands
 
 DATA = Path.home() / "projects/maps/data"
 SEAICE_SRC = DATA / "raw/seaice/seaice_frequency_1991-2020_4326.tif"
@@ -97,15 +98,13 @@ def warp_seaice_raster(bounds, width, height, out_path, src=SEAICE_SRC, band_row
         BIGTIFF="YES")
     band_temp = Path(f"{out_path}.band.tmp.tif")
     with rasterio.open(out_path, "w", **profile) as dst:
-        for row0 in range(0, height, band_rows):
-            band_h = min(band_rows, height - row0)
+        for row0, row1 in row_bands(height, band_rows):
             band_top = top - row0 * pixel
-            band_bottom = top - (row0 + band_h) * pixel
-            _warp_seaice_direct((left, band_bottom, right, band_top), width, band_h,
+            band_bottom = top - row1 * pixel
+            _warp_seaice_direct((left, band_bottom, right, band_top), width, row1 - row0,
                                 band_temp, src=src)
             with rasterio.open(band_temp) as src_band:
-                dst.write(src_band.read(1), 1,
-                          window=Window(0, row0, width, band_h))  # pyright: ignore[reportCallIssue]
+                dst.write(src_band.read(1), 1, window=band_window(width, row0, row1))
     band_temp.unlink(missing_ok=True)
     return out_path
 

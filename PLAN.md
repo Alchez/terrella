@@ -1,198 +1,165 @@
 # Terrella — living plan
 
 Status legend: [ ] todo · [~] in progress · [x] done · [!] blocked
-Update this file at the end of every work session (checkboxes + open questions + Active learnings).
-Record dated decisions and their rationale in [`HISTORY.md`](HISTORY.md) — the chronological archive,
-kept out of here so this plan stays lean across context compactions.
 
-## Phase 0 — Proof of concept (one country, end to end)
+Update at the end of every work session (checkboxes + open questions + active learnings). One-line summaries only — anything needing a paragraph lives in [`HISTORY.md`](HISTORY.md) (dated decisions + rationale; grep it, scan its topical index), [`PROCESS.md`](PROCESS.md) (measured runtimes), [`INVENTORY.md`](INVENTORY.md) (storage), or [`ART.md`](ART.md) (aesthetic decisions), cited as `→ HISTORY § <dated heading>`.
+
+## Phase 0 — Proof of concept (one country, end to end) — COMPLETE 2026-07-06
 
 Goal: a single Ramspott-style render of **India** that looks right, before building anything global.
 
-- [x] Download Copernicus GLO-30 tiles covering India + margin (979 tiles, 60–100°E / 0–40°N, DEM + WBM, 34 GB — `pipeline/download_glo30.py`)
-- [x] Download GEBCO bathymetry for the same extent (GEBCO_2026 GeoTIFF subset + TID, via download.gebco.net)
-- [x] Fuse land + bathymetry into one seamless GeoTIFF heightfield — done at 3″ for the 66–99°E/4–38°N frame (pipeline/fuse_heightfield.py + ocean mask COG; recipe and oracles in HISTORY.md). 1″ runs deferred until small-country heroes / z9+ tiles.
-- [x] Manual Blender scene: displacement plane, sun lamp, two-ramp material, ortho camera (blender/india_hero.blend — working recipe and debug lessons in HISTORY.md)
-- [x] Iterate lighting/palette/exaggeration until it matches the reference aesthetic (2026-07-05 tuning session — rationale in HISTORY.md, constants in the locked section below; final judgment at 8K)
-- [x] Add Natural Earth border overlay (white, ~like reference) + dashed maritime lines (2026-07-06 — pipeline/overlay_borders.py, oracle-verified alignment, cased poster-weight styling approved)
-- [x] Render 8K still; review on both desktop and phone (2026-07-06, approved; 1 px dicing, 6.8 GB peak, CPU denoise)
-- [x] **Checkpoint: lock the scene rig parameters (light azimuth/altitude, ramps, exaggeration) — these become global constants** (2026-07-06 — see "Locked global constants" below. Phase 0 complete.)
+- [x] GLO-30 tiles for India + margin (979 tiles, 34 GB) — `download_glo30.py`
+- [x] GEBCO bathymetry subset for the same extent
+- [x] Land + bathymetry fused into one seamless 3″ heightfield — `fuse_heightfield.py` (recipe + oracles → HISTORY)
+- [x] Manual Blender scene: displacement plane, sun lamp, two-ramp material, ortho camera (`blender/india_hero.blend`)
+- [x] Lighting/palette/exaggeration tuned to the reference aesthetic (→ HISTORY § 2026-07-05; constants below)
+- [x] Natural Earth border overlay + dashed maritime lines — `overlay_borders.py`, oracle-verified alignment
+- [x] 8K still reviewed on desktop and phone
+- [x] **Checkpoint: scene rig locked as global constants** (→ "Locked global constants" below)
 
-## Phase 1 — Batch hero renders (all countries)
+## Phase 1 — Batch hero renders (all countries) — COMPLETE 2026-07-13
 
-**COMPLETE 2026-07-13** — all ~203 in-scope heroes rendered (Kiribati deferred), variants/borders/manifest
-current. Detail for every line below → HISTORY.md; the reproducible entry point is `README.md`.
+All ~203 in-scope heroes rendered (Kiribati deferred), variants/borders/manifest current. Detail per line → HISTORY; reproducible entry point `README.md` → `docs/pipeline.md`.
 
 - [x] bpy scene script — `render_prep --frame` → `frame.json` → `scene_build --render`, headless (3:36 @ 8K)
-- [x] Per-country config — `config/countries.toml`, **204 heroes** (208 strict − 9 + 5 curated), `country_config.py` resolver
-- [x] Per-country displacement Scale — the locked 15× is *physical*; computed per frame into `frame.json` (`docs/framing-math.md`)
-- [x] QA small rugged countries — no bumpiness when warp width ≈ render width; **1″ fusion is the small-country standard**
-- [x] Snow/ice as a data mask + shadow legibility — WorldCover class 70, fill sun + 12° sun, land-ramp top de-whitened
-- [x] Antimeridian countries — a geometry premise-check killed the wrap-math: 4 of 5 have land on one side of 180 → frame overrides
-- [x] Batch runner — `pipeline/batch.py`, resumable, subprocess-isolated, OOM defense, JSONL failure log
-- [x] Document hero regeneration — `docs/pipeline.md` (the runbook; README is now a narrative overview that links to it), anchored on `country_config.py --country <slug>` as a self-documenting command list
-- [x] Overnight sweep + QA — the v3 sweep; every post-sweep bug closed. **This closed Phase 1.**
-- [x] Responsive variants (2K/4K/8K WebP) — `pipeline/hero_variants.py`, ≈16× smaller than PNG, no visible artifacts
+- [x] Per-country config — `config/countries.toml` (204 heroes), `country_config.py` resolver
+- [x] Per-frame displacement Scale — the locked 15× is *physical* (`docs/framing-math.md`)
+- [x] Small rugged countries QA — 1″ fusion is the small-country standard
+- [x] Snow/ice as a data mask + shadow legibility (fill sun, land-ramp top de-whitened)
+- [x] Antimeridian countries — frame overrides (4 of 5 have land on one side of 180)
+- [x] Batch runner — `pipeline/batch.py`: resumable, subprocess-isolated, OOM defense, JSONL failure log
+- [x] Hero regeneration documented — `docs/pipeline.md` (the runbook)
+- [x] Overnight sweep + QA — closed Phase 1
+- [x] Responsive variants (2K/4K/8K WebP) — `hero_variants.py`, ≈16× smaller than PNG
 
 ## Phase 2 — Global tile pyramid
 
-**Scoped 2026-07-10:** ceiling **locked at z8** (~300 m/px; z9/z10 are additive over the same
-mosaic+shading → deferred, see Open questions). Stack is almost entirely GDAL, already installed;
-**GDAL pinned 3.13.1** for the production run (OSGeo container; apt tops out at 3.12.2, which is fine for
-prototyping since venv rasterio bundles its own). **One new dependency: the `pmtiles` CLI** (GDAL writes
-MBTiles, not PMTiles). SVF via our own `sky_view.py` — already burned into every hero, so palette-consistent
-by construction. WhiteboxTools dropped as legacy. → HISTORY.md § 2026-07-10
+Scoped 2026-07-10 (→ HISTORY § 2026-07-10): ceiling z8 (~300 m/px), GDAL 3.13.1 pinned for production (OSGeo container; apt's 3.12.2 fine for prototyping), one new dependency (`pmtiles` CLI), SVF via our own `sky_view.py`, WhiteboxTools dropped.
 
-- [x] Toolchain locked (2026-07-10) — `pmtiles` 1.31.0 vendored via `pipeline/install_geotools.sh`
-- [x] Planet-wide fused heightfield — `fuse/fuse_planet.py`, 648 cells of 10° at 10″ EPSG:4326, 12-wide runner, 0 failures. Antarctica fused 2026-07-22 (probe-verified; `--skip-south` retired)
-- [x] Raster shading pipeline — one global streaming pass (`shade_planet.py`, 2026-07-14), superseding the 194-strip pass
-- [x] Compare tiles vs the Cycles render — the raster composite reproduces the hero family (single-NW; multidirectional rejected)
-- [x] Global snow layer — NSIDC-0791 persistence (latitude-ramped 0.40@45°→0.60@63°) + RGI 7.0 glacier union
-- [x] Cut 512px tiles z0–8 — 62,177 tiles, 2026-07-14 (z10 later = a full re-fuse at ~2.5″, not a tiling flag)
-- [x] **Caspian bathymetry via GEBCO + the sea ramp** — DONE: re-fused 2026-07-15 (`fuse_heightfield.is_caspian`), re-shaded in the 2026-07-16 batched pass. Flat slab → shaded basin, luminance spread **0.0 → 30.8** over 2.37 M px. → HISTORY § 2026-07-15 — Inland water
-- [x] **General lake depth → GLOBathy** — DONE: a **render layer, not a fusion channel** (tint-only, so no re-fuse, no HydroLAKES join, stays CC0, and a future z10 would not redo it). Shipped in the 2026-07-16 pass; Baikal and Namtso were the same pixel colour, now 18.0 lum apart. → HISTORY § 2026-07-15 — GLOBathy lake depth
-- [x] **CUT THE TILES — DONE 2026-07-17**, instrumented (`pipeline/profile/run_pass.sh --tiles`). 62,177 tiles live, `tiles_old` = rollback, exit 0. **Total 6:17** — the "30–60 min" this blocker carried was a guess and was wrong by ~10×. Verified at the pixel with a control (Caspian tile 100% >2 DN; Sahara 0.0%, max exactly 2 = the LUT noise floor). Rebuild: `bash pipeline/profile/run_pass.sh --tiles`. → HISTORY § THE TILE CUT LANDED
-- [x] **`global_occlusion` guarded — DONE 2026-07-17.** SVF has no file to stamp, so it is gated by *laziness*: `composite_planet` takes a `Callable` and invokes it only past the freshness check. **A fully-fresh pass: 153.5 s → 0.29 s**; `--tiles` re-run 6:17 → ~3:45. Every stage in the pass is now guarded. → HISTORY § THE TILE CUT LANDED
-- [x] **`build_tiles` guarded (2026-07-20)** — a `tiles.done` sentinel + `tiles_are_fresh` skip a fresh re-cut (proven: `--tiles` re-run 3:33 → 0.4 s). → HISTORY § 2026-07-20 pipeline hardening · PROCESS.md
-- [x] **`--resume` removed (2026-07-20)** — `build_tiles` wipes any partial staging and cuts clean each time, so a truncated png can never survive; the ≤3:44 re-cut on a crash is the price of integrity (chose deleting the unsafe path over an IEND-scan verifier). → HISTORY § 2026-07-20 pipeline hardening
-- [x] **Fill sun ported to the tiles — LANDED 2026-07-17**, `fill_strength=0.15` + `hi` 1.12 (`ambient` stays 0.50 — the raise was swept and rejected; every metric said otherwise and every metric was wrong). Pass exit 0, **67:44**, 62,177 tiles live, served md5 == disk md5, rollback at `tiles_old`. **Pure black 43.66% (Alps) → 0.00% at every probe site; max DN 226 exactly as the `alt ≤ fill_alt` proof predicted.** Closes a hero/tile divergence. Shared helper `hillshade.combine_fill`, both shade paths, agree to 2 DN. **Judge the globe against THIS, not `tiles_old`.** → HISTORY § the tiles were missing the hero's fill sun · ART.md § Fill sun — TILES · PROCESS.md
-- [x] **On-globe tile judgment — DONE 2026-07-17.** Judged on `/globe` (Astro dev server) against the post-fill tiles: the refined look holds and **z8 is not coarse on the sphere → ceiling LOCKED**. Judge future look changes there, **never** on `planet_tiles/index.html` (a *tile smoke test*: same tiles, daytime-blue sky, no starfield/borders/atmosphere — judging there on 07-17 made the missing starfield read as a regression). → HISTORY § z8 LOCKED
-- [x] **Greenland interior — diagnosed AND fixed 2026-07-17, and it was never a lighting or a data problem.** `snow_curve=gamma8` LANDED (pass exit 0, 55:48, 62,177 tiles live). Greenland interior contrast std 0.70→4.27 (Summit) / 1.16→6.01 (north) at planet scale; Alps snow paid ~17% of its tile. **Judge on `/globe` against `tiles_old` (now the fill+linear pyramid).** Over full snow `composite` multiplies `base_rgb` by `(1 - alpha) = 0`, so hillshade + SVF are **discarded**; relief survives only via `snow_t`, whose entire budget is the 43.9 DN `SNOW_SHADOW_RGB`→`SNOW_RGB` gap. Greenland's light spans 0.035 vs rugged snow's 0.61 — a **17× mismatch with NESTED ranges**, so **no linear window serves both**. Fixed with a curve, not the window: **`KNOBS["snow_curve"]="gamma8"`** (Rohan), Summit **3.14 → 18.84 DN (6.0×)**. Nearly free only because rugged snow's light is bimodal and barely uses the borrowed midtones. **The fill sun provably could not help here** — zero-slope ground is its exact invariant. **`snow_lo`/`snow_hi_pt` are NOT the lever; that is the rejected fix.** → HISTORY § 2026-07-17 Greenland's interior is blank · ART.md § Snow curve — TILES
-- [~] **Antarctica — FILL chosen 2026-07-22; code landed (freshness fix + composite wiring), planet RE-FUSED −90…90 (probe-verified: Dome A 4083 m; first attempt fused all-ocean off a stale `dem_mosaic.vrt` every gate missed — rebuild `build_mosaics.sh` after ANY tile download).** Extend the Mercator pyramid to −85.05° (93,009→131,072 rows = **1.41× every planet raster**; height 31→44 GB, tiles 14→20, ~+30 GB, ~2 h pass): the −59.5° cap↔tile ocean seam Rohan spotted moves onto white interior ice AND Antarctica gets full tile res. **Cost is build-time/storage, never the browser** (tiles range-requested; south cap shrinks). Occlusion `cos(lat)` NOT bundled (Rohan). Precondition (grid-freshness bug) FIXED — see the Active-learnings line below. **ALL steps ran 2026-07-22** (re-fuse → re-shade+re-cut 2:28:01 → cap shrink −78 + re-source from planet VRTs → cap freshness guards): probe-verified, and **the polar ring is root-caused and FIXED (Rohan confirmed)** — it was the custom cap layer blending straight alpha onto MapLibre's premultiplied framebuffer + corrupting canvas alpha, NOT the data; it tracked the cap↔tile boundary, which is why it "moved" with the fill (→ HISTORY, same entry). Remaining: rest of the /globe checklist (north pole look, SH sea-ice halo, blue-hole scan) → flip to [x]. Still-live facts: **SVF normalisation is safe** (`svf.max()` pinned at 1.0 by 50.1% of the grid; the min would need Antarctica to out-occlude the Karakoram); GEBCO is ice-surface so Antarctic land comes from GLO-30 (coverage gate green: 0 land cells missing); **RGI-19 deferred** — `snow.antarctic_snow_mask` forces the sheet + Peninsula white, only sub-Antarctic islands north of −60 stay bare; the coverage gate can't see interior `tileList` voids (→ blue holes, a /globe check). → HISTORY § 2026-07-22 Antarctica FILL
-- [x] **About page carries the GLOBathy epistemics (2026-07-20)** — a "Lake depth" note: invented cone for all 1.43 M lakes (0.53 on the Caspian), scale surveyed for only 0.8%, uniform-modelled deliberate (surveyed-only = survey funding as geology, 85% USA). GLOBathy credited **CC0, not CC-BY** (verified). → HISTORY § 2026-07-15 — GLOBathy lake depth · § 2026-07-20 pipeline hardening
-- [x] **Hero "softness" in the tiles — CLOSED 2026-07-21.** `pipeline/render/cast_shadow.py` LANDED + tested (one-azimuth march, 12° penumbra from the sun disc, main-sun-only so shadows can't reach black); wired into both shade paths behind `KNOBS["shadow_strength"]`, **production 0.0 — the live pyramid is untouched**. Occlusion resolution unified on `sky_view.OCCLUSION_TARGET_M_PER_PX` (was 12.9× apart), production byte-identical. **`ambient_knee` = 0.30 SHIPPED** (Rohan, judged on `/globe` 2026-07-21) — it is the `KNOBS` default and the live pyramid; my metric-based 0.15 was overruled, and **local-contrast std is now twice-failed as a proxy for softness — do not quote it as evidence about the look.** **The hillshade-side lever is DROPPED — premise consumed by the knee, and there is no unanchored dial anyway** (audit 2026-07-21): sub-floor terrain now gets 45% of lit contrast rather than 0%, and `fill_strength` 0.15 / `alt` 45° / `EXAG` 15 are all ports of hero constants, so moving one breaks the only anchor the tile look has → ART.md § Hero → tile parameter map. What remains, in order: **(b) `shadow_strength` — CLOSED, rejected twice (2026-07-20 under the clip, 2026-07-21 under the knee).** The knee did fix the collapse-to-one-value failure and it was still rejected: attenuating the main sun erases the fine modeling it carries (local detail 68% kept, 55% in full shadow — arithmetic, not tuning), and it costs ~2.6 h a pass. **Reopening needs a different MECHANISM, not a different value** → HISTORY § 2026-07-21 (night); **(c)** a **warm shadow floor** — **measured 2026-07-21: hero shadow is +61…98% warmer in linear R/B than lit ground at the same elevation** (Switzerland raw Cycles frame, monotonic across all 10 luminance deciles), while our composite is **exactly 0% by construction**; `KNOBS["warmth"]` is not it (uniform, not light-keyed). **BUILT 2026-07-21 as `KNOBS["shadow_warmth"]`, production 0.0 (off, bit-identical); `SHADOW_TINT` is luminance-normalised so it moves HUE ONLY and structurally cannot re-create the rejected wash.** Alpine A/B at 1.0: darkest quartile R/B +35.4%, brightest +0.1%, mean luminance +0.41 DN. **SHIPPED at 0.55** (Rohan, judged on `/globe` 2026-07-21) — the `KNOBS` default and the live pyramid. Validated on four terrains first (Alps/Scandes/Sahara/SW Greenland): effect scales with relief (35.1% → 2.5% of px), bright quartile **+0.0% everywhere**, no luminance wash, ice margin does not seam. Composite cost +8%; **Do not re-propose COG overviews** — withdrawn on the 07-16 gdaladdo entry's headline (the SVF is lazy-guarded, so it is not on the critical path). → HISTORY § 2026-07-21 `ambient_knee` 0.30 SHIPS, and § 2026-07-20 (evening) — chasing the hero's "softness"
-- [ ] **Planet occlusion is missing `cos(lat)` — PROVEN, unfixed.** `global_occlusion` feeds `horizon_svf` map units (`Z8_RES × 32`) where ground metres are `Z8_RES × cos(lat)`, understating the horizon run **1.22× at 35°N, 2.00× at 60°N, 3.86× at 75°N** → high latitudes systematically under-occluded, and a global affine renormalisation cannot absorb a latitude-varying error (occ mean 0.3213 vs 0.2934). Region + hero paths are both ground-correct, so this is an oversight. Fix = a per-ROW ground scale (the hillshade's z-factor trick); changes production pixels, so it rides with a look change, not a refactor. **Also untracked:** the occlusion resolution reaches no freshness record — `composite_params` would not notice it moving. → HISTORY § 2026-07-20 (evening)
-- [ ] **Crispness (not softness) — the supersampled re-fuse.** z8 is 305.7483 m/px and the 10″ fuse is 308.7 m, so the pyramid is source-limited with **zero headroom**; the hero's edge comes from a 3″/1″ source supersampled through the raytracer, not a finer output grid. Real crispness = re-fuse finer and box-filter the **shaded RGB** down, never the heights. **Transient bands, never a stored product** (2.5″ ≈ 496 GB, 5″ ≈ 124 GB vs 470 GB free). Shares its input with any future terrain-RGB pyramid, so decide the two together. → HISTORY § 2026-07-20 (evening)
-- [ ] Package as PMTiles (Phase 4 deploy step; gated on the look being final). **Browser side confirmed 2026-07-18** (plugins audit): the `pmtiles` JS protocol plugin (`maplibregl.addProtocol("pmtiles", …)`) reads raster PMTiles directly over HTTP range requests — the one MapLibre plugin to adopt. → HISTORY § the polar cap: flat fails
+- [x] Toolchain locked — `pmtiles` 1.31.0 vendored via `install_geotools.sh`
+- [x] Planet fused heightfield — `fuse_planet.py`, 648 cells @ 10″, 0 failures; Antarctica fused 2026-07-22
+- [x] Raster shading — ONE global streaming pass (`shade_planet.py`; supersedes the 194-strip pass)
+- [x] Tiles vs Cycles compared — the composite reproduces the hero family (single-NW; multidirectional rejected)
+- [x] Global snow — NSIDC-0791 persistence (latitude-ramped) + RGI 7.0 glacier union
+- [x] 512px tiles z0–8 cut — 62,177 tiles live (z10 later = a re-fuse at ~2.5″, never a tiling flag)
+- [x] Caspian bathymetry — re-fused via `is_caspian`; flat slab → shaded basin (luminance spread 0 → 30.8) → HISTORY § 2026-07-15 — Inland water
+- [x] GLOBathy lake depth — a **render layer, not a fusion channel** (tint-only, CC0, z10-proof) → HISTORY § 2026-07-15 — GLOBathy lake depth
+- [x] THE TILE CUT — 3:44 measured; the "30–60 min" it carried was a guess wrong ~10× → HISTORY § THE TILE CUT LANDED · PROCESS
+- [x] Every pass stage freshness-guarded — `is_stale` everywhere, SVF gated by *laziness* (fresh pass 153.5 → 0.29 s), `tiles.done` sentinel (re-cut 3:33 → 0.4 s); `--resume` deleted as unsafe → HISTORY § THE TILE CUT LANDED · § 2026-07-20 pipeline hardening
+- [x] Fill sun ported to the tiles — `fill_strength=0.15` + `hi` 1.12; pure-black mountain land 43.66% → 0.00% → HISTORY § the tiles were missing the hero's fill sun · ART § Fill sun — TILES
+- [x] On-globe judgment — z8 not coarse on the sphere → **ceiling LOCKED**; judge look changes on `/globe`, never `planet_tiles/index.html` (a tile smoke test) → HISTORY § z8 LOCKED
+- [x] Greenland interior — `snow_curve=gamma8` (Summit 3.14 → 18.84 DN); over full snow the blend discards hillshade+SVF and no linear window fixes a 17× nested range mismatch → HISTORY § 2026-07-17 Greenland · ART § Snow curve — TILES
+- [x] Antarctica — FILL chosen: pyramid extended to −85.05° (1.41× every planet raster), planet re-fused −90…90, polar ring root-caused as a premultiplied-alpha blend bug (screen, not data), judgment complete 2026-07-22; RGI-19 deferred (`antarctic_snow_mask`), SVF normalisation proven safe → HISTORY § 2026-07-22 Antarctica FILL
+- [x] Hero-"softness" port CLOSED — `ambient_knee` 0.30 + `shadow_warmth` 0.55 SHIPPED (Rohan, `/globe`, 2026-07-21); cast shadows rejected twice (the *mechanism* erases fine modeling — reopen needs a new mechanism, not a new value); hillshade-side lever dropped (every dial is a hero anchor) → HISTORY § 2026-07-21 entries · ART § Hero → tile parameter map
+- [ ] Planet occlusion missing `cos(lat)` — PROVEN (2.00× understated at 60°N), unfixed; changes pixels so it rides with a look change; occlusion resolution also unrecorded in freshness → HISTORY § 2026-07-20 (evening)
+- [ ] Crispness = a supersampled re-fuse (transient bands, never a stored ~496 GB product); shares input with any terrain-RGB pyramid — decide the two together → HISTORY § 2026-07-20 (evening)
+- [ ] Package as PMTiles (Phase 4 deploy; gated on the look being final) — browser side confirmed: the `pmtiles` JS protocol plugin reads raster PMTiles over range requests
 - [ ] (Stretch) terrain-RGB elevation tiles for Tier 3 displacement
 
-## Pipeline optimisation — ranked, measured 2026-07-16 (NOT started; nothing here is urgent)
+## Pipeline optimisation — measured 2026-07-16, now mostly landed
 
-Baseline: 98 min wall, 114 min CPU, **1.16 of 16 cores averaged**. Everything here is measured — the
-three "obvious flag" fixes (`-multi`, `-wm`/`-wo NUM_THREADS`, `-co NUM_THREADS`) all died on a
-profiler, so nothing is proposed from analogy. → HISTORY.md § 2026-07-16 — the instrumented planet pass
+Baseline: 98 min wall on 1.16 of 16 cores; every item measured before proposed (three "obvious flag" fixes died on a profiler) → HISTORY § the instrumented planet pass. Pays on every future shade pass — the composite alone was ~71% of a pass — not on the tile cut.
 
-**None of this speeds up the tile cut** (`build_tiles` shares no code with the composite). It pays on the
-NEXT full shade pass.
+1. [x] Hillshade float32 + 256-row windows — 932 → 508 s, 11.6 → 2.03 GB → HISTORY § optimisation #1
+2. [x] color-relief stage deleted — 24.4% of pass CPU became a 17.6 KB LUT → HISTORY § optimisation #2
+3. [x] `num_threads=ALL_CPUS` on the three tile writers — 10× on the writer → HISTORY § optimisation #3
+4. [x] Snow + glaciers warped ONCE, in latitude bands (a whole-grid warp DECIMATES a coarse source) → HISTORY § snow warped ONCE
+5. [x] Composite threaded — 128/N4, ~3.5×, threaded==serial gated byte-identical → HISTORY § the composite is threaded
+6. [ ] `-srcnodata`→0-fill on GLOBathy — 51% of the 62-min lake warp; pays only on a re-extract
+7. [x] Prep-walk redundancy cut (2026-07-23) — mosaic freshness skip + 24 h preflight stamp; 35 s → 1.25 s/country → HISTORY § the prep-walk redundancy cut · PROCESS
+8. [x] **Commonification DONE 2026-07-23** — `pipeline/raster_io.py`: `GTIFF_CREATE` (format-only; threading stays per-call-site or it oversubscribes fusion — now enforced by test) + `row_bands`/`band_window` adopted at six sites; `warp_once`-behind-`is_stale` found already superseded by `warp_needs_rebuild` (2026-07-22), `lake_ab --left/--right` found already done → HISTORY § commonification LANDED
 
-**Rationale corrected 2026-07-17 — the old line here ("the sizing input does not exist yet") and the
-gate's "z8 final → items 4-6 never pay" were both wrong for #5.** The fill-sun pass measured the
-composite at **~49 min ≈ 71% of a ~66 min pass, at z8**, on 0.78 of 16 cores. A ~3× on 71% of every pass
-is worth having at either ceiling; z10 changes its *urgency*, not its *value*. The honest reason #5 is
-unstarted is that it is gated on #4, and #4 is undone. Every future art iteration (sea-sync, any ramp
-re-tune) pays the 49 min meanwhile. → HISTORY § 2026-07-17 — the tiles were missing the hero's fill sun
-
-1. ~~Hillshade → float32 + `window_rows=256`~~ **DONE** — 932→508 s, 11.6→2.03 GB. → HISTORY § optimisation #1 landed
-2. ~~Delete the color-relief stage~~ **DONE** — pass 98→72 min; ramps are now a 17.6 KB LUT. → HISTORY § optimisation #2 landed
-3. ~~`num_threads="ALL_CPUS"` on the rasterio writers~~ **DONE** — **10.0× on the writer** (8.79→0.88 s), byte-identical output, no rebuild forced; ~6 min of the composite's 53.8 (upper bound), on the next pass. Three writers, not PLAN's two — `shade.py`'s region writer is the sibling. → HISTORY § optimisation #3 landed
-4. **Warp snow + glaciers ONCE to the planet grid** — **code + tests LANDED 2026-07-18**; deletes the fixed-path `_sp_win.tif`/`_rgi_win.tif` temps (728 forks) that hard-block #5. Store the RAW PACKED Float32, unpack per-window in float64. **Gate caught a real bug: a single whole-grid warp DECIMATES the coarse SP source** (smooths snow off mountains); **fix = warp in latitude BANDS at the composite window height** → byte-identical by construction (`-et 0`/`-ovr NONE`/4096-row bands all failed). Persistence rebuilt banded + verified byte-identical at 4 snow sites. **LANDED + GATED 2026-07-18: full-composite gate is byte-identical to gamma8 — `worst=0`, `control_passed`, all 3 bands, 12.19 B px each; `planet_rgb.tif` restored correct.** Phase B (thread the now fork-free composite) next. → HISTORY § 2026-07-18 — snow warped ONCE
-5. **Parallelise the composite with `ThreadPoolExecutor`** — **LANDED 2026-07-18: 128/N4, ~3.5×** (composite 645 s / 10:45, peak 10.55 GiB; tiles re-cut, live). Read-main / compute-workers / write-main, single-variant only; threaded==serial gated byte-identical (unit + real-scale). **256 threading OOMs past N=2 under 12 G → byte-identical caps at ~1.8×; the full ~3× took 128-row windows** = a sub-perceptual look change (worst 20 DN on mountain snow, judged invisible on rendered crops, chosen by Rohan). The cache-sized-window speedup hypothesis was **disproven** (128 ties 256 serial per row). Freshness fix: `composite_window_rows` now tracked. `WINDOW_ROWS=256` stays = snow band; `COMPOSITE_ROWS=128`/`N_WORKERS=4` are production. 256/N2 is the byte-identical fallback. → HISTORY § 2026-07-18 — the composite is threaded
-6. **`-srcnodata`→0-fill on GLOBathy** — `GDALWarpNoDataMasker` is 51% of the 62-min lake warp. Pays only on a re-extract.
-
-**Commonify: yes.** The same fix has landed at one call site and been missed at its siblings **four**
-times — float32+window (composite had it, hillshade didn't), warp-once (lakedepth had it, snow didn't),
-`NUM_THREADS` (warps had it, writers didn't), and `# pyright: ignore` for rasterio's untyped
-`Window` (fuse/render_prep had it, four new sites didn't). Plus four copies of A/B-crop tooling.
-`GTIFF_CREATE` now has live evidence *and* a constraint: the 2026-07-16 `NUM_THREADS` fix took the **three**
-tile writers and left three more unflagged — and **fusion's two must stay that way**, since `fuse_planet.py`
-sets `GDAL_NUM_THREADS=1` on purpose (parallelism is across cells) and an explicit creation option would
-override it. So the constant carries the **format** options only; **threading is per-call-site policy**, or
-it silently oversubscribes fusion. → HISTORY § optimisation #3 landed
-Smallest first, independently useful: a shared `GTIFF_CREATE` constant · `stream_windows(src, rows,
-dtype)` (the one with real money — it is what would have carried float32 to the hillshade) ·
-`warp_once(...)` behind `is_stale` · generalise `lake_ab.py` to `--left/--right`.
-
-- **Experiments audit (2026-07-16):** retired `sea_ab.py` and `ab_crops.py` (bar: broken + subject concluded + conclusion already in production + zero refs). The other twelve stay — a *working* experiment is the record of a decision. → HISTORY § 2026-07-16
-- **`composite_ram.py` measures `composite()` alone — a lower bound, not the pass** (re-measured 2026-07-16: 3.88 GiB no-depth / **4.50 with**, vs the pass's **6.24**; the ~1.7 GiB gap is readers/writers/GDAL cache and will never close). 12 G cap = 1.9× the real peak, sound. The old "6.93 is stale" line conflated two scopes. → HISTORY § composite_ram.py was never the number
-- **Code in `pipeline/`, output in `data/`** — `data/` is gitignored, so the profiling harness that lived in `data/work/_profile/` was never tracked. Now `pipeline/profile/`. A rule, not an incident.
+- Experiments audit (2026-07-16): `sea_ab.py` + `ab_crops.py` retired; a *working* experiment is the record of a decision → HISTORY § 2026-07-16
+- `composite_ram.py` measures `composite()` alone — a lower bound, not the pass; the 12 G cap = 1.9× the real peak → HISTORY § composite_ram.py was never the number
+- Code in `pipeline/`, output in `data/` — `data/` is gitignored; harnesses live in `pipeline/profile/`, never `data/work/`
+- Test coverage measured on demand (2026-07-23): `uv run pytest --cov`, baseline 32.45%, `fail_under=32` as a ratchet; covered = the compute kernels, 0% = network/GPU orchestration → HISTORY § commonification LANDED
 
 ## Phase 3 — Frontend
 
-**Tiers 1 + 2 shipped** on `feat/frontend` (git worktree `../maps-frontend`; merge to `main` later).
-Astro 7 static site: gallery + detail pages + About + the `/globe` route, with a capability probe
-auto-steering between them. **Tier 3's 3D displacement stays deferred** — it needs a terrain-RGB pyramid
-we have not built, so "Full" is currently globe + idle animation. Architecture, the Astro/asset decisions
-and the CSS gotchas → HISTORY § 2026-07-10 — Phase 3 begins. Asset commands → `docs/pipeline.md`.
-**Deploy is Phase 4.**
+Tiers 1 + 2 shipped on `feat/frontend` (worktree `../maps-frontend`; merge later): Astro 7 static site — gallery + detail + About + `/globe`, capability probe auto-steering. Tier 3's 3D displacement stays deferred (needs the unbuilt terrain-RGB pyramid). → HISTORY § 2026-07-10 — Phase 3 begins; asset commands → `docs/pipeline.md`; deploy is Phase 4.
 
-**Baked-vs-live rule (2026-07-07, locked):** too expensive to compute live → baked, always; depends on
-view state → live, always; invariant and physics-coupled → baked; otherwise live but pinned to authored
-constants. User-exposed settings only where the visitor's context genuinely varies (quality tier, border
-toggle, motion). → HISTORY
+Baked-vs-live rule (locked 2026-07-07): too expensive live → baked; depends on view state → live; invariant + physics-coupled → baked; otherwise live pinned to authored constants; user-exposed settings only where visitor context genuinely varies.
 
-- [x] MapLibre GL globe over the raster pyramid (PMTiles source deferred to Phase 4)
-- [x] Natural Earth vector borders + toggle (land-only; maritime deferred) — casing strengthened to a soft dark halo for legibility over pale highlands/snow
-- [x] Country click → fly-to → in-globe hero panel (NE polygon hit layer, authored-frame `fitBounds`, lazy panel)
-- [x] **Hover-highlight pole artifacts fixed & confirmed (07-19)** — two bugs: (1) stray gold meridian = outline `line` stroked the `countries` polygon's clipped tile edge → fixed with a `country-outlines` LINE source (`outlinesFrom`); (2) stronger fill patch near the pole = translucent `country-fill` double-painting in geojson-vt tile-buffer overlaps → fixed with `buffer:0`. Wiring extracted to `lib/countryHighlight.ts` + 11 regression tests. → HISTORY § 2026-07-19 hover-highlight
-  - Pending only: Rohan's hover sanity-check that the extraction didn't regress the look (I can't self-verify renders).
-- [x] Globe polish — starfield, detail-page render zoom, mobile control-collision + border de-jag; **sea rework V1 locked & LIVE 2026-07-14**; **Spin** toggle (option A: disabled above z3, auto-resume deferred)
-- [x] Capability probe + auto-steer tier routing + Lite/Globe/Full toggle + FPS degradation (2026-07-14/15) — `decideTier()` with a WebGL2 hard floor, TDD'd; pre-paint `<head>` guard steers with no flash
-- [x] Tier 1 no-JS fallback (2026-07-15) — the gallery already SSGs all 203 cards; added a pure-CSS gazetteer overlay (`:target` / `:has(:target)`), removed the dead search
-- [ ] **Sync heroes to the reworked sea ramp** — tiles and heroes diverged 2026-07-14 (tiles: deepened, −6,000 m ramp in `palette.py`; heroes: the old `8FC7C5`/−3,000 ramp in `scene_build.py`). Port the tile `SEA_STOPS`/`SEA_MIN_M` into `scene_build.py`, re-render ~204 heroes, regenerate variants/borders/manifest. **Gate CORRECTED 2026-07-21 — it is not the pyramid.** The real dependency is the shared *palette constants*, and PMTiles is packaging (zero pixels) while z10 is a planet re-fuse the heroes never read (they render from their own 1″/3″ fusions). Evidence: `SEA_STOPS` has not changed since the first tile commit and `SEA_MIN_M` not since the 07-14 sea rework — six tile look changes have landed on top (fill sun, snow curve, threading, sea ice, ambient knee, warm shadow floor) and every one moved *light*, never a *ramp*. **The one live risk is Antarctica**: its ice work could move `SNOW_RGB`, which the heroes copy verbatim as `SNOW_RGBA` (both E8F1F6). So the ordering is **Antarctica's ice decisions → this sweep**, and the sweep is an overnight desktop-occupying job you do not want to run twice. Touches the locked constants → a deliberate re-freeze. **Three more divergences ride on this same re-render, so fix them together:** (a) the hero/tile sun-altitude split (46° vs 45°); (b) **`WATER_RGBA` = `98C5C8` has drifted** — it is the *pre*-2026-07-10 sea ramp's 0.15 stop and matches no current stop, the identical bug fixed in the tile palette on 2026-07-15 (`WATER_RGB` → `8EC6C4`) but never checked on the heroes (found 2026-07-16); re-derive it from `SEA_STOPS[0]` and pin it **relationally**, or it drifts a third time; (c) hero lake depth — GLOBathy met the reopening bar the 2026-07-07 prototype was parked on, and the tiles took it while the heroes stayed flat (a parallel module, as `snow_mask.py` parallels `snow.py`). → ART.md § Inland water
-  **A FOURTH divergence of this species was found and CLOSED 2026-07-17: the tiles never received the hero's fill sun** (added 2026-07-08, *after* the tiles copied its main sun on 07-14) — it cost up to 43.7% of mountainous land as pure-black hillshade. **Colour constants were AUDITED 2026-07-21 and no fourth colour divergence exists** — see ART.md § Hero → tile parameter map for the table; `LAND_STOPS`, the land range and `SNOW` all MATCH. **`SNOW` matching is why Antarctica must go first:** its ice work is the one pending item that can break a constant currently in sync. Read the *behaviour* list below as "found so far", not complete: every one of these was discovered by accident while working on something else, and this one was found only because Rohan said a tile looked harsh. The heroes and tiles share constants by *copying*, so they drift silently by construction — an audit of the two against each other is worth more than the next lucky catch. → HISTORY § 2026-07-17 — the tiles were missing the hero's fill sun
-
-- [~] **Polar cap via a MapLibre custom layer — BOTH caps DONE (sea ice + bathymetry, behind `?polarspike`), north + Antarctic south, 2026-07-20.** Mercator can't bake the poles (ends ~85°N), so each cap is a source-shaded **AEQD** polar raster (reaches 90°) drawn over the pole by a `CustomLayerInterface` layer, feathered into the tiles at ~85°. `maplibre-gl` pinned 5.24.0. → HISTORY § the polar cap: flat fails · § the cap's seam-match · § 2026-07-20 sea ice
-  - [x] Feasibility + spike + horizon cull; 2a bathymetry cap built, colour-correct + seam-matched (light azimuth rotates with longitude), confirmed on the globe both sides
-  - [x] **2b — sea ice draped over the bathymetry — DONE 2026-07-20** (north cap + Mercator tiles): OSI SAF annual ice-frequency climatology → `render/seaice.py`, ocean-gated in `shade.composite`, `ICE_LO=0.55` (decline-aware; recent OSI-430-a check said keeping 0.55 costs −4.2% extent = invisible). North cap rebuilt in `pipeline/tile/cap_render.py` with a baked dark coastline. → HISTORY § 2026-07-20 sea ice
-  - [x] **South cap (Antarctica) DONE + tuned 2026-07-20** — AEQD `render_cap_south` (GEBCO-direct height, forced snow-white land, no coastline, toned sea ice `CAP_S_ICE_LO=0.62`/`CAP_S_ICE_MAX_ALPHA=0.55`); flat-pole taper on both. → ART § Polar caps
-  - [~] Productionize — `cap_render.py` in `pipeline/tile/` + both caps rendered (done); still open: the cap↔tile feather ring (deferred → the Antarctica-in-Mercator extension, not a cap tweak), downsize the 15/19 MB cap PNGs + bump `CAP_PX` for prod, drop the `?polarspike` flag, fold into PMTiles
-  - [x] Cap layer restores GL state each draw (`BLEND` + vertex-attrib arrays) — **fixed 2026-07-20 in the `polarCapSpike.ts` N/S-factory refactor**
+- [x] MapLibre globe over the raster pyramid (PMTiles source deferred to Phase 4)
+- [x] NE vector borders + toggle — casing strengthened to a soft dark halo for pale highlands
+- [x] Country click → fly-to → in-globe hero panel (NE hit layer, authored-frame `fitBounds`, lazy panel)
+- [x] Hover-highlight pole artifacts fixed — `lib/countryHighlight.ts` + 11 regression tests → HISTORY § 2026-07-19 hover-highlight
+  - Pending: Rohan's hover sanity-check that the extraction didn't regress the look
+- [x] Globe polish — starfield, mobile control fixes, sea rework V1 LIVE, Spin toggle
+- [x] Capability probe + tier routing + Lite/Globe/Full toggle + FPS degradation — `decideTier()`, WebGL2 hard floor, TDD'd
+- [x] Tier 1 no-JS fallback — pure-CSS gazetteer overlay; dead search removed
+- [~] **Hero sea-sync sweep — IN FLIGHT 2026-07-23: launch tonight on Rohan's go, then morning post-passes (variants purge+regen, manifest, web build), gallery judgment vs the archive, doc re-freeze.** Code landed (`scene_build` now IMPORTS palette — constants are derivations, not copies), finland pilot RATIFIED, prep pre-pass done (203 lake rasters, 0 failures), heroes+variants hardlink-archived. Full execution state → the session plan file.
+  - Closes four divergences in one ~204-hero re-render: (a) sun 46° → 45° via shared `palette.SUN_ALT_DEG`; (b) `WATER_RGBA` drift → pinned relationally to `SEA_STOPS[0]`; (c) NEW hero lake depth (GLOBathy, `lake_mask.py` — as `snow_mask.py` parallels `snow.py`); (d) hero sea ramp → palette's −6,000 m ramp
+  - The gate was never the pyramid — it is the shared palette constants; the constants audit (2026-07-21) found no fifth divergence, and the fill sun was the fourth of this species → HISTORY § the hero/tile colour constants AUDITED · § the tiles were missing the hero's fill sun · ART § Inland water
+- [~] Polar caps via a MapLibre custom layer — BOTH caps DONE behind `?polarspike` (Mercator ends ~85°; each cap is a source-shaded AEQD raster over the pole, sea ice over bathymetry, seam-matched light rotating with longitude) → HISTORY § the polar cap: flat fails · § the cap's seam-match
+  - [x] Sea ice — OSI SAF ice-frequency climatology, `ICE_LO=0.55` decline-aware → HISTORY § 2026-07-20 sea ice
+  - [x] South cap — GEBCO-direct height, forced snow-white land, toned ice
+  - [x] `ice_relief_damp` 0.75 SHIPPED + RATIFIED on `/globe` (pack conceals seafloor *shading*, fringe keeps relief, colour glow survives) → HISTORY § 2026-07-22 Antarctica FILL
+  - [x] Pole taper RETIRED 2026-07-23 — the damp treats the cause the taper patched → HISTORY § the flat-pole taper RETIRED
+  - [x] Cap layer restores GL state each draw (premultiplied-alpha contract in `polarCapSpike.ts`)
+  - [ ] Productionize: downsize the 13.9/4.5 MB cap PNGs + bump `CAP_PX`, drop `?polarspike`; PMTiles packages only the pyramid — caps stay standalone PNGs, Tier-3 terrain-RGB would be its own archive
 
 ## Phase 4 — Deploy & polish
 
 - [ ] nginx container on rohome, cache headers, PMTiles range-request config
 - [ ] Pangolin route: maps.alchez.dev (or chosen subdomain)
 - [ ] Lighthouse pass on all three tiers; test on a weak Android device
-- [~] About page: data credits (Copernicus, GEBCO, Natural Earth, ESA WorldCover — exact CC-BY string in the locked-constants Snow entry; OSI SAF sea ice + the 1991–2020 reference-period note added 2026-07-20; **NSIDC-0791 snow, RGI 7.0 glaciers (CC-BY 4.0), GLOBathy (CC0) + the lake-depth epistemics added 2026-07-20**), technique notes
-- [ ] (Optional flourish) landing-page "poster mode" beauty shot — Balazh-style sphere + water shell + atmosphere volume + perspective camera; a weekend experiment on existing data, decomposed in chat 2026-07-07
+- [~] About page: data credits (Copernicus, GEBCO, Natural Earth, ESA WorldCover — exact CC-BY string in the locked-constants Snow entry; OSI SAF + reference-period note; NSIDC-0791, RGI 7.0 CC-BY 4.0, GLOBathy CC0 + the lake-depth epistemics), technique notes
+- [ ] (Optional flourish) landing-page "poster mode" beauty shot — Balazh-style sphere; a weekend experiment (decomposed in chat 2026-07-07)
+- [ ] **Open-source pass** (stated goal 2026-07-23): portability seams (`MAPS_DATA` started in `build_mosaics.sh`; hardcoded `~/projects/maps` roots remain across `acquire/*`), LICENSE choice, README, licence/attribution review of every shipped data product
 - [ ] Ship. Post it somewhere.
 
-## Locked global constants (Phase 0 exit checkpoint, 2026-07-06; amended 2026-07-08 — snow / fill sun / sun angle / ramp top, see HISTORY.md)
+## Locked global constants (Phase 0 exit checkpoint 2026-07-06; amended 2026-07-08)
 
-Global for all ~195 countries. Changing any of these after Phase 1 starts means re-rendering every hero — treat as frozen; re-litigate only with explicit discussion.
+Global for all ~195 countries; changing any of these means re-rendering every hero — treat as frozen, re-litigate only with explicit discussion. **Re-freeze pending:** the in-flight sea-sync sweep deliberately moves sun altitude, water tint and the sea ramp and adds lake depth; this section is rewritten at sweep ratification (Step 5, → the session plan file).
 
-- **Terrain:** vertical exaggeration 15× — Midlevel 0; Scale is per-frame unit conversion, `15 ÷ (extent_w/2 in m)`, computed by render_prep.py into frame.json (India's pinned 8.0e-6 is the hand-rounded instance — docs/framing-math.md).
-- **Light:** Sun rotation (44°, 0°, −45°) → altitude 46°, azimuth NW; Angle 12°; Strength 3. Fill sun rotation (30°, 0°, 135°) → SE, shadowless (`use_shadow` off); Angle 10°; Strength 0.45 (15% of main). World fill `F2E7D5` @ strength 0.3.
-- **Color:** View transform **Standard** (never AgX). Land ramp: heights 0→6,000 m on positions 0→1, stops E9D9C0@0 / D7AC8E@0.083 / CE9880@0.25 / C9AD97@0.5 / DCC9B2@0.75 / E9DCC8@1.0 — the top stays in the warm sand register; white/blue belongs to the snow mask alone. Sea ramp (**smooth-C, updated 2026-07-10** — re-litigated, see HISTORY.md; old was C6E4E2@0 / 98C5C8@0.15 / 649BA4@0.4 / 487D8A@1.0 which read as ice): depths 0→−3,000 m, 6 stops 8FC7C5@0 / 7CB8B8@0.10 / 68A6AC@0.22 / 56939E@0.38 / 47808F@0.62 / 3A6E7D@1.0 — shallow water a real teal. **This is the HERO ramp (`scene_build.py`) and is unchanged.** The TILE sea ramp (`palette.py`) diverged 2026-07-14 in the globe sea rework (V1 chosen): surface deepened ~15% and depth extended to −6,000 m so abyssal seas vary tonally — stops 85B9B7@0 / 73ABAB@0.033 / 68A6AC@0.133 / 56939E@0.333 / 47808F@0.633 / 3A6E7D@1.0 (see HISTORY.md). Heroes are NOT re-rendered to match yet — an open item. Snow `E8F1F6`, Mix between land ramp and Lake (water always wins). Masks 0/255 PNG, image nodes Non-Color, mask interpolation Closest, no reversed Map Ranges.
-- **Snow data:** ESA WorldCover 2021 v200 class 70, warped nearest per frame by pipeline/snow_mask.py (permanent snow/ice only — the annual composite excludes seasonal snowpack by construction). CC-BY 4.0; About page must credit "© ESA WorldCover project 2021 / Contains modified Copernicus Sentinel data (2021) processed by ESA WorldCover consortium". No coverage of Antarctica (special-case hero regardless).
-- **Camera:** orthographic, straight down; ortho scale = plane's larger dimension × 1.0006 (India: 2.06 over a 2 × 2.0588 plane); render resolution: 7680 px on the raster's *longer* axis, short axis from aspect (2026-07-09; `hero_long_edge` in config/countries.toml, per-country overridable — India pinned at its fixed-width-era 7680×7906; 2048-wide tests).
-- **Render:** Cycles, OptiX backend, OIDN denoiser (GPU off for 8K frames — VRAM contention), adaptive subdivision dicing 1 px (≈6.8 GB peak at 8K).
-- **Post-render shading (added 2026-07-10):** `pipeline/sky_view.py` — burn-only horizon sky-view-factor from `heightfield_aea`, darkens land valleys (strength ~0.38) for topographic depth so low-relief countries read; composited onto the hero by `batch.py` before the atomic promote; open ground and sea unchanged. Chosen over adaptive exaggeration + Cycles AO (HISTORY.md).
-- **Borders (overlay, not scene):** land white 95% @ 10 px + casing #3D2B1F 35% @ 14 px; disputed/LoC dash [30, 20]; maritime white 80% @ 7 px + casing 25% @ 10.5 px, dash [40, 25]. Widths are 8K-canvas pixels; scale linearly with render width. NE default worldview.
+- **Terrain:** vertical exaggeration 15×, Midlevel 0; Scale is per-frame unit conversion `15 ÷ (extent_w/2 in m)`, computed by `render_prep.py` into `frame.json` (`docs/framing-math.md`)
+- **Light:**
+  - Sun rotation (44°, 0°, −45°) → altitude 46°, azimuth NW; Angle 12°; Strength 3 (the sweep moves altitude to the shared 45°)
+  - Fill sun rotation (30°, 0°, 135°) → SE, shadowless (`use_shadow` off); Angle 10°; Strength 0.45 (15% of main)
+  - World fill `F2E7D5` @ strength 0.3
+- **Color:** view transform **Standard** (never AgX — it greyed the palette)
+  - Land ramp, 0→6,000 m: `E9D9C0`@0 / `D7AC8E`@0.083 / `CE9880`@0.25 / `C9AD97`@0.5 / `DCC9B2`@0.75 / `E9DCC8`@1.0 — the top stays warm sand; white/blue belongs to the snow mask alone
+  - HERO sea ramp (smooth-C, 2026-07-10), 0→−3,000 m: `8FC7C5`@0 / `7CB8B8`@0.10 / `68A6AC`@0.22 / `56939E`@0.38 / `47808F`@0.62 / `3A6E7D`@1.0 — the sweep replaces this with the tile ramp
+  - TILE sea ramp (`palette.py`, V1 2026-07-14), 0→−6,000 m: `85B9B7`@0 / `73ABAB`@0.033 / `68A6AC`@0.133 / `56939E`@0.333 / `47808F`@0.633 / `3A6E7D`@1.0
+  - Snow `E8F1F6`; land/Lake Mix = water always wins; masks 0/255 PNG, image nodes Non-Color, mask interpolation Closest, no reversed Map Ranges
+- **Snow data (heroes):** ESA WorldCover 2021 v200 class 70, warped nearest per frame by `snow_mask.py` (permanent snow/ice only). CC-BY 4.0; About page must credit "© ESA WorldCover project 2021 / Contains modified Copernicus Sentinel data (2021) processed by ESA WorldCover consortium". No Antarctica coverage (special-case hero regardless)
+- **Camera:** orthographic, straight down; ortho scale = plane's larger dimension × 1.0006; render resolution 7680 px on the raster's *longer* axis (`hero_long_edge` in `config/countries.toml`, per-country overridable; India pinned at 7680×7906)
+- **Render:** Cycles, OptiX backend, OIDN denoiser (CPU for 8K frames — VRAM contention), adaptive subdivision dicing 1 px (≈6.8 GB peak at 8K)
+- **Post-render shading (2026-07-10):** `sky_view.py` — burn-only horizon SVF from `heightfield_aea`, strength ~0.38, composited by `batch.py` before the atomic promote; open ground and sea unchanged
+- **Borders (overlay, not scene):** land white 95% @ 10 px + casing `#3D2B1F` 35% @ 14 px; disputed/LoC dash [30, 20]; maritime white 80% @ 7 px + casing 25% @ 10.5 px, dash [40, 25]; widths are 8K-canvas px, scale linearly with render width; NE default worldview
 
 ## Open questions
 
 Resolved questions move to HISTORY.md — one home per fact. Each question names the point where it gets decided.
 
-- ~~**z8 vs z10 tile ceiling**~~ **RESOLVED 2026-07-17 — z8 LOCKED**, judged on the sphere exactly where this question said it would be. Unblocks PMTiles and sets (not creates) the optimisation section's priority. **It does NOT gate the hero sea-sync** — that depends on the shared palette constants, not on the ceiling or the packaging; conflating the two produced a wrong recommendation on 2026-07-21. z9/z10 stay **additive/deferrable** — a re-fuse at ~2.5″, never a tiling flag; runtime is unaffected either way. Reopening it costs build-time + storage, not rework. → HISTORY § z8 LOCKED
-- **Hero presentation — geography-conditional, not finalised.** The country-shape cutout was tried and generalised: cutout-cream suits continental/landlocked, real generous ocean suits island countries, but no single universal design holds (the trilemma: consistent / coherent / neighbour-free cannot all hold at once). Two problems stay open: most countries are *both* coastal and bordered (France, USA, India) and need a tier-classification rule; and every treatment reads **flat at the country margin** (wants its own edge-depth pass). Only the island real-ocean tier needs bigger-frame renders; the rest are free post-processes. **Decided at:** Phase 3 gallery/globe design, once rectangular heroes exist to judge against. Not a look change → does not touch the locked constants. → HISTORY § 2026-07-09 — Hero presentation explored
-- **Storage location for the tile pyramid on rohome** (which mount, backup exclusion). **Decided by:** the start of Phase 4 deploy, before tens of GB land on disk.
-- **Prep-ahead producer/consumer runner — designed, deferred, probably moot.** Would overlap GPU-idle prep with render (measured ~9% GPU duty cycle on the 2026-07-09 sweep). Its gate ("after Phase 1 completes") passed on 2026-07-13 with the sweep already done, and the phase split (`--through prep`, then `--through render`) is the zero-complexity 90% alternative. Design + the five safety invariants it must not regress → HISTORY § 2026-07-09 — Batch runner. **Decided at:** only if a full re-render sweep is ever needed again.
+- **Hero presentation — geography-conditional, not finalised.** Cutout-cream suits continental, real ocean suits islands, no universal design (the consistent/coherent/neighbour-free trilemma); most countries are *both* coastal and bordered, and every treatment reads flat at the margin. **Decided at:** Phase 3 gallery/globe design; not a look change → doesn't touch the locked constants. → HISTORY § 2026-07-09 — Hero presentation explored
+- **Tile-pyramid storage location on rohome** (which mount, backup exclusion). **Decided by:** start of Phase 4 deploy.
+- **Prep-ahead producer/consumer runner — designed, deferred, probably moot** (the `--through prep` / `--through render` phase split is the zero-complexity 90% alternative). **Decided at:** only if a full re-render sweep is ever needed again. → HISTORY § 2026-07-09 — Batch runner
 
 ## Active learnings (tile pipeline — load-bearing gotchas)
 
-One line each. Anything needing a paragraph belongs in HISTORY.md, not here — this section exists to be
-scanned before touching the pipeline, not to archive evidence.
+One line each. Anything needing a paragraph belongs in HISTORY.md — this section is scanned before touching the pipeline, not an archive.
 
-- **Planet tile shading is ONE global streaming pass** (`tile/shade_planet.py`): warp → per-row-z hillshade (z = 15/cos(lat), full-width, 1-row halo → seamless) → globally-normalised SVF → per-window composite. Supersedes the 194-strip `tile_planet.py`, whose global z=20 blew out the tropics and whose per-strip `--compute_edges` seamed the ocean.
-- **The shade KNOBS were tuned on mountainous Nepal** and blow out flat *bright* terrain. Validate any knob change on a different terrain type (bright lowland, ice sheet, high latitude) — never only on mountains.
-- **The region path is a PREDICTION of the planet — check it actually predicts before judging on it.** They occluded 12.9× apart until 2026-07-20 (region 760 m/px vs planet 9,784), so every earlier region A/B judged a resolution production lacks. Both now derive from `sky_view.OCCLUSION_TARGET_M_PER_PX`; any new per-path parameter must too. → HISTORY § 2026-07-20 (evening) — chasing the hero's "softness"
-- **`ambient` WAS a hard cliff at 90.2 DN; since 2026-07-21 it is a softplus knee (`ambient_knee=0.30`)** — terrain below the old cliff varies again, which is what gives mountains form. *Raising* ambient remains the rejected fix (swept twice, 07-08 and 07-17): the knee is not that, because it preserves ordering instead of flattening it. **The knee reaches the whole curve, not just shadow** — fully-lit pixels sit ~5% higher, and the darkest reachable light is now 0.5519, so nothing can land AT the floor. Anything that assumes light 1.0 at `hs == flat` (tests, oracles, scratch analysis) must invert the floor — `conftest.hillshade_for_light`. → HISTORY § 2026-07-21 `ambient_knee` 0.30 SHIPS
-- **A metric that scores contrast cannot judge softness — twice-failed now (07-08 fill sun, 07-21 knee).** The hard clip *manufactures* local contrast at its own cliff, so removing the artifact reads as a loss to any std-based score and as a gain to the eye. Judge look changes on the sphere, at planet scale; quote metrics for direction and magnitude only.
-- **Occlusion is NOT the softness term — falsified 2026-07-20 by a 6-run sweep** (target × strength); local contrast moves the *wrong way*. `svf_strength=0.20` behind `svf_threshold=0.45` caps it so hard the resolution barely matters. Do not re-litigate. → HISTORY § 2026-07-20 (evening)
-- **Softness is view-independent and therefore fully bakeable at zero browser cost; crispness is not** — z8 (305.7483 m/px) is *exactly* the 10″ fuse (308.7 m), so the pyramid is source-limited with zero headroom. The hero's edge is a 3″/1″ source supersampled through the raytracer, not a finer output grid. Real crispness = re-fuse finer and box-filter the **shaded RGB** down, never the heights.
-- **Snow = observed persistence, not permanent-ice** (NSIDC-0791 latitude-ramped soft alpha + RGI 7.0 union). Snow shadows must be blue-white (`palette.SNOW_SHADOW_RGB`); a neutral `SNOW_RGB × light` greys rugged snow into a smear.
-- **`gdal raster tile` needs `--tile-size 512`** (its 256 default halves the 306 m/px master), and never tile a many-source VRT — it re-reads every source per low-zoom tile. Materialise a tiled GTiff + overviews first.
-- **Mercator can't reach the poles → an AEQD custom-layer cap** (data ends 85.05°N; `1/cos φ` sends the pole to ∞). Flat fill fails (dark = hole, pale = plug); the cap is a source-shaded **AEQD** polar raster drawn over the pole via a MapLibre custom layer, sea ice over bathymetry (delivered AEQD, not the originally-planned polar-stereographic/EPSG:3031). Live tiles still carry the interim `CAP_RGB` plug under the cap seam. → HISTORY § the polar cap: flat fails · § the cap's seam-match
-- **WebMercatorQuad alignment**: warp with `-tap -tr 305.7483` (`20037508.34 = 65536 × 305.7483`) or the tiles seam. Planet grid is **131072 × 93009**, top 85.05°N, bottom −60°S.
-- **GEBCO_2026 is ice-*surface* elevation, not sub-ice bathymetry** — the "no-tile → ocean" rule would clamp Antarctica/Greenland ice to −1 m. They need their own GLO-30 special-case pass, never a bathymetry clamp.
-- **The region path is NOT windowed — cell count is a direct RAM multiplier.** ~2 cells ≈ one planet window (33.6 Mpx); 4 cells = 70 Mpx ≈ 14.5 GiB and gets OOM-killed at the 12 G cap. Scale cells by the cap, not by the map you want.
-- **The two shade paths have opposite staleness exposure** — `shade.py` (region) re-warps with `-overwrite` every run, so it is *always* current and is the right pre-flight check for a fresh re-fuse; `shade_planet.py` caches, so it is exposed by design and is what `is_stale` covers.
-- **An artifact that tracks a SEAM is a compositing bug; one pinned to GEOGRAPHY is a data bug (2026-07-22).** The polar ring survived four asset-side fixes because every oracle measured files, not the screen — the bug lived in the GPU draw (straight-alpha blend onto MapLibre's premultiplied framebuffer + canvas-alpha corruption letting the page bleed through the feather). The FIRST question for any visual artifact: is it in the assets or only on screen (same-camera screenshot with the layer on/off, or screen-vs-asset sampling at one georeferenced point)? Custom-layer contract now encoded in polarCapSpike.ts comments: premultiply in the shader, `blendFuncSeparate(ONE, 1−α, ZERO, ONE)`. → HISTORY § 2026-07-22 Antarctica FILL
-- **The latent grid-freshness bug is FIXED (2026-07-22).** `lakedepth`/`snow_persistence`/`glacier`/`seaice_3857` were freshness-gated on their SOURCE only (`ocean`/`water` re-warp on a chunk change, so they were safe), so a grid-*growing* re-fuse left them falsely fresh at the old dimensions and the composite read window slices past their bottom — silent corruption. `shade_planet.grid_matches` + `warp_needs_rebuild` now add a dimension/bounds check to all six 3857 warps (NOT an mtime dep on height, so a same-grid re-fuse like the Caspian still skips them). → HISTORY § 2026-07-22 Antarctica FILL
-- **The freshness guard is blind to CODE by design** (params, not source, are the dependency — so `git checkout` cannot force a 33 GB rebuild). Any *behavioural* change to a shading kernel must therefore be verified against an oracle by hand.
-- **`composite_params()` serialises KNOBS wholesale**, so anything changing its JSON marks `planet_rgb` stale and costs a ~54-min rebuild before `--tiles` cuts anything. Keep new tunables *inside* KNOBS (this is why `lake_curve` rides there, and why `shade.Knobs` is a TypedDict rather than a split-out constant).
-- **The one recurring bug is testing a PROXY instead of the thing** — seven instances across 2026-07-15/16, and **every one was in the checking, never in the pipeline**. Ask *before* running any check: *"what would this read if the thing I fear were NOT happening?"* — if the answer is "the same", the check is worthless. Corollaries: every aggregate names its witness (a max without an argmax is unfalsifiable); call the production boundary, don't re-read an intermediate; import constants, never retype. Hardened into `pipeline/verify.py::compare_rasters`, which structurally cannot return a bare aggregate. → HISTORY § 2026-07-16
-- **A check that cannot fail is indistinguishable from a check that passed.** False *positives* are cheap and self-correcting; the same mechanism sign-flipped is a false negative. Prove 0 is reachable before reporting 0.
-- **One fix, one home.** A decision copied per-call-site has drifted four separate times. Fix it once or it rots at the sibling — see the commonification list above.
-- **Retire a superseded path the same day: delete it, or move it out of the production package.** Prose calling it "retired" does not disarm an entry point. `tile_planet.py` sat in `pipeline/tile/` for two days after `shade_planet.py` replaced it, still runnable, still defaulting `--out` to the *live* `data/work/planet_tiles` — it would have cut tiles straight into the served pyramid with `--resume` and no rollback. It had also stopped being a faithful record, since `shade.py` drifted underneath it. git is the archive. → HISTORY § 2026-07-14 (overnight)
+- **Planet tile shading is ONE global streaming pass** (`shade_planet.py`): warp → per-row-z hillshade (full-width, 1-row halo → seamless) → globally-normalised SVF → per-window composite.
+- **The shade KNOBS were tuned on mountainous Nepal** — validate any knob change on a different terrain type (bright lowland, ice sheet, high latitude), never only on mountains.
+- **The region path is a PREDICTION of the planet — check it actually predicts before judging on it**; both paths now derive occlusion from `sky_view.OCCLUSION_TARGET_M_PER_PX`, and any new per-path parameter must too. → HISTORY § 2026-07-20 (evening)
+- **`ambient` is a softplus knee since 2026-07-21 (`ambient_knee=0.30`), not a hard cliff** — *raising* ambient stays the twice-rejected fix; the knee reaches the whole curve (nothing can land AT the floor), so anything assuming light 1.0 at `hs == flat` must invert it via `conftest.hillshade_for_light`. → HISTORY § `ambient_knee` 0.30 SHIPS
+- **A metric that scores contrast cannot judge softness (twice-failed)** — the clip *manufactures* contrast at its own cliff; judge look on the sphere at planet scale, quote metrics for direction/magnitude only.
+- **Occlusion is NOT the softness term — falsified 2026-07-20 by a 6-run sweep**; do not re-litigate. → HISTORY § 2026-07-20 (evening)
+- **Softness is view-independent → fully bakeable; crispness is a data ceiling** — z8 (305.7483 m/px) IS the 10″ fuse (308.7 m); real crispness = re-fuse finer and box-filter the shaded RGB down, never the heights.
+- **Snow = observed persistence, not permanent ice**; snow shadows must be blue-white (`SNOW_SHADOW_RGB`) — neutral `SNOW_RGB × light` greys rugged snow into a smear.
+- **`gdal raster tile` needs `--tile-size 512`** (default 256 halves the master), and never tile a many-source VRT — materialise a tiled GTiff + overviews first.
+- **Mercator can't reach the poles → the AEQD custom-layer caps** (flat fill fails: dark = hole, pale = plug); live tiles still carry the interim `CAP_RGB` plug under the cap seam. → HISTORY § the polar cap: flat fails
+- **WebMercatorQuad alignment:** warp with `-tap -tr 305.7483` (`20037508.34 = 65536 × 305.7483`) or the tiles seam; planet grid is 131072 × 131072 (±85.05°) since the Antarctica extension — 131072 × 93009 to −60° before it.
+- **GEBCO_2026 is ice-*surface* elevation** — Antarctica/Greenland land must come from GLO-30, never a bathymetry clamp.
+- **The region path is NOT windowed — cell count is a direct RAM multiplier** (4 cells ≈ 14.5 GiB, OOM-killed at the 12 G cap); scale cells by the cap.
+- **The two shade paths have opposite staleness exposure** — `shade.py` re-warps every run (always current, the right pre-flight for a re-fuse); `shade_planet.py` caches (exposed by design, covered by `is_stale`).
+- **An artifact that tracks a SEAM is a compositing bug; one pinned to GEOGRAPHY is a data bug** — first question for any visual artifact: assets or screen? (same-camera screenshot layer on/off); custom-layer GL contract lives in `polarCapSpike.ts`. → HISTORY § 2026-07-22 Antarctica FILL
+- **Warp targets are grid-checked, not just source-checked** (`grid_matches` + `warp_needs_rebuild` on all six 3857 warps) — a grid-growing re-fuse falsely left them fresh at the old dimensions (silent corruption). → HISTORY § 2026-07-22 Antarctica FILL
+- **The freshness guard is blind to CODE by design** (params, not source, are the dependency) — any *behavioural* change to a shading kernel must be verified against an oracle by hand.
+- **`composite_params()` serialises KNOBS wholesale** — anything changing its JSON costs a ~54-min `planet_rgb` rebuild; keep new tunables *inside* KNOBS.
+- **The one recurring bug is testing a PROXY instead of the thing** — ask before any check: *"what would this read if the thing I fear were NOT happening?"*; every aggregate names its witness; hardened into `verify.compare_rasters`. → HISTORY § 2026-07-16
+- **A check that cannot fail is indistinguishable from a check that passed** — prove 0 is reachable before reporting 0.
+- **One fix, one home** — per-call-site copies drifted four separate times; the shared homes are `pipeline/raster_io.py` (GTiff core, band windows), `warp_needs_rebuild`, `palette.py` — point new siblings there. → HISTORY § commonification LANDED
+- **Retire a superseded path the same day: delete it or move it out of the production package** — prose calling it "retired" does not disarm a runnable entry point; git is the archive. → HISTORY § 2026-07-14 (overnight)

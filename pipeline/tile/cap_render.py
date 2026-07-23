@@ -58,9 +58,6 @@ WORK = ROOT / "data/work/cap"
 DEV_ASSETS = ROOT / "web/public/dev-assets"
 CAP_PX = 4096          # square texture side (south is a bigger disc -> coarser per px; tunable, bump for prod)
 SPHERE_R = 6371000.0   # spherical AEQD radius; the frontend's linear-colatitude UV assumes a sphere
-POLE_TAPER_COLAT = 3.0  # deg: within this colatitude the AEQD light azimuth (AZ + lon) sweeps 360 deg as
-                        # the meridians converge, washing relief into a pinwheel disc at the exact pole;
-                        # ramp the relief to flat inside it so there is no hard-edged wheel
 # The south-cap forced-snow latitude and toned sea-ice pair moved to their shared homes so the tile
 # composite applies the identical rule (one home per concept): snow.antarctic_snow_mask's lat_max=-60,
 # and seaice.SH_ICE_LO / seaice.SH_ICE_MAX_ALPHA (used by the SOUTH grid below).
@@ -80,7 +77,6 @@ class CapGrid:
     coast_dilate: int = 1        # binary-dilation iterations -> ~3 px line at 4096 when 1
     ice_lo: "float | None" = None         # sea-ice threshold override; None -> seaice.ICE_LO
     ice_max_alpha: "float | None" = None  # sea-ice max opacity override; None -> seaice.ICE_MAX_ALPHA
-    pole_taper_colat: float = POLE_TAPER_COLAT  # deg; 0 disables the flat-pole taper for this cap
 
     @property
     def aeqd(self) -> str:
@@ -97,15 +93,9 @@ NORTH = CapGrid(lat_0=90.0, edge_lat=78.0, px=CAP_PX, name="north", az_sign=-1.0
 # South: NO baked coastline. The north NEEDS it (Greenland's white ice sheet abuts the white Arctic
 # pack -- without a line they merge), but on the south white ice sits on teal ocean, which already
 # separates itself; a dark line there just reads as a cartoonish outline around the continent.
-# South: taper OFF. The taper medicates the polar pinwheel wash, which is driven by RELIEF near the
-# pole -- the Arctic has seafloor ridges there, the south has the near-flat East Antarctic dome, so
-# the south's wash amplitude is negligible while the taper's flat disc saturated the gamma8 snow tone
-# ~4 DN above the honestly-shaded dome around it: the disc edge READ as a concentric interior ring
-# (measured 2026-07-22, radial profile: disc 239.45 vs the -86 annulus 235.4).
 SOUTH = CapGrid(lat_0=-90.0, edge_lat=-78.0, px=CAP_PX, name="south", az_sign=1.0,
                 coast_opacity=0.0, coast_dilate=0,
-                ice_lo=seaice.SH_ICE_LO, ice_max_alpha=seaice.SH_ICE_MAX_ALPHA,
-                pole_taper_colat=0.0)
+                ice_lo=seaice.SH_ICE_LO, ice_max_alpha=seaice.SH_ICE_MAX_ALPHA)
 
 # The coastline baked into the cap texture -- the land/sea line separating land snow from sea ice
 # where MapLibre's Mercator vector borders can't reach the pole. It must be DARK, not the globe's
@@ -196,34 +186,11 @@ def _shade(grid: CapGrid, heights: np.ndarray, longitude: np.ndarray) -> np.ndar
     fill_az = (hillshade.FILL_AZIMUTH + grid.az_sign * longitude).astype(np.float32)
     shaded = hillshade.hillshade_array(haloed, cell, EXAG, ALT, main_az)
     fill = hillshade.hillshade_array(haloed, cell, EXAG, hillshade.FILL_ALTITUDE, fill_az)
-    rotating = hillshade.combine_fill(shaded, fill, KNOBS["fill_strength"], ALT)
-
-    # Near the pole the rotating azimuth (AZ + az_sign*lon) sweeps 360 deg over a few pixels as the
-    # meridians converge, washing the directional relief into a pinwheel disc with a hard edge. Ramp
-    # the relief to the local flat level inside POLE_TAPER_COLAT so both the wheel and its edge vanish;
-    # the pole is a near-flat ice dome, so a soft featureless spot reads true. (A fixed-azimuth blend
-    # was tried to keep texture, but the fixed/rotating shades anti-correlate into petal interference
-    # -- worse than a clean flat dome.)
-    colat = _colatitude(grid)
-    inner = colat < grid.pole_taper_colat
-    if not inner.any():
-        return rotating
-    t = np.clip(colat[inner] / grid.pole_taper_colat, 0.0, 1.0)
-    weight = t * t * (3.0 - 2.0 * t)  # smoothstep: 0 at the pole, 1 at the taper edge
-    flat_dn = float(np.median(rotating[inner]))  # the local ambient level under the wash
-    result = rotating.copy()
-    result[inner] = flat_dn + (rotating[inner] - flat_dn) * weight
-    return result
-
-
-def _colatitude(grid: CapGrid) -> np.ndarray:
-    """Colatitude (deg from the pole) at each AEQD pixel centre. The AEQD radius is exactly
-    SPHERE_R * colatitude, so distance-from-centre converts straight to degrees."""
-    cell = 2 * grid.edge_m / grid.px
-    xs = -grid.edge_m + (np.arange(grid.px) + 0.5) * cell
-    ys = grid.edge_m - (np.arange(grid.px) + 0.5) * cell
-    xx, yy = np.meshgrid(xs, ys)
-    return np.degrees(np.hypot(xx, yy) / SPHERE_R)
+    # No pole special-case: the rotating azimuth's pinwheel wash at the exact pole is quenched by
+    # `shade.KNOBS["ice_relief_damp"]` (the pack conceals the shading that fed the wash). The
+    # colat-3 flat taper that used to sit here was measured retirable at damp 0.75 and deleted
+    # 2026-07-23: pole std 6.16 < surrounding annulus 6.70, no disc-edge ring step.
+    return hillshade.combine_fill(shaded, fill, KNOBS["fill_strength"], ALT)
 
 
 def _bake_coastline(grid: CapGrid, rgb: np.ndarray) -> None:
