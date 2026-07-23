@@ -25,6 +25,7 @@ import rasterio
 from rasterio.enums import Resampling
 from scipy.ndimage import zoom
 
+from pipeline.raster_io import GTIFF_CREATE
 from pipeline.render import hillshade, lake_depth, palette, relief, snow
 from pipeline.render.sky_view import (
     OCCLUSION_TARGET_M_PER_PX,
@@ -70,6 +71,7 @@ class Knobs(TypedDict):
     sea_lift: float
     sea_saturation: float
     sea_svf: float
+    ice_relief_damp: float
     snow_lo: float
     snow_hi_pt: float
     snow_curve: str  # light->snow ramp mapping; see snow_position()
@@ -121,11 +123,21 @@ class Knobs(TypedDict):
 # 1.0 read too copper on Alpine crops. 1.0 would reproduce the hero's MEASURED shadow warmth (see
 # SHADOW_TINT), so this is 55% of the hero -- the value is anchored to a measurement even where it
 # departs from it. 0.0 is the pre-2026-07-21 look and is bit-identical when off.
-KNOBS = Knobs(alt=45.0, fill_strength=0.15, shadow_strength=0.0, shadow_reach=300.0,
+# `ice_relief_damp` **0.75, chosen 2026-07-22 (Rohan)** off a five-rung cap A/B (0/0.25/0.5/0.75/
+# 1.0, `experiments/ab_ice_damp.py` -- the 21 s browser-free pole loop): how much thick sea ice
+# CONCEALS the seafloor's shading. The ice whites are light-keyed by `snow_t`, whose light over
+# ocean is the SEAFLOOR's hillshade -- so at full pack the floor's ridges painted into the ice at
+# full strength and the Arctic pack read as terrain above the sea. This pulls the ice's light-key
+# toward its flat-ocean position in proportion to `damp * ice_alpha`: the perennial pack calms, the
+# marginal fringe keeps its relief, and the `(1 - alpha)` colour glow-through (the 2026-07-20
+# "ocean floor under ice" decision) is a different channel and untouched. The rungs measured
+# linear (mean 2.8/5.2/7.6/10.0 DN at 0.25..1.0); 1.0 read soft but 0.75 kept a touch more
+# surface life. 0.0 is the pre-2026-07-22 look, bit-identical when off.
+KNOBS = Knobs(alt=palette.SUN_ALT_DEG, fill_strength=0.15, shadow_strength=0.0, shadow_reach=300.0,
               shadow_warmth=0.55,
               ambient=0.50, ambient_knee=0.30, hi=1.12, exposure=1.05, saturation=1.18,
               warmth=0.06, svf_strength=0.20, svf_threshold=0.45, sea_shade=0.55, sea_lift=1.00,
-              sea_saturation=0.90, sea_svf=0.5, snow_lo=0.55, snow_hi_pt=1.05,
+              sea_saturation=0.90, sea_svf=0.5, ice_relief_damp=0.75, snow_lo=0.55, snow_hi_pt=1.05,
               snow_curve="gamma8", lake_curve="log1p")
 
 
@@ -328,9 +340,8 @@ def main():
     with rasterio.open(height_vrt) as src:
         profile: dict[str, Any] = dict(
             driver="GTiff", height=grid_h, width=grid_w, count=3, dtype="uint8",
-            crs=src.crs, transform=src.transform, tiled=True, blockxsize=512,
-            blockysize=512, compress="deflate", photometric="RGB",
-            num_threads="ALL_CPUS")
+            crs=src.crs, transform=src.transform, photometric="RGB",
+            num_threads="ALL_CPUS", **GTIFF_CREATE)
     with rasterio.open(out_tif, "w", **profile) as out:
         out.write(rgb)
     print(f"wrote {out_tif}", flush=True)
@@ -561,8 +572,20 @@ def composite(heights, ocean, water, snow_a, hs, occ, occ_shape, grid, depth=Non
         # without a hard colour split -- the coastline and relief carry the rest.
         ice_shadow = np.array(palette.ICE_SHADOW_RGB, dtype=np.float32).reshape(3, 1, 1)
         ice_lit = np.array(palette.ICE_RGB, dtype=np.float32).reshape(3, 1, 1)
-        ice_rgb = ice_shadow + (ice_lit - ice_shadow) * snow_t[None]
         gated_ice = np.where(ocean, np.asarray(ice_a, dtype=np.float32), 0.0)
+        ice_light_key = snow_t
+        if KNOBS["ice_relief_damp"] > 0.0:
+            # Thick ice conceals the floor's SHADING (this key), never its COLOUR (the (1 - alpha)
+            # translucency above): pull the key toward its flat-ocean value in proportion to ice
+            # cover. `flat_light` replays the flat-terrain light (hs == flat -> 1.0) through the
+            # same ambient-knee and sea transforms the per-pixel light took, so damp 1.0 at full
+            # alpha lands exactly on "what a featureless seafloor would have looked like".
+            flat_light = apply_ambient_floor(np.float32(1.0), KNOBS["ambient"], KNOBS["hi"],
+                                             KNOBS["ambient_knee"])
+            flat_sea_light = KNOBS["sea_lift"] + (float(flat_light) - 1.0) * KNOBS["sea_shade"]
+            flat_key = snow_position(np.float32(flat_sea_light), KNOBS["snow_curve"])
+            ice_light_key = snow_t + (flat_key - snow_t) * (KNOBS["ice_relief_damp"] * gated_ice)
+        ice_rgb = ice_shadow + (ice_lit - ice_shadow) * ice_light_key[None]
         final = final * (1.0 - gated_ice)[None] + ice_rgb * gated_ice[None]
     return np.clip(final, 0, 255).astype("uint8")
 

@@ -55,10 +55,10 @@ ROOT = Path(__file__).resolve().parent.parent
 ENV = {**os.environ,
        "PATH": f"{Path(sys.executable).parent}{os.pathsep}{os.environ.get('PATH', '')}"}
 FAIL_LOG = ROOT / "blender/renders/batch_failures.jsonl"
-PREP_STAGES = 5           # stage_commands[:5] = download,mosaics,fuse,prep,snow
-RENDER_STAGE = 5          # scene_build --render
-GATE_STAGES = {5}         # render: the 11-12 GB consumer the floor is set for
-CAP_STAGES = {2, 5}       # fusion + render: best-effort cgroup containment
+PREP_STAGES = 6           # stage_commands[:6] = download,mosaics,fuse,prep,snow,lake
+RENDER_STAGE = 6          # scene_build --render
+GATE_STAGES = {6}         # render: the 11-12 GB consumer the floor is set for
+CAP_STAGES = {2, 6}       # fusion + render: best-effort cgroup containment
 GATE_POLL_S = 30
 GATE_MAX_WAIT_S = 1800    # wait up to 30 min for other load to clear, then skip
 
@@ -129,13 +129,13 @@ def run_country(slug, resolved, through, force, dry, cap_gib, use_cap, floor,
     """Run one country's stages; return a short outcome string."""
     do_clean = clean and through == "render" and not dry
     target = (ROOT / f"blender/renders/heroes/{slug}.png" if through == "render"
-              else ROOT / f"data/work/{slug}/render/snowmask_aea.png")
+              else ROOT / f"data/work/{slug}/render/lakedepth_aea.tif")
     if target.exists() and not force:
         if do_clean:
             prune_intermediates(slug)
         return "skip-done"
 
-    stage_count = 6 if through == "render" else PREP_STAGES
+    stage_count = 7 if through == "render" else PREP_STAGES
     stages = stage_commands(resolved)[:stage_count]
     if dry:
         return f"would-run ({stage_count} stages)"
@@ -194,7 +194,7 @@ def run_country(slug, resolved, through, force, dry, cap_gib, use_cap, floor,
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--through", choices=("prep", "render"), default="prep",
-                    help="prep = download..snow (default); render adds the GPU render")
+                    help="prep = download..lake (default); render adds the GPU render")
     ap.add_argument("--only", help="comma-separated slugs to run")
     ap.add_argument("--limit", type=int, help="cap the number of countries")
     ap.add_argument("--force", action="store_true", help="redo done countries")

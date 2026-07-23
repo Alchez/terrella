@@ -282,6 +282,7 @@ def stage_commands(resolved: dict) -> list[str]:
         f" --res-arcsec {FUSION_RES[resolved['fusion']]} --outdir {work}",
         prep,
         f"python -m pipeline.render.snow_mask --render-dir {rd}",
+        f"python -m pipeline.render.lake_mask --render-dir {rd}",
         f"{BLENDER} -b --python pipeline/render/scene_build.py --"
         f" --render-dir {rd} --out blender/{resolved['slug']}_hero.blend"
         f" --render blender/renders/heroes/{resolved['slug']}.png",

@@ -306,6 +306,7 @@ The sea-side mirror of the snow layer: an OSI SAF **annual ice-frequency climato
 
 - **`ICE_LO` / `ICE_BAND` (0.55 / 0.40) — the alpha ramp.** `ice_alpha` is a smoothstep on frequency from `ICE_LO` to `ICE_LO+ICE_BAND`, **no latitude term** (unlike `snow_alpha` — the field already encodes where ice is; there is no mid-latitude seasonal flooding to hold back). `ICE_LO` is the *"how much of the seasonal fringe do I paint"* knob: **raise it for LESS ice** (leaner / bleaker), lower it for more. `0.25→0.55` (2026-07-20) pulled the winter-maximum fringe (Hudson / Baffin / Kara / Laptev) back to open teal, keeping only the perennial pack solid — doubles as decline-aware. **It does NOT move the perennial core** (freq→1 saturates at any `ICE_LO` < 0.95), so it cannot make the core "bleaker": that is a *dataset / period* decision, not a threshold one.
 - **`ICE_MAX_ALPHA` (0.85) — perennial translucency.** The ramp tops out below opaque so even year-round pack stays a touch see-through and the deep bathymetry glows through (the "ocean floor under ice" reading, Rohan). 1.0 = opaque pack (bathymetry *colour* hidden, only hillshade relief shows).
+- **`ice_relief_damp` (0.75, `shade.KNOBS`, 2026-07-22) — how much thick ice conceals the seafloor's *shading*.** The ice whites are light-keyed by `snow_t`, whose light over ocean is the SEAFLOOR's hillshade — at 0.0 the pack painted the floor's ridges at full strength and read as terrain above the sea. The damp pulls the light-key toward its flat-ocean position in proportion to `damp × ice_alpha`: pack calms, marginal fringe keeps relief, and the `(1 − alpha)` colour glow-through above is a separate channel, untouched — the two knobs split the "under ice" reading into colour (`ICE_MAX_ALPHA`) and shading (this). Chosen off a five-rung cap A/B (linear: mean 2.8→10.0 DN at 0.25→1.0); 1.0 read soft, 0.75 kept surface life. → HISTORY § 2026-07-22 Antarctica FILL
 - **`ICE_RGB (212,228,240)` / `ICE_SHADOW_RGB (156,184,210)` — the ice whites** (light-keyed by the same `snow_t` as snow). A **notch cooler + dimmer than snow's** `E8F1F6` / `B0C7DB`, so floating sea ice reads distinct from the land ice-sheet **without a hard blue/white split** (rejected as gimmicky and off-Patterson — the baked coastline + relief carry the land/sea line). Cooling may be slightly strong; dial here if so.
 - **Not a lever — the dataset / period.** The metric is a 1991–2020 **winter-weighted** climatology. A recent-data check (OSI-430-a 2021–2024, 2026-07-20) moved the rendered 0.55 extent by only **−4.2% — invisible**. Reflecting the real (September-minimum) decline would take a September-specific climatology — a different `download_seaice` reduction, not a knob. → HISTORY § 2026-07-20 sea ice.
 - **Adjust:** the `ICE_*` constants in `render/seaice.py` (ramp) + `ICE_RGB` / `ICE_SHADOW_RGB` in `palette.py` (colour) — all tracked in `composite_params`, so a change restages composite → tiles (~19.6 min). The **climatology** itself (threshold, smoothing `SMOOTH_SIGMA_PX`, period) rebuilds via `download_seaice.py --build-only --force` (~40 s, no re-download), then a recomposite.
@@ -341,11 +342,12 @@ complaint is the body).
   (vs 0.55 — pull the seasonal fringe in) and `CAP_S_ICE_MAX_ALPHA = 0.55` (vs 0.85 — more translucent),
   because Antarctica is a continent RINGED by a mostly-seasonal belt, so the full-strength climatology read
   as a bright halo around it.
-- **Flat-pole taper** (`POLE_TAPER_COLAT = 3.0°`): at the pole every meridian converges, so the
-  longitude-rotated light azimuth sweeps 360° across a few pixels and the directional relief collapses into
-  a washed "pinwheel disc". Inside 3° colatitude the relief is ramped (smoothstep) to the local flat level,
-  so both the wheel and its hard edge dissolve into a soft dome. The north pole has the identical
-  singularity but sits under white sea ice, so it never showed.
+- **Flat-pole taper — RETIRED 2026-07-23.** At the pole every meridian converges, so the longitude-rotated
+  light azimuth sweeps 360° across a few pixels and the directional relief collapses into a washed
+  "pinwheel disc"; a colat-3° smoothstep ramp to flat used to hide it. `ice_relief_damp` (above) now
+  quenches the wash at the source — the pack conceals the shading that fed it — and the taper measured
+  retirable at damp 0.75 (pole std 6.16 < surrounding annulus 6.70, no disc-edge ring step; the south had
+  already dropped it 2026-07-22 when its flat disc itself read as a ring). No pole special-case remains.
 - **`CAP_RGB` in `shade_planet.py` is now only the interim flat fill** on the live Mercator tiles below the
   cap seam — being retired, not a lever to tune.
 - **Known, deferred:** a faint cap↔tile ocean seam remains at the feather (~−57°→−60°) — the cap ocean

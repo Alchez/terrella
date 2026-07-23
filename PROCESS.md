@@ -99,10 +99,24 @@ is not RSS**: during tiling the cgroup sits at ~16 GiB, but that is reclaimable 
 | Stage | First run | Re-run | Output |
 |---|---|---|---|
 | `render/render_prep.py --frame` → `frame.json` | ~seconds | `is_stale` | per-country frame + warps |
-| `render/scene_build.py --render` — headless Cycles, OptiX | **3:36 @ 8K** | n/a | one hero PNG |
+| `render/lake_mask.py` (new 2026-07-23, stage 5.5) | **0:11 finland (lake-densest) / 0:03 estonia** — the feared 83k-source-VRT warp cost is seconds, not minutes | skip-if-exists | `lakedepth_aea.tif` (log1p ramp position) |
+| `render/scene_build.py --render` — headless Cycles, OptiX | **3:36 @ 8K** (finland 1:29 at 4142×7680) | n/a | one hero PNG |
 | Full batch — **204 heroes** | **overnight** (estimate; GPU-bound, occupies the desktop) | per-country resume | `blender/renders/` |
+| `batch --through prep`, all outputs cached (the 2026-07-23 sea-sync pre-pass) | **~2 h for 204** (≈35 s/country of pure walk overhead — a 20-40 min projection missed 3× by counting only the lake warp) | same | prep-complete markers |
 
 8K frames denoise on **CPU**, not GPU: GPU render + GPU OIDN contend for the 12 GB VRAM → Xid 31 MMU fault.
+
+**The 35 s/country prep-walk overhead, decomposed (2026-07-23, log-measured):** ~17 s = `build_mosaics.sh`
+rebuilding the two 26,475-source VRTs identically per country (371 bars at 8–9 s in one pre-pass ≈ **53 min
+of redundant rebuilds**); ~3–6 s = `download_glo30`'s per-country stat loop + 3 ETag HEADs (550+ identical
+round-trips per pre-pass); ~4–8 s = six subprocess starts × GDAL/rasterio import (deliberate — OOM
+isolation); rest = skip-checks + the real lake warp.
+
+**FIXED same day (TDD, 12 tests, → HISTORY § 2026-07-23 prep-walk redundancy cut):** `build_mosaics.sh`
+freshness skip (`.sources` sidecar equality + newer-than-VRT check; **17.6 → 0.63 s**, rebuild proven
+byte-identical) and a 24 h `preflight_ok.json` stamp in `download_glo30` (**one 1.6 s ETag check per day,
+then ~0.07 s**). A warm six-stage walk measured **1.25 s/country** (was ~35 s) — a full 204-country walk
+drops ~1 h; only the deliberate subprocess import tax remains.
 
 ## Acquire (one-time, network-bound)
 

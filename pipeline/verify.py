@@ -41,7 +41,8 @@ from dataclasses import dataclass, field
 import numpy as np
 import rasterio
 from rasterio.warp import transform
-from rasterio.windows import Window
+
+from pipeline.raster_io import band_window, row_bands
 
 
 @dataclass
@@ -114,10 +115,8 @@ def compare_rasters(reference_path, candidate_path, tolerance: int = 1, band: in
         worst, worst_lonlat, worst_values = 0, None, None
         compared = 0
 
-        for row0 in range(0, height, window_rows):
-            row1 = min(height, row0 + window_rows)
-            window = Window(0, row0, width,  # pyright: ignore[reportCallIssue] — rasterio untyped, attrs init invisible
-                            row1 - row0)
+        for row0, row1 in row_bands(height, window_rows):
+            window = band_window(width, row0, row1)
             a = ref.read(band, window=window).astype(np.int32)
             b = cand.read(band, window=window).astype(np.int32)
             delta = np.abs(a - b)
@@ -135,8 +134,7 @@ def compare_rasters(reference_path, candidate_path, tolerance: int = 1, band: in
                 worst_values = (int(a[index]), int(b[index]))
 
         # Control: prove 0 is reachable by this code path, so "no differences" means something.
-        probe_window = Window(0, height // 2, width,  # pyright: ignore[reportCallIssue] — rasterio untyped, attrs init invisible
-                              min(32, height))
+        probe_window = band_window(width, height // 2, height // 2 + min(32, height))
         probe = ref.read(band, window=probe_window)
         control_passed = bool(np.abs(probe.astype(np.int32) - probe.astype(np.int32)).max() == 0)
 

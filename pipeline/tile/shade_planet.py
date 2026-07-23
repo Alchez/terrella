@@ -50,6 +50,7 @@ import rasterio
 from rasterio.enums import Resampling
 from rasterio.windows import Window
 
+from pipeline.raster_io import GTIFF_CREATE, band_window
 from pipeline.render import cast_shadow, hillshade, lake_depth, palette, seaice, snow
 from pipeline.render import sky_view
 from pipeline.render.sky_view import normalised_occlusion, occlusion_shape
@@ -631,9 +632,8 @@ def composite_planet(work: Path, hs, compute_occlusion: Callable[[], np.ndarray]
     # hands rasterio.open's bool-typed `sharing`/`thread_safe` an inferred `str | int`.
     profile: dict[str, Any] = dict(
         driver="GTiff", width=width, height=height, count=3, dtype="uint8",
-        crs="EPSG:3857", transform=transform, tiled=True, blockxsize=512,
-        blockysize=512, compress="deflate", photometric="RGB", BIGTIFF="YES",
-        num_threads="ALL_CPUS")
+        crs="EPSG:3857", transform=transform, photometric="RGB", BIGTIFF="YES",
+        num_threads="ALL_CPUS", **GTIFF_CREATE)
     ocean_p, water_p = work / "ocean_3857.tif", work / "water_3857.tif"
     depth_p = work / "lakedepth_3857.tif"
     persistence_p = work / "snow_persistence_3857.tif"
@@ -643,8 +643,7 @@ def composite_planet(work: Path, hs, compute_occlusion: Callable[[], np.ndarray]
     def read_window(row0: int) -> _WindowInputs:
         """Gather one window's raw reads + geometry — MAIN thread only (GDAL is not thread-safe)."""
         row1 = min(height, row0 + window_rows)
-        win = Window(0, row0, width,  # pyright: ignore[reportCallIssue] — rasterio untyped, attrs init invisible
-                     row1 - row0)
+        win = band_window(width, row0, row1)
         # sky-view occlusion slice for this window (smooth -> nearest rows are fine)
         sr0 = int(row0 / height * small_h)
         sr1 = max(sr0 + 1, int(round(row1 / height * small_h)))

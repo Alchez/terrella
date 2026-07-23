@@ -1,9 +1,11 @@
 """Shared hypsometric palette — the single source of truth for the land/sea color
 ramps, snow, and inland-water tints that define Terrella's look.
 
-Used by the raster tile shading (venv) and, in time, the Cycles hero scene. Kept
-deliberately dependency-free (pure Python, no numpy/bpy) so it can be imported from
-either interpreter — Blender's bundled Python cannot see the venv's packages, so any
+Used by the raster tile shading (venv) AND the Cycles hero scene (`scene_build`
+imports this module directly since the 2026-07-23 sea-sync — its constants were
+copies before that, which is how three divergences accumulated). Kept deliberately
+dependency-light (numpy only, which Blender bundles) so it imports from either
+interpreter — Blender's bundled Python cannot see the venv's packages, so any
 constant shared with `scene_build` must live in a module like this one.
 
 Colors are LINEAR RGB (the ramp stops), matching the hero's ColorRamp nodes under the
@@ -62,6 +64,9 @@ ICE_SHADOW_RGB: RGB8 = (156, 184, 210)   # 9CB8D2 — shaded sea ice (deeper coo
 LAND_MAX_M = 6000.0
 SEA_MIN_M = -6000.0  # extended from -3000 (2026-07-14 sea rework) so the deep sea varies tonally
 LAKE_MAX_M = 1642.0  # Baikal — the deepest lake GLOBathy carries; the lake ramp's far end
+SUN_ALT_DEG = 45.0   # the shared sun altitude: tile KNOBS["alt"] and the hero SUN_ROTATION
+# X-tilt (90 - alt) both derive from this (2026-07-23 sea-sync — the cure for the 46/45
+# split). Azimuth stays per-side: both are NW by their own conventions (tile 315, hero -45).
 
 
 def smoothstep(t: float) -> float:
@@ -94,8 +99,10 @@ def _srgb8(color: RGB) -> RGB8:
             round(lin2srgb(color[2]) * 255))
 
 
-def _srgb8_to_linear(color: RGB8) -> RGB:
-    """8-bit sRGB -> linear RGB (the space the ramp stops live in). Inverse of `_srgb8`."""
+def srgb8_to_linear(color: RGB8) -> RGB:
+    """8-bit sRGB -> linear RGB (the space the ramp stops live in). Inverse of `_srgb8`.
+
+    Public: `scene_build` derives its flat RGBA tints (water, snow) through this."""
     def channel(value: int) -> float:
         unit = value / 255.0
         return unit / 12.92 if unit <= 0.04045 else ((unit + 0.055) / 1.055) ** 2.4
@@ -113,9 +120,9 @@ def _srgb8_to_linear(color: RGB8) -> RGB:
 # a lighter rim was tried and rejected because it dissolves the shoreline against pale
 # high-plateau land.
 LAKE_STOPS: list[Stop] = [
-    (0.0, _srgb8_to_linear(WATER_RGB)),        # 8EC6C4 — shore, == the flat inland tint
-    (0.5, _srgb8_to_linear((100, 155, 164))),  # 649BA4 — the prototype's proven deep tone
-    (1.0, _srgb8_to_linear((71, 128, 143))),   # 47808F — deep lakes (Tanganyika, Baikal)
+    (0.0, srgb8_to_linear(WATER_RGB)),        # 8EC6C4 — shore, == the flat inland tint
+    (0.5, srgb8_to_linear((100, 155, 164))),  # 649BA4 — the prototype's proven deep tone
+    (1.0, srgb8_to_linear((71, 128, 143))),   # 47808F — deep lakes (Tanganyika, Baikal)
 ]
 
 

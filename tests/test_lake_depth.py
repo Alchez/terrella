@@ -58,7 +58,7 @@ class TestLakeRamp:
     def test_srgb8_to_linear_roundtrips(self):
         """LAKE_STOPS[0] is derived through this, so a bug here silently shifts the shore."""
         for color in (palette.WATER_RGB, palette.SNOW_RGB, (0, 0, 0), (255, 255, 255)):
-            assert palette._srgb8(palette._srgb8_to_linear(color)) == color
+            assert palette._srgb8(palette.srgb8_to_linear(color)) == color
 
 
 class TestLakePosition:

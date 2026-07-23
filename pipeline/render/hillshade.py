@@ -27,8 +27,8 @@ from typing import Any
 
 import numpy as np
 import rasterio
-from rasterio.windows import Window
 
+from pipeline.raster_io import GTIFF_CREATE, band_window, row_bands
 from pipeline.render import cast_shadow
 
 EARTH_RADIUS = 6378137.0  # Web Mercator sphere radius
@@ -186,15 +186,12 @@ def per_row_zfactor_hillshade(height_path, out_path, exaggeration: float = 15.0,
         # otherwise hands rasterio.open's bool-typed `sharing`/`thread_safe` a `str | int | None`.
         profile: dict[str, Any] = dict(
             src.profile, driver="GTiff", count=1, dtype="uint8", nodata=None,
-            compress="deflate", tiled=True, blockxsize=512, blockysize=512, BIGTIFF="YES",
-            num_threads="ALL_CPUS")
+            BIGTIFF="YES", num_threads="ALL_CPUS", **GTIFF_CREATE)
         halo = max(1, shadow_reach_px) if shadow_strength != 0.0 else 1
         with rasterio.open(out_path, "w", **profile) as dst:
-            for row0 in range(0, height, window_rows):
-                row1 = min(height, row0 + window_rows)
+            for row0, row1 in row_bands(height, window_rows):
                 read0, read1 = max(0, row0 - halo), min(height, row1 + halo)
-                read_window = Window(0, read0, width,  # pyright: ignore[reportCallIssue] — rasterio untyped, attrs init invisible
-                                     read1 - read0)
+                read_window = band_window(width, read0, read1)
                 block = src.read(1, window=read_window).astype(np.float32)
                 block = np.where(block < -1e4, 0.0, block)  # DEM/ocean nodata -> flat
                 # edge-replicate the missing halo rows at the global top/bottom only
@@ -219,6 +216,5 @@ def per_row_zfactor_hillshade(height_path, out_path, exaggeration: float = 15.0,
                 if fill_strength != 0.0:
                     fill = hillshade_array(local, cellsize, zfactor, FILL_ALTITUDE, FILL_AZIMUTH)
                     shaded = combine_fill(shaded, fill, fill_strength, altitude)
-                write_window = Window(0, row0, width,  # pyright: ignore[reportCallIssue] — rasterio untyped, attrs init invisible
-                                      row1 - row0)
-                dst.write(np.rint(shaded).astype("uint8"), 1, window=write_window)
+                dst.write(np.rint(shaded).astype("uint8"), 1,
+                          window=band_window(width, row0, row1))

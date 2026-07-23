@@ -3,9 +3,9 @@
 
 Reconstructs the hand-built Phase 0 scene — plane + adaptive-subdivision
 displacement, two-ramp land/sea material with lake/river switches (plus a
-snow switch iff snowmask_aea.png exists in the render dir), sun plus a
-shadowless fill sun, ortho camera, locked render settings — entirely from
-the constants below.
+snow switch iff snowmask_aea.png exists in the render dir, and a depth-keyed
+lake ramp iff lakedepth_aea.tif does), sun plus a shadowless fill sun, ortho
+camera, locked render settings — entirely from the constants below.
 Verified against the hand-built .blend by structural dump-diff and a
 pixel-diff of test renders (see PLAN.md Phase 1).
 
@@ -21,7 +21,7 @@ Color constants are stored in LINEAR floats exactly as Blender holds them
 converts on entry — bpy does not).
 
 Usage:
-  blender -b --python pipeline/scene_build.py -- \
+  blender -b --python pipeline/render/scene_build.py -- \
       --render-dir data/work/nepal/render \
       --out blender/nepal_hero.blend \
       [--frame-json data/work/nepal/render/frame.json]  # default: sibling
@@ -36,10 +36,26 @@ from pathlib import Path
 
 import bpy  # pyright: ignore[reportMissingImports] — exists only in Blender's Python
 
-# ---- locked look (PLAN.md "Locked global constants", 2026-07-06;
-# ---- amended 2026-07-08: snow, fill sun, sun angle, land ramp top) --------
+# Blender's interpreter knows nothing of the repo; palette is dependency-light by
+# design (numpy only, which Blender bundles) precisely so BOTH interpreters can
+# import it. parents[2] = the repo root, regardless of cwd.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from pipeline.render import palette
+
+
+def _rgba(stops):
+    """palette Stop list (position, linear RGB) -> the (position, RGBA) ColorRamps take."""
+    return [(pos, (*rgb, 1.0)) for pos, rgb in stops]
+
+
+# ---- locked look (PLAN.md "Locked global constants", 2026-07-06; amended
+# ---- 2026-07-08: snow, fill sun, sun angle, land ramp top). Colour + sun-altitude
+# ---- constants are DERIVED from pipeline/render/palette.py since the 2026-07-23
+# ---- sea-sync: copies drifted three times (sea ramp, water tint, sun altitude) —
+# ---- imports cannot. WORLD_*/FILL_*/SUN_ANGLE/STRENGTH stay local: they have no
+# ---- tile counterpart or are deliberately not ports (ART.md hero→tile map). ----
 DISPLACEMENT_MIDLEVEL = 0.0
-SUN_ROTATION = (math.radians(44.0), 0.0, math.radians(-45.0))
+SUN_ROTATION = (math.radians(90.0 - palette.SUN_ALT_DEG), 0.0, math.radians(-45.0))
 SUN_ANGLE = math.radians(12.0)
 SUN_STRENGTH = 3.0
 FILL_ROTATION = (math.radians(30.0), 0.0, math.radians(135.0))
@@ -48,28 +64,15 @@ FILL_STRENGTH = 0.45   # 15% of SUN_STRENGTH; shadowless SE fill so shadowed
                        # faces keep directional modeling (never pure black)
 WORLD_RGBA = (0.887923, 0.799103, 0.665388, 1.0)   # F2E7D5
 WORLD_STRENGTH = 0.3
-WATER_RGBA = (0.313989, 0.558341, 0.577581, 1.0)   # 98C5C8
-SNOW_RGBA = (0.806952, 0.879622, 0.921582, 1.0)    # E8F1F6 — glacial blue-white
+WATER_RGBA = (*palette.srgb8_to_linear(palette.WATER_RGB), 1.0)  # 8EC6C4 — sea
+                       # surface +7%, pinned relationally (the 98C5C8 drift's cure)
+SNOW_RGBA = (*palette.srgb8_to_linear(palette.SNOW_RGB), 1.0)    # E8F1F6
 
-LAND_RANGE = (0.0, 6000.0)       # meters -> ramp position 0..1
-SEA_RANGE = (-3000.0, 0.0)       # meters -> ramp position 1..0 (reversed To)
-LAND_STOPS = [                   # position, linear RGBA        (sRGB hex)
-    (0.000, (0.814847, 0.693872, 0.527115, 1.0)),  # E9D9C0
-    (0.083, (0.679543, 0.412543, 0.270498, 1.0)),  # D7AC8E
-    (0.250, (0.617207, 0.313989, 0.215861, 1.0)),  # CE9880
-    (0.500, (0.584079, 0.417885, 0.309469, 1.0)),  # C9AD97
-    (0.750, (0.715694, 0.584078, 0.445201, 1.0)),  # DCC9B2
-    (1.000, (0.814847, 0.715694, 0.577580, 1.0)),  # E9DCC8 — top stays in the
-    # warm sand register: white/blue belongs to the snow mask alone
-]
-SEA_STOPS = [                    # 6-stop "smooth-C": shallow water a real teal, not
-    (0.000, (0.274677, 0.571125, 0.558340, 1.0)),  # 8FC7C5  near-white ice; smooth
-    (0.100, (0.201556, 0.479320, 0.479320, 1.0)),  # 7CB8B8  shelf->deep gradient
-    (0.220, (0.138432, 0.381326, 0.412543, 1.0)),  # 68A6AC
-    (0.380, (0.093059, 0.291771, 0.341914, 1.0)),  # 56939E
-    (0.620, (0.063010, 0.215861, 0.274677, 1.0)),  # 47808F
-    (1.000, (0.042311, 0.155926, 0.205079, 1.0)),  # 3A6E7D
-]
+LAND_RANGE = (0.0, palette.LAND_MAX_M)   # meters -> ramp position 0..1
+SEA_RANGE = (palette.SEA_MIN_M, 0.0)     # meters -> ramp position 1..0 (reversed To)
+LAND_STOPS = _rgba(palette.LAND_STOPS)
+SEA_STOPS = _rgba(palette.SEA_STOPS)     # the tile ramp: shelf-weighted stops to -6000 m
+LAKE_STOPS = _rgba(palette.LAKE_STOPS)   # depth-position ramp; stop 0 IS the water tint
 RAMP_INTERPOLATION = "EASE"
 
 SAMPLES = 4096
@@ -245,7 +248,7 @@ def build_material(ob, render_dir, displacement_scale):
     river = make_mix(nt, "Mix.002", "River")
     ocean = make_mix(nt, "Mix", "")
 
-    # optional data-driven snow/ice (experiments/snow_mask.py); mask absent
+    # optional data-driven snow/ice (render/snow_mask.py); mask absent
     # -> graph identical to the pre-snow scene
     snow = None
     if (render_dir / "snowmask_aea.png").exists():
@@ -258,6 +261,25 @@ def build_material(ob, render_dir, displacement_scale):
         snow = make_mix(nt, "Mix.003", "Snow")
         mix_socket(snow, "B").default_value = SNOW_RGBA
         print("snowmask_aea.png found — wiring Snow mix", flush=True)
+
+    # optional depth-keyed lake tint (render/lake_mask.py); raster absent ->
+    # the Lake mix keeps the flat RGB node, the pre-lake-depth graph exactly.
+    # The raster stores the log1p ramp POSITION (0..1), not metres, and
+    # LAKE_STOPS[0] IS the flat water tint, so a lake without depth data
+    # degrades to today's colour with no selector logic. Rivers stay flat by
+    # decision (no global bed data) — the River mix keeps the RGB node. Depth
+    # is tint-only and must NEVER reach displacement (at 15x exaggeration a
+    # carved bed makes Namtso a 1.5 km crater — 2026-07-07).
+    lake_ramp = None
+    if (render_dir / "lakedepth_aea.tif").exists():
+        lake_depth_node = nt.nodes.new("ShaderNodeTexImage")
+        lake_depth_node.name = "Image Texture.005"
+        lake_depth_node.image = load_image(render_dir, "lakedepth_aea.tif")
+        lake_depth_node.interpolation = "Linear"  # continuous field, like the heightfield
+        lake_depth_node.extension = "REPEAT"
+        tex["Image Texture.005"] = lake_depth_node
+        lake_ramp = make_ramp(nt, "Color Ramp.002", "", LAKE_STOPS)
+        print("lakedepth_aea.tif found — wiring depth-keyed Lake ramp", flush=True)
 
     bsdf = nt.nodes.new("ShaderNodeBsdfPrincipled")
     bsdf.name = "Principled BSDF"
@@ -280,7 +302,11 @@ def build_material(ob, render_dir, displacement_scale):
         land_color = mix_socket(snow, "Result")
     link(land_color, mix_socket(lake, "A"))
     link(tex["Image Texture.002"].outputs["Color"], lake.inputs[0])
-    link(rgb.outputs["Color"], mix_socket(lake, "B"))
+    if lake_ramp is not None:
+        link(tex["Image Texture.005"].outputs["Color"], lake_ramp.inputs["Factor"])
+        link(lake_ramp.outputs["Color"], mix_socket(lake, "B"))
+    else:
+        link(rgb.outputs["Color"], mix_socket(lake, "B"))
     link(mix_socket(lake, "Result"), mix_socket(river, "A"))
     link(tex["Image Texture.003"].outputs["Color"], river.inputs[0])
     link(rgb.outputs["Color"], mix_socket(river, "B"))
