@@ -18,14 +18,25 @@ The probe upgrades optimistically and the visitor can override the choice. Every
 
 ## How it's built
 
-Two asset pipelines feed one site. Heroes are pre-rendered offline in Blender from the fused heightfield (one scene rig, framed per country). A global **raster tile pyramid** approximates the same look without ray tracing — hillshade + sky-view shading and the same color ramps — and will ship as a single **PMTiles** archive so the globe needs no tile server. The frontend is a static Astro site; it will be served behind nginx on self-hosted infrastructure with aggressive caching (Phase 4). Everything is reproducible from committed source — **no rendered assets or DEM data live in git**, only code, config, and per-country frame pins.
+Two asset pipelines feed one site:
+- Heroes are pre-rendered offline in Blender from the fused heightfield (one scene rig, framed per country).
+- A global **raster tile pyramid** approximates the same look without ray tracing — hillshade + sky-view shading and the same color ramps.
+
+The data then ships as a single **PMTiles** archive, read by HTTP range requests so the globe needs no tile server.
+
+The frontend is a static Astro site; it will be served behind nginx on self-hosted infrastructure with aggressive caching (Phase 4). Everything is reproducible from committed source — **no rendered assets or DEM data live in git**, only code, config, and per-country frame pins.
 
 ## Status
 
 - **Phase 1 — done.** The all-country hero render pipeline; ~204 heroes (Kiribati deferred), each reproducible from source.
-- **Phase 2 — done bar the packaging.** The global raster tile pyramid is built and driving the globe (512 px tiles, zoom 0–8, planet-wide land + bathymetry + snow + sea ice + lake depth). The two poles — which Web-Mercator can't reach past ~85° — are drawn as separate azimuthal-equidistant cap layers (sea ice + snow over real bathymetry, including the Antarctic landmass). Packaging it all as PMTiles is a Phase 4 step.
-- **Phase 3 — Tiers 1 and 2 ship.** The gallery and the interactive MapLibre globe are both live, with a capability probe steering each visitor to the one their device can take. Tier 3's 3D terrain displacement is deferred — it needs an elevation-tile pyramid that isn't built yet.
+- **Phase 2 — done.** The global raster tile pyramid is built and driving the globe (512 px tiles, zoom 0–8, planet-wide land + bathymetry + snow + sea ice + lake depth), packaged as a single PMTiles archive. The two poles — which Web-Mercator can't reach past ~85° — are drawn as separate azimuthal-equidistant cap layers (sea ice + snow over real bathymetry, including the Antarctic landmass).
+- **Phase 3 — Tiers 1 and 2 ship.** The gallery and the interactive MapLibre globe are both live, with a capability probe steering each visitor to the one their device can take.
 - **Phase 4 — next.** Deploy and polish.
+- **Phase 5 — candidate.** Tier 3's 3D terrain: a terrain-RGB elevation pyramid (a second PMTiles archive) and the globe's displacement layer, plus the idle-motion polish. Decided after deploy.
+
+## License
+
+Code is [MIT](LICENSE). The rendered imagery (hero renders, tiles, polar caps) is [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/) — free for educational, personal, and entertainment use with attribution; commercial use reserved. Underlying data carries its own licenses and required credits → [`ATTRIBUTIONS.md`](ATTRIBUTIONS.md).
 
 ## Read next
 

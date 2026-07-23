@@ -52,9 +52,10 @@ import rasterio
 from rasterio.fill import fillnodata
 from scipy.ndimage import gaussian_filter
 
+from pipeline import paths
 from pipeline.acquire.download_glo30 import download_one
 
-DATA_DIR = Path.home() / "projects/maps/data/raw/seaice"
+DATA_DIR = paths.DATA / "raw/seaice"
 MONTHLY_DIR = DATA_DIR / "monthly"
 THREDDS = ("https://thredds.met.no/thredds/fileServer/osisaf/met.no/reprocessed"
            "/ice/conc_450a_files/monthly")

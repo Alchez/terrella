@@ -104,6 +104,7 @@ The log below is **chronological**; this is the view it lacks. Nothing reads thi
 ### Frontend
 *All on `feat/frontend`.*
 
+- [2026-07-23 — the blocky hover outline: a hit-layer geometry had become a display layer (0.05° → 0.002°)](#2026-07-23--the-blocky-hover-outline-a-hit-layer-geometry-had-become-a-display-layer-005--0002) — Rohan's Palawan screenshots: the gold highlight cut straight chords across bays while the raster coast underneath resolved every islet. **Both PLAN suspects innocent** (NE 1:10m has the detail; geojson-vt tolerance already crisp): `countries.geojson` was simplified at **0.05° ≈ 5.5 km ≈ 18 px at z8** for its original life as an *invisible* hit layer — then the 07-19 hover outline started stroking those very rings, and the "not a display layer" premise died silently. Fix: **0.002° (sub-pixel at z8)**, measured size ladder (9.4 MB raw / 2.5 MB gz vs 1.5 / 0.4; async fetch, cached), guard test pins the tolerance **relationally against `shade_planet.Z8_RES`**; verified in-browser on Palawan + Norway fjords (the N–S Mercator worst case). NE-worldview decision NOT re-opened — no finer source needed
 - [2026-07-23 — polar caps PRODUCTIONIZED: WebP at 8192², the caps.json contract, default-on](#2026-07-23--polar-caps-productionized-webp-at-8192-the-capsjson-contract-default-on) — 4096² PNGs (11.1+4.8 MB, dev-assets, `?polarspike`) → **8192² WebP q85 (3.16+2.05 MB)** at `web/public/caps/`, chosen by Rohan on crop A/B + `/globe`; the layer now **fetches `caps.json`** (edge_lat, feather ceiling, URLs — the hand-copied TS literals deleted, encoder quality rides in the freshness recipe); **default ON, `?polarspike` → `?nocaps`**; `MAX_TEXTURE_SIZE` canvas clamp (mobile ships 4096 either way); production re-render proved **byte-identical** to the judged A/B rung; `polarCapSpike.ts` deleted same day (→ `polarCaps.ts`), 8 pipeline + 7 vitest tests; same-day: sync 396 ms/cap `texImage2D` decode → off-thread `createImageBitmap` (premultiplyAlpha "none" — ring chemistry), ~800→~230 ms main-thread
 - [2026-07-19 — hover-highlight pole artifacts: polygon-clip stray line and tile-buffer fill double-paint](#2026-07-19--hover-highlight-pole-artifacts-polygon-clip-stray-line-and-tile-buffer-fill-double-paint) — two country-highlight bugs visible only looking down the pole: (1) a `line`-over-POLYGON strokes geojson-vt's clip-closing edge → stray gold meridian (fix: a `country-outlines` LINE source; **`maxzoom:0` was tried first and WORSENED it**); (2) the translucent fill wash double-paints in the default 128px tile-buffer overlaps, bunched by the pole's compressed tile grid → stronger patch (fix: `buffer:0`). Diagnosed by observation (mouse-off, rotate, pan-to-equator) + measurement, not guessing. Wiring extracted to `lib/countryHighlight.ts` + 11 regression tests
 - [2026-07-18 — the polar cap: flat fails, and the pivot to a polar-stereographic custom-layer cap](#2026-07-18--the-polar-cap-flat-fails-and-the-pivot-to-a-polar-stereographic-custom-layer-cap) — **custom-layer-on-globe feasibility PASSED**: MapLibre 5.24 `CustomLayerInterface` works on globe (3 official examples incl. a georeferenced textured mesh; `defaultProjectionData.mainMatrix`, N pole = `(0,1,0)`; raw-WebGL cap mesh, alpha-feather the seam, 2d/no-depth/draw-last, pin 5.24). Research verdicts: **adopt `pmtiles`** (the one serving plugin); H3/S2 = indexing not tiling (don't fix poles); MLT = vector, irrelevant. Look/decision side under Light & shading
@@ -118,6 +119,8 @@ The log below is **chronological**; this is the view it lacks. Nothing reads thi
 - [2026-07-10 — Phase 3 begins: Tier 1 gallery shipped (Astro 7, `feat/frontend`)](#2026-07-10--phase-3-begins-tier-1-gallery-shipped-astro-7-featfrontend) — **Phase 3 begins** — the Tier 1 gallery ships (Astro 7)
 
 ### Engineering practice
+
+- [2026-07-23 — LICENSE lands (MIT / CC BY-NC 4.0) and the paths seam single-homes the pipeline](#2026-07-23--license-lands-mit--cc-by-nc-40-and-the-paths-seam-single-homes-the-pipeline) — MIT for code (pyproject field + LICENSE), **CC BY-NC 4.0 for rendered imagery** (Rohan's pick; trade-off recorded: Wikimedia rejects NC media; GLO-30's commercial caveat aligns with NC regardless); `pipeline/paths.py` = ROOT (source-derived, never env) / DATA (`MAPS_DATA`) / BLENDER (`MAPS_BLENDER`), **18 modules migrated** TDD-first with a drift-scan test enforcing single-homing (`snow_mask.py` on a dated freeze allowlist until the sweep ratifies); plus the zsh no-match glob that invented "no README" — a broken oracle owned
 
 - [2026-07-23 — the uncapped pmtiles convert OOM'd the box: tmpfs /tmp, a 12 GB orphan, and swapoff under pressure](#2026-07-23--the-uncapped-pmtiles-convert-oomd-the-box-tmpfs-tmp-a-12-gb-orphan-and-swapoff-under-pressure) — `pmtiles convert` launched WITHOUT the 12 G cap ("it's just IO" — an assumption); go-pmtiles funnels its working set through the system temp dir and **Ubuntu 26.04's `/tmp` is tmpfs = RAM** → swap 100%, fork failures box-wide, and Rohan's `swapoff -a` OOM-killed his session (swapoff itself was oom-reaped; slack et al. died). The SIGKILLed convert left `/tmp/pmtiles3601582229` (12 GB) holding RAM until `rm`. **The standing cap incantation would have contained it** (tmpfs charges the writer's cgroup) — the failure was purely the exemption. Same-day capped retry: **1m11s, 15 GB `planet.pmtiles`, verify clean, 5-tile byte-compare identical incl. z8 y=255; 5.3% deduped**; `?pmtiles` web flag landed same day (Range-supporting `/pmtiles` dev route TDD'd — the tiles middleware had none — + header-derived min/maxzoom; real-JS-client oracle byte-identical)
 - [2026-07-23 — commonification LANDED as `raster_io.py`, half the list was already done, and coverage joins the gates](#2026-07-23--commonification-landed-as-raster_iopy-half-the-list-was-already-done-and-coverage-joins-the-gates) — PLAN's four-item commonify list executed TDD-first: `GTIFF_CREATE` (format-only — the threading constraint is now a TEST, not prose) + `row_bands`/`band_window` (the single Window pyright-ignore home) adopted at six sites, `composite_params` byte-unchanged so nothing restaged; the planned `stream_windows(src, rows, dtype)` did NOT survive contact (read patterns irreconcilable — the band *arithmetic* is the shared part); items 3–4 found **already done** (`warp_needs_rebuild` 2026-07-22; `lake_ab --left/--right`). Same day: **pytest-cov added** (`uv run pytest --cov`), baseline 32.45%, `fail_under=32` as a ratchet
@@ -137,6 +140,64 @@ The log below is **chronological**; this is the view it lacks. Nothing reads thi
 - [2026-07-03 — Project scoped; dev environment decided](#2026-07-03--project-scoped-dev-environment-decided) — project scoped; dev environment decided
 
 ## Decision log
+
+### 2026-07-23 — the blocky hover outline: a hit-layer geometry had become a display layer (0.05° → 0.002°)
+
+Rohan reported the border overlay reading "terribly jagged" on coasts and islands at z6–8, with a Palawan screenshot pair that made the diagnosis: the raster coastline underneath resolved every bay and islet, while the gold hover outline cut straight chords across bays and reduced islets to triangles. The geometry being stroked had far fewer vertices than the coast it traced.
+
+- **Both suspects in the PLAN item were innocent.** The item guessed "NE 1:10m generalization limit vs geojson-vt tolerance." But NE 1:10m tracks every bay Palawan has, and the runtime source options were already at the crisp default (`tolerance: 0.375` — the same lesson the white borders learned earlier). The detail was on disk all along.
+- **Root cause: premise death by feature accretion.** `countries.geojson` was born as the *invisible* click-target layer, and `countries_geojson.py` simplified accordingly — Douglas-Peucker at 0.05°, on the recorded premise *"this is not a display layer… the layer is transparent."* (Its "~1 km at the equator" comment was also 5× wrong: 0.05° ≈ **5.5 km ≈ 18 px at z8**.) Then the 2026-07-19 hover outline began stroking those very rings as the visible gold line, and the wash painted the same polygons. Nobody revisited the constant; the outline stroked 18-px-wrong geometry faithfully. Symptoms matched exactly: chords across bays, and islets outside the wash (DP had triangulated the rings but kept all 97 of the Philippines' islands).
+- **Fix: `SIMPLIFY_DEG` 0.05 → 0.002** (~220 m ≈ 0.7 px at z8 on the equator; N–S error grows toward the poles in Mercator px, ~3 px at 75°N, accepted). Measured ladder before choosing: 0.05/0.01/0.005/0.002/0.001/none → 0.4/1.2/1.7/**2.5**/2.9/3.3 MB gzipped. The fetch is async behind first paint and cached, so fidelity won; 0.005° would have saved ~800 KB but shows 2–4 px chords exactly at fjord latitudes.
+- **TDD:** `tests/test_countries_geojson.py` — the tolerance is pinned **relationally against `shade_planet.Z8_RES`** ("simplification error stays sub-pixel at the top zoom"), so re-coarsening for size or raising the zoom ceiling both fail the test instead of the look; `ogr_command()` extracted pure with a contract test (`-select ADMIN`, RFC7946, precision) and an argument-order test (DST before SRC — swapped, ogr2ogr would overwrite the Natural Earth shapefile). Suite 424, pyright 0.
+- **Verified live** (Chrome automation, window visible): regen kept 258 features; Philippines 804 → 5,470 vertices, same 97 rings. Palawan's outline hugs every islet; Norway at z7.6/62°N — the N–S worst case, predicted ~1.2 px sag — traces individual fjord arms with no visible chording. Localhost fetch of the 9.4 MB file: 28 ms, indexing in MapLibre's worker; production nginx gzips to 2.5 MB.
+- **Rejected:** a second, detailed outline-only file (the wash and outline would visibly disagree at the coast); vector-tiling the layer (tooling overkill for z≤8). The NE-worldview decision is NOT re-opened — no finer *source* was ever needed.
+- **Collateral find:** the paths-seam migration silently broke the documented direct-script invocation (`python pipeline/compose/…` can't `from pipeline import paths`; `ModuleNotFoundError`). The two compose docstrings now say `python -m pipeline.compose.…`; the Blender lines in scene_build/country_config were checked and are correct as-is (`blender --python` takes a file path, and scene_build inserts its own root).
+
+### 2026-07-23 — LICENSE lands (MIT / CC BY-NC 4.0) and the paths seam single-homes the pipeline
+
+The afternoon docket's Task 3, executed after the PMTiles close. Two decision sets and one seam.
+
+- **Licenses (Rohan's picks, batched questions):** code = **MIT** (LICENSE at root with an
+  assets-pointer coda; pyproject gains `license = "MIT"` + `license-files`). Rendered imagery
+  (heroes, tiles, caps) = **CC BY-NC 4.0** — his intent is free educational/entertainment reuse
+  with commercial use reserved, and NC is the standard instrument for exactly that. Trade-off laid
+  out and accepted: **Wikimedia projects reject NC media**, so the maps can't illustrate Wikipedia;
+  dual-licensing (public NC + case-by-case commercial grants) stays open. Alignment note: the
+  GLO-30 EULA's commercial caveat (ATTRIBUTIONS) means commercial redistribution needed a fresh
+  license read no matter what we picked. README gained a License section; ATTRIBUTIONS gained
+  "Terrella's own outputs".
+- **The paths seam (`pipeline/paths.py`):** three constants — `ROOT` (source-tree-derived, never
+  env-driven: repo outputs like `web/public` must follow the checkout, not the data store),
+  `DATA` (`MAPS_DATA` override, default `<repo>/data`), `BLENDER` (`MAPS_BLENDER` override,
+  default the documented tarball). **18 modules migrated** by a fail-loud script (most-specific
+  regex first; abort on any surviving `Path.home()`); module attrs preserved, so every
+  monkeypatching test passed untouched. TDD: 7 tests in `tests/test_paths.py` — subprocess
+  env-override probes (import-time binding makes in-process reload a lie) + the **drift scan**
+  that fails on any `Path.home()` outside paths.py. `snow_mask.py` rides a **dated allowlist**
+  (hero-look freeze until the sweep ratifies — Step 5 must migrate it and delete the entry).
+  Consumer-level proof: `MAPS_DATA=/tmp/elsewhere` moves `shade.DATA` and `glo30.DATA_DIR`;
+  `MAPS_BLENDER` moves `country_config.BLENDER`. Gates: **pytest 421, pyright 0**.
+- **GLO-30 licence VERIFIED against the primary text (same day, Rohan's ask):** fetched
+  `License-COPDEM-30.pdf` (Copernicus Data Space) and read it whole. Article 4 grants
+  reproduction, distribution, communication to the public, and adaptation — worldwide, no time
+  limit, **no purpose restriction (commercial derived use permitted)**; Article 9: IPR in work
+  produced using the DEM is ours; the old "core prohibition is reselling the raw DEM" claim was
+  wrong (no such clause). Obligations: the EXACT Article 6(b) adapted-data notice ("produced
+  using Copernicus WorldDEM-30 © DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH
+  2014-2018…"), the 6(c) liability sentence, no implied endorsement (6(d)). Our placeholder
+  notice ("Contains modified Copernicus DEM data") was NOT the licence wording — corrected in
+  ATTRIBUTIONS. Consequence: the NC choice's "matches upstream necessity" justification was
+  retracted — upstream permits commercial; NC is purely Rohan's choice. Same pass: the
+  **OSI SAF sea-ice source was missing from ATTRIBUTIONS entirely** (ships in tiles + both
+  caps) — row + citation added (OSI-450-a v3.0, CC-BY 4.0, doi:10.15770/EUM_SAF_OSI_0013);
+  stale WhiteboxTools tool credit dropped (retired at the 2026-07-10 scoping); source links
+  added to every dataset row.
+- **The broken oracle, owned:** Task 3 nearly shipped a root README stub because `ls README*
+  LICENSE*` reported "no README". zsh's NO_MATCH on the unmatched `LICENSE*` glob aborted the
+  ENTIRE command before `ls` ran, the `|| echo` fallback printed my own words back, and I read a
+  shell artifact as a repo fact — Rohan caught it ("the repo already has a README"). The root
+  README existed and is good. A check used as proof must fail on its *target*: separate the
+  probes (`ls README*; ls LICENSE*`) or glob-guard, never compound them under one fallback.
 
 ### 2026-07-23 — the uncapped pmtiles convert OOM'd the box: tmpfs /tmp, a 12 GB orphan, and swapoff under pressure
 

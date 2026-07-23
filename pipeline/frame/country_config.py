@@ -51,6 +51,7 @@ import rasterio
 import shapefile
 from rasterio.warp import transform_bounds
 
+from pipeline import paths
 from pipeline.acquire.download_glo30 import (TILE_LIST, in_extent,
                                              parse_tile_name, tile_files)
 from pipeline.frame.frame_country import NE_DIR, pad_frame
@@ -60,7 +61,7 @@ from pipeline.render.render_prep import aea_crs
 ROOT = Path(__file__).resolve().parents[2]
 CONFIG_PATH = ROOT / "config/countries.toml"
 PIN_DIR = ROOT / "config/frames"
-BLENDER = Path.home() / "software/blender-5.1.2-linux-x64/blender"
+BLENDER = paths.BLENDER
 
 DEFAULT_KEYS = {"pad_pct", "hero_long_edge", "warp_long_edge", "fusion"}
 COUNTRY_KEYS = {"admin", "frame", "hero_long_edge", "fusion", "status", "notes"}

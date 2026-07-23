@@ -30,11 +30,12 @@ from pathlib import Path
 
 import rasterio
 
+from pipeline import paths
 from pipeline.acquire.download_glo30 import download_one
 
 BASE_URL = ("https://dap.ceda.ac.uk/bodc/gebco/global/gebco_2026"
             "/ice_surface_elevation/geotiff")
-DATA_DIR = Path.home() / "projects/maps/data/raw/gebco"
+DATA_DIR = paths.DATA / "raw/gebco"
 VRT_PATH = DATA_DIR / "gebco_2026_global.vrt"
 NODATA = -32767  # GEBCO_2026 Int16 fill; must match fuse_heightfield's read
 WORKERS = 4

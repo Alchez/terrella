@@ -34,8 +34,10 @@ import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
+from pipeline import paths
+
 BUCKET_URL = "https://copernicus-dem-30m.s3.amazonaws.com"
-DATA_DIR = Path.home() / "projects/maps/data/raw/glo30"
+DATA_DIR = paths.DATA / "raw/glo30"
 TILE_LIST = DATA_DIR / "tileList.txt"
 WORKERS = 6
 # A passing preflight is stamped and reused this long. The check exists to catch

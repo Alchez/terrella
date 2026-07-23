@@ -32,7 +32,7 @@ All ~203 in-scope heroes rendered (Kiribati deferred), variants/borders/manifest
 - [x] Overnight sweep + QA — closed Phase 1
 - [x] Responsive variants (2K/4K/8K WebP) — `hero_variants.py`, ≈16× smaller than PNG
 
-## Phase 2 — Global tile pyramid
+## Phase 2 — Global tile pyramid — COMPLETE 2026-07-23 (successor work → Phase 5)
 
 Scoped 2026-07-10 (→ HISTORY § 2026-07-10): ceiling z8 (~300 m/px), GDAL 3.13.1 pinned for production (OSGeo container; apt's 3.12.2 fine for prototyping), one new dependency (`pmtiles` CLI), SVF via our own `sky_view.py`, WhiteboxTools dropped.
 
@@ -51,10 +51,7 @@ Scoped 2026-07-10 (→ HISTORY § 2026-07-10): ceiling z8 (~300 m/px), GDAL 3.13
 - [x] Greenland interior — `snow_curve=gamma8` (Summit 3.14 → 18.84 DN); over full snow the blend discards hillshade+SVF and no linear window fixes a 17× nested range mismatch → HISTORY § 2026-07-17 Greenland · ART § Snow curve — TILES
 - [x] Antarctica — FILL chosen: pyramid extended to −85.05° (1.41× every planet raster), planet re-fused −90…90, polar ring root-caused as a premultiplied-alpha blend bug (screen, not data), judgment complete 2026-07-22; RGI-19 deferred (`antarctic_snow_mask`), SVF normalisation proven safe → HISTORY § 2026-07-22 Antarctica FILL
 - [x] Hero-"softness" port CLOSED — `ambient_knee` 0.30 + `shadow_warmth` 0.55 SHIPPED (Rohan, `/globe`, 2026-07-21); cast shadows rejected twice (the *mechanism* erases fine modeling — reopen needs a new mechanism, not a new value); hillshade-side lever dropped (every dial is a hero anchor) → HISTORY § 2026-07-21 entries · ART § Hero → tile parameter map
-- [ ] Planet occlusion missing `cos(lat)` — PROVEN (2.00× understated at 60°N), unfixed; changes pixels so it rides with a look change; occlusion resolution also unrecorded in freshness → HISTORY § 2026-07-20 (evening)
-- [ ] Crispness = a supersampled re-fuse (transient bands, never a stored ~496 GB product); shares input with any terrain-RGB pyramid — decide the two together → HISTORY § 2026-07-20 (evening)
-- [~] Package as PMTiles — archive BUILT + VERIFIED + web flag LANDED 2026-07-23: `pack_pmtiles.py` (dir→MBTiles 33 s, TDD) → capped convert 1m11s → 15 GB `planet.pmtiles` (verify clean, 5-tile byte-compare incl. z8 y=255); `?pmtiles` flag on /globe (pmtiles 4.4.1, header-derived min/maxzoom, `/pmtiles` dev route with TDD'd Range support — the tiles middleware had none) proven with the real JS client over HTTP (→ HISTORY § the uncapped pmtiles convert); REMAINING: Rohan's visual look, then default-on + nginx serving
-- [ ] (Stretch) terrain-RGB elevation tiles for Tier 3 displacement
+- [x] Package as PMTiles — DONE 2026-07-23: `pack_pmtiles.py` (dir→MBTiles 33 s, TDD) → capped convert 1m11s → 15 GB `planet.pmtiles` (verify clean, byte-compare incl. z8 y=255, 5.3% deduped); `?pmtiles` flag on /globe (pmtiles 4.4.1, header-derived min/maxzoom, TDD'd Range dev route) visually verified live (→ HISTORY § the uncapped pmtiles convert); default-on flip + nginx serving ride Phase 4 deploy
 
 ## Pipeline optimisation — measured 2026-07-16, now mostly landed
 
@@ -76,27 +73,27 @@ Baseline: 98 min wall on 1.16 of 16 cores; every item measured before proposed (
 
 ## Phase 3 — Frontend
 
-Tiers 1 + 2 shipped on `feat/frontend` (worktree `../maps-frontend`; merge later): Astro 7 static site — gallery + detail + About + `/globe`, capability probe auto-steering. Tier 3's 3D displacement stays deferred (needs the unbuilt terrain-RGB pyramid). → HISTORY § 2026-07-10 — Phase 3 begins; asset commands → `docs/pipeline.md`; deploy is Phase 4.
+Tiers 1 + 2 shipped on `feat/frontend` (worktree `../maps-frontend`; merge later): Astro 7 static site — gallery + detail + About + `/globe`, capability probe auto-steering. Tier 3's 3D displacement → Phase 5. → HISTORY § 2026-07-10 — Phase 3 begins; asset commands → `docs/pipeline.md`; deploy is Phase 4.
 
 Baked-vs-live rule (locked 2026-07-07): too expensive live → baked; depends on view state → live; invariant + physics-coupled → baked; otherwise live pinned to authored constants; user-exposed settings only where visitor context genuinely varies.
 
 - [x] MapLibre globe over the raster pyramid (PMTiles source deferred to Phase 4)
 - [x] NE vector borders + toggle — casing strengthened to a soft dark halo for pale highlands
 - [x] Country click → fly-to → in-globe hero panel (NE hit layer, authored-frame `fitBounds`, lazy panel)
-- [x] Hover-highlight pole artifacts fixed — `lib/countryHighlight.ts` + 11 regression tests → HISTORY § 2026-07-19 hover-highlight
-  - Pending: Rohan's hover sanity-check that the extraction didn't regress the look
+- [x] Hover-highlight pole artifacts fixed — `lib/countryHighlight.ts` + 11 regression tests; Rohan confirmed no look regression → HISTORY § 2026-07-19 hover-highlight
+- [x] Blocky coasts at z6–8 FIXED 2026-07-23 — both suspects were innocent: the hover outline strokes `countries.geojson`, which was simplified at 0.05° (~5.5 km) for its original life as an invisible hit layer; retightened to 0.002° (sub-pixel at z8), guard test pins it against `Z8_RES` → HISTORY § the blocky hover outline
 - [x] Globe polish — starfield, mobile control fixes, sea rework V1 LIVE, Spin toggle
 - [x] Capability probe + tier routing + Lite/Globe/Full toggle + FPS degradation — `decideTier()`, WebGL2 hard floor, TDD'd
 - [x] Tier 1 no-JS fallback — pure-CSS gazetteer overlay; dead search removed
 - [~] **Hero sea-sync sweep — IN FLIGHT 2026-07-23: launch tonight on Rohan's go, then morning post-passes (variants purge+regen, manifest, web build), gallery judgment vs the archive, doc re-freeze.** Code landed (`scene_build` now IMPORTS palette — constants are derivations, not copies), finland pilot RATIFIED, prep pre-pass done (203 lake rasters, 0 failures), heroes+variants hardlink-archived. Full execution state → the session plan file.
   - Closes four divergences in one ~204-hero re-render: (a) sun 46° → 45° via shared `palette.SUN_ALT_DEG`; (b) `WATER_RGBA` drift → pinned relationally to `SEA_STOPS[0]`; (c) NEW hero lake depth (GLOBathy, `lake_mask.py` — as `snow_mask.py` parallels `snow.py`); (d) hero sea ramp → palette's −6,000 m ramp
   - The gate was never the pyramid — it is the shared palette constants; the constants audit (2026-07-21) found no fifth divergence, and the fill sun was the fourth of this species → HISTORY § the hero/tile colour constants AUDITED · § the tiles were missing the hero's fill sun · ART § Inland water
-- [~] Polar caps via a MapLibre custom layer — BOTH caps DONE behind `?polarspike` (Mercator ends ~85°; each cap is a source-shaded AEQD raster over the pole, sea ice over bathymetry, seam-matched light rotating with longitude) → HISTORY § the polar cap: flat fails · § the cap's seam-match
+- [x] Polar caps via a MapLibre custom layer — DONE, default-on (`?nocaps` to disable; Mercator ends ~85°; each cap is a source-shaded AEQD raster over the pole, sea ice over bathymetry, seam-matched light rotating with longitude) → HISTORY § the polar cap: flat fails · § the cap's seam-match
   - [x] Sea ice — OSI SAF ice-frequency climatology, `ICE_LO=0.55` decline-aware → HISTORY § 2026-07-20 sea ice
   - [x] South cap — GEBCO-direct height, forced snow-white land, toned ice
   - [x] `ice_relief_damp` 0.75 SHIPPED + RATIFIED on `/globe` (pack conceals seafloor *shading*, fringe keeps relief, colour glow survives) → HISTORY § 2026-07-22 Antarctica FILL
   - [x] Pole taper RETIRED 2026-07-23 — the damp treats the cause the taper patched → HISTORY § the flat-pole taper RETIRED
-  - [x] Cap layer restores GL state each draw (premultiplied-alpha contract in `polarCapSpike.ts`)
+  - [x] Cap layer restores GL state each draw (premultiplied-alpha contract in `polarCaps.ts`)
   - [x] **Productionized 2026-07-23** — 8192² WebP q85 (3.2+2.1 MB, was 11.1+4.8 MB PNG; Rohan's crop+globe A/B), the `caps.json` contract replaces hand-copied TS literals, default-on with `?nocaps`, `MAX_TEXTURE_SIZE` clamp → HISTORY § polar caps PRODUCTIONIZED. PMTiles packages only the pyramid — caps stay standalone assets, Tier-3 terrain-RGB would be its own archive
 
 ## Phase 4 — Deploy & polish
@@ -106,8 +103,17 @@ Baked-vs-live rule (locked 2026-07-07): too expensive live → baked; depends on
 - [ ] Lighthouse pass on all three tiers; test on a weak Android device — carry-ins from 2026-07-23: Firefox blocks ~1.1 s on main-thread cap decode+upload (`createImageBitmap` decodes sync there + slow `texImage2D`, bugzilla 1486454; Rohan's waterfall → HISTORY § polar caps PRODUCTIONIZED); candidate fix = decode in a Web Worker (transferable ImageBitmap). Dev middleware sends no ETag/Last-Modified → no-cache can't 304, full re-downloads every dev load (dev-only; nginx adds validators)
 - [~] About page: data credits (Copernicus, GEBCO, Natural Earth, ESA WorldCover — exact CC-BY string in the locked-constants Snow entry; OSI SAF + reference-period note; NSIDC-0791, RGI 7.0 CC-BY 4.0, GLOBathy CC0 + the lake-depth epistemics), technique notes
 - [ ] (Optional flourish) landing-page "poster mode" beauty shot — Balazh-style sphere; a weekend experiment (decomposed in chat 2026-07-07)
-- [ ] **Open-source pass** (stated goal 2026-07-23): portability seams (`MAPS_DATA` started in `build_mosaics.sh`; hardcoded `~/projects/maps` roots remain across `acquire/*`), LICENSE choice, README, licence/attribution review of every shipped data product
+- [~] **Open-source pass** (stated goal 2026-07-23) — mostly done same day: `pipeline/paths.py` seam (ROOT/DATA/BLENDER; `MAPS_DATA`/`MAPS_BLENDER` env overrides; 18 modules migrated, drift-scan test enforces single-homing), LICENSE = MIT code / CC BY-NC 4.0 imagery (README + ATTRIBUTIONS sections; NC trade-off recorded → HISTORY § LICENSE + paths seam). REMAINING: migrate `snow_mask.py` off its freeze allowlist after sweep ratification; final attribution review of shipped products at Phase 4
 - [ ] Ship. Post it somewhere.
+
+## Phase 5 — Tier 3 (candidate; go/no-go after Phase 4 ships)
+
+The Tier-3 *gate* already ships (capability probe + Lite/Globe/Full toggle, Phase 3); this phase builds what the gate reveals. The three data items below share one input product and get decided together.
+
+- [ ] Terrain-RGB elevation pyramid — its own PMTiles archive (the pmtiles protocol serves `raster-dem`/terrarium natively, confirmed 2026-07-23)
+- [ ] Crispness = a supersampled re-fuse (transient bands, never a stored ~496 GB product); shares the fine re-fuse input with terrain-RGB → HISTORY § 2026-07-20 (evening)
+- [ ] Occlusion `cos(lat)` fix — PROVEN (under-occluded 1.22× @35°N, 2.00× @60°N, 3.86× @75°N; per-row ground scale = the hillshade z-factor trick; record occlusion resolution in freshness too); **rides the first full tile restage, whichever comes first** — deferred by Rohan 2026-07-22 (visual impact tiny, SVF burn-only + capped; a solo fix would spend a planet-wide /globe ratification on a subtle delta) → HISTORY § 2026-07-20 (evening) · § 2026-07-22 Antarctica FILL
+- [ ] Tier-3 web layer — `raster-dem` displacement on the globe, idle animations, lazy 8K heroes on country click
 
 ## Locked global constants (Phase 0 exit checkpoint 2026-07-06; amended 2026-07-08)
 
@@ -155,7 +161,7 @@ One line each. Anything needing a paragraph belongs in HISTORY.md — this secti
 - **GEBCO_2026 is ice-*surface* elevation** — Antarctica/Greenland land must come from GLO-30, never a bathymetry clamp.
 - **The region path is NOT windowed — cell count is a direct RAM multiplier** (4 cells ≈ 14.5 GiB, OOM-killed at the 12 G cap); scale cells by the cap.
 - **The two shade paths have opposite staleness exposure** — `shade.py` re-warps every run (always current, the right pre-flight for a re-fuse); `shade_planet.py` caches (exposed by design, covered by `is_stale`).
-- **An artifact that tracks a SEAM is a compositing bug; one pinned to GEOGRAPHY is a data bug** — first question for any visual artifact: assets or screen? (same-camera screenshot layer on/off); custom-layer GL contract lives in `polarCapSpike.ts`. → HISTORY § 2026-07-22 Antarctica FILL
+- **An artifact that tracks a SEAM is a compositing bug; one pinned to GEOGRAPHY is a data bug** — first question for any visual artifact: assets or screen? (same-camera screenshot layer on/off); custom-layer GL contract lives in `polarCaps.ts`. → HISTORY § 2026-07-22 Antarctica FILL
 - **Warp targets are grid-checked, not just source-checked** (`grid_matches` + `warp_needs_rebuild` on all six 3857 warps) — a grid-growing re-fuse falsely left them fresh at the old dimensions (silent corruption). → HISTORY § 2026-07-22 Antarctica FILL
 - **The freshness guard is blind to CODE by design** (params, not source, are the dependency) — any *behavioural* change to a shading kernel must be verified against an oracle by hand.
 - **`composite_params()` serialises KNOBS wholesale** — anything changing its JSON costs a ~54-min `planet_rgb` rebuild; keep new tunables *inside* KNOBS.

@@ -26,12 +26,13 @@ import re
 import sys
 from pathlib import Path
 
+from pipeline import paths
 from pipeline.acquire.download_glo30 import (TILE_LIST, WORKERS, download_one,
                                              fetch_tile_list)
 
 OT_ENDPOINT = "https://opentopography.s3.sdsc.edu"
 OT_PREFIX = "raster/COP30/COP30_hh"          # keyless public COG mirror, DGED 2023_1
-DATA_DIR = Path.home() / "projects/maps/data/raw/cop30_void"
+DATA_DIR = paths.DATA / "raw/cop30_void"
 KEY_RE = re.compile(r"[NS]\d\d_00_[EW]\d\d\d_00")  # the N40_00_E044_00 tile key
 
 

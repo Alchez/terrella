@@ -18,9 +18,10 @@ import numpy as np
 import rasterio
 from rasterio.transform import from_bounds
 
+from pipeline import paths
 from pipeline.raster_io import band_window, row_bands
 
-DATA = Path.home() / "projects/maps/data"
+DATA = paths.DATA
 SP_NC = DATA / "raw/snow/NSIDC-0791_SP_0.01Deg_WY2001-2023_V01.0.nc"
 SP_VAR = "snow_persistence_climatology"  # continuous (9999 levels); the day-quantized sibling is snow_persistence
 SP_SCALE = 1e-4     # unpacked persistence = 0.0001 x packed (valid 0..10000 -> 0..1 fraction)

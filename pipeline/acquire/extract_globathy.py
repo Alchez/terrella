@@ -34,7 +34,9 @@ import sys
 import zipfile
 from pathlib import Path
 
-DATA = Path.home() / "projects/maps/data"
+from pipeline import paths
+
+DATA = paths.DATA
 ZIP_PATH = DATA / "raw/globathy/Bathymetry_Rasters.zip"
 RASTER_DIR = DATA / "work/globathy/rasters"
 VRT_PATH = DATA / "work/globathy/lakedepth.vrt"
