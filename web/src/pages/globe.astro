@@ -254,6 +254,7 @@ import Base from "../layouts/Base.astro";
     FilterSpecification,
     LineLayerSpecification,
     Point,
+    RasterSourceSpecification,
   } from "maplibre-gl";
   import type { Feature, FeatureCollection } from "geojson";
   import "maplibre-gl/dist/maplibre-gl.css";
@@ -277,6 +278,34 @@ import Base from "../layouts/Base.astro";
   const CREDITS =
     "Copernicus DEM GLO-30 · GEBCO 2026 · NSIDC-0791 snow · RGI 7.0 glaciers · GLOBathy lake depth · OSI SAF sea ice · Natural Earth";
 
+  // PMTiles spike (/globe?pmtiles): serve the SAME pyramid from the single packaged
+  // archive instead of 87k loose PNGs. The pmtiles protocol handler intercepts
+  // pmtiles:// URLs, reads the archive header over HTTP byte ranges, and synthesizes
+  // the TileJSON MapLibre expects — min/maxzoom come from the archive itself, so the
+  // web side stops repeating them. Registered before the Map is constructed (the
+  // style references the protocol at load); dynamic import so the default path pays
+  // zero bundle cost. Same-pixels-either-way is the ratification criterion.
+  const usePmtiles = new URLSearchParams(location.search).has("pmtiles");
+  if (usePmtiles) {
+    const { Protocol } = await import("pmtiles");
+    maplibregl.addProtocol("pmtiles", new Protocol().tile);
+  }
+  const reliefSource: RasterSourceSpecification = usePmtiles
+    ? {
+        type: "raster",
+        url: "pmtiles://" + location.origin + "/pmtiles/planet.pmtiles",
+        tileSize: 256, // 512px assets served @2x for crisp high-DPI shading
+        attribution: CREDITS,
+      }
+    : {
+        type: "raster",
+        tiles: [location.origin + "/tiles/{z}/{x}/{y}.png"],
+        tileSize: 256, // 512px assets served @2x for crisp high-DPI shading
+        minzoom: 0,
+        maxzoom: 8, // the pyramid ceiling
+        attribution: CREDITS,
+      };
+
   const map = new maplibregl.Map({
     // Dev handle for console/automation debugging (used to diagnose the 2026-07-22 polar ring)
     container: "globe",
@@ -285,16 +314,7 @@ import Base from "../layouts/Base.astro";
       // Globe projection is declared in the style (v5 stable) — the proven
       // planet_tiles/index.html viewer does the same with our exact tiles.
       projection: { type: "globe" },
-      sources: {
-        relief: {
-          type: "raster",
-          tiles: [location.origin + "/tiles/{z}/{x}/{y}.png"],
-          tileSize: 256, // 512px assets served @2x for crisp high-DPI shading
-          minzoom: 0,
-          maxzoom: 8, // the pyramid ceiling
-          attribution: CREDITS,
-        },
-      },
+      sources: { relief: reliefSource },
       layers: [
         // No background layer: space stays transparent so the starfield canvas
         // behind the map shows through around the sphere.
@@ -315,14 +335,17 @@ import Base from "../layouts/Base.astro";
   map.addControl(new maplibregl.ScaleControl({ maxWidth: 120, unit: "metric" }), "bottom-left");
   map.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-left");
 
-  // Polar caps (/globe?polarspike): source-shaded AEQD caps drawn ABOVE the Web-Mercator limit —
-  // north (Arctic sea ice + bathymetry) and south (Antarctica + Southern-Ocean sea ice).
-  // Isolated behind the flag + dynamic import (zero cost otherwise).
-  if (new URLSearchParams(location.search).has("polarspike")) {
+  // Polar caps (default ON; /globe?nocaps disables): source-shaded AEQD caps drawn ABOVE the
+  // Web-Mercator limit — north (Arctic sea ice + bathymetry) and south (Antarctica +
+  // Southern-Ocean sea ice). The escape flag stays for layer-on/off artifact diagnosis — the
+  // 2026-07-22 polar ring was isolated by exactly that comparison. Config comes from the
+  // pipeline-emitted /caps/caps.json (fetched inside addPolarCaps); dynamic import keeps the
+  // globe bundle lean.
+  if (!new URLSearchParams(location.search).has("nocaps")) {
     map.on("style.load", () => {
-      void import("../lib/polarCapSpike")
+      void import("../lib/polarCaps")
         .then((mod) => mod.addPolarCaps(map))
-        .catch((err) => console.error("[polarspike] failed", err));
+        .catch((err) => console.error("[caps] failed", err));
     });
   }
 

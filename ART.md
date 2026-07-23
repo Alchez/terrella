@@ -334,20 +334,28 @@ complaint is the body).
   bathymetry, per-pixel longitude-rotated light, and a baked **dark** coastline (`COAST_RGB (96,122,142)`,
   muted steel-blue — a white coast vanishes between white snow and white ice). Sea ice also rides the
   Mercator tiles (ocean-gated).
-- **SOUTH cap — Antarctica, delivered + tuned 2026-07-20** (`render_cap_south`): the fused planet stops at
-  −60°, so height is **GEBCO-2026 direct** (ice-surface elevation, reaches −90°); land = `height ≥ 0`, and
-  snow is **forced white** over Antarctic land (NSIDC-0791 is NH-only and RGI region 19 is excluded, so
-  there is no SH snow/glacier dataset to read); **no baked coastline** (`coast_opacity=0` — white ice on
-  teal ocean self-separates, unlike the north). Its sea ice is **toned down**: `CAP_S_ICE_LO = 0.62`
-  (vs 0.55 — pull the seasonal fringe in) and `CAP_S_ICE_MAX_ALPHA = 0.55` (vs 0.85 — more translucent),
-  because Antarctica is a continent RINGED by a mostly-seasonal belt, so the full-strength climatology read
-  as a bright halo around it.
+- **SOUTH cap — Antarctica, delivered + tuned 2026-07-20** (`render_cap_south`): since 2026-07-22 it
+  sources the **same fused planet VRTs as the tiles** (they reach −90° after the Antarctica fill;
+  GEBCO-direct retired the same day — it shaded ~2.5 DN darker and read as an interior ring). Snow is
+  **forced white** over Antarctic land via `snow.antarctic_snow_mask` (NSIDC-0791 is NH-only and RGI
+  region 19 is excluded, so there is no SH snow/glacier dataset to read); **no baked coastline**
+  (`coast_opacity=0` — white ice on teal ocean self-separates, unlike the north). Its sea ice is
+  **toned down** via `seaice.SH_ICE_LO = 0.62` (vs 0.55 — pull the seasonal fringe in) and
+  `seaice.SH_ICE_MAX_ALPHA = 0.55` (vs 0.85 — more translucent), because Antarctica is a continent
+  RINGED by a mostly-seasonal belt, so the full-strength climatology read as a bright halo around it.
 - **Flat-pole taper — RETIRED 2026-07-23.** At the pole every meridian converges, so the longitude-rotated
   light azimuth sweeps 360° across a few pixels and the directional relief collapses into a washed
   "pinwheel disc"; a colat-3° smoothstep ramp to flat used to hide it. `ice_relief_damp` (above) now
   quenches the wash at the source — the pack conceals the shading that fed it — and the taper measured
   retirable at damp 0.75 (pole std 6.16 < surrounding annulus 6.70, no disc-edge ring step; the south had
   already dropped it 2026-07-22 when its flat disc itself read as a ring). No pole special-case remains.
+- **Production assets (2026-07-23):** 8192² **WebP q85** at `web/public/caps/cap_{north,south}.webp`
+  (3.2 + 2.1 MB — 4× the pixels of the old 4096² PNGs at ~28% of their bytes; chosen by Rohan on crop
+  A/B + `/globe` — coast, pack and sastrugi detail all visibly crisper). The layer **fetches
+  `caps.json`** (edge_lat, the ±84 feather ceiling, URLs) instead of hand-copying pipeline constants
+  into TypeScript; encoder quality rides in the freshness recipe. Caps are **default-on**
+  (`?nocaps` disables — kept for layer-on/off artifact diagnosis); constrained GPUs clamp the
+  texture to their `MAX_TEXTURE_SIZE`, so mobile effectively ships 4096.
 - **`CAP_RGB` in `shade_planet.py` is now only the interim flat fill** on the live Mercator tiles below the
   cap seam — being retired, not a lever to tune.
 - **Known, deferred:** a faint cap↔tile ocean seam remains at the feather (~−57°→−60°) — the cap ocean

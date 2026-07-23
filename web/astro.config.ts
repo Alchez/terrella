@@ -4,10 +4,11 @@ import type { Plugin } from 'vite';
 import type { ServerResponse } from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
+import { parseByteRange } from './src/lib/httpRange';
 
-// Asset store locations. DEV-ONLY: the dev server serves /heroes, /tiles and /borders
-// straight off these external directories (nginx does the same in prod; the static build
-// never reads them). The paths are machine-specific and MUST come from .env — copy
+// Asset store locations. DEV-ONLY: the dev server serves /heroes, /tiles, /borders and
+// /pmtiles straight off these external directories (nginx does the same in prod; the
+// static build never reads them). The paths are machine-specific and MUST come from .env — copy
 // .env.example to .env and set them. `loadEnv` is required because .env files are not in
 // process.env by the time this config runs. There is deliberately NO fallback: the on-disk
 // layout differs per checkout (and this frontend worktree will eventually fold into the
@@ -17,6 +18,7 @@ const env = loadEnv(process.env.NODE_ENV || 'development', process.cwd(), '');
 const HERO_STORE = env.HERO_STORE;
 const TILES_STORE = env.TILES_STORE;
 const BORDERS_STORE = env.BORDERS_STORE;
+const PMTILES_STORE = env.PMTILES_STORE;
 
 // Resolve a required asset-store path, or 500 the request with actionable guidance.
 // Checked PER-REQUEST (not when the middleware is registered) so a missing var only
@@ -104,6 +106,53 @@ function bordersDevServer(): Plugin {
   };
 }
 
+// Dev-only: serve /pmtiles/*.pmtiles from the archive store WITH byte-range support —
+// the one route where Range matters. The pmtiles client reads the 15 GB archive as byte
+// slices (16 KB header first, then per-tile spans); without 206 responses a client would
+// fall back to downloading the whole file. nginx serves the same file in prod with
+// native Range handling, so this middleware is dev parity, not production code.
+function pmtilesDevServer(): Plugin {
+  return {
+    name: 'pmtiles-dev-server',
+    configureServer(server) {
+      server.middlewares.use('/pmtiles', (req, res, next) => {
+        const store = resolveStore('PMTILES_STORE', PMTILES_STORE, res);
+        if (!store) return;
+        const rel = decodeURIComponent((req.url || '').split('?')[0]).replace(/^\/+/, '');
+        const file = path.resolve(store, rel);
+        if (
+          !file.startsWith(path.resolve(store)) ||
+          !file.endsWith('.pmtiles') ||
+          !fs.existsSync(file) ||
+          fs.statSync(file).isDirectory()
+        ) {
+          return next();
+        }
+        const totalSize = fs.statSync(file).size;
+        res.setHeader('Accept-Ranges', 'bytes');
+        res.setHeader('Content-Type', 'application/octet-stream');
+        res.setHeader('Cache-Control', 'no-cache');
+        const range = parseByteRange(req.headers.range, totalSize);
+        if (range === 'unsatisfiable') {
+          res.statusCode = 416;
+          res.setHeader('Content-Range', `bytes */${totalSize}`);
+          res.end();
+          return;
+        }
+        if (range === null) {
+          res.setHeader('Content-Length', totalSize);
+          fs.createReadStream(file).pipe(res);
+          return;
+        }
+        res.statusCode = 206;
+        res.setHeader('Content-Range', `bytes ${range.start}-${range.end}/${totalSize}`);
+        res.setHeader('Content-Length', range.end - range.start + 1);
+        fs.createReadStream(file, { start: range.start, end: range.end }).pipe(res);
+      });
+    },
+  };
+}
+
 // https://astro.build/config
 export default defineConfig({
   // Self-hosted display serif (Astro 7 Fonts API) — Fraunces, an optical
@@ -123,6 +172,7 @@ export default defineConfig({
       heroDevServer(),
       tilesDevServer('/tiles', 'TILES_STORE', TILES_STORE),
       bordersDevServer(),
+      pmtilesDevServer(),
     ],
   },
 });

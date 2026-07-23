@@ -104,6 +104,7 @@ The log below is **chronological**; this is the view it lacks. Nothing reads thi
 ### Frontend
 *All on `feat/frontend`.*
 
+- [2026-07-23 — polar caps PRODUCTIONIZED: WebP at 8192², the caps.json contract, default-on](#2026-07-23--polar-caps-productionized-webp-at-8192-the-capsjson-contract-default-on) — 4096² PNGs (11.1+4.8 MB, dev-assets, `?polarspike`) → **8192² WebP q85 (3.16+2.05 MB)** at `web/public/caps/`, chosen by Rohan on crop A/B + `/globe`; the layer now **fetches `caps.json`** (edge_lat, feather ceiling, URLs — the hand-copied TS literals deleted, encoder quality rides in the freshness recipe); **default ON, `?polarspike` → `?nocaps`**; `MAX_TEXTURE_SIZE` canvas clamp (mobile ships 4096 either way); production re-render proved **byte-identical** to the judged A/B rung; `polarCapSpike.ts` deleted same day (→ `polarCaps.ts`), 8 pipeline + 7 vitest tests; same-day: sync 396 ms/cap `texImage2D` decode → off-thread `createImageBitmap` (premultiplyAlpha "none" — ring chemistry), ~800→~230 ms main-thread
 - [2026-07-19 — hover-highlight pole artifacts: polygon-clip stray line and tile-buffer fill double-paint](#2026-07-19--hover-highlight-pole-artifacts-polygon-clip-stray-line-and-tile-buffer-fill-double-paint) — two country-highlight bugs visible only looking down the pole: (1) a `line`-over-POLYGON strokes geojson-vt's clip-closing edge → stray gold meridian (fix: a `country-outlines` LINE source; **`maxzoom:0` was tried first and WORSENED it**); (2) the translucent fill wash double-paints in the default 128px tile-buffer overlaps, bunched by the pole's compressed tile grid → stronger patch (fix: `buffer:0`). Diagnosed by observation (mouse-off, rotate, pan-to-equator) + measurement, not guessing. Wiring extracted to `lib/countryHighlight.ts` + 11 regression tests
 - [2026-07-18 — the polar cap: flat fails, and the pivot to a polar-stereographic custom-layer cap](#2026-07-18--the-polar-cap-flat-fails-and-the-pivot-to-a-polar-stereographic-custom-layer-cap) — **custom-layer-on-globe feasibility PASSED**: MapLibre 5.24 `CustomLayerInterface` works on globe (3 official examples incl. a georeferenced textured mesh; `defaultProjectionData.mainMatrix`, N pole = `(0,1,0)`; raw-WebGL cap mesh, alpha-feather the seam, 2d/no-depth/draw-last, pin 5.24). Research verdicts: **adopt `pmtiles`** (the one serving plugin); H3/S2 = indexing not tiling (don't fix poles); MLT = vector, irrelevant. Look/decision side under Light & shading
 - [2026-07-15 — Frontend: capability probe, tier routing, quality + spin toggles, mobile polish (all committed on `feat/frontend`)](#2026-07-15--frontend-capability-probe-tier-routing-quality--spin-toggles-mobile-polish-all-committed-on-featfrontend) — the capability probe, tier routing, quality + spin toggles, mobile polish
@@ -118,6 +119,7 @@ The log below is **chronological**; this is the view it lacks. Nothing reads thi
 
 ### Engineering practice
 
+- [2026-07-23 — the uncapped pmtiles convert OOM'd the box: tmpfs /tmp, a 12 GB orphan, and swapoff under pressure](#2026-07-23--the-uncapped-pmtiles-convert-oomd-the-box-tmpfs-tmp-a-12-gb-orphan-and-swapoff-under-pressure) — `pmtiles convert` launched WITHOUT the 12 G cap ("it's just IO" — an assumption); go-pmtiles funnels its working set through the system temp dir and **Ubuntu 26.04's `/tmp` is tmpfs = RAM** → swap 100%, fork failures box-wide, and Rohan's `swapoff -a` OOM-killed his session (swapoff itself was oom-reaped; slack et al. died). The SIGKILLed convert left `/tmp/pmtiles3601582229` (12 GB) holding RAM until `rm`. **The standing cap incantation would have contained it** (tmpfs charges the writer's cgroup) — the failure was purely the exemption. Same-day capped retry: **1m11s, 15 GB `planet.pmtiles`, verify clean, 5-tile byte-compare identical incl. z8 y=255; 5.3% deduped**; `?pmtiles` web flag landed same day (Range-supporting `/pmtiles` dev route TDD'd — the tiles middleware had none — + header-derived min/maxzoom; real-JS-client oracle byte-identical)
 - [2026-07-23 — commonification LANDED as `raster_io.py`, half the list was already done, and coverage joins the gates](#2026-07-23--commonification-landed-as-raster_iopy-half-the-list-was-already-done-and-coverage-joins-the-gates) — PLAN's four-item commonify list executed TDD-first: `GTIFF_CREATE` (format-only — the threading constraint is now a TEST, not prose) + `row_bands`/`band_window` (the single Window pyright-ignore home) adopted at six sites, `composite_params` byte-unchanged so nothing restaged; the planned `stream_windows(src, rows, dtype)` did NOT survive contact (read patterns irreconcilable — the band *arithmetic* is the shared part); items 3–4 found **already done** (`warp_needs_rebuild` 2026-07-22; `lake_ab --left/--right`). Same day: **pytest-cov added** (`uv run pytest --cov`), baseline 32.45%, `fail_under=32` as a ratchet
 - [2026-07-19 — CI gates the web layer; the frontend manifest gets a typed wrapper so astro check runs without it](#2026-07-19--ci-gates-the-web-layer-the-frontend-manifest-gets-a-typed-wrapper-so-astro-check-runs-without-it) — the web had ZERO CI: added a `web` job (pnpm 11 / Node 24 → `pnpm install --frozen-lockfile` → astro check → vitest) and fixed the pyright step to cover `tests/`. `astro check` needs the DATA-DERIVED, gitignored `countries.json` (absent on a clean checkout) → typed wrapper `lib/manifest.ts` decouples the type-check from the data (commit-the-manifest and drop-astro-check both rejected). **Verify CI by removing gitignored files / `git archive`, NOT rsync of the working tree — rsync copied the ignored manifest and hid the failure**
 - [2026-07-09 — Per-country config live: countries.toml is the scope/overrides home; long-edge resolution rule; fusion choice formalized](#2026-07-09--per-country-config-live-countriestoml-is-the-scopeoverrides-home-long-edge-resolution-rule-fusion-choice-formalized) — **`countries.toml` is the scope/overrides home** — strict + curated, 208 rows, 9 excluded with reasons
@@ -135,6 +137,114 @@ The log below is **chronological**; this is the view it lacks. Nothing reads thi
 - [2026-07-03 — Project scoped; dev environment decided](#2026-07-03--project-scoped-dev-environment-decided) — project scoped; dev environment decided
 
 ## Decision log
+
+### 2026-07-23 — the uncapped pmtiles convert OOM'd the box: tmpfs /tmp, a 12 GB orphan, and swapoff under pressure
+
+The PMTiles spike's first half went perfectly — `pipeline/tile/pack_pmtiles.py` (TDD, 7 tests, the
+XYZ→TMS row flip pinned both ways) packed all 87,381 tiles into a 16.15 GB MBTiles in **33 s**. The
+second half took the box down:
+
+- **The mechanism.** `tools/pmtiles convert` was launched **uncapped** — "it's an IO-bound Go binary"
+  was an assumption, exactly the species the one-heavy-job rule exists to forbid. go-pmtiles stages
+  its working set in the system temp dir, and **Ubuntu 26.04 mounts `/tmp` as tmpfs — RAM**. ~12 GB
+  of archive materialised in memory on a 29 GiB box: swap hit 100%, every forked shell died (the
+  Claude harness writes its own tracking files under `/tmp`, so even `echo` failed — the observation
+  channel broke before the diagnosis could run), and the desktop went unresponsive.
+- **The swapoff trap.** `sudo swapoff -a` — the standard clear-swap move, used successfully before —
+  needs free RAM ≥ swap-used to reabsorb pages. Run while the box was still starved, it fed the OOM
+  killer instead: the kernel log shows **swapoff itself oom-reaped mid-flight**, then session apps
+  (slack among them) killed. Lesson: kill + clean the hog FIRST; clear swap only with headroom.
+- **The orphan.** The `pkill -9` on convert left `/tmp/pmtiles3601582229` (12 GB) behind — Go's
+  deferred temp-file cleanup never runs on SIGKILL, and a tmpfs file holds its RAM until unlinked.
+  One `rm`: available RAM 3.4 → 12 Gi, tmpfs 80% → 5%, swap self-drained 6.2 → 3.3 Gi.
+- **The rule already covered this.** The memory's standing incantation
+  (`systemd-run --user --scope -p MemoryMax=12G -p MemorySwapMax=0`) would have contained the whole
+  event — tmpfs pages are charged to the writing process's cgroup, so the convert would have died
+  cleanly inside its cap at worst. The failure was not a gap in the rule but an *exemption* from it.
+  Ops memory updated: no third-party exemptions; know where a tool writes temp (`--tmpdir` onto
+  ext4 — the "big data on ext4" rule applies to tools' internals too); check `/tmp` after killing
+  anything big.
+- **The capped retry closed it same-day (13:03):** health confirmed (15 Gi available, swap 0,
+  tmpfs 5%), then the standing incantation + `--tmpdir data/work/planet_tiles/tmp` → **1m11s**,
+  15 GB `planet.pmtiles`, temp self-cleaned (Go's deferred cleanup runs when the process exits
+  normally — the orphan was a SIGKILL artifact). Verified: `pmtiles show` (spec v3, clustered,
+  z0–8, png), `pmtiles verify` clean, and 5 extracted tiles byte-identical to the source dir
+  **including z8/137/255** — the Antarctica bottom-row tile that proves the XYZ→TMS→PMTiles
+  double flip is an identity round-trip. Dedup kept ON (the `--no-deduplication` speed flag is
+  for known-unique inputs; ours demonstrably isn't): 87,381 addressed → 82,746 unique contents,
+  **4,635 duplicates (5.3%) collapsed** — the flat abyssal-clamp and 100%-ice tiles, as
+  predicted. `planet.mbtiles` is now reclaimable (INVENTORY updated).
+- **The `?pmtiles` web flag completed the spike the same afternoon.** The blocker the docs never
+  mention: the `/tiles` dev middleware pipes whole files and **ignores the `Range` header**, and
+  the pmtiles client reads the archive purely as byte slices — without `206` support a browser
+  would try to pull 15 GB. Precision (Rohan's challenge, confirmed by probe + search): **vite
+  itself DOES serve ranges** — its public-dir serving (sirv) answered a probe 206 — but the asset
+  stores live *outside* `public/` precisely so builds don't copy tens of GB, and our external-store
+  middlewares are the layer with no Range support. Upstream wart worth knowing: vite#10744 (closed
+  not-planned) 416s when the requested end exceeds the file — Firefox sends those; our
+  `parseByteRange` clamps per RFC instead (pinned by test). In-browser protocol timings (probed in
+  the live page): TileJSON synthesis 4 ms, first tile 6 ms, warm tile 2 ms, pmtiles chunk import
+  1 ms (vite pre-bundles it) — the whole pmtiles-specific boot is **~10 ms**, so the ~1–2 s
+  page-load delay Rohan observed is NOT this path's overhead (path-independent suspects: the two
+  8192² cap texture decodes/uploads, dev-mode module serving; a foreground waterfall would settle
+  it). Landed: a dedicated `/pmtiles` dev route (4th store env var
+  `PMTILES_STORE`, same loud-failure pattern) with real single-range support — `parseByteRange`
+  TDD'd in `web/src/lib/httpRange.ts` (13 vitest: 206 slice / 416 unsatisfiable / suffix / clamp /
+  ignore-malformed per RFC 9110); `pmtiles` npm 4.4.1; `globe.astro` builds `reliefSource`
+  conditionally behind `?pmtiles` — Protocol registered before the Map via conditional top-level
+  await, and the `pmtiles://` source URL **derives min/maxzoom from the archive header**, retiring
+  two more hand-copied web literals (the caps.json species). The archive deliberately stays OUT of
+  the tiles dir: `iter_tiles` does `int(p.name)` and would crash on `planet.pmtiles`. Proof
+  ladder: curl (206 + correct `Content-Range`, 416, interior slice byte-identical to the raw
+  file), then the **real pmtiles JS client** over dev-server HTTP — header (z0–8, png), metadata,
+  and the same 5 tiles byte-identical including z8/137/255. Gates: vitest 45 (32+13), astro check
+  0, build 206 pages. Remaining: Rohan's visual `/globe?pmtiles` look, then default-on + nginx
+  (whose Range support is native — the dev route is parity, not production code).
+
+### 2026-07-23 — polar caps PRODUCTIONIZED: WebP at 8192², the caps.json contract, default-on
+
+The last non-sweep Phase-3 pipeline item, done in the pre-launch afternoon window.
+
+- **Assets:** `web/public/dev-assets/cap_{north,south}.png` (4096², 11.1 + 4.8 MB, plain
+  `gdal_translate -of PNG`) → `web/public/caps/cap_{north,south}.webp` (**8192², WebP q85,
+  3.16 + 2.05 MB** — 4× the pixels at ~28% of the PNG bytes, `hero_variants`' proven GDAL WebP
+  path). Renders 56 + 44 s (was ~21 s/cap at 4096; PROCESS updated).
+- **Resolution decided on evidence, ladder in `experiments/ab_cap_prod.py`:** Rohan judged native-scale
+  crop pairs (Greenland coast, pole pack, Antarctic interior — all visibly crisper at 8192; the 4096
+  smooths sastrugi-scale ice texture away entirely) plus the live globe with the 8192 rung swapped in.
+  After pinning `CAP_PX=8192`, the production `cap_render` run came out **byte-identical to the judged
+  rung** — the determinism oracle that proves the A/B showed exactly what production ships.
+- **The caps.json contract:** `polarCaps.ts` (renamed from `polarCapSpike.ts`, spike deleted same day)
+  now FETCHES `/caps/caps.json` — `edge_lat` ±78, the ±84 feather ceiling (= `shade_planet`'s
+  `CAP_NORTH`/`CAP_SOUTH` plug boundary) and texture URLs — instead of carrying them as hand-copied
+  literals, the same copy-drift species as the hero/tile colour constants. The WebP quality rides in
+  `cap_recipe`, so an encoder change restages the caps (the 2026-07-22 freshness rule).
+- **Default ON; `?polarspike` inverted to `?nocaps`** — the escape stays because layer-on/off
+  comparison is the exact diagnostic that isolated the 2026-07-22 polar ring. Textures clamp to
+  `gl.MAX_TEXTURE_SIZE` via canvas downscale (constrained mobile GPUs get 4096 instead of silent
+  black), so 8192 costs desktop bytes only.
+- **Tests:** 8 pipeline (`test_cap_render.py` — the linear AEQD radius law as an independent geometry
+  oracle, rotated-azimuth shade invariants, the manifest contract, recipe-covers-the-asset) + 7 vitest
+  (`polarCaps.test.ts` — contract mapping incl. the signed-south `Math.abs` feather, mesh UV pins,
+  the clamp). One red-phase self-catch: my longitude-orientation assertion had top/bottom swapped —
+  the probe said bottom-centre = lon 0, matching `y = −ρ·cos(lon)`; the test was wrong, not the code.
+- **Off-main-thread decode (same day, after Rohan reported a ~1–2 s first-load delay):** measured
+  in-page — `texImage2D(HTMLImageElement)` does a SYNCHRONOUS main-thread decode, **396 ms per 8192²
+  cap** (≈800 ms across both poles; fetch itself is 5 ms). Replaced with
+  `createImageBitmap(blob, { premultiplyAlpha: "none" })` → decode moves to Chrome's worker pool,
+  leaving ~117 ms of GPU upload per cap on the main thread; `bitmap.close()` frees the ~268 MB
+  decode immediately. `premultiplyAlpha: "none"` is load-bearing — the shader premultiplies
+  in-shader, and a decode-time premultiply would double-apply (the polar-ring alpha chemistry).
+  Deliberately NOT lazy/idle-deferred: that would trade a visible cap pop-in at the poles for
+  ~230 ms, the wrong side of the bargain. **Firefox postscript (Rohan's second-load waterfall):**
+  every request ≤7 ms but a **1.1 s network-silent gap (153→1257 ms)** opening exactly at
+  cap-fetch completion — Firefox runs `createImageBitmap` decode ON the main thread (sync, per
+  Mozilla's own bugzilla) and its ImageBitmap→`texImage2D` upload is slow besides (bug 1486454),
+  so the stall Chrome sheds persists there. A fallback also landed same day: `premultiplyAlpha`
+  is an unimplemented dictionary member in Firefox (silently dropped — safe, the mesh samples
+  only the opaque disc), and if `createImageBitmap` itself rejects the loader drops to the
+  original Image path. Fix queued to the Lighthouse pass (PLAN Phase 3): decode in a Web Worker,
+  transfer the ImageBitmap — forces off-thread on every engine.
 
 ### 2026-07-23 — commonification LANDED as `raster_io.py`, half the list was already done, and coverage joins the gates
 

@@ -2,10 +2,12 @@
 """Render the polar caps: sea ice + snow over real bathymetry, on AEQD grids reaching the pole.
 
 Web-Mercator tiles die at ~85N (1/cos-phi sends the pole to infinity), so each pole is a
-source-shaded polar raster drawn over the globe by a MapLibre custom layer (polarCapSpike.ts),
+source-shaded polar raster drawn over the globe by a MapLibre custom layer (polarCaps.ts),
 feathered into the tiles at the seam. Azimuthal-equidistant, centred on the pole, inscribed
-circle at `grid.edge_lat` (MUST equal polarCapSpike.ts TEX_EDGE_LAT for that cap). Runs the one
-shared `shade.composite` and writes `cap_{north,south}.png` un-flipped to web/public/dev-assets/.
+circle at `grid.edge_lat`. Runs the one shared `shade.composite` and writes
+`cap_{north,south}.webp` un-flipped to web/public/caps/, beside `caps.json` — the contract the
+web layer fetches (edge_lat, feather ceiling, URLs), so no cap constant is hand-copied into
+TypeScript (see caps_manifest).
 
 Both poles share the projection/warp/coastline machinery but source their inputs differently:
   - NORTH: the fused planet VRTs (height/ocean/water) + NSIDC-0791 snow persistence + OSI SAF sea
@@ -51,12 +53,18 @@ from scipy.ndimage import binary_dilation
 from pipeline.render import hillshade, lake_depth, seaice, snow
 from pipeline.tile import shade
 from pipeline.tile.shade import KNOBS
-from pipeline.tile.shade_planet import ALT, AZ, EXAG, PLANET, composite_params
+from pipeline.tile.shade_planet import (ALT, AZ, CAP_NORTH, CAP_SOUTH, EXAG, PLANET,
+                                        composite_params)
 
 ROOT = Path.home() / "projects/maps"
 WORK = ROOT / "data/work/cap"
-DEV_ASSETS = ROOT / "web/public/dev-assets"
-CAP_PX = 4096          # square texture side (south is a bigger disc -> coarser per px; tunable, bump for prod)
+CAPS_DIR = ROOT / "web/public/caps"  # production home (was dev-assets/ behind ?polarspike)
+CAP_PX = 8192          # square texture side (south is a bigger disc -> coarser per px). 8192 chosen
+                       # 2026-07-23 (Rohan, crop A/B + /globe): visibly crisper coast/pack/sastrugi
+                       # at deep pole zoom; 3.2+2.1 MB WebP; constrained GPUs clamp to their
+                       # MAX_TEXTURE_SIZE at upload (polarCaps.ts), so mobile ships 4096 either way
+CAP_WEBP_QUALITY = 85  # gdal_translate WEBP quality — hero_variants' proven setting; rides in
+                       # cap_recipe because the encoder changes the shipped pixels
 SPHERE_R = 6371000.0   # spherical AEQD radius; the frontend's linear-colatitude UV assumes a sphere
 # The south-cap forced-snow latitude and toned sea-ice pair moved to their shared homes so the tile
 # composite applies the identical rule (one home per concept): snow.antarctic_snow_mask's lat_max=-60,
@@ -119,8 +127,26 @@ def cap_recipe(grid: CapGrid) -> str:
                                  "fill_altitude": hillshade.FILL_ALTITUDE,
                                  "fill_strength": KNOBS["fill_strength"]},
                        "coast_rgb": list(COAST_RGB),
+                       "asset": {"format": "webp", "quality": CAP_WEBP_QUALITY},
                        "composite": json.loads(composite_params({}))},
                       sort_keys=True, indent=2)
+
+
+def caps_manifest() -> str:
+    """The pipeline->web contract, served beside the textures as caps.json.
+
+    polarCaps.ts used to hand-copy `edge_lat` (as texEdgeLat) and the ±84 feather ceiling
+    (shade_planet's Mercator plug boundary) as literals — the same copy-drift species as the
+    hero/tile colour constants. The web layer now FETCHES this file, so the pipeline is the
+    single author of every value it renders into the textures; only frontend aesthetics
+    (featherLo, mesh extent) stay web-side."""
+    return json.dumps({
+        grid.name: {"url": f"/caps/cap_{grid.name}.webp",
+                    "edge_lat": grid.edge_lat,
+                    "feather_hi": feather_hi,
+                    "px": grid.px}
+        for grid, feather_hi in ((NORTH, CAP_NORTH), (SOUTH, CAP_SOUTH))
+    }, sort_keys=True, indent=2)
 
 
 def cap_sources(grid: CapGrid) -> list[Path]:
@@ -135,15 +161,15 @@ def cap_sources(grid: CapGrid) -> list[Path]:
     return sources
 
 
-def cap_is_fresh(recipe: str, png: Path, sidecar: Path, sources: list[Path]) -> bool:
-    """True only when the PNG exists, was rendered under exactly this recipe, and is newer than
+def cap_is_fresh(recipe: str, asset: Path, sidecar: Path, sources: list[Path]) -> bool:
+    """True only when the asset exists, was rendered under exactly this recipe, and is newer than
     every source; anything missing reads stale (fail toward re-rendering, never toward trusting).
     The caps' first freshness guard (2026-07-22): unguarded outputs rot — the DEM mosaics, the
     3857 warps and both cap PNGs all failed that same way in one day."""
-    if not (png.exists() and sidecar.exists() and sidecar.read_text() == recipe):
+    if not (asset.exists() and sidecar.exists() and sidecar.read_text() == recipe):
         return False
-    png_mtime = png.stat().st_mtime
-    return all(source.exists() and source.stat().st_mtime < png_mtime for source in sources)
+    asset_mtime = asset.stat().st_mtime
+    return all(source.exists() and source.stat().st_mtime < asset_mtime for source in sources)
 
 
 def _run(cmd):
@@ -233,10 +259,11 @@ def _write_cap(grid: CapGrid, heights: np.ndarray, ocean: np.ndarray, water: np.
                                    dtype="uint8", photometric="RGB")
     with rasterio.open(tif, "w", **profile) as dataset:
         dataset.write(rgb)
-    DEV_ASSETS.mkdir(parents=True, exist_ok=True)
-    out_png = DEV_ASSETS / f"cap_{grid.name}.png"
-    _run(["gdal_translate", "-q", "-of", "PNG", str(tif), str(out_png)])
-    return out_png
+    CAPS_DIR.mkdir(parents=True, exist_ok=True)
+    out_webp = CAPS_DIR / f"cap_{grid.name}.webp"
+    _run(["gdal_translate", "-q", "-of", "WEBP", "-co", f"QUALITY={CAP_WEBP_QUALITY}",
+          str(tif), str(out_webp)])
+    return out_webp
 
 
 def render_cap_north() -> Path:
@@ -315,13 +342,15 @@ def main() -> int:
         if not wanted:
             continue
         recipe = cap_recipe(grid)
-        png = DEV_ASSETS / f"cap_{grid.name}.png"
+        asset = CAPS_DIR / f"cap_{grid.name}.webp"
         sidecar = WORK / f"cap_{grid.name}_params.json"
-        if not args.force and cap_is_fresh(recipe, png, sidecar, cap_sources(grid)):
+        if not args.force and cap_is_fresh(recipe, asset, sidecar, cap_sources(grid)):
             print(f"cap {grid.name} fresh -> skip", flush=True)
             continue
         print(f"wrote {render()}", flush=True)
         sidecar.write_text(recipe)  # written AFTER the render, so a crash leaves the cap stale
+    CAPS_DIR.mkdir(parents=True, exist_ok=True)
+    (CAPS_DIR / "caps.json").write_text(caps_manifest() + "\n")  # the web contract, always current
     return 0
 
 
