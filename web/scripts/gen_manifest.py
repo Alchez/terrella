@@ -50,6 +50,17 @@ def border_sizes(variants_dir: Path, slug: str) -> list[int]:
     return sorted(set(sizes))
 
 
+def spotlight_sizes(variants_dir: Path, slug: str) -> list[int]:
+    """Long-edge sizes of the subject-spotlight overlay (dims neighbours + strokes
+    the subject boundary), e.g. [1920, 3840, 7680]."""
+    sizes = []
+    for p in variants_dir.glob(f"{slug}-spotlight-*.webp"):
+        m = re.fullmatch(rf"{re.escape(slug)}-spotlight-(\d+)\.webp", p.name)
+        if m:
+            sizes.append(int(m.group(1)))
+    return sorted(set(sizes))
+
+
 def aspect_of(variants_dir: Path, slug: str, sizes: list[int]) -> float:
     """width/height from the smallest variant (accurate framing, no layout shift)."""
     if not sizes:
@@ -83,6 +94,7 @@ def main() -> int:
             continue
         sizes = variant_sizes(variants_dir, slug)
         bsizes = border_sizes(variants_dir, slug)
+        ssizes = spotlight_sizes(variants_dir, slug)
         countries.append(dict(
             slug=slug,
             name=r["admin"],
@@ -98,6 +110,8 @@ def main() -> int:
             rendered=bool(sizes),
             hasBorder=bool(bsizes),
             borderSizes=bsizes,
+            hasSpotlight=bool(ssizes),
+            spotlightSizes=ssizes,
         ))
 
     payload = dict(

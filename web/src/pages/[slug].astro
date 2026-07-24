@@ -17,19 +17,19 @@ const HERO_BASE = import.meta.env.PUBLIC_HERO_BASE ?? "/heroes/";
 // The hero starts at the smallest variant for a fast, light initial paint; the zoom
 // script swaps in the native variant the first time you zoom in (see the <script>).
 const displayHero = `${HERO_BASE}${country.slug}-${country.sizes[0]}.webp`;
-const displayBorder = country.hasBorder
-  ? `${HERO_BASE}${country.slug}-border-${country.borderSizes[0]}.png`
-  : "";
 const nativeHero = `${HERO_BASE}${country.slug}-${country.native}.webp`;
-const nativeBorder = country.hasBorder
-  ? `${HERO_BASE}${country.slug}-border-${country.borderSizes[country.borderSizes.length - 1]}.png`
+const displaySpotlight = country.hasSpotlight
+  ? `${HERO_BASE}${country.slug}-spotlight-${country.spotlightSizes[0]}.webp`
+  : "";
+const nativeSpotlight = country.hasSpotlight
+  ? `${HERO_BASE}${country.slug}-spotlight-${country.spotlightSizes[country.spotlightSizes.length - 1]}.webp`
   : "";
 ---
 
 <Base
   title={`${country.name} — Terrella`}
   description={`Ray-traced relief map of ${country.name}.`}
-  borders={country.hasBorder}
+  spotlight={country.hasSpotlight}
 >
   <Masthead heading={country.name} eyebrow={country.continent} back="/" maxWidth="min(1500px, 92vw)" />
 
@@ -40,14 +40,18 @@ const nativeBorder = country.hasBorder
           class="hero-zoom"
           style={`aspect-ratio:${country.aspect}`}
           data-native-hero={nativeHero}
-          data-native-border={nativeBorder}
+          data-native-spotlight={nativeSpotlight}
           tabindex="0"
           aria-label={`Ray-traced relief map of ${country.name} — scroll or double-click to zoom, drag to pan`}
         >
           <div class="zoom-inner">
             <div class="zoom-hero" aria-hidden="true" style={`background-image:url(${displayHero})`}></div>
-            {country.hasBorder && (
-              <div class="zoom-border" aria-hidden="true" style={`background-image:url(${displayBorder})`}></div>
+            {country.hasSpotlight && (
+              <div
+                class="zoom-spotlight"
+                aria-hidden="true"
+                style={`background-image:url(${displaySpotlight})`}
+              />
             )}
           </div>
           <button type="button" class="zoom-reset" hidden>Reset zoom</button>
@@ -101,17 +105,17 @@ const nativeBorder = country.hasBorder
     inset: 0;
   }
   .zoom-hero,
-  .zoom-border {
+  .zoom-spotlight {
     position: absolute;
     inset: 0;
     background-repeat: no-repeat;
     background-position: center;
     background-size: cover;
   }
-  .zoom-border {
+  .zoom-spotlight {
     display: none;
   }
-  :global(body.borders-on) .zoom-border {
+  :global(body.spotlight-on) .zoom-spotlight {
     display: block;
   }
   .zoom-reset {
@@ -179,14 +183,14 @@ const nativeBorder = country.hasBorder
 <script>
   // In-place zoom for the detail hero: wheel / double-click / pinch to zoom, drag to
   // pan. The full-resolution variant is swapped in lazily the first time you zoom, so
-  // the page stays light on load. The relief and its border overlay pan/zoom together.
+  // the page stays light on load. The relief and its spotlight overlay pan/zoom together.
   const heroFigure = document.querySelector(".hero-zoom");
   if (heroFigure instanceof HTMLElement) {
     const heroLayer = heroFigure.querySelector(".zoom-hero") as HTMLElement;
-    const borderLayer = heroFigure.querySelector(".zoom-border") as HTMLElement | null;
+    const spotlightLayer = heroFigure.querySelector(".zoom-spotlight") as HTMLElement | null;
     const resetButton = heroFigure.querySelector(".zoom-reset") as HTMLButtonElement;
     const nativeHeroUrl = heroFigure.dataset.nativeHero;
-    const nativeBorderUrl = heroFigure.dataset.nativeBorder;
+    const nativeSpotlightUrl = heroFigure.dataset.nativeSpotlight;
 
     let scale = 1;
     let offsetX = 0;
@@ -211,9 +215,9 @@ const nativeBorder = country.hasBorder
       const backgroundPosition = `${offsetX}px ${offsetY}px`;
       heroLayer.style.backgroundSize = backgroundSize;
       heroLayer.style.backgroundPosition = backgroundPosition;
-      if (borderLayer) {
-        borderLayer.style.backgroundSize = backgroundSize;
-        borderLayer.style.backgroundPosition = backgroundPosition;
+      if (spotlightLayer) {
+        spotlightLayer.style.backgroundSize = backgroundSize;
+        spotlightLayer.style.backgroundPosition = backgroundPosition;
       }
       const isZoomed = scale > 1.001;
       heroFigure.classList.toggle("zoomed", isZoomed);
@@ -239,7 +243,7 @@ const nativeBorder = country.hasBorder
       if (nativeLoaded) return;
       nativeLoaded = true;
       if (nativeHeroUrl) swapWhenReady(heroLayer, nativeHeroUrl);
-      if (borderLayer && nativeBorderUrl) swapWhenReady(borderLayer, nativeBorderUrl);
+      if (spotlightLayer && nativeSpotlightUrl) swapWhenReady(spotlightLayer, nativeSpotlightUrl);
     };
 
     // Zoom by `factor`, keeping the point under the cursor fixed on screen.

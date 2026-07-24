@@ -113,6 +113,74 @@ magnitude, so the taxonomy is the decision:
   per-country-on-demand like WorldCover — the upstream *is* the cloud store. Rohan deferred the
   whole topic to after Phase 5.
 
+## Kiribati presentation — the one antimeridian-deferred country (analysed 2026-07-24)
+
+- **Trigger:** Kiribati is the sole in-scope country with no hero (`status="antimeridian"`,
+  `config/countries.toml`), skipped by design 2026-07-09 (HISTORY § Antimeridian: no wrap-math)
+  because its land is genuinely split — Gilberts 32% at 169–177°E (capital Tarawa) vs Phoenix+Line
+  68% at 175–151°W (largest atoll Kiritimati), no dominant side. "No hero *for now*" lived only in
+  a TOML note; this is its analysed home.
+- **The decisive facts (checked, not assumed):**
+  - **Low relief is NOT the disqualifier.** Kiribati averages ~1.8 m elevation (max ~3 m; only
+    Banaba, in the Gilberts, is a raised 81 m island). But the other flat atoll nations — Maldives,
+    Marshall Islands, Tuvalu, Nauru — **all rendered heroes**, and they read as striking
+    bathymetry-dominant seamount fields (Maldives especially). So an atoll hero is on-aesthetic; the
+    *only* real blocker is the antimeridian split.
+  - **The render pipeline is single-frame end-to-end** — one slug → one bbox → one `frame.json` →
+    one ortho render → one hero (`country_config.py:100-102` unpacks exactly one `[W,S,E,N]`;
+    `scene_build.py` one camera/one render; no montage in `pipeline/compose/` — the only `montage()`
+    is an unwired RGB experiment in `experiments/tile_chunk.py`).
+  - **The frontend already degrades gracefully for a hero-less country** — `rendered:false`/`sizes:[]`
+    is a first-class manifest state (`gen_manifest.py:97-98`, `lib/manifest.ts`), and both the
+    gallery card (`index.astro:110-115`) and detail page (`[slug].astro:57-61`) render a placeholder.
+    It is dead code today because Kiribati is dropped at the manifest step (`gen_manifest.py:82-83`
+    `continue`s on `resolve()==None`).
+
+### Viable option A — composited twin-panel hero (keeps Kiribati as one country)
+
+- One Kiribati entry, one hero image holding two framed insets (Gilberts | Line+Phoenix), each a
+  normal non-crossing frame rendering like Maldives/Marshall. Preserves country integrity (one
+  sovereign nation = one gallery card) — the reason it beats sub-heroes (below).
+- **Effort: HIGH.** The single-frame pipeline has no seam for it — needs new code at ~every stage:
+  a `panels=[...]` config key + list validation (`country_config.py:67,100-102`); per-panel
+  work/render subdirs through `stage_commands` (each panel is a *different* AEA projection with its
+  own `frame.json`/heightfield/masks); **a brand-new compositor stage** (the keystone — nothing
+  composites two RGBA renders today); a batch loop over panels; and per-panel border/overlay mapping
+  (`overlay_borders.py`/`gen_borders.py` assume one `ortho_scale`). The two lobes are at very
+  different scales — panel sizing is a real design choice, not automatic.
+
+### Viable option B — gallery card, no hero (the low-effort default)
+
+- Kiribati appears as a placeholder card + gazetteer + detail page, no relief hero — honest about a
+  permanent deferral. Keeps it as one entry.
+- **Effort: LOW, and entirely in the data/manifest layer** (presentation already exists): (1) emit an
+  `rendered:false` manifest entry for antimeridian-deferred countries instead of dropping them
+  (`gen_manifest.py:82-83`); (2) author a `bbox` — Kiribati has `status`/`notes` but no `frame`, and
+  the gazetteer + globe fly-to read `country.bbox`; (3) guard the globe's `openPanel()`
+  (`globe.astro:685`) which unconditionally requests `…-${sizes[0]}.webp` → a broken
+  `kiribati-undefined.webp` for an unrendered entry; (4) optional distinct "deferred" copy — today's
+  only placeholder string is "still rendering," which misrepresents a permanent state.
+
+### Ruled out (do not re-litigate)
+
+- **Wide antimeridian crosser** — dead on two counts: it needs the exact trans-180 wrap-math the
+  2026-07-09 premise-check rejected (W>E frames, shifted VRTs, 4 files), *and* even a compact atoll
+  frame is mostly ocean, so a ~40° crosser would be ~90% empty Pacific with two edge clusters. High
+  cost, poor result.
+- **Two separate sub-heroes** (the France+New Caledonia "separate heroes" precedent) — does **not**
+  transfer. France's territories are distinct Natural Earth admin-0 units that enter scope naturally;
+  Kiribati's island groups are one admin unit, so sub-heroes would need invented sub-country slugs
+  with no backing NE geometry (borders/gazetteer have no matching entries) **and** fragment one
+  sovereign nation into two gallery cards. More bespoke than option A and semantically wrong.
+
+### Recommendation (as analysed)
+
+- Option B if Kiribati should simply *appear* — cheap, honest, keeps the set complete at 204.
+- Option A only if a Kiribati *hero* is wanted badly enough to build the pipeline's first multi-frame
+  path (which would also unlock France+territories, USA+Alaska/Hawaii as composited heroes — the
+  currently-dropped far-flung remainders). Worth pricing against just shipping those as the
+  already-decided separate territory heroes.
+
 ## AVIF hero variants (analysed 2026-07-23)
 
 - **Trigger:** the astro:assets audit during the 7.1.3 bump — the one genuine feature we forgo by
@@ -127,3 +195,34 @@ magnitude, so the taxonomy is the decision:
   change is small.
 - **Natural decision point:** the Phase 4 Lighthouse pass, where transfer sizes get audited
   anyway. Not before.
+
+## Hero presentation — large-country warp & small-island exaggeration (analysed 2026-07-24)
+
+Raised by Rohan reviewing the gallery after the sea-sync sweep (the sea look he approved;
+these are pre-existing framing concerns). The country-extent concern is being SOLVED separately
+by the subject-spotlight "Focus" toggle (compose-layer, no re-render). These two remain, and BOTH
+require a re-render, so they are parked until a re-render is on the table anyway.
+
+### Large countries warp — the Russia equal-area-conic "fan"
+
+- **What:** each hero is one Albers equal-area conic centred on its frame; for a ~160° longitude
+  span (Russia) the conic splays into a wedge with big empty margins. **China (~60°) looks fine** —
+  a mild trapezoid — so this is ~4-5 extreme countries (Russia worst; Canada, USA, Kazakhstan,
+  Greenland), not "large countries" broadly.
+- **Why it's low-ROI:** the fan is *inherent* to equal-area for a transcontinental span — any single
+  projection either fans (conic) or grossly distorts area (Mercator). Levers are weak: trim the frame
+  margin; bespoke-frame the few worst to a representative region (breaks the "whole country" promise);
+  or accept it as honest cartography. **Rec: accept, or just trim margin. Do not overhaul the projection.**
+
+### Small steep islands look like "pinecones" (Saint Lucia, Dominica)
+
+- **Measured root cause:** exaggeration is a global **15×** applied to real height ÷ width, so visual
+  steepness = `15 × (relief / frame-width)`. A 950 m peak on a 30 km island → ~0.47 (peak stands ~half
+  the frame tall → bristly); a continent → ~0.025 (gentle). Same constant, wildly different look.
+- **The principled fix = adaptive exaggeration:** taper the factor for small high-relief-ratio frames.
+  This makes the *visual* relief MORE consistent across the gallery, not less — the "tuned once, applied
+  globally" rule (ART.md) is what currently makes the look *inconsistent*. Bounded cost: only ~20-30
+  small steep islands re-render (~1 h, not a planet sweep). Touches the FROZEN `render_prep.py`
+  (`EXAGGERATION = 15.0`), so it wants the sea-sync freeze lifted (ratified) first.
+- **Note:** validated that atoll/island heroes themselves read well (Maldives/Marshall are striking) —
+  the problem is only over-exaggeration of *steep* small islands, not small frames per se.

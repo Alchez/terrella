@@ -27,9 +27,9 @@ const srcset = (country: Country) =>
     .map((longEdge) => `${HERO_BASE}${country.slug}-${longEdge}.webp ${variantWidth(country, longEdge)}w`)
     .join(", ");
 
-const borderSrcset = (country: Country) =>
-  country.borderSizes
-    .map((longEdge) => `${HERO_BASE}${country.slug}-border-${longEdge}.png ${variantWidth(country, longEdge)}w`)
+const spotlightSrcset = (country: Country) =>
+  country.spotlightSizes
+    .map((longEdge) => `${HERO_BASE}${country.slug}-spotlight-${longEdge}.webp ${variantWidth(country, longEdge)}w`)
     .join(", ");
 
 // Displayed at the card's rendered width: ~full width on phones, ~half on
@@ -66,7 +66,7 @@ for (const country of alphabetical) {
 const indexLetters = [...byLetter.keys()];
 ---
 
-<Base title="Terrella — Gallery" borders={true} quality={true}>
+<Base title="Terrella — Gallery" spotlight={true} quality={true}>
   <Masthead eyebrow="Atlas" heading="Terrella" maxWidth="min(2200px, 94vw)">
     <nav slot="actions" class="head-links">
       <a href="/globe/">Globe</a>
@@ -94,11 +94,11 @@ const indexLetters = [...byLetter.keys()];
                 loading="lazy"
                 decoding="async"
               />
-              {country.hasBorder && (
+              {country.hasSpotlight && (
                 <img
-                  class="border-layer"
-                  src={`${HERO_BASE}${country.slug}-border-${country.borderSizes[0]}.png`}
-                  srcset={borderSrcset(country)}
+                  class="spotlight-layer"
+                  src={`${HERO_BASE}${country.slug}-spotlight-${country.spotlightSizes[0]}.webp`}
+                  srcset={spotlightSrcset(country)}
                   sizes={SIZES}
                   alt=""
                   aria-hidden="true"
@@ -215,12 +215,12 @@ const indexLetters = [...byLetter.keys()];
     height: 100%;
     object-fit: cover;
   }
-  .border-layer {
+  .spotlight-layer {
     position: absolute;
     inset: 0;
     display: none;
   }
-  :global(body.borders-on) .border-layer {
+  :global(body.spotlight-on) .spotlight-layer {
     display: block;
   }
   .card figcaption {
