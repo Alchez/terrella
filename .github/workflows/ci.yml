@@ -38,6 +38,13 @@ jobs:
       - name: Type-check (pyright)
         run: uv run pyright
 
+      # The venv is Python 3.14, but palette.py + the two bpy scripts must stay importable
+      # under Blender's bundled 3.13.9. This re-checks exactly those files at 3.13 so
+      # 3.14-only syntax can't leak into a Blender-shared module. File list lives in the
+      # script (one source of truth for CI + local).
+      - name: Blender-drift guard (pyright @ 3.13)
+        run: bash scripts/check_blender_drift.sh
+
       # --cov enforces [tool.coverage.report] fail_under — pinned to the CI-visible
       # baseline (12 data-bound tests skip here, so CI coverage reads lower than a
       # full local run). The ratchet: raise the floor as coverage lands, never lower it.
