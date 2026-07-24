@@ -248,7 +248,13 @@ import Base from "../layouts/Base.astro";
 </script>
 
 <script>
-  import maplibregl from "maplibre-gl";
+  import * as maplibregl from "maplibre-gl";
+  // v6 ships its worker as a SEPARATE ESM file it resolves at runtime via import.meta.url.
+  // Bundled into this chunk that path becomes /_astro/maplibre-gl-worker.mjs and 404s, so tiles
+  // never parse. Vite's ?worker&url bundles the worker (inlining its ./maplibre-gl-shared.mjs
+  // dep) into one self-contained emitted asset and returns its hashed URL; setWorkerUrl (below,
+  // before prewarm) points maplibre at it. Self-contained so it loads under module OR classic.
+  import maplibreWorkerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
   import type {
     ExpressionSpecification,
     FilterSpecification,
@@ -294,6 +300,10 @@ import Base from "../layouts/Base.astro";
   // zero bundle cost. Same-pixels-either-way is the ratification criterion.
   // Spin up MapLibre's shared worker pool now — it's otherwise created lazily at Map
   // construction, so on the pmtiles path the workers start while the module below loads.
+  // v6: point maplibre at the Vite-emitted worker URL (see the ?worker&url import above) before
+  // the pool spins up — otherwise it derives /_astro/maplibre-gl-worker.mjs from import.meta.url
+  // and 404s. Idempotent and must precede prewarm()/Map construction.
+  maplibregl.setWorkerUrl(maplibreWorkerUrl);
   maplibregl.prewarm();
 
   // One parse for every URL flag. ?pmtiles = the packaged-archive source; the rest are
@@ -835,7 +845,7 @@ import Base from "../layouts/Base.astro";
   }
   map.on("mousedown", haltSpin);
   map.on("touchstart", haltSpin);
-  for (const gesture of ["dragstart", "rotatestart", "zoomstart", "pitchstart"]) {
+  for (const gesture of ["dragstart", "rotatestart", "zoomstart", "pitchstart"] as const) {
     map.on(gesture, () => setSpinning(false));
   }
   map.on("moveend", spin);
