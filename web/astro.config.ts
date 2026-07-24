@@ -6,8 +6,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { parseByteRange } from './src/lib/httpRange';
 
-// Asset store locations. DEV-ONLY: the dev server serves /heroes, /tiles, /borders and
-// /pmtiles straight off these external directories (nginx does the same in prod; the
+// Asset store locations. DEV-ONLY: the dev server serves /heroes, /borders and /pmtiles
+// straight off these external directories (nginx does the same in prod; the
 // static build never reads them). The paths are machine-specific and MUST come from .env — copy
 // .env.example to .env and set them. `loadEnv` is required because .env files are not in
 // process.env by the time this config runs. There is deliberately NO fallback: the on-disk
@@ -16,7 +16,6 @@ import { parseByteRange } from './src/lib/httpRange';
 // pointing somewhere wrong.
 const env = loadEnv(process.env.NODE_ENV || 'development', process.cwd(), '');
 const HERO_STORE = env.HERO_STORE;
-const TILES_STORE = env.TILES_STORE;
 const BORDERS_STORE = env.BORDERS_STORE;
 const PMTILES_STORE = env.PMTILES_STORE;
 
@@ -61,31 +60,8 @@ function heroDevServer(): Plugin {
   };
 }
 
-// Dev-only: serve {urlPrefix}/{z}/{x}/{y}.png straight from a tile pyramid on disk,
-// same origin as the dev server so MapLibre's tile fetches need no CORS. Mirrors
-// heroDevServer(); prod nginx serves /tiles/ from the same store.
-function tilesDevServer(urlPrefix: string, envName: string, store: string | undefined): Plugin {
-  return {
-    name: `tiles-dev-server:${urlPrefix}`,
-    configureServer(server) {
-      server.middlewares.use(urlPrefix, (req, res, next) => {
-        const resolvedStore = resolveStore(envName, store, res);
-        if (!resolvedStore) return;
-        const rel = decodeURIComponent((req.url || '').split('?')[0]).replace(/^\/+/, '');
-        const file = path.resolve(resolvedStore, rel);
-        if (!file.startsWith(path.resolve(resolvedStore)) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) {
-          return next();
-        }
-        res.setHeader('Content-Type', file.endsWith('.png') ? 'image/png' : 'application/octet-stream');
-        res.setHeader('Cache-Control', 'no-cache');
-        fs.createReadStream(file).pipe(res);
-      });
-    },
-  };
-}
-
 // Dev-only: serve /borders/*.geojson straight from the border store, same origin
-// as the dev server. Mirrors tilesDevServer(); prod nginx serves /borders/ too.
+// as the dev server. Mirrors heroDevServer(); prod nginx serves /borders/ too.
 function bordersDevServer(): Plugin {
   return {
     name: 'borders-dev-server',
@@ -170,7 +146,6 @@ export default defineConfig({
   vite: {
     plugins: [
       heroDevServer(),
-      tilesDevServer('/tiles', 'TILES_STORE', TILES_STORE),
       bordersDevServer(),
       pmtilesDevServer(),
     ],

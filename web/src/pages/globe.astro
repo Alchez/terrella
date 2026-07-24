@@ -306,32 +306,23 @@ import Base from "../layouts/Base.astro";
   maplibregl.setWorkerUrl(maplibreWorkerUrl);
   maplibregl.prewarm();
 
-  // One parse for every URL flag. ?pmtiles = the packaged-archive source; the rest are
-  // diagnostics in the ?nocaps tradition (layer-on/off isolation): ?bare strips every
-  // non-tile layer (caps, countries, borders, highlight) to expose the raster baseline,
-  // ?perf mounts the on-screen long-task overlay (phones have no devtools console).
+  // One parse for every URL flag — diagnostics in the ?nocaps tradition (layer-on/off
+  // isolation): ?bare strips every non-tile layer (caps, countries, borders, highlight) to
+  // expose the raster baseline, ?perf mounts the on-screen long-task overlay (phones have no
+  // devtools console). The relief pyramid comes ONLY from the packaged PMTiles archive now —
+  // the loose /tiles pyramid was the spike scaffold and is retired (→ HISTORY).
   const urlFlags = new URLSearchParams(location.search);
-  const usePmtiles = urlFlags.has("pmtiles");
   const bareDiagnostic = urlFlags.has("bare");
-  if (usePmtiles) {
-    const { Protocol } = await import("pmtiles");
-    maplibregl.addProtocol("pmtiles", new Protocol().tile);
-  }
-  const reliefSource: RasterSourceSpecification = usePmtiles
-    ? {
-        type: "raster",
-        url: "pmtiles://" + location.origin + "/pmtiles/planet.pmtiles",
-        tileSize: 256, // 512px assets served @2x for crisp high-DPI shading
-        attribution: CREDITS,
-      }
-    : {
-        type: "raster",
-        tiles: [location.origin + "/tiles/{z}/{x}/{y}.png"],
-        tileSize: 256, // 512px assets served @2x for crisp high-DPI shading
-        minzoom: 0,
-        maxzoom: 8, // the pyramid ceiling
-        attribution: CREDITS,
-      };
+  // ONE range-requested archive, no 87k loose PNGs. Dynamic import keeps the pmtiles client in
+  // its own chunk, fetched as the globe initializes (it is required for every tile now).
+  const { Protocol } = await import("pmtiles");
+  maplibregl.addProtocol("pmtiles", new Protocol().tile);
+  const reliefSource: RasterSourceSpecification = {
+    type: "raster",
+    url: "pmtiles://" + location.origin + "/pmtiles/planet.pmtiles",
+    tileSize: 256, // 512px assets served @2x for crisp high-DPI shading
+    attribution: CREDITS,
+  };
 
   // Vertical field of view — MapLibre's 36.87° default reads like a low-orbit fisheye:
   // shapes smear into the limb at overview and lean away near the frame edges zoomed in.
