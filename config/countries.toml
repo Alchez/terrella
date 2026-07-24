@@ -100,7 +100,7 @@ notes = "Viti Levu + Vanua Levu and the western group (95.8% of land, 174.6-180E
 
 [countries.kiribati]
 status = "antimeridian"
-notes = "DEFERRED special-case (2026-07-09): genuinely split across 180 - Gilberts 32% at 169-177E (incl. capital Tarawa) vs Phoenix+Line 68% at 175-151W (incl. the largest atoll Kiritimati), no dominant side. No non-crossing frame represents it and a true 40deg crosser would be mostly empty ocean. Like Antarctica, no hero for now."
+notes = "DEFERRED special-case (2026-07-09): genuinely split across 180 - Gilberts 32% at 169-177E (incl. capital Tarawa) vs Phoenix+Line 68% at 175-151W (incl. the largest atoll Kiritimati), no dominant side. No non-crossing frame represents it and a true 40deg crosser would be mostly empty ocean. Like Antarctica, no hero for now. Presentation options analysed -> FUTURE.md section 'Kiribati presentation' (viable: composited twin-panel hero, or a no-hero gallery card; ruled out: wide crosser, separate sub-heroes)."
 
 # ---- data-coverage notes
 

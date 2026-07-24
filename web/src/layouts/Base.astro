@@ -6,6 +6,7 @@ interface Props {
   title?: string;
   description?: string;
   borders?: boolean;
+  spotlight?: boolean;
   quality?: boolean;
   spin?: boolean;
 }
@@ -13,6 +14,7 @@ const {
   title = "Terrella",
   description = "Ray-traced relief maps of every country.",
   borders = false,
+  spotlight = false,
   quality = false,
   spin = false,
 } = Astro.props;
@@ -87,11 +89,21 @@ const {
          stack of separate fabs. Toggle buttons (Borders, Spin) and the tier picker
          share a single visual system: filled = on. The hairline divider separates
          what-the-globe-shows from what-tier-you-get. */
-      (borders || quality || spin) && (
+      (borders || spotlight || quality || spin) && (
         <div class="view-bar" role="group" aria-label="View options">
           {borders && (
             <button type="button" id="border-toggle" aria-pressed="false" title="Country borders">
               Borders
+            </button>
+          )}
+          {spotlight && (
+            <button
+              type="button"
+              id="spotlight-toggle"
+              aria-pressed="false"
+              title="Dim everything but this country"
+            >
+              Focus
             </button>
           )}
           {spin && (
@@ -99,7 +111,7 @@ const {
               Spin
             </button>
           )}
-          {(borders || spin) && quality && <span class="view-bar-divider" aria-hidden="true" />}
+          {(borders || spotlight || spin) && quality && <span class="view-bar-divider" aria-hidden="true" />}
           {quality && (
             <div class="quality-fab" role="radiogroup" aria-label="Experience quality">
               <button type="button" data-quality="lite" aria-pressed="false">
@@ -140,6 +152,24 @@ const {
       // Pages with map layers (the globe) react to this, not to the raw click —
       // it keeps the layout as the single writer of the persisted state.
       document.dispatchEvent(new CustomEvent("rg:borders", { detail: { on } }));
+    });
+  }
+
+  // Focus toggle — dims + desaturates everything but the selected country and
+  // strokes its boundary (the subject-spotlight overlay). Same pattern as borders:
+  // layout owns the persisted state + the body class the hero pages style against.
+  const spotlightButton = document.getElementById("spotlight-toggle") as HTMLButtonElement | null;
+  const SPOTLIGHT_KEY = "rg:spotlight";
+  if (spotlightButton) {
+    const applySpotlightState = (on: boolean) => {
+      spotlightButton.setAttribute("aria-pressed", String(on));
+      document.body.classList.toggle("spotlight-on", on);
+    };
+    applySpotlightState(localStorage.getItem(SPOTLIGHT_KEY) === "1");
+    spotlightButton.addEventListener("click", () => {
+      const on = spotlightButton.getAttribute("aria-pressed") !== "true";
+      applySpotlightState(on);
+      localStorage.setItem(SPOTLIGHT_KEY, on ? "1" : "0");
     });
   }
 </script>

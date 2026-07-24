@@ -26,6 +26,9 @@ export interface Country {
   hasBorder: boolean;
   /** Long-edge sizes of the standalone border-layer PNGs. */
   borderSizes: number[];
+  hasSpotlight: boolean;
+  /** Long-edge sizes of the subject-spotlight overlay WebPs (dims neighbours, strokes the boundary). */
+  spotlightSizes: number[];
 }
 
 export interface Manifest {
