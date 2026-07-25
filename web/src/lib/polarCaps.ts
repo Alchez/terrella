@@ -20,6 +20,8 @@
 
 import type { CustomLayerInterface, CustomRenderMethodInput, Map as MaplibreMap } from "maplibre-gl";
 
+import { smallestRungAtLeast } from "./rungs";
+
 export const RINGS = 28; // latitude subdivisions (mesh conforms to the sphere's curvature)
 export const SECTORS = 160; // longitude subdivisions
 const RADIUS = 1.0004; // a hair above the globe surface (radius 1) so it paints over the tiles
@@ -50,10 +52,13 @@ export function pickRung(rungs: CapRung[], budgetPx: number): CapRung {
   return withinBudget.length ? withinBudget[withinBudget.length - 1] : ascending[0];
 }
 
-/** Per-cap parameters (internal; built from the manifest by capOptionsFrom). */
+/** Per-cap parameters (internal; built from the manifest by capOptionsFrom). Carries the whole
+ *  rung list rather than one resolved URL: which rung this cap needs is a function of the CAMERA,
+ *  which changes after the layer is built. */
 export interface CapOptions {
   layerId: string;
-  textureUrl: string;
+  rungs: CapRung[];
+  budgetPx: number; // upload ceiling for this device class; never exceeded however close the camera
   poleLat: number; // +90 (north) or −90 (south)
   latBottom: number; // mesh equatorward edge, signed
   texEdgeLat: number; // texture inscribed-circle latitude, signed
@@ -61,15 +66,15 @@ export interface CapOptions {
   featherHi: number; // |lat| where alpha reaches 1 (poleward, over the flat Mercator plug)
 }
 
-/** Manifest → the two caps' options, at the rung the device budget affords. Pure, so the
- *  contract mapping is unit-testable. */
+/** Manifest → the two caps' options. Pure, so the contract mapping is unit-testable. */
 export function capOptionsFrom(manifest: CapsManifest, budgetPx: number = Infinity): CapOptions[] {
   return (["north", "south"] as const).map((name) => {
     const entry = manifest[name];
     const poleSign = Math.sign(entry.edge_lat);
     return {
       layerId: `polar-cap-${name}`,
-      textureUrl: pickRung(entry.rungs, budgetPx).url,
+      rungs: entry.rungs,
+      budgetPx,
       poleLat: 90 * poleSign,
       latBottom: MESH_EDGE_LAT * poleSign,
       texEdgeLat: entry.edge_lat,
@@ -77,6 +82,75 @@ export function capOptionsFrom(manifest: CapsManifest, budgetPx: number = Infini
       featherHi: Math.abs(entry.feather_hi), // shader feathers on |lat|
     };
   });
+}
+
+/** Longitude step for the extent sample. 5° = 72 points around the parallel; finer steps move the
+ *  measured extent by well under 1%, and this runs on every `moveend`. */
+const EXTENT_SAMPLE_STEP_DEG = 5;
+
+export interface ScreenPoint {
+  x: number;
+  y: number;
+}
+
+/** Great-circle angular distance in degrees — used only to ask "is this point on the near side?" */
+function angularDistanceDeg(fromLngLat: [number, number], toLngLat: [number, number]): number {
+  const toRad = Math.PI / 180;
+  const [lngA, latA] = fromLngLat;
+  const [lngB, latB] = toLngLat;
+  const cosDistance =
+    Math.sin(latA * toRad) * Math.sin(latB * toRad) +
+    Math.cos(latA * toRad) * Math.cos(latB * toRad) * Math.cos((lngB - lngA) * toRad);
+  return Math.acos(Math.min(1, Math.max(-1, cosDistance))) / toRad;
+}
+
+/** How large this cap draws on screen right now, in CSS px: the bounding box of its
+ *  inscribed-circle parallel plus the pole.
+ *
+ *  Only FRONT-FACING samples count (angular distance from the camera centre < 90°). MapLibre's
+ *  `project()` answers for points behind the globe too — projected through the sphere — so a cap on
+ *  the far side reports a bounded but non-zero box that SATURATES near 970 px however far you zoom
+ *  (measured 2026-07-25). Harmless at DPR 1, but ×3 it crosses into the 4096 rung, which would
+ *  fetch a megabyte of texture for a cap the viewer cannot see. Returns 0 when the cap is entirely
+ *  behind the globe, which reads as "needs nothing". */
+export function capProjectedExtentPx(
+  project: (lngLat: [number, number]) => ScreenPoint,
+  centerLngLat: [number, number],
+  edgeLat: number,
+  poleLat: number,
+): number {
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minY = Infinity;
+  let maxY = -Infinity;
+  let sampled = 0;
+  const consider = (lngLat: [number, number]): void => {
+    if (angularDistanceDeg(centerLngLat, lngLat) >= 90) return; // behind the globe
+    const { x, y } = project(lngLat);
+    minX = Math.min(minX, x);
+    maxX = Math.max(maxX, x);
+    minY = Math.min(minY, y);
+    maxY = Math.max(maxY, y);
+    sampled++;
+  };
+  for (let lng = -180; lng < 180; lng += EXTENT_SAMPLE_STEP_DEG) consider([lng, edgeLat]);
+  consider([0, poleLat]);
+  return sampled === 0 ? 0 : Math.max(maxX - minX, maxY - minY);
+}
+
+/** The canvas's REAL device-pixel ratio, read from the backing store rather than
+ *  `window.devicePixelRatio`. That way the FPS watchdog's `setPixelRatio(1)` lowers cap demand for
+ *  free: a degraded canvas genuinely has fewer pixels to fill, so it should also pull less texture. */
+export function canvasBackingRatio(canvas: { width: number; clientWidth: number }): number {
+  return canvas.clientWidth > 0 ? canvas.width / canvas.clientWidth : 1;
+}
+
+/** The rung to load for a measured device-pixel demand: the smallest that covers it, then clamped
+ *  to the device's upload budget. Composed from the two existing pickers rather than a third rule —
+ *  `smallestRungAtLeast` states the requirement, `pickRung` enforces the ceiling. */
+export function rungForDemand(rungs: CapRung[], demandPx: number, budgetPx: number): CapRung {
+  const wanted = smallestRungAtLeast(rungs.map((rung) => rung.px), demandPx);
+  return pickRung(rungs, Math.min(wanted, budgetPx));
 }
 
 /** GPU texture-size clamp: the upload target is the smallest of the image itself, the GPU's
@@ -211,12 +285,22 @@ export function buildMesh(opts: CapOptions): { vertices: Float32Array; indices: 
   return { vertices: new Float32Array(vertices), indices: new Uint16Array(indices) };
 }
 
-interface CapLayer extends CustomLayerInterface {
+export interface CapLayer extends CustomLayerInterface {
   program?: WebGLProgram;
   vertexBuffer?: WebGLBuffer;
   indexBuffer?: WebGLBuffer;
   texture?: WebGLTexture;
   indexCount?: number;
+  /** Captured in onAdd so `moveend` can upload without a render pass. Safe to hold: the context
+   *  survives projection transitions (the same fact the gl.isProgram guard rests on), and a real
+   *  context loss re-runs onAdd, which overwrites this. */
+  gl?: WebGL2RenderingContext;
+  /** Rung currently ON the GPU. 0 until the first load lands, so the initial fetch is simply the
+   *  first upgrade — one code path, not two that can drift. */
+  loadedRungPx?: number;
+  /** Rung being fetched right now, if any. A fast zoom fires many `moveend`s; without this the
+   *  cap would start a second 5 MB fetch before the first arrived. */
+  rungLoading?: number;
   aPos?: number;
   aUv?: number;
   aLat?: number;
@@ -279,6 +363,63 @@ async function loadCapImage(url: string): Promise<ImageBitmap | HTMLImageElement
   }
 }
 
+/** Bring this cap's texture up to the rung the current camera needs, if that is bigger than what is
+ *  already on the GPU. Both the first load and every later upgrade go through here, so there is one
+ *  fetch/upload path rather than two that can drift apart.
+ *
+ *  It only ever goes UP. Downgrading on zoom-out would save nothing (the bytes are already spent and
+ *  cached) and would cost a second decode plus a visible softening, so a session pays for the
+ *  sharpest view it actually asked for and nothing more.
+ *
+ *  Exported only as a test seam: its whole contract is "how many uploads, of which rung, under which
+ *  camera", and that is exactly what the 2026-07-23 onAdd multiplier bug got wrong unobserved. */
+export async function syncCapRung(
+  layer: CapLayer,
+  opts: CapOptions,
+  map: MaplibreMap,
+): Promise<void> {
+  const gl = layer.gl;
+  if (!gl || layer.rungLoading !== undefined) return;
+  const center = map.getCenter();
+  const extentPx = capProjectedExtentPx(
+    (lngLat) => map.project(lngLat),
+    [center.lng, center.lat],
+    opts.texEdgeLat,
+    opts.poleLat,
+  );
+  const demandPx = extentPx * canvasBackingRatio(map.getCanvas());
+  const rung = rungForDemand(opts.rungs, demandPx, opts.budgetPx);
+  if (rung.px <= (layer.loadedRungPx ?? 0)) return;
+
+  layer.rungLoading = rung.px;
+  try {
+    const bitmap = await loadCapImage(rung.url);
+    gl.bindTexture(gl.TEXTURE_2D, layer.texture!);
+    uploadCapTexture(gl, bitmap);
+    // Mipmapped minification, not plain LINEAR: at low zoom the cap shrinks ~100:1 on screen, and
+    // bilinear sampling of 4 texels per ~40×40-texel block aliases the fine relief detail — on this
+    // radial polar mapping the alias energy reads as CONCENTRIC RINGS around the pole, strongest
+    // zoomed out and gone by ~z8 (diagnosed 2026-07-22 after every texture-side tone fix left the
+    // ring visually unchanged).
+    gl.generateMipmap(gl.TEXTURE_2D);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    const size = bitmap.width; // read before close() — a closed bitmap reports 0×0
+    if ("close" in bitmap) bitmap.close(); // release the decode — the GPU has its copy
+    layer.loadedRungPx = rung.px; // only on success, so a failure can be retried by the next move
+    map.triggerRepaint();
+    // eslint-disable-next-line no-console
+    console.log(`[caps] ${opts.layerId} texture loaded`, size, "x", size,
+      `(demand ${Math.round(demandPx)} px)`);
+  } catch (err: unknown) {
+    console.error(`[caps] ${opts.layerId} texture failed`, rung.url, err);
+  } finally {
+    layer.rungLoading = undefined;
+  }
+}
+
 /** Register one cap as a `custom` layer on the (already-loaded) map. */
 function addPolarCap(map: MaplibreMap, opts: CapOptions): void {
   if (map.getLayer(opts.layerId)) return; // idempotent — style.load can fire more than once
@@ -326,29 +467,9 @@ function addPolarCap(map: MaplibreMap, opts: CapOptions): void {
       gl.bindTexture(gl.TEXTURE_2D, this.texture);
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE,
         new Uint8Array([0, 0, 0, 0]));
-      void loadCapImage(opts.textureUrl)
-        .then((bitmap) => {
-          gl.bindTexture(gl.TEXTURE_2D, this.texture!);
-          uploadCapTexture(gl, bitmap);
-          // Mipmapped minification, not plain LINEAR: at low zoom the cap shrinks ~100:1 on
-          // screen, and bilinear sampling of 4 texels per ~40×40-texel block aliases the fine relief
-          // detail — on this radial polar mapping the alias energy reads as CONCENTRIC RINGS around
-          // the pole, strongest zoomed out and gone by ~z8 (diagnosed 2026-07-22 after every
-          // texture-side tone fix left the ring visually unchanged).
-          gl.generateMipmap(gl.TEXTURE_2D);
-          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
-          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-          const size = bitmap.width; // read before close() — a closed bitmap reports 0×0
-          if ("close" in bitmap) bitmap.close(); // release the ~268 MB decode — the GPU has its copy
-          map.triggerRepaint();
-          // eslint-disable-next-line no-console
-          console.log(`[caps] ${opts.layerId} texture loaded`, size, "x", size);
-        })
-        .catch((err: unknown) =>
-          console.error(`[caps] ${opts.layerId} texture failed`, opts.textureUrl, err),
-        );
+      this.gl = gl;
+      this.loadedRungPx = 0;
+      void syncCapRung(this, opts, map); // the initial fetch IS the first upgrade, from 0
       // eslint-disable-next-line no-console
       console.log(`[caps] ${opts.layerId} added; mesh`, this.indexCount! / 3, "triangles");
     },
@@ -391,6 +512,9 @@ function addPolarCap(map: MaplibreMap, opts: CapOptions): void {
     },
   };
   map.addLayer(layer);
+  // Re-evaluate once the camera settles, not on every frame of a drag: the check is cheap (72
+  // projections) but a fetch is not, and an in-flight zoom has no stable answer to give.
+  map.on("moveend", () => void syncCapRung(layer, opts, map));
 }
 
 /** Fetch the pipeline's caps.json contract and register both polar caps on the loaded map.

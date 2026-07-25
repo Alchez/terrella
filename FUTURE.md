@@ -218,6 +218,55 @@ magnitude, so the taxonomy is the decision:
   desktop visitors — against the ~80 MB the hero rungs took off the gallery.
 - **Not proposed:** a 1024 px pyramid to serve DPR 3 at 1:1. That is 4× the tiles for the band
   that is merely soft, not broken.
+- **The polar caps solved this exact mechanism, and the tiles still have not** (2026-07-25). The cap
+  now picks its texture from its projected on-screen size × the canvas backing ratio, so DPR is
+  handled per-device with no look change → HISTORY § the polar caps ship 156 KB. The tiles cannot
+  reuse that: MapLibre's raster source has no DPR negotiation and `tileSize` is global, which is why
+  the lever above is a one-line `tileSize` switch rather than a picker. Worth re-reading that
+  implementation before picking this up — it settles what "demand" means here, and the
+  `canvas.width / canvas.clientWidth` ratio is the right input for both.
+
+## Brotli sidecars for the text-like assets (analysed 2026-07-25, BLOCKED)
+
+- **Trigger:** measuring what the edge actually negotiates for `countries.geojson`. It picks the
+  *worst* of the three encodings it offers.
+- **Measured, same source file:** edge zstd **2.98 MB** · edge gzip 2.61 MB · static brotli-11
+  **1.56 MB**. `boundary_lines.geojson` goes 642 → 376 KB the same way. Together ≈ 1.5 MB off the
+  cold window.
+- **BLOCKED on a correctness question, not on effort:** one stored R2 object cannot
+  content-negotiate. Serving a `.br` sidecar means either a second object plus request-time
+  selection, or storing only brotli and breaking any client that does not advertise it.
+- R2's `Content-Encoding` passthrough behaviour is **undocumented** in the docs search — it needs a
+  probe object before anything is designed on top of it.
+- `DecompressionStream` has **no brotli**, so decompressing it in page JS is not an escape hatch.
+- **Low priority on purpose:** this is deferred-to-idle transfer (~0.4 s), entirely off the
+  first-paint path. The polar caps are the larger and simpler target → PLAN Phase 4.
+
+## Vector-tile countries (analysed 2026-07-25 — the stated reason was FALSIFIED)
+
+- **Trigger:** "the 9.39 MB `countries.geojson` costs a big JSON parse, so make it vector tiles."
+  That reason does not survive measurement.
+- **Falsified, measured on the live page:** `JSON.parse` of the 9.39 MB is **19 ms**; TextDecode
+  4 ms; the geometry walk ~0 ms. Parsing is not the cost and never was.
+- **What the ~0.41 s actually is:** MapLibre **tessellation** — turning polygons into GPU
+  triangles. That figure is inferred by subtraction, **not directly measured**; measure it before
+  using it to justify any work.
+- **Consequence for the design space:** only *geometry reduction* (fewer/simpler polygons) touches
+  tessellation. Compression, a faster parser, and a binary container all miss it entirely.
+- **"The transfer side is already handled" was true when written and is now the weakest claim here.**
+  It is deferred to first idle and gzipped 9.39 → 2.99 MB, but the Lighthouse pass
+  (2026-07-25) puts it at **3.08 MB — the single largest item in the globe's cold window, bigger
+  than all 36 tiles combined (2.65 MB)**, now that the polar caps dropped to 0.15 MB. Shrinking
+  everything around it promoted this to the top of the payload.
+- **So the idea is alive, on a different reason than it started with.** Do not resurrect the parse
+  argument (19 ms, falsified); the case is transfer size plus tessellation. Both are touched only by
+  geometry reduction, which is exactly what vector tiles do.
+- **But weigh it against what the same pass found on the main thread:** script evaluation is
+  5,702 ms on throttled mobile, **4,064 ms of it MapLibre's own init**, versus a TBT of 2,120 ms.
+  Payload is no longer the globe's binding constraint, so measure the tessellation share directly
+  before spending effort here. → PLAN § Lighthouse pass
+- Related: the same `countries.geojson` is the input to Kind 1 look presets above, so any
+  re-encoding decision should be taken once, for both.
 
 ## AVIF hero variants (analysed 2026-07-23, premise restated 2026-07-25)
 

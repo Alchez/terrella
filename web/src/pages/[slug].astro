@@ -1,7 +1,8 @@
 ---
 import Base from "../layouts/Base.astro";
 import Masthead from "../components/Masthead.astro";
-import { manifest as data, smallestRungAtLeast, type Country } from "../lib/manifest";
+import { manifest as data, type Country } from "../lib/manifest";
+import { smallestRungAtLeast } from "../lib/rungs";
 import { HERO_BASE } from "../lib/assetBase";
 
 // One statically-built page per country.

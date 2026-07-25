@@ -95,6 +95,28 @@ All commands are run from the root of the project, from a terminal:
 | `pnpm run build:deploy` | Build addressing the production asset hosts      |
 | `pnpm run deploy`      | `build:deploy`, then upload to Cloudflare        |
 
+### Running a Lighthouse pass
+
+```sh
+npx lighthouse https://terrella.alchez.dev/globe/ \
+  --output=json --output-path=/tmp/lh.json --only-categories=performance --quiet \
+  --chrome-flags="--headless=new --no-sandbox --enable-unsafe-swiftshader --use-gl=angle --use-angle=swiftshader"
+```
+
+Three things will otherwise waste a run:
+
+- **Headless Chrome needs the SwiftShader flags** or the globe never gets a WebGL2 context, and the
+  page silently measures as the gallery instead.
+- **`/` client-side steers to `/globe/`** (the `Base.astro` tier guard). Always check
+  `finalDisplayedUrl` against `requestedUrl` in the JSON — otherwise you measure the globe twice and
+  believe one run was the gallery.
+- **Lighthouse cannot seed `localStorage`**, so the tier guard always decides for itself. Forcing
+  Tier 1 needs `rg:quality = "lite"` in a pre-seeded Chrome profile; for a quick check, set it in a
+  real browser instead and read Resource Timing. `rg:quality` persists — restore it afterwards.
+
+The default (mobile) preset **is** the weak-Android test: Moto G Power, 4× CPU throttle, slow 4G.
+Use `--preset=desktop` for the unthrottled number; the two differ by roughly 30 points here.
+
 ## Deploying
 
 The site is served from three origins, because only the shell is small enough to ship
