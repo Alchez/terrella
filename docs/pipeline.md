@@ -103,14 +103,25 @@ Snow here is **not** the hero's WorldCover class-70 mask (permanent ice only, wh
 Once heroes exist, four steps turn them into what the site serves:
 
 ```bash
-python -m pipeline.compose.hero_variants    # 2K/4K/native WebP variants per hero (downscale-only, idempotent)
+python -m pipeline.compose.hero_variants --jobs 8   # 6 srcset rungs per hero (downscale-only, idempotent)
 python -m pipeline.compose.gen_borders      # transparent white border layer per country
 python -m pipeline.compose.gen_spotlight    # transparent Focus layer: dims everything outside the country
 ```
 
-All three take `--only <slug,slug>` to process a subset; `gen_borders` and `gen_spotlight` also take
-`--force` to redo existing outputs. `gen_spotlight` runs serially by default — the largest countries
-peak near 8 GB each, so `--jobs>1` needs real headroom above the 12 G cap. Then the frontend (the in-repo Astro site in `web/`, merged to main) regenerates its manifest and builds:
+All three take `--only <slug,slug>` to process a subset, and all three now take `--force`. They share
+one rung ladder — **640/960/1280/1920/3840/native** — because the gallery and the globe panel stack
+their outputs under a single `sizes`; a rung in one ladder and not another makes the browser fetch
+mismatched files (`tests/test_hero_variants.py` guards this against what the pages declare).
+
+Parallelism is per-script and is a MEMORY question, not a core one. `hero_variants` peaks at ~525 MB
+per encode, so `--jobs 8` is comfortable and takes the 203-hero pass from ~49 min to ~6 min.
+`gen_spotlight` defaults to serial because its **native** rung peaks near 8 GB — but a small-rung
+pass (640/960/1280 only) measures ~0.5 GB per job, so that constraint does not apply to it; time one
+slug before choosing. `gen_borders` has no `--jobs` and takes ~3 s per country.
+
+`hero_variants` also records `hero_variants_recipe.json` (rung → the WebP quality it was written at).
+Existence alone cannot tell a q95 file from the q85 one it replaced, so **changing `quality_for()` is
+what restages a rung** — and only that rung. Then the frontend (the in-repo Astro site in `web/`, merged to main) regenerates its manifest and builds:
 
 ```bash
 python web/scripts/gen_manifest.py --out web/src/data/countries.json

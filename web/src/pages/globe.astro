@@ -308,8 +308,8 @@ import Base from "../layouts/Base.astro";
   const urlFlags = new URLSearchParams(location.search);
   const bareDiagnostic = urlFlags.has("bare");
 
-  // The relief pyramid lives in ONE 16 GB PMTiles archive, and the browser never touches it.
-  // It asks a tile endpoint for z/x/y and gets a single PNG back; the archive is opened and
+  // The relief pyramid lives in ONE multi-GB PMTiles archive, and the browser never touches it.
+  // It asks a tile endpoint for z/x/y and gets a single tile back; the archive is opened and
   // ranged server-side (dev: the middleware in astro.config.ts, prod: a Worker over R2). The
   // earlier pmtiles:// path did that ranging in the browser, which cannot survive the move to
   // a CDN — Workers Caching strips Range and would fetch the whole archive per tile

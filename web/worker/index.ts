@@ -1,7 +1,7 @@
-// The relief tile server: one PNG per request, ranged out of the 16 GB PMTiles archive in R2.
+// The relief tile server: one tile per request, ranged out of the PMTiles archive in R2.
 //
 // This is the production half of the pair whose dev half is the /tiles middleware in
-// astro.config.ts. Both answer the same contract — `{z}/{x}/{y}.png`, parsed by the same
+// astro.config.ts. Both answer the same contract — `{z}/{x}/{y}.webp`, parsed by the same
 // reliefTiles.ts — and differ only in where the bytes come from: a local file there, an R2
 // binding here. The browser never opens the archive itself, because Workers Caching strips
 // `Range` and would ask for the full 16 GB body (→ HISTORY § the deploy target moves to R2).
@@ -20,7 +20,7 @@ import {
   type RangeResponse,
   type Source,
 } from "pmtiles";
-import { parseTilePath } from "../src/lib/reliefTiles";
+import { TILE_CONTENT_TYPE, parseTilePath } from "../src/lib/reliefTiles";
 
 interface Env {
   /** R2 binding for the bucket holding the archive (bucket `terrella-tiles`). */
@@ -269,7 +269,7 @@ export default {
       // wrong, not that the region is empty. 404 rather than an empty 200, so it is visible.
       if (!entry) return store(null, 404);
 
-      return store(entry.data, 200, "image/png");
+      return store(entry.data, 200, TILE_CONTENT_TYPE);
     } catch (error) {
       if (error instanceof ArchiveNotFound) {
         console.error(`${archiveKey} missing from the bound bucket`);

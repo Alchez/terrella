@@ -30,7 +30,7 @@ All ~203 in-scope heroes rendered (Kiribati deferred), variants/borders/manifest
 - [x] Batch runner — `pipeline/batch.py`: resumable, subprocess-isolated, OOM defense, JSONL failure log
 - [x] Hero regeneration documented — `docs/pipeline.md` (the runbook)
 - [x] Overnight sweep + QA — closed Phase 1
-- [x] Responsive variants (2K/4K/8K WebP) — `hero_variants.py`, ≈16× smaller than PNG
+- [x] Responsive variants (six rungs 640→8K WebP) — `hero_variants.py`, ≈16× smaller than PNG
 
 ## Phase 2 — Global tile pyramid — COMPLETE 2026-07-23 (successor work → Phase 5)
 
@@ -145,8 +145,8 @@ Baked-vs-live rule (locked 2026-07-07): too expensive live → baked; depends on
   - **No longer serves tiles** (2026-07-25): `/tiles/` returns 501 naming `astro dev` / `wrangler dev`
   - `/pmtiles/` location + `PMTILES_STORE` mount + `httpRange.ts` deleted with the client that used them
 - [~] **Deploy = Cloudflare R2 + CDN** (decided 2026-07-25) → HISTORY § the deploy target moves to R2
-  - Workers Static Assets = site shell (13 MB, caps baked in) · R2 = archive 15 GB + heroes 2.0 GB · Worker = tiles
-  - **The Worker is mandatory:** 512 MB cache ceiling, so 15 GB can never be an edge object
+  - Workers Static Assets = site shell (13 MB, caps baked in) · R2 = archive 3.0 GB + heroes 3.5 GB · Worker = tiles
+  - **The Worker is mandatory:** 512 MB cache ceiling, so a multi-GB archive is never an edge object
   - **Never send `Range` at a Worker** — the header is stripped and the full body requested
   - Free tier ≈ 2,500 cold visits/day; a cache HIT still charges a request
   - Account/zone IDs live in memory, NOT here — this repo is going open-source
@@ -259,6 +259,19 @@ Baked-vs-live rule (locked 2026-07-07): too expensive live → baked; depends on
     - [ ] `webglcontextlost` → "reload the globe" hint
     - [ ] `setMaxParallelImageRequests` — measure at the Lighthouse pass, on a real network
   - Payload rungs (the real lever, since serving not compute is the cost)
+    - [x] **The rung ladder SHIPPED 2026-07-25** → HISTORY § the ladder ships against measured layout
+      - **640/960/1280** added to hero, spotlight AND border ladders; 960 was not in the approved pair
+      - Measured: the gallery is masonry, so a card is **324–516 CSS px at every viewport 390→3440**
+      - DPR is the only real variable — bands ~350 (DPR1) · ~700–820 (DPR2) · ~1000–1100 (DPR3)
+      - `sizes` corrected to `(max-width: 640px) 92vw, 440px`; fractions over-declared 3.08× at 3440
+      - Honest full-scroll now **13 / 28 / 47 MB** by DPR band, not the "13–20" first quoted
+      - Guard in `tests/test_hero_variants.py` maps each `sizes` to the ladders layered into it
+      - Correction: the country page uses a CSS background-image, so it has no `sizes` to be missing
+    - [x] **Asset quality SHIPPED 2026-07-25** — Rohan approved the differentiated policy
+      - hero q85 to 1920 / **q95 at 3840+native** · tiles **WebP q95** · caps q85 · spotlight q88
+      - Oracle that the flag landed: 3840 **1.89×**, 7680 **2.01×** vs the predicted 1.90×
+      - Archive **15 GB → 3.0 GB = 20.0%**, exactly the byte-weighted sample prediction
+      - Policy + the reasoning now lives in ART.md § Delivery encoding, not only in HISTORY
     - [x] `cap_render` 4096 rung — DONE 2026-07-25, mobile 5.3 → 1.8 MB → HISTORY § the cap rung
     - [ ] brotli sidecars — **sized 2026-07-25**: the edge picks zstd 2.98 MB where static br-11 is 1.56 MB
       - Edge choice is the worst of the three offered: gzip 2.61 · br 2.81 · **zstd 2.98 MB**
@@ -283,13 +296,13 @@ Baked-vs-live rule (locked 2026-07-07): too expensive live → baked; depends on
       - **A warm browser cache still reports 0** — it replays pre-deploy headers, and nothing can purge it
       - Oracle: forced-network `decodedBodySize` = 433,656 (tile) and 1,954,822 (boundary_lines)
       - Both match known byte counts exactly, so the check cannot pass vacuously
-    - [ ] **tiles WebP — MEASURED 2026-07-25 on 3 live tiles; the citation to FUTURE.md was dangling**
-      - q90 is **18–20% of PNG** (606,332 → 122,518 B); q80 12–14%; q95 24–27%; **lossless 57–72%**
-      - Cold window tiles **12.9 → ~2.6 MB**; archive **16 GB → ~3.2 GB**; R2 read 380 → ~80 ms
-      - Geography-independent — helps every visitor at every PoP, cached or not
-      - **Lossy on fine shading detail is exactly where this project has been burned** — needs Rohan's eye
-      - Lossless WebP is the risk-free floor: ~35% off with zero pixel change
-      - Cost: a pyramid re-cut + re-upload + zone purge; content-type and URL extension change
+    - [x] **tiles WebP q95 — CUT, PACKED, VERIFIED LOCALLY 2026-07-25** (not yet uploaded)
+      - `gdal raster tile --format=WEBP --co QUALITY=95` cuts it directly; no re-encode pass
+      - Archive **3.0 GB**, header reads `tile type: webp`, 4 addresses byte-identical archive↔disk
+      - Fidelity vs the lossless tiles it replaces: **mean |Δ| 1.91/255** over 36 z8 Alps tiles
+      - **No zone purge needed** — the `.webp` extension changes every URL, which is the cache-bust
+      - `tile_params.json` now guards the cut; without it a format change read as fresh
+      - The FUTURE citation was NOT dangling — that note exists, it just covers heroes, not tiles
   - Done, kept as context
     - [x] onAdd-per-projection-transition re-init FIXED (`gl.isProgram` guard)
     - [x] Cap render memory FIXED 2026-07-25 → HISTORY § the cap rung

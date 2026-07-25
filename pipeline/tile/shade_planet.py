@@ -43,7 +43,7 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, TypedDict, cast
 
 import numpy as np
 import rasterio
@@ -722,8 +722,56 @@ def composite_planet(work: Path, hs, compute_occlusion: Callable[[], np.ndarray]
     return outs
 
 
+class TileCut(TypedDict):
+    """Every setting of the tile cut that changes the bytes GDAL writes.
+
+    A TypedDict for the reason `Knobs` is one: it is consumed both as a command line and as a JSON
+    freshness record, and a plain dict would infer `str | int | bool` for every value, so a typo'd
+    key or a quality read as a string would only surface as a wrong pyramid.
+    """
+    format: str
+    quality: int
+    tile_size: int
+    min_zoom: int
+    max_zoom: int
+    resampling: str
+    overview_resampling: str
+    convention: str
+    skip_blank: bool
+
+
+# WebP q95 replaced PNG on 2026-07-25. Measured on 73 tiles sampled proportionally across all nine
+# zooms: q95 is 20.0% of PNG byte-weighted, and z8 -- three quarters of the pyramid -- is the
+# cheapest at 14.8%, so the aggregate is conservative. The archive goes ~16 GB -> ~3.2 GB and the
+# Worker's single R2 read per cold tile drops with it (~380 ms -> ~80 ms, it is bandwidth-bound).
+TILE_CUT = TileCut(format="WEBP", quality=95, tile_size=512, min_zoom=0, max_zoom=8,
+                   resampling="cubic", overview_resampling="cubic", convention="xyz",
+                   skip_blank=True)
+
+
+def tile_params() -> str:
+    """The tile cut's own settings, recorded as the live pyramid's dependency — hs_params' sibling.
+
+    This stage keyed freshness off `planet_rgb` ALONE until 2026-07-25, which meant the cut was the
+    one stage that could not see its own recipe: changing the output format left `tiles_are_fresh`
+    true, so the PNG->WebP switch would have silently shipped the old pyramid. Everything in
+    TILE_CUT alters the emitted bytes, and nothing outside it does — the input raster and the output
+    directory are `is_stale`'s own arguments, not settings.
+    """
+    return json.dumps(TILE_CUT, sort_keys=True, indent=2)
+
+
+def tile_params_path(out: Path) -> Path:
+    """Where the cut's recipe is recorded, beside the pyramid it describes."""
+    return out / "tile_params.json"
+
+
 def _tile_cmd(planet_tif: Path, staging: Path) -> list[str]:
     """The `gdal raster tile` invocation that cuts z0-8 512px tiles into `staging`.
+
+    Built FROM `TILE_CUT` rather than from literals, so the command and the freshness record cannot
+    disagree about what was cut — the same one-fact-one-spelling rule pack_pmtiles now follows for
+    the tile encoding.
 
     `--overview-resampling=cubic` pins what is otherwise an UNDOCUMENTED default -- identified by
     elimination (2026-07-16): unset, it silently inherits `--resampling`. This is byte-identical to
@@ -734,41 +782,58 @@ def _tile_cmd(planet_tif: Path, staging: Path) -> list[str]:
     the pyramid. We serve our own MapLibre page, and they would ride into PMTiles.
 
     NO `--resume` (removed 2026-07-20): GDAL skips existing files by existence without reading them,
-    so a truncated png from a mid-write kill would survive a resume. build_tiles instead removes any
-    partial staging dir and cuts clean every time -- see its docstring.
+    so a truncated tile from a mid-write kill would survive a resume. build_tiles instead removes
+    any partial staging dir and cuts clean every time -- see its docstring.
     """
-    return ["gdal", "raster", "tile", "--min-zoom=0", "--max-zoom=8", "--tile-size=512",
-            "--resampling=cubic", "--overview-resampling=cubic", "--convention=xyz",
-            "--skip-blank", "--webviewer=none", str(planet_tif), str(staging)]
+    cmd = ["gdal", "raster", "tile",
+           f"--min-zoom={TILE_CUT['min_zoom']}", f"--max-zoom={TILE_CUT['max_zoom']}",
+           f"--tile-size={TILE_CUT['tile_size']}",
+           f"--resampling={TILE_CUT['resampling']}",
+           f"--overview-resampling={TILE_CUT['overview_resampling']}",
+           f"--convention={TILE_CUT['convention']}",
+           f"--format={TILE_CUT['format']}", "--co", f"QUALITY={TILE_CUT['quality']}"]
+    if TILE_CUT["skip_blank"]:
+        cmd.append("--skip-blank")
+    return [*cmd, "--webviewer=none", str(planet_tif), str(staging)]
 
 
 def tiles_are_fresh(planet_tif: Path, out: Path) -> bool:
-    """True if the live pyramid is current: present, non-empty, and stamped newer than the composite
-    that feeds it.
+    """True if the live pyramid is current: present, non-empty, and stamped newer than BOTH the
+    composite that feeds it and the recipe that describes it.
 
     Keyed off `planet_rgb`'s `.done` marker, NOT the `.tif` (GDAL stamps its target at write-start,
     the trap `is_stale` exists to avoid). `is_stale(live, ...)` stats only `tiles/` + `tiles.done` +
-    the one input marker -- never a 62k-tile walk (the dir is the OUTPUT, not a walked input). The
+    the two input markers -- never a 62k-tile walk (the dir is the OUTPUT, not a walked input). The
     non-empty + marker-exists checks reject a half-swapped empty dir or a missing composite stamp.
+
+    tile_params.json joined the key on 2026-07-25. A missing one scores 0.0 in `newest_mtime` and so
+    cannot make a pyramid look stale on its own; build_tiles writes it through `write_if_changed`
+    before asking, which is what makes a settings change -- and only a settings change -- restage.
     """
     live = out / "tiles"
     return (live.is_dir() and any(live.iterdir())
             and done_marker(planet_tif).exists()
-            and not is_stale(live, done_marker(planet_tif)))
+            and not is_stale(live, done_marker(planet_tif), tile_params_path(out)))
 
 
 def build_tiles(planet_tif: Path, out: Path):
     """Cut z0-8 512px tiles into a staging dir, then swap over the live tiles.
 
-    Fresh-guarded like every other stage (`tiles_are_fresh`): a re-run whose `planet_rgb` is
-    unchanged skips the ~3:44 cut entirely. Until 2026-07-20 this was the one unguarded stage -- the
-    staging dir is renamed away on success, so `--resume` always started from empty and the cut
-    re-ran in full every time. The completion stamp is `tiles.done`, touched only after the swap.
+    Fresh-guarded like every other stage (`tiles_are_fresh`): a re-run whose `planet_rgb` AND
+    `tile_params.json` are unchanged skips the ~4:19 cut entirely. Until 2026-07-20 this was the one
+    unguarded stage -- the staging dir is renamed away on success, so `--resume` always started from
+    empty and the cut re-ran in full every time. The completion stamp is `tiles.done`, touched only
+    after the swap.
+
+    The recipe is written BEFORE the freshness question is asked, so changing TILE_CUT is what
+    triggers its own re-cut; `write_if_changed` means an unchanged recipe never moves an mtime and
+    never restages a pyramid that is still correct.
 
     EVERY CUT IS A CLEAN FULL CUT: the staging dir is removed first and `--resume` is not passed
-    (see `_tile_cmd`). GDAL writes each png in place, so a worker killed mid-write leaves a truncated
-    file that an existence-only `--resume` would keep; re-cutting from empty (~3:44) is the cheap
-    price of never trusting a partial tile. The one-generation rollback stays at `tiles_old`.
+    (see `_tile_cmd`). GDAL writes each tile in place, so a worker killed mid-write leaves a
+    truncated file that an existence-only `--resume` would keep; re-cutting from empty (~4:19) is
+    the cheap price of never trusting a partial tile. The one-generation rollback stays at
+    `tiles_old`.
 
     THERE IS NO gdaladdo STEP, deliberately. `gdal raster tile` builds each low zoom from the tiles
     it just generated, never from the source's overviews -- proven 2026-07-16 by tiling one raster
@@ -777,6 +842,7 @@ def build_tiles(planet_tif: Path, out: Path):
     2026-07-14 note that justified them credited a confounded fix: materialising the 194-source VRT
     to a GTiff was the real speed-up; the overviews rode along on the same commit untested.
     """
+    write_if_changed(tile_params_path(out), tile_params())
     if tiles_are_fresh(planet_tif, out):
         print("tiles fresh -> skip cut", flush=True)
         return

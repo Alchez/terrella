@@ -13,13 +13,17 @@
   is missing, never completed (`.done` marker), or older than any input. A re-run costs
   **~0 s per stage** until something upstream actually changes.
 - Tunables that never reach a file of their own (`KNOBS`, palette colours) are materialised into
-  `composite_params.json` / `hs_params.json`, whose mtime moves **only when a value really
-  changes** — that is what makes the guard trustworthy against a `git checkout`.
+  `composite_params.json` / `hs_params.json` / `tile_params.json`, whose mtime moves **only when a
+  value really changes** — that is what makes the guard trustworthy against a `git checkout`.
 - One stage is the exception, and it is the interesting one: **`global_occlusion` (sky-view) has
   no file to stamp**, so it is guarded by *laziness* — passed to the composite unevaluated, it
   runs only if the composite is stale.
 - `build_tiles` carries a `tiles.done` sentinel + a `tiles_are_fresh` guard, and **cuts clean
-  each time** (no `--resume`, so a truncated png can't survive). → HISTORY § pipeline hardening
+  each time** (no `--resume`, so a truncated tile can't survive). → HISTORY § pipeline hardening
+- **`tile_params.json` is part of that guard**: the cut's own settings (format, quality, tile size,
+  zooms, resampling) are recorded beside the pyramid, so changing the encoding restages the cut and
+  nothing upstream. Without it a format change left the pyramid reading as fresh.
+  → HISTORY § the ladder ships against measured layout
 
 ## The planet tile pipeline
 
@@ -34,7 +38,7 @@ flowchart LR
   CK(["composite-stage knob<br/>ramps · tone · snow · sea ice · lake"]) --> SVF
 
   W["warps → 3857 grid<br/>(one-time per grid change)<br/>height 6:49 · masks 3:30<br/>lake 1:01:44 · snow 15:16 · ice 14:42"] --> HS
-  HS["hillshade + fill sun<br/>16:20"] --> SVF["sky-view factor<br/>3:23 (lazy)"] --> C["composite<br/>21:37"] --> T["tile cut z0–8<br/>4:19"] --> PK["pack + convert<br/>0:33 + 1:11 → planet.pmtiles"]
+  HS["hillshade + fill sun<br/>16:20"] --> SVF["sky-view factor<br/>3:23 (lazy)"] --> C["composite<br/>21:37"] --> T["tile cut z0–8 → WebP q95<br/>4:19"] --> PK["pack + convert<br/>0:10 + 0:06 → 3.0 GB planet.pmtiles"]
   C -. auto, ~1:35 .-> CAP["polar caps<br/>→ web/public/caps/"]
 
   HK -. "≈ 46 min to live tiles" .-> T
@@ -57,7 +61,7 @@ All stage numbers below are at the **131072² grid** (the full Mercator square) 
 | 4 | `render/hillshade.py` — per-row z-factor **+ fill sun** | **16:20** | ~0 s | `hs_3857.tif` | `is_stale` |
 | 5 | `global_occlusion` — sky-view factor | **3:23** (I/O-bound) | ~0 s | in-memory only | **lazy** |
 | 6 | `composite_planet` — ramps × hillshade × SVF + snow + sea ice + lake depth | **21:37** (1024 windows; the Antarctic windows are all snow+ice work) | ~0 s | `planet_rgb.tif` 11 GB | `is_stale` |
-| 7 | `build_tiles` — `gdal raster tile` z0–8 | **4:19** | **skip** | `tiles/` 16 GB, 87,381 tiles | `tiles.done` |
+| 7 | `build_tiles` — `gdal raster tile` z0–8, WebP q95 | **4:19** | **skip** | `tiles/` **3.1 GB**, 87,381 tiles | `tiles.done` + `tile_params.json` |
 
 Why the numbers are what they are (current-state explanations, not history):
 
@@ -164,9 +168,12 @@ Run once; all are resumable and verify against a pinned size/md5, so a re-run is
 | Worker deploy + first TLS | `npx wrangler deploy` in `web/worker` | deploy seconds; **certificate a few minutes** | Universal SSL covers only the apex + first level, but Workers Custom Domains **auto-generate an Advanced Certificate** for the target hostname and R2/Pages custom domains use Cloudflare-for-SaaS certs — both automatic, no ACM, any depth. So depth changes *when* TLS works, not *whether*. Expect `TLS alert handshake failure` while the cert issues, even though DNS already resolves: `*.zone` is an RFC 4592 wildcard that answers at any depth, so **check the certificate, never `dig`** |
 | Site deploy | `pnpm run deploy` in `web` | preflight ~2 s · build ~0.5 s · upload **13 s** | Runs the asset-sync preflight, then builds with the production bases, then uploads. **Never `wrangler deploy` alone** — that ships a same-origin build whose 204 hero pages 404. Re-deploys upload nothing when `dist/` is unchanged ("No updated asset files") |
 | Deploy preflight | `pnpm run check:deploy-sync` | ~2 s (1,624 objects) | Lists `terrella-assets` and diffs it against the manifest. Advertised-but-absent is fatal (the site would 404); present-but-unreferenced warns, since the usual cause is a manifest not regenerated after a render. Needs `R2_ENDPOINT` in `web/.env` and the `r2` profile; `SKIP_ASSET_SYNC_CHECK=1` overrides |
-| R2 upload — the archive | `aws --profile r2 --endpoint-url <r2> s3 cp planet.pmtiles s3://terrella-tiles/` | **10m28s** (16.06 GB ≈ 205 Mbps on a 249 Mbps uplink) | 1,916 × 8 MiB multipart parts. Detach it. Verify by reconstructing the multipart ETag locally (MD5 of the concatenated part MD5s + `-N`) — the ETag is NOT a plain MD5, so a naive comparison always "fails" |
-| R2 upload — heroes + borders | `aws … s3 sync … --exclude "*.aux.xml"` | ~2 min (1,622 files, 2.13 GB) | **The exclude is mandatory** — 609 of the variants store's 2,231 files are GDAL sidecars. GeoJSON needs `--content-type application/json` or the edge will not compress it |
-| PMTiles packaging | `pack_pmtiles.py` → `pmtiles convert` | dir→MBTiles **33 s** (87,381 tiles); convert **1m11s** under the 12 G cap + `--tmpdir` on ext4 → 15 GB `planet.pmtiles`, ~5% deduped | run convert capped and with its temp on ext4 — uncapped it stages ~12 GB through tmpfs `/tmp` (= RAM) → HISTORY § the uncapped pmtiles convert OOM'd the box. Verified: `pmtiles verify` clean, 5 tiles byte-identical incl. z8 y=255 |
+| R2 upload — the archive | `aws --profile r2 --endpoint-url <r2> s3 cp planet.pmtiles s3://terrella-tiles/` | **~2 min** for the 3.0 GB WebP archive; **10m28s** measured on the 16.06 GB PNG one (≈ 205 Mbps on a 249 Mbps uplink) | 1,916 × 8 MiB multipart parts. Detach it. Verify by reconstructing the multipart ETag locally (MD5 of the concatenated part MD5s + `-N`) — the ETag is NOT a plain MD5, so a naive comparison always "fails" |
+| Hero variants — the srcset ladder | `hero_variants.py --jobs 8` | **6 min** (203 heroes × 6 rungs); **~49 min at the default `--jobs 1`** | One `gdal_translate` peaks at **523 MB**, so the ceiling is cores, not the memory cap — but the default stays 1, as `gen_spotlight`'s does. Quality is a policy (`quality_for`): q85 to 1920, q95 at 3840/native. `hero_variants_recipe.json` records what each rung was written at, so a quality change restages exactly that rung and nothing else |
+| Spotlight overlays — small rungs only | `gen_spotlight.py --only <slugs> --jobs 6` | **1m45s** (203 slugs × 3 new rungs) | **The "~8 GB per job" in its docstring is a NATIVE-rung figure.** Generating only 640/960/1280 measured **0.49 GB per job**, ~16× lighter, so a high `--jobs` is safe for a small-rung pass and reckless for a full one. Time one slug before choosing |
+| Border layers — all rungs | `gen_borders.py` | **7m21s** (201 countries × 5 rungs, serial; no `--jobs` flag) | Redraws the full-res cairo layer per country and writes every rung from that one surface, so adding a rung costs a full regeneration. ~3 s per country |
+| R2 upload — heroes + borders | `aws … s3 sync … --exclude "*.aux.xml" --exclude "*_recipe.json"` | ~2 min (1,622 files, 2.13 GB) | **Both excludes are mandatory** — GDAL PAM sidecars are the bulk of them, and `hero_variants_recipe.json` is pipeline-internal freshness state that must not be published (the deploy preflight caught it as an unreferenced object). 609 of the variants store's 2,231 files are GDAL sidecars. GeoJSON needs `--content-type application/json` or the edge will not compress it |
+| PMTiles packaging | `pack_pmtiles.py` → `pmtiles convert` | **WebP q95 pyramid:** dir→MBTiles **10 s** (87,381 tiles, 3.19 GB); convert **5.8 s** → **3.0 GB** `planet.pmtiles`. *(The PNG pyramid it replaced: 33 s and 1m11s → 15 GB.)* | Still run convert capped with `--tmpdir` on ext4 — uncapped it stages through tmpfs `/tmp` (= RAM) → HISTORY § the uncapped pmtiles convert OOM'd the box. The format is read off the tile directory, never passed: a mixed directory fails loudly. Verify with `pmtiles show` (must read `tile type: webp`) plus a byte-compare of a few addresses against the tiles on disk | run convert capped and with its temp on ext4 — uncapped it stages ~12 GB through tmpfs `/tmp` (= RAM) → HISTORY § the uncapped pmtiles convert OOM'd the box. Verified: `pmtiles verify` clean, 5 tiles byte-identical incl. z8 y=255 |
 
 ## If you only remember one thing
 

@@ -37,6 +37,19 @@ export interface Manifest {
   countries: Country[];
 }
 
+/** The smallest rung that can fill `minimumPx` on its long edge, or the largest available when
+ *  none can.
+ *
+ *  Exists for the country page, whose hero is a CSS background-image rather than an <img>, so no
+ *  srcset chooses for it. That page used to take `sizes[0]` — correct only for as long as the
+ *  ladder's floor happened to be the right display size, and silently wrong the moment 640/960/1280
+ *  were added below it (2026-07-25). A floor states the requirement instead of relying on the
+ *  ladder's shape. */
+export function smallestRungAtLeast(sizes: number[], minimumPx: number): number {
+  const ascending = [...sizes].sort((first, second) => first - second);
+  return ascending.find((size) => size >= minimumPx) ?? ascending[ascending.length - 1];
+}
+
 // `as unknown as` because rawManifest is `any` when the JSON is absent (CI) and the loosely
 // inferred JSON type when present — the double cast compiles in both states.
 export const manifest = rawManifest as unknown as Manifest;

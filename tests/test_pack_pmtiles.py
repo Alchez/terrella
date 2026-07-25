@@ -27,10 +27,10 @@ class TestTmsRow:
             assert tms_row(zoom, tms_row(zoom, row)) == row
 
 
-def make_pyramid(root, tiles):
-    """Write fake tiles {(z, x, y): payload} in the z/x/y.png layout."""
+def make_pyramid(root, tiles, suffix=".png"):
+    """Write fake tiles {(z, x, y): payload} in the z/x/y.<suffix> layout."""
     for (zoom, col, row), payload in tiles.items():
-        tile_path = root / str(zoom) / str(col) / f"{row}.png"
+        tile_path = root / str(zoom) / str(col) / f"{row}{suffix}"
         tile_path.parent.mkdir(parents=True, exist_ok=True)
         tile_path.write_bytes(payload)
 
@@ -84,3 +84,58 @@ class TestPackDirectory:
             indexes = [row[0] for row in db.execute(
                 "SELECT name FROM sqlite_master WHERE type='index'")]
         assert any("tile" in name for name in indexes)
+
+
+class TestEncodingIsReadOffTheDirectory:
+    """The declared `format` must be derived from the files packed, never assumed.
+
+    Until 2026-07-25 the glob (`*.png`) and the metadata (`"png"`) were two independent spellings
+    of one fact. A reader trusts that metadata to pick a decoder, so a pyramid cut as WebP under a
+    `"png"` label is not a cosmetic error — it is an archive nothing can display.
+    """
+    TILES = {(0, 0, 0): b"z0-root", (1, 0, 0): b"z1-nw", (1, 1, 1): b"z1-se"}
+
+    def _format_of(self, tmp_path):
+        out = tmp_path / "planet.mbtiles"
+        pack_directory(tmp_path / "tiles", out, name="test")
+        with sqlite3.connect(out) as db:
+            return dict(db.execute("SELECT name, value FROM metadata"))["format"]
+
+    def test_webp_pyramid_declares_webp(self, tmp_path):
+        make_pyramid(tmp_path / "tiles", self.TILES, suffix=".webp")
+        assert self._format_of(tmp_path) == "webp"
+
+    def test_png_pyramid_still_declares_png(self, tmp_path):
+        """The control: detection must not have simply moved the hardcoding to a new value."""
+        make_pyramid(tmp_path / "tiles", self.TILES, suffix=".png")
+        assert self._format_of(tmp_path) == "png"
+
+    def test_webp_blobs_are_still_moved_untouched(self, tmp_path):
+        """Detection changes the label, not the bytes — the archive must stay byte-identical."""
+        make_pyramid(tmp_path / "tiles", self.TILES, suffix=".webp")
+        out = tmp_path / "planet.mbtiles"
+        pack_directory(tmp_path / "tiles", out, name="test")
+        with sqlite3.connect(out) as db:
+            blob = db.execute("SELECT tile_data FROM tiles WHERE zoom_level=0").fetchone()[0]
+        assert bytes(blob) == b"z0-root"
+
+    def test_mixed_encodings_fail_loudly(self, tmp_path):
+        """One PMTiles archive declares ONE tile type, so a half-swapped pyramid must not pack."""
+        make_pyramid(tmp_path / "tiles", self.TILES, suffix=".png")
+        make_pyramid(tmp_path / "tiles", {(2, 0, 0): b"stray"}, suffix=".webp")
+        with pytest.raises(SystemExit, match="mixes tile encodings"):
+            pack_directory(tmp_path / "tiles", tmp_path / "out.mbtiles", name="test")
+
+    def test_non_tile_files_are_not_packed(self, tmp_path):
+        """`.aux.xml` sidecars and viewer leftovers share the leaf dirs; only image suffixes count."""
+        make_pyramid(tmp_path / "tiles", self.TILES, suffix=".png")
+        (tmp_path / "tiles" / "0" / "0" / "0.png.aux.xml").write_text("<PAMDataset/>")
+        out = tmp_path / "planet.mbtiles"
+        assert pack_directory(tmp_path / "tiles", out, name="test") == 3
+
+    def test_a_directory_holding_no_tiles_fails_loudly(self, tmp_path):
+        """Present but empty of images — with a suffix filter this would otherwise pack silently."""
+        (tmp_path / "tiles" / "0" / "0").mkdir(parents=True)
+        (tmp_path / "tiles" / "0" / "0" / "0.png.aux.xml").write_text("<PAMDataset/>")
+        with pytest.raises(SystemExit, match="holds no tiles"):
+            pack_directory(tmp_path / "tiles", tmp_path / "out.mbtiles", name="test")

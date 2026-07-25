@@ -29,9 +29,14 @@ const spotlightSrcset = (country: Country) =>
     .map((longEdge) => `${HERO_BASE}${country.slug}-spotlight-${longEdge}.webp ${variantWidth(country, longEdge)}w`)
     .join(", ");
 
-// Displayed at the card's rendered width: ~full width on phones, ~half on
-// tablets, ~a third on desktop — keeps the browser from over-fetching.
-const SIZES = "(max-width: 640px) 92vw, (max-width: 1024px) 46vw, 30vw";
+// The gallery is MASONRY (`columns: 320px` below), not a breakpoint grid — so above the
+// single-column breakpoint a card is a near-constant column, never a fraction of the viewport.
+// Measured live at eleven viewports: 324–434 CSS px from 768 to 3440, peaking at 434 where a
+// column count is about to increment. The viewport fractions this replaced over-declared by
+// 1.40/1.76/2.29/3.08× at 1728/1920/2560/3440, and the browser selects on the DECLARED width —
+// so a wrong `sizes` pushes the widest screens up a rung and defeats the ladder entirely.
+// 440 covers the 434 peak: never under-declare, that direction shows as blur rather than bytes.
+const SIZES = "(max-width: 640px) 92vw, 440px";
 
 // --- Gazetteer index (the atlas's own find-by-name tool; pure links, works with
 // no JS, and the browser's native Cmd/Ctrl+F searches its text). The grid above

@@ -5,9 +5,17 @@
 // source), the Astro dev server (astro.config.ts, which is Node and evaluates before any Vite
 // env exists), and eventually the tile Worker. Anything env-shaped belongs in assetBase.ts.
 
-/** Path portion of a tile URL, with MapLibre's placeholders. PNG because that is the archive's
- *  declared tile type — a PMTiles archive stores one encoding for every tile. */
-export const TILE_PATH_TEMPLATE = "{z}/{x}/{y}.png";
+/** The archive's tile encoding, in the three spellings the request path needs. A PMTiles archive
+ *  stores ONE encoding for every tile, so these follow `format` in the archive header — set by
+ *  pipeline/tile/shade_planet.py's TILE_CUT and carried through by pack_pmtiles.
+ *
+ *  WebP q95 since 2026-07-25, previously PNG. Changing the extension is also what retires the old
+ *  cached tiles: every URL changes, so no zone purge is involved. */
+export const TILE_EXTENSION = "webp";
+export const TILE_CONTENT_TYPE = "image/webp";
+
+/** Path portion of a tile URL, with MapLibre's placeholders. */
+export const TILE_PATH_TEMPLATE = `{z}/{x}/{y}.${TILE_EXTENSION}`;
 
 /** Zoom range of the packaged pyramid. The source of truth is the PMTiles header; these are a
  *  copy, so that the browser can request its first tile without a round trip to learn them.
@@ -22,12 +30,18 @@ export interface TileCoordinate {
   y: number;
 }
 
-/** Parse `/3/4/3.png` (leading slash optional) into a tile address, or null if the path is not
+/** Built from TILE_EXTENSION rather than spelled out, so the path we ASK for and the path we
+ *  ACCEPT cannot drift apart across a format change. */
+const TILE_PATH_PATTERN = new RegExp(
+  String.raw`^\/?(\d{1,2})\/(\d{1,7})\/(\d{1,7})\.${TILE_EXTENSION}$`,
+);
+
+/** Parse `/3/4/3.webp` (leading slash optional) into a tile address, or null if the path is not
  *  a tile request at all. Rejects anything non-integer, negative, out of the pyramid's zoom
  *  range, or outside the 2^z grid — a tile server should 404 those rather than range-read a
- *  16 GB archive on a typo'd URL. */
+ *  multi-GB archive on a typo'd URL. */
 export function parseTilePath(pathname: string): TileCoordinate | null {
-  const match = /^\/?(\d{1,2})\/(\d{1,7})\/(\d{1,7})\.png$/.exec(pathname);
+  const match = TILE_PATH_PATTERN.exec(pathname);
   if (!match) return null;
   const z = Number(match[1]);
   const x = Number(match[2]);

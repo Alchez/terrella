@@ -5,6 +5,7 @@ The load-bearing case is `test_refused_cell_makes_the_warp_stale`: it reproduces
 silently stale because the old guard only asked whether the output existed.
 """
 
+import json
 import os
 import time
 
@@ -497,8 +498,74 @@ class TestBuildTilesGuard:
         assert shade_planet.tiles_are_fresh(planet, tmp_path) is False
 
     def test_tile_cmd_omits_resume(self, tmp_path):
-        """No --resume: GDAL would skip a truncated png by existence. --skip-blank is asserted too so
-        a wrong or empty arg list would trip the check rather than pass vacuously."""
+        """No --resume: GDAL would skip a truncated tile by existence. --skip-blank is asserted too
+        so a wrong or empty arg list would trip the check rather than pass vacuously."""
         cmd = shade_planet._tile_cmd(tmp_path / "planet_rgb.tif", tmp_path / "tiles_new")
         assert "--resume" not in cmd
         assert "--skip-blank" in cmd
+
+
+class TestTileRecipe:
+    """The cut's own settings are a freshness input, and the command is built from them.
+
+    This stage was the one that could not see its own recipe: `tiles_are_fresh` keyed off
+    `planet_rgb` alone, so changing the output format left the guard true and a `--tiles` run would
+    have reported "tiles fresh -> skip cut" while shipping the previous encoding. These lock both
+    halves — that TILE_CUT reaches the command line, and that changing it restages.
+    """
+
+    def test_every_setting_reaches_the_command(self, tmp_path):
+        """The command and the recorded recipe cannot disagree, because one is built from the other.
+        A setting recorded but never passed would restage the world for no pixel change."""
+        cmd = " ".join(shade_planet._tile_cmd(tmp_path / "planet_rgb.tif", tmp_path / "tiles_new"))
+        assert f"--format={shade_planet.TILE_CUT['format']}" in cmd
+        assert f"QUALITY={shade_planet.TILE_CUT['quality']}" in cmd
+        assert f"--tile-size={shade_planet.TILE_CUT['tile_size']}" in cmd
+        assert f"--min-zoom={shade_planet.TILE_CUT['min_zoom']}" in cmd
+        assert f"--max-zoom={shade_planet.TILE_CUT['max_zoom']}" in cmd
+        assert f"--resampling={shade_planet.TILE_CUT['resampling']}" in cmd
+        assert f"--overview-resampling={shade_planet.TILE_CUT['overview_resampling']}" in cmd
+        assert f"--convention={shade_planet.TILE_CUT['convention']}" in cmd
+
+    def test_params_serialise_the_whole_recipe(self):
+        assert json.loads(shade_planet.tile_params()) == dict(shade_planet.TILE_CUT)
+
+    def test_skip_blank_follows_the_recipe(self, tmp_path):
+        """Asserted from the flag rather than the constant, so flipping it off is a real change and
+        not a silently ignored field in the record."""
+        cmd = shade_planet._tile_cmd(tmp_path / "planet_rgb.tif", tmp_path / "tiles_new")
+        assert ("--skip-blank" in cmd) is shade_planet.TILE_CUT["skip_blank"]
+
+    def test_a_newer_recipe_restages_a_current_pyramid(self, tmp_path):
+        """The whole point: composite untouched, pyramid present and stamped, recipe rewritten
+        after the cut -> must re-cut. Without tile_params in the key this reads as fresh."""
+        planet = _built(tmp_path, "planet_rgb.tif")
+        _built_pyramid(tmp_path)
+        _at(planet, 300)
+        _at(tmp_path / "tiles", 200)
+        params = shade_planet.tile_params_path(tmp_path)
+        params.write_text(shade_planet.tile_params())
+        _at(params, 100)                # recipe changed after the cut
+        assert shade_planet.tiles_are_fresh(planet, tmp_path) is False
+
+    def test_an_older_recipe_leaves_the_pyramid_fresh(self, tmp_path):
+        """The control that stops the check passing vacuously: an unchanged recipe (write_if_changed
+        never moves its mtime) must NOT restage a 4:19 cut."""
+        planet = _built(tmp_path, "planet_rgb.tif")
+        _built_pyramid(tmp_path)
+        params = shade_planet.tile_params_path(tmp_path)
+        params.write_text(shade_planet.tile_params())
+        _at(params, 300)
+        _at(planet, 200)
+        _at(tmp_path / "tiles", 100)
+        assert shade_planet.tiles_are_fresh(planet, tmp_path) is True
+
+    def test_write_if_changed_leaves_an_identical_recipe_alone(self, tmp_path):
+        """build_tiles rewrites the recipe on every run, so an unchanged one must not move its
+        mtime — otherwise every --tiles invocation would restage the pyramid."""
+        params = shade_planet.tile_params_path(tmp_path)
+        shade_planet.write_if_changed(params, shade_planet.tile_params())
+        _age(params, 500)
+        before = params.stat().st_mtime
+        shade_planet.write_if_changed(params, shade_planet.tile_params())
+        assert params.stat().st_mtime == before

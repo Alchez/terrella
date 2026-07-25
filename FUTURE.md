@@ -32,9 +32,10 @@ grep HISTORY before re-arguing anything an entry says was already decided.
 
 - **Trigger:** could users pick looks — default, every-country-coloured, seasonal variants (the
   St. Patrick's green-sea example)?
-- **Numbers depend on:** the z0–8 pyramid ≈ 15–16 GB and ~87k tiles per look; composite-stage
-  restage ~29 min (PROCESS § what a change costs); `countries.geojson` sub-pixel since the
-  hover-outline fix (HISTORY § the blocky hover outline).
+- **Numbers depend on:** the z0–8 pyramid **≈ 3 GB** and ~87k tiles per look — it was 15–16 GB when
+  this was analysed, so the WebP q95 switch made a second look **5× cheaper in storage** and moves
+  Kind 2 well down the cost ladder; composite-stage restage ~29 min (PROCESS § what a change costs);
+  `countries.geojson` sub-pixel since the hover-outline fix (HISTORY § the blocky hover outline).
 
 Presets decompose into **three kinds by where the variation lives** — costs differ by orders of
 magnitude, so the taxonomy is the decision:
@@ -55,9 +56,10 @@ magnitude, so the taxonomy is the decision:
 ### Kind 2 — raster recolors (one PMTiles archive per look)
 
 - Green sea, sepia, dark relief: the look is baked into pixels, so each look = its own archive.
-  **Per look: ~33 min compute** (SVF + composite + cut + pack/convert + caps) **and +15 GB
-  storage**; web swaps `PUBLIC_TILE_BASE` (or a per-look path the Worker routes on) + the cap
-  pair. Scales to a curated few, not to many.
+  **Per look: ~28 min compute** (SVF + composite + cut + pack/convert + caps) **and +3 GB
+  storage** — the storage term was +15 GB before tiles became WebP q95, and that was the number
+  that made this kind expensive; web swaps `PUBLIC_TILE_BASE` (or a per-look path the Worker routes
+  on) + the cap pair. Now plausibly scales to several looks, not just a curated few.
 - **One-time prerequisite: look parameterization (~a day).** Today every guardrail treats a second
   look as drift — correctly: `test_palette` pins `WATER_RGB` relationally (+7% of sea surface),
   palette is shared by import so editing it in place marks the heroes stale. Looks must become
@@ -92,7 +94,8 @@ magnitude, so the taxonomy is the decision:
 ### Recommendation ladder (as analysed)
 
 - Kind 1 first, when wanted — cheap, complete, exercises the system.
-- Kind 2 only when a specific second look earns its 15 GB; pay the parameterization day then.
+- Kind 2 is **materially cheaper than when this was analysed** (3 GB per look, not 15) — the
+  remaining cost is the parameterization day, not the storage.
 - Kind 3 only if presets become a proven headline feature; decide alongside Phase 5 terrain-RGB.
 
 ## Cloud offload / offsite backup (analysed 2026-07-23; revisit after Phase 5)
@@ -107,7 +110,7 @@ magnitude, so the taxonomy is the decision:
     for a full sequential scan").
   - The **~56 GB worth putting in a cloud is the backup set, not an offload**: heroes+raws+variants
     (27 GB real bytes, hardlink archives ~free; Cycles isn't bit-deterministic so ratified pixels
-    are irreplaceable), `planet.pmtiles` (15 GB — doubles as deploy transport), `planet/` fused
+    are irreplaceable), `planet.pmtiles` (**3 GB** — doubles as deploy transport), `planet/` fused
     cells (14 GB — the one expensive-to-rebuild intermediate), caps/geojson/frame pins. ≈ $1/mo on
     R2/B2 (ballpark; R2's zero egress is the differentiator — verify pricing at pickup).
 - **The big lever:** if Phase 5 goes no-go on a finer re-fuse, `glo30/` (551 GB) drops to
@@ -182,20 +185,60 @@ magnitude, so the taxonomy is the decision:
   currently-dropped far-flung remainders). Worth pricing against just shipping those as the
   already-decided separate territory heroes.
 
-## AVIF hero variants (analysed 2026-07-23)
+## Raster tile resolution vs device pixel ratio (analysed 2026-07-25)
+
+- **Trigger:** Rohan asked whether serving 512 px tiles "@2x" is wasted on a DPR-1 desktop, and
+  whether phones get enough for DPR 3. The answer inverts the intuition, so it is worth parking
+  rather than discarding.
+- **Mechanism, measured on the live globe:** the source declares `tileSize: 256` for 512 px
+  assets, so MapLibre requests `z_map + 1` and **a source tile always covers 256 CSS px, at every
+  zoom**. Confirmed at map zoom 1.3 → z2/z3 requested, and the canvas backing store equals its CSS
+  size on DPR 1 (ratio 1.00, i.e. MapLibre is not supersampling the canvas).
+- **The scheme is centred on DPR 2, not DPR 1:**
+  - DPR 1 — 512 px into a 256 device px slot: **2× oversupplied** (4× the pixels).
+  - DPR 2 — 512 into 512: **exactly 1:1**.
+  - DPR 3 — 512 into 768: **0.67×, upscaled and softer than native.**
+  - So **modern phones are the UNDER-served ones**, not the over-served ones. (DPR 1 measured;
+    the other two follow from the same CSS-px mechanism and were not measured on real devices.)
+- **The DPR-1 oversupply is not pure waste.** The GPU minifies 512→256 through mip/bilinear
+  filtering, which is 2×2 supersampling on exactly the high-frequency multidirectional hillshade
+  this look rests on — and more so on a globe, where tiles are warped onto a sphere and sampled
+  anisotropically toward the limb. It errs in the safe direction: oversampling looks good,
+  undersampling looks blurry.
+- **Why there is no automatic fix:** MapLibre raster sources have **no DPR negotiation** — no
+  `@2x` URL convention, no srcset equivalent. Tile selection is computed in CSS pixels and is
+  DPR-blind by design. `tileSize` is the only lever, and it is global.
+- **The lever, if picked up:** `tileSize: devicePixelRatio >= 2 ? 256 : 512` at source
+  construction (DPR is known before the map is built). DPR-1 clients drop a zoom level → **4×
+  fewer tile pixels and 4× fewer tile requests**, the latter mattering against the free tier's
+  ~2,500 cold-visit/day request ceiling. DPR ≥2 is untouched.
+- **Why it is parked and not done:** it is a **look change on DPR-1 screens** (supersampled →
+  native 1:1, more aliasing), and look changes here get eyes on them at full scale before they
+  ship. It is also small: tiles are ~2.6 MB of the cold window at q95, so it saves ~2 MB for
+  desktop visitors — against the ~80 MB the hero rungs took off the gallery.
+- **Not proposed:** a 1024 px pyramid to serve DPR 3 at 1:1. That is 4× the tiles for the band
+  that is merely soft, not broken.
+
+## AVIF hero variants (analysed 2026-07-23, premise restated 2026-07-25)
 
 - **Trigger:** the astro:assets audit during the 7.1.3 bump — the one genuine feature we forgo by
   bypassing it is AVIF format negotiation, and it belongs in *our* pipeline, not a second
   optimizer re-encoding ratified pixels (one encoder-quality owner).
-- **Idea:** AVIF siblings of the existing rungs in `hero_variants.py` (WebP q85 today — France
-  0.7 / 2.3 / 6.9 MB at 1920/3840/native); gallery + globe panel switch to `<picture>` with
-  `type` fallback. Rule-of-thumb gain ~20–30% smaller at similar quality — **unmeasured on our
-  content; measure 2–3 heroes before deciding anything.**
+- **The baseline this was analysed against has MOVED — re-measure before costing it.** It assumed
+  WebP q85 across three rungs (France 0.7 / 2.3 / 6.9 MB at 1920/3840/native). The ladder is now
+  **six rungs (640/960/1280/1920/3840/native) at a split quality — q85 up to 1920, q95 above** —
+  so both the file count and the per-file baseline are different, and the AVIF comparison has to
+  be made against q95 where it matters. → HISTORY § the ladder ships against measured layout.
+- **Idea:** AVIF siblings of the existing rungs in `hero_variants.py`; gallery + globe panel
+  switch to `<picture>` with `type` fallback. Rule-of-thumb gain ~20–30% smaller at similar
+  quality — **unmeasured on our content; measure 2–3 heroes before deciding anything.**
 - **Costs to check at pickup:** GDAL AVIF driver present in our build (needs libavif); AVIF
-  encode time × ~612 files (AVIF encoders are slow); variant store grows ~+70%; web markup
-  change is small.
+  encode time — now × ~1,200 hero files rather than ~612, and the q95 rungs are the slow ones;
+  variant store growth; web markup change is small.
 - **Natural decision point:** the Phase 4 Lighthouse pass, where transfer sizes get audited
   anyway. Not before.
+- **Note the tile pyramid is NOT a candidate for the same treatment** — it is one archive with one
+  declared tile type, so a `<picture>`-style negotiation has nowhere to live.
 
 ## Hero presentation — large-country warp & small-island exaggeration (analysed 2026-07-24)
 

@@ -30,7 +30,13 @@
   ],
 
   "vars": {
-    "ARCHIVE_KEY": "planet.pmtiles",
+    // A re-cut ships under a NEW key rather than overwriting the old one. Two reasons: the swap
+    // becomes atomic and reversible by editing this one line, and a warm isolate holding directory
+    // offsets from the previous archive can never read them against different bytes. Delete the
+    // superseded object only after the new one is verified live.
+    //
+    // `planet.pmtiles` is the PNG pyramid this replaced; `-v2` is the WebP q95 cut.
+    "ARCHIVE_KEY": "planet-v2.pmtiles",
     // The site's own origin. MapLibre uploads tiles as WebGL textures, so a cross-origin
     // tile without CORS taints the canvas and never draws — this must stay in step with
     // the hostname in web/package.json's `build:deploy`.
