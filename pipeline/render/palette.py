@@ -67,6 +67,9 @@ LAKE_MAX_M = 1642.0  # Baikal — the deepest lake GLOBathy carries; the lake ra
 SUN_ALT_DEG = 45.0   # the shared sun altitude: tile KNOBS["alt"] and the hero SUN_ROTATION
 # X-tilt (90 - alt) both derive from this (2026-07-23 sea-sync — the cure for the 46/45
 # split). Azimuth stays per-side: both are NW by their own conventions (tile 315, hero -45).
+EXAGGERATION = 15.0  # the shared vertical exaggeration: hero displacement_scale
+# (render_prep.scene_numbers) and tile hillshade (shade_planet.EXAG) both derive from it
+# — the last surviving copy-pair, moved here at the 2026-07-24 freeze-lift.
 
 
 def smoothstep(t: float) -> float:

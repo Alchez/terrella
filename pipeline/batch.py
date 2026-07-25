@@ -181,8 +181,9 @@ def run_country(slug, resolved, through, force, dry, cap_gib, use_cap, floor,
             # the raw stays pristine and post-look tweaks never re-render.
             sv = subprocess.run(
                 f"python -m pipeline.render.sky_view --render-dir data/work/{slug}/render"
-                f" --hero {raw} --out {final}", shell=True, cwd=ROOT,
-                env=ENV).returncode
+                f" --hero {raw} --out {final}"
+                f" --strength {resolved['sky_view_strength']}", shell=True,
+                cwd=ROOT, env=ENV).returncode
             if sv != 0:
                 log_failure(slug, idx, "sky_view", sv, "error")
                 return f"FAIL@{idx} (sky_view)"

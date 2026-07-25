@@ -55,13 +55,26 @@ from rasterio.vrt import WarpedVRT
 from rasterio.warp import transform_bounds
 from rasterio.windows import Window
 
-EXAGGERATION = 15.0    # locked global vertical exaggeration (PLAN.md)
+from pipeline.render.palette import EXAGGERATION  # shared vertical exaggeration
+
 FRAME_MARGIN = 1.0006  # camera overshoot: the plane underfills the frame a hair
 HERO_LONG_EDGE = 7680  # hero render long edge in px; the short axis follows
                        # raster aspect (a tall country caps at 7680 tall, not
                        # 7680 wide — Maldives would be 56k px otherwise)
 
 BLOCK = 8192
+
+FLOOR_MIN_BOX_PX = 10  # a resolution floor engages only once its box-mean kernel
+                       # reaches this width — i.e. the frame upsampled >~5x past
+                       # the floor (only tiny countries do). Coarser grids skip
+                       # it, so mid/large countries are never softened.
+
+
+def floor_box_px(floor_m: float, xres_m: float) -> int:
+    """Box-mean kernel width (px) for a resolution floor of floor_m meters on a
+    grid of xres_m m/px, or 0 when no floor is requested. Compared against
+    FLOOR_MIN_BOX_PX to decide whether the floor engages."""
+    return round(floor_m / xres_m) if floor_m > 0 else 0
 
 
 def aea_crs(frame):
@@ -108,7 +121,7 @@ def finalize(tmp, final):
 
 
 def warp(src_path, out_path, dst_crs, transform, width, height, resampling,
-         dtype, predictor):
+         dtype, predictor, floor_m=0.0):
     tmp = out_path.with_name(out_path.name + ".tmp")
     profile: dict[str, Any] = dict(
         driver="GTiff", crs=dst_crs, transform=transform,
@@ -116,15 +129,29 @@ def warp(src_path, out_path, dst_crs, transform, width, height, resampling,
         tiled=True, blockxsize=512, blockysize=512,
         compress="deflate", predictor=predictor, bigtiff="if_safer",
     )
+    xres = transform.a  # pyright: ignore[reportAttributeAccessIssue] — affine untyped
+    box = floor_box_px(floor_m, xres)
     with rasterio.open(src_path) as src, \
          WarpedVRT(src, crs=dst_crs, transform=transform, width=width,
                    height=height, resampling=resampling) as vrt, \
          rasterio.open(tmp, "w", **profile) as out:
-        for row in range(0, height, BLOCK):
-            for col in range(0, width, BLOCK):
-                win = Window(col, row,  # pyright: ignore[reportCallIssue] — rasterio untyped, attrs init invisible
-                             min(BLOCK, width - col), min(BLOCK, height - row))
-                out.write(vrt.read(1, window=win).astype(dtype), 1, window=win)
+        if box >= FLOOR_MIN_BOX_PX:
+            # Resolution floor: this frame upsampled far past the 30 m DEM, so
+            # its sub-floor detail is source striping, not terrain — box-lowpass
+            # it out. Only tiny frames reach here, so the whole grid fits in
+            # memory; the streaming block path below stays the large-country /
+            # OOM guard and never floors (masks pass floor_m=0 and skip this).
+            from scipy.ndimage import uniform_filter
+            data = vrt.read(1).astype(dtype)
+            out.write(uniform_filter(data, size=box, mode="nearest"), 1)
+            print(f"  resolution floor {floor_m:g} m -> {box} px box "
+                  f"({xres:.2f} m/px): smoothed", flush=True)
+        else:
+            for row in range(0, height, BLOCK):
+                for col in range(0, width, BLOCK):
+                    win = Window(col, row,  # pyright: ignore[reportCallIssue] — rasterio untyped, attrs init invisible
+                                 min(BLOCK, width - col), min(BLOCK, height - row))
+                    out.write(vrt.read(1, window=win).astype(dtype), 1, window=win)
     finalize(tmp, out_path)
     print(f"wrote {out_path}", flush=True)
 
@@ -156,6 +183,11 @@ def main():
     ap.add_argument("--hero-long-edge", type=int, default=HERO_LONG_EDGE,
                     help="hero render long edge in px (per-country override; "
                          "config/countries.toml is the durable home for it)")
+    ap.add_argument("--floor-m", type=float, default=0.0,
+                    help="resolution floor (m): box-lowpass the heightfield "
+                         "where the frame upsampled >~5x past it, killing "
+                         "sub-source DEM striping on tiny countries; 0 = off. "
+                         "config/countries.toml resolution_floor_m is the home")
     ap.add_argument("--frame", nargs=4, type=float, metavar=("W", "S", "E", "N"),
                     help="padded lon/lat frame from frame_country.py; "
                          "required unless heightfield_aea.tif already exists")
@@ -213,17 +245,17 @@ def main():
         os.replace(tmp_f, out_f)
         print(f"wrote {out_f}", flush=True)
         wrote += 1
-    for src_path, out_path, rs, dtype, pred in (
-            (args.heightfield, out_h, Resampling.bilinear, "float32", 3),
-            (args.mask, out_m, Resampling.nearest, "uint8", 2),
-            (args.watermask, out_w, Resampling.nearest, "uint8", 2)):
+    for src_path, out_path, rs, dtype, pred, fm in (
+            (args.heightfield, out_h, Resampling.bilinear, "float32", 3, args.floor_m),
+            (args.mask, out_m, Resampling.nearest, "uint8", 2, 0.0),
+            (args.watermask, out_w, Resampling.nearest, "uint8", 2, 0.0)):
         if src_path is None:
             continue
         if out_path.exists():
             print(f"{out_path.name} exists — skipping", flush=True)
             continue
         warp(src_path, out_path, dst_crs, transform, width, height, rs,
-             dtype, pred)
+             dtype, pred, floor_m=fm)
         wrote += 1
 
     png_jobs = [(out_m, 1, "oceanmask_aea.png")]

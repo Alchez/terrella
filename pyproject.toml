@@ -12,7 +12,7 @@ dependencies = [
     "pyproj>=3.7", # AEA <-> lon/lat transforms outside rasterio
     "pyshp>=3.1", # Natural Earth shapefile reading
     "rasterio>=1.5", # wheels bundle GDAL; no system GDAL needed on the Python side
-    "scipy>=1.18", # experiments only (distance transforms)
+    "scipy>=1.18", # ndimage: spotlight distance transforms + render_prep resolution floor
 ]
 
 # Dependency manifest only — the repo is scripts, not an installable library.

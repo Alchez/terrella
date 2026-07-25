@@ -44,8 +44,10 @@ import numpy as np
 import rasterio
 from rasterio.warp import transform_bounds
 
+from pipeline import paths
+
 BUCKET_URL = "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map"
-DATA_DIR = Path.home() / "projects/maps/data/raw/worldcover"
+DATA_DIR = paths.DATA / "raw/worldcover"
 SNOW_CLASS = 70
 TILE_DEG = 3
 WORKERS = 6

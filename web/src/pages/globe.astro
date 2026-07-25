@@ -358,6 +358,12 @@ import Base from "../layouts/Base.astro";
     // The pyramid is immutable by design — never re-request tiles on HTTP expiry.
     refreshExpiredTiles: false,
     attributionControl: false, // re-added bottom-left below, clear of the border toggle
+    // MSAA on the default framebuffer: the globe silhouette is a geometry edge
+    // against the transparent starfield, so without multisampling the sphere's
+    // limb steps pixel-by-pixel. v6 nests the WebGL context flags here (was a
+    // top-level `antialias` in v5). Context-creation flag — cannot be toggled
+    // live, so the FPS watchdog can only mitigate via pixelRatio, not disable it.
+    canvasContextAttributes: { antialias: true },
   });
   map.setVerticalFieldOfView(VERTICAL_FIELD_OF_VIEW_DEG);
   (window as unknown as { __map: maplibregl.Map }).__map = map;

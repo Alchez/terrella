@@ -19,12 +19,9 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 # Files allowed to call Path.home(). paths.py is the seam itself (BLENDER's
-# default install path is genuinely home-rooted). snow_mask.py is TEMPORARY:
-# it is part of the hero-look surface frozen for the 2026-07-23 sea-sync sweep
-# — remove it from this list (and migrate the file) once the sweep ratifies.
+# default install path is genuinely home-rooted).
 HOME_ALLOWED = {
     Path("pipeline/paths.py"),
-    Path("pipeline/render/snow_mask.py"),  # frozen until sweep ratification
 }
 
 
