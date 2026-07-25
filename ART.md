@@ -460,7 +460,7 @@ below is *delivery only* and regenerable, so a wrong call here costs an encode p
 | hero 640 / 960 / 1280 / 1920 | **q85** | thumbnails in a ~350 px masonry column |
 | hero 3840 / native | **q95** | the artefact a reader opens full-screen and zooms into |
 | relief tiles (all zooms) | **q95** | 512 px served into a 256 px slot; fine shading detail is the whole look |
-| polar caps | **q85** | foreshortened background texture at the limb, and 5.21 MB of the cold window |
+| polar caps | **q85** | foreshortened background texture at the limb; the shipped rung is chosen by camera, below |
 | spotlight overlay | **q88** | only ever covers the *dimmed surroundings* — alpha is 0 across the subject |
 | border layers | lossless PNG | flat colour + alpha; PNG is both smaller and exact here |
 
@@ -492,6 +492,24 @@ below is *delivery only* and regenerable, so a wrong call here costs an encode p
   panel stack them under one `sizes`. A rung present in one and missing from another makes the
   browser fetch mismatched files — which is how an 85 kB border once landed on a 48 kB hero.
 - **Never under-declare.** Rounding down shows as blur; rounding up shows only as bytes.
+
+## The polar caps have their own ladder — 1024 / 2048 / 4096 / 8192
+
+A cap is a GPU texture, so no `srcset` chooses for it and no `sizes` describes it. The rung is picked
+from the cap's **projected size on the globe**, which is the same idea arrived at from the other side.
+
+- **The overview is where nearly every visit stays, and there the cap is tiny.** At the fixed default
+  camera it occupies **110 × 42 CSS px** on a 498 px globe — so the 8192 texture that used to load
+  there was a 74× linear oversupply, and 1024 is still ~9× more than the screen can show at DPR 1.
+- **The top rung is not retired, it is deferred.** 8192 remains the ratified look and still arrives
+  the moment someone actually zooms to a pole — which is the only place its detail was ever visible
+  (below zoom ~3.4 the GPU discards it). → HISTORY § the polar caps ship 156 KB
+- **It upgrades in one step, never a walk.** Each swap costs a main-thread decode and texture upload,
+  so going 1024 → 8192 directly is a look decision as much as a performance one: one brief refinement
+  rather than three. Ratified live as graceful — no pop.
+- **Quality (q85) and rung are separate levers.** The rung answers "how many pixels does the screen
+  want"; q85 answers "how hard is this surface looked at". Confusing the two is what made the
+  original 4096-PNG-vs-8192-WebP comparison unreadable.
 
 ## Tuning protocol
 

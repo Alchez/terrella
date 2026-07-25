@@ -63,13 +63,17 @@ CAPS_DIR = ROOT / "web/public/caps"  # production home (was dev-assets/ behind ?
 CAP_PX = 8192          # square texture side (south is a bigger disc -> coarser per px). 8192 chosen
                        # 2026-07-23 (Rohan, crop A/B + /globe): visibly crisper coast/pack/sastrugi
                        # at deep pole zoom; 3.2+2.1 MB WebP
-CAP_RUNGS = (4096, CAP_PX)  # shipped texture sizes, ascending; the largest IS the render grid and
-                       # every smaller rung is DOWNSAMPLED from it, never rendered natively. That is
-                       # deliberate: coast_dilate is measured in pixels, so a native 4096 render
-                       # would bake a coastline twice as wide relative to the disc. Downsampling
-                       # reproduces exactly what a phone already saw (polarCaps.ts canvas-downscaled
-                       # the 8192 to its MOBILE_CAP_BUDGET_PX rung) -- so this rung is a pure
-                       # payload cut, no look change, and supersampled 4:1 rather than 1:1.
+CAP_RUNGS = (1024, 2048, 4096, CAP_PX)  # shipped texture sizes, ascending; the largest IS the render
+                       # grid and every smaller rung is DOWNSAMPLED from it, never rendered natively.
+                       # That is deliberate: coast_dilate is measured in pixels, so a native 4096
+                       # render would bake a coastline twice as wide relative to the disc.
+                       # Downsampling reproduces exactly what a phone already saw (polarCaps.ts
+                       # canvas-downscaled the 8192 to its MOBILE_CAP_BUDGET_PX rung) -- so every
+                       # rung is a pure payload cut, no look change, supersampled rather than 1:1.
+                       # 1024 + 2048 added 2026-07-25, when polarCaps started picking a rung from the
+                       # cap's PROJECTED on-screen size: the untouched default camera paints the cap
+                       # at 110 CSS px, so the 8192 was a 74x linear oversupply for every visitor who
+                       # never zooms to a pole. Measured both caps: 162 KB / 570 KB / 1.7 MB / 5.1 MB.
 CAP_WEBP_QUALITY = 85  # gdal_translate WEBP quality — hero_variants' proven setting; rides in
                        # cap_recipe because the encoder changes the shipped pixels
 SPHERE_R = 6371000.0   # spherical AEQD radius; the frontend's linear-colatitude UV assumes a sphere
