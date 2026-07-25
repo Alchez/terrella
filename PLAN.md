@@ -145,7 +145,7 @@ Baked-vs-live rule (locked 2026-07-07): too expensive live → baked; depends on
   - **No longer serves tiles** (2026-07-25): `/tiles/` returns 501 naming `astro dev` / `wrangler dev`
   - `/pmtiles/` location + `PMTILES_STORE` mount + `httpRange.ts` deleted with the client that used them
 - [~] **Deploy = Cloudflare R2 + CDN** (decided 2026-07-25) → HISTORY § the deploy target moves to R2
-  - Pages = site shell (13 MB, caps baked in) · R2 = archive 15 GB + heroes 2.0 GB · Worker = tiles
+  - Workers Static Assets = site shell (13 MB, caps baked in) · R2 = archive 15 GB + heroes 2.0 GB · Worker = tiles
   - **The Worker is mandatory:** 512 MB cache ceiling, so 15 GB can never be an edge object
   - **Never send `Range` at a Worker** — the header is stripped and the full body requested
   - Free tier ≈ 2,500 cold visits/day; a cache HIT still charges a request
@@ -155,17 +155,93 @@ Baked-vs-live rule (locked 2026-07-07): too expensive live → baked; depends on
     - Globe source `pmtiles://` → `{z}/{x}/{y}.png`; ranging moved server-side, pmtiles JS out of the bundle
     - Zoom range stated in `reliefTiles.ts`, guarded by `assertZoomRange()` in the tile server
     - Caps stay same-origin — 6.7 MB, they ship inside the build as Pages objects
-  - [ ] P2 R2 bucket + 17.1 GB upload (wrangler put is single-part → rclone or the S3 API)
-  - [ ] P3 Worker + route; verify `cf-cache-status: HIT`
-    - Reuse `web/src/lib/reliefTiles.ts` (`parseTilePath` + `assertZoomRange`) as the request boundary
-    - Swap the dev middleware's fs Source for an R2 one; `wrangler dev` becomes the sim's tile half
-  - [ ] P4 Pages deploy + custom domain (a proxied record overrides the `*.alchez.dev` wildcard)
-  - [ ] P5 end-to-end from an external vantage, against the 382/794/985 ms sim ladder
+  - [x] P2 R2 buckets + **18.20 GB uploaded and verified — DONE 2026-07-25** → HISTORY § Phase 2
+    - **TWO buckets, deliberately:** `terrella-tiles` (archive, Worker binding ONLY, never public)
+      and `terrella-assets` (`heroes/` + `borders/`, gets the public custom domain)
+    - Why split: a custom domain exposes a WHOLE bucket, so one bucket would publish the 16 GB archive
+    - Both `APAC` / `Standard` / jurisdiction `default`; **location is permanent** (hints apply on first create only)
+    - Landed: archive 16.06 GB · 1,622 hero files 2.13 GB (609 `.aux.xml` sidecars excluded) · 2 GeoJSON 11 MB
+    - Verified: multipart ETag reconstructed locally (1,916 × 8 MiB) = exact match, plus 4 range reads
+    - GeoJSON stored as `application/json` — `geo+json` likely uncompressed at the edge, costing the 9.4→2.6 MB win
+    - Tooling: `aws-cli` 2.35 + `~/.aws/credentials` profile `r2`; no rclone, no CRC32 workaround needed
+    - **MCP OAuth grant is READ-ONLY** — writes refuse, so P3/P4 are blocked the same way until re-authorized
+  - [x] P3 Worker — **DEPLOYED + verified at `tiles.terrella.alchez.dev` 2026-07-25** → HISTORY § the tile Worker is ours
+    - **Ours, not Protomaps'** — theirs is `"private": true`/unpublished, so adopting = vendoring a fork
+    - The correctness lives in `pmtiles`: module-scope `ResolvedValueCache` + `onlyIf`/`EtagMismatch`
+    - Evaluating it found the same missing-etag bug in our dev middleware — fixed same day
+    - `web/worker/{index.ts,wrangler.jsonc,tsconfig.json}`; own TS program (workers-types ≠ DOM)
+    - Cache `immutable` ⇒ **a pyramid re-cut requires a zone purge**; `/v1/` prefix already tolerated
+    - Verified live: `cf-cache-status: HIT`, byte-identical tiles at z3 + z8, 48 tiles in the globe, 0 failures
+    - **`wrangler login` has its own OAuth** — the read-only MCP grant never blocked this
+    - ~~Universal SSL covers ONE subdomain level~~ — **rule RETRACTED 2026-07-25**, see P4
+    - [x] Narrow `ALLOWED_ORIGIN` from `*` to `https://terrella.alchez.dev` — SHIPPED + verified
+  - [x] P4 site shell — **LIVE at `terrella.alchez.dev` 2026-07-25** → HISTORY § Phase 4 takes shape
+    - **Workers Static Assets, not Pages** — push-to-deploy is impossible on both, so Pages' differentiator is moot
+    - Proven by oracle: a clean clone fails at `'../data/countries.json'`, before it even reaches `public/caps/`
+    - Un-ignoring those would split "what the site claims" from "what R2 holds" — `test_cap_freshness.py`'s drift
+    - Kept open by Workers: `run_worker_first: ["/tiles/*"]` puts tiles same-origin and deletes CORS
+    - **Depth is NOT a hostname constraint** — Workers auto-generate an Advanced Cert, R2 uses SaaS certs
+    - `*.alchez.dev` is an RFC 4592 wildcard answering at ANY depth — **check the cert, never `dig`**
+    - Hosts SETTLED: `terrella.alchez.dev` · `assets.terrella.alchez.dev` · `tiles.terrella.alchez.dev`
+    - Bases live in `package.json` `build:deploy` — `.env.production` is gitignored by the API-key guard
+    - New vitest drift guard: every `PUBLIC_*` the code reads must be supplied as an absolute URL
+    - Fixed in passing: local `.env` had `astro dev` pulling PRODUCTION tiles, so the local archive was untested
+    - Verified live: geojson `DYNAMIC`→`MISS`→`HIT`, exact-origin CORS, preflight 204, tiles unchanged
+    - Live page is MD5-identical to local `dist/` once Cloudflare's 938 Bot-Fight-Mode bytes are stripped
+    - **Cache Rule trap:** the expression pasted into a `URI Full`/`wildcard` Value box matches nothing
+    - `.geojson`/`.json` are NOT default-cached extensions; `.webp`/`.png` are
+    - R2 sends no `Cache-Control` ⇒ Edge TTL must be "ignore cache-control"; browsers get 4 h
+    - `ALLOWED_ORIGIN` narrowed + site `workers_dev: false` — SHIPPED, verified live
+    - Foreign origin now gets no ACAO; a tile with no `Origin` still serves 200 + full bytes
+    - **Bot Fight Mode: KEPT ON** (Rohan, 2026-07-25) — its 938-byte injection is accepted
+    - [x] Tile Worker `workers_dev`/`preview_urls: false` — SHIPPED, workers.dev now 404s
+    - **The tile Worker's workers.dev route was missed** — a 2nd origin OUTSIDE the zone
+      - Zone Cache Rules, WAF and any future rate limit do not apply there; requests still bill
+    - **CI auto-deploy REJECTED** — same clean-clone blocker; would need a 2nd manifest impl
+    - Manifest↔R2 agreement measured 2026-07-25: 1622 = 1622, 0 missing, 0 dead — but unguarded
+    - [x] LIVE browser verify: 43 tiles all 200, 0 failures, 0 same-origin fallbacks, 0 console errors
+    - Gallery 28/28 heroes from R2, Nepal hero + both 8192 caps load; `/` auto-steers to `/globe`
+    - [x] Deploy preflight `check_deploy_sync.ts` wired into `pnpm run deploy`, 6 branches falsified
+    - TS not JS: `scripts/` is already in web/tsconfig, so `astro check` types it for free in CI
+    - It `import type`s the pages' own `Manifest`, so a contract drift fails check, not deploy
+  - [x] P5 end-to-end from an external vantage — **DONE 2026-07-25** → HISTORY § P5 end-to-end
+    - Warm ladder loopback → live: `?bare` 382 → 833 ms, full 595 → ~1011 ms; **0 long tasks every run**
+    - `?nocaps` 849 ≈ `?bare` 833 — the countries deferral holds in production
+    - The regression is round trips, not compute; HTML is `must-revalidate`, so one RTT is the floor
+    - **Our zone answers from MRS (~98 ms); `cloudflare.com` answers from BOM (~4.8 ms), same machine**
+    - Throughput is the bigger half: 14–26 Mbps single connection vs 199 Mbps to their zone
+    - h2 is one connection per origin, so the 90 Mbps that 6 parallel connections reach is unspendable
+    - Cold visit ≈ 24.7 MB wire in 7.56 s (27.4 Mbps); the same set on warmed connections takes 1.61 s
+    - **MRS routing cause NOT proven** — free-plan hypothesis, undocumented; a plan-tier call, not a bug
+    - Edge-cold tile TTFB 1.07–1.73 s vs 0.32–0.53 s warm; `immutable` makes repeat visits free
+    - [x] **Tile Worker INSTRUMENTED** (`Server-Timing`) — SHIPPED 2026-07-25 → HISTORY § P5 end-to-end
+      - `worker − r2 − cache ≈ 0` every request: our code is **3–5 ms**, there is nothing to optimise
+      - Steady-state cold tile = ~325 ms network + **~380 ms for one 606 KB R2 read** + 4 ms cache
+      - Cold-isolate directory walk adds **800–2000 ms**, and isolates churn often (1 read → 2 again)
+      - **Distance proven by control**: same read from Mumbai transfers in ~60 ms vs 380 from MRS
+      - Never stored in the cache — a replayed `Server-Timing` would report the MISS on every HIT
+      - Clock only advances on I/O in a Worker, so CPU time reads 0; fine for this question only
+    - [ ] **Cold-tile levers, now grounded — pick after deciding whether cold even matters**
+      - Ours, no Cloudflare feature needed: **bake header+root directory into the bundle** (~16 KB, immutable)
+      - Ours: **cache leaf directories in `caches.default`** — survives isolate churn, module scope does not
+      - Cloudflare's: `placement.mode: "smart"` or an explicit `placement.region` hint near APAC
+      - Placement is untested and its free-plan availability is unconfirmed; the deploy would answer both
+      - Smaller tiles (WebP/AVIF, in FUTURE.md) cut the R2 read time proportionally
+    - Checked, not a problem: the `/globe` → `/globe/` 307 is real but no internal link emits it
 - [ ] **Serving contract — the interface to preserve** (`deploy/nginx` = reference impl)
   - HTTP range requests; three cache classes (`_astro` immutable 1yr / stores 1wk+ETag / HTML no-cache)
   - gzip text-like ONLY, never the pre-compressed pmtiles/webp/png; CORS once split-origin
   - Range is now an internal detail of the tile server — no client sends it (2026-07-25)
-- [ ] OPEN: hostname layout · own Worker vs Protomaps' · whether rohome gets any deploy at all
+- [ ] OPEN: whether rohome gets any deploy at all (hostnames + Worker ownership both SETTLED 2026-07-25)
+- [x] **RESOLVED: do NOT buy a nearer PoP** — investigated 2026-07-25 → HISTORY § P5 end-to-end
+  - **Free-plan hypothesis REFUTED**: pin `www.cloudflare.com` to OUR IP → `colo=MRS` too, 9/9 runs
+  - The PoP follows the **destination IP prefix**, not the zone or its plan
+  - Real cause is an **Airtel route** hauling the prefix to Europe before Cloudflare sees the packet
+  - **Argo is the wrong product** — it optimises edge→origin, and our origin IS Cloudflare
+  - Pro/Business have no documented mechanism here; only Enterprise BYOIP changes a zone's IPs
+  - **The P5 ladder numbers are THIS LINE, not the site** — Bengaluru Airtel +36 ms, other ISPs 1–15 ms
+  - Untested free lever: a `workers.dev` hostname may land BOM — but see the conflict below
+  - It is BGP and can change; re-run the two-second `--resolve` check before acting on any of this
 - [x] Cloudflare account confirmed (Saintdane7) and R2 provisioned, no bucket yet — 2026-07-25
 - [x] ~~Pangolin route~~ — moot: `*.alchez.dev` already resolves, and the origin is no longer rohome
 - [ ] **Lighthouse pass on all three tiers**, plus a weak Android device
@@ -184,8 +260,36 @@ Baked-vs-live rule (locked 2026-07-07): too expensive live → baked; depends on
     - [ ] `setMaxParallelImageRequests` — measure at the Lighthouse pass, on a real network
   - Payload rungs (the real lever, since serving not compute is the cost)
     - [x] `cap_render` 4096 rung — DONE 2026-07-25, mobile 5.3 → 1.8 MB → HISTORY § the cap rung
-    - [ ] gzip_static / brotli sidecars; vector-tile countries (kills the 9.2 MB parse)
-    - [ ] tiles WebP/AVIF — parked in FUTURE.md
+    - [ ] brotli sidecars — **sized 2026-07-25**: the edge picks zstd 2.98 MB where static br-11 is 1.56 MB
+      - Edge choice is the worst of the three offered: gzip 2.61 · br 2.81 · **zstd 2.98 MB**
+      - `boundary_lines.geojson` goes 642 → 376 KB the same way; ~1.5 MB off the cold window
+      - **BLOCKED on a correctness question**: one stored object cannot content-negotiate
+      - R2's `Content-Encoding` behaviour is undocumented in the docs search; needs a probe object
+      - `DecompressionStream` has no brotli, so decompressing it ourselves is not an escape hatch
+      - Low priority: this is deferred-to-idle transfer, ~0.4 s, off the first-paint path
+    - [ ] vector-tile countries — **the "kills the 9.2 MB parse" reason is FALSIFIED (2026-07-25)**
+      - Measured: `JSON.parse` of the 9.39 MB is **19 ms**; TextDecode 4 ms; geometry walk ~0 ms
+      - The ~0.41 s the ladder charged to countries is **MapLibre tessellation**, not JS parsing
+      - That 0.37 s is inferred by subtraction, NOT measured — measure it before justifying work
+      - Only geometry reduction touches it; compression cannot
+    - [x] **`Timing-Allow-Origin` — SHIPPED + verified live 2026-07-25** → HISTORY § P5 end-to-end
+      - Was absent, so cross-origin `transferSize`/`decodedBodySize` read 0 for tiles AND borders
+      - Blind in the direction that reads as "free" rather than "unknown"
+      - **Lighthouse does NOT need this** — it reads CDP, not Resource Timing; my first reason was wrong
+      - Real consumers: LCP attribution for the cross-origin heroes, and any in-page measurement
+      - [x] Tile Worker sets it in `withCrossOriginHeaders`; `*`, not `ALLOWED_ORIGIN` — see HISTORY
+      - [x] R2 domain via a Response Header Transform Rule → web/README.md § Zone configuration
+      - Applied on the way out, so cached tiles carry it too — **no purge needed**, verified on a HIT
+      - **A warm browser cache still reports 0** — it replays pre-deploy headers, and nothing can purge it
+      - Oracle: forced-network `decodedBodySize` = 433,656 (tile) and 1,954,822 (boundary_lines)
+      - Both match known byte counts exactly, so the check cannot pass vacuously
+    - [ ] **tiles WebP — MEASURED 2026-07-25 on 3 live tiles; the citation to FUTURE.md was dangling**
+      - q90 is **18–20% of PNG** (606,332 → 122,518 B); q80 12–14%; q95 24–27%; **lossless 57–72%**
+      - Cold window tiles **12.9 → ~2.6 MB**; archive **16 GB → ~3.2 GB**; R2 read 380 → ~80 ms
+      - Geography-independent — helps every visitor at every PoP, cached or not
+      - **Lossy on fine shading detail is exactly where this project has been burned** — needs Rohan's eye
+      - Lossless WebP is the risk-free floor: ~35% off with zero pixel change
+      - Cost: a pyramid re-cut + re-upload + zone purge; content-type and URL extension change
   - Done, kept as context
     - [x] onAdd-per-projection-transition re-init FIXED (`gl.isProgram` guard)
     - [x] Cap render memory FIXED 2026-07-25 → HISTORY § the cap rung

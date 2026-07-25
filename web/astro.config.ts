@@ -4,7 +4,7 @@ import type { Plugin } from 'vite';
 import type { ServerResponse } from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
-import { PMTiles, type RangeResponse, type Source } from 'pmtiles';
+import { EtagMismatch, PMTiles, type RangeResponse, type Source } from 'pmtiles';
 import { assertZoomRange, parseTilePath } from './src/lib/reliefTiles';
 
 // Asset store locations. DEV-ONLY: the dev server serves /heroes, /borders and /tiles
@@ -97,12 +97,28 @@ function openArchive(archivePath: string): Promise<PMTiles> {
   if (openedArchive?.archivePath === archivePath) return openedArchive.archive;
   const archive = (async () => {
     const handle = await fs.promises.open(archivePath, 'r');
+    // Stand-in for an HTTP ETag: mtime+size changes whenever the archive is re-packed. PMTiles
+    // caches directory entries, and a directory entry is a byte OFFSET — offsets into a
+    // different archive are meaningless, so re-packing while the dev server holds warm
+    // directories would read real bytes from the wrong place and serve a corrupt tile with a
+    // 200. Reporting a mismatch makes getZxy drop its cache and retry instead. The production
+    // Worker gets this from R2's real ETag via `onlyIf`; the failure mode is identical, and
+    // re-cutting the pyramid is a routine event here.
+    const archiveVersion = async () => {
+      const stats = await handle.stat();
+      return `${stats.mtimeMs}-${stats.size}`;
+    };
     const source: Source = {
       getKey: () => archivePath,
-      async getBytes(offset, length): Promise<RangeResponse> {
+      async getBytes(offset, length, _signal, etag): Promise<RangeResponse> {
+        const current = await archiveVersion();
+        if (etag !== undefined && etag !== current) throw new EtagMismatch();
         const buffer = Buffer.alloc(length);
         await handle.read(buffer, 0, length, offset);
-        return { data: buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength) };
+        return {
+          data: buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength),
+          etag: current,
+        };
       },
     };
     const opened = new PMTiles(source);

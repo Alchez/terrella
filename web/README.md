@@ -72,6 +72,60 @@ All commands are run from the root of the project, from a terminal:
 | `pnpm preview`         | Preview your build locally, before deploying     |
 | `pnpm astro ...`       | Run CLI commands like `astro add`, `astro check` |
 | `pnpm astro -- --help` | Get help using the Astro CLI                     |
+| `pnpm check`           | Type-check (`astro check`) — must report 0 errors |
+| `pnpm test`            | Unit tests (vitest)                              |
+| `pnpm run build:deploy` | Build addressing the production asset hosts      |
+| `pnpm run deploy`      | `build:deploy`, then upload to Cloudflare        |
+
+## Deploying
+
+The site is served from three origins, because only the shell is small enough to ship
+inside the build:
+
+| What                          | Where                                    |
+| :---------------------------- | :--------------------------------------- |
+| Shell — HTML, JS, CSS, caps   | this Worker (`wrangler.jsonc`), ~13 MB   |
+| Hero renders, border GeoJSON  | R2 bucket `terrella-assets`              |
+| Relief tiles                  | the tile Worker in `worker/`             |
+
+`pnpm build` addresses all three **same-origin**, which is what `astro dev` and the nginx
+prod-sim serve. That build is correct locally and broken in production, where nothing but
+the shell lives on the site's own origin. **`pnpm run deploy` is therefore the only correct
+way to ship** — it sets the three `PUBLIC_*_BASE` variables first. They live in
+`build:deploy` in `package.json` rather than a `.env.production`, which is gitignored to
+keep API keys out of the repo; a test asserts that every base the code reads is supplied
+there as an absolute URL, so adding a fourth cannot silently ship as same-origin.
+
+Note `pnpm run deploy`, not `pnpm deploy` — the latter is a pnpm builtin.
+
+Deploying from a fresh clone does not work, by design: the build reads
+`src/data/countries.json` and `public/caps/`, both generated from the render store and both
+gitignored. Regenerate them before deploying (see `docs/pipeline.md`).
+
+### Zone configuration (Cloudflare dashboard)
+
+Three settings live in the dashboard rather than in this repo, because neither wrangler's
+OAuth nor an object-scoped S3 token can write them. `pnpm run deploy` does **not** apply
+them, and each fails silently — a fresh setup needs all three.
+
+| Setting                  | Where                                        | Value                                                                                  |
+| :----------------------- | :------------------------------------------- | :------------------------------------------------------------------------------------- |
+| Cache Rule               | Caching → Cache Rules                        | `http.host eq "assets.terrella.alchez.dev"` → Eligible for cache, Edge TTL 1 month, **Ignore cache-control** |
+| CORS policy              | R2 → `terrella-assets` → Settings            | allow the site origin, `GET` + `HEAD`                                                  |
+| Response header rule     | Rules → Transform Rules → Modify Response Header | same host match → set `Timing-Allow-Origin: *`                                      |
+
+Why each is needed, since none is obvious from a failure:
+
+- **Cache Rule** — `.geojson` and `.json` are not default-cached extensions (`.webp` and
+  `.png` are), so without it every visit pulls the border GeoJSON from origin. R2 sends no
+  `Cache-Control` at all, which is why the TTL must *ignore* the header rather than honour it.
+  `cf-cache-status: DYNAMIC` is the signature of a missing rule; `MISS` then `HIT` is success.
+- **CORS** — the globe `fetch`es both GeoJSON files, and a `fetch` needs CORS where an
+  `<img>` hero does not. Getting this wrong breaks only the borders, not the heroes.
+- **`Timing-Allow-Origin`** — without it, cross-origin Resource Timing reports `transferSize`
+  and `decodedBodySize` as `0` rather than as unknown, so the site's own instrumentation reads
+  its largest payload as free. It also degrades LCP attribution for the gallery's hero images.
+  The tile Worker sets this header itself (`worker/index.ts`) and needs no rule.
 
 ## 👀 Want to learn more?
 

@@ -1,0 +1,49 @@
+{
+  // Terrella's site shell — the Astro build served as Workers Static Assets.
+  //
+  // Deploy with `pnpm run deploy` from this directory, NEVER `wrangler deploy` alone:
+  // the asset base URLs are inlined by Vite at build time, so a plain `astro build`
+  // produces a same-origin bundle whose heroes and borders 404 in production. The
+  // deploy script builds with the right bases first. See package.json + .env.example.
+  //
+  // Why Workers Static Assets and not Pages: the build's inputs (src/data/countries.json,
+  // public/caps/) are derived from the render store and gitignored, so a clean checkout
+  // cannot build — push-to-deploy is impossible either way, which removes Pages' only
+  // real advantage. See HISTORY § the site shell goes live on Workers Static Assets.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "terrella-site",
+  "compatibility_date": "2026-07-25",
+  "observability": { "enabled": true },
+
+  // No `main`: this Worker is assets-only, so there is no script and — deliberately — no
+  // ASSETS binding, which is only valid alongside one. A script would go here if /tiles/*
+  // ever moved onto this origin via `run_worker_first`, which is the reason this is a
+  // Worker rather than a Pages project.
+  "assets": {
+    "directory": "./dist",
+    // Astro emits `<slug>/index.html` per country, so a trailing slash is the canonical
+    // form. `none` because the build has no 404.html — an unmatched path gets Cloudflare's
+    // bare 404 until a src/pages/404.astro exists, at which point this becomes "404-page".
+    "html_handling": "auto-trailing-slash",
+    "not_found_handling": "none"
+  },
+
+  // wrangler creates the DNS record and orders the certificate itself. The name is
+  // first-level so Universal SSL already covers it; the generated Advanced Certificate
+  // is what covers the deeper tiles/assets hostnames.
+  "routes": [{ "pattern": "terrella.alchez.dev", "custom_domain": true }],
+
+  // Off: terrella.alchez.dev serves, so the workers.dev copy is a duplicate origin of the
+  // whole site — one the tile Worker now refuses tiles to anyway, since ALLOWED_ORIGIN is
+  // the custom domain alone. It was on for the first deploy only, because a custom domain
+  // is unreachable while its certificate issues.
+  "workers_dev": false,
+
+  // Explicitly off, not merely inherited from `workers_dev: false` — otherwise wrangler
+  // warns on every deploy, and a warning nobody can action is one everyone learns to skip.
+  // A preview URL is its own origin, so ALLOWED_ORIGIN would deny it every tile: the globe
+  // would render empty there for a reason unrelated to whatever was being previewed. A
+  // broken preview of the one page most worth previewing is worse than no preview. Per-
+  // version hostnames cannot be allowlisted without a wildcard that undoes the narrowing.
+  "preview_urls": false
+}

@@ -1,0 +1,21 @@
+{
+  // Deliberately standalone rather than extending ../tsconfig.json. The Worker runtime is not
+  // the browser: @cloudflare/workers-types redefines fetch, Response and friends, and letting
+  // those types into the Astro project's program breaks `astro check`. So the site excludes
+  // this directory and the Worker gets its own program, sharing exactly one file with the
+  // site — src/lib/reliefTiles.ts, the request contract both runtimes implement.
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "types": ["@cloudflare/workers-types"],
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "noUncheckedIndexedAccess": true
+  },
+  "include": ["index.ts", "../src/lib/reliefTiles.ts"]
+}

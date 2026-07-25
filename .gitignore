@@ -30,3 +30,7 @@ deploy/certs/
 
 # Coverage data (uv run pytest --cov)
 .coverage
+
+# wrangler's local state — deploy/build cache and dev-server storage, regenerated on
+# demand. Written wherever a wrangler command is run, so this is deliberately unanchored.
+.wrangler/
