@@ -68,7 +68,12 @@ NE_COUNTRIES = (ROOT / "data/raw/naturalearth/ne_10m_admin_0_countries"
                 / "ne_10m_admin_0_countries.shp")
 WORK = ROOT / "data/work"
 PLANE_WIDTH_UNITS = 2.0
-TARGETS = (1920, 3840)   # plus each hero's native long edge
+# Must stay the same ladder as hero_variants.TARGETS: the gallery layers this overlay directly on
+# the hero and gives both the same `sizes`, so a rung the overlay lacks makes the browser pull a
+# larger file for the top layer than for the one underneath it.
+TARGETS = (640, 960, 1280, 1920, 3840)   # plus each hero's native long edge
+# Unchanged at q88 by the 2026-07-25 quality pass, and provably so: build_overlay sets
+# overlay_alpha to 0 across the subject, so these pixels only ever cover the dimmed surroundings.
 WEBP_QUALITY = 88
 DIM_DEFAULT = 0.68       # outside brightness (Rohan's "subtle", 2026-07-24)
 DESAT_DEFAULT = 0.35     # outside desaturation

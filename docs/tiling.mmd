@@ -13,13 +13,13 @@ flowchart TD
   end
 
   subgraph OUT["Tile directory — the addressing IS the API"]
-    DIR["planet_tiles/tiles/&lt;z&gt;/&lt;x&gt;/&lt;y&gt;.png<br/>XYZ convention (y counts down from the top-left)<br/>87,381 tiles, ~4x per level (z0=1, ... z8=65,536)<br/>--skip-blank omits empty tiles; --webviewer=none (no leaflet/ol junk)<br/>cuts CLEAN each time (no --resume — a truncated png can't survive);<br/>guarded by a tiles.done sentinel; staged in tiles_new, swapped atomically,<br/>tiles_old kept as rollback"]
+    DIR["planet_tiles/tiles/&lt;z&gt;/&lt;x&gt;/&lt;y&gt;.webp<br/>WebP q95 (--format=WEBP --co QUALITY), ~20% of an equivalent PNG cut<br/>XYZ convention (y counts down from the top-left)<br/>87,381 tiles, ~4x per level (z0=1, ... z8=65,536)<br/>--skip-blank omits empty tiles; --webviewer=none (no leaflet/ol junk)<br/>cuts CLEAN each time (no --resume — a truncated tile can't survive);<br/>guarded by tiles.done + tile_params.json (format/quality changes restage); staged in tiles_new, swapped atomically,<br/>tiles_old kept as rollback"]
   end
 
   subgraph SERVE["Serving"]
     PM["PMTiles — tile/pack_pmtiles.py then pmtiles convert<br/>dir → MBTiles (blobs byte-moved, XYZ→TMS row flip) → planet.pmtiles, 16 GB<br/>~5% duplicate tiles collapsed; verified byte-identical vs the directory<br/>ONE object; the tile directory it was built from is not deployed"]
     TS["Tile server — opens the archive, answers one z/x/y at a time<br/>dev: /tiles middleware in web/astro.config.ts, over a local file<br/>prod: a Worker, over an R2 object (see HISTORY, deploy target moves to R2)<br/>the browser NEVER ranges the archive: Workers Caching strips Range and<br/>would fetch all 16 GB per tile, and a 16 GB object is past the 512 MB cache ceiling"]
-    ML["MapLibre GL raster source — globe.astro (LIVE today)<br/>tiles &lt;PUBLIC_TILE_BASE&gt;&lt;z&gt;/&lt;x&gt;/&lt;y&gt;.png, minzoom 0 maxzoom 8<br/>base unset = same-origin /tiles/ (what astro dev serves); a deploy points it at the Worker<br/>tileSize:256 declared + 512 px assets = @2x retina crispness<br/>the globe projection re-warps the mercator tiles onto a sphere, GPU-side<br/>(WebMercatorQuad is dictated by this renderer, not chosen for itself)"]
+    ML["MapLibre GL raster source — globe.astro (LIVE today)<br/>tiles &lt;PUBLIC_TILE_BASE&gt;&lt;z&gt;/&lt;x&gt;/&lt;y&gt;.webp, minzoom 0 maxzoom 8<br/>base unset = same-origin /tiles/ (what astro dev serves); a deploy points it at the Worker<br/>tileSize:256 declared + 512 px assets = @2x retina crispness<br/>the globe projection re-warps the mercator tiles onto a sphere, GPU-side<br/>(WebMercatorQuad is dictated by this renderer, not chosen for itself)"]
   end
 
   M --> P1

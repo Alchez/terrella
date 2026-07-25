@@ -56,7 +56,7 @@ flowchart TD
     P["render/render_prep.py<br/>warp EPSG:4326 to Albers equal-area conic,<br/>~16k Float32 TIFF + nearest-warped masks<br/>+ 0/255 lake & river PNGs for the shader"]
     B["render/scene_build.py — Blender Cycles, RTX 4070S / OptiX, headless -b<br/>true displacement + adaptive subdivision<br/>two ColorRamps switched by ocean mask<br/>+ GLOBathy depth-keyed lake ramp (render/lake_mask.py), rivers flat teal<br/>locked look: 15x, sun alt 45 (shared palette.SUN_ALT_DEG), OIDN denoise"]
     SV["render/sky_view.py — burn-only horizon SVF<br/>darkens land valleys post-render"]
-    H8["8K hero (long edge 7680) + 2K/4K WebP variants<br/>(compose/hero_variants.py)"]
+    H8["8K hero (long edge 7680) + 6 WebP rungs 640..7680<br/>q85 to 1920, q95 above<br/>(compose/hero_variants.py)"]
     OV["compose/overlay_borders.py<br/>pyshp + pyproj + pycairo, same Albers +<br/>ortho-margin mapping; coastline oracle;<br/>cased white borders, dashed disputed/maritime"]
     HF[("bordered hero + transparent border layer<br/>(compose/gen_borders.py — the gallery toggle asset)")]
   end
@@ -79,7 +79,7 @@ flowchart TD
     HS["render/hillshade.py — per-row z-factor 15/cos(lat)<br/>full-width, 1-row halo -> seamless;<br/>gdaldem takes only a scalar z, hence our own"]
     SH["tile/shade.py composite() — per 128-row window, 4 workers:<br/>land/sea ramps from elevation via a 17.6 KB LUT<br/>(replaced two gdaldem color-relief passes)<br/>x hillshade x sky-view + snow + sea ice + lake depth"]
     T2["gdal raster tile: 512 px, z0-8, xyz convention<br/>87,381 tiles; tiles_old kept as rollback<br/>(cut/pyramid/@2x/serve mechanics: see docs/tiling.mmd)"]
-    T5["tile/pack_pmtiles.py + pmtiles convert<br/>-> planet.pmtiles 15 GB, range-request served<br/>(see docs/tiling.mmd)"]
+    T5["tile/pack_pmtiles.py + pmtiles convert<br/>-> planet.pmtiles 3.0 GB, range-request served<br/>(see docs/tiling.mmd)"]
     CP["tile/cap_render.py — AEQD polar caps, both poles<br/>same shade.composite over the fused VRTs;<br/>8192-px WebP pair + caps.json -> web/public/caps/<br/>freshness-guarded: restages whenever the look does"]
   end
 

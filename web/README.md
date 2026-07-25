@@ -41,6 +41,24 @@ pnpm dev --host
 > If you rebuilt the tile pyramid while the server was running, the browser may hold stale tiles
 > and a failed SSR import can stay cached — a server restart plus a hard reload clears both.
 
+> **Vite does not hot-reload `astro.config.ts`.** Page and lib code reloads, the `/tiles` middleware
+> does not — so changing the tile contract (`src/lib/reliefTiles.ts`) leaves a running dev server
+> answering the *old* request shape while the freshly-compiled globe asks for the new one, and every
+> tile 404s. **Restart the dev server after touching either.**
+
+### The tile request contract
+
+`{z}/{x}/{y}.webp`, z0–8, one tile per request. `src/lib/reliefTiles.ts` is the single source of
+truth for all of it — extension, content type, path parser and zoom range — and both servers import
+it: the `/tiles` middleware in `astro.config.ts` for dev, `worker/index.ts` for production. They
+differ only in where the bytes come from (a local file vs an R2 binding); the browser never opens
+the archive itself.
+
+The extension follows the archive's declared tile type, which is set by the pipeline
+(`TILE_CUT` in `pipeline/tile/shade_planet.py`) and carried through by `pack_pmtiles`. A PMTiles
+archive stores **one** encoding for every tile, so this is a single global fact, not a per-tile one.
+Changing it is also the cache-bust: every tile URL changes, so a re-cut needs **no zone purge**.
+
 ## 🚀 Project Structure
 
 Inside of your Astro project, you'll see the following folders and files:

@@ -5,7 +5,7 @@ import type { ServerResponse } from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { EtagMismatch, PMTiles, type RangeResponse, type Source } from 'pmtiles';
-import { assertZoomRange, parseTilePath } from './src/lib/reliefTiles';
+import { TILE_CONTENT_TYPE, assertZoomRange, parseTilePath } from './src/lib/reliefTiles';
 
 // Asset store locations. DEV-ONLY: the dev server serves /heroes, /borders and /tiles
 // out of these external directories (R2 does it in production; the
@@ -135,9 +135,9 @@ function openArchive(archivePath: string): Promise<PMTiles> {
   return archive;
 }
 
-// Dev-only: answer /tiles/{z}/{x}/{y}.png out of the packaged PMTiles archive. This is the
+// Dev-only: answer /tiles/{z}/{x}/{y}.webp out of the packaged PMTiles archive. This is the
 // local twin of the production tile Worker, and it exists for the same reason the Worker
-// does — the archive is 16 GB, so the browser must never address it directly and must never
+// does — the archive is multi-GB, so the browser must never address it directly and must never
 // send a Range header (→ HISTORY § the deploy target moves to R2). The ranging happens here,
 // against a local file; in production it happens inside a Worker, against an R2 object.
 function tilesDevServer(): Plugin {
@@ -162,7 +162,7 @@ function tilesDevServer(): Plugin {
               res.end(`No tile ${tile.z}/${tile.x}/${tile.y} in ${ARCHIVE_NAME}`);
               return;
             }
-            res.setHeader('Content-Type', 'image/png');
+            res.setHeader('Content-Type', TILE_CONTENT_TYPE);
             res.setHeader('Cache-Control', 'no-cache');
             res.end(Buffer.from(entry.data));
           } catch (error) {

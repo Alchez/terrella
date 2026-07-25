@@ -43,16 +43,16 @@
   INVENTORY).
 - Steady state is **one live pyramid + one rollback**: `tiles/` plus the `tiles_old/` that
   `build_tiles` auto-rotates on each cut.
-- `pack_pmtiles.py` emits an intermediate `planet.mbtiles` (16 GB) that `pmtiles convert` reads —
-  **transient by design**: delete it once the archive verifies, it rebuilds from `tiles/` in ~33 s.
+- `pack_pmtiles.py` emits an intermediate `planet.mbtiles` (3.19 GB) that `pmtiles convert` reads —
+  **transient by design**: delete it once the archive verifies, it rebuilds from `tiles/` in ~10 s.
 
 | File | Size | What it is | Reclaim? |
 |---|---|---|---|
 | `height_3857.tif` + `.done` | 44 GB | planet heightfield on the WMQ 3857 grid (131072², Float32, full Mercator extent incl. Antarctica) | Keep — the composite's direct colour input (ramps apply from elevation) |
 | `seaice_3857.tif` + `.done` | 18 GB | OSI SAF ice-frequency climatology warped ONCE to the 3857 grid, raw packed Float32, in latitude bands (a coarse 25 km source decimates under a single whole-grid warp); composite reads window slices, ocean-gated | Keep — fresh; dep is `seaice_frequency_1991-2020_4326.tif`. Regenerable |
-| `tiles/` | 16 GB | **LIVE and APPROVED** — the ratified look (z0–8, 512 px, rows to y=255) | Keep (live) |
-| `tiles_old/` | 16 GB | the auto-rotated rollback from the last cut (pre-`ice_relief_damp` look) | Auto-reclaims — replaced at the next cut; its keep-gate is the rollback window |
-| `planet.pmtiles` | 15 GB | the serving archive (`pmtiles convert`, capped, `--tmpdir` on ext4): spec v3, clustered, z0–8, ~5% duplicate tiles collapsed; verified via `pmtiles verify` + 5-tile byte-compare | Keep — the deployment artifact; ~34 s + ~1m11s to rebuild from `tiles/` |
+| `tiles/` | **3.1 GB** | **LIVE and APPROVED** — the ratified look (z0–8, 512 px WebP q95, rows to y=255) | Keep (live) |
+| `tiles_old/` | 16 GB | the auto-rotated rollback from the last cut — currently the **PNG** pyramid the WebP one replaced | Auto-reclaims — replaced at the next cut; its keep-gate is the rollback window |
+| `planet.pmtiles` | **3.0 GB** | the serving archive (`pmtiles convert`, capped, `--tmpdir` on ext4): spec v3, clustered, z0–8, ~5% duplicate tiles collapsed; verified via `pmtiles verify` + 5-tile byte-compare | Keep — the deployment artifact; ~34 s + ~1m11s to rebuild from `tiles/` |
 | `planet_rgb.tif` + `.done` | 11 GB | the composite at the full 131072² grid — the approved look the tiles are cut from | Keep — `--tiles` reads it |
 | `snow_persistence_3857.tif` + `.done` | 10 GB | NSIDC-0791 persistence warped ONCE to the 3857 grid, raw packed Float32, in 256-row latitude bands (whole-grid warp decimates the ~1.1 km source; banding == the per-window warp, byte-identical); composite reads window slices | Keep — fresh; dep is `snow/*.nc`. Regenerable |
 | `hs_3857.tif` + `.done` | 10 GB | per-row-z hillshade **+ the fill sun, baked** — *combined light*, not a bare hillshade, still on the `flat = 255·sin(alt)` contract; max DN 226 | Keep — fresh |
@@ -73,7 +73,7 @@
 |---|---|---|---|
 | `heroes/raw/` | 13 GB | the un-post-processed Cycles frames, one 8K PNG per country | Keep — `sky_view` re-shades finals from these with **no GPU re-render** (the AO retune took 203 countries off them in minutes) |
 | `heroes/` | 12 GB | the shaded finals (raw + `sky_view`), one per country | Keep — the source `hero_variants` encodes from |
-| `variants/` | 2.0 GB | **the served store**: 609 hero WebP (3 rungs) + 609 spotlight overlays + border PNGs | Keep — this is what the browser fetches |
+| `variants/` | **3.5 GB** | **the served store**: 1,218 hero WebP (6 rungs, q85 to 1920 / q95 above) + 1,218 spotlight overlays + 1,010 border PNGs (5 rungs) | Keep — this is what the browser fetches |
 | `borders/` | 158 MB | per-country transparent border PNGs | Keep — the globe click-panel overlay builds from them |
 | `archive/` | 595 MB | one-off look experiments (india/nepal/swiss look v1–v3) — the visual record behind ART's decisions | Keep (small); **not** a place for rollback trees |
 | `*.log`, `batch_failures*.jsonl` | <10 MB | sweep logs + the failure roster batch retries from | Keep (tiny) |
@@ -97,11 +97,11 @@
 |---|---|---|---|---|
 | globe JS chunk (MapLibre + the **bundled** `countries.json` manifest — an import, never a fetch) | 280 KB (1.08 MB raw) | vite, unminified, larger | edge gzip/brotli | `web/dist/_astro/` |
 | CSS + small chunks (polarCaps, capability probe) | ~15 KB total | same | same | `web/dist/_astro/` |
-| relief tiles | ~190 KB avg/tile (16 GB ÷ 87,381), viewport-driven | `/tiles/{z}/{x}/{y}.png`, ranged out of the archive by the dev middleware | same URL shape, ranged by the Worker out of R2 — measured: first paint ≈ 40 requests | `planet.pmtiles` |
+| relief tiles | **~36 KB avg/tile** (3.1 GB ÷ 87,381), viewport-driven | `/tiles/{z}/{x}/{y}.webp`, ranged out of the archive by the dev middleware | same URL shape, ranged by the Worker out of R2 — measured: first paint ≈ 40 requests | `planet.pmtiles` |
 | polar caps | **desktop 3.2 + 2.1 MB** (8192 rung) · **mobile 1.0 + 0.8 MB** (4096 rung) + `caps.json` (fetched eagerly at globe load, revalidated not cached; decode off-thread) | identical | identical — WebP ships pre-compressed | `web/public/caps/` |
 | `boundary_lines.geojson` | 0.55 MB gz (1.95 MB raw) — **opt-in only**: fetched on the first Borders toggle-on, never by default | uncompressed | edge gzip/brotli | `work/borders/` |
 | `countries.geojson` | 2.5 MB gz (9.4 MB raw at the 0.002° guard-tested tolerance) | uncompressed | edge gzip/brotli | `work/borders/` |
-| hero variants (gallery srcset + globe click panel) | 0.7 / 2.3 / 6.9 MB per rung (France 1920/3840/7680 WebP) + border overlays 0.14–1.1 MB PNG | `loading="lazy"`, srcset picks the rung | same | `blender/renders/variants/` |
+| hero variants (gallery srcset + globe click panel) | mean per rung **60 KB / 130 / 222 / 466 / 2,838 / 8,624** (640/960/1280/1920/3840/native WebP) + border overlays 0.14–1.1 MB PNG | `loading="lazy"`, srcset picks the rung | same | `blender/renders/variants/` |
 
 Dev–prod differences that matter:
 

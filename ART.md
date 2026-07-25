@@ -448,6 +448,51 @@ Cost: hero sweep **~10–13 h** + tile restage **~29 min** + caps auto-restage *
 - Warp width ≈ render width and ≤ source width (the anti-bump rule).
 - No Map Range with reversed ranges — Math Multiply + Clamp only.
 
+## Delivery encoding — what the browser actually receives
+
+The masters are lossless and stay lossless: 203 hero PNGs and the `planet_rgb` composite. Everything
+below is *delivery only* and regenerable, so a wrong call here costs an encode pass, never pixels.
+
+**Quality is a policy, not one constant — it follows how closely a surface is inspected.**
+
+| asset | quality | why |
+|---|---|---|
+| hero 640 / 960 / 1280 / 1920 | **q85** | thumbnails in a ~350 px masonry column |
+| hero 3840 / native | **q95** | the artefact a reader opens full-screen and zooms into |
+| relief tiles (all zooms) | **q95** | 512 px served into a 256 px slot; fine shading detail is the whole look |
+| polar caps | **q85** | foreshortened background texture at the limb, and 5.21 MB of the cold window |
+| spotlight overlay | **q88** | only ever covers the *dimmed surroundings* — alpha is 0 across the subject |
+| border layers | lossless PNG | flat colour + alpha; PNG is both smaller and exact here |
+
+- **q95, not q98 and not lossless.** Measured on a native 7680 hero: the whole climb from q85 to q98
+  costs 2.1×, and the last step to mathematical identity costs **another 2.4× on top** — you pay more
+  for the invisible step than for every visible one combined. q95 and q98 are already near-identical
+  by number (mean |Δ| 1.57 vs 1.31 against the master; q85 is 2.58).
+- **Uniform quality is the wrong shape.** Raising the caps to match the tiles cancels the tile saving
+  outright: uniform q98 lands the desktop cold window at −12%, tiles-at-q95-with-caps-untouched at
+  −56%. Spend quality where it is looked at.
+- **Lossy on tiles is not the compromise it sounds like.** Against the lossless tiles it replaced,
+  q95 measures mean |Δ| **1.91/255** on the busiest terrain in Europe, for a fifth of the bytes.
+- **Never judge a format A/B where resolution also moved.** The cap comparison that appeared to
+  settle this had 4096 PNG on one side and 8192 WebP q85 on the other — a 4× pixel gain comfortably
+  masks a quality penalty, so what got chosen was "more pixels". → HISTORY § the delivery formats
+  were never chosen
+
+## The srcset ladder — 640 / 960 / 1280 / 1920 / 3840 / native
+
+- **Chosen against measured layout, not viewport intuition.** The gallery is masonry
+  (`columns: 320px`), so a card renders **324–516 CSS px at every viewport from 390 to 3440** — a 4K
+  monitor gets a 335 px card, it just gets more of them. Device pixel ratio is therefore the only
+  real variable, and demand falls in three bands (~350 · ~700–820 · ~1000–1100) that these rungs
+  serve exactly.
+- **`sizes` must state a fixed width, not a viewport fraction.** Fractions over-declared by up to
+  3.08× at 3440, and the browser selects on the *declared* width — so a wrong `sizes` defeats the
+  ladder on precisely the largest screens.
+- **All three layers share the ladder** (hero, spotlight, border), because the gallery and the globe
+  panel stack them under one `sizes`. A rung present in one and missing from another makes the
+  browser fetch mismatched files — which is how an 85 kB border once landed on a 48 kB hero.
+- **Never under-declare.** Rounding down shows as blur; rounding up shows only as bytes.
+
 ## Tuning protocol
 
 - **A metric is a diagnostic, never the objective. Judge on renders.** Contrast metrics cannot

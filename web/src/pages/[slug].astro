@@ -1,7 +1,7 @@
 ---
 import Base from "../layouts/Base.astro";
 import Masthead from "../components/Masthead.astro";
-import { manifest as data, type Country } from "../lib/manifest";
+import { manifest as data, smallestRungAtLeast, type Country } from "../lib/manifest";
 import { HERO_BASE } from "../lib/assetBase";
 
 // One statically-built page per country.
@@ -14,12 +14,18 @@ export function getStaticPaths() {
 
 const { country } = Astro.props as { country: Country };
 
-// The hero starts at the smallest variant for a fast, light initial paint; the zoom
-// script swaps in the native variant the first time you zoom in (see the <script>).
-const displayHero = `${HERO_BASE}${country.slug}-${country.sizes[0]}.webp`;
+// The hero starts at the smallest variant that still fills a full-bleed figure, for a light
+// initial paint; the zoom script swaps in the native variant the first time you zoom in (see the
+// <script>). A FLOOR, not sizes[0]: this is a CSS background-image, so nothing negotiates a rung
+// for it, and the gallery's 640/960/1280 rungs sit below what this page displays at.
+const HERO_DISPLAY_FLOOR_PX = 1920;
+const displayRung = smallestRungAtLeast(country.sizes, HERO_DISPLAY_FLOOR_PX);
+const displayHero = `${HERO_BASE}${country.slug}-${displayRung}.webp`;
 const nativeHero = `${HERO_BASE}${country.slug}-${country.native}.webp`;
+// Same floor for the overlay: it is layered over the hero, so a lower rung would soften its
+// boundary hairline against a sharp relief underneath.
 const displaySpotlight = country.hasSpotlight
-  ? `${HERO_BASE}${country.slug}-spotlight-${country.spotlightSizes[0]}.webp`
+  ? `${HERO_BASE}${country.slug}-spotlight-${smallestRungAtLeast(country.spotlightSizes, HERO_DISPLAY_FLOOR_PX)}.webp`
   : "";
 const nativeSpotlight = country.hasSpotlight
   ? `${HERO_BASE}${country.slug}-spotlight-${country.spotlightSizes[country.spotlightSizes.length - 1]}.webp`

@@ -6,6 +6,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { TILE_URL_TEMPLATE, resolveAssetBase } from "./assetBase";
+import { TILE_PATH_TEMPLATE } from "./reliefTiles";
 
 /** web/ — this file is web/src/lib/assetBase.test.ts. */
 const WEB_ROOT = fileURLToPath(new URL("../../", import.meta.url));
@@ -44,8 +45,9 @@ describe("resolveAssetBase", () => {
 });
 
 describe("TILE_URL_TEMPLATE", () => {
-  it("carries MapLibre's placeholders and the archive's PNG tile type", () => {
-    expect(TILE_URL_TEMPLATE.endsWith("{z}/{x}/{y}.png")).toBe(true);
+  it("carries MapLibre's placeholders and the archive's tile type", () => {
+    expect(TILE_URL_TEMPLATE.endsWith(TILE_PATH_TEMPLATE)).toBe(true);
+    expect(TILE_URL_TEMPLATE.endsWith("{z}/{x}/{y}.webp")).toBe(true);
   });
 });
 
