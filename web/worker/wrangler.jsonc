@@ -1,0 +1,29 @@
+{
+  // Terrella's relief tile server. Deploy from this directory: `npx wrangler deploy`.
+  //
+  // The bucket is reached through a BINDING, not a URL — that is what keeps the archive
+  // private (terrella-tiles has no custom domain and its r2.dev domain is disabled) and what
+  // makes the internal range reads subrequests, which Cloudflare does not bill.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "terrella-tiles",
+  "main": "index.ts",
+  // Kept current deliberately: the Protomaps worker this replaces still pins 2024-09-02.
+  "compatibility_date": "2026-07-25",
+  "observability": { "enabled": true },
+
+  "r2_buckets": [
+    {
+      "binding": "ARCHIVE",
+      "bucket_name": "terrella-tiles",
+      // `wrangler dev` reads the same bucket — there is only one archive, and it is immutable.
+      "preview_bucket_name": "terrella-tiles"
+    }
+  ],
+
+  "vars": {
+    "ARCHIVE_KEY": "planet.pmtiles",
+    // Set to the site's own origin once the hostname is settled. MapLibre uploads tiles as
+    // WebGL textures, so a cross-origin tile without CORS taints the canvas and never draws.
+    "ALLOWED_ORIGIN": "*"
+  }
+}
