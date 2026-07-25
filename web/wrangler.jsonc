@@ -37,5 +37,13 @@
   // whole site — one the tile Worker now refuses tiles to anyway, since ALLOWED_ORIGIN is
   // the custom domain alone. It was on for the first deploy only, because a custom domain
   // is unreachable while its certificate issues.
-  "workers_dev": false
+  "workers_dev": false,
+
+  // Explicitly off, not merely inherited from `workers_dev: false` — otherwise wrangler
+  // warns on every deploy, and a warning nobody can action is one everyone learns to skip.
+  // A preview URL is its own origin, so ALLOWED_ORIGIN would deny it every tile: the globe
+  // would render empty there for a reason unrelated to whatever was being previewed. A
+  // broken preview of the one page most worth previewing is worse than no preview. Per-
+  // version hostnames cannot be allowlisted without a wildcard that undoes the narrowing.
+  "preview_urls": false
 }

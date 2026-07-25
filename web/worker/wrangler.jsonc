@@ -6,6 +6,15 @@
   // makes the internal range reads subrequests, which Cloudflare does not bill.
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "terrella-tiles",
+
+  // Both off, for the same reason the site Worker has them off: a workers.dev or preview
+  // hostname is a second public origin that serves the whole pyramid while sitting OUTSIDE
+  // the zone — so zone Cache Rules, WAF rules and any future rate limit do not apply to it,
+  // yet its requests still bill against the free tier. Set explicitly rather than left to
+  // default: `workers_dev: false` alone makes wrangler warn about preview_urls on every
+  // deploy, and a warning nobody can action is a warning everyone learns to skip.
+  "workers_dev": false,
+  "preview_urls": false,
   "main": "index.ts",
   // Kept current deliberately: the Protomaps worker this replaces still pins 2024-09-02.
   "compatibility_date": "2026-07-25",

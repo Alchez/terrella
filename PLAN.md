@@ -191,8 +191,12 @@ Baked-vs-live rule (locked 2026-07-07): too expensive live → baked; depends on
     - **Cache Rule trap:** the expression pasted into a `URI Full`/`wildcard` Value box matches nothing
     - `.geojson`/`.json` are NOT default-cached extensions; `.webp`/`.png` are
     - R2 sends no `Cache-Control` ⇒ Edge TTL must be "ignore cache-control"; browsers get 4 h
-    - [ ] Deploy pending: `ALLOWED_ORIGIN` narrowed + `workers_dev: false` (both edited, not shipped)
-    - OPEN for Rohan: Bot Fight Mode injects a script into every page — keep or disable?
+    - `ALLOWED_ORIGIN` narrowed + site `workers_dev: false` — SHIPPED, verified live
+    - Foreign origin now gets no ACAO; a tile with no `Origin` still serves 200 + full bytes
+    - **Bot Fight Mode: KEPT ON** (Rohan, 2026-07-25) — its 938-byte injection is accepted
+    - [ ] Deploy pending: tile Worker `workers_dev`/`preview_urls: false` (site config too)
+    - **The tile Worker's workers.dev route was missed** — a 2nd origin OUTSIDE the zone
+      - Zone Cache Rules, WAF and any future rate limit do not apply there; requests still bill
   - [ ] P5 end-to-end from an external vantage, against the 382/794/985 ms sim ladder
 - [ ] **Serving contract — the interface to preserve** (`deploy/nginx` = reference impl)
   - HTTP range requests; three cache classes (`_astro` immutable 1yr / stores 1wk+ETag / HTML no-cache)
