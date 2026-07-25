@@ -104,6 +104,10 @@ Baked-vs-live rule (locked 2026-07-07): too expensive live → baked; depends on
 - [x] Globe polish — starfield, mobile control fixes, sea rework V1 LIVE, Spin toggle
 - [x] Capability probe + tier routing + Lite/Globe/Full toggle + FPS degradation — `decideTier()`, WebGL2 hard floor, TDD'd
 - [x] Tier 1 no-JS fallback — pure-CSS gazetteer overlay; dead search removed
+- [x] **Subject-spotlight "Focus" toggle on heroes/gallery** — globe keeps Borders → HISTORY § the subject-spotlight "Focus" view
+  - Overlay asset (`gen_spotlight.py`), never baked — the toggle costs no re-render
+  - Subject = DEM-land minus neighbours' NE polygons: pixel-exact coast, NE landward border
+  - `gen_borders.py` stays live — the globe's hero panel still draws its PNGs
 - [x] **Hero sea-sync sweep — DONE + RATIFIED 2026-07-24** → HISTORY § the hero sea-sync sweep
   - 203 heroes re-rendered (~10.5 h, 0 fail), 609 variants regenerated, judged GOOD by Rohan
   - **Hero-look freeze lifted**; `scene_build` now IMPORTS palette (derivations, not copies)

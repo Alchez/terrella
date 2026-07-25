@@ -13,9 +13,10 @@ import numpy as np
 import rasterio
 from rasterio.warp import Resampling, reproject
 
-WORK = "/home/rohan/projects/maps/data/work/khambhat"
-GEBCO = ("/home/rohan/projects/maps/data/raw/gebco/"
-         "gebco_2026_n40.0_s0.0_w60.0_e100.0_geotiff.tif")
+from pipeline import paths
+
+WORK = paths.DATA / "work/khambhat"
+GEBCO = paths.DATA / "raw/gebco/gebco_2026_n40.0_s0.0_w60.0_e100.0_geotiff.tif"
 
 
 def main():

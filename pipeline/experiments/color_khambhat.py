@@ -10,7 +10,9 @@ above-zero ocean pixels matter anywhere, it is here.
 import numpy as np
 import rasterio
 
-WORK = "/home/rohan/projects/maps/data/work/khambhat"
+from pipeline import paths
+
+WORK = paths.DATA / "work/khambhat"
 
 SEA = [  # depth-keyed, stops ascending for np.interp
     (-3000, (72, 125, 138)),

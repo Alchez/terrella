@@ -108,11 +108,11 @@ class TestEnvOverrides:
 class TestSingleHome:
     def test_no_path_home_outside_the_seam(self):
         """The drift guard: any new Path.home() root outside paths.py fails here,
-        with the fix in the message. experiments/ is out of production scope."""
+        with the fix in the message."""
         offenders: list[str] = []
         for source_file in sorted((REPO_ROOT / "pipeline").rglob("*.py")):
             relative = source_file.relative_to(REPO_ROOT)
-            if relative.parts[1] == "experiments" or relative in HOME_ALLOWED:
+            if relative in HOME_ALLOWED:
                 continue
             if "Path.home()" in source_file.read_text():
                 offenders.append(str(relative))
@@ -125,12 +125,10 @@ class TestSingleHome:
         """The spelling Path.home() misses. An absolute home path written as a
         string is the same drift with none of the syntax, and it is invisible
         until the file runs somewhere else — which, for a harness script, may be
-        only ever on CI. experiments/ stays out of production scope, as above."""
+        only ever on CI."""
         offenders: list[str] = []
         for relative in tracked_files():
             if relative.suffix not in CODE_SUFFIXES or relative in LITERAL_ALLOWED:
-                continue
-            if relative.parts[:2] == ("pipeline", "experiments"):
                 continue
             source_file = REPO_ROOT / relative
             if not source_file.exists():  # tracked but deleted in the working tree
