@@ -2,6 +2,7 @@
 import Base from "../layouts/Base.astro";
 import Masthead from "../components/Masthead.astro";
 import { manifest as data, type Country } from "../lib/manifest";
+import { HERO_BASE } from "../lib/assetBase";
 
 // One statically-built page per country.
 export function getStaticPaths() {
@@ -13,7 +14,6 @@ export function getStaticPaths() {
 
 const { country } = Astro.props as { country: Country };
 
-const HERO_BASE = import.meta.env.PUBLIC_HERO_BASE ?? "/heroes/";
 // The hero starts at the smallest variant for a fast, light initial paint; the zoom
 // script swaps in the native variant the first time you zoom in (see the <script>).
 const displayHero = `${HERO_BASE}${country.slug}-${country.sizes[0]}.webp`;

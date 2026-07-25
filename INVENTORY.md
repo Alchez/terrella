@@ -84,34 +84,35 @@
 
 ## What the browser loads (dev vs prod)
 
-- The wire view — which stores actually reach a visitor, and how dev differs from the nginx
-  target. Dev serves stores through four routes in `web/astro.config.ts`, pointed by `web/.env`
-  (`HERO_STORE` → `blender/renders/variants`, `TILES_STORE` → `planet_tiles/tiles`,
-  `BORDERS_STORE` → `work/borders`, `PMTILES_STORE` → `planet_tiles/`); prod is nginx over the
-  same stores.
+- The wire view — which stores actually reach a visitor, and how dev differs from the deploy
+  target. Dev serves stores through three routes in `web/astro.config.ts`, pointed by `web/.env`
+  (`HERO_STORE` → `blender/renders/variants`, `BORDERS_STORE` → `work/borders`,
+  `PMTILES_STORE` → `planet_tiles/`); the deploy target is Cloudflare — Pages for the shell, R2
+  for the hero and border stores, a Worker for tiles. The site addresses all three through
+  `web/src/lib/assetBase.ts`, whose defaults are the same-origin dev paths.
 - The build (`web/dist/`, ~11 MB, ~206 pages) contains **only markup + code** — every heavy asset
   stays in its store and is fetched at runtime, so `pnpm build` never copies gigabytes.
 
 | Asset | Wire size (prod, gz) | Dev | Prod | Store |
 |---|---|---|---|---|
-| globe JS chunk (MapLibre + the **bundled** `countries.json` manifest — an import, never a fetch) | 280 KB (1.08 MB raw) | vite, unminified, larger | nginx gzip | `web/dist/_astro/` |
-| pmtiles client chunk | 7 KB | lazy `import()` behind `?pmtiles` | loads by default after the flag flip | `web/dist/_astro/` |
+| globe JS chunk (MapLibre + the **bundled** `countries.json` manifest — an import, never a fetch) | 280 KB (1.08 MB raw) | vite, unminified, larger | edge gzip/brotli | `web/dist/_astro/` |
 | CSS + small chunks (polarCaps, capability probe) | ~15 KB total | same | same | `web/dist/_astro/` |
-| relief tiles | ~190 KB avg/tile (16 GB ÷ 87,381), viewport-driven | `/tiles/{z}/{x}/{y}.png` from the XYZ dir | **range requests into `planet.pmtiles`** — measured: first paint ≈ 40 requests, FCP 52 ms | `tiles/` (dev) / `planet.pmtiles` (prod) |
+| relief tiles | ~190 KB avg/tile (16 GB ÷ 87,381), viewport-driven | `/tiles/{z}/{x}/{y}.png`, ranged out of the archive by the dev middleware | same URL shape, ranged by the Worker out of R2 — measured: first paint ≈ 40 requests | `planet.pmtiles` |
 | polar caps | **desktop 3.2 + 2.1 MB** (8192 rung) · **mobile 1.0 + 0.8 MB** (4096 rung) + `caps.json` (fetched eagerly at globe load, revalidated not cached; decode off-thread) | identical | identical — WebP ships pre-compressed | `web/public/caps/` |
-| `boundary_lines.geojson` | 0.55 MB gz (1.95 MB raw) — **opt-in only**: fetched on the first Borders toggle-on, never by default | uncompressed | nginx gzip | `work/borders/` |
-| `countries.geojson` | 2.5 MB gz (9.4 MB raw at the 0.002° guard-tested tolerance) | uncompressed | nginx gzip | `work/borders/` |
+| `boundary_lines.geojson` | 0.55 MB gz (1.95 MB raw) — **opt-in only**: fetched on the first Borders toggle-on, never by default | uncompressed | edge gzip/brotli | `work/borders/` |
+| `countries.geojson` | 2.5 MB gz (9.4 MB raw at the 0.002° guard-tested tolerance) | uncompressed | edge gzip/brotli | `work/borders/` |
 | hero variants (gallery srcset + globe click panel) | 0.7 / 2.3 / 6.9 MB per rung (France 1920/3840/7680 WebP) + border overlays 0.14–1.1 MB PNG | `loading="lazy"`, srcset picks the rung | same | `blender/renders/variants/` |
 
 Dev–prod differences that matter:
 
 - **Compression** — dev sends identity bytes (the geojson pair alone is 11.4 MB on the wire vs
-  3.1 MB gz); prod nginx gzips text assets. WebP/PNG are pre-compressed either way.
+  3.1 MB gz); the CDN compresses text assets. WebP/PNG are pre-compressed either way.
 - **Validators** — the dev store routes send no ETag/Last-Modified, so every dev reload
   re-downloads everything (recorded on the PLAN Lighthouse item); prod sends validators plus
   aggressive cache headers.
-- **Tile source** — dev default is the XYZ directory; PMTiles is `?pmtiles` in dev and becomes
-  the only prod path (one file, range requests, no tile server).
+- **Tile source** — one archive either way, and the browser never opens it: it asks for
+  `{z}/{x}/{y}.png` and a tile server does the ranging (dev middleware locally, a Worker over
+  R2 in production). The XYZ directory the archive was packed from is not deployed at all.
 - `countries.geojson` fetches on every globe load (it drives interactivity); `boundary_lines`
   loads only after the user opts into borders (the source is added lazily on first toggle-on,
   and the stored preference re-adds it on later visits) — async, first paint never waits.

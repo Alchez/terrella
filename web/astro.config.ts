@@ -4,10 +4,11 @@ import type { Plugin } from 'vite';
 import type { ServerResponse } from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
-import { parseByteRange } from './src/lib/httpRange';
+import { PMTiles, type RangeResponse, type Source } from 'pmtiles';
+import { assertZoomRange, parseTilePath } from './src/lib/reliefTiles';
 
-// Asset store locations. DEV-ONLY: the dev server serves /heroes, /borders and /pmtiles
-// straight off these external directories (nginx does the same in prod; the
+// Asset store locations. DEV-ONLY: the dev server serves /heroes, /borders and /tiles
+// out of these external directories (R2 does it in production; the
 // static build never reads them). The paths are machine-specific and MUST come from .env — copy
 // .env.example to .env and set them. `loadEnv` is required because .env files are not in
 // process.env by the time this config runs. There is deliberately NO fallback: the on-disk
@@ -34,9 +35,9 @@ function resolveStore(name: string, value: string | undefined, res: ServerRespon
 }
 
 // Dev-only: serve /heroes/* straight from the external render store, so we never
-// copy tens of GB of hero variants into public/ or the build. In production,
-// nginx serves /heroes/ from the same store (see deploy notes). The build itself
-// only emits HTML/CSS/JS that *references* /heroes/… — the images are external.
+// copy tens of GB of hero variants into public/ or the build. In production the same
+// files are R2 objects and the base URL moves (see src/lib/assetBase.ts). The build
+// itself only emits HTML/CSS/JS that *references* the hero base — images are external.
 function heroDevServer(): Plugin {
   return {
     name: 'hero-dev-server',
@@ -61,7 +62,7 @@ function heroDevServer(): Plugin {
 }
 
 // Dev-only: serve /borders/*.geojson straight from the border store, same origin
-// as the dev server. Mirrors heroDevServer(); prod nginx serves /borders/ too.
+// as the dev server. Mirrors heroDevServer(); in production these are R2 objects too.
 function bordersDevServer(): Plugin {
   return {
     name: 'borders-dev-server',
@@ -82,48 +83,78 @@ function bordersDevServer(): Plugin {
   };
 }
 
-// Dev-only: serve /pmtiles/*.pmtiles from the archive store WITH byte-range support —
-// the one route where Range matters. The pmtiles client reads the 15 GB archive as byte
-// slices (16 KB header first, then per-tile spans); without 206 responses a client would
-// fall back to downloading the whole file. nginx serves the same file in prod with
-// native Range handling, so this middleware is dev parity, not production code.
-function pmtilesDevServer(): Plugin {
+// The packaged pyramid, as the pipeline names it inside PMTILES_STORE.
+const ARCHIVE_NAME = 'planet.pmtiles';
+
+// One open archive per dev-server process. Opening means an fs handle plus a header read,
+// and PMTiles caches the directory pages it decodes, so re-opening per request would throw
+// that cache away and re-read the root directory on every tile. Memoised by path, and the
+// memo is dropped on failure so a fixed .env or a re-packaged archive recovers without a
+// restart. Read positions are explicit, so concurrent tile requests share the handle safely.
+let openedArchive: { archivePath: string; archive: Promise<PMTiles> } | null = null;
+
+function openArchive(archivePath: string): Promise<PMTiles> {
+  if (openedArchive?.archivePath === archivePath) return openedArchive.archive;
+  const archive = (async () => {
+    const handle = await fs.promises.open(archivePath, 'r');
+    const source: Source = {
+      getKey: () => archivePath,
+      async getBytes(offset, length): Promise<RangeResponse> {
+        const buffer = Buffer.alloc(length);
+        await handle.read(buffer, 0, length, offset);
+        return { data: buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength) };
+      },
+    };
+    const opened = new PMTiles(source);
+    const header = await opened.getHeader();
+    // The globe states the zoom range as a constant so it can request tile z0 without first
+    // learning the range over the network. This is the check that keeps that copy honest.
+    assertZoomRange(header.minZoom, header.maxZoom);
+    return opened;
+  })().catch((error: unknown) => {
+    openedArchive = null;
+    throw error;
+  });
+  openedArchive = { archivePath, archive };
+  return archive;
+}
+
+// Dev-only: answer /tiles/{z}/{x}/{y}.png out of the packaged PMTiles archive. This is the
+// local twin of the production tile Worker, and it exists for the same reason the Worker
+// does — the archive is 16 GB, so the browser must never address it directly and must never
+// send a Range header (→ HISTORY § the deploy target moves to R2). The ranging happens here,
+// against a local file; in production it happens inside a Worker, against an R2 object.
+function tilesDevServer(): Plugin {
   return {
-    name: 'pmtiles-dev-server',
+    name: 'tiles-dev-server',
     configureServer(server) {
-      server.middlewares.use('/pmtiles', (req, res, next) => {
+      server.middlewares.use('/tiles', (req, res, next) => {
         const store = resolveStore('PMTILES_STORE', PMTILES_STORE, res);
         if (!store) return;
-        const rel = decodeURIComponent((req.url || '').split('?')[0]).replace(/^\/+/, '');
-        const file = path.resolve(store, rel);
-        if (
-          !file.startsWith(path.resolve(store)) ||
-          !file.endsWith('.pmtiles') ||
-          !fs.existsSync(file) ||
-          fs.statSync(file).isDirectory()
-        ) {
-          return next();
-        }
-        const totalSize = fs.statSync(file).size;
-        res.setHeader('Accept-Ranges', 'bytes');
-        res.setHeader('Content-Type', 'application/octet-stream');
-        res.setHeader('Cache-Control', 'no-cache');
-        const range = parseByteRange(req.headers.range, totalSize);
-        if (range === 'unsatisfiable') {
-          res.statusCode = 416;
-          res.setHeader('Content-Range', `bytes */${totalSize}`);
-          res.end();
-          return;
-        }
-        if (range === null) {
-          res.setHeader('Content-Length', totalSize);
-          fs.createReadStream(file).pipe(res);
-          return;
-        }
-        res.statusCode = 206;
-        res.setHeader('Content-Range', `bytes ${range.start}-${range.end}/${totalSize}`);
-        res.setHeader('Content-Length', range.end - range.start + 1);
-        fs.createReadStream(file, { start: range.start, end: range.end }).pipe(res);
+        const tile = parseTilePath(decodeURIComponent((req.url || '').split('?')[0]));
+        if (!tile) return next();
+        void (async () => {
+          try {
+            const archive = await openArchive(path.resolve(store, ARCHIVE_NAME));
+            const entry = await archive.getZxy(tile.z, tile.x, tile.y);
+            if (!entry) {
+              // The pyramid is complete (87,381 tiles = every address from z0 to z8), so a
+              // miss is a bug in the packaging, not an empty region. Say so rather than
+              // rendering a silent hole.
+              res.statusCode = 404;
+              res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+              res.end(`No tile ${tile.z}/${tile.x}/${tile.y} in ${ARCHIVE_NAME}`);
+              return;
+            }
+            res.setHeader('Content-Type', 'image/png');
+            res.setHeader('Cache-Control', 'no-cache');
+            res.end(Buffer.from(entry.data));
+          } catch (error) {
+            res.statusCode = 500;
+            res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+            res.end(`Tile ${tile.z}/${tile.x}/${tile.y} failed: ${(error as Error).message}`);
+          }
+        })();
       });
     },
   };
@@ -147,7 +178,7 @@ export default defineConfig({
     plugins: [
       heroDevServer(),
       bordersDevServer(),
-      pmtilesDevServer(),
+      tilesDevServer(),
     ],
   },
 });

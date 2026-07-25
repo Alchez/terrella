@@ -158,7 +158,7 @@ Run once; all are resumable and verify against a pinned size/md5, so a re-run is
 
 | Process | Command | Time | Notes |
 |---|---|---|---|
-| Astro dev server — **the product globe** | `pnpm dev` in `web` | ~2 s | `/globe` on Astro's default port 4321 (not pinned in config); serves the four store routes (`/heroes`, `/tiles`, `/borders`, `/pmtiles`) from `web/.env` paths, dev-only middleware, `no-cache` |
+| Astro dev server — **the product globe** | `pnpm dev` in `web` | ~2 s | `/globe` on Astro's default port 4321 (not pinned in config); serves the three store routes (`/heroes`, `/borders`, `/tiles`) from `web/.env` paths, dev-only middleware, `no-cache`. `/tiles/{z}/{x}/{y}.png` is ranged out of `planet.pmtiles` in-process — the local twin of the production tile Worker |
 | Static build | `pnpm build` | ~seconds (206 pages) | emits HTML/CSS/JS only — assets stay external |
 | Tile smoke test — **not the product** | `python3 -m http.server` in `work/planet_tiles` | instant | proves the pyramid renders with zero deps; no starfield/borders/atmosphere by design |
 | PMTiles packaging | `pack_pmtiles.py` → `pmtiles convert` | dir→MBTiles **33 s** (87,381 tiles); convert **1m11s** under the 12 G cap + `--tmpdir` on ext4 → 15 GB `planet.pmtiles`, ~5% deduped | run convert capped and with its temp on ext4 — uncapped it stages ~12 GB through tmpfs `/tmp` (= RAM) → HISTORY § the uncapped pmtiles convert OOM'd the box. Verified: `pmtiles verify` clean, 5 tiles byte-identical incl. z8 y=255 |
