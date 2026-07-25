@@ -174,7 +174,7 @@ Baked-vs-live rule (locked 2026-07-07): too expensive live → baked; depends on
     - Verified live: `cf-cache-status: HIT`, byte-identical tiles at z3 + z8, 48 tiles in the globe, 0 failures
     - **`wrangler login` has its own OAuth** — the read-only MCP grant never blocked this
     - ~~Universal SSL covers ONE subdomain level~~ — **rule RETRACTED 2026-07-25**, see P4
-    - [ ] Narrow `ALLOWED_ORIGIN` from `*` to `https://terrella.alchez.dev` once the site exists (P4)
+    - [x] Narrow `ALLOWED_ORIGIN` from `*` to `https://terrella.alchez.dev` — SHIPPED + verified
   - [x] P4 site shell — **LIVE at `terrella.alchez.dev` 2026-07-25** → HISTORY § Phase 4 takes shape
     - **Workers Static Assets, not Pages** — push-to-deploy is impossible on both, so Pages' differentiator is moot
     - Proven by oracle: a clean clone fails at `'../data/countries.json'`, before it even reaches `public/caps/`
@@ -194,9 +194,14 @@ Baked-vs-live rule (locked 2026-07-07): too expensive live → baked; depends on
     - `ALLOWED_ORIGIN` narrowed + site `workers_dev: false` — SHIPPED, verified live
     - Foreign origin now gets no ACAO; a tile with no `Origin` still serves 200 + full bytes
     - **Bot Fight Mode: KEPT ON** (Rohan, 2026-07-25) — its 938-byte injection is accepted
-    - [ ] Deploy pending: tile Worker `workers_dev`/`preview_urls: false` (site config too)
+    - [x] Tile Worker `workers_dev`/`preview_urls: false` — SHIPPED, workers.dev now 404s
     - **The tile Worker's workers.dev route was missed** — a 2nd origin OUTSIDE the zone
       - Zone Cache Rules, WAF and any future rate limit do not apply there; requests still bill
+    - **CI auto-deploy REJECTED** — same clean-clone blocker; would need a 2nd manifest impl
+    - Manifest↔R2 agreement measured 2026-07-25: 1622 = 1622, 0 missing, 0 dead — but unguarded
+    - [x] LIVE browser verify: 43 tiles all 200, 0 failures, 0 same-origin fallbacks, 0 console errors
+    - Gallery 28/28 heroes from R2, Nepal hero + both 8192 caps load; `/` auto-steers to `/globe`
+    - [x] Deploy preflight `check_deploy_sync.mjs` wired into `pnpm run deploy`, 6 branches falsified
   - [ ] P5 end-to-end from an external vantage, against the 382/794/985 ms sim ladder
 - [ ] **Serving contract — the interface to preserve** (`deploy/nginx` = reference impl)
   - HTTP range requests; three cache classes (`_astro` immutable 1yr / stores 1wk+ETag / HTML no-cache)
