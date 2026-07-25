@@ -3,14 +3,20 @@
 //
 // The gallery manifest (src/data/countries.json) is generated from the LOCAL render store —
 // which hero variants exist on this disk, at which sizes. The heroes themselves are served
-// from R2. Nothing has ever checked that those two agree, and they can diverge silently in
-// both directions:
+// from R2. Nothing else checks that those two agree, and they can diverge silently in both
+// directions:
 //
-//   - rendered locally, never uploaded  -> the site ships pages promising files that 404
+//   - rendered locally, never uploaded     -> pages promise files that 404
 //   - uploaded, manifest never regenerated -> new variants exist and nothing references them
 //
 // The first is a broken site with no error anywhere in the build. This runs before the
 // upload, because that is the moment the divergence becomes public.
+//
+// TypeScript rather than plain JS for one reason worth the extra ceremony: the `Manifest`
+// type below is the SAME declaration the pages consume, so if the manifest contract changes
+// under this script, `astro check` fails in CI instead of the deploy throwing later. Node
+// strips the types at run time (24.x, no loader), and web/tsconfig.json already covers
+// scripts/ — this file needs no build step and no config of its own.
 //
 // Presence only. Phase 2 verified integrity by reconstructing multipart ETags; re-checking
 // bytes here would cost minutes to catch a failure mode that has never occurred.
@@ -18,15 +24,26 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+// Type-only: erased at run time, so this does NOT pull in the gitignored countries.json that
+// manifest.ts imports for its value export.
+import type { Manifest } from "../src/lib/manifest";
 
 const WEB_ROOT = fileURLToPath(new URL("../", import.meta.url));
 const MANIFEST = `${WEB_ROOT}src/data/countries.json`;
 const BUCKET = "terrella-assets";
 const GEOJSON = ["borders/countries.geojson", "borders/boundary_lines.geojson"];
 
+/** Exits; typed `never` so callers are not treated as possibly falling through. */
+function fail(...lines: string[]): never {
+  console.error(`\n✗ deploy preflight: ${lines[0]}`);
+  for (const line of lines.slice(1)) console.error(`  ${line}`);
+  console.error("");
+  process.exit(1);
+}
+
 /** Machine-specific R2 coordinates live in web/.env, never in the repo — the account ID is
  *  part of the endpoint and this repo is going open-source. */
-function r2Endpoint() {
+function r2Endpoint(): string {
   if (existsSync(`${WEB_ROOT}.env`)) process.loadEnvFile(`${WEB_ROOT}.env`);
   const endpoint = process.env.R2_ENDPOINT?.trim();
   if (!endpoint) {
@@ -39,16 +56,10 @@ function r2Endpoint() {
   return endpoint;
 }
 
-function fail(...lines) {
-  console.error(`\n✗ deploy preflight: ${lines[0]}`);
-  for (const line of lines.slice(1)) console.error(`  ${line}`);
-  console.error("");
-  process.exit(1);
-}
-
-/** Every object the built site will reference, derived the same way the pages derive it. */
-function advertisedObjects(manifest) {
-  const keys = new Set(GEOJSON);
+/** Every object the built site will reference, derived from the same fields the pages use —
+ *  which is what makes the shared `Manifest` type load-bearing rather than decorative. */
+function advertisedObjects(manifest: Manifest): Set<string> {
+  const keys = new Set<string>(GEOJSON);
   for (const country of manifest.countries) {
     const { slug, sizes, borderSizes, spotlightSizes } = country;
     for (const size of sizes) keys.add(`heroes/${slug}-${size}.webp`);
@@ -58,7 +69,7 @@ function advertisedObjects(manifest) {
   return keys;
 }
 
-function listBucket(endpoint) {
+function listBucket(endpoint: string): Set<string> {
   try {
     const stdout = execFileSync(
       "aws",
@@ -72,19 +83,21 @@ function listBucket(endpoint) {
       ],
       { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
     );
-    return new Set(JSON.parse(stdout) ?? []);
+    return new Set<string>(JSON.parse(stdout) ?? []);
   } catch (error) {
     // Deliberately not a silent skip: an unreachable bucket must not read as "all present".
+    const detail = error instanceof Error ? error.message : String(error);
+    const stderr = (error as { stderr?: Buffer | string }).stderr?.toString() ?? "";
     fail(
       `could not list s3://${BUCKET}/.`,
-      `${(error.stderr || error.message || "").toString().trim().split("\n").pop()}`,
+      (stderr || detail).trim().split("\n").pop() ?? "",
       "Check the `r2` profile in ~/.aws/credentials and R2_ENDPOINT in web/.env.",
       "To deploy anyway (code-only change, or R2 unreachable): SKIP_ASSET_SYNC_CHECK=1",
     );
   }
 }
 
-function main() {
+function main(): void {
   if (process.env.SKIP_ASSET_SYNC_CHECK === "1") {
     console.warn("⚠ deploy preflight SKIPPED via SKIP_ASSET_SYNC_CHECK=1 — assets unverified");
     return;
@@ -97,13 +110,12 @@ function main() {
     );
   }
 
-  const advertised = advertisedObjects(JSON.parse(readFileSync(MANIFEST, "utf8")));
+  const manifest = JSON.parse(readFileSync(MANIFEST, "utf8")) as Manifest;
+  const advertised = advertisedObjects(manifest);
   const present = listBucket(r2Endpoint());
 
   const missing = [...advertised].filter((key) => !present.has(key)).sort();
-  const dead = [...present]
-    .filter((key) => !advertised.has(key) && !key.endsWith("/"))
-    .sort();
+  const dead = [...present].filter((key) => !advertised.has(key) && !key.endsWith("/")).sort();
 
   if (dead.length) {
     // Not fatal — stale bytes cost storage, not correctness. Loud anyway, because the usual

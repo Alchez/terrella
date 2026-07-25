@@ -201,7 +201,9 @@ Baked-vs-live rule (locked 2026-07-07): too expensive live → baked; depends on
     - Manifest↔R2 agreement measured 2026-07-25: 1622 = 1622, 0 missing, 0 dead — but unguarded
     - [x] LIVE browser verify: 43 tiles all 200, 0 failures, 0 same-origin fallbacks, 0 console errors
     - Gallery 28/28 heroes from R2, Nepal hero + both 8192 caps load; `/` auto-steers to `/globe`
-    - [x] Deploy preflight `check_deploy_sync.mjs` wired into `pnpm run deploy`, 6 branches falsified
+    - [x] Deploy preflight `check_deploy_sync.ts` wired into `pnpm run deploy`, 6 branches falsified
+    - TS not JS: `scripts/` is already in web/tsconfig, so `astro check` types it for free in CI
+    - It `import type`s the pages' own `Manifest`, so a contract drift fails check, not deploy
   - [ ] P5 end-to-end from an external vantage, against the 382/794/985 ms sim ladder
 - [ ] **Serving contract — the interface to preserve** (`deploy/nginx` = reference impl)
   - HTTP range requests; three cache classes (`_astro` immutable 1yr / stores 1wk+ETag / HTML no-cache)
