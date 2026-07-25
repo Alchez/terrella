@@ -155,10 +155,26 @@ Baked-vs-live rule (locked 2026-07-07): too expensive live → baked; depends on
     - Globe source `pmtiles://` → `{z}/{x}/{y}.png`; ranging moved server-side, pmtiles JS out of the bundle
     - Zoom range stated in `reliefTiles.ts`, guarded by `assertZoomRange()` in the tile server
     - Caps stay same-origin — 6.7 MB, they ship inside the build as Pages objects
-  - [ ] P2 R2 bucket + 17.1 GB upload (wrangler put is single-part → rclone or the S3 API)
-  - [ ] P3 Worker + route; verify `cf-cache-status: HIT`
-    - Reuse `web/src/lib/reliefTiles.ts` (`parseTilePath` + `assertZoomRange`) as the request boundary
-    - Swap the dev middleware's fs Source for an R2 one; `wrangler dev` becomes the sim's tile half
+  - [x] P2 R2 buckets + **18.20 GB uploaded and verified — DONE 2026-07-25** → HISTORY § Phase 2
+    - **TWO buckets, deliberately:** `terrella-tiles` (archive, Worker binding ONLY, never public)
+      and `terrella-assets` (`heroes/` + `borders/`, gets the public custom domain)
+    - Why split: a custom domain exposes a WHOLE bucket, so one bucket would publish the 16 GB archive
+    - Both `APAC` / `Standard` / jurisdiction `default`; **location is permanent** (hints apply on first create only)
+    - Landed: archive 16.06 GB · 1,622 hero files 2.13 GB (609 `.aux.xml` sidecars excluded) · 2 GeoJSON 11 MB
+    - Verified: multipart ETag reconstructed locally (1,916 × 8 MiB) = exact match, plus 4 range reads
+    - GeoJSON stored as `application/json` — `geo+json` likely uncompressed at the edge, costing the 9.4→2.6 MB win
+    - Tooling: `aws-cli` 2.35 + `~/.aws/credentials` profile `r2`; no rclone, no CRC32 workaround needed
+    - **MCP OAuth grant is READ-ONLY** — writes refuse, so P3/P4 are blocked the same way until re-authorized
+  - [x] P3 Worker — **DEPLOYED + verified at `tiles.terrella.alchez.dev` 2026-07-25** → HISTORY § the tile Worker is ours
+    - **Ours, not Protomaps'** — theirs is `"private": true`/unpublished, so adopting = vendoring a fork
+    - The correctness lives in `pmtiles`: module-scope `ResolvedValueCache` + `onlyIf`/`EtagMismatch`
+    - Evaluating it found the same missing-etag bug in our dev middleware — fixed same day
+    - `web/worker/{index.ts,wrangler.jsonc,tsconfig.json}`; own TS program (workers-types ≠ DOM)
+    - Cache `immutable` ⇒ **a pyramid re-cut requires a zone purge**; `/v1/` prefix already tolerated
+    - Verified live: `cf-cache-status: HIT`, byte-identical tiles at z3 + z8, 48 tiles in the globe, 0 failures
+    - **`wrangler login` has its own OAuth** — the read-only MCP grant never blocked this
+    - **Universal SSL covers ONE subdomain level**; the 2-deep name needed an auto-ordered advanced cert (~7 min)
+    - [ ] Narrow `ALLOWED_ORIGIN` from `*` to the site origin once Pages exists (P4)
   - [ ] P4 Pages deploy + custom domain (a proxied record overrides the `*.alchez.dev` wildcard)
   - [ ] P5 end-to-end from an external vantage, against the 382/794/985 ms sim ladder
 - [ ] **Serving contract — the interface to preserve** (`deploy/nginx` = reference impl)
