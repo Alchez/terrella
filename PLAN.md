@@ -204,12 +204,44 @@ Baked-vs-live rule (locked 2026-07-07): too expensive live → baked; depends on
     - [x] Deploy preflight `check_deploy_sync.ts` wired into `pnpm run deploy`, 6 branches falsified
     - TS not JS: `scripts/` is already in web/tsconfig, so `astro check` types it for free in CI
     - It `import type`s the pages' own `Manifest`, so a contract drift fails check, not deploy
-  - [ ] P5 end-to-end from an external vantage, against the 382/794/985 ms sim ladder
+  - [x] P5 end-to-end from an external vantage — **DONE 2026-07-25** → HISTORY § P5 end-to-end
+    - Warm ladder loopback → live: `?bare` 382 → 833 ms, full 595 → ~1011 ms; **0 long tasks every run**
+    - `?nocaps` 849 ≈ `?bare` 833 — the countries deferral holds in production
+    - The regression is round trips, not compute; HTML is `must-revalidate`, so one RTT is the floor
+    - **Our zone answers from MRS (~98 ms); `cloudflare.com` answers from BOM (~4.8 ms), same machine**
+    - Throughput is the bigger half: 14–26 Mbps single connection vs 199 Mbps to their zone
+    - h2 is one connection per origin, so the 90 Mbps that 6 parallel connections reach is unspendable
+    - Cold visit ≈ 24.7 MB wire in 7.56 s (27.4 Mbps); the same set on warmed connections takes 1.61 s
+    - **MRS routing cause NOT proven** — free-plan hypothesis, undocumented; a plan-tier call, not a bug
+    - Edge-cold tile TTFB 1.07–1.73 s vs 0.32–0.53 s warm; `immutable` makes repeat visits free
+    - [x] **Tile Worker INSTRUMENTED** (`Server-Timing`) — SHIPPED 2026-07-25 → HISTORY § P5 end-to-end
+      - `worker − r2 − cache ≈ 0` every request: our code is **3–5 ms**, there is nothing to optimise
+      - Steady-state cold tile = ~325 ms network + **~380 ms for one 606 KB R2 read** + 4 ms cache
+      - Cold-isolate directory walk adds **800–2000 ms**, and isolates churn often (1 read → 2 again)
+      - **Distance proven by control**: same read from Mumbai transfers in ~60 ms vs 380 from MRS
+      - Never stored in the cache — a replayed `Server-Timing` would report the MISS on every HIT
+      - Clock only advances on I/O in a Worker, so CPU time reads 0; fine for this question only
+    - [ ] **Cold-tile levers, now grounded — pick after deciding whether cold even matters**
+      - Ours, no Cloudflare feature needed: **bake header+root directory into the bundle** (~16 KB, immutable)
+      - Ours: **cache leaf directories in `caches.default`** — survives isolate churn, module scope does not
+      - Cloudflare's: `placement.mode: "smart"` or an explicit `placement.region` hint near APAC
+      - Placement is untested and its free-plan availability is unconfirmed; the deploy would answer both
+      - Smaller tiles (WebP/AVIF, in FUTURE.md) cut the R2 read time proportionally
+    - Checked, not a problem: the `/globe` → `/globe/` 307 is real but no internal link emits it
 - [ ] **Serving contract — the interface to preserve** (`deploy/nginx` = reference impl)
   - HTTP range requests; three cache classes (`_astro` immutable 1yr / stores 1wk+ETag / HTML no-cache)
   - gzip text-like ONLY, never the pre-compressed pmtiles/webp/png; CORS once split-origin
   - Range is now an internal detail of the tile server — no client sends it (2026-07-25)
 - [ ] OPEN: whether rohome gets any deploy at all (hostnames + Worker ownership both SETTLED 2026-07-25)
+- [x] **RESOLVED: do NOT buy a nearer PoP** — investigated 2026-07-25 → HISTORY § P5 end-to-end
+  - **Free-plan hypothesis REFUTED**: pin `www.cloudflare.com` to OUR IP → `colo=MRS` too, 9/9 runs
+  - The PoP follows the **destination IP prefix**, not the zone or its plan
+  - Real cause is an **Airtel route** hauling the prefix to Europe before Cloudflare sees the packet
+  - **Argo is the wrong product** — it optimises edge→origin, and our origin IS Cloudflare
+  - Pro/Business have no documented mechanism here; only Enterprise BYOIP changes a zone's IPs
+  - **The P5 ladder numbers are THIS LINE, not the site** — Bengaluru Airtel +36 ms, other ISPs 1–15 ms
+  - Untested free lever: a `workers.dev` hostname may land BOM — but see the conflict below
+  - It is BGP and can change; re-run the two-second `--resolve` check before acting on any of this
 - [x] Cloudflare account confirmed (Saintdane7) and R2 provisioned, no bucket yet — 2026-07-25
 - [x] ~~Pangolin route~~ — moot: `*.alchez.dev` already resolves, and the origin is no longer rohome
 - [ ] **Lighthouse pass on all three tiers**, plus a weak Android device
@@ -228,8 +260,36 @@ Baked-vs-live rule (locked 2026-07-07): too expensive live → baked; depends on
     - [ ] `setMaxParallelImageRequests` — measure at the Lighthouse pass, on a real network
   - Payload rungs (the real lever, since serving not compute is the cost)
     - [x] `cap_render` 4096 rung — DONE 2026-07-25, mobile 5.3 → 1.8 MB → HISTORY § the cap rung
-    - [ ] gzip_static / brotli sidecars; vector-tile countries (kills the 9.2 MB parse)
-    - [ ] tiles WebP/AVIF — parked in FUTURE.md
+    - [ ] brotli sidecars — **sized 2026-07-25**: the edge picks zstd 2.98 MB where static br-11 is 1.56 MB
+      - Edge choice is the worst of the three offered: gzip 2.61 · br 2.81 · **zstd 2.98 MB**
+      - `boundary_lines.geojson` goes 642 → 376 KB the same way; ~1.5 MB off the cold window
+      - **BLOCKED on a correctness question**: one stored object cannot content-negotiate
+      - R2's `Content-Encoding` behaviour is undocumented in the docs search; needs a probe object
+      - `DecompressionStream` has no brotli, so decompressing it ourselves is not an escape hatch
+      - Low priority: this is deferred-to-idle transfer, ~0.4 s, off the first-paint path
+    - [ ] vector-tile countries — **the "kills the 9.2 MB parse" reason is FALSIFIED (2026-07-25)**
+      - Measured: `JSON.parse` of the 9.39 MB is **19 ms**; TextDecode 4 ms; geometry walk ~0 ms
+      - The ~0.41 s the ladder charged to countries is **MapLibre tessellation**, not JS parsing
+      - That 0.37 s is inferred by subtraction, NOT measured — measure it before justifying work
+      - Only geometry reduction touches it; compression cannot
+    - [x] **`Timing-Allow-Origin` — SHIPPED + verified live 2026-07-25** → HISTORY § P5 end-to-end
+      - Was absent, so cross-origin `transferSize`/`decodedBodySize` read 0 for tiles AND borders
+      - Blind in the direction that reads as "free" rather than "unknown"
+      - **Lighthouse does NOT need this** — it reads CDP, not Resource Timing; my first reason was wrong
+      - Real consumers: LCP attribution for the cross-origin heroes, and any in-page measurement
+      - [x] Tile Worker sets it in `withCrossOriginHeaders`; `*`, not `ALLOWED_ORIGIN` — see HISTORY
+      - [x] R2 domain via a Response Header Transform Rule → web/README.md § Zone configuration
+      - Applied on the way out, so cached tiles carry it too — **no purge needed**, verified on a HIT
+      - **A warm browser cache still reports 0** — it replays pre-deploy headers, and nothing can purge it
+      - Oracle: forced-network `decodedBodySize` = 433,656 (tile) and 1,954,822 (boundary_lines)
+      - Both match known byte counts exactly, so the check cannot pass vacuously
+    - [ ] **tiles WebP — MEASURED 2026-07-25 on 3 live tiles; the citation to FUTURE.md was dangling**
+      - q90 is **18–20% of PNG** (606,332 → 122,518 B); q80 12–14%; q95 24–27%; **lossless 57–72%**
+      - Cold window tiles **12.9 → ~2.6 MB**; archive **16 GB → ~3.2 GB**; R2 read 380 → ~80 ms
+      - Geography-independent — helps every visitor at every PoP, cached or not
+      - **Lossy on fine shading detail is exactly where this project has been burned** — needs Rohan's eye
+      - Lossless WebP is the risk-free floor: ~35% off with zero pixel change
+      - Cost: a pyramid re-cut + re-upload + zone purge; content-type and URL extension change
   - Done, kept as context
     - [x] onAdd-per-projection-transition re-init FIXED (`gl.isProgram` guard)
     - [x] Cap render memory FIXED 2026-07-25 → HISTORY § the cap rung

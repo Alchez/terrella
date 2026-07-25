@@ -60,11 +60,33 @@ async function nativeDecompress(buffer: ArrayBuffer, compression: Compression): 
 
 class ArchiveNotFound extends Error {}
 
-/** Adapts an R2 binding to the byte-range interface the PMTiles reader wants. */
+/** One range read against R2, as observed. */
+interface ArchiveRead {
+  ms: number;
+  bytes: number;
+}
+
+/** What a single request spent, split at the boundaries that can actually differ.
+ *
+ *  A Worker's clock only advances on I/O (Cloudflare's timing-attack mitigation), so these
+ *  numbers are I/O time and nothing else — pure CPU between two awaits reads as 0. That suits
+ *  the question being asked (is the cold path all R2?) and would be useless for a CPU one. */
+interface RequestTiming {
+  startedAt: number;
+  cacheLookupMs: number | null;
+  reads: ArchiveRead[];
+}
+
+/** Adapts an R2 binding to the byte-range interface the PMTiles reader wants.
+ *
+ *  Constructed per request, which is what makes `timing` a per-request record while
+ *  DIRECTORY_CACHE stays module-scope — so a directory served from that cache produces NO entry
+ *  here, and the read count alone says whether the isolate was warm. */
 class R2ArchiveSource implements Source {
   constructor(
     private readonly bucket: R2Bucket,
     private readonly key: string,
+    private readonly timing: RequestTiming,
   ) {}
 
   getKey(): string {
@@ -77,27 +99,71 @@ class R2ArchiveSource implements Source {
     _signal?: AbortSignal,
     etag?: string,
   ): Promise<RangeResponse> {
-    // `onlyIf` is the load-bearing part. A cached directory entry is a byte OFFSET, and offsets
-    // are meaningless against a different archive — so if the pyramid is re-cut and re-uploaded
-    // while an isolate holds warm directories, reading at those offsets would return real bytes
-    // from the wrong place and serve a corrupt tile with a 200. Instead R2 refuses the read when
-    // the ETag has moved, and PMTiles.getZxy catches EtagMismatch, drops its cache and retries.
-    const object = await this.bucket.get(this.key, {
-      range: { offset, length },
-      onlyIf: { etagMatches: etag },
-    });
-    if (!object) throw new ArchiveNotFound(`No ${this.key} in the bound bucket`);
+    const startedAt = Date.now();
+    let bytes = 0;
+    // Recorded in `finally` so a read that THREW still appears. Counting only successes would
+    // report "0 reads" for a request that spent a full round trip discovering the archive was
+    // missing — an instrument that reads as "did nothing" when it did the expensive thing.
+    try {
+      // `onlyIf` is the load-bearing part. A cached directory entry is a byte OFFSET, and offsets
+      // are meaningless against a different archive — so if the pyramid is re-cut and re-uploaded
+      // while an isolate holds warm directories, reading at those offsets would return real bytes
+      // from the wrong place and serve a corrupt tile with a 200. Instead R2 refuses the read when
+      // the ETag has moved, and PMTiles.getZxy catches EtagMismatch, drops its cache and retries.
+      const object = await this.bucket.get(this.key, {
+        range: { offset, length },
+        onlyIf: { etagMatches: etag },
+      });
+      if (!object) throw new ArchiveNotFound(`No ${this.key} in the bound bucket`);
 
-    const body = object as R2ObjectBody;
-    if (!body.body) throw new EtagMismatch();
+      const body = object as R2ObjectBody;
+      if (!body.body) throw new EtagMismatch();
 
-    return {
-      data: await body.arrayBuffer(),
-      etag: object.etag,
-      cacheControl: object.httpMetadata?.cacheControl,
-      expires: object.httpMetadata?.cacheExpiry?.toISOString(),
-    };
+      // Timed around the arrayBuffer() too, not just the get(): `get` resolves on headers, so
+      // stopping there would measure the round trip and charge the body transfer to nobody.
+      const data = await body.arrayBuffer();
+      bytes = data.byteLength;
+
+      return {
+        data,
+        etag: object.etag,
+        cacheControl: object.httpMetadata?.cacheControl,
+        expires: object.httpMetadata?.cacheExpiry?.toISOString(),
+      };
+    } finally {
+      this.timing.reads.push({ ms: Date.now() - startedAt, bytes });
+    }
   }
+}
+
+/** `Server-Timing`, so the cold path can be split from outside instead of guessed at. Readable
+ *  by `curl` and — because Timing-Allow-Origin now ships — by the page itself, through
+ *  `PerformanceResourceTiming.serverTiming`.
+ *
+ *  `r2` counts reads as well as milliseconds because the two answers are different diagnoses:
+ *  three reads means a cold isolate walking header → leaf → tile, one means the directory cache
+ *  did its job and the time is a single long-haul fetch. */
+function serverTimingHeader(timing: RequestTiming): string {
+  const metrics: string[] = [];
+  if (timing.cacheLookupMs !== null) metrics.push(`cache;dur=${timing.cacheLookupMs}`);
+  const readMs = timing.reads.reduce((total, read) => total + read.ms, 0);
+  const readBytes = timing.reads.reduce((total, read) => total + read.bytes, 0);
+  const label = timing.reads.length === 1 ? "read" : "reads";
+  // The per-read split only says something once there is more than one — with a single read it
+  // just repeats `dur`, and a diagnostic that repeats itself is one people stop reading.
+  const split = timing.reads.length > 1 ? ` (${timing.reads.map((read) => read.ms).join("+")})` : "";
+  metrics.push(`r2;dur=${readMs};desc="${timing.reads.length} ${label}${split}, ${readBytes} B"`);
+  metrics.push(`worker;dur=${Date.now() - timing.startedAt}`);
+  return metrics.join(", ");
+}
+
+/** Applied on the way out, never stored — for the same reason as the cross-origin headers, and
+ *  it matters more here: a stored `Server-Timing` would let a cache HIT replay the timings of
+ *  the MISS that filled it, which is worse than no instrument at all. */
+function withServerTiming(response: Response, timing: RequestTiming): Response {
+  const headers = new Headers(response.headers);
+  headers.set("Server-Timing", serverTimingHeader(timing));
+  return new Response(response.body, { status: response.status, headers });
 }
 
 /** Marks where the body came from, so a deploy can be verified rather than assumed. */
@@ -107,23 +173,44 @@ function tagCache(response: Response, state: "hit" | "miss"): Response {
   return new Response(response.body, { status: response.status, headers });
 }
 
-/** CORS is applied on the way out, never stored — so one cached entry serves every origin and
- *  the allowlist can change without a purge. `Vary: Origin` keeps intermediaries honest. */
-function withCors(response: Response, env: Env, requestOrigin: string | null): Response {
+/** Cross-origin response headers, applied on the way out and never stored — so one cached entry
+ *  serves every origin and the allowlist can change without a purge. `Vary: Origin` keeps
+ *  intermediaries honest.
+ *
+ *  `Timing-Allow-Origin` is `*` even though ACAO is narrowed, because they answer different
+ *  questions: ACAO decides who may read a tile, TAO only who may read the TIMING of a fetch
+ *  already made. Without it Resource Timing reports `transferSize` and `decodedBodySize` as 0 —
+ *  blind in the direction that reads as "free" rather than as "unknown" — and narrowing it to
+ *  ALLOWED_ORIGIN would re-blind every vantage that is not the production page, which is exactly
+ *  where measuring happens. A constant value, so it adds nothing to the cache key. */
+function withCrossOriginHeaders(
+  response: Response,
+  env: Env,
+  requestOrigin: string | null,
+): Response {
   const headers = new Headers(response.headers);
   const allowed = env.ALLOWED_ORIGIN;
   if (allowed && (allowed === "*" || allowed === requestOrigin)) {
     headers.set("Access-Control-Allow-Origin", allowed);
   }
   headers.set("Vary", "Origin");
+  headers.set("Timing-Allow-Origin", "*");
   return new Response(response.body, { status: response.status, headers });
 }
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const requestOrigin = request.headers.get("Origin");
+    const timing: RequestTiming = { startedAt: Date.now(), cacheLookupMs: null, reads: [] };
+
+    /** The single exit. Everything applied here is computed per request and never stored, so a
+     *  cached body carries this request's CORS decision and this request's timings — not the
+     *  ones frozen into the response that filled the cache. */
+    const respond = (response: Response) =>
+      withServerTiming(withCrossOriginHeaders(response, env, requestOrigin), timing);
+
     if (request.method !== "GET" && request.method !== "HEAD") {
-      return withCors(new Response("Method not allowed", { status: 405 }), env, requestOrigin);
+      return respond(new Response("Method not allowed", { status: 405 }));
     }
 
     // Rejected before any R2 read: a typo'd URL must not cost a range read on a 16 GB object.
@@ -133,18 +220,20 @@ export default {
     // Tolerating it now costs one regex; retrofitting it later costs a purge.
     const tile = parseTilePath(new URL(request.url).pathname.replace(/^\/v\d+\//, "/"));
     if (!tile) {
-      return withCors(new Response("Not a tile path", { status: 404 }), env, requestOrigin);
+      return respond(new Response("Not a tile path", { status: 404 }));
     }
 
     const cache = caches.default;
+    const cacheLookupStartedAt = Date.now();
     const hit = await cache.match(request.url);
+    timing.cacheLookupMs = Date.now() - cacheLookupStartedAt;
     // An explicit marker, because `cf-cache-status` describes Cloudflare's own edge cache and
     // says nothing about a Cache API hit inside the Worker — the thing we actually want to see.
-    if (hit) return withCors(tagCache(hit, "hit"), env, requestOrigin);
+    if (hit) return respond(tagCache(hit, "hit"));
 
     const archiveKey = env.ARCHIVE_KEY ?? DEFAULT_ARCHIVE_KEY;
     const archive = new PMTiles(
-      new R2ArchiveSource(env.ARCHIVE, archiveKey),
+      new R2ArchiveSource(env.ARCHIVE, archiveKey, timing),
       DIRECTORY_CACHE,
       nativeDecompress,
     );
@@ -156,7 +245,7 @@ export default {
       if (contentType) headers.set("Content-Type", contentType);
       headers.set("Cache-Control", env.TILE_CACHE_CONTROL ?? DEFAULT_CACHE_CONTROL);
       ctx.waitUntil(cache.put(request.url, new Response(body, { status, headers })));
-      return withCors(tagCache(new Response(body, { status, headers }), "miss"), env, requestOrigin);
+      return respond(tagCache(new Response(body, { status, headers }), "miss"));
     };
 
     try {
@@ -184,7 +273,7 @@ export default {
     } catch (error) {
       if (error instanceof ArchiveNotFound) {
         console.error(`${archiveKey} missing from the bound bucket`);
-        return withCors(new Response("Archive not found", { status: 404 }), env, requestOrigin);
+        return respond(new Response("Archive not found", { status: 404 }));
       }
       throw error;
     }

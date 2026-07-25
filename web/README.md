@@ -102,6 +102,31 @@ Deploying from a fresh clone does not work, by design: the build reads
 `src/data/countries.json` and `public/caps/`, both generated from the render store and both
 gitignored. Regenerate them before deploying (see `docs/pipeline.md`).
 
+### Zone configuration (Cloudflare dashboard)
+
+Three settings live in the dashboard rather than in this repo, because neither wrangler's
+OAuth nor an object-scoped S3 token can write them. `pnpm run deploy` does **not** apply
+them, and each fails silently — a fresh setup needs all three.
+
+| Setting                  | Where                                        | Value                                                                                  |
+| :----------------------- | :------------------------------------------- | :------------------------------------------------------------------------------------- |
+| Cache Rule               | Caching → Cache Rules                        | `http.host eq "assets.terrella.alchez.dev"` → Eligible for cache, Edge TTL 1 month, **Ignore cache-control** |
+| CORS policy              | R2 → `terrella-assets` → Settings            | allow the site origin, `GET` + `HEAD`                                                  |
+| Response header rule     | Rules → Transform Rules → Modify Response Header | same host match → set `Timing-Allow-Origin: *`                                      |
+
+Why each is needed, since none is obvious from a failure:
+
+- **Cache Rule** — `.geojson` and `.json` are not default-cached extensions (`.webp` and
+  `.png` are), so without it every visit pulls the border GeoJSON from origin. R2 sends no
+  `Cache-Control` at all, which is why the TTL must *ignore* the header rather than honour it.
+  `cf-cache-status: DYNAMIC` is the signature of a missing rule; `MISS` then `HIT` is success.
+- **CORS** — the globe `fetch`es both GeoJSON files, and a `fetch` needs CORS where an
+  `<img>` hero does not. Getting this wrong breaks only the borders, not the heroes.
+- **`Timing-Allow-Origin`** — without it, cross-origin Resource Timing reports `transferSize`
+  and `decodedBodySize` as `0` rather than as unknown, so the site's own instrumentation reads
+  its largest payload as free. It also degrades LCP attribution for the gallery's hero images.
+  The tile Worker sets this header itself (`worker/index.ts`) and needs no rule.
+
 ## 👀 Want to learn more?
 
 Feel free to check [our documentation](https://docs.astro.build) or jump into our [Discord server](https://astro.build/chat).
