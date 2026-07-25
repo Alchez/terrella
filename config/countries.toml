@@ -18,6 +18,9 @@
 #   hero_long_edge px — overrides [defaults].hero_long_edge
 #   fusion         "1s" | "3s" — overrides the automatic choice
 #   status         "antimeridian" — batch must skip loudly (own PLAN item)
+#   sky_view_strength  hero AO burn strength (0..1) — overrides [defaults]
+#   resolution_floor_m hero heightfield detail floor (m) — overrides [defaults];
+#                      set 0 to exempt a country from the floor
 #   notes          free text: why the override exists
 #
 # Frame pins are a separate mechanism: a committed config/frames/<slug>.json
@@ -29,6 +32,9 @@ pad_pct = 5.0          # frame padding, % of the larger bbox span
 hero_long_edge = 7680  # hero render long edge, px (8K-class)
 warp_long_edge = 8192  # render_prep --width target for the warped grid
 fusion = "auto"        # 1" iff 3" source pixels across the frame < warp width
+sky_view_strength = 0.2   # hero AO burn strength (batch.py's sky_view stage), 0..1
+resolution_floor_m = 60.0 # hero heightfield detail floor (m); render_prep box-lowpasses
+                          # it only where the frame upsampled >~5x past it (tiny countries)
 
 [scope]
 # Strict-selector rows that are not countries to render:
@@ -51,6 +57,68 @@ include = [
     "French Polynesia",    # France
     "Puerto Rico",         # United States
 ]
+
+# ---- sky_view (hero AO) strength overrides. [defaults].sky_view_strength is
+# ---- 0.2 (a moderate AO — 0.38 read too strong on most terrain). Two deviations:
+# ----   0.0   volcanic islands, fine dendritic drainage — any AO blackens every
+# ----         micro-valley into a "pinecone"; raw Cycles relief is enough.
+# ----   0.38  flat countries — the original reason sky_view exists (Paraguay/
+# ----         Qatar looked "basic", HISTORY § Hero look v3): subtle relief needs
+# ----         the stronger burn to read. The flat set is pinned below.
+# ---- (Alpine microstates Andorra/Liechtenstein/Monaco want 0.2 = the default,
+# ---- ladder-confirmed, so they carry no override. Monaco also needs a resolution
+# ---- floor at the freeze-lift — 14x over-upsampled, source striping.)
+
+[countries.saintlucia]
+sky_view_strength = 0.0
+notes = "volcanic fine drainage: any AO tendrils (pinecone); raw relief is enough"
+
+[countries.dominica]
+sky_view_strength = 0.0
+notes = "volcanic fine drainage: any AO tendrils (pinecone); raw relief is enough"
+
+[countries.grenada]
+sky_view_strength = 0.0
+notes = "volcanic fine drainage: any AO tendrils (pinecone); raw relief is enough"
+
+[countries.saintvincentandthegrenadines]
+sky_view_strength = 0.0
+notes = "volcanic fine drainage: any AO tendrils (pinecone); raw relief is enough"
+
+[countries.saintkittsandnevis]
+sky_view_strength = 0.0
+notes = "volcanic fine drainage: any AO tendrils (pinecone); raw relief is enough"
+
+[countries.sotomandprincipe]
+sky_view_strength = 0.0
+notes = "volcanic fine drainage: any AO tendrils (pinecone); raw relief is enough"
+
+[countries.comoros]
+sky_view_strength = 0.0
+notes = "volcanic fine drainage: any AO tendrils (pinecone); raw relief is enough"
+
+[countries.qatar]
+sky_view_strength = 0.38
+notes = "flat: subtle relief needs the stronger burn to read (the original sky_view case, HISTORY 2026-07-10)"
+
+[countries.paraguay]
+sky_view_strength = 0.38
+notes = "flat: subtle relief needs the stronger burn to read (the original sky_view case, HISTORY 2026-07-10)"
+
+# ---- resolution floor (hero heightfield anti-striping). [defaults].resolution_floor_m
+# ---- is 60 m: render_prep box-lowpasses the heightfield ONLY where the frame
+# ---- upsampled far enough past the 30 m DEM that the box kernel reaches >=10 px
+# ---- (xres <= 6 m/px, i.e. >5x source). That auto-selects the tiny countries whose
+# ---- raw relief "shreds" from GLO-30 along-track striping — vatican, monaco, nauru,
+# ---- sanmarino, liechtenstein, andorra, barbados, malta; every larger country is a
+# ---- no-op (kernel < 10 px). Unlike sky_view (morphological -> a hand list), striping
+# ---- severity is purely geometric, so the threshold selects the set and no per-country
+# ---- entry is needed to opt IN. Overrides only tune the edge: set resolution_floor_m
+# ---- = 0.0 to exempt a borderline alpine case — andorra is exempted below.
+
+[countries.andorra]
+resolution_floor_m = 0.0
+notes = "alpine: real relief masks the mild striping, and the 60 m floor softens genuine fine ridge detail more than it helps (pilot A/B 2026-07-24)"
 
 # ---- frame overrides: far-flung territories that explode the whole-geometry
 # ---- bbox (main landmass <= ~25% of a bbox axis). Values = union bbox of the

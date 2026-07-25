@@ -27,7 +27,8 @@ def test_fmt_frame_uses_g_format():
 # ---- fixtures ---------------------------------------------------------------
 
 DEFAULTS = {"pad_pct": 5.0, "hero_long_edge": 7680,
-            "warp_long_edge": 8192, "fusion": "auto"}
+            "warp_long_edge": 8192, "fusion": "auto", "sky_view_strength": 0.2,
+            "resolution_floor_m": 60.0}
 
 
 def _cfg(countries=None, exclude=None, include=None):
@@ -52,6 +53,8 @@ pad_pct = 5.0
 hero_long_edge = 7680
 warp_long_edge = 8192
 fusion = "auto"
+sky_view_strength = 0.2
+resolution_floor_m = 60.0
 
 [scope]
 exclude = []
@@ -79,6 +82,10 @@ def test_load_config_accepts_valid(tmp_path, monkeypatch):
     ('[countries.x]\nstatus = "weird"\n', "unknown status"),
     ('[countries.x]\nframe = [10, 20, 5, 30]\n', "malformed frame"),  # W > E
     ('[countries.x]\nframe = [1, 2, 3, 4]\nstatus = "antimeridian"\n', "contradict"),
+    ('[countries.x]\nsky_view_strength = 1.5\n', "sky_view_strength"),   # > 1
+    ('[countries.x]\nsky_view_strength = -0.1\n', "sky_view_strength"),  # < 0
+    ('[countries.x]\nresolution_floor_m = -1\n', "resolution_floor_m"),   # < 0
+    ('[countries.x]\nresolution_floor_m = 5000\n', "resolution_floor_m"), # > 1000
     ('[nonsense]\nx = 1\n', "unknown top-level"),
 ])
 def test_load_config_rejects_bad(tmp_path, monkeypatch, bad_block, needle):
@@ -137,6 +144,48 @@ def test_resolve_override_wins_over_computed_frame():
     assert resolved is not None
     assert resolved["frame_overridden"] is True
     assert resolved["frame"] == (-5.9, 40.6, 10.3, 51.9)
+
+
+def test_load_config_rejects_bad_default_strength(tmp_path, monkeypatch):
+    toml = VALID_TOML.replace('sky_view_strength = 0.2',
+                              'sky_view_strength = 2.0')
+    _point_config_at(tmp_path, monkeypatch, toml)
+    with pytest.raises(SystemExit) as exc:
+        cc.load_config()
+    assert "sky_view_strength" in str(exc.value)
+
+
+def test_resolve_sky_view_strength_default_and_override():
+    default = cc.resolve("nepal", _rows()[0], _cfg())
+    assert default is not None
+    assert default["sky_view_strength"] == 0.2               # from [defaults]
+    assert default["sky_view_strength_overridden"] is False
+    cfg = _cfg(countries={"nepal": {"sky_view_strength": 0.0}})
+    overridden = cc.resolve("nepal", _rows()[0], cfg)
+    assert overridden is not None
+    assert overridden["sky_view_strength"] == 0.0            # per-country wins
+    assert overridden["sky_view_strength_overridden"] is True
+
+
+def test_load_config_rejects_bad_default_floor(tmp_path, monkeypatch):
+    toml = VALID_TOML.replace('resolution_floor_m = 60.0',
+                              'resolution_floor_m = 5000')
+    _point_config_at(tmp_path, monkeypatch, toml)
+    with pytest.raises(SystemExit) as exc:
+        cc.load_config()
+    assert "resolution_floor_m" in str(exc.value)
+
+
+def test_resolve_resolution_floor_default_and_override():
+    default = cc.resolve("nepal", _rows()[0], _cfg())
+    assert default is not None
+    assert default["resolution_floor_m"] == 60.0             # from [defaults]
+    assert default["resolution_floor_m_overridden"] is False
+    cfg = _cfg(countries={"nepal": {"resolution_floor_m": 0.0}})
+    overridden = cc.resolve("nepal", _rows()[0], cfg)
+    assert overridden is not None
+    assert overridden["resolution_floor_m"] == 0.0           # per-country wins
+    assert overridden["resolution_floor_m_overridden"] is True
 
 
 def test_resolve_antimeridian_status_returns_none():

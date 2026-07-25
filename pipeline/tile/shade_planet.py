@@ -61,7 +61,7 @@ from pipeline.tile.shade import KNOBS
 ROOT = paths.ROOT
 PLANET = ROOT / "data/work/planet"
 Z8_RES = 305.7483          # metres/pixel of a 512px WebMercatorQuad tile at zoom 8
-EXAG = 15.0
+EXAG = palette.EXAGGERATION
 ALT, AZ = KNOBS["alt"], 315.0
 WINDOW_ROWS = 256          # the snow-persistence banded-warp height (Phase A) AND composite_planet's
                            # DEFAULT window. Must stay 256: the persistence raster is banded at this

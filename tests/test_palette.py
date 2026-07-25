@@ -120,6 +120,16 @@ class TestSharedConstants:
         assert palette.SUN_ALT_DEG == 45.0
         assert shade.KNOBS["alt"] == palette.SUN_ALT_DEG
 
+    def test_exaggeration_is_shared(self):
+        """render_prep's displacement_scale and shade_planet's EXAG both source
+        palette.EXAGGERATION — the last copy-pair, collapsed to one constant."""
+        from pipeline.render import render_prep
+        from pipeline.tile import shade_planet
+
+        assert palette.EXAGGERATION == 15.0
+        assert render_prep.EXAGGERATION == palette.EXAGGERATION
+        assert shade_planet.EXAG == palette.EXAGGERATION
+
 
 class TestWriteColorRelief:
     def test_writes_gdaldem_format_with_nodata(self, tmp_path):
