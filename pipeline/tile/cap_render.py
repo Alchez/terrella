@@ -5,9 +5,9 @@ Web-Mercator tiles die at ~85N (1/cos-phi sends the pole to infinity), so each p
 source-shaded polar raster drawn over the globe by a MapLibre custom layer (polarCaps.ts),
 feathered into the tiles at the seam. Azimuthal-equidistant, centred on the pole, inscribed
 circle at `grid.edge_lat`. Runs the one shared `shade.composite` and writes
-`cap_{north,south}.webp` un-flipped to web/public/caps/, beside `caps.json` — the contract the
-web layer fetches (edge_lat, feather ceiling, URLs), so no cap constant is hand-copied into
-TypeScript (see caps_manifest).
+`cap_{north,south}_{px}.webp` un-flipped to web/public/caps/ — one file per CAP_RUNGS size —
+beside `caps.json`, the contract the web layer fetches (edge_lat, feather ceiling, the rung
+list), so no cap constant is hand-copied into TypeScript (see caps_manifest).
 
 Both poles share the projection/warp/coastline machinery but source their inputs differently:
   - NORTH: the fused planet VRTs (height/ocean/water) + NSIDC-0791 snow persistence + OSI SAF sea
@@ -62,8 +62,14 @@ WORK = ROOT / "data/work/cap"
 CAPS_DIR = ROOT / "web/public/caps"  # production home (was dev-assets/ behind ?polarspike)
 CAP_PX = 8192          # square texture side (south is a bigger disc -> coarser per px). 8192 chosen
                        # 2026-07-23 (Rohan, crop A/B + /globe): visibly crisper coast/pack/sastrugi
-                       # at deep pole zoom; 3.2+2.1 MB WebP; constrained GPUs clamp to their
-                       # MAX_TEXTURE_SIZE at upload (polarCaps.ts), so mobile ships 4096 either way
+                       # at deep pole zoom; 3.2+2.1 MB WebP
+CAP_RUNGS = (4096, CAP_PX)  # shipped texture sizes, ascending; the largest IS the render grid and
+                       # every smaller rung is DOWNSAMPLED from it, never rendered natively. That is
+                       # deliberate: coast_dilate is measured in pixels, so a native 4096 render
+                       # would bake a coastline twice as wide relative to the disc. Downsampling
+                       # reproduces exactly what a phone already saw (polarCaps.ts canvas-downscaled
+                       # the 8192 to its MOBILE_CAP_BUDGET_PX rung) -- so this rung is a pure
+                       # payload cut, no look change, and supersampled 4:1 rather than 1:1.
 CAP_WEBP_QUALITY = 85  # gdal_translate WEBP quality — hero_variants' proven setting; rides in
                        # cap_recipe because the encoder changes the shipped pixels
 SPHERE_R = 6371000.0   # spherical AEQD radius; the frontend's linear-colatitude UV assumes a sphere
@@ -114,6 +120,17 @@ COAST_SHP = ROOT / "data/raw/naturalearth/ne_10m_coastline/ne_10m_coastline.shp"
 COAST_RGB = (96, 122, 142)  # muted steel-blue
 
 
+def cap_asset(grid: CapGrid, px: int) -> Path:
+    """The served file for one rung. Every rung is size-suffixed, including the top one — an
+    unsuffixed name would encode 'the big one' as a convention nothing checks."""
+    return CAPS_DIR / f"cap_{grid.name}_{px}.webp"
+
+
+def cap_assets(grid: CapGrid) -> list[Path]:
+    """Every rung this cap ships, ascending — the freshness gate's asset set."""
+    return [cap_asset(grid, px) for px in CAP_RUNGS]
+
+
 def cap_recipe(grid: CapGrid) -> str:
     """Everything a cap PNG's pixels depend on besides the source rasters, serialised for the
     freshness sidecar. Reuses shade_planet.composite_params — ONE recipe home — so any look change
@@ -128,7 +145,8 @@ def cap_recipe(grid: CapGrid) -> str:
                                  "fill_altitude": hillshade.FILL_ALTITUDE,
                                  "fill_strength": KNOBS["fill_strength"]},
                        "coast_rgb": list(COAST_RGB),
-                       "asset": {"format": "webp", "quality": CAP_WEBP_QUALITY},
+                       "asset": {"format": "webp", "quality": CAP_WEBP_QUALITY,
+                                 "rungs": list(CAP_RUNGS)},
                        "composite": json.loads(composite_params({}))},
                       sort_keys=True, indent=2)
 
@@ -140,12 +158,15 @@ def caps_manifest() -> str:
     (shade_planet's Mercator plug boundary) as literals — the same copy-drift species as the
     hero/tile colour constants. The web layer now FETCHES this file, so the pipeline is the
     single author of every value it renders into the textures; only frontend aesthetics
-    (featherLo, mesh extent) stay web-side."""
+    (featherLo, mesh extent) stay web-side.
+
+    `rungs` replaced the old single `url`/`px` pair rather than joining it: two homes for
+    'which texture is shipped' is the very drift this contract exists to prevent."""
     return json.dumps({
-        grid.name: {"url": f"/caps/cap_{grid.name}.webp",
+        grid.name: {"rungs": [{"px": px, "url": f"/caps/{cap_asset(grid, px).name}"}
+                              for px in CAP_RUNGS],
                     "edge_lat": grid.edge_lat,
-                    "feather_hi": feather_hi,
-                    "px": grid.px}
+                    "feather_hi": feather_hi}
         for grid, feather_hi in ((NORTH, CAP_NORTH), (SOUTH, CAP_SOUTH))
     }, sort_keys=True, indent=2)
 
@@ -162,15 +183,20 @@ def cap_sources(grid: CapGrid) -> list[Path]:
     return sources
 
 
-def cap_is_fresh(recipe: str, asset: Path, sidecar: Path, sources: list[Path]) -> bool:
-    """True only when the asset exists, was rendered under exactly this recipe, and is newer than
-    every source; anything missing reads stale (fail toward re-rendering, never toward trusting).
-    The caps' first freshness guard (2026-07-22): unguarded outputs rot — the DEM mosaics, the
-    3857 warps and both cap PNGs all failed that same way in one day."""
-    if not (asset.exists() and sidecar.exists() and sidecar.read_text() == recipe):
+def cap_is_fresh(recipe: str, assets: list[Path], sidecar: Path, sources: list[Path]) -> bool:
+    """True only when EVERY shipped rung exists, was rendered under exactly this recipe, and is
+    newer than every source; anything missing reads stale (fail toward re-rendering, never toward
+    trusting). The caps' first freshness guard (2026-07-22): unguarded outputs rot — the DEM
+    mosaics, the 3857 warps and both cap PNGs all failed that same way in one day.
+
+    All rungs, not just the top one: a rung added to CAP_RUNGS whose file does not exist yet must
+    read stale even though the render itself is current. The comparison uses the OLDEST rung, so a
+    half-written rung set cannot pass on the strength of its newest member."""
+    if not (all(asset.exists() for asset in assets)
+            and sidecar.exists() and sidecar.read_text() == recipe):
         return False
-    asset_mtime = asset.stat().st_mtime
-    return all(source.exists() and source.stat().st_mtime < asset_mtime for source in sources)
+    oldest = min(asset.stat().st_mtime for asset in assets)
+    return all(source.exists() and source.stat().st_mtime < oldest for source in sources)
 
 
 def _run(cmd):
@@ -261,10 +287,13 @@ def _write_cap(grid: CapGrid, heights: np.ndarray, ocean: np.ndarray, water: np.
     with rasterio.open(tif, "w", **profile) as dataset:
         dataset.write(rgb)
     CAPS_DIR.mkdir(parents=True, exist_ok=True)
-    out_webp = CAPS_DIR / f"cap_{grid.name}.webp"
-    _run(["gdal_translate", "-q", "-of", "WEBP", "-co", f"QUALITY={CAP_WEBP_QUALITY}",
-          str(tif), str(out_webp)])
-    return out_webp
+    for px in CAP_RUNGS:
+        # -outsize on the render TIF, so every rung is the SAME picture at a different scale;
+        # gdal_translate's average resampling supersamples (4:1 at the 4096 rung).
+        size = ["-outsize", str(px), str(px), "-r", "average"] if px != grid.px else []
+        _run(["gdal_translate", "-q", "-of", "WEBP", "-co", f"QUALITY={CAP_WEBP_QUALITY}",
+              *size, str(tif), str(cap_asset(grid, px))])
+    return cap_asset(grid, grid.px)
 
 
 def render_cap_north() -> Path:
@@ -343,9 +372,8 @@ def main() -> int:
         if not wanted:
             continue
         recipe = cap_recipe(grid)
-        asset = CAPS_DIR / f"cap_{grid.name}.webp"
         sidecar = WORK / f"cap_{grid.name}_params.json"
-        if not args.force and cap_is_fresh(recipe, asset, sidecar, cap_sources(grid)):
+        if not args.force and cap_is_fresh(recipe, cap_assets(grid), sidecar, cap_sources(grid)):
             print(f"cap {grid.name} fresh -> skip", flush=True)
             continue
         print(f"wrote {render()}", flush=True)

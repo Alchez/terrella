@@ -100,14 +100,17 @@ Snow here is **not** the hero's WorldCover class-70 mask (permanent ice only, wh
 
 ## From heroes to the website
 
-Once heroes exist, three steps turn them into what the site serves:
+Once heroes exist, four steps turn them into what the site serves:
 
 ```bash
 python -m pipeline.compose.hero_variants    # 2K/4K/native WebP variants per hero (downscale-only, idempotent)
 python -m pipeline.compose.gen_borders      # transparent white border layer per country
+python -m pipeline.compose.gen_spotlight    # transparent Focus layer: dims everything outside the country
 ```
 
-Both take `--only <slug,slug>` to process a subset and `--force` to redo existing outputs. Then the frontend (the in-repo Astro site in `web/`, merged to main) regenerates its manifest and builds:
+All three take `--only <slug,slug>` to process a subset; `gen_borders` and `gen_spotlight` also take
+`--force` to redo existing outputs. `gen_spotlight` runs serially by default — the largest countries
+peak near 8 GB each, so `--jobs>1` needs real headroom above the 12 G cap. Then the frontend (the in-repo Astro site in `web/`, merged to main) regenerates its manifest and builds:
 
 ```bash
 python web/scripts/gen_manifest.py --out web/src/data/countries.json

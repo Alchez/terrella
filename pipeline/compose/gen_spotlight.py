@@ -22,16 +22,17 @@ Only where the hero has content (alpha>0): the transparent frame margin is left
 untouched.
 
 Each country is fully independent (own files in and out, no shared state), so the
-whole-batch run fans out across processes with --jobs. The work is pixel-bound and
-scipy/gdal are single-threaded per call, so N workers use N idle cores near-linearly;
-the ceiling is memory — a native (~42 MP) pass holds several float arrays, ~2.5-3 GB
-peak per worker, so the default 4 sits just under the project's 12 G cgroup cap.
+whole-batch run can fan out across processes with --jobs. The work is pixel-bound and
+scipy/gdal are single-threaded per call, so N workers use N idle cores near-linearly —
+but the ceiling is memory, and it sits lower than the arithmetic suggests: the largest
+countries hold several float arrays over a native (~42 MP) grid and peak near 8 GB each,
+so the full 203-set OOMs at --jobs>1 under the standing 12 G cgroup cap. Serial is the
+default for that reason; budget ~8 GB per job before raising it.
 
 Usage:
   gen_spotlight.py --only saintlucia            # one (or a comma list)
-  gen_spotlight.py                              # every hero, 4 workers
-  gen_spotlight.py --jobs 8                     # more workers (needs headroom > the 12 G cap)
-  gen_spotlight.py --jobs 1                     # serial (debugging / tight memory)
+  gen_spotlight.py                              # every hero, serial
+  gen_spotlight.py --jobs 4                     # only with real headroom (~8 GB per job)
   gen_spotlight.py --dim 0.68 --desat 0.35      # retune the outside treatment
 """
 import argparse

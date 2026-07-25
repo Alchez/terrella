@@ -24,11 +24,11 @@ import rasterio
 from rasterio.enums import Resampling
 from scipy.ndimage import zoom
 
+from pipeline import paths
 from pipeline.render import palette, relief
 from pipeline.render.sky_view import horizon_svf
 
-DATA = Path.home() / "projects/maps/data"
-WORLDCOVER_VRT = DATA / "raw/worldcover/worldcover.vrt"
+WORLDCOVER_VRT = paths.DATA / "raw/worldcover/worldcover.vrt"
 Z8_MERC_RES = 305.7483  # metres/pixel of a 512px WebMercatorQuad tile at zoom 8
 EXAG = 15.0             # locked hero vertical exaggeration
 MERCATOR = "EPSG:3857"
@@ -210,7 +210,7 @@ def main():
     ap.add_argument("--panel-h", type=int, default=900)
     args = ap.parse_args()
 
-    chunk_dir = DATA / "work/planet/chunks" / args.chunk
+    chunk_dir = paths.DATA / "work/planet/chunks" / args.chunk
     args.out.mkdir(parents=True, exist_ok=True)
     print(f"prepping base layers for {args.chunk} (mid-lat {args.mid_lat})...", flush=True)
     base = prep_base_layers(chunk_dir, args.out, args.mid_lat)

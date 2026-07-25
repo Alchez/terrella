@@ -49,9 +49,22 @@ Scoped 2026-07-10 (→ HISTORY § 2026-07-10): ceiling z8 (~300 m/px), GDAL 3.13
 - [x] Fill sun ported to the tiles — `fill_strength=0.15` + `hi` 1.12; pure-black mountain land 43.66% → 0.00% → HISTORY § the tiles were missing the hero's fill sun · ART § Fill sun — TILES
 - [x] On-globe judgment — z8 not coarse on the sphere → **ceiling LOCKED**; judge look changes on `/globe`, never `planet_tiles/index.html` (a tile smoke test) → HISTORY § z8 LOCKED
 - [x] Greenland interior — `snow_curve=gamma8` (Summit 3.14 → 18.84 DN); over full snow the blend discards hillshade+SVF and no linear window fixes a 17× nested range mismatch → HISTORY § 2026-07-17 Greenland · ART § Snow curve — TILES
-- [x] Antarctica — FILL chosen: pyramid extended to −85.05° (1.41× every planet raster), planet re-fused −90…90, polar ring root-caused as a premultiplied-alpha blend bug (screen, not data), judgment complete 2026-07-22; RGI-19 deferred (`antarctic_snow_mask`), SVF normalisation proven safe → HISTORY § 2026-07-22 Antarctica FILL
-- [x] Hero-"softness" port CLOSED — `ambient_knee` 0.30 + `shadow_warmth` 0.55 SHIPPED (Rohan, `/globe`, 2026-07-21); cast shadows rejected twice (the *mechanism* erases fine modeling — reopen needs a new mechanism, not a new value); hillshade-side lever dropped (every dial is a hero anchor) → HISTORY § 2026-07-21 entries · ART § Hero → tile parameter map
-- [x] Package as PMTiles — DONE 2026-07-23: `pack_pmtiles.py` (dir→MBTiles 33 s, TDD) → capped convert 1m11s → 15 GB `planet.pmtiles` (verify clean, byte-compare incl. z8 y=255, 5.3% deduped); `?pmtiles` flag on /globe (pmtiles 4.4.1, header-derived min/maxzoom, TDD'd Range dev route) visually verified live (→ HISTORY § the uncapped pmtiles convert); default-on flip + nginx serving ride Phase 4 deploy — flip evidence from the phone-lag diagnosis: on the SAME desktop, first idle ≈ 4.4 s via the loose-tile dev path vs ≈ 1.3 s via `?pmtiles` (main thread clean both ways), so the flip also fixes the default dev experience, not just prod packaging
+- [x] **Antarctica — FILL chosen** → HISTORY § 2026-07-22 Antarctica FILL
+  - Pyramid extended to −85.05° (1.41× every planet raster); planet re-fused −90…90
+  - Polar ring root-caused as a premultiplied-alpha blend bug — screen, not data
+  - RGI-19 deferred (`antarctic_snow_mask`); SVF normalisation proven safe
+- [x] **Hero-"softness" port CLOSED** → HISTORY § 2026-07-21 entries · ART § Hero → tile parameter map
+  - `ambient_knee` 0.30 + `shadow_warmth` 0.55 SHIPPED (Rohan, `/globe`)
+  - Cast shadows rejected twice — the *mechanism* erases fine modeling
+    - Reopening needs a new mechanism, not a new value
+  - Hillshade-side lever dropped: every dial is a hero anchor
+- [x] **Package as PMTiles — DONE 2026-07-23** → HISTORY § the uncapped pmtiles convert
+  - `pack_pmtiles.py` (dir→MBTiles 33 s, TDD) → capped convert 1m11s → 15 GB `planet.pmtiles`
+  - Verified: `pmtiles verify` clean, byte-compare incl. z8 y=255, 5.3% deduped
+  - `?pmtiles` flag on /globe (4.4.1, header-derived min/maxzoom, TDD'd Range dev route)
+  - Default-on flip + nginx serving ride the Phase 4 deploy
+    - Flip evidence: same desktop, first idle ≈4.4 s loose vs ≈1.3 s `?pmtiles`
+    - So the flip fixes the default *dev* experience too, not just prod packaging
 
 ## Pipeline optimisation — measured 2026-07-16, now mostly landed
 
@@ -64,7 +77,10 @@ Baseline: 98 min wall on 1.16 of 16 cores; every item measured before proposed (
 5. [x] Composite threaded — 128/N4, ~3.5×, threaded==serial gated byte-identical → HISTORY § the composite is threaded
 6. [ ] `-srcnodata`→0-fill on GLOBathy — 51% of the 62-min lake warp; pays only on a re-extract
 7. [x] Prep-walk redundancy cut (2026-07-23) — mosaic freshness skip + 24 h preflight stamp; 35 s → 1.25 s/country → HISTORY § the prep-walk redundancy cut · PROCESS
-8. [x] **Commonification DONE 2026-07-23** — `pipeline/raster_io.py`: `GTIFF_CREATE` (format-only; threading stays per-call-site or it oversubscribes fusion — now enforced by test) + `row_bands`/`band_window` adopted at six sites; `warp_once`-behind-`is_stale` found already superseded by `warp_needs_rebuild` (2026-07-22), `lake_ab --left/--right` found already done → HISTORY § commonification LANDED
+8. [x] **Commonification DONE 2026-07-23** → HISTORY § commonification LANDED
+   - `pipeline/raster_io.py`: `GTIFF_CREATE` (format-only) + `row_bands`/`band_window`, six sites
+   - Threading stays per-call-site or it oversubscribes fusion — now enforced by test
+   - Two list items found already done: `warp_needs_rebuild`, `lake_ab --left/--right`
 
 - Experiments audit (2026-07-16): `sea_ab.py` + `ab_crops.py` retired; a *working* experiment is the record of a decision → HISTORY § 2026-07-16
 - `composite_ram.py` measures `composite()` alone — a lower bound, not the pass; the 12 G cap = 1.9× the real peak → HISTORY § composite_ram.py was never the number
@@ -81,24 +97,54 @@ Baked-vs-live rule (locked 2026-07-07): too expensive live → baked; depends on
 - [x] NE vector borders + toggle — casing strengthened to a soft dark halo for pale highlands
 - [x] Country click → fly-to → in-globe hero panel (NE hit layer, authored-frame `fitBounds`, lazy panel)
 - [x] Hover-highlight pole artifacts fixed — `lib/countryHighlight.ts` + 11 regression tests; Rohan confirmed no look regression → HISTORY § 2026-07-19 hover-highlight
-- [x] Blocky coasts at z6–8 FIXED 2026-07-23 — both suspects were innocent: the hover outline strokes `countries.geojson`, which was simplified at 0.05° (~5.5 km) for its original life as an invisible hit layer; retightened to 0.002° (sub-pixel at z8), guard test pins it against `Z8_RES` → HISTORY § the blocky hover outline
+- [x] **Blocky coasts at z6–8 FIXED 2026-07-23** → HISTORY § the blocky hover outline
+  - Both suspects were innocent — the hover outline strokes `countries.geojson`
+  - It was simplified at 0.05° (~5.5 km) for its original life as an invisible hit layer
+  - Retightened to 0.002° (sub-pixel at z8); guard test pins it against `Z8_RES`
 - [x] Globe polish — starfield, mobile control fixes, sea rework V1 LIVE, Spin toggle
 - [x] Capability probe + tier routing + Lite/Globe/Full toggle + FPS degradation — `decideTier()`, WebGL2 hard floor, TDD'd
 - [x] Tier 1 no-JS fallback — pure-CSS gazetteer overlay; dead search removed
-- [x] **Hero sea-sync sweep — DONE + RATIFIED 2026-07-24** (→ HISTORY § the hero sea-sync sweep): 203 heroes re-rendered (~10.5 h, 0 fail), 609 variants regenerated, gallery judged GOOD by Rohan → **hero-look freeze lifted**. `scene_build` IMPORTS palette (constants are derivations, not copies); the locked-constants section below is re-frozen to the post-sweep truth. Follow-on hero fixes rode the freeze-lift: the **pinecone/AO** default 0.38→0.20 + per-country `sky_view_strength`, and the **resolution floor** anti-striping for 7 microstates (→ HISTORY §§ the "pinecone" islands · the tiny-country "shredding" cured). Pre-seasync hardlink archive prune = Rohan's separate call.
-  - Closes four divergences in one ~204-hero re-render: (a) sun 46° → 45° via shared `palette.SUN_ALT_DEG`; (b) `WATER_RGBA` drift → pinned relationally to `SEA_STOPS[0]`; (c) NEW hero lake depth (GLOBathy, `lake_mask.py` — as `snow_mask.py` parallels `snow.py`); (d) hero sea ramp → palette's −6,000 m ramp
-  - The gate was never the pyramid — it is the shared palette constants; the constants audit (2026-07-21) found no fifth divergence, and the fill sun was the fourth of this species → HISTORY § the hero/tile colour constants AUDITED · § the tiles were missing the hero's fill sun · ART § Inland water
-- [x] Polar caps via a MapLibre custom layer — DONE, default-on (`?nocaps` to disable; Mercator ends ~85°; each cap is a source-shaded AEQD raster over the pole, sea ice over bathymetry, seam-matched light rotating with longitude) → HISTORY § the polar cap: flat fails · § the cap's seam-match
+- [x] **Subject-spotlight "Focus" toggle on heroes/gallery** — globe keeps Borders → HISTORY § the subject-spotlight "Focus" view
+  - Overlay asset (`gen_spotlight.py`), never baked — the toggle costs no re-render
+  - Subject = DEM-land minus neighbours' NE polygons: pixel-exact coast, NE landward border
+  - `gen_borders.py` stays live — the globe's hero panel still draws its PNGs
+- [x] **Hero sea-sync sweep — DONE + RATIFIED 2026-07-24** → HISTORY § the hero sea-sync sweep
+  - 203 heroes re-rendered (~10.5 h, 0 fail), 609 variants regenerated, judged GOOD by Rohan
+  - **Hero-look freeze lifted**; `scene_build` now IMPORTS palette (derivations, not copies)
+  - Closed four divergences in one re-render
+    - (a) sun 46° → 45° via shared `palette.SUN_ALT_DEG`
+    - (b) `WATER_RGBA` drift → pinned relationally to `SEA_STOPS[0]`
+    - (c) NEW hero lake depth (GLOBathy `lake_mask.py`, as `snow_mask.py` parallels `snow.py`)
+    - (d) hero sea ramp → palette's −6,000 m ramp
+  - The gate was never the pyramid — it is the shared palette constants
+    - The 2026-07-21 audit found no fifth divergence; the fill sun was the fourth
+    - → HISTORY § the hero/tile colour constants AUDITED · § the tiles were missing the hero's fill sun
+  - Follow-on fixes rode the freeze-lift → HISTORY §§ the "pinecone" islands · the tiny-country "shredding" cured
+    - Pinecone/AO default 0.38→0.20 + per-country `sky_view_strength`
+    - Resolution floor anti-striping for 7 microstates
+  - Pre-seasync archive PRUNED 2026-07-25 → HISTORY § the post-ratification reclaim
+- [x] **Polar caps via a MapLibre custom layer** — default-on (`?nocaps` disables) → HISTORY § the polar cap: flat fails · § the cap's seam-match
+  - Mercator ends ~85°, so each pole is a source-shaded AEQD raster drawn over it
+  - Sea ice over bathymetry; seam-matched light rotating with longitude
   - [x] Sea ice — OSI SAF ice-frequency climatology, `ICE_LO=0.55` decline-aware → HISTORY § 2026-07-20 sea ice
   - [x] South cap — GEBCO-direct height, forced snow-white land, toned ice
   - [x] `ice_relief_damp` 0.75 SHIPPED + RATIFIED on `/globe` (pack conceals seafloor *shading*, fringe keeps relief, colour glow survives) → HISTORY § 2026-07-22 Antarctica FILL
   - [x] Pole taper RETIRED 2026-07-23 — the damp treats the cause the taper patched → HISTORY § the flat-pole taper RETIRED
   - [x] Cap layer restores GL state each draw (premultiplied-alpha contract in `polarCaps.ts`)
-  - [x] **Productionized 2026-07-23** — 8192² WebP q85 (3.2+2.1 MB, was 11.1+4.8 MB PNG; Rohan's crop+globe A/B), the `caps.json` contract replaces hand-copied TS literals, default-on with `?nocaps`, `MAX_TEXTURE_SIZE` clamp → HISTORY § polar caps PRODUCTIONIZED. PMTiles packages only the pyramid — caps stay standalone assets, Tier-3 terrain-RGB would be its own archive
+  - [x] **Productionized 2026-07-23** → HISTORY § polar caps PRODUCTIONIZED
+    - 8192² WebP q85 (3.2+2.1 MB, was 11.1+4.8 MB PNG) on Rohan's crop+globe A/B
+    - `caps.json` contract replaces hand-copied TS literals; `MAX_TEXTURE_SIZE` clamp
+    - Caps stay standalone assets — PMTiles packages only the pyramid
 
 ## Phase 4 — Deploy & polish
 
-- [~] nginx container on rohome, cache headers, PMTiles range-request config — the config is BUILT + measured 2026-07-23 (`deploy/`: two server blocks `:80` prod-shape / `:443` local-sim TLS, shared locations include, stores from `web/.env`, curl battery green; local-sim ladder: cold 1.8 s / warm 1.1 s first idle on loopback, cold payload 20.6 MB → HISTORY § the nginx serving block built early). REMAINING: rohome deploy (restart policy + Watchtower labels), WAN-throttle test (~240 ms RTT — the Pangolin double-hop, measured), and the rohome home-uplink bandwidth question
+- [~] **nginx container on rohome** — config BUILT + measured → HISTORY § the nginx serving block built early
+  - `deploy/`: two server blocks (`:80` prod-shape, `:443` local-sim TLS), shared locations include
+  - Stores from `web/.env`; curl battery green
+  - Local-sim ladder: cold 1.8 s / warm 1.1 s first idle on loopback, cold payload 20.6 MB
+  - REMAINING: rohome deploy (restart policy + Watchtower labels)
+  - REMAINING: WAN-throttle test (~240 ms RTT, the measured Pangolin double-hop)
+  - REMAINING: the rohome home-uplink bandwidth question
 - [ ] **Deployment architecture (host-agnostic; Rohan's calls 2026-07-24)**
   - **Container-based** (Rohan's lean): no re-running anything on restart + reproducible env across dev/rohome/cloud
     - serving container in `deploy/` already models it — add `restart: unless-stopped` + Watchtower labels
@@ -115,12 +161,43 @@ Baked-vs-live rule (locked 2026-07-07): too expensive live → baked; depends on
   - **Seam to add for the cloud split:** an `ASSET_BASE_URL` — web HARDCODES same-origin store paths today (`location.origin`+`/tiles`|`/pmtiles`; `/caps/`, `/heroes/` across globe.astro/polarCaps.ts/[slug].astro/index.astro) → split-origin is a small multi-site change, not a one-liner
   - Artifact sizes now: `web/dist` tiny · `planet.pmtiles` 15 GB · variants 2.1 GB · caps 5 MB
 - [ ] Pangolin route: **terrella.alchez.dev** (Rohan's pick 2026-07-24)
-- [ ] Lighthouse pass on all three tiers; test on a weak Android device — carry-ins from 2026-07-23: Firefox blocks ~1.1 s on main-thread cap decode+upload (`createImageBitmap` decodes sync there + slow `texImage2D`, bugzilla 1486454; Rohan's waterfall → HISTORY § polar caps PRODUCTIONIZED); candidate fix = decode in a Web Worker (transferable ImageBitmap). Dev middleware sends no ETag/Last-Modified → no-cache can't 304, full re-downloads every dev load (dev-only; nginx adds validators)
-- [ ] Globe web polish (leftovers from the MapLibre API survey → HISTORY § the MapLibre API survey): hovered-country name chip (the gold outline names nothing — needs a design pass); `webglcontextlost` "reload the globe" hint; `setMaxParallelImageRequests` experiment at the Lighthouse pass (first paint ≈40 tile requests vs the 16 default — measure on real network, not localhost). The onAdd-per-projection-transition re-init is FIXED (`gl.isProgram` guard); the phone-lag ladder VERDICT: no main-thread jank exists (250 ms total long tasks) — the wait is the loading window, so the fixes are prod serving (gzip/minify, arrives with the nginx deploy) + the now data-justified `cap_render` 4096 WebP rung + caps.json rung listing (mobile fetch 5.3 → ~1.5 MB ≈ 1.2 s of the window) → HISTORY § the phone ladder verdict. Diagnostic flags `?perf` (long-task overlay; event stamps recorded in globe.astro since the prod build outraces the overlay's dynamic import) and `?bare` (tiles-only) are standing tools. Nginx-sim refinement of the verdict: the window's compute floor decomposed 382/794/985 ms (bare/+countries/+caps) → countries DEFERRED to first idle (interaction data, not first-paint content: warm full 985 → 595 ms, cold window 20.6 → ~18 MB); remaining prod levers are the payload rungs (caps 4096, tiles WebP/AVIF in FUTURE, gzip_static sidecars, vector-tile countries to kill the 9.2 MB parse) → HISTORY § the nginx serving block built early
-- [~] About page: data credits (Copernicus, GEBCO, Natural Earth, ESA WorldCover — exact CC-BY string in the locked-constants Snow entry; OSI SAF + reference-period note; NSIDC-0791, RGI 7.0 CC-BY 4.0, GLOBathy CC0 + the lake-depth epistemics), technique notes; worldview section's best concrete example: the Baikonur Cosmodrome hole in Kazakhstan's hover highlight (NE de-facto carves the leased territory — verified, the highlight is correct)
+- [ ] **Lighthouse pass on all three tiers**, plus a weak Android device
+  - Carry-in: Firefox blocks ~1.1 s on main-thread cap decode+upload → HISTORY § polar caps PRODUCTIONIZED
+    - `createImageBitmap` decodes sync there, plus a slow `texImage2D` (bugzilla 1486454)
+    - Candidate fix: decode in a Web Worker (transferable ImageBitmap)
+  - Carry-in: dev middleware sends no ETag/Last-Modified, so no-cache can't 304
+    - Dev-only — nginx adds validators
+- [ ] **Globe web polish** → HISTORY §§ the MapLibre API survey · the phone ladder verdict · the nginx serving block built early
+  - **Verdict: there is no main-thread jank** (250 ms total long tasks) — the wait is the loading window
+    - Compute floor decomposes 382 / 794 / 985 ms (bare / +countries / +caps)
+    - Countries DEFERRED to first idle → warm full 985 → 595 ms, cold window 20.6 → ~18 MB
+  - Open items
+    - [ ] Hovered-country name chip — the gold outline names nothing; needs a design pass
+    - [ ] `webglcontextlost` → "reload the globe" hint
+    - [ ] `setMaxParallelImageRequests` — measure at the Lighthouse pass, on a real network
+  - Payload rungs (the real lever, since serving not compute is the cost)
+    - [x] `cap_render` 4096 rung — DONE 2026-07-25, mobile 5.3 → 1.8 MB → HISTORY § the cap rung
+    - [ ] gzip_static / brotli sidecars; vector-tile countries (kills the 9.2 MB parse)
+    - [ ] tiles WebP/AVIF — parked in FUTURE.md
+  - Done, kept as context
+    - [x] onAdd-per-projection-transition re-init FIXED (`gl.isProgram` guard)
+    - [x] Cap render memory FIXED 2026-07-25 → HISTORY § the cap rung
+      - Peaks ~14 GB, not the ~4 GiB PROCESS claimed; OOM'd under `MEMORY_CAP=12G`
+      - `shade_planet` invokes it inside that cgroup at the pass tail → a pass died at the caps
+      - Shade cap → **16 G**, plus a `MemAvailable` preflight that refuses to start
+  - Standing diagnostic flags: `?perf` (long-task overlay) and `?bare` (tiles-only)
+- [x] **About page — DONE 2026-07-25** → HISTORY § the About page closes
+  - All eight data credits were already live; the CC-BY obligation was never outstanding
+  - Added: Baikonur example in § Boundaries; new § Using this work (CC BY-NC 4.0 imagery / MIT code)
+  - Layout: the three callouts now grid side-by-side instead of stacking at 62ch
 - [x] Bump astro 7.0.7 → 7.1.3 — DONE 2026-07-23 (same major, zero breaking on path; gates green: astro check 0, vitest 45, build 206 pages / 418 ms; dev server restarted on 7.1.3) — contrast: GDAL 3.13 assessed same day and SKIPPED → FUTURE.md
 - [ ] (Optional flourish) landing-page "poster mode" beauty shot — Balazh-style sphere; a weekend experiment (decomposed in chat 2026-07-07)
-- [~] **Open-source pass** (stated goal 2026-07-23) — mostly done same day: `pipeline/paths.py` seam (ROOT/DATA/BLENDER; `MAPS_DATA`/`MAPS_BLENDER` env overrides; 18 modules migrated, drift-scan test enforces single-homing), LICENSE = MIT code / CC BY-NC 4.0 imagery (README + ATTRIBUTIONS sections; NC trade-off recorded → HISTORY § LICENSE + paths seam). REMAINING: migrate `snow_mask.py` off its freeze allowlist after sweep ratification; final attribution review of shipped products at Phase 4
+- [~] **Open-source pass** (stated goal 2026-07-23) → HISTORY § LICENSE + paths seam
+  - `pipeline/paths.py` seam: ROOT/DATA/BLENDER, `MAPS_DATA`/`MAPS_BLENDER` env overrides
+    - 18 modules migrated; a drift-scan test enforces single-homing
+  - LICENSE = MIT code / CC BY-NC 4.0 imagery (README + ATTRIBUTIONS; NC trade-off recorded)
+  - [x] `snow_mask.py` migrated off its freeze allowlist 2026-07-25
+  - REMAINING: final attribution review of shipped products at Phase 4
 - [ ] Ship. Post it somewhere.
 
 ## Phase 5 — Tier 3 (candidate; go/no-go after Phase 4 ships)
@@ -129,7 +206,16 @@ The Tier-3 *gate* already ships (capability probe + Lite/Globe/Full toggle, Phas
 
 - [ ] Terrain-RGB elevation pyramid — its own PMTiles archive (the pmtiles protocol serves `raster-dem`/terrarium natively, confirmed 2026-07-23)
 - [ ] Crispness = a supersampled re-fuse (transient bands, never a stored ~496 GB product); shares the fine re-fuse input with terrain-RGB → HISTORY § 2026-07-20 (evening)
-- [ ] Occlusion `cos(lat)` fix — PROVEN (under-occluded 1.22× @35°N, 2.00× @60°N, 3.86× @75°N; per-row ground scale = the hillshade z-factor trick; record occlusion resolution in freshness too); **rides the first full tile restage, whichever comes first** — deferred by Rohan 2026-07-22 (visual impact tiny, SVF burn-only + capped; a solo fix would spend a planet-wide /globe ratification on a subtle delta) → HISTORY § 2026-07-20 (evening) · § 2026-07-22 Antarctica FILL
+- [ ] **Occlusion `cos(lat)` fix — PROVEN, rides the first full tile restage** → HISTORY § 2026-07-20 (evening) · § 2026-07-22 Antarctica FILL
+  - Under-occluded 1.22× @35°N, 2.00× @60°N, 3.86× @75°N
+  - Fix = per-row ground scale (the hillshade z-factor trick); record occlusion res in freshness
+  - Deferred by Rohan 2026-07-22: visual impact tiny, SVF is burn-only and capped
+    - A solo fix would spend a planet-wide /globe ratification on a subtle delta
+- [ ] **High-latitude coastline blockiness** — deferred here 2026-07-25, same restage
+  - `ocean_3857`/`water_3857` are `-r near` (categorical, correctly so)
+  - Mercator stretches one source row over ~6 output rows at 78.6°N (measured), so coasts staircase
+  - Underlying cause: the 10″ fuse is 308 m of *latitude* everywhere, whatever the zoom
+  - The supersampled re-fuse is the real fix; a bilinear-then-threshold mask is the cheap partial
 - [ ] Tier-3 web layer — `raster-dem` displacement on the globe, idle animations, lazy 8K heroes on country click
 
 ## Locked global constants (Phase 0 exit checkpoint 2026-07-06; amended 2026-07-08; re-frozen 2026-07-24 post-sea-sync)
@@ -147,18 +233,31 @@ Global for all ~195 countries; changing any of these means re-rendering every he
   - **Water tint `WATER_RGB = 8EC6C4`** (`palette`, imported) — pinned relationally to `SEA_STOPS[0]` lightened ~7% (`test_palette` guards it); the flat inland-water fallback
   - **Lake depth (heroes, 2026-07-24):** `lake_mask.py` emits `lakedepth_aea.tif` (log1p depth → ramp position); the shader tints via `palette.LAKE_STOPS` (position 0 == `WATER_RGB`) — tint-only, never displacement; rivers stay flat
   - Snow `E8F1F6`; land/Lake Mix = water always wins; masks 0/255 PNG, image nodes Non-Color, mask interpolation Closest, no reversed Map Ranges
-- **Snow data (heroes):** ESA WorldCover 2021 v200 class 70, warped nearest per frame by `snow_mask.py` (permanent snow/ice only; roots on `paths.DATA` since 2026-07-24). CC-BY 4.0; About page must credit "© ESA WorldCover project 2021 / Contains modified Copernicus Sentinel data (2021) processed by ESA WorldCover consortium". No Antarctica coverage (special-case hero regardless)
+- **Snow data (heroes):** ESA WorldCover 2021 v200 class 70, warped nearest by `snow_mask.py`
+  - Permanent snow/ice only; roots on `paths.DATA` since 2026-07-24
+  - CC-BY 4.0 — About must credit "© ESA WorldCover project 2021 / Contains modified Copernicus Sentinel data (2021) processed by ESA WorldCover consortium"
+  - No Antarctica coverage (a special-case hero regardless)
 - **Camera:** orthographic, straight down; ortho scale = plane's larger dimension × 1.0006; render resolution 7680 px on the raster's *longer* axis (`hero_long_edge` in `config/countries.toml`, per-country overridable; India pinned at 7680×7906)
 - **Render:** Cycles, OptiX backend, OIDN denoiser (CPU for 8K frames — VRAM contention), adaptive subdivision dicing 1 px (≈6.8 GB peak at 8K)
-- **Post-render shading (2026-07-10; per-country 2026-07-24):** `sky_view.py` — burn-only horizon SVF (AO) from `heightfield_aea`, composited by `batch.py` before the atomic promote; open ground and sea unchanged. Strength is per-country `sky_view_strength` (`config/countries.toml`): **default 0.20**, flat Qatar/Paraguay 0.38 (the original motivation), 7 volcanic islands 0.0 (the pinecone fix) → HISTORY § the "pinecone" islands
-- **Resolution floor (heroes, 2026-07-24):** `resolution_floor_m = 60` (`config/countries.toml` default) — `render_prep` box-lowpasses the heightfield only where a tiny frame upsampled >5× past the 30 m DEM (auto-thresholded, engages 7 microstates), killing GLO-30 source striping; andorra exempted → HISTORY § the tiny-country "shredding" cured
+- **Post-render shading:** `sky_view.py` burn-only horizon SVF → HISTORY § the "pinecone" islands
+  - From `heightfield_aea`, composited by `batch.py` before the atomic promote
+  - Open ground and sea unchanged
+  - Per-country `sky_view_strength`: **default 0.20**; Qatar/Paraguay 0.38; 7 volcanic islands 0.0
+- **Resolution floor (heroes):** `resolution_floor_m = 60` default → HISTORY § the tiny-country "shredding" cured
+  - `render_prep` box-lowpasses the heightfield, killing GLO-30 source striping
+  - Auto-thresholded on >5× upsample past the 30 m DEM — engages 7 microstates
+  - Andorra exempted (real alpine detail costs more than the striping does)
 - **Borders (overlay, not scene):** land white 95% @ 10 px + casing `#3D2B1F` 35% @ 14 px; disputed/LoC dash [30, 20]; maritime white 80% @ 7 px + casing 25% @ 10.5 px, dash [40, 25]; widths are 8K-canvas px, scale linearly with render width; NE default worldview
 
 ## Open questions
 
 Resolved questions move to HISTORY.md — one home per fact. Each question names the point where it gets decided.
 
-- **Hero presentation — geography-conditional, not finalised.** Cutout-cream suits continental, real ocean suits islands, no universal design (the consistent/coherent/neighbour-free trilemma); most countries are *both* coastal and bordered, and every treatment reads flat at the margin. **Decided at:** Phase 3 gallery/globe design; not a look change → doesn't touch the locked constants. → HISTORY § 2026-07-09 — Hero presentation explored
+- **Hero presentation — geography-conditional, not finalised** → HISTORY § 2026-07-09 — Hero presentation explored
+  - Cutout-cream suits continental; real ocean suits islands; no universal design
+  - The trilemma: consistent / coherent / neighbour-free — pick two
+  - Most countries are *both* coastal and bordered, and every treatment reads flat at the margin
+  - **Decided at:** Phase 3 gallery/globe design; not a look change, so the locked constants stand
 - **Tile-pyramid storage location on rohome** (which mount, backup exclusion). **Decided by:** start of Phase 4 deploy.
 - **Prep-ahead producer/consumer runner — designed, deferred, probably moot** (the `--through prep` / `--through render` phase split is the zero-complexity 90% alternative). **Decided at:** only if a full re-render sweep is ever needed again. → HISTORY § 2026-07-09 — Batch runner
 

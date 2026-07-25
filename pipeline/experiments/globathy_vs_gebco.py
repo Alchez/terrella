@@ -25,15 +25,15 @@ Usage:
 
 import argparse
 import sys
-from pathlib import Path
 
 import numpy as np
 import rasterio
 from rasterio.enums import Resampling
 
-DATA = Path.home() / "projects/maps/data"
-RASTER_DIR = DATA / "work/globathy/rasters"
-GEBCO = DATA / "raw/gebco/gebco_2026_global.vrt"
+from pipeline import paths
+
+RASTER_DIR = paths.DATA / "work/globathy/rasters"
+GEBCO = paths.DATA / "raw/gebco/gebco_2026_global.vrt"
 DECIMATE_LONG_EDGE = 1600
 
 

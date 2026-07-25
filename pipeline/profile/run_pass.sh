@@ -17,8 +17,15 @@
 #   4. the cgroup    -> memory.peak for the whole scope, and the 12 G cap that kills the job not
 #                       the box (proven today: a 4-cell region render hit it and died alone).
 #
-# Shade cap 12 G: the THREADED composite (opt #5, 128/N4) peaks at 10.55 GiB (2026-07-18; the serial
-# composite was 6.24 GiB), so 12 G is ~1.14x measured -- and N=6 would OOM, which is why N stays 4.
+# Shade cap 16 G, raised from 12 G on 2026-07-25. The composite is NOT why: it still peaks at
+# 10.55 GiB (opt #5, 128/N4, 2026-07-18; the serial composite was 6.24 GiB) and COMPOSITE_ROWS=128
+# is a hardcoded constant, not a function of this cap, so raising the cap does not let the
+# composite grow -- N stays 4 because 256/N3 and N=6 OOM on their own arithmetic. The cap moved
+# because the pass ENDS by rendering the polar caps (shade_planet invokes cap_render as a
+# subprocess, which inherits this scope's cgroup) and the caps peak at ~14 GB -- so a 12 G pass
+# completed every tile stage and then died at the very last one. Known cost of the raise: 12 G was
+# also an accidental tripwire on composite footprint, and a regression there now goes unnoticed
+# until 16 G. → HISTORY § the cap rung
 #
 # Tiling cap 16 G, and it is NOT the same calculation. The composite is skipped when planet_rgb is
 # fresh, so the peak stage becomes `gdal raster tile`, which spawns -j ALL_CPUS workers that EACH
@@ -30,19 +37,60 @@
 # GDAL_CACHEMAX=512 per shade_planet.py's own launch note.
 set -uo pipefail
 
-HARNESS=/home/rohan/projects/maps/pipeline/profile   # code: tracked in git
-VENV=/home/rohan/projects/maps/.venv/bin/python
-cd /home/rohan/projects/maps || exit 1
+# Roots derive from this script's own location, never a hardcoded home path: the harness has to
+# run from any checkout, and the preflight tests drive it on CI. MAPS_DATA moves the data store,
+# the same seam pipeline/paths.py and build_mosaics.sh read.
+ROOT=$(cd "$(dirname "$0")/../.." && pwd)
+HARNESS=$ROOT/pipeline/profile   # code: tracked in git
+VENV=$ROOT/.venv/bin/python
+DATA=${MAPS_DATA:-$ROOT/data}
+cd "$ROOT" || exit 1
 
 if [[ " $* " == *" --tiles "* ]]; then
     RUN_LABEL=tiles
     MEMORY_CAP=16G
 else
     RUN_LABEL=pass
-    MEMORY_CAP=12G
+    MEMORY_CAP=16G
 fi
-PROF=/home/rohan/projects/maps/data/work/_profile_$RUN_LABEL   # output: data, gitignored
+PROF=$DATA/work/_profile_$RUN_LABEL   # output: data, gitignored
 UNIT=terrella-$RUN_LABEL
+
+# --- memory preflight -------------------------------------------------------------------------
+# A cgroup cap kills the job instead of the box -- but only if the box can actually BACK the cap.
+# Capping at 16 G on a machine with 9 G free does not protect anything; it just relocates the
+# failure to the most expensive possible moment, hours into a pass, after every completed stage
+# has been paid for. Refuse to start instead.
+#
+# MemAvailable is the kernel's own estimate of what a new job can take WITHOUT swapping, which is
+# exactly the question being asked -- unlike `free`, whose "free" column undercounts by ignoring
+# reclaimable page cache (the 2026-07-08 note). MEMINFO is overridable so the check itself is
+# testable: a guard that has never been seen to fire is indistinguishable from one that passed.
+MEMINFO=${MEMINFO:-/proc/meminfo}
+memory_cap_gib=${MEMORY_CAP%G}
+memory_available_kib=$(awk '/^MemAvailable:/ {print $2}' "$MEMINFO")
+
+if [[ -z "$memory_available_kib" ]]; then
+    echo "ABORT: no MemAvailable line in $MEMINFO -- cannot verify the box can back $MEMORY_CAP." >&2
+    exit 1
+fi
+
+if (( memory_available_kib < memory_cap_gib * 1024 * 1024 )) && [[ -z "${ALLOW_LOW_MEMORY:-}" ]]; then
+    awk -v available="$memory_available_kib" -v cap="$memory_cap_gib" -v label="$RUN_LABEL" 'BEGIN {
+        printf "ABORT: the %s run is capped at %d G but only %.1f GiB is available.\n", label, cap, available/1048576
+        printf "       Starting anyway would OOM somewhere deep in the pass, not here.\n"
+        printf "       Free memory (browser/editor are the usual holders) and re-run,\n"
+        printf "       or set ALLOW_LOW_MEMORY=1 to override deliberately.\n"
+    }' >&2
+    exit 1
+fi
+
+awk -v available="$memory_available_kib" -v cap="$memory_cap_gib" 'BEGIN {
+    printf "memory preflight: %.1f GiB available >= %d G cap -- OK\n", available/1048576, cap
+}'
+
+# PREFLIGHT_ONLY exists so the tests can exercise BOTH branches without launching a real pass.
+[[ -n "${PREFLIGHT_ONLY:-}" ]] && exit 0
 
 mkdir -p "$PROF"
 : > "$PROF/pass.log"

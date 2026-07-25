@@ -9,13 +9,13 @@ globe over the raster tile pyramid), with a capability probe that auto-steers be
 so a fresh clone or worktree has none of them and **every route 500s (`FailedToLoadModuleSSR`)
 until all three exist**. In order:
 
-1. **`.env`** — store paths for the dev middleware, which serves `/heroes`, `/tiles` and
-   `/borders` straight off disk (nginx serves them in prod; the static build never reads them).
+1. **`.env`** — store paths for the dev middleware, which serves `/heroes`, `/borders` and
+   `/pmtiles` straight off disk (nginx serves them in prod; the static build never reads them).
    Copy the template and set each var to an absolute local path — there is no fallback, an unset
    var fails the dev server with a clear message:
    ```sh
    cp .env.example .env
-   # edit HERO_STORE / TILES_STORE / BORDERS_STORE, e.g. TILES_STORE=/home/rohan/projects/maps/data/work/planet_tiles/tiles
+   # edit HERO_STORE / BORDERS_STORE / PMTILES_STORE, e.g. PMTILES_STORE=/path/to/maps/data/work/planet_tiles
    ```
    `.env` is gitignored (machine-specific), which is why it does not travel with the checkout.
 
@@ -28,8 +28,7 @@ until all three exist**. In order:
    and imported by all three pages (index, `[slug]`, globe), so its absence 500s the whole site.
    Also gitignored. Regenerate it whenever heroes are re-rendered:
    ```sh
-   /home/rohan/projects/maps/.venv/bin/python scripts/gen_manifest.py \
-       --repo /home/rohan/projects/maps --out src/data/countries.json
+   ../.venv/bin/python scripts/gen_manifest.py --out src/data/countries.json
    ```
    Requires the hero WebP variants and the Natural Earth admin-0 shapefile to already exist.
 

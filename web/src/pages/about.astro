@@ -106,6 +106,16 @@ const tools = [
     html: 'Shaded relief after <a href="https://somethingaboutmaps.wordpress.com/2017/11/16/creating-shaded-relief-in-blender/" target="_blank" rel="noopener noreferrer">Daniel Huffman</a>; aesthetic after <a href="https://frank-ramspott.pixels.com/" target="_blank" rel="noopener noreferrer">Frank Ramspott</a>',
   },
 ];
+
+// Built as one string: Astro collapses the whitespace around multi-line <a> tags, which twice
+// glued a link to the word before it ("is CC BY-NC 4.0" → "isCC BY-NC 4.0").
+const licenceHtml = [
+  '<strong>Imagery</strong> is <a href="https://creativecommons.org/licenses/by-nc/4.0/"',
+  ' target="_blank" rel="noopener noreferrer">CC BY-NC 4.0</a> — personal and educational use',
+  ' with attribution, commercial use reserved. <strong>Code</strong> is',
+  ' <a href="https://opensource.org/license/mit" target="_blank"',
+  ' rel="noopener noreferrer">MIT</a>.',
+].join("");
 ---
 
 <Base
@@ -157,29 +167,51 @@ const tools = [
       </div>
     </section>
 
-    <section class="block worldview">
-      <h2 class="eyebrow">Boundaries</h2>
-      <p class="note">
-        Borders and coastlines use Natural Earth's <strong>de-facto</strong> worldview,
-        applied consistently everywhere. Disputed boundaries and lines of control
-        are drawn <strong>dashed</strong>. A cartographic default, not a
-        political statement.
-      </p>
-    </section>
+    <div class="note-grid">
+      <section class="note-block">
+        <h2 class="eyebrow">Using this work</h2>
+        <div class="note">
+          <p set:html={licenceHtml} />
+          <p>
+            The data keeps its own licenses, listed above. They travel with whatever you
+            make from this.
+          </p>
+        </div>
+      </section>
 
-    <section class="block">
-      <h2 class="eyebrow">Lake depth</h2>
-      <p class="note">
-        Lake beds here are <strong>modelled, not surveyed</strong>. Every one of GLOBathy's
-        1.43&nbsp;million lakes is given the same synthetic shape — a cone deepening with distance
-        from the shore — and no lake bed is ever observed directly. On the Caspian, the one lake we
-        can check against real soundings, that model correlates only about <strong>0.53</strong>. A
-        measured maximum depth exists for just <strong>0.8%</strong> of the lakes shown (though 14 of
-        the 15 deepest); the rest are statistical estimates. Rendering every lake the same modelled
-        way is deliberate — restricting to surveyed lakes would draw survey funding as geology, since
-        about 85% of them sit in the USA.
-      </p>
-    </section>
+      <section class="note-block worldview">
+        <h2 class="eyebrow">Boundaries</h2>
+        <div class="note">
+          <p>
+            Borders use Natural Earth's <strong>de-facto</strong> worldview everywhere;
+            disputed lines are <strong>dashed</strong>. A cartographic default, not a
+            political statement — and consistency matters more than any single call, so
+            Kashmir keeps its shape whether you arrive from India or Pakistan.
+          </p>
+          <p>
+            It also produces results that look like bugs. Highlight Kazakhstan and a hole
+            opens mid-country: the <strong>Baikonur Cosmodrome</strong>, leased to Russia.
+            De-facto follows who administers the ground.
+          </p>
+        </div>
+      </section>
+
+      <section class="note-block">
+        <h2 class="eyebrow">Lake depth</h2>
+        <div class="note">
+          <p>
+            Lake beds are <strong>modelled, not surveyed</strong>. All 1.43&nbsp;million of
+            GLOBathy's lakes get the same synthetic cone, deepening from the shore. Against
+            the Caspian's real soundings that model correlates about <strong>0.53</strong>,
+            and only <strong>0.8%</strong> of lakes here have a measured depth at all.
+          </p>
+          <p>
+            Modelling them all alike is deliberate: showing only surveyed lakes would draw
+            survey funding as geology, since ~85% of them sit in the USA.
+          </p>
+        </div>
+      </section>
+    </div>
 
     <section class="block">
       <h2 class="eyebrow">Tools &amp; technique</h2>
@@ -226,7 +258,7 @@ const tools = [
   }
 
   .block {
-    margin-top: clamp(2.6rem, 6vw, 4rem);
+    margin-top: clamp(2rem, 4.5vw, 3rem);
   }
 
   /* How it's made — a real pipeline, so numbered; a map-sheet process strip */
@@ -313,7 +345,22 @@ const tools = [
     color: var(--muted);
   }
 
-  /* Emphasised note — a disclaimer / caveat callout (Boundaries, Lake depth) */
+  /* The caveat callouts (licence, worldview, lake depth) sit side by side rather than stacking:
+     at 62ch each they left most of a 1500px page empty and pushed the rest below the fold. */
+  .note-grid {
+    margin-top: clamp(2rem, 4.5vw, 3rem);
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(clamp(280px, 26vw, 380px), 1fr));
+    gap: clamp(1.2rem, 2.5vw, 2rem);
+    align-items: stretch; /* equal-height callouts — ragged box bottoms read as a mistake */
+  }
+  .note-block {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  /* Emphasised note — a disclaimer / caveat callout */
   .note {
     max-width: 62ch;
     margin: 0;
@@ -323,6 +370,18 @@ const tools = [
     border-radius: 0 10px 10px 0;
     font-size: 0.98rem;
     line-height: 1.6;
+  }
+  .note-grid .note {
+    max-width: none;
+    flex: 1;
+  }
+  /* Paragraphs inside ONE callout, never separate callouts: two adjacent .note boxes met at
+     their border-radii and showed a notch between them. */
+  .note p {
+    margin: 0;
+  }
+  .note p + p {
+    margin-top: 0.7rem;
   }
 
   .tools {
