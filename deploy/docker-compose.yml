@@ -1,5 +1,8 @@
-# Local prod-sim of the Terrella serving block (and the template for the
-# rohome deployment — Phase 4 finalizes restart policy + Watchtower labels).
+# Local prod-sim of the Terrella serving block: the static site plus the asset stores,
+# with production's cache classes and compression, offline and without a Cloudflare
+# account. It is no longer a deployment template — the site deploys to Pages + R2 + a
+# tile Worker (→ HISTORY § the deploy target moves to R2) — and it does not serve relief
+# tiles; see the /tiles/ block in nginx/terrella-locations.conf for why.
 #
 # Run from deploy/:
 #   ./make-local-cert.sh                       # once, self-signed cert for :443
@@ -25,4 +28,3 @@ services:
       - ./certs:/etc/nginx/certs:ro
       - ${HERO_STORE}:/stores/heroes:ro
       - ${BORDERS_STORE}:/stores/borders:ro
-      - ${PMTILES_STORE}:/stores/pmtiles:ro

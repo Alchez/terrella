@@ -61,10 +61,9 @@ Scoped 2026-07-10 (→ HISTORY § 2026-07-10): ceiling z8 (~300 m/px), GDAL 3.13
 - [x] **Package as PMTiles — DONE 2026-07-23** → HISTORY § the uncapped pmtiles convert
   - `pack_pmtiles.py` (dir→MBTiles 33 s, TDD) → capped convert 1m11s → 15 GB `planet.pmtiles`
   - Verified: `pmtiles verify` clean, byte-compare incl. z8 y=255, 5.3% deduped
-  - `?pmtiles` flag on /globe (4.4.1, header-derived min/maxzoom, TDD'd Range dev route)
-  - Default-on flip + nginx serving ride the Phase 4 deploy
-    - Flip evidence: same desktop, first idle ≈4.4 s loose vs ≈1.3 s `?pmtiles`
-    - So the flip fixes the default *dev* experience too, not just prod packaging
+  - Flip evidence: same desktop, first idle ≈4.4 s loose vs ≈1.3 s from the archive
+  - **The browser-side pmtiles client is GONE 2026-07-25** → HISTORY § the web seam lands
+    - A tile server ranges the archive now; the flag, the Range dev route and `httpRange.ts` went with it
 
 ## Pipeline optimisation — measured 2026-07-16, now mostly landed
 
@@ -93,7 +92,7 @@ Tiers 1 + 2 shipped on `feat/frontend` (worktree `../maps-frontend`; merge later
 
 Baked-vs-live rule (locked 2026-07-07): too expensive live → baked; depends on view state → live; invariant + physics-coupled → baked; otherwise live pinned to authored constants; user-exposed settings only where visitor context genuinely varies.
 
-- [x] MapLibre globe over the raster pyramid (PMTiles source deferred to Phase 4)
+- [x] MapLibre globe over the raster pyramid — tiles come from a server that ranges the PMTiles archive
 - [x] NE vector borders + toggle — casing strengthened to a soft dark halo for pale highlands
 - [x] Country click → fly-to → in-globe hero panel (NE hit layer, authored-frame `fitBounds`, lazy panel)
 - [x] Hover-highlight pole artifacts fixed — `lib/countryHighlight.ts` + 11 regression tests; Rohan confirmed no look regression → HISTORY § 2026-07-19 hover-highlight
@@ -138,29 +137,37 @@ Baked-vs-live rule (locked 2026-07-07): too expensive live → baked; depends on
 
 ## Phase 4 — Deploy & polish
 
-- [~] **nginx container on rohome** — config BUILT + measured → HISTORY § the nginx serving block built early
-  - `deploy/`: two server blocks (`:80` prod-shape, `:443` local-sim TLS), shared locations include
-  - Stores from `web/.env`; curl battery green
-  - Local-sim ladder: cold 1.8 s / warm 1.1 s first idle on loopback, cold payload 20.6 MB
-  - REMAINING: rohome deploy (restart policy + Watchtower labels)
-  - REMAINING: WAN-throttle test (~240 ms RTT, the measured Pangolin double-hop)
-  - REMAINING: the rohome home-uplink bandwidth question
-- [ ] **Deployment architecture (host-agnostic; Rohan's calls 2026-07-24)**
-  - **Container-based** (Rohan's lean): no re-running anything on restart + reproducible env across dev/rohome/cloud
-    - serving container in `deploy/` already models it — add `restart: unless-stopped` + Watchtower labels
-    - no pipeline Dockerfile yet — creating one is the portability seam; its base image carries the py3.14 bump
-  - **Deploy target = dumb static file host** — zero runtime compute (all pre-rendered, PMTiles range requests, client capability probe); that is what makes it portable
-  - **Serving contract (the interface to preserve; `deploy/nginx` = reference impl):**
-    - HTTP range requests (client addresses `planet.pmtiles` by byte offset — 15 GB)
-    - three cache classes: `_astro/*` immutable 1yr / stores 1wk+ETag / HTML no-cache
-    - gzip text-like ONLY (never the pre-compressed pmtiles/webp/png)
-    - CORS+range if stores move to another origin
-  - **Cloud path when scaling = object storage + CDN** (PMTiles designed for this — no tile server)
-    - Cloudflare R2 + CDN preferred (zero egress — the 15 GB archive + tens-of-GB stores make egress the cost driver)
-    - VPS+nginx portable as-is; static platforms (Netlify/Vercel/Pages) serve HTML only (stores too big → still need object storage)
-  - **Seam to add for the cloud split:** an `ASSET_BASE_URL` — web HARDCODES same-origin store paths today (`location.origin`+`/tiles`|`/pmtiles`; `/caps/`, `/heroes/` across globe.astro/polarCaps.ts/[slug].astro/index.astro) → split-origin is a small multi-site change, not a one-liner
-  - Artifact sizes now: `web/dist` tiny · `planet.pmtiles` 15 GB · variants 2.1 GB · caps 5 MB
-- [ ] Pangolin route: **terrella.alchez.dev** (Rohan's pick 2026-07-24)
+- [x] **nginx serving block — BUILT, and now the LOCAL PROD-SIM** → HISTORY § the nginx serving block built early
+  - `deploy/`: `:80` prod-shape + `:443` local-sim TLS, one shared locations include
+  - It is what validated the serving contract: 206/416 ranges, cache classes, gzip
+  - Ladder: cold 1.8 s / warm 1.1 s first idle on loopback
+  - **Superseded as the deploy TARGET 2026-07-25 — kept as the offline check; do not delete**
+  - **No longer serves tiles** (2026-07-25): `/tiles/` returns 501 naming `astro dev` / `wrangler dev`
+  - `/pmtiles/` location + `PMTILES_STORE` mount + `httpRange.ts` deleted with the client that used them
+- [~] **Deploy = Cloudflare R2 + CDN** (decided 2026-07-25) → HISTORY § the deploy target moves to R2
+  - Pages = site shell (13 MB, caps baked in) · R2 = archive 15 GB + heroes 2.0 GB · Worker = tiles
+  - **The Worker is mandatory:** 512 MB cache ceiling, so 15 GB can never be an edge object
+  - **Never send `Range` at a Worker** — the header is stripped and the full body requested
+  - Free tier ≈ 2,500 cold visits/day; a cache HIT still charges a request
+  - Account/zone IDs live in memory, NOT here — this repo is going open-source
+  - [x] P1 web seam — DONE 2026-07-25 → HISTORY § the web seam lands
+    - `assetBase.ts`: 3 bases (hero/borders/tile), same-origin defaults, proven by an override build
+    - Globe source `pmtiles://` → `{z}/{x}/{y}.png`; ranging moved server-side, pmtiles JS out of the bundle
+    - Zoom range stated in `reliefTiles.ts`, guarded by `assertZoomRange()` in the tile server
+    - Caps stay same-origin — 6.7 MB, they ship inside the build as Pages objects
+  - [ ] P2 R2 bucket + 17.1 GB upload (wrangler put is single-part → rclone or the S3 API)
+  - [ ] P3 Worker + route; verify `cf-cache-status: HIT`
+    - Reuse `web/src/lib/reliefTiles.ts` (`parseTilePath` + `assertZoomRange`) as the request boundary
+    - Swap the dev middleware's fs Source for an R2 one; `wrangler dev` becomes the sim's tile half
+  - [ ] P4 Pages deploy + custom domain (a proxied record overrides the `*.alchez.dev` wildcard)
+  - [ ] P5 end-to-end from an external vantage, against the 382/794/985 ms sim ladder
+- [ ] **Serving contract — the interface to preserve** (`deploy/nginx` = reference impl)
+  - HTTP range requests; three cache classes (`_astro` immutable 1yr / stores 1wk+ETag / HTML no-cache)
+  - gzip text-like ONLY, never the pre-compressed pmtiles/webp/png; CORS once split-origin
+  - Range is now an internal detail of the tile server — no client sends it (2026-07-25)
+- [ ] OPEN: hostname layout · own Worker vs Protomaps' · whether rohome gets any deploy at all
+- [x] Cloudflare account confirmed (Saintdane7) and R2 provisioned, no bucket yet — 2026-07-25
+- [x] ~~Pangolin route~~ — moot: `*.alchez.dev` already resolves, and the origin is no longer rohome
 - [ ] **Lighthouse pass on all three tiers**, plus a weak Android device
   - Carry-in: Firefox blocks ~1.1 s on main-thread cap decode+upload → HISTORY § polar caps PRODUCTIONIZED
     - `createImageBitmap` decodes sync there, plus a slow `texImage2D` (bugzilla 1486454)
@@ -204,7 +211,8 @@ Baked-vs-live rule (locked 2026-07-07): too expensive live → baked; depends on
 
 The Tier-3 *gate* already ships (capability probe + Lite/Globe/Full toggle, Phase 3); this phase builds what the gate reveals. The three data items below share one input product and get decided together.
 
-- [ ] Terrain-RGB elevation pyramid — its own PMTiles archive (the pmtiles protocol serves `raster-dem`/terrarium natively, confirmed 2026-07-23)
+- [ ] Terrain-RGB elevation pyramid — its own PMTiles archive, served by the tile Worker as a second source
+  - The browser-side `pmtiles://` shortcut is no longer available (2026-07-25) → HISTORY § the web seam lands
 - [ ] Crispness = a supersampled re-fuse (transient bands, never a stored ~496 GB product); shares the fine re-fuse input with terrain-RGB → HISTORY § 2026-07-20 (evening)
 - [ ] **Occlusion `cos(lat)` fix — PROVEN, rides the first full tile restage** → HISTORY § 2026-07-20 (evening) · § 2026-07-22 Antarctica FILL
   - Under-occluded 1.22× @35°N, 2.00× @60°N, 3.86× @75°N
@@ -258,7 +266,7 @@ Resolved questions move to HISTORY.md — one home per fact. Each question names
   - The trilemma: consistent / coherent / neighbour-free — pick two
   - Most countries are *both* coastal and bordered, and every treatment reads flat at the margin
   - **Decided at:** Phase 3 gallery/globe design; not a look change, so the locked constants stand
-- **Tile-pyramid storage location on rohome** (which mount, backup exclusion). **Decided by:** start of Phase 4 deploy.
+- ~~Tile-pyramid storage location on rohome~~ — **dissolved 2026-07-25**: the archive ships to R2, not rohome → HISTORY § the deploy target moves to R2.
 - **Prep-ahead producer/consumer runner — designed, deferred, probably moot** (the `--through prep` / `--through render` phase split is the zero-complexity 90% alternative). **Decided at:** only if a full re-render sweep is ever needed again. → HISTORY § 2026-07-09 — Batch runner
 
 ## Active learnings (tile pipeline — load-bearing gotchas)

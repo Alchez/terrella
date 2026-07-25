@@ -10,7 +10,8 @@ so a fresh clone or worktree has none of them and **every route 500s (`FailedToL
 until all three exist**. In order:
 
 1. **`.env`** — store paths for the dev middleware, which serves `/heroes`, `/borders` and
-   `/pmtiles` straight off disk (nginx serves them in prod; the static build never reads them).
+   `/tiles` straight off disk (the static build never reads them; a deploy points the site at
+   object storage instead, via the `PUBLIC_*_BASE` vars the same template documents).
    Copy the template and set each var to an absolute local path — there is no fallback, an unset
    var fails the dev server with a clear message:
    ```sh

@@ -56,7 +56,8 @@ magnitude, so the taxonomy is the decision:
 
 - Green sea, sepia, dark relief: the look is baked into pixels, so each look = its own archive.
   **Per look: ~33 min compute** (SVF + composite + cut + pack/convert + caps) **and +15 GB
-  storage**; web swaps the `pmtiles://` URL + cap pair. Scales to a curated few, not to many.
+  storage**; web swaps `PUBLIC_TILE_BASE` (or a per-look path the Worker routes on) + the cap
+  pair. Scales to a curated few, not to many.
 - **One-time prerequisite: look parameterization (~a day).** Today every guardrail treats a second
   look as drift — correctly: `test_palette` pins `WATER_RGB` relationally (+7% of sea surface),
   palette is shared by import so editing it in place marks the heroes stale. Looks must become
