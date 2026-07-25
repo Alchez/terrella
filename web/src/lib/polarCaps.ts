@@ -26,14 +26,29 @@ const RADIUS = 1.0004; // a hair above the globe surface (radius 1) so it paints
 const FEATHER_LO = 81; // |lat| where the fade into the real tiles begins — frontend aesthetic
 const MESH_EDGE_LAT = 80; // mesh equatorward edge, just outside the visible feather zone
 
+/** One shipped texture size for a cap (cap_render CAP_RUNGS). */
+export interface CapRung {
+  px: number;
+  url: string;
+}
+
 /** One cap's entry in the pipeline-emitted /caps/caps.json contract. */
 export interface CapManifestEntry {
-  url: string;
+  rungs: CapRung[]; // ascending by px; every rung is the same picture, downsampled
   edge_lat: number; // texture inscribed-circle latitude, signed (cap_render CapGrid.edge_lat)
   feather_hi: number; // signed |lat| where the cap goes opaque (shade_planet CAP_NORTH/CAP_SOUTH)
-  px: number;
 }
 export type CapsManifest = Record<"north" | "south", CapManifestEntry>;
+
+/** The rung to FETCH for a device budget: the largest that fits, or the smallest shipped when
+ *  none does. Choosing here rather than at upload is the whole point of the rung — a phone used
+ *  to download the full 8192 texture and then canvas-downscale it to its budget, paying for
+ *  every byte and every decoded pixel it threw away. Pure, so the tier rule is unit-testable. */
+export function pickRung(rungs: CapRung[], budgetPx: number): CapRung {
+  const ascending = [...rungs].sort((a, b) => a.px - b.px);
+  const withinBudget = ascending.filter((rung) => rung.px <= budgetPx);
+  return withinBudget.length ? withinBudget[withinBudget.length - 1] : ascending[0];
+}
 
 /** Per-cap parameters (internal; built from the manifest by capOptionsFrom). */
 export interface CapOptions {
@@ -46,14 +61,15 @@ export interface CapOptions {
   featherHi: number; // |lat| where alpha reaches 1 (poleward, over the flat Mercator plug)
 }
 
-/** Manifest → the two caps' options. Pure, so the contract mapping is unit-testable. */
-export function capOptionsFrom(manifest: CapsManifest): CapOptions[] {
+/** Manifest → the two caps' options, at the rung the device budget affords. Pure, so the
+ *  contract mapping is unit-testable. */
+export function capOptionsFrom(manifest: CapsManifest, budgetPx: number = Infinity): CapOptions[] {
   return (["north", "south"] as const).map((name) => {
     const entry = manifest[name];
     const poleSign = Math.sign(entry.edge_lat);
     return {
       layerId: `polar-cap-${name}`,
-      textureUrl: entry.url,
+      textureUrl: pickRung(entry.rungs, budgetPx).url,
       poleLat: 90 * poleSign,
       latBottom: MESH_EDGE_LAT * poleSign,
       texEdgeLat: entry.edge_lat,
@@ -210,7 +226,9 @@ interface CapLayer extends CustomLayerInterface {
 }
 
 /** Upload the cap image, downscaling through a canvas when it exceeds the GPU's limit or the
- *  device budget. */
+ *  device budget. Since the fetch already picks a rung within the device budget, this is now a
+ *  BACKSTOP, not the normal path — it still earns its place because `MAX_TEXTURE_SIZE` is a
+ *  per-GPU fact no manifest can predict (an oversized upload fails silently to black). */
 function uploadCapTexture(gl: WebGL2RenderingContext, image: ImageBitmap | HTMLImageElement): void {
   const maxSize = gl.getParameter(gl.MAX_TEXTURE_SIZE) as number;
   const budget = capTextureBudget(isMobileClassDevice());
@@ -376,18 +394,27 @@ function addPolarCap(map: MaplibreMap, opts: CapOptions): void {
 }
 
 /** Fetch the pipeline's caps.json contract and register both polar caps on the loaded map.
- *  A missing/invalid manifest logs and leaves the globe capless — never breaks the page. */
+ *  A missing/invalid manifest logs and leaves the globe capless — never breaks the page.
+ *
+ *  `cache: "no-cache"` (revalidate, don't skip the cache) is load-bearing, not caution. The
+ *  manifest is a CONTRACT DOCUMENT, not an asset: the textures it names are content-addressed
+ *  by size (cap_north_8192.webp), so a stale texture is impossible, but a stale manifest
+ *  describes a world that no longer exists. Caught live 2026-07-25 — adding the rung list
+ *  broke the caps on this very browser, which was holding a week-old manifest under the
+ *  stores' 1-week cache class and reading `entry.rungs` as undefined. The failure is silent
+ *  by design (capless globe, one console error), which is exactly why it must not be
+ *  reachable. Cost is one conditional GET of ~500 bytes on an already-warm H2 connection. */
 export async function addPolarCaps(map: MaplibreMap): Promise<void> {
   let manifest: CapsManifest;
   try {
-    const response = await fetch("/caps/caps.json");
+    const response = await fetch("/caps/caps.json", { cache: "no-cache" });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     manifest = (await response.json()) as CapsManifest;
   } catch (err) {
     console.error("[caps] manifest fetch failed — globe renders capless", err);
     return;
   }
-  for (const options of capOptionsFrom(manifest)) {
+  for (const options of capOptionsFrom(manifest, capTextureBudget(isMobileClassDevice()))) {
     addPolarCap(map, options);
   }
 }

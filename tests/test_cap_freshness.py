@@ -14,49 +14,68 @@ FUTURE = (4_000_000_000, 4_000_000_000)
 
 
 def _fixture(tmp_path, recipe="the-recipe"):
-    """A rendered cap: PNG newer than its one source, sidecar recording `recipe`."""
+    """A rendered cap: every shipped rung newer than its one source, sidecar recording `recipe`."""
     source = tmp_path / "planet_heightfield.vrt"
     source.write_text("vrt")
     os.utime(source, ANCIENT)
-    png = tmp_path / "cap_test.png"
-    png.write_text("png")
+    assets = []
+    for px in cap_render.CAP_RUNGS:
+        asset = tmp_path / f"cap_test_{px}.webp"
+        asset.write_text("webp")
+        assets.append(asset)
     sidecar = tmp_path / "cap_test_params.json"
     sidecar.write_text(recipe)
-    return png, sidecar, [source]
+    return assets, sidecar, [source]
 
 
 class TestCapIsFresh:
     def test_rendered_under_this_recipe_and_newer_than_sources_is_fresh(self, tmp_path):
-        png, sidecar, sources = _fixture(tmp_path)
-        assert cap_render.cap_is_fresh("the-recipe", png, sidecar, sources) is True
+        assets, sidecar, sources = _fixture(tmp_path)
+        assert cap_render.cap_is_fresh("the-recipe", assets, sidecar, sources) is True
 
-    def test_missing_png_is_stale(self, tmp_path):
-        png, sidecar, sources = _fixture(tmp_path)
-        png.unlink()
-        assert cap_render.cap_is_fresh("the-recipe", png, sidecar, sources) is False
+    def test_missing_asset_is_stale(self, tmp_path):
+        assets, sidecar, sources = _fixture(tmp_path)
+        assets[-1].unlink()
+        assert cap_render.cap_is_fresh("the-recipe", assets, sidecar, sources) is False
+
+    def test_a_missing_SMALLER_rung_is_stale_too(self, tmp_path):
+        """Why the gate takes the whole rung set, not just the top one: adding a rung to
+        CAP_RUNGS must restage even though the render itself is current and its recipe matches.
+        A top-rung-only check would advertise the new rung in caps.json and serve a 404."""
+        assets, sidecar, sources = _fixture(tmp_path)
+        assets[0].unlink()
+        assert cap_render.cap_is_fresh("the-recipe", assets, sidecar, sources) is False
+
+    def test_the_oldest_rung_decides_not_the_newest(self, tmp_path):
+        """A half-written rung set must not pass on the strength of its newest member."""
+        assets, sidecar, sources = _fixture(tmp_path)
+        os.utime(sources[0], ANCIENT)
+        predates = ANCIENT[0] - 100
+        os.utime(assets[0], (predates, predates))  # one rung predates the source
+        assert cap_render.cap_is_fresh("the-recipe", assets, sidecar, sources) is False
 
     def test_missing_sidecar_is_stale(self, tmp_path):
-        """The pre-guard state: a PNG with no recorded recipe must read stale, never trusted."""
-        png, sidecar, sources = _fixture(tmp_path)
+        """The pre-guard state: an asset with no recorded recipe must read stale, never trusted."""
+        assets, sidecar, sources = _fixture(tmp_path)
         sidecar.unlink()
-        assert cap_render.cap_is_fresh("the-recipe", png, sidecar, sources) is False
+        assert cap_render.cap_is_fresh("the-recipe", assets, sidecar, sources) is False
 
     def test_a_recipe_change_is_stale(self, tmp_path):
-        """The PR-#9 failure mode: same PNG, same sources, but the look recipe moved on."""
-        png, sidecar, sources = _fixture(tmp_path, recipe="the-OLD-recipe")
-        assert cap_render.cap_is_fresh("the-NEW-recipe", png, sidecar, sources) is False
+        """The PR-#9 failure mode: same assets, same sources, but the look recipe moved on."""
+        assets, sidecar, sources = _fixture(tmp_path, recipe="the-OLD-recipe")
+        assert cap_render.cap_is_fresh("the-NEW-recipe", assets, sidecar, sources) is False
 
-    def test_a_source_newer_than_the_png_is_stale(self, tmp_path):
+    def test_a_source_newer_than_the_asset_is_stale(self, tmp_path):
         """The re-fuse failure mode: the planet VRTs moved under a still-current recipe."""
-        png, sidecar, sources = _fixture(tmp_path)
+        assets, sidecar, sources = _fixture(tmp_path)
         os.utime(sources[0], FUTURE)
-        assert cap_render.cap_is_fresh("the-recipe", png, sidecar, sources) is False
+        assert cap_render.cap_is_fresh("the-recipe", assets, sidecar, sources) is False
 
     def test_a_missing_source_is_stale(self, tmp_path):
         """Fail toward re-rendering (which then errors loudly), never toward trusting."""
-        png, sidecar, sources = _fixture(tmp_path)
+        assets, sidecar, sources = _fixture(tmp_path)
         sources[0].unlink()
-        assert cap_render.cap_is_fresh("the-recipe", png, sidecar, sources) is False
+        assert cap_render.cap_is_fresh("the-recipe", assets, sidecar, sources) is False
 
 
 class TestCapRecipe:

@@ -74,10 +74,19 @@ class TestCapsManifest:
         for name, grid in (("north", cap_render.NORTH), ("south", cap_render.SOUTH)):
             entry = manifest[name]
             assert entry["edge_lat"] == grid.edge_lat
-            assert entry["px"] == grid.px
-            assert entry["url"] == f"/caps/cap_{name}.webp"
+            assert [rung["px"] for rung in entry["rungs"]] == list(cap_render.CAP_RUNGS)
+            for rung in entry["rungs"]:
+                assert rung["url"] == f"/caps/cap_{name}_{rung['px']}.webp"
         assert manifest["north"]["feather_hi"] == shade_planet.CAP_NORTH
         assert manifest["south"]["feather_hi"] == shade_planet.CAP_SOUTH
+
+    def test_rungs_are_ascending_and_topped_by_the_render_grid(self):
+        """The largest rung IS the render grid — every smaller one is downsampled from it, so a
+        rung above CAP_PX would silently be an upscale."""
+        assert list(cap_render.CAP_RUNGS) == sorted(cap_render.CAP_RUNGS)
+        assert cap_render.CAP_RUNGS[-1] == cap_render.CAP_PX
+        for grid in (cap_render.NORTH, cap_render.SOUTH):
+            assert cap_render.CAP_RUNGS[-1] == grid.px
 
     def test_manifest_is_stable_json(self):
         assert cap_render.caps_manifest() == cap_render.caps_manifest()
@@ -90,4 +99,11 @@ class TestRecipeCoversTheAsset:
         before = cap_render.cap_recipe(cap_render.NORTH)
         assert '"webp"' in before
         monkeypatch.setattr(cap_render, "CAP_WEBP_QUALITY", 101)
+        assert cap_render.cap_recipe(cap_render.NORTH) != before
+
+    def test_rung_set_rides_in_the_recipe(self, monkeypatch):
+        """Adding a rung changes the shipped ASSET SET, so it must restage — otherwise the new
+        rung's file would never be written and the manifest would advertise a 404."""
+        before = cap_render.cap_recipe(cap_render.NORTH)
+        monkeypatch.setattr(cap_render, "CAP_RUNGS", (2048, cap_render.CAP_PX))
         assert cap_render.cap_recipe(cap_render.NORTH) != before

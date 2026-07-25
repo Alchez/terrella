@@ -11,19 +11,49 @@ import {
   capOptionsFrom,
   capTextureBudget,
   clampedTextureSize,
+  pickRung,
   type CapsManifest,
 } from "./polarCaps";
 
+const RUNGS = (pole: string) => [
+  { px: 4096, url: `/caps/cap_${pole}_4096.webp` },
+  { px: 8192, url: `/caps/cap_${pole}_8192.webp` },
+];
+
 const MANIFEST: CapsManifest = {
-  north: { url: "/caps/cap_north.webp", edge_lat: 78, feather_hi: 84, px: 4096 },
-  south: { url: "/caps/cap_south.webp", edge_lat: -78, feather_hi: -84, px: 4096 },
+  north: { rungs: RUNGS("north"), edge_lat: 78, feather_hi: 84 },
+  south: { rungs: RUNGS("south"), edge_lat: -78, feather_hi: -84 },
 };
+
+describe("pickRung", () => {
+  it("takes the largest rung the budget affords", () => {
+    expect(pickRung(RUNGS("north"), Infinity).px).toBe(8192);
+    expect(pickRung(RUNGS("north"), MOBILE_CAP_BUDGET_PX).px).toBe(4096);
+  });
+
+  it("rounds DOWN to a shipped rung rather than overshooting the budget", () => {
+    // A 6000 budget must not fetch 8192 — overshooting is what the rung exists to prevent.
+    expect(pickRung(RUNGS("north"), 6000).px).toBe(4096);
+  });
+
+  it("falls back to the smallest rung when nothing fits", () => {
+    // A GPU below every shipped rung still gets a texture (the upload clamp handles the rest);
+    // returning undefined here would render the pole black.
+    expect(pickRung(RUNGS("north"), 1024).px).toBe(4096);
+  });
+
+  it("does not depend on the manifest's rung order", () => {
+    const shuffled = [...RUNGS("north")].reverse();
+    expect(pickRung(shuffled, MOBILE_CAP_BUDGET_PX).px).toBe(4096);
+    expect(pickRung(shuffled, Infinity).px).toBe(8192);
+  });
+});
 
 describe("capOptionsFrom", () => {
   it("maps the pipeline contract onto both caps without re-encoding it", () => {
     const [north, south] = capOptionsFrom(MANIFEST);
     expect(north.layerId).toBe("polar-cap-north");
-    expect(north.textureUrl).toBe("/caps/cap_north.webp");
+    expect(north.textureUrl).toBe("/caps/cap_north_8192.webp");
     expect(north.poleLat).toBe(90);
     expect(north.texEdgeLat).toBe(78);
     expect(south.poleLat).toBe(-90);
@@ -41,6 +71,18 @@ describe("capOptionsFrom", () => {
     for (const options of capOptionsFrom(MANIFEST)) {
       expect(options.featherLo).toBeLessThan(options.featherHi);
     }
+  });
+
+  it("fetches the mobile rung on a mobile budget, for BOTH poles", () => {
+    // The payload cut this rung exists for: a phone must not download either 8192 texture.
+    const [north, south] = capOptionsFrom(MANIFEST, capTextureBudget(true));
+    expect(north.textureUrl).toBe("/caps/cap_north_4096.webp");
+    expect(south.textureUrl).toBe("/caps/cap_south_4096.webp");
+  });
+
+  it("leaves desktop on the top rung", () => {
+    const [north] = capOptionsFrom(MANIFEST, capTextureBudget(false));
+    expect(north.textureUrl).toBe("/caps/cap_north_8192.webp");
   });
 });
 

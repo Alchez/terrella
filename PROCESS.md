@@ -84,7 +84,26 @@ Why the numbers are what they are (current-state explanations, not history):
 | No `--tiles`, everything fresh | **0.29 s** | every stage skips; this is the guard working |
 | Lake-depth warp (stage 3) | **1:01:44** | one-time; its `.done` is what stops a pass paying that hour again |
 | **Cast shadows** (`shadow_strength` > 0 — currently 0.0, rejected) | **+0.625 s/Mpx** measured; est. **+2.1 h** on the planet hillshade at `shadow_reach=300` | Iran region A/B (32.4 Mpx): 16.73 s control → 37.01 s, **+121%**, peak RSS unchanged (the wide halo costs time, not memory). The march is `reach_px` full-raster passes — cost is **linear in `shadow_reach`** (300 px ≈ 2.6 h, covers 6,115 m of relief). Hillshade-stage, so ~46 min + the shadow march to see it. → HISTORY § cast shadows REJECTED A SECOND TIME |
-| **Polar cap render** (`tile/cap_render.py`) | **~1:35** both caps at the production 8192² (56 + 44 s), peak ~4 GiB | AEQD warps + the shared `shade.composite` + baked coastline → `web/public/caps/cap_{north,south}.webp` (**3.2 + 2.1 MB** WebP q85) + `caps.json`. The fast browser-free pole-look loop. **Freshness-guarded** (recipe sidecar on `composite_params` + source mtimes + the WebP quality; `shade_planet`'s pass tail invokes it, so the caps restage whenever the look does — a fresh check is ~2 s). → HISTORY § polar caps PRODUCTIONIZED |
+| **Polar cap render** (`tile/cap_render.py`) | **~1:36** both caps at the production 8192² (54 + 42 s), peak **14.3 GB north / 13.9 GB south** (measured under `systemd-run`, anon RSS) | AEQD warps + the shared `shade.composite` + baked coastline → `web/public/caps/cap_{north,south}_{4096,8192}.webp` (**3.2 + 2.1 MB** top rung, **1.0 + 0.8 MB** mobile rung, WebP q85) + `caps.json`. Every rung is downsampled from the one render, so the rung set costs ~1 s, not a second pass. The fast browser-free pole-look loop. **Freshness-guarded** (recipe sidecar on `composite_params` + source mtimes + the WebP quality + the rung list; `shade_planet`'s pass tail invokes it, so the caps restage whenever the look does — a fresh check is ~2 s). → HISTORY § polar caps PRODUCTIONIZED · § the cap rung |
+
+> ⚠ **The cap render does NOT fit under the old 12 G cap** — it OOM-killed twice at a 12.5 GB
+> anon-RSS peak before being measured at ~14 GB (this row previously claimed ~4 GiB, which was
+> never true at 8192²). It needs **≥16 G**, and that reaches beyond a manual run: `shade_planet.py`
+> invokes `cap_render` as a subprocess at the tail of the shade pass, inheriting the pass's cgroup —
+> so a pass at `MEMORY_CAP=12G` completed every tile stage and then died at the last one.
+> **Resolved:** `run_pass.sh`'s shade cap is now **16 G**, matching the tiling run. The composite is
+> unaffected — it peaks at 10.55 GiB and `COMPOSITE_ROWS=128` is a hardcoded constant, not a
+> function of the cap, so a bigger cap cannot let it grow. Accepted cost: 12 G was also an
+> accidental tripwire on composite footprint, and a regression there now hides until 16 G.
+
+**Memory preflight (both run labels).** `run_pass.sh` reads `MemAvailable` and **refuses to start**
+when it is below the cap, because a cap the box cannot back protects nothing — it relocates the OOM
+to the most expensive moment, hours in, after every finished stage has been paid for. `MemAvailable`
+is the kernel's estimate of what a new job can take without swapping, which is the actual question
+(`free`'s "free" column undercounts by ignoring reclaimable page cache). Override deliberately with
+`ALLOW_LOW_MEMORY=1`; point `MEMINFO` elsewhere to test the guard. **This box runs close to the
+line** — ~16.7 GiB available against the 16 G cap with a browser and editor open, so expect the
+preflight to be a real gate, not a formality.
 
 **What a knob actually restages** (measured, not inferred): all warps skip, including the 1:01:44
 lake warp. A **hillshade-stage** knob (tracked in `hs_params.json`) restages hillshade → SVF →
