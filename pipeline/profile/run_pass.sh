@@ -37,9 +37,14 @@
 # GDAL_CACHEMAX=512 per shade_planet.py's own launch note.
 set -uo pipefail
 
-HARNESS=/home/rohan/projects/maps/pipeline/profile   # code: tracked in git
-VENV=/home/rohan/projects/maps/.venv/bin/python
-cd /home/rohan/projects/maps || exit 1
+# Roots derive from this script's own location, never a hardcoded home path: the harness has to
+# run from any checkout, and the preflight tests drive it on CI. MAPS_DATA moves the data store,
+# the same seam pipeline/paths.py and build_mosaics.sh read.
+ROOT=$(cd "$(dirname "$0")/../.." && pwd)
+HARNESS=$ROOT/pipeline/profile   # code: tracked in git
+VENV=$ROOT/.venv/bin/python
+DATA=${MAPS_DATA:-$ROOT/data}
+cd "$ROOT" || exit 1
 
 if [[ " $* " == *" --tiles "* ]]; then
     RUN_LABEL=tiles
@@ -48,7 +53,7 @@ else
     RUN_LABEL=pass
     MEMORY_CAP=16G
 fi
-PROF=/home/rohan/projects/maps/data/work/_profile_$RUN_LABEL   # output: data, gitignored
+PROF=$DATA/work/_profile_$RUN_LABEL   # output: data, gitignored
 UNIT=terrella-$RUN_LABEL
 
 # --- memory preflight -------------------------------------------------------------------------

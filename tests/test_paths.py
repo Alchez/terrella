@@ -3,9 +3,12 @@
 Two guarantees under test:
 - the env seams work: MAPS_DATA / MAPS_BLENDER override the defaults, and the
   defaults are repo-relative (DATA) or the documented install path (BLENDER);
-- the seam stays single-home: a source scan proves no module outside paths.py
-  re-grows its own `Path.home()` root (the drift that made the repo
-  machine-specific in the first place).
+- the seam stays single-home, under two scans that catch two different spellings
+  of the same drift: no module outside paths.py re-grows its own `Path.home()`
+  root, and no tracked *runnable* file carries an absolute home-directory
+  literal. The second scan exists because the first never looked for it — CI
+  caught `run_pass.sh` hardcoding a checkout path four times, which made every
+  preflight test pass locally and fail on any other machine.
 
 The override tests run in a subprocess because the constants bind at import
 time — reloading modules in-process would leak state between tests.
@@ -23,6 +26,29 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 HOME_ALLOWED = {
     Path("pipeline/paths.py"),
 }
+
+# Tracked file types that are RUN rather than read: a machine-specific path in
+# one of these breaks another checkout. Prose is deliberately out of scope —
+# HISTORY.md records real paths as evidence, and editing the archive to satisfy
+# a scan would corrupt the record it exists to keep.
+CODE_SUFFIXES = {".py", ".sh", ".ts", ".astro", ".toml", ".yml", ".yaml", ".json", ".conf"}
+
+# This file necessarily contains the pattern it searches for.
+LITERAL_ALLOWED = {
+    Path("tests/test_paths.py"),
+}
+
+
+def tracked_files() -> list[Path]:
+    """Repo-relative paths of everything git tracks — i.e. everything that ships."""
+    listing = subprocess.run(
+        ["git", "ls-files", "-z"],
+        capture_output=True,
+        text=True,
+        cwd=REPO_ROOT,
+        check=True,
+    )
+    return [Path(name) for name in listing.stdout.split("\0") if name]
 
 
 def run_probe(code: str, env_overrides: dict[str, str]) -> str:
@@ -93,4 +119,27 @@ class TestSingleHome:
         assert not offenders, (
             f"Path.home() roots outside pipeline/paths.py: {offenders} — "
             "derive from pipeline.paths (DATA / ROOT / BLENDER) instead"
+        )
+
+    def test_no_home_directory_literal_in_tracked_code(self):
+        """The spelling Path.home() misses. An absolute home path written as a
+        string is the same drift with none of the syntax, and it is invisible
+        until the file runs somewhere else — which, for a harness script, may be
+        only ever on CI. experiments/ stays out of production scope, as above."""
+        offenders: list[str] = []
+        for relative in tracked_files():
+            if relative.suffix not in CODE_SUFFIXES or relative in LITERAL_ALLOWED:
+                continue
+            if relative.parts[:2] == ("pipeline", "experiments"):
+                continue
+            source_file = REPO_ROOT / relative
+            if not source_file.exists():  # tracked but deleted in the working tree
+                continue
+            for number, line in enumerate(source_file.read_text().splitlines(), 1):
+                if "/home/" in line:
+                    offenders.append(f"{relative}:{number}")
+        assert not offenders, (
+            f"machine-specific home paths in tracked code: {offenders} — derive the "
+            'root from the file\'s own location (pipeline.paths in Python, $(dirname "$0") '
+            "in shell) and let MAPS_DATA relocate the data store"
         )

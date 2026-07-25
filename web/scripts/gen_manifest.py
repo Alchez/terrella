@@ -6,9 +6,9 @@ Bridges the render pipeline to the frontend: it reads the in-scope country list
 hero WebP variant store to see which countries have been rendered and at what
 sizes. Re-run it after a render + hero_variants pass to refresh the gallery.
 
-Run with the *pipeline* venv (it imports country_config → geopandas/rasterio):
-  /home/rohan/projects/maps/.venv/bin/python scripts/gen_manifest.py \
-      --repo /home/rohan/projects/maps --out src/data/countries.json
+Run from web/ with the *pipeline* venv (it imports country_config → geopandas/rasterio);
+--repo defaults to the checkout this script lives in:
+  ../.venv/bin/python scripts/gen_manifest.py --out src/data/countries.json
 """
 
 import argparse
@@ -72,7 +72,7 @@ def aspect_of(variants_dir: Path, slug: str, sizes: list[int]) -> float:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--repo", type=Path, default=Path("/home/rohan/projects/maps"),
+    ap.add_argument("--repo", type=Path, default=Path(__file__).resolve().parents[2],
                     help="pipeline repo (has country_config + the asset store)")
     ap.add_argument("--out", type=Path, required=True)
     args = ap.parse_args()
