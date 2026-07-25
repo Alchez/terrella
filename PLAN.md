@@ -145,7 +145,7 @@ Baked-vs-live rule (locked 2026-07-07): too expensive live → baked; depends on
   - **No longer serves tiles** (2026-07-25): `/tiles/` returns 501 naming `astro dev` / `wrangler dev`
   - `/pmtiles/` location + `PMTILES_STORE` mount + `httpRange.ts` deleted with the client that used them
 - [~] **Deploy = Cloudflare R2 + CDN** (decided 2026-07-25) → HISTORY § the deploy target moves to R2
-  - Pages = site shell (13 MB, caps baked in) · R2 = archive 15 GB + heroes 2.0 GB · Worker = tiles
+  - Workers Static Assets = site shell (13 MB, caps baked in) · R2 = archive 15 GB + heroes 2.0 GB · Worker = tiles
   - **The Worker is mandatory:** 512 MB cache ceiling, so 15 GB can never be an edge object
   - **Never send `Range` at a Worker** — the header is stripped and the full body requested
   - Free tier ≈ 2,500 cold visits/day; a cache HIT still charges a request
@@ -173,15 +173,32 @@ Baked-vs-live rule (locked 2026-07-07): too expensive live → baked; depends on
     - Cache `immutable` ⇒ **a pyramid re-cut requires a zone purge**; `/v1/` prefix already tolerated
     - Verified live: `cf-cache-status: HIT`, byte-identical tiles at z3 + z8, 48 tiles in the globe, 0 failures
     - **`wrangler login` has its own OAuth** — the read-only MCP grant never blocked this
-    - **Universal SSL covers ONE subdomain level**; the 2-deep name needed an auto-ordered advanced cert (~7 min)
-    - [ ] Narrow `ALLOWED_ORIGIN` from `*` to the site origin once Pages exists (P4)
-  - [ ] P4 Pages deploy + custom domain (a proxied record overrides the `*.alchez.dev` wildcard)
+    - ~~Universal SSL covers ONE subdomain level~~ — **rule RETRACTED 2026-07-25**, see P4
+    - [ ] Narrow `ALLOWED_ORIGIN` from `*` to `https://terrella.alchez.dev` once the site exists (P4)
+  - [x] P4 site shell — **LIVE at `terrella.alchez.dev` 2026-07-25** → HISTORY § Phase 4 takes shape
+    - **Workers Static Assets, not Pages** — push-to-deploy is impossible on both, so Pages' differentiator is moot
+    - Proven by oracle: a clean clone fails at `'../data/countries.json'`, before it even reaches `public/caps/`
+    - Un-ignoring those would split "what the site claims" from "what R2 holds" — `test_cap_freshness.py`'s drift
+    - Kept open by Workers: `run_worker_first: ["/tiles/*"]` puts tiles same-origin and deletes CORS
+    - **Depth is NOT a hostname constraint** — Workers auto-generate an Advanced Cert, R2 uses SaaS certs
+    - `*.alchez.dev` is an RFC 4592 wildcard answering at ANY depth — **check the cert, never `dig`**
+    - Hosts SETTLED: `terrella.alchez.dev` · `assets.terrella.alchez.dev` · `tiles.terrella.alchez.dev`
+    - Bases live in `package.json` `build:deploy` — `.env.production` is gitignored by the API-key guard
+    - New vitest drift guard: every `PUBLIC_*` the code reads must be supplied as an absolute URL
+    - Fixed in passing: local `.env` had `astro dev` pulling PRODUCTION tiles, so the local archive was untested
+    - Verified live: geojson `DYNAMIC`→`MISS`→`HIT`, exact-origin CORS, preflight 204, tiles unchanged
+    - Live page is MD5-identical to local `dist/` once Cloudflare's 938 Bot-Fight-Mode bytes are stripped
+    - **Cache Rule trap:** the expression pasted into a `URI Full`/`wildcard` Value box matches nothing
+    - `.geojson`/`.json` are NOT default-cached extensions; `.webp`/`.png` are
+    - R2 sends no `Cache-Control` ⇒ Edge TTL must be "ignore cache-control"; browsers get 4 h
+    - [ ] Deploy pending: `ALLOWED_ORIGIN` narrowed + `workers_dev: false` (both edited, not shipped)
+    - OPEN for Rohan: Bot Fight Mode injects a script into every page — keep or disable?
   - [ ] P5 end-to-end from an external vantage, against the 382/794/985 ms sim ladder
 - [ ] **Serving contract — the interface to preserve** (`deploy/nginx` = reference impl)
   - HTTP range requests; three cache classes (`_astro` immutable 1yr / stores 1wk+ETag / HTML no-cache)
   - gzip text-like ONLY, never the pre-compressed pmtiles/webp/png; CORS once split-origin
   - Range is now an internal detail of the tile server — no client sends it (2026-07-25)
-- [ ] OPEN: hostname layout · own Worker vs Protomaps' · whether rohome gets any deploy at all
+- [ ] OPEN: whether rohome gets any deploy at all (hostnames + Worker ownership both SETTLED 2026-07-25)
 - [x] Cloudflare account confirmed (Saintdane7) and R2 provisioned, no bucket yet — 2026-07-25
 - [x] ~~Pangolin route~~ — moot: `*.alchez.dev` already resolves, and the origin is no longer rohome
 - [ ] **Lighthouse pass on all three tiers**, plus a weak Android device

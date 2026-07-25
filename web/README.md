@@ -72,6 +72,35 @@ All commands are run from the root of the project, from a terminal:
 | `pnpm preview`         | Preview your build locally, before deploying     |
 | `pnpm astro ...`       | Run CLI commands like `astro add`, `astro check` |
 | `pnpm astro -- --help` | Get help using the Astro CLI                     |
+| `pnpm check`           | Type-check (`astro check`) — must report 0 errors |
+| `pnpm test`            | Unit tests (vitest)                              |
+| `pnpm run build:deploy` | Build addressing the production asset hosts      |
+| `pnpm run deploy`      | `build:deploy`, then upload to Cloudflare        |
+
+## Deploying
+
+The site is served from three origins, because only the shell is small enough to ship
+inside the build:
+
+| What                          | Where                                    |
+| :---------------------------- | :--------------------------------------- |
+| Shell — HTML, JS, CSS, caps   | this Worker (`wrangler.jsonc`), ~13 MB   |
+| Hero renders, border GeoJSON  | R2 bucket `terrella-assets`              |
+| Relief tiles                  | the tile Worker in `worker/`             |
+
+`pnpm build` addresses all three **same-origin**, which is what `astro dev` and the nginx
+prod-sim serve. That build is correct locally and broken in production, where nothing but
+the shell lives on the site's own origin. **`pnpm run deploy` is therefore the only correct
+way to ship** — it sets the three `PUBLIC_*_BASE` variables first. They live in
+`build:deploy` in `package.json` rather than a `.env.production`, which is gitignored to
+keep API keys out of the repo; a test asserts that every base the code reads is supplied
+there as an absolute URL, so adding a fourth cannot silently ship as same-origin.
+
+Note `pnpm run deploy`, not `pnpm deploy` — the latter is a pnpm builtin.
+
+Deploying from a fresh clone does not work, by design: the build reads
+`src/data/countries.json` and `public/caps/`, both generated from the render store and both
+gitignored. Regenerate them before deploying (see `docs/pipeline.md`).
 
 ## 👀 Want to learn more?
 

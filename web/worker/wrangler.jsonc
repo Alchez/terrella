@@ -22,8 +22,15 @@
 
   "vars": {
     "ARCHIVE_KEY": "planet.pmtiles",
-    // Set to the site's own origin once the hostname is settled. MapLibre uploads tiles as
-    // WebGL textures, so a cross-origin tile without CORS taints the canvas and never draws.
-    "ALLOWED_ORIGIN": "*"
+    // The site's own origin. MapLibre uploads tiles as WebGL textures, so a cross-origin
+    // tile without CORS taints the canvas and never draws — this must stay in step with
+    // the hostname in web/package.json's `build:deploy`.
+    //
+    // Narrowed from "*" once the site went live. This stops another origin's JavaScript
+    // embedding our globe; it is NOT hotlink protection, since a server-side proxy never
+    // sends Origin and never reads the header. The point is the free tier's ~2,500
+    // cold-visit/day ceiling, not secrecy. CORS is applied on the way out and never
+    // cached, so changing this needs a redeploy but no purge.
+    "ALLOWED_ORIGIN": "https://terrella.alchez.dev"
   }
 }
