@@ -1,5 +1,5 @@
 """fuse_planet.enforce_land_guard: the output-side check that a tileList-listed land cell
-actually fused land. Born 2026-07-22: stale dem/wbm mosaic VRTs made every Antarctic tile
+actually fused land. Born when stale dem/wbm mosaic VRTs made every Antarctic tile
 invisible to fusion, the whole continent fused as ocean, and every input-side gate passed —
 the tileList preflight checks tiles on DISK, and the in-cell gap check defines land from the
 same stale WBM mosaic. The fused ocean mask is the one input that cannot go stale.

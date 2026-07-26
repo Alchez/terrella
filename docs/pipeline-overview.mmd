@@ -62,7 +62,7 @@ flowchart TD
     T6["Sea ice:<br/>translucent white where the sea is often frozen,<br/>the seafloor glowing through"]
     T1["Fast shading that imitates the Blender look<br/>without ray tracing: hillshade + sky-view shadows<br/>+ the same land/sea colors + snow + sea ice + lake depth"]
     T2["512 px map tiles, zoom 0–8, pole to pole<br/>(~87,000 tiles)"]
-    T5["Packed into one PMTiles file:<br/>the globe reads byte ranges of a single file<br/>— no tile server"]
+    T5["Packed into one PMTiles file:<br/>a small server reads the byte range for one tile<br/>and hands back just that tile — the browser<br/>never downloads the whole archive"]
     T7["Polar caps: the two poles Mercator can't reach,<br/>drawn as separate circular images<br/>(sea ice over real seafloor)"]
   end
 

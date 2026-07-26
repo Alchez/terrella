@@ -39,7 +39,7 @@ EARTH_RADIUS = 6378137.0  # Web Mercator sphere radius
 # `per_row_zfactor_hillshade` attenuates the MAIN term only, never this one. That is what keeps a
 # shadowed slope on the fill floor instead of dropping to black.
 #
-# WHY THE TILES NEED IT (measured 2026-07-17): a single 45-deg sun on a 15x-exaggerated 305 m grid
+# WHY THE TILES NEED IT (measured): a single 45-deg sun on a 15x-exaggerated 305 m grid
 # turns the slope term into arctan(15 * gradient), so a 4-deg real slope presents as 46 deg -- past
 # the sun -- and the face goes to hillshade 0. That is 12.4% of Sri Lanka's land, 30.5% of the
 # Himalaya and **43.7% of the Alps**: flat black slabs carrying no information, and the bimodality
@@ -161,7 +161,7 @@ def per_row_zfactor_hillshade(height_path, out_path, exaggeration: float = 15.0,
 
     `window_rows` is a hard RAM lever, exactly as it is for `shade.composite`: windows are the
     raster's FULL width (131072 px on the planet), so rows are the only dimension that shrinks.
-    Measured 2026-07-16 on the planet: 1024 rows in float64 = 134 Mpx x 8 B = 1.07 GB per array
+    Measured on the planet: 1024 rows in float64 = 134 Mpx x 8 B = 1.07 GB per array
     before the gradient/slope/aspect temporaries stack on it -> anon peaked **11.6 GB** against a
     12 G cap and forced 122,501 cgroup reclaims. float32 @ 256 halves the dtype and quarters the
     rows (~8x less per array). The precision is free: the output is uint8, and float32 tracks

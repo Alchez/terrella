@@ -44,7 +44,7 @@ def _inline_snow_t(light):
 
 class TestTheChosenDefault:
     def test_the_shipped_curve_is_gamma8(self):
-        """Chosen 2026-07-17 off a rendered four-curve A/B. If this changes, the planet's ice
+        """Chosen off a rendered four-curve A/B. If this changes, the planet's ice
         changed, and planet_rgb must rebuild -- which the freshness tests below pin."""
         assert shade.KNOBS["snow_curve"] == "gamma8"
 
@@ -122,8 +122,8 @@ class TestTheCurveDoesItsJob:
 
 class TestFreshness:
     """The guard is blind to CODE by design, so a tunable that misses composite_params leaves
-    planet_rgb falsely fresh. That is exactly how WATER_RGB drifted and what the 2026-07-15
-    guard exists to prevent."""
+    planet_rgb falsely fresh. That is exactly how WATER_RGB drifted and what the guard
+    exists to prevent."""
 
     def test_snow_curve_is_recorded_in_composite_params(self):
         params = json.loads(shade_planet.composite_params({}))
@@ -200,7 +200,7 @@ class TestCompositeHonoursTheKnob:
         ramp linearly = 0.50/0.38/0.24 DN, and the shipped gamma8 takes 0.009**8 to zero outright.
 
         Pinned because it is a floor with no headroom, not a comfortable one: this is the test
-        that fails if a future knee raise starts bleaching shaded snow. Measured 2026-07-21.
+        that fails if a future knee raise starts bleaching shaded snow.
         """
         darkest_light = float(shade.apply_ambient_floor(np.zeros((1, 1), dtype="float32"),
                                                         shade.KNOBS["ambient"], shade.KNOBS["hi"],

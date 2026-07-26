@@ -3,12 +3,12 @@
 
 GLOBathy models every lake as D = l x Dmax / L (depth grows linearly with distance from
 shore), so its deepest point is wherever you are FARTHEST FROM ANY SHORE. That is a
-geometric guess. The 2026-07-07 rejection of the uncalibrated prototype turned entirely on
+geometric guess. The rejection of the uncalibrated prototype turned entirely on
 epistemics -- "an artificial gradient... blind on deep lakes" -- and GLOBathy answers the
 second half with a real published Dmax, but the SHAPE is still a cone.
 
 The Caspian and the Great Lakes are the only waterbodies where we hold both the model and a
-measurement (GEBCO probed 2026-07-15: every other major lake returns a flat surface), so they
+measurement (GEBCO probed: every other major lake returns a flat surface), so they
 are the only place the cone can be falsified. Whatever we learn here is the best evidence we
 will ever have for how far to trust the cone on Baikal, where we can never check.
 

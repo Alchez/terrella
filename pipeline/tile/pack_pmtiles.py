@@ -7,8 +7,8 @@ dir -> MBTiles (this module) -> `tools/pmtiles convert` -> planet.pmtiles.
 Blobs are MOVED, never re-encoded: the archive must serve byte-identical tiles
 to the directory the cut produced.
 
-The tile encoding is READ OFF THE DIRECTORY, never assumed. Until 2026-07-25 the
-glob said `*.png` and the metadata said `"png"` — two independent spellings of
+The tile encoding is READ OFF THE DIRECTORY, never assumed. It used to be hardcoded twice —
+the glob said `*.png` and the metadata said `"png"` — two independent spellings of
 one fact, either of which could have been changed alone, and mislabelled metadata
 would make every reader decode the archive as the wrong image type.
 
@@ -30,7 +30,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_TILES = ROOT / "data/work/planet_tiles/tiles"
 DEFAULT_OUT = ROOT / "data/work/planet_tiles/planet.mbtiles"
-# The pyramid's geographic extent since the Antarctica fill (2026-07-22): the full
+# The pyramid's geographic extent since the Antarctica fill: the full
 # Web-Mercator square. Metadata only — pmtiles carries it through to the archive header.
 BOUNDS = "-180.0,-85.0511,180.0,85.0511"
 INSERT_BATCH = 2048

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Raster comparison that cannot quietly lie to you.
 
-This module exists because of a measured pattern, not a hunch. Across 2026-07-15/16, SEVEN
+This module exists because of a measured pattern, not a hunch. Across two days, SEVEN
 verification bugs shipped, and every one was in the CHECK, never in the pipeline:
 
   1. `pgrep -f` matched the `/usr/bin/time` wrapper, not gdalwarp -> three impossible "findings"

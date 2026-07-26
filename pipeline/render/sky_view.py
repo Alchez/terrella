@@ -37,7 +37,7 @@ warnings.filterwarnings("ignore")
 
 # The ONE occlusion resolution, in ground metres per pixel, shared by every raster path.
 #
-# It exists because the two tile paths silently disagreed by 12.9x (found 2026-07-20): the region
+# It exists because the two tile paths silently disagreed by 12.9x (found): the region
 # preview resolved ~1.5 km features while the planet it was supposed to predict resolved ~20 km, so
 # every region A/B -- including the tuning that set `svf_strength` and `svf_threshold` -- was judged
 # at a resolution production does not have. Deriving both from ONE ground scale makes that
@@ -66,7 +66,7 @@ def normalised_occlusion(low: np.ndarray, m_per_px: float) -> np.ndarray:
     """Sky-view factor -> occlusion in 0 (open) .. 1 (enclosed), linearly renormalised.
 
     The renormalisation is global and affine, so it absorbs a uniform scale error and CANNOT
-    absorb a latitude-varying one — measured 2026-07-20, occ mean 0.3213 vs 0.2934 for the same
+    absorb a latitude-varying one — measured, occ mean 0.3213 vs 0.2934 for the same
     grid at two m_per_px. That is why `m_per_px` must already be a ground scale.
     """
     svf = horizon_svf(low, m_per_px)

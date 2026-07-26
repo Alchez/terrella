@@ -6,7 +6,7 @@ mountains). Persistence (observed MODIS climatology, water years 2001-2023, 0.01
 smoothstep alpha so snow margins fade and take the hillshade instead of a hard cartoon edge. The
 persistence cutoff ramps with |latitude| (0.40 at 45 deg -> 0.60 at 63 deg) because high latitudes
 are seasonally snow-covered over huge areas, and a fixed cutoff floods them. Validated on five
-stress regions; see PLAN decision log 2026-07-13.
+stress regions; -> HISTORY § Snow source reworked.
 """
 
 import math

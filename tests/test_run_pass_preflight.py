@@ -3,7 +3,7 @@
 The cgroup cap kills the job instead of the box, but only if the box actually has the memory
 behind it. Capping at 16 G with 9 G available does not protect anything — it relocates the OOM
 to the most expensive possible moment, hours in, after every completed stage has been paid for.
-The pass cap moved 12 G → 16 G on 2026-07-25 because the pass ends by rendering the polar caps
+The pass cap moved 12 G → 16 G because the pass ends by rendering the polar caps
 (~14 GB, inheriting the scope's cgroup), so the headroom question became a real one.
 
 These drive the real script with MEMINFO pointed at a fixture and PREFLIGHT_ONLY set, so both

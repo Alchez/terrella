@@ -49,7 +49,7 @@ API = "https://api.figshare.com/v2/articles/{article}/versions/1"
 DOWNLOAD = "https://ndownloader.figshare.com/files/{file_id}"
 MD5_CHUNK = 1 << 20
 
-# Pinned against figshare v1, read from the API 2026-07-15. Both articles are CC0.
+# Pinned against figshare v1, read from the API. Both articles are CC0.
 FILES = {
     "csv": dict(
         name="GLOBathy_basic_parameters.zip", article=13402070, file_id=28919991,

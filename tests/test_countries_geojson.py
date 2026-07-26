@@ -4,7 +4,7 @@ The file was born as an invisible click-target layer and simplified accordingly
 (0.05 deg Douglas-Peucker, ~5.5 km of allowed deviation). When the hover
 highlight began stroking its rings as the visible gold outline
 (web/src/lib/countryHighlight.ts), that premise silently died: at z8 the chords
-cut ~18 px straight across bays (the 2026-07-23 blocky-coast report). The guard
+cut ~18 px straight across bays (the blocky-coast report). The guard
 here pins the successor premise — simplification error stays below one z8 pixel
 at the equator — so nobody re-coarsens the file for size without meeting the
 display requirement head-on.

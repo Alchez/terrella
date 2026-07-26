@@ -9,7 +9,7 @@
  *  stores ONE encoding for every tile, so these follow `format` in the archive header — set by
  *  pipeline/tile/shade_planet.py's TILE_CUT and carried through by pack_pmtiles.
  *
- *  WebP q95 since 2026-07-25, previously PNG. Changing the extension is also what retires the old
+ *  WebP q95, previously PNG. Changing the extension is also what retires the old
  *  cached tiles: every URL changes, so no zone purge is involved. */
 export const TILE_EXTENSION = "webp";
 export const TILE_CONTENT_TYPE = "image/webp";

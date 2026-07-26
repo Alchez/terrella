@@ -1,5 +1,5 @@
 """pipeline/raster_io: the single home for the shared GTiff format core and the
-full-width band-window arithmetic (PLAN's commonification list, done 2026-07-23).
+full-width band-window arithmetic (-> HISTORY § commonification LANDED).
 
 The drift these guard is four-times observed: the same fix landing at one call
 site and missing its siblings (float32+windows, warp-once, NUM_THREADS, the

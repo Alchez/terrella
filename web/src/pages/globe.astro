@@ -458,7 +458,7 @@ import Base from "../layouts/Base.astro";
   const VERTICAL_FIELD_OF_VIEW_DEG = 15;
 
   const map = new maplibregl.Map({
-    // Dev handle for console/automation debugging (used to diagnose the 2026-07-22 polar ring)
+    // Dev handle for console/automation debugging (used to diagnose the polar ring)
     container: "globe",
     style: {
       version: 8,
@@ -525,7 +525,7 @@ import Base from "../layouts/Base.astro";
   // Polar caps (default ON; /globe?nocaps disables): source-shaded AEQD caps drawn ABOVE the
   // Web-Mercator limit — north (Arctic sea ice + bathymetry) and south (Antarctica +
   // Southern-Ocean sea ice). The escape flag stays for layer-on/off artifact diagnosis — the
-  // 2026-07-22 polar ring was isolated by exactly that comparison. Config comes from the
+  // polar ring was isolated by exactly that comparison. Config comes from the
   // pipeline-emitted /caps/caps.json (fetched inside addPolarCaps); dynamic import keeps the
   // globe bundle lean.
   if (!urlFlags.has("nocaps") && !bareDiagnostic) {
@@ -589,7 +589,7 @@ import Base from "../layouts/Base.astro";
 
   // A lost WebGL context is usually survivable and MapLibre handles it unaided: it calls
   // preventDefault (without which the browser would never offer the context back), snapshots the
-  // style, and rebuilds the painter on restore. Verified live 2026-07-26 by forcing a loss through
+  // style, and rebuilds the painter on restore. Verified by forcing a loss through
   // WEBGL_lose_context — the globe came back identical, polar caps included. So the message worth
   // showing is NOT "the context was lost"; it is "the context was lost and never came back", which
   // is the GPU-process-crash case where reloading is genuinely the only move. Announce the loss

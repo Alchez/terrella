@@ -282,7 +282,7 @@ class TestLadderServesTheLayout:
             assert widths, (
                 f"{filename} {constant} declares no fixed CSS px. The gallery is masonry, so the "
                 f"card is a near-constant column and a viewport fraction over-declares by up to "
-                f"3.08x at 3440 — measured 2026-07-25. A fixed width is the honest declaration")
+                f"3.08x at 3440 — measured. A fixed width is the honest declaration")
             for ladder_name in ladder_names:
                 ladder = ladders[ladder_name]
                 for width in widths:

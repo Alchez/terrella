@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Snow/ice mask stage for the hero shader (adopted 2026-07-08).
+"""Snow/ice mask stage for the hero shader.
 
 Produces snowmask_aea.png (0/255) on an existing render dir's grid from
 ESA WorldCover 2021 v200 class 70 ("snow and ice") — a 10 m global

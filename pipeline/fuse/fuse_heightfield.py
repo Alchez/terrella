@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Fuse GLO-30 land elevation with GEBCO bathymetry into one heightfield.
 
-Recipe (decided 2026-07-04, refined same day, see PLAN.md):
+Recipe (-> HISTORY § Fusion rule refined after full-frame spot checks):
   ocean  = WBM class 1, or outside GLO-30 tile coverage (open-ocean cells),
            or WBM lake/river (2/3) within 1 m of sea level - ESA classifies
            coastal lagoons and tidal channels as lake/river; at sea level
            they are visually sea (Chilika, backwaters, Sundarbans),
-           or the Caspian Sea (2026-07-15, see is_caspian)
+           or the Caspian Sea (see is_caspian)
   sea    = GEBCO upsampled with cubic spline, clamped to <= -1 m
   land   = GLO-30 resampled with area average
 Outputs, on the same grid, tiled with overviews:
@@ -56,7 +56,7 @@ BLOCK = 8192  # processing window size in pixels
 # WBM calls it a lake (class 2) and its surface sits at -28 m, so the coastal_water
 # rule (|land| <= 1) can't reach it and the heightfield would take GLO-30's FLAT lake
 # surface -- discarding real measured bathymetry GEBCO already holds (-464 m mid-basin,
-# -1026 m deepest; probed 2026-07-15). It is uniquely safe to treat as ocean because it
+# -1026 m deepest; probed). It is uniquely safe to treat as ocean because it
 # lies below sea level THROUGHOUT, so its absolute elevations map onto the existing sea
 # ramp with no new ramp and no per-lake datum -- unlike Baikal (+456 m) or the Great
 # Lakes (+183 m), whose margins would hit the land ramp.

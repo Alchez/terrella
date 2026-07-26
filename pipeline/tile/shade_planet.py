@@ -4,7 +4,7 @@
 Supersedes the 194-strip `tile_planet.py`, whose seam-avoidance hacks (a single global
 z-factor, SVF off, per-strip `gdaldem` edges) caused the defects seen on the first globe:
 blown-out tropics / flat high latitudes (wrong exaggeration), and faint block seams. That
-script was deleted on 2026-07-16 rather than left runnable beside this one -- it defaulted
+script was deleted rather than left runnable beside this one -- it defaulted
 to the same --out and would have cut tiles into the LIVE pyramid with no rollback. Read it
 with `git show a7b7223:pipeline/tile/tile_planet.py`; the record is HISTORY 2026-07-14.
 
@@ -23,7 +23,7 @@ composite is per-pixel, so windowing it cannot seam):
 
 Every stage skips if its output is FRESH -- present, completed, and newer than everything it
 derives from (`is_stale`). An exists()-only guard cannot tell "built" from "still correct":
-the 2026-07-15 Caspian re-fuse rewrote 4 of the 540 chunks, and a plain re-run would have
+the Caspian re-fuse rewrote 4 of the 540 chunks, and a plain re-run would have
 skipped every stage and silently re-cut tiles from the pre-Caspian, pre-sea-rework rasters.
 Grid matches the existing tile pyramid exactly (131072 x 93009).
 
@@ -69,12 +69,12 @@ WINDOW_ROWS = 256          # the snow-persistence banded-warp height (Phase A) A
                            # composite reads slices of that fixed raster. Also the RAM lever for the
                            # serial default (full 131072-wide float32 windows peak ~6 GB; 384 rows in
                            # float64 peaked ~18 GB, OOM). Launch with GDAL_CACHEMAX=512 for headroom.
-COMPOSITE_ROWS = 128       # PRODUCTION composite window (optimisation #5, 2026-07-18). Smaller than
+COMPOSITE_ROWS = 128       # PRODUCTION composite window (optimisation #5). Smaller than
                            # WINDOW_ROWS purely to fit N_WORKERS concurrent windows under the 12 G cap
                            # -- 256/N3 OOMs, and 128 is not a speed lever by itself (serial rows/s ~
                            # equal). It shifts the look sub-perceptibly (SVF window slicing; worst 15
                            # DN on amplified mountain-snow edges, invisible at true scale -- Rohan
-                           # judged it on a render 2026-07-18). Reads 128-row slices of the 256-banded
+                           # judged it on a render). Reads 128-row slices of the 256-banded
                            # persistence, exactly as the delta A/B validated. → HISTORY 2026-07-18.
 N_WORKERS = 4              # composite worker threads. The knee: numpy is DRAM-bandwidth-bound, so
                            # threads scale 1.8×@2 / 3.1×@4 / 3.4×@6, and RAM grows linearly (128-row
@@ -83,7 +83,7 @@ N_WORKERS = 4              # composite worker threads. The knee: numpy is DRAM-b
                            # derived from sky_view.OCCLUSION_TARGET_M_PER_PX, which the region path
                            # shares, so the two cannot drift again)
 # Latitudes above/below which the poles are flat-filled with CAP_RGB. CAP_SOUTH mirrors CAP_NORTH
-# (2026-07-22) now that Antarctica is fused into the pyramid: the flat fill covers only the last
+# now that Antarctica is fused into the pyramid: the flat fill covers only the last
 # smeared Mercator sliver past -84, not real Antarctica (which is shaded down to the -85.06 grid edge).
 # It was -59.5 while the pyramid stopped at -60 and the AEQD cap supplied everything south of it.
 CAP_NORTH, CAP_SOUTH = 84.0, -84.0
@@ -148,8 +148,8 @@ def grid_matches(path: Path, width: int, height: int, bounds) -> bool:
     Antarctica takes the planet from 93009 to 131072 rows -- re-warps height while these sit falsely
     fresh at the old dimensions, and the composite then reads window slices past their bottom (silent
     corruption). A dimension/bounds comparison catches exactly that, and is deliberately NOT an mtime
-    dependency on height: that would re-warp all of them on a SAME-grid re-fuse (the 2026-07-15
-    Caspian rewrote 4 chunks without moving the grid), which is 30+ min of needless work.
+    dependency on height: that would re-warp all of them on a SAME-grid re-fuse (the Caspian
+    rewrote 4 chunks without moving the grid), which is 30+ min of needless work.
 
     Bounds are compared with a 1 m tolerance -- far below the 305 m pixel, so a real grid shift always
     trips it, while the float noise of a -te repr round-trip never does. -> PLAN Antarctica precondition.
@@ -193,7 +193,7 @@ def write_if_changed(path: Path, text: str) -> Path:
 # one, the hillshade restages, its mtime moves, and the composite restages behind it. Recording
 # them HERE as well would restage a 53.8 min composite + 3:44 tile cut for byte-identical pixels
 # every time the fill is merely present at strength 0 -- which is exactly what it did when
-# `fill_strength` was first added to KNOBS (caught 2026-07-17, before any pass ran).
+# `fill_strength` was first added to KNOBS (caught before any pass ran).
 #
 # `alt` is deliberately NOT in here: the hillshade takes it AND composite reads it (`flat =
 # 255*sin(alt)`), so it belongs in both records. The filter defaults to INCLUDE, so a new composite
@@ -204,7 +204,7 @@ HILLSHADE_ONLY_KNOBS = frozenset({"fill_strength", "shadow_strength", "shadow_re
 def hs_params() -> str:
     """The hillshade's tunables, recorded as hs_3857's dependency — composite_params' sibling.
 
-    Split out of build_hillshade on 2026-07-17 so BOTH halves of the freshness contract are
+    Split out of build_hillshade so BOTH halves of the freshness contract are
     testable from the outside. The asymmetry was itself the hazard: composite_params had tests
     pinning what it must and must not record, and this side had none, while every freshness bug so
     far has been a tunable that failed to reach one of these two records.
@@ -244,7 +244,7 @@ def composite_params(variants, window_rows=WINDOW_ROWS) -> str:
 
     `window_rows` (the composite window height) is recorded because it is NOT just a RAM lever:
     it slices the SVF occlusion per window, so a change perturbs the output sub-perceptibly (the
-    256->128 A/B, 2026-07-18). Without it here, switching the production window height would leave a
+    256->128 A/B). Without it here, switching the production window height would leave a
     stale planet_rgb looking fresh -- the same untracked-input trap as WATER_RGB. `max_workers` is
     deliberately NOT recorded: threading is byte-identical (proven), so it changes no pixel.
 
@@ -254,14 +254,14 @@ def composite_params(variants, window_rows=WINDOW_ROWS) -> str:
     knobs = {key: value for key, value in KNOBS.items() if key not in HILLSHADE_ONLY_KNOBS}
     return json.dumps({"knobs": knobs, "water_rgb": palette.WATER_RGB,
                        "composite_window_rows": window_rows,
-                       # The occlusion resolution reached NO freshness record until 2026-07-20 --
+                       # The occlusion resolution reached NO freshness record at all --
                        # it was a module constant (`SVF_LONG_EDGE`, now OCCLUSION_TARGET_M_PER_PX)
                        # that visibly changes planet_rgb, so moving it left a stale pyramid looking
                        # fresh. Same untracked-input trap as WATER_RGB and snow's RAMP_* constants.
                        # It rides in `knobs`' company rather than inside it because it is a
                        # resolution, not an art dial, and `--knob` must not reach it.
                        "occlusion_target_m_per_px": sky_view.OCCLUSION_TARGET_M_PER_PX,
-                       # land/sea stops moved in here on 2026-07-16 when color-relief was
+                       # land/sea stops moved in here when color-relief was
                        # deleted: they used to be tracked by ramp_{land,sea}.txt's mtime, whose
                        # whole purpose was to gate the gdaldem stages. With those gone, nothing
                        # else would notice a ramp re-tune and planet_rgb would sit falsely fresh
@@ -292,18 +292,18 @@ def composite_params(variants, window_rows=WINDOW_ROWS) -> str:
 def composite_deps(work, hs, params) -> tuple:
     """Everything planet_rgb must be newer than.
 
-    `height_3857.tif` replaced land_3857/sea_3857 here on 2026-07-16: composite() now applies the
+    `height_3857.tif` replaced land_3857/sea_3857 here: composite() now applies the
     ramps itself from elevation, so the height raster IS the colour input. The ramp constants ride
     in `params` (composite_params) rather than in ramp_*.txt, which no longer exists.
 
-    `snow_persistence_3857.tif` + `glacier_3857.tif` joined on 2026-07-18 (optimisation #4): the
+    `snow_persistence_3857.tif` + `glacier_3857.tif` joined (optimisation #4): the
     composite reads pre-warped snow slices per window instead of forking gdalwarp/gdal_rasterize in
     the loop, so a re-warp (new NSIDC/RGI, or a re-fuse to a new grid) must restage it. `glacier`
     may be absent (RGI not downloaded) -- `newest_mtime` scores a missing path 0.0, so listing it
     unconditionally is safe. The ramp TUNABLES (`RAMP_*`) run at composite time inside `snow_alpha`,
     so they ride in `composite_params`, NOT here -- this pair tracks the warp SOURCES only.
 
-    `seaice_3857.tif` joined 2026-07-19, the sea-side twin of snow persistence: its warp SOURCE is
+    `seaice_3857.tif` joined, the sea-side twin of snow persistence: its warp SOURCE is
     tracked here, its ICE_LO/ICE_BAND alpha knobs in `composite_params`. Optional -- a missing path
     scores `newest_mtime` 0.0, so listing it unconditionally is safe when the source isn't built.
     """
@@ -417,8 +417,8 @@ def warp_inputs(work: Path):
 def build_hillshade(work: Path, height: Path):
     """The seamless per-row-z hillshade (skip if fresh).
 
-    Was `color_and_hillshade`: the two `gdaldem color-relief` passes it also ran were deleted on
-    2026-07-16 (28:19 and 24.4% of all pass CPU, single-threaded; profile said `libgdal` 19.37%
+    Was `color_and_hillshade`: the two `gdaldem color-relief` passes it also ran were deleted
+    (28:19 and 24.4% of all pass CPU, single-threaded; profile said `libgdal` 19.37%
     interpolation vs `libdeflate` 4.33%, so no threading flag could reach it). composite() now
     applies the ramps from elevation via a 17.6 KB LUT -- verified against gdaldem's own output
     over all 12.19 G px, 6/6 bands, zero pixels beyond 1 DN.
@@ -445,7 +445,7 @@ def global_occlusion(height: Path):
     a region preview and the planet it predicts can no longer drift apart. `SVF_LONG_EDGE` was the
     old planet-only spelling of this and is now derived, not chosen.
 
-    KNOWN INCORRECT, deliberately unchanged here (2026-07-20): `Z8_RES` is a MAP-unit scale, and
+    KNOWN INCORRECT, deliberately unchanged here: `Z8_RES` is a MAP-unit scale, and
     ground metres in Web Mercator are `Z8_RES * cos(lat)`. Using map units understates the horizon
     run by `1/cos(lat)` — 1.22x at 35N, 2.00x at 60N, 3.86x at 75N — so high latitudes are
     systematically under-occluded, and the global affine renormalisation provably cannot absorb a
@@ -603,12 +603,12 @@ def composite_planet(work: Path, hs, compute_occlusion: Callable[[], np.ndarray]
     `max_workers` > 1 threads the single-variant compute (optimisation #5): the main thread reads
     each window and writes the finished RGB back in window order, while up to `max_workers` workers
     run the pure-numpy `_compute_window_rgb` (numpy drops the GIL, so threads scale ~3x before DRAM
-    bandwidth saturates -- measured 2026-07-16). A bounded in-flight deque caps peak RAM at
+    bandwidth saturates -- measured). A bounded in-flight deque caps peak RAM at
     `max_workers + INFLIGHT_BUFFER` windows. Multi-variant passes IGNORE it and stay serial: that
     loop mutates the global KNOBS between variants, which is not safe to run concurrently.
 
     `compute_occlusion` is a CALLABLE, not the array itself, and that IS the sky-view guard.
-    Measured 2026-07-17 on the first instrumented tile cut: computing it costs 2:33
+    Measured on the first instrumented tile cut: computing it costs 2:33
     single-threaded reading the whole 31 GB master -- and on a tiles-only re-run the composite
     is fresh, so the array was built and discarded, 41% of that pass. Every other stage is
     gated by `is_stale`, but SVF has no file of its own to stamp, so deferring it behind the
@@ -740,7 +740,7 @@ class TileCut(TypedDict):
     skip_blank: bool
 
 
-# WebP q95 replaced PNG on 2026-07-25. Measured on 73 tiles sampled proportionally across all nine
+# WebP q95 replaced PNG. Measured on 73 tiles sampled proportionally across all nine
 # zooms: q95 is 20.0% of PNG byte-weighted, and z8 -- three quarters of the pyramid -- is the
 # cheapest at 14.8%, so the aggregate is conservative. The archive goes ~16 GB -> ~3.2 GB and the
 # Worker's single R2 read per cold tile drops with it (~380 ms -> ~80 ms, it is bandwidth-bound).
@@ -752,7 +752,7 @@ TILE_CUT = TileCut(format="WEBP", quality=95, tile_size=512, min_zoom=0, max_zoo
 def tile_params() -> str:
     """The tile cut's own settings, recorded as the live pyramid's dependency — hs_params' sibling.
 
-    This stage keyed freshness off `planet_rgb` ALONE until 2026-07-25, which meant the cut was the
+    This stage used to key freshness off `planet_rgb` ALONE, which meant the cut was the
     one stage that could not see its own recipe: changing the output format left `tiles_are_fresh`
     true, so the PNG->WebP switch would have silently shipped the old pyramid. Everything in
     TILE_CUT alters the emitted bytes, and nothing outside it does — the input raster and the output
@@ -774,14 +774,14 @@ def _tile_cmd(planet_tif: Path, staging: Path) -> list[str]:
     the tile encoding.
 
     `--overview-resampling=cubic` pins what is otherwise an UNDOCUMENTED default -- identified by
-    elimination (2026-07-16): unset, it silently inherits `--resampling`. This is byte-identical to
+    elimination: unset, it silently inherits `--resampling`. This is byte-identical to
     today and is what built the verified 07-14 pyramid, so it is a pin, not a change. z0-7 carry
     most of the globe's zoomed-out surface; they should not ride on a default GDAL may alter.
 
     `--webviewer=none`: the default is `all`, which emits leaflet/openlayers/mapml/stac files into
     the pyramid. We serve our own MapLibre page, and they would ride into PMTiles.
 
-    NO `--resume` (removed 2026-07-20): GDAL skips existing files by existence without reading them,
+    NO `--resume` (removed): GDAL skips existing files by existence without reading them,
     so a truncated tile from a mid-write kill would survive a resume. build_tiles instead removes
     any partial staging dir and cuts clean every time -- see its docstring.
     """
@@ -806,7 +806,7 @@ def tiles_are_fresh(planet_tif: Path, out: Path) -> bool:
     the two input markers -- never a 62k-tile walk (the dir is the OUTPUT, not a walked input). The
     non-empty + marker-exists checks reject a half-swapped empty dir or a missing composite stamp.
 
-    tile_params.json joined the key on 2026-07-25. A missing one scores 0.0 in `newest_mtime` and so
+    tile_params.json joined the key. A missing one scores 0.0 in `newest_mtime` and so
     cannot make a pyramid look stale on its own; build_tiles writes it through `write_if_changed`
     before asking, which is what makes a settings change -- and only a settings change -- restage.
     """
@@ -820,7 +820,7 @@ def build_tiles(planet_tif: Path, out: Path):
     """Cut z0-8 512px tiles into a staging dir, then swap over the live tiles.
 
     Fresh-guarded like every other stage (`tiles_are_fresh`): a re-run whose `planet_rgb` AND
-    `tile_params.json` are unchanged skips the ~4:19 cut entirely. Until 2026-07-20 this was the one
+    `tile_params.json` are unchanged skips the ~4:19 cut entirely. This used to be the one
     unguarded stage -- the staging dir is renamed away on success, so `--resume` always started from
     empty and the cut re-ran in full every time. The completion stamp is `tiles.done`, touched only
     after the swap.
@@ -836,10 +836,10 @@ def build_tiles(planet_tif: Path, out: Path):
     `tiles_old`.
 
     THERE IS NO gdaladdo STEP, deliberately. `gdal raster tile` builds each low zoom from the tiles
-    it just generated, never from the source's overviews -- proven 2026-07-16 by tiling one raster
+    it just generated, never from the source's overviews -- proven by tiling one raster
     with and without them for byte-identical output at identical wall time. The overviews this
     function used to build cost ~3 min and ~4 GB appended to the master, for nothing. The
-    2026-07-14 note that justified them credited a confounded fix: materialising the 194-source VRT
+    note that justified them credited a confounded fix: materialising the 194-source VRT
     to a GTiff was the real speed-up; the overviews rode along on the same commit untested.
     """
     write_if_changed(tile_params_path(out), tile_params())
@@ -896,9 +896,9 @@ def main():
     if args.tiles:
         build_tiles(planet_tif, work)
     # The polar caps are shade-stage outputs too: they run the same composite over the same
-    # sources, so a look change that restages planet_rgb must restage them. Both cap PNGs sat
-    # stale against the PR-#9 ambient-knee tiles until 2026-07-22 (the north −6.7 DN against the
-    # tiles it feathers into) because nothing coupled them to the recipe. cap_render guards
+    # sources, so a look change that restages planet_rgb must restage them. Both caps once sat
+    # stale against the tiles they feather into (the north −6.7 DN adrift) because nothing
+    # coupled them to the recipe. cap_render guards
     # itself (cap_is_fresh), so a fresh pass pays only the ~2 s import here. Subprocess, not
     # import: cap_render imports FROM this module, and the caps' pyproj/scipy stack stays out
     # of the tile pass.

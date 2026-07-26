@@ -40,7 +40,7 @@ wbm_src=("$DATA"/raw/glo30/wbm/*.tif "$DATA"/raw/cop30_void/wbm/*.tif)
 shopt -u nullglob
 
 # The source lists go via -input_file_list: 26k+ paths as argv overflow the
-# kernel's ARG_MAX (first hit at the 2026-07-22 Antarctic extent expansion).
+# kernel's ARG_MAX (first hit at the Antarctic extent expansion).
 dem_list="$(mktemp)"
 wbm_list="$(mktemp)"
 trap 'rm -f "$dem_list" "$wbm_list"' EXIT

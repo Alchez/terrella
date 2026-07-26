@@ -8,8 +8,8 @@ Modes:
             a systematic offset here means the mapping below is wrong.
             Tolerances are in ground METERS, not render pixels: NE's 1:10m
             line disagrees with the WBM-derived coast by up to ~1-2 km around
-            lagoon spits and shifting sandbars (measured on Sri Lanka,
-            2026-07-08), so that is the noise floor regardless of how fine
+            lagoon spits and shifting sandbars (measured on Sri Lanka), so
+            that is the noise floor regardless of how fine
             one country's m/px is. Mapping failures are uniform multi-km
             shifts — still unmissable at these tolerances.
   borders — draw the production overlay: solid white international borders,

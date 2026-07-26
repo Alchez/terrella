@@ -32,7 +32,7 @@ def load_window(row0, rows, width, transform):
     top = transform.f + row0 * transform.e
     bottom = transform.f + (row0 + rows) * transform.e
     bounds = (transform.c, bottom, transform.c + width * transform.a, top)
-    # land/sea_3857 were deleted with the color-relief stage (2026-07-16); composite() now
+    # land/sea_3857 were deleted with the color-relief stage; composite() now
     # takes elevation and applies the ramps itself via palette.relief_lut.
     heights = sp.read1_window(WORK / "height_3857.tif", win)
     ocean = sp.read1_window(WORK / "ocean_3857.tif", win) != 0

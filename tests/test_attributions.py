@@ -1,7 +1,7 @@
 """Attribution drift scan — the licence-required strings must reach the shipped About page.
 
 `ATTRIBUTIONS.md` declares itself the single source of truth for credits and states, per source,
-which strings a licence *requires* rather than merely invites. Nothing enforced that: on 2026-07-26
+which strings a licence *requires* rather than merely invites. Nothing enforced that:
 the Copernicus Article 6(b) notice had been paraphrased on the About page (year ranges, "GmbH" and
 "all rights reserved" all dropped) and the Article 6(c) liability sentence was absent entirely,
 while ATTRIBUTIONS.md carried both correctly. Prose cannot notice its own drift, so this does.

@@ -1,9 +1,9 @@
 """Tests for the per-row-z hillshade — written to pin the float32 + window_rows change.
 
-Context (measured 2026-07-16, instrumented planet pass): `per_row_zfactor_hillshade` ran
+Context (measured on the instrumented planet pass): `per_row_zfactor_hillshade` ran
 `window_rows=1024` in **float64** and peaked at **11.6 GB** of anon against a 12 G cap, driving
 122,501 cgroup reclaims — to emit a **uint8** raster, so the float64 precision is thrown away on
-the last line. `composite()` had the identical bug and was fixed on 2026-07-14 (float32 @ 256
+the last line. `composite()` had the identical bug and was fixed (float32 @ 256
 rows, ~18 GB -> 6.93 GiB); the fix was never carried to its sibling. These tests are what make
 carrying it safe.
 
@@ -230,7 +230,7 @@ class TestWindowInvariance:
 class TestFullShadowLandsOnTheFillFloor:
     """Fully occluded ground must land on the FILL's contribution, never on black.
 
-    This is the 2026-07-17 fill-port invariant, extended to the term that can actually drive a
+    This is the fill-port invariant, extended to the term that can actually drive a
     face to zero. The shadow attenuates the MAIN sun only — the fill stays shadowless, exactly as
     `scene_build`'s fill lamp does with `use_shadow` off — so the floor is analytic:
 
@@ -349,7 +349,7 @@ class TestFillSunDoesItsJob:
     """The behavioural claim the port exists for, and the uint8 bound the design rests on."""
 
     def test_fill_eliminates_pure_black(self):
-        """Measured on the real planet 2026-07-17: a single 45-deg sun at EXAG 15 leaves 12.4% of
+        """Measured on the real planet: a single 45-deg sun at EXAG 15 leaves 12.4% of
         Sri Lanka, 30.5% of the Himalaya and 43.7% of the Alps at hillshade 0 -- flat black slabs.
         Any fill >= 0.10 drove that to 0.00% on every site. Pin the mechanism on synthetic relief."""
         heights = synthetic_terrain(120, 200, seed=6)

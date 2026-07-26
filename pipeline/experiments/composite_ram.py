@@ -7,11 +7,11 @@ died). The lake-depth branch adds arrays to exactly that hot spot -- lut[:, inde
 ~400 MB at this shape -- so the question is whether it still fits under the cgroup cap.
 
 Measured, not estimated, because estimating this from pixel count is the specific mistake that
-OOM-killed the box on 2026-07-15: the intermediates, not the inputs, are what blow up.
+OOM-killed the box: the intermediates, not the inputs, are what blow up.
 
 SCOPE -- this is a LOWER BOUND on the pass, not a model of it. It measures composite() in
 isolation and opens no dataset; the real pass adds five readers, the writers, the GDAL block
-cache (GDAL_CACHEMAX=512) and runtime overhead. Re-measured 2026-07-16: this fixture reports
+cache (GDAL_CACHEMAX=512) and runtime overhead. Re-measured: this fixture reports
 3.88 GiB without depth / 4.50 GiB with, where the real pass peaks at 6.24 GiB against the 12 G
 cap (1.9x). The ~1.7 GiB gap is the machinery above and will not close by re-running -- PLAN
 spent a while chasing it as a stale number before noticing the two figures measure different

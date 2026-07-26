@@ -11,7 +11,7 @@
  *  Exists for surfaces that no `srcset` chooses for: the country page's hero is a CSS
  *  background-image, and the polar caps are a WebGL texture. Both used to take the ladder's first
  *  entry — correct only for as long as the floor happened to be the right display size, and
- *  silently wrong the moment 640/960/1280 were added below it (2026-07-25). A floor states the
+ *  silently wrong the moment 640/960/1280 were added below it. A floor states the
  *  requirement instead of relying on the ladder's shape. */
 export function smallestRungAtLeast(sizes: number[], minimumPx: number): number {
   const ascending = [...sizes].sort((first, second) => first - second);

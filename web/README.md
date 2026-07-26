@@ -59,28 +59,35 @@ The extension follows the archive's declared tile type, which is set by the pipe
 archive stores **one** encoding for every tile, so this is a single global fact, not a per-tile one.
 Changing it is also the cache-bust: every tile URL changes, so a re-cut needs **no zone purge**.
 
-## 🚀 Project Structure
-
-Inside of your Astro project, you'll see the following folders and files:
+## Project structure
 
 ```text
-/
+web/
+├── astro.config.ts        # build config + the dev-only /heroes, /borders, /tiles middleware
+├── wrangler.jsonc         # the site Worker — serves dist/ as static assets
 ├── public/
+│   └── caps/              # polar cap WebP rungs + caps.json (generated; gitignored)
+├── scripts/
+│   ├── gen_manifest.py    # reads the variant store → src/data/countries.json
+│   └── check_deploy_sync.ts   # deploy preflight: R2 objects vs the manifest
 ├── src/
-│   └── pages/
-│       └── index.astro
-└── package.json
+│   ├── pages/             # index (gallery) · [slug] (country) · globe · about
+│   ├── layouts/ components/ styles/
+│   ├── lib/               # the tested logic — see below
+│   └── data/              # countries.json (generated; gitignored)
+└── worker/                # the tile Worker: one z/x/y out of the PMTiles archive in R2
 ```
 
-Astro looks for `.astro` or `.md` files in the `src/pages/` directory. Each page is exposed as a route based on its file name.
+`src/lib/` is where anything worth testing lives, each module paired with a `.test.ts`:
+`reliefTiles` (the tile request contract, imported by *both* servers), `assetBase` (dev vs
+production origins), `capability` + `fpsDegradation` (the tier probe and runtime downgrade),
+`hoverTracking` (hover resolution, including re-resolving when the globe moves under a parked
+pointer), `countryHighlight`, `polarCaps` (rung choice by projected on-screen size),
+`tileConcurrency`, `perfOverlay`, `rungs`, `manifest`, `palette`.
 
-There's nothing special about `src/components/`, but that's where we like to put any Astro/React/Vue/Svelte/Preact components.
+## Commands
 
-Any static assets, like images, can be placed in the `public/` directory.
-
-## 🧞 Commands
-
-All commands are run from the root of the project, from a terminal:
+Run from `web/`:
 
 | Command                   | Action                                           |
 | :------------------------ | :----------------------------------------------- |

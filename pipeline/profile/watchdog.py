@@ -12,8 +12,8 @@ Fires on:
   * DONE      -- the scope's cgroup is gone: pass finished or died
   * MEMORY    -- ANON memory nearing the 12 G cap, an actual oom_kill, or swap in use.
                  NOT memory.current: that includes PAGE CACHE, which is reclaimable, and a job
-                 streaming a 31 GB raster parks the cgroup at its cap by design (measured
-                 2026-07-15: current 12287 MB = anon 802 + file 11382, with oom_kill 0 and the
+                 streaming a 31 GB raster parks the cgroup at its cap by design (measured:
+                 current 12287 MB = anon 802 + file 11382, with oom_kill 0 and the
                  pass perfectly healthy). Watching memory.current cried wolf on the first try --
                  the same "measure the proxy, not the thing" error as the day's bbox-max lake
                  oracle. `max` in memory.events counts reclaims, not kills; only oom_kill matters.
@@ -35,7 +35,7 @@ POLL_S = 10.0
 HEARTBEAT_S = 1200.0     # 20 min: quiet enough not to nag, often enough that silence is not scary
 STALL_S = 420.0          # 7 min of zero CPU AND zero disk anywhere in the cgroup
 ANON_WARN_MB = 10_000    # the cap is 12 G; composite peaks at 6.24 GiB of anon (re-measured 07-16)
-SWAP_WARN_MB = 1_500     # swap sat pinned 7/7 all of 2026-07-15; never again unnoticed
+SWAP_WARN_MB = 1_500     # swap once sat pinned 7/7 for a whole day; never again unnoticed
 
 # Stage markers shade_planet.py already prints. "composited rows" is deliberately excluded.
 STAGE_RE = re.compile(

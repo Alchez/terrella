@@ -1,6 +1,6 @@
-"""cap_render's freshness guard: cap PNGs are shade-stage outputs, and unguarded outputs rot —
-both caps sat a full day stale against the PR-#9 ambient-knee tiles (found 2026-07-22, the north
-cap −6.7 DN against the tiles it feathers into). The guard is a recipe sidecar built on
+"""cap_render's freshness guard: caps are shade-stage outputs, and unguarded outputs rot — both
+caps once sat a full day stale against the tiles they feather into, the north cap −6.7 DN
+adrift. The guard is a recipe sidecar built on
 shade_planet.composite_params (one recipe home) plus source-mtime comparison.
 """
 
@@ -61,7 +61,7 @@ class TestCapIsFresh:
         assert cap_render.cap_is_fresh("the-recipe", assets, sidecar, sources) is False
 
     def test_a_recipe_change_is_stale(self, tmp_path):
-        """The PR-#9 failure mode: same assets, same sources, but the look recipe moved on."""
+        """The observed failure mode: same assets, same sources, but the look recipe moved on."""
         assets, sidecar, sources = _fixture(tmp_path, recipe="the-OLD-recipe")
         assert cap_render.cap_is_fresh("the-NEW-recipe", assets, sidecar, sources) is False
 
@@ -80,7 +80,7 @@ class TestCapIsFresh:
 
 class TestCapRecipe:
     def test_a_composite_knob_change_restages_the_caps(self):
-        """THE regression this guard exists for: ambient_knee shipped in PR #9 and no cap noticed."""
+        """THE regression this guard exists for: ambient_knee shipped and no cap noticed."""
         before = cap_render.cap_recipe(cap_render.NORTH)
         saved = KNOBS["ambient_knee"]
         KNOBS["ambient_knee"] = saved + 0.05

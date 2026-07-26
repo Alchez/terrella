@@ -36,13 +36,13 @@ ICE_FILL = 65535    # packed fill (land / no valid observation); matches snow.SP
 # frequency -> alpha smoothstep: 0 below ICE_LO, ICE_MAX_ALPHA at ICE_LO + ICE_BAND. A pixel frozen
 # for a small fraction of the record shows a faint ice edge; the perennial core saturates at
 # ICE_MAX_ALPHA -- kept <1 so even the year-round pack stays a touch translucent and the deep
-# bathymetry glows through (the "ocean floor under ice" reading, Rohan 2026-07-19). Art knobs --
+# bathymetry glows through (the "ocean floor under ice" reading, Rohan). Art knobs --
 # recorded in composite_params so a re-tune restages the composite.
 ICE_LO = 0.55
 ICE_BAND = 0.40
 ICE_MAX_ALPHA = 0.85
 
-# The Southern-Ocean toned fringe (the one home for it, tuned 2026-07-20 on the south cap). Antarctica
+# The Southern-Ocean toned fringe (the one home for it, tuned on the south cap). Antarctica
 # is a continent RINGED by a mostly-seasonal ice belt, not an ice-filled basin, so at full strength the
 # climatology reads as a bright halo around the coast. The SH pack is rendered fainter and pulled in: a
 # higher lo trims the seasonal fringe, a lower max_alpha lets the bathymetry glow through. Applied south

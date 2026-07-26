@@ -86,25 +86,26 @@ class Knobs(TypedDict):
 # it in hs_params.json, so a change to it correctly restages the hillshade (and, through
 # composite_deps' dependency on hs, the composite and the tiles).
 #
-# **0.15, chosen 2026-07-17 (Rohan)** off a five-strength sweep on real tiles under production's own
+# **0.15, chosen (Rohan)** off a five-strength sweep on real tiles under production's own
 # global SVF. It is the hero's own ratio, and any value >= 0.10 already drives pure black to 0.00%
 # everywhere; past ~0.20 the compression starts reading flat rather than soft.
 #
 # `hi` 1.30 -> 1.12 lands with it, as ART.md:56 demands (tune the pair, never each alone): the fill
 # lowers peak light, so the old 1.30 ceiling no longer binds and only clips the pale ramp.
 # `ambient` deliberately STAYS 0.50 -- the sweep tried 0.56/0.62 and both re-created the "washed
-# rosy and flat" failure the hero's 2026-07-08 A/B already rejected. The fill IS the shadow floor
+# rosy and flat" failure the hero's own A/B already rejected. The fill IS the shadow floor
 # (ART.md:90); a second floor under it only hazes the pale high country. Every metric said 0.62 was
-# best and every metric was wrong -- see ~/.claude-personal/plans/fill-sun-port.md.
+# best and every metric was wrong -- the eye decided it. -> HISTORY § the tiles were missing the
+# hero's fill sun
 #
-# `snow_curve` **"gamma8", chosen 2026-07-17 (Rohan)** off a four-curve A/B (linear/gamma4/gamma8/
+# `snow_curve` **"gamma8", chosen (Rohan)** off a four-curve A/B (linear/gamma4/gamma8/
 # knee) rendered through composite() at Greenland Summit + north and the Alps + Himalaya. It rides
 # here, not as a function parameter, for the same reason `lake_curve` does: it is a tunable, so
 # composite_params must see it. `snow_lo`/`snow_hi_pt` deliberately stay 0.55/1.05 -- the window is
 # not the lever, the CURVE is; a window narrow enough for Greenland is a threshold for the Alps.
 # -> HISTORY 2026-07-17 Greenland
-# `shadow_strength` 0.0 -- **REJECTED TWICE by Rohan (2026-07-20 under the ambient clip, 2026-07-21
-# under the knee) and rejected on the MECHANISM the second time.** Do not re-open with a new strength
+# `shadow_strength` 0.0 -- **REJECTED TWICE by Rohan (once under the ambient clip, once under the
+# knee) and rejected on the MECHANISM the second time.** Do not re-open with a new strength
 # value: `per_row_zfactor_hillshade` applies `shaded *= (1 - strength * shadow)`, which scales the
 # MAIN sun, and fine detail amplitude is proportional to light amplitude -- so local high-frequency
 # detail falls with it (68% kept at 0.35, 55% in full shadow; predicted to within a point by
@@ -114,26 +115,26 @@ class Knobs(TypedDict):
 # safety limit -- a shadow longer than this simply stops, with no error and no visible edge. 300 px
 # covers Damavand (5,610 m -> 275 px) and the Zagros (~4,400 m -> 216 px) at the z8 grid; use
 # `cast_shadow.shadow_reach_px` to size it for any other terrain.
-# `ambient_knee` **0.30, chosen 2026-07-21 (Rohan)** on a full-planet pass judged on /globe. See
-# `apply_ambient_floor`: `ambient` is a CLIFF, not a floor -- measured 2026-07-20, 18.07% of Iran's
+# `ambient_knee` **0.30, chosen (Rohan)** on a full-planet pass judged on /globe. See
+# `apply_ambient_floor`: `ambient` is a CLIFF, not a floor -- measured, 18.07% of Iran's
 # land sat under it carrying no hillshade information at all, and the knee is what gives that land
 # its form back. My metric-based recommendation was 0.15 and the eye overruled it; the local-contrast
-# std that argued for 0.15 is the same proxy that lost the 2026-07-08 fill-sun A/B, so it is now
+# std that argued for 0.15 is the same proxy that lost the fill-sun A/B, so it is now
 # twice-failed as a stand-in for perceived softness. -> HISTORY 2026-07-20 (evening) softness
-# `shadow_warmth` **0.55, chosen 2026-07-21 (Rohan)** on a full-planet pass judged on /globe, after
+# `shadow_warmth` **0.55, chosen (Rohan)** on a full-planet pass judged on /globe, after
 # 1.0 read too copper on Alpine crops. 1.0 would reproduce the hero's MEASURED shadow warmth (see
 # SHADOW_TINT), so this is 55% of the hero -- the value is anchored to a measurement even where it
-# departs from it. 0.0 is the pre-2026-07-21 look and is bit-identical when off.
-# `ice_relief_damp` **0.75, chosen 2026-07-22 (Rohan)** off a five-rung cap A/B (0/0.25/0.5/0.75/
+# departs from it. 0.0 is the pre-`shadow_warmth` look and is bit-identical when off.
+# `ice_relief_damp` **0.75, chosen (Rohan)** off a five-rung cap A/B (0/0.25/0.5/0.75/
 # 1.0, `experiments/ab_ice_damp.py` -- the 21 s browser-free pole loop): how much thick sea ice
 # CONCEALS the seafloor's shading. The ice whites are light-keyed by `snow_t`, whose light over
 # ocean is the SEAFLOOR's hillshade -- so at full pack the floor's ridges painted into the ice at
 # full strength and the Arctic pack read as terrain above the sea. This pulls the ice's light-key
 # toward its flat-ocean position in proportion to `damp * ice_alpha`: the perennial pack calms, the
-# marginal fringe keeps its relief, and the `(1 - alpha)` colour glow-through (the 2026-07-20
-# "ocean floor under ice" decision) is a different channel and untouched. The rungs measured
+# marginal fringe keeps its relief, and the `(1 - alpha)` colour glow-through (the "ocean
+# floor under ice" decision) is a different channel and untouched. The rungs measured
 # linear (mean 2.8/5.2/7.6/10.0 DN at 0.25..1.0); 1.0 read soft but 0.75 kept a touch more
-# surface life. 0.0 is the pre-2026-07-22 look, bit-identical when off.
+# surface life. 0.0 is the pre-`ice_relief_damp` look, bit-identical when off.
 KNOBS = Knobs(alt=palette.SUN_ALT_DEG, fill_strength=0.15, shadow_strength=0.0, shadow_reach=300.0,
               shadow_warmth=0.55,
               ambient=0.50, ambient_knee=0.30, hi=1.12, exposure=1.05, saturation=1.18,
@@ -262,8 +263,8 @@ def main():
         grid_h, grid_w = dataset.height, dataset.width
     print(f"region mosaic: {grid_w} x {grid_h} px in Mercator", flush=True)
 
-    # The ramps are applied inside composite() from the elevation itself (palette.relief_lut,
-    # 2026-07-16) -- the two `gdaldem color-relief` passes that used to materialise c_land/c_sea
+    # The ramps are applied inside composite() from the elevation itself (palette.relief_lut)
+    # -- the two `gdaldem color-relief` passes that used to materialise c_land/c_sea
     # were 24.4% of all planet-pass CPU and reproduced to <=1 DN by a 17.6 KB lookup table.
     hs_tif = args.out / "hs.tif"
     mid_lat = sum(cell_mid_lat(n) for n in args.cells) / len(args.cells)
@@ -356,7 +357,7 @@ def lake_position(depth, curve):
     parks 99% of lakes in the first 2% of the ramp and shows nothing. LOG1P spreads them
     (median -> 0.34) but hands most of the ramp to shallow water, which is exactly where
     GLOBathy's cone is least trustworthy (on the Caspian it claims 155 m where the truth is
-    under 20 m, measured 2026-07-15), so it also maximises the visibility of the layer's worst
+    under 20 m, measured), so it also maximises the visibility of the layer's worst
     error. SQRT (median -> 0.08) is the conservative middle. Judge on renders, not in the
     abstract.
     """
@@ -388,7 +389,7 @@ def apply_ambient_floor(raw, ambient: float, hi: float, knee: float):
     """Land the raw `hs/flat` light on its floor — hard-clipped, or over a soft knee.
 
     `ambient` has always been a `np.clip` lower bound, which makes it a CLIFF rather than a floor:
-    every pixel below it collapses to exactly one value. Measured 2026-07-20 on Iran, **18.07% of
+    every pixel below it collapses to exactly one value. Measured on Iran, **18.07% of
     land already sits there** carrying no hillshade information, and a cast shadow pushed a further
     6.21% under — pixels whose control spread was 36 DN, all flattened to the same number. That is
     what "the details are gone in the mountains" looked like from inside the arithmetic.
@@ -399,7 +400,7 @@ def apply_ambient_floor(raw, ambient: float, hi: float, knee: float):
     form instead of becoming a flat plate, and open ground is untouched.
 
     **This is not the rejected `ambient` raise.** Lifting the floor was swept and rejected twice
-    (2026-07-08 washed rosy and flat; 2026-07-17 every metric said otherwise and every metric was
+    (once as washed rosy and flat; once where every metric said otherwise and every metric was
     wrong). This leaves the floor exactly where it is and changes only how terrain ARRIVES at it.
 
     `knee = 0.0` is the hard clip, bit-identical — not an approximation of it.
@@ -416,7 +417,7 @@ def apply_ambient_floor(raw, ambient: float, hi: float, knee: float):
 # The hero's shadow is WARMER IN HUE, not merely darker: Cycles fills it with warm sky
 # (WORLD_RGBA F2E7D5 @ WORLD_STRENGTH 0.3) plus bounce off the rosy land, while our `light` is a
 # single scalar that multiplies all three channels equally and therefore cannot move hue at all.
-# Measured 2026-07-21 on heroes/raw/switzerland.png, inside narrow elevation bands so the ramp
+# Measured on heroes/raw/switzerland.png, inside narrow elevation bands so the ramp
 # colour is constant: linear R/B is 1.61-1.98x higher in the darkest quartile than the brightest,
 # monotonic across all ten luminance deciles. Ours is exactly 1.00x. -> ART.md "Hero -> tile map".
 #
@@ -456,18 +457,18 @@ def snow_position(light, curve):
     % at the top), so it barely occupies the midtones the curve borrows from. Under gamma8 only
     ~34% of Alpine snow pixels move at all (mean 6.99 DN) against 99% of Greenland's (mean 13.03).
 
-    LINEAR is retained as the A/B control and is what shipped before 2026-07-17. GAMMA8 delivers
+    LINEAR is retained as the A/B control and is what shipped before. GAMMA8 delivers
     Greenland Summit 3.14 -> 18.84 DN (6.0x) and north 4.35 -> 24.12 DN (5.5x). KNEE matches it at
     Summit but is weaker in the north (4.3x) for two more constants, so it was not chosen.
 
     `position ** 8` is deliberately left as a pow: repeated squaring is 1.7x faster on it but saves
-    6.8 s of a ~2,980 s composite (0.23%) and is not bit-identical (1.8e-7). Measured 2026-07-17,
+    6.8 s of a ~2,980 s composite (0.23%) and is not bit-identical (1.8e-7). Measured:
     not assumed -- this is the fast-stage trap the gdaladdo entry records.
     """
     position = np.clip((light - KNOBS["snow_lo"]) / (KNOBS["snow_hi_pt"] - KNOBS["snow_lo"]),
                        0.0, 1.0)
     if curve == "linear":
-        return position  # pre-2026-07-17 look, bit-identical -- a real control, not an approximation
+        return position  # the pre-curve look, bit-identical -- a real control, not an approximation
     if curve == "gamma4":
         return position ** 4
     if curve == "gamma8":
@@ -483,7 +484,7 @@ def composite(heights, ocean, water, snow_a, hs, occ, occ_shape, grid, depth=Non
     """Composite one window of the planet/region from ELEVATION, not pre-coloured rasters.
 
     `heights` is metres on the fused heightfield; the land and sea ramps are applied here via
-    `palette.relief_lut`, which replaced two `gdaldem color-relief` passes on 2026-07-16.
+    `palette.relief_lut`, which replaced two `gdaldem color-relief` passes.
     Those cost **28:19 and 24.4% of all pass CPU**, single-threaded, each reading the full 31 GB
     height raster to write 1 GB. Profiled: `libgdal 19.37%` (a per-pixel SEARCH over 241 ramp
     rows) vs `libdeflate 4.33%` -- so no threading flag could fix it. Our ramp rows are uniformly
@@ -493,7 +494,7 @@ def composite(heights, ocean, water, snow_a, hs, occ, occ_shape, grid, depth=Non
 
     Applying the ramps HERE rather than in each caller is deliberate: a per-call-site copy of a
     shared decision is precisely how the float32 window fix reached `composite` and never reached
-    `hillshade` (11.6 GB, 2026-07-16). One implementation, both shade paths.
+    `hillshade` (11.6 GB). One implementation, both shade paths.
     """
     height, width = grid
     # float32 throughout — the output is 8-bit, and on the full-width planet windows float64
@@ -514,7 +515,7 @@ def composite(heights, ocean, water, snow_a, hs, occ, occ_shape, grid, depth=Non
     color = np.where(ocean[None], sea, land)
     # Inland water: flat WATER_RGB by default. Where a lake carries GLOBathy depth, ramp it
     # instead -- on ABSOLUTE depth, never normalised per lake, since a per-lake normalisation
-    # is the artificial gradient the 2026-07-07 prototype was rejected for (a pond would read
+    # is the artificial gradient the prototype was rejected for (a pond would read
     # like Baikal). `depth` is already zeroed off watermask class 2 by the caller, so rivers
     # and the (class 1) Caspian cannot reach this branch.
     flat_water = np.array(palette.WATER_RGB, dtype=np.float32).reshape(3, 1, 1)

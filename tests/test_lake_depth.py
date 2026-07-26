@@ -4,11 +4,11 @@ Two of these are load-bearing beyond their size:
 
   * `test_shore_stop_is_water_rgb` pins LAKE_STOPS[0] to WATER_RGB. An untracked colour
     relationship drifting silently is precisely how the whole inland-water thread started --
-    test_palette.py froze the land/sea ramps but not WATER_RGB, the 2026-07-14 sea rework
+    test_palette.py froze the land/sea ramps but not WATER_RGB, the sea rework
     moved the sea out from under it, and nothing failed until Rohan spotted it in a
     screenshot. This is that guard, for the relationship that replaces it.
   * `TestLakesOnly` is the Caspian regression at unit level: the Caspian is watermask class 1
-    since the 2026-07-15 re-fuse specifically so GEBCO's measured bathymetry beats GLOBathy's
+    since the re-fuse specifically so GEBCO's measured bathymetry beats GLOBathy's
     modelled cone there, and `lakes_only` is what enforces it.
 
 Per HISTORY.md 2026-07-06 (the blind-oracle bug: a structural diff whose filter deleted the
@@ -186,7 +186,7 @@ class TestCompositeUsesDepth:
         and stopped being so when the ambient floor became a softplus -- see the helper.
         """
         shape = watercode.shape
-        # composite() derives land/sea colour from ELEVATION since 2026-07-16 (palette.relief_lut
+        # composite() derives land/sea colour from ELEVATION (palette.relief_lut
         # replaced gdaldem color-relief). 1500 m is ordinary land; the ocean mask, not the sign,
         # picks the sea ramp, so one height serves both branches.
         heights = np.full(shape, 1500.0, dtype="float32")

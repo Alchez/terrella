@@ -1,7 +1,7 @@
 """Tests for the freshness guard that decides which planet-shading stages re-run.
 
 The load-bearing case is `test_refused_cell_makes_the_warp_stale`: it reproduces the
-2026-07-15 Caspian miss, where re-fusing 4 of 540 chunks left every derived raster
+Caspian miss, where re-fusing 4 of 540 chunks left every derived raster
 silently stale because the old guard only asked whether the output existed.
 """
 
@@ -212,7 +212,7 @@ class TestCompositeParams:
     def test_cap_rgb_change_is_recorded(self, monkeypatch):
         """CAP_RGB (the polar-cap fill) reaches no file of its own; the 'cap' sidecar entry is what
         tracks it. Without this, a cap recolour would leave a stale planet_rgb looking fresh -- the
-        recompose that switched the cap to pale sea-ice (2026-07-18) relied on exactly this restage."""
+        recompose that switched the cap to pale sea-ice relied on exactly this restage."""
         before = shade_planet.composite_params({None: None})
         monkeypatch.setattr(shade_planet, "CAP_RGB", (1, 2, 3))
         assert shade_planet.composite_params({None: None}) != before
@@ -241,7 +241,7 @@ class TestCompositeParams:
         `alt`, likewise consumed by the hillshade) but composite() never reads it -- it reaches
         planet_rgb through composite_deps' dependency on `hs`. Recording it here too would restage
         a 53.8 min composite + 3:44 tile cut for byte-identical pixels merely because the knob
-        exists at strength 0. Caught 2026-07-17 when the fill port first landed it in KNOBS."""
+        exists at strength 0. Caught when the fill port first landed it in KNOBS."""
         before = shade_planet.composite_params({None: None})
         monkeypatch.setitem(shade_planet.KNOBS, "fill_strength", 0.15)
         assert shade_planet.composite_params({None: None}) == before
@@ -255,7 +255,7 @@ class TestCompositeParams:
         assert shade_planet.composite_params({None: None}) != before
 
     def test_a_land_ramp_retune_changes_the_params(self, monkeypatch):
-        """The trap opened by deleting color-relief on 2026-07-16. LAND_STOPS/SEA_STOPS used to
+        """The trap opened by deleting color-relief. LAND_STOPS/SEA_STOPS used to
         be tracked by ramp_{land,sea}.txt, whose only reason to exist was gating the gdaldem
         stages. With those gone, if the stops did not move in here, a ramp re-tune would leave
         planet_rgb looking fresh and the pass would skip the composite -- silently rendering the
@@ -302,7 +302,7 @@ class TestCompositeParams:
 
     def test_composite_window_rows_is_recorded(self):
         """The composite window height slices the SVF per window, so it perturbs the output
-        (the 256->128 A/B, 2026-07-18). It must be tracked, or switching the production window
+        (the 256->128 A/B). It must be tracked, or switching the production window
         height leaves a stale planet_rgb looking fresh -- the WATER_RGB trap again."""
         assert (shade_planet.composite_params({None: None}, window_rows=256)
                 != shade_planet.composite_params({None: None}, window_rows=128))
@@ -323,7 +323,7 @@ class TestCompositeDeps:
             tmp_path, tmp_path / "hs_3857.tif", tmp_path / "composite_params.json")
 
     @pytest.mark.parametrize("name", [
-        # height_3857 replaced land_3857/sea_3857 on 2026-07-16: composite() applies the ramps
+        # height_3857 replaced land_3857/sea_3857: composite() applies the ramps
         # itself now, so ELEVATION is the colour input and the height raster is what it must be
         # newer than. The ramp constants ride in composite_params.json.
         "height_3857.tif", "hs_3857.tif",

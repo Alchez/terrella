@@ -72,10 +72,10 @@ PLANE_WIDTH_UNITS = 2.0
 # the hero and gives both the same `sizes`, so a rung the overlay lacks makes the browser pull a
 # larger file for the top layer than for the one underneath it.
 TARGETS = (640, 960, 1280, 1920, 3840)   # plus each hero's native long edge
-# Unchanged at q88 by the 2026-07-25 quality pass, and provably so: build_overlay sets
+# Unchanged at q88 by the quality pass, and provably so: build_overlay sets
 # overlay_alpha to 0 across the subject, so these pixels only ever cover the dimmed surroundings.
 WEBP_QUALITY = 88
-DIM_DEFAULT = 0.68       # outside brightness (Rohan's "subtle", 2026-07-24)
+DIM_DEFAULT = 0.68       # outside brightness (Rohan's "subtle")
 DESAT_DEFAULT = 0.35     # outside desaturation
 OUTLINE_DIV_DEFAULT = 6000.0   # boundary hairline half-width = long_edge / this (~1.3px @7680)
 HALO_ALPHA_DEFAULT = 0.30      # faint dark keyline under the white line, for light-coast legibility
@@ -256,7 +256,7 @@ def render_one(slug, dim, desat, force, outline_div=OUTLINE_DIV_DEFAULT, halo=HA
         ocean = np.ones((height, width), dtype=ocean_full.dtype)  # margin fills as ocean(1)
         reproject(ocean_full, ocean, src_transform=ocean_transform, src_crs=crs,
                   dst_transform=hero_transform, dst_crs=crs, resampling=Resampling.nearest)
-        dem_land = ocean == 0  # value 0 = land in oceanmask_aea (verified 2026-07-24)
+        dem_land = ocean == 0  # value 0 = land in oceanmask_aea (verified)
 
         subject_seed = rasterise_polygons(subject_parts, fwd, to_px, width, height)
         neighbours = rasterise_polygons(neighbour_parts, fwd, to_px, width, height) if neighbour_parts \

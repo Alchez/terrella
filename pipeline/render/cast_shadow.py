@@ -16,7 +16,7 @@ Two properties are load-bearing and both are inherited, not invented:
   sun, and the fill is shadowless by construction (scene_build's FILL_ROTATION has `use_shadow`
   off). Multiplying the main term by `1 - shadow` before the blend therefore reproduces the hero's
   geometry exactly, and — the part that matters — a shadowed slope keeps the fill floor instead of
-  going pure black. That is the same invariant the 2026-07-17 fill-sun port established, where a
+  going pure black. That is the same invariant the fill-sun port established, where a
   single unfilled sun turned 43.7% of the Alps into flat black slabs.
 
 * **The penumbra is the sun's angular size, not a blur radius.** scene_build's SUN_ANGLE is 12

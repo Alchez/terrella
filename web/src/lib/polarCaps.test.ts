@@ -166,7 +166,7 @@ describe("capTextureBudget", () => {
 
 // ---------------------------------------------------------------------------------------------
 // Rung selection from the camera. The numbers below are not invented: they are what the live globe
-// measured on 2026-07-25 at DPR 1 (untouched default camera 110 px, north pole dragged into view at
+// measured at DPR 1 (untouched default camera 110 px, north pole dragged into view at
 // default zoom 1173 px, centred on the pole at z4 5822 px), so a change in the selection rule shows
 // up here as a disagreement with reality rather than with a guess.
 // ---------------------------------------------------------------------------------------------
@@ -246,7 +246,7 @@ describe("rungForDemand — the measured camera table", () => {
 });
 
 // ---------------------------------------------------------------------------------------------
-// The upload oracle. The 2026-07-23 bug was not a wrong picture — it was the RIGHT picture uploaded
+// The upload oracle. The bug was not a wrong picture — it was the RIGHT picture uploaded
 // up to five times, which nothing observed. Counting texImage2D is the only assertion that would
 // have caught it, so the upgrade path is tested by upload count, not by appearance.
 // ---------------------------------------------------------------------------------------------

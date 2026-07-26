@@ -64,7 +64,7 @@ def spotlight_sizes(variants_dir: Path, slug: str) -> list[int]:
 def aspect_of(variants_dir: Path, slug: str, sizes: list[int]) -> float:
     """width/height from the LARGEST variant (accurate framing, no layout shift).
 
-    Read off the largest rather than the smallest since 2026-07-25: aspect feeds both the CSS
+    Read off the largest rather than the smallest because aspect feeds both the CSS
     `aspect-ratio` and the srcset w-descriptors, and a 640-wide variant quantises the ratio ~12x
     more coarsely than the native one. It used to read sizes[0] because the ladder's floor was
     1920; adding rungs beneath that would have silently coarsened every country's framing.

@@ -95,7 +95,7 @@ class TestCapsManifest:
 class TestRecipeCoversTheAsset:
     def test_webp_quality_rides_in_the_recipe(self, monkeypatch):
         """The encoder setting changes the shipped pixels, so it must restage the cap —
-        the same freshness rule that caught the stale caps on 2026-07-22."""
+        the same freshness rule that caught the stale caps."""
         before = cap_render.cap_recipe(cap_render.NORTH)
         assert '"webp"' in before
         monkeypatch.setattr(cap_render, "CAP_WEBP_QUALITY", 101)

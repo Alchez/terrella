@@ -2,7 +2,7 @@
 
 `light` is a single scalar multiplying an RGB ramp, so `base * light` preserves R/B exactly —
 our shadows have always been the same hue as our sunlight, only darker. The hero's are not:
-measured 2026-07-21 on the raw Cycles frame for Switzerland, inside narrow elevation bands so
+measured on the raw Cycles frame for Switzerland, inside narrow elevation bands so
 the ramp colour is constant, linear R/B is **1.61–1.98x higher** in the darkest quartile than
 the brightest, monotonic across all ten luminance deciles.
 
@@ -116,7 +116,7 @@ class TestItLeavesTheOtherSurfacesAlone:
         assert np.array_equal(cold, composite_at(0.60, water=True))
 
     def test_full_snow_keeps_its_blue_shadow(self):
-        """Snow shadow is deliberately BLUE-white (`SNOW_SHADOW_RGB`, chosen 2026-07-13) — warming
+        """Snow shadow is deliberately BLUE-white (`SNOW_SHADOW_RGB`, chosen) — warming
         it would overturn a decision made on its own evidence."""
         shade.KNOBS["shadow_warmth"] = 1.0
         assert tuple(int(band) for band in composite_at(0.56, snow=1.0)) \

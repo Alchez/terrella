@@ -7,7 +7,7 @@
  *  - Over HTTP/2 every tile shares ONE connection, so concurrency **divides** the bandwidth
  *    rather than adding to it. Sixteen streams all crawl and none finishes early; fewer streams
  *    finish sooner, and a tile that has finished is a tile that has painted.
- *  - But an edge-cold tile is **latency**-bound — ~440 ms TTFB measured 2026-07-26 — and
+ *  - But an edge-cold tile is **latency**-bound — ~440 ms TTFB measured — and
  *    parallelism is exactly what overlaps latency. Fewer streams means more serialised waiting.
  *
  *  Which effect dominates depends on cache state and link speed, so this exists to be *measured*

@@ -48,10 +48,10 @@ def _rgba(stops):
     return [(pos, (*rgb, 1.0)) for pos, rgb in stops]
 
 
-# ---- locked look (PLAN.md "Locked global constants", 2026-07-06; amended
-# ---- 2026-07-08: snow, fill sun, sun angle, land ramp top). Colour + sun-altitude
-# ---- constants are DERIVED from pipeline/render/palette.py since the 2026-07-23
-# ---- sea-sync: copies drifted three times (sea ramp, water tint, sun altitude) —
+# ---- locked look (PLAN.md § "Locked global constants" — snow, fill sun, sun
+# ---- angle, land ramp top). Colour + sun-altitude constants are DERIVED from
+# ---- pipeline/render/palette.py since the hero sea-sync: copies drifted three
+# ---- times (sea ramp, water tint, sun altitude) —
 # ---- imports cannot. WORLD_*/FILL_*/SUN_ANGLE/STRENGTH stay local: they have no
 # ---- tile counterpart or are deliberately not ports (ART.md hero→tile map). ----
 DISPLACEMENT_MIDLEVEL = 0.0
@@ -269,7 +269,7 @@ def build_material(ob, render_dir, displacement_scale):
     # degrades to today's colour with no selector logic. Rivers stay flat by
     # decision (no global bed data) — the River mix keeps the RGB node. Depth
     # is tint-only and must NEVER reach displacement (at 15x exaggeration a
-    # carved bed makes Namtso a 1.5 km crater — 2026-07-07).
+    # carved bed makes Namtso a 1.5 km crater).
     lake_ramp = None
     if (render_dir / "lakedepth_aea.tif").exists():
         lake_depth_node = nt.nodes.new("ShaderNodeTexImage")

@@ -6,7 +6,7 @@ single pixel or two, so the tile pipeline only wants the ones large enough to sh
 gradient: the prototype's SIZE_FULL_PX=6 (deepest point >=6 px from shore) means >=12 px
 across, i.e. ~3.7 km.
 
-MIN_BYTES is a deliberately crude stand-in for that. Measured 2026-07-15, file size tracks
+MIN_BYTES is a deliberately crude stand-in for that. Measured: file size tracks
 lake AREA while the criterion is the NARROW dimension, so the two diverge (a 13,914 B raster
 measured 7.1 px across; a 3,661 B one measured 13.1 px). Precision is not worth buying,
 because both errors are harmless: an over-included lake renders near-flat, which is the

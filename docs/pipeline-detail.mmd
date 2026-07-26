@@ -98,8 +98,8 @@ flowchart TD
   T2 --> T5
   PH --> CP
 
-  subgraph SITE["Site — Tiers 1+2 live; deploy is the remaining phase"]
-    W["three-tier static Astro site, nginx on rohome<br/>Tier 1 gallery / Tier 2 MapLibre globe (live)<br/>Tier 3 globe + terrain-RGB relief (candidate:<br/>decided after deploy)"]
+  subgraph SITE["Site — deployed; Tiers 1+2 live"]
+    W["three-tier static Astro site, shell on a CDN edge worker<br/>heroes + border vectors in object storage; tiles from a<br/>second worker over the PMTiles archive<br/>Tier 1 gallery / Tier 2 MapLibre globe (live)<br/>Tier 3 globe + terrain-RGB relief (candidate)"]
   end
 
   T2 --> W

@@ -116,7 +116,7 @@ def mem_available_gib() -> float:
 def enforce_land_guard(outdir: Path) -> bool:
     """True if the fused ocean mask holds at least one land pixel; on pure ocean, fail the cell.
 
-    Closes the stale-mosaic route around the coverage oracle (found 2026-07-22, when the
+    Closes the stale-mosaic route around the coverage oracle (found when the
     first Antarctic sweep fused the whole continent as ocean): every listed tile can be on
     disk while dem_mosaic.vrt / wbm_mosaic.vrt predate the download — a VRT enumerates its
     sources at build time, so the tiles are invisible to fusion, and the in-window gap

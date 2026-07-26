@@ -9,7 +9,7 @@ tile implementation lives — so the scene just samples it into a ColorRamp over
 data degrade to exactly the pre-lake-depth look.
 
 Depth is TINT-ONLY and must never reach displacement: at 15x exaggeration a carved bed
-makes Namtso a 1.5 km crater (2026-07-07). Absolute depth, never normalised per lake
+makes Namtso a 1.5 km crater. Absolute depth, never normalised per lake
 (a pond would read like Baikal). Rivers (class 3) stay flat — no global bed data
 exists — and the (class 1) Caspian keeps GEBCO's measured bathymetry: both enforced by
 `lake_depth.lakes_only`, the one implementation of that decision. The epistemics of the

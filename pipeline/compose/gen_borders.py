@@ -40,7 +40,7 @@ WORK = ROOT / "data/work"
 # The globe's hero panel is the only surface that overlays this layer, and it declares a 420 px
 # slot — so the rungs that matter are 420 px at DPR 1/2/3. 1920 alone left that panel pulling an
 # 85 kB border PNG on top of a 48 kB hero, i.e. the border became the heavier half of the card
-# (caught 2026-07-25, after the hero and spotlight ladders had already been extended past it).
+# (caught after the hero and spotlight ladders had already been extended past it).
 # 3840 is deliberately absent: unlike the hero, this layer is never displayed larger than the
 # panel, and each country's native long edge is added below regardless.
 TARGETS = (640, 960, 1280, 1920)   # each country's native long edge added too

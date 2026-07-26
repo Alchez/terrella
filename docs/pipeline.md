@@ -121,7 +121,7 @@ slug before choosing. `gen_borders` has no `--jobs` and takes ~3 s per country.
 
 `hero_variants` also records `hero_variants_recipe.json` (rung → the WebP quality it was written at).
 Existence alone cannot tell a q95 file from the q85 one it replaced, so **changing `quality_for()` is
-what restages a rung** — and only that rung. Then the frontend (the in-repo Astro site in `web/`, merged to main) regenerates its manifest and builds:
+what restages a rung** — and only that rung. Then the frontend (the Astro site in `web/`) regenerates its manifest and builds:
 
 ```bash
 python web/scripts/gen_manifest.py --out web/src/data/countries.json

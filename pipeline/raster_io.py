@@ -1,6 +1,6 @@
 """Single home for the raster conventions every windowed writer shares.
 
-Born from PLAN's commonification list (2026-07-23): the same fix has landed at
+-> HISTORY § commonification LANDED. The same fix had landed at
 one call site and been missed at its siblings four separate times — float32 +
 windowed reads (composite had it, hillshade didn't), warp-once (lakedepth had
 it, snow didn't), NUM_THREADS (warps had it, writers didn't), and the pyright

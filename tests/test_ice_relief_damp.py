@@ -2,7 +2,7 @@
 
 The ice whites are light-keyed by `snow_t`, whose light over ocean is the seafloor's
 hillshade — so before this knob, the perennial pack painted the floor's ridges into the
-ice at full strength and read as terrain above the sea (Rohan, 2026-07-22, north pole).
+ice at full strength and read as terrain above the sea (Rohan, north pole).
 The damp pulls the ice's light-key toward its flat-ocean value in proportion to
 `damp * ice_alpha`.
 
@@ -87,7 +87,7 @@ class TestItConcealsShadingProportionally:
 
     def test_the_colour_glow_through_survives_full_damp(self):
         """The other channel: a shallow shelf and a deep basin under identical full-damp pack
-        must still differ — depth reads as COLOUR under the ice, per the 2026-07-20 decision."""
+        must still differ — depth reads as COLOUR under the ice, per the decision."""
         shade.KNOBS["ice_relief_damp"] = 1.0
         shelf = composite_pixel(1.0, ice=0.85, height=-80.0)
         basin = composite_pixel(1.0, ice=0.85, height=-4000.0)

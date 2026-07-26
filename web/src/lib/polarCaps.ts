@@ -110,7 +110,7 @@ function angularDistanceDeg(fromLngLat: [number, number], toLngLat: [number, num
  *  Only FRONT-FACING samples count (angular distance from the camera centre < 90°). MapLibre's
  *  `project()` answers for points behind the globe too — projected through the sphere — so a cap on
  *  the far side reports a bounded but non-zero box that SATURATES near 970 px however far you zoom
- *  (measured 2026-07-25). Harmless at DPR 1, but ×3 it crosses into the 4096 rung, which would
+ *  (measured). Harmless at DPR 1, but ×3 it crosses into the 4096 rung, which would
  *  fetch a megabyte of texture for a cap the viewer cannot see. Returns 0 when the cap is entirely
  *  behind the globe, which reads as "needs nothing". */
 export function capProjectedExtentPx(
@@ -243,7 +243,7 @@ void main() {
     // PREMULTIPLIED output — the custom-layer contract: MapLibre's framebuffer holds
     // premultiplied colors. The straight-alpha vec4(c.rgb, a) + SRC_ALPHA blending violated it
     // and painted a brighter-than-both-layers swell along the feather band, which 8-bit
-    // quantization then rendered as concentric contour arcs — THE polar ring (2026-07-22),
+    // quantization then rendered as concentric contour arcs — THE polar ring,
     // which tracked the cap↔tile boundary through the Antarctica re-fuse.
     float a = c.a * feather;
     fragColor = vec4(c.rgb * a, a);
@@ -342,7 +342,7 @@ function uploadCapTexture(gl: WebGL2RenderingContext, image: ImageBitmap | HTMLI
  *  stall across both poles); `createImageBitmap` moves that to Chrome's worker pool, leaving
  *  only the ~117 ms GPU upload on the main thread. `premultiplyAlpha: "none"` is load-bearing:
  *  the fragment shader premultiplies in-shader, and a premultiply at decode time would
- *  double-apply it — the same alpha chemistry as the 2026-07-22 polar ring.
+ *  double-apply it — the same alpha chemistry as the polar ring.
  *
  *  Firefox does not implement the `premultiplyAlpha` member (WebIDL drops unimplemented
  *  dictionary members silently); that is safe here because the mesh only samples the cap's
@@ -376,7 +376,7 @@ async function loadCapImage(url: string): Promise<ImageBitmap | HTMLImageElement
  *  sharpest view it actually asked for and nothing more.
  *
  *  Exported only as a test seam: its whole contract is "how many uploads, of which rung, under which
- *  camera", and that is exactly what the 2026-07-23 onAdd multiplier bug got wrong unobserved. */
+ *  camera", and that is exactly what the onAdd multiplier bug got wrong unobserved. */
 export async function syncCapRung(
   layer: CapLayer,
   opts: CapOptions,
@@ -403,7 +403,7 @@ export async function syncCapRung(
     // Mipmapped minification, not plain LINEAR: at low zoom the cap shrinks ~100:1 on screen, and
     // bilinear sampling of 4 texels per ~40×40-texel block aliases the fine relief detail — on this
     // radial polar mapping the alias energy reads as CONCENTRIC RINGS around the pole, strongest
-    // zoomed out and gone by ~z8 (diagnosed 2026-07-22 after every texture-side tone fix left the
+    // zoomed out and gone by ~z8 (diagnosed after every texture-side tone fix left the
     // ring visually unchanged).
     gl.generateMipmap(gl.TEXTURE_2D);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
@@ -430,7 +430,7 @@ export async function syncCapRung(
  *  the style — so the layer object is discarded and rebuilt — while every `map.on` listener
  *  survives untouched. Without this registry each loss stranded a listener still closed over the
  *  dead layer, and because `rungLoading` is per-layer the strays could not even dedupe against the
- *  live one: every later upgrade was fetched once per stray. Measured live 2026-07-26 — one forced
+ *  live one: every later upgrade was fetched once per stray. Measured — one forced
  *  loss, one camera move, `cap_north_4096.webp` requested TWICE. It compounds at N+1 fetches after
  *  N losses, and it is invisible on screen because the winning upload is correct either way. */
 const capMoveHandlers = new Map<string, () => void>();
@@ -555,7 +555,7 @@ export function addPolarCap(map: MaplibreMap, opts: CapOptions): void {
  *  layer has no serialized form. The library says so itself, by name, on every loss:
  *  `Custom layer with id 'polar-cap-north' cannot be restored after WebGL context loss.`
  *  The caps come back only because globe.astro calls this from `map.on("style.load")` and the
- *  restore's internal `setStyle` re-fires that event. Verified on the live site 2026-07-26: forced
+ *  restore's internal `setStyle` re-fires that event. Verified on the live site: forced
  *  loss + restore, both warnings logged, globe visually identical afterwards.
  *  Rebinding this to a one-shot `load` handler would leave every recovered globe permanently
  *  capless, with no error — the map looks fine, the poles are just holes. A test guards the
@@ -564,7 +564,7 @@ export function addPolarCap(map: MaplibreMap, opts: CapOptions): void {
  *  `cache: "no-cache"` (revalidate, don't skip the cache) is load-bearing, not caution. The
  *  manifest is a CONTRACT DOCUMENT, not an asset: the textures it names are content-addressed
  *  by size (cap_north_8192.webp), so a stale texture is impossible, but a stale manifest
- *  describes a world that no longer exists. Caught live 2026-07-25 — adding the rung list
+ *  describes a world that no longer exists. Caught — adding the rung list
  *  broke the caps on this very browser, which was holding a week-old manifest under the
  *  stores' 1-week cache class and reading `entry.rungs` as undefined. The failure is silent
  *  by design (capless globe, one console error), which is exactly why it must not be

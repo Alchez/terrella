@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Go/no-go: does the LUT reproduce `gdaldem color-relief` on the real 12.19 Gpx planet?
 
-ARCHIVED 2026-07-21 — A RECORD OF METHOD, NOT A RUNNABLE CHECK. `compare()` reads
-`land_3857.tif` / `sea_3857.tif`, and those were deleted on 2026-07-16 along with the
+ARCHIVED — A RECORD OF METHOD, NOT A RUNNABLE CHECK. `compare()` reads
+`land_3857.tif` / `sea_3857.tif`, and those were deleted along with the
 color-relief stage they came from, so this cannot execute again without re-adding that stage.
 It is kept because it lived only in gitignored `data/work/_profile/` and was tracked nowhere:
 the "a superseded path gets deleted, git is the archive" rule explicitly does not apply under
@@ -11,7 +11,7 @@ oracle's DESIGN survives even though its inputs do not — this is the script be
 HISTORY § 2026-07-16 (the color-relief stage deleted).
 
 The oracle is INDEPENDENT and PRE-EXISTING: land_3857.tif / sea_3857.tif were written by gdaldem
-during the 2026-07-16 pass, before this LUT was designed. They are not fixtures built to agree.
+during the pass, before this LUT was designed. They are not fixtures built to agree.
 
 Also measures the LUT's own wall clock, so "how much does deleting the stage save" is a
 measurement rather than a projection. NOTE the honest caveat: this script WRITES both rasters so

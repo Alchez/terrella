@@ -4,7 +4,7 @@
 # WHY THIS IS A MEASUREMENT AND NOT A SETTING. Over HTTP/2 every tile shares one connection, so
 # concurrency divides bandwidth rather than adding it — fewer streams finish sooner, and a tile
 # that has finished is a tile that has painted. But an edge-cold tile is latency-bound (~440 ms
-# TTFB, measured 2026-07-26) and parallelism is exactly what overlaps latency. The two effects
+# TTFB, measured) and parallelism is exactly what overlaps latency. The two effects
 # pull opposite ways and which one wins depends on cache state and link speed. "Leave it at 16"
 # is a perfectly good outcome; guessing a number is not.
 #
@@ -93,6 +93,6 @@ for rung in (4, 8, 16, 32):
           f"{statistics.median(window) if window else 0:>15.0f}ms {observed:>10}{flag}")
 
 print("\nRead the spread, not just the median: Lighthouse variance on this page has been measured "
-      "larger than most effects worth chasing (score 48/TBT 2120 vs 53/TBT 3300 on identical input,\n"
-      "2026-07-26). If the rungs sit inside each other's spread, the honest answer is 'leave it at 16'.")
+      "larger than most effects worth chasing: score 48/TBT 2120 vs 53/TBT 3300 on identical\n"
+      "input. If the rungs sit inside each other's spread, the honest answer is 'leave it at 16'.")
 PY

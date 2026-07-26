@@ -1,6 +1,6 @@
 """Tests for the elevation->RGB LUT that is meant to replace `gdaldem color-relief`.
 
-Why a LUT can be exactly equivalent, measured 2026-07-16: color-relief is **24.4% of all pass CPU**
+Why a LUT can be exactly equivalent, measured: color-relief is **24.4% of all pass CPU**
 (28:19 wall, single-threaded), and the profile splits it `libgdal 19.37%` (interpolation) vs
 `libdeflate 4.33%` (compression) -- so no threading flag can fix it. The interpolation is a per-pixel
 SEARCH over the 241 ramp stops `palette.color_relief_rows(step=25)` emits. gdaldem searches because

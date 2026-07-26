@@ -15,7 +15,7 @@ and retry only what is missing. Failures never abort the run; they are listed
 in failures.txt and retried on the next run.
 
 Before downloading, a preflight proves the bucket hasn't changed editions
-under us (the standing oracle from PLAN.md 2026-07-08): the bucket carries no
+under us (-> HISTORY § GLO-30 unversioned bucket gets an ETag oracle): the bucket carries no
 edition in any path, so mixing tiles fetched years apart could silently mix
 Copernicus DEM editions. Local md5 of a few held tiles must equal their S3
 ETag (a plain md5 for these single-part objects); any mismatch aborts.
@@ -103,7 +103,7 @@ def bucket_preflight():
         if local != etag:
             sys.exit(f"bucket preflight FAILED: {name} local md5 {local} != "
                      f"ETag {etag} — the bucket may have moved to a new "
-                     f"Copernicus edition; stop and decide (PLAN.md 2026-07-08)")
+                     f"Copernicus edition; stop and decide")
     if sample:
         # Stamp only what was actually verified — no held tiles means nothing
         # was checked, so there is nothing to cache. Atomic write (.tmp +

@@ -10,9 +10,9 @@ Douglas-Peucker error must stay under one pixel of the sharpest tiles (z8) —
 not merely "small enough to hit-test". The file began life as a pure hit layer
 at 0.05 deg (~5.5 km) on the premise the geometry would never be seen; the
 hover outline invalidated that silently, and at z8 the chords cut ~18 px
-straight across bays (the 2026-07-23 blocky-coast report). Fidelity costs real
-bytes — 9.2 MB raw / 2.5 MB gzipped vs 1.5 / 0.4 at the old tolerance, measured
-2026-07-23 — but the fetch is async behind first paint and cached, so the
+straight across bays (the blocky-coast report). Fidelity costs real
+bytes — 9.2 MB raw / 2.5 MB gzipped vs 1.5 / 0.4 at the old tolerance, measured —
+but the fetch is async behind first paint and cached, so the
 display requirement wins. We carry only ADMIN — the frontend joins it to
 countries.json by name (gen_manifest sets name = resolve()["admin"]) and gates
 interactivity to in-scope names with a layer filter.

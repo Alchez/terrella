@@ -2,8 +2,8 @@
 
 scene_build runs only under Blender's Python (`import bpy`), so it was historically
 ast-parsed and never imported, and its constants were COPIES — which is how three
-divergences accumulated undetected (sea ramp, water tint, sun altitude; the 2026-07-21
-ART.md audit). Since the 2026-07-23 sea-sync the constants are imports from
+divergences accumulated undetected (sea ramp, water tint, sun altitude; the ART.md audit).
+Since the sea-sync the constants are imports from
 `pipeline.render.palette`; these tests stub bpy and import the module in the venv, so
 any re-inlined literal fails HERE instead of on a hero render.
 """

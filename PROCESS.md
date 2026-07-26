@@ -46,7 +46,7 @@ flowchart LR
 ```
 
 The hero pipeline is the other lane (separate table below): per-country prep walk **1.25 s warm**
-(six guarded stages) → Blender render **1:29–3:36** → full ~204-country sweep **~10.5 h** (measured 2026-07-24), GPU-bound.
+(six guarded stages) → Blender render **1:29–3:36** → full ~204-country sweep **~10.5 h**, GPU-bound.
 
 All stage numbers below are at the **131072² grid** (the full Mercator square) with the composite
 **threaded 128-row/4-worker**:
@@ -129,9 +129,9 @@ watch **anon**, not the total.
 | `render/render_prep.py --frame` → `frame.json` | ~seconds | `is_stale` | per-country frame + warps |
 | `render/lake_mask.py` (stage 6 of 7) | **0:11 finland (lake-densest) / 0:03 estonia** — the feared 83k-source-VRT warp cost is seconds, not minutes | skip-if-exists | `lakedepth_aea.tif` (log1p ramp position) |
 | `render/scene_build.py --render` — headless Cycles, OptiX | **3:36 @ 8K** (finland 1:29 at 4142×7680) | n/a | one hero PNG |
-| Full batch — **~204 heroes** | **~10.5 h measured** (2026-07-24 sea-sync sweep: 203 heroes, 0 fail; 9.36 h GPU-bound = 89.5% duty; host RSS peaked ~10 GB vs the 25 GB cap → the single 12 GB GPU is the wall, more RAM saves nothing) | per-country resume | `blender/renders/` |
+| Full batch — **~204 heroes** | **~10.5 h measured** (a full sweep at the current scene rig: 203 heroes, 0 fail; 9.36 h GPU-bound = 89.5% duty; host RSS peaked ~10 GB vs the 25 GB cap → the single 12 GB GPU is the wall, more RAM saves nothing) | per-country resume | `blender/renders/` |
 | `render/sky_view.py` re-shade (look re-tune, no re-render) | **no GPU, minutes** — re-runs the AO over the kept `heroes/raw/*.png`; a `sky_view_strength` change re-shaded all 203 with no Blender pass | — | shaded `heroes/*.png` |
-| Targeted re-render (e.g. Fix B floor, 7 microstates) | **~28 min** (2026-07-24; ~4 min each, tiny frames) — rm `heightfield_aea.tif` + hero + raw, then `batch --through render --only` | per-country resume | the named heroes |
+| Targeted re-render (e.g. a sea-floor fix across 7 microstates) | **~28 min** (~4 min each, tiny frames) — rm `heightfield_aea.tif` + hero + raw, then `batch --through render --only` | per-country resume | the named heroes |
 | `batch --through prep`, warm walk | **1.25 s/country** (six guarded stages) | same | prep-complete markers |
 
 - 8K frames denoise on **CPU**, not GPU: GPU render + GPU OIDN contend for the 12 GB VRAM → Xid 31
@@ -162,7 +162,7 @@ Run once; all are resumable and verify against a pinned size/md5, so a re-run is
 
 | Process | Command | Time | Notes |
 |---|---|---|---|
-| Astro dev server — **the product globe** | `pnpm dev` in `web` | ~2 s | `/globe` on Astro's default port 4321 (not pinned in config); serves the three store routes (`/heroes`, `/borders`, `/tiles`) from `web/.env` paths, dev-only middleware, `no-cache`. `/tiles/{z}/{x}/{y}.png` is ranged out of `planet.pmtiles` in-process — the local twin of the production tile Worker |
+| Astro dev server — **the product globe** | `pnpm dev` in `web` | ~2 s | `/globe` on Astro's default port 4321 (not pinned in config); serves the three store routes (`/heroes`, `/borders`, `/tiles`) from `web/.env` paths, dev-only middleware, `no-cache`. `/tiles/{z}/{x}/{y}.webp` is ranged out of `planet.pmtiles` in-process — the local twin of the production tile Worker |
 | Static build | `pnpm build` | ~seconds (206 pages) | emits HTML/CSS/JS only — assets stay external |
 | Tile smoke test — **not the product** | `python3 -m http.server` in `work/planet_tiles` | instant | proves the pyramid renders with zero deps; no starfield/borders/atmosphere by design |
 | Worker deploy + first TLS | `npx wrangler deploy` in `web/worker` | deploy seconds; **certificate a few minutes** | Universal SSL covers only the apex + first level, but Workers Custom Domains **auto-generate an Advanced Certificate** for the target hostname and R2/Pages custom domains use Cloudflare-for-SaaS certs — both automatic, no ACM, any depth. So depth changes *when* TLS works, not *whether*. Expect `TLS alert handshake failure` while the cert issues, even though DNS already resolves: `*.zone` is an RFC 4592 wildcard that answers at any depth, so **check the certificate, never `dig`** |
@@ -173,7 +173,7 @@ Run once; all are resumable and verify against a pinned size/md5, so a re-run is
 | Spotlight overlays — small rungs only | `gen_spotlight.py --only <slugs> --jobs 6` | **1m45s** (203 slugs × 3 new rungs) | **The "~8 GB per job" in its docstring is a NATIVE-rung figure.** Generating only 640/960/1280 measured **0.49 GB per job**, ~16× lighter, so a high `--jobs` is safe for a small-rung pass and reckless for a full one. Time one slug before choosing |
 | Border layers — all rungs | `gen_borders.py` | **7m21s** (201 countries × 5 rungs, serial; no `--jobs` flag) | Redraws the full-res cairo layer per country and writes every rung from that one surface, so adding a rung costs a full regeneration. ~3 s per country |
 | R2 upload — heroes + borders | `aws … s3 sync … --exclude "*.aux.xml" --exclude "*_recipe.json"` | ~2 min (1,622 files, 2.13 GB) | **Both excludes are mandatory** — GDAL PAM sidecars are the bulk of them, and `hero_variants_recipe.json` is pipeline-internal freshness state that must not be published (the deploy preflight caught it as an unreferenced object). 609 of the variants store's 2,231 files are GDAL sidecars. GeoJSON needs `--content-type application/json` or the edge will not compress it |
-| PMTiles packaging | `pack_pmtiles.py` → `pmtiles convert` | **WebP q95 pyramid:** dir→MBTiles **10 s** (87,381 tiles, 3.19 GB); convert **5.8 s** → **3.0 GB** `planet.pmtiles`. *(The PNG pyramid it replaced: 33 s and 1m11s → 15 GB.)* | Still run convert capped with `--tmpdir` on ext4 — uncapped it stages through tmpfs `/tmp` (= RAM) → HISTORY § the uncapped pmtiles convert OOM'd the box. The format is read off the tile directory, never passed: a mixed directory fails loudly. Verify with `pmtiles show` (must read `tile type: webp`) plus a byte-compare of a few addresses against the tiles on disk | run convert capped and with its temp on ext4 — uncapped it stages ~12 GB through tmpfs `/tmp` (= RAM) → HISTORY § the uncapped pmtiles convert OOM'd the box. Verified: `pmtiles verify` clean, 5 tiles byte-identical incl. z8 y=255 |
+| PMTiles packaging | `pack_pmtiles.py` → `pmtiles convert` | **WebP q95 pyramid:** dir→MBTiles **10 s** (87,381 tiles, 3.19 GB); convert **5.8 s** → **3.0 GB** `planet.pmtiles`. *(The PNG pyramid it replaced: 33 s and 1m11s → 15 GB.)* | Always run convert **capped and with `--tmpdir` on ext4** — uncapped it stages ~12 GB through tmpfs `/tmp` (= RAM) → HISTORY § the uncapped pmtiles convert OOM'd the box. The format is read off the tile directory, never passed: a mixed directory fails loudly. Verify with `pmtiles show` (must read `tile type: webp`) plus a byte-compare of a few addresses against the tiles on disk — last checked clean, with 5 tiles byte-identical incl. z8 y=255 |
 
 ## If you only remember one thing
 

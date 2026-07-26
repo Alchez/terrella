@@ -1,7 +1,7 @@
 """The ambient floor: a hard clip that destroys information, and the soft knee that doesn't.
 
 `shade.composite` has always landed its light with `np.clip(hs/flat, ambient, hi)`. That makes
-`ambient` a CLIFF: measured 2026-07-20 on Iran, 18.07% of land sits below it carrying no hillshade
+`ambient` a CLIFF: measured on Iran, 18.07% of land sits below it carrying no hillshade
 information at all, and a cast shadow pushed 6.21% more under — pixels whose control spread was
 36 DN, all collapsed onto one value.
 
@@ -77,7 +77,7 @@ class TestSoftKneePreservesFormBelowTheFloor:
 
 
 class TestFreshnessRecordsTheOcclusionResolution:
-    """Folded in 2026-07-20: the occlusion resolution changes planet_rgb but reached no record."""
+    """Folded: the occlusion resolution changes planet_rgb but reached no record."""
 
     def test_composite_params_records_the_occlusion_target(self):
         import json
@@ -100,7 +100,7 @@ class TestFreshnessRecordsTheOcclusionResolution:
 class TestTheTestOracleInvertsTheFloor:
     """`conftest.hillshade_for_light` is the analytic inverse the composite tests aim with.
 
-    Added 2026-07-21 with the knee: those tests used to construct a known light as `flat * light`,
+    Added with the knee: those tests used to construct a known light as `flat * light`,
     which was exact only while the floor was `np.clip`. An oracle that is quietly wrong makes every
     assertion it feeds quietly wrong, so it gets its own round trip.
     """

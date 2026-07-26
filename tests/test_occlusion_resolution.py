@@ -1,6 +1,6 @@
 """The region preview and the planet must occlude at the SAME ground resolution.
 
-Found 2026-07-20: they disagreed by 12.9x. The region path sized its sky-view downsample with a
+Found: they disagreed by 12.9x. The region path sized its sky-view downsample with a
 region-local `long_edge = 2400` (~760 m/px of ground at Iran) while the planet used
 `SVF_LONG_EDGE = 4096` over a raster 18x wider (~9,784 m/px). The region exists to PREDICT the
 planet, so every A/B run through it — including the tuning that set `svf_strength` and

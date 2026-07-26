@@ -2,7 +2,7 @@
 land/sea color ramps used by both the Cycles heroes and the raster tile shading.
 
 The load-bearing test is `test_color_relief_matches_locked_hero_hex`: an independent
-oracle (the frozen hex values recorded in CLAUDE.md's "Locked global constants") that
+oracle (the frozen hex values recorded in PLAN.md § "Locked global constants") that
 fails loudly if the linear ramp stops ever drift off the approved hero look.
 """
 
@@ -19,11 +19,11 @@ def _hex(code: str) -> tuple[int, int, int]:
     return (int(code[0:2], 16), int(code[2:4], 16), int(code[4:6], 16))
 
 
-# The frozen hero ramp endpoints (CLAUDE.md → Locked global constants → Color).
+# The frozen hero ramp endpoints (PLAN.md § Locked global constants → Color).
 LAND_COAST = _hex("E9D9C0")   # land ramp @ 0 m
 LAND_PEAK = _hex("E9DCC8")    # land ramp @ 6000 m
-SEA_SHALLOW = _hex("85B9B7")  # sea ramp @ 0 m (shallowest; deepened ~15% from 8FC7C5, 2026-07-14)
-SEA_DEEP = _hex("3A6E7D")     # sea ramp @ -6000 m (deepest; depth extended from -3000, 2026-07-14)
+SEA_SHALLOW = _hex("85B9B7")  # sea ramp @ 0 m (shallowest; deepened ~15% from 8FC7C5)
+SEA_DEEP = _hex("3A6E7D")     # sea ramp @ -6000 m (deepest; depth extended from -3000)
 
 
 class TestScalarHelpers:
@@ -86,7 +86,7 @@ class TestColorRelief:
             assert elevs == sorted(elevs)
 
     def test_color_relief_matches_locked_hero_hex(self):
-        """Independent oracle: generated endpoints == the frozen CLAUDE.md hex."""
+        """Independent oracle: generated endpoints == the frozen PLAN.md hex."""
         land = palette.color_relief_rows("land")
         sea = palette.color_relief_rows("sea")
         assert land[0][1] == LAND_COAST
@@ -96,10 +96,10 @@ class TestColorRelief:
 
 
 class TestSharedConstants:
-    """The relational pins that stop the copy-drift class of bug (2026-07-23 sea-sync).
+    """The relational pins that stop the copy-drift class of bug (the sea-sync).
 
-    WATER_RGB went stale against SEA_STOPS[0] once on the tiles (2026-07-15) and once
-    on the heroes (98C5C8, caught 2026-07-16) because nothing tied the tint to the sea
+    WATER_RGB went stale against SEA_STOPS[0] once on the tiles and once
+    on the heroes (98C5C8) because nothing tied the tint to the sea
     surface. These freeze the value AND the relationship."""
 
     def test_water_rgb_exact(self):

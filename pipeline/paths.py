@@ -13,7 +13,7 @@ new `Path.home()` root anywhere else fails the suite.
   `MAPS_DATA` overrides; defaults to `<repo>/data`. The shell twin of this seam
   is `build_mosaics.sh`, which reads the same variable.
 - BLENDER: the Blender binary for hero renders. `MAPS_BLENDER` overrides;
-  defaults to the documented tarball install (CLAUDE.md § Environment).
+  defaults to the documented tarball install (docs/pipeline.md § Environment setup).
 """
 
 import os

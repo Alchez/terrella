@@ -5,7 +5,7 @@ Prints render/cycles/color-management settings, world, object transforms,
 modifier state, the full material graph (ramp stops included), all links, and
 a sampled evaluation of every ColorRamp (cr.evaluate() at fixed positions —
 this tests the *function*, not just the stored stops; it is what caught the
-scrambled-ramp bug on 2026-07-07 after the stored stops looked plausible).
+scrambled-ramp bug after the stored stops looked plausible).
 
 Node-editor XY positions are deliberately omitted so two dumps compare with
 no filtering:  diff <(sort A.txt) <(sort B.txt)

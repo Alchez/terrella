@@ -2,7 +2,7 @@
 ramps, snow, and inland-water tints that define Terrella's look.
 
 Used by the raster tile shading (venv) AND the Cycles hero scene (`scene_build`
-imports this module directly since the 2026-07-23 sea-sync — its constants were
+imports this module directly since the sea-sync — its constants were
 copies before that, which is how three divergences accumulated). Kept deliberately
 dependency-light (numpy only, which Blender bundles) so it imports from either
 interpreter — Blender's bundled Python cannot see the venv's packages, so any
@@ -50,7 +50,7 @@ SEA_STOPS: list[Stop] = [
 ]
 WATER_RGB: RGB8 = (142, 198, 196)  # 8EC6C4 — flat inland lake/river teal: the sea
 # surface tone (85B9B7) lightened ~7%, so lakes stay in the sea's green-teal family but
-# read a touch calmer/lighter (the lake convention). Re-synced to the 2026-07-14 sea
+# read a touch calmer/lighter (the lake convention). Re-synced to the sea
 # rework, which had deepened the sea surface and left this stranded ~15% brighter.
 SNOW_RGB: RGB8 = (232, 241, 246)         # E8F1F6 — sunlit snow (bright glacial white)
 SNOW_SHADOW_RGB: RGB8 = (176, 199, 219)  # B0C7DB — shaded snow (cool blue-white, not grey)
@@ -62,14 +62,14 @@ ICE_RGB: RGB8 = (212, 228, 240)          # D4E4F0 — sunlit sea ice (cool white
 ICE_SHADOW_RGB: RGB8 = (156, 184, 210)   # 9CB8D2 — shaded sea ice (deeper cool blue)
 
 LAND_MAX_M = 6000.0
-SEA_MIN_M = -6000.0  # extended from -3000 (2026-07-14 sea rework) so the deep sea varies tonally
+SEA_MIN_M = -6000.0  # extended from -3000 (the sea rework) so the deep sea varies tonally
 LAKE_MAX_M = 1642.0  # Baikal — the deepest lake GLOBathy carries; the lake ramp's far end
 SUN_ALT_DEG = 45.0   # the shared sun altitude: tile KNOBS["alt"] and the hero SUN_ROTATION
-# X-tilt (90 - alt) both derive from this (2026-07-23 sea-sync — the cure for the 46/45
+# X-tilt (90 - alt) both derive from this (the sea-sync — the cure for the 46/45
 # split). Azimuth stays per-side: both are NW by their own conventions (tile 315, hero -45).
 EXAGGERATION = 15.0  # the shared vertical exaggeration: hero displacement_scale
 # (render_prep.scene_numbers) and tile hillshade (shade_planet.EXAG) both derive from it
-# — the last surviving copy-pair, moved here at the 2026-07-24 freeze-lift.
+# — the last surviving copy-pair, moved here at the freeze-lift.
 
 
 def smoothstep(t: float) -> float:
@@ -114,7 +114,7 @@ def srgb8_to_linear(color: RGB8) -> RGB:
 
 # Lake ramp, keyed on depth BELOW EACH LAKE'S OWN SURFACE -- never on elevation. Lakes sit at
 # any altitude (Titicaca +3812 m, Baikal +456), so the sea ramp, which reads absolute
-# elevation, physically cannot see them (2026-07-07).
+# elevation, physically cannot see them.
 #
 # Stop 0 IS `WATER_RGB`, derived rather than copied: a lake's gradient therefore begins at
 # exactly the flat tint its own shallows and its rivers already use, and the two can never
@@ -165,7 +165,7 @@ LUT_STEP_M = 1.0  # LUT resolution in metres. 6001 entries x 3 B = 18 KB per sur
 def relief_lut(kind: str, step: float = LUT_STEP_M) -> np.ndarray:
     """Elevation -> sRGB LUT for one surface, as a (3, N) uint8 array.
 
-    This is what lets `gdaldem color-relief` be deleted rather than tuned. Measured 2026-07-16:
+    This is what lets `gdaldem color-relief` be deleted rather than tuned. Measured:
     color-relief is 24.4% of all pass CPU (28:19, single-threaded) and the profile is
     `libgdal 19.37%` (interpolation) vs `libdeflate 4.33%` -- so no `-co NUM_THREADS` can touch
     it. That 19.37% is a per-pixel SEARCH over the 241 rows `color_relief_rows` emits, because

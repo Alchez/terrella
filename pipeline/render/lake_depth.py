@@ -3,11 +3,11 @@
 
 Sits beside snow.py by design. Lake depth is a TINT-ONLY rendering input, never terrain: at
 the locked 15x exaggeration a carved lake bed makes Namtso a 1.5 km crater and kills the flat
-plate that catches the surrounding mountains' shadows (2026-07-07). So, exactly like snow, it
+plate that catches the surrounding mountains' shadows. So, exactly like snow, it
 is warped onto the render grid at composite time and never enters the fusion master -- which
 is also why a future finer re-fuse would not have to redo any of this.
 
-Epistemics, because they are unusually load-bearing here (measured 2026-07-15):
+Epistemics, because they are unusually load-bearing here (measured):
   * The SHAPE is synthetic for every one of GLOBathy's 1,427,688 lakes -- D = l x Dmax / L, a
     cone off a shore-distance transform. No lake bed is ever observed. On the Caspian, the one
     lake with both a survey and trustworthy GEBCO soundings, it correlates just 0.53.
@@ -68,7 +68,7 @@ def lakes_only(depth, watercode):
     """Zero the depth field off watermask class 2 (inland lake).
 
     Class 3 (river) stays flat by decision, and class 1 (ocean) must never be touched -- the
-    Caspian is class 1 since the 2026-07-15 re-fuse precisely so GEBCO's measured bathymetry
+    Caspian is class 1 since the re-fuse precisely so GEBCO's measured bathymetry
     beats GLOBathy's cone there, and this is what enforces that.
     """
     if depth is None:
@@ -84,6 +84,6 @@ def inland_water(watercode):
     of lakes_only's rule above. This is THE one implementation of that decision, shared by both
     shade paths and the polar cap so a per-call-site copy cannot drift: `watercode.astype(bool)`
     is the tempting shortcut and is wrong -- it catches class 1 and paints the whole ocean flat
-    WATER_RGB over the bathymetry (the cap's 'disc glow', 2026-07-19).
+    WATER_RGB over the bathymetry (the cap's 'disc glow').
     """
     return (watercode == 2) | (watercode == 3)

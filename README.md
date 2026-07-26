@@ -1,5 +1,7 @@
 # Terrella
 
+**[terrella.alchez.dev](https://terrella.alchez.dev)**
+
 Ray-traced relief maps of every country, presented as a static website that starts as an image gallery and upgrades — where the visitor's hardware allows — into an interactive 3D globe.
 
 A *terrella* — a "little Earth" — is the small model globe that early scientists like William Gilbert and Kristian Birkeland spun to study the whole planet at once. This is a modern one: every country rendered from real elevation, not drawn.
@@ -12,7 +14,7 @@ The site meets each visitor where their device can take them, in three tiers:
 
 - **Gallery** — responsive hero images; renders instantly for everyone, and the pessimistic default while a capability probe runs.
 - **Globe** — a MapLibre globe draping pre-shaded raster tiles (needs WebGL2).
-- **Full** — the globe plus 3D terrain displacement, idle motion, and lazy-loaded 8K heroes on country click (gated on GPU tier and network).
+- **Full** *(planned)* — the globe plus 3D terrain displacement, idle motion, and lazy-loaded 8K heroes on country click (gated on GPU tier and network).
 
 The probe upgrades optimistically and the visitor can override the choice. Everything is pre-rendered and served statically — no compute at request time.
 
@@ -22,17 +24,9 @@ Two asset pipelines feed one site:
 - Heroes are pre-rendered offline in Blender from the fused heightfield (one scene rig, framed per country).
 - A global **raster tile pyramid** approximates the same look without ray tracing — hillshade + sky-view shading and the same color ramps.
 
-The data then ships as a single **PMTiles** archive, read by HTTP range requests so the globe needs no tile server.
+The data then ships as a single **PMTiles** archive. The browser never opens it: a thin tile server reads the byte range for one `z/x/y` tile and returns just that tile — an Astro dev middleware locally, an edge worker in production. Serving the multi-gigabyte archive to the browser directly is the one shape a CDN cannot cache, so the ranging stays on the server side.
 
-The frontend is a static Astro site; it will be served behind nginx on self-hosted infrastructure with aggressive caching (Phase 4). Everything is reproducible from committed source — **no rendered assets or DEM data live in git**, only code, config, and per-country frame pins.
-
-## Status
-
-- **Phase 1 — done.** The all-country hero render pipeline; ~204 heroes (Kiribati deferred), each reproducible from source.
-- **Phase 2 — done.** The global raster tile pyramid is built and driving the globe (512 px tiles, zoom 0–8, planet-wide land + bathymetry + snow + sea ice + lake depth), packaged as a single PMTiles archive. The two poles — which Web-Mercator can't reach past ~85° — are drawn as separate azimuthal-equidistant cap layers (sea ice + snow over real bathymetry, including the Antarctic landmass).
-- **Phase 3 — Tiers 1 and 2 ship.** The gallery and the interactive MapLibre globe are both live, with a capability probe steering each visitor to the one their device can take.
-- **Phase 4 — next.** Deploy and polish.
-- **Phase 5 — candidate.** Tier 3's 3D terrain: a terrain-RGB elevation pyramid (a second PMTiles archive) and the globe's displacement layer, plus the idle-motion polish. Decided after deploy.
+The frontend is a static Astro site, served from a CDN edge worker with the heavy assets — heroes, border vectors, the tile archive — in object storage beside it. Everything is reproducible from committed source — **no rendered assets or DEM data live in git**, only code, config, and per-country frame pins.
 
 ## License
 

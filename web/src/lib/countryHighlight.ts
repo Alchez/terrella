@@ -11,7 +11,7 @@ import type {
 // unit-testable (see countryHighlight.test.ts). Two choices here are non-obvious and each
 // fixes a globe artifact that a future edit could silently reintroduce:
 //   - the outline strokes a LINE source (OUTLINE_SOURCE), never the polygon — otherwise a
-//     clipped tile edge is drawn as a stray gold meridian (2026-07-19);
+//     clipped tile edge is drawn as a stray gold meridian;
 //   - the `countries` polygon source sets buffer:0 — otherwise the translucent fill wash
 //     double-paints in the default tile-buffer overlap, a stronger patch near the pole.
 

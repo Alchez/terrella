@@ -17,8 +17,8 @@
 #   4. the cgroup    -> memory.peak for the whole scope, and the 12 G cap that kills the job not
 #                       the box (proven today: a 4-cell region render hit it and died alone).
 #
-# Shade cap 16 G, raised from 12 G on 2026-07-25. The composite is NOT why: it still peaks at
-# 10.55 GiB (opt #5, 128/N4, 2026-07-18; the serial composite was 6.24 GiB) and COMPOSITE_ROWS=128
+# Shade cap 16 G, raised from 12 G. The composite is NOT why: it still peaks at
+# 10.55 GiB (opt #5, 128/N4; the serial composite was 6.24 GiB) and COMPOSITE_ROWS=128
 # is a hardcoded constant, not a function of this cap, so raising the cap does not let the
 # composite grow -- N stays 4 because 256/N3 and N=6 OOM on their own arithmetic. The cap moved
 # because the pass ENDS by rendering the polar caps (shade_planet invokes cap_render as a
@@ -33,7 +33,7 @@
 # peak has never been measured, so the cap is sized off that per-worker cache math with headroom;
 # 16 G still kills the job and not the box (29 G total, ~20 G available). A worker killed mid-write
 # still leaves a TRUNCATED png, but build_tiles no longer resumes over a partial staging dir -- it
-# removes it and cuts clean (2026-07-20), so a bad tile can no longer survive into the pyramid.
+# removes it and cuts clean, so a bad tile can no longer survive into the pyramid.
 # GDAL_CACHEMAX=512 per shade_planet.py's own launch note.
 set -uo pipefail
 
@@ -64,7 +64,7 @@ UNIT=terrella-$RUN_LABEL
 #
 # MemAvailable is the kernel's own estimate of what a new job can take WITHOUT swapping, which is
 # exactly the question being asked -- unlike `free`, whose "free" column undercounts by ignoring
-# reclaimable page cache (the 2026-07-08 note). MEMINFO is overridable so the check itself is
+# reclaimable page cache (the note). MEMINFO is overridable so the check itself is
 # testable: a guard that has never been seen to fire is indistinguishable from one that passed.
 MEMINFO=${MEMINFO:-/proc/meminfo}
 memory_cap_gib=${MEMORY_CAP%G}

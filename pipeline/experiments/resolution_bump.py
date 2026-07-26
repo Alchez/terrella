@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Resolution-bumping arm for the Switzerland small-country QA (2026-07-08).
+"""Resolution-bumping arm for the Switzerland small-country QA.
 
 Patterson's remedy for over-detailed relief (shadedrelief.com): low-pass the
 heightfield, then mix a fraction of the removed detail back in —

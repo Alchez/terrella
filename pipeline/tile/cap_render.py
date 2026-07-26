@@ -14,8 +14,8 @@ Both poles share the projection/warp/coastline machinery but source their inputs
     ice. The whole cap is >78N, so snow_alpha's Mercator latitude ramp is CONSTANT here (reproduced
     with fixed high-latitude thresholds). Inland water via lake_depth.inland_water (NEVER
     watercode.astype(bool) -- that caught class-1 ocean and flat-filled the Arctic sea, the
-    2026-07-19 disc-glow bug).
-  - SOUTH (Antarctica): the same fused planet VRTs (they reach -90 since the 2026-07-22 fill;
+    disc-glow bug).
+  - SOUTH (Antarctica): the same fused planet VRTs (they reach -90 since the fill;
     GEBCO-direct sourcing died the same day -- it shaded ~2.5 DN darker than the tiles and read as
     an interior ring). Ocean -> bathymetry depth ramp + the SH half of the same sea-ice climatology.
     Snow is FORCED over Antarctic land, not read from a dataset (NSIDC-0791 is NH-only, RGI region
@@ -31,10 +31,10 @@ Two cap-specific twists vs the Mercator tiles:
   - SVF is left off (its residual is <1% at the pole). A scalar z-factor is fine: AEQD tangential
     distortion inside the edge latitude is small.
 
-Freshness: each PNG is guarded by a recipe sidecar (data/work/cap/cap_<name>_params.json, built on
+Freshness: each cap is guarded by a recipe sidecar (data/work/cap/cap_<name>_params.json, built on
 shade_planet.composite_params so caps restage exactly when the tile look does) plus source mtimes;
-a fresh cap skips. shade_planet's pass tail invokes this module, so the guard actually runs — both
-caps sat stale against the PR-#9 look for a day because nothing did (2026-07-22).
+a fresh cap skips. shade_planet's pass tail invokes this module, so the guard actually runs — with
+nothing invoking it, both caps once sat a full day stale against the look they feather into.
 
 Usage: GDAL_CACHEMAX=512 uv run python -m pipeline.tile.cap_render [--north | --south] [--force]
 """
@@ -61,7 +61,7 @@ ROOT = paths.ROOT
 WORK = ROOT / "data/work/cap"
 CAPS_DIR = ROOT / "web/public/caps"  # production home (was dev-assets/ behind ?polarspike)
 CAP_PX = 8192          # square texture side (south is a bigger disc -> coarser per px). 8192 chosen
-                       # 2026-07-23 (Rohan, crop A/B + /globe): visibly crisper coast/pack/sastrugi
+                       # by Rohan (crop A/B + /globe): visibly crisper coast/pack/sastrugi
                        # at deep pole zoom; 3.2+2.1 MB WebP
 CAP_RUNGS = (1024, 2048, 4096, CAP_PX)  # shipped texture sizes, ascending; the largest IS the render
                        # grid and every smaller rung is DOWNSAMPLED from it, never rendered natively.
@@ -70,7 +70,7 @@ CAP_RUNGS = (1024, 2048, 4096, CAP_PX)  # shipped texture sizes, ascending; the 
                        # Downsampling reproduces exactly what a phone already saw (polarCaps.ts
                        # canvas-downscaled the 8192 to its MOBILE_CAP_BUDGET_PX rung) -- so every
                        # rung is a pure payload cut, no look change, supersampled rather than 1:1.
-                       # 1024 + 2048 added 2026-07-25, when polarCaps started picking a rung from the
+                       # 1024 + 2048 added, when polarCaps started picking a rung from the
                        # cap's PROJECTED on-screen size: the untouched default camera paints the cap
                        # at 110 CSS px, so the 8192 was a 74x linear oversupply for every visitor who
                        # never zooms to a pole. Measured both caps: 162 KB / 570 KB / 1.7 MB / 5.1 MB.
@@ -136,11 +136,11 @@ def cap_assets(grid: CapGrid) -> list[Path]:
 
 
 def cap_recipe(grid: CapGrid) -> str:
-    """Everything a cap PNG's pixels depend on besides the source rasters, serialised for the
+    """Everything a cap's pixels depend on besides the source rasters, serialised for the
     freshness sidecar. Reuses shade_planet.composite_params — ONE recipe home — so any look change
     that restages the tile composite also restages the caps: exactly the coupling whose absence let
-    both cap PNGs sit stale against the PR-#9 ambient-knee tiles (found 2026-07-22, the north cap
-    −6.7 DN against the tiles it feathers into). `fill_strength` is listed explicitly because
+    once let both caps sit stale against the tiles they feather into, the north −6.7 DN
+    adrift. `fill_strength` is listed explicitly because
     composite_params filters it out as hillshade-stage — for the tiles it rides in hs_params.json,
     but the caps have no hillshade sidecar, so it must ride here."""
     return json.dumps({"grid": asdict(grid),
@@ -190,8 +190,8 @@ def cap_sources(grid: CapGrid) -> list[Path]:
 def cap_is_fresh(recipe: str, assets: list[Path], sidecar: Path, sources: list[Path]) -> bool:
     """True only when EVERY shipped rung exists, was rendered under exactly this recipe, and is
     newer than every source; anything missing reads stale (fail toward re-rendering, never toward
-    trusting). The caps' first freshness guard (2026-07-22): unguarded outputs rot — the DEM
-    mosaics, the 3857 warps and both cap PNGs all failed that same way in one day.
+    trusting). Unguarded outputs rot: the DEM mosaics, the 3857 warps and both caps have each
+    failed exactly this way.
 
     All rungs, not just the top one: a rung added to CAP_RUNGS whose file does not exist yet must
     read stale even though the render itself is current. The comparison uses the OLDEST rung, so a
@@ -245,8 +245,8 @@ def _shade(grid: CapGrid, heights: np.ndarray, longitude: np.ndarray) -> np.ndar
     fill = hillshade.hillshade_array(haloed, cell, EXAG, hillshade.FILL_ALTITUDE, fill_az)
     # No pole special-case: the rotating azimuth's pinwheel wash at the exact pole is quenched by
     # `shade.KNOBS["ice_relief_damp"]` (the pack conceals the shading that fed the wash). The
-    # colat-3 flat taper that used to sit here was measured retirable at damp 0.75 and deleted
-    # 2026-07-23: pole std 6.16 < surrounding annulus 6.70, no disc-edge ring step.
+    # colat-3 flat taper that used to sit here was measured retirable at damp 0.75 and deleted:
+    # pole std 6.16 < surrounding annulus 6.70, no disc-edge ring step.
     return hillshade.combine_fill(shaded, fill, KNOBS["fill_strength"], ALT)
 
 
@@ -277,7 +277,7 @@ def _bake_coastline(grid: CapGrid, rgb: np.ndarray) -> None:
 
 def _write_cap(grid: CapGrid, heights: np.ndarray, ocean: np.ndarray, water: np.ndarray,
                snow_a: np.ndarray, ice_a: np.ndarray, hillshade_dn: np.ndarray) -> Path:
-    """Shared composite + coastline bake + PNG write for either pole. SVF off (measured 2026-07-20:
+    """Shared composite + coastline bake + WebP write for either pole. SVF off, measured:
     the tiles' ocean SVF is thresholded out over flat seafloor, so a cap SVF pass changes the ocean
     sub-perceptibly and does not close the cap<->tile seam -- the seam is projection/DEM, not SVF)."""
     occ = np.zeros((grid.px, grid.px), dtype=np.float32)  # occ below threshold -> no SVF burn
@@ -335,7 +335,7 @@ def render_cap_north() -> Path:
 def render_cap_south() -> Path:
     """South (Antarctica) cap from the fused planet VRTs + the SH half of the sea-ice climatology.
 
-    Re-sourced from GEBCO-direct on 2026-07-22, the day the Antarctica fill pushed the planet VRTs
+    Re-sourced from GEBCO-direct when the Antarctica fill pushed the planet VRTs
     to -90: the cap now shades the SAME fused heightfield and masks as the tiles, so the tone across
     the -84 cap<->tile crossfade agrees by construction (the GEBCO cap measured ~2.5 DN darker than
     the tiles it feathered into -- the visible interior ring). Snow is FORCED over Antarctic land
@@ -368,7 +368,7 @@ def main() -> int:
     group.add_argument("--north", action="store_true", help="render only the north cap")
     group.add_argument("--south", action="store_true", help="render only the south cap")
     parser.add_argument("--force", action="store_true",
-                        help="render even when the freshness sidecar says the PNG is current")
+                        help="render even when the freshness sidecar says the cap is current")
     args = parser.parse_args()
 
     for wanted, grid, render in ((not args.south, NORTH, render_cap_north),

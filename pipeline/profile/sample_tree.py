@@ -8,7 +8,7 @@ single-threaded? -- need exactly those, and `/usr/bin/time -v` cannot answer the
 the pass is one python process shelling out to many children whose peaks it conflates.
 
 Sampling by CGROUP, not by pid-tree walk or `pgrep -f`, is deliberate. `pgrep -f` is what matched
-the `/usr/bin/time` wrapper instead of gdalwarp on 2026-07-15 and produced three impossible
+the `/usr/bin/time` wrapper instead of gdalwarp and produced three impossible
 profiles that got built on. The cgroup is ground truth: if it is in the scope, it is ours, and
 short-lived children (the ~728 per-window snow subprocesses) cannot hide from it the way they hide
 from a tree walk that races their exit.

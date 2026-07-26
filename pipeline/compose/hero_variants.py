@@ -7,7 +7,7 @@ Lanczos-downscaled, alpha preserved, into
 blender/renders/variants/<slug>-<longedge>.webp. The frontend builds
 <img srcset> from these; the PNG stays the lossless master.
 
-Quality is a POLICY rather than one constant (2026-07-25). The small rungs are
+Quality is a POLICY rather than one constant. The small rungs are
 thumbnails in a ~350 px masonry column and q85 is ample there; 3840 and native
 are what a reader opens full-screen and zooms into, so they carry q95. The whole
 climb q85 -> q98 costs 2.1x while the last step to lossless costs another 2.4x,
@@ -59,7 +59,7 @@ LARGE_RUNG_PX = 3840     # at or above this a variant is an inspection surface, 
 SMALL_QUALITY = 85
 LARGE_QUALITY = 95
 # What the store was written at before RECIPE existed: this module carried a bare `QUALITY = 85`
-# from its first commit until 2026-07-25, so an unrecorded rung is known, not unknown.
+# for its whole life before that, so an unrecorded rung is known, not unknown.
 LEGACY_QUALITY = 85
 
 

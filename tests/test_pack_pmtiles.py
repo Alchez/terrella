@@ -89,7 +89,7 @@ class TestPackDirectory:
 class TestEncodingIsReadOffTheDirectory:
     """The declared `format` must be derived from the files packed, never assumed.
 
-    Until 2026-07-25 the glob (`*.png`) and the metadata (`"png"`) were two independent spellings
+    The glob (`*.png`) and the metadata (`"png"`) used to be two independent spellings
     of one fact. A reader trusts that metadata to pick a decoder, so a pyramid cut as WebP under a
     `"png"` label is not a cosmetic error — it is an archive nothing can display.
     """

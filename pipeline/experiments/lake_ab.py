@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Side-by-side crops of two region renders, for judging the lake-depth ramp.
 
-Mirrors lake_depth_prototype.py's A/B output so the 2026-07-07 judgement ("gradients read at
+Mirrors lake_depth_prototype.py's A/B output so the judgement ("gradients read at
 hero scale, rejected as an artificial gradient") can be compared like-for-like against the
 calibrated version -- same sites, same framing. Sized for a phone screen, not a workstation.
 

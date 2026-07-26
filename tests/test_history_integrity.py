@@ -1,6 +1,6 @@
 """HISTORY.md — the archive is only useful if its index and its ordering can be trusted.
 
-CLAUDE.md states three rules about this file, all of which have been broken at least once:
+Three project rules govern it, all of which have been broken at least once:
 
 - **the index is added in the same edit as the entry.** An index that lags is worse than none,
   because it looks complete — and the real failure mode of a 57k-token log is not cost, it is

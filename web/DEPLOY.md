@@ -9,7 +9,7 @@ Only the shell is small enough to ship inside the build, so production is three 
 
 | What                         | Where                                   |
 | :--------------------------- | :-------------------------------------- |
-| Shell — HTML, JS, CSS, caps  | site Worker (`wrangler.jsonc`), ~13 MB  |
+| Shell — HTML, JS, CSS, caps  | site Worker (`wrangler.jsonc`), ~14 MB  |
 | Hero renders, border GeoJSON | R2 bucket `terrella-assets`             |
 | Relief tiles                 | tile Worker (`worker/`) over an R2 binding |
 

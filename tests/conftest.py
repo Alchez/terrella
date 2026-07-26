@@ -10,7 +10,7 @@ def hillshade_for_light(light: float) -> float:
 
     A test that wants a pixel to land on a known light used to write `flat * light`,
     because the ambient floor was a `np.clip` and therefore an identity everywhere above
-    `ambient`. Since `ambient_knee` went to 0.30 (2026-07-21) the floor is a softplus,
+    `ambient`. Since `ambient_knee` went to 0.30 the floor is a softplus,
     which sits strictly ABOVE its input -- about +5% at the top of the range, enough to
     push a lake off `WATER_RGB` and to shove the snow window's upper end into saturation
     where a curve knob can no longer move it. Both read as the knob being broken.
