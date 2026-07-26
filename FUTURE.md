@@ -233,6 +233,28 @@ magnitude, so the taxonomy is the decision:
   raising `maxTileCacheZoomLevels`, which buys a probabilistic win for **+264 MiB** of desktop GPU
   texture → HISTORY § the hole to space was never a MapLibre regression.
 
+## Mobile lightweight identify — "what is this?" without committing (analysed 2026-07-26)
+
+- **Trigger:** the hover name chip shipped desktop-only, correctly — touch has no hover state to
+  leave anonymous. But that framing hides a *different* gap on touch, and this is where it is parked
+  so the chip is not mistaken for having covered it → HISTORY § the gold outline finally says what it is.
+- **The asymmetry:** on desktop, "what country is this?" costs a pointer move. On touch it costs a
+  **2.2 s `fitBounds` flight + a card over the screen + a hero image fetch**, then a close and a
+  re-orient. Same question, wildly different price — and the expensive one is on the platform with
+  the least patience.
+- **Already rejected, do not re-litigate without a new mechanism:** a **two-stage tap** (first tap
+  identifies, second opens). It taxes the primary action for every user to serve a secondary one, and
+  the primary action — flying to a country and seeing its hero — is the point of the globe.
+- **Unexplored shapes, if this is ever reopened:** long-press to identify (leaves tap alone, but is
+  undiscoverable and collides with the OS text/context menu); a persistent "identify mode" toggle in
+  the view bar (discoverable, costs a control slot for a rarely-used mode); or naming the country in
+  the card *faster* — the name is known at tap time, so the card could paint its `<h2>` immediately
+  and let the image and the flight land after, which is a **latency fix rather than a new gesture**
+  and is probably the cheapest real improvement here.
+- **Why not now:** unmeasured. Nobody has reported the problem, and the card already names the
+  country within a few hundred ms of the tap. **Verify the premise on a real phone before designing** —
+  the flight is the reward, not a tax, and this may be a problem only on paper.
+
 ## Raster tile resolution vs device pixel ratio (analysed 2026-07-25)
 
 - **Trigger:** Rohan asked whether serving 512 px tiles "@2x" is wasted on a DPR-1 desktop, and
