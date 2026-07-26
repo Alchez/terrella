@@ -142,104 +142,81 @@ rationale lives in HISTORY; this section carries only what is still open.
 
 ### Shipped
 
+Pointers only — every *why*, number and rejected alternative is in the cited HISTORY entry.
+
 - [x] **Cloudflare R2 + CDN**, chosen over rohome → HISTORY § the deploy target moves to R2
   - Site = Workers Static Assets · `assets.` = R2 custom domain · `tiles.` = Worker over an R2 binding
-  - The two architecture-fixing traps (512 MB cache ceiling · `Range` stripped at a Worker) are in CLAUDE.md
-  - Free tier ≈ 2,500 cold visits/day — a cache HIT still charges a request
-  - **Account/zone IDs live in memory, never in this repo** — it is going open-source
-  - **`deploy/` is NOT dead weight** — it is the offline prod-sim and the serving-contract reference
-- [x] P1 web seam — `assetBase.ts`, ranging moved server-side, pmtiles JS out of the bundle → HISTORY § the web seam lands
+  - Standing constraints: free tier ≈ **2,500 cold visits/day** (a cache HIT still charges a request) ·
+    account/zone IDs live in memory, never in this repo · **`deploy/` is the prod-sim, not dead weight**
+- [x] P1 web seam — `assetBase.ts`, ranging server-side, pmtiles JS out of the bundle → HISTORY § the web seam lands
 - [x] P2 two R2 buckets, 18.20 GB uploaded, multipart ETag reconstructed → HISTORY § Phase 2
 - [x] P3 tile Worker — ours, not Protomaps' → HISTORY § the tile Worker is ours
-- [x] P4 site shell + `check_deploy_sync.ts` preflight, 6 branches falsified → HISTORY § Phase 4 takes shape
-- [x] P5 external vantage + `Server-Timing`: our Worker code is 3–5 ms, nothing to optimise → HISTORY § P5 end-to-end
-- [x] **Asset delivery — rungs, quality policy, WebP tiles** → HISTORY § the ladder ships against measured layout
-  - 640/960/1280 added to the hero, spotlight AND border ladders; `sizes` corrected to the measured masonry width
-  - Policy: hero q85 to 1920 / q95 at 3840+native · tiles WebP q95 · caps q85 · spotlight q88 → ART.md § Delivery encoding
-  - Archive 15 → 3.0 GB; gallery full-scroll 97 → 13/28/47 MB by DPR band
-- [x] Polar cap 4096 rung — mobile 5.3 → 1.8 MB → HISTORY § the cap rung
+- [x] P4 site shell + `check_deploy_sync.ts` preflight → HISTORY § Phase 4 takes shape
+- [x] P5 external vantage + `Server-Timing`: our Worker code is 3–5 ms → HISTORY § P5 end-to-end
+- [x] **Asset delivery — rungs, quality policy, WebP tiles**; archive 15 → 3.0 GB →
+  HISTORY § the ladder ships against measured layout · ART § Delivery encoding
+- [x] Polar cap 4096 rung → HISTORY § the cap rung
+- [x] **Cap rungs by projected size** — 156 KB at the default camera, cold window 11.4 → 6.5 MB →
+  HISTORY § the polar caps ship 156 KB
 - [x] `Timing-Allow-Origin` on both cross-origin surfaces → HISTORY § P5 end-to-end
 - [x] About page → HISTORY § the About page closes
-- [x] astro 7.0.7 → 7.1.3 (GDAL 3.13 assessed the same day and SKIPPED → FUTURE.md)
+- [x] astro 7.0.7 → 7.1.3 (GDAL 3.13 assessed the same day and SKIPPED → FUTURE)
 - [x] **RESOLVED: buy nothing for the MRS PoP** → HISTORY § P5 end-to-end
-  - Free-plan hypothesis REFUTED by a `--resolve` control; the PoP follows the destination IP prefix
-  - Cause is an Airtel route, so **the P5 ladder numbers are this line, not the site**
-  - It is BGP — re-run the two-second check before acting on any of it
-- [x] **Cap rungs by projected size — SHIPPED + LIVE 2026-07-25** → HISTORY § the polar caps ship 156 KB
-  - Caps were 45% of the globe's cold window; the default camera paints them **110 CSS px** wide
-  - `CAP_RUNGS` + 1024/2048; `polarCaps` picks from projected extent × canvas backing ratio, on `moveend`
-  - Jumps straight to the needed rung — walking it would cost a decode+upload per step
-  - Guards (all falsified by mutation): never downgrade · one fetch in flight · front-facing filter
-  - Live: **156 KB** at default, 2048 when a pole is faced, 8192 at z4; cold window **11.4 → 6.5 MB**
-  - Rohan ratified the transition as graceful; both old rungs md5-identical
+  - An Airtel route, not our plan — so **the P5 ladder numbers are this line, not the site**.
+    It is BGP: re-run the two-second `--resolve` check before acting on any of it
+- [x] **Hole to space CLOSED** — `background` layer at `#47808F`, 0 bytes and 0 requests →
+  HISTORY § the hole to space was never a MapLibre regression
+  - **Not a v6 regression** — 5.24 vs 6.0 tile-retention source is IDENTICAL; do not re-suspect the bump
+- [x] **Cold-tile levers A + C** — index prefetch (3 reads → 1) and Workers Caching (read-through
+  ~28 ms, cold unchanged) → HISTORY § one read instead of three · § Workers Caching ships on its own merits
+  - **NEVER add the `cache` block to the site Worker** — it bills otherwise-free static-asset requests
+  - Lever B (placement hint) demoted to an experiment likely to be rejected → FUTURE
 
 ### Open
 
-- [~] **Lighthouse pass — RUN 2026-07-25**; its findings re-order everything below it
-  - Globe **mobile 48** (FCP 3.5 · LCP 4.4 · **TBT 2,120 ms** · TTI 6.6 s · 6,011 KiB) — the preset
-    *is* the weak-Android test: Moto G Power, 4× CPU, slow 4G
-  - Globe **desktop 79** (FCP 0.4 · LCP 0.7 · TBT 470 ms · TTI 1.4 s)
-  - Tier 1 gallery (forced `rg:quality=lite`, real desktop): FCP 488 ms · LCP 512 ms · 4.22 MB ·
-    **0 tiles, 0 geojson** — the tier separation is clean
-  - **The bottleneck is script evaluation, not payload**: 5,702 ms total, **4,064 ms in the globe
-    bundle** (MapLibre init). No payload lever touches this
-  - **`countries.geojson` is now the largest single item** (3.08 MB) — bigger than all 36 tiles
-    (2.65 MB) combined, now the caps are 0.15
-  - Gap: Lighthouse cannot seed `localStorage`, so a *scored* Tier-1 run needs a seeded profile;
-    `/` client-side steers to `/globe/` so both first runs measured the globe
-  - Carry-in: Firefox blocks ~1.1 s on main-thread cap decode+upload; candidate = decode in a Web Worker
+- [~] **Lighthouse pass** — globe mobile **48** / desktop **79**; Tier-1 separation clean →
+  HISTORY § the globe's script time is EXECUTION (carries the full 07-25 baseline)
+  - **The bottleneck is script EXECUTION — not payload, and not parse either**: 4,833 ms evaluation
+    vs **2 ms** parse, measured twice. No bundle-size lever touches it
+  - Attribution is to the **chunk URL, not a function** — "MapLibre init" was never measured
+  - **Variance exceeds most effects we chase** (48/TBT 2,120 vs 53/TBT 3,300, same command) —
+    never claim a change moved the score off a single run
+  - **`countries.geojson` is the largest single item** (3.08 MB) — bigger than all 36 tiles combined
+  - Carry-in: Firefox blocks ~1.1 s on main-thread cap decode+upload → candidate = Web Worker decode
   - Carry-in: the dev middleware sends no ETag/Last-Modified, so `no-cache` can't 304 (dev-only)
-- [x] **The hole-to-space CLOSED 2026-07-26** — `background` layer `#47808F`, 0 bytes → HISTORY § the hole to space was never a MapLibre regression
-  - **Not a v6 regression**: 5.24 vs 6.0 tile-retention source is IDENTICAL — do not re-suspect the bump
-  - What changed is DURATION: dev = local file <1 ms, live edge MISS **1.2–1.75 s**
-  - Colour derived from `SEA_STOPS[4]` in new `web/src/lib/palette.ts`; pytest drift-scan both directions
-  - Rode along: `TILE_EXTENSION` had no guard (browsers sniff past a mislabel) → `describeTileTypeMismatch`
-  - **Left standing:** a hole over LAND still reads ocean blue — the fill is a floor, not a reconstruction
-  - **Not shipped, deliberately:** `maxTileCacheZoomLevels` 5 → 8 costs **+264 MiB desktop GPU** for a
-    merely probabilistic win. If a data floor is ever wanted, a pinned z1 base source (4 tiles,
-    **273 KB**) is deterministic and 1000× cheaper → parked in FUTURE
-- [x] **Cold-tile levers — A + C SHIPPED and verified live 2026-07-26; B demoted to a FUTURE experiment**
-  - Edge MISS **1.2–1.75 s**, of which **830–1414 ms is 3 SEQUENTIAL R2 reads**; HIT ~470 ms
-  - **Reads are LATENCY-bound, not bandwidth**: 10 KB and 138 KB both land in 250–700 ms
-  - **THE FACT THAT REFRAMES IT: bucket `terrella-tiles` is in APAC, the Worker runs in MRS.**
-    Every range read is Marseille↔APAC. Retro-explains the 07-25 Mumbai control (~60 ms vs 380)
-  - **Whole directory region is 192 KB** (root 111 B @127, leaves 196,285 B @336, tileData @196,621)
-    — so PLAN's old "bake root + cache leaves" pair collapses into ONE prefetch of `[0, tileDataOffset)`
-  - [x] **Lever A SHIPPED + VERIFIED LIVE 2026-07-26** — `INDEX_PREFETCH_BYTES` (256 KiB) +
-    `PrefetchedIndexSource`, blob parked in `caches.default` with its ETag so `onlyIf` survives
-    - Live: **1 read on 18/18 cold tiles**; the isolate's first request pays 2 (262,144 + tile)
-    - z8 like-for-like: r2 **921 → 251 ms median**, total **1.38 → 0.82 s**
-    - Bimodal after: r2 clusters at ~245 ms or ~800 ms — connection warmth, not read count
-    - 11 unit tests; the straddle/ETag/off-by-one guards each falsified by mutation
-  - [x] **Lever C SHIPPED + VERIFIED LIVE 2026-07-26** — `"cache": {"enabled": true}`, tile Worker
-    only, version `988ca658` → HISTORY § Workers Caching ships on its own merits
-    - Read-through worth **~28 ms** (HIT 108 ms beats the *worker-runs* 404 floor at 136 ms);
-      cold unchanged at **442 ms** TTFB, 1 read on 18/18 — **no tiering penalty fits in the floor**
-    - Shipped for **tiered cache + request collapsing**, NOT as a stepping stone to B
-    - `cross_version_cache` left **off** against the docs' framing: we deploy rarely, so the
-      deploy *is* the purge — which is what keeps ALLOWED_ORIGIN's "no purge needed" note true
-    - **The CORS freeze we feared is disarmed by the `Vary: Origin` we already had** — verified in
-      both population orders; a bare `curl` tests a variant no browser touches
-    - **NEVER add the block to the site Worker** — caching bills otherwise-free static-asset requests
-    - Surrendered knowingly: `Server-Timing` lies on hits (tell: TTFB − `worker;dur` goes negative),
-      and `Cf-Cache-Status` is **not exposed to JS**, so in-page checks can't see HIT vs MISS
-  - **Lever B DEMOTED to an experiment likely to be rejected** → parked in FUTURE. Lever A left ONE
-    read, so a placement hint **moves** the long-haul leg rather than removing it, and BOM-landing
-    visitors already read in ~60 ms. The C-before-B ordering was right and is now moot
-  - Follow-ups left standing, deliberately: the now-redundant `caches.default` tile-body layer +
-    `X-Terrella-Cache`, and `Access-Control-Expose-Headers` for `Cf-Cache-Status`
-  - RESOLVED: Smart Placement **is available on all Workers plans**, free included
 - [ ] Hovered-country name chip — the gold outline names nothing; needs a design pass
-- [ ] `webglcontextlost` → "reload the globe" hint
-- [ ] `setMaxParallelImageRequests` — measure at the Lighthouse pass, on a real network
-- [ ] **Serving-contract writeup — the interface to preserve** (`deploy/nginx` = reference impl)
+- [x] **`webglcontextlost` CLOSED 2026-07-26** — premise was wrong: MapLibre v6 recovers unaided, so
+  a "reload" hint is wrong advice → HISTORY § the "reload the globe" hint was the wrong fix
+  - Found instead: **a `moveend` listener stranded per context loss**, measured live as `cap_north_4096`
+    fetched twice after one loss + one move. Fixed with a registry keyed by layer id
+  - **`addPolarCaps` must stay bound to `style.load`** — that binding IS the cap recovery path; a
+    one-shot `load` leaves recovered globes silently capless. Test-guarded
+  - Shipped the correct small form: notice only if no `webglcontextrestored` within a 4 s grace
+- [x] **`setMaxParallelImageRequests` CLOSED 2026-07-26 on measurement — LEAVE IT AT 16** →
+  HISTORY § the ladder ran and the answer is LEAVE IT AT 16
+  - 4/8/16/32 × 3 runs on production: **LCP spread 14 ms between rungs vs 125 ms of noise**
+  - Only real signal: **do not go below 8** (rung 4 costs +733 ms of tile window); above 8, nothing
+  - **Tiles are NOT on the LCP path** — LCP 1.5 s while the tile tail runs to 16.5 s. So no tile
+    payload lever moves LCP either; the tail is progressive enhancement
+  - Kept: `?maxreq=N` flag + `web/scripts/measure_tile_concurrency.sh` (production only —
+    `ALLOWED_ORIGIN` refuses a local shell every tile; pins `--throttling-method=devtools`)
+- [ ] **Serving-contract writeup** (`deploy/nginx` = reference impl) — with rohome closed, its only
+  remaining justification is the open-source pass, not portability to a second origin
   - Three cache classes: `_astro` immutable 1 yr · stores 1 wk + ETag · HTML no-cache
   - gzip text-like ONLY, never the pre-compressed pmtiles/webp/png; CORS once split-origin
   - Range is now an internal detail of the tile server — no client sends it
-- [~] **Open-source pass** → HISTORY § LICENSE + paths seam
+- [~] **Open-source pass** → HISTORY § LICENSE lands
   - DONE: the `paths.py` seam (18 modules + a drift-scan test), LICENSE = MIT code / CC BY-NC 4.0 imagery
-  - REMAINING: final attribution review of the shipped products
-- [ ] OPEN: whether rohome gets any deploy at all (hostnames + Worker ownership SETTLED)
+  - DONE: the About page's data credits — all eight datasets already carried licence + attribution
+    strings, and the site now states its own licence → HISTORY § the About page closes
+  - DONE: **attribution review** — the Copernicus 6(b) notice was paraphrased and 6(c) was missing;
+    both fixed verbatim, two licence badges corrected, and `tests/test_attributions.py` now scans
+    both directions → HISTORY § the one licence with an exact-string obligation
+  - REMAINING: a pass over the shipped artifacts themselves (embedded metadata, leaked paths)
+- [x] **CLOSED 2026-07-26 — rohome gets no site deploy at all**, not even a mirror. Cloudflare is the
+  only origin; rohome keeps the *pipeline* only, per CLAUDE.md § Environment
+  - Consequence: `deploy/` is now justified **solely** as the local prod-sim + serving-contract
+    reference. It is not superseded, so it stays — but nothing ships from it
 - [ ] (Optional flourish) landing-page "poster mode" beauty shot — Balazh-style sphere, a weekend experiment
 - [ ] Ship. Post it somewhere.
 

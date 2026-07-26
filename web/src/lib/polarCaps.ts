@@ -291,9 +291,13 @@ export interface CapLayer extends CustomLayerInterface {
   indexBuffer?: WebGLBuffer;
   texture?: WebGLTexture;
   indexCount?: number;
-  /** Captured in onAdd so `moveend` can upload without a render pass. Safe to hold: the context
-   *  survives projection transitions (the same fact the gl.isProgram guard rests on), and a real
-   *  context loss re-runs onAdd, which overwrites this. */
+  /** Captured in onAdd so `moveend` can upload without a render pass. Safe to hold, but NOT for
+   *  the reason this comment used to give. It claimed "a real context loss re-runs onAdd" — true
+   *  in effect, wrong in mechanism, and the wrong mechanism is the dangerous part. MapLibre does
+   *  not re-run `onAdd` on a surviving layer: it rebuilds the style from a serialized snapshot,
+   *  which cannot carry a `custom` layer, so THIS OBJECT IS DISCARDED and `addPolarCaps` builds a
+   *  new one against the new context. Holding `gl` is safe because the object never outlives its
+   *  context — see the recovery contract on `addPolarCaps`. */
   gl?: WebGL2RenderingContext;
   /** Rung currently ON the GPU. 0 until the first load lands, so the initial fetch is simply the
    *  first upgrade — one code path, not two that can drift. */
@@ -420,9 +424,21 @@ export async function syncCapRung(
   }
 }
 
+/** The live `moveend` listener per cap, keyed by layer id.
+ *
+ *  A `moveend` listener is MAP state; a custom layer is STYLE state. A WebGL context loss destroys
+ *  the style — so the layer object is discarded and rebuilt — while every `map.on` listener
+ *  survives untouched. Without this registry each loss stranded a listener still closed over the
+ *  dead layer, and because `rungLoading` is per-layer the strays could not even dedupe against the
+ *  live one: every later upgrade was fetched once per stray. Measured live 2026-07-26 — one forced
+ *  loss, one camera move, `cap_north_4096.webp` requested TWICE. It compounds at N+1 fetches after
+ *  N losses, and it is invisible on screen because the winning upload is correct either way. */
+const capMoveHandlers = new Map<string, () => void>();
+
 /** Register one cap as a `custom` layer on the (already-loaded) map. */
-function addPolarCap(map: MaplibreMap, opts: CapOptions): void {
+export function addPolarCap(map: MaplibreMap, opts: CapOptions): void {
   if (map.getLayer(opts.layerId)) return; // idempotent — style.load can fire more than once
+  let onMoveEnd: (() => void) | undefined;
   const layer: CapLayer = {
     id: opts.layerId,
     type: "custom",
@@ -510,15 +526,40 @@ function addPolarCap(map: MaplibreMap, opts: CapOptions): void {
       gl.disableVertexAttribArray(this.aLat!);
       if (!blendWas) gl.disable(gl.BLEND);
     },
+
+    /** Documented only for `Map.removeLayer`, so it is a bonus path and not the one the registry
+     *  above relies on — a style destroyed by context loss may never call this. */
+    onRemove(removedFrom: MaplibreMap) {
+      if (!onMoveEnd) return;
+      removedFrom.off("moveend", onMoveEnd);
+      // Clear the registry only if this layer's handler is still the registered one. A re-add may
+      // already have replaced it, and deleting that entry would disable rung upgrades silently.
+      if (capMoveHandlers.get(opts.layerId) === onMoveEnd) capMoveHandlers.delete(opts.layerId);
+    },
   };
   map.addLayer(layer);
   // Re-evaluate once the camera settles, not on every frame of a drag: the check is cheap (72
   // projections) but a fetch is not, and an in-flight zoom has no stable answer to give.
-  map.on("moveend", () => void syncCapRung(layer, opts, map));
+  const stranded = capMoveHandlers.get(opts.layerId);
+  if (stranded) map.off("moveend", stranded);
+  onMoveEnd = () => void syncCapRung(layer, opts, map);
+  capMoveHandlers.set(opts.layerId, onMoveEnd);
+  map.on("moveend", onMoveEnd);
 }
 
 /** Fetch the pipeline's caps.json contract and register both polar caps on the loaded map.
  *  A missing/invalid manifest logs and leaves the globe capless — never breaks the page.
+ *
+ *  **THIS FUNCTION IS ALSO THE WEBGL CONTEXT-LOSS RECOVERY PATH — do not move its call site.**
+ *  MapLibre recovers a lost context by re-applying a *serialized* style snapshot, and a `custom`
+ *  layer has no serialized form. The library says so itself, by name, on every loss:
+ *  `Custom layer with id 'polar-cap-north' cannot be restored after WebGL context loss.`
+ *  The caps come back only because globe.astro calls this from `map.on("style.load")` and the
+ *  restore's internal `setStyle` re-fires that event. Verified on the live site 2026-07-26: forced
+ *  loss + restore, both warnings logged, globe visually identical afterwards.
+ *  Rebinding this to a one-shot `load` handler would leave every recovered globe permanently
+ *  capless, with no error — the map looks fine, the poles are just holes. A test guards the
+ *  binding; the failure it prevents is silent, which is exactly why it is a test and not a note.
  *
  *  `cache: "no-cache"` (revalidate, don't skip the cache) is load-bearing, not caution. The
  *  manifest is a CONTRACT DOCUMENT, not an asset: the textures it names are content-addressed

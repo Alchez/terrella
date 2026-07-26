@@ -34,6 +34,14 @@ import Base from "../layouts/Base.astro";
     </div>
   </aside>
 
+  <!-- Shown only when the GPU context is lost AND the browser never gives it back. MapLibre
+       recovers by itself in the ordinary case, so announcing the loss immediately would tell
+       people to reload a map that is about to heal a moment later. -->
+  <p id="gl-lost" class="globe-lost" hidden role="alert">
+    The globe lost access to the graphics card and could not recover.
+    Reload the page, or <a href="/">browse the gallery</a> instead.
+  </p>
+
   <noscript>
     <p class="globe-noscript">
       The interactive globe needs JavaScript. <a href="/">Browse the gallery instead.</a>
@@ -94,6 +102,29 @@ import Base from "../layouts/Base.astro";
     border: 1px solid var(--line);
     border-radius: 12px;
     color: var(--muted);
+  }
+  /* Centred rather than docked to an edge like the noscript notice: the bottom rail already
+     carries the attribution, the scale bar and the quality toggle, and a full-width bar down
+     there overlapped all three. Centre is also simply where a dead map should say so. */
+  .globe-lost {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 20;
+    margin: 0;
+    padding: 1rem 1.3rem;
+    max-width: min(28rem, calc(100vw - 2.4rem));
+    text-align: center;
+    line-height: 1.5;
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    color: var(--muted);
+  }
+  /* `hidden` would otherwise lose to the display value implied above. */
+  .globe-lost[hidden] {
+    display: none;
   }
 
   /* Country detail card — a floating panel, not a full-screen takeover, so the
@@ -267,6 +298,11 @@ import Base from "../layouts/Base.astro";
   import { manifest, type Country } from "../lib/manifest";
   import { BORDERS_BASE, HERO_BASE, TILE_URL_TEMPLATE } from "../lib/assetBase";
   import { RELIEF_MAX_ZOOM, RELIEF_MIN_ZOOM } from "../lib/reliefTiles";
+  import {
+    MAPLIBRE_DEFAULT_MAX_PARALLEL_IMAGE_REQUESTS,
+    MAX_PARALLEL_IMAGE_REQUESTS_CEILING,
+    parseMaxParallelImageRequests,
+  } from "../lib/tileConcurrency";
   import { DEEP_SEA } from "../lib/palette";
   import { currentTier } from "../lib/capability";
   import {
@@ -308,6 +344,24 @@ import Base from "../layouts/Base.astro";
   // devtools console).
   const urlFlags = new URLSearchParams(location.search);
   const bareDiagnostic = urlFlags.has("bare");
+
+  // ?maxreq=N — MapLibre's parallel image-request cap (default 16), applied BEFORE the Map is
+  // constructed because the style starts requesting tiles as soon as it loads. Diagnostic only:
+  // absent means the library default, untouched. A malformed value is refused loudly rather than
+  // falling back silently — a run that believes it measured 8 while running at 16 is worse than
+  // no run at all. See tileConcurrency.ts for why the right value is not obvious a priori.
+  const maxParallelImageRequests = parseMaxParallelImageRequests(urlFlags);
+  if (maxParallelImageRequests !== null) {
+    maplibregl.setMaxParallelImageRequests(maxParallelImageRequests);
+    // eslint-disable-next-line no-console
+    console.log(`[tiles] maxParallelImageRequests = ${maxParallelImageRequests}`);
+  } else if (urlFlags.has("maxreq")) {
+    console.warn(
+      `[tiles] ignoring ?maxreq=${urlFlags.get("maxreq")} — want an integer 1..` +
+        `${MAX_PARALLEL_IMAGE_REQUESTS_CEILING}. Running at MapLibre's default ` +
+        `${MAPLIBRE_DEFAULT_MAX_PARALLEL_IMAGE_REQUESTS}.`,
+    );
+  }
 
   // The relief pyramid lives in ONE multi-GB PMTiles archive, and the browser never touches it.
   // It asks a tile endpoint for z/x/y and gets a single tile back; the archive is opened and
@@ -464,6 +518,28 @@ import Base from "../layouts/Base.astro";
     const message = event.error && event.error.message ? event.error.message : "";
     if (navigatingAway && /AJAXError|NetworkError|Failed to fetch/i.test(message)) return;
     console.error("[globe]", event.error);
+  });
+
+  // A lost WebGL context is usually survivable and MapLibre handles it unaided: it calls
+  // preventDefault (without which the browser would never offer the context back), snapshots the
+  // style, and rebuilds the painter on restore. Verified live 2026-07-26 by forcing a loss through
+  // WEBGL_lose_context — the globe came back identical, polar caps included. So the message worth
+  // showing is NOT "the context was lost"; it is "the context was lost and never came back", which
+  // is the GPU-process-crash case where reloading is genuinely the only move. Announce the loss
+  // straight away and we would be telling people to reload a map that heals itself a second later.
+  const glLostNotice = document.getElementById("gl-lost");
+  const GL_RESTORE_GRACE_MS = 4000;
+  let restoreWatchdog: number | undefined;
+  map.on("webglcontextlost", () => {
+    window.clearTimeout(restoreWatchdog);
+    restoreWatchdog = window.setTimeout(
+      () => glLostNotice?.removeAttribute("hidden"),
+      GL_RESTORE_GRACE_MS,
+    );
+  });
+  map.on("webglcontextrestored", () => {
+    window.clearTimeout(restoreWatchdog);
+    glLostNotice?.setAttribute("hidden", "");
   });
 
   // --- Country borders (Natural Earth vector lines) ---------------------------

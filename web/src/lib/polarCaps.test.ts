@@ -2,12 +2,14 @@
 // (edge_lat, feather ceiling, URLs) must flow through capOptionsFrom untouched, because the
 // literals they replaced drifted silently by construction (the hero/tile constants lesson).
 
+import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Map as MaplibreMap } from "maplibre-gl";
 import {
   MOBILE_CAP_BUDGET_PX,
   RINGS,
   SECTORS,
+  addPolarCap,
   buildMesh,
   canvasBackingRatio,
   capOptionsFrom,
@@ -398,5 +400,109 @@ describe("syncCapRung", () => {
     expect(gl.uploads).toEqual([]);
     expect(layer.loadedRungPx).toBe(0);
     expect(layer.rungLoading).toBeUndefined(); // the in-flight slot must not stay wedged
+  });
+});
+
+/** A map that can gain and lose layers, and whose listeners outlive its style — which is the whole
+ *  asymmetry a WebGL context loss exposes. `addLayer` attaches the gl/texture that the real `onAdd`
+ *  would, so `syncCapRung` runs its true path instead of bailing on a missing context. */
+function fakeMapWithStyle(extentPx: number, gl: unknown) {
+  const listeners = new Map<string, Array<() => void>>();
+  const layers = new Map<string, CapLayer>();
+  const map = {
+    getCenter: () => ({ lng: 0, lat: 90 }),
+    project: circleProjector(extentPx / 2, 78),
+    getCanvas: () => ({ width: 1000, clientWidth: 1000 }),
+    triggerRepaint: () => undefined,
+    getLayer: (id: string) => layers.get(id),
+    addLayer: (layer: CapLayer) => {
+      layer.gl = gl as WebGL2RenderingContext;
+      layer.texture = {} as WebGLTexture;
+      layer.loadedRungPx = 0;
+      layers.set(layer.id, layer);
+    },
+    on: (event: string, handler: () => void) => {
+      listeners.set(event, [...(listeners.get(event) ?? []), handler]);
+    },
+    off: (event: string, handler: () => void) => {
+      listeners.set(event, (listeners.get(event) ?? []).filter((h) => h !== handler));
+    },
+  };
+  return {
+    map: map as unknown as MaplibreMap,
+    moveEndCount: () => (listeners.get("moveend") ?? []).length,
+    /** What a context loss does: MapLibre destroys the STYLE and rebuilds it from a snapshot that
+     *  cannot carry a custom layer. Map-level listeners are untouched. */
+    loseContext: () => layers.clear(),
+    fireMoveEnd: async () => {
+      for (const handler of [...(listeners.get("moveend") ?? [])]) handler();
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    },
+    removeLayer: (id: string) => {
+      const layer = layers.get(id);
+      layers.delete(id);
+      (layer as unknown as { onRemove?: (m: MaplibreMap) => void }).onRemove?.(
+        map as unknown as MaplibreMap,
+      );
+    },
+  };
+}
+
+describe("cap listener lifecycle across a WebGL context loss", () => {
+  it("re-adding after a context loss leaves ONE moveend listener, not one per loss", () => {
+    const harness = fakeMapWithStyle(110, fakeGl());
+    addPolarCap(harness.map, OPTS);
+    expect(harness.moveEndCount()).toBe(1);
+
+    // Three losses. Before the registry each of these stranded a listener holding a dead layer.
+    for (let loss = 0; loss < 3; loss++) {
+      harness.loseContext();
+      addPolarCap(harness.map, OPTS);
+    }
+    expect(harness.moveEndCount()).toBe(1);
+  });
+
+  it("fetches an upgraded rung ONCE after a loss — the doubled request measured live", async () => {
+    const gl = fakeGl();
+    stubImageLoading(gl);
+    // Small cap: the first load takes 1024 and leaves room to upgrade.
+    const harness = fakeMapWithStyle(110, gl);
+    addPolarCap(harness.map, OPTS);
+    harness.loseContext();
+    addPolarCap(harness.map, OPTS);
+
+    // A camera move that genuinely demands a bigger rung.
+    const zoomed = fakeMapWithStyle(1600, gl);
+    (harness.map as unknown as { project: unknown }).project = (
+      zoomed.map as unknown as { project: unknown }
+    ).project;
+    await harness.fireMoveEnd();
+
+    const requested = gl.fetched.filter((url) => url.includes("cap_north"));
+    expect(requested.length).toBe(1);
+    expect(new Set(requested).size).toBe(requested.length); // no URL fetched twice
+  });
+
+  it("onRemove detaches the listener, so an explicit removeLayer leaves nothing behind", () => {
+    const harness = fakeMapWithStyle(110, fakeGl());
+    addPolarCap(harness.map, OPTS);
+    expect(harness.moveEndCount()).toBe(1);
+    harness.removeLayer(OPTS.layerId);
+    expect(harness.moveEndCount()).toBe(0);
+  });
+});
+
+describe("the context-loss recovery contract", () => {
+  it("globe.astro installs the caps from style.load — the binding recovery depends on", () => {
+    const source = readFileSync(new URL("../pages/globe.astro", import.meta.url), "utf8");
+    const boundToStyleLoad = /map\.on\(\s*["']style\.load["'][\s\S]{0,400}?addPolarCaps/.test(source);
+    expect(
+      boundToStyleLoad,
+      "globe.astro must call addPolarCaps from a `style.load` handler. MapLibre restores a lost " +
+        "WebGL context by re-applying a serialized style, which cannot carry a `custom` layer — " +
+        "the caps survive ONLY because that restore re-fires `style.load`. Bound to a one-shot " +
+        "`load` instead, every recovered globe is silently capless: no error, just holes at the poles.",
+    ).toBe(true);
   });
 });
