@@ -189,16 +189,20 @@ rationale lives in HISTORY; this section carries only what is still open.
     `/` client-side steers to `/globe/` so both first runs measured the globe
   - Carry-in: Firefox blocks ~1.1 s on main-thread cap decode+upload; candidate = decode in a Web Worker
   - Carry-in: the dev middleware sends no ETag/Last-Modified, so `no-cache` can't 304 (dev-only)
-- [ ] **Tile-cache eviction + the hole-to-space** — diagnosed 2026-07-25, nothing changed yet
-  - No `background` layer, canvas transparent ⇒ a missing tile shows the starfield PAGE through
-  - Proved by runtime probe: a background layer clips to the sphere, starfield around it untouched
-  - Candidate fill `#47808F` (−3800 m abyssal) via palette's own `_srgb8`, not hand-converted
-  - Measured 16 tiles re-requested in one z6→z3→z6 cycle; cache max **330**, held **262**
-  - **`maxTileCacheSize` is a `Math.min` in MapLibre 6 — it can only SHRINK the cache**
-  - Only `maxTileCacheZoomLevels` grows it (a multiplier on viewport tiles, not a zoom count)
-  - Cost of 5 → 8: desktop **440 → 704 MiB**, phone 100 → 160 MiB of GPU texture
-- [ ] **Cold-tile levers — decide whether cold matters first**, at the Lighthouse pass
-  - Ours: bake header+root directory into the bundle (~16 KB); cache leaf directories in `caches.default`
+- [x] **The hole-to-space CLOSED 2026-07-26** — `background` layer `#47808F`, 0 bytes → HISTORY § the hole to space was never a MapLibre regression
+  - **Not a v6 regression**: 5.24 vs 6.0 tile-retention source is IDENTICAL — do not re-suspect the bump
+  - What changed is DURATION: dev = local file <1 ms, live edge MISS **1.2–1.75 s**
+  - Colour derived from `SEA_STOPS[4]` in new `web/src/lib/palette.ts`; pytest drift-scan both directions
+  - Rode along: `TILE_EXTENSION` had no guard (browsers sniff past a mislabel) → `describeTileTypeMismatch`
+  - **Left standing:** a hole over LAND still reads ocean blue — the fill is a floor, not a reconstruction
+  - **Not shipped, deliberately:** `maxTileCacheZoomLevels` 5 → 8 costs **+264 MiB desktop GPU** for a
+    merely probabilistic win. If a data floor is ever wanted, a pinned z1 base source (4 tiles,
+    **273 KB**) is deterministic and 1000× cheaper → parked in FUTURE
+- [ ] **Cold-tile levers — now the top perf item, and grounded twice over**
+  - Re-measured 2026-07-26: edge MISS **1.2–1.75 s**, of which **830–1414 ms is 3 SEQUENTIAL R2 reads**
+  - This is what makes every missing-tile symptom visible; HIT is ~470 ms by comparison
+  - Ours: bake header+root directory into the bundle (~16 KB) kills read 1; `caches.default` leaf
+    directories kills read 2 — two of three round trips, no Cloudflare feature needed
   - Cloudflare's: `placement.mode: "smart"` — untested, free-tier availability unconfirmed
 - [ ] Hovered-country name chip — the gold outline names nothing; needs a design pass
 - [ ] `webglcontextlost` → "reload the globe" hint

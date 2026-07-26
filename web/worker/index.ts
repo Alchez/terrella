@@ -19,8 +19,9 @@ import {
   ResolvedValueCache,
   type RangeResponse,
   type Source,
+  tileTypeExt,
 } from "pmtiles";
-import { TILE_CONTENT_TYPE, parseTilePath } from "../src/lib/reliefTiles";
+import { TILE_CONTENT_TYPE, describeTileTypeMismatch, parseTilePath } from "../src/lib/reliefTiles";
 
 interface Env {
   /** R2 binding for the bucket holding the archive (bucket `terrella-tiles`). */
@@ -46,6 +47,10 @@ const DEFAULT_CACHE_CONTROL = "public, max-age=31536000, immutable";
  *  own bytes — three round trips per tile instead of one. Module scope is the point: the cache
  *  outlives the request. */
 const DIRECTORY_CACHE = new ResolvedValueCache(25, undefined, nativeDecompress);
+
+/** Latched so a TILE_EXTENSION/archive disagreement logs once per isolate rather than once per
+ *  tile — a global mismatch shouted 40,000 times buries every other line in the log. */
+let warnedTileTypeMismatch = false;
 
 /** Decompress with the platform's own stream rather than the library's bundled fallback, which
  *  would pull fflate into a Worker that already has DecompressionStream. */
@@ -262,6 +267,18 @@ export default {
             `RELIEF_MIN_ZOOM/RELIEF_MAX_ZOOM in web/src/lib/reliefTiles.ts are stale`,
         );
         return store(null, 404);
+      }
+
+      // Encoding drift gets a warning and nothing else. Unlike a zoom outside the archive, the
+      // bytes here are servable — only the label is wrong, and browsers content-sniff past it.
+      // 404ing the planet over a mislabel would be a self-inflicted outage; the dev server's
+      // throw is where this is meant to be caught, and this is the net under it.
+      if (!warnedTileTypeMismatch) {
+        const mismatch = describeTileTypeMismatch(tileTypeExt(header.tileType));
+        if (mismatch) {
+          warnedTileTypeMismatch = true;
+          console.warn(`${archiveKey}: ${mismatch}`);
+        }
       }
 
       const entry = await archive.getZxy(tile.z, tile.x, tile.y);

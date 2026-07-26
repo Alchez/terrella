@@ -6,9 +6,13 @@ oracle (the frozen hex values recorded in CLAUDE.md's "Locked global constants")
 fails loudly if the linear ramp stops ever drift off the approved hero look.
 """
 
+from pathlib import Path
+
 import pytest
 
 from pipeline.render import palette
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def _hex(code: str) -> tuple[int, int, int]:
@@ -129,6 +133,26 @@ class TestSharedConstants:
         assert palette.EXAGGERATION == 15.0
         assert render_prep.EXAGGERATION == palette.EXAGGERATION
         assert shade_planet.EXAG == palette.EXAGGERATION
+
+    def test_web_palette_matches_the_ramp_it_copies(self):
+        """web/src/lib/palette.ts restates pipeline colours for the browser, which cannot
+        import Python. This recomputes each one through _srgb8 and fails on drift — the
+        same class of bug WATER_RGB hit twice, in the one place an import cannot reach.
+
+        Adding a colour to that file means adding its stop here in the same edit."""
+        web_palette = (REPO_ROOT / "web/src/lib/palette.ts").read_text()
+
+        # name in the TS file -> the ramp stop it encodes
+        derived = {
+            "DEEP_SEA": palette.SEA_STOPS[4][1],  # -3800 m abyssal plain
+        }
+        for name, linear in derived.items():
+            red, green, blue = palette._srgb8(linear)
+            expected = f'export const {name} = "#{red:02X}{green:02X}{blue:02X}";'
+            assert expected in web_palette, (
+                f"web/src/lib/palette.ts must declare {name} as "
+                f"#{red:02X}{green:02X}{blue:02X} — the palette moved, the copy did not"
+            )
 
 
 class TestWriteColorRelief:

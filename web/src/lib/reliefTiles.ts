@@ -52,6 +52,25 @@ export function parseTilePath(pathname: string): TileCoordinate | null {
   return { z, x, y };
 }
 
+/** Describe a TILE_EXTENSION/archive disagreement, or null when they match.
+ *
+ *  Takes the extension rather than pmtiles' numeric `tileType` so this module stays
+ *  dependency-free; both servers already hold a header and can call `tileTypeExt()` on it.
+ *
+ *  This one is worth a guard precisely because it does NOT announce itself: a pyramid re-cut to
+ *  PNG still answers `.webp` URLs, the server still labels them `image/webp`, and browsers
+ *  content-sniff the bytes and render them anyway. Everything looks correct until something in
+ *  the chain trusts the label — a cache keyed on type, an image pipeline, a stricter client. */
+export function describeTileTypeMismatch(archiveExtension: string): string | null {
+  if (archiveExtension === `.${TILE_EXTENSION}`) return null;
+  const declared = archiveExtension || "an encoding this pmtiles build cannot name";
+  return (
+    `PMTiles archive stores ${declared} tiles, but the globe requests .${TILE_EXTENSION} and the ` +
+    `server labels them ${TILE_CONTENT_TYPE}. Update TILE_EXTENSION in src/lib/reliefTiles.ts to ` +
+    `match the re-cut pyramid (its source of truth is TILE_CUT in pipeline/tile/shade_planet.py).`
+  );
+}
+
 /** Fail loudly when the archive stops matching the constants above. Called by the tile server
  *  once, against the header it has already read — the whole point of duplicating the zooms
  *  into the client is that nothing in the browser can notice they went stale. */
