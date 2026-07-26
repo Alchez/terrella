@@ -222,7 +222,8 @@ Pointers only — every *why*, number and rejected alternative is in the cited H
 
 Parked in FUTURE, deliberately unscheduled: brotli sidecars · vector-tile countries · look presets · AVIF · tile size vs DPR.
 
-Standing diagnostic flags: `?perf` (long-task overlay) · `?bare` (tiles-only) · `?nocaps`.
+Standing diagnostic flags: `?perf` (long-task overlay) · `?bare` (tiles-only) · `?nocaps` ·
+`?maxreq=N` (MapLibre's parallel image cap, default 16 — refuses a malformed value loudly).
 
 ## Phase 5 — Tier 3 (candidate; go/no-go after Phase 4 ships)
 
