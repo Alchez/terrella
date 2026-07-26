@@ -138,6 +138,56 @@ there as an absolute URL, so adding a fourth cannot silently ship as same-origin
 
 Note `pnpm run deploy`, not `pnpm deploy` — the latter is a pnpm builtin.
 
+**There are TWO deploys, and `pnpm run deploy` is only one of them.** It ships the site shell.
+The tile Worker is a separate Worker with its own config and must be deployed from its own
+directory whenever `worker/` or anything it imports (`src/lib/reliefTiles.ts`) changes:
+
+```sh
+cd worker && npx wrangler deploy
+```
+
+Two things about that deploy are confusing enough to waste a session:
+
+- **`No targets deployed for terrella-tiles` is not an error.** Unlike the site Worker, which
+  declares `routes: [{ pattern: "terrella.alchez.dev", custom_domain: true }]`, the tile Worker
+  declares **no routes** — `tiles.terrella.alchez.dev` is attached to it **in the dashboard only**.
+  Wrangler is reporting that the config named no targets, not that the version failed to go live.
+  It does go live; confirm from outside rather than from the message (see below).
+- **A fresh setup must attach that custom domain by hand**, or the Worker deploys successfully and
+  is unreachable at every hostname — `workers_dev` and `preview_urls` are both off by design.
+  Declaring the route in `worker/wrangler.jsonc` would fix both points; it has not been done
+  because the domain is already attached and re-declaring it touches live routing.
+
+To confirm a tile-Worker deploy actually took, ask a tile and read two headers:
+
+```sh
+curl -sD- -o /dev/null -H "Origin: https://terrella.alchez.dev" \
+  https://tiles.terrella.alchez.dev/8/155/99.webp | grep -iE "cf-cache-status|server-timing"
+# cf-cache-status: MISS
+# server-timing: cache;dur=6, r2;dur=281;desc="1 read, 148540 B", worker;dur=287
+```
+
+- **`Cf-Cache-Status` present at all** means Workers Caching is enabled and live. Absent means the
+  `cache` block in `wrangler.jsonc` did not take.
+- **`MISS` right after a deploy is expected, not a failure.** The Worker version is part of the
+  cache key (`cross_version_cache` is off), so every deploy starts from an empty cache. That is
+  also the invalidation mechanism — there is nothing to purge.
+- **`Server-Timing` is only true on a `MISS`.** On a `HIT` the Worker never runs, so the stored
+  header is replayed verbatim and reports the read count and durations of whichever request filled
+  the cache. The tell is arithmetic: total time well below the replayed `worker;dur` is a stale
+  header, not a fast Worker. Read the R2 read count (`1 read` = index prefetch working) only on a
+  `MISS`.
+
+Two things will otherwise mislead you:
+
+- **Send the `Origin` header.** Responses carry `Vary: Origin`, so a bare `curl` populates and reads
+  a variant no browser ever touches. A cross-origin check is also the only way to see the CORS path
+  the globe actually uses.
+- **`caches.default` is still consulted inside the Worker and is *not* keyed by Worker version.** So
+  a tile can be `Cf-Cache-Status: MISS` (new Worker version) while `X-Terrella-Cache: hit` serves the
+  body from before the deploy. For a genuinely cold measurement, require **both** to say miss, and
+  pick an address you have never fetched.
+
 Deploying from a fresh clone does not work, by design: the build reads
 `src/data/countries.json` and `public/caps/`, both generated from the render store and both
 gitignored. Regenerate them before deploying (see `docs/pipeline.md`).

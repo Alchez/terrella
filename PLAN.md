@@ -198,7 +198,7 @@ rationale lives in HISTORY; this section carries only what is still open.
   - **Not shipped, deliberately:** `maxTileCacheZoomLevels` 5 → 8 costs **+264 MiB desktop GPU** for a
     merely probabilistic win. If a data floor is ever wanted, a pinned z1 base source (4 tiles,
     **273 KB**) is deterministic and 1000× cheaper → parked in FUTURE
-- [ ] **Cold-tile levers — top perf item; Cloudflare side fully scoped 2026-07-26, nothing built yet**
+- [x] **Cold-tile levers — A + C SHIPPED and verified live 2026-07-26; B demoted to a FUTURE experiment**
   - Edge MISS **1.2–1.75 s**, of which **830–1414 ms is 3 SEQUENTIAL R2 reads**; HIT ~470 ms
   - **Reads are LATENCY-bound, not bandwidth**: 10 KB and 138 KB both land in 250–700 ms
   - **THE FACT THAT REFRAMES IT: bucket `terrella-tiles` is in APAC, the Worker runs in MRS.**
@@ -211,17 +211,23 @@ rationale lives in HISTORY; this section carries only what is still open.
     - z8 like-for-like: r2 **921 → 251 ms median**, total **1.38 → 0.82 s**
     - Bimodal after: r2 clusters at ~245 ms or ~800 ms — connection warmth, not read count
     - 11 unit tests; the straddle/ETag/off-by-one guards each falsified by mutation
-  - Lever B: explicit `placement.region` hint → attacks read COST. **No traffic/warm-up needed**
-    (unlike `mode: "smart"`, which needs consistent multi-location traffic Terrella does not have)
-  - **B IS UNSAFE UNTIL C.** We call `caches.default` INSIDE the handler, so the Worker runs on every
-    request incl. hits — placing it in APAC would route warm tiles there too
-  - Lever C: **Workers Caching** (`"cache": {"enabled": true}`, wrangler ≥4.69; we have 4.114).
-    Read-through (hits never run the Worker), request collapsing, tiered cache. Prerequisite for B
-    - Gotcha: Worker version is in the cache key by default → **hit rate resets every deploy**;
-      `cross_version_cache: true` (≥4.107) fixes it
-    - **Cost to verify before adopting:** CORS + `Server-Timing` are currently applied on the way
-      out and never stored. Read-through serves stored headers, which would freeze CORS into the
-      cache and let a HIT replay stale timings — the exact trap `withServerTiming` was written to avoid
+  - [x] **Lever C SHIPPED + VERIFIED LIVE 2026-07-26** — `"cache": {"enabled": true}`, tile Worker
+    only, version `988ca658` → HISTORY § Workers Caching ships on its own merits
+    - Read-through worth **~28 ms** (HIT 108 ms beats the *worker-runs* 404 floor at 136 ms);
+      cold unchanged at **442 ms** TTFB, 1 read on 18/18 — **no tiering penalty fits in the floor**
+    - Shipped for **tiered cache + request collapsing**, NOT as a stepping stone to B
+    - `cross_version_cache` left **off** against the docs' framing: we deploy rarely, so the
+      deploy *is* the purge — which is what keeps ALLOWED_ORIGIN's "no purge needed" note true
+    - **The CORS freeze we feared is disarmed by the `Vary: Origin` we already had** — verified in
+      both population orders; a bare `curl` tests a variant no browser touches
+    - **NEVER add the block to the site Worker** — caching bills otherwise-free static-asset requests
+    - Surrendered knowingly: `Server-Timing` lies on hits (tell: TTFB − `worker;dur` goes negative),
+      and `Cf-Cache-Status` is **not exposed to JS**, so in-page checks can't see HIT vs MISS
+  - **Lever B DEMOTED to an experiment likely to be rejected** → parked in FUTURE. Lever A left ONE
+    read, so a placement hint **moves** the long-haul leg rather than removing it, and BOM-landing
+    visitors already read in ~60 ms. The C-before-B ordering was right and is now moot
+  - Follow-ups left standing, deliberately: the now-redundant `caches.default` tile-body layer +
+    `X-Terrella-Cache`, and `Access-Control-Expose-Headers` for `Cf-Cache-Status`
   - RESOLVED: Smart Placement **is available on all Workers plans**, free included
 - [ ] Hovered-country name chip — the gold outline names nothing; needs a design pass
 - [ ] `webglcontextlost` → "reload the globe" hint
