@@ -15,6 +15,13 @@ import Base from "../layouts/Base.astro";
   <div id="globe" class="globe" role="application" aria-label="Interactive relief globe"></div>
   <a class="globe-home" href="/">← Gallery</a>
 
+  <!-- Names whatever the pointer is on, so the gold hover outline stops being anonymous.
+       Desktop-only by nature rather than by omission: touch has no hover state to leave
+       unnamed, and a tap already opens the card below, which names the country outright. -->
+  <p id="country-chip" class="country-chip" hidden aria-hidden="true">
+    <span class="cc-dot"></span><span class="cc-name"></span>
+  </p>
+
   <!-- Country detail: populated + revealed on click, framed by fitBounds so the
        flown-to country sits clear of this card. -->
   <aside id="hero-panel" class="hero-panel" hidden aria-hidden="true" aria-label="Country detail">
@@ -91,6 +98,64 @@ import Base from "../layouts/Base.astro";
   }
   .globe-home:hover {
     color: var(--accent);
+  }
+
+  /* The hovered-country name. Top-centre is the only free band on the page: .globe-home holds the
+     top left, MapLibre's navigation/globe/fullscreen stack the top right, the scale bar and
+     attribution the bottom left, .view-bar the bottom right. Same pill treatment as .globe-home so
+     it reads as one family of floating chrome — the gold dot is what marks it as the LABEL for the
+     gold outline rather than as another control. */
+  .country-chip {
+    position: fixed;
+    top: 1.2rem;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 20;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin: 0;
+    padding: 0.5rem 1rem;
+    max-width: min(24rem, calc(100vw - 2.4rem));
+    background: color-mix(in srgb, var(--bg-2) 92%, transparent);
+    -webkit-backdrop-filter: blur(6px);
+    backdrop-filter: blur(6px);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    box-shadow: var(--shadow);
+    font-family: var(--serif);
+    font-size: 1.05rem;
+    color: var(--text);
+    white-space: nowrap;
+    /* Load-bearing, not tidiness: the chip sits over the canvas, so without this the pointer
+       reaching it would fire the map's `mouseout`, hide the chip, land back on the canvas and
+       show it again — a flicker loop, worst exactly where you hover the top of the sphere. */
+    pointer-events: none;
+  }
+  .cc-dot {
+    flex: none;
+    width: 0.4rem;
+    height: 0.4rem;
+    border-radius: 50%;
+    /* Colour is set from HIGHLIGHT_GOLD in the module below — one constant, so the dot cannot
+       drift away from the outline it is tying itself to. */
+  }
+  .cc-name {
+    min-width: 0; /* lets the flex item shrink far enough for the ellipsis to engage */
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  /* `hidden` would otherwise lose to the display value above — same trap as .globe-lost. */
+  .country-chip[hidden] {
+    display: none;
+  }
+  /* Phones have no hover state to leave anonymous, and a tap opens the detail card that names the
+     country anyway. Without this the synthetic mouse events a tap emits would flash the chip for an
+     instant under the arriving card. Touchscreen laptops report `hover: hover` and keep it. */
+  @media (hover: none) {
+    .country-chip {
+      display: none;
+    }
   }
   .globe-noscript {
     position: fixed;
@@ -307,6 +372,7 @@ import Base from "../layouts/Base.astro";
   import { currentTier } from "../lib/capability";
   import {
     COUNTRIES_SOURCE,
+    HIGHLIGHT_GOLD,
     OUTLINE_SOURCE,
     countriesSource,
     outlineSource,
@@ -314,6 +380,7 @@ import Base from "../layouts/Base.astro";
     fillLayer,
     highlightLayers,
   } from "../lib/countryHighlight";
+  import { createHoverTracker } from "../lib/hoverTracking";
   import {
     DEGRADED_PIXEL_RATIO,
     MAXIMUM_SAMPLE_COUNT,
@@ -737,31 +804,64 @@ import Base from "../layouts/Base.astro";
     return best;
   }
 
+  // --- The name chip ----------------------------------------------------------
+  // The gold outline says WHICH country; this says which country it IS. Kept a plain element
+  // rather than a MapLibre Popup so it costs no per-hover DOM churn and inherits the same token
+  // treatment as the rest of the globe's floating chrome.
+  const countryChip = document.getElementById("country-chip") as HTMLElement | null;
+  const countryChipName = countryChip?.querySelector(".cc-name") as HTMLElement | null;
+  const countryChipDot = countryChip?.querySelector(".cc-dot") as HTMLElement | null;
+  // The dot exists to tie the chip to the outline it names, so it takes its colour from the very
+  // constant those layers paint with. A CSS copy of the hex would be free to drift silently.
+  if (countryChipDot) countryChipDot.style.backgroundColor = HIGHLIGHT_GOLD;
+  // The detail card names its country large and, at around a 900px viewport, covers this chip's
+  // slot outright (it is 420px wide at z-index 30, the chip is centred at 20). Rather than let the
+  // two fight for the same pixels and have the chip lose invisibly, the card suppresses it.
+  let chipSuppressedByPanel = false;
+
+  function paintChip(admin: string | null) {
+    if (!countryChip || !countryChipName) return;
+    const visible = admin !== null && !chipSuppressedByPanel;
+    if (visible) countryChipName.textContent = admin;
+    countryChip.hidden = !visible;
+  }
+
   // Hover highlight, keyed on the whole country (ADMIN) so every part lights together —
   // pointing at one Maldives atoll outlines all of Maldives, exactly as hovering Java
   // outlines all of Indonesia.
-  let hovered: string | null = null;
   // Both sources share the ADMIN promoteId: `countries` drives the fill wash, `country-outlines`
   // the gold boundary line. One id toggles both so the whole country lights as a unit.
-  function setHover(admin: string | null) {
-    if (admin === hovered) return;
+  function paintHighlight(admin: string | null, previousAdmin: string | null) {
     const setState = (id: string, hover: boolean) => {
       map.setFeatureState({ source: COUNTRIES_SOURCE, id }, { hover });
       map.setFeatureState({ source: OUTLINE_SOURCE, id }, { hover });
     };
-    if (hovered !== null) setState(hovered, false);
-    hovered = admin;
-    if (hovered !== null) setState(hovered, true);
+    if (previousAdmin !== null) setState(previousAdmin, false);
+    if (admin !== null) setState(admin, true);
   }
-  map.on("mousemove", (event) => {
-    const admin = countryAt(event.point);
-    map.getCanvas().style.cursor = admin ? "pointer" : "";
-    setHover(admin);
+
+  // hoverTracking.ts owns WHICH country is hovered — including the part that is easy to get wrong,
+  // re-resolving when the globe moves under a parked pointer. Nothing here keeps a second copy of
+  // that state; the tracker hands over both the country being entered and the one being left.
+  const hoverTracker = createHoverTracker<Point>({
+    resolve: (point) => countryAt(point),
+    onChange: (admin, previousAdmin) => {
+      paintHighlight(admin, previousAdmin);
+      paintChip(admin);
+      // Driven from the resolved answer rather than from the mousemove handler, so one
+      // queryRenderedFeatures serves all three — and so the cursor stops going stale after a drag
+      // the same way the highlight used to.
+      map.getCanvas().style.cursor = admin ? "pointer" : "";
+    },
   });
-  map.on("mouseout", () => {
-    map.getCanvas().style.cursor = "";
-    setHover(null);
-  });
+
+  map.on("mousemove", (event) => hoverTracker.pointerMoved(event.point));
+  map.on("mouseout", () => hoverTracker.pointerLeft());
+  // A drag, a zoom, the country fly-to and every spin step all put different land under a pointer
+  // that never moved, and none of them emits a mousemove. Without this the outline, the cursor and
+  // the chip all keep describing the country that used to be there — unbounded after a drag. An
+  // anonymous outline could get away with that; a chip stating the wrong name out loud cannot.
+  map.on("moveend", () => hoverTracker.viewChanged());
 
   // --- The detail card --------------------------------------------------------
   const panel = document.getElementById("hero-panel") as HTMLElement;
@@ -792,11 +892,19 @@ import Base from "../layouts/Base.astro";
     }
     panel.hidden = false;
     panel.setAttribute("aria-hidden", "false");
+    chipSuppressedByPanel = true;
+    paintChip(null);
   }
 
   function closePanel() {
     panel.hidden = true;
     panel.setAttribute("aria-hidden", "true");
+    chipSuppressedByPanel = false;
+    // Two calls, because they do different jobs: the fly-to moved the globe while the card was
+    // open, so re-resolve first; then repaint unconditionally, because viewChanged() only fires
+    // onChange on a CHANGE and the pointer is usually still on the country the card was showing.
+    hoverTracker.viewChanged();
+    paintChip(hoverTracker.current());
   }
 
   document.getElementById("hero-close")?.addEventListener("click", closePanel);

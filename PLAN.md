@@ -159,6 +159,13 @@ Pointers only — every *why*, number and rejected alternative is in the cited H
 - [x] **Cap rungs by projected size** — 156 KB at the default camera, cold window 11.4 → 6.5 MB →
   HISTORY § the polar caps ship 156 KB
 - [x] `Timing-Allow-Origin` on both cross-origin surfaces → HISTORY § P5 end-to-end
+- [x] **Hovered-country name chip** — top-centre pill, gold dot, desktop-only by design →
+  HISTORY § the gold outline finally says what it is
+  - Found underneath it: **hover was recomputed on `mousemove` and nothing else**, so the outline and
+    the cursor went stale on every drag/zoom/fly-to. `hoverTracking.ts` re-resolves on `moveend`
+  - **Never unbind `moveend → viewChanged()`** — every unit test stays green without it; only the
+    source guard catches its removal
+  - Cost: 0.04–0.07 ms/resolve · 165 fps through spin, 0 long tasks · +226 B gzipped
 - [x] About page → HISTORY § the About page closes
 - [x] astro 7.0.7 → 7.1.3 (GDAL 3.13 assessed the same day and SKIPPED → FUTURE)
 - [x] **RESOLVED: buy nothing for the MRS PoP** → HISTORY § P5 end-to-end
@@ -184,7 +191,6 @@ Pointers only — every *why*, number and rejected alternative is in the cited H
   - **`countries.geojson` is the largest single item** (3.08 MB) — bigger than all 36 tiles combined
   - Carry-in: Firefox blocks ~1.1 s on main-thread cap decode+upload → candidate = Web Worker decode
   - Carry-in: the dev middleware sends no ETag/Last-Modified, so `no-cache` can't 304 (dev-only)
-- [ ] Hovered-country name chip — the gold outline names nothing; needs a design pass
 - [x] **`webglcontextlost` CLOSED 2026-07-26** — premise was wrong: MapLibre v6 recovers unaided, so
   a "reload" hint is wrong advice → HISTORY § the "reload the globe" hint was the wrong fix
   - Found instead: **a `moveend` listener stranded per context loss**, measured live as `cap_north_4096`

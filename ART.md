@@ -61,7 +61,7 @@ Cost: hero sweep **~10–13 h** + tile restage **~29 min** + caps auto-restage *
 | `SNOW_RGB` / `SNOW_SHADOW_RGB` | `E8F1F6` / `B0C7DB` | § Snow |
 | `ICE_RGB` / `ICE_SHADOW_RGB` | `D4E4F0` / `9CB8D2` | § Sea ice |
 | `SUN_ALT_DEG` | 45.0 — hero X-tilt and tile `alt` both derive from it | § Sun altitude |
-| `EXAGGERATION` | 15.0 — hero displacement + tile `EXAG` both import it (copy pair collapsed 2026-07-24) | § Vertical exaggeration |
+| `EXAGGERATION` | 15.0 — hero displacement + tile `EXAG` both import it (the copy pair was collapsed) | § Vertical exaggeration |
 | `LUT_STEP_M` | 1.0 m — ramp LUT resolution (fidelity, not hue) | § Land color ramp |
 
 ### Hero only (`scene_build.py`, `render_prep.py`) — the ~204-country sweep, ~10–13 h
@@ -118,6 +118,7 @@ Cost: hero sweep **~10–13 h** + tile restage **~29 min** + caps auto-restage *
 | `COORDINATE_PRECISION` (both geojson emitters) | 4 (countries) / 5 (borders) | regen, seconds | HISTORY § blocky hover outline |
 | highlight look (web/src/lib/countryHighlight.ts) | `HIGHLIGHT_GOLD` `#eca834`, casing `#1c140c`, wash 0.16 | `pnpm build` | § Borders |
 | border line ramps (globe.astro `inkWidth`/`casingWidth`) | 0.6→1.7 px ink, 2.2→5.0 px casing over z1–8 | `pnpm build` | § Borders |
+| hover name chip (globe.astro `.country-chip`) | top-centre pill on `.globe-home`'s treatment, `var(--serif)` 1.05 rem, 0.4 rem dot taking `HIGHLIGHT_GOLD` from the constant (never a CSS copy); no fade, hidden under `(hover: none)` and while the detail card is open | `pnpm build` | HISTORY § the gold outline finally says what it is |
 | globe camera flatness (globe.astro `VERTICAL_FIELD_OF_VIEW_DEG`) | 15° — tested band 5–15 (MapLibre default 36.87° reads as low-orbit fisheye; 5° ≈ the hero's orthographic camera) | `pnpm build` | HISTORY § the MapLibre API survey |
 
 ## Levers (play with these)
@@ -218,7 +219,7 @@ Cost: hero sweep **~10–13 h** + tile restage **~29 min** + caps auto-restage *
 
 | Tile | Hero | Relationship |
 |---|---|---|
-| `EXAG` (shade_planet.py) | `render_prep` displacement (both import `palette.EXAGGERATION` 15.0) | **now import-shared** — the copy pair was collapsed into `palette` 2026-07-24 |
+| `EXAG` (shade_planet.py) | `render_prep` displacement (both import `palette.EXAGGERATION` 15.0) | **now import-shared** — the copy pair was collapsed into `palette` |
 | `KNOBS["alt"]` 45°, azimuth 315° | `SUN_ROTATION` X = `90 − SUN_ALT_DEG`, NW | both derive from `palette.SUN_ALT_DEG` |
 | `KNOBS["fill_strength"]` 0.15 | `FILL_STRENGTH 0.45 / SUN_STRENGTH 3.0` | the ratio, ported exactly |
 | `FILL_ALTITUDE 60°` / `FILL_AZIMUTH 135°` | `FILL_ROTATION` | identical geometry |
@@ -373,7 +374,7 @@ Cost: hero sweep **~10–13 h** + tile restage **~29 min** + caps auto-restage *
 - Burn-only horizon sky-view-factor from `heightfield_aea`: darkens land *valleys* for
   topographic depth (so flat/low-relief countries read); open ground left at rendered
   brightness. Applied by `batch.py` after the render, before the atomic promote. Land only.
-- **Per-country strength** since 2026-07-24: `sky_view_strength` in `config/countries.toml`
+- **Per-country strength**: `sky_view_strength` in `config/countries.toml`
   (resolved by `country_config`, passed as `--strength`). **Default 0.20** (0.38 read too strong
   on most terrain — it mudded alpine depth); **0.0** on 7 volcanic islands where the AO blackens
   dendritic drainage into dark "pinecones"; **0.38** on flat Qatar/Paraguay (the original reason
