@@ -185,6 +185,33 @@ magnitude, so the taxonomy is the decision:
   currently-dropped far-flung remainders). Worth pricing against just shipping those as the
   already-decided separate territory heroes.
 
+## Worker placement hint near the APAC bucket — the prize shrank when lever A shipped (analysed 2026-07-26)
+
+- **Was PLAN's lever B; demoted the day Workers Caching shipped.** Not rejected — the expected win
+  is now uncertain in sign and size, which is not the same as zero, and it is one config line to try.
+- **What changed:** pre-lever-A a cold tile paid **three sequential Marseille↔APAC reads**, so an
+  explicit `placement.region` hint collapsed three long-haul round trips into roughly one — the
+  basis of the 07-25 "380 ms → ~100 ms" estimate. Lever A left **one** read, and placement does not
+  remove that leg, it **moves** it: today the request lands at MRS and the read crosses to APAC;
+  under placement the request crosses to APAC and the read is local. **The tile bytes cross the
+  same ocean exactly once either way.** What remains is R2's long-haul read overhead minus
+  Cloudflare's backbone RTT.
+- **Second discount:** the 07-25 Mumbai control did the same read in **~60 ms**, so the Indian
+  visitors who land at BOM next to the bucket already have a fast read and gain nothing. The hint
+  helps US/EU visitors and Rohan's Airtel-to-Marseille line — a real audience, but not "everyone".
+- **The blocker is gone**, so this is now cheap to test: Workers Caching shipped 2026-07-26, hits no
+  longer run the Worker, and the docs are explicit that *"the cache is always consulted before Smart
+  Placement is considered"*. Both the hint and the revert are config-only.
+- **Design the experiment against the right control.** `r2;dur` is measured *inside* the Worker and
+  is the only number a cache in front of the Worker cannot influence — but it also moves a lot on
+  its own (median 419 ms vs 251 ms hours apart on 2026-07-26). Interleave placed and unplaced
+  measurements, or the route's own drift will out-vote the effect.
+- **Not the same thing as `mode: "smart"`**, which is available on all plans but needs *"consistent
+  traffic from multiple locations"* Terrella does not have. An explicit region hint needs no warm-up.
+- Two follow-ups belong with this work rather than before it: delete the now-redundant
+  `caches.default` tile-body layer and its `X-Terrella-Cache` marker, and add
+  `Access-Control-Expose-Headers: Cf-Cache-Status` so a browser-side check can tell HIT from MISS.
+
 ## Pinned low-zoom base layer — a deterministic floor under missing tiles (analysed 2026-07-26)
 
 - **Trigger:** the hole-to-space fix shipped a flat `#47808F` background layer, which is a *colour*

@@ -19,6 +19,7 @@ import {
   ResolvedValueCache,
   type RangeResponse,
   type Source,
+  bytesToHeader,
   tileTypeExt,
 } from "pmtiles";
 import { TILE_CONTENT_TYPE, describeTileTypeMismatch, parseTilePath } from "../src/lib/reliefTiles";
@@ -51,6 +52,45 @@ const DIRECTORY_CACHE = new ResolvedValueCache(25, undefined, nativeDecompress);
 /** Latched so a TILE_EXTENSION/archive disagreement logs once per isolate rather than once per
  *  tile — a global mismatch shouted 40,000 times buries every other line in the log. */
 let warnedTileTypeMismatch = false;
+
+/** How much of the archive's front to pull in one read so that EVERY directory lookup is served
+ *  from memory instead of from R2.
+ *
+ *  A PMTiles archive is laid out header → root directory → JSON metadata → leaf directories →
+ *  tile data, so `tileDataOffset` is the exact size of "everything that is not a tile". For the
+ *  shipped planet cut that is **196,621 bytes** — root is 111 B, every leaf together is 196,285 B.
+ *  The whole index is smaller than one mid-zoom tile.
+ *
+ *  Without this the library reads three times per cold tile: `[0,16384)` for header+root (it
+ *  slices both out of one read, then DISCARDS the leaf bytes it already paid for), then a ~10 KB
+ *  leaf, then the tile. Those reads are LATENCY-bound, not bandwidth-bound — 10 KB and 138 KB both
+ *  land in 250–700 ms, because the bucket is APAC and the Worker runs wherever the request landed.
+ *  So collapsing two round trips into one costs almost nothing and saves almost everything.
+ *
+ *  256 KiB, not 196,621: a constant sized exactly to today's archive would silently degrade the
+ *  first time a re-cut grew the index. The headroom is ~33%, and `warnIfIndexOutgrewPrefetch`
+ *  turns "silently degraded" into a log line if a future cut ever exceeds it. */
+export const INDEX_PREFETCH_BYTES = 262_144;
+
+/** Latched per isolate; see INDEX_PREFETCH_BYTES. */
+let warnedIndexOutgrewPrefetch = false;
+
+/** Read the archive's own `tileDataOffset` out of the bytes we already hold and complain if the
+ *  index no longer fits. Costs one header parse per isolate and nothing per request — the point is
+ *  that the failure mode it guards is invisible: everything keeps WORKING, just three reads deep
+ *  again, which looks exactly like the problem this constant was introduced to fix. */
+function warnIfIndexOutgrewPrefetch(index: ArrayBuffer, archiveKey: string): void {
+  if (warnedIndexOutgrewPrefetch || index.byteLength < 127) return;
+  const tileDataOffset = bytesToHeader(index.slice(0, 127)).tileDataOffset;
+  if (tileDataOffset > index.byteLength) {
+    warnedIndexOutgrewPrefetch = true;
+    console.warn(
+      `${archiveKey}: index is ${tileDataOffset} B but INDEX_PREFETCH_BYTES is ` +
+        `${INDEX_PREFETCH_BYTES} — leaf reads are falling through to R2 again. Raise it in ` +
+        `web/worker/index.ts.`,
+    );
+  }
+}
 
 /** Decompress with the platform's own stream rather than the library's bundled fallback, which
  *  would pull fflate into a Worker that already has DecompressionStream. */
@@ -141,6 +181,50 @@ class R2ArchiveSource implements Source {
   }
 }
 
+/** The archive's index, plus the ETag it was read under. The ETag travels WITH the bytes because
+ *  the two are only meaningful together: an offset from one cut applied to another cut's bytes
+ *  reads real data from the wrong place and serves a corrupt tile with a 200. Handing this ETag
+ *  back to the library means every subsequent tile read carries `onlyIf`, so a swapped archive
+ *  fails loudly (412 → EtagMismatch → refetch) instead of quietly. */
+export interface ArchiveIndex {
+  bytes: ArrayBuffer;
+  etag: string;
+}
+
+/** Serves any read that lies entirely inside the prefetched index from memory, and everything
+ *  else — which is every tile — from R2.
+ *
+ *  The test is purely by RANGE, so this wrapper never needs to know what a directory is: the
+ *  library asks for `[0,16384)` and then a leaf somewhere below `tileDataOffset`, and both fall
+ *  inside the prefetch. A read that straddles or exceeds the span falls through to R2 unchanged,
+ *  which is what makes an undersized INDEX_PREFETCH_BYTES a slowdown rather than a failure. */
+export class PrefetchedIndexSource implements Source {
+  constructor(
+    private readonly inner: R2ArchiveSource,
+    private readonly index: ArchiveIndex,
+  ) {}
+
+  getKey(): string {
+    return this.inner.getKey();
+  }
+
+  async getBytes(
+    offset: number,
+    length: number,
+    signal?: AbortSignal,
+    etag?: string,
+  ): Promise<RangeResponse> {
+    const servableFromIndex = offset >= 0 && offset + length <= this.index.bytes.byteLength;
+    // A stale prefetch must not be papered over. If the caller names an ETag that is not the one
+    // this index was read under, the archive moved: fall through to R2, which answers 412 and
+    // starts the library's own recovery, rather than returning bytes from the superseded cut.
+    if (servableFromIndex && (etag === undefined || etag === this.index.etag)) {
+      return { data: this.index.bytes.slice(offset, offset + length), etag: this.index.etag };
+    }
+    return this.inner.getBytes(offset, length, signal, etag);
+  }
+}
+
 /** `Server-Timing`, so the cold path can be split from outside instead of guessed at. Readable
  *  by `curl` and — because Timing-Allow-Origin now ships — by the page itself, through
  *  `PerformanceResourceTiming.serverTiming`.
@@ -176,6 +260,75 @@ function tagCache(response: Response, state: "hit" | "miss"): Response {
   const headers = new Headers(response.headers);
   headers.set("X-Terrella-Cache", state);
   return new Response(response.body, { status: response.status, headers });
+}
+
+/** In-isolate hold on the index, so a burst of tiles shares ONE fetch instead of racing to do the
+ *  same work. A promise rather than a value: the second tile through arrives while the first is
+ *  still awaiting R2, and awaiting the same promise is what makes it free rather than duplicated.
+ *  Keyed by archive key, so the re-cut convention (a new key per cut) retires it automatically. */
+let indexInFlight: { key: string; index: Promise<ArchiveIndex | null> } | null = null;
+
+/** The index's cache entry lives on this Worker's own hostname under a path `parseTilePath`
+ *  rejects, so it can never be reached from outside — a request for it 404s at the router above,
+ *  before the cache is consulted. Keyed by archive key because a re-cut ships under a new one. */
+function indexCacheUrl(request: Request, archiveKey: string): string {
+  return new URL(`/__pmtiles-index/${encodeURIComponent(archiveKey)}`, request.url).toString();
+}
+
+/** Fetch the archive's whole index — once per isolate, once per colo — or null if it cannot be
+ *  read, in which case the caller falls back to reading directly from R2 exactly as before.
+ *
+ *  Null rather than throw is deliberate: this is an OPTIMISATION, and a Worker that 500s every
+ *  tile because a cache entry misbehaved would be strictly worse than the three-read path it
+ *  replaced. The only hard failure it forwards is "archive missing", which the caller already
+ *  handles — anything else degrades to the old behaviour. */
+async function loadArchiveIndex(
+  bucket: R2Bucket,
+  archiveKey: string,
+  r2Source: R2ArchiveSource,
+  cache: Cache,
+  ctx: ExecutionContext,
+  request: Request,
+): Promise<ArchiveIndex | null> {
+  if (indexInFlight?.key === archiveKey) return indexInFlight.index;
+
+  const index = (async (): Promise<ArchiveIndex | null> => {
+    const cacheUrl = indexCacheUrl(request, archiveKey);
+    try {
+      const cached = await cache.match(cacheUrl);
+      const cachedEtag = cached?.headers.get("ETag");
+      if (cached && cachedEtag) {
+        const bytes = await cached.arrayBuffer();
+        warnIfIndexOutgrewPrefetch(bytes, archiveKey);
+        return { bytes, etag: cachedEtag };
+      }
+    } catch {
+      // A cache read that failed is a cache miss. Fall through to R2.
+    }
+
+    const read = await r2Source.getBytes(0, INDEX_PREFETCH_BYTES);
+    if (!read.etag) return null; // No ETag means no staleness guard; refuse to hold the bytes.
+    warnIfIndexOutgrewPrefetch(read.data, archiveKey);
+
+    // Stored WITH its ETag, which is what lets a later isolate hand the pair to the library and
+    // keep the `onlyIf` chain intact. Immutable: the key changes when the archive does.
+    const headers = new Headers({
+      ETag: read.etag,
+      "Cache-Control": "public, max-age=31536000, immutable",
+      "Content-Type": "application/octet-stream",
+    });
+    ctx.waitUntil(cache.put(cacheUrl, new Response(read.data, { headers })));
+    return { bytes: read.data, etag: read.etag };
+  })().catch((error: unknown) => {
+    // An isolate must not be left holding a rejected promise forever — the next request would
+    // inherit this failure instead of retrying. Clear the hold, then let the caller degrade.
+    if (indexInFlight?.key === archiveKey) indexInFlight = null;
+    if (error instanceof ArchiveNotFound) throw error;
+    return null;
+  });
+
+  indexInFlight = { key: archiveKey, index };
+  return index;
 }
 
 /** Cross-origin response headers, applied on the way out and never stored — so one cached entry
@@ -237,8 +390,15 @@ export default {
     if (hit) return respond(tagCache(hit, "hit"));
 
     const archiveKey = env.ARCHIVE_KEY ?? DEFAULT_ARCHIVE_KEY;
+    const r2Source = new R2ArchiveSource(env.ARCHIVE, archiveKey, timing);
+
+    // The index is fetched whole, once, and then reused three ways: within this request, across
+    // requests in this isolate (DIRECTORY_CACHE), and across isolates (the Cache API entry below,
+    // which is colo-local and long-lived — live tiles come back with `age` in the tens of
+    // thousands of seconds, far longer than any isolate survives).
+    const index = await loadArchiveIndex(env.ARCHIVE, archiveKey, r2Source, cache, ctx, request);
     const archive = new PMTiles(
-      new R2ArchiveSource(env.ARCHIVE, archiveKey, timing),
+      index ? new PrefetchedIndexSource(r2Source, index) : r2Source,
       DIRECTORY_CACHE,
       nativeDecompress,
     );

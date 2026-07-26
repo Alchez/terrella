@@ -15,6 +15,15 @@
   "compatibility_date": "2026-07-25",
   "observability": { "enabled": true },
 
+  // DO NOT add a `"cache": { "enabled": true }` block here. The tile Worker has one and it is
+  // free there; here it would be the single most expensive line in the repo. Enabling Workers
+  // Caching makes Cloudflare bill requests that are otherwise free and unlimited — static
+  // asset requests are top of that list, and this Worker is nothing but static assets. A globe
+  // visit pulls ~8-12 of them from this origin (HTML, the _astro chunks, CSS, caps.json, two
+  // cap rungs, favicon); today they cost us no quota at all, and that block would move every
+  // one of them under the free tier's 100k/day ceiling. There is no upside to trade for it:
+  // assets are already served from cache. See worker/wrangler.jsonc for where it belongs.
+
   // No `main`: this Worker is assets-only, so there is no script and — deliberately — no
   // ASSETS binding, which is only valid alongside one. A script would go here if /tiles/*
   // ever moved onto this origin via `run_worker_first`, which is the reason this is a

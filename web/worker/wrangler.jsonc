@@ -20,6 +20,29 @@
   "compatibility_date": "2026-07-25",
   "observability": { "enabled": true },
 
+  // A cache in FRONT of this Worker, which is a different thing from the `caches.default`
+  // calls inside index.ts. Those run our code first and only then look; this one answers
+  // before our code exists. Three consequences, in ascending order of why it is here:
+  //
+  //   - Read-through: a hit never invokes us. Worth ~5-10 ms of a ~470 ms warm tile — noise.
+  //   - Tiered: every data center's cache is backed by a shared upper tier, and a fill lands
+  //     in both. With ~100k tile addresses and low traffic, one visitor warming a tile for
+  //     the whole network is the only lever that touches our real weak spot, hit rate. The
+  //     Cache API is local to one data center and cannot do this at all.
+  //   - Request collapsing: N simultaneous requests for one tile run us ONCE. Every first
+  //     visitor asks for the same default-view tiles, so this matters exactly once — the day
+  //     the site is posted somewhere — and it cannot be added under load.
+  //
+  // Cost is nothing: a hit is billed at the same per-request rate we already pay today, since
+  // our Cache API hits invoke the Worker anyway. Which is precisely why this block must NEVER
+  // be copied into the site Worker — see the warning in ../wrangler.jsonc.
+  //
+  // `cross_version_cache` is deliberately absent (default: off, version in the cache key).
+  // The docs frame version-keying as a hit-rate problem to fix; for a Worker deployed a
+  // handful of times a year it is a feature — a deploy invalidates for free, which is what
+  // keeps the ALLOWED_ORIGIN note below true and stops a year-long 404 outliving a re-cut.
+  "cache": { "enabled": true },
+
   "r2_buckets": [
     {
       "binding": "ARCHIVE",
@@ -44,8 +67,15 @@
     // Narrowed from "*" once the site went live. This stops another origin's JavaScript
     // embedding our globe; it is NOT hotlink protection, since a server-side proxy never
     // sends Origin and never reads the header. The point is the free tier's ~2,500
-    // cold-visit/day ceiling, not secrecy. CORS is applied on the way out and never
-    // cached, so changing this needs a redeploy but no purge.
+    // cold-visit/day ceiling, not secrecy.
+    //
+    // Changing this still needs a redeploy but no purge — for a different reason than it
+    // used to. Workers Caching stores the response we return, CORS header and all, so the
+    // old "applied on the way out and never cached" no longer holds. What holds instead:
+    // we set `Vary: Origin` and Workers Caching honours every header name with no allowlist,
+    // so another origin is a separate variant that misses and gets adjudicated fresh; and the
+    // Worker version is in the cache key, so a redeploy IS the purge. Both halves depend on
+    // `cross_version_cache` staying off.
     "ALLOWED_ORIGIN": "https://terrella.alchez.dev"
   }
 }

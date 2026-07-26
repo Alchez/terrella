@@ -198,12 +198,37 @@ rationale lives in HISTORY; this section carries only what is still open.
   - **Not shipped, deliberately:** `maxTileCacheZoomLevels` 5 → 8 costs **+264 MiB desktop GPU** for a
     merely probabilistic win. If a data floor is ever wanted, a pinned z1 base source (4 tiles,
     **273 KB**) is deterministic and 1000× cheaper → parked in FUTURE
-- [ ] **Cold-tile levers — now the top perf item, and grounded twice over**
-  - Re-measured 2026-07-26: edge MISS **1.2–1.75 s**, of which **830–1414 ms is 3 SEQUENTIAL R2 reads**
-  - This is what makes every missing-tile symptom visible; HIT is ~470 ms by comparison
-  - Ours: bake header+root directory into the bundle (~16 KB) kills read 1; `caches.default` leaf
-    directories kills read 2 — two of three round trips, no Cloudflare feature needed
-  - Cloudflare's: `placement.mode: "smart"` — untested, free-tier availability unconfirmed
+- [x] **Cold-tile levers — A + C SHIPPED and verified live 2026-07-26; B demoted to a FUTURE experiment**
+  - Edge MISS **1.2–1.75 s**, of which **830–1414 ms is 3 SEQUENTIAL R2 reads**; HIT ~470 ms
+  - **Reads are LATENCY-bound, not bandwidth**: 10 KB and 138 KB both land in 250–700 ms
+  - **THE FACT THAT REFRAMES IT: bucket `terrella-tiles` is in APAC, the Worker runs in MRS.**
+    Every range read is Marseille↔APAC. Retro-explains the 07-25 Mumbai control (~60 ms vs 380)
+  - **Whole directory region is 192 KB** (root 111 B @127, leaves 196,285 B @336, tileData @196,621)
+    — so PLAN's old "bake root + cache leaves" pair collapses into ONE prefetch of `[0, tileDataOffset)`
+  - [x] **Lever A SHIPPED + VERIFIED LIVE 2026-07-26** — `INDEX_PREFETCH_BYTES` (256 KiB) +
+    `PrefetchedIndexSource`, blob parked in `caches.default` with its ETag so `onlyIf` survives
+    - Live: **1 read on 18/18 cold tiles**; the isolate's first request pays 2 (262,144 + tile)
+    - z8 like-for-like: r2 **921 → 251 ms median**, total **1.38 → 0.82 s**
+    - Bimodal after: r2 clusters at ~245 ms or ~800 ms — connection warmth, not read count
+    - 11 unit tests; the straddle/ETag/off-by-one guards each falsified by mutation
+  - [x] **Lever C SHIPPED + VERIFIED LIVE 2026-07-26** — `"cache": {"enabled": true}`, tile Worker
+    only, version `988ca658` → HISTORY § Workers Caching ships on its own merits
+    - Read-through worth **~28 ms** (HIT 108 ms beats the *worker-runs* 404 floor at 136 ms);
+      cold unchanged at **442 ms** TTFB, 1 read on 18/18 — **no tiering penalty fits in the floor**
+    - Shipped for **tiered cache + request collapsing**, NOT as a stepping stone to B
+    - `cross_version_cache` left **off** against the docs' framing: we deploy rarely, so the
+      deploy *is* the purge — which is what keeps ALLOWED_ORIGIN's "no purge needed" note true
+    - **The CORS freeze we feared is disarmed by the `Vary: Origin` we already had** — verified in
+      both population orders; a bare `curl` tests a variant no browser touches
+    - **NEVER add the block to the site Worker** — caching bills otherwise-free static-asset requests
+    - Surrendered knowingly: `Server-Timing` lies on hits (tell: TTFB − `worker;dur` goes negative),
+      and `Cf-Cache-Status` is **not exposed to JS**, so in-page checks can't see HIT vs MISS
+  - **Lever B DEMOTED to an experiment likely to be rejected** → parked in FUTURE. Lever A left ONE
+    read, so a placement hint **moves** the long-haul leg rather than removing it, and BOM-landing
+    visitors already read in ~60 ms. The C-before-B ordering was right and is now moot
+  - Follow-ups left standing, deliberately: the now-redundant `caches.default` tile-body layer +
+    `X-Terrella-Cache`, and `Access-Control-Expose-Headers` for `Cf-Cache-Status`
+  - RESOLVED: Smart Placement **is available on all Workers plans**, free included
 - [ ] Hovered-country name chip — the gold outline names nothing; needs a design pass
 - [ ] `webglcontextlost` → "reload the globe" hint
 - [ ] `setMaxParallelImageRequests` — measure at the Lighthouse pass, on a real network
