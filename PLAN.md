@@ -198,12 +198,31 @@ rationale lives in HISTORY; this section carries only what is still open.
   - **Not shipped, deliberately:** `maxTileCacheZoomLevels` 5 → 8 costs **+264 MiB desktop GPU** for a
     merely probabilistic win. If a data floor is ever wanted, a pinned z1 base source (4 tiles,
     **273 KB**) is deterministic and 1000× cheaper → parked in FUTURE
-- [ ] **Cold-tile levers — now the top perf item, and grounded twice over**
-  - Re-measured 2026-07-26: edge MISS **1.2–1.75 s**, of which **830–1414 ms is 3 SEQUENTIAL R2 reads**
-  - This is what makes every missing-tile symptom visible; HIT is ~470 ms by comparison
-  - Ours: bake header+root directory into the bundle (~16 KB) kills read 1; `caches.default` leaf
-    directories kills read 2 — two of three round trips, no Cloudflare feature needed
-  - Cloudflare's: `placement.mode: "smart"` — untested, free-tier availability unconfirmed
+- [ ] **Cold-tile levers — top perf item; Cloudflare side fully scoped 2026-07-26, nothing built yet**
+  - Edge MISS **1.2–1.75 s**, of which **830–1414 ms is 3 SEQUENTIAL R2 reads**; HIT ~470 ms
+  - **Reads are LATENCY-bound, not bandwidth**: 10 KB and 138 KB both land in 250–700 ms
+  - **THE FACT THAT REFRAMES IT: bucket `terrella-tiles` is in APAC, the Worker runs in MRS.**
+    Every range read is Marseille↔APAC. Retro-explains the 07-25 Mumbai control (~60 ms vs 380)
+  - **Whole directory region is 192 KB** (root 111 B @127, leaves 196,285 B @336, tileData @196,621)
+    — so PLAN's old "bake root + cache leaves" pair collapses into ONE prefetch of `[0, tileDataOffset)`
+  - [x] **Lever A SHIPPED + VERIFIED LIVE 2026-07-26** — `INDEX_PREFETCH_BYTES` (256 KiB) +
+    `PrefetchedIndexSource`, blob parked in `caches.default` with its ETag so `onlyIf` survives
+    - Live: **1 read on 18/18 cold tiles**; the isolate's first request pays 2 (262,144 + tile)
+    - z8 like-for-like: r2 **921 → 251 ms median**, total **1.38 → 0.82 s**
+    - Bimodal after: r2 clusters at ~245 ms or ~800 ms — connection warmth, not read count
+    - 11 unit tests; the straddle/ETag/off-by-one guards each falsified by mutation
+  - Lever B: explicit `placement.region` hint → attacks read COST. **No traffic/warm-up needed**
+    (unlike `mode: "smart"`, which needs consistent multi-location traffic Terrella does not have)
+  - **B IS UNSAFE UNTIL C.** We call `caches.default` INSIDE the handler, so the Worker runs on every
+    request incl. hits — placing it in APAC would route warm tiles there too
+  - Lever C: **Workers Caching** (`"cache": {"enabled": true}`, wrangler ≥4.69; we have 4.114).
+    Read-through (hits never run the Worker), request collapsing, tiered cache. Prerequisite for B
+    - Gotcha: Worker version is in the cache key by default → **hit rate resets every deploy**;
+      `cross_version_cache: true` (≥4.107) fixes it
+    - **Cost to verify before adopting:** CORS + `Server-Timing` are currently applied on the way
+      out and never stored. Read-through serves stored headers, which would freeze CORS into the
+      cache and let a HIT replay stale timings — the exact trap `withServerTiming` was written to avoid
+  - RESOLVED: Smart Placement **is available on all Workers plans**, free included
 - [ ] Hovered-country name chip — the gold outline names nothing; needs a design pass
 - [ ] `webglcontextlost` → "reload the globe" hint
 - [ ] `setMaxParallelImageRequests` — measure at the Lighthouse pass, on a real network
