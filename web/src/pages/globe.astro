@@ -267,6 +267,7 @@ import Base from "../layouts/Base.astro";
   import { manifest, type Country } from "../lib/manifest";
   import { BORDERS_BASE, HERO_BASE, TILE_URL_TEMPLATE } from "../lib/assetBase";
   import { RELIEF_MAX_ZOOM, RELIEF_MIN_ZOOM } from "../lib/reliefTiles";
+  import { DEEP_SEA } from "../lib/palette";
   import { currentTier } from "../lib/capability";
   import {
     COUNTRIES_SOURCE,
@@ -345,8 +346,15 @@ import Base from "../layouts/Base.astro";
       projection: { type: "globe" },
       sources: { relief: reliefSource },
       layers: [
-        // No background layer: space stays transparent so the starfield canvas
-        // behind the map shows through around the sphere.
+        // The sphere's floor. A raster layer paints ONLY where it holds a tile, and the map
+        // canvas clears transparent so the starfield behind it shows through — so any tile
+        // MapLibre cannot cover reads as outer space, mid-ocean holes included. It cannot
+        // always cover: _updateRetainedTiles falls back to loaded children, then walks
+        // parents, and on a zoom-out the newly-revealed periphery has neither (no children
+        // were ever in view up close, and its low-zoom ancestors were evicted from the LRU).
+        // Cold tiles take 1.2-1.7 s from R2, so that gap is long enough to see.
+        // On globe projection this clips to the sphere, leaving space around the limb.
+        { id: "space-floor", type: "background", paint: { "background-color": DEEP_SEA } },
         { id: "relief", type: "raster", source: "relief", paint: { "raster-fade-duration": 0 } },
       ],
     },

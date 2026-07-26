@@ -4,8 +4,13 @@ import type { Plugin } from 'vite';
 import type { ServerResponse } from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
-import { EtagMismatch, PMTiles, type RangeResponse, type Source } from 'pmtiles';
-import { TILE_CONTENT_TYPE, assertZoomRange, parseTilePath } from './src/lib/reliefTiles';
+import { EtagMismatch, PMTiles, type RangeResponse, type Source, tileTypeExt } from 'pmtiles';
+import {
+  TILE_CONTENT_TYPE,
+  assertZoomRange,
+  describeTileTypeMismatch,
+  parseTilePath,
+} from './src/lib/reliefTiles';
 
 // Asset store locations. DEV-ONLY: the dev server serves /heroes, /borders and /tiles
 // out of these external directories (R2 does it in production; the
@@ -123,9 +128,12 @@ function openArchive(archivePath: string): Promise<PMTiles> {
     };
     const opened = new PMTiles(source);
     const header = await opened.getHeader();
-    // The globe states the zoom range as a constant so it can request tile z0 without first
-    // learning the range over the network. This is the check that keeps that copy honest.
+    // The globe states the zoom range and the tile encoding as constants so it can request tile
+    // z0 without first learning them over the network. These are the checks that keep both
+    // copies honest. A dev server should refuse to start on drift.
     assertZoomRange(header.minZoom, header.maxZoom);
+    const tileTypeMismatch = describeTileTypeMismatch(tileTypeExt(header.tileType));
+    if (tileTypeMismatch) throw new Error(tileTypeMismatch);
     return opened;
   })().catch((error: unknown) => {
     openedArchive = null;

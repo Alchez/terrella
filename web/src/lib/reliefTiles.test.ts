@@ -10,6 +10,7 @@ import {
   TILE_EXTENSION,
   TILE_PATH_TEMPLATE,
   assertZoomRange,
+  describeTileTypeMismatch,
   parseTilePath,
 } from "./reliefTiles";
 
@@ -74,5 +75,30 @@ describe("assertZoomRange", () => {
 
   it("names the file to edit when a re-cut pyramid changes the range", () => {
     expect(() => assertZoomRange(0, 10)).toThrow(/reliefTiles\.ts/);
+  });
+});
+
+describe("describeTileTypeMismatch", () => {
+  it("returns null when the archive stores what the globe asks for", () => {
+    expect(describeTileTypeMismatch(`.${TILE_EXTENSION}`)).toBeNull();
+  });
+
+  it("reports a re-cut to a different encoding, naming both files to edit", () => {
+    const message = describeTileTypeMismatch(".png");
+    expect(message).toContain(".png");
+    expect(message).toContain("reliefTiles.ts");
+    expect(message).toContain("shade_planet.py");
+  });
+
+  it("still reports when pmtiles cannot name the encoding at all", () => {
+    // tileTypeExt() returns "" for TileType.Unknown — an empty extension must not read as a
+    // match, which is exactly what a bare `archiveExtension === TILE_EXTENSION` would do.
+    expect(describeTileTypeMismatch("")).toContain("cannot name");
+  });
+
+  it("does not accept the extension without its dot", () => {
+    // The callers pass tileTypeExt() output (".webp"), so a bare "webp" means someone wired a
+    // different source in — that should fail loudly rather than silently pass.
+    expect(describeTileTypeMismatch(TILE_EXTENSION)).not.toBeNull();
   });
 });

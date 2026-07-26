@@ -185,6 +185,27 @@ magnitude, so the taxonomy is the decision:
   currently-dropped far-flung remainders). Worth pricing against just shipping those as the
   already-decided separate territory heroes.
 
+## Pinned low-zoom base layer — a deterministic floor under missing tiles (analysed 2026-07-26)
+
+- **Trigger:** the hole-to-space fix shipped a flat `#47808F` background layer, which is a *colour*
+  floor. It cannot be right over land — a gap over the Himalayas reads as ocean. This is the
+  version that would be right everywhere, parked because the flat fill may well be enough.
+- **Mechanism:** a second raster source over the same tiles with `maxzoom: 1`. Its ideal tiles are
+  always the few world-covering ones, so they sit in the **in-view** set where the LRU cannot evict
+  them — unlike the same tiles inside the main source, which are the first things dropped. That
+  makes MapLibre's parent walk (`minCoveringZoom` reaches z0) *always* terminate, so an uncovered
+  tile shows blurred earth with correct land and sea rather than a flat colour.
+- **Measured cost (live tile Worker, 2026-07-26):** z0 = 1 tile **71 KB** · z1 = 4 tiles **273 KB**
+  · z2 = 16 tiles **~1.4 MB**. One extra textured draw per frame.
+- **Why not now:** 273 KB is ~4% back onto a cold window just cut 11.4 → 6.5 MB, and it lands in
+  the critical path. Mounting it at first idle (as `countries.geojson` already does) avoids that
+  but then it does not help first paint — which is exactly where the flat layer *does* help.
+- **Downside to weigh:** at z6–z8 a z1 tile is magnified 32–128×, a heavy smear that may read worse
+  than clean teal. Judge on the sphere, not in the abstract.
+- **Decide at:** only if the flat fill is observed to read badly in practice. Strictly better than
+  raising `maxTileCacheZoomLevels`, which buys a probabilistic win for **+264 MiB** of desktop GPU
+  texture → HISTORY § the hole to space was never a MapLibre regression.
+
 ## Raster tile resolution vs device pixel ratio (analysed 2026-07-25)
 
 - **Trigger:** Rohan asked whether serving 512 px tiles "@2x" is wasted on a DPR-1 desktop, and
