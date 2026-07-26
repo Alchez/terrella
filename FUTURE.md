@@ -309,10 +309,14 @@ magnitude, so the taxonomy is the decision:
 - **So the idea is alive, on a different reason than it started with.** Do not resurrect the parse
   argument (19 ms, falsified); the case is transfer size plus tessellation. Both are touched only by
   geometry reduction, which is exactly what vector tiles do.
-- **But weigh it against what the same pass found on the main thread:** script evaluation is
-  5,702 ms on throttled mobile, **4,064 ms of it MapLibre's own init**, versus a TBT of 2,120 ms.
-  Payload is no longer the globe's binding constraint, so measure the tessellation share directly
-  before spending effort here. → PLAN § Lighthouse pass
+- **But weigh it against what the main thread costs:** ~4.8 s of script time on throttled mobile,
+  and it is **execution, not parse** — measured 2026-07-26 by two independent instruments
+  (Lighthouse `bootup-time`: **4,833 ms evaluation vs 2 ms parse**; Chrome LoAF: **0 ms compile**).
+  → HISTORY § the globe's script time is EXECUTION. Transfer size is not the globe's binding
+  constraint, so measure the tessellation share directly before spending effort here.
+- **That measurement strengthens this entry rather than weakening it:** tessellation *is* execution,
+  which is the term shown to dominate — so geometry reduction remains the only lever that touches
+  either half of the case, and compression / a faster parser / a binary container still miss both.
 - Related: the same `countries.geojson` is the input to Kind 1 look presets above, so any
   re-encoding decision should be taken once, for both.
 

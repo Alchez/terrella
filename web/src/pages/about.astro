@@ -5,11 +5,13 @@ import Masthead from "../components/Masthead.astro";
 const sources = [
   {
     name: "Copernicus DEM GLO-30",
-    href: "https://opentopography.org",
+    href: "https://dataspace.copernicus.eu/explore-data/data-collections/copernicus-contributing-missions/collections-description/COP-DEM",
     role: "Land elevation",
     license: "Copernicus",
+    // Verbatim, not paraphrased: Article 6(b) of the WorldDEM-30 licence requires this exact
+    // notice for adapted data. ATTRIBUTIONS.md is the source of truth and a test guards the pair.
     attribution:
-      "Contains modified Copernicus DEM data (WorldDEM-30, © DLR e.V. and © Airbus Defence and Space; provided under COPERNICUS by the European Union and ESA).",
+      "produced using Copernicus WorldDEM-30 © DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved",
   },
   {
     name: "GEBCO 2026 Grid",
@@ -39,7 +41,7 @@ const sources = [
     name: "NSIDC-0791 Snow Persistence",
     href: "https://nsidc.org/data/nsidc-0791",
     role: "Snow persistence",
-    license: "NSIDC",
+    license: "Public domain",
     attribution:
       "MODIS snow-persistence climatology (water years 2001–2023), NASA NSIDC DAAC dataset NSIDC-0791.",
   },
@@ -55,7 +57,7 @@ const sources = [
     name: "OSI SAF Sea Ice (OSI-450-a)",
     href: "https://osi-saf.eumetsat.int/products/osi-450-a",
     role: "Sea ice",
-    license: "EUMETSAT",
+    license: "CC-BY 4.0",
     attribution:
       "EUMETSAT Ocean and Sea Ice SAF — Global Sea Ice Concentration Climate Data Record (OSI-450-a), reduced to a 1991–2020 frequency climatology. Copyright EUMETSAT.",
   },
@@ -165,6 +167,11 @@ const licenceHtml = [
           ))
         }
       </div>
+      <p class="legal">
+        The organisations in charge of the Copernicus programme by law or by delegation do not incur
+        any liability for any use of the Copernicus WorldDEM-30. Terrella is an independent project;
+        nothing here is endorsed by ESA, EUMETSAT or the European Union.
+      </p>
     </section>
 
     <div class="note-grid">
@@ -337,6 +344,13 @@ const licenceHtml = [
     border-radius: 999px;
     padding: 0.18rem 0.55rem;
     margin: 0.05rem 0;
+  }
+  .legal {
+    margin: clamp(0.9rem, 2vw, 1.3rem) 0 0;
+    font-size: 0.72rem;
+    line-height: 1.55;
+    color: var(--muted);
+    max-width: 68ch;
   }
   .source .attr {
     margin: 0;
