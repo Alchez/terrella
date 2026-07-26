@@ -178,6 +178,24 @@ Pointers only — every *why*, number and rejected alternative is in the cited H
   ~28 ms, cold unchanged) → HISTORY § one read instead of three · § Workers Caching ships on its own merits
   - **NEVER add the `cache` block to the site Worker** — it bills otherwise-free static-asset requests
   - Lever B (placement hint) demoted to an experiment likely to be rejected → FUTURE
+- [x] **`webglcontextlost`** — v6 recovers unaided, so the planned "reload" hint was wrong advice; the
+  real bug was a `moveend` listener stranded per loss → HISTORY § the "reload the globe" hint
+  - **`addPolarCaps` must stay bound to `style.load`** — that binding IS the cap recovery path. Test-guarded
+- [x] **`setMaxParallelImageRequests` — LEAVE IT AT 16** → HISTORY § the ladder ran and the answer is LEAVE IT AT 16
+  - **Do not go below 8**; above 8 there is nothing to win. **Tiles are NOT on the LCP path**
+    (LCP 1.5 s against a 16.5 s tile tail), so no tile-payload lever moves LCP either
+- [x] **Serving-contract writeup DROPPED** — the two implementations *are* the contract; a doc would
+  duplicate 42%-commented config and drift → HISTORY § the writeup is dropped
+  - `deploy/README.md` added; three stale refs to the retired rohome/Pangolin shape corrected
+- [x] **Open-source pass COMPLETE — nothing blocks going public** → HISTORY § LICENSE lands ·
+  § the one licence with an exact-string obligation · § the open-source pass closes clean
+  - `paths.py` seam · LICENSE (MIT code / CC BY-NC 4.0 imagery) · About-page credits · attribution
+    review (Copernicus 6(b)/6(c), two badges, two-way drift test)
+  - **Shipped-artifact scan CLEAN**: repo · built site · R2 stores; no sourcemaps; zero embedded
+    metadata across 2,436 heroes + 1,010 border PNGs + 8 caps + 6 live tiles
+- [x] **rohome gets no site deploy at all**, not even a mirror — Cloudflare is the only origin; rohome
+  keeps the *pipeline* only, per CLAUDE.md § Environment → HISTORY § the deploy target moves to R2
+  - `deploy/` stays as the local prod-sim + reference implementation; nothing ships from it
 
 ### Open
 
@@ -185,48 +203,33 @@ Pointers only — every *why*, number and rejected alternative is in the cited H
   HISTORY § the globe's script time is EXECUTION (carries the full 07-25 baseline)
   - **The bottleneck is script EXECUTION — not payload, and not parse either**: 4,833 ms evaluation
     vs **2 ms** parse, measured twice. No bundle-size lever touches it
-  - Attribution is to the **chunk URL, not a function** — "MapLibre init" was never measured
+  - Attribution was to the **chunk URL, not a function** — **now partly closed by LoAF `scripts[]`**
+    → HISTORY § the 4.8 s finally has a name
+    - One block dominates: the `countries.geojson` post-fetch chain, **~355 ms, ±2.5% over four
+      runs, ~54% of all long-frame script time** — *our* module, not MapLibre init
+    - **Does not explain the 4,833 ms** — LoAF sees only >50 ms frames, unthrottled; different scope
+    - **LoAF is the first instrument here that beats its own noise** — judge future A/Bs on it,
+      never on the mobile score
   - **Variance exceeds most effects we chase** (48/TBT 2,120 vs 53/TBT 3,300, same command) —
     never claim a change moved the score off a single run
   - **`countries.geojson` is the largest single item** (3.08 MB) — bigger than all 36 tiles combined
   - Carry-in: Firefox blocks ~1.1 s on main-thread cap decode+upload → candidate = Web Worker decode
   - Carry-in: the dev middleware sends no ETag/Last-Modified, so `no-cache` can't 304 (dev-only)
-- [x] **`webglcontextlost` CLOSED 2026-07-26** — premise was wrong: MapLibre v6 recovers unaided, so
-  a "reload" hint is wrong advice → HISTORY § the "reload the globe" hint was the wrong fix
-  - Found instead: **a `moveend` listener stranded per context loss**, measured live as `cap_north_4096`
-    fetched twice after one loss + one move. Fixed with a registry keyed by layer id
-  - **`addPolarCaps` must stay bound to `style.load`** — that binding IS the cap recovery path; a
-    one-shot `load` leaves recovered globes silently capless. Test-guarded
-  - Shipped the correct small form: notice only if no `webglcontextrestored` within a 4 s grace
-- [x] **`setMaxParallelImageRequests` CLOSED 2026-07-26 on measurement — LEAVE IT AT 16** →
-  HISTORY § the ladder ran and the answer is LEAVE IT AT 16
-  - 4/8/16/32 × 3 runs on production: **LCP spread 14 ms between rungs vs 125 ms of noise**
-  - Only real signal: **do not go below 8** (rung 4 costs +733 ms of tile window); above 8, nothing
-  - **Tiles are NOT on the LCP path** — LCP 1.5 s while the tile tail runs to 16.5 s. So no tile
-    payload lever moves LCP either; the tail is progressive enhancement
-  - Kept: `?maxreq=N` flag + `web/scripts/measure_tile_concurrency.sh` (production only —
-    `ALLOWED_ORIGIN` refuses a local shell every tile; pins `--throttling-method=devtools`)
-- [ ] **Serving-contract writeup** (`deploy/nginx` = reference impl) — with rohome closed, its only
-  remaining justification is the open-source pass, not portability to a second origin
-  - Three cache classes: `_astro` immutable 1 yr · stores 1 wk + ETag · HTML no-cache
-  - gzip text-like ONLY, never the pre-compressed pmtiles/webp/png; CORS once split-origin
-  - Range is now an internal detail of the tile server — no client sends it
-- [~] **Open-source pass** → HISTORY § LICENSE lands
-  - DONE: the `paths.py` seam (18 modules + a drift-scan test), LICENSE = MIT code / CC BY-NC 4.0 imagery
-  - DONE: the About page's data credits — all eight datasets already carried licence + attribution
-    strings, and the site now states its own licence → HISTORY § the About page closes
-  - DONE: **attribution review** — the Copernicus 6(b) notice was paraphrased and 6(c) was missing;
-    both fixed verbatim, two licence badges corrected, and `tests/test_attributions.py` now scans
-    both directions → HISTORY § the one licence with an exact-string obligation
-  - REMAINING: a pass over the shipped artifacts themselves (embedded metadata, leaked paths)
-- [x] **CLOSED 2026-07-26 — rohome gets no site deploy at all**, not even a mirror. Cloudflare is the
-  only origin; rohome keeps the *pipeline* only, per CLAUDE.md § Environment
-  - Consequence: `deploy/` is now justified **solely** as the local prod-sim + serving-contract
-    reference. It is not superseded, so it stays — but nothing ships from it
-- [ ] (Optional flourish) landing-page "poster mode" beauty shot — Balazh-style sphere, a weekend experiment
-- [ ] Ship. Post it somewhere.
+- [ ] **Ship** — no technical work left, three separable pieces:
+  - **Make `Alchez/terrella` public** (currently PRIVATE). Both scans are clean and nothing blocks it
+    → HISTORY § the open-source pass closes clean · § the repo's whole object database is clean
+    - **ONE OPEN DECISION:** git metadata publishes the author email across all 138 commits. Inherent
+      to git — accept it, or switch to a GitHub noreply address going forward (does not rewrite history)
+    - Note a fresh clone deliberately **cannot build** (`countries.json` + `public/caps/` are generated
+      and gitignored) — correct, but it is the first thing a visitor hits; `web/README.md` documents it
+  - **Decide what the assets are.** The repo is code-only; heroes/borders/archive are served from our
+    R2 on a free tier ≈ 2,500 cold visits/day. Posting is the event that tests that ceiling
+  - **Post it.** Where is entirely Rohan's call
+  - **NOT gated on the Lighthouse pass** — mobile 48–53 is the cost of a WebGL globe, not a defect.
+    CLS is already 0; the score is 62% TBT, which is not a Core Web Vital
 
-Parked in FUTURE, deliberately unscheduled: brotli sidecars · vector-tile countries · look presets · AVIF · tile size vs DPR.
+Parked in FUTURE, deliberately unscheduled: brotli sidecars · vector-tile countries · look presets ·
+AVIF · tile size vs DPR · **the tier ladder's permissiveness** · **poster mode** · mobile identify.
 
 Standing diagnostic flags: `?perf` (long-task overlay) · `?bare` (tiles-only) · `?nocaps` ·
 `?maxreq=N` (MapLibre's parallel image cap, default 16 — refuses a malformed value loudly).
