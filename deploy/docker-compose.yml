@@ -1,8 +1,8 @@
 # Local prod-sim of the Terrella serving block: the static site plus the asset stores,
 # with production's cache classes and compression, offline and without a Cloudflare
-# account. It is no longer a deployment template — the site deploys to Pages + R2 + a
-# tile Worker (→ HISTORY § the deploy target moves to R2) — and it does not serve relief
-# tiles; see the /tiles/ block in nginx/terrella-locations.conf for why.
+# account. It is not a deployment template — the live site runs on a CDN, serving the shell and
+# the assets from object storage with an edge worker for tiles — and this sim does not serve
+# relief tiles at all; see the /tiles/ block in nginx/terrella-locations.conf for why.
 #
 # Run from deploy/:
 #   ./make-local-cert.sh                       # once, self-signed cert for :443
@@ -11,8 +11,8 @@
 # Store paths come from web/.env — the same single source of truth the astro
 # dev middleware uses; compose interpolates ${...} below from that file.
 #
-#   http://localhost:8080  — plain HTTP (the prod-origin shape behind the tunnel)
-#   https://localhost:8443 — TLS + HTTP/2 (what a prod client experiences)
+#   http://localhost:8080  — plain HTTP (the origin shape, TLS terminated upstream)
+#   https://localhost:8443 — TLS + HTTP/2 (what a client actually experiences)
 
 services:
   web:

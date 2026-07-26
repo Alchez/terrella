@@ -255,6 +255,40 @@ magnitude, so the taxonomy is the decision:
   country within a few hundred ms of the tap. **Verify the premise on a real phone before designing** —
   the flight is the reward, not a tax, and this may be a problem only on paper.
 
+## The tier ladder is more permissive than it reads (analysed 2026-07-26, DEFERRED)
+
+- **Trigger:** the capability probe looks like it protects weak devices. Measured against the spec and
+  the code, it barely does. Deferred rather than fixed — the question is a product one (*is `full` the
+  right default for these visitors?*), and nobody has reported a bad experience.
+- **`capability.ts:119` is `lowMemory = deviceMemory < 4`** — but **`navigator.deviceMemory` is
+  spec-quantised to powers of two** (0.25 / 0.5 / 1 / 2 / 4 / 8, clamped at both ends). So `< 4`
+  **cannot** mean "under 4 GB". It means **2 GB or less**. There is no 3.
+- **It is Chromium-only.** Absent → `Infinity` → never `lowMemory`, so **every Safari and Firefox
+  visitor gets `full`** regardless of the machine.
+- **The Moto G Power reports exactly 4** → `full`. That is Lighthouse's own mobile reference device,
+  i.e. the mobile score is measured on a device the ladder treats as healthy.
+- **A second, independent gap:** `Base.astro`'s pre-paint guard gates `/globe/` on `webgl2()` alone,
+  while `decideTier`'s `capable()` also requires `!softwareGpu`. A software-rasterizer visitor who
+  deep-links `/globe/` is therefore never bounced to the gallery, and `globe.astro` reads
+  `currentTier()` only to decide whether to spin — so they get a full globe on SwiftShader.
+- **If reopened, decide these separately:** the memory threshold is a *tuning* question (2 GB is a very
+  low bar; `<= 4` would catch mid-range Android), the Safari/Firefox blindness is a *coverage* question
+  (there is no portable memory signal — `hardwareConcurrency` is the only widely-supported hint), and
+  the softwareGpu asymmetry is simply a **guard that does not match the function it mirrors**.
+- **Verify before acting:** instrument a real mid-range phone rather than trusting the ladder's
+  intent. The FPS watchdog already degrades at runtime, so the gate being permissive may cost nothing.
+
+## Landing-page "poster mode" (deferred 2026-07-26, never scoped)
+
+- **What it is:** an optional flourish — a landing-page beauty shot of the sphere, styled as a print
+  poster rather than as an interactive map. Recorded here verbatim from PLAN because it was never
+  scoped beyond one line, and PLAN was its only home.
+- **Status:** a weekend experiment, explicitly optional. Nothing depends on it and nothing is blocked
+  by it. The gallery already opens on hero renders, so this is decoration on decoration.
+- **If reopened:** decide first whether it replaces the gallery's current entry point or sits beside
+  it — that is the only part with a real cost, since the gallery is the Tier-1 fallback everyone gets
+  while the capability probe runs.
+
 ## Raster tile resolution vs device pixel ratio (analysed 2026-07-25)
 
 - **Trigger:** Rohan asked whether serving 512 px tiles "@2x" is wasted on a DPR-1 desktop, and
@@ -319,8 +353,18 @@ magnitude, so the taxonomy is the decision:
 - **Falsified, measured on the live page:** `JSON.parse` of the 9.39 MB is **19 ms**; TextDecode
   4 ms; the geometry walk ~0 ms. Parsing is not the cost and never was.
 - **What the ~0.41 s actually is:** MapLibre **tessellation** — turning polygons into GPU
-  triangles. That figure is inferred by subtraction, **not directly measured**; measure it before
-  using it to justify any work.
+  triangles. That figure was inferred by subtraction and flagged as not directly measured.
+  **NOW MEASURED, and it holds: ~355 ms** → HISTORY § the 4.8 s finally has a name.
+  - Chrome **LoAF script attribution** on production names one block: `sourceCharPosition`
+    **1,005,956** (99.9% through the chunk, i.e. *our* page module, not MapLibre's vendor bulk),
+    `invokerType: resolve-promise`, invoker `Response.json.then` — exactly the
+    `addCountries → addBorders → addCountryHighlight` chain after `countries.geojson` resolves.
+  - **365 / 357 / 352 / 348 ms over four cold loads — ±2.5%**, and **~54% of all long-frame script
+    time** (total 640–686 ms). Unthrottled desktop; 4× CPU throttle would put it near 1.4 s.
+  - **Not yet split** between the three `addSource` calls and our two geometry walks. `outlinesFrom`
+    builds a full second copy of every ring as `MultiLineString`, so MapLibre ingests the geometry
+    **twice** — that duplication exists to fix the stray-gold-meridian bug and is the first thing to
+    measure if this is reopened.
 - **Consequence for the design space:** only *geometry reduction* (fewer/simpler polygons) touches
   tessellation. Compression, a faster parser, and a binary container all miss it entirely.
 - **"The transfer side is already handled" was true when written and is now the weakest claim here.**
