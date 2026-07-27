@@ -184,6 +184,43 @@ function tilesDevServer(): Plugin {
   };
 }
 
+// SPIKE, DELETE WITH STEP 3. Dev-only: serve the Step-0 terrain-RGB look spike from LOOSE tiles
+// on disk (data/work/planet_terrain/<variant>/tiles/{z}/{x}/{y}.png), so the aesthetic question
+// can be answered before any PMTiles packaging, Worker binding or R2 upload exists. When terrain
+// graduates it moves into tilesDevServer's archive path beside the relief pyramid and this whole
+// function goes — prose calling a path retired does not disarm a runnable entry point.
+//
+// The store is derived from PMTILES_STORE's sibling rather than given its own .env var, precisely
+// because it is temporary; the 404 below names the resolved path so a wrong guess says so.
+function terrainSpikeDevServer(): Plugin {
+  return {
+    name: 'terrain-spike-dev-server',
+    configureServer(server) {
+      server.middlewares.use('/terrain', (req, res, next) => {
+        const store = resolveStore('PMTILES_STORE', PMTILES_STORE, res);
+        if (!store) return;
+        const requested = decodeURIComponent((req.url || '').split('?')[0]);
+        // Variant is a bare directory name under planet_terrain — clamp, bathy, or a
+        // quantisation build like bathy_s4. Restricted to [a-z0-9_] and re-checked against the
+        // resolved root below, so it cannot climb out of the store.
+        const match = /^\/([a-z0-9_]{1,20})\/(\d{1,2})\/(\d{1,4})\/(\d{1,4})\.png$/.exec(requested);
+        if (!match) return next();
+        const root = path.resolve(store, '..', 'planet_terrain', match[1], 'tiles');
+        const file = path.resolve(root, match[2], match[3], `${match[4]}.png`);
+        if (!file.startsWith(root) || !fs.existsSync(file)) {
+          res.statusCode = 404;
+          res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+          res.end(`No terrain tile at ${file} — has the spike build finished?`);
+          return;
+        }
+        res.setHeader('Content-Type', 'image/png');
+        res.setHeader('Cache-Control', 'no-cache');
+        res.end(fs.readFileSync(file));
+      });
+    },
+  };
+}
+
 // https://astro.build/config
 export default defineConfig({
   // Self-hosted display serif (Astro 7 Fonts API) — Fraunces, an optical
@@ -203,6 +240,7 @@ export default defineConfig({
       heroDevServer(),
       bordersDevServer(),
       tilesDevServer(),
+      terrainSpikeDevServer(),
     ],
   },
 });

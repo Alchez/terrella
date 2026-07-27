@@ -117,6 +117,53 @@ magnitude, so the taxonomy is the decision:
   per-country-on-demand like WorldCover — the upstream *is* the cloud store. Rohan deferred the
   whole topic to after Phase 5.
 
+## A z9 / z10 pyramid — z10 is BLOCKED ON DISK, z9 is reachable (analysed 2026-07-26)
+
+- **The framing that governs everything: z10 is a planet RE-FUSE at ~2.5″, never a tiling flag**
+  (PLAN Phase 2). The grid is `131072²` = exactly `512 × 2⁸`, so a deeper pyramid means re-fusing at
+  4× linear and re-warping every layer onto `524288²` — **16× area on every intermediate**.
+- **Measured cost model** (each stage ×16 from PROCESS's current numbers; storage projected off the
+  real rasters on disk):
+
+  | target | m/px | intermediates | build | tiles | archive | GEBCO upsample |
+  |---|---:|---:|---:|---:|---:|---:|
+  | z0–8 (live) | 305.7 | 111 GB | 2.7 h | 87,381 | 3.0 GB | 1.5× |
+  | z0–9 | 152.9 | 443 GB | 10.8 h | 349,525 | 12 GB | 3.0× |
+  | z0–10 | 76.4 | **1,773 GB** | **43.2 h** | 1,398,101 | 48 GB | 6.1× |
+
+- **z10 does not fit, and that is the decision.** 1.73 TB of intermediates against a 1.8 TB disk
+  already holding ~1.3 TB. Reclaiming every hero intermediate *and* WorldCover (~304 GB) still falls
+  short, and `glo30/`'s 551 GB cannot go — it is what the re-fuse reads. This is a hardware
+  precondition, not a scheduling one.
+- **The single worst stage is the lake warp: 1:01:44 → ~16.5 h**, more than a third of the 43 h.
+- **WebP changed the delivery side only.** A z10 archive is ~48 GB in WebP vs ~260 GB in PNG (5.2×,
+  measured on the real pyramid: 16 GB → 3.0 GB). That is what would make a deep pyramid *shippable*
+  at all. The intermediates are uncompressed working rasters and are unmoved — so "we use WebP now"
+  does not reopen z10.
+- **The aesthetic argument, which stands independently of cost.** GEBCO is 15 arc-sec — **measured on
+  the file: 464 m/px**. Land has real headroom at z10 (30 m source into 76 m/px); the sea does not.
+  Upsampling goes **1.5× → 6.1×**, so z10 makes land crisper while leaving the sea exactly as soft as
+  it is now, **quadrupling the land/sea detail mismatch**. Bathymetry is signature, not optional
+  (CLAUDE.md § Data sources), so this is a look regression bought with 43 hours.
+- **The old precondition is CLOSED — do not re-raise it.** HISTORY § z8 LOCKED recorded a latent gap
+  (`ocean`/`water`/`lakedepth` take their grid from `height_3857` but did not depend on it, so a
+  re-fuse would leave `lakedepth` falsely fresh at old dimensions — a silently wrong composite) with
+  *"fix before any re-fuse, not after."* It was fixed at the Antarctica re-fuse: `warp_needs_rebuild`
+  is now `is_stale(...) or not grid_matches(...)`, exactly the prescribed dimension/bounds test.
+  Reading the 07-17 entry alone still reads as outstanding; it is not.
+- **Sequencing vs Tier 3 — Tier 3 first, and it is not close.** (a) z10 is blocked, so there is no
+  ordering to decide; (b) Tier 3 is disk-cheap — terrain-RGB is a single-band elevation encode cut
+  from the `height_3857.tif` that already exists, roughly the colour archive's size, not another
+  1.7 TB; (c) they are **independent MapLibre sources with their own `maxzoom`**, so terrain need not
+  match the colour pyramid's depth — displacement meshes are coarse and z8 terrain is ample. Building
+  Tier 3 now is therefore not invalidated by a later re-fuse, and `warp_needs_rebuild`'s grid
+  comparison would restage it correctly if one ever landed.
+- **If depth is wanted, z9 is the reachable one:** 443 GB and ~11 h, fits today's free space, 3×
+  GEBCO upsample rather than 6×. Not recommended, but it is the option that exists.
+- **Revisit when:** a larger disk lands. Then re-derive from PROCESS rather than trusting this table —
+  every number here is ×16 of a measured z8 stage, not itself measured. Ties to the `glo30/` retention
+  lever above: a firm no-go on a finer re-fuse is what would let 551 GB drop to on-demand.
+
 ## Kiribati presentation — the one antimeridian-deferred country (analysed 2026-07-24)
 
 - **Trigger:** Kiribati is the sole in-scope country with no hero (`status="antimeridian"`,
@@ -277,6 +324,27 @@ magnitude, so the taxonomy is the decision:
   the softwareGpu asymmetry is simply a **guard that does not match the function it mirrors**.
 - **Verify before acting:** instrument a real mid-range phone rather than trusting the ladder's
   intent. The FPS watchdog already degrades at runtime, so the gate being permissive may cost nothing.
+
+## The tier picker is a radiogroup made of toggle buttons (analysed 2026-07-27, DEFERRED)
+
+- **Trigger:** found while adding tooltips to Lite / Globe / Full. Verified in the live DOM, not read
+  off the source: `.quality-fab` carries `role="radiogroup"`, and its three children have
+  **`role: null`, `aria-pressed`, and no `aria-checked`**.
+- **Why it is wrong:** an ARIA `radiogroup` must own elements with `role="radio"`. A plain button with
+  `aria-pressed` inside one is announced as a *toggle button within a radio group* — incoherent — and
+  the group loses the positional "1 of 3" that makes a radio group worth using in the first place.
+  The three tiers are genuinely mutually exclusive, so radiogroup is the right *intent*; only the
+  children are wrong.
+- **Why it was not just fixed:** the correct markup is `role="radio"` + `aria-checked`, but the filled
+  "this one is active" styling is `.view-bar button[aria-pressed="true"]` — **one selector shared with
+  Borders, Spin and Focus**. Switching the tier buttons to `aria-checked` silently un-fills them
+  unless the CSS is split at the same time. So it is a markup + CSS change with a visual regression
+  risk, not the attribute swap it looks like.
+- **If reopened:** change all three children together, split the fill rule into
+  `[aria-pressed="true"], [aria-checked="true"]`, and check the active tier still reads filled on the
+  globe, the gallery **and** a hero page. Keyboard arrow-key navigation between radios is the other
+  half of the radio contract and is currently absent — decide whether to implement it or drop
+  `radiogroup` for a plain group, which is honest and costs nothing.
 
 ## Landing-page "poster mode" (deferred 2026-07-26, never scoped)
 
