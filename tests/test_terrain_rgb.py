@@ -6,6 +6,7 @@ the module exists, and nothing else in the suite would go red.
 """
 
 import inspect
+import re
 import subprocess
 
 import numpy as np
@@ -212,12 +213,45 @@ def test_cut_zoom_never_resamples_encoded_bytes(monkeypatch):
     assert "--min-zoom=5" in command and "--max-zoom=5" in command
 
 
+def test_webp_is_cut_losslessly_or_not_at_all(monkeypatch):
+    """WebP is here to entropy-code identical pixels, nothing more.
+
+    Elevation is not an image: drop LOSSLESS and every tile still decodes, to wrong metres, with no
+    blur to notice. That makes a well-meaning `-co QUALITY=90` the exact analogue of the resampler
+    trap above — which is why this asserts the creation option rather than trusting the driver's
+    default, and why the check fails the same way for any lossy option name.
+    """
+    captured = []
+    monkeypatch.setattr(terrain_rgb, "_run", lambda cmd: captured.append(cmd))
+    terrain_rgb.cut_zoom(terrain_rgb.ROOT / "nowhere.tif", terrain_rgb.ROOT / "staging", 5, "webp")
+    command = " ".join(str(part) for part in captured[0])
+    assert "--format=WEBP" in command
+    assert "--co LOSSLESS=YES" in command
+    assert "QUALITY" not in command
+    assert all("LOSSLESS=YES" in " ".join(str(part) for part in options)
+               for _, options in [terrain_rgb.TILE_FORMATS["webp"]])
+
+
+def test_build_threads_one_codec_through_every_zoom(monkeypatch, tmp_path):
+    """A pyramid half PNG and half WebP would serve 404s for the zooms cut in the other format,
+    and only at the zooms nobody looked at."""
+    formats = []
+    monkeypatch.setattr(terrain_rgb, "cut_zoom",
+                        lambda src, staging, zoom, fmt="png": formats.append(fmt))
+    monkeypatch.setattr(terrain_rgb, "encode_raster",
+                        lambda level, dst, *a, **k: dst.touch())
+    monkeypatch.setattr(terrain_rgb, "downsample_elevation",
+                        lambda src, dst, factor, **k: dst.touch())
+    terrain_rgb.build(tmp_path, 3, 8.0, False, True, tmp_path / "master.tif", tile_format="webp")
+    assert formats == ["webp"] * 4
+
+
 def test_each_zoom_is_cut_from_its_own_elevation(monkeypatch, tmp_path):
     """No zoom may be built from the tiles of another — that is the overview trap by a
     different route. Asserts one cut AND one encode per zoom, on that zoom's own grid."""
     cuts, encodes = [], []
     monkeypatch.setattr(terrain_rgb, "cut_zoom",
-                        lambda src, staging, zoom: cuts.append((src.name, zoom)))
+                        lambda src, staging, zoom, fmt="png": cuts.append((src.name, zoom)))
     monkeypatch.setattr(terrain_rgb, "encode_raster",
                         lambda level, dst, *a, **k: (encodes.append(level.name), dst.touch()))
     monkeypatch.setattr(terrain_rgb, "downsample_elevation",
@@ -234,7 +268,7 @@ def test_variants_sharing_a_work_dir_do_not_collide(monkeypatch, tmp_path):
     the first one's bytes and call it a different sea treatment."""
     cuts = []
     monkeypatch.setattr(terrain_rgb, "cut_zoom",
-                        lambda src, staging, zoom: cuts.append(src.name))
+                        lambda src, staging, zoom, fmt="png": cuts.append(src.name))
     monkeypatch.setattr(terrain_rgb, "encode_raster",
                         lambda level, dst, *a, **k: dst.touch())
     monkeypatch.setattr(terrain_rgb, "downsample_elevation",
@@ -265,6 +299,14 @@ def test_gdal_accepts_the_cut_command():
     help_text = subprocess.run(["gdal", "raster", "tile", "--help"],
                                capture_output=True, text=True, check=True).stdout
     for flag in ("--min-zoom", "--max-zoom", "--tile-size", "--resampling",
-                 "--overview-resampling", "--convention", "--webviewer"):
+                 "--overview-resampling", "--convention", "--webviewer", "--co"):
         assert flag in help_text
     assert "nearest" in help_text
+    # `--help` names no output driver beyond its default, so the registry is the surface to ask:
+    # a GDAL built without WebP would otherwise fail four minutes into a cut, not here.
+    registry = subprocess.run(["gdalinfo", "--formats"],
+                              capture_output=True, text=True, check=True).stdout
+    for driver, _ in terrain_rgb.TILE_FORMATS.values():
+        entry = re.search(rf"^\s*{driver}\s+-raster-\s+\(([a-zA-Z+]*)\)", registry, re.MULTILINE)
+        assert entry, f"GDAL has no {driver} driver"
+        assert "w" in entry.group(1), f"GDAL cannot WRITE {driver} (capabilities {entry.group(1)})"

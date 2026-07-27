@@ -19,10 +19,17 @@
  *  countryHighlight.ts — the module that defines a source names it. */
 export const TERRAIN_SOURCE = "terrain-dem";
 
-/** Elevation tiles must be byte-exact, so the encoding is lossless. A lossy WebP tile would
- *  decode to plausible-looking bytes and therefore to wrong metres, silently. */
-export const TERRAIN_TILE_EXTENSION = "png";
-export const TERRAIN_CONTENT_TYPE = "image/png";
+/** Elevation tiles must be byte-exact, so the codec must be LOSSLESS — a lossy tile decodes to
+ *  plausible-looking bytes and therefore to wrong metres, silently, with no blur to notice.
+ *
+ *  That requirement is about losslessness, not about PNG, and lossless WebP satisfies it at
+ *  **0.67x the bytes** — measured whole-pyramid (0.32 vs 0.48 GB at z0-6) and independent of
+ *  `--step`, so it multiplies with quantisation rather than overlapping it. Proven identical at
+ *  three levels, each with a positive control: GDAL round-trip, the browser's own
+ *  `createImageBitmap` decode (alpha 255 everywhere, so nothing premultiplies), and rendered
+ *  frames at 0.0000 mean DN. → HISTORY § the terrain archive gets a third smaller for nothing. */
+export const TERRAIN_TILE_EXTENSION = "webp";
+export const TERRAIN_CONTENT_TYPE = "image/webp";
 
 /** Path portion of a terrain tile URL, with MapLibre's placeholders. */
 export const TERRAIN_PATH_TEMPLATE = `{z}/{x}/{y}.${TERRAIN_TILE_EXTENSION}`;
@@ -52,8 +59,16 @@ export const TERRAIN_MAX_ZOOM = 6;
  *  declared size alone would suggest. */
 export const TERRAIN_TILE_SIZE = 512;
 
-/** Metres per encoded level, matching the pipeline's `--step`. */
-export const TERRAIN_QUANTISATION_M = 1;
+/** Metres per encoded level, matching the pipeline's `--step`.
+ *
+ *  8 m, for **0.49x the archive** — and it is nearly free for a structural reason: quantisation
+ *  error is largest where displacement is smallest. Measured at five cameras under the shipping
+ *  ramp, 1 m vs 8 m differs by 0.011-0.145 mean DN against a ~1 DN noise floor, and the *lowest*
+ *  reading is on the Ganges plain, which is the opposite of terracing. We can only spend this
+ *  because our shading is BAKED into the colour tiles: anyone computing hillshade client-side
+ *  from this DEM would see the steps in their lighting. 16 m buys only another 0.74x, so this is
+ *  the knee. → HISTORY § the terrain archive gets a third smaller for nothing. */
+export const TERRAIN_QUANTISATION_M = 8;
 
 /** Terrarium's zero point (dem_data.ts hard-codes 32768 for the named encoding). */
 const TERRAIN_BASE_SHIFT = 32768;
@@ -61,8 +76,9 @@ const TERRAIN_BASE_SHIFT = 32768;
 /** The style-spec fields a `raster-dem` source needs to decode our tiles.
  *
  *  MapLibre decodes as `R*red + G*green + B*blue - baseShift`. At one metre per level that is
- *  bit-for-bit standard `terrarium`, so we name the standard encoding and carry no custom
- *  factors — a coarser step is expressible, but only as `custom`.
+ *  bit-for-bit standard `terrarium` and needs no custom fields; every coarser step is expressible
+ *  only as `custom`, which is what we ship at TERRAIN_QUANTISATION_M = 8. The 1 m branch stays
+ *  because `?quant=1` still selects the 1 m build for comparison.
  */
 export function terrainEncoding(quantisationMetres: number = TERRAIN_QUANTISATION_M) {
   if (quantisationMetres === 1) return { encoding: "terrarium" as const };
@@ -203,9 +219,117 @@ export function describeTerrainState(
 export const TERRAIN_VARIANTS = ["clamp", "bathy"] as const;
 export type TerrainVariant = (typeof TERRAIN_VARIANTS)[number];
 
-/** Read `?dem=clamp|bathy`, defaulting to the recommended clamp. An unrecognised value returns
- *  the default; the caller warns, so a typo cannot quietly A/B the same variant against itself. */
+/** Read `?dem=clamp|bathy`, defaulting to the ratified bathymetry. An unrecognised value returns
+ *  the default; the caller warns, so a typo cannot quietly A/B the same variant against itself.
+ *
+ *  The default was `clamp` while both were candidates. Step 0 chose bathymetry on Rohan's eyes —
+ *  it costs 2.6x the bytes and reads better, mostly on open ocean — so leaving `clamp` here would
+ *  have every unflagged capture measure the arm we rejected. */
 export function parseTerrainVariant(params: URLSearchParams): TerrainVariant {
   const raw = params.get("dem");
-  return TERRAIN_VARIANTS.includes(raw as TerrainVariant) ? (raw as TerrainVariant) : "clamp";
+  return TERRAIN_VARIANTS.includes(raw as TerrainVariant) ? (raw as TerrainVariant) : "bathy";
+}
+
+/** Quantisation steps built for the Step-0d size A/B, in metres per encoded level. Spike-only:
+ *  production ships one, and this list retires with TERRAIN_VARIANTS. */
+export const TERRAIN_QUANTISATION_STEPS = [1, 2, 4, 8] as const;
+export type TerrainQuantisation = (typeof TERRAIN_QUANTISATION_STEPS)[number];
+
+/** Read `?quant=1|2|4|8`, defaulting to whatever the pipeline currently writes.
+ *
+ *  Returns null for malformed ONLY, like parseTerrainRamp, because this is the flag whose silent
+ *  failure is worst: a build selected at one step and decoded at another still loads every tile,
+ *  still renders, and is simply wrong by that ratio everywhere.
+ */
+export function parseTerrainQuantisation(params: URLSearchParams): TerrainQuantisation | null {
+  const raw = params.get("quant");
+  if (raw === null || raw.trim() === "") return TERRAIN_QUANTISATION_M;
+  const step = Number(raw);
+  return TERRAIN_QUANTISATION_STEPS.includes(step as TerrainQuantisation)
+    ? (step as TerrainQuantisation)
+    : null;
+}
+
+/** Delivery codecs built for the Step-0d size A/B. Both are lossless — see
+ *  TERRAIN_TILE_EXTENSION, whose reasoning is about losslessness and not about PNG specifically. */
+export const TERRAIN_TILE_FORMATS = ["png", "webp"] as const;
+export type TerrainTileFormat = (typeof TERRAIN_TILE_FORMATS)[number];
+
+/** Read `?demfmt=png|webp`, defaulting to the shipping extension. Null for malformed only. */
+export function parseTerrainFormat(params: URLSearchParams): TerrainTileFormat | null {
+  const raw = params.get("demfmt");
+  if (raw === null || raw.trim() === "") return TERRAIN_TILE_EXTENSION;
+  return TERRAIN_TILE_FORMATS.includes(raw as TerrainTileFormat)
+    ? (raw as TerrainTileFormat)
+    : null;
+}
+
+/**
+ * Directory holding one spike build, matching what `terrain_rgb.py --out` was pointed at.
+ *
+ * THE INVARIANT: the caller must compose this from the same `quantisation` and `format` values it
+ * hands to `terrainEncoding` and `terrainPathTemplate`. Independent flags could disagree, and a
+ * disagreement is undetectable at runtime — the tiles decode, so there is no 404 and no console
+ * error, only a planet at the wrong scale.
+ */
+export function terrainBuildDirectory(
+  variant: TerrainVariant,
+  quantisation: TerrainQuantisation,
+  format: TerrainTileFormat,
+): string {
+  const step = quantisation === 1 ? "" : `_s${quantisation}`;
+  const codec = format === "png" ? "" : `_${format}`;
+  return `${variant}${step}${codec}`;
+}
+
+/** Path portion of a terrain tile URL for one codec — TERRAIN_PATH_TEMPLATE at the default. */
+export function terrainPathTemplate(format: TerrainTileFormat): string {
+  return `{z}/{x}/{y}.${format}`;
+}
+
+/** Declared tile sizes for the axis-B A/B. 512 is honest; 256 is a deliberate misdeclaration that
+ *  buys geometry, and the two are the only values worth testing. */
+export const TERRAIN_TILE_SIZES = [256, 512] as const;
+export type TerrainDeclaredTileSize = (typeof TERRAIN_TILE_SIZES)[number];
+
+/** Read `?demsize=256|512`, defaulting to the shipped declaration. Null for malformed only. */
+export function parseTerrainTileSize(params: URLSearchParams): TerrainDeclaredTileSize | null {
+  const raw = params.get("demsize");
+  if (raw === null || raw.trim() === "") return TERRAIN_TILE_SIZE;
+  const size = Number(raw);
+  return TERRAIN_TILE_SIZES.includes(size as TerrainDeclaredTileSize)
+    ? (size as TerrainDeclaredTileSize)
+    : null;
+}
+
+/**
+ * Which zoom MapLibre will mesh at, and which DEM tile will feed it, for a camera zoom.
+ *
+ * THIS RESTATES UNDOCUMENTED INTERNALS. The style spec says only that `tileSize` is "the minimum
+ * visual size to display tiles" and defaults to 512 — it says nothing about zoom selection. The
+ * arithmetic below is read out of the bundle and confirmed against a live map, and the canary in
+ * this module's test file fails if MapLibre's own constants move:
+ *
+ *   render zoom = floor(cameraZoom + log2(512 / (declared * 2)))   // TerrainTileManager doubles
+ *   DEM zoom    = min(render zoom - deltaZoom, source maxzoom)     // deltaZoom is 1
+ *
+ * Measured at camera z6, declared 512: render z5 (four tiles), DEM z4 — one DEM tile feeding all
+ * four quadrants. Declaring 256 shifts both up one, which is the whole of axis B: the mesh is
+ * fixed at 128x128 per render tile, so covering less ground per render tile is the ONLY way to
+ * make facets smaller.
+ *
+ * THIS RETURNS THE NOMINAL ZOOM, NOT A GUARANTEE ABOUT EVERY TILE. The globe projection allows
+ * variable zoom across the covering set, so tiles nearer the limb come back one level coarser.
+ * Measured at camera z6 declared 256: 9 render tiles at z6 (nominal) plus 3 at z5, consuming DEM
+ * z5 and z4 respectively. So a request-count estimate built by squaring this is an upper bound —
+ * the observed set was 12 render tiles against 4 at declared 512, i.e. 3x, not the 4x the
+ * arithmetic alone predicts.
+ */
+export function terrainZoomsFor(
+  cameraZoom: number,
+  declaredTileSize: number = TERRAIN_TILE_SIZE,
+  maxZoom: number = TERRAIN_MAX_ZOOM,
+): { renderZoom: number; demZoom: number } {
+  const renderZoom = Math.max(0, Math.floor(cameraZoom + Math.log2(512 / (declaredTileSize * 2))));
+  return { renderZoom, demZoom: Math.min(Math.max(0, renderZoom - 1), maxZoom) };
 }

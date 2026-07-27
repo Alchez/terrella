@@ -513,18 +513,27 @@ import { REPO_URL } from "../lib/siteLinks";
     MAX_TERRAIN_EXAGGERATION,
     TERRAIN_MAX_ZOOM,
     TERRAIN_MIN_ZOOM,
-    TERRAIN_PATH_TEMPLATE,
+    TERRAIN_QUANTISATION_M,
+    TERRAIN_QUANTISATION_STEPS,
     TERRAIN_RAMP_END_ZOOM,
     TERRAIN_RAMP_START_ZOOM,
     TERRAIN_SOURCE,
+    TERRAIN_TILE_EXTENSION,
+    TERRAIN_TILE_FORMATS,
     TERRAIN_TILE_SIZE,
+    TERRAIN_TILE_SIZES,
     defaultTerrainRamp,
     describeTerrainState,
     parseTerrainExaggeration,
+    parseTerrainFormat,
+    parseTerrainQuantisation,
     parseTerrainRamp,
+    parseTerrainTileSize,
     parseTerrainVariant,
     rampedExaggeration,
+    terrainBuildDirectory,
     terrainEncoding,
+    terrainPathTemplate,
   } from "../lib/terrainSource";
   import {
     defaultAtmosphereRamp,
@@ -792,6 +801,39 @@ import { REPO_URL } from "../lib/siteLinks";
     if (urlFlags.has("dem") && urlFlags.get("dem") !== variant) {
       console.warn(`[terrain] unknown ?dem=${urlFlags.get("dem")} — using "${variant}".`);
     }
+    // ?quant and ?demfmt select a BUILD — a directory on disk — and the same two values also pick
+    // the decode factors and the file extension below. They are read once, here, and threaded
+    // through terrainBuildDirectory / terrainEncoding / terrainPathTemplate together, because a
+    // build fetched at one quantisation and decoded at another produces no error of any kind.
+    const parsedQuantisation = parseTerrainQuantisation(urlFlags);
+    if (parsedQuantisation === null) {
+      console.warn(
+        `[terrain] ignoring ?quant=${urlFlags.get("quant")} — want one of ` +
+          `${TERRAIN_QUANTISATION_STEPS.join("|")}. Using ${TERRAIN_QUANTISATION_M} m.`,
+      );
+    }
+    const quantisation = parsedQuantisation ?? TERRAIN_QUANTISATION_M;
+    const parsedFormat = parseTerrainFormat(urlFlags);
+    if (parsedFormat === null) {
+      console.warn(
+        `[terrain] ignoring ?demfmt=${urlFlags.get("demfmt")} — want one of ` +
+          `${TERRAIN_TILE_FORMATS.join("|")}. Using ${TERRAIN_TILE_EXTENSION}.`,
+      );
+    }
+    const format = parsedFormat ?? TERRAIN_TILE_EXTENSION;
+    const build = terrainBuildDirectory(variant, quantisation, format);
+    // ?demsize is the axis-B arm: 512 is the honest declaration, 256 a deliberate misdeclaration
+    // that halves the ground a render tile covers and so halves the mesh facet. Separate flag
+    // from ?quant on purpose — a wrong value here cannot corrupt a decode, only change which
+    // zoom loads, so it has no invariant to hold with anything else.
+    const parsedTileSize = parseTerrainTileSize(urlFlags);
+    if (parsedTileSize === null) {
+      console.warn(
+        `[terrain] ignoring ?demsize=${urlFlags.get("demsize")} — want one of ` +
+          `${TERRAIN_TILE_SIZES.join("|")}. Using ${TERRAIN_TILE_SIZE}.`,
+      );
+    }
+    const declaredTileSize = parsedTileSize ?? TERRAIN_TILE_SIZE;
     const parsedRamp = parseTerrainRamp(urlFlags);
     if (parsedRamp === null) {
       console.warn(
@@ -801,7 +843,7 @@ import { REPO_URL } from "../lib/siteLinks";
     }
     const ramp = parsedRamp ?? defaultTerrainRamp();
     describeTerrain = () =>
-      describeTerrainState(map.terrain?.exaggeration ?? null, terrainExaggeration, ramp);
+      `${describeTerrainState(map.terrain?.exaggeration ?? null, terrainExaggeration, ramp)} · ${build}`;
     const exaggerationFor = (zoom: number) =>
       ramp.kind === "off"
         ? terrainExaggeration
@@ -810,11 +852,11 @@ import { REPO_URL } from "../lib/siteLinks";
     map.on("style.load", () => {
       map.addSource(TERRAIN_SOURCE, {
         type: "raster-dem",
-        tiles: [`${location.origin}/terrain/${variant}/${TERRAIN_PATH_TEMPLATE}`],
+        tiles: [`${location.origin}/terrain/${build}/${terrainPathTemplate(format)}`],
         minzoom: TERRAIN_MIN_ZOOM,
         maxzoom: TERRAIN_MAX_ZOOM,
-        tileSize: TERRAIN_TILE_SIZE,
-        ...terrainEncoding(),
+        tileSize: declaredTileSize,
+        ...terrainEncoding(quantisation),
       });
       map.setTerrain({ source: TERRAIN_SOURCE, exaggeration: exaggerationFor(map.getZoom()) });
     });
@@ -840,9 +882,11 @@ import { REPO_URL } from "../lib/siteLinks";
     // eslint-disable-next-line no-console
     console.log(
       ramp.kind === "off"
-        ? `[terrain] ${variant} @ ${terrainExaggeration}x constant (?ramp=off), z0-${TERRAIN_MAX_ZOOM}`
-        : `[terrain] ${variant} @ ${terrainExaggeration}x below z${TERRAIN_RAMP_START_ZOOM}, ` +
-          `ramping to ${ramp.floor}x at z${TERRAIN_RAMP_END_ZOOM}, z0-${TERRAIN_MAX_ZOOM}`,
+        ? `[terrain] ${build} @ ${quantisation} m, ${terrainExaggeration}x constant (?ramp=off), ` +
+          `z0-${TERRAIN_MAX_ZOOM}`
+        : `[terrain] ${build} @ ${quantisation} m, ${terrainExaggeration}x below ` +
+          `z${TERRAIN_RAMP_START_ZOOM}, ramping to ${ramp.floor}x at ` +
+          `z${TERRAIN_RAMP_END_ZOOM}, z0-${TERRAIN_MAX_ZOOM}`,
     );
   }
 

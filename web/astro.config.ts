@@ -200,20 +200,23 @@ function terrainSpikeDevServer(): Plugin {
         const store = resolveStore('PMTILES_STORE', PMTILES_STORE, res);
         if (!store) return;
         const requested = decodeURIComponent((req.url || '').split('?')[0]);
-        // Variant is a bare directory name under planet_terrain — clamp, bathy, or a
-        // quantisation build like bathy_s4. Restricted to [a-z0-9_] and re-checked against the
-        // resolved root below, so it cannot climb out of the store.
-        const match = /^\/([a-z0-9_]{1,20})\/(\d{1,2})\/(\d{1,4})\/(\d{1,4})\.png$/.exec(requested);
+        // Variant is a bare directory name under planet_terrain — clamp, bathy, or a build like
+        // bathy_s8_webp. Restricted to [a-z0-9_] and re-checked against the resolved root below,
+        // so it cannot climb out of the store. Both extensions are LOSSLESS codecs of the same
+        // elevation bytes; the extension is part of the URL because it selects a directory too.
+        const match = /^\/([a-z0-9_]{1,24})\/(\d{1,2})\/(\d{1,4})\/(\d{1,4})\.(png|webp)$/.exec(
+          requested,
+        );
         if (!match) return next();
         const root = path.resolve(store, '..', 'planet_terrain', match[1], 'tiles');
-        const file = path.resolve(root, match[2], match[3], `${match[4]}.png`);
+        const file = path.resolve(root, match[2], match[3], `${match[4]}.${match[5]}`);
         if (!file.startsWith(root) || !fs.existsSync(file)) {
           res.statusCode = 404;
           res.setHeader('Content-Type', 'text/plain; charset=utf-8');
           res.end(`No terrain tile at ${file} — has the spike build finished?`);
           return;
         }
-        res.setHeader('Content-Type', 'image/png');
+        res.setHeader('Content-Type', `image/${match[5]}`);
         res.setHeader('Cache-Control', 'no-cache');
         res.end(fs.readFileSync(file));
       });

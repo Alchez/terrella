@@ -48,6 +48,16 @@ TILE_SIZE = 512
 #: Terrarium's zero point. Elevation `e` at quantisation `step` stores as `(e + 32768) / step`.
 BASE_SHIFT = 32768.0
 
+#: Delivery codecs, as (GDAL driver, creation options). BOTH ARE LOSSLESS AND MUST STAY SO — a
+#: lossy tile decodes to plausible bytes and therefore to wrong metres, with nothing to see. This
+#: is purely an entropy-coder choice over identical pixels: lossless WebP measured 0.66x PNG over
+#: 40 real z6 tiles (3.08 -> 2.04 MB) and round-tripped byte-exact, so it is a free third of the
+#: archive on top of whatever `--step` buys.
+TILE_FORMATS = {
+    "png": ("PNG", ["ZLEVEL=9"]),
+    "webp": ("WEBP", ["LOSSLESS=YES"]),
+}
+
 #: Latitude band over which encoded elevation ramps to zero, so the tiles flatten into the polar
 #: caps. The caps are a CUSTOM layer and MapLibre does not drape custom layers onto the terrain
 #: mesh (`LAYERS_TO_TEXTURES` in render_to_texture.ts), so displaced tiles under an undisplaced
@@ -167,27 +177,34 @@ def encode_raster(elev_tif: Path, dst: Path, step: float, sea_clamp: bool,
                            window=window)
 
 
-def cut_zoom(src: Path, staging: Path, zoom: int) -> None:
+def cut_zoom(src: Path, staging: Path, zoom: int, tile_format: str = "png") -> None:
     """Cut exactly one zoom from a source already on that zoom's grid.
 
     `nearest` everywhere: at 1:1 it is a copy, and it is the only resampler that cannot mix the
     encoded bytes (see the module header). `--min-zoom == --max-zoom` means no overview level is
     ever generated from tiles — each zoom comes from its own correctly-downsampled elevation.
     """
+    driver, creation_options = TILE_FORMATS[tile_format]
+    co = [argument for option in creation_options for argument in ("--co", option)]
     _run(["gdal", "raster", "tile", f"--min-zoom={zoom}", f"--max-zoom={zoom}",
           f"--tile-size={TILE_SIZE}", "--resampling=nearest", "--overview-resampling=nearest",
-          "--convention=xyz", "--format=PNG", "--co", "ZLEVEL=9", "--webviewer=none",
+          "--convention=xyz", f"--format={driver}", *co, "--webviewer=none",
           str(src), str(staging)])
 
 
 def build(out: Path, max_zoom: int, step: float, sea_clamp: bool, feather: bool,
-          master: Path, work: Path | None = None, keep_intermediates: bool = False) -> Path:
+          master: Path, work: Path | None = None, keep_intermediates: bool = False,
+          tile_format: str = "png") -> Path:
     """Build a complete z0..max_zoom terrain-RGB pyramid under `out`, returning the tile dir.
 
     The elevation chain is built once at `max_zoom` and halved from there, so the expensive read of
     the 46 GB master happens exactly once no matter how many zooms are cut. `work` is separable
     from `out` for the same reason: two encodings of the same planet (sea clamped vs bathymetry)
     differ only after the elevation exists, so the second variant must not pay for it again.
+
+    `tile_format` deliberately does NOT appear in the intermediate name: the encoded raster is
+    identical whatever codec the tiles are written in, so re-cutting a built variant into another
+    lossless format costs one encode pass, not another descent from the master.
     """
     out.mkdir(parents=True, exist_ok=True)
     work = work or out / "work"
@@ -210,7 +227,7 @@ def build(out: Path, max_zoom: int, step: float, sea_clamp: bool, feather: bool,
         encoded = work / f"rgb_{variant}_z{zoom}.tif"
         encode_raster(level, encoded, step, sea_clamp, feather)
         print(f"z{zoom}: encoded {grid_size(zoom)}^2 -> cutting ...", flush=True)
-        cut_zoom(encoded, tiles, zoom)
+        cut_zoom(encoded, tiles, zoom, tile_format)
         if not keep_intermediates:
             encoded.unlink()
 
@@ -225,18 +242,21 @@ def main() -> None:
     ap.add_argument("--master", type=Path,
                     default=paths.DATA / "work/planet_tiles/height_3857.tif")
     ap.add_argument("--max-zoom", type=int, default=6)
-    ap.add_argument("--step", type=float, default=1.0, help="metres per encoded level")
+    ap.add_argument("--step", type=float, default=8.0, help="metres per encoded level")
     ap.add_argument("--sea", choices=["clamp", "bathy"], default="clamp",
                     help="clamp: sea flattened to 0; bathy: seafloor displaced too")
     ap.add_argument("--no-feather", action="store_true",
                     help="skip the polar ramp (only for isolating the cap seam)")
+    ap.add_argument("--format", choices=sorted(TILE_FORMATS), default="webp",
+                    help="delivery codec; both lossless, webp is ~0.67x png")
     ap.add_argument("--keep-intermediates", action="store_true")
     args = ap.parse_args()
 
     tiles = build(args.out, args.max_zoom, args.step, args.sea == "clamp",
-                  not args.no_feather, args.master, args.work, args.keep_intermediates)
-    count = sum(1 for _ in tiles.rglob("*.png"))
-    size = sum(path.stat().st_size for path in tiles.rglob("*.png"))
+                  not args.no_feather, args.master, args.work, args.keep_intermediates,
+                  args.format)
+    count = sum(1 for _ in tiles.rglob(f"*.{args.format}"))
+    size = sum(path.stat().st_size for path in tiles.rglob(f"*.{args.format}"))
     print(f"{count} tiles, {size / 1e9:.2f} GB -> {tiles}", flush=True)
 
 

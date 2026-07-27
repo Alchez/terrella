@@ -65,6 +65,7 @@ The log below is **chronological**; this is the view it lacks. Nothing reads thi
 
 ### Tiles & the pyramid
 
+- [2026-07-27 (Tier 3, step 0d) — the terrain archive gets a third smaller for nothing: 8 m ratified, and the codec turns out to be a free 0.67x](#2026-07-27-tier-3-step-0d--the-terrain-archive-gets-a-third-smaller-for-nothing-8-m-ratified-and-the-codec-turns-out-to-be-a-free-067x) — **8 m x lossless WebP = 0.33x**, taking a z0–8 bathymetry archive from ~10.1 GB to **~3.3 GB**. **WebP is the better lever because it costs nothing**: 0.32 vs 0.48 GB whole-pyramid, ratio **independent of `--step`** (0.6755 at 1 m), and byte-identical through three oracles each with a failing positive control — GDAL round-trip, the **browser's** `createImageBitmap` decode (alpha **255**, so nothing premultiplies), and rendered frames at **0.0000 mean DN**. `TERRAIN_TILE_EXTENSION` had conflated *lossless* with *PNG*. **8 m under the ramp** reads 0.011–0.145 mean DN over five cameras vs a ~1 DN floor, **lowest on the Ganges plain** — the opposite of terracing — because quantisation error is largest where displacement is smallest, spendable only since our shading is **baked**. Step 0b's ramp made it 2.4x cheaper than constant 15x. **Two rig bugs, both caught by controls**: `readPixels` must follow `redraw()` with **no `await`** (buffer clears to zeros in ~1.2 s → a phantom **168 DN**), and `areTilesLoaded()` is **transiently true** after `removeSource`/`addSource` (→ a phantom **9.2 DN** between byte-identical tiles). Flags `?quant`/`?demfmt` derive path *and* decode factors from one value; `?dem` default corrected to **bathy**. Also: the numpy `Setting the shape` warning is **rasterio's** (`_io.pyx:660`), not ours — recorded correctly in 2026-07-24 but under an index line naming neither `numpy` nor `rasterio`, which is why it was re-hunted three times
 - [2026-07-27 (Tier 3, cont.) — the terrain exaggeration ramp: one constant cannot serve both ends of the zoom range, and the floor is derived rather than preferred](#2026-07-27-tier-3-cont--the-terrain-exaggeration-ramp-one-constant-cannot-serve-both-ends-of-the-zoom-range-and-the-floor-is-derived-rather-than-preferred) — the 15× Rohan chose at the overview reads as a **bed of nails** on approach: MapLibre's mesh is 128² per tile *and a loaded tile always covers 1024 CSS px*, so a facet is **~8 CSS px at every zoom** and 15× turns the Karakoram's median 4.0° facet into 46.5°, p99 **80°**. Fixed with a **zoom ramp**, 15× at z≤3 decaying to **2.5× at z8** — and the floor is **derived, not preferred**: elevation change goes as ~`width^0.5` while the facet halves per level, so slope holds constant only at **0.707 per level**; 2.5 gives 0.699, the earlier 4 gave 0.768 and had drifted p99 from 45° to 58° by z8, which is exactly where the needles came back. Applied by writing `terrain.exaggeration` (a per-frame uniform) — **never by re-calling `setTerrain`, which builds a new `Terrain` + `RenderToTexture` per call and only reaches `destroy()` on the removal path**. **The ramp is free**: identical tile sets and GPU time across arms (0.37/0.37/0.37 ms), because the covering-volume inflation it *could* cause is bounded at 2% of the earth radius. Terrain ON measured **cheaper** than off (43% at DPR 3) — it moves the globe onto the render-to-texture path, whose 2048² per-tile cost is DPR-independent. **Rejected: shrinking `rttSize`** (27% off gesture frames for 15% of pixels shifted >8 DN) and **low-passing the DEM** (loses to plain exaggeration reduction on every axis, twice measured)
 - [2026-07-27 (Tier 3, step 0) — terrain does displace on the globe, and quantisation turns out to be nearly free because our shading is baked](#2026-07-27-tier-3-step-0--terrain-does-displace-on-the-globe-and-quantisation-turns-out-to-be-nearly-free-because-our-shading-is-baked) — **Tier 3 is terrain and only terrain**: the idle spin and the lazy hero already shipped, and `currentTier() === "full"` appears exactly once on the page, so "Full" has meant *the spin*. MapLibre's globe displaces — verified in `_projection_globe.vertex.glsl`'s `projectTileFor3D`; its one caveat guards camera-follows-terrain, which `maxZoom: 8` never needs. New `pipeline/tile/terrain_rgb.py` builds **per zoom from elevation downsampled in metres, cut with `nearest`** — because green wraps every 256 m and *any* smooth resampler invents a cliff (`TILE_CUT` uses `cubic`, so the risk is a well-meaning port). Blue is zeroed (2.5× larger for noise a 305 m/px grid cannot hold). Oracle: **max error exactly 0.500 m**, misaligned control 1,070–4,187 m. Sizes z0–6 **clamp 0.37 / bathy 0.98 GB**, ×3.35 per level → z0–8 **~3.8 / ~10.1 GB** — which corrects my own overcorrection of FUTURE's estimate, made from a 7-tile rugged-biased sample. **Rohan chose exaggeration 15 and bathymetry** (40× shreds; bathy read better than predicted, costing 1.26× on land but **6.5× on open ocean**). **Quantisation is nearly free**: 1/2/4/8 m → 939/763/602/462 MB, rendered 1 m vs 8 m differ by mean 2.20 DN against a **0 DN noise floor**, concentrated in *mountains* not plains — and on the master the Ganges plain's median adjacent change is **0.44 m**, so **1 m already flattens 77.1%** of it while 8 m at 15× is 0.44 px. **Error is largest where displacement is smallest**, and we can spend it only because our shading is baked. Peaks erode with depth (Everest 8,586 → 7,099 m at z4), exposing `tileSize: 256` as an untested "pop" lever. Polar feather (78–85° smoothstep) ships **unproven — no no-feather counterfactual was built**
 - [2026-07-25 (night, cont. 6) — tiles become WebP q95, and the cut learns to describe its own recipe](#2026-07-25-night-cont-6--the-ladder-ships-against-measured-layout-tiles-become-webp-q95-at-a-fifth-the-archive-and-three-writers-learn-to-describe-their-own-recipe) — *cross-listed; the full entry is under Performance & instrumentation.* **PNG was never chosen — the cutter emitted it.** `gdal raster tile --format=WEBP --co QUALITY=95` cuts it directly, no re-encode: **archive 15 GB → 3.0 GB (20.0%, exactly the sampled prediction)**, mean |Δ| 1.91/255 against the lossless tiles it replaces, `pmtiles convert` 1m11s → 5.8 s. **`tile_params.json` is now part of the freshness key** — before it, changing the format left `tiles_are_fresh` true and a `--tiles` run would have re-shipped the PNG pyramid; `pack_pmtiles` reads the encoding off the directory instead of hardcoding it twice. The `.webp` extension is also the cache-bust: every tile URL changes, so **no zone purge**
@@ -194,6 +195,56 @@ The log below is **chronological**; this is the view it lacks. Nothing reads thi
 - [2026-07-03 — Project scoped; dev environment decided](#2026-07-03--project-scoped-dev-environment-decided) — project scoped; dev environment decided
 
 ## Decision log
+
+### 2026-07-27 (Tier 3, step 0d) — the terrain archive gets a third smaller for nothing: 8 m ratified, and the codec turns out to be a free 0.67x
+
+**Both levers ratified on measurement, and they multiply: 0.49 x 0.67 = 0.33x.** A z0–8 bathymetry
+archive drops from ~10.1 GB to **~3.3 GB**, about the size of the colour archive.
+
+**Lossless WebP is 0.67x PNG and costs nothing, which makes it the better of the two levers.** Whole
+pyramid rebuilt: **0.32 GB vs 0.48 GB** at z0–6. The ratio holds at 1 m too (0.6755 on a 40-tile
+sample) — **it is independent of `--step`**, so the two levers compose rather than overlap. Proven
+identical at three levels, each with a positive control that was made to fail: (i) GDAL round-trip,
+40 tiles, max channel diff **0**, with a deliberate +7 corruption detected; (ii) the **browser's own**
+`createImageBitmap` → canvas → `getImageData`, 5 tiles across z2–z6, max RGB diff **0** and WebP
+alpha **255** everywhere — so the premultiply hazard that motivated the check is not real; (iii)
+**rendered frames**, PNG vs WebP at one camera, **0.0000 mean DN** against a swap-to-itself control
+of 0.0002. `TERRAIN_TILE_EXTENSION`'s reasoning was always about *losslessness*, not about PNG; it
+had simply conflated the two. GDAL 3.12.2 carries the driver, so the pipeline change is one line.
+
+**8 m under the shipping ramp is 3–20x cheaper than the pre-ramp figure suggested.** Five cameras,
+1 m vs 8 m: overview z2 **0.011** mean DN · Everest z5 **0.049** · Karakoram z6 **0.048** · Ganges
+plain z6 **0.042** · Himalaya z6 **pitched 0.145** (worst), against a rig noise floor of ~1 DN max.
+The plain is again the *lowest*, not the highest — still the opposite of terracing — and the pitched
+view is worst, which is correct because geometry reads through parallax rather than flat-on. **Step
+0b's ramp retroactively made 8 m cheaper**: the same pitched camera at constant 15x reads 0.343 /
+0.926%, i.e. 2.4x the ramped 0.146. The worst constructible pre-ramp case (z8 pitched, 15x) is 0.642
+/ 1.92%, the same order as the 2.20 / 2.49% recorded at step 0 — whose camera was never written
+down, so that is *consistent*, not reproduced. An amplified (x16) difference map is scattered
+single-pixel speckle on mountainous terrain plus faint tile-boundary lines: no bands, no structure.
+
+**Two rig bugs, both of which first reported a confident wrong answer, and both caught by controls.**
+(1) **`readPixels` must follow `map.redraw()` with no `await` between them** — the WebGL drawing
+buffer clears to all-zeros after ~1.2 s, which first read as a **168 DN** "difference" on a camera
+proven stationary by instrumenting `getCenter`/`getZoom` at every read. (2) **`areTilesLoaded()` goes
+transiently true immediately after `removeSource`/`addSource`**, so a poll-until-loaded settle exits
+before the new DEM has arrived — that manufactured a **9.2 DN** PNG-vs-WebP difference between
+byte-identical tiles. Fix: require ready for 5 consecutive polls past a minimum iteration count, and
+always run a **swap-to-itself control**, which is what exposed it.
+
+**Also landed:** `?quant=1|2|4|8` and `?demfmt=png|webp` compose the build directory *and* the decode
+factors **from the same parsed values** — independent flags could disagree, and a disagreement is
+undetectable at runtime because every tile still 200s and still decodes, just at the wrong scale.
+`?dem` now defaults to **bathy**: it still said `clamp` after step 0 chose bathymetry, so every
+unflagged capture was measuring the arm we rejected. Verified end-to-end that the unflagged default
+now resolves to `/terrain/bathy_s8_webp/…` with red=2048/green=8/blue=0 and **0 failed requests**.
+
+**Correction carried in from the same session:** the numpy 2.5 `Setting the shape` `DeprecationWarning`
+is **not ours and has no one-line fix** — under `filterwarnings("error")` it raises at
+**`rasterio/_io.pyx:660` in `DatasetReaderBase.read`**. Our files contain no `.shape` assignment; the
+printed line is only the call site. It had been recorded correctly on 2026-07-24 inside the Python
+3.14 entry, then re-diagnosed wrongly three times because that entry's index line names neither
+`numpy` nor `rasterio` — a correct record nobody can find loses to a wrong one that loads every session.
 
 ### 2026-07-27 (chrome, cont.) — the ← Gallery link never reached the gallery, and centring the bar was costing it half the viewport
 
