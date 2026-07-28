@@ -40,6 +40,25 @@
  *
  * Lowering the pixel ratio is precisely what moves a device into the regime
  * where dropping terrain pays. Hence: spin, then pixel ratio, then terrain.
+ *
+ * THIS RUNG IS THE LADDER'S ONLY LEVER ON MEMORY
+ * ----------------------------------------------
+ * The two rungs above move frame time alone. This one moves both, but only
+ * because the caller releases the raster-dem SOURCE as well as the terrain —
+ * dropping the geometry by itself leaves every cached DEM tile resident.
+ *
+ * That residue is not a rounding error. MapLibre bounds a source's out-of-view
+ * cache at `(ceil(W / D) + 1) * (ceil(H / D) + 1) * MAX_TILE_CACHE_ZOOM_LEVELS`
+ * slots for DECLARED tile size D, while `DEMData` holds each tile as a Uint32Array
+ * over the padded 514x514 RGBA buffer — ~1 MiB of heap apiece, fixed by the 512 px
+ * ASSET and indifferent to the declaration. Slots scale as 1/D^2 while the bytes
+ * behind them do not, so the ceiling grew ~10x when the terrain source went from
+ * declaring 512 to declaring 128, reaching ~1 GiB on a desktop-sized canvas.
+ *
+ * Note what this does NOT settle: the rung is a last resort that fires only after
+ * sustained slow frames, so it bounds the worst case rather than the ordinary one.
+ * Keeping the cache from reaching that size in the first place is a separate
+ * decision (a cache bound, or a smaller DEM asset) that this ladder does not make.
  */
 
 /** Samples needed before a verdict — ~0.75 s of movement at 60 fps. */
@@ -77,8 +96,10 @@ export function isSustainedSlow(frameDurationsMs: number[]): boolean {
  *
  * A 1x screen has no pixel-ratio headroom to give back, so it skips straight to
  * the terrain rung — which is also the screen where that rung is worth the most
- * (see the module header). `terrainEnabled: false` is the ordinary case today,
- * since terrain is still behind `?terrain=N`; the rung simply does not appear.
+ * (see the module header). `terrainEnabled: true` is now the ordinary case for a
+ * `full`-tier visitor, since terrain rides the tier rather than sitting behind
+ * `?terrain=N`, so this rung is a real last resort rather than a theoretical one.
+ * `?terrain=off` is what makes it false without demoting the tier.
  */
 export function nextDegradationAction(state: {
   spinning: boolean;

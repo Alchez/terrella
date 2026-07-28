@@ -146,7 +146,7 @@ Pointers only — every *why*, number and rejected alternative is in the cited H
 
 - [x] **Cloudflare R2 + CDN**, chosen over rohome → HISTORY § the deploy target moves to R2
   - Site = Workers Static Assets · `assets.` = R2 custom domain · `tiles.` = Worker over an R2 binding
-  - Standing constraints: free tier ≈ **2,500 cold visits/day** (a cache HIT still charges a request) ·
+  - Standing constraints: free tier ≈ **1,351 cold visits/day** at `full` (74 tile requests/view; a cache HIT still charges a request — it was 2,500 at ~40/view, before terrain) ·
     account/zone IDs live in memory, never in this repo · **`deploy/` is the prod-sim, not dead weight**
 - [x] P1 web seam — `assetBase.ts`, ranging server-side, pmtiles JS out of the bundle → HISTORY § the web seam lands
 - [x] P2 two R2 buckets, 18.20 GB uploaded, multipart ETag reconstructed → HISTORY § Phase 2
@@ -223,13 +223,20 @@ Pointers only — every *why*, number and rejected alternative is in the cited H
     - Note a fresh clone deliberately **cannot build** (`countries.json` + `public/caps/` are generated
       and gitignored) — correct, but it is the first thing a visitor hits; `web/README.md` documents it
   - **Decide what the assets are.** The repo is code-only; heroes/borders/archive are served from our
-    R2 on a free tier ≈ 2,500 cold visits/day. Posting is the event that tests that ceiling
+    R2 on a free tier ≈ **1,351 cold visits/day** at `full`. Posting is the event that tests that ceiling
+    - **Priced 2026-07-28 against the published rates** (Workers Paid $5/mo incl. 10M req + $0.30/M;
+      static-asset requests are free and unlimited; R2 egress free, Class B 10M/mo free):
+      **$5.00/mo at 2,000 cold visits/day, ~$5.83 at 5,000** (worst case, every request a cache miss).
+      The subscription *is* the bill; usage barely registers
+    - **R2 storage is the tighter constraint: 9.13 GB of the 10 GB free tier** (3.00 relief + 2.63
+      terrain + 3.50 assets) — 0.87 GB headroom, and overage is only $0.015/GB-mo
   - **Post it.** Where is entirely Rohan's call
   - **NOT gated on the Lighthouse pass** — mobile 48–53 is the cost of a WebGL globe, not a defect.
     CLS is already 0; the score is 62% TBT, which is not a Core Web Vital
 
 Parked in FUTURE, deliberately unscheduled: brotli sidecars · vector-tile countries · look presets ·
-AVIF · tile size vs DPR · **the tier ladder's permissiveness** · **poster mode** · mobile identify.
+AVIF · tile size vs DPR · **poster mode** · mobile identify · the tier picker's `radiogroup` a11y defect.
+(The tier ladder's permissiveness left this list — it was **fixed** as Tier 3 Step 1.)
 
 Standing diagnostic flags: `?perf` (long-task overlay) · `?bare` (tiles-only) · `?nocaps` ·
 `?maxreq=N` (MapLibre's parallel image cap, default 16 — refuses a malformed value loudly).
@@ -241,7 +248,14 @@ The Tier-3 *gate* already ships (capability probe + Lite/Globe/Full toggle, Phas
 - [x] **Terrain-RGB elevation pyramid — BUILT AND SERVED 2026-07-28.** `terrain.pmtiles` (2.63 GB, z0–8, 8 m, lossless WebP), second key in `terrella-tiles`, routed by the tile Worker under a `terrain/` prefix → HISTORY § terrain gets an archive, a prefix, and four fewer flags
   - **The prefix is load-bearing**: both pyramids are WebP over z0–8, so nothing else in a tile URL tells them apart, and the wrong one displaces the globe rather than 404ing
   - Retired with it: `?dem`/`?quant`/`?demfmt`/`?demdepth` (they named build directories) and the spike dev route
-  - **Remaining: the R2 upload + both deploys** — the preflight refuses until `terrain-v1.pmtiles` is in the bucket
+  - **LIVE 2026-07-28** as `terrain-v1.pmtiles`, both Workers deployed, verified against production rather than the build
+  - **Free-tier cost: 74 tile requests per view at z6**, i.e. terrain roughly *doubles* requests — the earlier "a fraction, not a doubling" assumed `tileSize: 512` and the shipping declaration is 128
+- [ ] **OPEN: the DEM tile cache is ~1.45 GB and it crashed a browser** (measured 2026-07-28, Zen)
+  - Tab **2 GB with terrain vs 602 MB at `?terrain=off`**, same camera, same shipping config
+  - Cache slots scale as 1/D² for *declared* size D; bytes per tile are fixed by the 512 px **asset**
+  - So declaring 128 raised the ceiling ~10×; the arithmetic lives in `fpsDegradation.ts`'s header
+  - The ladder now frees the DEM **source**, but fires on a slow *median* — memory pressure is spikes
+  - Levers, none measured: `maxTileCacheSize` (global across sources) · 256 px assets (0d's Arm C)
 - [ ] Crispness = a supersampled re-fuse (transient bands, never a stored ~496 GB product) → HISTORY § 2026-07-20 (evening)
   - The old "shares the fine re-fuse input with terrain-RGB" claim was **stale and is deleted**: terrain-RGB reads `height_3857.tif`, which already exists, so it never waited on a re-fuse
 - [ ] **Occlusion `cos(lat)` fix — PROVEN, rides the first full tile restage** → HISTORY § 2026-07-20 (evening) · § 2026-07-22 Antarctica FILL
@@ -254,7 +268,9 @@ The Tier-3 *gate* already ships (capability probe + Lite/Globe/Full toggle, Phas
   - Mercator stretches one source row over ~6 output rows at 78.6°N (measured), so coasts staircase
   - Underlying cause: the 10″ fuse is 308 m of *latitude* everywhere, whatever the zoom
   - The supersampled re-fuse is the real fix; a bilinear-then-threshold mask is the cheap partial
-- [ ] Tier-3 web layer — `raster-dem` displacement on the globe, idle animations, lazy 8K heroes on country click
+- [x] **Tier-3 web layer — SHIPPED 2026-07-28.** Terrain rides `full`; `?terrain=N` forces it on at any tier, `?terrain=off` is the flat control that does not demote the tier → HISTORY § terrain rides the `full` tier at last
+  - The other two advertised features were **already delivered and were never separate work**: the idle spin has been tier-gated since Phase 3, and the click panel always set `src` + `srcset` on demand — loading the 8K rung into a 420 px card would be a regression, not the feature
+  - **`full` finally means something.** Before this, `currentTier()` was read in exactly one place, so the probe, the persisted preference and the three-button control all rode on whether the globe spins
 
 ## Locked global constants (Phase 0 exit checkpoint 2026-07-06; amended 2026-07-08; re-frozen 2026-07-24 post-sea-sync)
 

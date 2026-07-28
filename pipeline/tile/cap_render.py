@@ -52,7 +52,7 @@ from scipy.ndimage import binary_dilation
 
 from pipeline import paths
 from pipeline.render import hillshade, lake_depth, seaice, snow
-from pipeline.tile import shade
+from pipeline.tile import shade, terrain_rgb
 from pipeline.tile.shade import KNOBS
 from pipeline.tile.shade_planet import (ALT, AZ, CAP_NORTH, CAP_SOUTH, EXAG, PLANET,
                                         composite_params)
@@ -76,7 +76,14 @@ CAP_RUNGS = (1024, 2048, 4096, CAP_PX)  # shipped texture sizes, ascending; the 
                        # never zooms to a pole. Measured both caps: 162 KB / 570 KB / 1.7 MB / 5.1 MB.
 CAP_WEBP_QUALITY = 85  # gdal_translate WEBP quality — hero_variants' proven setting; rides in
                        # cap_recipe because the encoder changes the shipped pixels
-SPHERE_R = 6371000.0   # spherical AEQD radius; the frontend's linear-colatitude UV assumes a sphere
+CAP_ELEV_PX = 512      # elevation texture side; see cap_elev_asset for why there is only one size.
+                       # 512 over this grid's 2,668 km diameter is ~5.2 km/px, finer than the mesh
+                       # that samples it at every latitude, so the mesh is the limit and not this.
+                       # MUST divide CAP_PX exactly — write_cap_elevation box-means by the ratio.
+SPHERE_R = 6371000.0   # spherical AEQD radius; the frontend's linear-colatitude UV assumes a sphere.
+                       # NOT the displacement radius: polarCaps.ts must lift vertices on MapLibre's
+                       # own GLOBE_RADIUS (6371008.8) or the cap sits 8.8 m off the tiles it blends
+                       # into. Two radii, two jobs — do not collapse them.
 # The south-cap forced-snow latitude and toned sea-ice pair moved to their shared homes so the tile
 # composite applies the identical rule (one home per concept): snow.antarctic_snow_mask's lat_max=-60,
 # and seaice.SH_ICE_LO / seaice.SH_ICE_MAX_ALPHA (used by the SOUTH grid below).
@@ -130,9 +137,92 @@ def cap_asset(grid: CapGrid, px: int) -> Path:
     return CAPS_DIR / f"cap_{grid.name}_{px}.webp"
 
 
+def cap_elev_asset(grid: CapGrid) -> Path:
+    """The cap's elevation texture — one size, not a rung ladder.
+
+    The colour rungs exist because a phone can RESOLVE 8192 at a pole. This texture is not resolved
+    by the eye at all: it is sampled by the cap MESH, which is orders of magnitude coarser
+    (RINGS/SECTORS give ~6-13 km spacing against this grid's ~5.2 km), so a ladder would ship
+    bytes no vertex ever reads."""
+    return CAPS_DIR / f"cap_{grid.name}_elev.webp"
+
+
 def cap_assets(grid: CapGrid) -> list[Path]:
-    """Every rung this cap ships, ascending — the freshness gate's asset set."""
+    """Every rung this cap ships, ascending — the freshness gate's asset set.
+
+    The elevation texture is deliberately NOT here. It is a sibling stage with its own gate: it
+    depends on the height warp alone, not on the composite, so folding it in would make an encoding
+    change demand a full colour re-render — a pass that peaks ~14 GB and needs the cap budget."""
     return [cap_asset(grid, px) for px in CAP_RUNGS]
+
+
+def cap_height_warp(grid: CapGrid) -> Path:
+    """The AEQD height warp both the composite and the elevation texture read."""
+    return WORK / f"cap{grid.name[0].upper()}_height.tif"
+
+
+def cap_elev_recipe(grid: CapGrid) -> str:
+    """The elevation texture's own recipe sidecar — every writer records its own beside its output.
+
+    Deliberately small: this product depends on the grid, the encoding, and nothing else. It does
+    NOT carry composite_params, because a look change repaints the cap's colour without moving a
+    single vertex."""
+    return json.dumps({"grid": asdict(grid),
+                       "elev": {"px": CAP_ELEV_PX,
+                                "step": terrain_rgb.QUANTISATION_M,
+                                "sea_clamp": terrain_rgb.SHIPPED_SEA_CLAMP,
+                                "base_shift": terrain_rgb.BASE_SHIFT,
+                                "format": "webp", "lossless": True}},
+                      sort_keys=True, indent=2)
+
+
+def write_cap_elevation(grid: CapGrid) -> Path:
+    """Encode the cap's AEQD elevation as a terrain-RGB texture, for vertex displacement.
+
+    The cap is a CUSTOM layer, and MapLibre never drapes custom layers onto the terrain mesh
+    (`LAYERS_TO_TEXTURES` in render_to_texture.ts), so it cannot inherit displacement the way the
+    tiles do — it has to carry its own. Without this the cap stays pinned at sea level while
+    everything around it lifts, which is the flat bright disc at both poles.
+
+    Encoding is IMPORTED from terrain_rgb, never restated. The cap and the tiles are both drawn
+    across polarCaps.ts's alpha crossfade, so two surfaces at different heights there ghost against
+    each other; identical step and sea treatment is what makes them coincide.
+
+    Downsamples in METRES and encodes after, never the reverse — interpolating encoded RGB is wrong
+    wherever the low byte wraps, every 256*step metres, so a resampled encode invents cliffs. Same
+    rule build_tiles states for the pyramid's overviews.
+
+    No latitude feather: `encode_array`'s ramp is applied per ROW, which is a Mercator statement and
+    meaningless on an AEQD grid, and the cap must carry true elevation regardless.
+    """
+    if CAP_PX % CAP_ELEV_PX:
+        raise ValueError(f"CAP_ELEV_PX {CAP_ELEV_PX} must divide CAP_PX {CAP_PX}")
+    warp = cap_height_warp(grid)
+    if not warp.exists():
+        _warp(grid, PLANET / "planet_heightfield.vrt", warp, "bilinear", "Float32")
+    with rasterio.open(warp) as dataset:
+        raw = dataset.read(1)
+    # The same nodata convention the composite applies before shading, so the elevation texture and
+    # the cap's own hillshade describe one surface rather than two.
+    heights = np.where(raw < -1e4, 0.0, raw).astype(np.float32)
+
+    factor = CAP_PX // CAP_ELEV_PX
+    metres = heights.reshape(CAP_ELEV_PX, factor, CAP_ELEV_PX, factor).mean(axis=(1, 3),
+                                                                            dtype=np.float32)
+    encoded = terrain_rgb.encode_array(metres, terrain_rgb.QUANTISATION_M,
+                                       terrain_rgb.SHIPPED_SEA_CLAMP)
+
+    tif = WORK / f"cap_{grid.name}_elev.tif"
+    profile: dict[str, Any] = dict(driver="GTiff", width=CAP_ELEV_PX, height=CAP_ELEV_PX,
+                                   count=3, dtype="uint8", photometric="RGB")
+    with rasterio.open(tif, "w", **profile) as dataset:
+        dataset.write(encoded)
+    CAPS_DIR.mkdir(parents=True, exist_ok=True)
+    # LOSSLESS IS NOT AN ENCODER PREFERENCE HERE. A lossy elevation texture decodes to plausible
+    # bytes and therefore to wrong metres, silently — the same argument TILE_FORMATS makes.
+    _run(["gdal_translate", "-q", "-of", "WEBP", "-co", "LOSSLESS=YES",
+          str(tif), str(cap_elev_asset(grid))])
+    return cap_elev_asset(grid)
 
 
 def cap_recipe(grid: CapGrid) -> str:
@@ -170,7 +260,12 @@ def caps_manifest() -> str:
         grid.name: {"rungs": [{"px": px, "url": f"/caps/{cap_asset(grid, px).name}"}
                               for px in CAP_RUNGS],
                     "edge_lat": grid.edge_lat,
-                    "feather_hi": feather_hi}
+                    "feather_hi": feather_hi,
+                    # The displacement texture and the step needed to decode it. The step ships
+                    # here rather than as a web-side literal for the same reason edge_lat does:
+                    # the pipeline encoded these bytes, so the pipeline states how to read them.
+                    "elev_url": f"/caps/{cap_elev_asset(grid).name}",
+                    "elev_step": terrain_rgb.QUANTISATION_M}
         for grid, feather_hi in ((NORTH, CAP_NORTH), (SOUTH, CAP_SOUTH))
     }, sort_keys=True, indent=2)
 
@@ -304,7 +399,7 @@ def render_cap_north() -> Path:
     """North cap from the fused planet VRTs + snow persistence + sea ice."""
     WORK.mkdir(parents=True, exist_ok=True)
     grid = NORTH
-    height = _warp(grid, PLANET / "planet_heightfield.vrt", WORK / "capN_height.tif", "bilinear", "Float32")
+    height = _warp(grid, PLANET / "planet_heightfield.vrt", cap_height_warp(grid), "bilinear", "Float32")
     ocean_raw = _warp(grid, PLANET / "planet_oceanmask.vrt", WORK / "capN_ocean.tif", "near", "Byte")
     watercode = _warp(grid, PLANET / "planet_watermask.vrt", WORK / "capN_water.tif", "near", "Byte")
     sp_raw = _warp(grid, f'NETCDF:"{snow.SP_NC}":{snow.SP_VAR}', WORK / "capN_sp.tif",
@@ -343,7 +438,7 @@ def render_cap_south() -> Path:
     """
     WORK.mkdir(parents=True, exist_ok=True)
     grid = SOUTH
-    height = _warp(grid, PLANET / "planet_heightfield.vrt", WORK / "capS_height.tif", "bilinear", "Float32")
+    height = _warp(grid, PLANET / "planet_heightfield.vrt", cap_height_warp(grid), "bilinear", "Float32")
     ocean_raw = _warp(grid, PLANET / "planet_oceanmask.vrt", WORK / "capS_ocean.tif", "near", "Byte")
     watercode = _warp(grid, PLANET / "planet_watermask.vrt", WORK / "capS_water.tif", "near", "Byte")
     ice_raw = _warp(grid, seaice.SEAICE_SRC, WORK / "capS_seaice.tif",
@@ -369,19 +464,35 @@ def main() -> int:
     group.add_argument("--south", action="store_true", help="render only the south cap")
     parser.add_argument("--force", action="store_true",
                         help="render even when the freshness sidecar says the cap is current")
+    parser.add_argument("--elev-only", action="store_true",
+                        help="rebuild only the displacement textures, skipping the colour render")
     args = parser.parse_args()
 
     for wanted, grid, render in ((not args.south, NORTH, render_cap_north),
                                  (not args.north, SOUTH, render_cap_south)):
         if not wanted:
             continue
-        recipe = cap_recipe(grid)
-        sidecar = WORK / f"cap_{grid.name}_params.json"
-        if not args.force and cap_is_fresh(recipe, cap_assets(grid), sidecar, cap_sources(grid)):
-            print(f"cap {grid.name} fresh -> skip", flush=True)
-            continue
-        print(f"wrote {render()}", flush=True)
-        sidecar.write_text(recipe)  # written AFTER the render, so a crash leaves the cap stale
+        if not args.elev_only:
+            recipe = cap_recipe(grid)
+            sidecar = WORK / f"cap_{grid.name}_params.json"
+            if not args.force and cap_is_fresh(recipe, cap_assets(grid), sidecar,
+                                               cap_sources(grid)):
+                print(f"cap {grid.name} fresh -> skip", flush=True)
+            else:
+                print(f"wrote {render()}", flush=True)
+                sidecar.write_text(recipe)  # AFTER the render, so a crash leaves the cap stale
+
+        # Gated separately, and NOT behind the colour stage's `continue`: the displacement texture
+        # reads the height warp alone. A look change must not drag it along, and an encoding change
+        # must not drag the ~14 GB composite behind it.
+        elev_recipe = cap_elev_recipe(grid)
+        elev_sidecar = WORK / f"cap_{grid.name}_elev_params.json"
+        if not args.force and cap_is_fresh(elev_recipe, [cap_elev_asset(grid)], elev_sidecar,
+                                           [PLANET / "planet_heightfield.vrt"]):
+            print(f"cap {grid.name} elevation fresh -> skip", flush=True)
+        else:
+            print(f"wrote {write_cap_elevation(grid)}", flush=True)
+            elev_sidecar.write_text(elev_recipe)
     CAPS_DIR.mkdir(parents=True, exist_ok=True)
     (CAPS_DIR / "caps.json").write_text(caps_manifest() + "\n")  # the web contract, always current
     return 0

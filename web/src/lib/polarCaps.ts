@@ -22,11 +22,37 @@ import type { CustomLayerInterface, CustomRenderMethodInput, Map as MaplibreMap 
 
 import { smallestRungAtLeast } from "./rungs";
 
-export const RINGS = 28; // latitude subdivisions (mesh conforms to the sphere's curvature)
-export const SECTORS = 160; // longitude subdivisions
+/** Latitude subdivisions (the mesh conforms to the sphere's curvature).
+ *
+ *  Was 28x160 while the cap was a FLAT disc, where tessellation bought nothing but a rounder
+ *  silhouette. Once the mesh displaces, every vertex is a sample of the terrain and the count is
+ *  the cap's entire vertical resolution: at 28 rings the 10-degree mesh band is ~40 km per ring,
+ *  against ~1-2 km on the terrain-displaced tiles it crossfades into, so the two surfaces would
+ *  ghost apart across the feather however exactly they agree in metres.
+ *
+ *  160x640 gives ~7 km rings and ~11 km sectors at the mesh edge (the widest they get), which
+ *  sits just under the elevation texture's 5.2 km/px — so the MESH is the limit and the texture
+ *  is not the thing to spend on. Cost is 103,201 vertices and 4.9 MB of buffers per cap, and it
+ *  lands on mobile with everything else. This is the knob to judge the look on. */
+export const RINGS = 160;
+/** Longitude subdivisions. See RINGS.
+ *
+ *  These two together are what pushed the index buffer past 65,535 — see buildMesh. */
+export const SECTORS = 640;
 const RADIUS = 1.0004; // a hair above the globe surface (radius 1) so it paints over the tiles
 const FEATHER_LO = 81; // |lat| where the fade into the real tiles begins — frontend aesthetic
 const MESH_EDGE_LAT = 80; // mesh equatorward edge, just outside the visible feather zone
+
+/** MapLibre's own globe radius in metres, from its `_projection.vertex.glsl`:
+ *  `#define GLOBE_RADIUS 6371008.8`, used as `spherePos * (1.0 + elevation / GLOBE_RADIUS)`.
+ *
+ *  NOT `cap_render.SPHERE_R` (6371000.0), which is the AEQD projection radius the texture's UV law
+ *  assumes. Two radii doing two jobs, 8.8 m apart: collapsing them would put the cap that far off
+ *  the tiles it blends into. The pipeline's constant carries the same warning from its side. */
+export const MAPLIBRE_GLOBE_RADIUS_M = 6371008.8;
+
+/** Terrarium's zero point — `terrain_rgb.BASE_SHIFT`, and MapLibre's hard-coded `baseShift`. */
+const ELEVATION_BASE_SHIFT = 32768;
 
 /** One shipped texture size for a cap (cap_render CAP_RUNGS). */
 export interface CapRung {
@@ -39,6 +65,8 @@ export interface CapManifestEntry {
   rungs: CapRung[]; // ascending by px; every rung is the same picture, downsampled
   edge_lat: number; // texture inscribed-circle latitude, signed (cap_render CapGrid.edge_lat)
   feather_hi: number; // signed |lat| where the cap goes opaque (shade_planet CAP_NORTH/CAP_SOUTH)
+  elev_url: string; // terrain-RGB displacement texture (cap_render cap_elev_asset)
+  elev_step: number; // metres per encoded level (cap_render reads terrain_rgb.QUANTISATION_M)
 }
 export type CapsManifest = Record<"north" | "south", CapManifestEntry>;
 
@@ -64,6 +92,8 @@ export interface CapOptions {
   texEdgeLat: number; // texture inscribed-circle latitude, signed
   featherLo: number; // |lat| where alpha starts rising from 0 (into the real tiles)
   featherHi: number; // |lat| where alpha reaches 1 (poleward, over the flat Mercator plug)
+  elevUrl: string; // displacement texture, one size (the mesh samples it far coarser than it is)
+  elevStep: number; // metres per encoded level, from the pipeline that packed the bytes
 }
 
 /** Manifest → the two caps' options. Pure, so the contract mapping is unit-testable. */
@@ -80,8 +110,60 @@ export function capOptionsFrom(manifest: CapsManifest, budgetPx: number = Infini
       texEdgeLat: entry.edge_lat,
       featherLo: FEATHER_LO,
       featherHi: Math.abs(entry.feather_hi), // shader feathers on |lat|
+      elevUrl: entry.elev_url,
+      elevStep: entry.elev_step,
     };
   });
+}
+
+/** Metres from one terrain-RGB texel's bytes, in the exact form MapLibre's own `custom` encoding
+ *  applies it: `R*(256*step) + G*step + B*0 - baseShift`. Blue is zeroed by the pipeline (its
+ *  1/256 m fraction is noise at this resolution), so it is absent here rather than multiplied by
+ *  zero — a term that must never contribute is clearer as a term that is not written.
+ *
+ *  Exported because the shader cannot be unit-tested and this is the arithmetic that matters: the
+ *  GLSL below is generated from the same constants, so a test can pin both against one another. */
+export function decodeCapElevation(red: number, green: number, stepMetres: number): number {
+  return red * 256 * stepMetres + green * stepMetres - ELEVATION_BASE_SHIFT;
+}
+
+/** The factor a unit-sphere vertex is scaled by to sit at its true elevation — MapLibre's
+ *  `1.0 + elevation / GLOBE_RADIUS`, with `elevation` already exaggerated (its terrain shader
+ *  receives the exaggerated value, so the multiply belongs on this side of the divide too).
+ *
+ *  At exaggeration 0 this is EXACTLY 1.0, and a multiply by exactly 1.0 is exact in IEEE754 — so
+ *  a flat globe reproduces the pre-displacement vertex bit-for-bit rather than approximately. That
+ *  is what makes `?terrain=off` and the degradation rung honest controls rather than a third
+ *  slightly-different rendering. */
+export function capDisplacementScale(elevationMetres: number, exaggeration: number): number {
+  return 1 + (elevationMetres * exaggeration) / MAPLIBRE_GLOBE_RADIUS_M;
+}
+
+/** Canvas alpha after the cap paints over it: the premultiplied "over" the blend implements,
+ *  `src + dst*(1 - src)`.
+ *
+ *  Written down because both of this layer's compositing bugs were alpha bugs, in opposite
+ *  directions, and each fix looked safe until the other regime appeared:
+ *    - dst = 1 (the flat globe, where the background layer has already filled the frame): the
+ *      result is identically 1 for every src, so nothing can make the canvas translucent. That is
+ *      the polar-ring failure, and it is now impossible rather than avoided.
+ *    - dst = 0 (with terrain on, poleward of the Mercator limit, where nothing has drawn): the
+ *      result is src, so an opaque cap yields an opaque canvas. That is the bright-disc failure —
+ *      leaving alpha at 0 made the browser add the cap's colour to the page behind it. */
+export function compositedAlpha(sourceAlpha: number, destinationAlpha: number): number {
+  return sourceAlpha + destinationAlpha * (1 - sourceAlpha);
+}
+
+/** The RGBA byte quadruple that decodes to exactly 0 m at this step — the placeholder the
+ *  elevation texture holds until the real one arrives.
+ *
+ *  A transparent-black 1x1 (what the colour texture uses) would be catastrophic here: it decodes
+ *  to -32768 m, which at 15x shrinks the cap to 92% of the globe radius and drops it INSIDE the
+ *  planet for however many frames the fetch takes. Zero is the only safe initial elevation, and it
+ *  is step-dependent, so it is computed rather than written as bytes. */
+export function zeroElevationTexel(stepMetres: number): Uint8Array {
+  const packed = Math.round(ELEVATION_BASE_SHIFT / stepMetres);
+  return new Uint8Array([(packed >> 8) & 0xff, packed & 0xff, 0, 255]);
 }
 
 /** Longitude step for the extent sample. 5° = 72 points around the parallel; finer steps move the
@@ -207,10 +289,30 @@ function compile(gl: WebGL2RenderingContext, type: number, source: string): WebG
   return shader;
 }
 
-const VERTEX_SRC = `#version 300 es
+/** Vertex shader for one cap: lift each vertex to its true elevation, then project.
+ *
+ *  THE CAP CANNOT INHERIT DISPLACEMENT, WHICH IS WHY THIS EXISTS. MapLibre drapes a layer onto the
+ *  terrain mesh only if its type is in `LAYERS_TO_TEXTURES` (render_to_texture.ts) — background,
+ *  fill, line, raster, hillshade, color-relief. `custom` is not among them and cannot be, so while
+ *  every tile around the cap rose with the terrain the cap stayed pinned at sea level: the flat,
+ *  brighter disc with a hard edge, at both poles, that Rohan found on the live site.
+ *
+ *  The step and the radius are INTERPOLATED FROM CONSTANTS rather than written as GLSL literals —
+ *  the step from the manifest (the pipeline packed these bytes, so the pipeline states how to read
+ *  them) and the radius from MAPLIBRE_GLOBE_RADIUS_M. That keeps this shader and the exported pure
+ *  functions above the same statement of the same arithmetic, which is the only way a test can
+ *  reach it.
+ *
+ *  `textureLod(..., 0.0)` and not `texture(...)`: implicit derivatives do not exist in a vertex
+ *  shader, so the mip level has to be stated. The sampler is NEAREST for a reason that is not
+ *  performance — see loadCapElevation. */
+export function vertexSrc(opts: CapOptions): string {
+  return `#version 300 es
 precision highp float;
 uniform mat4 u_matrix;   // mainMatrix: unit-sphere → clip space
 uniform vec4 u_clip;     // clippingPlane: the globe's horizon plane (unit-sphere space)
+uniform sampler2D u_elev;      // terrain-RGB displacement texture, same AEQD framing as the colour
+uniform float u_exaggeration;  // map.terrain.exaggeration, live; 0 when terrain is off
 in vec3 a_pos;
 in vec2 a_uv;
 in float a_lat;
@@ -220,9 +322,19 @@ out float v_lat;
 void main() {
     v_uv = a_uv;
     v_lat = a_lat;
-    v_clip = dot(u_clip.xyz, a_pos) + u_clip.w; // >0 near side / <0 far side
-    gl_Position = u_matrix * vec4(a_pos, 1.0);
+    vec4 texel = textureLod(u_elev, a_uv, 0.0) * 255.0;   // normalized [0,1] back to bytes
+    // 256.0 is the encoding's radix (red is the high byte) — structural, not a knob; the step and
+    // the base shift are the knobs, and both come from constants.
+    float metres = (texel.r * 256.0 + texel.g) * ${opts.elevStep.toFixed(6)}
+                 - ${ELEVATION_BASE_SHIFT.toFixed(1)};
+    vec3 pos = a_pos * (1.0 + metres * u_exaggeration / ${MAPLIBRE_GLOBE_RADIUS_M.toFixed(1)});
+    // The horizon test uses the DISPLACED position, deliberately: a peak near the limb genuinely
+    // does clear the horizon plane a flat vertex would sit behind, and testing the undisplaced
+    // point would clip it while the tiles beside it stayed visible.
+    v_clip = dot(u_clip.xyz, pos) + u_clip.w; // >0 near side / <0 far side
+    gl_Position = u_matrix * vec4(pos, 1.0);
 }`;
+}
 
 /** Fragment shader for one cap: sample the AEQD texture, feather by |lat| (poleSign·v_lat maps both
  *  poles' signed latitude to |lat|), cull behind the globe's horizon. */
@@ -251,8 +363,16 @@ void main() {
 }
 
 /** Build a cap mesh: a (RINGS+1)×(SECTORS+1) grid from latBottom to the pole. Each vertex carries
- *  its unit-sphere position, its AEQD texture UV, and its signed latitude (for the feather). */
-export function buildMesh(opts: CapOptions): { vertices: Float32Array; indices: Uint16Array } {
+ *  its unit-sphere position, its AEQD texture UV, and its signed latitude (for the feather).
+ *
+ *  INDICES ARE 32-BIT, and that is a consequence of displacement rather than a preference. The
+ *  tessellation the flat disc needed (28x160 = 4,669 vertices) fits a Uint16Array with room to
+ *  spare; the tessellation the displaced cap needs (160x640 = 103,201) does not, and a 16-bit
+ *  index buffer does not fail on overflow — it WRAPS, so vertex 65,536 becomes vertex 0 and the
+ *  mesh folds through the pole while still drawing happily. WebGL2 has UNSIGNED_INT indices in
+ *  core (no OES_element_index_uint to probe), so the only thing this costs is the draw call
+ *  agreeing with it — see the `gl.UNSIGNED_INT` in `render`. */
+export function buildMesh(opts: CapOptions): { vertices: Float32Array; indices: Uint32Array } {
   const poleSign = Math.sign(opts.poleLat);
   const texColat = 90 - Math.abs(opts.texEdgeLat); // colatitude at the texture's inscribed circle
   const vertices: number[] = [];
@@ -282,7 +402,7 @@ export function buildMesh(opts: CapOptions): { vertices: Float32Array; indices: 
       indices.push(a, c, b, b, c, d);
     }
   }
-  return { vertices: new Float32Array(vertices), indices: new Uint16Array(indices) };
+  return { vertices: new Float32Array(vertices), indices: new Uint32Array(indices) };
 }
 
 export interface CapLayer extends CustomLayerInterface {
@@ -290,6 +410,10 @@ export interface CapLayer extends CustomLayerInterface {
   vertexBuffer?: WebGLBuffer;
   indexBuffer?: WebGLBuffer;
   texture?: WebGLTexture;
+  /** Displacement texture. Separate from `texture` and not a rung: one size, fetched once. */
+  elevTexture?: WebGLTexture;
+  /** True once the real elevation image has replaced the zero-metre placeholder. */
+  elevLoaded?: boolean;
   indexCount?: number;
   /** Captured in onAdd so `moveend` can upload without a render pass. Safe to hold, but NOT for
    *  the reason this comment used to give. It claimed "a real context loss re-runs onAdd" — true
@@ -311,6 +435,8 @@ export interface CapLayer extends CustomLayerInterface {
   uMatrix?: WebGLUniformLocation | null;
   uClip?: WebGLUniformLocation | null;
   uTex?: WebGLUniformLocation | null;
+  uElev?: WebGLUniformLocation | null;
+  uExaggeration?: WebGLUniformLocation | null;
 }
 
 /** Upload the cap image, downscaling through a canvas when it exceeds the GPU's limit or the
@@ -350,12 +476,15 @@ function uploadCapTexture(gl: WebGL2RenderingContext, image: ImageBitmap | HTMLI
  *  itself rejects (older/exotic engines), fall back to the HTMLImageElement path — the
  *  original sync-decode route: slower, never wrong. Network errors propagate (no fallback
  *  that would mask a 404 as a decode problem). */
-async function loadCapImage(url: string): Promise<ImageBitmap | HTMLImageElement> {
+async function loadCapImage(
+  url: string,
+  options: ImageBitmapOptions = { premultiplyAlpha: "none" },
+): Promise<ImageBitmap | HTMLImageElement> {
   const response = await fetch(url);
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
   const blob = await response.blob();
   try {
-    return await createImageBitmap(blob, { premultiplyAlpha: "none" });
+    return await createImageBitmap(blob, options);
   } catch (decodeErr) {
     console.warn(`[caps] off-thread decode unavailable, using Image fallback`, decodeErr);
     return new Promise((resolve, reject) => {
@@ -424,6 +553,57 @@ export async function syncCapRung(
   }
 }
 
+/** Fetch this cap's displacement texture and replace the zero-metre placeholder. Once, not per
+ *  camera: it ships in one size because the mesh samples it far coarser than it is stored.
+ *
+ *  NEAREST FILTERING IS CORRECTNESS, NOT A PERFORMANCE CHOICE, and it is the single easiest thing
+ *  to get wrong here. These texels are not colour: elevation is `(R*256 + G) * step`, so the green
+ *  byte WRAPS every 256 levels — 2,048 m at our step. Bilinear filtering across a wrap interpolates
+ *  R=16,G=255 with R=17,G=0 and produces R≈16.5,G≈127.5, which decodes about 1 km away from either
+ *  neighbour: a phantom cliff, in the middle of a smooth slope, with nothing on screen to say why.
+ *  The pipeline refuses the same operation on its side (write_cap_elevation downsamples in metres
+ *  and never in encoded bytes; the tile pyramid cuts every zoom with `nearest`). This is that rule
+ *  reaching the GPU, which is the last place it can be broken.
+ *
+ *  No mipmaps for the same reason — a mip chain is an average of encoded bytes — and none are
+ *  needed: the vertex shader states `textureLod(..., 0.0)` and nothing samples this per fragment.
+ *
+ *  `colorSpaceConversion: "none"` asks the decoder not to touch the bytes. It is a request, not a
+ *  guarantee (an engine that does not implement the member drops it silently, exactly as Firefox
+ *  does with `premultiplyAlpha`), so it is a cheap extra defence rather than the reason this works:
+ *  a WebP with no embedded profile has nothing to convert from. */
+export async function loadCapElevation(
+  layer: CapLayer,
+  opts: CapOptions,
+  map: MaplibreMap,
+): Promise<void> {
+  const gl = layer.gl;
+  if (!gl || layer.elevLoaded) return;
+  try {
+    const bitmap = await loadCapImage(opts.elevUrl, {
+      premultiplyAlpha: "none",
+      colorSpaceConversion: "none",
+    });
+    gl.bindTexture(gl.TEXTURE_2D, layer.elevTexture!);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, bitmap);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    const size = bitmap.width;
+    if ("close" in bitmap) bitmap.close();
+    layer.elevLoaded = true;
+    map.triggerRepaint();
+    // eslint-disable-next-line no-console
+    console.log(`[caps] ${opts.layerId} elevation loaded`, size, "x", size,
+      `(${opts.elevStep} m/level)`);
+  } catch (err: unknown) {
+    // The cap stays FLAT rather than disappearing — the placeholder decodes to 0 m, so a failed
+    // fetch degrades to exactly the pre-displacement behaviour instead of collapsing the mesh.
+    console.error(`[caps] ${opts.layerId} elevation failed`, opts.elevUrl, err);
+  }
+}
+
 /** The live `moveend` listener per cap, keyed by layer id.
  *
  *  A `moveend` listener is MAP state; a custom layer is STYLE state. A WebGL context loss destroys
@@ -455,7 +635,7 @@ export function addPolarCap(map: MaplibreMap, opts: CapOptions): void {
       // exactly when a rebuild is genuinely needed (a fresh context after loss/swap).
       if (this.program && gl.isProgram(this.program)) return;
       const program = gl.createProgram()!;
-      gl.attachShader(program, compile(gl, gl.VERTEX_SHADER, VERTEX_SRC));
+      gl.attachShader(program, compile(gl, gl.VERTEX_SHADER, vertexSrc(opts)));
       gl.attachShader(program, compile(gl, gl.FRAGMENT_SHADER, fragmentSrc(opts)));
       gl.linkProgram(program);
       if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
@@ -468,6 +648,8 @@ export function addPolarCap(map: MaplibreMap, opts: CapOptions): void {
       this.uMatrix = gl.getUniformLocation(program, "u_matrix");
       this.uClip = gl.getUniformLocation(program, "u_clip");
       this.uTex = gl.getUniformLocation(program, "u_tex");
+      this.uElev = gl.getUniformLocation(program, "u_elev");
+      this.uExaggeration = gl.getUniformLocation(program, "u_exaggeration");
 
       const { vertices, indices } = buildMesh(opts);
       this.indexCount = indices.length;
@@ -483,9 +665,22 @@ export function addPolarCap(map: MaplibreMap, opts: CapOptions): void {
       gl.bindTexture(gl.TEXTURE_2D, this.texture);
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE,
         new Uint8Array([0, 0, 0, 0]));
+
+      // Elevation: a 1x1 placeholder that decodes to ZERO METRES, not to transparent black. The
+      // colour texture's placeholder is invisible; this one is geometry, and the wrong bytes here
+      // put the cap 32 km inside the planet until the fetch lands (zeroElevationTexel).
+      this.elevTexture = gl.createTexture()!;
+      gl.bindTexture(gl.TEXTURE_2D, this.elevTexture);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE,
+        zeroElevationTexel(opts.elevStep));
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+
       this.gl = gl;
       this.loadedRungPx = 0;
+      this.elevLoaded = false;
       void syncCapRung(this, opts, map); // the initial fetch IS the first upgrade, from 0
+      void loadCapElevation(this, opts, map);
       // eslint-disable-next-line no-console
       console.log(`[caps] ${opts.layerId} added; mesh`, this.indexCount! / 3, "triangles");
     },
@@ -501,6 +696,17 @@ export function addPolarCap(map: MaplibreMap, opts: CapOptions): void {
       gl.activeTexture(gl.TEXTURE0);
       gl.bindTexture(gl.TEXTURE_2D, this.texture!);
       gl.uniform1i(this.uTex!, 0);
+      gl.activeTexture(gl.TEXTURE1);
+      gl.bindTexture(gl.TEXTURE_2D, this.elevTexture!);
+      gl.uniform1i(this.uElev!, 1);
+
+      // ONE source of truth for exaggeration, read live every frame. `map.terrain` is the object
+      // the ramp writes (globe.astro mutates `terrain.exaggeration` on zoom rather than re-calling
+      // setTerrain, which would leak framebuffers), so `map.getTerrain()` — the spec handed in
+      // once — goes stale after the first ramp step and must not be used here. Absent terrain
+      // gives 0, which makes `capDisplacementScale` exactly 1.0: `?terrain=off`, the Globe tier
+      // and the FPS watchdog's disable-terrain rung all flatten the cap for free, with no wiring.
+      gl.uniform1f(this.uExaggeration!, map.terrain?.exaggeration ?? 0);
 
       gl.bindBuffer(gl.ARRAY_BUFFER, this.vertexBuffer!);
       gl.enableVertexAttribArray(this.aPos!);
@@ -513,14 +719,32 @@ export function addPolarCap(map: MaplibreMap, opts: CapOptions): void {
 
       const blendWas = gl.isEnabled(gl.BLEND);
       gl.enable(gl.BLEND);
-      // Premultiplied-color blend (pairs with the shader's premultiplied output), and the alpha
-      // channel pinned to the DESTINATION: the old SRC_ALPHA blend also wrote α²+(1−α) into the
-      // canvas's own alpha, making the map canvas translucent along the feather band — Chrome then
-      // composited the dark starfield page through the globe there (the ring's second ingredient).
-      gl.blendFuncSeparate(gl.ONE, gl.ONE_MINUS_SRC_ALPHA, gl.ZERO, gl.ONE);
-      gl.drawElements(gl.TRIANGLES, this.indexCount!, gl.UNSIGNED_SHORT, 0);
+      // Premultiplied "over", on ALL FOUR channels — the alpha factors are the colour factors, not
+      // a separate rule. This is THE BRIGHT POLAR DISC, and the disc was a compositing bug rather
+      // than the geometry bug it looked like.
+      //
+      // The alpha channel used to be pinned to the destination (`ZERO, ONE`), to stop a
+      // straight-alpha shader writing α²+(1−α) into the canvas and making it translucent along the
+      // feather band. That was the right fix for the wrong layer of the problem: the shader now
+      // emits PREMULTIPLIED colour, for which `ONE, ONE_MINUS_SRC_ALPHA` on alpha is the exact
+      // over-composite — `dst = src + dst*(1-src)` is identically 1 wherever dst was already 1, so
+      // it cannot bring that translucency back (compositedAlpha states the algebra, with a test).
+      //
+      // What "don't touch alpha" could not survive was TERRAIN. `background` is in MapLibre's
+      // LAYERS_TO_TEXTURES, so with terrain on the space-floor is drawn INTO each render tile's
+      // texture instead of as a full-screen pass — and render tiles stop at the Mercator limit.
+      // Poleward of ±85.0511° the canvas is therefore never written at all: alpha 0. The cap then
+      // painted its colour there and left the 0 in place, and a `premultipliedAlpha: true` canvas
+      // composites RGB-over-zero-alpha ADDITIVELY — the page's dark starfield plus a near-white
+      // cap. Measured: alpha steps 255 to 0 at exactly -85.02° with terrain on, and stays 255 to
+      // the pole with `?terrain=off`, which is why the disc only ever appeared on one arm.
+      gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+      gl.drawElements(gl.TRIANGLES, this.indexCount!, gl.UNSIGNED_INT, 0); // 32-bit — see buildMesh
 
       // Restore GL state (custom-layer contract): don't leak BLEND or the attrib arrays downstream.
+      // The active texture unit is part of that contract too: leaving TEXTURE1 selected would send
+      // MapLibre's next bind to the wrong unit.
+      gl.activeTexture(gl.TEXTURE0);
       gl.disableVertexAttribArray(this.aPos!);
       gl.disableVertexAttribArray(this.aUv!);
       gl.disableVertexAttribArray(this.aLat!);

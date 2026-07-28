@@ -578,6 +578,30 @@ describe("source guard — the pipeline is the source of truth for the numbers",
     expect(globe).toContain("map.terrain.exaggeration = next");
   });
 
+  it("releases the DEM source on the degradation rung, not just the terrain", () => {
+    // Dropping the terrain stops the geometry and returns none of the memory — the raster-dem
+    // tile cache stays fully resident. That cache is bounded at
+    // (ceil(W/D) + 1) * (ceil(H/D) + 1) * MAX_TILE_CACHE_ZOOM_LEVELS slots for declared size D,
+    // each holding ~1 MiB of Uint32Array fixed by the 512 px asset, which at the shipping
+    // declaration of 128 lands near a gigabyte on a desktop canvas (fpsDegradation.ts header).
+    // Only removing the SOURCE reaches TileManager.onRemove -> clearTiles ->
+    // _outOfViewCache.reset(), whose eviction callback deletes tile.dem and destroys tile.fbo.
+    //
+    // Asserted against the rung's OWN BRANCH rather than the whole file, so a release that gets
+    // moved somewhere it never executes fails here instead of passing on a substring.
+    const globe = readFileSync(new URL("../pages/globe.astro", import.meta.url), "utf8");
+    const rung = globe.match(/action === "disable-terrain"[\s\S]*?\n\s*\} else \{/)?.[0];
+    expect(rung, "the disable-terrain branch must exist").toBeTruthy();
+    expect(rung, "the rung must drop the terrain").toMatch(/setTerrain\(\s*null\s*\)/);
+    expect(
+      rung,
+      "and release the source — dropping terrain alone frees no memory",
+    ).toMatch(/removeSource\(\s*TERRAIN_SOURCE\s*\)/);
+    // Exactly one release. A second would throw on an already-removed source, and a throw here
+    // escapes the rAF loop, silently retiring the whole watchdog rather than failing loudly.
+    expect(globe.match(/map\.removeSource\(/g) ?? []).toHaveLength(1);
+  });
+
   it("cannot fetch one encoding and decode with another, because there is one of each", () => {
     // The failure this guarded was silent and total: fetch a build cut at 8 m, decode it with 1 m
     // factors, and every tile still 200s, still decodes, still renders — a planet eight times too
@@ -608,14 +632,31 @@ describe("source guard — the pipeline is the source of truth for the numbers",
     expect(pipeline).not.toMatch(/QUALITY=/);
   });
 
-  it("keeps the pipeline's quantisation default and this module's in step", () => {
+  it("keeps the pipeline's quantisation and this module's in step", () => {
     // Two files, one fact. The pipeline writes the bytes; this module tells MapLibre how to read
     // them, and a mismatch is silent: every tile decodes, to the wrong altitude.
+    //
+    // Pinned to the MODULE CONSTANT rather than the argparse default this used to grep for. The
+    // number gained a third reader when the polar caps started encoding their own displacement
+    // texture: cap and tiles are both drawn across the cap's alpha crossfade, so a mismatch puts
+    // two surfaces at different heights and they ghost. A bare argparse literal is not something
+    // another module can import, which is exactly why it had to stop being one.
     const pipeline = readFileSync(
       new URL("../../../pipeline/tile/terrain_rgb.py", import.meta.url), "utf8");
-    expect(pipeline).toContain('ap.add_argument("--step", type=float, default=8.0');
+    // A real cross-language tie: the pipeline's constant is compared against THIS module's value,
+    // not against a second hand-written literal that could drift with it.
+    expect(pipeline).toContain(`QUANTISATION_M = ${TERRAIN_QUANTISATION_M}.0`);
+    // ...and the CLI must READ that constant. Restating the number in argparse is the drift.
+    expect(pipeline).toMatch(/default=QUANTISATION_M/);
     expect(pipeline).toContain('default="webp"');
     expect(pipeline).toContain("BASE_SHIFT = 32768.0");
+
+    // The caps import the encoding rather than copying it — asserted on the qualified reference,
+    // so a local re-spelling of the number cannot satisfy this.
+    const caps = readFileSync(
+      new URL("../../../pipeline/tile/cap_render.py", import.meta.url), "utf8");
+    expect(caps).toMatch(/terrain_rgb\.QUANTISATION_M/);
+    expect(caps).toMatch(/terrain_rgb\.SHIPPED_SEA_CLAMP/);
   });
 });
 

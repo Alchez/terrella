@@ -67,6 +67,21 @@ TILE_SIZE = 512
 #: Terrarium's zero point. Elevation `e` at quantisation `step` stores as `(e + 32768) / step`.
 BASE_SHIFT = 32768.0
 
+#: Metres per encoded level, and the sea treatment, for everything this project ships. Module
+#: constants rather than bare argparse defaults because they are no longer read only here: the polar
+#: caps carry their own elevation texture and MUST encode identically, or cap and tiles displace to
+#: different heights across the alpha crossfade and ghost against each other. Two spellings of one
+#: number is the copy-drift that bit the hero/tile colour constants four times.
+#: 8 m is the ratified knee (0.49x the archive; the error lands in mountains, not on plains) and
+#: bathymetry is ratified over sea-clamping, so the sea displaces rather than reading as a wall.
+#:
+#: CAUTION, and it is not hypothetical: `--sea` still DEFAULTS to "clamp" while the shipped
+#: `terrain_params.json` records `sea_clamp: false`, so the live archive was cut with an explicit
+#: `--sea bathy` and the bare command would rebuild a different pyramid. SHIPPED_SEA_CLAMP names
+#: what is on the wire, which is what the caps must match — not what argparse hands you.
+QUANTISATION_M = 8.0
+SHIPPED_SEA_CLAMP = False
+
 #: Delivery codecs, as (GDAL driver, creation options). BOTH ARE LOSSLESS AND MUST STAY SO — a
 #: lossy tile decodes to plausible bytes and therefore to wrong metres, with nothing to see. This
 #: is purely an entropy-coder choice over identical pixels: lossless WebP measured 0.66x PNG over
@@ -355,7 +370,8 @@ def main() -> None:
     ap.add_argument("--master", type=Path,
                     default=paths.DATA / "work/planet_tiles/height_3857.tif")
     ap.add_argument("--max-zoom", type=int, default=8)
-    ap.add_argument("--step", type=float, default=8.0, help="metres per encoded level")
+    ap.add_argument("--step", type=float, default=QUANTISATION_M,
+                    help="metres per encoded level")
     ap.add_argument("--sea", choices=["clamp", "bathy"], default="clamp",
                     help="clamp: sea flattened to 0; bathy: seafloor displaced too")
     ap.add_argument("--no-feather", action="store_true",

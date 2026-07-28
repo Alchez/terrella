@@ -1436,9 +1436,27 @@ import { REPO_URL } from "../lib/siteLinks";
         } else if (action === "disable-terrain") {
           // Last rung, and last on purpose — lowering the pixel ratio above is what puts the
           // device in the regime where dropping terrain actually pays (fpsDegradation.ts header).
-          // The DEM source is left in place: re-adding it would re-download tiles, and setTerrain
-          // is the whole cost here.
           map.setTerrain(null);
+          // ...and then release the source, because dropping the geometry does NOT return the
+          // memory. The claim this replaces — "the DEM source is left in place: re-adding it
+          // would re-download tiles, and setTerrain is the whole cost here" — priced the rung in
+          // frame time and missed the larger cost. MapLibre bounds a source's out-of-view cache
+          // at (ceil(W/D) + 1) * (ceil(H/D) + 1) * MAX_TILE_CACHE_ZOOM_LEVELS slots for DECLARED
+          // size D, and each slot holds a Uint32Array over the padded 514x514 RGBA buffer — ~1 MiB
+          // apiece, fixed by the 512 px ASSET and indifferent to the declaration. Slots scale as
+          // 1/D^2 while the bytes behind them do not, so declaring 128 put the ceiling near a
+          // gigabyte on a desktop canvas, and a rung that left it resident bought nothing on the
+          // one axis a struggling device actually needs.
+          //
+          // removeSource -> TileManager.onRemove -> clearTiles reaches _outOfViewCache.reset(),
+          // whose eviction callback is the raster-dem unloadTile: it deletes tile.dem, destroys
+          // tile.fbo, and returns the texture to the painter's recycle pool. Nothing re-adds the
+          // source afterwards — the ladder is one-way and returns null once terrain is off.
+          //
+          // Guarded because a throw here escapes the rAF loop and silently retires the whole
+          // watchdog; getTerrain() being non-null implies the source exists, so this cannot fire,
+          // which is exactly why it costs nothing to keep.
+          if (map.getSource(TERRAIN_SOURCE)) map.removeSource(TERRAIN_SOURCE);
           console.info("[globe] low frame rate persists — terrain displacement disabled");
         } else {
           return; // ladder exhausted — stop the loop, nothing left to measure for
