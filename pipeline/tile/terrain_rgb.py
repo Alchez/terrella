@@ -1,9 +1,11 @@
 """Terrain-RGB elevation tiles — the Tier-3 displacement source.
 
 Sibling of `shade_planet.py`, and deliberately NOT part of it: that module cuts *colour*, this
-one cuts *elevation*. They share one input (`height_3857.tif`) and one tiling scheme, and nothing
-else. MapLibre consumes this as a second `raster-dem` source with its own `maxzoom`, so the two
-pyramids need not be the same depth.
+one cuts *elevation*. They share one input (`height_3857.tif`), one tiling scheme, and the
+stage-freshness primitives imported below — `cap_render.py` already treats `shade_planet` as
+their one home, so a third spelling of `is_stale` would be the thing to avoid, not the import.
+Nothing about the LOOK crosses over. MapLibre consumes this as a second `raster-dem` source with
+its own `maxzoom`, so the two pyramids need not be the same depth.
 
 THE ONE TRAP THIS MODULE EXISTS TO AVOID
 ----------------------------------------
@@ -25,9 +27,25 @@ larger for information the grid cannot hold, so it is written as a constant and 
 `step` widens that to `R*256*step + G*step - 32768`, which MapLibre reads as `encoding: "custom"`
 with `redFactor = 256*step, greenFactor = step, blueFactor = 0, baseShift = 32768`. At `step = 1`
 this is bit-for-bit standard terrarium, so the default needs no custom fields at all.
+
+FRESHNESS
+---------
+Two guards, because this stage has two kinds of output and they fail differently.
+
+The elevation chain is stamped with `.done` markers rather than tested with `exists()`. That is
+not tidiness: rasterio creates its target at the START of a write, so the BigTIFF crash of
+2026-07-28 left a full-sized, freshly-stamped, half-written `elev_z8.tif` on disk — and an
+existence test would have built the entire pyramid on top of it, silently, since a truncated
+float32 raster reads as a very flat planet rather than as an error.
+
+The pyramid itself is cut into a staging dir and swapped, and keyed on the master's marker plus
+`terrain_params.json`. The recipe is the load-bearing half: the variant DIRECTORY name carries
+only sea treatment, step and feather, so without a sidecar a `--format` or `--max-zoom` change is
+invisible to every guard and to anyone reading the store.
 """
 
 import argparse
+import json
 import math
 import shutil
 import subprocess
@@ -38,6 +56,7 @@ import rasterio
 
 from pipeline import paths
 from pipeline.raster_io import GTIFF_CREATE, band_window, row_bands
+from pipeline.tile.shade_planet import done_marker, is_stale, mark_done, write_if_changed
 
 ROOT = paths.ROOT
 
@@ -200,6 +219,63 @@ def cut_zoom(src: Path, staging: Path, zoom: int, tile_format: str = "png") -> N
           str(src), str(staging)])
 
 
+def terrain_params(max_zoom: int, step: float, sea_clamp: bool, feather: bool,
+                   tile_format: str) -> str:
+    """The cut's own settings, recorded beside the pyramid as its freshness dependency.
+
+    Everything listed alters the emitted bytes and nothing outside it does — the master and the
+    output dir are `is_stale`'s own arguments, not settings. The polar feather latitudes and the
+    terrarium zero point are in here because they are module CONSTANTS: they have no other file to
+    move an mtime, so editing one would otherwise restage nothing while changing every tile.
+    """
+    driver, creation_options = TILE_FORMATS[tile_format]
+    return json.dumps({
+        "max_zoom": max_zoom,
+        "step": step,
+        "sea_clamp": sea_clamp,
+        "feather": feather,
+        "tile_size": TILE_SIZE,
+        "format": driver,
+        "creation_options": creation_options,
+        "base_shift": BASE_SHIFT,
+        "feather_lat_lo": FEATHER_LAT_LO,
+        "feather_lat_hi": FEATHER_LAT_HI,
+    }, sort_keys=True, indent=2)
+
+
+def terrain_params_path(out: Path) -> Path:
+    """Where the cut's recipe is recorded, beside the pyramid it describes."""
+    return out / "terrain_params.json"
+
+
+def tiles_are_fresh(out: Path, master: Path) -> bool:
+    """True if the live pyramid is current: present, non-empty, and stamped newer than BOTH the
+    master it descends from and the recipe that describes it.
+
+    Keyed off the master's `.done` marker, never its `.tif` — GDAL and rasterio both stamp a target
+    at write-start, which is the trap `is_stale` exists to avoid. The non-empty test rejects a
+    half-swapped directory, and a missing master marker is treated as "cannot know" rather than
+    "fresh", so an unstamped source always re-cuts.
+    """
+    live = out / "tiles"
+    return (live.is_dir() and any(live.iterdir())
+            and done_marker(master).exists()
+            and not is_stale(live, done_marker(master), terrain_params_path(out)))
+
+
+def elevation_source(work: Path, zoom: int, master: Path) -> Path:
+    """The elevation raster for `zoom` — THE MASTER ITSELF at its native zoom.
+
+    `height_3857.tif` is already 512 x 2^MASTER_ZOOM, so "downsampling" to that zoom is a box-mean
+    by a factor of 1: the identity. Materialising it wrote a 47 GB byte-for-value copy of a file
+    already on disk, on every build, and the only transform it applied was NaN -> 0, which
+    `encode_array` applies again regardless. Verified over six windows from Everest to the Pacific
+    abyss at max |master - copy| of exactly 0.0000 m, with shifted-window controls differing by
+    240-1660 m so the comparison could actually fail.
+    """
+    return master if zoom == MASTER_ZOOM else work / f"elev_z{zoom}.tif"
+
+
 def build(out: Path, max_zoom: int, step: float, sea_clamp: bool, feather: bool,
           master: Path, work: Path | None = None, keep_intermediates: bool = False,
           tile_format: str = "png") -> Path:
@@ -213,32 +289,61 @@ def build(out: Path, max_zoom: int, step: float, sea_clamp: bool, feather: bool,
     `tile_format` deliberately does NOT appear in the intermediate name: the encoded raster is
     identical whatever codec the tiles are written in, so re-cutting a built variant into another
     lossless format costs one encode pass, not another descent from the master.
+
+    Guarded per the module header's FRESHNESS section: the recipe is written BEFORE freshness is
+    asked, so changing a setting is what triggers its own re-cut, while `write_if_changed` means an
+    unchanged recipe never moves an mtime and never restages a pyramid that is still correct.
+
+    EVERY CUT IS A CLEAN FULL CUT into `tiles_new`, swapped over `tiles` only on success, with one
+    generation of rollback at `tiles_old`. GDAL writes each tile in place, so a run killed mid-cut
+    leaves truncated files; re-cutting from empty is the price of never trusting a partial tile.
     """
     out.mkdir(parents=True, exist_ok=True)
+    write_if_changed(terrain_params_path(out),
+                     terrain_params(max_zoom, step, sea_clamp, feather, tile_format))
+    tiles = out / "tiles"
+    if tiles_are_fresh(out, master):
+        print(f"terrain tiles fresh -> skip cut ({tiles})", flush=True)
+        return tiles
+
     work = work or out / "work"
     work.mkdir(parents=True, exist_ok=True)
-    tiles = out / "tiles"
-    if tiles.exists():
-        shutil.rmtree(tiles)
     variant = f"{'sea0' if sea_clamp else 'bathy'}_s{step:g}{'' if feather else '_nofeather'}"
 
-    elevation = work / f"elev_z{max_zoom}.tif"
-    if not elevation.exists():
+    top = elevation_source(work, max_zoom, master)
+    if top != master and is_stale(top, done_marker(master)):
         factor = 2 ** (MASTER_ZOOM - max_zoom)
         print(f"downsample master /{factor} -> {grid_size(max_zoom)}^2 ...", flush=True)
-        downsample_elevation(master, elevation, factor)
+        downsample_elevation(master, top, factor)
+        mark_done(top)
+
+    staging = out / "tiles_new"
+    if staging.exists():
+        shutil.rmtree(staging)   # a partial from a prior mid-cut crash: never resume over it
+    staging.mkdir(parents=True)
 
     for zoom in range(max_zoom, -1, -1):
-        level = work / f"elev_z{zoom}.tif"
-        if zoom < max_zoom and not level.exists():
-            downsample_elevation(work / f"elev_z{zoom + 1}.tif", level, 2)
+        level = elevation_source(work, zoom, master)
+        if zoom < max_zoom:
+            parent = elevation_source(work, zoom + 1, master)
+            if is_stale(level, done_marker(parent)):
+                downsample_elevation(parent, level, 2)
+                mark_done(level)
         encoded = work / f"rgb_{variant}_z{zoom}.tif"
         encode_raster(level, encoded, step, sea_clamp, feather)
         print(f"z{zoom}: encoded {grid_size(zoom)}^2 -> cutting ...", flush=True)
-        cut_zoom(encoded, tiles, zoom, tile_format)
+        cut_zoom(encoded, staging, zoom, tile_format)
         if not keep_intermediates:
             encoded.unlink()
 
+    if tiles.exists():
+        previous = out / "tiles_old"
+        if previous.exists():
+            shutil.rmtree(previous)
+        tiles.rename(previous)
+    staging.rename(tiles)
+    mark_done(tiles)
+    print(f"tiles live -> {tiles} (previous kept at {out / 'tiles_old'})", flush=True)
     return tiles
 
 

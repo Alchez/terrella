@@ -11,6 +11,16 @@
 //
 // The tracker never inspects a point, it only caches one and replays it, hence the type parameter:
 // globe.astro passes MapLibre's Point, tests pass a plain object, and this module imports neither.
+//
+// RESOLUTION IS COALESCED TO ONE PER FRAME, and that is a performance fix with a measured cause.
+// `resolve` is globe.astro's countryAt, i.e. queryRenderedFeatures — and with terrain enabled that
+// routes through terrain.pointCoordinate, which renders tile coordinates into a 1024x1024 offscreen
+// framebuffer and readPixels it back. That is a synchronous GPU stall: measured 2.2-2.4 ms with
+// terrain against 0.2 ms without, and the camera invalidates the framebuffer every frame so it
+// cannot be cached. Meanwhile `mousemove` was bound straight through to a synchronous resolve, and
+// a 500-1000 Hz mouse delivers several moves per frame — so a 165 Hz budget of 6.06 ms was being
+// oversubscribed 2-4x by hover alone. At 0.2 ms the missing coalesce never mattered; terrain did
+// not create this bug, it made it affordable to notice.
 
 export interface HoverTrackerOptions<TPoint> {
   /** Which country (Natural Earth ADMIN) is under this screen point, or null for sea. */
@@ -23,12 +33,30 @@ export interface HoverTrackerOptions<TPoint> {
    * no hover state of its own — the tracker is the single owner.
    */
   onChange: (admin: string | null, previousAdmin: string | null) => void;
+  /**
+   * Defers a coalesced resolve to the next frame. Defaults to the browser's
+   * `requestAnimationFrame`, which is the only correct choice in production: it is the clock the
+   * cost is measured against, and it stops resolving entirely while the tab is hidden.
+   *
+   * Injectable so tests can drive the clock by hand. They must: an auto-flushing fake would make
+   * "queued" and "ran" indistinguishable, and the coalesce is precisely the difference.
+   */
+  scheduleFrame?: (callback: () => void) => void;
 }
 
 export interface HoverTracker<TPoint> {
-  /** The pointer moved to a new screen point. Caches it for later re-resolution. */
+  /**
+   * The pointer moved to a new screen point. Caches it immediately; resolves at most once on the
+   * next frame however many times this is called before then.
+   */
   pointerMoved(point: TPoint): void;
-  /** The pointer left the canvas: clears the hover AND the cached point. */
+  /**
+   * The pointer left the canvas: clears the hover AND the cached point, SYNCHRONOUSLY.
+   *
+   * Deliberately not deferred. Leaving is the one event a frame of latency is visible on — the
+   * chip and the gold outline would linger over empty canvas — and nulling the cached point is
+   * also what makes a queued resolve stand down, so no cancellation handle is needed.
+   */
   pointerLeft(): void;
   /** The camera moved under a stationary pointer — re-resolve at the cached point. */
   viewChanged(): void;
@@ -36,12 +64,21 @@ export interface HoverTracker<TPoint> {
   current(): string | null;
 }
 
+/** Production's frame clock. Referenced through `globalThis` rather than imported, so the module
+ *  keeps its one dependency-free property — and throws loudly off the browser instead of silently
+ *  falling back to a synchronous resolve, which would look like it worked and coalesce nothing. */
+const browserFrame = (callback: () => void): void => {
+  globalThis.requestAnimationFrame(callback);
+};
+
 export function createHoverTracker<TPoint>({
   resolve,
   onChange,
+  scheduleFrame = browserFrame,
 }: HoverTrackerOptions<TPoint>): HoverTracker<TPoint> {
   let lastPointerPosition: TPoint | null = null;
   let hoveredAdmin: string | null = null;
+  let resolveScheduled = false;
 
   /** Every caller re-resolves far more often than the answer changes (once per pointer move, once
    *  per moveend), so the transition check lives here rather than in each of them. */
@@ -52,10 +89,28 @@ export function createHoverTracker<TPoint>({
     onChange(admin, previousAdmin);
   }
 
+  /** Queue one resolve for the next frame, or join the one already queued.
+   *
+   *  Both callers land here, so a pointer move and a `moveend` arriving in the same frame cost one
+   *  resolve between them rather than two — they would resolve the same cached point anyway.
+   *  Whatever position is cached WHEN THE FRAME RUNS is the one used, so a burst of moves resolves
+   *  where the pointer ended up, never where it passed through. */
+  function scheduleResolve() {
+    if (resolveScheduled) return;
+    resolveScheduled = true;
+    scheduleFrame(() => {
+      resolveScheduled = false;
+      // The pointer left between the schedule and the frame: pointerLeft already announced null,
+      // and resolving a position it no longer occupies is exactly the revival that must not happen.
+      if (lastPointerPosition === null) return;
+      setHovered(resolve(lastPointerPosition));
+    });
+  }
+
   return {
     pointerMoved(point) {
       lastPointerPosition = point;
-      setHovered(resolve(point));
+      scheduleResolve();
     },
 
     pointerLeft() {
@@ -66,9 +121,9 @@ export function createHoverTracker<TPoint>({
     viewChanged() {
       // No cached point means the pointer is not over the canvas at all. Re-resolving anyway would
       // need a stale position and could revive a hover the user already dismissed by leaving, so a
-      // camera move with no pointer on the map is deliberately a no-op — resolve is not even called.
+      // camera move with no pointer on the map is deliberately a no-op — nothing is even queued.
       if (lastPointerPosition === null) return;
-      setHovered(resolve(lastPointerPosition));
+      scheduleResolve();
     },
 
     current() {

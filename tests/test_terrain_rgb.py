@@ -6,6 +6,7 @@ the module exists, and nothing else in the suite would go red.
 """
 
 import inspect
+import json
 import re
 import subprocess
 
@@ -310,3 +311,207 @@ def test_gdal_accepts_the_cut_command():
         entry = re.search(rf"^\s*{driver}\s+-raster-\s+\(([a-zA-Z+]*)\)", registry, re.MULTILINE)
         assert entry, f"GDAL has no {driver} driver"
         assert "w" in entry.group(1), f"GDAL cannot WRITE {driver} (capabilities {entry.group(1)})"
+
+
+# --- Freshness: the guard stage T did not have --------------------------------------
+#
+# PROCESS called this out as the one stage with no output guard: `tiles/` was unconditionally
+# rmtree'd and every zoom re-encoded, so a rerun paid ~4 min (41 min at z0-8) where every other
+# stage skips in ~0 s. There was also no recipe, which is the half that could ship wrong bytes
+# rather than merely waste time.
+
+
+def _fake_pipeline(monkeypatch, cuts=None):
+    """Stand in for the three expensive steps, so a build is pure bookkeeping.
+
+    `cut_zoom` must actually CREATE a tile: an empty pyramid is one of the states
+    `tiles_are_fresh` has to reject, so a mock that wrote nothing would let every freshness
+    assertion below pass for the wrong reason.
+    """
+    def cut(src, staging, zoom, fmt="png"):
+        staging.mkdir(parents=True, exist_ok=True)
+        (staging / f"{zoom}.{fmt}").write_bytes(b"tile")
+        if cuts is not None:
+            cuts.append(zoom)
+
+    monkeypatch.setattr(terrain_rgb, "cut_zoom", cut)
+    monkeypatch.setattr(terrain_rgb, "encode_raster", lambda level, dst, *a, **k: dst.touch())
+    monkeypatch.setattr(terrain_rgb, "downsample_elevation",
+                        lambda src, dst, factor, **k: dst.touch())
+
+
+def _stamped_master(tmp_path):
+    """A master with its completion marker — freshness keys off the marker, never the raster."""
+    master = tmp_path / "height_3857.tif"
+    master.touch()
+    terrain_rgb.mark_done(master)
+    return master
+
+
+SETTINGS = {"max_zoom": 2, "step": 8.0, "sea_clamp": False, "feather": True,
+            "tile_format": "webp"}
+
+
+def test_an_unchanged_rerun_skips_the_cut_entirely(monkeypatch, tmp_path):
+    """The debt this closes, and the control for every restage test below: if this ever fails to
+    skip, `test_a_recipe_change_restages` passes vacuously for all five of its cases."""
+    cuts = []
+    _fake_pipeline(monkeypatch, cuts)
+    master = _stamped_master(tmp_path)
+    terrain_rgb.build(tmp_path / "out", master=master, **SETTINGS)
+    assert cuts == [2, 1, 0]
+    cuts.clear()
+    terrain_rgb.build(tmp_path / "out", master=master, **SETTINGS)
+    assert cuts == [], "an unchanged rerun must not re-cut a single zoom"
+
+
+@pytest.mark.parametrize("changed", [
+    {"step": 4.0},
+    {"tile_format": "png"},
+    {"max_zoom": 1},
+    {"sea_clamp": True},
+    {"feather": False},
+])
+def test_a_recipe_change_restages(monkeypatch, tmp_path, changed):
+    """The variant DIRECTORY name carries sea, step and feather — but NOT format and NOT max_zoom.
+    Without a sidecar those two are invisible to every guard, so a pyramid re-cut at a new codec is
+    indistinguishable by existence from the one it replaced. Its control is the skip test above.
+    """
+    cuts = []
+    _fake_pipeline(monkeypatch, cuts)
+    master = _stamped_master(tmp_path)
+    out = tmp_path / "out"
+    terrain_rgb.build(out, master=master, **SETTINGS)
+    cuts.clear()
+    terrain_rgb.build(out, master=master, **{**SETTINGS, **changed})
+    assert cuts, f"changing {changed} must re-cut, and nothing but the recipe can see it"
+
+
+def test_an_identical_recipe_does_not_move_its_mtime(tmp_path):
+    """`write_if_changed` is what makes the skip possible at all. Rewriting identical JSON would
+    stamp the recipe newer than tiles.done on every run and restage a pyramid that is correct."""
+    path = terrain_rgb.terrain_params_path(tmp_path)
+    recipe = terrain_rgb.terrain_params(**SETTINGS)
+    terrain_rgb.write_if_changed(path, recipe)
+    stamped = path.stat().st_mtime_ns
+    terrain_rgb.write_if_changed(path, recipe)
+    assert path.stat().st_mtime_ns == stamped
+
+
+def test_the_recipe_records_what_the_directory_name_cannot():
+    """`bathy_s8_webp` states the codec by convention and the depth by nothing at all — the z6
+    build sits beside the z8 one under names differing by a suffix somebody chose by hand."""
+    recipe = json.loads(terrain_rgb.terrain_params(8, 8.0, False, True, "webp"))
+    assert recipe["max_zoom"] == 8
+    assert recipe["format"] == "WEBP"
+    assert recipe["creation_options"] == ["LOSSLESS=YES"]
+    # Module constants have no other file to move an mtime, so they must ride here or be invisible.
+    assert recipe["feather_lat_lo"] == terrain_rgb.FEATHER_LAT_LO
+    assert recipe["feather_lat_hi"] == terrain_rgb.FEATHER_LAT_HI
+
+
+def test_an_empty_pyramid_is_never_fresh(tmp_path):
+    """A half-swapped directory: marker present, recipe matching, no tiles. Existence alone would
+    serve 404s at every zoom while reporting the stage complete."""
+    out = tmp_path / "out"
+    (out / "tiles").mkdir(parents=True)
+    terrain_rgb.write_if_changed(terrain_rgb.terrain_params_path(out),
+                                 terrain_rgb.terrain_params(**SETTINGS))
+    terrain_rgb.mark_done(out / "tiles")
+    assert terrain_rgb.tiles_are_fresh(out, _stamped_master(tmp_path)) is False
+
+
+def test_an_unstamped_master_is_never_fresh(monkeypatch, tmp_path):
+    """"Cannot know" must read as stale, not as fresh: a master with no .done marker is one
+    shade_planet did not finish writing. Asserted in BOTH directions so the check can fail."""
+    _fake_pipeline(monkeypatch)
+    master = _stamped_master(tmp_path)
+    out = tmp_path / "out"
+    terrain_rgb.build(out, master=master, **SETTINGS)
+    assert terrain_rgb.tiles_are_fresh(out, master) is True
+    terrain_rgb.done_marker(master).unlink()
+    assert terrain_rgb.tiles_are_fresh(out, master) is False
+
+
+def test_a_half_written_elevation_level_is_rebuilt_not_reused(monkeypatch, tmp_path):
+    """THE crash this guard exists for. rasterio creates its target at write-start, so the BigTIFF
+    failure of 2026-07-28 left a full-sized, freshly-stamped, truncated elev_z8.tif — which an
+    exists() guard accepts. A truncated float32 raster reads as a very flat planet, not an error.
+    """
+    built = []
+    _fake_pipeline(monkeypatch)
+    monkeypatch.setattr(terrain_rgb, "downsample_elevation",
+                        lambda src, dst, factor, **k: (built.append(dst.name), dst.touch()))
+    master = _stamped_master(tmp_path)
+    work = tmp_path / "work"
+    terrain_rgb.build(tmp_path / "a", master=master, work=work, **SETTINGS)
+    assert built == ["elev_z2.tif", "elev_z1.tif", "elev_z0.tif"]
+
+    # The partial: the raster is on disk, but the stage never stamped it complete.
+    built.clear()
+    terrain_rgb.done_marker(work / "elev_z1.tif").unlink()
+    terrain_rgb.build(tmp_path / "b", master=master, work=work, **SETTINGS)
+    assert built == ["elev_z1.tif", "elev_z0.tif"], \
+        "an unstamped level must be rebuilt, and everything derived from it must follow"
+
+
+def test_the_master_is_read_in_place_at_its_native_zoom(tmp_path):
+    """`--max-zoom 8` used to write a 47 GB byte-for-value copy of the 46 GB master, because a
+    box-mean by a factor of 1 is the identity and NaN -> 0 (its only other effect) is applied
+    again by encode_array regardless. Measured against the real rasters at exactly 0.0000 m over
+    six windows from Everest to the Pacific abyss, shifted-window controls differing by 240-1660 m.
+    """
+    master = tmp_path / "height_3857.tif"
+    work = tmp_path / "work"
+    native = terrain_rgb.MASTER_ZOOM
+    assert terrain_rgb.elevation_source(work, native, master) == master
+    assert terrain_rgb.elevation_source(work, native - 1, master) == work / f"elev_z{native - 1}.tif"
+
+
+def test_a_native_zoom_build_never_materialises_the_master(monkeypatch, tmp_path):
+    """The build-level half of the test above: nothing may write the top level when it IS the
+    master, and the descent must start from the master itself."""
+    built = []
+    _fake_pipeline(monkeypatch)
+    monkeypatch.setattr(terrain_rgb, "downsample_elevation",
+                        lambda src, dst, factor, **k: (built.append(dst.name), dst.touch()))
+    master = _stamped_master(tmp_path)
+    work = tmp_path / "work"
+    native = terrain_rgb.MASTER_ZOOM
+    terrain_rgb.build(tmp_path / "out", master=master, work=work,
+                      **{**SETTINGS, "max_zoom": native})
+    assert not (work / f"elev_z{native}.tif").exists()
+    assert built[0] == f"elev_z{native - 1}.tif", "the descent must start from the master itself"
+
+
+def test_a_failed_cut_leaves_the_live_pyramid_intact(monkeypatch, tmp_path):
+    """The swap is the point: `tiles/` used to be rmtree'd BEFORE the cut, so a crash at zoom 3 of
+    8 left the site serving nothing at all — from a pyramid that had been fine minutes earlier."""
+    _fake_pipeline(monkeypatch)
+    master = _stamped_master(tmp_path)
+    out = tmp_path / "out"
+    terrain_rgb.build(out, master=master, **SETTINGS)
+    survivors = sorted(path.name for path in (out / "tiles").iterdir())
+
+    def explode(src, staging, zoom, fmt="png"):
+        staging.mkdir(parents=True, exist_ok=True)
+        if zoom == 1:
+            raise RuntimeError("gdal died mid-cut")
+        (staging / f"{zoom}.{fmt}").write_bytes(b"tile")
+
+    monkeypatch.setattr(terrain_rgb, "cut_zoom", explode)
+    with pytest.raises(RuntimeError):
+        terrain_rgb.build(out, master=master, **{**SETTINGS, "step": 4.0})
+    assert sorted(path.name for path in (out / "tiles").iterdir()) == survivors
+
+
+def test_the_previous_generation_is_kept_for_rollback(monkeypatch, tmp_path):
+    """One generation back, same as the colour pyramid's `tiles_old`. Doubles as the concrete
+    demonstration that a codec change really does restage."""
+    _fake_pipeline(monkeypatch)
+    master = _stamped_master(tmp_path)
+    out = tmp_path / "out"
+    terrain_rgb.build(out, master=master, **{**SETTINGS, "max_zoom": 1})
+    terrain_rgb.build(out, master=master, **{**SETTINGS, "max_zoom": 1, "tile_format": "png"})
+    assert sorted(path.name for path in (out / "tiles_old").iterdir()) == ["0.webp", "1.webp"]
+    assert sorted(path.name for path in (out / "tiles").iterdir()) == ["0.png", "1.png"]
