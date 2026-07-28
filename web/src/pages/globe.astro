@@ -507,39 +507,33 @@ import { REPO_URL } from "../lib/siteLinks";
   import type { Feature, FeatureCollection } from "geojson";
   import "maplibre-gl/dist/maplibre-gl.css";
   import { manifest, type Country } from "../lib/manifest";
-  import { BORDERS_BASE, HERO_BASE, TILE_URL_TEMPLATE } from "../lib/assetBase";
+  import {
+    BORDERS_BASE,
+    HERO_BASE,
+    TERRAIN_URL_TEMPLATE,
+    TILE_URL_TEMPLATE,
+  } from "../lib/assetBase";
   import { RELIEF_MAX_ZOOM, RELIEF_MIN_ZOOM } from "../lib/reliefTiles";
   import {
     MAX_TERRAIN_EXAGGERATION,
     TERRAIN_MAX_ZOOM,
     TERRAIN_MIN_ZOOM,
-    TERRAIN_QUANTISATION_M,
-    TERRAIN_QUANTISATION_STEPS,
     TERRAIN_RAMP_END_ZOOM,
     TERRAIN_RAMP_START_ZOOM,
     TERRAIN_SKIRT_DEFAULT,
     TERRAIN_SKIRT_MODES,
     TERRAIN_SOURCE,
-    TERRAIN_TILE_EXTENSION,
-    TERRAIN_TILE_FORMATS,
     TERRAIN_TILE_SIZE,
-    TERRAIN_PYRAMID_DEPTHS,
     TERRAIN_TILE_SIZES,
     defaultTerrainRamp,
     describeTerrainState,
     resolveTerrainExaggeration,
     TERRAIN_OFF,
-    parseTerrainFormat,
-    parseTerrainQuantisation,
     parseTerrainRamp,
-    parseTerrainPyramidDepth,
     parseTerrainSkirt,
     parseTerrainTileSize,
-    parseTerrainVariant,
     rampedExaggeration,
-    terrainBuildDirectory,
     terrainEncoding,
-    terrainPathTemplate,
   } from "../lib/terrainSource";
   import {
     defaultAtmosphereRamp,
@@ -826,46 +820,12 @@ import { REPO_URL } from "../lib/siteLinks";
     );
   }
   if (terrainExaggeration !== null) {
-    const variant = parseTerrainVariant(urlFlags);
-    if (urlFlags.has("dem") && urlFlags.get("dem") !== variant) {
-      console.warn(`[terrain] unknown ?dem=${urlFlags.get("dem")} — using "${variant}".`);
-    }
-    // ?quant and ?demfmt select a BUILD — a directory on disk — and the same two values also pick
-    // the decode factors and the file extension below. They are read once, here, and threaded
-    // through terrainBuildDirectory / terrainEncoding / terrainPathTemplate together, because a
-    // build fetched at one quantisation and decoded at another produces no error of any kind.
-    const parsedQuantisation = parseTerrainQuantisation(urlFlags);
-    if (parsedQuantisation === null) {
-      console.warn(
-        `[terrain] ignoring ?quant=${urlFlags.get("quant")} — want one of ` +
-          `${TERRAIN_QUANTISATION_STEPS.join("|")}. Using ${TERRAIN_QUANTISATION_M} m.`,
-      );
-    }
-    const quantisation = parsedQuantisation ?? TERRAIN_QUANTISATION_M;
-    const parsedFormat = parseTerrainFormat(urlFlags);
-    if (parsedFormat === null) {
-      console.warn(
-        `[terrain] ignoring ?demfmt=${urlFlags.get("demfmt")} — want one of ` +
-          `${TERRAIN_TILE_FORMATS.join("|")}. Using ${TERRAIN_TILE_EXTENSION}.`,
-      );
-    }
-    const format = parsedFormat ?? TERRAIN_TILE_EXTENSION;
-    // ?demdepth joins that same read-once group: it picks the build directory AND the source's
-    // maxzoom, and the two must not be able to disagree. Declaring 6 over the deep build silently
-    // never requests z7/z8 — indistinguishable from the lever having no effect.
-    const parsedDepth = parseTerrainPyramidDepth(urlFlags);
-    if (parsedDepth === null) {
-      console.warn(
-        `[terrain] ignoring ?demdepth=${urlFlags.get("demdepth")} — want one of ` +
-          `${TERRAIN_PYRAMID_DEPTHS.join("|")}. Using ${TERRAIN_MAX_ZOOM}.`,
-      );
-    }
-    const pyramidDepth = parsedDepth ?? TERRAIN_MAX_ZOOM;
-    const build = terrainBuildDirectory(variant, quantisation, format, pyramidDepth);
-    // ?demsize is the axis-B arm: 512 is the honest declaration, 256 a deliberate misdeclaration
-    // that halves the ground a render tile covers and so halves the mesh facet. Separate flag
-    // from ?quant on purpose — a wrong value here cannot corrupt a decode, only change which
-    // zoom loads, so it has no invariant to hold with anything else.
+    // ?demsize is the axis-B arm: 512 is the honest declaration, 128 a deliberate misdeclaration
+    // that quarters the ground a render tile covers and so quarters the mesh facet. It is the
+    // last of the DEM A/B flags, and the only one that survived the archive: a wrong value here
+    // cannot corrupt a decode, only change which zoom loads out of the one pyramid. The four that
+    // named a build directory (?dem, ?quant, ?demfmt, ?demdepth) retired with it — see the block
+    // in terrainSource.ts recording what each one settled.
     const parsedTileSize = parseTerrainTileSize(urlFlags);
     if (parsedTileSize === null) {
       console.warn(
@@ -882,8 +842,13 @@ import { REPO_URL } from "../lib/siteLinks";
       );
     }
     const ramp = parsedRamp ?? defaultTerrainRamp();
+    // The declared size replaces the build name here now that there is only one build. It is the
+    // remaining thing a capture cannot be read back from: exaggeration is on screen, but whether
+    // a frame meshed at 128 or 512 is invisible in the image and changes both facet size and
+    // which DEM level loaded.
     describeTerrain = () =>
-      `${describeTerrainState(map.terrain?.exaggeration ?? null, terrainExaggeration, ramp)} · ${build}`;
+      `${describeTerrainState(map.terrain?.exaggeration ?? null, terrainExaggeration, ramp)} · ` +
+      `${declaredTileSize}px`;
     const exaggerationFor = (zoom: number) =>
       ramp.kind === "off"
         ? terrainExaggeration
@@ -892,11 +857,11 @@ import { REPO_URL } from "../lib/siteLinks";
     map.on("style.load", () => {
       map.addSource(TERRAIN_SOURCE, {
         type: "raster-dem",
-        tiles: [`${location.origin}/terrain/${build}/${terrainPathTemplate(format)}`],
+        tiles: [TERRAIN_URL_TEMPLATE],
         minzoom: TERRAIN_MIN_ZOOM,
-        maxzoom: pyramidDepth,
+        maxzoom: TERRAIN_MAX_ZOOM,
         tileSize: declaredTileSize,
-        ...terrainEncoding(quantisation),
+        ...terrainEncoding(),
       });
       map.setTerrain({ source: TERRAIN_SOURCE, exaggeration: exaggerationFor(map.getZoom()) });
     });
@@ -922,11 +887,11 @@ import { REPO_URL } from "../lib/siteLinks";
     // eslint-disable-next-line no-console
     console.log(
       ramp.kind === "off"
-        ? `[terrain] ${build} @ ${quantisation} m, ${terrainExaggeration}x constant (?ramp=off), ` +
-          `z0-${pyramidDepth}`
-        : `[terrain] ${build} @ ${quantisation} m, ${terrainExaggeration}x below ` +
+        ? `[terrain] ${declaredTileSize}px declared, ${terrainExaggeration}x constant ` +
+          `(?ramp=off), z${TERRAIN_MIN_ZOOM}-${TERRAIN_MAX_ZOOM}`
+        : `[terrain] ${declaredTileSize}px declared, ${terrainExaggeration}x below ` +
           `z${TERRAIN_RAMP_START_ZOOM}, ramping to ${ramp.floor}x at ` +
-          `z${TERRAIN_RAMP_END_ZOOM}, z0-${pyramidDepth}`,
+          `z${TERRAIN_RAMP_END_ZOOM}, z${TERRAIN_MIN_ZOOM}-${TERRAIN_MAX_ZOOM}`,
     );
   }
 

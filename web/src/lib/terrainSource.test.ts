@@ -1,40 +1,37 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import {
+  assertTerrainZoomRange,
   DEFAULT_TERRAIN_EXAGGERATION,
   DEFAULT_TERRAIN_RAMP_FLOOR,
+  defaultTerrainRamp,
+  describeTerrainState,
+  describeTerrainTileTypeMismatch,
   MAX_TERRAIN_EXAGGERATION,
+  parseTerrainExaggeration,
+  parseTerrainRamp,
+  parseTerrainSkirt,
+  parseTerrainTilePath,
+  parseTerrainTileSize,
+  rampedExaggeration,
+  resolveTerrainExaggeration,
   TERRAIN_CONTENT_TYPE,
   TERRAIN_MAX_ZOOM,
+  TERRAIN_MIN_ZOOM,
   TERRAIN_OFF,
+  TERRAIN_PATH_PREFIX,
   TERRAIN_PATH_TEMPLATE,
-  TERRAIN_PYRAMID_DEPTHS,
   TERRAIN_QUANTISATION_M,
-  TERRAIN_QUANTISATION_STEPS,
   TERRAIN_RAMP_END_ZOOM,
   TERRAIN_RAMP_START_ZOOM,
   TERRAIN_SKIRT_DEFAULT,
   TERRAIN_SKIRT_MODES,
   TERRAIN_TILE_EXTENSION,
-  TERRAIN_TILE_FORMATS,
   TERRAIN_TILE_SIZE,
-  defaultTerrainRamp,
-  describeTerrainState,
-  parseTerrainExaggeration,
-  parseTerrainFormat,
-  parseTerrainPyramidDepth,
-  parseTerrainQuantisation,
-  parseTerrainRamp,
-  parseTerrainSkirt,
-  parseTerrainTileSize,
-  parseTerrainVariant,
-  rampedExaggeration,
-  resolveTerrainExaggeration,
-  terrainBuildDirectory,
   terrainEncoding,
-  terrainPathTemplate,
   terrainZoomsFor,
 } from "./terrainSource";
+import { parseTilePath } from "./reliefTiles";
 
 const flags = (search: string) => new URLSearchParams(search);
 
@@ -109,105 +106,114 @@ describe("?terrain=N", () => {
   });
 });
 
-describe("?dem=clamp|bathy", () => {
-  it("defaults to the sea treatment Step 0 actually ratified", () => {
-    // Was "clamp" while both were candidates. Leaving it there after bathymetry won would make
-    // every unflagged capture measure the rejected arm — a default that silently contradicts a
-    // decision is worse than no default.
-    expect(parseTerrainVariant(flags(""))).toBe("bathy");
-    expect(parseTerrainVariant(flags("?terrain=15"))).toBe("bathy");
+describe("the archive replaced four flags, and the answers outlive them", () => {
+  // ?dem, ?quant, ?demfmt and ?demdepth each named a BUILD DIRECTORY under planet_terrain, and
+  // one PMTiles archive has no directories to choose between. These tests replace theirs: what
+  // the flags settled is now a constant, and a constant is what the pipeline has to agree with.
+  //
+  // Rewritten rather than deleted, per the repo's rule about tests that carry a rationale — the
+  // reasoning below is the whole reason the retired defaults were the values they were.
+
+  it("ships the sea treatment, quantisation, codec and depth the A/Bs actually chose", () => {
+    // bathymetry (Step 0, on Rohan's eyes), 8 m (the knee of the size curve), lossless WebP
+    // (0.67x PNG, byte-exact) and z0-8 (what made the 128 declaration spendable). Each of these
+    // was a default someone could have got wrong silently, which is why they were flags first.
+    expect(TERRAIN_QUANTISATION_M).toBe(8);
+    expect(TERRAIN_TILE_EXTENSION).toBe("webp");
+    expect(TERRAIN_MAX_ZOOM).toBe(8);
+    expect(TERRAIN_CONTENT_TYPE).toBe(`image/${TERRAIN_TILE_EXTENSION}`);
   });
 
-  it("selects the clamped build when asked", () => {
-    expect(parseTerrainVariant(flags("?dem=clamp"))).toBe("clamp");
-  });
-
-  it("falls back to the default on an unrecognised value", () => {
-    expect(parseTerrainVariant(flags("?dem=deep"))).toBe("bathy");
-  });
-});
-
-describe("?quant=1|2|4|8", () => {
-  it("defaults to whatever the pipeline currently writes", () => {
-    expect(parseTerrainQuantisation(flags(""))).toBe(TERRAIN_QUANTISATION_M);
-    expect(parseTerrainQuantisation(flags("?terrain=15"))).toBe(TERRAIN_QUANTISATION_M);
-  });
-
-  it("reads every step that was built", () => {
-    for (const step of TERRAIN_QUANTISATION_STEPS) {
-      expect(parseTerrainQuantisation(flags(`?quant=${step}`))).toBe(step);
+  it("leaves no way to ask the globe for a build directory", () => {
+    // The retired flags are gone from BOTH sides or from neither: a parser with no caller is dead
+    // code, and a caller with no parser is a crash. The globe is where it would show.
+    //
+    // Keyed on CODE, never on the flag spelling — the first draft searched for the literal
+    // "?quant" and went red against a comment in globe.astro explaining what had been retired. A
+    // guard that cannot tell an identifier from prose punishes documenting the decision.
+    const globe = readFileSync(new URL("../pages/globe.astro", import.meta.url), "utf8");
+    const retiredCalls = [
+      "parseTerrainVariant",
+      "parseTerrainQuantisation",
+      "parseTerrainFormat",
+      "parseTerrainPyramidDepth",
+      "terrainBuildDirectory",
+      "terrainPathTemplate",
+    ];
+    for (const call of retiredCalls) {
+      expect(globe, `${call} resolves a build directory that no longer exists`).not.toContain(
+        `${call}(`,
+      );
+    }
+    for (const flag of ["dem", "quant", "demfmt", "demdepth"]) {
+      expect(globe, `?${flag} is read but can no longer select anything`).not.toContain(
+        `urlFlags.get("${flag}")`,
+      );
     }
   });
 
-  it("refuses a step that was never built, rather than decoding at the wrong scale", () => {
-    // The whole reason this returns null instead of falling back: a build fetched at one step and
-    // decoded at another still 200s on every tile and still renders. There is no symptom except a
-    // planet wrong by that ratio, so the flag has to complain rather than guess.
-    expect(parseTerrainQuantisation(flags("?quant=3"))).toBeNull();
-    expect(parseTerrainQuantisation(flags("?quant=16"))).toBeNull();
-    expect(parseTerrainQuantisation(flags("?quant=eight"))).toBeNull();
-    expect(parseTerrainQuantisation(flags("?quant=0"))).toBeNull();
-  });
-
-  it("treats a bare ?quant as absent, not as malformed", () => {
-    expect(parseTerrainQuantisation(flags("?quant="))).toBe(TERRAIN_QUANTISATION_M);
+  it("addresses ONE archive, not a directory under a spike route", () => {
+    // The spike served /terrain/<build>/{z}/{x}/{y} off loose tiles from location.origin. Both
+    // halves of that are retired: the build segment, and the same-origin assumption that would
+    // send production's DEM requests at the site Worker instead of the tile Worker.
+    const globe = readFileSync(new URL("../pages/globe.astro", import.meta.url), "utf8");
+    expect(globe).toContain("TERRAIN_URL_TEMPLATE");
+    expect(globe, "the DEM base must follow the tile hostname").not.toContain(
+      "location.origin}/terrain",
+    );
   });
 });
 
-describe("?demfmt=png|webp", () => {
-  it("defaults to the shipping extension", () => {
-    expect(parseTerrainFormat(flags(""))).toBe(TERRAIN_TILE_EXTENSION);
-  });
-
-  it("reads both lossless codecs", () => {
-    for (const format of TERRAIN_TILE_FORMATS) {
-      expect(parseTerrainFormat(flags(`?demfmt=${format}`))).toBe(format);
-    }
-  });
-
-  it("refuses anything else, loudly", () => {
-    expect(parseTerrainFormat(flags("?demfmt=jpeg"))).toBeNull();
-    expect(parseTerrainFormat(flags("?demfmt=webp2"))).toBeNull();
-  });
-});
-
-describe("the build directory", () => {
-  it("names the default build with no suffixes at all", () => {
-    expect(terrainBuildDirectory("bathy", 1, "png")).toBe("bathy");
-    expect(terrainBuildDirectory("clamp", 1, "png")).toBe("clamp");
-  });
-
-  it("suffixes the quantisation and the codec, matching terrain_rgb.py --out on disk", () => {
-    expect(terrainBuildDirectory("bathy", 8, "png")).toBe("bathy_s8");
-    expect(terrainBuildDirectory("bathy", 8, "webp")).toBe("bathy_s8_webp");
-    expect(terrainBuildDirectory("bathy", 2, "webp")).toBe("bathy_s2_webp");
-  });
-
-  it("stays inside the dev route's own character class, so a build cannot 404 on its name", () => {
-    const route = readFileSync(new URL("../../astro.config.ts", import.meta.url), "utf8");
-    const characterClass = /\[a-z0-9_\]\{1,(\d+)\}/.exec(route);
-    expect(characterClass).not.toBeNull();
-    // The longest name is now the SHALLOW spike build: z8 ships, so it is z6 that carries a suffix.
-    const longest = terrainBuildDirectory("bathy", 8, "webp", 6);
-    expect(longest).toBe("bathy_s8_webp_z6");
-    expect(longest).toMatch(/^[a-z0-9_]+$/);
-    expect(longest.length).toBeLessThanOrEqual(Number(characterClass?.[1]));
-  });
-
-  it("leaves the shipping pyramid unsuffixed and names every other depth", () => {
-    // The suffix tracks TERRAIN_MAX_ZOOM rather than a literal, so ratifying a new depth renames
-    // the directories consistently instead of stranding the old name on the new build.
-    expect(terrainBuildDirectory("bathy", 8, "webp", 8)).toBe("bathy_s8_webp");
-    expect(terrainBuildDirectory("bathy", 8, "webp", 6)).toBe("bathy_s8_webp_z6");
-    expect(terrainBuildDirectory("bathy", 8, "webp")).toBe(
-      terrainBuildDirectory("bathy", 8, "webp", TERRAIN_MAX_ZOOM),
+describe("the path contract — the prefix is the only discriminator left", () => {
+  it("puts the prefix in the template, so the URL says which pyramid it means", () => {
+    expect(TERRAIN_PATH_TEMPLATE).toBe(
+      `${TERRAIN_PATH_PREFIX}/{z}/{x}/{y}.${TERRAIN_TILE_EXTENSION}`,
     );
   });
 
-  it("templates the path on the codec, agreeing with the constant at the default", () => {
-    expect(terrainPathTemplate("png")).toBe("{z}/{x}/{y}.png");
-    expect(terrainPathTemplate("webp")).toBe("{z}/{x}/{y}.webp");
-    expect(terrainPathTemplate(TERRAIN_TILE_EXTENSION)).toBe(TERRAIN_PATH_TEMPLATE);
+  it("parses a terrain address, with or without a leading slash", () => {
+    expect(parseTerrainTilePath("/terrain/8/189/107.webp")).toEqual({ z: 8, x: 189, y: 107 });
+    expect(parseTerrainTilePath("terrain/0/0/0.webp")).toEqual({ z: 0, x: 0, y: 0 });
+  });
+
+  it("REFUSES a bare relief address, which is the failure with no symptom", () => {
+    // This is the test the whole prefix exists for. Both archives are lossless WebP over z0-8 on
+    // one tiling scheme, so /8/189/107.webp is a valid address in both — and serving colour where
+    // elevation was asked for does not 404 or throw: MapLibre decodes relief bytes as terrarium
+    // metres and displaces the globe by whatever they happen to mean.
+    expect(parseTerrainTilePath("/8/189/107.webp")).toBeNull();
+    expect(parseTilePath("/terrain/8/189/107.webp")).toBeNull();
+  });
+
+  it("cannot both-match any path, in either direction", () => {
+    for (const path of [
+      "/0/0/0.webp",
+      "/terrain/0/0/0.webp",
+      "/8/189/107.webp",
+      "/terrain/8/189/107.webp",
+    ]) {
+      const matches = [parseTilePath(path), parseTerrainTilePath(path)].filter(Boolean);
+      expect(matches, `${path} must resolve to exactly one archive`).toHaveLength(1);
+    }
+  });
+
+  it("rejects a tile outside the 2^z grid rather than range-reading 2.6 GB for a typo", () => {
+    expect(parseTerrainTilePath("/terrain/0/1/0.webp")).toBeNull();
+    expect(parseTerrainTilePath("/terrain/8/256/0.webp")).toBeNull();
+    expect(parseTerrainTilePath(`/terrain/${TERRAIN_MAX_ZOOM + 1}/0/0.webp`)).toBeNull();
+  });
+
+  it("rejects the extension it does not serve, and directory traversal", () => {
+    expect(parseTerrainTilePath("/terrain/8/189/107.png")).toBeNull();
+    expect(parseTerrainTilePath("/terrain/../8/189/107.webp")).toBeNull();
+    expect(parseTerrainTilePath("/terrain/bathy_s8_webp/8/189/107.webp")).toBeNull();
+  });
+
+  it("names the two archive checks after their own constants, so a drift message is actionable", () => {
+    expect(() => assertTerrainZoomRange(0, 6)).toThrow(/TERRAIN_MIN_ZOOM\/TERRAIN_MAX_ZOOM/);
+    expect(() => assertTerrainZoomRange(TERRAIN_MIN_ZOOM, TERRAIN_MAX_ZOOM)).not.toThrow();
+    expect(describeTerrainTileTypeMismatch(`.${TERRAIN_TILE_EXTENSION}`)).toBeNull();
+    expect(describeTerrainTileTypeMismatch(".png")).toMatch(/LOSSLESS/);
   });
 });
 
@@ -216,10 +222,9 @@ describe("the contract", () => {
     // The requirement is losslessness, NOT png. Lossless WebP meets it at 0.67x the bytes,
     // measured whole-pyramid and proven byte-identical through GDAL, the browser's own decode
     // and the rendered frame. If this ever reads a lossy codec, elevation is silently wrong.
-    expect(TERRAIN_TILE_FORMATS).toContain(TERRAIN_TILE_EXTENSION);
     expect(TERRAIN_TILE_EXTENSION).toBe("webp");
     expect(TERRAIN_CONTENT_TYPE).toBe("image/webp");
-    expect(TERRAIN_PATH_TEMPLATE).toBe("{z}/{x}/{y}.webp");
+    expect(TERRAIN_PATH_TEMPLATE).toBe("terrain/{z}/{x}/{y}.webp");
   });
 
   it("declares a QUARTER of its true 512 px size, which is the whole of the axis-B decision", () => {
@@ -408,19 +413,16 @@ describe("?skirt=auto|none — which seam artifact you get", () => {
   });
 });
 
-describe("?demdepth=6|8 — the pyramid the source is allowed to reach", () => {
-  it("defaults to the shipping pyramid and refuses anything unbuilt", () => {
-    expect(parseTerrainPyramidDepth(flags(""))).toBe(TERRAIN_MAX_ZOOM);
-    expect(parseTerrainPyramidDepth(flags("?demdepth=6"))).toBe(6);
-    expect(parseTerrainPyramidDepth(flags("?demdepth=8"))).toBe(8);
-    // 7 is a real MapLibre zoom but NOT a directory on disk, so it must be refused, not clamped.
-    expect(parseTerrainPyramidDepth(flags("?demdepth=7"))).toBeNull();
-    expect(parseTerrainPyramidDepth(flags("?demdepth=deep"))).toBeNull();
-  });
-
-  it("only lists depths that exist as builds", () => {
-    expect(TERRAIN_PYRAMID_DEPTHS).toContain(TERRAIN_MAX_ZOOM);
-    expect([...TERRAIN_PYRAMID_DEPTHS]).toEqual([6, 8]);
+describe("the pyramid depth the source is allowed to reach", () => {
+  it("declares its maxzoom from the archive's own depth, with nothing left to disagree", () => {
+    // `?demdepth` used to pick a build directory AND the source's maxzoom, and its whole risk was
+    // that the two could disagree: a deep directory declared 6 silently never requests the levels
+    // it paid to build, and a shallow one declared 8 404s every tile past z6. With one archive
+    // there is one number, which is the structural version of that guarantee.
+    const globe = readFileSync(new URL("../pages/globe.astro", import.meta.url), "utf8");
+    const source = globe.slice(globe.indexOf("type: \"raster-dem\""));
+    expect(source.slice(0, 400)).toContain("maxzoom: TERRAIN_MAX_ZOOM");
+    expect(TERRAIN_MAX_ZOOM).toBe(8);
   });
 
   it("is what makes 256 and 128 mean anything at the deepest camera", () => {
@@ -576,28 +578,25 @@ describe("source guard — the pipeline is the source of truth for the numbers",
     expect(globe).toContain("map.terrain.exaggeration = next");
   });
 
-  it("threads ONE quantisation and ONE codec into the path and the decode together", () => {
-    // The failure this exists for is silent and total: fetch a build cut at 8 m, decode it with
-    // 1 m factors, and every tile still 200s, still decodes, still renders — a planet eight times
-    // too flat with nothing in the console. So the directory, the extension and the unpack factors
-    // must all be derived from the same two parsed values, and `terrainEncoding()` must never be
-    // called bare (its default is the shipping step, which silently ignores ?quant).
+  it("cannot fetch one encoding and decode with another, because there is one of each", () => {
+    // The failure this guarded was silent and total: fetch a build cut at 8 m, decode it with 1 m
+    // factors, and every tile still 200s, still decodes, still renders — a planet eight times too
+    // flat with nothing in the console. While four flags each picked a build, the only defence
+    // was threading one parsed value through the directory, the extension and the unpack factors
+    // together, and a test that they were the SAME value.
+    //
+    // The archive replaces that with structure: one path, one maxzoom, one set of factors, none
+    // of them selectable. `terrainEncoding()` is now correct to call bare — its default IS the
+    // shipping step — which is the exact opposite of what this test asserted before, and the
+    // reason it is rewritten rather than retargeted.
     const globe = readFileSync(new URL("../pages/globe.astro", import.meta.url), "utf8");
-    expect(globe).toContain("terrainBuildDirectory(variant, quantisation, format, pyramidDepth)");
-    expect(globe).toContain("terrainEncoding(quantisation)");
-    expect(globe).toContain("terrainPathTemplate(format)");
-    expect(globe).toContain("/terrain/${build}/");
-    expect(globe).not.toMatch(/terrainEncoding\(\s*\)/);
-  });
-
-  it("declares maxzoom from the SAME value that picked the directory", () => {
-    // The third member of that group, and its silent failure is the sneakiest of the three: a deep
-    // build declared `maxzoom: 6` never requests z7/z8, renders perfectly, and looks exactly like
-    // the deeper pyramid having no visible effect — which is the conclusion it would be used to
-    // reach. The constant must not appear on the source any more.
-    const globe = readFileSync(new URL("../pages/globe.astro", import.meta.url), "utf8");
-    expect(globe).toContain("maxzoom: pyramidDepth");
-    expect(globe).not.toContain("maxzoom: TERRAIN_MAX_ZOOM");
+    const source = globe.slice(globe.indexOf('type: "raster-dem"'), globe.indexOf('type: "raster-dem"') + 400);
+    expect(source).toContain("tiles: [TERRAIN_URL_TEMPLATE]");
+    expect(source).toContain("maxzoom: TERRAIN_MAX_ZOOM");
+    expect(source).toContain("...terrainEncoding()");
+    // The one value still parsed per-request is the declared tile size, which cannot corrupt a
+    // decode — it changes which zoom loads, not what the bytes mean.
+    expect(source).toContain("tileSize: declaredTileSize");
   });
 
   it("keeps both delivery codecs lossless in the pipeline", () => {
@@ -674,27 +673,33 @@ describe("resolveTerrainExaggeration — what the `full` tier actually turns on"
 });
 
 describe("the deploy preflight must refuse a globe production cannot serve", () => {
-  it("fires while terrain rides on the tier and no worker route exists", () => {
-    // The failure it prevents is silent and total: production routes nothing at /terrain/, so a
-    // promoted visitor's every DEM tile 404s while the globe still renders — just flat. The
-    // object check cannot see it, because the terrain archive is not in the manifest at all.
+  it("checks BOTH halves — that the route exists and that the bytes do", () => {
+    // The failure it prevents is silent and total: a promoted visitor's every DEM tile 404s while
+    // the globe still renders, just flat. The object check cannot see it, because neither archive
+    // is in the manifest at all.
+    //
+    // Before step 3 this could only assert the first half, and said so: "an archive nothing routes
+    // at is worth nothing". The converse is now equally reachable and just as silent — a Worker
+    // that routes /terrain/ perfectly at an object nobody uploaded — so the guard has to know
+    // about the bucket too. That is the assertion that replaces the old source-only one.
     const script = readFileSync(new URL("../../scripts/check_deploy_sync.ts", import.meta.url), "utf8");
     expect(script).toContain("checkTerrainHasAnOrigin");
-    // It must key on the worker actually routing terrain, not on a bucket containing bytes:
-    // an archive nothing routes at is worth nothing.
-    expect(script).toMatch(/worker\.includes\("\/terrain\/"\)/);
+    expect(script, "the route half").toMatch(/worker\.includes\("parseTerrainTilePath"\)/);
+    expect(script, "the bytes half").toContain("ARCHIVE_BUCKET");
+    expect(script, "and it must name which key is missing").toContain("TERRAIN_ARCHIVE_KEY");
+  });
 
+  it("is satisfied by what step 3 actually landed, in every place it looks", () => {
+    // The state assertion this replaces was armed on purpose while nothing served terrain, and
+    // was written to flip here. It flips by becoming its own inverse: the same three files, now
+    // asserted to agree rather than to disagree.
+    const globe = readFileSync(new URL("../pages/globe.astro", import.meta.url), "utf8");
     const worker = readFileSync(new URL("../../worker/index.ts", import.meta.url), "utf8");
     const workerConfig = readFileSync(new URL("../../worker/wrangler.jsonc", import.meta.url), "utf8");
-    const servedToday = worker.includes("/terrain/") || workerConfig.includes("terrain.pmtiles");
-    const globe = readFileSync(new URL("../pages/globe.astro", import.meta.url), "utf8");
-    const ridesOnTier = /resolveTerrainExaggeration\([\s\S]{0,80}?currentTier\(\)\s*===\s*"full"/.test(globe);
 
-    // This is a STATE assertion, and it is expected to flip when step 3 lands: today terrain
-    // rides on the tier and nothing serves it, which is exactly when the guard must be armed.
-    expect(ridesOnTier, "step 4 has landed").toBe(true);
-    if (!servedToday) {
-      expect(ridesOnTier && !servedToday, "guard is armed and will block a deploy").toBe(true);
-    }
+    const ridesOnTier = /resolveTerrainExaggeration\([\s\S]{0,80}?currentTier\(\)\s*===\s*"full"/.test(globe);
+    expect(ridesOnTier, "terrain rides the full tier").toBe(true);
+    expect(worker, "the worker routes it").toContain("parseTerrainTilePath");
+    expect(workerConfig, "and names the object it reads").toMatch(/"TERRAIN_ARCHIVE_KEY"\s*:\s*"[^"]+\.pmtiles"/);
   });
 });

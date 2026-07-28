@@ -3,9 +3,12 @@
 // three. These tests pin the part that decides which reads are free — because the failure mode
 // is not a crash, it is a silent return to three reads that nothing would notice.
 
+import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import type { RangeResponse, Source } from "pmtiles";
-import { INDEX_PREFETCH_BYTES, PrefetchedIndexSource } from "./index";
+import { INDEX_PREFETCH_BYTES, PrefetchedIndexSource, resolveRoute } from "./index";
+import { TILE_CONTENT_TYPE } from "../src/lib/reliefTiles";
+import { TERRAIN_CONTENT_TYPE } from "../src/lib/terrainSource";
 
 const INDEX_ETAG = "etag-of-the-shipped-cut";
 
@@ -128,5 +131,123 @@ describe("INDEX_PREFETCH_BYTES", () => {
     const SHIPPED_INDEX_BYTES = 196_621;
     expect(INDEX_PREFETCH_BYTES).toBeGreaterThan(SHIPPED_INDEX_BYTES);
     expect(INDEX_PREFETCH_BYTES / SHIPPED_INDEX_BYTES).toBeGreaterThan(1.2);
+  });
+
+  it("covers the terrain cut too, which is a separate archive with its own index", () => {
+    // Measured at `pmtiles convert` on the z0-8 terrain build: root 110 B, 22 leaf dirs totalling
+    // 196,637 B. Nearly the same size as relief's, which is not a coincidence — both are 87,381
+    // addresses over the same grid — but it is a second archive and must be asserted, not assumed
+    // to inherit the first one's headroom.
+    const TERRAIN_INDEX_BYTES = 196_747;
+    expect(INDEX_PREFETCH_BYTES).toBeGreaterThan(TERRAIN_INDEX_BYTES);
+    expect(INDEX_PREFETCH_BYTES / TERRAIN_INDEX_BYTES).toBeGreaterThan(1.2);
+  });
+});
+
+// One bucket, two archives, and NOTHING in a tile URL distinguishes them except the prefix: both
+// pyramids are lossless WebP over z0-8 on the same tiling scheme. Getting this wrong does not
+// 404 — MapLibre would decode relief colour as terrarium elevation and displace the globe by
+// whatever those bytes happen to mean. So the router is tested for exclusivity, not just for
+// matching.
+describe("resolveRoute", () => {
+  const env = {
+    ARCHIVE: null as never,
+    ARCHIVE_KEY: "planet-v2.pmtiles",
+    TERRAIN_ARCHIVE_KEY: "terrain-v1.pmtiles",
+  };
+
+  it("sends a bare address to the relief archive", () => {
+    const route = resolveRoute("/8/189/107.webp", env);
+    expect(route?.tile).toEqual({ z: 8, x: 189, y: 107 });
+    expect(route?.archiveKey).toBe("planet-v2.pmtiles");
+    expect(route?.contentType).toBe(TILE_CONTENT_TYPE);
+  });
+
+  it("sends a prefixed address to the terrain archive", () => {
+    const route = resolveRoute("/terrain/8/189/107.webp", env);
+    expect(route?.tile).toEqual({ z: 8, x: 189, y: 107 });
+    expect(route?.archiveKey).toBe("terrain-v1.pmtiles");
+    expect(route?.contentType).toBe(TERRAIN_CONTENT_TYPE);
+  });
+
+  it("resolves the SAME tile address to two different archives, which is the whole risk", () => {
+    const relief = resolveRoute("/6/47/26.webp", env);
+    const terrain = resolveRoute("/terrain/6/47/26.webp", env);
+    expect(relief?.tile).toEqual(terrain?.tile);
+    expect(relief?.archiveKey).not.toBe(terrain?.archiveKey);
+  });
+
+  it("falls back to a default key per archive rather than reading the other one's", () => {
+    // An unset var must not resolve to the wrong archive. Distinct defaults are what make a
+    // missing TERRAIN_ARCHIVE_KEY a 404 rather than a globe displaced by relief colour.
+    const bare = { ARCHIVE: null as never };
+    const relief = resolveRoute("/0/0/0.webp", bare);
+    const terrain = resolveRoute("/terrain/0/0/0.webp", bare);
+    expect(relief?.archiveKey).toBe("planet.pmtiles");
+    expect(terrain?.archiveKey).toBe("terrain.pmtiles");
+    expect(relief?.archiveKey).not.toBe(terrain?.archiveKey);
+  });
+
+  it("refuses anything that is not a tile in either pyramid", () => {
+    for (const path of [
+      "/",
+      "/favicon.ico",
+      "/terrain",
+      "/terrain/",
+      "/terrain/bathy_s8_webp/8/189/107.webp", // the retired spike route's shape
+      "/8/189/107.png",
+      "/9/0/0.webp", // past both pyramids' depth
+      "/terrain/9/0/0.webp",
+      "/0/1/0.webp", // outside the 2^z grid
+    ]) {
+      expect(resolveRoute(path, env), path).toBeNull();
+    }
+  });
+
+  it("names the right constants when an archive's zoom range drifts", () => {
+    // The warning has to send someone to the file that is actually wrong; two archives means two
+    // sets of constants, and a message naming the relief ones for a terrain drift is a wild goose
+    // chase through the wrong module.
+    expect(resolveRoute("/0/0/0.webp", env)?.zoomConstants).toContain("reliefTiles.ts");
+    expect(resolveRoute("/terrain/0/0/0.webp", env)?.zoomConstants).toContain("terrainSource.ts");
+  });
+
+  it("carries each archive's OWN tile-type check, not one shared one", () => {
+    // Only the terrain message may talk about losslessness: a mislabelled relief tile is cosmetic
+    // (browsers content-sniff past it), while a lossy elevation tile decodes to wrong metres.
+    expect(resolveRoute("/terrain/0/0/0.webp", env)?.describeTileTypeMismatch(".png")).toMatch(
+      /LOSSLESS/,
+    );
+    expect(resolveRoute("/0/0/0.webp", env)?.describeTileTypeMismatch(".png")).not.toMatch(
+      /LOSSLESS/,
+    );
+    expect(resolveRoute("/0/0/0.webp", env)?.describeTileTypeMismatch(".webp")).toBeNull();
+    expect(resolveRoute("/terrain/0/0/0.webp", env)?.describeTileTypeMismatch(".webp")).toBeNull();
+  });
+});
+
+describe("per-archive isolate state", () => {
+  // Every one of these was a single value while there was one archive, and every one of them
+  // fails SILENTLY with two: a shared latch hides the second archive's warning, and a
+  // single-slot memo thrashes on every alternating request rather than erroring.
+  const source = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
+
+  it("holds each archive's in-flight index separately", () => {
+    expect(source).toContain("const indexInFlight = new Map<string, Promise<ArchiveIndex | null>>");
+    expect(source).not.toMatch(/let indexInFlight/);
+  });
+
+  it("latches both warnings per archive key, not per isolate", () => {
+    expect(source).toContain("const warnedTileTypeMismatch = new Set<string>()");
+    expect(source).toContain("const warnedIndexOutgrewPrefetch = new Set<string>()");
+  });
+
+  it("sizes the directory cache for both pyramids' leaves, not one's", () => {
+    // 22 leaf dirs + a header per archive. At the old 25 the two would evict each other on every
+    // alternating request — which costs a gunzip rather than an R2 read, so it would have shown
+    // up as nothing at all.
+    const capacity = /new ResolvedValueCache\((\d+),/.exec(source);
+    expect(capacity).not.toBeNull();
+    expect(Number(capacity?.[1])).toBeGreaterThanOrEqual(2 * (22 + 1));
   });
 });

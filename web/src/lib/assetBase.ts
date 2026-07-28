@@ -17,6 +17,7 @@
 // archive itself.
 
 import { TILE_PATH_TEMPLATE } from "./reliefTiles";
+import { TERRAIN_PATH_TEMPLATE } from "./terrainSource";
 
 /** Normalise a configured base to a directory prefix that can be concatenated safely.
  *  An empty or whitespace-only value counts as unset — a blank line in a deploy's env
@@ -39,3 +40,13 @@ export const TILE_BASE = resolveAssetBase(import.meta.env.PUBLIC_TILE_BASE, "/ti
 
 /** MapLibre raster-source template. The placeholders are MapLibre's, substituted per tile. */
 export const TILE_URL_TEMPLATE = `${TILE_BASE}${TILE_PATH_TEMPLATE}`;
+
+/** MapLibre raster-dem template for the Tier-3 elevation pyramid.
+ *
+ *  Derived from TILE_BASE rather than given a `PUBLIC_TERRAIN_BASE` of its own, because it is not
+ *  a fourth store: both archives sit in one R2 bucket behind one tile Worker, and
+ *  TERRAIN_PATH_TEMPLATE's own prefix is what tells that Worker which of the two a request is
+ *  for. A separate base would let the two halves of one server be addressed at different
+ *  hostnames — configuration for a deployment nobody intends. It also keeps
+ *  `build:deploy` at three variables, which the assetBase test asserts against the source. */
+export const TERRAIN_URL_TEMPLATE = `${TILE_BASE}${TERRAIN_PATH_TEMPLATE}`;

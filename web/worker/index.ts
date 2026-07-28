@@ -1,10 +1,16 @@
-// The relief tile server: one tile per request, ranged out of the PMTiles archive in R2.
+// The tile server: one tile per request, ranged out of a PMTiles archive in R2.
+//
+// TWO archives since Tier 3 step 3, in one bucket behind one router — `{z}/{x}/{y}.webp` is the
+// relief pyramid and `terrain/{z}/{x}/{y}.webp` the elevation one. Everything below the router is
+// archive-agnostic: the index prefetch, the directory cache and the ETag chain all key on the
+// archive key, so the second pyramid cost a route and some per-key bookkeeping, not a second
+// server.
 //
 // This is the production half of the pair whose dev half is the /tiles middleware in
-// astro.config.ts. Both answer the same contract — `{z}/{x}/{y}.webp`, parsed by the same
-// reliefTiles.ts — and differ only in where the bytes come from: a local file there, an R2
-// binding here. The browser never opens the archive itself, because Workers Caching strips
-// `Range` and would ask for the full 16 GB body (→ HISTORY § the deploy target moves to R2).
+// astro.config.ts. Both answer the same contract — parsed by the same reliefTiles.ts and
+// terrainSource.ts — and differ only in where the bytes come from: a local file there, an R2
+// binding here. The browser never opens an archive itself, because Workers Caching strips
+// `Range` and would ask for the full multi-GB body (→ HISTORY § the deploy target moves to R2).
 //
 // Written rather than adopted from protomaps/PMTiles `serverless/cloudflare`, which is
 // `"private": true` and unpublished — adopting it means vendoring a fork of two files, not
@@ -22,13 +28,31 @@ import {
   bytesToHeader,
   tileTypeExt,
 } from "pmtiles";
-import { TILE_CONTENT_TYPE, describeTileTypeMismatch, parseTilePath } from "../src/lib/reliefTiles";
+import {
+  RELIEF_MAX_ZOOM,
+  RELIEF_MIN_ZOOM,
+  TILE_CONTENT_TYPE,
+  type TileCoordinate,
+  describeTileTypeMismatch,
+  parseTilePath,
+} from "../src/lib/reliefTiles";
+import {
+  TERRAIN_CONTENT_TYPE,
+  TERRAIN_MAX_ZOOM,
+  TERRAIN_MIN_ZOOM,
+  describeTerrainTileTypeMismatch,
+  parseTerrainTilePath,
+} from "../src/lib/terrainSource";
 
 interface Env {
-  /** R2 binding for the bucket holding the archive (bucket `terrella-tiles`). */
+  /** R2 binding for the bucket holding BOTH archives (bucket `terrella-tiles`). One binding, two
+   *  keys: the archives differ by object, not by bucket, so a second binding would buy nothing
+   *  and add a second place for the bucket name to drift. */
   ARCHIVE: R2Bucket;
-  /** Object key of the archive within that bucket. */
+  /** Object key of the relief archive within that bucket. */
   ARCHIVE_KEY?: string;
+  /** Object key of the terrain-RGB archive within that bucket. */
+  TERRAIN_ARCHIVE_KEY?: string;
   /** Origin allowed to read tiles — the site's own hostname. MapLibre uploads tiles as WebGL
    *  textures, so a cross-origin tile without CORS taints the canvas and never draws. */
   ALLOWED_ORIGIN?: string;
@@ -37,6 +61,7 @@ interface Env {
 }
 
 const DEFAULT_ARCHIVE_KEY = "planet.pmtiles";
+const DEFAULT_TERRAIN_ARCHIVE_KEY = "terrain.pmtiles";
 
 /** The pyramid is immutable for the life of a cut — the globe already sets
  *  `refreshExpiredTiles: false` on the same reasoning. A re-cut therefore requires purging the
@@ -46,12 +71,24 @@ const DEFAULT_CACHE_CONTROL = "public, max-age=31536000, immutable";
 /** Directory pages resolved by one request, reused by the next request this isolate serves.
  *  Without it every tile re-reads the root directory and a leaf from R2 before it can find its
  *  own bytes — three round trips per tile instead of one. Module scope is the point: the cache
- *  outlives the request. */
-const DIRECTORY_CACHE = new ResolvedValueCache(25, undefined, nativeDecompress);
+ *  outlives the request.
+ *
+ *  Shared across both archives, which is safe because the library keys entries by
+ *  `source.getKey()` (the archive key) plus the ETag, offset and length — so the two pyramids
+ *  namespace themselves and cannot serve each other's directories.
+ *
+ *  50, raised from 25 when terrain shipped. 25 was sized for exactly one archive: each cut has
+ *  **22 leaf directories** plus its header, so one fits with two entries to spare and two do not
+ *  fit at all. Left at 25 the two would evict each other on every alternating request — which
+ *  costs a gunzip and a deserialize rather than an R2 read (PrefetchedIndexSource already holds
+ *  the bytes), so it would have shown up as nothing but a slightly slower Worker. */
+const DIRECTORY_CACHE = new ResolvedValueCache(50, undefined, nativeDecompress);
 
-/** Latched so a TILE_EXTENSION/archive disagreement logs once per isolate rather than once per
- *  tile — a global mismatch shouted 40,000 times buries every other line in the log. */
-let warnedTileTypeMismatch = false;
+/** Archive keys whose tile-type disagreement has already been logged — latched so a mismatch
+ *  says so once per isolate rather than once per tile, since a global mismatch shouted 40,000
+ *  times buries every other line in the log. Keyed rather than a boolean because a mismatch on
+ *  the relief archive must not silence one on terrain, where the consequence is worse. */
+const warnedTileTypeMismatch = new Set<string>();
 
 /** How much of the archive's front to pull in one read so that EVERY directory lookup is served
  *  from memory instead of from R2.
@@ -72,18 +109,18 @@ let warnedTileTypeMismatch = false;
  *  turns "silently degraded" into a log line if a future cut ever exceeds it. */
 export const INDEX_PREFETCH_BYTES = 262_144;
 
-/** Latched per isolate; see INDEX_PREFETCH_BYTES. */
-let warnedIndexOutgrewPrefetch = false;
+/** Latched per isolate, per archive; see INDEX_PREFETCH_BYTES. */
+const warnedIndexOutgrewPrefetch = new Set<string>();
 
 /** Read the archive's own `tileDataOffset` out of the bytes we already hold and complain if the
  *  index no longer fits. Costs one header parse per isolate and nothing per request — the point is
  *  that the failure mode it guards is invisible: everything keeps WORKING, just three reads deep
  *  again, which looks exactly like the problem this constant was introduced to fix. */
 function warnIfIndexOutgrewPrefetch(index: ArrayBuffer, archiveKey: string): void {
-  if (warnedIndexOutgrewPrefetch || index.byteLength < 127) return;
+  if (warnedIndexOutgrewPrefetch.has(archiveKey) || index.byteLength < 127) return;
   const tileDataOffset = bytesToHeader(index.slice(0, 127)).tileDataOffset;
   if (tileDataOffset > index.byteLength) {
-    warnedIndexOutgrewPrefetch = true;
+    warnedIndexOutgrewPrefetch.add(archiveKey);
     console.warn(
       `${archiveKey}: index is ${tileDataOffset} B but INDEX_PREFETCH_BYTES is ` +
         `${INDEX_PREFETCH_BYTES} — leaf reads are falling through to R2 again. Raise it in ` +
@@ -262,11 +299,17 @@ function tagCache(response: Response, state: "hit" | "miss"): Response {
   return new Response(response.body, { status: response.status, headers });
 }
 
-/** In-isolate hold on the index, so a burst of tiles shares ONE fetch instead of racing to do the
- *  same work. A promise rather than a value: the second tile through arrives while the first is
- *  still awaiting R2, and awaiting the same promise is what makes it free rather than duplicated.
- *  Keyed by archive key, so the re-cut convention (a new key per cut) retires it automatically. */
-let indexInFlight: { key: string; index: Promise<ArchiveIndex | null> } | null = null;
+/** In-isolate hold on each archive's index, so a burst of tiles shares ONE fetch instead of racing
+ *  to do the same work. A promise rather than a value: the second tile through arrives while the
+ *  first is still awaiting R2, and awaiting the same promise is what makes it free rather than
+ *  duplicated. Keyed by archive key, so the re-cut convention (a new key per cut) retires an entry
+ *  automatically.
+ *
+ *  A MAP rather than the single slot this was before terrain shipped. Terrain and relief tiles
+ *  arrive interleaved for the whole of a Tier-3 session, so one slot would have been re-keyed on
+ *  practically every request — re-fetching 256 KiB from R2 each time, i.e. the exact cost this
+ *  hold exists to remove, while still looking like it was working. */
+const indexInFlight = new Map<string, Promise<ArchiveIndex | null>>();
 
 /** The index's cache entry lives on this Worker's own hostname under a path `parseTilePath`
  *  rejects, so it can never be reached from outside — a request for it 404s at the router above,
@@ -290,7 +333,8 @@ async function loadArchiveIndex(
   ctx: ExecutionContext,
   request: Request,
 ): Promise<ArchiveIndex | null> {
-  if (indexInFlight?.key === archiveKey) return indexInFlight.index;
+  const held = indexInFlight.get(archiveKey);
+  if (held) return held;
 
   const index = (async (): Promise<ArchiveIndex | null> => {
     const cacheUrl = indexCacheUrl(request, archiveKey);
@@ -322,12 +366,12 @@ async function loadArchiveIndex(
   })().catch((error: unknown) => {
     // An isolate must not be left holding a rejected promise forever — the next request would
     // inherit this failure instead of retrying. Clear the hold, then let the caller degrade.
-    if (indexInFlight?.key === archiveKey) indexInFlight = null;
+    indexInFlight.delete(archiveKey);
     if (error instanceof ArchiveNotFound) throw error;
     return null;
   });
 
-  indexInFlight = { key: archiveKey, index };
+  indexInFlight.set(archiveKey, index);
   return index;
 }
 
@@ -356,6 +400,52 @@ function withCrossOriginHeaders(
   return new Response(response.body, { status: response.status, headers });
 }
 
+/** One resolved request: which tile, out of which archive, labelled and decoded how. */
+interface TileRoute {
+  tile: TileCoordinate;
+  archiveKey: string;
+  contentType: string;
+  /** Names the constants a zoom disagreement should send someone to. */
+  zoomConstants: string;
+  describeTileTypeMismatch: (archiveExtension: string) => string | null;
+}
+
+/**
+ * Decide which pyramid a path addresses, or null if it addresses neither.
+ *
+ * THE PREFIX IS THE WHOLE DISCRIMINATOR AND IT HAS TO BE. Both archives are lossless WebP over
+ * z0-8 on the same tiling scheme, so `/8/189/107.webp` is a valid address in both — there is
+ * nothing else in a tile URL left to tell them apart. Serving the wrong one is not a visible
+ * failure either: MapLibre would decode relief colour as terrarium elevation and displace the
+ * globe by whatever those bytes happen to mean.
+ *
+ * The two parsers cannot both match, in either direction: `parseTilePath` requires the first
+ * segment to be a zoom, and `parseTerrainTilePath` requires the literal prefix.
+ */
+export function resolveRoute(pathname: string, env: Env): TileRoute | null {
+  const relief = parseTilePath(pathname);
+  if (relief) {
+    return {
+      tile: relief,
+      archiveKey: env.ARCHIVE_KEY ?? DEFAULT_ARCHIVE_KEY,
+      contentType: TILE_CONTENT_TYPE,
+      zoomConstants: `RELIEF_MIN_ZOOM/RELIEF_MAX_ZOOM (z${RELIEF_MIN_ZOOM}-z${RELIEF_MAX_ZOOM}) in web/src/lib/reliefTiles.ts`,
+      describeTileTypeMismatch,
+    };
+  }
+  const terrain = parseTerrainTilePath(pathname);
+  if (terrain) {
+    return {
+      tile: terrain,
+      archiveKey: env.TERRAIN_ARCHIVE_KEY ?? DEFAULT_TERRAIN_ARCHIVE_KEY,
+      contentType: TERRAIN_CONTENT_TYPE,
+      zoomConstants: `TERRAIN_MIN_ZOOM/TERRAIN_MAX_ZOOM (z${TERRAIN_MIN_ZOOM}-z${TERRAIN_MAX_ZOOM}) in web/src/lib/terrainSource.ts`,
+      describeTileTypeMismatch: describeTerrainTileTypeMismatch,
+    };
+  }
+  return null;
+}
+
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const requestOrigin = request.headers.get("Origin");
@@ -376,10 +466,11 @@ export default {
     // means a future re-cut can ship under a NEW base URL instead of purging the cache — and
     // purge is zone-wide, so on a shared zone it would evict everything else on alchez.dev too.
     // Tolerating it now costs one regex; retrofitting it later costs a purge.
-    const tile = parseTilePath(new URL(request.url).pathname.replace(/^\/v\d+\//, "/"));
-    if (!tile) {
+    const route = resolveRoute(new URL(request.url).pathname.replace(/^\/v\d+\//, "/"), env);
+    if (!route) {
       return respond(new Response("Not a tile path", { status: 404 }));
     }
+    const { tile, archiveKey } = route;
 
     const cache = caches.default;
     const cacheLookupStartedAt = Date.now();
@@ -389,7 +480,6 @@ export default {
     // says nothing about a Cache API hit inside the Worker — the thing we actually want to see.
     if (hit) return respond(tagCache(hit, "hit"));
 
-    const archiveKey = env.ARCHIVE_KEY ?? DEFAULT_ARCHIVE_KEY;
     const r2Source = new R2ArchiveSource(env.ARCHIVE, archiveKey, timing);
 
     // The index is fetched whole, once, and then reused three ways: within this request, across
@@ -424,7 +514,7 @@ export default {
       if (tile.z < header.minZoom || tile.z > header.maxZoom) {
         console.warn(
           `z${tile.z} requested but ${archiveKey} covers z${header.minZoom}-z${header.maxZoom} — ` +
-            `RELIEF_MIN_ZOOM/RELIEF_MAX_ZOOM in web/src/lib/reliefTiles.ts are stale`,
+            `${route.zoomConstants} is stale`,
         );
         return store(null, 404);
       }
@@ -433,20 +523,20 @@ export default {
       // bytes here are servable — only the label is wrong, and browsers content-sniff past it.
       // 404ing the planet over a mislabel would be a self-inflicted outage; the dev server's
       // throw is where this is meant to be caught, and this is the net under it.
-      if (!warnedTileTypeMismatch) {
-        const mismatch = describeTileTypeMismatch(tileTypeExt(header.tileType));
+      if (!warnedTileTypeMismatch.has(archiveKey)) {
+        const mismatch = route.describeTileTypeMismatch(tileTypeExt(header.tileType));
         if (mismatch) {
-          warnedTileTypeMismatch = true;
+          warnedTileTypeMismatch.add(archiveKey);
           console.warn(`${archiveKey}: ${mismatch}`);
         }
       }
 
       const entry = await archive.getZxy(tile.z, tile.x, tile.y);
-      // The pyramid is complete (87,381 addresses, z0-z8), so a miss means the packaging is
-      // wrong, not that the region is empty. 404 rather than an empty 200, so it is visible.
+      // Both pyramids are complete (87,381 addresses each, z0-z8), so a miss means the packaging
+      // is wrong, not that the region is empty. 404 rather than an empty 200, so it is visible.
       if (!entry) return store(null, 404);
 
-      return store(entry.data, 200, TILE_CONTENT_TYPE);
+      return store(entry.data, 200, route.contentType);
     } catch (error) {
       if (error instanceof ArchiveNotFound) {
         console.error(`${archiveKey} missing from the bound bucket`);

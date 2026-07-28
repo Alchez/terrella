@@ -11,6 +11,12 @@ import {
   describeTileTypeMismatch,
   parseTilePath,
 } from './src/lib/reliefTiles';
+import {
+  TERRAIN_CONTENT_TYPE,
+  assertTerrainZoomRange,
+  describeTerrainTileTypeMismatch,
+  parseTerrainTilePath,
+} from './src/lib/terrainSource';
 
 // Asset store locations. DEV-ONLY: the dev server serves /heroes, /borders and /tiles
 // out of these external directories (R2 does it in production; the
@@ -24,6 +30,12 @@ const env = loadEnv(process.env.NODE_ENV || 'development', process.cwd(), '');
 const HERO_STORE = env.HERO_STORE;
 const BORDERS_STORE = env.BORDERS_STORE;
 const PMTILES_STORE = env.PMTILES_STORE;
+// A fourth store rather than a second file inside PMTILES_STORE: the two archives are products
+// of two different pipeline outputs (data/work/planet_tiles and data/work/planet_terrain), and
+// pointing one var at both would mean the packer had to write terrain.pmtiles somewhere other
+// than beside the pyramid it packed. In production they are two keys in one bucket, which is a
+// property of the deploy and not of this disk.
+const TERRAIN_PMTILES_STORE = env.TERRAIN_PMTILES_STORE;
 
 // Resolve a required asset-store path, or 500 the request with actionable guidance.
 // Checked PER-REQUEST (not when the middleware is registered) so a missing var only
@@ -88,18 +100,31 @@ function bordersDevServer(): Plugin {
   };
 }
 
-// The packaged pyramid, as the pipeline names it inside PMTILES_STORE.
+// The packaged pyramids, as the pipeline names them inside their stores.
 const ARCHIVE_NAME = 'planet.pmtiles';
+const TERRAIN_ARCHIVE_NAME = 'terrain.pmtiles';
 
-// One open archive per dev-server process. Opening means an fs handle plus a header read,
-// and PMTiles caches the directory pages it decodes, so re-opening per request would throw
-// that cache away and re-read the root directory on every tile. Memoised by path, and the
-// memo is dropped on failure so a fixed .env or a re-packaged archive recovers without a
-// restart. Read positions are explicit, so concurrent tile requests share the handle safely.
-let openedArchive: { archivePath: string; archive: Promise<PMTiles> } | null = null;
+// One open archive per path per dev-server process. Opening means an fs handle plus a header
+// read, and PMTiles caches the directory pages it decodes, so re-opening per request would throw
+// that cache away and re-read the root directory on every tile. An entry is dropped on failure so
+// a fixed .env or a re-packaged archive recovers without a restart. Read positions are explicit,
+// so concurrent tile requests share the handle safely.
+//
+// A MAP rather than the single slot this was until terrain shipped: with two archives alternating
+// — every terrain tile arrives interleaved with colour ones — a one-entry memo evicts on every
+// request, which is worse than no memo at all (an fs open plus a header read per tile) and would
+// have looked like nothing but slowness.
+const openedArchives = new Map<string, Promise<PMTiles>>();
 
-function openArchive(archivePath: string): Promise<PMTiles> {
-  if (openedArchive?.archivePath === archivePath) return openedArchive.archive;
+/** `validateHeader` is per archive rather than baked in, because the two contracts are the thing
+ *  that must NOT be shared — each pyramid has its own zoom range and its own encoding rule, and a
+ *  check that accepted either would accept the wrong archive under the wrong route. */
+function openArchive(
+  archivePath: string,
+  validateHeader: (header: { minZoom: number; maxZoom: number; tileType: number }) => void,
+): Promise<PMTiles> {
+  const already = openedArchives.get(archivePath);
+  if (already) return already;
   const archive = (async () => {
     const handle = await fs.promises.open(archivePath, 'r');
     // Stand-in for an HTTP ETag: mtime+size changes whenever the archive is re-packed. PMTiles
@@ -127,98 +152,116 @@ function openArchive(archivePath: string): Promise<PMTiles> {
       },
     };
     const opened = new PMTiles(source);
-    const header = await opened.getHeader();
     // The globe states the zoom range and the tile encoding as constants so it can request tile
-    // z0 without first learning them over the network. These are the checks that keep both
-    // copies honest. A dev server should refuse to start on drift.
-    assertZoomRange(header.minZoom, header.maxZoom);
-    const tileTypeMismatch = describeTileTypeMismatch(tileTypeExt(header.tileType));
-    if (tileTypeMismatch) throw new Error(tileTypeMismatch);
+    // z0 without first learning them over the network. This is the check that keeps both copies
+    // honest. A dev server should refuse to start on drift.
+    validateHeader(await opened.getHeader());
     return opened;
   })().catch((error: unknown) => {
-    openedArchive = null;
+    openedArchives.delete(archivePath);
     throw error;
   });
-  openedArchive = { archivePath, archive };
+  openedArchives.set(archivePath, archive);
   return archive;
 }
 
-// Dev-only: answer /tiles/{z}/{x}/{y}.webp out of the packaged PMTiles archive. This is the
-// local twin of the production tile Worker, and it exists for the same reason the Worker
-// does — the archive is multi-GB, so the browser must never address it directly and must never
-// send a Range header (→ HISTORY § the deploy target moves to R2). The ranging happens here,
-// against a local file; in production it happens inside a Worker, against an R2 object.
+/** Header check for the relief pyramid. */
+function validateReliefHeader(header: { minZoom: number; maxZoom: number; tileType: number }) {
+  assertZoomRange(header.minZoom, header.maxZoom);
+  const mismatch = describeTileTypeMismatch(tileTypeExt(header.tileType));
+  if (mismatch) throw new Error(mismatch);
+}
+
+/** Header check for the elevation pyramid. */
+function validateTerrainHeader(header: { minZoom: number; maxZoom: number; tileType: number }) {
+  assertTerrainZoomRange(header.minZoom, header.maxZoom);
+  const mismatch = describeTerrainTileTypeMismatch(tileTypeExt(header.tileType));
+  if (mismatch) throw new Error(mismatch);
+}
+
+/** What one parsed request resolved to: which archive, and where in it. */
+interface ResolvedTileRoute {
+  tile: { z: number; x: number; y: number };
+  storeName: string;
+  store: string | undefined;
+  archiveName: string;
+  contentType: string;
+  validateHeader: (header: { minZoom: number; maxZoom: number; tileType: number }) => void;
+}
+
+// Dev-only: answer /tiles/{z}/{x}/{y}.webp and /tiles/terrain/{z}/{x}/{y}.webp out of the two
+// packaged PMTiles archives. This is the local twin of the production tile Worker, and it exists
+// for the same reason the Worker does — the archives are GB-scale, so the browser must never
+// address one directly and must never send a Range header (→ HISTORY § the deploy target moves
+// to R2). The ranging happens here against a local file; in production it happens inside a
+// Worker against an R2 object.
+//
+// ONE middleware over both, dispatching exactly the way the Worker does, because the two servers
+// answering the same contract differently is the failure this arrangement exists to prevent. It
+// falls out of the base URLs rather than being arranged: TERRAIN_URL_TEMPLATE is TILE_BASE plus
+// the `terrain/` prefix, so in dev (`TILE_BASE = /tiles/`) the mount strips `/tiles` and this
+// sees precisely the path the Worker sees at the root of its own hostname.
+//
+// Order matters and is safe in both directions: `parseTilePath` requires the FIRST segment to be
+// a zoom, so it can never match a `/terrain/...` path, and `parseTerrainTilePath` requires the
+// literal prefix, so it can never match a bare one. Neither is a prefix of the other.
 function tilesDevServer(): Plugin {
   return {
     name: 'tiles-dev-server',
     configureServer(server) {
       server.middlewares.use('/tiles', (req, res, next) => {
-        const store = resolveStore('PMTILES_STORE', PMTILES_STORE, res);
+        const requested = decodeURIComponent((req.url || '').split('?')[0]);
+        const relief = parseTilePath(requested);
+        const terrain = relief ? null : parseTerrainTilePath(requested);
+        if (!relief && !terrain) return next();
+        const route: ResolvedTileRoute = relief
+          ? {
+              tile: relief,
+              storeName: 'PMTILES_STORE',
+              store: PMTILES_STORE,
+              archiveName: ARCHIVE_NAME,
+              contentType: TILE_CONTENT_TYPE,
+              validateHeader: validateReliefHeader,
+            }
+          : {
+              tile: terrain!,
+              storeName: 'TERRAIN_PMTILES_STORE',
+              store: TERRAIN_PMTILES_STORE,
+              archiveName: TERRAIN_ARCHIVE_NAME,
+              contentType: TERRAIN_CONTENT_TYPE,
+              validateHeader: validateTerrainHeader,
+            };
+        const store = resolveStore(route.storeName, route.store, res);
         if (!store) return;
-        const tile = parseTilePath(decodeURIComponent((req.url || '').split('?')[0]));
-        if (!tile) return next();
+        const { tile } = route;
         void (async () => {
           try {
-            const archive = await openArchive(path.resolve(store, ARCHIVE_NAME));
+            const archive = await openArchive(
+              path.resolve(store, route.archiveName),
+              route.validateHeader,
+            );
             const entry = await archive.getZxy(tile.z, tile.x, tile.y);
             if (!entry) {
-              // The pyramid is complete (87,381 tiles = every address from z0 to z8), so a
-              // miss is a bug in the packaging, not an empty region. Say so rather than
+              // Both pyramids are COMPLETE (87,381 tiles each = every address from z0 to z8), so
+              // a miss is a bug in the packaging, not an empty region. Say so rather than
               // rendering a silent hole.
               res.statusCode = 404;
               res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-              res.end(`No tile ${tile.z}/${tile.x}/${tile.y} in ${ARCHIVE_NAME}`);
+              res.end(`No tile ${tile.z}/${tile.x}/${tile.y} in ${route.archiveName}`);
               return;
             }
-            res.setHeader('Content-Type', TILE_CONTENT_TYPE);
+            res.setHeader('Content-Type', route.contentType);
             res.setHeader('Cache-Control', 'no-cache');
             res.end(Buffer.from(entry.data));
           } catch (error) {
             res.statusCode = 500;
             res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-            res.end(`Tile ${tile.z}/${tile.x}/${tile.y} failed: ${(error as Error).message}`);
+            res.end(
+              `Tile ${tile.z}/${tile.x}/${tile.y} from ${route.archiveName} failed: ` +
+                `${(error as Error).message}`,
+            );
           }
         })();
-      });
-    },
-  };
-}
-
-// SPIKE, DELETE WITH STEP 3. Dev-only: serve the Step-0 terrain-RGB look spike from LOOSE tiles
-// on disk (data/work/planet_terrain/<variant>/tiles/{z}/{x}/{y}.png), so the aesthetic question
-// can be answered before any PMTiles packaging, Worker binding or R2 upload exists. When terrain
-// graduates it moves into tilesDevServer's archive path beside the relief pyramid and this whole
-// function goes — prose calling a path retired does not disarm a runnable entry point.
-//
-// The store is derived from PMTILES_STORE's sibling rather than given its own .env var, precisely
-// because it is temporary; the 404 below names the resolved path so a wrong guess says so.
-function terrainSpikeDevServer(): Plugin {
-  return {
-    name: 'terrain-spike-dev-server',
-    configureServer(server) {
-      server.middlewares.use('/terrain', (req, res, next) => {
-        const store = resolveStore('PMTILES_STORE', PMTILES_STORE, res);
-        if (!store) return;
-        const requested = decodeURIComponent((req.url || '').split('?')[0]);
-        // Variant is a bare directory name under planet_terrain — clamp, bathy, or a build like
-        // bathy_s8_webp. Restricted to [a-z0-9_] and re-checked against the resolved root below,
-        // so it cannot climb out of the store. Both extensions are LOSSLESS codecs of the same
-        // elevation bytes; the extension is part of the URL because it selects a directory too.
-        const match = /^\/([a-z0-9_]{1,24})\/(\d{1,2})\/(\d{1,4})\/(\d{1,4})\.(png|webp)$/.exec(
-          requested,
-        );
-        if (!match) return next();
-        const root = path.resolve(store, '..', 'planet_terrain', match[1], 'tiles');
-        const file = path.resolve(root, match[2], match[3], `${match[4]}.${match[5]}`);
-        if (!file.startsWith(root) || !fs.existsSync(file)) {
-          res.statusCode = 404;
-          res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-          res.end(`No terrain tile at ${file} — has the spike build finished?`);
-          return;
-        }
-        res.setHeader('Content-Type', `image/${match[5]}`);
-        res.setHeader('Cache-Control', 'no-cache');
-        res.end(fs.readFileSync(file));
       });
     },
   };
@@ -243,7 +286,6 @@ export default defineConfig({
       heroDevServer(),
       bordersDevServer(),
       tilesDevServer(),
-      terrainSpikeDevServer(),
     ],
   },
 });

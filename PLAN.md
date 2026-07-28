@@ -238,9 +238,12 @@ Standing diagnostic flags: `?perf` (long-task overlay) · `?bare` (tiles-only) �
 
 The Tier-3 *gate* already ships (capability probe + Lite/Globe/Full toggle, Phase 3); this phase builds what the gate reveals. The three data items below share one input product and get decided together.
 
-- [ ] Terrain-RGB elevation pyramid — its own PMTiles archive, served by the tile Worker as a second source
-  - The browser-side `pmtiles://` shortcut is no longer available (2026-07-25) → HISTORY § the web seam lands
-- [ ] Crispness = a supersampled re-fuse (transient bands, never a stored ~496 GB product); shares the fine re-fuse input with terrain-RGB → HISTORY § 2026-07-20 (evening)
+- [x] **Terrain-RGB elevation pyramid — BUILT AND SERVED 2026-07-28.** `terrain.pmtiles` (2.63 GB, z0–8, 8 m, lossless WebP), second key in `terrella-tiles`, routed by the tile Worker under a `terrain/` prefix → HISTORY § terrain gets an archive, a prefix, and four fewer flags
+  - **The prefix is load-bearing**: both pyramids are WebP over z0–8, so nothing else in a tile URL tells them apart, and the wrong one displaces the globe rather than 404ing
+  - Retired with it: `?dem`/`?quant`/`?demfmt`/`?demdepth` (they named build directories) and the spike dev route
+  - **Remaining: the R2 upload + both deploys** — the preflight refuses until `terrain-v1.pmtiles` is in the bucket
+- [ ] Crispness = a supersampled re-fuse (transient bands, never a stored ~496 GB product) → HISTORY § 2026-07-20 (evening)
+  - The old "shares the fine re-fuse input with terrain-RGB" claim was **stale and is deleted**: terrain-RGB reads `height_3857.tif`, which already exists, so it never waited on a re-fuse
 - [ ] **Occlusion `cos(lat)` fix — PROVEN, rides the first full tile restage** → HISTORY § 2026-07-20 (evening) · § 2026-07-22 Antarctica FILL
   - Under-occluded 1.22× @35°N, 2.00× @60°N, 3.86× @75°N
   - Fix = per-row ground scale (the hillshade z-factor trick); record occlusion res in freshness

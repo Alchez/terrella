@@ -1,19 +1,24 @@
 /** The terrain-RGB contract — a `raster-dem` source over an elevation pyramid, for Tier 3.
  *
  *  Sibling of reliefTiles.ts rather than a generalisation of it. The two pyramids share a tiling
- *  scheme and nothing else: one is colour, one is elevation; one is WebP, one is PNG; and they are
- *  independent MapLibre sources with their own `maxzoom`, so terrain need not track the colour
- *  pyramid's depth. Folding them into one parameterised module would put a "which archive am I"
- *  branch in the single file whose job is to have no branches.
+ *  scheme and a codec and nothing else: one is colour and one is elevation, they are independent
+ *  MapLibre sources with their own `maxzoom`, and only one of them may ever be resampled.
+ *  Folding them into one parameterised module would put a "which archive am I" branch in the
+ *  single file whose job is to have no branches.
  *
  *  Like reliefTiles.ts this is dependency-free and free of `import.meta.env`, because it is
- *  imported from the browser, the Astro dev server (plain Node, before Vite env exists) and
- *  eventually the tile Worker.
+ *  imported from the browser, the Astro dev server (plain Node, before Vite env exists) and the
+ *  tile Worker.
  *
  *  ENCODING. The pipeline writes Mapzen terrarium with the blue channel zeroed, so elevation is
  *  `R*256 + G - 32768` metres — see pipeline/tile/terrain_rgb.py, which is the source of truth
  *  for the numbers below and carries the reasoning for zeroing blue.
  */
+
+// Type-only, and erased at run time. The alternative was a second name for one concept — a
+// `TerrainTileCoordinate` identical to `TileCoordinate` — which costs more than the import:
+// two names for one thing is how a fake distinction gets invented later.
+import type { TileCoordinate } from "./reliefTiles";
 
 /** MapLibre source id, owned here for the same reason COUNTRIES_SOURCE is owned by
  *  countryHighlight.ts — the module that defines a source names it. */
@@ -31,8 +36,20 @@ export const TERRAIN_SOURCE = "terrain-dem";
 export const TERRAIN_TILE_EXTENSION = "webp";
 export const TERRAIN_CONTENT_TYPE = "image/webp";
 
+/** The path segment that tells the tile server which archive a request is for.
+ *
+ *  NOT decoration, and NOT what the Tier-3 plan assumed. That plan said terrain needed no prefix
+ *  because "the `.png`/`.webp` extension is already the discriminator" — true when terrain was
+ *  PNG. Step 0d then ratified lossless WebP for terrain (0.67x the bytes, byte-exact), so the two
+ *  pyramids now agree on extension AND on zoom range: `/8/189/107.webp` is a valid address in
+ *  both. Nothing in the URL distinguishes colour from elevation any more, so the prefix has to.
+ *
+ *  Served under the relief tile base rather than its own hostname — one Worker, one bucket, two
+ *  object keys — so this costs no new deploy variable and no second custom domain. */
+export const TERRAIN_PATH_PREFIX = "terrain";
+
 /** Path portion of a terrain tile URL, with MapLibre's placeholders. */
-export const TERRAIN_PATH_TEMPLATE = `{z}/{x}/{y}.${TERRAIN_TILE_EXTENSION}`;
+export const TERRAIN_PATH_TEMPLATE = `${TERRAIN_PATH_PREFIX}/{z}/{x}/{y}.${TERRAIN_TILE_EXTENSION}`;
 
 export const TERRAIN_MIN_ZOOM = 0;
 
@@ -64,6 +81,63 @@ export const TERRAIN_MIN_ZOOM = 0;
  *  suggests, which is worth knowing before anyone cuts a z9 that could never load.
  *  → HISTORY § the seam tearing is MapLibre's own documented cross-zoom limitation */
 export const TERRAIN_MAX_ZOOM = 8;
+
+/** Built from the prefix and the extension rather than spelled out, so the path we ASK for and
+ *  the path we ACCEPT cannot drift apart. */
+const TERRAIN_PATH_PATTERN = new RegExp(
+  String.raw`^\/?${TERRAIN_PATH_PREFIX}\/(\d{1,2})\/(\d{1,7})\/(\d{1,7})\.${TERRAIN_TILE_EXTENSION}$`,
+);
+
+/** Parse `/terrain/8/189/107.webp` (leading slash optional) into a tile address, or null if the
+ *  path is not a terrain tile request at all.
+ *
+ *  Deliberately the same shape as `parseTilePath`, including the out-of-grid rejection: a tile
+ *  server should 404 a typo'd URL rather than range-read a 2.6 GB archive for it. The one thing
+ *  that must NOT be shared is the acceptance set — a path this returns non-null for is one
+ *  `parseTilePath` must reject, and vice versa, or the router would serve elevation as colour. */
+export function parseTerrainTilePath(pathname: string): TileCoordinate | null {
+  const match = TERRAIN_PATH_PATTERN.exec(pathname);
+  if (!match) return null;
+  const z = Number(match[1]);
+  const x = Number(match[2]);
+  const y = Number(match[3]);
+  if (z < TERRAIN_MIN_ZOOM || z > TERRAIN_MAX_ZOOM) return null;
+  const gridSize = 2 ** z;
+  if (x >= gridSize || y >= gridSize) return null;
+  return { z, x, y };
+}
+
+/** Describe a TERRAIN_TILE_EXTENSION/archive disagreement, or null when they match.
+ *
+ *  Worth more here than its relief twin, because for elevation a codec swap is not cosmetic: a
+ *  browser will content-sniff a mislabelled PNG and decode it fine, but a LOSSY re-encode decodes
+ *  to plausible bytes and therefore to wrong metres, with no blur to notice. */
+export function describeTerrainTileTypeMismatch(archiveExtension: string): string | null {
+  if (archiveExtension === `.${TERRAIN_TILE_EXTENSION}`) return null;
+  const declared = archiveExtension || "an encoding this pmtiles build cannot name";
+  return (
+    `Terrain archive stores ${declared} tiles, but the globe requests ` +
+    `.${TERRAIN_TILE_EXTENSION}. Update TERRAIN_TILE_EXTENSION in src/lib/terrainSource.ts to ` +
+    `match the re-cut pyramid (its source of truth is TERRAIN_TILE_EXTENSION in ` +
+    `pipeline/tile/terrain_rgb.py). Elevation tiles must stay LOSSLESS.`
+  );
+}
+
+/** Fail loudly when the terrain archive stops matching the constants above.
+ *
+ *  The failure this catches is silent in BOTH directions and neither shows up as an error: an
+ *  archive shallower than TERRAIN_MAX_ZOOM 404s every tile past its depth while the globe still
+ *  renders flat there, and a deeper one is simply never requested — which looks exactly like the
+ *  extra levels having no visual effect. */
+export function assertTerrainZoomRange(archiveMinZoom: number, archiveMaxZoom: number): void {
+  if (archiveMinZoom !== TERRAIN_MIN_ZOOM || archiveMaxZoom !== TERRAIN_MAX_ZOOM) {
+    throw new Error(
+      `Terrain archive covers z${archiveMinZoom}-z${archiveMaxZoom}, but the globe requests ` +
+        `z${TERRAIN_MIN_ZOOM}-z${TERRAIN_MAX_ZOOM}. Update TERRAIN_MIN_ZOOM/TERRAIN_MAX_ZOOM in ` +
+        `src/lib/terrainSource.ts to match the re-cut pyramid.`,
+    );
+  }
+}
 
 /** DECLARED tile size, and deliberately a quarter of the asset's true 512 px — the same trick the
  *  relief source plays for a different reason (it declares 256 to land 512 px assets @2x at DPR 2;
@@ -114,8 +188,12 @@ const TERRAIN_BASE_SHIFT = 32768;
  *
  *  MapLibre decodes as `R*red + G*green + B*blue - baseShift`. At one metre per level that is
  *  bit-for-bit standard `terrarium` and needs no custom fields; every coarser step is expressible
- *  only as `custom`, which is what we ship at TERRAIN_QUANTISATION_M = 8. The 1 m branch stays
- *  because `?quant=1` still selects the 1 m build for comparison.
+ *  only as `custom`, which is what we ship at TERRAIN_QUANTISATION_M = 8.
+ *
+ *  Still takes the step as an argument after `?quant` retired with the archive, because the
+ *  parameter tracks `terrain_rgb.py --step`, which is a live pipeline knob — this is the function
+ *  that would have to agree with a re-cut at a different step, and the 1 m branch is what states
+ *  the relationship to the standard encoding rather than merely asserting factors.
  */
 export function terrainEncoding(quantisationMetres: number = TERRAIN_QUANTISATION_M) {
   if (quantisationMetres === 1) return { encoding: "terrarium" as const };
@@ -292,101 +370,27 @@ export function describeTerrainState(
   return `terrain ${exaggeration.toFixed(1)}x · ${arm}`;
 }
 
-/** The two sea treatments built for the Step-0 A/B: `clamp` flattens the seafloor to zero,
- *  `bathy` displaces it too. Spike-only — production ships one of them and this goes away. */
-export const TERRAIN_VARIANTS = ["clamp", "bathy"] as const;
-export type TerrainVariant = (typeof TERRAIN_VARIANTS)[number];
-
-/** Read `?dem=clamp|bathy`, defaulting to the ratified bathymetry. An unrecognised value returns
- *  the default; the caller warns, so a typo cannot quietly A/B the same variant against itself.
- *
- *  The default was `clamp` while both were candidates. Step 0 chose bathymetry on Rohan's eyes —
- *  it costs 2.6x the bytes and reads better, mostly on open ocean — so leaving `clamp` here would
- *  have every unflagged capture measure the arm we rejected. */
-export function parseTerrainVariant(params: URLSearchParams): TerrainVariant {
-  const raw = params.get("dem");
-  return TERRAIN_VARIANTS.includes(raw as TerrainVariant) ? (raw as TerrainVariant) : "bathy";
-}
-
-/** Quantisation steps built for the Step-0d size A/B, in metres per encoded level. Spike-only:
- *  production ships one, and this list retires with TERRAIN_VARIANTS. */
-export const TERRAIN_QUANTISATION_STEPS = [1, 2, 4, 8] as const;
-export type TerrainQuantisation = (typeof TERRAIN_QUANTISATION_STEPS)[number];
-
-/** Read `?quant=1|2|4|8`, defaulting to whatever the pipeline currently writes.
- *
- *  Returns null for malformed ONLY, like parseTerrainRamp, because this is the flag whose silent
- *  failure is worst: a build selected at one step and decoded at another still loads every tile,
- *  still renders, and is simply wrong by that ratio everywhere.
- */
-export function parseTerrainQuantisation(params: URLSearchParams): TerrainQuantisation | null {
-  const raw = params.get("quant");
-  if (raw === null || raw.trim() === "") return TERRAIN_QUANTISATION_M;
-  const step = Number(raw);
-  return TERRAIN_QUANTISATION_STEPS.includes(step as TerrainQuantisation)
-    ? (step as TerrainQuantisation)
-    : null;
-}
-
-/** Delivery codecs built for the Step-0d size A/B. Both are lossless — see
- *  TERRAIN_TILE_EXTENSION, whose reasoning is about losslessness and not about PNG specifically. */
-export const TERRAIN_TILE_FORMATS = ["png", "webp"] as const;
-export type TerrainTileFormat = (typeof TERRAIN_TILE_FORMATS)[number];
-
-/** Read `?demfmt=png|webp`, defaulting to the shipping extension. Null for malformed only. */
-export function parseTerrainFormat(params: URLSearchParams): TerrainTileFormat | null {
-  const raw = params.get("demfmt");
-  if (raw === null || raw.trim() === "") return TERRAIN_TILE_EXTENSION;
-  return TERRAIN_TILE_FORMATS.includes(raw as TerrainTileFormat)
-    ? (raw as TerrainTileFormat)
-    : null;
-}
-
-/** Pyramid depths built on disk. 6 is the shipping archive; 8 is the deep build cut 2026-07-28,
- *  which is the full extent of the master (`MASTER_ZOOM = 8`, 131072 = 512 x 2^8) — nothing below
- *  z8 exists without a re-fuse. */
-export const TERRAIN_PYRAMID_DEPTHS = [6, 8] as const;
-export type TerrainPyramidDepth = (typeof TERRAIN_PYRAMID_DEPTHS)[number];
-
-/** Read `?demdepth=6|8`, defaulting to the shipping pyramid. Null for malformed only.
- *
- *  This is ONE value on purpose. It picks the build directory *and* the source's `maxzoom`, which
- *  must agree: a deep directory declared `maxzoom: 6` silently never requests the levels it just
- *  paid to build, and a shallow directory declared `maxzoom: 8` 404s every tile past z6. Neither
- *  is visible in a rendered frame — the first looks like the lever doing nothing. */
-export function parseTerrainPyramidDepth(params: URLSearchParams): TerrainPyramidDepth | null {
-  const raw = params.get("demdepth");
-  if (raw === null || raw.trim() === "") return TERRAIN_MAX_ZOOM;
-  const depth = Number(raw);
-  return TERRAIN_PYRAMID_DEPTHS.includes(depth as TerrainPyramidDepth)
-    ? (depth as TerrainPyramidDepth)
-    : null;
-}
-
-/**
- * Directory holding one spike build, matching what `terrain_rgb.py --out` was pointed at.
- *
- * THE INVARIANT: the caller must compose this from the same `quantisation`, `format` and `depth`
- * values it hands to `terrainEncoding`, `terrainPathTemplate` and the source's `maxzoom`.
- * Independent flags could disagree, and a disagreement is undetectable at runtime — the tiles
- * decode, so there is no 404 and no console error, only a planet at the wrong scale.
- */
-export function terrainBuildDirectory(
-  variant: TerrainVariant,
-  quantisation: TerrainQuantisation,
-  format: TerrainTileFormat,
-  depth: TerrainPyramidDepth = TERRAIN_MAX_ZOOM,
-): string {
-  const step = quantisation === 1 ? "" : `_s${quantisation}`;
-  const codec = format === "png" ? "" : `_${format}`;
-  const deep = depth === TERRAIN_MAX_ZOOM ? "" : `_z${depth}`;
-  return `${variant}${step}${codec}${deep}`;
-}
-
-/** Path portion of a terrain tile URL for one codec — TERRAIN_PATH_TEMPLATE at the default. */
-export function terrainPathTemplate(format: TerrainTileFormat): string {
-  return `{z}/{x}/{y}.${format}`;
-}
+// RETIRED 2026-07-28 WITH THE ARCHIVE — `?dem`, `?quant`, `?demfmt`, `?demdepth` and
+// `terrainBuildDirectory`.
+//
+// All four selected a BUILD DIRECTORY under data/work/planet_terrain, which is a thing that only
+// exists while terrain is served as loose tiles off a dev-only route. Step 3 packs one pyramid
+// into one PMTiles archive behind one `/terrain/` path, and an archive has no directories to
+// choose between: there is exactly one sea treatment (bathymetry), one quantisation (8 m), one
+// codec (lossless WebP) and one depth (z8) in it. Keeping the flags would leave four controls
+// that work in `astro dev` and 404 in production — the dead runnable entry point this repo bans,
+// and the same call that retired `?pmtiles` when the archive became the only relief path.
+//
+// What each one settled is recorded, so retiring the flag does not retire the answer:
+//   ?dem      -> bathymetry, on Rohan's eyes at Step 0        (HISTORY § 2026-07-27, Tier 3 step 0)
+//   ?quant    -> 8 m, the knee of the size curve              (HISTORY § the terrain archive gets
+//   ?demfmt   -> lossless WebP, 0.67x PNG and byte-exact       a third smaller for nothing)
+//   ?demdepth -> z0-8, because the declaration made depth spendable
+//                                                  (HISTORY § tileSize 128 and a z0-8 pyramid)
+//
+// The flags that SURVIVE are the ones that never named a directory — `?terrain`, `?ramp`,
+// `?demsize` and `?skirt` are all client-side knobs over these same bytes, so each still works
+// identically against the archive and stays usable for any future look question.
 
 /** MapLibre's two skirt strategies, and we ship "none". Skirts are vertical curtains hung off every
  *  tile edge to cover the LOD crack where render tiles of different zoom meet — see HISTORY § the
