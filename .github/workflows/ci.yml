@@ -21,6 +21,13 @@ jobs:
       # supplies gdalbuildvrt: tests/test_build_mosaics.py drives the real
       # build_mosaics.sh against a throwaway store (a skipif here would be a
       # drift guard that silently never runs — the exact class it exists to catch).
+      #
+      # But it is the OLD CLI only. noble's gdal-bin is 3.8.4, and GDAL's unified
+      # `gdal` entry point (`gdal raster tile`, what the tile cut runs) arrived in
+      # 3.11 — so no `gdal` binary exists here at all. That probe is skipif'd in
+      # tests/test_terrain_rgb.py and runs on the 3.12 boxes that cut tiles. Do not
+      # "fix" it with a PPA: it would pin CI to a third-party archive to answer a
+      # question about a GDAL that never sees the command.
       - name: Install cairo headers + GDAL CLI
         run: sudo apt-get update && sudo apt-get install -y libcairo2-dev pkg-config gdal-bin
 
@@ -47,7 +54,8 @@ jobs:
 
       # --cov enforces [tool.coverage.report] fail_under — pinned to the CI-visible
       # baseline (12 data-bound tests skip here, so CI coverage reads lower than a
-      # full local run). The ratchet: raise the floor as coverage lands, never lower it.
+      # full local run; a 13th skips on the GDAL version above and costs 0 coverage).
+      # The ratchet: raise the floor as coverage lands, never lower it.
       - name: Tests + coverage ratchet (pytest --cov)
         run: uv run pytest -q --cov
 

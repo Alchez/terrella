@@ -8,6 +8,7 @@ the module exists, and nothing else in the suite would go red.
 import inspect
 import json
 import re
+import shutil
 import subprocess
 
 import numpy as np
@@ -294,6 +295,18 @@ def test_module_does_not_reach_for_a_smooth_resampler():
         assert f"={resampler}" not in source
 
 
+#: GDAL's single-binary entry point — `gdal raster tile`, what `cut_zoom` shells out to — landed
+#: in **GDAL 3.11**. Ubuntu 24.04, which is what `ubuntu-latest` runs, ships gdal-bin **3.8.4**:
+#: `gdalbuildvrt` and friends are there, `gdal` is not. So this probe cannot run on CI, and there
+#: is nothing to gain by making it — the machines that cut tiles (this box, rohome) are on 3.12.x,
+#: and a 3.8 answer about our command shape would be about a GDAL that will never see the command.
+#: Contrast `tests/test_build_mosaics.py`, which drives the *old* CLI and therefore does run on CI;
+#: `.github/workflows/ci.yml` records why that one must never be skipif'd.
+HAS_UNIFIED_GDAL_CLI = shutil.which("gdal") is not None
+
+
+@pytest.mark.skipif(not HAS_UNIFIED_GDAL_CLI,
+                    reason="no `gdal` entry point — needs GDAL >= 3.11 (CI's noble ships 3.8.4)")
 def test_gdal_accepts_the_cut_command():
     """The command shape is only a guess until GDAL parses it — a wrong flag would surface as an
     empty pyramid at the end of a long run, not as an error here."""

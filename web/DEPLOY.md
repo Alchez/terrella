@@ -35,6 +35,14 @@ there as an absolute URL, so adding a fourth cannot silently ship as same-origin
 `public/caps/`, both generated from the render store and both gitignored. Regenerate them first —
 see `docs/pipeline.md`.
 
+**The preflight can refuse, and one refusal is expected right now.** `scripts/check_deploy_sync.ts`
+runs before the upload and blocks on two things: an object the manifest promises that R2 does not
+have, and a globe that would request terrain nothing serves. The second is live today — the globe
+enables terrain on the `full` tier, but no Worker routes `/terrain/`, so a deploy would hand every
+promoted visitor a `raster-dem` source that 404s on every tile while the globe still rendered, flat
+and silent. It clears once the terrain archive is packed, bound and routed; the refusal message
+names the files.
+
 ## 2. The tile Worker
 
 ```sh
