@@ -97,6 +97,48 @@ function listBucket(endpoint: string): Set<string> {
   }
 }
 
+/**
+ * Refuse to deploy a globe that would request terrain nothing serves.
+ *
+ * Terrain rides on the `full` tier as of Tier 3 step 4, so a promoted visitor's map adds a
+ * `raster-dem` source pointing at `/terrain/...`. In DEV that path is answered by a Vite
+ * middleware reading loose tiles off the render store. **In production nothing answers it** —
+ * neither wrangler config routes it, and the tile Worker binds only the relief archive. Every DEM
+ * tile would 404, forever, with the globe still rendering (flat) and no error surfaced to anyone.
+ *
+ * That is precisely the failure class this script exists for, and it is invisible to the object
+ * check below because the terrain archive is not in the manifest — the manifest describes heroes
+ * and borders, so "all advertised objects present" would report a clean deploy either way.
+ *
+ * The test is deliberately on the WORKER SOURCE rather than on R2: the archive existing in a
+ * bucket is worth nothing until something routes `/terrain/` at it. When step 3 lands this stops
+ * firing on its own.
+ */
+function checkTerrainHasAnOrigin(): void {
+  const globe = readFileSync(`${WEB_ROOT}src/pages/globe.astro`, "utf8");
+  const ridesOnTier = /resolveTerrainExaggeration\([\s\S]{0,80}?currentTier\(\)\s*===\s*"full"/.test(
+    globe,
+  );
+  if (!ridesOnTier) return;
+
+  const worker = readFileSync(`${WEB_ROOT}worker/index.ts`, "utf8");
+  const workerConfig = readFileSync(`${WEB_ROOT}worker/wrangler.jsonc`, "utf8");
+  const served = worker.includes("/terrain/") || workerConfig.includes("terrain.pmtiles");
+  if (served) return;
+
+  fail(
+    "the globe would request terrain that production cannot serve.",
+    "",
+    "  globe.astro enables terrain on the `full` tier, so a promoted visitor adds a raster-dem",
+    "  source at /terrain/<build>/{z}/{x}/{y}.webp. The dev server answers that from loose tiles;",
+    "  the tile Worker does not route it at all, so every DEM tile would 404 silently — the globe",
+    "  still renders, just flat, and nothing reports it.",
+    "",
+    "  Land Tier 3 step 3 (pack terrain.pmtiles, bind it in worker/wrangler.jsonc, route /terrain/",
+    "  in worker/index.ts), or gate terrain off the tier again before deploying.",
+  );
+}
+
 function main(): void {
   if (process.env.SKIP_ASSET_SYNC_CHECK === "1") {
     console.warn("⚠ deploy preflight SKIPPED via SKIP_ASSET_SYNC_CHECK=1 — assets unverified");
@@ -109,6 +151,8 @@ function main(): void {
       "Regenerate with scripts/gen_manifest.py (see docs/pipeline.md) before deploying.",
     );
   }
+
+  checkTerrainHasAnOrigin();
 
   const manifest = JSON.parse(readFileSync(MANIFEST, "utf8")) as Manifest;
   const advertised = advertisedObjects(manifest);

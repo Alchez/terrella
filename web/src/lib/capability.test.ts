@@ -289,14 +289,24 @@ describe("Base.astro view bar — the phone collapse", () => {
     for (const button of buttons) expect(button).toMatch(/title="[^"]+"/);
   });
 
-  it("does not advertise a tier feature the site has not built", () => {
-    // Full currently buys ONE thing: globe.astro's idle spin, the site's only currentTier()
-    // read. Terrain is built but behind ?terrain and wired to no tier. If a tooltip starts
-    // claiming terrain while nothing reads the tier for it, the button is selling a promise.
+  it("advertises exactly what the tier actually buys — no more, no less", () => {
+    // Bidirectional on purpose, and keyed on the MECHANISM rather than on a count of
+    // `currentTier()` reads. The earlier form only checked one direction ("don't claim terrain
+    // before it is wired"), so the moment terrain shipped the test went quiet instead of asking
+    // for the copy — a tooltip left describing only the idle spin would have been undersold with
+    // nothing to catch it. Now: if terrain rides on the tier the tooltip must say so, and if it
+    // ever stops riding on the tier the claim must come back out.
     const globe = readFileSync(new URL("../pages/globe.astro", import.meta.url), "utf8");
-    const tierReads = (globe.match(/currentTier\(\)/g) ?? []).length;
+    const terrainRidesOnTier = /resolveTerrainExaggeration\([\s\S]{0,80}?currentTier\(\)\s*===\s*"full"/.test(
+      globe,
+    );
     const fullTooltip = base.match(/data-quality="full"[\s\S]*?title="([^"]+)"/)?.[1] ?? "";
-    if (tierReads <= 1) expect(fullTooltip.toLowerCase()).not.toContain("terrain");
+    expect(fullTooltip, "the Full button must carry a tooltip at all").not.toBe("");
+    if (terrainRidesOnTier) {
+      expect(fullTooltip.toLowerCase()).toContain("terrain");
+    } else {
+      expect(fullTooltip.toLowerCase()).not.toContain("terrain");
+    }
   });
 
   it("marks the bar collapsible on EXACTLY the condition that renders the trigger", () => {

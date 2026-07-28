@@ -146,10 +146,51 @@ export const MAX_TERRAIN_EXAGGERATION = 200;
 export function parseTerrainExaggeration(params: URLSearchParams): number | null {
   const raw = params.get("terrain");
   if (raw === null || raw.trim() === "") return null;
+  if (raw.trim() === TERRAIN_OFF) return null;
   const value = Number(raw);
   if (!Number.isFinite(value)) return null;
   if (value <= 0 || value > MAX_TERRAIN_EXAGGERATION) return null;
   return value;
+}
+
+/** `?terrain=off` — hold the tier at full and run flat anyway. */
+export const TERRAIN_OFF = "off";
+
+/**
+ * The exaggeration terrain runs at on the `full` tier, chosen by Rohan on the frames at Step 0:
+ * 40x shreds the mesh into needles, 5x is too subtle to be worth the geometry. This is the value
+ * the ramp DECAYS FROM — it holds to z3 and lands at DEFAULT_TERRAIN_RAMP_FLOOR by z8, so no
+ * camera below the overview actually renders at 15x.
+ *
+ * It only became a constant when terrain graduated to a tier. Before that it lived exclusively in
+ * `?terrain=15`, which is fine for an A/B and impossible for a tier — nothing was going to type a
+ * URL flag on a visitor's behalf.
+ */
+export const DEFAULT_TERRAIN_EXAGGERATION = 15;
+
+/**
+ * Resolve whether terrain runs, and at what exaggeration, from the URL and the decided tier.
+ *
+ * `?terrain=` wins over the tier IN BOTH DIRECTIONS — a number forces terrain on at any tier (so
+ * the whole flag family stays usable for A/B without first talking the probe into `full`), and
+ * `?terrain=off` forces it off without demoting the tier. That second form is not decoration: once
+ * terrain rides on `full` there is otherwise no way to hold every other variable fixed and remove
+ * only the geometry, which is exactly the comparison every future look question needs. Picking
+ * "Globe" in the view bar also disables terrain, but it changes the tier as well, so it is a
+ * different experiment.
+ *
+ * Returns `null` for a flat globe. A malformed value is NOT silently upgraded to the tier default:
+ * it returns null and the caller warns, because "I asked for 3x and got 15x" is the failure the
+ * loud-refusal convention exists to prevent.
+ */
+export function resolveTerrainExaggeration(
+  params: URLSearchParams,
+  tierWantsTerrain: boolean,
+): number | null {
+  const raw = params.get("terrain");
+  const requested = raw !== null && raw.trim() !== "";
+  if (requested) return parseTerrainExaggeration(params);
+  return tierWantsTerrain ? DEFAULT_TERRAIN_EXAGGERATION : null;
 }
 
 /** Zoom at or below which the ramp holds the base exaggeration. Below here the whole globe is on

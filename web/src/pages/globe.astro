@@ -527,7 +527,8 @@ import { REPO_URL } from "../lib/siteLinks";
     TERRAIN_TILE_SIZES,
     defaultTerrainRamp,
     describeTerrainState,
-    parseTerrainExaggeration,
+    resolveTerrainExaggeration,
+    TERRAIN_OFF,
     parseTerrainFormat,
     parseTerrainQuantisation,
     parseTerrainRamp,
@@ -809,11 +810,19 @@ import { REPO_URL } from "../lib/siteLinks";
   const skyRamp = parsedSkyRamp ?? defaultAtmosphereRamp();
 
   let describeTerrain: (() => string) | null = null;
-  const terrainExaggeration = parseTerrainExaggeration(urlFlags);
-  if (terrainExaggeration === null && urlFlags.has("terrain")) {
+  // TIER 3 LANDS HERE: terrain is what `full` finally buys beyond the idle spin. `?terrain=`
+  // still overrides in both directions — a number forces it on at any tier, `off` forces it flat
+  // without demoting the tier — so every A/B flag below stays usable and there is still a way to
+  // remove ONLY the geometry.
+  const terrainExaggeration = resolveTerrainExaggeration(urlFlags, currentTier() === "full");
+  if (
+    terrainExaggeration === null &&
+    urlFlags.has("terrain") &&
+    urlFlags.get("terrain")?.trim() !== TERRAIN_OFF
+  ) {
     console.warn(
       `[terrain] ignoring ?terrain=${urlFlags.get("terrain")} — want a number in ` +
-        `(0, ${MAX_TERRAIN_EXAGGERATION}]. Running flat.`,
+        `(0, ${MAX_TERRAIN_EXAGGERATION}] or "${TERRAIN_OFF}". Running flat.`,
     );
   }
   if (terrainExaggeration !== null) {

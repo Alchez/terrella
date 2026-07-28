@@ -1,36 +1,39 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import {
+  DEFAULT_TERRAIN_EXAGGERATION,
   DEFAULT_TERRAIN_RAMP_FLOOR,
   MAX_TERRAIN_EXAGGERATION,
   TERRAIN_CONTENT_TYPE,
   TERRAIN_MAX_ZOOM,
+  TERRAIN_OFF,
   TERRAIN_PATH_TEMPLATE,
+  TERRAIN_PYRAMID_DEPTHS,
   TERRAIN_QUANTISATION_M,
   TERRAIN_QUANTISATION_STEPS,
   TERRAIN_RAMP_END_ZOOM,
   TERRAIN_RAMP_START_ZOOM,
-  TERRAIN_TILE_EXTENSION,
-  TERRAIN_PYRAMID_DEPTHS,
   TERRAIN_SKIRT_DEFAULT,
   TERRAIN_SKIRT_MODES,
+  TERRAIN_TILE_EXTENSION,
   TERRAIN_TILE_FORMATS,
   TERRAIN_TILE_SIZE,
   defaultTerrainRamp,
-  parseTerrainPyramidDepth,
-  parseTerrainSkirt,
-  parseTerrainTileSize,
-  terrainZoomsFor,
   describeTerrainState,
   parseTerrainExaggeration,
   parseTerrainFormat,
+  parseTerrainPyramidDepth,
   parseTerrainQuantisation,
   parseTerrainRamp,
+  parseTerrainSkirt,
+  parseTerrainTileSize,
   parseTerrainVariant,
   rampedExaggeration,
+  resolveTerrainExaggeration,
   terrainBuildDirectory,
   terrainEncoding,
   terrainPathTemplate,
+  terrainZoomsFor,
 } from "./terrainSource";
 
 const flags = (search: string) => new URLSearchParams(search);
@@ -614,5 +617,84 @@ describe("source guard — the pipeline is the source of truth for the numbers",
     expect(pipeline).toContain('ap.add_argument("--step", type=float, default=8.0');
     expect(pipeline).toContain('default="webp"');
     expect(pipeline).toContain("BASE_SHIFT = 32768.0");
+  });
+});
+
+describe("resolveTerrainExaggeration — what the `full` tier actually turns on", () => {
+  it("gives the full tier the ratified exaggeration with no flag at all", () => {
+    // The whole point of Tier 3 step 4: a visitor types nothing and gets terrain because the
+    // probe promoted them. Before this, 15 existed only inside `?terrain=15`.
+    expect(resolveTerrainExaggeration(flags(""), true)).toBe(DEFAULT_TERRAIN_EXAGGERATION);
+  });
+
+  it("leaves every other tier flat", () => {
+    expect(resolveTerrainExaggeration(flags(""), false)).toBeNull();
+  });
+
+  it("lets ?terrain=N force terrain on at ANY tier, so the A/B flags stay usable", () => {
+    // Every look question from here on needs to set exaggeration explicitly without first
+    // talking the capability probe into promoting the machine it runs on.
+    expect(resolveTerrainExaggeration(flags("terrain=40"), false)).toBe(40);
+    expect(resolveTerrainExaggeration(flags("terrain=2.5"), false)).toBe(2.5);
+  });
+
+  it("lets ?terrain=off remove ONLY the geometry, without demoting the tier", () => {
+    // The control arm. Picking "Globe" in the view bar also disables terrain, but it changes the
+    // tier too — so it cannot answer "same tier, same everything, no mesh".
+    expect(resolveTerrainExaggeration(flags(`terrain=${TERRAIN_OFF}`), true)).toBeNull();
+    expect(resolveTerrainExaggeration(flags(`terrain=${TERRAIN_OFF}`), false)).toBeNull();
+    // And the caller must be able to tell "off" from a typo, or it will warn about a deliberate
+    // choice: parse returns null for both, so the literal is what distinguishes them.
+    expect(TERRAIN_OFF).toBe("off");
+  });
+
+  it("does NOT quietly upgrade a malformed value to the tier default", () => {
+    // "I asked for 3x and silently got 15x" is exactly the failure the loud-refusal convention
+    // exists to prevent, and it would only appear on the tier that already wanted terrain.
+    for (const bad of ["terrain=abc", "terrain=0", "terrain=-5", "terrain=99999"]) {
+      expect(resolveTerrainExaggeration(flags(bad), true), bad).toBeNull();
+      expect(resolveTerrainExaggeration(flags(bad), false), bad).toBeNull();
+    }
+  });
+
+  it("treats an empty ?terrain= as absent, deferring to the tier", () => {
+    expect(resolveTerrainExaggeration(flags("terrain="), true)).toBe(DEFAULT_TERRAIN_EXAGGERATION);
+    expect(resolveTerrainExaggeration(flags("terrain="), false)).toBeNull();
+  });
+
+  it("starts from a value the ramp actually decays — endpoints are not independent", () => {
+    // The ramp holds this to z3 and lands on the floor by z8. If the base ever drifts below the
+    // floor the ramp inverts and every deep camera gets MORE exaggeration, not less.
+    expect(DEFAULT_TERRAIN_EXAGGERATION).toBeGreaterThan(DEFAULT_TERRAIN_RAMP_FLOOR);
+    expect(rampedExaggeration(DEFAULT_TERRAIN_EXAGGERATION, TERRAIN_RAMP_START_ZOOM, DEFAULT_TERRAIN_RAMP_FLOOR))
+      .toBeCloseTo(DEFAULT_TERRAIN_EXAGGERATION, 6);
+    expect(rampedExaggeration(DEFAULT_TERRAIN_EXAGGERATION, TERRAIN_RAMP_END_ZOOM, DEFAULT_TERRAIN_RAMP_FLOOR))
+      .toBeCloseTo(DEFAULT_TERRAIN_RAMP_FLOOR, 6);
+  });
+});
+
+describe("the deploy preflight must refuse a globe production cannot serve", () => {
+  it("fires while terrain rides on the tier and no worker route exists", () => {
+    // The failure it prevents is silent and total: production routes nothing at /terrain/, so a
+    // promoted visitor's every DEM tile 404s while the globe still renders — just flat. The
+    // object check cannot see it, because the terrain archive is not in the manifest at all.
+    const script = readFileSync(new URL("../../scripts/check_deploy_sync.ts", import.meta.url), "utf8");
+    expect(script).toContain("checkTerrainHasAnOrigin");
+    // It must key on the worker actually routing terrain, not on a bucket containing bytes:
+    // an archive nothing routes at is worth nothing.
+    expect(script).toMatch(/worker\.includes\("\/terrain\/"\)/);
+
+    const worker = readFileSync(new URL("../../worker/index.ts", import.meta.url), "utf8");
+    const workerConfig = readFileSync(new URL("../../worker/wrangler.jsonc", import.meta.url), "utf8");
+    const servedToday = worker.includes("/terrain/") || workerConfig.includes("terrain.pmtiles");
+    const globe = readFileSync(new URL("../pages/globe.astro", import.meta.url), "utf8");
+    const ridesOnTier = /resolveTerrainExaggeration\([\s\S]{0,80}?currentTier\(\)\s*===\s*"full"/.test(globe);
+
+    // This is a STATE assertion, and it is expected to flip when step 3 lands: today terrain
+    // rides on the tier and nothing serves it, which is exactly when the guard must be armed.
+    expect(ridesOnTier, "step 4 has landed").toBe(true);
+    if (!servedToday) {
+      expect(ridesOnTier && !servedToday, "guard is armed and will block a deploy").toBe(true);
+    }
   });
 });
