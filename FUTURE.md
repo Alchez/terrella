@@ -311,7 +311,19 @@ magnitude, so the taxonomy is the decision:
   country within a few hundred ms of the tap. **Verify the premise on a real phone before designing** —
   the flight is the reward, not a tax, and this may be a problem only on paper.
 
-## The tier ladder is more permissive than it reads (analysed 2026-07-26, DEFERRED)
+## The tier ladder is more permissive than it reads (analysed 2026-07-26, **FIXED 2026-07-28**)
+
+**Closed as Tier 3 Step 1** → HISTORY § the tier ladder stops guessing at hardware it cannot see.
+Kept here because the analysis below is what the fix was built from, and because one of its own
+claims turned out to be wrong. Outcome per gap: the threshold became **`<= 4`**; the softwareGpu
+asymmetry was closed by giving `Base.astro` the same floor; the Safari/Firefox blindness was
+**deliberately left optimistic** and handed to the runtime ladder, which gained a `disable-terrain`
+rung — so the deferral note's last line turned out to be the right instinct after all.
+
+**Corrected 2026-07-28:** "clamped at both ends" is wrong. There is no upper clamp in current
+Chrome — the W3C text describes one at 8 GiB and Chrome does not apply it (a 29 GiB machine
+measures **32**), and the rounding is to the *nearest* power of two, not down. Neither changes the
+conclusion below, which rests only on there being no value between 2 and 4.
 
 - **Trigger:** the capability probe looks like it protects weak devices. Measured against the spec and
   the code, it barely does. Deferred rather than fixed — the question is a product one (*is `full` the
@@ -333,6 +345,12 @@ magnitude, so the taxonomy is the decision:
   the softwareGpu asymmetry is simply a **guard that does not match the function it mirrors**.
 - **Verify before acting:** instrument a real mid-range phone rather than trusting the ladder's
   intent. The FPS watchdog already degrades at runtime, so the gate being permissive may cost nothing.
+- **`hardwareConcurrency` was investigated and REJECTED, 2026-07-28** — do not re-propose it as the
+  portable substitute this note suggests. **WebKit clamps it to 8 on macOS and 2 on iOS**, so every
+  iPhone and every iPad Pro reports 2 while a budget Android reports 8: as a device-strength signal
+  it is not merely weak, it is *inverted*. MDN says the same in general terms ("don't treat this as
+  an absolute measurement of the number of cores"), and Safari 26 blocks known fingerprinting
+  scripts from reading it at all.
 
 ## The tier picker is a radiogroup made of toggle buttons (analysed 2026-07-27, DEFERRED)
 

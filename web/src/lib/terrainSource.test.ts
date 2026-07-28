@@ -550,11 +550,26 @@ describe("canary — MapLibre internals we depend on that the docs do not cover"
 describe("source guard — the pipeline is the source of truth for the numbers", () => {
   it("applies the ramp by uniform, never by re-calling setTerrain", () => {
     // ui/map.ts builds a fresh Terrain and RenderToTexture on every setTerrain call and only
-    // reaches Terrain.destroy() on the removal path. Calling it from a zoom handler would leak a
+    // reaches Terrain.destroy() on the REMOVAL path. Calling it from a zoom handler would leak a
     // framebuffer pair per zoom step and discard the mesh cache; exaggeration is a per-frame
-    // uniform, so the assignment below is the whole mechanism. Exactly one call must exist.
+    // uniform, so the assignment below is the whole mechanism.
+    //
+    // The leak is not theoretical — a measurement rig that toggled terrain four times in one page
+    // watched frame time climb monotonically 0.48 -> 1.92 ms across otherwise identical arms.
+    //
+    // So the rule is about the ESTABLISHING call, and it is split from the removal call rather
+    // than counted together: exactly one `setTerrain({...})` may exist, while `setTerrain(null)`
+    // is the one form that cleans up after itself and is what the degradation ladder's
+    // `disable-terrain` rung pulls.
     const globe = readFileSync(new URL("../pages/globe.astro", import.meta.url), "utf8");
-    expect(globe.match(/map\.setTerrain\(/g)).toHaveLength(1);
+    const establishing = globe.match(/map\.setTerrain\(\s*\{/g) ?? [];
+    const removing = globe.match(/map\.setTerrain\(\s*null\s*\)/g) ?? [];
+    expect(establishing, "exactly one setTerrain({...}) — every extra call leaks").toHaveLength(1);
+    expect(removing.length, "setTerrain(null) is the only other permitted form").toBeLessThanOrEqual(1);
+    // Nothing may reach setTerrain by a third spelling that neither pattern above would catch.
+    expect(globe.match(/map\.setTerrain\(/g) ?? []).toHaveLength(
+      establishing.length + removing.length,
+    );
     expect(globe).toContain("map.terrain.exaggeration = next");
   });
 

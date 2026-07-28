@@ -1,6 +1,13 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
-import { decideTier, type CapabilitySignals, type Quality } from "./capability";
+import {
+  decideTier,
+  isLowMemory,
+  isSoftwareRenderer,
+  LOW_MEMORY_GIB,
+  type CapabilitySignals,
+  type Quality,
+} from "./capability";
 
 // A device that passes every check — the baseline each test perturbs one field of.
 const healthy: CapabilitySignals = {
@@ -112,6 +119,10 @@ interface GuardVisit {
   steered?: boolean;
   webgl2?: boolean;
   saveData?: boolean;
+  /** What WEBGL_debug_renderer_info reports, or null to model a browser without the extension. */
+  unmaskedRenderer?: string | null;
+  /** What the standard gl.RENDERER parameter reports — Firefox's unmasked path. */
+  renderer?: string;
 }
 
 interface GuardOutcome {
@@ -128,6 +139,8 @@ function visit({
   steered = false,
   webgl2 = true,
   saveData = false,
+  unmaskedRenderer = "NVIDIA GeForce RTX 4070 SUPER",
+  renderer = "WebKit WebGL",
 }: GuardVisit): GuardOutcome {
   const session = new Map<string, string>(steered ? [["rg:steered", "1"]] : []);
   const local = new Map<string, string>(quality ? [["rg:quality", quality]] : []);
@@ -152,7 +165,22 @@ function visit({
     storage(local),
     storage(session),
     { connection: { saveData } },
-    { createElement: () => ({ getContext: () => (webgl2 ? {} : null) }) },
+    {
+      createElement: () => ({
+        getContext: () =>
+          webgl2
+            ? {
+                RENDERER: "RENDERER",
+                getExtension: (name: string) =>
+                  name === "WEBGL_debug_renderer_info" && unmaskedRenderer !== null
+                    ? { UNMASKED_RENDERER_WEBGL: "UNMASKED" }
+                    : null,
+                getParameter: (name: string) =>
+                  name === "UNMASKED" ? unmaskedRenderer : renderer,
+              }
+            : null,
+      }),
+    },
     () => ({ matches: false }),
   );
 
@@ -282,4 +310,145 @@ describe("Base.astro view bar — the phone collapse", () => {
     // The unscoped form is the bug; it must not come back.
     expect(css).not.toMatch(/\.view-bar:not\(\.is-open\) \.view-bar-items/);
   });
+});
+
+// --- The two signals the probe reads, pulled out so they are testable at all -------------------
+
+describe("isLowMemory — the threshold that let the reference phone through", () => {
+  // The API reports RAM rounded to the NEAREST power of two, so these are the only values that
+  // exist — which is what makes `< 4` and `<= 4` differ by a whole tier of real devices rather
+  // than by a rounding edge. The 8 GiB upper clamp in the W3C text is not applied by current
+  // Chrome: a 29 GiB machine measured 32, hence the top of this list.
+  const REPORTABLE = [0.25, 0.5, 1, 2, 4, 8, 16, 32];
+
+  it("treats every value the API can actually report, on the right side of the line", () => {
+    expect(REPORTABLE.filter(isLowMemory)).toEqual([0.25, 0.5, 1, 2, 4]);
+    expect(REPORTABLE.filter((gib) => !isLowMemory(gib))).toEqual([8, 16, 32]);
+  });
+
+  it("has no odd values to worry about — the reason `< 4` was silently a no-op above 2", () => {
+    // If any reportable value sat strictly between 2 and 4, the old comparison would have caught
+    // something and this whole fix would be a rounding tweak rather than a tier of real phones.
+    expect(REPORTABLE.filter((gib) => gib > 2 && gib < 4)).toEqual([]);
+  });
+
+  it("catches exactly 4 — the case the old `< 4` missed", () => {
+    // The Moto G Power reports 4, and it is Lighthouse's own mobile reference device. Under the
+    // old comparison it was promoted to `full`; nothing in the suite noticed.
+    expect(isLowMemory(LOW_MEMORY_GIB)).toBe(true);
+    expect(isLowMemory(4)).toBe(true);
+  });
+
+  it("does NOT treat an absent value as low — this is every Safari and Firefox", () => {
+    // Deliberate, not an oversight. Both vendors decline to implement the API on fingerprinting
+    // grounds, so absence describes the browser, not the hardware, and hardwareConcurrency is no
+    // substitute: WebKit clamps it to 2 on iOS, so an iPad Pro reports LESS than a budget
+    // Android. The runtime ladder carries what the static gate cannot see.
+    expect(isLowMemory(undefined)).toBe(false);
+  });
+});
+
+describe("isSoftwareRenderer — and the two browsers that report it differently", () => {
+  it("names the rasterizers that cannot run the globe", () => {
+    for (const renderer of [
+      "Google SwiftShader",
+      "llvmpipe (LLVM 15.0.7, 256 bits)",
+      "Microsoft Basic Render Driver",
+      "Mesa OffScreen",
+      "Software Rasterizer",
+    ]) {
+      expect(isSoftwareRenderer([renderer]), renderer).toBe(true);
+    }
+  });
+
+  it("leaves real GPUs alone", () => {
+    for (const renderer of [
+      "NVIDIA GeForce RTX 4070 SUPER/PCIe/SSE2",
+      "Apple M2 Pro",
+      "Adreno (TM) 730",
+      "Mali-G78 MP14",
+      "AMD Radeon RX 7900 XTX",
+      "ANGLE (Intel, Intel(R) Iris(R) Xe Graphics, OpenGL 4.5)",
+    ]) {
+      expect(isSoftwareRenderer([renderer]), renderer).toBe(false);
+    }
+  });
+
+  it("catches Chrome, where the truth is in the extension and RENDERER is masked", () => {
+    expect(isSoftwareRenderer(["Google SwiftShader", "WebKit WebGL"])).toBe(true);
+  });
+
+  it("catches Firefox, where the extension is gone and RENDERER carries the truth", () => {
+    // THE regression this exists for. `if (!ext) return false` meant that the day Firefox
+    // finishes removing WEBGL_debug_renderer_info, every Firefox visitor silently becomes
+    // "real GPU" and gets promoted — a check that can no longer fail, which is worse than none.
+    expect(isSoftwareRenderer(["llvmpipe (LLVM 15.0.7, 256 bits)"])).toBe(true);
+  });
+
+  it("says nothing on an empty list rather than guessing", () => {
+    expect(isSoftwareRenderer([])).toBe(false);
+    expect(isSoftwareRenderer(["", ""])).toBe(false);
+  });
+});
+
+describe("Base.astro tier guard — the software-rasterizer floor it used to be missing", () => {
+  it("bounces a software-rasterizer visitor who deep-links /globe", () => {
+    // Previously the guard tested WebGL2 alone, so this visitor rendered the globe while the
+    // page module was independently deciding "gallery" — the two disagreed on the same device.
+    const outcome = visit({ path: "/globe/", unmaskedRenderer: "Google SwiftShader" });
+    expect(outcome.redirects).toEqual(["/"]);
+  });
+
+  it("bounces one whose only renderer string is the standard parameter (Firefox)", () => {
+    const outcome = visit({
+      path: "/globe/",
+      unmaskedRenderer: null, // no WEBGL_debug_renderer_info
+      renderer: "llvmpipe (LLVM 15.0.7, 256 bits)",
+    });
+    expect(outcome.redirects).toEqual(["/"]);
+  });
+
+  it("does not steer a software-rasterizer visitor onto the globe from the gallery", () => {
+    const outcome = visit({ path: "/", unmaskedRenderer: "llvmpipe (LLVM 15.0.7, 256 bits)" });
+    expect(outcome.redirects).toEqual([]);
+    expect(outcome.steered).toBe(false);
+  });
+
+  it("still steers a real GPU — the control that stops the three above passing vacuously", () => {
+    const outcome = visit({ path: "/", unmaskedRenderer: "Apple M2 Pro" });
+    expect(outcome.redirects).toEqual(["/globe/"]);
+  });
+});
+
+describe("the guard and capability.ts must not drift apart", () => {
+  // They are two spellings of one rule — the inline guard cannot import the module, because it
+  // has to run before the bundle. So the agreement is asserted rather than assumed, over the
+  // same scenarios, by running BOTH.
+  const scenarios = [
+    { name: "real GPU", webgl2: true, renderers: ["NVIDIA GeForce RTX 4070 SUPER"] },
+    { name: "SwiftShader via the extension", webgl2: true, renderers: ["Google SwiftShader"] },
+    { name: "llvmpipe via RENDERER only", webgl2: true, renderers: ["llvmpipe (LLVM 15.0.7)"] },
+    { name: "Mesa OffScreen", webgl2: true, renderers: ["Mesa OffScreen"] },
+    { name: "no WebGL2 at all", webgl2: false, renderers: [] },
+  ];
+
+  for (const scenario of scenarios) {
+    it(`agrees on: ${scenario.name}`, () => {
+      const moduleSaysCapable =
+        decideTier(
+          { ...healthy, webgl2: scenario.webgl2, softwareGpu: isSoftwareRenderer(scenario.renderers) },
+          "auto",
+        ) !== "gallery";
+
+      const guardSteers =
+        visit({
+          path: "/",
+          webgl2: scenario.webgl2,
+          unmaskedRenderer: null,
+          renderer: scenario.renderers[0] ?? "",
+        }).redirects.length > 0;
+
+      expect(guardSteers, `${scenario.name}: guard and capable() disagree`).toBe(moduleSaysCapable);
+    });
+  }
 });

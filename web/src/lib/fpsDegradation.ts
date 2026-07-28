@@ -11,11 +11,35 @@
  *     spin first (free — the globe just stops moving on its own), then drop the
  *     canvas to 1x pixel ratio (visible softness on hi-DPI screens, but ~4x
  *     fewer fragments at DPR 2 — the difference between a slideshow and a
- *     usable globe on a weak GPU).
+ *     usable globe on a weak GPU), and only then disable terrain.
  *
  * The caller owns the sampling loop and applies the actions; each action must
  * earn its own sustained-slow window (the caller resets the samples after
  * acting), so one slow patch never cascades straight to minimum quality.
+ *
+ * WHY TERRAIN COMES LAST, AND NOT FIRST
+ * ------------------------------------
+ * The intuitive order puts terrain first — it is the heaviest-sounding feature,
+ * and pixel ratio is the most visible loss. That is backwards, because the two
+ * levers are COUPLED rather than independent.
+ *
+ * With terrain on, MapLibre stops drawing the globe straight to the canvas and
+ * instead renders each tile into a fixed-size render-to-texture buffer, then
+ * composites those. `rttSize = tileManager.tileSize * qualityFactor` — no term
+ * in that is the device pixel ratio. So terrain swaps a DPR-scaled cost for a
+ * DPR-INVARIANT one. Measured live at the shipping configuration (declared 128,
+ * z0-8, 16 render tiles): canvas 1,451,125 px at DPR 1 and 13,060,125 at DPR 3
+ * (exactly 9x), while total RTT pixels stayed at 4,194,304 in BOTH.
+ *
+ * The consequence: terrain's relative cost falls monotonically as DPR rises.
+ * At DPR 1 the RTT path is ~2.9x the canvas's own pixel work and dropping it is
+ * a clear win; at DPR 3 it is 0.32x, and dropping it hands the full 13 Mpx
+ * canvas the whole layer stack instead — terrain measured 43% CHEAPER than off
+ * at DPR 3 (HISTORY, the exaggeration-ramp entry). Pulling this rung first on a
+ * hi-DPI phone could therefore make frames SLOWER.
+ *
+ * Lowering the pixel ratio is precisely what moves a device into the regime
+ * where dropping terrain pays. Hence: spin, then pixel ratio, then terrain.
  */
 
 /** Samples needed before a verdict — ~0.75 s of movement at 60 fps. */
@@ -30,7 +54,11 @@ export const SLOW_MEDIAN_MILLISECONDS = 34;
 /** Where the pixel-ratio lever lands: native resolution, no DPR supersampling. */
 export const DEGRADED_PIXEL_RATIO = 1;
 
-export type DegradationAction = "retire-spin" | "lower-pixel-ratio" | null;
+export type DegradationAction =
+  | "retire-spin"
+  | "lower-pixel-ratio"
+  | "disable-terrain"
+  | null;
 
 /** True when a full window of frame durations has a slow median. */
 export function isSustainedSlow(frameDurationsMs: number[]): boolean {
@@ -43,18 +71,25 @@ export function isSustainedSlow(frameDurationsMs: number[]): boolean {
 }
 
 /**
- * The next lever to pull, cheapest first: retire the spin, then lower the pixel
- * ratio, then nothing (`null` — the ladder is exhausted and the caller should
- * stop measuring). A 1x screen has no pixel-ratio headroom to give back.
+ * The next lever to pull: retire the spin, then lower the pixel ratio, then
+ * disable terrain, then nothing (`null` — the ladder is exhausted and the
+ * caller should stop measuring).
+ *
+ * A 1x screen has no pixel-ratio headroom to give back, so it skips straight to
+ * the terrain rung — which is also the screen where that rung is worth the most
+ * (see the module header). `terrainEnabled: false` is the ordinary case today,
+ * since terrain is still behind `?terrain=N`; the rung simply does not appear.
  */
 export function nextDegradationAction(state: {
   spinning: boolean;
   pixelRatioLowered: boolean;
   devicePixelRatio: number;
+  terrainEnabled: boolean;
 }): DegradationAction {
   if (state.spinning) return "retire-spin";
   if (!state.pixelRatioLowered && state.devicePixelRatio > DEGRADED_PIXEL_RATIO) {
     return "lower-pixel-ratio";
   }
+  if (state.terrainEnabled) return "disable-terrain";
   return null;
 }

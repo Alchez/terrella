@@ -1450,6 +1450,7 @@ import { REPO_URL } from "../lib/siteLinks";
           spinning,
           pixelRatioLowered,
           devicePixelRatio: window.devicePixelRatio || 1,
+          terrainEnabled: map.getTerrain() !== null,
         });
         if (action === "retire-spin") {
           setSpinning(false);
@@ -1458,6 +1459,13 @@ import { REPO_URL } from "../lib/siteLinks";
           pixelRatioLowered = true;
           map.setPixelRatio(DEGRADED_PIXEL_RATIO);
           console.info("[globe] low frame rate persists — rendering at 1x pixel ratio");
+        } else if (action === "disable-terrain") {
+          // Last rung, and last on purpose — lowering the pixel ratio above is what puts the
+          // device in the regime where dropping terrain actually pays (fpsDegradation.ts header).
+          // The DEM source is left in place: re-adding it would re-download tiles, and setTerrain
+          // is the whole cost here.
+          map.setTerrain(null);
+          console.info("[globe] low frame rate persists — terrain displacement disabled");
         } else {
           return; // ladder exhausted — stop the loop, nothing left to measure for
         }

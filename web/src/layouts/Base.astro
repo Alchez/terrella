@@ -36,8 +36,9 @@ const {
         incapable/Lite visitor who deep-links /globe bounces straight back. This
         is the minimal gallery-vs-globe boundary of src/lib/capability.ts
         decideTier() — it can't import (it must run before the bundle), so it is
-        deliberately kept tiny and mirrors only that boundary; the nuanced
-        globe-vs-full decision + software-GPU check run in the page module. */}
+        deliberately kept tiny and mirrors only that boundary: the same WebGL2 +
+        software-rasterizer floor `capable()` applies. The nuanced globe-vs-full
+        decision (memory, network, reduced-motion) still runs in the page module. */}
     <script is:inline>
       (function () {
         try {
@@ -47,9 +48,27 @@ const {
           var atGlobe = path === "/globe" || path === "/globe/";
           if (!atEntry && !atGlobe) return;
 
-          function webgl2() {
+          // MUST mirror capability.ts `capable()` — WebGL2 present AND not a software
+          // rasterizer. It cannot import it (this has to run before the bundle, which is the
+          // whole reason it is is:inline), so the two are pinned against each other by
+          // capability.test.ts, which executes THIS source rather than string-matching it.
+          //
+          // The software check used to be missing here, so a SwiftShader/llvmpipe visitor who
+          // deep-linked /globe was never bounced: the page module would decide "gallery" while
+          // this guard had already let the globe render. Reading both renderer strings covers
+          // Chrome (truth in the debug extension, RENDERER masked) and Firefox (extension
+          // deprecated, RENDERER unmasked).
+          function capable() {
             try {
-              return !!document.createElement("canvas").getContext("webgl2");
+              var gl = document.createElement("canvas").getContext("webgl2");
+              if (!gl) return false;
+              var names = [];
+              var ext = gl.getExtension("WEBGL_debug_renderer_info");
+              if (ext) names.push(String(gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) || ""));
+              names.push(String(gl.getParameter(gl.RENDERER) || ""));
+              return !/swiftshader|llvmpipe|software|basic render|microsoft basic|softpipe|mesa offscreen/i.test(
+                names.join(" "),
+              );
             } catch (e) {
               return false;
             }
@@ -62,7 +81,7 @@ const {
 
           if (atGlobe) {
             // Can't run the globe here, or the user forced Lite → back to gallery.
-            if (quality === "lite" || !webgl2()) location.replace("/");
+            if (quality === "lite" || !capable()) location.replace("/");
             // Reaching the globe by ANY route counts as steered — not just by the auto-steer
             // below. The flag means "this session has seen the globe", so a later visit to /
             // is a deliberate choice (the ← Gallery link) and must not be bounced straight
@@ -74,7 +93,7 @@ const {
           // atEntry: steer capable visitors onto the globe, pessimistically.
           if (quality === "lite") return; // user forced the gallery
           if (sessionStorage.getItem("rg:steered")) return; // steer once per session
-          if (!webgl2()) return; // no globe floor
+          if (!capable()) return; // no globe floor — same test capability.ts applies
           if (quality === "auto" && saveData) return; // respect data-saver on auto
           sessionStorage.setItem("rg:steered", "1");
           location.replace("/globe/");
