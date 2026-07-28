@@ -158,6 +158,15 @@ magnitude, so the taxonomy is the decision:
   match the colour pyramid's depth — displacement meshes are coarse and z8 terrain is ample. Building
   Tier 3 now is therefore not invalidated by a later re-fuse, and `warp_needs_rebuild`'s grid
   comparison would restage it correctly if one ever landed.
+- **Measured 2026-07-27, correcting two estimates above; settled 2026-07-28.** (b) held, and better
+  than projected: the built z0–8 terrain archive is **2.63 GB** against the colour archive's 3.0 GB
+  (the ~3.3 GB projection was 25% high). (c) was wrong — **"z8 terrain is ample" confused what is
+  built with what is reachable.** MapLibre picks the DEM zoom from the *declared* tile size, so depth
+  is not a free choice: at `tileSize: 512` the DEM sits at `camera − 2` and **nothing past z6 could
+  ever load** against `maxZoom: 8`; 256 reaches z7; only **128 reaches z8**, which is what shipped.
+  z8 is the floor in any case — 256 tiles × 512 px = 131,072 px, exactly the master's grid, so
+  anything deeper needs a re-fuse and lands squarely in the z9/z10 question above.
+  → HISTORY § tileSize 128 and a z0-8 pyramid ship together
 - **If depth is wanted, z9 is the reachable one:** 443 GB and ~11 h, fits today's free space, 3×
   GEBCO upsample rather than 6×. Not recommended, but it is the option that exists.
 - **Revisit when:** a larger disk lands. Then re-derive from PROCESS rather than trusting this table —

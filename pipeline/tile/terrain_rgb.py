@@ -120,8 +120,14 @@ def downsample_elevation(src: Path, dst: Path, factor: int, band_rows: int | Non
     with rasterio.open(src) as source:
         out_height = source.height // factor
         out_width = source.width // factor
+        # BIGTIFF is required past z6 and cannot be left to the default. A classic TIFF caps at
+        # 4 GB, and this sink is float32: z7 is 65536^2 = 17.2 GB raw and z8 is 131072^2 = 68.7 GB,
+        # so both die mid-write with "Maximum TIFF file size exceeded" after burning the whole
+        # descent. z6 only survives because deflate lands it at 3.4 GB — 4.29 GB raw, i.e. already
+        # inside 20% of a hard failure. IF_SAFER rather than YES so small levels stay classic.
         profile = source.profile | GTIFF_CREATE | {
             "height": out_height, "width": out_width, "dtype": "float32", "count": 1,
+            "bigtiff": "IF_SAFER",
             "transform": source.transform * source.transform.scale(factor, factor)}
         with rasterio.open(dst, "w", **profile) as sink:
             for out0, out1 in row_bands(out_height, band_rows):
@@ -167,7 +173,9 @@ def encode_raster(elev_tif: Path, dst: Path, step: float, sea_clamp: bool,
     """Encode a whole elevation raster to a 3-band Byte GTiff, streaming by row band."""
     with rasterio.open(elev_tif) as source:
         north, south = source.bounds.top, source.bounds.bottom
-        profile = source.profile | GTIFF_CREATE | {"dtype": "uint8", "count": 3, "nodata": None}
+        # Same 4 GB ceiling as the elevation sink above: three uint8 bands at z8 is 51.5 GB raw.
+        profile = source.profile | GTIFF_CREATE | {
+            "dtype": "uint8", "count": 3, "nodata": None, "bigtiff": "IF_SAFER"}
         with rasterio.open(dst, "w", **profile) as sink:
             for row0, row1 in row_bands(source.height, band_rows):
                 window = band_window(source.width, row0, row1)
@@ -241,7 +249,7 @@ def main() -> None:
                     help="elevation-chain dir; share it across variants to read the master once")
     ap.add_argument("--master", type=Path,
                     default=paths.DATA / "work/planet_tiles/height_3857.tif")
-    ap.add_argument("--max-zoom", type=int, default=6)
+    ap.add_argument("--max-zoom", type=int, default=8)
     ap.add_argument("--step", type=float, default=8.0, help="metres per encoded level")
     ap.add_argument("--sea", choices=["clamp", "bathy"], default="clamp",
                     help="clamp: sea flattened to 0; bathy: seafloor displaced too")

@@ -62,6 +62,7 @@ All stage numbers below are at the **131072² grid** (the full Mercator square) 
 | 5 | `global_occlusion` — sky-view factor | **3:23** (I/O-bound) | ~0 s | in-memory only | **lazy** |
 | 6 | `composite_planet` — ramps × hillshade × SVF + snow + sea ice + lake depth | **21:37** (1024 windows; the Antarctic windows are all snow+ice work) | ~0 s | `planet_rgb.tif` 11 GB | `is_stale` |
 | 7 | `build_tiles` — `gdal raster tile` z0–8, WebP q95 | **4:19** | **skip** | `tiles/` **3.1 GB**, 87,381 tiles | `tiles.done` + `tile_params.json` |
+| T | `tile/terrain_rgb.py` — terrain-RGB encode + cut **z0–8**, 8 m, lossless WebP *(separate lane: reads `height_3857.tif` directly, never the composite, and is not part of the shade pass)* | **41:00** for the shipping z0–8 pyramid, including building `elev_z8` + `elev_z7`. A z0–6 variant is **~4 min** once the chain exists. | **no skip — the cut always re-runs** | `work/planet_terrain/bathy_s8_webp/tiles/` **2.63 GB**, 87,381 tiles | `elev_z*.tif` exists() **only** |
 
 Why the numbers are what they are (current-state explanations, not history):
 
@@ -76,6 +77,31 @@ Why the numbers are what they are (current-state explanations, not history):
 - **A grid change restages every warp**: `warp_needs_rebuild` = mtime **or** off-grid, so the
   warps re-run only when the grid grows (next trigger: a z10 extension). The Antarctica grid
   change measured **2:28:01** end-to-end, dominated by the 1:01:44 lake warp.
+- **Stage T's ~4 min is three independent measurements, not one.** The first run built the shared
+  elevation chain and the `clamp` variant in **7:55**, then `bathy` in **3:53** reusing it — so the
+  chain is ~**4:02** and a variant is ~**4 min**. Three later re-cuts at 2/4/8 m, chain present,
+  came in at **3:49 / 3:57 / 4:16**. It is a single streaming descent from the 44 GB master, so it
+  is I/O-shaped, not DRAM-bound like the composite.
+- **Lossless WebP cuts ~3.8× FASTER than PNG, as well as 0.67× the size.** Same variant, same 8 m
+  step, z6 cut alone: **PNG 1:49 vs WebP 0:29** (z5 0:42 → 0:12, z4 0:35 → 0:10). PNG's adaptive
+  per-scanline filtering plus zlib 9 is simply more work than the WebP lossless coder. The whole
+  z0–6 cut at the shipping settings is **~0:57**. → HISTORY § the terrain archive gets a third smaller
+- **Stage T is the one stage with no output guard, and that is debt.** `elev_z*.tif` is reused via
+  `exists()`, but `tiles/` is unconditionally `rmtree`d and every zoom re-encoded, so a re-run pays
+  the full ~4 min where every other stage here skips in ~0 s. There is no `.done` and no recipe
+  sidecar, which also means a `--step` or `--format` change is invisible to anything but the
+  directory name. Fix before terrain ships.
+- **z7/z8 MEASURED 2026-07-28, and both projections here were wrong in the same direction.** The
+  full z0–8 build is **41:00** and **2.63 GB**, against projections of 1.5–2.5 h and ~3.3 GB — so
+  ~3× over on time and 25% over on size. Per-zoom cut: **z8 5:29, z7 1:37, z6 0:27, z5 0:12,
+  z4 0:10, z3 0:05**, the rest sub-second. **z8 needs no new elevation intermediate** —
+  `MASTER_ZOOM = 8`, so `--max-zoom 8` gives a downsample factor of 1 and encodes
+  `height_3857.tif` in place; only `elev_z7.tif` is new.
+- **BigTIFF is mandatory past z6 and was missing until 2026-07-28.** The first z0–8 attempt died in
+  83 s on `TIFFAppendToStrip:Maximum TIFF file size exceeded` — `GTIFF_CREATE` sets no BigTIFF and a
+  classic TIFF caps at 4 GB. It could not surface below z7, and **z6 was surviving on deflate alone**
+  (32768² float32 = 4.29 GB raw, 3.4 GB on disk). Both `terrain_rgb.py` sinks now pass
+  `bigtiff: "IF_SAFER"`. → HISTORY § tileSize 128 and a z0-8 pyramid ship together
 
 **End-to-end, measured:**
 

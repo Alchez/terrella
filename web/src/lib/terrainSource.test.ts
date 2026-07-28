@@ -11,9 +11,14 @@ import {
   TERRAIN_RAMP_END_ZOOM,
   TERRAIN_RAMP_START_ZOOM,
   TERRAIN_TILE_EXTENSION,
+  TERRAIN_PYRAMID_DEPTHS,
+  TERRAIN_SKIRT_DEFAULT,
+  TERRAIN_SKIRT_MODES,
   TERRAIN_TILE_FORMATS,
   TERRAIN_TILE_SIZE,
   defaultTerrainRamp,
+  parseTerrainPyramidDepth,
+  parseTerrainSkirt,
   parseTerrainTileSize,
   terrainZoomsFor,
   describeTerrainState,
@@ -179,9 +184,21 @@ describe("the build directory", () => {
     const route = readFileSync(new URL("../../astro.config.ts", import.meta.url), "utf8");
     const characterClass = /\[a-z0-9_\]\{1,(\d+)\}/.exec(route);
     expect(characterClass).not.toBeNull();
-    const longest = terrainBuildDirectory("bathy", 8, "webp");
+    // The longest name is now the SHALLOW spike build: z8 ships, so it is z6 that carries a suffix.
+    const longest = terrainBuildDirectory("bathy", 8, "webp", 6);
+    expect(longest).toBe("bathy_s8_webp_z6");
     expect(longest).toMatch(/^[a-z0-9_]+$/);
     expect(longest.length).toBeLessThanOrEqual(Number(characterClass?.[1]));
+  });
+
+  it("leaves the shipping pyramid unsuffixed and names every other depth", () => {
+    // The suffix tracks TERRAIN_MAX_ZOOM rather than a literal, so ratifying a new depth renames
+    // the directories consistently instead of stranding the old name on the new build.
+    expect(terrainBuildDirectory("bathy", 8, "webp", 8)).toBe("bathy_s8_webp");
+    expect(terrainBuildDirectory("bathy", 8, "webp", 6)).toBe("bathy_s8_webp_z6");
+    expect(terrainBuildDirectory("bathy", 8, "webp")).toBe(
+      terrainBuildDirectory("bathy", 8, "webp", TERRAIN_MAX_ZOOM),
+    );
   });
 
   it("templates the path on the codec, agreeing with the constant at the default", () => {
@@ -202,17 +219,31 @@ describe("the contract", () => {
     expect(TERRAIN_PATH_TEMPLATE).toBe("{z}/{x}/{y}.webp");
   });
 
-  it("declares its true 512 px tile size, unlike the relief source's deliberate 256", () => {
-    // The relief source declares 512 px assets as tileSize 256 to centre on DPR 2. Terrain wants
-    // the opposite — an honest 512 fetches at the map zoom, and MapLibre's own deltaZoom = 1 for
-    // terrain takes it one lower again, so at map z7 it is terrain z6 against colour z8.
-    expect(TERRAIN_TILE_SIZE).toBe(512);
+  it("declares a QUARTER of its true 512 px size, which is the whole of the axis-B decision", () => {
+    // Both sources misdeclare, for different reasons. Relief declares 512 px assets as 256 to
+    // centre on DPR 2 — a sharpness trick. Terrain declares 128 so a render tile covers a quarter
+    // of the ground, which is the only way to shrink a facet: meshSize is hardcoded at 128 quads
+    // per tile, so covering less ground per tile is the sole lever.
+    //
+    // Was 512 ("declared honestly") until 2026-07-28. Ratified on Rohan's eyes at z8 pitch 60,
+    // affordable because GPU frame cost is FLAT across declarations (3.87 / 4.54 / 4.31 ms at
+    // 512 / 256 / 128, Chrome, DPR control passed) — rttSize halves as tile count doubles.
+    expect(TERRAIN_TILE_SIZE).toBe(128);
+    expect(TERRAIN_TILE_SIZE).toBeLessThan(512); // the asset is 512; this is a misdeclaration
     const relief = readFileSync(new URL("../pages/globe.astro", import.meta.url), "utf8");
     expect(relief).toContain("tileSize: 256");
   });
 
-  it("stops shallower than the colour pyramid, which is a size lever and not a defect", () => {
-    expect(TERRAIN_MAX_ZOOM).toBeLessThan(8);
+  it("now matches the colour pyramid's depth, because the declaration made depth spendable", () => {
+    // Was deliberately shallower while tileSize was 512: the DEM sits at camera-2, so against a
+    // maxZoom-8 camera nothing past z6 could ever load and z7/z8 would have been dead bytes.
+    // At 128 the DEM sits at camera, so the full depth is reachable — and z8 is the master's own
+    // grid, so this is the ceiling rather than a step on the way to more.
+    expect(TERRAIN_MAX_ZOOM).toBe(8);
+    const pipeline = readFileSync(
+      new URL("../../../pipeline/tile/terrain_rgb.py", import.meta.url), "utf8");
+    expect(pipeline).toContain("MASTER_ZOOM = 8");
+    expect(pipeline).toContain('"--max-zoom", type=int, default=8');
   });
 });
 
@@ -345,6 +376,96 @@ describe("the ?perf terrain line", () => {
   });
 });
 
+describe("?skirt=auto|none — which seam artifact you get", () => {
+  it("defaults to the ratified \"none\", NOT to MapLibre's default", () => {
+    // Ratified on Rohan's eyes in motion 2026-07-28: "none" removes essentially all the pan-time
+    // tearing, trading it for tiny black specks that appear ONLY on drastic elevation changes and
+    // never on flatland. That distribution is the LOD crack showing itself — it is widest exactly
+    // where elevation changes fastest between two DEM levels.
+    expect(TERRAIN_SKIRT_DEFAULT).toBe("none");
+    expect(parseTerrainSkirt(flags(""))).toBe("none");
+    expect(parseTerrainSkirt(flags("?skirt=none"))).toBe("none");
+    expect(parseTerrainSkirt(flags("?skirt=auto"))).toBe("auto"); // the escape back to skirts
+    // There is no length control — MapLibre's option is a two-value enum, so a number is not
+    // "a shorter skirt", it is a typo that would otherwise silently render the default.
+    expect(parseTerrainSkirt(flags("?skirt=0"))).toBeNull();
+    expect(parseTerrainSkirt(flags("?skirt=short"))).toBeNull();
+    expect([...TERRAIN_SKIRT_MODES]).toEqual(["auto", "none"]);
+  });
+
+  it("reaches the Map CONSTRUCTOR, because a skirt is baked into the cached mesh", () => {
+    // Not settable on a live map: getTerrainMesh caches per tile and _buildSkirts runs at build
+    // time, so anything that toggles this after construction is reaching into _meshCache. If this
+    // ever moves to a post-construction call it will look like it works and change nothing.
+    const globe = readFileSync(new URL("../pages/globe.astro", import.meta.url), "utf8");
+    expect(globe).toContain("terrainSkirtLength: terrainSkirtMode");
+    const constructorAt = globe.indexOf("new maplibregl.Map({");
+    expect(constructorAt).toBeGreaterThan(-1);
+    expect(globe.indexOf("const terrainSkirtMode =")).toBeLessThan(constructorAt);
+  });
+});
+
+describe("?demdepth=6|8 — the pyramid the source is allowed to reach", () => {
+  it("defaults to the shipping pyramid and refuses anything unbuilt", () => {
+    expect(parseTerrainPyramidDepth(flags(""))).toBe(TERRAIN_MAX_ZOOM);
+    expect(parseTerrainPyramidDepth(flags("?demdepth=6"))).toBe(6);
+    expect(parseTerrainPyramidDepth(flags("?demdepth=8"))).toBe(8);
+    // 7 is a real MapLibre zoom but NOT a directory on disk, so it must be refused, not clamped.
+    expect(parseTerrainPyramidDepth(flags("?demdepth=7"))).toBeNull();
+    expect(parseTerrainPyramidDepth(flags("?demdepth=deep"))).toBeNull();
+  });
+
+  it("only lists depths that exist as builds", () => {
+    expect(TERRAIN_PYRAMID_DEPTHS).toContain(TERRAIN_MAX_ZOOM);
+    expect([...TERRAIN_PYRAMID_DEPTHS]).toEqual([6, 8]);
+  });
+
+  it("is what makes 256 and 128 mean anything at the deepest camera", () => {
+    // The whole reason the deep build was cut. Against the z0-6 pyramid every arm bottoms out on
+    // z6 at camera z8, so the declaration buys mesh density and nothing else. Against z0-8 the
+    // three arms finally separate — one DEM level each.
+    expect(terrainZoomsFor(8, 512, 6).demZoom).toBe(6);
+    expect(terrainZoomsFor(8, 256, 6).demZoom).toBe(6); // clamped: asked z7, pyramid stopped at 6
+    expect(terrainZoomsFor(8, 128, 6).demZoom).toBe(6); // clamped harder: asked z8
+
+    expect(terrainZoomsFor(8, 512, 8).demZoom).toBe(6); // 512 can NEVER reach past z6 at maxZoom 8
+    expect(terrainZoomsFor(8, 256, 8).demZoom).toBe(7);
+    expect(terrainZoomsFor(8, 128, 8).demZoom).toBe(8);
+    // ...but this is the NOMINAL zoom, and the globe does not always grant it. Measured on a live
+    // map at camera z8 against the deep pyramid: 512 -> z6 and 256 -> z7 at every pitch, while
+    // 128 gets its z8 only at pitch 0 and 30 and drops to z7 at pitch 60. See the pitch test below.
+  });
+
+  it("does not model the globe's pitch penalty, which costs 128 a whole DEM level", () => {
+    // MEASURED 2026-07-28, camera z8, deep pyramid, deepest DEM actually consumed:
+    //          pitch 0   pitch 30   pitch 60
+    //   512       z6        z6         z6
+    //   256       z7        z7         z7
+    //   128       z8        z8         z7   <- the nominal says z8 at all three
+    //
+    // Cause is MapLibre's globe LOD heuristic, not our arithmetic: coveringTiles takes a per-tile
+    // desired zoom from defaultCalculateTileZoom(9.314, 3), which subtracts a pitch term and a
+    // tile-count penalty. So the PITCHED view — the one terrain exists to make worth looking at —
+    // systematically gets less elevation detail than the flat-on view.
+    const globe = readFileSync(new URL("../pages/globe.astro", import.meta.url), "utf8");
+    expect(globe).toContain("maxZoom: 8");
+    // 128's nominal exceeds what the camera cap alone would allow, which is why it is the arm
+    // whose delivered depth depends on the heuristic rather than on the declaration.
+    expect(terrainZoomsFor(8, 128, 8).renderZoom).toBeGreaterThan(8);
+    expect(terrainZoomsFor(8, 256, 8).renderZoom).toBe(8);
+  });
+
+  it("shows why a deeper pyramid cannot rescue 512", () => {
+    // 512's DEM sits at camera-2, so z7 would need camera z9 — and globe.astro caps at maxZoom 8.
+    // Building deeper is only spendable if the declaration moves with it.
+    for (const depth of [6, 8]) {
+      expect(terrainZoomsFor(8, 512, depth).demZoom).toBe(6);
+    }
+    const globe = readFileSync(new URL("../pages/globe.astro", import.meta.url), "utf8");
+    expect(globe).toContain("maxZoom: 8");
+  });
+});
+
 describe("?demsize=256|512 and the zoom arithmetic behind it", () => {
   it("defaults to the shipped declaration and refuses anything unbuilt", () => {
     expect(parseTerrainTileSize(flags(""))).toBe(TERRAIN_TILE_SIZE);
@@ -378,13 +499,17 @@ describe("?demsize=256|512 and the zoom arithmetic behind it", () => {
     }
   });
 
-  it("clamps the DEM at the pyramid ceiling, which is what caps the 256 lever", () => {
-    // At the camera's own maxZoom of 8, declaring 256 wants DEM z7 — which does not exist while
-    // TERRAIN_MAX_ZOOM is 6. The lever is partly spent at the deepest camera until the pyramid
-    // grows, and growing it means re-deriving 65536^2 from the master, not another re-cut.
-    expect(terrainZoomsFor(8, 256).demZoom).toBe(TERRAIN_MAX_ZOOM);
-    expect(terrainZoomsFor(8, 512).demZoom).toBe(TERRAIN_MAX_ZOOM);
-    expect(terrainZoomsFor(8, 256, 7).demZoom).toBe(7);
+  it("reaches the pyramid ceiling at the deepest camera, which is what 128 was for", () => {
+    // The shipping pair: tileSize 128 puts the DEM at the camera zoom, so camera z8 asks for z8
+    // and the z0-8 build answers. Nothing is clamped and nothing is left unused — the two
+    // constants are matched by construction, which is why they moved together.
+    expect(terrainZoomsFor(8, TERRAIN_TILE_SIZE).demZoom).toBe(TERRAIN_MAX_ZOOM);
+    // The arms that lost, at the same camera and pyramid: each declaration costs a level.
+    expect(terrainZoomsFor(8, 256).demZoom).toBe(7);
+    expect(terrainZoomsFor(8, 512).demZoom).toBe(6);
+    // And 512 could never have spent the deep build at all — its DEM is camera-2 against a
+    // maxZoom-8 camera, so z7 would need camera z9. That is why depth followed the declaration.
+    expect(terrainZoomsFor(8, 512, 8).demZoom).toBe(6);
   });
 
   it("never returns a negative zoom at the overview", () => {
@@ -440,11 +565,21 @@ describe("source guard — the pipeline is the source of truth for the numbers",
     // must all be derived from the same two parsed values, and `terrainEncoding()` must never be
     // called bare (its default is the shipping step, which silently ignores ?quant).
     const globe = readFileSync(new URL("../pages/globe.astro", import.meta.url), "utf8");
-    expect(globe).toContain("terrainBuildDirectory(variant, quantisation, format)");
+    expect(globe).toContain("terrainBuildDirectory(variant, quantisation, format, pyramidDepth)");
     expect(globe).toContain("terrainEncoding(quantisation)");
     expect(globe).toContain("terrainPathTemplate(format)");
     expect(globe).toContain("/terrain/${build}/");
     expect(globe).not.toMatch(/terrainEncoding\(\s*\)/);
+  });
+
+  it("declares maxzoom from the SAME value that picked the directory", () => {
+    // The third member of that group, and its silent failure is the sneakiest of the three: a deep
+    // build declared `maxzoom: 6` never requests z7/z8, renders perfectly, and looks exactly like
+    // the deeper pyramid having no visible effect — which is the conclusion it would be used to
+    // reach. The constant must not appear on the source any more.
+    const globe = readFileSync(new URL("../pages/globe.astro", import.meta.url), "utf8");
+    expect(globe).toContain("maxzoom: pyramidDepth");
+    expect(globe).not.toContain("maxzoom: TERRAIN_MAX_ZOOM");
   });
 
   it("keeps both delivery codecs lossless in the pipeline", () => {

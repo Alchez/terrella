@@ -36,28 +36,65 @@ export const TERRAIN_PATH_TEMPLATE = `{z}/{x}/{y}.${TERRAIN_TILE_EXTENSION}`;
 
 export const TERRAIN_MIN_ZOOM = 0;
 
-/** Depth of the elevation pyramid. Deliberately shallower than the colour pyramid's z8: MapLibre
- *  builds a fixed 128x128 mesh PER TILE regardless of the DEM's resolution, so an overzoomed
- *  terrain tile keeps full mesh density and loses only elevation detail. Raising this costs
- *  bytes and buys detail, not geometry — a size lever, decided on a look that already works.
+/** Depth of the elevation pyramid, matching the colour pyramid's z8 — which is also the full extent
+ *  of the master (`MASTER_ZOOM = 8`, 131072 = 512 x 2^8), so nothing deeper exists without a re-fuse.
  *
- *  The sharper form of that, because it bounds what any depth can buy: one mesh quad spans
- *  512/128 = 4 DEM samples of whichever zoom loaded, and a loaded tile always covers 1024 CSS px
- *  (see TERRAIN_TILE_SIZE), so a facet is ~8 CSS px wide AT EVERY ZOOM. A deeper pyramid places
- *  those vertices more accurately; it does not give you more of them. */
-export const TERRAIN_MAX_ZOOM = 6;
+ *  Was 6 until 2026-07-28, on the reasoning that depth buys elevation detail but not mesh density
+ *  and so was "a size lever, decided on a look that already works". That reasoning was sound and
+ *  the conclusion was still wrong, because it treated the pyramid and the declaration as separate
+ *  decisions. They are one: `TERRAIN_TILE_SIZE` fixes the DEM at `camera - 1`, so with z6 the
+ *  deepest camera clamped and the declaration bought mesh density ONLY. Cutting z7/z8 (41 min,
+ *  2.63 GB) is what lets it buy elevation as well.
+ *
+ *  The sharper form of that, because it bounds what any depth can buy: `deltaZoom = 1` means a DEM
+ *  tile always covers 2x the render tile's ground, so 256 of its texels span the 128-quad mesh —
+ *  **2 DEM samples per facet along each axis (4 by area), at EVERY declared tile size**. The
+ *  declaration moves the mesh and the DEM shelf together and cannot change that ratio, so a deeper
+ *  pyramid places those vertices more accurately; it does not give you more of them.
+ *
+ *  Corrected 2026-07-27: this previously derived "512/128 = 4 DEM samples" per quad, which omits
+ *  deltaZoom — 4 is right only read as area, and the per-axis figure is 2. The companion claim that
+ *  a facet is ~8 CSS px wide AT EVERY ZOOM was true only of the then-shipping `tileSize: 512`; at
+ *  the shipping 128 it is ~2 px.
+ *
+ *  This ceiling now binds at the deepest camera, and only flat-on. At `tileSize: 128` and camera z8
+ *  the DEM wants z8 and gets it at pitch 0 — the mesh refines and the data refines with it. Pitch
+ *  takes it back: MapLibre's globe LOD heuristic drops the covering a level, so a pitched z8 view
+ *  reads z7 (see terrainZoomsFor). The payoff view is therefore one level shallower than the flag
+ *  suggests, which is worth knowing before anyone cuts a z9 that could never load.
+ *  → HISTORY § the seam tearing is MapLibre's own documented cross-zoom limitation */
+export const TERRAIN_MAX_ZOOM = 8;
 
-/** The tile's true pixel size, declared honestly — unlike the relief source, which declares 512 px
- *  assets as `tileSize: 256` to land them in a 256 slot at DPR 2.
+/** DECLARED tile size, and deliberately a quarter of the asset's true 512 px — the same trick the
+ *  relief source plays for a different reason (it declares 256 to land 512 px assets @2x at DPR 2;
+ *  this declares 128 so a render tile covers a quarter of the ground, making the fixed 128-quad
+ *  mesh land ~2 CSS px facets instead of 8).
+ *
+ *  Was 512 ("declared honestly") until 2026-07-28. Ratified on Rohan's eyes at z8 pitch 60 against
+ *  256 and 512, and these are the numbers that made it affordable rather than merely nicer:
+ *    - GPU frame cost is FLAT across declarations — 3.87 / 4.54 / 4.31 ms at 512 / 256 / 128, with
+ *      256 and 128 indistinguishable (overlapping IQRs). `rttSize` halves at every step down, so
+ *      more render tiles each cost proportionally less and total RTT pixels FALL. Chrome, with a
+ *      passing DPR control; treat it as a lower bound on Firefox.
+ *    - Seams get MILDER, not worse: 128 sees only the z6|z7 boundary (68 m typical step) where 512
+ *      straddles z4|z5 and z5|z6 (150 m and 105 m).
+ *  The real price is requests: 27 DEM tiles per view against 9 at 512, which lands on the free
+ *  tier and therefore on whoever `decideTier` promotes to `full`.
  *
  *  MapLibre turns tileSize into a zoom offset: `floor(mapZoom + log2(512 / tileSize))`
  *  (covering_tiles.ts, coveringZoomLevel), so relief fetches mapZoom + 1 and an honest 512 fetches
- *  mapZoom. Terrain then takes a second discount MapLibre applies on its own: TerrainTileManager
- *  sets `deltaZoom = 1` and overrides the cache's tileSize to 1024, which tile_manager.ts honours
- *  whenever `usedForTerrain` — so DEM tiles actually load at mapZoom - 1. At map z7 that is colour
- *  z8 against terrain z6: two levels apart, ~1/16 the tiles per view, not the quarter that the
- *  declared size alone would suggest. */
-export const TERRAIN_TILE_SIZE = 512;
+ *  mapZoom. Terrain then takes TWO further discounts, and conflating them is easy: TerrainTileManager
+ *  overrides the cache's tileSize to 1024 (tile_manager.ts honours it whenever `usedForTerrain`),
+ *  putting the RENDER tile at mapZoom - 1 — and then `getSourceTile` subtracts `deltaZoom = 1`
+ *  again, putting the DEM tile at **mapZoom - 2**. At map z7 that is colour z8 against terrain
+ *  **z5: three levels apart**. That gap is what made 512 cheap and shallow: 9 DEM tiles per view at
+ *  camera z8, against 27 at the shipping 128.
+ *
+ *  Corrected 2026-07-27: this previously stopped at the first discount and claimed DEM loads at
+ *  mapZoom - 1 ("map z7 → terrain z6, two levels apart"). That is the render tile's zoom, not the
+ *  DEM's. `terrainZoomsFor` has the arithmetic right and its tests pin it against two live reads.
+ *  → HISTORY § the seam tearing is MapLibre's own documented cross-zoom limitation */
+export const TERRAIN_TILE_SIZE = 128;
 
 /** Metres per encoded level, matching the pipeline's `--step`.
  *
@@ -264,22 +301,45 @@ export function parseTerrainFormat(params: URLSearchParams): TerrainTileFormat |
     : null;
 }
 
+/** Pyramid depths built on disk. 6 is the shipping archive; 8 is the deep build cut 2026-07-28,
+ *  which is the full extent of the master (`MASTER_ZOOM = 8`, 131072 = 512 x 2^8) — nothing below
+ *  z8 exists without a re-fuse. */
+export const TERRAIN_PYRAMID_DEPTHS = [6, 8] as const;
+export type TerrainPyramidDepth = (typeof TERRAIN_PYRAMID_DEPTHS)[number];
+
+/** Read `?demdepth=6|8`, defaulting to the shipping pyramid. Null for malformed only.
+ *
+ *  This is ONE value on purpose. It picks the build directory *and* the source's `maxzoom`, which
+ *  must agree: a deep directory declared `maxzoom: 6` silently never requests the levels it just
+ *  paid to build, and a shallow directory declared `maxzoom: 8` 404s every tile past z6. Neither
+ *  is visible in a rendered frame — the first looks like the lever doing nothing. */
+export function parseTerrainPyramidDepth(params: URLSearchParams): TerrainPyramidDepth | null {
+  const raw = params.get("demdepth");
+  if (raw === null || raw.trim() === "") return TERRAIN_MAX_ZOOM;
+  const depth = Number(raw);
+  return TERRAIN_PYRAMID_DEPTHS.includes(depth as TerrainPyramidDepth)
+    ? (depth as TerrainPyramidDepth)
+    : null;
+}
+
 /**
  * Directory holding one spike build, matching what `terrain_rgb.py --out` was pointed at.
  *
- * THE INVARIANT: the caller must compose this from the same `quantisation` and `format` values it
- * hands to `terrainEncoding` and `terrainPathTemplate`. Independent flags could disagree, and a
- * disagreement is undetectable at runtime — the tiles decode, so there is no 404 and no console
- * error, only a planet at the wrong scale.
+ * THE INVARIANT: the caller must compose this from the same `quantisation`, `format` and `depth`
+ * values it hands to `terrainEncoding`, `terrainPathTemplate` and the source's `maxzoom`.
+ * Independent flags could disagree, and a disagreement is undetectable at runtime — the tiles
+ * decode, so there is no 404 and no console error, only a planet at the wrong scale.
  */
 export function terrainBuildDirectory(
   variant: TerrainVariant,
   quantisation: TerrainQuantisation,
   format: TerrainTileFormat,
+  depth: TerrainPyramidDepth = TERRAIN_MAX_ZOOM,
 ): string {
   const step = quantisation === 1 ? "" : `_s${quantisation}`;
   const codec = format === "png" ? "" : `_${format}`;
-  return `${variant}${step}${codec}`;
+  const deep = depth === TERRAIN_MAX_ZOOM ? "" : `_z${depth}`;
+  return `${variant}${step}${codec}${deep}`;
 }
 
 /** Path portion of a terrain tile URL for one codec — TERRAIN_PATH_TEMPLATE at the default. */
@@ -287,9 +347,50 @@ export function terrainPathTemplate(format: TerrainTileFormat): string {
   return `{z}/{x}/{y}.${format}`;
 }
 
-/** Declared tile sizes for the axis-B A/B. 512 is honest; 256 is a deliberate misdeclaration that
- *  buys geometry, and the two are the only values worth testing. */
-export const TERRAIN_TILE_SIZES = [256, 512] as const;
+/** MapLibre's two skirt strategies, and we ship "none". Skirts are vertical curtains hung off every
+ *  tile edge to cover the LOD crack where render tiles of different zoom meet — see HISTORY § the
+ *  seam tearing is MapLibre's own documented cross-zoom limitation.
+ *
+ *  There is no third option and no length control: MapLibre's docs frame the choice as vertical
+ *  artifacts ("auto") against horizontal hairline gaps at boundaries between zoom levels ("none").
+ *  Statically the skirts touch only **0.41% of pixels** at z8 pitch 60 (0.13% by more than 8 DN) but
+ *  by up to **242 DN** where they do — a thin high-contrast line, not a wash. That static footprint
+ *  was never the complaint, though: the tearing is during MOTION, when the covering set churns and
+ *  skirts appear and vanish at new boundaries every frame.
+ *
+ *  RATIFIED "none" 2026-07-28 on Rohan's eyes, in motion: **basically zero tearing on pan**, traded
+ *  for tiny black specks. The specks confirm the mechanism twice over — they sit **only on drastic
+ *  elevation changes and never on flatland**, which is exactly where the LOD crack is widest, and
+ *  they read BLACK rather than sea-coloured because with terrain on the `space-floor` background is
+ *  drawn INTO each render tile's texture, so a gap between tiles is not covered by it at all and
+ *  shows the transparent canvas clear behind the globe. No background colour can fix that; only
+ *  geometry could. */
+export const TERRAIN_SKIRT_MODES = ["auto", "none"] as const;
+export type TerrainSkirtMode = (typeof TERRAIN_SKIRT_MODES)[number];
+
+/** Shipping strategy. NOT MapLibre's default — see the ratification note above. */
+export const TERRAIN_SKIRT_DEFAULT: TerrainSkirtMode = "none";
+
+/** Read `?skirt=auto|none`, defaulting to the ratified "none". Null for malformed only.
+ *
+ *  Passed to the Map CONSTRUCTOR — `terrainSkirtLength` is a MapOptions field, and the skirt is
+ *  baked into the cached mesh at build time, so it cannot be changed on a live map without
+ *  reaching into `_meshCache`. A page load per arm is the honest way to A/B it. */
+export function parseTerrainSkirt(params: URLSearchParams): TerrainSkirtMode | null {
+  const raw = params.get("skirt");
+  if (raw === null || raw.trim() === "") return TERRAIN_SKIRT_DEFAULT;
+  return TERRAIN_SKIRT_MODES.includes(raw as TerrainSkirtMode) ? (raw as TerrainSkirtMode) : null;
+}
+
+/** Declared tile sizes for the axis-B A/B. 512 is honest; 256 and 128 are deliberate
+ *  misdeclarations that buy geometry by making a render tile cover less ground.
+ *
+ *  Each step down moves the mesh AND the DEM shelf one level together — facets go 8 -> 4 -> 2 CSS
+ *  px, and the DEM goes camera-2 -> camera-1 -> camera. 128 was only worth listing once the z0-8
+ *  pyramid existed (2026-07-28): against the z0-6 build it asks for z8, clamps to z6, and pays ~4x
+ *  the render tiles for elevation it already had. It remains the most expensive arm by far —
+ *  render tiles are per-frame framebuffer binds plus a full replay of the layer stack. */
+export const TERRAIN_TILE_SIZES = [128, 256, 512] as const;
 export type TerrainDeclaredTileSize = (typeof TERRAIN_TILE_SIZES)[number];
 
 /** Read `?demsize=256|512`, defaulting to the shipped declaration. Null for malformed only. */
@@ -324,6 +425,19 @@ export function parseTerrainTileSize(params: URLSearchParams): TerrainDeclaredTi
  * z5 and z4 respectively. So a request-count estimate built by squaring this is an upper bound —
  * the observed set was 12 render tiles against 4 at declared 512, i.e. 3x, not the 4x the
  * arithmetic alone predicts.
+ *
+ * PITCH COSTS A DEM LEVEL, and this function cannot see it. `coveringTiles` takes a per-tile
+ * desired zoom from `defaultCalculateTileZoom(9.314, 3)`, which subtracts a pitch term and a
+ * tile-count penalty. Measured 2026-07-28 at camera z8 against the z0-8 pyramid, deepest DEM
+ * actually consumed:
+ *
+ *              pitch 0   pitch 30   pitch 60
+ *     512        z6         z6         z6      <- cannot reach past z6 at any pitch
+ *     256        z7         z7         z7
+ *     128        z8         z8         z7      <- nominal says z8 at all three
+ *
+ * So the pitched view — the one terrain exists to make worth looking at — systematically gets
+ * less elevation detail than flat-on, and 128's extra level evaporates exactly there.
  */
 export function terrainZoomsFor(
   cameraZoom: number,

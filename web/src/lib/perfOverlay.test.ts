@@ -1,9 +1,11 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   FPS_WINDOW_MS,
   SLOW_FRAME_MS,
   frameInterval,
   frameRate,
+  longTaskApiSupported,
   newFrameTracker,
   onIdle,
   onRender,
@@ -55,8 +57,54 @@ describe("perfSummaryLines", () => {
 
   it("says so plainly when the long-task API is missing", () => {
     const lines = perfSummaryLines({ ...BASE, longTaskApiAvailable: false });
-    expect(lines[2]).toBe("long-task API unavailable");
+    expect(lines[2]).toBe("long tasks n/a — no Long Tasks API in this browser");
     expect(lines).toHaveLength(4);
+  });
+
+  it("never renders an unmeasured browser as a measured zero", () => {
+    // The whole point of the line: a Firefox screenshot once read `long tasks 0 · 0 ms total ·
+    // 0 ms max` from an observer that never registered, and that zero was taken as evidence the
+    // main thread was clean. The unavailable line must share no prefix with a real reading.
+    const unavailable = perfSummaryLines({ ...BASE, longTaskApiAvailable: false })[2];
+    const measuredZero = perfSummaryLines({ ...BASE, longTaskApiAvailable: true })[2];
+    expect(measuredZero).toBe("long tasks 0 · 0 ms total · 0 ms max");
+    expect(unavailable).not.toBe(measuredZero);
+    expect(unavailable).toContain("n/a");
+    expect(unavailable).not.toMatch(/\b0\b/);
+  });
+});
+
+describe("longTaskApiSupported", () => {
+  const withEntryTypes = (types: string[]) =>
+    ({ supportedEntryTypes: types }) as unknown as typeof PerformanceObserver;
+
+  it("accepts a browser that lists longtask", () => {
+    expect(longTaskApiSupported(withEntryTypes(["mark", "measure", "longtask"]))).toBe(true);
+  });
+
+  it("rejects Firefox, which lists every OTHER entry type and silently ignores longtask", () => {
+    // The regression this whole change exists for: `observe({type: "longtask"})` does NOT throw
+    // there, so a try/catch reports the API as available and the panel prints a fake zero.
+    expect(longTaskApiSupported(withEntryTypes(["mark", "measure", "navigation", "resource"]))).toBe(
+      false,
+    );
+  });
+
+  it("rejects a browser with no PerformanceObserver at all", () => {
+    expect(longTaskApiSupported(undefined)).toBe(false);
+  });
+
+  it("rejects an implementation whose supportedEntryTypes is missing", () => {
+    expect(longTaskApiSupported({} as unknown as typeof PerformanceObserver)).toBe(false);
+  });
+
+  it("is what mountPerfOverlay actually gates the observer on", () => {
+    // A correct helper nobody calls is the same bug in a new place: the original code already
+    // had a longTaskApiAvailable flag and a formatter that handled it, and still printed a fake
+    // zero, because the only thing that could clear the flag was a throw that never came.
+    const source = readFileSync(new URL("./perfOverlay.ts", import.meta.url), "utf8");
+    expect(source).toMatch(/if\s*\(!longTaskApiSupported\(\)\)/);
+    expect(source).toContain('observer.observe({ type: "longtask", buffered: true })');
   });
 
   it("reports idle rather than zero when nothing has been rendered", () => {

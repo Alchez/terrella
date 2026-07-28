@@ -3,7 +3,9 @@
 // >50 ms, the Long Tasks API) are the jank currency: their count/total/max during the first
 // seconds attribute "it lags" to real main-thread stalls, while map load / first idle separate
 // download completion from responsiveness. Combined with the layer-stripping flags (?nocaps,
-// ?bare) the differences between reloads attribute the stalls to a subsystem.
+// ?bare) the differences between reloads attribute the stalls to a subsystem. Firefox implements
+// no Long Tasks API at all, so that line reports its own absence rather than a zero — see
+// longTaskApiSupported.
 
 import type { Map as MaplibreMap } from "maplibre-gl";
 
@@ -41,6 +43,26 @@ export interface PerfSnapshot {
   slowFrameCount: number;
   /** Live camera zoom, so a screenshot says where it was taken. */
   zoom: number;
+}
+
+/** Whether this browser implements the Long Tasks API.
+ *
+ *  Feature-tested rather than try/caught, because **Firefox does not throw on an unsupported entry
+ *  type**: `observe({type: "longtask"})` logs "Ignoring unsupported entryTypes: longtask" to the
+ *  console and returns normally. A try/catch therefore leaves the panel printing a confident
+ *  `long tasks 0 · 0 ms total · 0 ms max` from an observer that never registered — and a zero from
+ *  an instrument that never ran is indistinguishable from a genuinely clean main thread. That is
+ *  not hypothetical: it was read as proof a stall was *not* on the main thread, in a browser where
+ *  the number could never have been anything but zero.
+ *
+ *  Takes the constructor as an argument so the unsupported branch is testable without stubbing a
+ *  global.
+ */
+export function longTaskApiSupported(
+  observerConstructor: typeof PerformanceObserver | undefined = globalThis.PerformanceObserver,
+): boolean {
+  const supported = observerConstructor?.supportedEntryTypes;
+  return Array.isArray(supported) && supported.includes("longtask");
 }
 
 /** A frame this slow is visible as a hitch. Matched to the Long Tasks threshold so the two
@@ -157,7 +179,9 @@ export function perfSummaryLines(snapshot: PerfSnapshot): string[] {
       `long tasks ${snapshot.longTaskCount} · ${ms(snapshot.longTaskTotalMs)} total · ${ms(snapshot.longTaskMaxMs)} max`,
     );
   } else {
-    lines.push("long-task API unavailable");
+    // Names the browser as the reason, so this cannot be read as "the observer failed to mount"
+    // — and above all cannot be confused with a measured zero.
+    lines.push("long tasks n/a — no Long Tasks API in this browser");
   }
   // Worst and slow both show in either state, because they survive the gesture that produced them.
   const rate = snapshot.fps === null ? "fps — (idle)" : `fps ${snapshot.fps}`;
@@ -217,17 +241,21 @@ export function mountPerfOverlay(
     });
   }
 
-  try {
-    const observer = new PerformanceObserver((list) => {
-      for (const entry of list.getEntries()) {
-        snapshot.longTaskCount += 1;
-        snapshot.longTaskTotalMs += entry.duration;
-        snapshot.longTaskMaxMs = Math.max(snapshot.longTaskMaxMs, entry.duration);
-      }
-    });
-    observer.observe({ type: "longtask", buffered: true });
-  } catch {
+  if (!longTaskApiSupported()) {
     snapshot.longTaskApiAvailable = false;
+  } else {
+    try {
+      const observer = new PerformanceObserver((list) => {
+        for (const entry of list.getEntries()) {
+          snapshot.longTaskCount += 1;
+          snapshot.longTaskTotalMs += entry.duration;
+          snapshot.longTaskMaxMs = Math.max(snapshot.longTaskMaxMs, entry.duration);
+        }
+      });
+      observer.observe({ type: "longtask", buffered: true });
+    } catch {
+      snapshot.longTaskApiAvailable = false; // engines that DO throw, kept honest the same way
+    }
   }
 
   // Frame cadence is sampled from MapLibre's own "render" event, NOT from a requestAnimationFrame

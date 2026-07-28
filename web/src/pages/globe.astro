@@ -517,10 +517,13 @@ import { REPO_URL } from "../lib/siteLinks";
     TERRAIN_QUANTISATION_STEPS,
     TERRAIN_RAMP_END_ZOOM,
     TERRAIN_RAMP_START_ZOOM,
+    TERRAIN_SKIRT_DEFAULT,
+    TERRAIN_SKIRT_MODES,
     TERRAIN_SOURCE,
     TERRAIN_TILE_EXTENSION,
     TERRAIN_TILE_FORMATS,
     TERRAIN_TILE_SIZE,
+    TERRAIN_PYRAMID_DEPTHS,
     TERRAIN_TILE_SIZES,
     defaultTerrainRamp,
     describeTerrainState,
@@ -528,6 +531,8 @@ import { REPO_URL } from "../lib/siteLinks";
     parseTerrainFormat,
     parseTerrainQuantisation,
     parseTerrainRamp,
+    parseTerrainPyramidDepth,
+    parseTerrainSkirt,
     parseTerrainTileSize,
     parseTerrainVariant,
     rampedExaggeration,
@@ -620,6 +625,16 @@ import { REPO_URL } from "../lib/siteLinks";
   // expose the raster baseline, ?perf mounts the on-screen long-task overlay (phones have no
   // devtools console).
   const urlFlags = new URLSearchParams(location.search);
+  // Read before the Map is constructed: terrainSkirtLength is a constructor option, because the
+  // skirt is baked into the cached terrain mesh rather than applied per frame.
+  const parsedSkirt = parseTerrainSkirt(urlFlags);
+  if (parsedSkirt === null) {
+    console.warn(
+      `[terrain] ignoring ?skirt=${urlFlags.get("skirt")} — want one of ` +
+        `${TERRAIN_SKIRT_MODES.join("|")}. Using "${TERRAIN_SKIRT_DEFAULT}".`,
+    );
+  }
+  const terrainSkirtMode = parsedSkirt ?? TERRAIN_SKIRT_DEFAULT;
   const bareDiagnostic = urlFlags.has("bare");
 
   // ?maxreq=N — MapLibre's parallel image-request cap (default 16), applied BEFORE the Map is
@@ -693,6 +708,11 @@ import { REPO_URL } from "../lib/siteLinks";
     zoom: 1.6,
     minZoom: 0.4,
     maxZoom: 8, // never reach the z12 globe→mercator auto-switch
+    // ?skirt=none drops the vertical curtains MapLibre hangs off every terrain tile edge, trading
+    // them for hairline gaps at cross-zoom boundaries. Constructor-only: the skirt is baked into
+    // the cached mesh, so this cannot be toggled on a live map. Diagnostic — terrain seams are a
+    // MapLibre limitation neither setting removes.
+    terrainSkirtLength: terrainSkirtMode,
     dragRotate: true,
     // Camera in the URL fragment (#map=zoom/lat/lng/…): views become shareable links and
     // reload restores the position — a present fragment overrides center/zoom above. Our
@@ -821,7 +841,18 @@ import { REPO_URL } from "../lib/siteLinks";
       );
     }
     const format = parsedFormat ?? TERRAIN_TILE_EXTENSION;
-    const build = terrainBuildDirectory(variant, quantisation, format);
+    // ?demdepth joins that same read-once group: it picks the build directory AND the source's
+    // maxzoom, and the two must not be able to disagree. Declaring 6 over the deep build silently
+    // never requests z7/z8 — indistinguishable from the lever having no effect.
+    const parsedDepth = parseTerrainPyramidDepth(urlFlags);
+    if (parsedDepth === null) {
+      console.warn(
+        `[terrain] ignoring ?demdepth=${urlFlags.get("demdepth")} — want one of ` +
+          `${TERRAIN_PYRAMID_DEPTHS.join("|")}. Using ${TERRAIN_MAX_ZOOM}.`,
+      );
+    }
+    const pyramidDepth = parsedDepth ?? TERRAIN_MAX_ZOOM;
+    const build = terrainBuildDirectory(variant, quantisation, format, pyramidDepth);
     // ?demsize is the axis-B arm: 512 is the honest declaration, 256 a deliberate misdeclaration
     // that halves the ground a render tile covers and so halves the mesh facet. Separate flag
     // from ?quant on purpose — a wrong value here cannot corrupt a decode, only change which
@@ -854,7 +885,7 @@ import { REPO_URL } from "../lib/siteLinks";
         type: "raster-dem",
         tiles: [`${location.origin}/terrain/${build}/${terrainPathTemplate(format)}`],
         minzoom: TERRAIN_MIN_ZOOM,
-        maxzoom: TERRAIN_MAX_ZOOM,
+        maxzoom: pyramidDepth,
         tileSize: declaredTileSize,
         ...terrainEncoding(quantisation),
       });
@@ -883,10 +914,10 @@ import { REPO_URL } from "../lib/siteLinks";
     console.log(
       ramp.kind === "off"
         ? `[terrain] ${build} @ ${quantisation} m, ${terrainExaggeration}x constant (?ramp=off), ` +
-          `z0-${TERRAIN_MAX_ZOOM}`
+          `z0-${pyramidDepth}`
         : `[terrain] ${build} @ ${quantisation} m, ${terrainExaggeration}x below ` +
           `z${TERRAIN_RAMP_START_ZOOM}, ramping to ${ramp.floor}x at ` +
-          `z${TERRAIN_RAMP_END_ZOOM}, z0-${TERRAIN_MAX_ZOOM}`,
+          `z${TERRAIN_RAMP_END_ZOOM}, z0-${pyramidDepth}`,
     );
   }
 
