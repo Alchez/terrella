@@ -65,6 +65,65 @@ export const GL_RECOVERY_POLL_MS = 250;
  *  a second explicit `restoreContext()`) there is nothing left to wait for. */
 export const GL_RECOVERY_CEILING_MS = 60_000;
 
+/** How many losses one page life may recover from before it stops trying and asks for a reload.
+ *
+ *  Two, so an ordinary transient loss heals silently and a SECOND one still gets the benefit of the
+ *  doubt, while the third is treated as a pattern. The incident logged four. */
+export const GL_RECOVERY_ATTEMPT_LIMIT = 2;
+
+/** How long a map must run healthy for an earlier loss to stop counting against it.
+ *
+ *  Without this the budget is a lifetime quota: a map left open all day would refuse to recover at
+ *  tea time because of two losses that morning, which are no evidence about the GPU's state now. */
+export const GL_LOSS_AMNESTY_MS = 5 * 60_000;
+
+/**
+ * Losses still counting against the recovery budget once the new one is charged.
+ *
+ * A sliding window, oldest dropped: anything further back than the amnesty is not evidence about
+ * this loss. Pure and total — the caller keeps the returned array and hands it back next time.
+ */
+export function chargeLoss(previousLosses: readonly number[], lostAtMs: number): number[] {
+  const stillCounting = previousLosses.filter(
+    (previous) => lostAtMs - previous <= GL_LOSS_AMNESTY_MS,
+  );
+  return [...stillCounting, lostAtMs];
+}
+
+/**
+ * Recover from this loss, or stop and ask for a reload?
+ *
+ * WHY THIS IS NOT CONDITIONED ON THE CAUSE
+ * ----------------------------------------
+ * It cannot be. The web platform reports no reason for a context loss, which was measured rather
+ * than assumed: `WebGLContextEvent.statusMessage` is defined on the prototype and came back the
+ * empty string on a forced loss, and no `browser said:` segment ever appeared across the incident's
+ * real ones. `getGraphicsResetStatus` is not exposed on `WebGL2RenderingContext` and `EXT_robustness`
+ * is absent. So "was this transient?" has no direct answer.
+ *
+ * RECURRENCE IS THE SIGNAL WE ACTUALLY HAVE
+ * -----------------------------------------
+ * A single loss is usually transient — a driver reset, a suspended tab, a recycled GPU process —
+ * and recovering costs the user nothing. Losing the context repeatedly in a few minutes is the
+ * signature of a machine or a page in trouble, and rebuilding the same working set into it just
+ * feeds the loop. That is precisely the incident's shape: four losses that survived reloads, each
+ * silently rebuilding an uncapped map.
+ */
+export function recoveryVerdict(chargedLosses: readonly number[]): "recover" | "give-up" {
+  return chargedLosses.length > GL_RECOVERY_ATTEMPT_LIMIT ? "give-up" : "recover";
+}
+
+/** The sentence for the log when the budget is spent — states the count and the window, because
+ *  "gave up" without either reads like a bug rather than a policy. */
+export function describeGiveUp(chargedLosses: readonly number[]): string {
+  const windowMinutes = Math.round(GL_LOSS_AMNESTY_MS / 60_000);
+  return (
+    `[gl] ${chargedLosses.length} context losses within ${windowMinutes} min — not rebuilding ` +
+    `again. Repeated loss means the GPU or this page is in trouble, and recovering into the same ` +
+    `working set feeds the loop. Reload to start clean.`
+  );
+}
+
 /** Bytes one polar cap texture occupies on the GPU at a given rung: RGBA, no mipmaps.
  *
  *  8192² × 4 = 268,435,456 B = 256 MiB, and desktop takes the top rung for BOTH poles

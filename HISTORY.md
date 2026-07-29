@@ -87,6 +87,7 @@ The log below is **chronological**; this is the view it lacks. Nothing reads thi
 ### Performance & instrumentation
 *Everything here is measured. Three 'obvious flag' fixes died on a profiler — propose nothing from analogy.*
 
+- [2026-07-29 (memory) — one globe is 1.9 GB of VRAM, not 6.2; and MapLibre's context restore throws before it announces itself](#2026-07-29-memory--one-globe-is-19-gb-of-vram-not-62-and-maplibres-context-restore-throws-before-it-announces-itself) — **Layer 1 measured, and the plan's own instrument was wrong**: `nvidia-smi --query-compute-apps` lists CUDA/OpenCL clients only, so a browser — a *graphics* client — reads as **0 MB**; the scriptable path is `nvidia-smi -q -x` and its `G`/`C+G` `<process_info>` entries, sampling **pid and age** so a crash-respawn is visible rather than inferred. Fresh Chrome GPU process **38 MiB** → one globe idle **817 MiB** → hard-panned to the 384 MB DEM cap **1903 MiB, flat, one pid**. So a fully loaded globe is **~1.87 GB, under a third of the incident's 6,218 MiB**, and a reload frees it cleanly (1844 → 610 MiB): **no leak across reloads, and no VRAM ratchet across losses** (dips to 364, settles 653). Caps sat at rung 1024/2048 (`demand 1957 px`), so the 512 MiB "ours by design" is a ceiling needing a pole filling the screen, and is NOT in the 1.87 GB. **The real find is one root cause with three silent symptoms:** `_contextRestored` calls `this.resize()` at dev-bundle line 22602, which fires `move` → MapLibre's own Hash plugin (we pass `hash:"map"`) → `unproject` → terrain depth pass → **throws three lines before `fire("webglcontextrestored")` at 22605**. So the restore event is a coin toss, and everything hung off it fails: the DEM cap reverts **381 → 1155 slots (4/4 cycles)** while the overlay still reads "384 MB budget"; both polar caps return as a **black disc** (`setStyle` at 22594 precedes `_setupPainter()` at 22600, so a cap added from `style.load` binds to the outgoing GL context); and "could not recover" sticks over a working globe. Fixed by making recovery **convergent, not event-driven** — the watch starts at the LOSS and re-asserts state once healthy — plus a **recurrence budget** (recover twice, refuse the third within 5 min), because the platform reports **no cause**: `statusMessage` measured `""`, `getGraphicsResetStatus` undefined, `EXT_robustness` absent. 11 sabotages fired
 - [2026-07-29 (memory) — `coveringTiles` is public, so the cache bound can stop estimating; and the software-GPU check gets a signal that cannot be masked](#2026-07-29-memory--coveringtiles-is-public-so-the-cache-bound-can-stop-estimating-and-the-software-gpu-check-gets-a-signal-that-cannot-be-masked) — an audit of the whole shipped v6.0.0 surface (85 value exports / 128 `Map` methods / 54 events) against ours. **`Map.coveringTiles` is public and is the very function `TileManager.update` fills from**, so the fill side can be READ: measured 2560×1265 at z5, **52 tiles at tileSize 256 against the formula's 330** (129 vs 1155 at 128) — the rectangular estimate over-counts ~6× because a globe view is not a rectangle. `?perf` now prints `needs 52 (7.3x headroom)`, and the measured 294-slot knee reframes as **~5.7 camera-views of history**, which is portable where a constant was not. A LOWER bound by construction (public options omit `terrain`; `_addTerrainIdealTiles` only adds) — kept visible by printing the realized in-view count beside it, **52 → 67 IS the terrain addition**. **`failIfMajorPerformanceCaveat` adopted as a PROBE, not a map option** — as `canvasContextAttributes` it would kill the globe on a working GPU behind a driver blocklist (this project's own Firefox), and a context attribute cannot be undone at runtime; as a probe it feeds `decideTier`, which is reversible. New `performanceCaveat` signal kept separate from `softwareGpu` (different facts, same consequence) and it **cannot be masked** — it is an answer, not a renderer string. `capable()` exported as `canRunGlobe` because `index.astro` re-derived the floor inline. `getVersion()` into the loss snapshot. **Two corrections to the audit itself: `antialias` is NOT the default for us — we set it `true` on purpose** (globe limb vs starfield; `canvasContextAttributes` is shallow-merged), and `zoomLevelsToOverscale` is a non-issue because map `maxZoom` 8 equals both source maxzooms. Dismissed: `collectResourceTiming` (worker-only, does not solve raster counting), `reduceMotion` (inertia only), `maxCanvasSize` (verified inactive at DPR 1), `addProtocol` (architecturally excluded). Parked: `setSourceTileLodParams` (bounds tiles at high pitch — we ship pitch 60), the `setNow` clock freeze for A/B rigs, `queryTerrainElevation`
 - [2026-07-29 (memory) — a loss handler reads the teardown, not the state; and `WEBGL_lose_context` reproduces the dead map after all](#2026-07-29-memory--a-loss-handler-reads-the-teardown-not-the-state-and-webgl_lose_context-reproduces-the-dead-map-after-all) — **Layer 0 shipped** (`glDiagnostics.ts`, +59 tests): a GPU-loss state snapshot plus a recovery check that replaces the handler which hid the notice on the `webglcontextrestored` event alone. **Both halves of the first design were wrong and every test passed on them** — reading state inside `webglcontextlost` reads MapLibre's teardown (logged `no sources · caps none` on a map with five sources and both caps 100 ms earlier; MapLibre's own "cannot be restored" warnings print *first*), so the state is sampled on `idle` and reported with its age. **`WEBGL_lose_context` reproduces the UNRECOVERABLE case too** — correcting the entry below: `isContextLost()` still true a minute on after a second `restoreContext()`, so the dead map now has a local repro. A verdict that cannot be retracted is the same bug reversed (one loss recovered at ~6 s, past a 3 s deadline, leaving "could not recover" over a working globe → now watched to 60 s). **`GPUInitializationError` adopted** — MapLibre names what we inferred from a timeout; a canary guards the `instanceof` branch, which fails silently if it is renamed. Snapshot reports **every** source (`relief` holds 330 slots, invisible to a terrain-only probe) and prices the caps at **8192² × 4 = 256 MiB each → 512 MiB of VRAM that is ours by design**. 11 sabotages fired. Measures no VRAM and does not claim to
 - [2026-07-29 (memory) — the DEM cache is sized from one tile size and filled from another, and a formula-only cap is not a guard](#2026-07-29-memory--the-dem-cache-is-sized-from-one-tile-size-and-filled-from-another-and-a-formula-only-cap-is-not-a-guard) — root cause found in the shipped v6 bundle: **`updateCacheSize` reads `_source.tileSize` (our declared 128) while `coveringTiles` reads `tileManager.tileSize` (256, doubled by `TerrainTileManager`'s `deltaZoom = 1`)** — `usedForTerrain` is honoured in one call site and not the other, so the shelves outrun the fill rate by 4× in tiling density (3.27× realised at 2500×1300). Measured live: cache fills to **605/605 slots = 659 MB, 92% of the tab's entire JS heap**. Fixed per-source via `_maxTileCacheSize` (typed in MapLibre's public `.d.ts`; relief left untouched, verified `reliefCap: null`). **The A/B refuted the derived bound**: the knee is exactly "cap ≥ working set" and it is a cliff — on a 294-tile regional tour, refetches went **3 / 3 / 3 / 303 / 338** at caps 605 / 450 / 300 / 240 / 180, so the MapLibre-consistent 180 was *below* it. Hence `TERRAIN_CACHE_SLOT_MULTIPLIER = 2`, chosen not derived. **Then the multiplier itself proved wrong at scale** — canvas-area scaling granted 1.69 GB at 4K, more than an *uncapped* laptop — so a hard `TERRAIN_CACHE_BYTE_BUDGET = 384 MiB` clamps it. **384 has a measured LOWER bound (must clear 360 slots and the 294 knee) and no upper justification whatsoever.** Three instrument bugs caught before they became conclusions → see the entry
@@ -215,6 +216,92 @@ The log below is **chronological**; this is the view it lacks. Nothing reads thi
 - [2026-07-03 — Project scoped; dev environment decided](#2026-07-03--project-scoped-dev-environment-decided) — project scoped; dev environment decided
 
 ## Decision log
+
+### 2026-07-29 (memory) — one globe is 1.9 GB of VRAM, not 6.2; and MapLibre's context restore throws before it announces itself
+
+**The instrument named in the plan was wrong, and would have answered "no" for the wrong reason.**
+`nvidia-smi --query-compute-apps` enumerates CUDA/OpenCL clients only. A browser is a *graphics*
+client and never appears there, so the command reports Chrome using 0 MB — a clean false negative
+on the exact question being asked. The scriptable path is `nvidia-smi -q -x`, whose `<process_info>`
+entries carry the `G` / `C+G` type tag and per-process `used_memory`. The tracer also samples the
+GPU process's **pid and age** (cross-checked against `ps`), because the incident's own tell was
+"6,218 MiB and 4m31s old" on a browser session hours older — i.e. the number was a *refill* after a
+crash, not a steady state. Sampling pid continuously turns that inference into an observation, and
+it paid immediately: closing the stale tabs took Chrome down entirely, the trace logged pid `-1`
+(loud, not a silent 0), and a fresh process came back at 38 MiB.
+
+**Measured, one globe alone in that fresh process, 2560×1265, DPR 1, terrain 15×, 805 samples:**
+
+| state | Chrome GPU process |
+| --- | --- |
+| fresh Chrome, no globe | 38 MiB |
+| globe idle at z5 | 817 MiB |
+| hard-panned until the DEM cache pinned at its 384 MB cap | 1903–1912 MiB |
+| after a page reload | 610 MiB |
+| the incident | 6,218 MiB |
+
+So **a fully loaded globe is ~1.87 GB — under a third of the incident**, and it plateaus flat under
+a route that drove the DEM cache 6 → 229 → 384/384 MB (the shipped bound binding for the first time
+under load, 381/381 slots). A reload frees everything, and repeated context losses do **not** ratchet
+VRAM (dips to 364 MiB, settles 653). Two honest caveats: the caps sat at rung 1024/2048 here
+(`demand 1957 px` — the rung is chosen by on-screen demand), so the **512 MiB "ours by design" is a
+ceiling that needs a pole filling the screen and is not included in the 1.87 GB**; and this ran ~10
+minutes against an incident that had been open far longer.
+
+**The find that mattered was not the number.** One root cause, three silent symptoms. From the
+unminified dev bundle, `_contextRestored`:
+
+```js
+22594  if (this._lostContextStyle.style) this.setStyle(..., { diff: false });  // style rebuild STARTS
+22600  this._setupPainter();                                                   // painter comes back
+22602  this.resize();          // fires 'move' -> Hash._onMove -> unproject -> terrainCoords -> THROWS
+22605  this.fire(new MapContextEvent("webglcontextrestored", ...));            // never reached
+```
+
+The captured stack ends `… unproject → Bp → _onMove → fire → resize → _contextRestored`. `Bp`/`_onMove`
+is **MapLibre's own Hash plugin** — we pass `hash: "map"` — and on a terrain map its `unproject` runs
+the terrain depth pass, which needs `style.projection`, which is undefined mid-rebuild. Observed both
+ways on one build, so anything keyed to that event is a coin toss. Downstream:
+
+- **The DEM cache cap reverts, 4/4 forced cycles**: 381 slots → **1155**, i.e. straight back to the
+  1.16 GB ceiling the cap exists to remove, while the overlay still printed "384 MB budget". Our own
+  guard caught it (`cap did not stick — wrote 381, field reads null`). `style.load` fires from 22594,
+  before the painter and before `setTerrain` rebuilds the `TerrainTileManager` the cap lands on — the
+  cap only ever worked on first load because the initial `resize` re-applied it moments later.
+- **Both polar caps come back as a black disc.** Same ordering: a cap added from `style.load` binds
+  its buffers to the GL context from *before* `_setupPainter()`. Present, wrong, silent — which
+  **corrects the guard that used to claim the caps "survive ONLY because the restore re-fires
+  style.load"**. They do not survive; a hole would at least have been visible as a hole.
+- **"Could not recover" stays over a working globe** — intermittent, exactly as the coin toss predicts.
+
+**The fix is architectural: recovery is now convergent, not event-driven.** The watch starts from
+`webglcontextlost` and polls `restoreFault` until the map reads healthy, then re-asserts what the
+restore dropped (the DEM bound, the polar caps). The restore event stays bound purely as a hint —
+its *absence* is a known failure mode, so it cannot be load-bearing. The cap check now **repairs
+before it reports**, and lets the *next* idle be the judge: a first build verified its own write
+synchronously and logged "not in force — asked 381, holding 1155" about a repair that had worked,
+because `_outOfViewCache.max` is only recomputed on render. An oracle that cannot yet see the change
+cannot be the one that judges it.
+
+**Recovery is conditioned on RECURRENCE, because no cause is available — measured, not assumed.**
+`WebGLContextEvent.statusMessage` is defined on the prototype and returned `""`; no `browser said:`
+segment ever appeared across the incident's real losses either; `getGraphicsResetStatus` is not
+exposed on `WebGL2RenderingContext` and `EXT_robustness` is absent. So "was this transient?" has no
+direct answer. Instead: recover twice, refuse the third loss inside a 5-minute sliding window, on
+the grounds that repeated loss is the signature of a machine or page in trouble and rebuilding the
+same working set feeds the loop — which is precisely the incident's four-loss shape. Verified live:
+losses 1 and 2 recovered with the cap held at 381 and the pole seamless; loss 3 raised the notice
+immediately with `3 context losses within 5 min — not rebuilding again`.
+
+**11 sabotages fired**, including the two that pin the ordering (`applyCacheCap` after `setTerrain`;
+no synchronous re-read after the write). Six existing guards failed on the restructure and were
+rewritten to assert the new invariant rather than the old wiring — one of them because its stated
+rationale had been falsified by measurement.
+
+**Method note, third time this month:** `visibilityState` lied again. A reload left the automation
+tab unfocused with `rafAlive: false` and `hasFocus: false` while `visibilityState` read `"visible"`,
+so the map never loaded and it looked like the edit had broken the page. Race a rAF before believing
+any paint-driven reading.
 
 ### 2026-07-29 (memory) — `coveringTiles` is public, so the cache bound can stop estimating; and the software-GPU check gets a signal that cannot be masked
 

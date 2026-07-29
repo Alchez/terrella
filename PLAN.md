@@ -270,13 +270,19 @@ The Tier-3 *gate* already ships (capability probe + Lite/Globe/Full toggle, Phas
   - `restoreFault` replaces the unconditional hide, and outlives its own verdict to 60 s so a late recovery retracts the notice
   - `GPUInitializationError` (a MapLibre value export) now shows the notice with no grace period; a canary guards the `instanceof`, which fails silently if renamed
   - **`WEBGL_lose_context` reproduces the UNRECOVERABLE case, not just the happy path** — the dead map now has a local repro
-  - NOT open (checked): custom layers *are* re-added — `addPolarCaps` runs from `style.load`, which the restore re-fires, and `polarCaps.test.ts` guards that binding
-- [ ] **OPEN: 6.2 GB of VRAM is unattributed — the crash was GPU-side, and the cache cap is heap-side** → HISTORY § the 2K freeze was VRAM
-  - `nvidia-smi` reports ONE GPU process for all tabs; no clean-profile baseline was taken, so 6.2 GB is an upper bound on our page, not a measurement of it
-  - Modelled from the code it lands ~1 GB, of which **512 MiB is our own two 8192² cap textures** (desktop budget is `Infinity`); the gap to 6.2 GB is the question
+  - CORRECTED by measurement: custom layers are re-added from `style.load`, but that ordering is TOO EARLY — they return as a black disc → HISTORY § one globe is 1.9 GB of VRAM
+- [x] **Layer 1 done — one globe is ~1.87 GB of VRAM, not 6.2 GB; and the restore path is fixed** → HISTORY § one globe is 1.9 GB of VRAM
+  - 38 MiB fresh Chrome → 817 MiB idle → **1903 MiB pinned at the 384 MB DEM cap, flat, one pid**; reload frees it, losses do not ratchet
+  - `--query-compute-apps` is the WRONG flag (CUDA/OpenCL only — a browser reads 0 MB); use `nvidia-smi -q -x` and sample pid+age
+  - Root cause of all three restore defects: `_contextRestored` throws at `resize()` → Hash → `unproject` → terrain, before it fires `webglcontextrestored`
+  - Recovery is now convergent (watch starts at the LOSS, re-asserts when healthy) + a recurrence budget; no cause is available (`statusMessage` measured `""`)
+- [ ] **OPEN: the remaining gap to 6.2 GB — still unexplained, but no longer alarming** → HISTORY § one globe is 1.9 GB of VRAM
+  - Steady state is bounded and plateaus; the incident's excess is NOT steady-state working set, and is not a reload or context-loss ratchet
+  - Untested: the incident's much longer session, and whether the uncapped-after-restore cache (now fixed) was compounding it across its four losses
+  - The **512 MiB cap-texture ceiling is real but was NOT spent** in this run (rung 1024/2048 at `demand 1957 px`) — worst case is ~1.87 GB + up to ~0.5 GB
+  - **Layer 3** (in-page `gl.*` byte accounting) is the remaining tool, now lower priority; Layer 2 (Chrome `memory-infra`) accounts by allocator, never by call site
   - `rttSize = tileManager.tileSize × qualityFactor` = 256 × 2 → 512² per render tile; DEM + relief textures ≈ 1 MiB each
   - The `setTerrain` Terrain/RenderToTexture leak is NOT a suspect — `terrainSource.test.ts` already pins exactly one establishing call
-  - Next: **Layer 1** clean-profile `nvidia-smi` baseline (is it us?), then **Layer 3** in-page `gl.*` byte accounting (which allocation?); Layer 2 (Chrome `memory-infra`) accounts by allocator, never by call site
 - [ ] **OPEN: 256 px DEM assets — the lever that actually addresses the 1 MB slot** (unmeasured)
   - 4× fewer bytes per slot with NO change to slot count or refetch behaviour; needs a re-cut
   - Mesh is a fixed 128×128 grid per render tile, so 512 px assets are currently ~2× oversampled

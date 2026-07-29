@@ -561,13 +561,19 @@ import { REPO_URL } from "../lib/siteLinks";
     GL_RECOVERY_VERIFY_MS,
     GL_RESTORE_GRACE_MS,
     type GlLossSnapshot,
+    chargeLoss,
+    describeGiveUp,
     describeLoss,
     formatGpuInitFailure,
+    recoveryVerdict,
     restoreFault,
     snapshotGlLoss,
     snapshotHasContent,
   } from "../lib/glDiagnostics";
   import { DEEP_SEA } from "../lib/palette";
+  // Ids and poles only — the cap MESH and its textures stay behind the dynamic import below.
+  // glDiagnostics already pulls these two statically, so this adds nothing to the bundle.
+  import { CAP_POLES, capLayerId } from "../lib/polarCaps";
   import { currentTier } from "../lib/capability";
   import {
     COUNTRIES_SOURCE,
@@ -834,6 +840,14 @@ import { REPO_URL } from "../lib/siteLinks";
   // loss snapshot wants it too and `?terrain=off` never enters the block below — in which case
   // there is no terrain source and null is the honest answer, not zero.
   let coveringTileCount: () => number | null = () => null;
+  // Re-apply the DEM bound. Needed because a WebGL context restore silently drops it: MapLibre
+  // rebuilds the style from line 22594 of _contextRestored, which fires `style.load` BEFORE
+  // _setupPainter() has run, so the terrain tile manager the cap is written to does not exist yet —
+  // then setTerrain builds a fresh, uncapped one. Measured 4/4 forced losses: 381 slots -> 1155,
+  // i.e. straight back to the 1.16 GB ceiling the cap exists to remove, while the overlay still
+  // read "384 MB budget". Asserted from a healthy `idle` rather than from the restore event,
+  // because that event is not guaranteed to arrive at all (see the GL block below).
+  let reassertTerrainBound: () => void = () => {};
   // TIER 3 LANDS HERE: terrain is what `full` finally buys beyond the idle spin. `?terrain=`
   // still overrides in both directions — a number forces it on at any tier, `off` forces it flat
   // without demoting the tier — so every A/B flag below stays usable and there is still a way to
@@ -937,14 +951,38 @@ import { REPO_URL } from "../lib/siteLinks";
     // number MapLibre actually enforces, and it is only recomputed on render — so this reads back
     // after a frame has run, not immediately. Both failure modes are silent otherwise: a write that
     // does not stick, and a MapLibre that stops honouring the Math.min.
+    //
+    // REPAIRS before it reports. The check was written expecting the cap to fail only if MapLibre's
+    // internals moved — a thing you log and go and read about. A context restore drops the cap for
+    // an ordinary, recurring reason instead, and a report alone leaves the map running uncapped
+    // with a line in a console nobody has open. So: re-apply once, and only call it a fault if the
+    // re-application does not take. `capFaultReported` still bounds the log to one line per page.
     let capFaultReported = false;
-    map.on("idle", () => {
-      if (capFaultReported) return;
+    let capRepairAttempted = false;
+    reassertTerrainBound = () => {
       const fault = demCacheCapFault(map.style?.tileManagers?.[TERRAIN_SOURCE], intendedCacheSlots);
-      if (fault === null) return;
+      if (fault === null) {
+        // Healthy: arm the repair again, so a LATER loss gets its own attempt rather than being
+        // judged on this one's outcome.
+        capRepairAttempted = false;
+        return;
+      }
+      // The NEXT idle is the verification, never a read taken here. `_outOfViewCache.max` is only
+      // recomputed on render, so re-reading it immediately after the write reports the number
+      // MapLibre has not caught up to yet — which is exactly what a first build did: it repaired
+      // the cap correctly and then logged "not in force — asked 381, holding 1155" about its own
+      // successful repair. An oracle that cannot yet see the change cannot be the one that judges it.
+      if (!capRepairAttempted) {
+        capRepairAttempted = true;
+        applyCacheCap();
+        console.info(`[terrain] DEM cache cap was not in force (${fault}) — re-applied`);
+        return;
+      }
+      if (capFaultReported) return;
       capFaultReported = true; // once per session; a per-frame version would bury the log
-      console.error(`[terrain] DEM cache cap is not in force — ${fault}`);
-    });
+      console.error(`[terrain] DEM cache cap is not in force after a re-apply — ${fault}`);
+    };
+    map.on("idle", reassertTerrainBound);
 
     map.on("style.load", () => {
       map.addSource(TERRAIN_SOURCE, {
@@ -955,8 +993,12 @@ import { REPO_URL } from "../lib/siteLinks";
         tileSize: declaredTileSize,
         ...terrainEncoding(),
       });
-      applyCacheCap();
+      // AFTER setTerrain, not before: setTerrain is what swaps the plain TileManager for the
+      // TerrainTileManager the cap has to land on, so capping first writes to an object MapLibre is
+      // about to replace. It happened to work on a first load only because the initial `resize`
+      // re-applied it moments later; on a context restore no resize follows and the cap stayed off.
       map.setTerrain({ source: TERRAIN_SOURCE, exaggeration: exaggerationFor(map.getZoom()) });
+      applyCacheCap();
     });
 
     // A resize changes the viewport, and with it the working set the cap has to hold — going
@@ -999,12 +1041,31 @@ import { REPO_URL } from "../lib/siteLinks";
   // polar ring was isolated by exactly that comparison. Config comes from the
   // pipeline-emitted /caps/caps.json (fetched inside addPolarCaps); dynamic import keeps the
   // globe bundle lean.
+  //
+  // The caps must be RE-ADDED after a context restore, and specifically not from `style.load`.
+  // MapLibre says so itself on every loss ("Custom layer ... cannot be restored ... you will need
+  // to re-add it manually"), but the timing is the part that bites: _contextRestored calls
+  // setStyle() at line 22594 and _setupPainter() only at 22600, so a cap added from `style.load`
+  // binds its buffers and textures to the GL context from BEFORE the painter came back. It renders
+  // as a black disc over the pole — present, wrong, and silent. Re-adding once the map reads
+  // healthy is the only ordering that holds, so the re-add is driven from there.
+  let reassertPolarCaps: () => void = () => {};
   if (!urlFlags.has("nocaps") && !bareDiagnostic) {
-    map.on("style.load", () => {
+    const addCaps = () =>
       void import("../lib/polarCaps")
         .then((mod) => mod.addPolarCaps(map))
         .catch((err) => console.error("[caps] failed", err));
-    });
+    map.on("style.load", addCaps);
+    reassertPolarCaps = () => {
+      // Drop whatever the restore left behind before re-adding: addLayer throws on a duplicate id,
+      // and the layer sitting there is the black-disc one, so keeping it is not an option either.
+      for (const pole of CAP_POLES) {
+        const layerId = capLayerId(pole);
+        if (map.getLayer(layerId)) map.removeLayer(layerId);
+      }
+      console.info("[caps] re-adding polar caps after a GPU context restore");
+      addCaps();
+    };
   }
 
   // Performance overlay (?perf): on-screen numbers for phone diagnosis; dynamic import so
@@ -1073,52 +1134,88 @@ import { REPO_URL } from "../lib/siteLinks";
     if (snapshotHasContent(snapshot)) lastHealthyGlState = snapshot;
   });
 
-  map.on("webglcontextlost", (event) => {
-    window.clearTimeout(restoreWatchdog);
-    window.clearInterval(recoveryPoll);
-    const atLoss = readGlState("lost", event.originalEvent?.statusMessage ?? null);
-    console.warn(describeLoss(atLoss, lastHealthyGlState), lastHealthyGlState ?? atLoss);
-    restoreWatchdog = window.setTimeout(
-      () => glLostNotice?.removeAttribute("hidden"),
-      GL_RESTORE_GRACE_MS,
-    );
-  });
+  // Losses still counting against the recovery budget. A page that keeps losing the context is not
+  // one to keep rebuilding: see recoveryVerdict for why this is keyed on RECURRENCE and not on the
+  // cause (measured: the platform reports no cause — statusMessage came back "", and neither
+  // getGraphicsResetStatus nor EXT_robustness exists here).
+  let chargedLosses: number[] = [];
 
-  map.on("webglcontextrestored", () => {
-    window.clearTimeout(restoreWatchdog);
+  /**
+   * Poll the map's STATE until it is usable again, then put back what the restore dropped.
+   *
+   * `verifyFrom` is when the map should be expected to be healthy — the deadline is measured from
+   * there, so a watch started at the moment of loss still allows the restore its full grace period
+   * before anything is called a failure.
+   *
+   * The re-assertions are the point. A restore does not simply rebuild what was there: it rebuilds
+   * the style at a moment when neither the terrain tile manager nor the painter exists yet, so the
+   * DEM bound lands on an object about to be replaced and the polar caps bind to the outgoing GL
+   * context. Both were measured, and both are silent — an uncapped cache and a black disc. Doing
+   * this here rather than on the restore event is deliberate: healthy is a state we can read, and
+   * the event is one we may never get.
+   */
+  const startRecoveryWatch = (verifyFrom: number) => {
     window.clearInterval(recoveryPoll);
-    // The style is re-applied asynchronously, so the first read after this event is legitimately
-    // empty on a perfectly healthy recovery. Poll instead of guessing one delay: pass on the first
-    // clean read, and only call it a failure once the deadline is out. The notice stays as it is
-    // until then — retracting "could not recover" is what has to be earned.
-    const startedAt = performance.now();
     let faultReported = false;
     const check = () => {
-      const elapsed = performance.now() - startedAt;
+      const sinceVerify = performance.now() - verifyFrom;
       const fault = restoreFault(map);
       if (fault === null) {
         window.clearInterval(recoveryPoll);
         glLostNotice?.setAttribute("hidden", "");
         console.info(
           faultReported
-            ? `[gl] the map recovered after all, ${(elapsed / 1000).toFixed(1)}s in — notice retracted`
-            : "[gl] context restored and the map rebuilt — recovered",
+            ? `[gl] the map recovered after all, ${(sinceVerify / 1000).toFixed(1)}s in — notice retracted`
+            : "[gl] the map rebuilt itself after the context came back — recovered",
         );
+        reassertTerrainBound();
+        reassertPolarCaps();
         return;
       }
       // Report once at the deadline, then KEEP WATCHING. A measured loss recovered at ~6s, past
       // the deadline, and the first build left "could not recover" over a working globe — the same
       // defect as a dead globe with no message, pointed the other way.
-      if (!faultReported && elapsed >= GL_RECOVERY_VERIFY_MS) {
+      if (!faultReported && sinceVerify >= GL_RECOVERY_VERIFY_MS) {
         faultReported = true;
         glLostNotice?.removeAttribute("hidden");
         console.error(`[gl] the context came back but the map did not — ${fault}`);
         console.warn(describeLoss(readGlState("restored", null), lastHealthyGlState));
       }
-      if (elapsed >= GL_RECOVERY_CEILING_MS) window.clearInterval(recoveryPoll);
+      if (sinceVerify >= GL_RECOVERY_CEILING_MS) window.clearInterval(recoveryPoll);
     };
     recoveryPoll = window.setInterval(check, GL_RECOVERY_POLL_MS);
     check();
+  };
+
+  map.on("webglcontextlost", (event) => {
+    window.clearTimeout(restoreWatchdog);
+    window.clearInterval(recoveryPoll);
+    const atLoss = readGlState("lost", event.originalEvent?.statusMessage ?? null);
+    console.warn(describeLoss(atLoss, lastHealthyGlState), lastHealthyGlState ?? atLoss);
+    chargedLosses = chargeLoss(chargedLosses, performance.now());
+    if (recoveryVerdict(chargedLosses) === "give-up") {
+      console.error(describeGiveUp(chargedLosses));
+      glLostNotice?.removeAttribute("hidden");
+      return;
+    }
+    restoreWatchdog = window.setTimeout(
+      () => glLostNotice?.removeAttribute("hidden"),
+      GL_RESTORE_GRACE_MS,
+    );
+    // WATCH FROM THE LOSS, NOT FROM THE RESTORE. `webglcontextrestored` is not guaranteed to
+    // arrive: MapLibre's _contextRestored calls this.resize() at line 22602, which fires `move`,
+    // which reaches its own Hash plugin (we pass hash:"map") -> unproject -> the terrain depth pass
+    // -> useProgram on a style that is still mid-rebuild, and it THROWS — three lines before
+    // fire("webglcontextrestored") at 22605. Observed both ways on the same build, so anything
+    // hung off that event is a coin toss. Polling the STATE converges either way.
+    startRecoveryWatch(performance.now() + GL_RESTORE_GRACE_MS);
+  });
+
+  map.on("webglcontextrestored", () => {
+    // Kept bound, but only as a hint that tightens the deadline — never as the thing that decides
+    // recovery. Its ABSENCE is a known failure mode, so it cannot be load-bearing.
+    window.clearTimeout(restoreWatchdog);
+    startRecoveryWatch(performance.now());
   });
 
   // Tiles still in flight when you navigate away (e.g. clicking through to a hero)

@@ -478,14 +478,32 @@ describe("globe.astro wires the instrument rather than re-stating it", () => {
   });
 
   it("reads the cap back after a frame, so 'applied' means enforced and not merely written", () => {
-    // Scoped to the idle handler: a read-back moved somewhere it never runs would pass a
-    // file-wide substring check while verifying nothing.
-    const idle = globe
-      .match(/map\.on\("idle", \(\) => \{[\s\S]*?\n    \}\);/g)
-      ?.find((block) => block.includes("demCacheCapFault"));
-    expect(idle, "an idle handler must verify the cap").toBeTruthy();
-    expect(idle).toContain("console.error");
-    expect(idle).toContain("capFaultReported");
+    // Scoped to the re-assertion, and it must actually be bound to `idle`: a read-back moved
+    // somewhere it never runs would pass a file-wide substring check while verifying nothing.
+    const reassert = globe.match(/reassertTerrainBound = \(\) => \{[\s\S]*?\n    \};/)?.[0];
+    expect(reassert, "the cap re-assertion must exist").toBeTruthy();
+    expect(globe, "and must run on idle").toContain('map.on("idle", reassertTerrainBound)');
+    expect(reassert).toContain("demCacheCapFault");
+    expect(reassert).toContain("console.error");
+    expect(reassert).toContain("capFaultReported");
+  });
+
+  it("REPAIRS a dropped cap before reporting it, and lets the next idle be the judge", () => {
+    // A WebGL context restore drops the cap every time (measured 4/4: 381 slots -> 1155), so this
+    // is an ordinary recurring condition, not the "MapLibre internals moved" case the check was
+    // written for. Reporting alone would leave the map running uncapped behind a console line.
+    const reassert = globe.match(/reassertTerrainBound = \(\) => \{[\s\S]*?\n    \};/)?.[0];
+    expect(reassert).toContain("applyCacheCap()");
+    // The re-apply must come BEFORE the error, or the repair is dead code below a report.
+    expect(reassert!.indexOf("applyCacheCap()")).toBeLessThan(reassert!.indexOf("console.error"));
+    // And it must not verify its own work synchronously: _outOfViewCache.max is recomputed on
+    // render, so an immediate re-read reports the stale number and a first build logged
+    // "not in force — asked 381, holding 1155" about a repair that had in fact worked.
+    const afterApply = reassert!.slice(reassert!.indexOf("applyCacheCap()"));
+    expect(
+      (afterApply.match(/demCacheCapFault/g) ?? []).length,
+      "no second fault read after the write — the next idle verifies",
+    ).toBe(0);
   });
 
   it("surfaces the line through the perf overlay, so it is visible in Zen without devtools", () => {

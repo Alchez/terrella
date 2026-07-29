@@ -2,6 +2,8 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import * as maplibregl from "maplibre-gl";
 import {
+  GL_LOSS_AMNESTY_MS,
+  GL_RECOVERY_ATTEMPT_LIMIT,
   GL_RECOVERY_CEILING_MS,
   GL_RECOVERY_POLL_MS,
   GL_RECOVERY_VERIFY_MS,
@@ -9,7 +11,10 @@ import {
   type MapLike,
   capLayerStates,
   capTextureBytes,
+  chargeLoss,
+  describeGiveUp,
   describeLoss,
+  recoveryVerdict,
   formatGlLoss,
   formatGpuInitFailure,
   restoreFault,
@@ -405,6 +410,46 @@ describe("globe.astro wires the diagnostics rather than re-stating them", () => 
   const idleSampler = globe.match(/map\.on\("idle", \(\) => \{[\s\S]*?\n  \}\);/g)
     ?.find((block) => block.includes("lastHealthyGlState"));
 
+  // The verdict logic lives here now rather than in the restore handler, because the restore event
+  // is not guaranteed to fire (see the comment on the loss handler). Both entry points share it.
+  const recoveryWatch = globe.match(/const startRecoveryWatch = [\s\S]*?\n  \};/)?.[0];
+
+  // Measured: MapLibre's _contextRestored calls this.resize() BEFORE it fires
+  // "webglcontextrestored", and with hash:"map" + terrain that resize reaches its own Hash plugin
+  // -> unproject -> the terrain depth pass and THROWS, so the event never arrives. Recovery keyed
+  // to that event is therefore a coin toss, and these guards pin the state-driven wiring that
+  // replaced it. All three defects it caused (uncapped DEM cache, black polar disc, a stuck
+  // "could not recover" notice) reproduce from one WEBGL_lose_context cycle if this regresses.
+  it("starts the recovery watch from the LOSS, because the restore event may never fire", () => {
+    expect(lostHandler, "loss handler must start the watch itself").toContain(
+      "startRecoveryWatch(",
+    );
+  });
+
+  it("puts back what a restore silently drops, once the map reads healthy", () => {
+    const watch = globe.match(/const startRecoveryWatch = [\s\S]*?\n  \};/)?.[0];
+    expect(watch, "startRecoveryWatch must exist").toBeTruthy();
+    expect(watch).toContain("reassertTerrainBound()");
+    expect(watch).toContain("reassertPolarCaps()");
+  });
+
+  it("bounds recovery by recurrence rather than trying to read a cause that does not exist", () => {
+    expect(lostHandler).toContain("chargeLoss(");
+    expect(lostHandler).toContain("recoveryVerdict(");
+    expect(lostHandler).toContain("describeGiveUp(");
+  });
+
+  it("caps the DEM cache AFTER setTerrain, which is what builds the manager it lands on", () => {
+    const styleLoad = globe.match(/map\.on\("style\.load", \(\) => \{[\s\S]*?\n    \}\);/g)?.find(
+      (block) => block.includes("applyCacheCap()"),
+    );
+    expect(styleLoad, "the terrain style.load handler must exist").toBeTruthy();
+    const terrainAt = styleLoad!.indexOf("map.setTerrain(");
+    const capAt = styleLoad!.indexOf("applyCacheCap()");
+    expect(terrainAt).toBeGreaterThan(-1);
+    expect(capAt).toBeGreaterThan(terrainAt);
+  });
+
   it("keeps the timing policy in the module, not as literals in the page", () => {
     for (const name of [
       "GL_RESTORE_GRACE_MS",
@@ -422,25 +467,30 @@ describe("globe.astro wires the diagnostics rather than re-stating them", () => 
   it("NEVER hides the notice on the restore event alone — this is the whole bug", () => {
     // The regression that made a dead globe display as a working one. If a future edit puts an
     // unconditional setAttribute("hidden") back in this handler, it must fail here.
-    expect(restoredHandler, "the restore handler must exist").toBeTruthy();
-    expect(restoredHandler).toContain("restoreFault");
-    const hides = restoredHandler!.match(/setAttribute\("hidden"/g) ?? [];
+    expect(recoveryWatch, "the recovery watch must exist").toBeTruthy();
+    expect(recoveryWatch).toContain("restoreFault");
+    const hides = recoveryWatch!.match(/setAttribute\("hidden"/g) ?? [];
     expect(hides, "exactly one hide, and it must be behind the fault check").toHaveLength(1);
-    const beforeHide = restoredHandler!.slice(0, restoredHandler!.indexOf('setAttribute("hidden"'));
+    const beforeHide = recoveryWatch!.slice(0, recoveryWatch!.indexOf('setAttribute("hidden"'));
     expect(beforeHide).toContain("fault === null");
+    // Stronger than before: the restore handler may not touch the notice AT ALL. It fires on an
+    // event that says the browser returned a context, which is not evidence the map came back —
+    // and on a measured build it does not fire at all.
+    expect(restoredHandler, "the restore handler must exist").toBeTruthy();
+    expect(restoredHandler).not.toContain('setAttribute("hidden"');
   });
 
   it("shows the notice when the deadline passes with the map still broken", () => {
-    expect(restoredHandler).toContain("removeAttribute(\"hidden\")");
-    expect(restoredHandler).toMatch(/console\.error/);
+    expect(recoveryWatch).toContain("removeAttribute(\"hidden\")");
+    expect(recoveryWatch).toMatch(/console\.error/);
   });
 
   it("keeps watching past its own verdict, so a late recovery retracts the notice", () => {
     // A measured loss recovered at ~6s, past the deadline. The first build gave up at the deadline
     // and left "could not recover" over a working globe.
-    expect(restoredHandler).toContain("GL_RECOVERY_CEILING_MS");
+    expect(recoveryWatch).toContain("GL_RECOVERY_CEILING_MS");
     // The fault path must NOT stop the poll — only recovery or the ceiling may.
-    const faultBranch = restoredHandler!.slice(restoredHandler!.indexOf("faultReported = true"));
+    const faultBranch = recoveryWatch!.slice(recoveryWatch!.indexOf("faultReported = true"));
     const untilCeiling = faultBranch.slice(0, faultBranch.indexOf("GL_RECOVERY_CEILING_MS"));
     expect(untilCeiling, "reporting the fault must not end the watch").not.toContain(
       "clearInterval",
@@ -489,9 +539,12 @@ describe("globe.astro wires the diagnostics rather than re-stating them", () => 
   it("cancels a pending recovery poll on every path that supersedes it", () => {
     // Two timers race: the grace watchdog and the recovery poll. A path that leaves one running
     // can flip the notice back after another path has settled it.
-    for (const handler of [lostHandler, restoredHandler]) {
-      expect(handler).toContain("clearInterval(recoveryPoll)");
-    }
+    expect(lostHandler).toContain("clearInterval(recoveryPoll)");
+    // The watch supersedes any earlier one, so it clears before arming; the restore handler no
+    // longer polls itself, it just cancels the grace watchdog and re-enters the watch.
+    expect(recoveryWatch).toContain("clearInterval(recoveryPoll)");
+    expect(restoredHandler).toContain("clearTimeout(restoreWatchdog)");
+    expect(restoredHandler).toContain("startRecoveryWatch(");
   });
 
   it("declares the notice before any handler that touches it", () => {
@@ -512,6 +565,54 @@ describe("the timing policy", () => {
   it("watches well past the ~6s recovery that was actually measured", () => {
     expect(GL_RECOVERY_CEILING_MS).toBeGreaterThan(GL_RECOVERY_VERIFY_MS);
     expect(GL_RECOVERY_CEILING_MS).toBeGreaterThanOrEqual(10_000);
+  });
+});
+
+describe("the recovery budget — conditioned on recurrence, because no cause is available", () => {
+  it("recovers from a first loss, which is the ordinary transient one", () => {
+    expect(recoveryVerdict(chargeLoss([], 1000))).toBe("recover");
+  });
+
+  it("still gives a second loss the benefit of the doubt", () => {
+    const charged = chargeLoss(chargeLoss([], 1000), 20_000);
+    expect(charged).toHaveLength(2);
+    expect(recoveryVerdict(charged)).toBe("recover");
+  });
+
+  it("stops at the third loss in the window — the incident logged four", () => {
+    let charged = chargeLoss([], 1000);
+    charged = chargeLoss(charged, 20_000);
+    charged = chargeLoss(charged, 40_000);
+    expect(recoveryVerdict(charged)).toBe("give-up");
+  });
+
+  it("forgives losses older than the amnesty, so a long-lived tab is not sentenced by its morning", () => {
+    const morning = chargeLoss(chargeLoss([], 1000), 20_000);
+    const afternoon = chargeLoss(morning, 20_000 + GL_LOSS_AMNESTY_MS + 1);
+    expect(afternoon).toHaveLength(1);
+    expect(recoveryVerdict(afternoon)).toBe("recover");
+  });
+
+  it("keeps a loss that lands exactly on the amnesty boundary", () => {
+    const charged = chargeLoss(chargeLoss([], 1000), 1000 + GL_LOSS_AMNESTY_MS);
+    expect(charged).toHaveLength(2);
+  });
+
+  it("does not mutate the array it is handed", () => {
+    const previous = Object.freeze([1000]) as readonly number[];
+    expect(() => chargeLoss(previous, 2000)).not.toThrow();
+    expect(previous).toHaveLength(1);
+  });
+
+  it("names the count and the window, so the log reads as a policy and not a crash", () => {
+    const sentence = describeGiveUp([1, 2, 3]);
+    expect(sentence).toContain("3 context losses");
+    expect(sentence).toContain(`${GL_LOSS_AMNESTY_MS / 60_000} min`);
+    expect(sentence).toMatch(/reload/i);
+  });
+
+  it("the limit is a budget, not a switch that disables recovery", () => {
+    expect(GL_RECOVERY_ATTEMPT_LIMIT).toBeGreaterThanOrEqual(1);
   });
 });
 

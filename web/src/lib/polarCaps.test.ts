@@ -792,15 +792,31 @@ describe("the cap's draw call", () => {
 });
 
 describe("the context-loss recovery contract", () => {
-  it("globe.astro installs the caps from style.load — the binding recovery depends on", () => {
-    const source = readFileSync(new URL("../pages/globe.astro", import.meta.url), "utf8");
-    const boundToStyleLoad = /map\.on\(\s*["']style\.load["'][\s\S]{0,400}?addPolarCaps/.test(source);
+  const globe = readFileSync(new URL("../pages/globe.astro", import.meta.url), "utf8");
+
+  it("globe.astro installs the caps from style.load, not from a one-shot load", () => {
+    const boundToStyleLoad = /map\.on\(\s*["']style\.load["']\s*,\s*addCaps\s*\)/.test(globe);
     expect(
       boundToStyleLoad,
-      "globe.astro must call addPolarCaps from a `style.load` handler. MapLibre restores a lost " +
-        "WebGL context by re-applying a serialized style, which cannot carry a `custom` layer — " +
-        "the caps survive ONLY because that restore re-fires `style.load`. Bound to a one-shot " +
-        "`load` instead, every recovered globe is silently capless: no error, just holes at the poles.",
+      "globe.astro must install the caps from a `style.load` handler. MapLibre re-applies a " +
+        "serialized style on restore and that style cannot carry a `custom` layer, so a one-shot " +
+        "`load` binding leaves every rebuilt globe capless: no error, just holes at the poles.",
     ).toBe(true);
+  });
+
+  // CORRECTS THE CLAIM THIS BLOCK USED TO MAKE. It asserted the caps "survive ONLY because the
+  // restore re-fires style.load". They do not survive: measured, a restore re-fires style.load and
+  // the caps come back as a BLACK DISC over the pole. _contextRestored calls setStyle() at line
+  // 22594 and _setupPainter() only at 22600, so a cap added from style.load binds its buffers to
+  // the outgoing GL context. Present, wrong, and silent — worse than the hole it was guarding
+  // against, because a hole is visible as a hole.
+  it("re-adds the caps on recovery, from OUTSIDE style.load, because that ordering is too early", () => {
+    expect(globe, "a recovery re-add must exist").toMatch(/reassertPolarCaps\s*=\s*\(\)\s*=>/);
+    const reassert = globe.match(/reassertPolarCaps = \(\) => \{[\s\S]*?\n    \};/)?.[0];
+    expect(reassert).toBeTruthy();
+    // Must clear the dead layers first: addLayer throws on a duplicate id, and the layer sitting
+    // there is the black-disc one.
+    expect(reassert).toContain("removeLayer");
+    expect(reassert).toContain("addCaps()");
   });
 });
