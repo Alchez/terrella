@@ -276,13 +276,25 @@ The Tier-3 *gate* already ships (capability probe + Lite/Globe/Full toggle, Phas
   - `--query-compute-apps` is the WRONG flag (CUDA/OpenCL only — a browser reads 0 MB); use `nvidia-smi -q -x` and sample pid+age
   - Root cause of all three restore defects: `_contextRestored` throws at `resize()` → Hash → `unproject` → terrain, before it fires `webglcontextrestored`
   - Recovery is now convergent (watch starts at the LOSS, re-asserts when healthy) + a recurrence budget; no cause is available (`statusMessage` measured `""`)
-- [ ] **OPEN: the remaining gap to 6.2 GB — still unexplained, but no longer alarming** → HISTORY § one globe is 1.9 GB of VRAM
-  - Steady state is bounded and plateaus; the incident's excess is NOT steady-state working set, and is not a reload or context-loss ratchet
-  - Untested: the incident's much longer session, and whether the uncapped-after-restore cache (now fixed) was compounding it across its four losses
-  - The **512 MiB cap-texture ceiling is real but was NOT spent** in this run (rung 1024/2048 at `demand 1957 px`) — worst case is ~1.87 GB + up to ~0.5 GB
-  - **Layer 3** (in-page `gl.*` byte accounting) is the remaining tool, now lower priority; Layer 2 (Chrome `memory-infra`) accounts by allocator, never by call site
+- [x] **CLOSED: the 6.2 GB was TWO TABS — one globe's ceiling is 3.8 GB and nothing leaks** → HISTORY § the 6.2 GB was two tabs
+  - Reproduced at the incident's own geometry (2560×1321 DPR 1, `?demcache=off` → its own 1155-slot ceiling): **3,772 mean / 3,804 peak, one pid**
+  - A context loss frees **everything** (3,781 → 483 MiB, one sample, permanent) — **no ratchet is possible**, falsifying this plan's own "compounding across four losses"
+  - Two tabs: A saturated 3,495 + B backgrounded to 1093/1155 → **5,691 mean / 5,792 peak**; both saturated extrapolates near 7 GB
+  - Both caps reached the **8192 rung for the first time — 512 MiB actually spent**, so the ceiling is no longer theoretical
+  - **Layer 3 is not needed for this question**; if it is ever built, Layer 2 (Chrome `memory-infra`) still accounts by allocator, never by call site
   - `rttSize = tileManager.tileSize × qualityFactor` = 256 × 2 → 512² per render tile; DEM + relief textures ≈ 1 MiB each
   - The `setTerrain` Terrain/RenderToTexture leak is NOT a suspect — `terrainSource.test.ts` already pins exactly one establishing call
+- [ ] **OPEN: the polar cap textures are the largest term with NO budget — 512 MiB, and now measured as spent**
+  - The DEM cache is bounded and relief/vector caches are small; caps are the one term that answers only to camera demand
+  - Also seen: a pole visit uploads **2048 → 4096 → 8192 in sequence** — 336 MiB of allocation per pole where 256 would do
+  - Same shape as the DEM bound: derive a ceiling from the device, tighten on `webglcontextlost`, persist
+- [x] **The FPS ladder's teardown was reported as a fault — FIXED 2026-07-29** → HISTORY § the 6.2 GB was two tabs
+  - `disable-terrain` is the ladder's FIRST rung and fires within ~50 s of hard panning, then `console.error` claimed the cache was unbounded
+  - Cannot be inferred: a retired terrain and a context-loss teardown are the same absence, and `getTerrain()` returns a stale object on a style with zero sources
+  - `terrainRetired` is set BEFORE `setTerrain(null)` — `idle` fires during the teardown; verified live (three firings, no follow-up) + 3 sabotages
+- [ ] **OPEN: report the `_contextRestored` throw upstream — confirmed unreported, and live on `main`**
+  - `map.ts:4147` resizes and `4150` fires, with no guard between; #7432 / PR #7446 is a different throw in the same method (merged 2026-04-11) and is the precedent
+  - Repro needs only `hash` + terrain + `WEBGL_lose_context`; we are on 6.0.0, which is also latest
 - [ ] **OPEN: 256 px DEM assets — the lever that actually addresses the 1 MB slot** (unmeasured)
   - 4× fewer bytes per slot with NO change to slot count or refetch behaviour; needs a re-cut
   - Mesh is a fixed 128×128 grid per render tile, so 512 px assets are currently ~2× oversampled

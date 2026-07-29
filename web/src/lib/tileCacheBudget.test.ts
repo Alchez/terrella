@@ -506,6 +506,33 @@ describe("globe.astro wires the instrument rather than re-stating it", () => {
     ).toBe(0);
   });
 
+  it("goes quiet when the FPS ladder retires terrain, instead of crying wolf about the cap", () => {
+    // Measured live: `disable-terrain` is the ladder's FIRST rung and fires within ~50 s of a hard
+    // pan/zoom route, after which the re-assertion found no tile manager, "repaired" nothing, and
+    // logged `console.error` claiming the DEM cache was unbounded — at the one moment there is no
+    // DEM cache. The state cannot be inferred: a retired terrain and a style torn down by context
+    // loss are the same absence, and `map.getTerrain()` still returns a stale Terrain object on a
+    // style with zero sources. So the ladder must DECLARE it, and both paths must honour it.
+    const reassert = globe.match(/reassertTerrainBound = \(\) => \{[\s\S]*?\n    \};/)?.[0];
+    expect(reassert, "the cap re-assertion must exist").toBeTruthy();
+    expect(reassert, "must bail out before reading the fault").toMatch(
+      /^\s*reassertTerrainBound = \(\) => \{\n\s*if \(terrainRetired\) return;/,
+    );
+    const apply = globe.match(/const applyCacheCap = \(\) => \{[\s\S]*?\n    \};/)?.[0];
+    expect(apply, "and applyCacheCap must too — `resize` still calls it after retirement").toMatch(
+      /^\s*const applyCacheCap = \(\) => \{\n\s*if \(terrainRetired\) return;/,
+    );
+
+    // The flag has to be raised BEFORE the teardown: `idle` fires during setTerrain(null), and an
+    // idle landing in that window would report the retirement as a fault.
+    const rung = globe.match(/action === "disable-terrain"\) \{[\s\S]*?\n        \} else \{/)?.[0];
+    expect(rung, "the disable-terrain rung must exist").toBeTruthy();
+    expect(rung).toContain("terrainRetired = true");
+    expect(rung!.indexOf("terrainRetired = true")).toBeLessThan(
+      rung!.indexOf("map.setTerrain(null)"),
+    );
+  });
+
   it("surfaces the line through the perf overlay, so it is visible in Zen without devtools", () => {
     // The crash was in Zen and Zen is where it gets judged; a console-only probe would only ever
     // be read in the browser I can drive.

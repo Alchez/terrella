@@ -848,6 +848,16 @@ import { REPO_URL } from "../lib/siteLinks";
   // read "384 MB budget". Asserted from a healthy `idle` rather than from the restore event,
   // because that event is not guaranteed to arrive at all (see the GL block below).
   let reassertTerrainBound: () => void = () => {};
+  // Set by the FPS ladder's last rung, and the reason it cannot be inferred instead: after
+  // `setTerrain(null)` + `removeSource` there is no terrain tile manager, which is EXACTLY what a
+  // torn-down style looks like mid-context-restore. One of those is the intended end state and one
+  // is the fault the re-assertion exists to repair, and nothing on the map tells them apart —
+  // `map.getTerrain()` still returned a stale Terrain object on a style with zero sources
+  // (measured). So the ladder declares its own retirement rather than leaving the check to guess.
+  // Without this, every device that degrades logs `console.error` claiming the DEM cache is
+  // unbounded, at the one moment there is no DEM cache at all: seen live on every run of a hard
+  // pan/zoom route, within ~50 s, because `disable-terrain` is the ladder's FIRST rung.
+  let terrainRetired = false;
   // TIER 3 LANDS HERE: terrain is what `full` finally buys beyond the idle spin. `?terrain=`
   // still overrides in both directions — a number forces it on at any tier, `off` forces it flat
   // without demoting the tier — so every A/B flag below stays usable and there is still a way to
@@ -928,6 +938,7 @@ import { REPO_URL } from "../lib/siteLinks";
     // `Math.min(cap, its own size)`, so this can only ever shrink the cache.
     let intendedCacheSlots: number | null = null;
     const applyCacheCap = () => {
+      if (terrainRetired) return; // nothing to bound, and the warning below would be a lie
       const canvas = map.getCanvas();
       intendedCacheSlots = resolveDemCacheSlots(
         demCacheSetting,
@@ -960,6 +971,7 @@ import { REPO_URL } from "../lib/siteLinks";
     let capFaultReported = false;
     let capRepairAttempted = false;
     reassertTerrainBound = () => {
+      if (terrainRetired) return; // the ladder took terrain away on purpose; there is no cap to hold
       const fault = demCacheCapFault(map.style?.tileManagers?.[TERRAIN_SOURCE], intendedCacheSlots);
       if (fault === null) {
         // Healthy: arm the repair again, so a LATER loss gets its own attempt rather than being
@@ -1744,6 +1756,10 @@ import { REPO_URL } from "../lib/siteLinks";
         } else if (action === "disable-terrain") {
           // Last rung, and last on purpose — lowering the pixel ratio above is what puts the
           // device in the regime where dropping terrain actually pays (fpsDegradation.ts header).
+          //
+          // Flagged BEFORE the teardown, not after: `idle` fires during it, and an idle that lands
+          // between setTerrain(null) and the flag would report the retirement as a broken cap.
+          terrainRetired = true;
           map.setTerrain(null);
           // ...and then release the source, because dropping the geometry does NOT return the
           // memory. The claim this replaces — "the DEM source is left in place: re-adding it
