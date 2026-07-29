@@ -6,6 +6,64 @@ graduates, it moves to PLAN and this file keeps a one-line pointer. Each entry c
 its analysis and the facts its numbers depend on — check both before trusting an old entry, and
 grep HISTORY before re-arguing anything an entry says was already decided.
 
+## Flat ice saturates the snow ramp, and the curve was fitted before Antarctica existed (analysed 2026-07-29)
+
+Rohan zoomed into Antarctica to judge the terrain feather and found it "basically washed out". Two
+independent causes, split by depth in the frame — the far field was the atmosphere (fixed, → HISTORY
+§ the atmosphere ramps on PITCH too), and **the near field is this**, which is unfixed.
+
+**Mechanism.** Over full snow (`alpha = 1`) the composite is `base_rgb * (1 - alpha) + snow_rgb *
+alpha`, so `base_rgb` is multiplied by zero and every bit of hillshade *and the entire elevation
+ramp* is discarded. Relief survives only through `snow_t`, a two-colour ramp. Antarctic land is
+forced to alpha 1 by `snow.antarctic_snow_mask` because **there is no snow dataset for it** —
+NSIDC-0791 is NH-only and RGI region 19 is excluded — so without the mask Antarctica renders on the
+tan LAND ramp, i.e. a brown continent. Flatness is a side effect of that substitution, not its
+purpose.
+
+**Then the ramp saturates.** Ice sheets have real elevation (the z6 plateau tile spans 2512–2944 m,
+a 432 m range) but almost no SLOPE — about 0.1° across a ~200 km tile, with a median neighbour step
+of 0.0 m, below the 8 m quantisation. Hillshade keys on slope, so the light lands at or above
+`snow_hi_pt = 1.05` and `snow_t` clips to exactly 1. **Elevation is therefore discarded twice:**
+once because hillshade cannot see it, once because the ramp clips.
+
+**Measured 2026-07-29, 3×3 z6 blocks, snow pixels only — the same method HISTORY's gamma8 table used:**
+
+| site | delivered | pinned at top of ramp |
+|---|---|---|
+| Greenland Summit *(in the gamma8 sample)* | 20.67 DN | 82.1% |
+| Greenland north *(in the gamma8 sample)* | 12.67 DN | 89.3% |
+| Dome A / Argus | 14.67 DN | 84.3% |
+| Vostok | 16.00 DN | 80.0% |
+| **E Antarctic plateau (−77, 0)** | **6.33 DN** | **91.3%** |
+| Transantarctic Mountains | 20.67 DN | 14.6% |
+
+**Not a systematic failure — a tail case.** Most of Antarctica lands inside the range already
+accepted (Dome A and Vostok beat Greenland north, which shipped), and the mountains are fine. The
+flat plateau is the outlier, and it is where Rohan happened to look.
+
+**The gap that makes a re-check legitimate rather than re-litigation:** `snow_curve = "gamma8"` was
+chosen **2026-07-17**, and Antarctica was fused into the pyramid **2026-07-22, five days later**.
+The curve's whole A/B table is Greenland Summit, Greenland north, Alps and Himalaya — **the largest
+snow surface on the planet was not in the sample it was fitted on, because it was not in the
+pyramid yet**. No regression was
+found (a Summit 3×3 block measures 20.7 DN against the entry's 18.84, consistent), so the curve
+does what it was tuned to do; it was simply never asked about this terrain.
+
+**`snow_hi_pt` is NOT the lever, and that is already settled** → HISTORY § Greenland's interior is blank because the snow blend throws the hillshade away. The
+window was measured and rejected: Greenland uses 7% of it, the Alps overflow at 122%, and **the two
+ranges are nested rather than adjacent**, so a window fitted to flat ice turns Alpine snow into a
+binary blue/white cartoon. Do not re-argue it.
+
+**Candidates, none costed:** re-fit the gamma exponent with Antarctic sites in the sample (a
+composite-stage knob — no re-fuse, no new data, and `experiments/ab_ice_damp.py` is the ~21 s
+browser-free precedent); or give the snow ramp an ELEVATION term the way the land ramp has one,
+which is what would make a 432 m dome read as a dome. The second is a genuine look decision, not a
+bug fix.
+
+**Consequence worth carrying:** while the plateau is pinned white, terrain displacement there is
+invisible — our shading is baked, so displacement reads as silhouette and parallax only, and a
+uniform white surface offers neither. That gates the payoff of PLAN's Step 2 feather re-cut.
+
 ## GDAL 3.13 — assessed and SKIPPED (analysed 2026-07-23)
 
 - **State at analysis:** system CLI 3.12.2 (Ubuntu 26.04 archive — the LTS will stay there);

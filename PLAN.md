@@ -256,6 +256,25 @@ The Tier-3 *gate* already ships (capability probe + Lite/Globe/Full toggle, Phas
   - So declaring 128 raised the ceiling ~10×; the arithmetic lives in `fpsDegradation.ts`'s header
   - The ladder now frees the DEM **source**, but fires on a slow *median* — memory pressure is spikes
   - Levers, none measured: `maxTileCacheSize` (global across sources) · 256 px assets (0d's Arm C)
+- [x] **Polar caps displace with terrain — SHIPPED 2026-07-29 (local; unjudged, undeployed)** → HISTORY § the caps carry their own elevation
+  - A `custom` layer is excluded from `LAYERS_TO_TEXTURES`, so the cap could never inherit displacement
+  - Pipeline emits a 512² terrain-RGB texture per pole as a sibling stage with its own gate
+  - Verified in-browser against an external oracle: south pole decodes **2832 m** (Amundsen-Scott ~2835)
+  - **Cap assets are gitignored** — regenerate with `python -m pipeline.tile.cap_render --elev-only`
+- [x] **The bright polar disc was canvas ALPHA, not geometry — FIXED 2026-07-29** → HISTORY § the bright polar disc was canvas ALPHA
+  - `background` rides `LAYERS_TO_TEXTURES`, so with terrain on nothing writes the canvas past ±85.05°
+  - The cap painted colour there and left alpha 0; a premultiplied canvas composites that additively
+  - `blendFunc(ONE, ONE_MINUS_SRC_ALPHA)` on all four channels; the polar ring cannot return
+- [x] **The atmosphere ramps on PITCH — SHIPPED 2026-07-29 (local)** → HISTORY § the atmosphere ramps on PITCH too
+  - Holds 0.70 to pitch 45, then decays to `PITCHED_ATMOSPHERE_BLEND` 0.25 by 60 (Rohan, five-rung ladder)
+  - Damage is flat then a cliff: +0.0 DN at pitch 30, +4.6 at 45, +30 at 50, +52.7 at 60
+  - Zero `setSky` calls at or below pitch 45, so the default camera is bit-identical
+- [ ] **OPEN: Step 2 — retire the DEM's polar feather (78/85 → 84/85.05), ~41 min re-cut**
+  - Its payoff is a SEAM, not the plateau: the cap carries full elevation while tiles keep 5.5% at 84°
+  - Free alternative that also removes the seam: feather the cap's elevation to match, shader-only
+  - **Its visual payoff is gated on the snow saturation below** — 89–91% of the plateau is pinned white,
+    so added relief has nothing to show through (our shading is baked; displacement is silhouette only)
+  - **Pass `--sea bathy` explicitly** or the bare command rebuilds a different pyramid
 - [ ] Crispness = a supersampled re-fuse (transient bands, never a stored ~496 GB product) → HISTORY § 2026-07-20 (evening)
   - The old "shares the fine re-fuse input with terrain-RGB" claim was **stale and is deleted**: terrain-RGB reads `height_3857.tif`, which already exists, so it never waited on a re-fuse
 - [ ] **Occlusion `cos(lat)` fix — PROVEN, rides the first full tile restage** → HISTORY § 2026-07-20 (evening) · § 2026-07-22 Antarctica FILL

@@ -60,8 +60,68 @@ export const ATMOSPHERE_RAMP_END_ZOOM = 6;
  *  blown highlights. → HISTORY § the atmosphere ramp. */
 export const DEFAULT_ATMOSPHERE_FLOOR = 0.15;
 
-/** `?sky=off` — the control arm, holding BASE_ATMOSPHERE_BLEND at every zoom (what shipped before
- *  the ramp). */
+/** Atmosphere strength at the pitched extreme, replacing BASE_ATMOSPHERE_BLEND as the value the
+ *  zoom ramp starts from. Chosen by Rohan from a five-rung ladder at z2.95 pitch 60 over
+ *  Antarctica (0.70/0.50/0.35/0.20/0.00, rendered through the live map with a swap-to-itself
+ *  control that came back at 1 DN max on 0.033% of pixels).
+ *
+ *  Why the zoom ramp could not already cover this: it keys on ZOOM, and the damage is driven by
+ *  PITCH. The 0.7 shelf below z3 was chosen because the overview is where the limb glow lives and
+ *  an unpitched overview takes no damage at all — which is true, and measured. A PITCHED overview
+ *  is a camera neither half of that reasoning describes: it has the off-globe pixels the glow
+ *  needs AND a frame full of ground for the aerial perspective to bleach. */
+export const PITCHED_ATMOSPHERE_BLEND = 0.25;
+
+/** Pitch below which the pitch term does nothing, so the glow is never spent for free.
+ *
+ *  MEASURED, not assumed, at z2.95 over Antarctica — the atmosphere's contribution to the far
+ *  field, against a blend-0 control, sampling ON-GLOBE pixels only so the box cannot silently be
+ *  reading space:
+ *
+ *      pitch  0 -> +0.0 DN,  0% clipped        pitch 50 -> +30.0 DN,  0% clipped
+ *      pitch 30 -> +0.0 DN,  0% clipped        pitch 55 -> +47.5 DN, 15% clipped
+ *      pitch 45 -> +4.6 DN,  0% clipped        pitch 60 -> +52.7 DN, 27% clipped
+ *
+ *  Flat to 30 and still negligible at 45, then a cliff. That is the air column: aerial perspective
+ *  needs a near-tangential line of sight, which only exists once the camera looks toward the
+ *  horizon. A ramp starting from 0 would therefore lower the atmosphere across pitch 20-40 where
+ *  there is provably nothing to fix — the same "strictly non-harmful" test the zoom ramp had to
+ *  pass. */
+export const ATMOSPHERE_PITCH_RAMP_START_DEG = 45;
+
+/** Pitch at or above which PITCHED_ATMOSPHERE_BLEND is fully applied — the map's own `maxPitch`,
+ *  so the ramp spends its whole range inside the reachable camera (the same reasoning that ties
+ *  ATMOSPHERE_RAMP_END_ZOOM to the globe's maxZoom). */
+export const ATMOSPHERE_PITCH_RAMP_END_DEG = 60;
+
+/**
+ * The value the zoom ramp starts from, after the pitch term.
+ *
+ * Returns `BASE_ATMOSPHERE_BLEND` EXACTLY at or below the start pitch — `Object.is`-exact, not
+ * approximately — because the unpitched overview is the first camera every visitor sees and it
+ * takes zero measured damage. This ramp must be incapable of changing it.
+ *
+ * Linear across the window rather than geometric, and that is a stated limitation rather than a
+ * finding: four samples across 15 degrees do not distinguish the two shapes, so this takes the one
+ * with fewer concepts. The zoom ramp's geometric decay IS backed by a measurement (the limb is
+ * gone by z5), which is why the two differ.
+ */
+export function pitchedAtmosphereBase(
+  pitchDeg: number,
+  pitchedBlend: number = PITCHED_ATMOSPHERE_BLEND,
+  baseBlend: number = BASE_ATMOSPHERE_BLEND,
+): number {
+  if (pitchDeg <= ATMOSPHERE_PITCH_RAMP_START_DEG) return baseBlend;
+  if (pitchDeg >= ATMOSPHERE_PITCH_RAMP_END_DEG) return pitchedBlend;
+  const span =
+    (pitchDeg - ATMOSPHERE_PITCH_RAMP_START_DEG) /
+    (ATMOSPHERE_PITCH_RAMP_END_DEG - ATMOSPHERE_PITCH_RAMP_START_DEG);
+  return baseBlend + (pitchedBlend - baseBlend) * span;
+}
+
+/** `?sky=off` — the control arm, holding BASE_ATMOSPHERE_BLEND at every zoom AND every pitch (what
+ *  shipped before either ramp). Deliberately deaf to pitch: a control that quietly acquired one of
+ *  the two behaviours it exists to isolate would be worse than no control. */
 export const ATMOSPHERE_RAMP_OFF = "off";
 
 export type AtmosphereRamp = { kind: "off" } | { kind: "ramp"; floor: number };
@@ -150,17 +210,34 @@ export function rampedAtmosphereBlend(
  *
  * A floor of 0 falls back to linear — geometric decay cannot reach zero, and MapLibre's
  * `exponential` divides by `base^span - 1`, which a base of 0 degenerates.
+ *
+ * PITCH ENTERS HERE, AS A NEW BASE, NOT AS A SECOND EXPRESSION. MapLibre expressions can read
+ * `["zoom"]` and nothing else about the camera — there is no `["pitch"]` — so the pitch term
+ * cannot be declared and has to be applied by rebuilding this expression when the camera settles
+ * (globe.astro's `moveend`). That is the one thing skyAtmosphere.ts's header says an expression
+ * spares us, so it is worth being precise about what changed: the ramp is still evaluated per
+ * frame by MapLibre and still never chases zoom; only its starting value is re-declared, at most
+ * once per camera settle, where the 300 ms `setSky` transition reads as a crossfade rather than
+ * as lag.
+ *
+ * The pitched base is floored at `ramp.floor`. Without that, `?sky=0.5` plus a pitched camera
+ * would hand the expression a base BELOW its floor and silently invert the ramp — atmosphere
+ * rising with zoom, which is the opposite of everything above.
  */
-export function atmosphereBlend(ramp: AtmosphereRamp): SkySpecification["atmosphere-blend"] {
+export function atmosphereBlend(
+  ramp: AtmosphereRamp,
+  pitchDeg: number = 0,
+): SkySpecification["atmosphere-blend"] {
   if (ramp.kind === "off") return BASE_ATMOSPHERE_BLEND;
+  const base = Math.max(pitchedAtmosphereBase(pitchDeg), ramp.floor);
   const interpolation: ["exponential", number] | ["linear"] =
-    ramp.floor > 0 ? ["exponential", atmosphereDecayRatio(BASE_ATMOSPHERE_BLEND, ramp.floor)] : ["linear"];
+    ramp.floor > 0 ? ["exponential", atmosphereDecayRatio(base, ramp.floor)] : ["linear"];
   return [
     "interpolate",
     interpolation,
     ["zoom"],
     ATMOSPHERE_RAMP_START_ZOOM,
-    BASE_ATMOSPHERE_BLEND,
+    base,
     ATMOSPHERE_RAMP_END_ZOOM,
     ramp.floor,
   ];
@@ -177,7 +254,7 @@ export function atmosphereBlend(ramp: AtmosphereRamp): SkySpecification["atmosph
  * outright); it is kept because it costs nothing and would be the correct configuration the day
  * a mercator view exists.
  */
-export function skySpec(ramp: AtmosphereRamp): SkySpecification {
+export function skySpec(ramp: AtmosphereRamp, pitchDeg: number = 0): SkySpecification {
   return {
     "sky-color": SKY_COLOR,
     "horizon-color": HORIZON_COLOR,
@@ -185,8 +262,26 @@ export function skySpec(ramp: AtmosphereRamp): SkySpecification {
     "sky-horizon-blend": 0.5,
     "horizon-fog-blend": 0.5,
     "fog-ground-blend": 0.1,
-    "atmosphere-blend": atmosphereBlend(ramp),
+    "atmosphere-blend": atmosphereBlend(ramp, pitchDeg),
   };
+}
+
+/** Whether a pitch change is worth a `setSky`, given the pitch the sky was last built for.
+ *
+ *  Exists because every `setSky` restarts the sky's 300 ms transition, so a call that changes
+ *  nothing is not free — it re-runs the crossfade. Below the ramp's start pitch the answer is
+ *  always no, which is most cameras.
+ *
+ *  The threshold is on the resulting BLEND, not on the pitch, so it means the same thing however
+ *  the ramp's endpoints are retuned: 0.01 of blend is ~0.33 degrees today and stays imperceptible
+ *  if that changes. */
+export function atmosphereNeedsRebuild(
+  lastPitchDeg: number,
+  pitchDeg: number,
+  minBlendDelta: number = 0.01,
+): boolean {
+  return Math.abs(pitchedAtmosphereBase(pitchDeg) - pitchedAtmosphereBase(lastPitchDeg))
+    >= minBlendDelta;
 }
 
 /**
@@ -196,10 +291,20 @@ export function skySpec(ramp: AtmosphereRamp): SkySpecification {
  * produced it — the same reasoning that put the terrain arm on screen. `map.getSky()` returns the
  * expression rather than the evaluated number, so the value here comes from the JS mirror.
  */
-export function describeAtmosphereState(zoom: number, ramp: AtmosphereRamp): string {
+export function describeAtmosphereState(
+  zoom: number,
+  ramp: AtmosphereRamp,
+  pitchDeg: number = 0,
+): string {
   if (ramp.kind === "off") {
     return `sky ${BASE_ATMOSPHERE_BLEND.toFixed(2)} · ramp off`;
   }
-  const blend = rampedAtmosphereBlend(BASE_ATMOSPHERE_BLEND, zoom, ramp.floor);
-  return `sky ${blend.toFixed(2)} · ramp ${BASE_ATMOSPHERE_BLEND}→${ramp.floor}`;
+  const base = Math.max(pitchedAtmosphereBase(pitchDeg), ramp.floor);
+  const blend = rampedAtmosphereBlend(base, zoom, ramp.floor);
+  // The pitch term is named only when it is doing something. Two ramps in every capture would
+  // make the line noise on the cameras where pitch provably changes nothing, and the point of
+  // this string is that a screenshot says what produced it.
+  const pitched =
+    base === BASE_ATMOSPHERE_BLEND ? "" : ` · pitch ${Math.round(pitchDeg)}°→${base.toFixed(2)}`;
+  return `sky ${blend.toFixed(2)} · ramp ${BASE_ATMOSPHERE_BLEND}→${ramp.floor}${pitched}`;
 }

@@ -536,6 +536,7 @@ import { REPO_URL } from "../lib/siteLinks";
     terrainEncoding,
   } from "../lib/terrainSource";
   import {
+    atmosphereNeedsRebuild,
     defaultAtmosphereRamp,
     describeAtmosphereState,
     parseAtmosphereRamp,
@@ -915,7 +916,7 @@ import { REPO_URL } from "../lib/siteLinks";
     const terrainLine = describeTerrain;
     // The sky line is unconditional: the ramp runs on every visit, so a capture with no terrain
     // still has to say which atmosphere arm produced it.
-    const skyLine = () => describeAtmosphereState(map.getZoom(), skyRamp);
+    const skyLine = () => describeAtmosphereState(map.getZoom(), skyRamp, map.getPitch());
     void import("../lib/perfOverlay").then((mod) =>
       mod.mountPerfOverlay(map, perfEventStamps, () =>
         terrainLine ? [terrainLine(), skyLine()] : [skyLine()],
@@ -1292,13 +1293,35 @@ import { REPO_URL } from "../lib/siteLinks";
     openPanel(country);
   });
 
+  // Pitch the sky was last built for. Tracked because `setSky` restarts a 300 ms transition, so
+  // rebuilding when nothing moved is not free — it re-runs the crossfade.
+  let skyPitch = 0;
+
   map.on("style.load", () => {
     // A soft atmosphere so the sphere reads against the deep-sea background — and, past the
     // overview, a much fainter one, because the same uniform that draws that glow also lays full
     // aerial perspective over the ground. `atmosphere-blend` carries a zoom expression (the style
-    // spec's own advice for globe projection), so this is set once and MapLibre evaluates the
-    // ramp per frame; see skyAtmosphere.ts for why a per-zoom setSky would lag instead.
-    map.setSky(skySpec(skyRamp));
+    // spec's own advice for globe projection), so ZOOM is evaluated per frame by MapLibre and
+    // never needs a handler; see skyAtmosphere.ts for why a per-zoom setSky would lag instead.
+    skyPitch = map.getPitch();
+    map.setSky(skySpec(skyRamp, skyPitch));
+  });
+
+  // PITCH, unlike zoom, has to be driven from here: MapLibre expressions can read `["zoom"]` and
+  // nothing else about the camera, so there is no way to declare it. On `moveend` rather than on
+  // `pitch`, for the reason the cap rung uses `moveend` too — the check is cheap but the effect is
+  // not, and a camera mid-drag has no settled answer to give. At a settle the 300 ms transition
+  // reads as a crossfade rather than as the lag a per-step handler would have shown.
+  //
+  // Only fires above ATMOSPHERE_PITCH_RAMP_START_DEG, so every unpitched camera — including the
+  // default one every visitor lands on — never calls setSky at all and is bit-identical to what
+  // shipped before this existed. That is the property the measurement demanded: the atmosphere's
+  // contribution to an unpitched frame is exactly 0 DN, so there is nothing there to trade away.
+  map.on("moveend", () => {
+    const pitch = map.getPitch();
+    if (!atmosphereNeedsRebuild(skyPitch, pitch)) return;
+    skyPitch = pitch;
+    map.setSky(skySpec(skyRamp, pitch));
   });
 
   // Country polygons (hover/click hit-testing, highlight, island markers) are
