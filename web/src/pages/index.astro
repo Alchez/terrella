@@ -417,11 +417,10 @@ const indexLetters = [...byLetter.keys()];
 </style>
 
 <script>
-  import { probeSignals } from "../lib/capability";
+  import { canRunGlobe, probeSignals } from "../lib/capability";
   // Hide the "Globe" masthead link on devices that can't run it — the /globe head
   // guard would only bounce them straight back, so don't offer the dead end.
-  const gpu = probeSignals();
-  if (!(gpu.webgl2 && !gpu.softwareGpu)) {
+  if (!canRunGlobe(probeSignals())) {
     document.querySelector<HTMLAnchorElement>('.head-links a[href="/globe/"]')?.remove();
   }
 </script>

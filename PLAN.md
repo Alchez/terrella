@@ -250,12 +250,37 @@ The Tier-3 *gate* already ships (capability probe + Lite/Globe/Full toggle, Phas
   - Retired with it: `?dem`/`?quant`/`?demfmt`/`?demdepth` (they named build directories) and the spike dev route
   - **LIVE 2026-07-28** as `terrain-v1.pmtiles`, both Workers deployed, verified against production rather than the build
   - **Free-tier cost: 74 tile requests per view at z6**, i.e. terrain roughly *doubles* requests — the earlier "a fraction, not a doubling" assumed `tileSize: 512` and the shipping declaration is 128
-- [ ] **OPEN: the DEM tile cache is ~1.45 GB and it crashed a browser** (measured 2026-07-28, Zen)
-  - Tab **2 GB with terrain vs 602 MB at `?terrain=off`**, same camera, same shipping config
-  - Cache slots scale as 1/D² for *declared* size D; bytes per tile are fixed by the 512 px **asset**
-  - So declaring 128 raised the ceiling ~10×; the arithmetic lives in `fpsDegradation.ts`'s header
-  - The ladder now frees the DEM **source**, but fires on a slow *median* — memory pressure is spikes
-  - Levers, none measured: `maxTileCacheSize` (global across sources) · 256 px assets (0d's Arm C)
+- [x] **The DEM cache is bounded per-source — SHIPPED 2026-07-29 (local, undeployed)** → HISTORY § the DEM cache is sized from one tile size and filled from another
+  - Root cause is MapLibre reading `_source.tileSize` to SIZE the cache and `tileManager.tileSize` to FILL it
+  - `?demcache=off|<slots>` is the A/B; default = canvas-derived × 2, clamped to a 384 MiB byte budget
+  - **The knee is a cliff at "cap ≥ working set"**: 3 refetches at 300 slots, 303 at 240
+  - The cap is read BACK from `_outOfViewCache.max` on idle — written ≠ enforced, and only one is the fix
+- [ ] **OPEN: 384 MiB has no upper justification, and it kneecaps large screens** → HISTORY § the DEM cache is sized from one tile size
+  - Lower bound is measured (must clear 360 slots and the 294 knee); nothing justifies the ceiling itself
+  - **`Map.coveringTiles` now gives the real need, and the estimate behind the budget over-counts ~6×** (52 vs 330 at 2560×1265) → HISTORY § `coveringTiles` is public
+  - So the knee is **~5.7 camera-views of history**, not a bare 294 — re-derive the cap from that, at any pitch/canvas
+  - **No web API reports VRAM headroom**, so a capability-derived budget has no direct signal to rest on
+  - Right shape: start generous, tighten on `webglcontextlost`, persist — a signal every browser has
+- [x] **The MapLibre v6 API audit — three adoptions, two corrections — DONE 2026-07-29 (local, undeployed)** → HISTORY § `coveringTiles` is public
+  - `coveringTiles` in the `?perf` line and the loss snapshot; `failIfMajorPerformanceCaveat` as a capability PROBE (never a map option — it would kill the globe on a blocklisted-but-working GPU); `getVersion()` in the snapshot
+  - Corrections: **we set `antialias: true` deliberately** (globe limb vs starfield) — it is a chosen VRAM cost, not a default; `zoomLevelsToOverscale` is a non-issue at map `maxZoom` 8 = source maxzoom 8
+  - Parked as relevant-but-not-done: `setSourceTileLodParams` (bounds tiles at high pitch, and we ship pitch 60), `setNow`/`restoreNow` (freeze the clock for A/B rigs), `queryTerrainElevation` (hover chip), `dataabort`/`sourcedataabort` (price tile churn)
+- [x] **Layer 0 — GPU loss is self-reporting, and recovery is checked not assumed — SHIPPED 2026-07-29 (local, undeployed)** → HISTORY § a loss handler reads the teardown
+  - `glDiagnostics.ts` + 59 tests; state sampled on `idle` because reading inside `webglcontextlost` reads MapLibre's teardown, not the state
+  - `restoreFault` replaces the unconditional hide, and outlives its own verdict to 60 s so a late recovery retracts the notice
+  - `GPUInitializationError` (a MapLibre value export) now shows the notice with no grace period; a canary guards the `instanceof`, which fails silently if renamed
+  - **`WEBGL_lose_context` reproduces the UNRECOVERABLE case, not just the happy path** — the dead map now has a local repro
+  - NOT open (checked): custom layers *are* re-added — `addPolarCaps` runs from `style.load`, which the restore re-fires, and `polarCaps.test.ts` guards that binding
+- [ ] **OPEN: 6.2 GB of VRAM is unattributed — the crash was GPU-side, and the cache cap is heap-side** → HISTORY § the 2K freeze was VRAM
+  - `nvidia-smi` reports ONE GPU process for all tabs; no clean-profile baseline was taken, so 6.2 GB is an upper bound on our page, not a measurement of it
+  - Modelled from the code it lands ~1 GB, of which **512 MiB is our own two 8192² cap textures** (desktop budget is `Infinity`); the gap to 6.2 GB is the question
+  - `rttSize = tileManager.tileSize × qualityFactor` = 256 × 2 → 512² per render tile; DEM + relief textures ≈ 1 MiB each
+  - The `setTerrain` Terrain/RenderToTexture leak is NOT a suspect — `terrainSource.test.ts` already pins exactly one establishing call
+  - Next: **Layer 1** clean-profile `nvidia-smi` baseline (is it us?), then **Layer 3** in-page `gl.*` byte accounting (which allocation?); Layer 2 (Chrome `memory-infra`) accounts by allocator, never by call site
+- [ ] **OPEN: 256 px DEM assets — the lever that actually addresses the 1 MB slot** (unmeasured)
+  - 4× fewer bytes per slot with NO change to slot count or refetch behaviour; needs a re-cut
+  - Mesh is a fixed 128×128 grid per render tile, so 512 px assets are currently ~2× oversampled
+  - Cost is resolution: z8 goes **306 → 612 m/px**, and z9 does not rescue it (4× tiles × ¼ bytes)
 - [x] **Polar caps displace with terrain — SHIPPED 2026-07-29 (local; unjudged, undeployed)** → HISTORY § the caps carry their own elevation
   - A `custom` layer is excluded from `LAYERS_TO_TEXTURES`, so the cap could never inherit displacement
   - Pipeline emits a 512² terrain-RGB texture per pole as a sibling stage with its own gate

@@ -543,10 +543,30 @@ import { REPO_URL } from "../lib/siteLinks";
     skySpec,
   } from "../lib/skyAtmosphere";
   import {
+    applyDemCacheCap,
+    demCacheCapFault,
+    describeDemCacheState,
+    parseDemCacheSetting,
+    resolveDemCacheSlots,
+    terrainCoveringTileCount,
+  } from "../lib/tileCacheBudget";
+  import {
     MAPLIBRE_DEFAULT_MAX_PARALLEL_IMAGE_REQUESTS,
     MAX_PARALLEL_IMAGE_REQUESTS_CEILING,
     parseMaxParallelImageRequests,
   } from "../lib/tileConcurrency";
+  import {
+    GL_RECOVERY_CEILING_MS,
+    GL_RECOVERY_POLL_MS,
+    GL_RECOVERY_VERIFY_MS,
+    GL_RESTORE_GRACE_MS,
+    type GlLossSnapshot,
+    describeLoss,
+    formatGpuInitFailure,
+    restoreFault,
+    snapshotGlLoss,
+    snapshotHasContent,
+  } from "../lib/glDiagnostics";
   import { DEEP_SEA } from "../lib/palette";
   import { currentTier } from "../lib/capability";
   import {
@@ -805,6 +825,15 @@ import { REPO_URL } from "../lib/siteLinks";
   const skyRamp = parsedSkyRamp ?? defaultAtmosphereRamp();
 
   let describeTerrain: (() => string) | null = null;
+  // The DEM cache is the one cost that grows with SESSION TIME rather than with the camera, so no
+  // per-view measurement can see it — which is exactly why development never did. Reading it needs
+  // MapLibre's own structures (all present in its public .d.ts, underscore prefixes and all);
+  // summariseDemCache returns null rather than 0 if any of them move.
+  let describeDemCache: (() => string) | null = null;
+  // Tiles this camera needs, from MapLibre's own coveringTiles. Declared out here because the GL
+  // loss snapshot wants it too and `?terrain=off` never enters the block below — in which case
+  // there is no terrain source and null is the honest answer, not zero.
+  let coveringTileCount: () => number | null = () => null;
   // TIER 3 LANDS HERE: terrain is what `full` finally buys beyond the idle spin. `?terrain=`
   // still overrides in both directions — a number forces it on at any tier, `off` forces it flat
   // without demoting the tier — so every A/B flag below stays usable and there is still a way to
@@ -850,10 +879,72 @@ import { REPO_URL } from "../lib/siteLinks";
     describeTerrain = () =>
       `${describeTerrainState(map.terrain?.exaggeration ?? null, terrainExaggeration, ramp)} · ` +
       `${declaredTileSize}px`;
+    const parsedDemCache = parseDemCacheSetting(urlFlags);
+    if (parsedDemCache === null) {
+      console.warn(
+        `[terrain] ignoring ?demcache=${urlFlags.get("demcache")} — want "off" or a positive ` +
+          `integer slot count. Using the derived cap.`,
+      );
+    }
+    const demCacheSetting = parsedDemCache ?? { kind: "derived" as const };
+    // The covering count comes from MapLibre's own `coveringTiles`, so the overlay prices the cap
+    // against what this camera actually needs instead of against the rectangular estimate that set
+    // it. Recomputed per frame of the overlay because it is a function of the CAMERA, not the
+    // canvas — the whole reason a canvas-derived bound was the wrong shape.
+    describeDemCache = () =>
+      describeDemCacheState(
+        map.style?.tileManagers?.[TERRAIN_SOURCE],
+        demCacheSetting,
+        coveringTileCount(),
+      );
+    coveringTileCount = () =>
+      terrainCoveringTileCount(map, declaredTileSize, TERRAIN_MIN_ZOOM, TERRAIN_MAX_ZOOM);
     const exaggerationFor = (zoom: number) =>
       ramp.kind === "off"
         ? terrainExaggeration
         : rampedExaggeration(terrainExaggeration, zoom, ramp.floor);
+
+    // Bound the DEM cache to what the source is actually FILLED at. MapLibre sizes it from the
+    // declared tile size and fills it from twice that, so the shelves outrun the fill rate by a
+    // factor that costs ~1.24 GiB of decoded elevation on a desktop canvas — the arithmetic, the
+    // measured knee and the multiplier all live in tileCacheBudget.ts.
+    //
+    // Re-derived rather than fixed: the working set scales with the viewport, so a constant would
+    // throttle a large screen and overspend on a small one. MapLibre applies it as
+    // `Math.min(cap, its own size)`, so this can only ever shrink the cache.
+    let intendedCacheSlots: number | null = null;
+    const applyCacheCap = () => {
+      const canvas = map.getCanvas();
+      intendedCacheSlots = resolveDemCacheSlots(
+        demCacheSetting,
+        canvas.clientWidth,
+        canvas.clientHeight,
+        declaredTileSize,
+      );
+      const tileManager = map.style?.tileManagers?.[TERRAIN_SOURCE];
+      if (applyDemCacheCap(tileManager, intendedCacheSlots)) return;
+      // Distinguish the two reasons this fails, because one is routine and one is news. A style
+      // torn down by WebGL context loss leaves tileManagers EMPTY, and reporting that as "internals
+      // moved" cried wolf five times during a real GPU incident while saying nothing true.
+      console.warn(
+        map.style?.tileManagers === undefined || tileManager === undefined
+          ? "[terrain] no terrain source to bound yet — style not built (or torn down)"
+          : "[terrain] could not bound the DEM cache — MapLibre internals moved",
+      );
+    };
+
+    // Verify the cap TOOK EFFECT rather than trusting the write. `_outOfViewCache.max` is the
+    // number MapLibre actually enforces, and it is only recomputed on render — so this reads back
+    // after a frame has run, not immediately. Both failure modes are silent otherwise: a write that
+    // does not stick, and a MapLibre that stops honouring the Math.min.
+    let capFaultReported = false;
+    map.on("idle", () => {
+      if (capFaultReported) return;
+      const fault = demCacheCapFault(map.style?.tileManagers?.[TERRAIN_SOURCE], intendedCacheSlots);
+      if (fault === null) return;
+      capFaultReported = true; // once per session; a per-frame version would bury the log
+      console.error(`[terrain] DEM cache cap is not in force — ${fault}`);
+    });
 
     map.on("style.load", () => {
       map.addSource(TERRAIN_SOURCE, {
@@ -864,8 +955,14 @@ import { REPO_URL } from "../lib/siteLinks";
         tileSize: declaredTileSize,
         ...terrainEncoding(),
       });
+      applyCacheCap();
       map.setTerrain({ source: TERRAIN_SOURCE, exaggeration: exaggerationFor(map.getZoom()) });
     });
+
+    // A resize changes the viewport, and with it the working set the cap has to hold — going
+    // fullscreen on a laptop roughly doubles it. Cheap: the write is one field, and MapLibre
+    // re-reads it on the next render anyway.
+    map.on("resize", applyCacheCap);
 
     // The ramp writes terrain.exaggeration and MUST NOT re-call setTerrain: ui/map.ts builds a
     // fresh Terrain and RenderToTexture on every call and only reaches Terrain.destroy() on the
@@ -914,15 +1011,115 @@ import { REPO_URL } from "../lib/siteLinks";
   // the normal path pays zero bundle cost.
   if (urlFlags.has("perf")) {
     const terrainLine = describeTerrain;
+    const demCache = describeDemCache;
     // The sky line is unconditional: the ramp runs on every visit, so a capture with no terrain
     // still has to say which atmosphere arm produced it.
     const skyLine = () => describeAtmosphereState(map.getZoom(), skyRamp, map.getPitch());
     void import("../lib/perfOverlay").then((mod) =>
       mod.mountPerfOverlay(map, perfEventStamps, () =>
-        terrainLine ? [terrainLine(), skyLine()] : [skyLine()],
+        terrainLine && demCache
+          ? [terrainLine(), demCache(), skyLine()]
+          : [skyLine()],
       ),
     );
   }
+
+  // --- GPU loss, recovery, and the state that led there ----------------------
+  // A lost WebGL context is usually survivable and MapLibre handles it unaided: it calls
+  // preventDefault (without which the browser would never offer the context back), snapshots the
+  // style, and rebuilds the painter on restore. Verified by forcing a loss through
+  // WEBGL_lose_context — the globe came back identical, polar caps included. So the message worth
+  // showing is NOT "the context was lost"; it is "the context was lost and never came back", which
+  // is the GPU-process-crash case where reloading is genuinely the only move. Announce the loss
+  // straight away and we would be telling people to reload a map that heals itself a second later.
+  //
+  // Both halves of that were disproved by forcing a loss and watching, rather than reasoning:
+  //
+  //  - WEBGL_lose_context does NOT only exercise the happy path. Depending on timing the browser
+  //    declines to hand the context back at all, and the map stays dead — isContextLost() still
+  //    true a minute later, after a second explicit restoreContext(). So the unrecoverable case
+  //    reproduces locally on demand, which is what makes the notice testable at all.
+  //  - Reading the state inside this handler reads NOTHING. MapLibre registers its own canvas
+  //    listener in the Map constructor, so the style is already torn down by the time ours runs:
+  //    the first version logged "no sources · caps none" on a map that had five sources and both
+  //    caps resident a tenth of a second earlier. The state is therefore sampled on `idle` while
+  //    the map is healthy, and the loss reports that sample, labelled with its age.
+  //
+  // Recovery is now CHECKED (restoreFault) rather than assumed, and the check outlives its own
+  // verdict so a late recovery takes the notice back down. All of it lives in glDiagnostics.ts.
+  const glLostNotice = document.getElementById("gl-lost");
+  let restoreWatchdog: number | undefined;
+  let recoveryPoll: number | undefined;
+
+  const readGlState = (phase: GlLossSnapshot["phase"], statusMessage: string | null) =>
+    snapshotGlLoss(map, {
+      phase,
+      msSinceLoad: performance.now(),
+      // The map's ratio, not the display's: the degradation ladder can have lowered it, and
+      // window.devicePixelRatio would keep reporting a number we stopped rendering at.
+      devicePixelRatio: map.getPixelRatio(),
+      statusMessage,
+      // Every canary in this repo pins a MapLibre internal, so a snapshot that does not name the
+      // version is one bump away from being unreadable.
+      libraryVersion: maplibregl.getVersion(),
+      coveringTiles: coveringTileCount(),
+    });
+
+  // The last reading taken while the map was healthy. `idle` is the right cadence: it is the
+  // steady state, it costs a few object-key counts, and it cannot fire during a teardown.
+  let lastHealthyGlState: GlLossSnapshot | null = null;
+  map.on("idle", () => {
+    const snapshot = readGlState("sampled", null);
+    if (snapshotHasContent(snapshot)) lastHealthyGlState = snapshot;
+  });
+
+  map.on("webglcontextlost", (event) => {
+    window.clearTimeout(restoreWatchdog);
+    window.clearInterval(recoveryPoll);
+    const atLoss = readGlState("lost", event.originalEvent?.statusMessage ?? null);
+    console.warn(describeLoss(atLoss, lastHealthyGlState), lastHealthyGlState ?? atLoss);
+    restoreWatchdog = window.setTimeout(
+      () => glLostNotice?.removeAttribute("hidden"),
+      GL_RESTORE_GRACE_MS,
+    );
+  });
+
+  map.on("webglcontextrestored", () => {
+    window.clearTimeout(restoreWatchdog);
+    window.clearInterval(recoveryPoll);
+    // The style is re-applied asynchronously, so the first read after this event is legitimately
+    // empty on a perfectly healthy recovery. Poll instead of guessing one delay: pass on the first
+    // clean read, and only call it a failure once the deadline is out. The notice stays as it is
+    // until then — retracting "could not recover" is what has to be earned.
+    const startedAt = performance.now();
+    let faultReported = false;
+    const check = () => {
+      const elapsed = performance.now() - startedAt;
+      const fault = restoreFault(map);
+      if (fault === null) {
+        window.clearInterval(recoveryPoll);
+        glLostNotice?.setAttribute("hidden", "");
+        console.info(
+          faultReported
+            ? `[gl] the map recovered after all, ${(elapsed / 1000).toFixed(1)}s in — notice retracted`
+            : "[gl] context restored and the map rebuilt — recovered",
+        );
+        return;
+      }
+      // Report once at the deadline, then KEEP WATCHING. A measured loss recovered at ~6s, past
+      // the deadline, and the first build left "could not recover" over a working globe — the same
+      // defect as a dead globe with no message, pointed the other way.
+      if (!faultReported && elapsed >= GL_RECOVERY_VERIFY_MS) {
+        faultReported = true;
+        glLostNotice?.removeAttribute("hidden");
+        console.error(`[gl] the context came back but the map did not — ${fault}`);
+        console.warn(describeLoss(readGlState("restored", null), lastHealthyGlState));
+      }
+      if (elapsed >= GL_RECOVERY_CEILING_MS) window.clearInterval(recoveryPoll);
+    };
+    recoveryPoll = window.setInterval(check, GL_RECOVERY_POLL_MS);
+    check();
+  });
 
   // Tiles still in flight when you navigate away (e.g. clicking through to a hero)
   // abort with a network error — expected teardown, not a real failure. Silence those
@@ -932,31 +1129,22 @@ import { REPO_URL } from "../lib/siteLinks";
     navigatingAway = true;
   });
   map.on("error", (event) => {
+    // MapLibre's own name for "a GPU context cannot be created at all", carrying the requested
+    // canvas attributes and the browser's webglcontextcreationerror statusMessage. Distinct from a
+    // context LOSS in the way that matters here: a loss is usually survivable and heals unaided,
+    // while this one never heals, because there is no context to get back. The grace period above
+    // exists to avoid crying wolf on a recoverable loss; this needs no grace, so it says so at
+    // once rather than spending four seconds inferring what MapLibre has already named.
+    if (event.error instanceof maplibregl.GPUInitializationError) {
+      window.clearTimeout(restoreWatchdog);
+      window.clearInterval(recoveryPoll);
+      console.error(formatGpuInitFailure(event.error), event.error.requestedAttributes);
+      glLostNotice?.removeAttribute("hidden");
+      return;
+    }
     const message = event.error && event.error.message ? event.error.message : "";
     if (navigatingAway && /AJAXError|NetworkError|Failed to fetch/i.test(message)) return;
     console.error("[globe]", event.error);
-  });
-
-  // A lost WebGL context is usually survivable and MapLibre handles it unaided: it calls
-  // preventDefault (without which the browser would never offer the context back), snapshots the
-  // style, and rebuilds the painter on restore. Verified by forcing a loss through
-  // WEBGL_lose_context — the globe came back identical, polar caps included. So the message worth
-  // showing is NOT "the context was lost"; it is "the context was lost and never came back", which
-  // is the GPU-process-crash case where reloading is genuinely the only move. Announce the loss
-  // straight away and we would be telling people to reload a map that heals itself a second later.
-  const glLostNotice = document.getElementById("gl-lost");
-  const GL_RESTORE_GRACE_MS = 4000;
-  let restoreWatchdog: number | undefined;
-  map.on("webglcontextlost", () => {
-    window.clearTimeout(restoreWatchdog);
-    restoreWatchdog = window.setTimeout(
-      () => glLostNotice?.removeAttribute("hidden"),
-      GL_RESTORE_GRACE_MS,
-    );
-  });
-  map.on("webglcontextrestored", () => {
-    window.clearTimeout(restoreWatchdog);
-    glLostNotice?.setAttribute("hidden", "");
   });
 
   // --- Country borders (Natural Earth vector lines) ---------------------------
@@ -1463,13 +1651,11 @@ import { REPO_URL } from "../lib/siteLinks";
           // ...and then release the source, because dropping the geometry does NOT return the
           // memory. The claim this replaces — "the DEM source is left in place: re-adding it
           // would re-download tiles, and setTerrain is the whole cost here" — priced the rung in
-          // frame time and missed the larger cost. MapLibre bounds a source's out-of-view cache
-          // at (ceil(W/D) + 1) * (ceil(H/D) + 1) * MAX_TILE_CACHE_ZOOM_LEVELS slots for DECLARED
-          // size D, and each slot holds a Uint32Array over the padded 514x514 RGBA buffer — ~1 MiB
-          // apiece, fixed by the 512 px ASSET and indifferent to the declaration. Slots scale as
-          // 1/D^2 while the bytes behind them do not, so declaring 128 put the ceiling near a
-          // gigabyte on a desktop canvas, and a rung that left it resident bought nothing on the
-          // one axis a struggling device actually needs.
+          // frame time and missed the larger cost: the cache ceiling runs to ~1.24 GiB on a
+          // desktop canvas, so a rung that left it resident bought nothing on the one axis a
+          // struggling device actually needs. The arithmetic and its root cause live in
+          // tileCacheBudget.ts, which is also where the bound that keeps it from getting there
+          // is derived.
           //
           // removeSource -> TileManager.onRemove -> clearTiles reaches _outOfViewCache.reset(),
           // whose eviction callback is the raster-dem unloadTile: it deletes tile.dem, destroys

@@ -6,6 +6,44 @@ graduates, it moves to PLAN and this file keeps a one-line pointer. Each entry c
 its analysis and the facts its numbers depend on — check both before trusting an old entry, and
 grep HISTORY before re-arguing anything an entry says was already decided.
 
+## MapLibre's WebGPU backend — irrelevant to our memory problem, and NOT the no-op we recorded (analysed 2026-07-29)
+
+Prompted by the graphics-modernization roadmap. Read it against the DEM-cache work rather than in
+the abstract, and the answer is "no" on the question that motivated the reading.
+
+- **The roadmap is four phases** — WebGL2 texture/shader work, a drawable architecture with UBOs,
+  WebGL2 vertex work, then **WebGPU as phase 4** including GLSL→WGSL conversion. Each phase is
+  independently shippable. **No timeline is published.**
+- **It contains no mention of GPU memory management, memory budgets, resource lifetimes, device
+  loss, or tile caching.** It is a rendering-backend modernization, not a resource-management one.
+- **It cannot touch our root cause, which is not in the renderer.** The `_source.tileSize` vs
+  `tileManager.tileSize` mismatch lives in `tile_manager.ts`, and `DEMData` holds a `Uint32Array` —
+  **JS heap, not GPU memory**. A backend swap leaves both exactly as they are.
+- **The seam already exists in the shipped API, which dates the work rather than the promise.**
+  `canvasContextAttributes.contextType` is typed today and documented as *restricted to `'webgl2'`,
+  kept as a forward-looking API for future WebGPU support* — i.e. the option is reserved and the
+  backend is not written. Found in the v6.0.0 `.d.ts` during the API audit, not in the roadmap.
+
+**The one real win is a failure SIGNAL, and it is the missing piece of the evidence-driven budget.**
+In WebGL an allocation that exhausts VRAM does not fail — it takes the context down, which is
+precisely the 2026-07-29 freeze. WebGPU has typed errors via `pushErrorScope`/`popErrorScope`, so
+`GPUOutOfMemoryError` is catchable and attributable *before* the tab dies rather than after. Today
+the only feedback the platform gives is "the context died". Secondary: `GPUDevice.lost` resolves
+once and permanently, forcing explicit recreation — a stricter contract than the
+`webglcontextlost`/`restored` pair whose ambiguity is what hid our recovery notice; and explicit
+`destroy()` on buffers and textures gives deterministic release.
+
+**Correction to a recorded prediction.** HISTORY § *Tier 2 globe + Natural Earth vector borders*
+assessed WebGPU as "a future no-op tier, not a rewrite". That was true of the code as it stood and
+is **false now**: `polarCaps.ts` is a MapLibre **custom layer**, and that API hands you a raw
+`WebGLRenderingContext`. We author GLSL, build VBOs and call `gl.drawElements` directly, so a
+WebGPU backend cannot preserve the signature — **the caps need a WGSL port, displacement shader
+included**. Anyone pricing the migration must count that; the old entry says they need not.
+
+**Verdict: not a lever for the cache work, and not free when it lands.** Revisit if MapLibre
+publishes a timeline, or if the evidence-driven cache budget gets built and wants a real
+out-of-memory signal to drive it.
+
 ## Flat ice saturates the snow ramp, and the curve was fitted before Antarctica existed (analysed 2026-07-29)
 
 Rohan zoomed into Antarctica to judge the terrain feather and found it "basically washed out". Two

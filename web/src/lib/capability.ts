@@ -26,6 +26,19 @@ export interface CapabilitySignals {
   webgl2: boolean;
   /** A software rasterizer (SwiftShader/llvmpipe) — present but too slow for the globe. */
   softwareGpu: boolean;
+  /**
+   * The BROWSER's own verdict that this context would be badly slow —
+   * `failIfMajorPerformanceCaveat`.
+   *
+   * Kept separate from `softwareGpu` rather than folded in, because they are different facts with
+   * the same consequence: one is a renderer NAME matching a regex, the other is the browser
+   * refusing to promise acceleration. When someone reports "no globe" the log has to say which
+   * fired. It also repairs a real hole `rendererStrings` documents about itself — Chrome and
+   * Firefox each mask one of the two renderer strings, and a hardened browser masks both, at which
+   * point the regex silently reports a healthy GPU. This signal cannot be masked: it is an answer,
+   * not a string.
+   */
+  performanceCaveat: boolean;
   /** Data-saver: `navigator.connection.saveData` or `prefers-reduced-data`. */
   saveData: boolean;
   /** A slow effective connection (2g / very low downlink). */
@@ -77,9 +90,16 @@ export function isSoftwareRenderer(renderers: readonly string[]): boolean {
   return renderers.some((renderer) => SOFTWARE_RENDERER_PATTERN.test(renderer));
 }
 
-/** WebGL2 present AND not a software rasterizer — the globe's non-negotiable floor. */
-function capable(signals: CapabilitySignals): boolean {
-  return signals.webgl2 && !signals.softwareGpu;
+/**
+ * WebGL2 present, not a software rasterizer, and no browser-declared performance caveat — the
+ * globe's non-negotiable floor.
+ *
+ * Exported because `index.astro` was re-deriving it inline (`gpu.webgl2 && !gpu.softwareGpu`) to
+ * decide whether to offer the Globe link. A duplicated floor is a floor that silently stops
+ * matching the moment a signal is added — which is exactly what adding one just demonstrated.
+ */
+export function canRunGlobe(signals: CapabilitySignals): boolean {
+  return signals.webgl2 && !signals.softwareGpu && !signals.performanceCaveat;
 }
 
 /**
@@ -94,11 +114,11 @@ function capable(signals: CapabilitySignals): boolean {
  */
 export function decideTier(signals: CapabilitySignals, quality: Quality): Tier {
   if (quality === "lite") return "gallery";
-  if (quality === "globe") return capable(signals) ? "globe" : "gallery";
-  if (quality === "full") return capable(signals) ? "full" : "gallery";
+  if (quality === "globe") return canRunGlobe(signals) ? "globe" : "gallery";
+  if (quality === "full") return canRunGlobe(signals) ? "full" : "gallery";
 
   // quality === "auto": the probe decides, pessimistically.
-  if (!capable(signals)) return "gallery";
+  if (!canRunGlobe(signals)) return "gallery";
   if (signals.saveData || signals.slowNetwork) return "gallery"; // tiles are data-heavy
   if (signals.lowMemory || signals.reducedMotion) return "globe"; // capable, but skip full
   return "full";
@@ -136,6 +156,38 @@ function detectSoftwareGpu(gl: WebGL2RenderingContext): boolean {
 }
 
 /**
+ * Ask the browser directly whether accelerating this context would come with a major caveat.
+ *
+ * `failIfMajorPerformanceCaveat: true` makes `getContext` return **null** instead of handing back
+ * a context it would have to software-render or otherwise cripple. Run against a throwaway canvas
+ * it costs one context and answers a question no string can be masked out of.
+ *
+ * WHY THIS IS A PROBE AND **NOT** SET ON THE MAP ITSELF
+ * ----------------------------------------------------
+ * Passing the flag through `canvasContextAttributes` would make `new maplibregl.Map(...)` fail on
+ * any machine the browser flags — including a working GPU behind a driver blocklist, which is the
+ * live situation on this project's own Firefox (`nvidia/unknown`, DMABUF_WEBGL blocklisted since
+ * the 595.84 driver). There the globe runs, just slowly, and trading a slow globe for no globe is
+ * a worse outcome that nothing at runtime could undo — a context attribute cannot be changed after
+ * creation. As a probe the same fact instead feeds `decideTier`, which is reversible: the reader
+ * gets the gallery by default and can still force `?quality=globe`.
+ */
+function detectPerformanceCaveat(): boolean {
+  try {
+    const probe = document
+      .createElement("canvas")
+      .getContext("webgl2", { failIfMajorPerformanceCaveat: true });
+    // Null means the browser declined to promise acceleration. Release it either way: on the
+    // machines this fires for, an extra live context is the last thing to leave lying around.
+    probe?.getExtension("WEBGL_lose_context")?.loseContext();
+    return probe === null;
+  } catch {
+    // A throw is not a verdict. Stay silent rather than demote a device on an exception.
+    return false;
+  }
+}
+
+/**
  * Gather the live capability signals. SSR-safe: off the browser it returns the
  * fully-pessimistic snapshot, so any server render decides "gallery".
  */
@@ -144,6 +196,7 @@ export function probeSignals(): CapabilitySignals {
     return {
       webgl2: false,
       softwareGpu: false,
+      performanceCaveat: false,
       saveData: false,
       slowNetwork: false,
       lowMemory: false,
@@ -153,11 +206,15 @@ export function probeSignals(): CapabilitySignals {
 
   let webgl2 = false;
   let softwareGpu = false;
+  let performanceCaveat = false;
   try {
     const gl = document.createElement("canvas").getContext("webgl2");
     if (gl) {
       webgl2 = true;
       softwareGpu = detectSoftwareGpu(gl);
+      // Only meaningful once a plain context succeeds: without that control, "null" would be
+      // reporting "no WebGL2 here" a second time rather than "acceleration comes with a caveat".
+      performanceCaveat = detectPerformanceCaveat();
     }
   } catch {
     webgl2 = false;
@@ -191,7 +248,15 @@ export function probeSignals(): CapabilitySignals {
   const reducedMotion =
     typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-  return { webgl2, softwareGpu, saveData, slowNetwork, lowMemory, reducedMotion };
+  return {
+    webgl2,
+    softwareGpu,
+    performanceCaveat,
+    saveData,
+    slowNetwork,
+    lowMemory,
+    reducedMotion,
+  };
 }
 
 // --- Persisted quality choice -------------------------------------------------

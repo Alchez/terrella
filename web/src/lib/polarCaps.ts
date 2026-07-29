@@ -68,7 +68,21 @@ export interface CapManifestEntry {
   elev_url: string; // terrain-RGB displacement texture (cap_render cap_elev_asset)
   elev_step: number; // metres per encoded level (cap_render reads terrain_rgb.QUANTISATION_M)
 }
-export type CapsManifest = Record<"north" | "south", CapManifestEntry>;
+/** The two poles, in the order their caps are added. */
+export const CAP_POLES = ["north", "south"] as const;
+
+export type CapPole = (typeof CAP_POLES)[number];
+
+/** The style layer id for a pole's cap.
+ *
+ *  One spelling of the string, because it is now a HANDLE and not just a label: `glDiagnostics`
+ *  looks caps up by id to read the texture rung resident on the GPU at the moment a context is
+ *  lost. A second module retyping `polar-cap-north` would work right up until this one changed. */
+export function capLayerId(pole: CapPole): string {
+  return `polar-cap-${pole}`;
+}
+
+export type CapsManifest = Record<CapPole, CapManifestEntry>;
 
 /** The rung to FETCH for a device budget: the largest that fits, or the smallest shipped when
  *  none does. Choosing here rather than at upload is the whole point of the rung — a phone used
@@ -98,11 +112,11 @@ export interface CapOptions {
 
 /** Manifest → the two caps' options. Pure, so the contract mapping is unit-testable. */
 export function capOptionsFrom(manifest: CapsManifest, budgetPx: number = Infinity): CapOptions[] {
-  return (["north", "south"] as const).map((name) => {
-    const entry = manifest[name];
+  return CAP_POLES.map((pole) => {
+    const entry = manifest[pole];
     const poleSign = Math.sign(entry.edge_lat);
     return {
-      layerId: `polar-cap-${name}`,
+      layerId: capLayerId(pole),
       rungs: entry.rungs,
       budgetPx,
       poleLat: 90 * poleSign,

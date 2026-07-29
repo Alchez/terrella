@@ -5,6 +5,7 @@ import {
   isLowMemory,
   isSoftwareRenderer,
   LOW_MEMORY_GIB,
+  canRunGlobe,
   type CapabilitySignals,
   type Quality,
 } from "./capability";
@@ -13,6 +14,7 @@ import {
 const healthy: CapabilitySignals = {
   webgl2: true,
   softwareGpu: false,
+  performanceCaveat: false,
   saveData: false,
   slowNetwork: false,
   lowMemory: false,
@@ -461,4 +463,48 @@ describe("the guard and capability.ts must not drift apart", () => {
       expect(guardSteers, `${scenario.name}: guard and capable() disagree`).toBe(moduleSaysCapable);
     });
   }
+});
+
+describe("canRunGlobe — one floor, exported so nothing re-derives it", () => {
+  it("passes a device with a real, unencumbered GPU", () => {
+    expect(canRunGlobe(healthy)).toBe(true);
+  });
+
+  it.each([
+    ["no WebGL2 at all", { webgl2: false }],
+    ["a software rasterizer by name", { softwareGpu: true }],
+    ["the browser declaring a major performance caveat", { performanceCaveat: true }],
+  ])("refuses the globe on %s", (_case, overrides) => {
+    expect(canRunGlobe(signals(overrides))).toBe(false);
+  });
+
+  it("sends a caveated device to the gallery on every quality setting that could reach the globe", () => {
+    // The signal is only worth adding if it actually reaches the decision — a new field that
+    // nothing consults is indistinguishable from no field.
+    const caveated = signals({ performanceCaveat: true });
+    expect(decideTier(caveated, "auto")).toBe("gallery");
+    expect(decideTier(caveated, "globe")).toBe("gallery");
+    expect(decideTier(caveated, "full")).toBe("gallery");
+  });
+
+  it("is independent of softwareGpu, so a log can say which one fired", () => {
+    // Folding them into one boolean would have been fewer lines and would have lost the fact
+    // anyone debugging "why no globe" actually needs.
+    expect(canRunGlobe(signals({ softwareGpu: true, performanceCaveat: false }))).toBe(false);
+    expect(canRunGlobe(signals({ softwareGpu: false, performanceCaveat: true }))).toBe(false);
+  });
+});
+
+describe("index.astro asks the floor rather than restating it", () => {
+  const index = readFileSync(new URL("../pages/index.astro", import.meta.url), "utf8");
+
+  it("uses canRunGlobe to decide whether to offer the Globe link", () => {
+    expect(index).toContain("canRunGlobe(probeSignals())");
+  });
+
+  it("no longer re-derives the floor inline", () => {
+    // It read `gpu.webgl2 && !gpu.softwareGpu`, which would have silently kept offering the globe
+    // to caveated devices the moment a third signal joined the floor.
+    expect(index).not.toMatch(/webgl2\s*&&\s*!\w+\.softwareGpu/);
+  });
 });
