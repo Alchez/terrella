@@ -35,6 +35,7 @@
  * textures, at 256 MiB each when both sit on the 8192 rung.
  */
 
+import { megabytes } from "./format";
 import { CAP_POLES, capLayerId } from "./polarCaps";
 import { summariseDemCache, type DemCacheSummary, type TileManagerLike } from "./tileCacheBudget";
 
@@ -185,35 +186,62 @@ export function tileCountsBySource(
     .map((source) => ({ source, counts: summariseDemCache(tileManagers[source]) }));
 }
 
-/** Which cap texture each pole has on the GPU. `loadedRungPx` is null when the layer is absent
- *  (`?nocaps`, or before `style.load` has run) and 0 while the first fetch is still in flight. */
+/** What each pole's cap has, and what it is still fetching.
+ *
+ *  Every field is null when it could not be read — the layer is absent (`?nocaps`, or before
+ *  `style.load`), or MapLibre stopped exposing `implementation`. `loadedRungPx` is additionally 0
+ *  between `onAdd` and the first successful upload, which is the cap declaring "nothing on the GPU
+ *  yet" rather than a failed read.
+ *
+ *  `rungLoading` and `elevLoaded` are here because a still image of the panel cannot otherwise
+ *  distinguish the two states that look identical on screen: a cap that has settled at a low rung,
+ *  and a cap mid-climb toward a higher one. The first is a budget decision, the second is a
+ *  main-thread cost still being paid — and only the second explains a stall. */
 export interface CapLayerState {
   layerId: string;
   loadedRungPx: number | null;
+  /** Rung whose fetch is in flight, or null when nothing is loading (or nothing is readable). */
+  rungLoading: number | null;
+  /** True once the real elevation image replaced the zero-metre placeholder; null if unreadable. */
+  elevLoaded: boolean | null;
 }
 
 /**
- * Read the live cap rungs off the map.
+ * The object we handed to `addLayer`, recovered from the layer MapLibre handed back.
  *
- * MapLibre wraps a `custom` layer in a `CustomStyleLayer` whose `implementation` field is the
- * object we handed to `addLayer` — declared public in the `.d.ts`, so the cap's own `loadedRungPx`
- * is reachable without a cast and without a second registry to drift from the first.
+ * MapLibre wraps a `custom` layer in a `CustomStyleLayer` whose `implementation` field is that
+ * object — declared public in the `.d.ts`, so the cap's own fields are reachable without a cast and
+ * without a second registry to drift from the first. Sole home for this unwrap: it is the fragile,
+ * version-sensitive step, and a second copy elsewhere would be a second thing to notice when
+ * MapLibre moves.
  */
+function capImplementation(map: MapLike | undefined, layerId: string): Record<string, unknown> {
+  const layer = map?.getLayer?.(layerId);
+  const implementation =
+    layer && typeof layer === "object" && "implementation" in layer
+      ? (layer as { implementation?: unknown }).implementation
+      : undefined;
+  return implementation && typeof implementation === "object"
+    ? (implementation as Record<string, unknown>)
+    : {};
+}
+
+/** Read the live cap state off the map, for both poles. */
 export function capLayerStates(
   map: MapLike | undefined,
   layerIds: readonly string[] = CAP_POLES.map(capLayerId),
 ): CapLayerState[] {
   return layerIds.map((layerId) => {
-    const layer = map?.getLayer?.(layerId);
-    const implementation =
-      layer && typeof layer === "object" && "implementation" in layer
-        ? (layer as { implementation?: unknown }).implementation
-        : undefined;
-    const loadedRungPx =
-      implementation && typeof implementation === "object" && "loadedRungPx" in implementation
-        ? (implementation as { loadedRungPx?: unknown }).loadedRungPx
-        : undefined;
-    return { layerId, loadedRungPx: typeof loadedRungPx === "number" ? loadedRungPx : null };
+    const implementation = capImplementation(map, layerId);
+    const numberOrNull = (field: string) =>
+      typeof implementation[field] === "number" ? (implementation[field] as number) : null;
+    return {
+      layerId,
+      loadedRungPx: numberOrNull("loadedRungPx"),
+      rungLoading: numberOrNull("rungLoading"),
+      elevLoaded:
+        typeof implementation.elevLoaded === "boolean" ? implementation.elevLoaded : null,
+    };
   });
 }
 
@@ -293,10 +321,6 @@ export function snapshotGlLoss(
   };
 }
 
-function megabytes(bytes: number): string {
-  return (bytes / (1024 * 1024)).toFixed(0);
-}
-
 /** The state itself, with no event or timestamp attached.
  *
  *  Split out because the reading and the event that prompted it can come from different moments —
@@ -313,8 +337,14 @@ export function glStateLine(snapshot: GlLossSnapshot): string {
       return `${source} ${counts.cachedTiles}/${counts.maxSlots} slots +${counts.inViewTiles} view${bytes}`;
     })
     .join(" · ");
+  // An in-flight rung is appended rather than replacing the loaded one: both are true at once, and
+  // "8192←4096 loading" is the state that explains a stall, where either number alone does not.
   const caps = snapshot.caps
-    .map((cap) => `${cap.layerId.replace("polar-cap-", "")} ${cap.loadedRungPx ?? "none"}`)
+    .map((cap) => {
+      const climbing = cap.rungLoading === null ? "" : `→${cap.rungLoading} loading`;
+      const elevation = cap.elevLoaded === false ? " (flat)" : "";
+      return `${cap.layerId.replace("polar-cap-", "")} ${cap.loadedRungPx ?? "none"}${climbing}${elevation}`;
+    })
     .join("/");
   const status = snapshot.statusMessage ? ` · browser said: ${snapshot.statusMessage}` : "";
   const version = snapshot.libraryVersion ? `maplibre ${snapshot.libraryVersion} · ` : "";
@@ -392,7 +422,13 @@ export function restoreFault(map: MapLike | undefined): string | null {
   if (!map || typeof map !== "object") return "no map";
   const style = map.style;
   if (!style || typeof style !== "object") {
-    return "the context came back but MapLibre never rebuilt the style";
+    // Says only what it OBSERVED. This used to read "the context came back but MapLibre never
+    // rebuilt the style" — a cause this function never checks, written for the one caller that
+    // knows a restore fired. That caller states it itself ("the context came back but the map did
+    // not — ..."), so the claim was doubled there and simply false anywhere else: the perf report
+    // calls this on every export, and a phone with a torn-down style was told a context had come
+    // back when nothing had established one ever went away.
+    return "MapLibre never rebuilt the style — nothing can render";
   }
   if (style.projection === undefined || style.projection === null) {
     return "the style has no projection — every render and every unproject will throw";

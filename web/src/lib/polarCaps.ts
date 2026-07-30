@@ -273,16 +273,49 @@ export function capTextureBudget(isMobileClass: boolean): number {
   return isMobileClass ? MOBILE_CAP_BUDGET_PX : Infinity;
 }
 
-/** UA-Client-Hints when the engine ships them (Chromium), else the coarse-pointer heuristic —
- *  which sweeps in tablets too, deliberately: they share the upload constraint. Guarded so the
- *  module stays importable in node (vitest). */
-function isMobileClassDevice(): boolean {
-  if (typeof navigator !== "undefined") {
-    const uaData = (navigator as Navigator & { userAgentData?: { mobile?: boolean } })
-      .userAgentData;
-    if (typeof uaData?.mobile === "boolean") return uaData.mobile;
+/** Which signal produced a device-class verdict. `no-signal` is not a synonym for desktop: it is
+ *  the honest reading when neither source exists, and it is reported rather than folded into the
+ *  boolean because a false from no evidence and a false from a measurement are different facts. */
+export type DeviceClassSignal = "ua-client-hints" | "pointer-coarse" | "no-signal";
+
+export interface DeviceClass {
+  mobileClass: boolean;
+  via: DeviceClassSignal;
+}
+
+/**
+ * The device-class rule, with its inputs injected so it is testable without stubbing globals.
+ *
+ * UA-Client-Hints wins when the engine ships them (Chromium, including Brave); everything else
+ * falls through to the coarse-pointer heuristic, which sweeps in tablets too — deliberately, since
+ * they share the upload constraint. The two arms disagreeing is normal and is exactly why `via` is
+ * carried: the same phone reports through different signals in different browsers, so a capture
+ * that does not name the signal cannot be compared with one taken elsewhere.
+ */
+export function classifyDevice(
+  uaMobile: boolean | undefined,
+  pointerCoarse: boolean | undefined,
+): DeviceClass {
+  if (typeof uaMobile === "boolean") return { mobileClass: uaMobile, via: "ua-client-hints" };
+  if (typeof pointerCoarse === "boolean") {
+    return { mobileClass: pointerCoarse, via: "pointer-coarse" };
   }
-  return typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
+  return { mobileClass: false, via: "no-signal" };
+}
+
+/** The live verdict. Guarded so the module stays importable in node (vitest). */
+export function deviceClass(): DeviceClass {
+  const uaData =
+    typeof navigator === "undefined"
+      ? undefined
+      : (navigator as Navigator & { userAgentData?: { mobile?: boolean } }).userAgentData;
+  const pointerCoarse =
+    typeof matchMedia === "function" ? matchMedia("(pointer: coarse)").matches : undefined;
+  return classifyDevice(uaData?.mobile, pointerCoarse);
+}
+
+export function isMobileClassDevice(): boolean {
+  return deviceClass().mobileClass;
 }
 
 /** Unit-sphere position for a lng/lat, in MapLibre's globe convention (North Pole = (0, 1, 0)). */

@@ -23,6 +23,16 @@ export const TILE_PATH_TEMPLATE = `{z}/{x}/{y}.${TILE_EXTENSION}`;
 export const RELIEF_MIN_ZOOM = 0;
 export const RELIEF_MAX_ZOOM = 8;
 
+/** Max zoom of the pinned base source that floors the globe (`relief-base` in globe.astro).
+ *
+ *  It must be **0**, and that is a guarantee rather than a preference. A raster source's covering
+ *  set is clamped to its own maxzoom, so at 0 there is exactly one tile — the same tile at every
+ *  camera, therefore always ideal, therefore always resident once fetched. Any higher value leaves
+ *  the set camera-dependent: measured on production, a pinned z1 (4 tiles, 273 KB) still paints a
+ *  blank frame on the first visit to a cold quadrant, and z2 likewise. Raising this trades a
+ *  guarantee for sharpness, which is the opposite of what the layer is for. */
+export const RELIEF_BASE_MAX_ZOOM = 0;
+
 /** One tile address. */
 export interface TileCoordinate {
   z: number;

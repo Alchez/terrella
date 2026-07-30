@@ -536,8 +536,18 @@ describe("globe.astro wires the instrument rather than re-stating it", () => {
   it("surfaces the line through the perf overlay, so it is visible in Zen without devtools", () => {
     // The crash was in Zen and Zen is where it gets judged; a console-only probe would only ever
     // be read in the browser I can drive.
-    const mount = globe.match(/mountPerfOverlay\([\s\S]*?\),\n    \);/)?.[0];
+    // BOUNDED, and that bound is the fix for a real vacuous pass. This used to close on
+    // `\),\n    \);` — an indentation-sensitive anchor. Reshaping the call into an options object
+    // moved that anchor, and `[\s\S]*?` simply ran on to the next place in the file where the old
+    // shape happened to occur: the match grew to 32,420 characters, still contained `demCache()`
+    // somewhere in the middle, and still passed. A guard that widens silently when its subject
+    // moves is worse than no guard, so the span is capped and the cap is asserted.
+    const LONGEST_PLAUSIBLE_CALL = 800;
+    const mount = globe.match(/mountPerfOverlay\(map, \{[\s\S]{0,800}?\n\s*\}\);/)?.[0];
     expect(mount, "the perf overlay must be mounted").toBeTruthy();
+    expect(mount!.length, "matched a runaway span, not the call").toBeLessThan(
+      LONGEST_PLAUSIBLE_CALL,
+    );
     expect(mount).toContain("demCache()");
   });
 

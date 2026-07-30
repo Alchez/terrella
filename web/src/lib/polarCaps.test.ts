@@ -18,8 +18,11 @@ import {
   capProjectedExtentPx,
   capTextureBudget,
   clampedTextureSize,
+  classifyDevice,
   compositedAlpha,
   decodeCapElevation,
+  deviceClass,
+  isMobileClassDevice,
   loadCapElevation,
   pickRung,
   rungForDemand,
@@ -106,6 +109,36 @@ describe("capOptionsFrom", () => {
     expect(north.budgetPx).toBe(MOBILE_CAP_BUDGET_PX);
     expect(south.budgetPx).toBe(MOBILE_CAP_BUDGET_PX);
     expect(capOptionsFrom(MANIFEST, capTextureBudget(false))[0].budgetPx).toBe(Infinity);
+  });
+});
+
+describe("classifyDevice", () => {
+  it("prefers UA-Client-Hints, and says so — Chromium phones answer here, Firefox never does", () => {
+    expect(classifyDevice(true, false)).toEqual({ mobileClass: true, via: "ua-client-hints" });
+    // The hint WINS over a disagreeing pointer heuristic rather than being OR-ed with it: a
+    // Chromium desktop with a touchscreen reports coarse pointers and is not a phone.
+    expect(classifyDevice(false, true)).toEqual({ mobileClass: false, via: "ua-client-hints" });
+  });
+
+  it("falls through to the pointer heuristic when the hint is absent", () => {
+    expect(classifyDevice(undefined, true)).toEqual({ mobileClass: true, via: "pointer-coarse" });
+    expect(classifyDevice(undefined, false)).toEqual({
+      mobileClass: false,
+      via: "pointer-coarse",
+    });
+  });
+
+  it("reports NO SIGNAL as its own state, instead of a desktop verdict from no evidence", () => {
+    // This is the whole reason `via` exists. Both arms absent used to return a bare `false`, which
+    // reads downstream as "desktop" and buys Infinity texture budget — 512 MB of caps decided by
+    // the absence of a measurement. The verdict is still false (it has to be something), but it
+    // now arrives labelled, so a snapshot cannot present it as a reading.
+    expect(classifyDevice(undefined, undefined)).toEqual({ mobileClass: false, via: "no-signal" });
+  });
+
+  it("keeps the boolean helper agreeing with the structured verdict", () => {
+    // Two entry points, one rule. If these ever disagree, the cap budget and the panel disagree.
+    expect(isMobileClassDevice()).toBe(deviceClass().mobileClass);
   });
 });
 

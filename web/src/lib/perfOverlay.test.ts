@@ -2,14 +2,19 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   FPS_WINDOW_MS,
+  NARROW_VIEWPORT_PX,
+  PERF_EXPORT_PATH,
   SLOW_FRAME_MS,
+  exportPerfReport,
   frameInterval,
   frameRate,
   longTaskApiSupported,
   newFrameTracker,
   onIdle,
   onRender,
+  perfCollapsedLines,
   perfSummaryLines,
+  startsCollapsed,
   type PerfSnapshot,
 } from "./perfOverlay";
 
@@ -51,7 +56,12 @@ describe("perfSummaryLines", () => {
     expect(lines[2]).toBe("long tasks 14 · 2211 ms total · 480 ms max");
   });
 
-  it("stays four lines, so the panel fits a phone corner", () => {
+  it("stays four lines — the EXPANDED view's budget, not the panel's whole size", () => {
+    // The original rationale ("so the panel fits a phone corner") no longer holds and should not
+    // be relied on: the panel now wraps, scrolls, and starts collapsed on a narrow screen, and the
+    // page appends its own lines below these. The bound survives for a different reason — these
+    // four are the core reading, and anything wanting a fifth belongs in `extraLines` where it can
+    // be attributed to a subsystem. `perfCollapsedLines` is what actually guards the phone corner.
     expect(perfSummaryLines(BASE)).toHaveLength(4);
   });
 
@@ -71,6 +81,103 @@ describe("perfSummaryLines", () => {
     expect(unavailable).not.toBe(measuredZero);
     expect(unavailable).toContain("n/a");
     expect(unavailable).not.toMatch(/\b0\b/);
+  });
+});
+
+describe("perfCollapsedLines — what the panel shows before anyone taps it", () => {
+  it("stays two lines, which is the bound that actually protects a phone screen", () => {
+    expect(perfCollapsedLines(BASE)).toHaveLength(2);
+    expect(perfCollapsedLines({ ...BASE, fps: 58, longTaskCount: 200 })).toHaveLength(2);
+  });
+
+  it("leads with jank and blocked time — the pair every session starts by asking about", () => {
+    const lines = perfCollapsedLines({
+      ...BASE,
+      fps: 58,
+      worstFrameMs: 90,
+      slowFrameCount: 24,
+      longTaskCount: 200,
+      longTaskTotalMs: 12_645,
+    });
+    expect(lines[0]).toBe("fps 58 · worst 90 ms · slow 24");
+    expect(lines[1]).toBe("blocked 12645 ms in 200 · z3.00");
+  });
+
+  it("carries the missing-API honesty into the collapsed view too", () => {
+    // A collapsed `blocked 0 ms in 0` in Firefox would recreate the exact confusion the expanded
+    // line was rewritten to prevent — a zero from an observer that never registered.
+    const lines = perfCollapsedLines({ ...BASE, longTaskApiAvailable: false });
+    expect(lines[1]).toContain("blocked n/a");
+    expect(lines[1]).not.toMatch(/\b0\b/);
+  });
+});
+
+describe("startsCollapsed", () => {
+  it("collapses on a phone and stays open on a desktop", () => {
+    expect(startsCollapsed(412)).toBe(true); // the OnePlus this was built for
+    expect(startsCollapsed(NARROW_VIEWPORT_PX - 1)).toBe(true);
+    expect(startsCollapsed(NARROW_VIEWPORT_PX)).toBe(false);
+    expect(startsCollapsed(2560)).toBe(false);
+  });
+});
+
+describe("exportPerfReport", () => {
+  const ok = () => Promise.resolve({ ok: true } as Response);
+  const notFound = () => Promise.resolve({ ok: false } as Response);
+
+  it("posts the report as pretty JSON to the dev endpoint", async () => {
+    let seenPath: string | undefined;
+    let seenBody: string | undefined;
+    const fetchFn = ((path: string, init: RequestInit) => {
+      seenPath = path;
+      seenBody = init.body as string;
+      return ok();
+    }) as unknown as typeof fetch;
+    expect(await exportPerfReport({ report: { a: 1 }, fetchFn })).toBe("saved");
+    expect(seenPath).toBe(PERF_EXPORT_PATH);
+    // Pretty-printed on purpose: the file is read by a human in an editor, not parsed by a tool.
+    expect(seenBody).toBe('{\n  "a": 1\n}');
+  });
+
+  it("falls back to the clipboard when there is no endpoint — the production case", async () => {
+    // A static build has no `/__perf`, and that is ordinary, not a failure to report.
+    let copied: string | undefined;
+    const outcome = await exportPerfReport({
+      report: { a: 1 },
+      fetchFn: notFound as unknown as typeof fetch,
+      writeClipboard: async (text) => {
+        copied = text;
+      },
+    });
+    expect(outcome).toBe("copied");
+    expect(copied).toContain('"a": 1');
+  });
+
+  it("falls back when the POST throws, not only when it returns a bad status", async () => {
+    const outcome = await exportPerfReport({
+      report: {},
+      fetchFn: (() => Promise.reject(new Error("network"))) as unknown as typeof fetch,
+      writeClipboard: async () => {},
+    });
+    expect(outcome).toBe("copied");
+  });
+
+  it("reports FAILED rather than a silent success when neither path exists", async () => {
+    // `navigator.clipboard` is simply absent over plain http on a LAN address, which is exactly
+    // where the phone runs. A button that quietly did nothing there would be worse than no button.
+    expect(await exportPerfReport({ report: {}, fetchFn: notFound as unknown as typeof fetch })).toBe(
+      "failed",
+    );
+    expect(await exportPerfReport({ report: {} })).toBe("failed");
+  });
+
+  it("reports FAILED when the clipboard write itself is refused", async () => {
+    const outcome = await exportPerfReport({
+      report: {},
+      fetchFn: notFound as unknown as typeof fetch,
+      writeClipboard: () => Promise.reject(new Error("denied")),
+    });
+    expect(outcome).toBe("failed");
   });
 });
 

@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   DEGRADED_PIXEL_RATIO,
@@ -128,5 +129,52 @@ describe("the terrain rung, and why it is last", () => {
       if (action === "disable-terrain") terrainEnabled = false;
     }
     expect(walked).toEqual(["retire-spin", "lower-pixel-ratio", "disable-terrain", null]);
+  });
+});
+
+describe("the page reads the pixel ratio from the right place", () => {
+  const globe = readFileSync(new URL("../pages/globe.astro", import.meta.url), "utf8");
+
+  it("feeds the ladder the MAP's ratio, never the display's", () => {
+    // The ladder LOWERS the map's ratio itself, so after its middle rung the two disagree.
+    // Reading the display's would report headroom already spent and re-pull a no-op rung
+    // instead of reaching terrain.
+    const ladderInputs = [...globe.matchAll(/nextDegradationAction\(\{[\s\S]{0,240}?\}\)/g)].map(
+      (match) => match[0],
+    );
+    expect(ladderInputs.length, "the ladder must be called").toBeGreaterThan(0);
+    for (const call of ladderInputs) {
+      expect(call).toContain("devicePixelRatio: map.getPixelRatio()");
+      expect(call).not.toContain("window.devicePixelRatio");
+    }
+  });
+
+  it("reports the MAP's ratio in the perf snapshot too, not the display's", () => {
+    // Found by a sabotage that missed its target: the 10-space needle aimed at the ladder is a
+    // SUBSTRING of this 14-space line, so it corrupted the report's origin instead — and nothing
+    // failed. A snapshot whose `devicePixelRatio` silently means the display would misattribute
+    // every phone reading taken after the ladder lowered the ratio, which is the one moment the
+    // two disagree and the one moment the number matters.
+    const origin = globe.match(/origin: \{[\s\S]{0,1600}?\n {12}\},/)?.[0];
+    expect(origin, "the report's origin block must exist").toBeTruthy();
+    // Bounded AND the bound asserted, per the lesson that produced this file's other guards: a
+    // lazy match that overruns its subject still contains the right substring and still passes.
+    expect(origin!.length, "matched a runaway span, not the origin block").toBeLessThan(1600);
+    expect(origin).toContain("devicePixelRatio: map.getPixelRatio()");
+    expect(origin).not.toContain("window.devicePixelRatio");
+  });
+
+  it("keeps the dead-globe notice above the ?perf panel", () => {
+    // Reported from a phone: the notice had unhidden and the expanded diagnostic panel covered it.
+    const notice = globe.match(/\.globe-lost \{[\s\S]*?\n  \}/)?.[0];
+    expect(notice, "the notice's rule must exist").toBeTruthy();
+    const noticeZ = Number(notice!.match(/z-index: (\d+)/)?.[1]);
+    const panelZ = Number(
+      readFileSync(new URL("./perfOverlay.ts", import.meta.url), "utf8").match(
+        /"z-index:(\d+)"/,
+      )?.[1],
+    );
+    expect(Number.isFinite(noticeZ) && Number.isFinite(panelZ)).toBe(true);
+    expect(noticeZ).toBeGreaterThan(panelZ);
   });
 });

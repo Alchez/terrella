@@ -217,7 +217,11 @@ import { REPO_URL } from "../lib/siteLinks";
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
-    z-index: 20;
+    /* Above the ?perf panel (40), which is the only thing on the page that outranks it and the one
+       thing that must not. Reported from a phone: the globe was dead, this notice HAD unhidden, and
+       the expanded diagnostic panel was covering it — a debugging aid hiding the alert that says
+       debugging is over. The panel grew to 60vh in the same change that made it readable at all. */
+    z-index: 50;
     margin: 0;
     padding: 1rem 1.3rem;
     max-width: min(28rem, calc(100vw - 2.4rem));
@@ -513,7 +517,7 @@ import { REPO_URL } from "../lib/siteLinks";
     TERRAIN_URL_TEMPLATE,
     TILE_URL_TEMPLATE,
   } from "../lib/assetBase";
-  import { RELIEF_MAX_ZOOM, RELIEF_MIN_ZOOM } from "../lib/reliefTiles";
+  import { RELIEF_BASE_MAX_ZOOM, RELIEF_MAX_ZOOM, RELIEF_MIN_ZOOM } from "../lib/reliefTiles";
   import {
     MAX_TERRAIN_EXAGGERATION,
     TERRAIN_MAX_ZOOM,
@@ -573,8 +577,8 @@ import { REPO_URL } from "../lib/siteLinks";
   import { DEEP_SEA } from "../lib/palette";
   // Ids and poles only — the cap MESH and its textures stay behind the dynamic import below.
   // glDiagnostics already pulls these two statically, so this adds nothing to the bundle.
-  import { CAP_POLES, capLayerId } from "../lib/polarCaps";
-  import { currentTier } from "../lib/capability";
+  import { CAP_POLES, capLayerId, deviceClass } from "../lib/polarCaps";
+  import { currentTier, decideTier, getQuality, probeSignals } from "../lib/capability";
   import {
     COUNTRIES_SOURCE,
     HIGHLIGHT_GOLD,
@@ -592,7 +596,10 @@ import { REPO_URL } from "../lib/siteLinks";
     isSustainedSlow,
     nextDegradationAction,
   } from "../lib/fpsDegradation";
-  import type { PerfEventStamps } from "../lib/perfOverlay";
+  import type { PerfEventStamps, PerfSnapshot } from "../lib/perfOverlay";
+  // Type-only, so the perf report module stays out of every non-?perf bundle — the values come
+  // from the dynamic import beside the overlay's.
+  import type { LadderPosition } from "../lib/perfSnapshot";
 
   // `Country` (imported from ../lib/manifest) is the shape of the objects the
   // click/hover/panel handlers pass around.
@@ -697,6 +704,21 @@ import { REPO_URL } from "../lib/siteLinks";
     attribution: CREDITS,
   };
 
+  // The same archive capped at z0, drawn UNDER `relief` as a floor that is a map rather than a
+  // colour. `maxzoom: 0` is the whole point: the covering set is then a single tile at every
+  // camera, so it is always ideal, always in `_inViewTiles`, and cannot be missing after first
+  // load. A z1 pin (4 tiles, 273 KB) does not have that property — its covering set is still
+  // camera-dependent, so a first visit to a cold quadrant paints nothing (measured).
+  //
+  // No `attribution`: `relief` already carries CREDITS and MapLibre would render it twice.
+  const reliefBaseSource: RasterSourceSpecification = {
+    type: "raster",
+    tiles: [TILE_URL_TEMPLATE],
+    minzoom: RELIEF_MIN_ZOOM,
+    maxzoom: RELIEF_BASE_MAX_ZOOM,
+    tileSize: 256,
+  };
+
   // Vertical field of view — MapLibre's 36.87° default reads like a low-orbit fisheye:
   // shapes smear into the limb at overview and lean away near the frame edges zoomed in.
   // Lower flattens the projection toward the heroes' orthographic camera. A/B'd live at
@@ -712,17 +734,37 @@ import { REPO_URL } from "../lib/siteLinks";
       // Globe projection is declared in the style (v5 stable) — the proven
       // planet_tiles/index.html viewer does the same with our exact tiles.
       projection: { type: "globe" },
-      sources: { relief: reliefSource },
+      sources: { relief: reliefSource, "relief-base": reliefBaseSource },
       layers: [
-        // The sphere's floor. A raster layer paints ONLY where it holds a tile, and the map
-        // canvas clears transparent so the starfield behind it shows through — so any tile
-        // MapLibre cannot cover reads as outer space, mid-ocean holes included. It cannot
-        // always cover: _updateRetainedTiles falls back to loaded children, then walks
-        // parents, and on a zoom-out the newly-revealed periphery has neither (no children
-        // were ever in view up close, and its low-zoom ancestors were evicted from the LRU).
-        // Cold tiles take 1.2-1.7 s from R2, so that gap is long enough to see.
-        // On globe projection this clips to the sphere, leaving space around the limb.
+        // The sphere's floor, in two parts. A raster layer paints ONLY where it holds a tile, and
+        // the canvas clears transparent so the starfield behind it shows through — so any tile
+        // MapLibre cannot cover reads as outer space, mid-ocean holes included. On globe
+        // projection this clips to the sphere, leaving space around the limb.
+        //
+        // WHY IT CANNOT ALWAYS COVER — corrected here, having finally been measured. This used to
+        // say the low-zoom ancestors "were evicted from the LRU". They are not evicted.
+        // `_updateRetainedTiles` substitutes only out of `_inViewTiles` (`getTile` ->
+        // `getTileByID` -> `_inViewTiles.getTileById`); the LRU is reachable solely through
+        // `_addTile`, and the parent walk's one call to it is gated on `parentWasRequested`,
+        // which is false for a tile constructed this frame. So while an ideal tile is pending its
+        // ancestor sits in the cache WITH DATA and cannot be used — measured on production, a pan
+        // at settled zoom retained zero substitutes and painted one flat colour. Zoom-in only
+        // looks better because the parent is still in `_inViewTiles` from the previous camera.
+        // Raising `maxTileCacheZoomLevels` does nothing here (tried at 20: still zero
+        // substitutes); it sizes a cache the retain path cannot read. Cold tiles take 1.2-1.7 s
+        // from R2, so the gap is long enough to see.
         { id: "space-floor", type: "background", paint: { "background-color": DEEP_SEA } },
+        // ...which is why the layer under the map is a colour and this one is the map. One tile,
+        // 71 KB, one request. It cannot make the fill faster; it makes a gap the right COLOUR —
+        // sandy over land instead of abyssal teal over land, which is what made a slow fill read
+        // as missing data rather than as sharpening. Beneath `relief`, so real tiles cover it the
+        // moment they land.
+        {
+          id: "relief-base",
+          type: "raster",
+          source: "relief-base",
+          paint: { "raster-fade-duration": 0 },
+        },
         { id: "relief", type: "raster", source: "relief", paint: { "raster-fade-duration": 0 } },
       ],
     },
@@ -836,6 +878,11 @@ import { REPO_URL } from "../lib/siteLinks";
   // MapLibre's own structures (all present in its public .d.ts, underscore prefixes and all);
   // summariseDemCache returns null rather than 0 if any of them move.
   let describeDemCache: (() => string) | null = null;
+  // The same reading as a FAULT rather than a sentence — the structured export needs to answer
+  // "is anything actually wrong" without string-matching a human-readable line. Null both when
+  // there is no terrain (nothing to bound) and when the bound is holding; the report distinguishes
+  // those by the terrain flag it already carries.
+  let demCacheFault: (() => string | null) | null = null;
   // Tiles this camera needs, from MapLibre's own coveringTiles. Declared out here because the GL
   // loss snapshot wants it too and `?terrain=off` never enters the block below — in which case
   // there is no terrain source and null is the honest answer, not zero.
@@ -858,6 +905,9 @@ import { REPO_URL } from "../lib/siteLinks";
   // unbounded, at the one moment there is no DEM cache at all: seen live on every run of a hard
   // pan/zoom route, within ~50 s, because `disable-terrain` is the ladder's FIRST rung.
   let terrainRetired = false;
+  // Where the FPS ladder currently stands, assigned beside the ladder itself. Null until then,
+  // which is the honest reading during the page's first frames rather than a fabricated "unfired".
+  let ladderPosition: (() => LadderPosition) | null = null;
   // TIER 3 LANDS HERE: terrain is what `full` finally buys beyond the idle spin. `?terrain=`
   // still overrides in both directions — a number forces it on at any tier, `off` forces it flat
   // without demoting the tier — so every A/B flag below stays usable and there is still a way to
@@ -937,6 +987,12 @@ import { REPO_URL } from "../lib/siteLinks";
     // throttle a large screen and overspend on a small one. MapLibre applies it as
     // `Math.min(cap, its own size)`, so this can only ever shrink the cache.
     let intendedCacheSlots: number | null = null;
+    // Reads the same live pair the re-assertion judges, so the export can never disagree with the
+    // console. Retired terrain has no cap to fault on, and must not report one.
+    demCacheFault = () =>
+      terrainRetired
+        ? null
+        : demCacheCapFault(map.style?.tileManagers?.[TERRAIN_SOURCE], intendedCacheSlots);
     const applyCacheCap = () => {
       if (terrainRetired) return; // nothing to bound, and the warning below would be a lie
       const canvas = map.getCanvas();
@@ -1085,15 +1141,91 @@ import { REPO_URL } from "../lib/siteLinks";
   if (urlFlags.has("perf")) {
     const terrainLine = describeTerrain;
     const demCache = describeDemCache;
+    const demFault = demCacheFault;
     // The sky line is unconditional: the ramp runs on every visit, so a capture with no terrain
     // still has to say which atmosphere arm produced it.
     const skyLine = () => describeAtmosphereState(map.getZoom(), skyRamp, map.getPitch());
-    void import("../lib/perfOverlay").then((mod) =>
-      mod.mountPerfOverlay(map, perfEventStamps, () =>
-        terrainLine && demCache
-          ? [terrainLine(), demCache(), skyLine()]
-          : [skyLine()],
-      ),
+
+    // PROBED ONCE, AND THAT IS A CORRECTNESS REQUIREMENT, NOT AN OPTIMISATION
+    // -----------------------------------------------------------------------
+    // `probeSignals()` CREATES a WebGL2 context (capability.ts), `detectPerformanceCaveat()`
+    // creates a second, and `currentTier()` calls `probeSignals()` again — four contexts per call.
+    // The first build of this report called it from `extraLines`, i.e. every 300 ms while the panel
+    // was EXPANDED. Measured live: **0 WebGL contexts per 3 s collapsed, 40 per 3 s expanded —
+    // 13.3 per second.** Browsers force-lose the oldest context past ~16 live, so the instrument
+    // was killing the map's own context within about a second of the panel being opened, and then
+    // faithfully reporting the resulting rebuilds as if the page had caused them. It produced five
+    // context losses per run on a phone and an entire false conclusion that terrain was at fault.
+    //
+    // The signals are static hardware facts, so caching them is free. The tier is NOT — the quality
+    // toggle writes localStorage mid-session — so it is recomputed from the cached signals plus the
+    // live preference, which is `currentTier()`'s own definition minus the re-probe.
+    const probedSignals = probeSignals();
+    const probedDeviceClass = deviceClass();
+
+    // BOTH modules load dynamically, and perfSnapshot is in here rather than at the top for the
+    // same reason perfOverlay always was: a visitor without `?perf` must not download the
+    // instrument. Its TYPES are imported statically, which costs nothing — they are erased.
+    void Promise.all([import("../lib/perfOverlay"), import("../lib/perfSnapshot")]).then(
+      ([overlay, perfSnapshot]) => {
+        // ONE composer feeding both the panel and the export, so a screenshot and a saved snapshot
+        // can never disagree about the same moment. `timing` is handed in by the overlay — it owns
+        // the long-task and frame counters, and reaching into them from here would be a second copy
+        // of a live number.
+        const composeReport = (timing: PerfSnapshot, panel = { expanded: true }) => {
+          const canvas = map.getCanvas();
+          return perfSnapshot.buildPerfReport({
+            nowMs: performance.now(),
+            origin: {
+              href: location.href,
+              // `import.meta.env.DEV` rather than a hostname check: the confusing case is the LAN
+              // dev server reached by IP from a phone, which is indistinguishable from a real host
+              // by URL. This is the build's own answer and cannot be wrong about which server it is.
+              devServer: import.meta.env.DEV,
+              userAgent: navigator.userAgent,
+              // The map's ratio, not the display's — the ladder can have lowered it.
+              devicePixelRatio: map.getPixelRatio(),
+              // ...and what the canvas actually got, which MapLibre may clamp below the request.
+              realisedPixelRatio:
+                canvas.clientWidth > 0 ? canvas.width / canvas.clientWidth : map.getPixelRatio(),
+              viewportCssWidth: canvas.clientWidth,
+              viewportCssHeight: canvas.clientHeight,
+              flags: [...urlFlags.keys()].sort(),
+              panelExpanded: panel.expanded,
+            },
+            timing,
+            // The healthy `idle` sample, already being taken and thrown away unless the GPU died.
+            // Null before the first idle; the report states its age rather than implying freshness.
+            gl: lastHealthyGlState,
+            deviceClass: probedDeviceClass,
+            signals: probedSignals,
+            tier: decideTier(probedSignals, getQuality()),
+            ladder: ladderPosition?.() ?? {
+              spinning: false,
+              pixelRatioLowered: false,
+              terrainRetired,
+              nextAction: null,
+            },
+            demCacheFault: demFault?.() ?? null,
+            restoreFault: restoreFault(map),
+            glLossCount,
+            lastGlLossMs,
+          });
+        };
+
+        overlay.mountPerfOverlay(map, {
+          eventStamps: perfEventStamps,
+          extraLines: (timing) => [
+            ...(terrainLine && demCache ? [terrainLine(), demCache()] : []),
+            skyLine(),
+            // `expanded: true` stated rather than defaulted: these lines are only ever rendered
+            // when the panel IS expanded (the collapsed view calls perfCollapsedLines instead), so
+            // the fact is knowable here and should not rest on a default happening to be right.
+            ...perfSnapshot.perfReportLines(composeReport(timing, { expanded: true })),
+          ],
+          buildReport: composeReport,
+        });
+      },
     );
   }
 
@@ -1151,6 +1283,12 @@ import { REPO_URL } from "../lib/siteLinks";
   // cause (measured: the platform reports no cause — statusMessage came back "", and neither
   // getGraphicsResetStatus nor EXT_robustness exists here).
   let chargedLosses: number[] = [];
+  // Losses since this page loaded, which `chargedLosses` deliberately cannot answer — it forgets
+  // anything older than the amnesty window, because its job is the recovery budget, not the
+  // history. A phone reported the globe "reloading every so often" inside a single page lifetime
+  // and nothing on the panel could say whether that was one rebuild or six.
+  let glLossCount = 0;
+  let lastGlLossMs: number | null = null;
 
   /**
    * Poll the map's STATE until it is usable again, then put back what the restore dropped.
@@ -1204,6 +1342,8 @@ import { REPO_URL } from "../lib/siteLinks";
     window.clearInterval(recoveryPoll);
     const atLoss = readGlState("lost", event.originalEvent?.statusMessage ?? null);
     console.warn(describeLoss(atLoss, lastHealthyGlState), lastHealthyGlState ?? atLoss);
+    glLossCount += 1;
+    lastGlLossMs = performance.now();
     chargedLosses = chargeLoss(chargedLosses, performance.now());
     if (recoveryVerdict(chargedLosses) === "give-up") {
       console.error(describeGiveUp(chargedLosses));
@@ -1733,6 +1873,21 @@ import { REPO_URL } from "../lib/siteLinks";
   let frameDurationsMs: number[] = [];
   let lastFrameTime = performance.now();
   let pixelRatioLowered = false;
+  // Published for the ?perf report, which is declared ABOVE this block and would otherwise close
+  // over `spinning`/`pixelRatioLowered` before they are initialised. Assigning a reader here is the
+  // same shape `describeTerrain` and `reassertTerrainBound` already use, and it keeps the ladder's
+  // three flags readable in exactly one place rather than three.
+  ladderPosition = () => ({
+    spinning,
+    pixelRatioLowered,
+    terrainRetired,
+    nextAction: nextDegradationAction({
+      spinning,
+      pixelRatioLowered,
+      devicePixelRatio: map.getPixelRatio(),
+      terrainEnabled: map.getTerrain() !== null,
+    }),
+  });
   function watchFps(now: number) {
     const frameDelta = now - lastFrameTime;
     lastFrameTime = now;
@@ -1743,7 +1898,7 @@ import { REPO_URL } from "../lib/siteLinks";
         const action = nextDegradationAction({
           spinning,
           pixelRatioLowered,
-          devicePixelRatio: window.devicePixelRatio || 1,
+          devicePixelRatio: map.getPixelRatio(),
           terrainEnabled: map.getTerrain() !== null,
         });
         if (action === "retire-spin") {

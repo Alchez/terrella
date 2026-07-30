@@ -508,3 +508,43 @@ describe("index.astro asks the floor rather than restating it", () => {
     expect(index).not.toMatch(/webgl2\s*&&\s*!\w+\.softwareGpu/);
   });
 });
+
+describe("probeSignals is a GPU allocation, and callers must treat it as one", () => {
+  const capability = readFileSync(new URL("./capability.ts", import.meta.url), "utf8");
+  const globe = readFileSync(new URL("../pages/globe.astro", import.meta.url), "utf8");
+
+  it("releases the context it creates, not just the canvas", () => {
+    // A live WebGL context is a GPU resource held until GC. Browsers force-lose the OLDEST live
+    // context past a per-page ceiling (~16 in Chrome), so a leaked probe context does not cost
+    // memory — it costs whichever context is oldest, which is the map's.
+    const probe = capability.match(/export function probeSignals[\s\S]*?\n\}/)?.[0];
+    expect(probe, "probeSignals must exist").toBeTruthy();
+    expect(probe).toContain('getContext("webgl2")');
+    expect(probe).toContain('getExtension("WEBGL_lose_context")?.loseContext()');
+  });
+
+  it("is never called from the ?perf overlay's per-tick path", () => {
+    // THE BUG THIS EXISTS FOR. `composeReport` ran from `extraLines`, which the overlay calls every
+    // 300 ms while EXPANDED. probeSignals() creates a context, detectPerformanceCaveat() a second,
+    // and currentTier() calls probeSignals() again — measured live at 0 contexts per 3 s collapsed
+    // versus 40 per 3 s expanded, i.e. 13.3/second. It killed the map's context within about a
+    // second of the panel being opened and then reported the rebuilds as the page's own fault,
+    // producing five "context losses" per phone run and a false conclusion that terrain was to
+    // blame. The signals are static hardware facts; probe once, outside the closure.
+    const compose = globe.match(/const composeReport = \(timing[\s\S]*?\n {8}\};/)?.[0];
+    expect(compose, "the report composer must exist").toBeTruthy();
+    expect(compose!.length, "matched a runaway span, not the composer").toBeLessThan(2600);
+    for (const forbidden of ["probeSignals(", "currentTier(", "deviceClass("]) {
+      expect(compose, `${forbidden}) allocates or re-probes; hoist it`).not.toContain(forbidden);
+    }
+    // ...and it must still REPORT them, from values probed once outside.
+    expect(compose).toContain("signals: probedSignals");
+    expect(compose).toContain("deviceClass: probedDeviceClass");
+  });
+
+  it("still tracks a quality change the user makes mid-session", () => {
+    // Caching the tier outright would be the lazy fix and would be wrong: the quality toggle
+    // writes localStorage while the page is live. Signals are hardware and static; quality is not.
+    expect(globe).toContain("tier: decideTier(probedSignals, getQuality())");
+  });
+});

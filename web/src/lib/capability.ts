@@ -215,6 +215,13 @@ export function probeSignals(): CapabilitySignals {
       // Only meaningful once a plain context succeeds: without that control, "null" would be
       // reporting "no WebGL2 here" a second time rather than "acceleration comes with a caveat".
       performanceCaveat = detectPerformanceCaveat();
+      // RELEASED, like the caveat probe below already did with its own. Dropping the canvas is not
+      // enough: a live context is a GPU resource held until GC gets round to it, and browsers
+      // force-lose the OLDEST live context past a per-page ceiling (~16 in Chrome) — so a leaked
+      // probe context does not cost memory, it costs somebody else's context. That somebody is the
+      // map. Harmless while this ran once per page load; a caller that repeated it took the globe
+      // down five times in 38 seconds, which is how this came to be noticed at all.
+      gl.getExtension("WEBGL_lose_context")?.loseContext();
     }
   } catch {
     webgl2 = false;

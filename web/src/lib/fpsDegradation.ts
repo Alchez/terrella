@@ -100,6 +100,11 @@ export function isSustainedSlow(frameDurationsMs: number[]): boolean {
  * `full`-tier visitor, since terrain rides the tier rather than sitting behind
  * `?terrain=N`, so this rung is a real last resort rather than a theoretical one.
  * `?terrain=off` is what makes it false without demoting the tier.
+ *
+ * `devicePixelRatio` is the ratio the MAP is rendering at (`map.getPixelRatio()`), not the
+ * display's. They agree today, since the map is constructed at the display ratio — but the ladder
+ * itself lowers the map's, so reading the display's would report headroom already spent and burn
+ * the middle rung on a no-op instead of reaching terrain.
  */
 export function nextDegradationAction(state: {
   spinning: boolean;

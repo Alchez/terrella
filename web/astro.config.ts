@@ -267,6 +267,90 @@ function tilesDevServer(): Plugin {
   };
 }
 
+// Where `?perf` snapshot exports land, relative to web/. Gitignored.
+const PERF_SNAPSHOT_DIR = '.perf';
+
+// A snapshot is a few KB of JSON. The cap is three orders of magnitude above that, and exists
+// because an unbounded read from a socket into memory is an unbounded read from a socket into
+// memory regardless of who is meant to be on the other end.
+const PERF_BODY_LIMIT_BYTES = 1024 * 1024;
+
+// Dev-only: accept a POSTed `?perf` snapshot and write it to web/.perf/<timestamp>.json.
+//
+// WHAT THIS REPLACES
+// ------------------
+// Reading performance numbers off a photograph of a phone screen, and re-typing them. That loop
+// lost real fidelity — a phone's panel is truncated, and the numbers that got transcribed were the
+// ones that happened to be legible rather than the ones that mattered. The phone can now POST the
+// whole structured report to the LAN dev server it is already loading the site from, and it can be
+// read straight off disk.
+//
+// THE CONSTRAINTS, AND WHY EACH ONE IS HERE
+// -----------------------------------------
+// This is an unauthenticated write endpoint on a server bound to 0.0.0.0 for phone testing, so:
+//   - POST only; anything else falls through to Astro rather than being handled.
+//   - The filename is generated HERE from the clock. Nothing from the request body or URL reaches
+//     the path — the request cannot name, traverse to, or overwrite a file.
+//   - One fixed directory, resolved once from this config's own location.
+//   - The body is capped and must parse as JSON, so a malformed or oversized POST is rejected
+//     rather than stored as an unreadable file.
+//
+// DELIBERATE DEVIATION FROM THE ASSET-STORE RULE
+// ----------------------------------------------
+// The stores above take an env var with NO fallback, because a store pointing at the wrong place
+// serves wrong data silently. This defaults instead, and the difference is the consequence of being
+// wrong: a snapshot directory in an unexpected place costs one `ls`. Requiring configuration for a
+// diagnostic would mean the diagnostic is unavailable exactly when someone is in a hurry to use it.
+function perfSnapshotServer(): Plugin {
+  return {
+    name: 'perf-snapshot-server',
+    configureServer(server) {
+      server.middlewares.use('/__perf', (req, res, next) => {
+        if (req.method !== 'POST') return next();
+        const chunks: Buffer[] = [];
+        let received = 0;
+        req.on('data', (chunk: Buffer) => {
+          received += chunk.length;
+          if (received > PERF_BODY_LIMIT_BYTES) {
+            res.statusCode = 413;
+            res.end('perf snapshot too large');
+            req.destroy();
+            return;
+          }
+          chunks.push(chunk);
+        });
+        req.on('end', () => {
+          void (async () => {
+            const body = Buffer.concat(chunks).toString('utf8');
+            try {
+              JSON.parse(body);
+            } catch {
+              res.statusCode = 400;
+              res.end('perf snapshot is not JSON');
+              return;
+            }
+            // Colons are legal on ext4 but make the file annoying to pass to anything shell-shaped.
+            const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+            const directory = path.resolve(process.cwd(), PERF_SNAPSHOT_DIR);
+            const file = path.join(directory, `${stamp}.json`);
+            try {
+              await fs.promises.mkdir(directory, { recursive: true });
+              await fs.promises.writeFile(file, body, 'utf8');
+              console.info(`[perf] snapshot written to ${path.relative(process.cwd(), file)}`);
+              res.statusCode = 200;
+              res.setHeader('Content-Type', 'application/json');
+              res.end(JSON.stringify({ written: path.relative(process.cwd(), file) }));
+            } catch (error) {
+              res.statusCode = 500;
+              res.end(`perf snapshot write failed: ${(error as Error).message}`);
+            }
+          })();
+        });
+      });
+    },
+  };
+}
+
 // https://astro.build/config
 export default defineConfig({
   // Self-hosted display serif (Astro 7 Fonts API) — Fraunces, an optical
@@ -286,6 +370,7 @@ export default defineConfig({
       heroDevServer(),
       bordersDevServer(),
       tilesDevServer(),
+      perfSnapshotServer(),
     ],
   },
 });

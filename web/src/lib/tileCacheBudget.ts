@@ -50,6 +50,8 @@
  * losing cache it should have kept.
  */
 
+import { megabytes } from "./format";
+
 /** `config.MAX_TILE_CACHE_ZOOM_LEVELS`, which `Map` also installs as the default option value. */
 export const MAPLIBRE_MAX_TILE_CACHE_ZOOM_LEVELS = 5;
 
@@ -431,7 +433,6 @@ export function demCacheLine(
   coveringTiles?: number | null,
 ): string {
   if (summary === null) return "dem cache n/a — MapLibre internals moved";
-  const megabytes = (bytes: number) => (bytes / (1024 * 1024)).toFixed(0);
   // What the camera needs against what the cap allows. The ratio is the number the byte budget
   // never had: "381 slots" is unreadable, "5.7x what this camera needs" prices the headroom.
   const need =
@@ -446,7 +447,7 @@ export function demCacheLine(
         : setting.kind === "fixed"
           ? ` · capped ${setting.slots} (?demcache)`
           : ` · capped ${TERRAIN_CACHE_SLOT_MULTIPLIER}x derived, ` +
-            `${(TERRAIN_CACHE_BYTE_BUDGET / (1024 * 1024)).toFixed(0)} MB budget`;
+            `${megabytes(TERRAIN_CACHE_BYTE_BUDGET)} MB budget`;
   return (
     `dem cache ${megabytes(summary.cachedBytes)}/` +
     `${megabytes(summary.maxSlots * demSlotBytes(TERRAIN_ASSET_TILE_PX))} MB · ` +

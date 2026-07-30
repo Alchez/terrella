@@ -91,8 +91,21 @@ describe("capTextureBytes — the one VRAM term we allocate ourselves", () => {
   it("counts an unloaded cap as zero rather than guessing a rung", () => {
     expect(
       totalCapTextureBytes([
-        { layerId: "polar-cap-north", loadedRungPx: null },
-        { layerId: "polar-cap-south", loadedRungPx: 0 },
+        { layerId: "polar-cap-north", loadedRungPx: null, rungLoading: null, elevLoaded: null },
+        { layerId: "polar-cap-south", loadedRungPx: 0, rungLoading: null, elevLoaded: true },
+      ]),
+    ).toBe(0);
+  });
+
+  it("bills nothing for a cap whose FIRST fetch is still in flight", () => {
+    // The state on every cold load: no texture on the GPU, 5 MB on the wire. A `loadedRungPx ??
+    // rungLoading` fallback reads naturally and is wrong — it would bill 268 MB of VRAM for bytes
+    // that have not been uploaded, at exactly the moment someone is trying to attribute a stall.
+    // The two poles cover both spellings of "nothing loaded", because they are not the same value.
+    expect(
+      totalCapTextureBytes([
+        { layerId: "polar-cap-north", loadedRungPx: null, rungLoading: 8192, elevLoaded: false },
+        { layerId: "polar-cap-south", loadedRungPx: 0, rungLoading: 4096, elevLoaded: false },
       ]),
     ).toBe(0);
   });
@@ -101,8 +114,8 @@ describe("capTextureBytes — the one VRAM term we allocate ourselves", () => {
 describe("capLayerStates", () => {
   it("reads the rung off the custom layer's implementation, for both poles", () => {
     expect(capLayerStates(healthyMap())).toEqual([
-      { layerId: "polar-cap-north", loadedRungPx: 8192 },
-      { layerId: "polar-cap-south", loadedRungPx: 8192 },
+      { layerId: "polar-cap-north", loadedRungPx: 8192, rungLoading: null, elevLoaded: null },
+      { layerId: "polar-cap-south", loadedRungPx: 8192, rungLoading: null, elevLoaded: null },
     ]);
   });
 
@@ -112,14 +125,36 @@ describe("capLayerStates", () => {
     );
   });
 
+  it("reads the in-flight rung and the elevation flag, not just what is already on the GPU", () => {
+    // The distinction the panel exists for: a cap SETTLED at 4096 and a cap CLIMBING to 8192 look
+    // identical on screen, and only the second is still spending main thread.
+    const getLayer = () => ({
+      implementation: { loadedRungPx: 4096, rungLoading: 8192, elevLoaded: false },
+    });
+    expect(capLayerStates(healthyMap({ getLayer }))[0]).toEqual({
+      layerId: "polar-cap-north",
+      loadedRungPx: 4096,
+      rungLoading: 8192,
+      elevLoaded: false,
+    });
+  });
+
   it.each([
     ["the layer is absent (?nocaps, or before style.load)", () => undefined],
     ["MapLibre stopped exposing implementation", () => ({ id: "polar-cap-north" })],
     ["the cap has not loaded a rung yet", () => ({ implementation: {} })],
-    ["the field is no longer a number", () => ({ implementation: { loadedRungPx: "8192" } })],
-  ])("reports null, not a fabricated rung, when %s", (_case, getLayer) => {
+    [
+      "the fields are no longer the types we read",
+      () => ({ implementation: { loadedRungPx: "8192", rungLoading: "8192", elevLoaded: 1 } }),
+    ],
+  ])("reports null, not a fabricated reading, when %s", (_case, getLayer) => {
     const states = capLayerStates(healthyMap({ getLayer }));
-    for (const state of states) expect(state.loadedRungPx).toBeNull();
+    for (const state of states) {
+      expect(state.loadedRungPx).toBeNull();
+      expect(state.rungLoading).toBeNull();
+      // `1` is truthy — a Boolean() coercion here would report a wrong-typed field as loaded.
+      expect(state.elevLoaded).toBeNull();
+    }
     expect(totalCapTextureBytes(states)).toBe(0);
   });
 
@@ -238,6 +273,32 @@ describe("formatGlLoss", () => {
     );
     expect(quiet).not.toContain("browser said");
   });
+
+  it("shows a cap mid-climb as BOTH rungs, and a flat cap as flat", () => {
+    // A settled 4096 and a 4096 climbing to 8192 are the same picture on screen; only the second
+    // is still spending main thread, so only the second explains a stall in the same screenshot.
+    const climbing = formatGlLoss(
+      snapshotGlLoss(
+        healthyMap({
+          getLayer: () => ({
+            implementation: { loadedRungPx: 4096, rungLoading: 8192, elevLoaded: false },
+          }),
+        }),
+        { phase: "sampled", msSinceLoad: 0, devicePixelRatio: 1 },
+      ),
+    );
+    expect(climbing).toContain("north 4096→8192 loading (flat)");
+    // The bytes stay billed to what is actually uploaded — 2 x 4096² x 4 = 128 MiB, not 8192's.
+    expect(climbing).toContain("= 128 MB");
+  });
+
+  it("stays silent about a settled cap, so the climb annotation means something", () => {
+    // If every reading carried an arrow the arrow would be noise. `caps north 8192/south 8192` is
+    // the quiet state and must render exactly as it did before this field existed.
+    expect(line).toContain("caps north 8192/south 8192 = 512 MB");
+    expect(line).not.toContain("loading");
+    expect(line).not.toContain("(flat)");
+  });
 });
 
 describe("describeLoss — the loss handler cannot read the style, and must not pretend it can", () => {
@@ -337,6 +398,13 @@ describe("restoreFault — 'restored' is not 'recovered'", () => {
     // an empty style when the style object itself never came back.
     expect(restoreFault({})).toContain("never rebuilt the style");
     expect(restoreFault(undefined)).toBe("no map");
+    // Reports the OBSERVATION, never a cause it did not check. Only the recovery poll knows a
+    // restore fired, and it says so in its own log line; the perf report calls this on every
+    // export, where "the context came back" would be an unfounded claim about a healthy-looking
+    // phone. Caught by exporting from a phone whose style had gone for reasons never established.
+    for (const fault of [restoreFault({}), restoreFault(undefined)]) {
+      expect(fault).not.toContain("context came back");
+    }
   });
 });
 
