@@ -6,7 +6,7 @@
   bathymetry, data-driven snow.
 - The system of record is code: shared constants in `pipeline/render/palette.py`, hero-only
   constants in `pipeline/render/scene_build.py`, tile levers in `pipeline/tile/shade.py`
-  (`KNOBS`). Canonical renders: `blender/renders/heroes/<country>.png` (~204 posters).
+  (`KNOBS`). Canonical renders: `blender/renders/heroes/<country>.png` (203 posters — 204 countries are in scope, Kiribati deferred).
 - The A/Bs and rationale behind every value live in HISTORY (cited by § heading); this file is
   the operational view.
 
@@ -64,7 +64,7 @@ Cost: hero sweep **~10–13 h** + tile restage **~29 min** + caps auto-restage *
 | `EXAGGERATION` | 15.0 — hero displacement + tile `EXAG` both import it (the copy pair was collapsed) | § Vertical exaggeration |
 | `LUT_STEP_M` | 1.0 m — ramp LUT resolution (fidelity, not hue) | § Land color ramp |
 
-### Hero only (`scene_build.py`, `render_prep.py`) — the ~204-country sweep, ~10–13 h
+### Hero only (`scene_build.py`, `render_prep.py`) — the 203-country sweep, ~10–13 h
 
 | Lever | Value | Section |
 |---|---|---|
@@ -453,6 +453,27 @@ Cost: hero sweep **~10–13 h** + tile restage **~29 min** + caps auto-restage *
 - Mask wiring (ocean/lake/river/snow): Non-Color, Closest interpolation, 0/255 PNG.
 - Warp width ≈ render width and ≤ source width (the anti-bump rule).
 - No Map Range with reversed ranges — Math Multiply + Clamp only.
+
+## How to judge a look change (and what has already been falsified)
+
+Four rules that cost real time to learn. The first three are about *measuring* a look; the fourth is
+the first question to ask about any visual artifact.
+
+- **A metric that scores contrast cannot judge softness — twice-failed, and structurally so.** The
+  ambient clip *manufactures* contrast at its own cliff, so softening it **scores** as a loss while it
+  **looks** like a gain. Judge look on the sphere at planet scale; quote metrics for direction and
+  magnitude only, never as the verdict. Local-contrast std in particular is retired as a proxy.
+- **Occlusion is NOT the softness term — falsified by a six-run sweep.** Local contrast moved the
+  *wrong way* across the sweep. Do not re-litigate this; a reopening needs a new mechanism, not a new
+  value. → HISTORY § chasing the hero's "softness" into the tiles
+- **Softness is view-independent, so it is fully bakeable; crispness is a data ceiling.** z8 is
+  305.7483 m/px, which *is* the 10″ fuse (308.7 m) — so real crispness means re-fusing finer and
+  box-filtering the shaded RGB down, never the heights.
+- **An artifact that tracks a SEAM is a compositing bug; one pinned to GEOGRAPHY is a data bug.** So
+  the first question for any visual artifact is *assets or screen?* — answered by a same-camera
+  screenshot with the layer on and off, not by inspection. The custom-layer GL contract that seam bugs
+  usually violate is documented in `web/src/lib/polarCaps.ts`.
+  → HISTORY § 2026-07-22 Antarctica FILL
 
 ## Delivery encoding — what the browser actually receives
 

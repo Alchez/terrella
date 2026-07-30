@@ -542,13 +542,13 @@ describe("globe.astro wires the instrument rather than re-stating it", () => {
     // shape happened to occur: the match grew to 32,420 characters, still contained `demCache()`
     // somewhere in the middle, and still passed. A guard that widens silently when its subject
     // moves is worse than no guard, so the span is capped and the cap is asserted.
-    const LONGEST_PLAUSIBLE_CALL = 800;
-    const mount = globe.match(/mountPerfOverlay\(map, \{[\s\S]{0,800}?\n\s*\}\);/)?.[0];
-    expect(mount, "the perf overlay must be mounted").toBeTruthy();
-    expect(mount!.length, "matched a runaway span, not the call").toBeLessThan(
-      LONGEST_PLAUSIBLE_CALL,
-    );
-    expect(mount).toContain("demCache()");
+    // ...and then the CAP became the defect. Adding one line to `extraLines` pushed the span past
+    // 800, so the guard failed as "the perf overlay must be mounted" — reporting a missing feature
+    // when the feature was present and only the matcher was wrong. A bound cannot be both loose
+    // enough to survive edits and tight enough to catch a runaway. So: no span at all. Two literals
+    // that are individually meaningful, and neither can widen.
+    expect(globe, "the perf overlay must be mounted").toContain("mountPerfOverlay(map, {");
+    expect(globe, "the DEM cache line must reach the panel").toContain("demCache()");
   });
 
   it("keeps the byte arithmetic out of the page — one place it can drift from", () => {

@@ -170,7 +170,7 @@ describe("the page reads the pixel ratio from the right place", () => {
     expect(notice, "the notice's rule must exist").toBeTruthy();
     const noticeZ = Number(notice!.match(/z-index: (\d+)/)?.[1]);
     const panelZ = Number(
-      readFileSync(new URL("./perfOverlay.ts", import.meta.url), "utf8").match(
+      readFileSync(new URL("./perf/perfOverlay.ts", import.meta.url), "utf8").match(
         /"z-index:(\d+)"/,
       )?.[1],
     );

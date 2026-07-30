@@ -46,6 +46,18 @@ pnpm dev --host
 > answering the *old* request shape while the freshly-compiled globe asks for the new one, and every
 > tile 404s. **Restart the dev server after touching either.**
 
+### Baked or live — the rule for where a value gets computed
+
+Applied to every visual constant on the site, and worth knowing before adding a knob:
+
+- Too expensive to compute live → **baked** into the asset.
+- Depends on view state (camera, zoom, pitch) → **live**.
+- Invariant *and* physics-coupled (sun geometry, exaggeration) → **baked**, so the heroes and the
+  tiles cannot disagree.
+- Otherwise → **live, but pinned to authored constants** rather than computed from the data.
+- A **user-exposed setting** only where visitor context genuinely varies — device capability, motion
+  and data preferences. Not for things we simply have an opinion about.
+
 ### The tile request contract
 
 `{z}/{x}/{y}.webp`, z0–8, one tile per request. `src/lib/reliefTiles.ts` is the single source of
@@ -83,7 +95,41 @@ web/
 production origins), `capability` + `fpsDegradation` (the tier probe and runtime downgrade),
 `hoverTracking` (hover resolution, including re-resolving when the globe moves under a parked
 pointer), `countryHighlight`, `polarCaps` (rung choice by projected on-screen size),
-`tileConcurrency`, `perfOverlay`, `rungs`, `manifest`, `palette`.
+`terrainSource`, `tileCacheBudget`, `glDiagnostics`, `skyAtmosphere`, `tileConcurrency`, `rungs`,
+`manifest`, `palette`.
+
+`src/lib/perf/` holds the `?perf` instrument alone — `perfOverlay`, `perfSnapshot`, `perfNetwork`.
+It is a **lazy boundary**: no page may statically value-import from it, so a visitor without the flag
+never downloads it. `lazyBoundary.test.ts` enforces that for the whole directory, because guarding it
+per-file let a regression ship 268 lines of instrument to every visitor. The one exemption is
+`lib/resourceTimingBuffer.ts`, which has to run before the map is constructed and says so in its
+header.
+
+## Diagnostic flags
+
+Query flags on `/globe`, for isolating one variable during a measurement. They are **URLs rather than
+UI controls on purpose**: several are `Map` *constructor* options that cannot be changed on a live map
+(`skirt` is baked into the cached terrain mesh, `maxreq` is set before any request goes out,
+`demcache` sizes a cache at construction), and more importantly an experiment arm should be a
+*reproducible address*. A toggle that flips state in place invites comparing two arms within one page
+load, which has already produced one 47% effect that did not exist.
+
+A malformed value is **refused loudly** (a console warning naming the accepted set) and the default
+applies — never silently, because a run that believes it swept one value while running another is
+worse than no run.
+
+| Flag | Values | What it does |
+| --- | --- | --- |
+| `?perf` | — | The performance panel: timings, long tasks, frame rate, GL state, tile bytes, fill time, and an export button. Also sets `window.terrellaMap` for scripted camera routes. |
+| `?bare` | — | Tiles only: no caps, no borders, no country interaction. The floor of the loading window. |
+| `?nocaps` | — | Drops the polar caps. They are the largest VRAM term we allocate ourselves. |
+| `?terrain=` | `N` \| `off` | Forces 3D displacement on at any tier with exaggeration `N`, or `off` as a flat control **without demoting the tier**. Zero is refused — indistinguishable from off. |
+| `?maxreq=` | integer | MapLibre's parallel image cap (default 16). Measured: do not go below 8, and above 8 there is nothing to win. |
+| `?demcache=` | `off` \| slots | The DEM tile cache bound — `off`, an explicit slot count, or absent for the canvas-derived cap. |
+| `?demsize=` | `256` \| `512` | The DEM tile size declaration. 512 is the most expensive arm by far: render tiles are per-frame framebuffer binds plus a full replay of the layer stack. |
+| `?skirt=` | `auto` \| `none` | Terrain skirt length (ships `none`). A **constructor** option — the skirt is baked into the cached mesh, so it needs one page load per arm. |
+| `?sky=` | `off` \| `0`–`1` | The atmosphere blend floor. `0` is accepted and meaningful here (no atmosphere past the overview), unlike `?terrain=0`. |
+| `?ramp=` | `off` \| number | The terrain exaggeration ramp's floor — the value it decays to at z8. Non-integers are fine; it is a continuous look knob. |
 
 ## Commands
 
@@ -101,6 +147,32 @@ Run from `web/`:
 | `pnpm test`            | Unit tests (vitest)                              |
 | `pnpm run build:deploy` | Build addressing the production asset hosts      |
 | `pnpm run deploy`      | `build:deploy`, then upload to Cloudflare        |
+
+### Proving a guard is not vacuous
+
+`pnpm test` going green says every guard passed. It does not say any guard would have *failed*, and
+several here would not have: a regex anchored `^import` never matched Astro's indented imports, and a
+duplicate assertion in `capability.test.ts` was vacuous its whole life. Both passed happily.
+
+**`uv run scripts/sabotage.py`** (from the repo root) settles it. Each case breaks one string in one
+source file, runs the suite, and restores the file — and it names the test that must catch it, so "the
+suite went red" is not accepted as proof. **81 cases, about 5 minutes.**
+
+Seventy-one drive `pnpm test`. The other ten drive `pytest`, and they exist to sabotage
+`tests/test_sabotage_cases.py` — the gate that keeps this table honest is a guard like any other, so it
+gets the same treatment.
+
+```sh
+uv run scripts/sabotage.py                  # every case
+uv run scripts/sabotage.py --filter cap     # cases whose label or path matches
+uv run scripts/sabotage.py --suite web      # one suite only
+uv run scripts/sabotage.py --list           # the table, run nothing
+uv run scripts/sabotage.py --restore        # put the tree back after a killed run
+```
+
+Add a case whenever you add a guard, with the guard's test name. `tests/test_sabotage_cases.py` checks
+the table against the tree on every `pytest` run — so a needle a refactor moved fails in a tenth of a
+second, rather than as a shrug minutes into a run nobody is watching.
 
 ### Running a Lighthouse pass
 

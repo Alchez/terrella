@@ -509,6 +509,31 @@ describe("index.astro asks the floor rather than restating it", () => {
   });
 });
 
+describe("the scripted-diagnosis seam is gated by the module boundary", () => {
+  const globe = readFileSync(new URL("../pages/globe.astro", import.meta.url), "utf8");
+  const overlay = readFileSync(new URL("./perf/perfOverlay.ts", import.meta.url), "utf8");
+
+  it("lives in the lazily-imported instrument, so an ordinary visit cannot reach it", () => {
+    // The gate is that perfOverlay loads only inside the ?perf branch, so a visitor without the flag
+    // never downloads this module at all. The import SHAPE is not re-checked here: `lib/perf/`'s own
+    // lazyBoundary.test.ts owns that rule for the whole directory, and a duplicate of it here was
+    // silently vacuous for its entire life — anchored `^import` against Astro's indented imports, so
+    // it matched nothing and passed by finding nothing.
+    expect(overlay).toContain("terrellaMap = map");
+    expect(globe).toMatch(/if \(urlFlags\.has\("perf"\)\)/);
+    expect(globe).toContain('import("../lib/perf/perfOverlay")');
+  });
+
+  it("is not also written from the page, where nothing structural would gate it", () => {
+    // The first version of this seam DID live in globe.astro behind the flag, guarded by a test
+    // asserting the assignment appeared within the flag block's text span. A sabotage that closed
+    // the block early and re-opened it after the assignment passed that test: the statement was
+    // outside the gate and still inside the span. A region match cannot decide what encloses a
+    // statement, so the gate moved to the module boundary and this asserts the page stays clean.
+    expect(globe).not.toContain("terrellaMap");
+  });
+});
+
 describe("probeSignals is a GPU allocation, and callers must treat it as one", () => {
   const capability = readFileSync(new URL("./capability.ts", import.meta.url), "utf8");
   const globe = readFileSync(new URL("../pages/globe.astro", import.meta.url), "utf8");
@@ -531,9 +556,12 @@ describe("probeSignals is a GPU allocation, and callers must treat it as one", (
     // second of the panel being opened and then reported the rebuilds as the page's own fault,
     // producing five "context losses" per phone run and a false conclusion that terrain was to
     // blame. The signals are static hardware facts; probe once, outside the closure.
-    const compose = globe.match(/const composeReport = \(timing[\s\S]*?\n {8}\};/)?.[0];
+    // `\(` alone, not `\(timing`: the signature gained a third parameter and went multi-line, which
+    // broke the old anchor and is worth noting — a matcher pinned to an argument list is pinned to
+    // the least stable part of a declaration.
+    const compose = globe.match(/const composeReport = \([\s\S]*?\n {8}\};/)?.[0];
     expect(compose, "the report composer must exist").toBeTruthy();
-    expect(compose!.length, "matched a runaway span, not the composer").toBeLessThan(2600);
+    expect(compose!.length, "matched a runaway span, not the composer").toBeLessThan(3200);
     for (const forbidden of ["probeSignals(", "currentTier(", "deviceClass("]) {
       expect(compose, `${forbidden}) allocates or re-probes; hoist it`).not.toContain(forbidden);
     }

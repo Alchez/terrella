@@ -52,7 +52,7 @@ flowchart TD
   F --> PF
   PF --> PH
 
-  subgraph HERO["Hero render path — done, ~204 countries"]
+  subgraph HERO["Hero render path — done, 203 countries (204 in scope, Kiribati deferred)"]
     P["render/render_prep.py<br/>warp EPSG:4326 to Albers equal-area conic,<br/>~16k Float32 TIFF + nearest-warped masks<br/>+ 0/255 lake & river PNGs for the shader"]
     B["render/scene_build.py — Blender Cycles, RTX 4070S / OptiX, headless -b<br/>true displacement + adaptive subdivision<br/>two ColorRamps switched by ocean mask<br/>+ GLOBathy depth-keyed lake ramp (render/lake_mask.py), rivers flat teal<br/>locked look: 15x, sun alt 45 (shared palette.SUN_ALT_DEG), OIDN denoise"]
     SV["render/sky_view.py — burn-only horizon SVF<br/>darkens land valleys post-render"]
@@ -79,11 +79,13 @@ flowchart TD
     HS["render/hillshade.py — per-row z-factor 15/cos(lat)<br/>full-width, 1-row halo -> seamless;<br/>gdaldem takes only a scalar z, hence our own"]
     SH["tile/shade.py composite() — per 128-row window, 4 workers:<br/>land/sea ramps from elevation via a 17.6 KB LUT<br/>(replaced two gdaldem color-relief passes)<br/>x hillshade x sky-view + snow + sea ice + lake depth"]
     T2["gdal raster tile: 512 px, z0-8, xyz convention<br/>87,381 tiles; tiles_old kept as rollback<br/>(cut/pyramid/@2x/serve mechanics: see docs/tiling.mmd)"]
-    T5["tile/pack_pmtiles.py + pmtiles convert<br/>-> planet.pmtiles 3.0 GB, range-request served<br/>(see docs/tiling.mmd)"]
+    T5["tile/pack_pmtiles.py + pmtiles convert<br/>-> planet.pmtiles 3.1 GB, range-request served<br/>(see docs/tiling.mmd)"]
+    TT["tile/terrain_rgb.py — stage T, a SEPARATE LANE<br/>reads height_3857.tif directly, never the composite above<br/>elevation -> RGB at 8 m, sea kept as bathymetry, LOSSLESS WebP<br/>-> terrain.pmtiles 2.6 GB, declared tileSize 128 (see docs/tiling.mmd)"]
     CP["tile/cap_render.py — AEQD polar caps, both poles<br/>same shade.composite over the fused VRTs;<br/>8192-px WebP pair + caps.json -> web/public/caps/<br/>freshness-guarded: restages whenever the look does"]
   end
 
   PH --> WI
+  PH --> TT
   WI --> HS
   HS --> SH
   WI --> SH
@@ -98,8 +100,8 @@ flowchart TD
   T2 --> T5
   PH --> CP
 
-  subgraph SITE["Site — deployed; Tiers 1+2 live"]
-    W["three-tier static Astro site, shell on a CDN edge worker<br/>heroes + border vectors in object storage; tiles from a<br/>second worker over the PMTiles archive<br/>Tier 1 gallery / Tier 2 MapLibre globe (live)<br/>Tier 3 globe + terrain-RGB relief (candidate)"]
+  subgraph SITE["Site — deployed; all three tiers live"]
+    W["three-tier static Astro site, shell on a CDN edge worker<br/>heroes + border vectors in object storage; tiles from a<br/>second worker over the PMTiles archives<br/>Tier 1 gallery / Tier 2 MapLibre globe / Tier 3 globe + terrain-RGB<br/>displacement, all live; a capability probe picks one and the visitor can override"]
   end
 
   T2 --> W
@@ -109,11 +111,9 @@ flowchart TD
 
   classDef ext fill:#dbe9f6,stroke:#3572a5,color:#173a5e
   classDef done fill:#dcefe2,stroke:#2e7d4f,color:#1a3a28
-  classDef next fill:#fdf3d7,stroke:#b8860b,color:#4a3a10
-  classDef plan fill:#eceff1,stroke:#78909c,color:#37474f
 
   class S1,S2,S3,S4,S5,S6,S7 ext
-  class D1,R1,D2,R4,D3,R3,D4,R5,V,F,PF,PH,O1,O2,O3 done
+  class D1,R1,D2,R4,D3,R3,D4,R5,V,F,PF,PH,O1,O2,O3,TT done
   class P,B,SV,H8,OV,HF done
   class SN,LD,IC,WI,HS,SH,T2,T5,CP done
   class W done

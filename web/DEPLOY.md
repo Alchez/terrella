@@ -24,6 +24,24 @@ always ships under a **new key**, never an overwrite.
 **There are TWO deploys.** `pnpm run deploy` ships the shell only; the tile Worker has its own
 config and its own command. Neither touches the other.
 
+### What the free tier actually buys
+
+Two independent ceilings, and the tighter one is storage.
+
+- **Requests: roughly 1,351 cold visits per day** at the `full` tier. That comes from **74 tile
+  requests per view at z6** — terrain roughly *doubles* the count, because both pyramids are drawn.
+  It was ~2,500 visits/day at ~40 requests per view, before terrain shipped.
+  - **A cache HIT still charges a request.** Caching improves latency, never the request count, so no
+    cache-tuning lever moves this number.
+  - An earlier estimate of "a fraction, not a doubling" assumed `tileSize: 512`; the shipping
+    declaration is 128, which is what makes it a doubling.
+- **Storage: 9.13 GB of the 10 GB free tier** — 3.00 relief + 2.63 terrain + 3.50 assets. That is
+  **0.87 GB of headroom**, and it is the constraint that binds first. Overage is inexpensive
+  ($0.015/GB-month), so this is a number to watch rather than to fear.
+- Priced against the published rates: **$5.00/month at 2,000 cold visits/day, ~$5.83 at 5,000** —
+  worst case, treating every request as a cache miss. The Workers Paid subscription *is* the bill;
+  usage barely registers against it.
+
 ## 1. The site shell
 
 ```sh

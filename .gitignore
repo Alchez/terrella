@@ -14,6 +14,17 @@ blender/*.blend
 # Local-only project memory (Rohan's call, 2026-07-05): CLAUDE.md stays untracked.
 CLAUDE.md
 
+# Working documents, untracked on Rohan's call (2026-07-30) as the five phases close: the living
+# plan and the decision archive are how the work gets done, not what it ships. They stay on disk.
+# Consequences accepted rather than discovered: `→ HISTORY § ...` citations throughout the tracked
+# docs and code now point outside the repo, and tests/test_history_integrity.py reads HISTORY.md,
+# so it cannot pass on a fresh clone.
+PLAN.md
+HISTORY.md
+# Guards HISTORY.md's index and anchors, so it travels with its subject: in a clone without the
+# archive it would only fail, and it keeps running locally where the file does exist.
+tests/test_history_integrity.py
+
 __pycache__/
 *.pyc
 .venv/

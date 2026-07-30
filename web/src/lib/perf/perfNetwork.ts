@@ -1,0 +1,249 @@
+// What the tiles actually cost on the wire, from Resource Timing.
+//
+// WHY THIS EXISTS
+// ---------------
+// Two readings were misreported in one evening for the same missing fact. A phone's `bootMs 2792`
+// was called the largest number in the capture and presented as a real startup cost; the next two
+// arms read 1442 and 1504, because the first was a cold cache. A desktop cap reading was quoted
+// before noticing that four of its five files came from cache and only one was downloaded. Nothing
+// in the report distinguished "fetched" from "already had it", so every absolute in it was
+// ambiguous by construction.
+//
+// THE HIT/MISS ORACLE THIS WAS SUPPOSED TO USE DOES NOT WORK — MEASURED, NOT ASSUMED
+// ---------------------------------------------------------------------------------
+// The plan for this module said: the tile Worker emits `Server-Timing`, so `r2;dur` present means
+// an edge MISS and absent means a HIT, giving a free per-tile cache oracle. Both halves are false.
+//
+//   1. `r2` is pushed UNCONDITIONALLY by the Worker's serverTimingHeader. On a Cache API hit
+//      `timing.reads` is empty, so it emits `r2;dur=0;desc="0 reads, 0 B"` — present, not absent.
+//   2. Far worse, the header is a FOSSIL on an edge hit. Tiles ship
+//      `Cache-Control: public, max-age=31536000, immutable`, so Cloudflare's edge answers without
+//      running the Worker at all. Fetching one tile twice returned `cf-cache-status: HIT` both
+//      times, `age: 51949` on the second, and a byte-identical
+//      `cache;dur=7, r2;dur=280;desc="1 read, 87954 B", worker;dur=287` — a ~14-hour-old
+//      measurement replayed verbatim. Even the Worker's own `X-Terrella-Cache` header said
+//      `miss` on a response that never reached the Worker.
+//
+// The Worker's own comment predicted this ("a stored Server-Timing would let a cache HIT replay the
+// timings of the MISS that filled it, which is worse than no instrument at all") — it just applies
+// to the edge cache in front of the Worker, not only to the Cache API inside it.
+//
+// So `serverTiming` is recorded verbatim and NEVER reduced to a verdict. Edge HIT/MISS is
+// fundamentally unobservable from the page: `cf-cache-status` is a response header, MapLibre loads
+// tiles as `img`, and no response header is readable through Resource Timing.
+//
+// WHAT IS READABLE, AND IT IS THE THING WE ACTUALLY NEEDED
+// -------------------------------------------------------
+// The browser's own cache is visible, which is the confound that caused the misreports. Measured on
+// production across seven tiles and one cached asset, exactly:
+//
+//   fetched over the network   transferSize === encodedBodySize + 300
+//   served from browser cache  transferSize === 300, with encodedBodySize still populated
+//
+// 300 is the header allowance the Resource Timing spec requires implementations to add, which is
+// why it is subtracted here rather than treated as payload.
+
+import { TERRAIN_PATH_PREFIX } from "../terrainSource";
+
+/**
+ * The fixed allowance Resource Timing adds to `transferSize` for response headers.
+ *
+ * Not a fudge factor: the spec mandates it so a body size cannot be recovered exactly from a
+ * cross-origin timing. It is the difference between a 48,214-byte tile reporting 48,514 and
+ * reporting its real payload, and subtracting it is what makes "bytes on the wire" mean that.
+ */
+export const TRANSFER_SIZE_HEADER_ALLOWANCE = 300;
+
+/** The subset of `PerformanceResourceTiming` this module reads, so it tests without a browser. */
+export interface TimedResource {
+  name: string;
+  transferSize: number;
+  encodedBodySize: number;
+  decodedBodySize: number;
+  duration: number;
+  serverTiming?: readonly { name: string; duration: number; description?: string }[];
+}
+
+/** Bytes that crossed the network for one resource. Zero means the browser already had it. */
+export function wireBytes(entry: TimedResource): number {
+  return Math.max(0, entry.transferSize - TRANSFER_SIZE_HEADER_ALLOWANCE);
+}
+
+/**
+ * Whether the browser served this from its own cache rather than the network.
+ *
+ * `wireBytes === 0` alone is not enough: a resource that genuinely failed, or one whose timing is
+ * opaque because `Timing-Allow-Origin` is missing, also reports zero. Requiring a populated
+ * `encodedBodySize` separates "had it already" from "learned nothing about it" — and those must
+ * stay separable, because counting an unreadable entry as a cache hit would understate wire bytes
+ * exactly where the numbers are least trustworthy.
+ */
+export function servedFromBrowserCache(entry: TimedResource): boolean {
+  return wireBytes(entry) === 0 && entry.encodedBodySize > 0;
+}
+
+/** A reading whose timing is cross-origin-opaque: nothing about its size is knowable. */
+export function timingIsOpaque(entry: TimedResource): boolean {
+  return entry.transferSize === 0 && entry.encodedBodySize === 0;
+}
+
+export interface TrafficSlice {
+  count: number;
+  wireBytes: number;
+  /** Cache-served requests, counted separately so `count` stays "requests the map made". */
+  fromBrowserCache: number;
+}
+
+export interface TileTraffic {
+  relief: TrafficSlice;
+  terrain: TrafficSlice;
+  /** Requests whose size is unknowable, kept visible rather than folded into a zero. */
+  opaqueCount: number;
+  /** Median of `duration` over network-served tiles only — a cache hit's ~0 ms would otherwise
+   *  drag the median toward zero and read as the network getting faster. */
+  medianNetworkDurationMs: number | null;
+  /** True when the entry buffer is at capacity, so these totals are a floor and not a total.
+   *  The default is 250 and one globe session passes it in silence. */
+  bufferFull: boolean;
+}
+
+const emptySlice = (): TrafficSlice => ({ count: 0, wireBytes: 0, fromBrowserCache: 0 });
+
+/** Median, or null for an empty list. Even-length takes the mean of the middle pair. */
+export function median(values: readonly number[]): number | null {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((first, second) => first - second);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 1 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+}
+
+/**
+ * Split the tile traffic in one buffer of Resource Timing entries.
+ *
+ * Pure. `tileBase` is passed in rather than imported so a test can describe any deployment, and so
+ * the dev server's same-origin `/tiles/` and production's `tiles.` subdomain are the same code path.
+ *
+ * The relief/terrain split keys on the path prefix that already distinguishes them at the Worker —
+ * both pyramids are WebP over z0-8, so nothing else in a tile URL tells them apart.
+ */
+export function summariseTileTraffic(
+  entries: readonly TimedResource[],
+  tileBase: string,
+  pageUrl: string,
+  bufferSize: number,
+): TileTraffic {
+  // RESOLVED, not compared as given, and this is not defensive tidying — it was a live bug.
+  // `TILE_BASE` is absolute in production (`https://tiles.…/`) and RELATIVE on the dev server
+  // (`/tiles/`), while `PerformanceResourceTiming.name` is always an absolute URL. Comparing the
+  // relative form matched nothing, so a page with 55 tile requests in its buffer rendered
+  // `tiles relief 0 · terrain 0 · 0.0 MB wire` — and zero is a plausible reading, so nothing about
+  // it looked wrong. Taking `pageUrl` as a parameter rather than reading `location` keeps this pure
+  // AND makes the resolution unforgettable: there is no call shape that skips it.
+  const base = new URL(tileBase, pageUrl).href;
+  const tiles = entries.filter((entry) => entry.name.startsWith(base));
+  const traffic: TileTraffic = {
+    relief: emptySlice(),
+    terrain: emptySlice(),
+    opaqueCount: 0,
+    medianNetworkDurationMs: null,
+    bufferFull: entries.length >= bufferSize,
+  };
+  const networkDurations: number[] = [];
+  for (const entry of tiles) {
+    if (timingIsOpaque(entry)) {
+      traffic.opaqueCount++;
+      continue;
+    }
+    const path = entry.name.slice(base.length);
+    const slice = path.startsWith(`${TERRAIN_PATH_PREFIX}/`) ? traffic.terrain : traffic.relief;
+    slice.count++;
+    slice.wireBytes += wireBytes(entry);
+    if (servedFromBrowserCache(entry)) slice.fromBrowserCache++;
+    else networkDurations.push(entry.duration);
+  }
+  traffic.medianNetworkDurationMs = median(networkDurations);
+  return traffic;
+}
+
+// HOW LONG A CAMERA MOVE TAKES TO SETTLE
+// --------------------------------------
+// The metric for the original complaint — "tiles take a long time to load in" — which until now was
+// only ever measured by hand, once, with a bespoke rig. `movestart → idle` is the user-perceived
+// unit: the moment they stop being able to see what they asked for, to the moment it is all there.
+//
+// It must only count when a move actually preceded the idle. MapLibre fires `idle` after any
+// settling work at all, including the first load and a style change, so an unguarded timer records
+// a fill for every one of them — mostly zero-tile fills that drag the reading toward nothing and
+// make a slow pan look like an outlier rather than the norm.
+
+/** A move in progress, plus the last one that completed. */
+export interface CameraFill {
+  /** `performance.now()` when the current move began; null when the camera is settled. */
+  movingSinceMs: number | null;
+  /** Tile-entry count at that moment, so the window's own fetches can be differenced out. */
+  tilesAtMoveStart: number | null;
+  /** The most recent completed fill, or null before one has finished. */
+  last: { durationMs: number; tilesFetched: number } | null;
+}
+
+export const newCameraFill = (): CameraFill => ({
+  movingSinceMs: null,
+  tilesAtMoveStart: null,
+  last: null,
+});
+
+/**
+ * Begin a fill window, or leave one already open alone.
+ *
+ * Not a reset: MapLibre fires `movestart` again for a second gesture that begins before the first
+ * has settled, and restarting there would report the tail of a long interaction as a short one. One
+ * continuous interaction is one fill, which is how the person doing it experiences it.
+ */
+export function onCameraMoveStart(fill: CameraFill, nowMs: number, tileCount: number): CameraFill {
+  if (fill.movingSinceMs !== null) return fill;
+  return { ...fill, movingSinceMs: nowMs, tilesAtMoveStart: tileCount };
+}
+
+/** Close a fill window, recording it only if a move actually opened one. */
+export function onCameraIdle(fill: CameraFill, nowMs: number, tileCount: number): CameraFill {
+  if (fill.movingSinceMs === null || fill.tilesAtMoveStart === null) return fill;
+  return {
+    movingSinceMs: null,
+    tilesAtMoveStart: null,
+    last: {
+      durationMs: nowMs - fill.movingSinceMs,
+      // Differenced, and clamped: the buffer can evict between the two reads, and a negative
+      // "tiles fetched" would be worse than an undercount because it reads as a bug in the map.
+      tilesFetched: Math.max(0, tileCount - fill.tilesAtMoveStart),
+    },
+  };
+}
+
+/** The fill line, or null when there is nothing to report — a caller omits the row entirely. */
+export function cameraFillLine(fill: CameraFill): string | null {
+  if (fill.movingSinceMs !== null) return "fill · moving…";
+  if (fill.last === null) return null;
+  const seconds = (fill.last.durationMs / 1000).toFixed(1);
+  return `fill ${seconds}s · ${fill.last.tilesFetched} tiles`;
+}
+
+/** The panel line. Bytes as whole MiB via the shared formatter's rules, not a second policy. */
+export function tileTrafficLine(traffic: TileTraffic): string {
+  const slice = (label: string, part: TrafficSlice) => {
+    const cached = part.fromBrowserCache > 0 ? ` (${part.fromBrowserCache} cached)` : "";
+    return `${label} ${part.count}${cached}`;
+  };
+  const wire = traffic.relief.wireBytes + traffic.terrain.wireBytes;
+  const median =
+    traffic.medianNetworkDurationMs === null
+      ? "med —"
+      : `med ${Math.round(traffic.medianNetworkDurationMs)} ms`;
+  // Both warnings are appended rather than replacing anything: a truncated buffer still has real
+  // numbers in it, and an opaque entry is a known unknown, not a reason to distrust the rest.
+  const truncated = traffic.bufferFull ? " · BUFFER FULL, totals are a floor" : "";
+  const opaque = traffic.opaqueCount > 0 ? ` · ${traffic.opaqueCount} opaque` : "";
+  return (
+    `tiles ${slice("relief", traffic.relief)} · ${slice("terrain", traffic.terrain)} · ` +
+    `${(wire / (1024 * 1024)).toFixed(1)} MB wire · ${median}${opaque}${truncated}`
+  );
+}

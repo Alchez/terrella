@@ -14,7 +14,7 @@ The site meets each visitor where their device can take them, in three tiers:
 
 - **Gallery** — responsive hero images; renders instantly for everyone, and the pessimistic default while a capability probe runs.
 - **Globe** — a MapLibre globe draping pre-shaded raster tiles (needs WebGL2).
-- **Full** *(planned)* — the globe plus 3D terrain displacement, idle motion, and lazy-loaded 8K heroes on country click (gated on GPU tier and network).
+- **Full** — the globe plus 3D terrain displacement, idle motion, and lazy-loaded 8K heroes on country click (gated on GPU tier and network).
 
 The probe upgrades optimistically and the visitor can override the choice. Everything is pre-rendered and served statically — no compute at request time.
 
@@ -24,7 +24,7 @@ Two asset pipelines feed one site:
 - Heroes are pre-rendered offline in Blender from the fused heightfield (one scene rig, framed per country).
 - A global **raster tile pyramid** approximates the same look without ray tracing — hillshade + sky-view shading and the same color ramps.
 
-The data then ships as a single **PMTiles** archive. The browser never opens it: a thin tile server reads the byte range for one `z/x/y` tile and returns just that tile — an Astro dev middleware locally, an edge worker in production. Serving the multi-gigabyte archive to the browser directly is the one shape a CDN cannot cache, so the ranging stays on the server side.
+The data then ships as **PMTiles** archives — one of shaded relief, and a second holding terrain-RGB elevation for the 3D tier, distinguished by a path prefix. The browser never opens them: a thin tile server reads the byte range for one `z/x/y` tile and returns just that tile — an Astro dev middleware locally, an edge worker in production. Serving a multi-gigabyte archive to the browser directly is the one shape a CDN cannot cache, so the ranging stays on the server side.
 
 The frontend is a static Astro site, served from a CDN edge worker with the heavy assets — heroes, border vectors, the tile archive — in object storage beside it. Everything is reproducible from committed source — **no rendered assets or DEM data live in git**, only code, config, and per-country frame pins.
 
@@ -36,6 +36,15 @@ Code is [MIT](LICENSE). The rendered imagery (hero renders, tiles, polar caps) i
 
 - **Running the pipeline / regenerating a hero** → [`docs/pipeline.md`](docs/pipeline.md)
 - **How a country becomes a framed render** (the math) → [`docs/framing-math.md`](docs/framing-math.md)
-- **The living plan and every decision** → [`PLAN.md`](PLAN.md)
 - **The locked aesthetic** (sun, ramps, exaggeration) → [`ART.md`](ART.md)
+- **Measured stage runtimes** → [`PROCESS.md`](PROCESS.md)
 - **Data sources & licenses** → [`ATTRIBUTIONS.md`](ATTRIBUTIONS.md)
+
+### A note on `→ HISTORY § …`
+
+Comments and docs throughout this repo cite decisions as `→ HISTORY § <heading>`. Those point at a
+dated decision archive, and a companion living plan, that are kept **outside** the repository — they
+are how the work gets done rather than part of what it ships. So a citation names *why* a value is
+what it is and tells you the reasoning was written down; it is not a link you can follow here. The
+constants themselves, and the reasoning that has to travel with the code, are in the files above and
+in the source comments beside each decision.
