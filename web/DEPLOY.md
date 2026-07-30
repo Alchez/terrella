@@ -7,11 +7,19 @@ Everything here is about `web/`; the pipeline that *produces* the assets is `doc
 
 Only the shell is small enough to ship inside the build, so production is three origins:
 
-| What                         | Where                                   |
-| :--------------------------- | :-------------------------------------- |
-| Shell — HTML, JS, CSS, caps  | site Worker (`wrangler.jsonc`), ~14 MB  |
-| Hero renders, border GeoJSON | R2 bucket `terrella-assets`             |
-| Relief tiles                 | tile Worker (`worker/`) over an R2 binding |
+| What                          | Where                                      |
+| :---------------------------- | :----------------------------------------- |
+| Shell — HTML, JS, CSS, caps   | site Worker (`wrangler.jsonc`), ~14 MB     |
+| Hero renders, border GeoJSON  | R2 bucket `terrella-assets`                |
+| Relief tiles, terrain-RGB DEM | tile Worker (`worker/`) over an R2 binding |
+
+The tile Worker serves **two** archives out of one bucket, told apart by a path prefix:
+`{z}/{x}/{y}.webp` is relief and `terrain/{z}/{x}/{y}.webp` is the Tier-3 elevation pyramid. The
+prefix carries the whole distinction — both are lossless WebP over z0–8 on the same grid, so
+there is nothing else in a tile URL to tell them apart, and serving the wrong one would displace
+the globe rather than fail. Uploading a new archive is `aws --profile r2 --endpoint-url <r2> s3 cp
+<file> s3://terrella-tiles/<key>`, then bump the matching key in `worker/wrangler.jsonc`; a re-cut
+always ships under a **new key**, never an overwrite.
 
 **There are TWO deploys.** `pnpm run deploy` ships the shell only; the tile Worker has its own
 config and its own command. Neither touches the other.
@@ -34,6 +42,17 @@ there as an absolute URL, so adding a fourth cannot silently ship as same-origin
 **A fresh clone cannot deploy, by design.** The build reads `src/data/countries.json` and
 `public/caps/`, both generated from the render store and both gitignored. Regenerate them first —
 see `docs/pipeline.md`.
+
+**The preflight can refuse.** `scripts/check_deploy_sync.ts` runs before the upload and blocks on
+three things: an object the manifest promises that R2 does not have, a globe that would request
+terrain no Worker routes, and an archive key `worker/wrangler.jsonc` names that is not in
+`terrella-tiles`. All three are silent in production — a 404ing tile does not stop the globe
+rendering, it just renders wrong, flat, or blank with nothing in any log. The refusal message names
+the file to change.
+
+The third is the one to expect after a re-cut: packing and uploading an archive are separate steps
+from deploying, and the Worker reads its key from config, so bumping the key before the upload
+finishes is the easy mistake. The preflight turns that into a refusal instead of an outage.
 
 ## 2. The tile Worker
 

@@ -65,6 +65,12 @@ The log below is **chronological**; this is the view it lacks. Nothing reads thi
 
 ### Tiles & the pyramid
 
+- [2026-07-28 (stage T) — stage T gets the guard every other stage already had, and the 47 GB copy it was making for nothing](#2026-07-28-stage-t--stage-t-gets-the-guard-every-other-stage-already-had-and-the-47-gb-copy-it-was-making-for-nothing) — the last unguarded stage joins the rest: `tiles/` cut into `tiles_new` and swapped on success, `tiles.done` + a **`terrain_params.json` recipe**, one generation of rollback. The recipe is the load-bearing half — the variant directory name carries codec by convention and **`max_zoom` by nothing at all**, so a `--format` or `--max-zoom` change was invisible to every guard. Helpers **imported from `shade_planet`**, since `cap_render` already treats it as their one home; ~40 test references keep working through the re-export. **The elevation chain moved off `exists()` onto `.done` markers, and that is not hypothetical**: rasterio creates its target at write-start, so the BigTIFF crash left a full-sized *truncated* `elev_z8.tif`, which an existence test accepts and which reads as a very flat planet rather than an error. **CORRECTION to PROCESS and to the entry below: `--max-zoom 8` DID write an intermediate** — the factor-1 branch still called `downsample_elevation`, materialising a **47 GB byte-for-value copy** of the master (proven at exactly 0.0000 m over six windows, shifted controls 240–1,660 m), and part of the 41:00 build was spent making it. **`elev/` reclaimed: 60 GB, store 67 → 6.1 GB**, safe because `elev_z7` reproduces as the exact 2× box-mean of `elev_z8` at 0.000000 m. The shipped pyramid was **retro-stamped** from a recipe read off the store and re-verified at exactly 4.000 m = `step/2` against the master
+- [2026-07-28 (Tier 3, step 0d ratified) — tileSize 128 and a z0-8 pyramid ship together, because the declaration is what makes depth spendable](#2026-07-28-tier-3-step-0d-ratified--tilesize-128-and-a-z0-8-pyramid-ship-together-because-the-declaration-is-what-makes-depth-spendable) — **`TERRAIN_TILE_SIZE` 512 → 128 and `TERRAIN_MAX_ZOOM` 6 → 8, ratified together because they are ONE decision**: 512's DEM sits at `camera − 2`, so against `maxZoom: 8` it can never load a z7 tile and a deep pyramid would have been dead bytes. Build: **41 min, 87,381 tiles, 2.63 GB** (I was 3× over on time, 25% on size); z8 needs no new intermediate since `MASTER_ZOOM = 8` makes the downsample factor 1. **A latent BigTIFF bug killed attempt 1 in 83 s** — `GTIFF_CREATE` never set it, classic TIFF caps at 4 GB, and **z6 had been surviving on deflate alone at 4.29 GB raw**, i.e. inside 20% of a hard failure that could not appear until z7. **Verified against the master, not counted**: ten z8 tiles at median 2.0 m / **max exactly 4.000 m = step/2**, both controls firing (misalignment 5,315 m; +50 m offset returning exactly 54.00 m). My first oracle run reported every tile failing by thousands of metres — `decode_array` already collapses the bands, so `decoded[0]` was *row 0* broadcast; the tell was error tracking ruggedness. **NEW, applies to every arm: PITCH COSTS A DEM LEVEL** — `coveringTiles` uses `defaultCalculateTileZoom(9.314, 3)` on a globe, subtracting a pitch and tile-count penalty, so the *pitched* view (terrain's whole payoff) gets less detail than flat-on and 128's z8 evaporates exactly there. **Frame cost is FLAT across declarations** — 3.87 / 4.54 / 4.31 ms at 512 / 256 / 128, 256 and 128 indistinguishable, because `rttSize` halves as tile count doubles so total RTT pixels FALL; **the price of 128 is requests (27 vs 9), not milliseconds**. **The timer rig failed its own control twice**: block-sequential DPR gave 1.73 then 0.94 in one session; **interleaving DPR sample-by-sample fixed it** (all three then 1.97–2.12). `gl.finish()` is a no-op in Chrome and 1-pixel `readPixels` does not sync. **Seams get MILDER with depth** — z4|z5 150 m, z5|z6 105 m, z6|z7 68 m, z7|z8 38 m — so 128 straddles only the mildest boundary despite having the most segments (106 vs 84 vs 56). **Flat-on does not discriminate**: 2.00 and 1.19 mean DN, and Rohan saw nothing; pitched is 9.49 and 6.08, i.e. **4.7×**, so the earlier axis-B sweep was measuring the wrong cameras. The pitched 256↔128 pair is the cleanest number in the project — same DEM z7 both sides, so its 6.08 DN is **pure mesh density**. **`terrainSkirtLength: "none"` ratified the same day and is the actual fix for the tearing**: skirts touch only 0.41% of a STILL frame (0.13% >8 DN, but up to 242 DN — a thin hard line), and that static reading nearly argued for leaving them on. In MOTION `"none"` gives **basically zero tearing**, traded for tiny black specks that appear **only on drastic elevation change, never on flatland** — the crack showing itself where it is widest. They read BLACK because with terrain on the `space-floor` background is drawn INTO each render tile's texture, so a gap between tiles shows the transparent canvas clear — which is why **MapLibre's documented opaque-background mitigation cannot help here** even though we satisfy it. Rig error: **object spread evaluates left to right**, so `{...await shoot(), mode: await setSkirt()}` captured before the state change and mislabelled every frame
+- [2026-07-27 (Tier 3, step 0d — axis B) — the seam tearing is MapLibre's own documented cross-zoom limitation, and the declared tile size turns out to be coupled to the pyramid's depth](#2026-07-27-tier-3-step-0d--axis-b--the-seam-tearing-is-maplibres-own-documented-cross-zoom-limitation-and-the-declared-tile-size-turns-out-to-be-coupled-to-the-pyramids-depth) — Rohan's **tile-seam tearing (3 at declared 256, 2 at 512, none without terrain)** is a **skirt curtain over an LOD crack**, and **not ours to fix**. Two independent causes at a boundary between render tiles of different zoom: the 128-quad mesh gives the finer tile twice the edge vertices (**a gap opens even with identical data**), and the two sides read different DEM levels. Measured over the ground in frame: **z6|z5 disagrees by 105 m median / 827 m max, z6|z4 by 167 m / 1,476 m** → **6.7 vs 11.9 CSS px** displaced at 2.5× and pitch 60. The skirt is **31,274 m at z8**, ~8× the worst step, so it is never a hole — you see the higher tile's edge pixels stretched down the seam. **So 512 has FEWER seams but ~1.8× TALLER ones** (it straddles a 4× DEM jump, z4/z5/z6 all in view; 256 only 2×). **Structural, not a load race — measured `unfilledPresent: 0` in both arms**: `backfillDEM` runs only from `_tileLoaded`, and `_getNeighboringTiles` builds keys at the tile's **own zoom only**, so cross-zoom borders can never reconcile (33 of 56 slots at 512, 40 of 64 at 256). **MapLibre documents it as a choice of two artifacts**: `terrainSkirtLength: "none" | "auto"` — vertical artifacts, or hairline gaps at boundaries **between zoom levels**. Its one documented mitigation (opaque background layer first) **we already satisfy**; and it builds **one shared mesh for all tiles**, so edge stitching is impossible — Cesium's quantized-mesh solves it at the *format* level. **CORRECTION to the entry below: 2 DEM texels per facet is UNIVERSAL, not a defect of 512** — `demZoom = renderZoom − 1` means a DEM tile always covers 2× the render tile's ground, so the declaration moves mesh and shelf *together*. **256 reads 1:1 at z8 only because it is CLAMPED** at our z6 floor, so it buys *more faithful geometry for the same data*, not more data. **Which makes declaration and pyramid depth ONE decision:** 512's DEM is `camera − 2`, so z7 would need camera z9 against `maxZoom: 8` — **512 can never load z7 at all**. **128 rejected**: it would ask for z8 and clamp harder, needs z7 *and* z8 built (z8 = 131,072 px = **exactly the master grid**, ~21× the z6 level, **compute uncosted — PROCESS still has no terrain row**) and costs ~4× the render tiles again. Cost gap at z8 is **one request** (7 vs 8), not the 2–4× seen at shallower cameras. Two `terrainSource.ts` docstrings corrected (DEM is `mapZoom − 2` not `−1`; a quad spans **2** texels not 4). Rig: a hidden Chrome tab **never applied our style at all**, and `setTimeout` is throttled so hard there that 15 × 60 ms blew the 45 s CDP limit — use a visible tab, never `await` rAF
+- [2026-07-27 (Tier 3, step 0d) — the terrain archive gets a third smaller for nothing: 8 m ratified, and the codec turns out to be a free 0.67x](#2026-07-27-tier-3-step-0d--the-terrain-archive-gets-a-third-smaller-for-nothing-8-m-ratified-and-the-codec-turns-out-to-be-a-free-067x) — **8 m x lossless WebP = 0.33x**, taking a z0–8 bathymetry archive from ~10.1 GB to **~3.3 GB**. **WebP is the better lever because it costs nothing**: 0.32 vs 0.48 GB whole-pyramid, ratio **independent of `--step`** (0.6755 at 1 m), and byte-identical through three oracles each with a failing positive control — GDAL round-trip, the **browser's** `createImageBitmap` decode (alpha **255**, so nothing premultiplies), and rendered frames at **0.0000 mean DN**. `TERRAIN_TILE_EXTENSION` had conflated *lossless* with *PNG*. **8 m under the ramp** reads 0.011–0.145 mean DN over five cameras vs a ~1 DN floor, **lowest on the Ganges plain** — the opposite of terracing — because quantisation error is largest where displacement is smallest, spendable only since our shading is **baked**. Step 0b's ramp made it 2.4x cheaper than constant 15x. **Two rig bugs, both caught by controls**: `readPixels` must follow `redraw()` with **no `await`** (buffer clears to zeros in ~1.2 s → a phantom **168 DN**), and `areTilesLoaded()` is **transiently true** after `removeSource`/`addSource` (→ a phantom **9.2 DN** between byte-identical tiles). Flags `?quant`/`?demfmt` derive path *and* decode factors from one value; `?dem` default corrected to **bathy**. **Axis-B prep:** the 128 mesh is **not a tunable** — `TriangleIndexArray` is `uint16` and one segment, so 129²=16,641 fits and 257²=66,049 overflows, making **`tileSize: 256` the ONLY lever for finer facets** (a deeper pyramid and smaller assets cannot buy it). **None of it is documented** — the style spec gives terrain only `source`+`exaggeration` and says nothing about zoom selection — so a **canary over the shipped bundle** pins `deltaZoom`, `meshSize`, `qualityFactor` and both size formulas. The globe's covering set is **mixed**, so the 256 arm measured **3× render tiles, not 4×**. Also: the numpy `Setting the shape` warning is **rasterio's** (`_io.pyx:660`), not ours — recorded correctly in 2026-07-24 but under an index line naming neither `numpy` nor `rasterio`, which is why it was re-hunted three times
+- [2026-07-27 (Tier 3, cont.) — the terrain exaggeration ramp: one constant cannot serve both ends of the zoom range, and the floor is derived rather than preferred](#2026-07-27-tier-3-cont--the-terrain-exaggeration-ramp-one-constant-cannot-serve-both-ends-of-the-zoom-range-and-the-floor-is-derived-rather-than-preferred) — the 15× Rohan chose at the overview reads as a **bed of nails** on approach: MapLibre's mesh is 128² per tile *and a loaded tile always covers 1024 CSS px*, so a facet is **~8 CSS px at every zoom** and 15× turns the Karakoram's median 4.0° facet into 46.5°, p99 **80°**. Fixed with a **zoom ramp**, 15× at z≤3 decaying to **2.5× at z8** — and the floor is **derived, not preferred**: elevation change goes as ~`width^0.5` while the facet halves per level, so slope holds constant only at **0.707 per level**; 2.5 gives 0.699, the earlier 4 gave 0.768 and had drifted p99 from 45° to 58° by z8, which is exactly where the needles came back. Applied by writing `terrain.exaggeration` (a per-frame uniform) — **never by re-calling `setTerrain`, which builds a new `Terrain` + `RenderToTexture` per call and only reaches `destroy()` on the removal path**. **The ramp is free**: identical tile sets and GPU time across arms (0.37/0.37/0.37 ms), because the covering-volume inflation it *could* cause is bounded at 2% of the earth radius. Terrain ON measured **cheaper** than off (43% at DPR 3) — it moves the globe onto the render-to-texture path, whose 2048² per-tile cost is DPR-independent. **Rejected: shrinking `rttSize`** (27% off gesture frames for 15% of pixels shifted >8 DN) and **low-passing the DEM** (loses to plain exaggeration reduction on every axis, twice measured)
+- [2026-07-27 (Tier 3, step 0) — terrain does displace on the globe, and quantisation turns out to be nearly free because our shading is baked](#2026-07-27-tier-3-step-0--terrain-does-displace-on-the-globe-and-quantisation-turns-out-to-be-nearly-free-because-our-shading-is-baked) — **Tier 3 is terrain and only terrain**: the idle spin and the lazy hero already shipped, and `currentTier() === "full"` appears exactly once on the page, so "Full" has meant *the spin*. MapLibre's globe displaces — verified in `_projection_globe.vertex.glsl`'s `projectTileFor3D`; its one caveat guards camera-follows-terrain, which `maxZoom: 8` never needs. New `pipeline/tile/terrain_rgb.py` builds **per zoom from elevation downsampled in metres, cut with `nearest`** — because green wraps every 256 m and *any* smooth resampler invents a cliff (`TILE_CUT` uses `cubic`, so the risk is a well-meaning port). Blue is zeroed (2.5× larger for noise a 305 m/px grid cannot hold). Oracle: **max error exactly 0.500 m**, misaligned control 1,070–4,187 m. Sizes z0–6 **clamp 0.37 / bathy 0.98 GB**, ×3.35 per level → z0–8 **~3.8 / ~10.1 GB** — which corrects my own overcorrection of FUTURE's estimate, made from a 7-tile rugged-biased sample. **Rohan chose exaggeration 15 and bathymetry** (40× shreds; bathy read better than predicted, costing 1.26× on land but **6.5× on open ocean**). **Quantisation is nearly free**: 1/2/4/8 m → 939/763/602/462 MB, rendered 1 m vs 8 m differ by mean 2.20 DN against a **0 DN noise floor**, concentrated in *mountains* not plains — and on the master the Ganges plain's median adjacent change is **0.44 m**, so **1 m already flattens 77.1%** of it while 8 m at 15× is 0.44 px. **Error is largest where displacement is smallest**, and we can spend it only because our shading is baked. Peaks erode with depth (Everest 8,586 → 7,099 m at z4), exposing `tileSize: 256` as an untested "pop" lever. Polar feather (78–85° smoothstep) ships **unproven — no no-feather counterfactual was built**
 - [2026-07-25 (night, cont. 6) — tiles become WebP q95, and the cut learns to describe its own recipe](#2026-07-25-night-cont-6--the-ladder-ships-against-measured-layout-tiles-become-webp-q95-at-a-fifth-the-archive-and-three-writers-learn-to-describe-their-own-recipe) — *cross-listed; the full entry is under Performance & instrumentation.* **PNG was never chosen — the cutter emitted it.** `gdal raster tile --format=WEBP --co QUALITY=95` cuts it directly, no re-encode: **archive 15 GB → 3.0 GB (20.0%, exactly the sampled prediction)**, mean |Δ| 1.91/255 against the lossless tiles it replaces, `pmtiles convert` 1m11s → 5.8 s. **`tile_params.json` is now part of the freshness key** — before it, changing the format left `tiles_are_fresh` true and a `--tiles` run would have re-shipped the PNG pyramid; `pack_pmtiles` reads the encoding off the directory instead of hardcoding it twice. The `.webp` extension is also the cache-bust: every tile URL changes, so **no zone purge**
 - [2026-07-23 — the flat-pole taper RETIRED: `ice_relief_damp` treats at the source what the taper patched geometrically](#2026-07-23--the-flat-pole-taper-retired-ice_relief_damp-treats-at-the-source-what-the-taper-patched-geometrically) — the damp conceals the seafloor shading that fed the polar pinwheel wash, so the colat-3° geometric patch measured retirable (pole std 6.16 < annulus 6.70, no ring step, delta confined to the disc) and was **deleted the same day** — no pole special-case remains in either cap; both caps restaged themselves off the recipe change, and the shipped north cap is byte-identical to the measured A/B render
 - [2026-07-22 — Antarctica FILL chosen over accept: extend the Mercator pyramid south, code landed, planet re-fused](#2026-07-22--antarctica-fill-chosen-over-accept-extend-the-mercator-pyramid-south-code-landed-planet-re-fused) — the Southern-Ocean ring Rohan saw is the **cap↔tile seam at −59.5°**, not the pole. Chose **fill over accept**: extend the pyramid to the −85° Mercator limit (93009→131072 rows, **1.41× every planet raster**), which moves the seam onto white interior ice AND gives Antarctica full tile resolution. **Cost is build-time + storage, NEVER the browser** (tiles are range-requested; the south cap PNG shrinks). Occlusion `cos(lat)` fix NOT bundled (Rohan). **Precondition FIXED**: the latent grid-freshness bug (`grid_matches`/`warp_needs_rebuild`) — four warp targets gated on source-only would sit falsely fresh when the grid grows. Antarctic land forced white via shared `snow.antarctic_snow_mask` (NSIDC is NH-only, RGI-19 excluded); SH sea ice toned (`seaice.SH_ICE_*`) to kill the halo; `CAP_SOUTH −84`. **Re-fuse DONE, probe-verified — after a stale-mosaic incident every gate was blind to (first attempt fused all of Antarctica as ocean). Same day: full re-shade+re-cut (2:28:01), cap shrink + re-source + freshness guards, and the polar ring ROOT-CAUSED as a custom-layer blending bug (straight alpha onto MapLibre's premultiplied framebuffer + canvas-alpha corruption) — it tracked the cap↔tile boundary, which is why it "moved" with the fill. FIXED, Rohan-confirmed — judgment COMPLETE the same night (north pole good, SH fringe right, blue-hole scan clean), fill rollbacks + the grid-dead gamma8 baseline reclaimed (~35 GB). One new look question — the Arctic pack slightly read as relief above the sea (the ice whites are light-keyed by the seafloor's hillshade) — answered the same night: **`ice_relief_damp` 0.75 shipped + ratified on `/globe`** off a five-rung cap A/B, thick pack calms while the fringe keeps relief and the depth-colour glow survives**
@@ -80,6 +86,21 @@ The log below is **chronological**; this is the view it lacks. Nothing reads thi
 
 ### Performance & instrumentation
 *Everything here is measured. Three 'obvious flag' fixes died on a profiler — propose nothing from analogy.*
+
+- [2026-07-30 (instrument, cont.) — the instrument was the bug: `?perf` created 13.3 WebGL contexts a second and killed the map it was measuring](#2026-07-30-instrument-cont--the-instrument-was-the-bug-perf-created-133-webgl-contexts-a-second-and-killed-the-map-it-was-measuring) — **retracts "terrain kills the phone" AND "the phone is main-thread bound"**: `composeReport` called `probeSignals()`/`currentTier()` from the overlay's 300 ms tick, and each call CREATES WebGL contexts — **0 per 3 s collapsed vs 40 expanded**, so past Chrome's ~16-context ceiling the oldest context (the map's) was force-lost within a second of opening the panel. Exposed by a control nobody had run: the same config with the box SHUT gave 0 losses and a 198 ms longest task against 1,664. **A probe is an allocation**; signals cached once, tier still live via `decideTier(cached, getQuality())`, and `probeSignals` now releases its own context. **The DPR arms are void too** — losses 5→5→6 across a 12× canvas cut measured context-count exhaustion, which is DPR-independent by construction, so agreeing with the recorded DPR-invariant `rttSize` is coincidence, not confirmation (**a confounded experiment does not become partially valid by landing on the right answer**); the flag was proposed on the opposite premise, which one grep would have surfaced *before* the experiment. Verified after the fix on the phone: expanded gives 0 losses and a 155 ms longest task against 1,664, and is *cleaner* than the collapsed run — the sharpest possible refutation of a residual observer effect. Harness lessons: **no baseline check meant 19 false CAUGHTs off one red test**, and **an indented sabotage needle is a substring of a deeper-indented line** (it corrupted the wrong site, revealing an unguarded field)
+- [2026-07-29 (instrument) — `?perf` was mostly a SURFACING problem: the numbers already existed, were thrown away every idle, and one guard had quietly stopped guarding](#2026-07-29-instrument--perf-was-mostly-a-surfacing-problem-the-numbers-already-existed-were-thrown-away-every-idle-and-one-guard-had-quietly-stopped-guarding) — the per-`idle` snapshot was already complete and discarded; Phase 1 adds **no new measurement**, it composes (`perfSnapshot.ts`, pure) and gives it an exit — a dev-only `/__perf` POST endpoint writing `web/.perf/*.json`, so a phone stops being read off a photograph. **Every report records its own origin** (`import.meta.env.DEV`, not a host heuristic) after dev-server numbers were quoted as production for three exchanges. Three fabricated readings labelled: `no-signal` ≠ desktop (a false from no evidence bought the Infinity cap budget), a cap **mid-climb** vs settled, and **faults before the first idle are artefacts** — gated on `firstIdleMs`, not `mapLoadMs`. Panel was structurally unreadable on a phone (`pre` + no max-width inside `overflow:hidden` = unreachable overflow); pointer-events now per-ROW. **A guard had stopped guarding:** an indentation-anchored regex grew to match 32,420 chars and still passed — bound it *and assert the bound*. Gotcha: mtime-preserving sabotage restore leaves Vite serving the sabotaged module
+- [2026-07-29 (globe, cont.) — a missing tile paints background because the parent is unreachable, not evicted; the fix is one pinned z0 tile](#2026-07-29-globe-cont--a-missing-tile-paints-background-because-the-parent-is-unreachable-not-evicted-the-fix-is-one-pinned-z0-tile) — "tiles take a long time to load in", split in two. **The seconds:** one fresh viewport at Full is **97 tiles ≈ 8 MB / 11.2 s** on production (73 relief at 411 ms median, 24 terrain at 128 ms), bandwidth-bound not concurrency-bound (~2.4 s of latency against 11.2 s), and **not** caused by the DEM cap that shipped that day (`30/381 slots`, 7.8× headroom). **The real complaint was the COLOUR:** gaps paint flat teal, wrong over land, so a slow fill reads as broken. **Root cause corrects our own comment** — the ancestors are not "evicted from the LRU", they are **in it with data and structurally unreachable**: `_updateRetainedTiles` substitutes only out of `_inViewTiles`, and its one `_addTile` call (the sole LRU path) is gated on `parentWasRequested`, false for a tile constructed this frame. Measured: pan at settled zoom → 45–80 tiles without data, **zero substitutes, 100% one colour**; zoom-in retains 27 parents only because they linger from the previous camera. `maxUnderzooming` is 10, so the walk would reach z0 if the gate allowed it. **Terrain separately disables raster fading outright** (`&& !terrain`), making `raster-fade-duration` a dead knob at Full. **Closed by measurement:** fade at 300 → still `{}`; `maxTileCacheZoomLevels` at 20 (LRU 330 → 1320) → still `{}`, since it sizes a cache the retain path cannot read; **`prefetchZoomDelta` does not exist in MapLibre** (Mapbox-only, 0 hits vs 116 for `maxzoom` as a control); patching `wasRequested()` works and is worse (**54 extra requests per pan**). **SHIPPED: a pinned z0 base source** — `RELIEF_BASE_MAX_ZOOM = 0` is a guarantee, not a preference (covering set clamps to maxzoom → exactly one tile, ideal at every camera, never absent after first load), **71 KB, one request**. Control-first A/B on fresh cameras, first frame read in the same synchronous task as the jump: control **353 / 1 / 3,712** distinct colours against pinned **9,770 / 10,180 / 8,694**, and zero blank samples over 155. **Two instrument errors caught first:** a single `readPixels` called a camera blank that read 12,361 on repeat (one mid-rebuild frame ≠ a multi-second gap → metric became *duration*), and the first pinned run had **no control**, which on a dev server serving tiles in ~1 ms would have proved nothing. **q85/q90 measured then REJECTED by Rohan** — q90 0.660 / q85 0.486 byte-weighted, 8.00 MB → 5.6 / 4.25 MB content-matched, q85's error at display resolution (1.97 DN) below q95's at native (1.98); re-cut priced at **~10 min**, not hours; `gdal_translate -of WEBP` on WebP input is a **byte-identical passthrough**. 5 sabotages fired
+- [2026-07-29 (memory, cont.) — the 6.2 GB was two tabs, not a leak: one globe's ceiling is 3.8 GB and a context loss frees all of it](#2026-07-29-memory-cont--the-62-gb-was-two-tabs-not-a-leak-one-globes-ceiling-is-38-gb-and-a-context-loss-frees-all-of-it) — **the cheap configuration reproduction, run instead of building the in-page byte accounting — and it closed the question.** A window here gives a canvas of **2560×1321 at DPR 1**, the incident's own geometry, and `?demcache=off` on it yields a DEM ceiling of **1155 slots / 1164 MB**, the incident's own figure derived independently. Saturated with terrain pinned on: **3,772 mean / 3,804 peak, one pid, no crash** — DEM 1155/1155, relief 330/330, three vector sources 120/120, and **both polar caps on the 8192 rung for the first time, the full 512 MiB**. The climb *decelerates into* the plateau (823 → 1,841 → 2,725 → 3,276 → 3,784, flat for five minutes), and the accounting closes to ~0.3 GB. **A context loss frees EVERYTHING — 3,781 → 483 MiB in one sample, permanently — so no ratchet across losses is possible, falsifying this plan's own "compounding across its four losses".** The answer is **two tabs**: A saturated at 3,495, B loaded in the *background* to 1093/1155, Chrome GPU **5,691 mean / 5,792 peak**, extrapolating near 7 GB. Nothing leaks; **~3.5 GB per tab is simply the honest worst case**, and the 512 MiB of cap texture is now the largest term with no budget. Country-panel heroes checked and dismissed (it loads `sizes[0]`, a ~420 px card). **A live defect found in diagnostics shipped hours earlier:** `disable-terrain` is the ladder's FIRST rung and fires within ~50 s, after which the idle re-assertion logged `console.error` claiming the cache was unbounded at the one moment there is no cache — and it **cannot be inferred**, because a retired terrain and a context-loss teardown are the same absence and `getTerrain()` returns a stale object on a style with zero sources; the ladder now sets `terrainRetired` **before** `setTerrain(null)`, since `idle` fires during the teardown. Upstream: the `_contextRestored` throw is **unreported** (#7432/PR #7446 is a different throw in the same method, merged 2026-04-11 — useful precedent), `main` still resizes at `map.ts:4147` and fires at `4150`, and `map.ts:4118` is MapLibre stating in plain text that custom layers cannot be auto-restored. 3 sabotages fired
+- [2026-07-29 (memory) — one globe is 1.9 GB of VRAM, not 6.2; and MapLibre's context restore throws before it announces itself](#2026-07-29-memory--one-globe-is-19-gb-of-vram-not-62-and-maplibres-context-restore-throws-before-it-announces-itself) — **Layer 1 measured, and the plan's own instrument was wrong**: `nvidia-smi --query-compute-apps` lists CUDA/OpenCL clients only, so a browser — a *graphics* client — reads as **0 MB**; the scriptable path is `nvidia-smi -q -x` and its `G`/`C+G` `<process_info>` entries, sampling **pid and age** so a crash-respawn is visible rather than inferred. Fresh Chrome GPU process **38 MiB** → one globe idle **817 MiB** → hard-panned to the 384 MB DEM cap **1903 MiB, flat, one pid**. So a fully loaded globe is **~1.87 GB, under a third of the incident's 6,218 MiB**, and a reload frees it cleanly (1844 → 610 MiB): **no leak across reloads, and no VRAM ratchet across losses** (dips to 364, settles 653). Caps sat at rung 1024/2048 (`demand 1957 px`), so the 512 MiB "ours by design" is a ceiling needing a pole filling the screen, and is NOT in the 1.87 GB. **The real find is one root cause with three silent symptoms:** `_contextRestored` calls `this.resize()` at dev-bundle line 22602, which fires `move` → MapLibre's own Hash plugin (we pass `hash:"map"`) → `unproject` → terrain depth pass → **throws three lines before `fire("webglcontextrestored")` at 22605**. So the restore event is a coin toss, and everything hung off it fails: the DEM cap reverts **381 → 1155 slots (4/4 cycles)** while the overlay still reads "384 MB budget"; both polar caps return as a **black disc** (`setStyle` at 22594 precedes `_setupPainter()` at 22600, so a cap added from `style.load` binds to the outgoing GL context); and "could not recover" sticks over a working globe. Fixed by making recovery **convergent, not event-driven** — the watch starts at the LOSS and re-asserts state once healthy — plus a **recurrence budget** (recover twice, refuse the third within 5 min), because the platform reports **no cause**: `statusMessage` measured `""`, `getGraphicsResetStatus` undefined, `EXT_robustness` absent. 11 sabotages fired
+- [2026-07-29 (memory) — `coveringTiles` is public, so the cache bound can stop estimating; and the software-GPU check gets a signal that cannot be masked](#2026-07-29-memory--coveringtiles-is-public-so-the-cache-bound-can-stop-estimating-and-the-software-gpu-check-gets-a-signal-that-cannot-be-masked) — an audit of the whole shipped v6.0.0 surface (85 value exports / 128 `Map` methods / 54 events) against ours. **`Map.coveringTiles` is public and is the very function `TileManager.update` fills from**, so the fill side can be READ: measured 2560×1265 at z5, **52 tiles at tileSize 256 against the formula's 330** (129 vs 1155 at 128) — the rectangular estimate over-counts ~6× because a globe view is not a rectangle. `?perf` now prints `needs 52 (7.3x headroom)`, and the measured 294-slot knee reframes as **~5.7 camera-views of history**, which is portable where a constant was not. A LOWER bound by construction (public options omit `terrain`; `_addTerrainIdealTiles` only adds) — kept visible by printing the realized in-view count beside it, **52 → 67 IS the terrain addition**. **`failIfMajorPerformanceCaveat` adopted as a PROBE, not a map option** — as `canvasContextAttributes` it would kill the globe on a working GPU behind a driver blocklist (this project's own Firefox), and a context attribute cannot be undone at runtime; as a probe it feeds `decideTier`, which is reversible. New `performanceCaveat` signal kept separate from `softwareGpu` (different facts, same consequence) and it **cannot be masked** — it is an answer, not a renderer string. `capable()` exported as `canRunGlobe` because `index.astro` re-derived the floor inline. `getVersion()` into the loss snapshot. **Two corrections to the audit itself: `antialias` is NOT the default for us — we set it `true` on purpose** (globe limb vs starfield; `canvasContextAttributes` is shallow-merged), and `zoomLevelsToOverscale` is a non-issue because map `maxZoom` 8 equals both source maxzooms. Dismissed: `collectResourceTiming` (worker-only, does not solve raster counting), `reduceMotion` (inertia only), `maxCanvasSize` (verified inactive at DPR 1), `addProtocol` (architecturally excluded). Parked: `setSourceTileLodParams` (bounds tiles at high pitch — we ship pitch 60), the `setNow` clock freeze for A/B rigs, `queryTerrainElevation`
+- [2026-07-29 (memory) — a loss handler reads the teardown, not the state; and `WEBGL_lose_context` reproduces the dead map after all](#2026-07-29-memory--a-loss-handler-reads-the-teardown-not-the-state-and-webgl_lose_context-reproduces-the-dead-map-after-all) — **Layer 0 shipped** (`glDiagnostics.ts`, +59 tests): a GPU-loss state snapshot plus a recovery check that replaces the handler which hid the notice on the `webglcontextrestored` event alone. **Both halves of the first design were wrong and every test passed on them** — reading state inside `webglcontextlost` reads MapLibre's teardown (logged `no sources · caps none` on a map with five sources and both caps 100 ms earlier; MapLibre's own "cannot be restored" warnings print *first*), so the state is sampled on `idle` and reported with its age. **`WEBGL_lose_context` reproduces the UNRECOVERABLE case too** — correcting the entry below: `isContextLost()` still true a minute on after a second `restoreContext()`, so the dead map now has a local repro. A verdict that cannot be retracted is the same bug reversed (one loss recovered at ~6 s, past a 3 s deadline, leaving "could not recover" over a working globe → now watched to 60 s). **`GPUInitializationError` adopted** — MapLibre names what we inferred from a timeout; a canary guards the `instanceof` branch, which fails silently if it is renamed. Snapshot reports **every** source (`relief` holds 330 slots, invisible to a terrain-only probe) and prices the caps at **8192² × 4 = 256 MiB each → 512 MiB of VRAM that is ours by design**. 11 sabotages fired. Measures no VRAM and does not claim to
+- [2026-07-29 (memory) — the DEM cache is sized from one tile size and filled from another, and a formula-only cap is not a guard](#2026-07-29-memory--the-dem-cache-is-sized-from-one-tile-size-and-filled-from-another-and-a-formula-only-cap-is-not-a-guard) — root cause found in the shipped v6 bundle: **`updateCacheSize` reads `_source.tileSize` (our declared 128) while `coveringTiles` reads `tileManager.tileSize` (256, doubled by `TerrainTileManager`'s `deltaZoom = 1`)** — `usedForTerrain` is honoured in one call site and not the other, so the shelves outrun the fill rate by 4× in tiling density (3.27× realised at 2500×1300). Measured live: cache fills to **605/605 slots = 659 MB, 92% of the tab's entire JS heap**. Fixed per-source via `_maxTileCacheSize` (typed in MapLibre's public `.d.ts`; relief left untouched, verified `reliefCap: null`). **The A/B refuted the derived bound**: the knee is exactly "cap ≥ working set" and it is a cliff — on a 294-tile regional tour, refetches went **3 / 3 / 3 / 303 / 338** at caps 605 / 450 / 300 / 240 / 180, so the MapLibre-consistent 180 was *below* it. Hence `TERRAIN_CACHE_SLOT_MULTIPLIER = 2`, chosen not derived. **Then the multiplier itself proved wrong at scale** — canvas-area scaling granted 1.69 GB at 4K, more than an *uncapped* laptop — so a hard `TERRAIN_CACHE_BYTE_BUDGET = 384 MiB` clamps it. **384 has a measured LOWER bound (must clear 360 slots and the 294 knee) and no upper justification whatsoever.** Three instrument bugs caught before they became conclusions → see the entry
+- [2026-07-29 (memory) — the 2K freeze was VRAM, not heap: Chrome's GPU process crash-looped and MapLibre never rebuilt](#2026-07-29-memory--the-2k-freeze-was-vram-not-heap-chromes-gpu-process-crash-looped-and-maplibre-never-rebuilt) — at 2560×1321 Chrome's **GPU process held 6,218 MiB of VRAM and was 4m31s old** — already dead and respawned. Context lost **four times**, surviving page reloads because the GPU process was dying, not the tab. **No NVRM Xid in `journalctl -k`**, which is the tell separating "the driver faulted" from "an app overspent". After restore `isContextLost()` is false but the style is **empty — 0 sources, 0 layers** — and the painter has no `shaderPreludeCode`, so the terrain depth pass throws on every frame *and* via `unproject` on every mouse move and hash change. **Our own handler hid the one notice built for this**: `webglcontextrestored` fired, so the "could not recover" message was cleared and the user saw a frozen map with no explanation. The prior verification used `WEBGL_lose_context`, which restores instantly and clean — it proved the happy path only. MapLibre also warns in plain text that our two custom polar-cap layers **cannot be auto-restored and must be re-added**; we never do. **No web API reports VRAM headroom** (`WEBGL_memory_info_chromium` absent, `navigator.gpu` exposes limits not free memory, `deviceMemory` is system RAM and Chromium-only), so a capability-derived budget cannot be built on a direct signal — the shipped byte cap removes ~400 MB of a 6.2 GB problem, ~6%
+- [2026-07-28 (memory) — the terrain DEM tile cache reached ~1.45 GB, and dropping the terrain does not give it back](#2026-07-28-memory--the-terrain-dem-tile-cache-reached-145-gb-and-dropping-the-terrain-does-not-give-it-back) — MapLibre bounds a source's out-of-view cache at `(ceil(W/D)+1)·(ceil(H/D)+1)·MAX_TILE_CACHE_ZOOM_LEVELS` slots for **declared** size D while each slot costs ~1 MiB fixed by the 512 px **asset**, so slots scale as **1/D²** and ratifying `tileSize: 128` raised the ceiling **~10×** (1,260 slots ≈ 1,270 MiB vs 120 ≈ 121 MiB at 512). **Measured 2 GB tab vs 602 MB at `?terrain=off`**, same camera. `setTerrain(null)` frees none of it — the watchdog's last rung now also `removeSource`s, which reaches `_outOfViewCache.reset()` → `unloadTile` → `delete tile.dem`. **Development could not have seen it: every terrain measurement was PER-VIEW, and the rig gave each arm its own page load — the discipline that made it correct guaranteed an empty cache.** Open: `maxTileCacheSize` vs 256 px DEM assets, neither measured
+
+- [2026-07-28 (Tier 3, step 1) — the tier ladder stops guessing at hardware it cannot see, and the terrain rung goes LAST](#2026-07-28-tier-3-step-1--the-tier-ladder-stops-guessing-at-hardware-it-cannot-see-and-the-terrain-rung-goes-last) — closes FUTURE § the tier ladder is more permissive than it reads, whose deferral premise ("the FPS watchdog degrades at runtime anyway") expires the moment terrain ships. **`deviceMemory < 4` → `<= 4`**: values are powers of two, nothing reports 3, so the old test could only ever mean "≤ 2" while everything from 4 GB up — starting with the **Moto G Power, Lighthouse's own reference device** — reached `full`. **The Safari/Firefox blindness is left OPTIMISTIC on purpose**: both vendors decline the API on fingerprinting grounds so absence describes the *browser*, and **`hardwareConcurrency` is not a substitute but an INVERTED one — WebKit clamps it to 8 on macOS and 2 on iOS**, so an iPad Pro M4 reports 2 against a budget Android's 8 (rejected, recorded in FUTURE so it is not re-proposed). `WEBGL_debug_renderer_info` gains a `gl.RENDERER` fallback — the old `if (!ext) return false` would promote every Firefox visitor the day the extension goes. `Base.astro`'s guard now applies the same floor as `capable()` and their **agreement is asserted by running both** over five renderer scenarios (sabotage turns 6 tests red). **THE TERRAIN RUNG GOES LAST, REVERSING THE PLAN**: `rttSize = tileManager.tileSize * qualityFactor` has **no DPR term**, so terrain swaps a DPR-scaled cost for a DPR-invariant one — verified live at the shipping config, canvas **1,451,125 → 13,060,125 px** across DPR 1→3 (exactly 9×) while **total RTT pixels stayed 4,194,304 in both**. Terrain's relative cost therefore FALLS as DPR rises, so pulling it first on a hi-DPI phone can make frames *slower*; lowering the pixel ratio is what earns the rung. **Two timing rigs were invalid first** — toggling `setTerrain` leaks a `Terrain`+`RenderToTexture` per call (0.48→1.92 ms monotonic climb across paired arms), and a *static* camera re-composites a valid RTT cache so it measures almost nothing (4.97 vs 1.87 ms for identical arms). Settled **structurally** instead: a cost-model invariant needs no effect size
+
+- [2026-07-28 (Tier 3, step A) — the hover path resolves once per frame, and terrain never caused the bug it exposed](#2026-07-28-tier-3-step-a--the-hover-path-resolves-once-per-frame-and-terrain-never-caused-the-bug-it-exposed) — `pointerMoved` resolved **synchronously**, bound straight to `mousemove` with no throttle. Free at 0.2 ms; **2.2–2.4 ms once terrain is on**, because `countryAt` → `queryRenderedFeatures` → `terrain.pointCoordinate` renders tile coords into a 1024² framebuffer and **`readPixels` it back — a synchronous GPU stall** the camera invalidates every frame (`getFramebuffer('coords')` alone is 0 ms, so it is the readback, not allocation). Against 6.06 ms at 165 Hz, a 500–1000 Hz mouse oversubscribes it 2–4×. **Fix: one resolve per frame**, `viewChanged` sharing the slot so a drag's move+`moveend` pair costs one between them, resolving where the pointer **ended up**. **`pointerLeft` stays synchronous** — correctness, not latency: nulling the cached point is what makes a queued resolve stand down, else a frame queued over Nepal re-announces it over empty canvas with no event left to clear it. Tests drive the frame clock **by hand** (an auto-flushing fake makes "queued" and "ran" indistinguishable), and the re-announce test now flushes *between* moves or the coalesce would collapse them and it would stop testing the equality check it exists for. **Sabotaging the deferral turns 4 of 6 new tests red** — the other two guard failure modes only the deferred design has. **The `map.isMoving()` skip was deliberately NOT taken**: coalesced, a drag frame is predicted at ~5.9 ms against 6.06, still at the edge — but skipping freezes the chip mid-drag, so that is a measurement to take before spending
 
 - [2026-07-26 (last) — the globe's script time is EXECUTION, measured twice: parse+compile is 2 ms, and my correction of PLAN was the thing that was wrong](#2026-07-26-last--the-globes-script-time-is-execution-measured-twice-parsecompile-is-2-ms-and-my-correction-of-plan-was-the-thing-that-was-wrong) — PLAN's "**the bottleneck is script evaluation, not payload**" was challenged mid-session on the grounds that Lighthouse's "Script Evaluation" is **parse + compile + execute per URL**, so bundle size might move it. **Falsified by two independent instruments**: Lighthouse `bootup-time` under 4× CPU gives the globe chunk **4,833 ms evaluation vs 2 ms parse** (whole page: 6 ms of 7,956), and Chrome **LoAF** (`executionStart − startTime`) gives **0 ms compile** on every attributed script. **No bundle-size lever touches this number** — PLAN's original claim stands and the hedge was the error. Still un-split: the attribution is to a **URL, not a function**, and the chunk holds MapLibre *and* our code, so "MapLibre init" was never measured — wording corrected everywhere to "execution of the globe chunk". **Lighthouse variance is larger than most effects we chase**: same command, 07-25 score 48 / TBT 2,120 ms vs today score **53** / TBT **3,300 ms** — score up while TBT worsened 56%, plus a new `cdn-cgi/challenge-platform` script and an `Unattributable` bucket of **2,740 ms**. **Never claim a change moved the mobile score off one run.** Leaves the parked payload ideas unchanged but better-grounded: tessellation *is* execution, so geometry reduction stays the only lever
 - [2026-07-26 (tile concurrency) — the ladder ran and the answer is LEAVE IT AT 16: LCP moves 14 ms between rungs against 125 ms of noise](#2026-07-26-tile-concurrency--the-ladder-ran-and-the-answer-is-leave-it-at-16-lcp-moves-14-ms-between-rungs-against-125-ms-of-noise) — **RESULT: leave it at 16.** 4/8/16/32 × 3 runs against production, `--throttling-method=devtools`, every rung's peak concurrency matching its URL. **LCP between-rung spread 14 ms vs 125 ms across the twelve runs** — an order of magnitude below the noise; TBT non-monotonic. The one real signal is the tile window: **8/16/32 within 3 ms of each other (16.54 s), rung 4 at 17.28 s (+733 ms)** with non-overlapping range ⇒ **do not go below 8**, and above 8 there is nothing to win. **HTTP/2 confirmed in both halves**: bandwidth-bound above 8 (2.65 MB over one connection ≈ 16.5 s however many streams share it), too few streams to fill the pipe below. **Bigger finding: LCP is 1.5 s while tiles take 16.5 s, so tile delivery is NOT on the LCP path** — the tail is progressive enhancement, which also means payload work on tiles will not move LCP. **MapLibre's cap is 16 by default** (confirmed from the shipped `.d.ts`; it covers raster tiles by its own wording) and a cold globe asks for 36–40 tiles, so the cap is live for us. **A number cannot be argued to**: over HTTP/2 one connection means concurrency *divides* bandwidth (fewer streams finish sooner), but an edge-cold tile is latency-bound at ~440 ms TTFB where parallelism overlaps the wait — opposite signs, and **"leave it at 16" is the outcome to expect**. Two instrument traps, both closed: Lighthouse's default `throttlingMethod: simulate` takes network timings from an **UNTHROTTLED** pass and models only the headline metrics, so a network-shaped change looks like nothing (this invalidated a tile-vs-LCP comparison mid-session, withdrawn) — the sweep pins `--throttling-method=devtools`; and a run that silently fell back to the default would manufacture the exact "no difference" null being tested for, so the summariser **recomputes peak concurrency from the trace and rejects any mismatched rung** (falsified by filing a no-flag report as rung 4 → `FLAG DID NOT APPLY (saw 16, wanted 4)`). `?maxreq=N` validated live: **peak exactly 4** across 142 tile loads, **exactly 16** with no flag, and `?maxreq=8tiles` refused rather than read as 8 (`Number`, not `parseInt`). **The ladder is production-only by our own hand** — `ALLOWED_ORIGIN` refuses a locally served shell every tile, so any future front-end experiment needing real tiles must be deployed first; the dev middleware is no substitute at ~1 ms per tile against production's ~440 ms cold
@@ -121,6 +142,15 @@ The log below is **chronological**; this is the view it lacks. Nothing reads thi
 
 ### Frontend
 
+- [2026-07-29 — the atmosphere ramps on PITCH too, because the damage it does never keyed on zoom](#2026-07-29--the-atmosphere-ramps-on-pitch-too-because-the-damage-it-does-never-keyed-on-zoom) — the 07-27 zoom ramp fixed the pitched z7 case and left the 0.7 shelf below z3, because an *unpitched* overview takes no damage — but **a PITCHED overview is a camera neither half of that reasoning describes**. Damage measured flat then cliff (**+0.0 DN at pitch 0 and 30, +4.6 at 45, +30 at 50, +47.5 at 55, +52.7 at 60**), so the ramp **holds to pitch 45** and is strictly non-harmful below it; `pitchedAtmosphereBase` returns the base `Object.is`-exactly there, so the default camera cannot be touched. **`PITCHED_ATMOSPHERE_BLEND = 0.25` (Rohan)** off a five-rung ladder plus a cost arm on the unpitched overview — at 0.00 the globe loses its halo and reads as a flat cutout. **Pitch cannot be an expression** (`["zoom"]` only), so it re-declares the zoom expression's BASE on `moveend`, gated: **zero `setSky` calls at or below pitch 45**, instrumented live. Result **bleaching −74%, contrast +39%**; clipping only 27.1→24.1% because lit snow is already 8 DN below clipping — that residual is the snow ceiling, not the atmosphere. Two instrument failures: **a screen-space box measures different CONTENT at different pitches** (fixed with an on-globe validity column), and a halo metric that read 106 DN at every blend was catching the globe's dark limb, not the halo
+- [2026-07-28 (polar caps, cont.) — the bright polar disc was canvas ALPHA, and the fix for the polar RING is what caused it](#2026-07-28-polar-caps-cont--the-bright-polar-disc-was-canvas-alpha-and-the-fix-for-the-polar-ring-is-what-caused-it) — **not geometry.** `background` is in `LAYERS_TO_TEXTURES`, so with terrain on it is drawn into render tiles, which stop at the Mercator limit — poleward of ±85.0511° the canvas is **never written: alpha 0**. The cap painted colour there and left alpha pinned to the destination (`ZERO, ONE`), and a `premultipliedAlpha` canvas composites RGB-over-zero-alpha **ADDITIVELY**. Measured: alpha **255→0 at −85.02°** with terrain, 255 to the pole with `?terrain=off`. Fixed with `blendFunc(ONE, ONE_MINUS_SRC_ALPHA)` on all four channels — identically 1 where dst was 1, so **the ring cannot return**; the two bugs are opposite alpha errors on one layer. **The falsifying datum (alpha 0 under non-zero RGB) was in my own probe output and I read past it twice**, and the defect's boundary latitude discriminated every candidate mechanism in one measurement
+- [2026-07-28 (polar caps, cont.) — the caps carry their own elevation, because MapLibre can never drape a custom layer on terrain](#2026-07-28-polar-caps-cont--the-caps-carry-their-own-elevation-because-maplibre-can-never-drape-a-custom-layer-on-terrain) — `custom` is excluded from `LAYERS_TO_TEXTURES`, so the cap stayed a flat plate while the tiles lifted. Pipeline emits a 512² terrain-RGB texture per pole as a **sibling stage with its own gate** (elevation depends on the height warp alone, so folding it into the colour render would cost the ~14 GB pass); `QUANTISATION_M`/`SHIPPED_SEA_CLAMP` promoted to module constants so the encoding is imported, never copied. Three silent-failure classes guarded: **`Uint16Array` indices WRAP rather than throw** (103,201 vertices → 32-bit), **the placeholder texel had to be computed** (transparent black decodes to −32768 m and hides the cap inside the planet), and **NEAREST filtering is correctness** (green wraps every 2,048 m). Verified against an external oracle — the shipped south texture decodes **2832 m at the pole** in-browser against Amundsen-Scott's ~2835. **NOT the bright disc**; that claim is withdrawn
+- [2026-07-28 (Tier 3, step 3) — terrain gets an archive, a prefix, and four fewer flags: the plan's "no path prefix" premise expired when terrain became WebP](#2026-07-28-tier-3-step-3--terrain-gets-an-archive-a-prefix-and-four-fewer-flags-the-plans-no-path-prefix-premise-expired-when-terrain-became-webp) — terrain now ships as **`terrain.pmtiles` (2.63 GB, 87,381 tiles)**, packed in 12 s + 6.1 s with **no change to `pack_pmtiles.py`** (it reads the encoding off the directory); dedupe is **1.4%** against relief's ~5%, because elevation repeats only where the sea is flat. **The plan's "the extension is already the discriminator, so no path prefix" EXPIRED** when step 0d made terrain lossless WebP — both pyramids are now WebP over z0–8 on one grid, so `/8/189/107.webp` is valid in both and serving the wrong one **does not 404**, it decodes relief colour as terrarium metres and displaces the globe. `terrain/` is the whole discriminator; the router is tested for **exclusivity**, not matching. **Flag retirement was NOT separable either** — `?dem`/`?quant`/`?demfmt`/`?demdepth` each named a build DIRECTORY and an archive has none, so keeping them meant four controls that work in dev and 404 in production; what each settled is recorded where the flag was. `?terrain`/`?ramp`/`?demsize`/`?skirt` survive (none named a directory). **One binding two keys**, and the URL **derived from `TILE_BASE`** rather than a fourth `PUBLIC_` base an unset value would silently turn same-origin. **The real work was three single-valued pieces of Worker state that all fail SILENTLY with two archives**: `indexInFlight` (one slot → re-fetching 256 KiB on nearly every interleaved request, the exact cost it exists to remove), two boolean warn latches (a relief mismatch would mute terrain's, where it matters more), and `ResolvedValueCache(25)` — sized for exactly one archive's 22 leaves + header, so two would evict each other every alternating request at the cost of a gunzip, i.e. invisibly. Verified end to end: **6 addresses byte-identical incl. `z8/128/255`** with a neighbour control; a tile **fetched over HTTP** and decoded with the client's own factors puts Everest at **8,584 m vs the master's 8,586, max error exactly step/2**, with a wrong-step control 36 km out; the production bundle composes `https://tiles.terrella.alchez.dev/terrain/{z}/{x}/{y}.webp` and a live globe made **34 DEM requests, 0 failed**. The preflight now checks **both halves** (route AND object), closing a hole where **nothing had ever checked the relief archive was present either**. **Two source guards went red on my own comments** — a guard matching a flag *spelling* rather than a code *identifier* punishes documenting the decision
+- [2026-07-28 (Tier 3, step 4) — terrain rides the `full` tier at last, and the deploy that would have broken it is now refused](#2026-07-28-tier-3-step-4--terrain-rides-the-full-tier-at-last-and-the-deploy-that-would-have-broken-it-is-now-refused) — `full` bought exactly one thing (the idle spin) and was the page's only `currentTier()` read; it now buys terrain. **`?terrain=` overrides the tier in BOTH directions** — a number forces it on at any tier so the A/B flags stay usable, and a new **`?terrain=off`** removes only the geometry *without* demoting the tier, which is the control arm every future look question needs (picking "Globe" changes the tier too). **15 became a constant only now** — it had lived solely in `?terrain=15`, fine for an A/B and impossible for a tier. A malformed value is still refused, never upgraded to the tier default. **The plan's context-loss item was struck on evidence**: tested with `WEBGL_lose_context`, `style.load` fires **0** times after a restore yet terrain survives intact (source, spec and `renderToTexture` all live) — it is style state, not GL state. Hover chip / gold outline / click→panel re-checked through `terrain.pointCoordinate` and intact. **THE LOAD-BEARING FINDING: production routes no `/terrain` at all** — dev answers it from a Vite middleware, but no Worker or wrangler config does, so a deploy would have handed every promoted visitor a raster-dem source that 404s on every tile while still rendering (flat) with nothing reported, and the manifest check could never see it. `check_deploy_sync.ts` now **refuses the deploy**, keyed on the Worker source rather than on R2 (an archive nothing routes at is worth nothing); proven two-state. The Full tooltip test was **rewritten bidirectionally** — the old form would have gone silent exactly when terrain shipped. ART gets the terrain rows, deferred twice on "terrain has not shipped"
+
+- [2026-07-27 (chrome, cont.) — the ← Gallery link never reached the gallery, and centring the bar was costing it half the viewport](#2026-07-27-chrome-cont--the--gallery-link-never-reached-the-gallery-and-centring-the-bar-was-costing-it-half-the-viewport) — "← Gallery" landed back on the globe, and it was **the steer flag, not the auto-upgrade**: `rg:steered` was written only on the auto-steer path, so it meant *"we bounced you once"*, not *"this session has seen the globe"* — leaving it unset for anyone who **deep-linked `/globe`** or **picked Globe/Full in the view bar**, which additionally *cleared* it and re-armed the very trap the flag prevents. Fixed by writing it whenever a visitor is allowed to stay on the globe; the `removeItem` is load-bearing on no path and was deleted. **Moving the gallery off `/` rejected** — `/` is the Tier-1 pessimistic default that must render for no-JS, incapable devices and crawlers. **`← Gallery` and `Lite` are not redundant**: one is navigation, the other writes `rg:quality` to localStorage and bounces `/globe` on every future deep link. Then the credit folded into the pill, where **`compact: false` was the whole answer** — `_updateCompact` never adds `maplibregl-compact` when the option is explicitly false at ANY width, so the ⓘ (a baked-black SVG, un-recolourable) is never shown and the `MutationObserver` that raced MapLibre to re-collapse it is gone, while `_updateAttributions` still picks up any future source's `attribution` by itself. Styled by a class the fold ADDS, not by `.view-bar` ancestry — a failed fold then leaves it plainly stock instead of half-styled. **The find underneath: `left: 50%` + `translateX(-50%)` capped the bar's layout width at HALF THE VIEWPORT** (the transform applies after layout) — 350 px available for 388 px of content at 700 px, so it wrapped with two thirds of the row empty; `inset-inline: 0` + auto margins took 700 px from two rows to one and 390 px from three to two. Predated the credit. Phone clearance re-derived: the old 5.2 rem lift was **−9 px at 320 px**, and the sweep exposed a **second collision window at 641–690 px** where the lift stopped but the scale bar's 120 px reach did not. The credit then became an **ⓘ**, where "too small on desktop" turned out to be geometry: MapLibre's info path is a r=6 circle in a `0 0 20 20` box, so **40% is dead margin** and it drew at ~60% of the octicon beside it — cropped the viewBox to the ink rather than inflating the width, then found and fixed the same bug in the collapse trigger. `title` + `aria-label` are now test-pinned, since a link whose only content is a decorative SVG has **no accessible name**. **The phone collapse** goes to `[tune | ⓘ]` at ≤600 px, defaulting closed, with the credit deliberately OUTSIDE the collapsible group so it survives both states. Its first version hid `.view-bar-items` on **every** page while the trigger rendered only where the tier picker does — **a hero page lost its Focus button with no way to get it back**, the defect only a component shared by three page types produces, and one testing the globe alone would never surface. An expanded bar then measured **141 px, four rows, at 320 px**, outrunning any fixed lift, so the scale bar drops while the controls are open instead. **Three more instrument bugs**: `getComputedStyle` called from the parent window on iframe elements; a sweep whose clicks leaked through **localStorage shared across same-origin iframes**, so half the table silently measured the collapsed bar while claiming otherwise (rewritten to set state before load and assert the state it got); and the **2026-07-25 rAF trap recurring** — the credit read as missing because an unfocused tab reported `visibilityState: "visible"` while rAF never fired, so MapLibre's deferred `Style.loadJSON` never ran and the control was correctly empty with zero sources to credit. **Check `rafFired`, not `visibilityState`** — three sessions, three different false symptoms, each looking like a bug in whatever had just been written. Tooltips then added to the three tier buttons, worded for what the tier **does today**: `currentTier()` has exactly one behavioural read site-wide (the idle spin), so a tooltip promising terrain would advertise something the site does not yet do — pinned by a test that ties the wording to the number of tier reads. Tests **extract and execute the `is:inline` guard** rather than string-match it, with the auto-steer case first as a positive control the `try/catch` cannot fake; falsified by reverting the fix, and the rect-overlap predicate falsified by removing the lift. Re-verified against a **production build**, where Astro extracts CSS to a `<link>` instead of injecting it
+- [2026-07-27 (chrome) — the credit line was holding the controls hostage, and MapLibre's stylesheet loads after ours](#2026-07-27-chrome--the-credit-line-was-holding-the-controls-hostage-and-maplibres-stylesheet-loads-after-ours) — moving the view bar to bottom-centre was blocked by a **770 px attribution** running along the bottom-left: bottom-right was never a design choice, it was **the only slot that cleared the credits**. The credit is ours, not MapLibre's (`CREDITS` → the raster source's `attribution`), and the map never carried the legally required text anyway — Copernicus Art. 6(b) demands an exact notice, which with the 6(c) liability sentence lives on `/about`. So shortening to a single `Data sources` link (**770 → 111 px**) changes findability, not compliance. Two *other* sources also declared `"Natural Earth"` (borders + countries), and MapLibre joins every source's attribution with `" | "` — so the line **changed width when a toggle flipped** (107 vs 195 px), which a centred neighbour cannot be laid out against; removed, Natural Earth being public domain. Then the restyle, where nothing in the project had **ever** styled a MapLibre control: its stylesheet is injected at RUNTIME by the ES-module import, so it lands after ours and **equal-specificity rules lose silently on source order** — the first attempt computed `bottom: 5.2rem` as `0px` and left a WHITE attribution wearing our border and shadow. Needed four repeated classes, because their `.maplibregl-ctrl-bottom-left > .maplibregl-ctrl-attrib.maplibregl-compact-show` is already (0,3,0); **the tell was a radius of 999 px on a phone and 12 px on desktop**, since the phone case is re-parented to `<body>` where their descendant selector stops matching. `font-family: inherit` also failed by working — `.maplibregl-map` sets a `font` SHORTHAND, so it faithfully inherited Helvetica. Phone clearance came from **height, not width**: the bar wraps to two rows and the scale bar grows with zoom to its 120 px cap, so the 2 px gap measured at 386 px was luck. Verified at 390/700/1200 px **through an iframe**, because Chrome will not resize a window below ~500 px
+- [2026-07-27 (Tier 3, cont. 2) — the globe atmosphere was clipping a quarter of every pitched frame, and MapLibre will ramp it from an expression](#2026-07-27-tier-3-cont-2--the-globe-atmosphere-was-clipping-a-quarter-of-every-pitched-frame-and-maplibre-will-ramp-it-from-an-expression) — the washed-out far distance Rohan saw at pitch 60 is **MapLibre's globe atmosphere doing aerial perspective**, not the palette, not the tiles and **not terrain** (proven: `setTerrain(null)` at the same camera still gains +50,+77,+88 DN at the top row). `atmosphere.fragment.glsl` marches the air column and truncates it at the surface, so one `atmosphere-blend` uniform scales **both** the limb glow and full ground haze; the blue bias is Rayleigh by construction. At the overview-tuned **0.7 a pitched z7 frame is 23.8% clipped to ≥254** — blown, not hazy. **Pitch is the driver: at pitch 0 the ground delta is exactly 0 at every zoom**, so the shipped default never saw it — but terrain is precisely what makes pitching worth doing, so it becomes real the day Tier 3 ships. **Fixed as a zoom ramp 0.7 (z≤3) → 0.15 (z≥6)**, chosen because the atmosphere's only job needs off-globe pixels and there are **none at z7–8 at any pitch**; so the ramp is strictly non-harmful — at high zoom it either does nothing (pitch 0) or removes damage. **The implementation finding: `atmosphere-blend` takes a ZOOM EXPRESSION** (the spec's own doc says to interpolate it under globe projection), so unlike terrain's hand-driven `exaggeration` this is declared once — which matters, because `Style.setSky` re-runs the sky transitions at a **300 ms default** on every call, so a per-zoom handler would chase the camera a third of a second behind. **Exact geometric decay from a two-stop expression by an identity**: MapLibre's `["exponential", b]` collapses to `y₀·b^(x−x₀)` exactly when `b` is the per-level ratio. Verified end-to-end — **0 DN** against the constants it must equal at z3/4/5/6.96, while deliberately wrong constants register 16/34/16/4; result **25.28% → 5.13% clipped** at Rohan's camera and the **overview bit-identical**. Two instrument bugs caught, both first reporting success: a sweep that read every delta as 0 because it probed *inside* the 300 ms transition (caught only because it contradicted a measurement already in hand), and a verification comparing **black to black** where the sampled rows were off-globe space — fixed with a positive control that must fail
 - [2026-07-26 (the name chip) — the gold outline finally says what it is, and the hover it depended on was stale after every drag](#2026-07-26-the-name-chip--the-gold-outline-finally-says-what-it-is-and-the-hover-it-depended-on-was-stale-after-every-drag) — a top-centre pill names the hovered country, gold dot **set from `HIGHLIGHT_GOLD` in JS** so it cannot drift from the outline it labels. **Desktop-only is the correct scope**: touch has no hover state to leave anonymous and a tap already names it; a two-stage tap was rejected as taxing the primary action. **The real finding is underneath the feature — hover was recomputed on `mousemove` and nothing else**, so every camera move under a parked pointer left the outline AND the cursor naming the country that used to be there (unbounded after a drag, 2.2 s after the fly-to, one step during spin). Invisible for an anonymous outline; not invisible once a chip says the name. Fixed by caching the last pointer point and re-resolving on `moveend`; **proven with an in-page mousemove counter — `0` moves across 7 s and 17 s of spin while the chip still changed**. `hoverTracking.ts` owns the state outright (`onChange` gets `(admin, previousAdmin)` so `globe.astro` keeps no copy) and `viewChanged()` with no cached point does not even call `resolve`. **Rejected**: cursor-following tooltip (covers what it names, edge-flip at four edges), a `Marker` at the bbox centre (**off-screen when the centre is past the limb — silent failure**), a `symbol` layer (**no `glyphs` endpoint — one string would cost a font-PBF asset class**), `Popup`, a card "peek". `pointer-events: none` is load-bearing (else mouseout→hide→show flicker loop); the card suppresses the chip because at ~900 px it would lose the collision invisibly; **the planned fade was dropped** — instant matches the outline, and nothing animating removed the reduced-motion branch entirely. **Measured, not asserted: 0.072 ms/mousemove at the default camera, 0.039 ms zoomed in, 165 fps through spin with zero long tasks, +226 B gzipped** (built against `git show HEAD:`, restored byte-identically). The hover path is **neutral not cheaper** — the old handler already called `countryAt` once, correcting my own assumption. Four falsifications (3 module mutations + a source guard the unit tests structurally cannot replace), and two instrument bugs caught: a `window.__map` probe that does not exist, and a **MutationObserver counter read synchronously, which is always 0**
 - [2026-07-25 (night, cont. 3) — Phase 4 takes shape: Workers Static Assets over Pages, and the subdomain-depth rule I recorded was wrong](#2026-07-25-night-cont-3--phase-4-takes-shape-workers-static-assets-over-pages-and-the-subdomain-depth-rule-i-recorded-was-wrong) — **the shell as built was broken**: the bases were never set, so `dist/` shipped **204 pages addressing `/heroes/` on an origin that has never held a hero**, and `terrella-assets` had no custom domain — site host and asset host land together or not at all. **Workers Static Assets over Pages, with my first reason corrected**: gitignored build inputs do NOT rule Pages out (`wrangler pages deploy dist/` uploads a local build), they rule out **push-to-deploy on both** — proven by a clean clone failing at `[UNRESOLVED_IMPORT] '../data/countries.json'`, before it even reaches `public/caps/`. Un-ignoring them would split "what the site claims exists" from "what R2 holds" — `test_cap_freshness.py`'s drift, generalised. Tiebreakers then decide: **serve-assets-on-a-path** (Pages ❌) is the `run_worker_first: ["/tiles/*"]` future that deletes CORS by putting tiles on the site's origin, plus Rate Limiting and Workers Logs. **The "prefer one-level hostnames" rule is WRONG and retracted**: Workers Custom Domains auto-generate an Advanced Certificate (documented, no ACM), R2/Pages use Cloudflare-for-SaaS certs — **depth changes when TLS works, not whether**. What fooled me: `*.alchez.dev` is an RFC 4592 wildcard answering at *any* depth, so `dig` resolves while TLS refuses — **check the certificate, never `dig`**. Config, not code: **`.geojson`/`.json` are not default-cached** (`.webp`/`.png` are) so borders need a Cache Rule, and the globe **`fetch`es** them so the bucket needs CORS — while `<img>` heroes need neither. Production hostnames live in `package.json`'s `build:deploy` (`.env.production` is gitignored by the guard that keeps `OPENTOPOGRAPHY_API_KEY` out); found in passing that the local `.env` had `astro dev` pulling **production** tiles, so the local archive was never exercised. New drift guard asserts every `PUBLIC_*` the code reads is supplied as an absolute URL, falsified both ways. **LIVE same night at `terrella.alchez.dev`**: GeoJSON `DYNAMIC` → `MISS` → `HIT`, exact-origin CORS + preflight 204, and — strip Cloudflare's 938 injected Bot-Fight-Mode bytes — the live page is **MD5-identical to the local `dist/`**. The Cache Rule's first version was wrong in the way that looks right: the whole expression pasted into a `URI Full`/`wildcard` **Value** box, matching a literal string no URL can equal — installed-looking, firing on nothing. `ALLOWED_ORIGIN` then narrowed to the site origin (**not** hotlink protection — a proxy sends no `Origin`; the motive is the ~2,500 cold-visit/day ceiling) and `workers_dev` off
 - [2026-07-25 (night, cont. 2) — the tile Worker is ours, not Protomaps': their code is unpublished, and what makes it correct lives in the library](#2026-07-25-night-cont-2--the-tile-worker-is-ours-not-protomaps-their-code-is-unpublished-and-what-makes-it-correct-lives-in-the-library) — **the fork was mis-stated**: `pmtiles-cloudflare` is `"private": true`, unpublished, and imports a sibling `shared/`, so adopting it means **vendoring a fork of two files**, not taking a dependency. Ours instead (~100 lines, `web/worker/`), because **the two things that make theirs correct come from the `pmtiles` library we already have**: a **module-scope `ResolvedValueCache`** (else every tile re-reads root+leaf from R2 — three round trips instead of one) and **`onlyIf: {etagMatches}` + `EtagMismatch`** (a directory entry is a byte OFFSET, so re-cutting the archive under a warm isolate would serve **a corrupt tile with a 200**). **Evaluating the alternative found the identical bug in our own dev middleware** — it ignored the `etag` argument; now fixed with an `mtime-size` stand-in. We need ~⅓ of their surface (no multi-archive, no TileJSON, no 5-type dispatch); their example still pins `compatibility_date` 2024-09-02. Deliberate asymmetry: `assertZoomRange()` throws in dev, the Worker 404s + logs — a dev server should refuse to start, a live one shouldn't 500 the world. Cache `immutable`, so **a re-cut needs a zone purge**. **DEPLOYED same day at `tiles.terrella.alchez.dev`**, tiles byte-identical to the local archive at z3 and z8, `cf-cache-status: HIT`, 48 tiles in the live globe with 0 failures. Two false alarms on the way: **Universal SSL covers only ONE subdomain level**, so the two-deep hostname I recommended failed TLS until an auto-ordered `advanced` pack issued ~7 min later (free zone, no ACM — observed, don't rely on it); and the browser check stalled because **rAF was paused on an unfocused window while `visibilityState` still said `"visible"`** — MapLibre defers `Style.loadJSON` through rAF, so it presents as a dead tile source with no errors
@@ -157,6 +187,8 @@ The log below is **chronological**; this is the view it lacks. Nothing reads thi
 
 ### Engineering practice
 
+- [2026-07-30 (deploy) — the deploy state was not readable from the plan: production had been serving an unmerged branch for two days, and five items marked "undeployed" were live](#2026-07-30-deploy--the-deploy-state-was-not-readable-from-the-plan-production-had-been-serving-an-unmerged-branch-for-two-days-and-five-items-marked-undeployed-were-live) — **PLAN's `(local, undeployed)` tags recorded *authoring* state and were read as *deploy* state**, and a session's planning ran on them: five of the eight so tagged were already serving traffic, from `feat/terrain-rgb` — a branch never merged, leaving **`main` 15 commits behind the live site**. The oracle for "is X live", cheapest first: a **shipped string** in the fetched bundle whose introducing commit `git branch --contains` puts on one branch only (pick needles from shipped code — the first four candidates were test-only and read 0/0, which proves nothing); a **content-hashed chunk name probed for 200**, after validating that a bogus hash 404s; and for changes that add no strings at all — inlined constants, renamed locals — `git merge-base --is-ancestor` against a proven-live commit. **Do not diff two minified bundles**: variable renaming is unstable between builds, so two builds 1.6 KB apart produced 5,882 differing lines. Then deployed the two genuinely-undeployed items (pinned z0 base source, `?perf` Phase 1) from the working tree; verified after rather than assumed — live bundle **byte-identical** to the local build, `relief-base` and both production bases present, all four origins serving, and the z0 pin's single request at **71,306 bytes**, independently confirming 07-29's "71 KB". **A probe for absence populates a cache with that absence**: one chunk read 404 post-deploy purely because my own pre-deploy probe had been negatively cached at the edge
+- [2026-07-28 (CI) — the tile-cut probe cannot run on CI, because Ubuntu's GDAL is three minor versions short of the CLI it probes](#2026-07-28-ci--the-tile-cut-probe-cannot-run-on-ci-because-ubuntus-gdal-is-three-minor-versions-short-of-the-cli-it-probes) — `FileNotFoundError: 'gdal'` did **not** mean CI lacks GDAL: it installs `gdal-bin`, but noble ships **3.8.4** and the unified `gdal raster tile` entry point arrived in **3.11**, so the binary does not exist there. Skipped on `shutil.which("gdal")` — legitimate here, unlike the mosaics guard the same `ci.yml` comment forbids skipping, because **no GDAL on CI can answer the question**: the probe is about the 3.12 boxes that cut tiles, and a 3.8.4 answer describes a binary that will never see the command (which also retires the WebP half — "can CI write WebP" is a fact about the wrong machine). **PPA/newer-runner rejected** and recorded in `ci.yml` so it is not re-proposed. Coverage ratchet **measured, not assumed** — 39.30% either way, since the test executes no pipeline line. Falsified both directions: forced `False` skips exactly one with the right reason; restored, it still **runs** locally (541 passed, 0 skipped)
 - [2026-07-25 (later) — CI caught a hardcoded checkout path in run_pass.sh, and the single-home guard learns the spelling it was blind to](#2026-07-25-later--ci-caught-a-hardcoded-checkout-path-in-run_passsh-and-the-single-home-guard-learns-the-spelling-it-was-blind-to) — **the day-old preflight test was the first thing ever to run `run_pass.sh` off this machine**, and it died on the `cd`: four hardcoded checkout literals meant all 8 tests failed on one line, having passed locally for the wrong reason (the path happened to exist). Fixed with the pattern already in the repo — `$(dirname "$0")` + `MAPS_DATA`, per `build_mosaics.sh`, the "shell twin" `paths.py` already names — and **verified against a foreign checkout, not the suite**: re-running pytest locally proves nothing when it was green before the fix. **The drift guard was blind by construction** — it scanned for `Path.home()`, one *spelling* of machine-specificity, and never opened a shell script; a second scan now rejects an absolute home path in any tracked *runnable* file (falsified with a planted line before being trusted; prose exempt, so the archive can keep quoting real paths as evidence). Swept two more would-be breakages for anyone else's clone: `gen_manifest.py`'s `--repo` default and `web/README.md`'s first-run block, which also named a `TILES_STORE` that `.env.example` had since renamed. Same failure as the 2026-07-19 rsync lesson: **a local environment quietly satisfying a dependency the target lacks**
 - [2026-07-25 — the cap rung ships mobile 1.8 MB instead of 5.3, and two things nobody was measuring fell out of it](#2026-07-25--the-cap-rung-ships-mobile-18-mb-instead-of-53-and-two-things-nobody-was-measuring-fell-out-of-it) — `caps.json` gains a **rung list**; phones fetch the 4096 texture (**5.3 → 1.8 MB**) instead of downloading 8192 and canvas-downscaling it. Rung is **downsampled from the one render, never rendered natively** (`coast_dilate` is in pixels — a native 4096 would double the relative coastline width); both 8192 rungs stayed **md5-identical**. Two finds: **a manifest is a contract document, not an asset** — a week-old cached `caps.json` broke the caps live, so it is now revalidated (any future shape change would have broken returning visitors for a week); and **PROCESS's "~4 GiB" for this stage was wrong by 3.5×** — it needs **~14 GB**, OOMs under the standing 12 G cap, and `shade_planet` invokes it inside the pass's cgroup, so a `run_pass.sh` pass at `MEMORY_CAP=12G` died at the caps after every tile stage succeeded → **shade cap raised to 16 G** (the composite is unaffected: `COMPOSITE_ROWS=128` is a constant, not a function of the cap) **plus a `MemAvailable` preflight that refuses to start** when the box cannot back the cap, because a cap the machine cannot honour only relocates the OOM to the most expensive moment
 - [2026-07-25 — the post-ratification reclaim: 52 GB, and the hardlink archive that quietly became a real second copy](#2026-07-25--the-post-ratification-reclaim-52-gb-and-the-hardlink-archive-that-quietly-became-a-real-second-copy) — **a `cp -al` rollback tree costs ~0 bytes only until the sweep re-renders**; then every link breaks into real bytes and it becomes a silent full second copy (25 GB) — prune the day the sweep ratifies. 52 GB freed (pre-seasync heroes+variants, the `planet.mbtiles` bridge, three finished experiment dirs). Bigger find: INVENTORY claimed "everything lives under `data/`" while **`blender/renders/` (27 GB) had no rows at all** — the gap the dead archive hid in; it now has a Hero-products section, and `_*` scratch has a reclaim-on-decision rule. `worldcover`/per-country intermediates deliberately KEPT (still re-render input). New broken-oracle instance: **`du -sh parent child` silently prints nothing for the nested path**
@@ -181,6 +213,7 @@ The log below is **chronological**; this is the view it lacks. Nothing reads thi
 
 ### Project meta
 
+- [2026-07-26 (reclaim + z10) — 35 GB back, and the deep-pyramid question turns out to be blocked on the disk, not the format](#2026-07-26-reclaim--z10--35-gb-back-and-the-deep-pyramid-question-turns-out-to-be-blocked-on-the-disk-not-the-format) — **35 GB reclaimed** (`tiles_old` 16 GB proven superseded by counting 87,381 PNG vs a live 87,381 WebP; the `mbtiles` bridge; GLOBathy's md5-pinned zips after verifying 83,357 extracted rasters; `_ab_shadow2`). Then **z10: BLOCKED ON DISK, and WebP was never the obstacle** — z10 is a *re-fuse at ~2.5″, not a tiling flag*, so the `512×2⁸` grid goes to `524288²` = **16× every intermediate: 1,773 GB and ~43.2 h** (lake warp alone ~16.5 h) against a 1.8 TB disk holding 1.3 TB. WebP only moves *delivery* (~48 GB archive vs ~260 GB PNG). Independent of cost: **GEBCO measured at 464 m/px**, so z10 sharpens land and not sea — upsampling 1.5×→6.1×, **quadrupling the land/sea mismatch**. **z8 LOCKED's "fix before any re-fuse" precondition is CLOSED** (`warp_needs_rebuild` now grid-compares) though that entry still reads open. **Tier 3 first** — disk-cheap, and terrain is an independent source with its own maxzoom
 - [2026-07-26 (doc currency) — the repo was still advertising the architecture it rejected, in four places](#2026-07-26-doc-currency--the-repo-was-still-advertising-the-architecture-it-rejected-in-four-places) — a sweep of all 17 tracked `.md`/`.mmd` files found **nine stale, eight of the defects one bug written repeatedly**: README, `pipeline-overview.mmd` and CLAUDE.md still pitched *"no tile server"*, the exact shape the 07-25 R2 decision rejected and that `tiling.mmd` **in the same directory** already refuted; CLAUDE.md contradicted itself across four lines; README promised nginx *in the future tense* while Cloudflare served 200s; INVENTORY + CLAUDE.md named **Pages** for a shell that is a Worker. **Prose rots where code cannot** — `reliefTiles.ts` couldn't drift because both servers import `TILE_EXTENSION`, while two docs said `.png` against a live `image/webp` and INVENTORY contradicted itself twice. Rule: **grep the claim's phrasing, not the files you remember touching**. Rohan **deleted README's Status section** (status is PLAN's job) — which had been the sole home for "Tier 3 is unbuilt", now marked *(planned)* inline. Near-misses avoided by checking: FUTURE's "(analysed …)" dates are **provenance, not leaks**; `tiling.mmd`'s "Phase 1/2" are *tiling* phases. **Then the same sweep over the codebase** (206 dated comments / 69 files): caps called **PNG in 7 docstrings** against a `-of WEBP` writer, **6 PR-#9 refs**, **4 cites to PLAN sections deleted on 2026-07-14**, **5 cites to gitignored CLAUDE.md** (3 naming a section that only ever lived in PLAN), one private `~/.claude-personal/` path. The 27 HISTORY citations all resolve and **keep their dates** — the heading is the anchor. Mechanical accuracy scan **clean**: the facts were sound, the *pointers* had rotted. **Two scripted passes thrown away** — one collapsed intentional alignment (189/270 lines collateral, reverted to HEAD), one merged comment lines via `\s+` matching `\n`; the rule that held is atomic patterns on date-bearing lines only, `[ \t]` never `\s`, and a guard that refuses any line whose punctuation defects increase
 - [2026-07-26 (attribution review) — the one licence with an exact-string obligation was the one being paraphrased, and nothing was checking](#2026-07-26-attribution-review--the-one-licence-with-an-exact-string-obligation-was-the-one-being-paraphrased-and-nothing-was-checking) — ATTRIBUTIONS.md had already done the hard part (per-source required strings, Copernicus verified against the primary licence PDF), so this was **verification, not research** — and the verification is what had never run. Four gaps on the About page: the Copernicus **Art. 6(b) notice was PARAPHRASED** (year ranges, `GmbH` and *"all rights reserved"* all dropped, *"produced using"* reworded to *"Contains modified…"*) — **a paraphrase does not discharge an exact-notice obligation**; the **Art. 6(c) liability sentence was absent entirely**; and two badges named an **organisation where a licence belongs** (NSIDC-0791 → "NSIDC" when it is public domain, OSI SAF → "EUMETSAT" when it is CC-BY 4.0), which reads either as bespoke terms or as no licence at all. Not wrong: all eight datasets appeared on both surfaces, README correctly **delegates** rather than duplicating, and every other string was substantively fine — **the review's value was narrow and legal, not a rewrite**. Structural cure is `tests/test_attributions.py`, a **two-way** drift scan (page must carry each required string; ATTRIBUTIONS.md must still record it), whitespace-normalised since both files reflow, and asserting **obligations only** — courtesy citations excluded because a check that fails for non-legal reasons gets deleted. All three assertions **falsified by mutation**. Verified in the **BUILT HTML**, not source, because this page has hit the Astro swallowed-space gotcha three times; and one instrument bug caught mid-check — a badge scrape returned `[]` because Astro injects `data-astro-cid-*` before `>`, and **an empty result from a check that should find eight is not a pass**
 - [2026-07-23 — look presets analysed and DEFERRED; FUTURE.md created as the v2 parking lot](#2026-07-23--look-presets-analysed-and-deferred-futuremd-created-as-the-v2-parking-lot) — user-selectable globe styles decompose into **three kinds by where the variation lives** (vector-over-raster ≈ free via `MAPCOLOR13` fill; raster recolors = one 15 GB archive + ~33 min per look, gated on look parameterization since the drift guards correctly fight a second look; client-side colorization = a GLSL twin of `shade.composite`, Phase-5-sized). Rohan deferred all of it; the full taxonomy + recommendation ladder parked in **FUTURE.md** — a new doc-set slot for analysed-but-unplanned ideas, so deferred analyses stop dying in chat. Doc-set maps in PLAN header + CLAUDE.md updated
@@ -188,6 +221,1228 @@ The log below is **chronological**; this is the view it lacks. Nothing reads thi
 - [2026-07-03 — Project scoped; dev environment decided](#2026-07-03--project-scoped-dev-environment-decided) — project scoped; dev environment decided
 
 ## Decision log
+
+### 2026-07-30 (deploy) — the deploy state was not readable from the plan: production had been serving an unmerged branch for two days, and five items marked "undeployed" were live
+
+**PLAN said eight items were `(local, undeployed)`. Five of them were already serving traffic.** The tags were written at the moment each feature was finished and never revisited, so they recorded *authoring* state and were read as *deploy* state. One session's planning ran on them before anyone checked.
+
+**What is actually true:** production has been served from `feat/terrain-rgb` since 2026-07-28 — a branch that has never been merged. `main` is 15 commits behind the live site. The deployed pyramid, the DEM cache bound, the v6 API adoptions, Layer 0's GL diagnostics, the cap alpha fix, the caps' own elevation and the atmosphere's pitch ramp were all live while the plan called them local.
+
+**The oracle, because "is X live" needs one that can fail.** Three techniques, cheapest first:
+
+- **A shipped string in the fetched bundle.** `?demcache` is introduced by exactly one commit (`1f67860`), and `git branch --contains` puts that commit on no branch but this one — so finding the string in the live bundle proves the commit is deployed. Pick needles from *shipped* code: the first four candidates were test-only strings and read 0/0, which proves nothing either way.
+- **Content-hashed chunk names, probed for 200.** Astro emits `capability.<hash>.js`; a hash is a perfect per-module identity, so requesting the local filename against production answers "is this exact module deployed" with no parsing. **Validate the oracle first** — a bogus `_astro/…NOPE1234.js` must 404, or a catch-all rewrite is answering 200 for everything.
+- **Do not diff two minified bundles.** Variable renaming is not stable between builds: a statement-level diff of two builds that differ by 1.6 KB produced 5,882 differing lines. Dead end.
+
+**Constants are not evidence of deployment.** The atmosphere's pitch ramp and the ladder's teardown flag add *no shipped strings at all* — inlined numbers and renamed locals. Their deploy state is only reachable through ancestry: `git merge-base --is-ancestor <commit> <proven-live commit>`.
+
+**Then deployed the two genuinely-undeployed items** (the pinned z0 base source, and `?perf` Phase 1), from the working tree at Rohan's instruction — commit and merge deferred to him. Gates first: `astro check` 0/0/0, vitest 573, R2 preflight `3448 objects advertised, all present`. Verified after, not assumed: the live HTML references the new hash, the fetched bundle is **byte-identical** to the local build (`cmp`), it contains `relief-base` and both production asset bases, and all four origins serve — including the z0 pin's single request at **71,306 bytes**, which independently confirms the "71 KB, one request" recorded on 07-29.
+
+**One instrument artefact worth remembering:** `capability.C6Z1DeFY.js` read 404 after the deploy while every sibling flipped to 200 — a **negative response cached at the edge from my own pre-deploy probe**. A cache-buster returned 200 and the plain URL followed. Probing a URL for absence *populates* a cache with that absence, so the probe contaminates its own re-run.
+
+### 2026-07-30 (instrument, cont.) — the instrument was the bug: `?perf` created 13.3 WebGL contexts a second and killed the map it was measuring
+
+**Everything the previous entry's tool concluded about the phone was wrong, and wrong because the
+tool caused it.** Over five phone runs the panel reported GPU context losses (5, 6, 5), a dead
+style, 1.7-second main-thread tasks and 53% of wall clock blocked, all of which were real readings
+of a real failure — a failure the panel itself was producing.
+
+**The mechanism.** `composeReport` read `probeSignals()` for the capability line and `currentTier()`
+for the tier. `probeSignals()` **creates a WebGL2 context** (`capability.ts`), `detectPerformanceCaveat()`
+creates a second, and `currentTier()` calls `probeSignals()` again — four contexts per call. It was
+called from `extraLines`, which the overlay invokes on its 300 ms tick, **but only while EXPANDED**.
+Browsers force-lose the OLDEST live context past a per-page ceiling (~16 in Chrome), so within about
+a second of the panel being opened the oldest context on the page — the map's — was taken. The page
+then rebuilt itself, which is exactly what a GPU context loss looks like, because it *was* one.
+
+**Measured, not reasoned**: patching `HTMLCanvasElement.prototype.getContext` to count webgl
+requests gave **0 in 3 s collapsed against 40 in 3 s expanded — 13.3 per second.** After the fix,
+**0 in 6 s expanded**, terrain running, no losses, no faults.
+
+**What exposed it was a control nobody had thought to run.** Rohan's third phone exercise repeated
+the failing configuration — terrain 15×, DPR 3.5, same camera — but he did not open the perf box.
+Zero losses, style alive, longest task **198 ms against 1,664**, 5% of wall clock blocked against
+53%. Two runs identical in every declared variable and opposite in outcome, differing only in
+whether the instrument was displaying. That is the shape of an observer effect and nothing else.
+
+**The false conclusions this produced, all now retracted:**
+
+- "Terrain kills the phone" — asserted from a matched A/B (terrain 5 losses vs `?terrain=off`
+  0 losses) that was clean on every axis except the one that mattered. `?terrain=off` survived not
+  because terrain is cheap but because it left enough GPU headroom to absorb the context churn.
+- "The phone is main-thread bound, not GPU" (the entry before that) — the main-thread time was
+  style rebuilds after losses the panel caused.
+- Two nights of "the phone is sluggish" analysis, all of it conducted with `?perf` on screen.
+
+**The DPR arms are void as well, and the first version of this entry wrongly claimed otherwise.**
+Canvas 2.41 → 0.79 → 0.20 Mpx across `?dpr=` 3.5/2/1 moved losses 5 → 5 → 6, and I recorded that as
+"the one part that survives, because it agrees with the recorded DPR-invariant model". It does not
+survive. Those losses were context-count exhaustion, which is DPR-independent *by construction* —
+so the experiment tested nothing about terrain, RTT or memory, and agreeing with the prior model is
+coincidence rather than confirmation. The DPR-invariance of `rttSize` still stands, but it stands on
+its own 07-28 measurement (canvas 1,451,125 → 13,060,125 across DPR 1→3 while total RTT pixels
+stayed 4,194,304), unaided by anything measured here. **A confounded experiment does not become
+partially valid by landing on the right answer.**
+
+Worse, `?dpr=` was proposed on the *opposite* premise — that terrain's RTT scales with DPR — which
+this project had already disproved and filed. One grep would have surfaced it before the experiment
+instead of after.
+
+**Verified after the fix, on the phone, in the configuration that had been dying**: terrain 15×,
+DPR 3.5, panel EXPANDED — 0 losses, style alive, longest task **155 ms against 1,664**, 1% of wall
+clock blocked against 53%. A second run with the panel shut was *heavier* (34 long tasks against 2,
+at a moving camera), which is the cleanest possible refutation of a residual observer effect: if any
+remained, expanded would be the worse arm, and it is the better one.
+
+**The fix is that a probe is an allocation.** Signals are static hardware facts, so they are read
+once outside the closure; the tier is not static (the quality toggle writes localStorage mid-session)
+so it is recomputed as `decideTier(cachedSignals, getQuality())` — `currentTier()`'s own definition
+minus the re-probe. Separately `probeSignals` now releases the context it creates, mirroring what
+`detectPerformanceCaveat` already did with its own: a leaked context costs no memory worth caring
+about, it costs *somebody else's context*, and the somebody is always the map.
+
+**Two guards in the sabotage harness itself were also wrong, and both are worth carrying forward:**
+
+- **The harness had no baseline check.** It asks only "did the suite fail", so a suite that is
+  ALREADY red reports every sabotage as caught. One full run of 19 false positives, from a broken
+  regex in a test I had just written. It now refuses to run against a red baseline.
+- **A whitespace-indented needle is a substring of a more-deeply-indented line.** A 10-space
+  `devicePixelRatio: map.getPixelRatio(),` aimed at the FPS ladder matched the 14-space line in the
+  perf report instead, silently corrupted that, and nothing failed — revealing that the report's own
+  DPR field had no guard at all. Anchor sabotage needles on a neighbouring token, not on indent.
+
+**The transferable rule: an instrument that allocates GPU or GPU-adjacent resources must be assumed
+to perturb what it measures until a control says otherwise, and the control is cheap — run the
+identical configuration with the instrument DISPLAYING and NOT DISPLAYING.** The panel had been
+treated as a passive reader because it renders text; it renders text *about* capabilities, and
+gathering them was the allocation.
+
+### 2026-07-29 (instrument) — `?perf` was mostly a SURFACING problem: the numbers already existed, were thrown away every idle, and one guard had quietly stopped guarding
+
+**The session that prompted this answered every performance question by building a one-off
+instrument in a console and reading the result off a photograph of a phone screen.** Three
+questions, three bespoke rigs, and one of the answers ("the phone is GPU-bound") was simply wrong.
+The obvious reading is that the page needed more measurement. It did not.
+
+**`snapshotGlLoss()` was already running a full device + cap + per-source + covering-count read on
+every `idle`** (`globe.astro`) and discarding it unless the GPU died. `demCacheCapFault`,
+`restoreFault`, `probeSignals`, `currentTier`, `tileCountsBySource`, `capLayerStates` and
+`totalCapTextureBytes` were all live and all console-only or unread. Phase 1 therefore adds **no new
+measurement at all** — it composes what exists into `perfSnapshot.ts`, a pure `buildPerfReport()`
+whose every input is injected, and gives it a way off the device.
+
+**The export path is the actual deliverable.** A dev-only `/__perf` Vite plugin (a fourth beside
+`tilesDevServer`) takes a POST and writes `web/.perf/<timestamp>.json`. POST only; the filename is
+generated server-side from the clock so nothing in the request can name, traverse to, or overwrite a
+file; one fixed directory; a 1 MiB body cap; and the body must parse as JSON, so a malformed post is
+rejected rather than stored as an unreadable file. Verified by probe: `400` on malformed, `413` on
+2 MB, and a body carrying `"../../../../tmp/pwned.json"` landed as an ordinary timestamped file with
+nothing written outside the directory. A static build has no such endpoint, so the button falls back
+to the clipboard — **fallback, not default**, because `navigator.clipboard` is absent over plain
+http on a LAN address, which is exactly where the phone runs. Every outcome is a distinct label on
+the button (`saved` / `copied` / `failed`); "silently did nothing" is not reachable.
+
+**This deliberately deviates from the asset-store rule** (env var, no fallback, fail loudly). A
+store pointing at the wrong place serves wrong data; a snapshot directory in an unexpected place
+costs one `ls`. Requiring configuration for a diagnostic makes the diagnostic unavailable exactly
+when someone is in a hurry to use it.
+
+**The origin is now part of every reading**, and this is the entry's most transferable point. Every
+phone number quoted the previous night came from the LAN dev server, which was established three
+exchanges after the numbers started being used. Vite serves hundreds of unminified modules
+(inflating every main-thread total) while serving tiles from a local file in ~1 ms (understating
+every network figure) — the exact mirror of the production behaviour recorded in *the hole to
+space*. Same-build A/B deltas survive that; absolutes do not transfer. `origin.devServer` comes from
+`import.meta.env.DEV`, **not** a hostname or port heuristic, because the confusing case is a dev
+server reached by IP from a phone, which is indistinguishable from a real host by URL. The panel
+renders it as `DEV SERVER — absolutes not comparable to prod`, in capitals, because it is a warning
+about the numbers above it rather than a label.
+
+**Three readings that were being silently fabricated, now labelled:**
+
+- **`no-signal` is not "desktop".** `isMobileClassDevice()` returned a bare `false` when neither
+  UA-Client-Hints nor `matchMedia` existed, and that false buys `capTextureBudget(false)` =
+  `Infinity` — 512 MiB of cap texture decided by the *absence* of a measurement. It now returns
+  `{mobileClass, via}` where `via` is `ua-client-hints` / `pointer-coarse` / `no-signal`. The
+  verdict is unchanged; it now arrives saying what produced it, which also makes captures from
+  different browsers comparable (Chromium answers on the hint, Firefox never does).
+- **A cap mid-climb and a settled cap were the same picture.** `CapLayerState` gained `rungLoading`
+  and `elevLoaded`, so `north 4096→8192 loading` is distinguishable from `north 4096`. Only the
+  first is still spending main thread, and only the first explains a stall in the same screenshot.
+  The byte total still counts **uploaded** texture only: a `loadedRungPx ?? rungLoading` fallback
+  reads naturally and would bill 268 MB of VRAM for bytes still on the wire.
+- **Faults reported before the first idle are artefacts, not faults.** Caught on the panel's first
+  live run, which sat reading `FAULT no terrain tile manager · the style has no projection — every
+  render and every unproject will throw` on a perfectly healthy page that had not finished loading.
+  Both checks state the precondition in their own docstrings: `updateCacheSize` runs per render, and
+  a loading style has no projection. The verdict is now gated on `firstIdleMs !== null` — **not**
+  `mapLoadMs`, since `load` fires before the first frame — and the panel says "faults not checked
+  yet" rather than showing a clean bill of health. The raw readings stay in the exported JSON; only
+  the verdict is withheld. Same mistake `terrainRetired` was added to stop, one layer up.
+
+**The panel's layout was structurally unreadable on the device it exists for.** It was
+`white-space:pre` with no `max-width` inside `body{overflow:hidden}`, so on a 412 px screen the long
+lines ran into overflow that no gesture could reach — not off-screen, *unreachable*. Now `pre-wrap`,
+width- and height-bounded, scrollable, and collapsed to a two-line headline below 640 px. Pointer
+events are **per row, not per panel**: the container stays `none` so a collapsed panel never eats a
+map drag, and only the controls (plus the body once expanded, where covering the map is the point)
+opt back in. A blanket `pointer-events:auto` would have made the top-left of the globe undraggable
+for anyone with `?perf` on.
+
+**A guard had stopped guarding, and nothing said so.** `tileCacheBudget.test.ts` matched the
+`mountPerfOverlay(...)` call with `/mountPerfOverlay\([\s\S]*?\),\n    \);/` — an
+indentation-sensitive closing anchor. Reshaping the call into an options object moved that anchor,
+and the lazy `[\s\S]*?` simply ran on to the next place in the file where the old shape happened to
+occur: **the match grew to 32,420 characters, still contained `demCache()` somewhere in the middle,
+and still passed.** It is now bounded and *the bound is asserted*, which is the general rule — a
+guard that widens silently when its subject moves is worse than no guard, because it reads as
+coverage. Found only by printing the match length rather than trusting the green tick.
+
+**Verified live in both states**, which mattered: a healthy page read clean, and a page that had
+taken four context losses and hit the give-up gate reported exactly that (`caps 0 MB`, `dem cache
+0/1155 slots`, `FAULT cap did not stick — wrote 381, field reads null`). The four losses were
+environmental — two globe tabs open at once, i.e. the two-tab VRAM ceiling from *the 6.2 GB was two
+tabs* — not a regression, and the instrument describing them correctly is the point. 10/10 sabotages
+caught; the first run of the sabotage suite found a genuine hole (no fixture had *nothing* uploaded
+while a fetch was in flight, so the VRAM-billing guard passed under sabotage) and it was closed.
+
+**Operational gotcha, cost ~10 minutes:** the sabotage script restores files with `shutil.move`,
+which preserves the *original* mtime, so a running Vite dev server keeps serving the **sabotaged**
+module — its cached transform looks newer than the restored file. The first live reading showed
+exactly the symptom sabotage #2 injects. `touch` the sources after a sabotage run before believing
+anything in a browser.
+
+`perfSnapshot` builds as its own **1.6 KB lazy chunk with no modulepreload**, so a visitor without
+`?perf` still pays nothing; the types are imported statically, which is free.
+
+### 2026-07-29 (globe, cont.) — a missing tile paints background because the parent is unreachable, not evicted; the fix is one pinned z0 tile
+
+**The complaint was "tiles take a long time to load in", and the diagnosis split it in two.** On
+production, one fresh viewport at Full is **97 tiles ≈ 8 MB and 11.2 s** (73 relief at 411 ms
+median, 24 terrain-RGB at 128 ms — terrain's were edge-warm, relief's largely cold at 0.65 s MISS
+vs 0.33 s HIT). Bandwidth-bound, not concurrency-bound: 97 tiles through the 16-slot window is only
+~2.4 s of latency against 11.2 s observed, which agrees with § *the ladder ran and the answer is
+LEAVE IT AT 16*. **Not caused by that day's deploy** — the new DEM cap sat at `30/381 slots`, 7.8×
+headroom, and terrain tiles were already edge-warm from earlier traffic.
+
+**But the seconds were never the real complaint. The gaps paint FLAT TEAL — the wrong colour over
+land — so a slow fill reads as broken data rather than as sharpening.**
+
+**Root cause, and it corrects our own comment.** `TileManager._updateRetainedTiles`:
+
+```js
+5583  let tile = this._inViewTiles.getTileById(tileID.key);
+5584  let parentWasRequested = tile?.wasRequested();          // "loading" -> FALSE
+5590  if (!tile && parentWasRequested) tile = this._addTile(parentId);   // the only LRU path
+```
+
+`getTile` reads `_inViewTiles` **only**; the LRU is reachable solely through `_addTile`, whose call
+here is gated on `parentWasRequested` — false for a tile constructed this frame. So while an ideal
+tile is pending, its ancestor **sits in the cache with data and cannot be used**. Walking the
+ancestry of missing tiles on production showed every parent `inLru: true, inView: false` while the
+retained-substitute set was `{}`. The blurry-parent effect on zoom-in works only because the parent
+is still in `_inViewTiles` from the previous camera. **`maxUnderzooming` is 10, so the walk would
+reach z0 if the gate allowed it — the gate is the whole blocker.**
+
+**Measured on production, terrain on, 2560×1265:** pan at settled zoom → 45–80 tiles without data,
+**zero substitutes, frame 100% one colour**. Zoom-in retained 27 parents; zoom-out retained 69
+children via `_retainLoadedChildren`. The pan case is the broken one, and it is the common one.
+
+**Terrain makes it worse in a second, separate way.** `if (isRaster && this._rasterFadeDuration > 0
+&& !terrain)` — **terrain disables raster fading outright**, and `Style._updateSources` passes
+`map.terrain` to every tile manager. At the Full tier `raster-fade-duration` is a dead knob whatever
+it is set to.
+
+**Three alternatives closed by measurement rather than argument:** `raster-fade-duration` at 300 —
+still `{}`, with and without terrain, because `updateFadingAncestor` also reads
+`inViewTiles.getLoadedTile`; `maxTileCacheZoomLevels` at 20 (LRU 330 → 1320, 372 resident) — still
+`{}`, still one colour, because it sizes a cache the retain path cannot read; and
+**`prefetchZoomDelta` does not exist in MapLibre** (Mapbox GL JS only — 0 hits across the dev bundle
+and the `.d.ts`, against 116 for `maxzoom` as a live control). Patching `wasRequested()` to return
+true does work and is worse: **54 extra tile requests per pan**, still blank because they must be
+fetched.
+
+**SHIPPED: a pinned z0 base source under `relief`.** `RELIEF_BASE_MAX_ZOOM = 0`, and 0 is a
+guarantee rather than a preference — a raster source's covering set is clamped to its own maxzoom,
+so at 0 there is exactly **one tile, ideal at every camera, therefore never absent after first
+load**. **71 KB, one request.** It makes nothing faster; it makes a gap the right *colour*.
+
+**Verified live with the control run first**, on its own fresh cameras so the pinned arm could not
+be flattered by tiles the control warmed. First frame read inside the same synchronous task as the
+jump, so no network round trip can have completed — anything painted came from a resident layer:
+
+| control (layer hidden) | | pinned | |
+| --- | --- | --- | --- |
+| Congo | 353 | Zambezi | **9,770** |
+| Kazakh steppe | **1** | Iran plateau | **10,180** |
+| Coral Sea | 3,712 | Tasman Sea | **8,694** |
+
+Over 5 cameras × 4 s (155 samples) the pinned arm never fell below **1,336** distinct colours and
+had **zero** blank samples. 5 sabotages fired.
+
+**Two instrument errors, both mine, both caught before they were reported as findings.** A single
+`readPixels` at one arbitrary instant called South America blank; the identical jump repeated read
+12,361 — one frame mid-rebuild is not the multi-second flat teal being investigated, so the metric
+became *duration* of blankness. And the first pinned run had **no control at all**, which on a dev
+server that serves tiles in ~1 ms would have proved nothing — that ~1 ms is exactly what hid this
+bug in the first place (§ the hole to space was never a MapLibre regression). Also confirmed by
+reading `_addTile`: an **ideal** tile IS served from the LRU (`_outOfViewCache.getAndRemove`), so a
+z1 pin's holes would be first-visit-only, not permanent — a correction to my own first report.
+
+**q85/q90 delivery encoding measured and REJECTED by Rohan, so it does not get re-proposed.**
+Re-cut from the lossless master with the shipped cutter (control: the q95 re-cut is **byte-identical
+to the shipped tile at z7 and z8**), 73 tiles sampled proportionally: q90 **0.660**, q85 **0.486**
+byte-weighted; content-matched to a land-biased viewport, 8.00 MB → **5.6 MB** / **4.25 MB**. At
+display resolution q85's error (1.97 DN) is below what q95 already costs at native (1.98), and the
+method self-validated against ART.md's recorded 1.91. **The look call went against it.** Trap worth
+keeping: `gdal_translate -of WEBP` on a WebP input is a **byte-identical passthrough**
+(`LOSSLESS_COPY`), so the obvious re-encode command measures its own input. Also priced: a
+quality-only re-cut is **~10 minutes** end to end (cut 4:19, pack 16 s, upload ~2 min), not hours.
+
+### 2026-07-29 (memory, cont.) — the 6.2 GB was two tabs, not a leak: one globe's ceiling is 3.8 GB and a context loss frees all of it
+
+**The cheapest evidence that would make an attribution pass unnecessary, run first.** Rather than
+build the in-page `gl.*` byte accounting, reproduce the incident's *configuration* with the
+instrument already written and see whether the number simply appears. It did not — and what did
+appear closes the question anyway.
+
+**The controls turned out exact, not approximate.** A window on this display gives a canvas of
+**2560×1321 at DPR 1**, the incident's recorded geometry, and `?demcache=off` on that canvas
+produces a DEM ceiling of **1155 slots / 1164 MB** — the same figure the incident reported, derived
+independently. So this is production's configuration, not a model of it.
+
+**Measured, one Chrome GPU pid across 1,692 samples, no crash:**
+
+| state | Chrome GPU process |
+| --- | --- |
+| baseline, no globe | 271 MiB |
+| uncapped, our build (ladder allowed to fire) | 3,368 peak |
+| production's ladder emulated (`setTerrain(null)`, no `removeSource`) | ~2,350 plateau |
+| **terrain pinned on, every cache at its ceiling** | **3,772 mean · 3,804 peak** |
+| immediately after a forced context loss | 483 |
+| the incident | 6,218 |
+
+At the plateau: DEM **1155/1155** (1,240 MiB), relief **330/330**, three vector sources
+**120/120**, and — observed for the first time — **both polar caps on the 8192 rung, the full
+512 MiB** (`demand 6983 px`, then `5987 px`). That is the whole design at its ceiling, and the
+climb *decelerates into* it rather than running on: 823 → 1,841 → 2,725 → 3,276 → 3,784, then flat
+for five minutes. The earlier accounting now closes to within ~0.3 GB: 1.87 (§ one globe is 1.9 GB)
++ 0.86 uncapped-DEM surplus + 0.5 cap textures ≈ 3.2 against 3.5 for the globe's share.
+
+**A context loss frees everything — 3,781 → 483 MiB in a single one-second sample, and it stays
+there.** So no ratchet across losses is possible, which **falsifies the explanation this plan was
+carrying** ("the uncapped-after-restore cache was compounding across its four losses"). Combined
+with the GPU-process respawn, the incident's 6,218 MiB had to be reached from ~zero inside one
+context's life, and the same page in the same configuration tops out at 3.8.
+
+**Two globe tabs, and the gap is gone.** Tab A saturated at **3,495 mean**; tab B loaded to
+1093/1155 in the *background*, and the Chrome GPU process went to **5,691 mean / 5,792 peak — one
+pid, no crash**. Extrapolating B to A's saturation lands near 7 GB. Nothing needs to leak: the
+per-tab cost is simply large enough that two tabs is the incident, and having two globe tabs open
+while testing is the normal state of affairs — it happened by accident twice during this very
+session. **The actionable form: ~3.5 GB per tab is the design's honest worst case, and the 512 MiB
+of cap texture is now the largest single term with no budget at all.**
+
+**Checked and dropped, so it does not get re-proposed:** the country panel does not explain it. It
+loads `country.sizes[0]` — the *smallest* rung, for a ~420 px card — not an 8K hero.
+
+**The run also found a live defect in the diagnostics shipped hours earlier.** `disable-terrain` is
+the FPS ladder's **first** rung and fires within ~50 s of a hard pan/zoom route, on every leg. After
+it, the idle re-assertion found no tile manager, "repaired" nothing, and logged
+`console.error("[terrain] DEM cache cap is not in force after a re-apply — no terrain tile
+manager")` — a red error claiming the cache is unbounded at the one moment there is no cache, plus a
+warning storm from `applyCacheCap`. **It cannot be inferred away:** a retired terrain and a style
+torn down by context loss are the *same absence*, and `map.getTerrain()` still returns a stale
+`Terrain` object on a style with zero sources (measured). So the ladder now declares
+`terrainRetired` — raised **before** `setTerrain(null)`, because `idle` fires during the teardown
+and an idle landing inside that window would report the retirement as the fault. 3 sabotages fired.
+
+**Also seen, not yet acted on:** going to a pole uploads 2048, then 4096, then 8192 in sequence
+rather than jumping to the rung the camera needs — three allocations totalling 336 MiB per pole
+where 256 would do.
+
+**Upstream check on the `_contextRestored` throw (§ one globe is 1.9 GB): not reported.** The
+nearest hits are **#7432 / PR #7446 (merged 2026-04-11)** — a *different* throw in the *same*
+method, where a map built without a style dereferenced `this.style.imageManager`. Useful as
+precedent: the maintainers already accept "`_contextRestored` throws before it finishes" as a bug.
+Current `main` still runs `this.resize()` at `map.ts:4147` and fires at `4150` with no guard
+between, and we are on 6.0.0 which is also latest — so it is reportable as-is. Reading `main` also
+turned up MapLibre warning in plain text at `map.ts:4118` that custom layers **cannot** be restored
+automatically, which is the library's own confirmation that `reassertPolarCaps` is the sanctioned
+path rather than a workaround.
+
+**Method notes, all three previously recorded and all three re-paid:** the instrument's first
+version read `_inViewTiles` with `Object.values()` and reported **1** resident tile where the truth
+was **50** — it is a wrapper class with a public `getAllTiles()`, and the wrong answer looked
+exactly like an empty cache; cross-checking against the perf overlay's own arithmetic is what
+caught it. A `navigate` that changes only the hash **does not
+reload**, so a "fresh" page ran the previous leg's route for a while. And a background tab's rAF
+never runs at all: tab B had to be driven by `map.redraw()`, with hidden-tab timer throttling
+turning 12×250 ms into ~40 s.
+
+### 2026-07-29 (memory) — one globe is 1.9 GB of VRAM, not 6.2; and MapLibre's context restore throws before it announces itself
+
+**The instrument named in the plan was wrong, and would have answered "no" for the wrong reason.**
+`nvidia-smi --query-compute-apps` enumerates CUDA/OpenCL clients only. A browser is a *graphics*
+client and never appears there, so the command reports Chrome using 0 MB — a clean false negative
+on the exact question being asked. The scriptable path is `nvidia-smi -q -x`, whose `<process_info>`
+entries carry the `G` / `C+G` type tag and per-process `used_memory`. The tracer also samples the
+GPU process's **pid and age** (cross-checked against `ps`), because the incident's own tell was
+"6,218 MiB and 4m31s old" on a browser session hours older — i.e. the number was a *refill* after a
+crash, not a steady state. Sampling pid continuously turns that inference into an observation, and
+it paid immediately: closing the stale tabs took Chrome down entirely, the trace logged pid `-1`
+(loud, not a silent 0), and a fresh process came back at 38 MiB. The tracer is kept as
+`pipeline/experiments/vram_trace.py` — a browser instrument in a pipeline folder, for want of a
+better home — because any later attribution pass has to be checked back against it.
+
+**Measured, one globe alone in that fresh process, 2560×1265, DPR 1, terrain 15×, 805 samples:**
+
+| state | Chrome GPU process |
+| --- | --- |
+| fresh Chrome, no globe | 38 MiB |
+| globe idle at z5 | 817 MiB |
+| hard-panned until the DEM cache pinned at its 384 MB cap | 1903–1912 MiB |
+| after a page reload | 610 MiB |
+| the incident | 6,218 MiB |
+
+So **a fully loaded globe is ~1.87 GB — under a third of the incident**, and it plateaus flat under
+a route that drove the DEM cache 6 → 229 → 384/384 MB (the shipped bound binding for the first time
+under load, 381/381 slots). A reload frees everything, and repeated context losses do **not** ratchet
+VRAM (dips to 364 MiB, settles 653). Two honest caveats: the caps sat at rung 1024/2048 here
+(`demand 1957 px` — the rung is chosen by on-screen demand), so the **512 MiB "ours by design" is a
+ceiling that needs a pole filling the screen and is not included in the 1.87 GB**; and this ran ~10
+minutes against an incident that had been open far longer.
+
+**The find that mattered was not the number.** One root cause, three silent symptoms. From the
+unminified dev bundle, `_contextRestored`:
+
+```js
+22594  if (this._lostContextStyle.style) this.setStyle(..., { diff: false });  // style rebuild STARTS
+22600  this._setupPainter();                                                   // painter comes back
+22602  this.resize();          // fires 'move' -> Hash._onMove -> unproject -> terrainCoords -> THROWS
+22605  this.fire(new MapContextEvent("webglcontextrestored", ...));            // never reached
+```
+
+The captured stack ends `… unproject → Bp → _onMove → fire → resize → _contextRestored`. `Bp`/`_onMove`
+is **MapLibre's own Hash plugin** — we pass `hash: "map"` — and on a terrain map its `unproject` runs
+the terrain depth pass, which needs `style.projection`, which is undefined mid-rebuild. Observed both
+ways on one build, so anything keyed to that event is a coin toss. Downstream:
+
+- **The DEM cache cap reverts, 4/4 forced cycles**: 381 slots → **1155**, i.e. straight back to the
+  1.16 GB ceiling the cap exists to remove, while the overlay still printed "384 MB budget". Our own
+  guard caught it (`cap did not stick — wrote 381, field reads null`). `style.load` fires from 22594,
+  before the painter and before `setTerrain` rebuilds the `TerrainTileManager` the cap lands on — the
+  cap only ever worked on first load because the initial `resize` re-applied it moments later.
+- **Both polar caps come back as a black disc.** Same ordering: a cap added from `style.load` binds
+  its buffers to the GL context from *before* `_setupPainter()`. Present, wrong, silent — which
+  **corrects the guard that used to claim the caps "survive ONLY because the restore re-fires
+  style.load"**. They do not survive; a hole would at least have been visible as a hole.
+- **"Could not recover" stays over a working globe** — intermittent, exactly as the coin toss predicts.
+
+**The fix is architectural: recovery is now convergent, not event-driven.** The watch starts from
+`webglcontextlost` and polls `restoreFault` until the map reads healthy, then re-asserts what the
+restore dropped (the DEM bound, the polar caps). The restore event stays bound purely as a hint —
+its *absence* is a known failure mode, so it cannot be load-bearing. The cap check now **repairs
+before it reports**, and lets the *next* idle be the judge: a first build verified its own write
+synchronously and logged "not in force — asked 381, holding 1155" about a repair that had worked,
+because `_outOfViewCache.max` is only recomputed on render. An oracle that cannot yet see the change
+cannot be the one that judges it.
+
+**Recovery is conditioned on RECURRENCE, because no cause is available — measured, not assumed.**
+`WebGLContextEvent.statusMessage` is defined on the prototype and returned `""`; no `browser said:`
+segment ever appeared across the incident's real losses either; `getGraphicsResetStatus` is not
+exposed on `WebGL2RenderingContext` and `EXT_robustness` is absent. So "was this transient?" has no
+direct answer. Instead: recover twice, refuse the third loss inside a 5-minute sliding window, on
+the grounds that repeated loss is the signature of a machine or page in trouble and rebuilding the
+same working set feeds the loop — which is precisely the incident's four-loss shape. Verified live:
+losses 1 and 2 recovered with the cap held at 381 and the pole seamless; loss 3 raised the notice
+immediately with `3 context losses within 5 min — not rebuilding again`.
+
+**11 sabotages fired**, including the two that pin the ordering (`applyCacheCap` after `setTerrain`;
+no synchronous re-read after the write). Six existing guards failed on the restructure and were
+rewritten to assert the new invariant rather than the old wiring — one of them because its stated
+rationale had been falsified by measurement.
+
+**Method note, third time this month:** `visibilityState` lied again. A reload left the automation
+tab unfocused with `rafAlive: false` and `hasFocus: false` while `visibilityState` read `"visible"`,
+so the map never loaded and it looked like the edit had broken the page. Race a rAF before believing
+any paint-driven reading.
+
+### 2026-07-29 (memory) — `coveringTiles` is public, so the cache bound can stop estimating; and the software-GPU check gets a signal that cannot be masked
+
+**An audit of the whole shipped v6.0.0 surface against ours** — 85 value exports (19 used), 128
+`Map` methods (30), 54 events (16) — looking for anything relevant we were not using. Three things
+came out of it, and two corrections to the audit itself.
+
+**`Map.coveringTiles(options)` is public, and it is literally the function `TileManager.update`
+fills from** (both reach the same internal `coveringTiles`). So the fill side of the sizing/filling
+mismatch can be READ rather than estimated. Measured on a 2560×1265 canvas at z5:
+
+| tileSize | real covering set | `viewDependentCacheSlots` |
+|---|---|---|
+| 128 (declared) | **129** | 1155 |
+| 256 (terrain fill) | **52** | 330 |
+| 512 | **19** | 120 |
+
+**The formula over-counts by ~6×, because it is a rectangle and a globe view is not one.** The
+`?perf` line now reads `0/381 slots · +68 MB in 67 view tiles · needs 52 (7.3x headroom)`. That
+ratio is the number the 384 MiB budget never had: "381 slots" is unreadable, "7.3× what this camera
+needs" prices it, and it re-derives itself at any pitch or canvas. It also reframes the measured
+knee — 294 slots is **294/52 ≈ 5.7 camera-views of history**, which is portable where a bare
+constant was not. Read as a LOWER bound and documented as one: the public options omit `terrain`
+(which feeds `allowVariableZoom`), and `update` then runs `_addTerrainIdealTiles` on the result.
+Both gaps stay visible because the line prints the realized in-view count beside it — **52 → 67 is
+the terrain addition, ~29% at that camera**.
+
+**`failIfMajorPerformanceCaveat` adopted as a PROBE, and deliberately not as a map option.** As
+`canvasContextAttributes` it would make `new Map(...)` fail on any machine the browser flags —
+including a working GPU behind a driver blocklist, which is this project's own Firefox
+(`nvidia/unknown`, DMABUF_WEBGL blocklisted since 595.84). Trading a slow globe for no globe is
+worse, and a context attribute cannot be changed after creation. As a throwaway-context probe the
+same fact feeds `decideTier`, which is reversible — the reader gets the gallery and can still force
+`?quality=globe`. New `performanceCaveat` signal kept **separate** from `softwareGpu`: they are
+different facts with the same consequence, and "why no globe" needs to say which fired. It also
+repairs the hole `rendererStrings` documents about itself — Chrome and Firefox each mask one of the
+two renderer strings and a hardened browser masks both, at which point the regex silently reports a
+healthy GPU. **This signal is an answer, not a string, so it cannot be masked.** Verified on the dev
+box: plain context succeeds, strict context also succeeds, `performanceCaveat: false` — it does not
+false-positive on a real GPU. `capable()` exported as **`canRunGlobe`** because `index.astro` was
+re-deriving the floor inline (`gpu.webgl2 && !gpu.softwareGpu`) and would have silently kept
+offering the globe to caveated devices.
+
+**`getVersion()` into the loss snapshot** — every canary here pins a MapLibre internal, so a
+snapshot that does not name the library is one bump away from being unreadable. Live:
+`[gl] context lost at 32.1s · maplibre 6.0.0 · … · camera needs 52 tiles · READ 12.3s EARLIER`.
+
+**Two corrections to the audit's own first pass**, both from reading the code rather than the docs:
+
+- **`antialias` is NOT MapLibre's default for us — we override it to `true`,** deliberately, for
+  the globe limb against the transparent starfield. The audit first recorded "already false by
+  default, nothing to do". `canvasContextAttributes` is shallow-**merged** with the defaults
+  (`{...defaults, ...ours}`), so our one key keeps `powerPreference: 'high-performance'` and
+  friends — and MSAA on the full drawing buffer is a real VRAM cost we are choosing, not avoiding.
+- **`zoomLevelsToOverscale` (default 4) is a non-issue for us,** despite sounding alarming: zoom
+  levels above a source's max get *split* into child tiles rather than overscaled, which would
+  multiply tile objects. Our map is `maxZoom: 8` and both `RELIEF_MAX_ZOOM` and `TERRAIN_MAX_ZOOM`
+  are 8, so there is no range above source max at all.
+
+**Checked and dismissed, so they do not get re-proposed:** `collectResourceTiming` covers GeoJSON
+and vector-tile *worker* requests only — it does **not** solve the raster request-counting problem,
+because our relief/DEM tiles load as `img` on the main thread. `reduceMotion` is gesture *inertia*,
+not `prefers-reduced-motion`. `maxCanvasSize` (default `[4096, 4096]`) is a genuine VRAM lever but
+**verified inactive here** — DPR 1, canvas 2560×1265, buffer identical, unclamped; it would bind at
+DPR 2. `setWorkerCount` — default is 1 outside Safari, nothing to reclaim. `addProtocol` is
+architecturally excluded: we serve whole `z/x/y` tiles server-side.
+
+**Parked, genuinely relevant, not done:** `setSourceTileLodParams(maxZoomLevelsOnScreen,
+tileCountMaxMinRatio)` bounds tile count at high pitch (no effect at pitch 0, largest with the
+horizon visible) — a memory lever in exactly the configuration that costs most, and we ship pitch
+60. `setNow`/`restoreNow`/`isTimeFrozen` freeze the animation clock, which is the variable that
+killed several A/B rigs. `queryTerrainElevation` for the hover chip. Unused events worth knowing
+exist: `dataabort`/`sourcedataabort` (would price tile churn directly), `terrain`,
+`projectiontransition`.
+
+507 vitest (+25); 4 sabotages fired.
+
+### 2026-07-29 (memory) — a loss handler reads the teardown, not the state; and `WEBGL_lose_context` reproduces the dead map after all
+
+**Layer 0 of the VRAM plan: make the failure self-reporting before measuring anything.** New
+`web/src/lib/glDiagnostics.ts` (+59 tests), wired in `globe.astro`. Two things shipped: a state
+snapshot recorded when the GPU context dies, and a recovery check that replaces the handler which
+used to hide the "could not recover" notice on the `webglcontextrestored` event alone.
+
+**Both halves of the original design were wrong, and only a live forced loss showed it. The tests
+all passed on the broken versions**, because they tested the functions and not the moment the
+functions run in.
+
+- **Reading the state inside `webglcontextlost` reads nothing.** MapLibre registers its own canvas
+  listener in the `Map` constructor, so its teardown precedes ours. The first build logged
+  `no sources · caps north none/south none = 0 MB` on a map that had **five sources and both caps
+  resident 100 ms earlier**. The proof is console ordering: MapLibre's own *"Custom layer with id
+  'polar-cap-north' cannot be restored"* warnings print **before** our line. Fixed by sampling on
+  `idle` and reporting the last healthy sample, labelled with its age — `describeLoss` never
+  substitutes one for the other silently, because a stale reading presented as live is exactly the
+  class of bug the module exists to prevent. **The generalisation: an instrument that reads state
+  inside a teardown event measures the teardown.**
+- **`WEBGL_lose_context` does NOT only exercise the happy path.** The prior entry below and the
+  code comment both recorded it as proving recovery only; forcing a loss now reproduces the
+  **unrecoverable** case on demand — `isContextLost()` still true a minute later, after a second
+  explicit `restoreContext()`, style gone, caps gone, `map.painter` still present. So the dead-map
+  state has a local repro, which is what the VRAM work was said to lack.
+- **A verdict that cannot be retracted is the same bug pointed the other way.** One forced loss
+  recovered at ~6 s — past the 3 s verify deadline, so the first build left *"could not recover"*
+  over a working globe. The check now outlives its own verdict to a 60 s ceiling.
+- **The loss line took the SAMPLE's phase, printing `context restored` on a loss report.** Split
+  `glStateLine` (state, no event) from `formatGlLoss` (event + state) so the loss's clock and the
+  sample's numbers can be combined without mislabelling either.
+
+**`GPUInitializationError` adopted — MapLibre names what we were inferring from a timeout.** A
+value export, thrown through the map's `error` event when a GPU context cannot be created at all,
+carrying the requested canvas attributes and the browser's `webglcontextcreationerror`
+`statusMessage`. That is the GPU-process-dead case, and it needs no grace period, so it shows the
+notice immediately. A canary test asserts it is still a constructable class: if it becomes
+type-only or is renamed, the `instanceof` branch fails **silently**.
+
+**Verified live** (`?perf&terrain=15`, forced loss): `[gl] context lost at 18.4s · canvas
+2560x1265 · terrain on · caps north 1024/south 1024 = 8 MB · countries/country-hits/
+country-outlines 0/120 · relief 0/330 · terrain-dem 0/381 slots +67 view 0+68 MB · READ 0.1s
+EARLIER`. The notice renders on the dead map. 11 sabotages fired.
+
+**Two facts the snapshot now makes routine.** It reports **every** source, not the terrain one the
+hypothesis named — `relief` caps at 330 slots of megabyte tiles and would have been invisible to a
+terrain-only probe. And `capTextureBytes` prices the caps at **8192² × 4 = 256 MiB each**, so a
+desktop holding both top rungs has **512 MiB of VRAM that is ours by design** — the largest single
+term anyone has named in the 6.2 GB, and one that migrates to any renderer we might switch to.
+
+**Not done, and not claimed:** none of this measures VRAM. It records the state a later
+attribution pass must be checked against. The late-recovery retraction is covered by tests but has
+not been seen live, because this environment declines to hand the context back.
+
+### 2026-07-29 (memory) — the 2K freeze was VRAM, not heap: Chrome's GPU process crash-looped and MapLibre never rebuilt
+
+**Reported as "the tab is frozen at high memory usage" while testing the new cache cap at 2K.** The
+cap was not the cause, and the more useful finding is that it addresses a different resource than
+the one that ran out.
+
+**The GPU process, not the tab.** `nvidia-smi` put Chrome's GPU process at **6,218 MiB of VRAM** on
+a 12 GB card, with `ELAPSED` of **4m31s** — it had already died and respawned and climbed back
+inside five minutes. The context was lost four times (2:17:40, 2:18:11, 2:19:11, 2:20:54),
+**surviving page reloads**, because the dying thing was the GPU process. Headroom was thinner than
+12 GB suggests: gnome-shell 236 MB, warp-terminal 486 MB, Zen 286 MB, VS Code 135 MB, plus Slack
+and Telegram.
+
+**Not a driver fault.** `journalctl -k` showed **no NVRM Xid lines**. That is the check that
+separates "the GPU faulted" from "an application overspent its budget", and it points squarely at
+the latter — the card was healthy throughout (→ CLAUDE.md § Environment, the OptiX crash recipe,
+which is the same instrument used for a different symptom).
+
+**The failure mode is a MapLibre restoration gap.** After restore, `isContextLost()` is `false`,
+yet `map.style.tileManagers` is **empty — zero sources, zero layers** — while a stale `Terrain`
+object survives. The painter has no `shaderPreludeCode`, so `useProgram` throws from
+`terrainDepth` → `maybeDrawDepth` on **every frame**, and independently via
+`pointCoordinate` → `unproject` on **every mouse move and hash change**. That is the freeze: not a
+hang, a throw per frame.
+
+**We hid our own error message, and that is ours.** `#gl-lost` says exactly the right thing — "The
+globe lost access to the graphics card and could not recover" — and it was `hidden`, because the
+`webglcontextrestored` handler treats restoration as recovery and clears the notice
+unconditionally. The context genuinely *was* restored; MapLibre just failed to rebuild on it. The
+existing comment claims this path was verified by forcing a loss through `WEBGL_lose_context` —
+true, and **that proves only the happy path**: a synthetic loss restores instantly and cleanly. A
+real out-of-VRAM loss takes a different route. MapLibre additionally warns in plain text that
+`polar-cap-north`/`polar-cap-south` **"cannot be restored after WebGL context loss. You will need
+to re-add it manually"** — we never do. Both left open, in PLAN.
+
+**No platform signal exists for the budget question.** Checked rather than assumed:
+`WEBGL_memory_info_chromium` absent; `navigator.gpu` present but exposes limits, not free memory;
+`navigator.deviceMemory` reports system RAM (32) and is Chromium-only; `UNMASKED_RENDERER_WEBGL`
+gives a model string that hardened browsers mask. **Nothing reports VRAM headroom**, so a
+capability-derived cache budget cannot rest on a direct measurement — which is why the shipped cap
+is a constant and why the right long-term shape is to tighten on observed failure and persist it.
+
+**Scale, stated honestly:** the byte cap removes ~400 MB of DEM-side allocation from a 6.2 GB
+problem — about **6%**. It is a correct change in the right direction and it is not a fix for this
+crash. → FUTURE § MapLibre's WebGPU backend, where `GPUOutOfMemoryError` is the missing signal.
+
+### 2026-07-29 (memory) — the DEM cache is sized from one tile size and filled from another, and a formula-only cap is not a guard
+
+**Root cause, read out of the shipped v6 bundle rather than inferred.** `tile_manager.ts` uses two
+different tile sizes for one source: `updateCacheSize` computes slots from
+**`this._source.tileSize`** (our declared 128) while `update` fills them via `coveringTiles` with
+**`this.usedForTerrain ? this.tileSize : this._source.tileSize`**, and `TerrainTileManager`'s
+constructor sets `tileManager.tileSize = _source.tileSize * 2 ** deltaZoom` with `deltaZoom = 1`
+— so 256. `usedForTerrain` is honoured in one call site and not the other. The shelves are built
+for a screen tiled at 128 px and stocked from one tiled at 256: **4× the tiling density that can
+ever be used**, realised as 3.27× at 2500×1300 because each factor carries a `+ 1` border term
+that does not halve.
+
+**Why it costs a gigabyte rather than a rounding error:** a cached tile pins `tile.dem`, a
+`Uint32Array` over the padded 514² RGBA buffer — **1,056,784 bytes, set by the 512 px ASSET and
+indifferent to the declaration**. Slots scale as 1/declared² while the bytes behind them do not,
+which is why 512 → 128 multiplied the ceiling and moved nothing else. Only eviction frees a slot:
+`TileCache`'s onRemove → `_unloadTile` → the raster-dem `unloadTile`, the sole `delete tile.dem`.
+
+**Measured, not derived.** A scripted pan filled the cache to **605/605 slots = 659 MB against a
+695 MB JS heap — 92% of everything the tab was holding**. `maxSlots: 605` matched the formula
+exactly for that canvas, and `capField: null` confirmed production ships no bound at all.
+
+**The A/B refuted the fix I proposed.** Caps swept on a 12-position regional tour (working set 294
+tiles) revisiting the same ground:
+
+| cap | 605 | 450 | 300 | 240 | 180 |
+|---|---|---|---|---|---|
+| refetch requests | 3 | 3 | 3 | **303** | **338** |
+
+The knee is exactly *"cap ≥ working set"* and it is a **cliff, not a slope**. The
+MapLibre-consistent bound on that canvas was 180 — below it. Ordinary panning never sees this: a
+smooth drag across 30° has a working set of 50–83 and backtracks free at every cap. Hence
+`TERRAIN_CACHE_SLOT_MULTIPLIER = 2`, recorded in code as **chosen, not derived** — the knee is a
+property of how far the user roams, which no canvas measurement predicts.
+
+**Then the multiplier proved wrong at scale, from a real failure.** Canvas-area scaling gives 360
+slots / 363 MB at 1235×1175, 770 / 813 MB at 2560×1321, and **1600 / 1.69 GB at 3840×2160 — more
+than an *uncapped* laptop screen**. A guard that grows without bound with the screen is not a
+guard, and every other GPU consumer grows with the canvas too, so the DEM cache's share should
+shrink rather than expand. `TERRAIN_CACHE_BYTE_BUDGET = 384 MiB` (381 slots) clamps it, verified
+live at all three sizes with `written === enforced` read back from `_outOfViewCache.max`.
+**384 MiB has a measured lower bound — it must clear 360 slots so the A/B is not regressed, and
+the 294 knee — and no upper justification at all.** It is the smallest round number that does not
+regress what was measured, not a budget derived from what a machine can take, and it kneecaps
+large screens by design: above ~1300 px square we accept refetches (recoverable) over context loss
+(not).
+
+**Applied per-source, not globally.** `map.style.tileManagers[id]._maxTileCacheSize` is
+underscore-prefixed but present in MapLibre's public `.d.ts`, so it typechecks without a cast, and
+it is re-read on every `updateCacheSize`. The global `maxTileCacheSize` map option would have
+capped **relief** by the same number; `reliefCap: null` is asserted live. Writing is not verifying:
+`demCacheCapFault` reads back against `_outOfViewCache.max` — the number MapLibre actually
+enforces — and treats a *tighter* cache as correct, since `Math.min` legitimately enforces less on
+a small viewport.
+
+**THREE INSTRUMENT BUGS, EACH CAUGHT BEFORE IT BECAME A CONCLUSION.** Recorded because each one
+produced a plausible, wrong number rather than an error:
+- **`performance.getEntriesByType("resource")` caps at 250 entries and drops silently.** The first
+  run returned 132 for both legs of an A/B — that was the buffer saturating, identically, not a
+  measurement. Fixed with `setResourceTimingBufferSize`.
+- **A `fetch` hook is structurally blind to these requests.** `initiatorType` is **`img`** —
+  MapLibre loads DEM tiles through `HTMLImageElement`. The hook read 0 while 575 requests flew. The
+  replacement hooks the `src` setter, and the two instruments now agree exactly at every rung.
+- **Navigating to the same URL with only a hash difference does not reload the page.** "A fresh
+  page load per arm" was not fresh, and it fabricated the headline result: arm A read 575 requests
+  warm against 1095 cold. Replaced with an explicit drain-to-one-slot inside a single load.
+
+### 2026-07-29 — the atmosphere ramps on PITCH too, because the damage it does never keyed on zoom
+
+**The 07-27 zoom ramp was right and incomplete.** It fixed the pitched z7 Himalaya frame by ramping `atmosphere-blend` 0.7 (z<=3) -> 0.15 (z>=6), on the reasoning that the limb glow needs off-globe pixels and there are none past z6. True. But it left the 0.7 shelf below z3 untouched, because an *unpitched* overview takes no damage — also true, and measured. **A pitched overview is a camera neither half of that reasoning describes:** it has the off-globe pixels the glow needs AND a frame full of ground for the aerial perspective to bleach. Rohan hit it at z2.95 pitch 60 over Antarctica and said, correctly, that it looked like the Himalaya washing from two days earlier. It was the same mechanism at a zoom the fix did not reach.
+
+**The damage is flat in pitch and then a cliff — measured, on-globe pixels only, against a blend-0 control at the same camera:**
+
+| pitch | 0 | 30 | 45 | 50 | 55 | 60 |
+|---|---|---|---|---|---|---|
+| atmosphere's contribution | +0.0 DN | +0.0 DN | +4.6 DN | +30.0 DN | +47.5 DN | +52.7 DN |
+| clipped >=254 | 0% | 0% | 0% | 0% | 15% | 27% |
+
+That is the air column: aerial perspective needs a near-tangential line of sight, which only exists once the camera looks toward the horizon. **So the ramp holds `BASE_ATMOSPHERE_BLEND` to pitch 45 and only then decays** — a ramp starting from 0 would have lowered the atmosphere across pitch 20-40 where there is provably nothing to fix, which is the same "strictly non-harmful" test the zoom ramp had to pass. `pitchedAtmosphereBase` returns the base `Object.is`-exactly below the knee, so the default camera cannot be touched by this at all.
+
+**`PITCHED_ATMOSPHERE_BLEND = 0.25`, chosen by Rohan** off a five-rung ladder at his camera (0.70/0.50/0.35/0.20/0.00) plus a three-rung cost arm on the unpitched overview, which is what the pitched frames alone could not show: at 0.00 the globe loses its halo entirely and reads as a flat cutout against black.
+
+**Pitch cannot be an expression, and that is the whole implementation.** MapLibre expressions read `["zoom"]` and nothing else about the camera — there is no `["pitch"]` — so the pitch term re-declares the zoom expression's *base* rather than adding a second ramp. Driven from `moveend` (not a `pitch` handler) for the reason the cap rung uses `moveend`: the check is cheap, the effect is a 300 ms `setSky` transition, and a camera mid-drag has no settled answer. Gated by `atmosphereNeedsRebuild`, so **every camera at or below pitch 45 calls `setSky` zero times** — instrumented live and confirmed: 0 calls at pitch 0/20/40/45, then 50 -> 0.55, 55 -> 0.40, 60 -> 0.25, restoring on the way back down. The pitched base is floored at `ramp.floor`, or `?sky=0.5` on a pitched camera would hand the expression a base below its own floor and silently invert the ramp.
+
+**Result at Rohan's camera, far field, on-globe pixels only: bleaching down 74%** (+52.6 DN over the no-atmosphere floor becomes +13.9) **and local contrast up 39%** (1.241 -> 1.719 against a 2.101 ceiling). **Clipping barely moved, 27.1% -> 24.1%, and the cause is not the atmosphere:** lit Antarctic snow already sits at `232,241,246`, a max channel of 246 — eight DN below clipping — so almost any atmosphere tips it over. That residual belongs to the snow ceiling below, and no atmosphere value fixes it.
+
+**Two instrument failures, both mine, both caught before they were reported.**
+
+- **A fixed screen-space box measures different CONTENT at different pitches.** The first pitch sweep read 0 DN of damage at pitch 0/15/30/45 and a cliff at 60, which looked like a clean step function. The box was fy 0.60-0.80 of the frame, and at low pitch that is partly space. Re-run keeping only on-globe pixels and reporting the on-globe fraction as a validity column (100% to pitch 50, 94% at 55, 69% at 60), the curve is the smooth knee above. **A box fixed in screen space is not fixed in world space, and a camera parameter that moves the horizon moves what the box contains.**
+- **The halo metric said the cost arm was free, and the frames said otherwise.** A filter for faint off-globe pixels reported 106 DN at every blend value — i.e. "lowering the atmosphere costs nothing on the overview" — because it was catching the globe's own dark limb rather than the halo. The rendered frames show the halo vanishing outright at 0.00. Same species as `ice_relief_damp`'s first metric: **a number that cannot move is not evidence that nothing moved.**
+
+### 2026-07-28 (polar caps, cont.) — the bright polar disc was canvas ALPHA, and the fix for the polar RING is what caused it
+
+**The disc:** a flat, bright, hard-edged circle at both poles, present only with terrain on, absent at `?terrain=off` at the same camera. It survived an entire displacement feature aimed at it, which is what finally forced a measurement.
+
+**Mechanism, measured then confirmed in MapLibre's source.** `background` is one of `LAYERS_TO_TEXTURES`, so with terrain on the space-floor is drawn INTO each render tile's texture instead of as a full-screen pass, and render tiles stop at the Mercator limit. Poleward of ±85.0511° the canvas is therefore **never written at all: alpha 0**. The cap then painted its colour there under `blendFuncSeparate(ONE, ONE_MINUS_SRC_ALPHA, ZERO, ONE)` — alpha pinned to the destination — leaving RGB > 0 with alpha 0. A `premultipliedAlpha: true` canvas composites that **additively**: the page's dark starfield plus a near-white cap. Measured: canvas alpha steps **255 -> 0 at latitude −85.02°** with `?terrain=15` and stays 255 to the pole with `?terrain=off`. `drawBackground` does pass `allowPoles: true`, so the pole-extension geometry exists — it just never reaches the screen through the terrain path.
+
+**Fix: `gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA)` — the alpha factors are the colour factors.** `dst = src + dst*(1-src)` is identically 1 wherever dst was already 1, so the **polar ring cannot return**; where dst was 0 it becomes src, so an opaque cap yields an opaque canvas. Verified: alpha 255 across all 316 samples poleward of 85.06° with terrain on. `compositedAlpha` states the algebra with a test in both regimes, because **the two bugs are opposite alpha errors on one layer** and each fix looked safe until the other regime appeared: the ring was a straight-alpha shader writing α²+(1−α) into the canvas, and pinning alpha cured it — until terrain produced a destination that was 0.
+
+**The diagnosis is the part worth keeping, and it went badly twice.**
+
+- **The falsifying datum was already in my own output.** A pixel probe returned `[-89.5, 232, 241, 245, 0]` — **alpha 0 under non-zero RGB**, an impossible premultiplied pixel and the entire answer — and I summarised the row as "the colours are constant" and moved on. Twice. The hypothesis decided which column counted as data.
+- **The defect had a measurable BOUNDARY and every candidate predicted a different one.** The disc's edge is at 85.05° (the Mercator limit); the cap's alpha ceiling is 84°, its mesh edge 80°. One two-minute measurement discriminated all of them, and an earlier retraction had *already* established the edge was at 85.05 without anyone asking what is at 85.05.
+
+### 2026-07-28 (polar caps, cont.) — the caps carry their own elevation, because MapLibre can never drape a custom layer on terrain
+
+**A `custom` layer is excluded from `LAYERS_TO_TEXTURES`, so the cap cannot inherit terrain displacement the way tiles do.** With terrain on, everything around the cap lifts and the cap stays a flat plate at sea level — a real defect, and **NOT the bright disc**, whose cause is the entry above. The claim that the disc was "the floor of the DEM feather's crater" is withdrawn.
+
+**Pipeline.** `write_cap_elevation` emits a 512² terrain-RGB texture per pole, as a **sibling stage with its own recipe sidecar and freshness gate** — deliberately absent from `cap_assets`, because elevation depends on the height warp alone and folding it in would make an encoding change demand the ~14 GB colour re-render. `terrain_rgb.QUANTISATION_M` and `SHIPPED_SEA_CLAMP` were promoted from argparse defaults to module constants so `cap_render` imports the encoding rather than copying it. **Landmine recorded in the constant's docstring:** `--sea` still defaults to `clamp` while the shipped `terrain_params.json` records `sea_clamp: false`, so the bare command rebuilds a *different* pyramid.
+
+**Frontend.** The vertex shader lifts each vertex by MapLibre's own `1.0 + elevation·exaggeration / GLOBE_RADIUS`, with the step interpolated from the manifest and the radius from `MAPLIBRE_GLOBE_RADIUS_M` (6371008.8 — **not** `cap_render.SPHERE_R` 6371000.0, which is the AEQD projection radius). Exaggeration is read from `map.terrain?.exaggeration` per frame, so it tracks the zoom ramp and collapses to flat when the watchdog removes terrain; `map.getTerrain()` would have gone stale after the first ramp step.
+
+**Three things that fail silently, all now guarded:**
+
+- **`Uint16Array` indices WRAP, they do not throw.** 160×640 is 103,201 vertices; index 65,536 folds to 0 and the mesh threads through the pole while still drawing happily. Buffers are `Uint32Array` + `gl.UNSIGNED_INT`.
+- **The placeholder texel had to be COMPUTED.** The colour cap's transparent-black 1×1 decodes to **−32768 m**, which at 15× pulls the cap to 92% of globe radius — inside the planet — until the fetch lands. `zeroElevationTexel(step)` emits the RGBA that decodes to 0 m, so a failed fetch degrades to exactly the pre-displacement look.
+- **NEAREST filtering is correctness, not cost.** Green wraps every 256·step = 2,048 m; LINEAR across a wrap decodes ~1 km from either neighbour. No mipmaps for the same reason. This is the pipeline's downsample-in-metres rule reaching the GPU, which is the last place to break it.
+
+**Verified with an external oracle rather than self-consistency:** the shipped south texture decodes to **2832 m at the pole through the browser's own decoder** — Amundsen-Scott sits at ~2835 m — with smooth neighbours (2808-2840) and −912 m in the ocean corner, so bathymetry survived. Tessellation went 28×160 -> 160×640 (~7 km rings, ~11 km sectors at the mesh edge, against the texture's 5.2 km/px, so the mesh is the limit).
+
+### 2026-07-28 (memory) — the terrain DEM tile cache reached ~1.45 GB, and dropping the terrain does not give it back
+
+**Zen crashed panning the live globe.** Attribution first: the 6-7 GB reading was the browser's parent process, the box was in deep swap, and a 3.84 GB `MainThread` belonged to a different project entirely. The terrain-specific mechanism is real and separate.
+
+**MapLibre bounds a source's out-of-view cache at `(ceil(W/D) + 1) · (ceil(H/D) + 1) · MAX_TILE_CACHE_ZOOM_LEVELS` slots for DECLARED tile size D**, while each slot holds a `Uint32Array` over the padded 514×514 RGBA buffer — **~1 MiB apiece, fixed by the 512 px ASSET and indifferent to the declaration**. Slot count therefore scales as **1/D²**, so ratifying `tileSize: 128` raised the DEM cache ceiling ~10×: at a 2500×1300 canvas, 1,260 slots ≈ 1,270 MiB against 120 slots ≈ 121 MiB at D=512. **Measured: 2 GB tab with terrain against 602 MB at `?terrain=off`**, same camera, same shipping config — a ~1.45 GB delta against a ~1.27 GB derived ceiling.
+
+**`map.setTerrain(null)` frees none of it.** The FPS watchdog's last rung now releases the SOURCE as well: `removeSource` -> `TileManager.onRemove` -> `clearTiles` reaches `_outOfViewCache.reset()`, whose eviction callback is the raster-dem `unloadTile` — it deletes `tile.dem`, destroys `tile.fbo`, and returns the texture to the painter's recycle pool. Verified link by link in the shipped bundle. The rung's test is scoped to the branch, not the file, so a release moved somewhere it never executes fails rather than passing on a substring.
+
+**Why development never saw it: every terrain measurement was PER-VIEW** — frame cost, render tiles, RTT megapixels, DEM tiles per view, requests. All answer "what does one camera cost". This is a quantity that grows with session time, and the rig gave each A/B arm its own page load, which starts with an empty cache. **The discipline that made the rig correct is what guaranteed the leak could never appear.** The declaration was also priced out loud as "the price of 128 is requests, 27 vs 9", and naming the cost as network is what stopped anyone asking about memory.
+
+**Still open:** bounding the cache itself — `maxTileCacheSize` (global across sources) against 256 px DEM assets (0d's Arm C). Neither measured.
+
+### 2026-07-28 (Tier 3, step 3) — terrain gets an archive, a prefix, and four fewer flags: the plan's "no path prefix" premise expired when terrain became WebP
+
+**Terrain is served the way relief is: one PMTiles archive, ranged server-side, addressed by `z/x/y`.** `pack_pmtiles.py` needed no changes at all — it reads the tile encoding off the directory — so packing was `--tiles …/bathy_s8_webp/tiles --name terrella-terrain`: **12 s to MBTiles (2.69 GB), 6.1 s to convert (2.63 GB)**, capped and with `--tmpdir` on ext4 per the standing rule. 87,381 addresses, 86,120 unique — **1.4% dedupe against relief's ~5%**, because elevation repeats only where the sea is flat and the polar feather perturbs even that.
+
+**Two plan lines were wrong, and both were wrong in the same way: they described terrain as it was two decisions ago.**
+
+- **"The `.png`/`.webp` extension is already the discriminator, so no path prefix."** True when written and false when executed: Step 0d ratified **lossless WebP** for terrain, so both pyramids are now WebP over z0–8 on one tiling scheme and `/8/189/107.webp` is a valid address in **both**. Nothing in a tile URL distinguishes them any more. Worse, the failure has no symptom — serving relief colour where elevation was asked for does not 404, it decodes as terrarium and displaces the globe by whatever those bytes happen to mean. So `terrain/` is now the whole discriminator, and the router is tested for **exclusivity** rather than for matching: every candidate path must resolve to exactly one archive.
+- **"Flag retirement is a separate item."** It is not separable. `?dem`, `?quant`, `?demfmt` and `?demdepth` each selected a **build directory**, and an archive has no directories — one sea treatment, one quantisation, one codec, one depth. Keeping them would leave four controls that work in `astro dev` and 404 in production, which is the dead runnable entry point this repo bans and the same call that retired `?pmtiles`. What each settled is recorded in `terrainSource.ts` where the flag used to be, so retiring the flag does not retire the answer. **`?terrain`, `?ramp`, `?demsize` and `?skirt` survive** — they never named a directory, so they still work identically against the archive.
+
+**One binding, two keys, not two bindings.** Both objects live in `terrella-tiles`, so a second `r2_buckets` entry would only duplicate the bucket name and give it somewhere to drift. The terrain URL is likewise **derived from `TILE_BASE`** rather than given a `PUBLIC_TERRAIN_BASE`: one Worker on one hostname, so a fourth deploy variable would exist only to let one server's two halves be addressed differently — and an unset `PUBLIC_` base does not error, it silently falls back to same-origin, which is exactly how 204 pages once shipped pointing at an origin with no heroes.
+
+**Three pieces of Worker state were single-valued and all three fail SILENTLY with two archives** — this was the real work, not the route. `indexInFlight` was one slot keyed by archive key: with terrain and relief interleaved for a whole session it would have re-keyed on nearly every request, re-fetching 256 KiB from R2 each time — the precise cost it exists to remove, while still looking like it worked. The two warn latches were booleans, so a relief mismatch would have muted terrain's, where the consequence is worse. And `ResolvedValueCache(25)` turns out to have been sized for exactly one archive (22 leaf dirs + a header); at 25 the two would evict each other every alternating request, costing a gunzip rather than an R2 read — i.e. showing up as nothing at all. Now 50.
+
+**Verified end to end, not in pieces.** The archive: `pmtiles verify` clean, `tile type: webp`, z0–8, and **6 addresses byte-identical to the loose tiles** including `z8/128/255` (the TMS-flip-sensitive row), with a neighbour-tile control that fires. The chain: a tile **fetched over HTTP from the new URL** and decoded with the factors read out of `terrainSource.ts` puts Everest at **8,584 m against the master's 8,586**, max error **exactly 4.00 m = step/2**, while the same bytes decoded at 1 m land 36 km wrong — so the control proves the oracle can fail. The client: the production bundle composes `https://tiles.terrella.alchez.dev/terrain/{z}/{x}/{y}.webp` (no `location.origin`, no build directory anywhere in `dist/`), and a live globe at camera z6 issued **34 DEM requests, 0 failed**, modal zoom z6 — matching `terrainZoomsFor`'s prediction for 128 declared.
+
+**The preflight now checks both halves, because each is silently satisfiable without the other.** It could previously only assert that the Worker *routes* `/terrain/`, and said so. The converse is now equally reachable: a Worker routing perfectly at an object nobody uploaded. It reads the keys out of `wrangler.jsonc` and lists `terrella-tiles` — which incidentally closed a hole nobody had noticed, since **nothing had ever checked the relief archive was present either**. Live two-state: it refuses today naming `TERRAIN_ARCHIVE_KEY = terrain-v1.pmtiles` as absent, and reports the relief key as present.
+
+**Two source guards went red on my own comments**, both times because they searched for a flag *spelling* rather than a code *identifier* — one on the block in `globe.astro` explaining what had been retired, one on the docstring explaining why there is no `PUBLIC_TERRAIN_BASE`. **A guard that cannot tell an identifier from prose punishes documenting the decision**, which is the opposite of what this repo wants; both now match on `parseX(` and `import.meta.env.PUBLIC_*` instead. Sabotage: dropping the prefix turns 10 tests red, pointing the terrain route at the relief key turns 3 red, and reverting the cache to 25 turns 1 red.
+
+- Gates: pyright 0 · pytest 541 · vitest **313** (+8) · astro check 0.
+
+**LIVE the same day, and verified against production rather than against the build.** Uploaded as `terrain-v1.pmtiles`, both Workers deployed. The deployed shell's chunk hash matches the locally built one exactly (read through a cache-buster, since a plain `/globe/` URL replays the previous HTML for about a minute). Production tiles are **byte-identical to the local archive** at z8 and z6, with the relief tile at the *same address* differing — so the prefix is discriminating in production, not merely in tests. A live tile decoded against the master puts Everest at **8,584 m vs 8,586, max error exactly step/2**. All five 404 controls hold, including the retired spike route's shape. And the visitor path with **no flags at all**: the probe lands on `full`, and the globe pulls **34 DEM tiles (3.99 MB) + 40 relief tiles, 0 failed, 0 failed resources of any kind**. The preflight now passes, closing the two-state proof it was written for.
+
+- **Free-tier arithmetic, which PLAN asked for before shipping:** 74 tile requests per view at camera z6 (34 DEM + 40 relief) against the standing ≈2,500 cold-visits/day ceiling. Terrain roughly doubles requests per view rather than adding a fraction — the plan's estimate assumed `tileSize: 512`, and the shipping declaration is **128**, which is exactly the trade 0d ratified (27 DEM tiles per view against 9) and what 8 m + WebP at 0.33x pays for.
+- **One number worth not misreading:** the first terrain tile reported `2 reads` where relief reported `1`. That is the cold-isolate path — index prefetch (262,144 B) plus the tile — and **relief shows the same 1-or-2 mix on fresh addresses**, so it is per-isolate variance, not a regression from the per-archive index hold. HISTORY's earlier "1 read on 18/18 cold tiles" was measured with the index Cache API entry already warm at that colo.
+
+### 2026-07-28 (CI) — the tile-cut probe cannot run on CI, because Ubuntu's GDAL is three minor versions short of the CLI it probes
+
+**`tests/test_gdal_accepts_the_cut_command` failed on CI with `FileNotFoundError: 'gdal'`, and the obvious reading — "CI does not install GDAL" — is wrong.** CI *does*: `.github/workflows/ci.yml` has installed `gdal-bin` since the mosaics test landed, and that comment explicitly forbids skipif'ing the mosaics guard. What it installs is **GDAL 3.8.4** (verified against packages.ubuntu.com for noble, which is what `ubuntu-latest` resolves to). GDAL's unified single-binary entry point — `gdal raster tile`, what both `terrain_rgb.cut_zoom` and `shade_planet` shell out to — **arrived in GDAL 3.11**. So `gdalbuildvrt` and `gdalinfo` are present and `gdal` simply does not exist as a binary. The test was introduced on this branch in `b643ec9`, so this was the first CI run ever to see it.
+
+**Skipped, gated on `shutil.which("gdal")`** — and the reason it is a legitimate skip rather than the "drift guard that silently never runs" the CI comment warns about is that **there is no GDAL on CI that could answer the question**. The probe asks whether *the GDAL that will cut the pyramid* parses our command; that GDAL is this box and rohome, both 3.12.x. A 3.8.4 answer would be about a binary that will never see the command. The same argument retires the WebP half of the test: `gdalinfo --formats` would run on CI, but "can CI's GDAL write WebP" is a fact about the wrong machine, so splitting the test to keep it would have bought a check whose subject is not the pipeline.
+
+- **Rejected: a ubuntugis PPA or a newer runner image.** It pins CI to a third-party archive (or an image label that may not exist) to obtain an answer CI has no use for — the `check` job's own header says rendering and fusion are out of scope, and the tile cut is that class. Recorded in `ci.yml` beside the install step so it is not re-proposed as an obvious fix.
+- **The coverage ratchet was measured, not assumed.** CI runs `pytest --cov` against a pinned `fail_under`, so a new skip could have converted a test failure into a coverage failure. Total is **39.30% with the probe running and 39.30% with it skipped** — it drives external binaries and executes no pipeline line. `pyproject.toml` and `ci.yml` both record the 13th skip and that it moves nothing.
+- **Falsified before it was trusted:** forcing the predicate to `False` skips exactly one test with the intended reason and leaves 41 passing; restored, the probe still **runs** here (541 passed, 0 skipped), which is the half that matters — a skip that also skipped locally would have disabled the guard everywhere.
+
+### 2026-07-28 (Tier 3, step 4) — terrain rides the `full` tier at last, and the deploy that would have broken it is now refused
+
+The tier ladder, the probe, the persisted preference and the three-button control were all built and shipped around a promise the site did not keep: `full` bought exactly one thing, the idle spin, and `globe.astro:1367` was the only `currentTier()` read on the page. It now buys terrain.
+
+**The wiring is small; the shape of it is the decision.** `resolveTerrainExaggeration(params, tierWantsTerrain)` replaces a bare `parseTerrainExaggeration`, and **`?terrain=` overrides the tier in BOTH directions** — a number forces terrain on at any tier, so the whole A/B flag family stays usable without first talking the probe into promoting the machine it runs on; and a new **`?terrain=off`** forces it flat *without demoting the tier*. That second form is not decoration. Once terrain rides on `full` there is otherwise no way to hold every variable fixed and remove only the geometry, which is the comparison every future look question needs — picking "Globe" in the view bar also disables terrain, but it changes the tier too, so it answers a different question. Verified live: `?terrain=off` issues **0** DEM requests.
+
+**15 became a constant only now.** `DEFAULT_TERRAIN_EXAGGERATION` had lived exclusively inside `?terrain=15` since Step 0 — fine for an A/B, impossible for a tier, since nothing was going to type a URL flag on a visitor's behalf. A test pins it above `DEFAULT_TERRAIN_RAMP_FLOOR` and checks it is the value the ramp actually decays *from*: the endpoints are not independent, and a base below the floor would invert the ramp so every deep camera got *more* exaggeration.
+
+**A malformed `?terrain=` is NOT silently upgraded to the tier default.** It returns null and warns, as before. "I asked for 3x and got 15x" is exactly what the loud-refusal convention exists to prevent, and it is a failure that could only ever appear on the tier that already wanted terrain.
+
+**THE PLAN'S CONTEXT-LOSS ITEM WAS BUILT ON A FALSE PREMISE, and it is struck rather than implemented.** Step 4 called for re-establishing terrain on `webglcontextlost` "alongside `addPolarCaps`, which is already bound to `style.load`". Tested with `WEBGL_lose_context` rather than reasoned about: **`style.load` fires 0 times after a restore** — so nothing bound to it re-runs — and yet **terrain survives intact**: the source is still registered, `getTerrain()` still returns its spec, and `painter.renderToTexture` is still live. The source and the terrain spec are style-level state, not GL state, and MapLibre re-uploads the GL resources itself. No work needed.
+
+**The regressions that route through the terrain framebuffer were re-checked, not assumed.** The hover chip, the gold outline and country click → fly-to → panel all resolve a screen point through `terrain.pointCoordinate` when terrain is on. At the shipping camera with terrain live: `queryRenderedFeatures` returns China at the centre (correct for a pitch-60 view north into Tibet), `unproject` gives 85.378/28.296 against a camera centre of 85.376/28.403, and `pointCoordinate` returns valid mercator. All three paths intact.
+
+**THE PART THAT MATTERS MOST: production serves no `/terrain` at all, and now says so.** `/terrain/...` is answered in dev by a Vite middleware reading loose tiles off the render store. Checked against `worker/index.ts`, both `wrangler.jsonc` files and `DEPLOY.md`: **nothing in production routes it.** So the moment terrain rides on `full`, a deployed globe would hand every promoted visitor a `raster-dem` source whose every tile 404s — and the globe would still render, just flat, with no error surfaced anywhere. The existing object check cannot see this: the terrain archive is not in the manifest, so "all advertised objects present" would report a clean deploy either way.
+
+`check_deploy_sync.ts` gains `checkTerrainHasAnOrigin()`, which **refuses the deploy** while terrain rides the tier and no Worker routes it. Deliberately keyed on the **Worker source**, not on R2 — an archive sitting in a bucket that nothing routes at is worth nothing. Verified as a two-state check: it exits 1 today, and appending a `/terrain/` mention to the Worker clears it back to the normal `✓ 3448 objects advertised, all present`. **This is Step 3's precondition made machine-checked instead of remembered.**
+
+**The Full tooltip test was rewritten rather than allowed to go quiet.** It said "don't claim terrain while `currentTier()` is read ≤ 1 times" — so the instant terrain shipped it would have fallen silent, leaving the button describing only the idle spin with nothing to catch the undersell. It is now **bidirectional and keyed on the mechanism** (does `resolveTerrainExaggeration` actually read the tier), so the claim must appear when terrain rides the tier and must come back out if it ever stops.
+
+**Verified live end to end, unflagged, on `quality: "auto"` so the probe genuinely decided:** terrain on, 27 DEM tiles, **0 failed**, live exaggeration 2.5 at z8 (the ramp's floor), serving `bathy_s8_webp`, tooltip reading "Interactive globe with raised terrain, auto-rotating when idle".
+
+**ART finally gets the terrain rows.** Deferred at Steps 0b and 0d on the explicit grounds that terrain had not shipped; that premise is now gone, so the exaggeration ramp and the polar feather join the web lever table as aesthetic constants.
+
+**Gates:** pyright 0 · pytest 541 · vitest **305** (+8) · astro check 0.
+
+### 2026-07-28 (Tier 3, step 1) — the tier ladder stops guessing at hardware it cannot see, and the terrain rung goes LAST
+
+FUTURE had carried the permissive tier ladder since 2026-07-26, deferred partly on "the FPS watchdog already degrades at runtime, so the gate being permissive may cost nothing". That premise expires the moment terrain ships — a static gate that promotes a weak device now hands it a displacement mesh and 27 DEM requests per view.
+
+**The threshold: `deviceMemory < 4` → `<= 4`.** The API reports RAM rounded to the nearest power of two, so the only values that exist are 0.25 / 0.5 / 1 / 2 / 4 / 8 / 16… — nothing reports 3, which means `< 4` could only ever have meant "2 or less" while everything from 4 GB up sailed through to `full`. That band *starts* with the **Moto G Power, Lighthouse's own mobile reference device**, so the mobile score was being measured on a device the ladder called healthy.
+
+**Correction to FUTURE's own analysis, caught by a live probe rather than by reading:** it said the value is "clamped at both ends". There is no upper clamp in current Chrome — the W3C text describes one at 8 GiB and Chrome does not apply it. This box reports **32** against 29 GiB physical, which also shows the rounding is to the *nearest* power of two, not down as commonly written. Neither fact changes the argument, which rests only on there being no value between 2 and 4 — but the docstring and test I had already written asserted both wrong things, and the probe is what caught them.
+
+**The Safari/Firefox blindness is left OPTIMISTIC, deliberately, and this is the part worth recording.** Rohan asked what the vendors actually recommend rather than what seemed reasonable. The answer settles it:
+
+- **Both vendors decline to implement the Device Memory API on fingerprinting grounds.** So its absence is a statement about the *browser*, not about the hardware — there is nothing to infer.
+- **`hardwareConcurrency` is not a substitute, and is worse than merely weak: WebKit clamps it to 8 on macOS and 2 on iOS.** Every iPhone and every iPad Pro M4 reports **2**, while a budget Android reports 8 — as a device-strength proxy it is **inverted**. MDN states the general form: "don't treat this as an absolute measurement of the number of cores." Safari 26 additionally blocks known fingerprinting scripts from reading it at all. **Rejected, and recorded in FUTURE so it is not re-proposed.**
+- So the static gate reports only what it can genuinely see, and the runtime ladder carries the rest — which *is* the vendors' stance: observe behaviour, do not interrogate hardware. The 07-26 deferral note's instinct was right; it was only unsafe while the ladder had no terrain lever.
+
+**`WEBGL_debug_renderer_info` gains a `gl.getParameter(gl.RENDERER)` fallback.** The old `if (!ext) return false` meant that the day Firefox finishes removing the deprecated extension, every Firefox visitor silently becomes `softwareGpu: false` and gets promoted. Both strings are now tested, because the two browsers hide the truth in opposite places: Chrome masks `RENDERER` to "WebKit WebGL" while the extension carries the real name, Firefox is the reverse.
+
+**`Base.astro`'s pre-paint guard now applies the same floor as `capable()`.** It tested WebGL2 alone, so a SwiftShader visitor deep-linking `/globe/` was never bounced — the guard let the globe render while the page module independently decided "gallery". The guard cannot import the module (it must run before the bundle, which is why it is `is:inline`), so the logic is necessarily duplicated; the agreement is **asserted over five renderer scenarios by running both**, not assumed. Sabotaging the guard back to WebGL2-only turns **6 tests red**, three of them the agreement cases.
+
+**THE TERRAIN RUNG GOES LAST, WHICH IS THE OPPOSITE OF WHAT THE PLAN SPECIFIED.** The plan said `retire-spin → disable-terrain → lower-pixel-ratio`, cheapest-loss-first, on the reasoning that terrain is the heaviest lever. That is backwards, because the two levers are **coupled**:
+
+- With terrain on, MapLibre stops drawing the globe to the canvas and renders each tile into a fixed-size RTT buffer. `rttSize = tileManager.tileSize * qualityFactor` — **no term in that is the device pixel ratio.** Terrain swaps a DPR-scaled cost for a DPR-invariant one.
+- **Verified live at the shipping configuration** (declared 128, z0–8, 16 render tiles): canvas pixels **1,451,125 → 13,060,125** across DPR 1 → 3, exactly 9×, while **total RTT pixels stayed at 4,194,304 in both**. The DPR control is built into the reading: the canvas moved 9× and the terrain path did not move at all.
+- So terrain's *relative* cost falls monotonically as DPR rises — ~2.9× the canvas's own pixel work at DPR 1, 0.32× at DPR 3, where terrain measured **43% cheaper than off** (→ § the terrain exaggeration ramp). **Pulling this rung first on a hi-DPI phone could make frames slower.** Lowering the pixel ratio is precisely what earns the terrain rung its value.
+
+**The timing rig I tried first was invalid, and our own docs predicted why.** Toggling terrain four times in one page to measure on/off × DPR gave a monotonic climb of 0.48 → 1.04 → 1.30 → 1.92 ms across arms that should have paired — because **`setTerrain` builds a new `Terrain` + `RenderToTexture` per call and only reaches `destroy()` on the removal path**, a leak `terrainSource.test.ts` already had a guard for. An earlier attempt was worse: measuring a *static* camera made the results bimodal (4.97 vs 1.87 ms for identical arms), because a static `redraw()` re-composites a still-valid RTT cache and measures almost nothing. **The ordering was settled structurally instead** — a cost-model invariant, read live, needs no effect size and cannot drift with GPU clocks.
+
+**That existing guard was sharpened rather than relaxed.** `disable-terrain` calls `setTerrain(null)`, which made the shipped source fail a test asserting exactly one `setTerrain(`. The fix is not to bump the count to 2: the rule is now that exactly one **establishing** `setTerrain({…})` may exist, at most one **removing** `setTerrain(null)` — the one form that does clean up after itself — and that no third spelling reaches it unaccounted for.
+
+**Gates:** pyright 0 · pytest 541 · vitest **297** (+24) · astro check 0. Verified live: guard admits a real GPU, terrain resolves 27 DEM tiles with 0 failures, and pulling the rung leaves the globe rendering real content.
+
+### 2026-07-28 (stage T) — stage T gets the guard every other stage already had, and the 47 GB copy it was making for nothing
+
+PROCESS had carried stage T's missing output guard as debt since the module was written. Closing it turned up a second thing that the docs actively denied.
+
+**The guard, mirroring `shade_planet` rather than inventing a second idiom.** `tiles/` is now cut into `tiles_new` and swapped only on success, stamped `tiles.done`, with one generation of rollback at `tiles_old` and a `terrain_params.json` recipe sidecar. Freshness is `is_stale(tiles, done_marker(master), terrain_params.json)`. The helpers are **imported from `shade_planet`**, not re-spelled: `cap_render.py` already imports `composite_params` from there under an explicit "ONE recipe home" docstring, so a third `is_stale` would have been the thing to avoid, not the import. All ~40 existing `shade_planet.is_stale` test references keep working through the re-export, so the move cost no churn.
+
+**The recipe is the half that could ship wrong bytes rather than merely waste time.** The variant directory name (`bathy_s8_webp`) carries sea treatment, step and codec by convention — but **not `max_zoom`, and nothing enforces any of it**. The z6 build sits beside the z8 one under names differing by a hand-chosen suffix. Without a sidecar a `--format` or `--max-zoom` change is invisible to every guard.
+
+**The elevation chain moved off `exists()` onto its own `.done` markers, and this one is not hypothetical.** rasterio creates its target at the START of a write, so the BigTIFF crash recorded in the entry below left a full-sized, freshly-stamped, **truncated** `elev_z8.tif` on disk — and `if not elevation.exists()` accepts exactly that. A truncated float32 raster reads as a very flat planet, not as an error, so the whole pyramid would have been built on top of it silently. This is the trap `is_stale`'s own docstring was written about, in the one module that had not adopted it.
+
+**CORRECTION, and it is in two docs: `--max-zoom 8` DID write an elevation intermediate.** PROCESS and the entry below both stated that `MASTER_ZOOM = 8` makes the downsample factor 1 and so "encodes `height_3857.tif` in place". It does not — the factor-1 branch still called `downsample_elevation`, which materialised **`elev_z8.tif` at 47.0 GB**: a box-mean by 1 is the identity, and its only other effect (NaN → 0) is applied again by `encode_array` regardless. **Proven, not inferred** — six probe windows from Everest to the Pacific abyss read max |master − copy| of **exactly 0.0000 m**, with shifted-window controls differing by **240–1,660 m** so the comparison could actually fail, and every window carrying real relief so it could not pass vacuously. Part of that 41:00 build was spent making it. `elevation_source` now returns the master itself at its native zoom. **The claim is true going forward and was false when written** — and the same paragraph that made it went on to say `elev_z8.tif` is a 46 GB copy of the master, which should have falsified it on the spot.
+
+**`elev/` reclaimed: 60 GB, store 67 GB → 6.1 GB, free space 409 → 469 GB.** Safe because every level is deterministically re-derivable from a master that is still on disk with its `.done` marker: `elev_z7` reproduces as the exact 2× box-mean of `elev_z8` at **0.000000 m**, controls firing. No `.py`/`.sh` lived only under that tree. A future rebuild now costs ~13 GB transiently instead of 60, because it no longer copies the master.
+
+**The shipped pyramid was retro-stamped rather than left to restage.** `bathy_s8_webp/` had no marker and no sidecar, so the new guard's first act would have been a needless full rebuild of something already verified. Its recipe was read off the store — z0–8 present, all WebP, `bathy` + `s8`, no `_nofeather`, z8 holding exactly 65,536 tiles — then written through the module's own `terrain_params` so the recorded settings cannot disagree with the code that would rebuild it. Verified afterwards that a *wrong* recipe reads stale, so "fresh" is a discriminating answer. The product is untouched: still 87,381 tiles, and a z8 tile still decodes to **exactly 4.000 m** of the master (= `step/2`, the theoretical bound) against a shifted control of 1,236 m.
+
+**Gates:** pyright 0 · pytest **541** (+15) · vitest 273 · astro check 0.
+
+### 2026-07-28 (Tier 3, step A) — the hover path resolves once per frame, and terrain never caused the bug it exposed
+
+`hoverTracking.ts`'s `pointerMoved` called `setHovered(resolve(point))` **synchronously**, and `globe.astro` bound it straight to `map.on("mousemove")` with no throttle and no rAF coalescing. That was free until terrain landed.
+
+**Why terrain changed the price.** `resolve` is `countryAt`, i.e. `queryRenderedFeatures` — and with terrain enabled that routes through `terrain.pointCoordinate`, which renders tile coordinates into a 1024×1024 offscreen framebuffer and `readPixels` it back. That is a **synchronous GPU stall**, and the camera invalidates the framebuffer every frame so it cannot be cached. Measured **2.2–2.4 ms with terrain against 0.2 ms without**; `getFramebuffer('coords')` alone is 0 ms, so it is the readback, not allocation. Against a 6.06 ms budget at 165 Hz, a 500–1000 Hz mouse delivering several moves per frame oversubscribes it 2–4×.
+
+**The fix is one resolve per frame, with the scheduler injected.** `pointerMoved` caches the point immediately and joins whatever frame is already queued; `viewChanged` routes through the same slot, so a move and a `moveend` arriving together — which is exactly what a drag produces — cost one resolve between them. Whatever position is cached when the frame runs is the one used, so a burst resolves where the pointer **ended up**, never where it passed through.
+
+**`pointerLeft` stays synchronous, and that is correctness rather than latency.** Leaving is the one event a frame of lag is visible on, and nulling the cached point is also what makes a queued resolve stand down — so no cancellation handle is needed. Without it, a frame queued while the pointer was over Nepal would re-announce Nepal over an empty canvas, with no event left to clear it.
+
+**The test fixture drives the frame clock by hand.** An auto-flushing fake would make "queued" and "ran" indistinguishable, and the coalesce is precisely that difference. Two subtleties: the "does not re-announce a country the pointer is still on" test now flushes **between** each move on purpose, or the coalesce would collapse them and it would stop exercising `setHovered`'s equality check it exists for; and one test stubs the global `requestAnimationFrame`, because `globe.astro` injects nothing and a silent synchronous fallback would coalesce nothing while every other test stayed green.
+
+**Falsified rather than asserted:** sabotaging the deferral back to a synchronous resolve turns **4 of the 6 new tests red**. The other two guard failure modes that only exist in the deferred design — the stand-down, and the scheduled flag never clearing (which would coalesce the whole session into one resolve and kill hover after the first frame, with every other test still green).
+
+**Not yet measured, and deliberately not done: the `map.isMoving()` skip.** Coalesced, a drag frame is predicted at 3.5 ms render + 2.4 ms hover ≈ 5.9 ms against 6.06 — still at the edge. Skipping resolution entirely while the camera moves would take it to zero, since `moveend` re-resolves anyway, but it freezes the chip during a drag, which is behaviour-visible. **That is a measurement to take before spending, not a guess to act on.**
+
+**Nothing in `globe.astro` changed** — the default scheduler is the browser's `requestAnimationFrame`, referenced through `globalThis` so the module keeps its dependency-free property and throws loudly off the browser rather than silently degrading. **Gates:** vitest **273** (+6) · astro check 0.
+
+### 2026-07-28 (Tier 3, step 0d ratified) — tileSize 128 and a z0-8 pyramid ship together, because the declaration is what makes depth spendable
+
+**Ratified by Rohan on the frames: `TERRAIN_TILE_SIZE` 512 → 128 and `TERRAIN_MAX_ZOOM` 6 → 8.** They moved together because they are one decision, not two — the finding that reopened axis B after it had all but settled on 512.
+
+**The build.** `terrain_rgb.py --max-zoom 8` (default also 6 → 8): **41 minutes**, 87,381 tiles, **2.63 GB** — against my projections of 1.5–2.5 h and ~3.3 GB, so I was ~3x over on time and 25% over on size. Cut times z8 **5:29**, z7 1:37, z6 0:27. ~~z8 needs no new elevation intermediate: `MASTER_ZOOM = 8`, so `--max-zoom 8` gives a downsample factor of 1 and encodes `height_3857.tif` in place.~~ **[FALSE — corrected 2026-07-28, → § stage T gets the guard every other stage already had. The factor-1 branch still called `downsample_elevation`, so the build DID materialise a 47 GB copy, and part of this 41:00 was spent making it.]** The store is now **67 GB**, 60 GB of it the `elev/` chain because `elev_z8.tif` is a 46 GB copy of the master — which is the sentence in this same paragraph that should have falsified the one above it.
+
+**A latent pipeline bug surfaced immediately and killed the first attempt in 83 seconds:** `TIFFAppendToStrip:Maximum TIFF file size exceeded`. `GTIFF_CREATE` never set BigTIFF, and a classic TIFF caps at 4 GB. **This could not appear at z6 or below — and z6 is far closer to the edge than anyone would guess: 32768² float32 is 4.29 GB raw, surviving only because deflate lands it at 3.4 GB.** The pyramid had been running inside 20% of a hard failure. Fixed with `bigtiff: "IF_SAFER"` at both sinks in `terrain_rgb.py`, targeted rather than in the shared `GTIFF_CREATE`, whose own comment warns against adding flags there.
+
+**The build was verified against the master, not merely counted.** At z8 the pyramid is 1:1 with `height_3857.tif` (131072 = 512 × 2⁸) and the cut used `nearest`, so tile (x, y) must equal master rows `[y*512:(y+1)*512]`, cols `[x*512:(x+1)*512]`. Ten z8 tiles across every terrain type came back at **median ~2.0 m, max exactly 4.000 m** — precisely `step/2`, the theoretical bound for round-to-nearest at 8 m quantisation. Three z7 tiles against an independent box-mean matched to within 0.37 mm of the same bound. **Both controls fired**: a one-tile eastward misalignment caught at 5,315 m, and a +50 m offset returned exactly 54.00 m, which independently confirms the comparator is linear. **The oracle's first run reported all ten tiles failing by thousands of metres** — my bug: `decode_array` already collapses the three bands, so `decoded[0]` was *row 0* broadcast across the window. The tell was that the error tracked terrain ruggedness (Everest 6814 m, Ganges plain 50 m), which is what a row-vs-all-rows comparison looks like and not what a broken build looks like.
+
+**What the three arms actually deliver at camera z8, measured live on the deep pyramid:**
+
+| declared | pitch 0 | pitch 30 | pitch 60 | facet | render tiles @60 | DEM requests @60 |
+|---|---|---|---|---|---:|---:|
+| 512 | z6 | z6 | z6 | 8 px | 5 | 9 |
+| 256 | z7 | z7 | z7 | 4 px | 11 | 17 |
+| **128** | **z8** | **z8** | z7 | **2 px** | 14 | **27** |
+
+**512 cannot use a deep pyramid at all** — its DEM sits at `camera − 2`, so z7 would need camera z9 against `maxZoom: 8`. Building depth without moving the declaration would have been pure dead bytes, which is exactly what the old `TERRAIN_MAX_ZOOM = 6` docstring's "size lever, decided on a look that already works" reasoning missed: it treated the two as separable.
+
+**NEW AND IT APPLIES TO EVERY ARM: pitch costs a DEM level.** `coveringTiles` does not use the flat formula on a globe — it takes a per-tile desired zoom from `defaultCalculateTileZoom(9.314, 3)`, which subtracts a pitch term and a tile-count penalty. So **the pitched view, the one terrain exists to make worth looking at, systematically gets less elevation detail than flat-on**, and 128's extra level evaporates exactly there. `terrainZoomsFor` returns the nominal and cannot see this; the measured table is now in its docstring.
+
+**Frame cost is FLAT across declarations, which is what made 128 affordable rather than merely nicer.** Chrome, DPR-1 medians with a passing control: **512 3.87 ms · 256 4.54 ms · 128 4.31 ms**, with 256 and 128 indistinguishable (IQRs 4.09–4.95 vs 4.10–4.71) and 512 cheapest by ~15%. The mechanism is the one already recorded but not believed: `rttSize` halves at every step down, so more render tiles each cost proportionally less and total RTT pixels **fall**. **The price of 128 is requests — 27 per view against 9 — not milliseconds.** Chrome numbers, so a lower bound on Firefox, whose bottleneck is the copy path render tiles drive hardest.
+
+**The timer-query instrument failed its own control twice before it worked, and the fix was ordering.** Block-sequential DPR sampling gave contradictory verdicts in one session — 512 passed at 1.73x, 256 *failed* at 0.94x with DPR 2 faster than DPR 1. **Interleaving DPR 1/2 sample-by-sample fixed it**: all three arms then landed in a tight 1.97–2.12 band with non-overlapping IQRs. GPU clock drift across a block was corrupting it. Also proven useless here: `gl.finish()` is a no-op in Chrome (ratio 1.00), and `readPixels` of a single pixel does not force a GPU sync (1.05) — only a full-buffer read does, and that contaminates the measurement with readback.
+
+**Seams get MILDER with depth, the opposite of what the border count suggests.** Adjacent-level disagreement over the ground in frame: z4|z5 **150 m** median, z5|z6 **105 m**, z6|z7 **68 m**, z7|z8 **38 m**. So which boundaries an arm straddles matters more than how many it has: 512 spans z4/z5/z6 and owns the two worst, while **128 sees only z6|z7 — one boundary type, the mildest in the set** — despite having the most individual segments (106 unreconcilable borders vs 84 and 56). The one caveat is that z6|z7's *max* is 1,597 m, the largest outlier anywhere, so 128's rare worst-case seam is bigger even as its typical one is 2.2x smaller. **Rohan accepted the tearing as unavoidable; `terrainSkirtLength: "none"` remains untried and is the one cheap experiment left** — it swaps the vertical smear for hairline gaps.
+
+**Ratified on the frames, and the flat view turned out not to discriminate at all.** Six captures at 1200×1000 DPR 1, byte-identical noise floor. Flat-on: 512→256 **2.00 mean DN**, 256→128 **1.19** — Rohan could see no difference between any of the three, which matches. Pitched: 512→256 **9.49 DN / 31.4% of pixels**, 256→128 **6.08 / 22.4%**. **Pitch is 4.7x the effect of flat-on**, which means the earlier axis-B sweep — leaning on flat cameras — was systematically understating the lever it was built to measure. The cleanest number in the set is the pitched 256↔128 pair: both consume DEM z7, so its 6.08 DN is **pure mesh density with the elevation data held identical**.
+
+**Bookkeeping.** The build directories were renamed so the shipping name points at the shipping build — `bathy_s8_webp_z8` → `bathy_s8_webp`, and the old z0–6 build → `bathy_s8_webp_z6`. `terrainBuildDirectory` suffixes on `TERRAIN_MAX_ZOOM` rather than a literal, so a future depth ratification renames consistently instead of stranding the old name on the new build. New `?demdepth=6|8` picks directory **and** `maxzoom` from one value — the third member of the read-once group with `?quant` and `?demfmt`, and the sneakiest of the three, since a deep build declared `maxzoom: 6` renders perfectly while silently never requesting what it paid to build. Five tests that argued for 512/z6 were **rewritten rather than retargeted**: they were the rationale. Verified unflagged on a live map: `/terrain/bathy_s8_webp/`, declared 128, maxzoom 8, 2 px facets, **0 failed requests**.
+
+**`terrainSkirtLength: "none"` also ratified, same day, and it is the fix for the tearing that started all of this.** Skirts are the vertical curtains MapLibre hangs off every tile edge to cover the LOD crack. Statically they touch only **0.41% of pixels** at z8 pitch 60 (0.13% by more than 8 DN) but by up to **242 DN** where they do — a thin high-contrast line, not a wash. That static footprint was never the complaint: the tearing is during *motion*, when the covering set churns and skirts appear and vanish at new boundaries every frame, which a still frame structurally cannot show. Judged in motion, `"none"` gives **basically zero tearing on pan**, traded for tiny black specks. **The specks confirm the mechanism twice over:** they land only on drastic elevation changes and never on flatland — exactly where the crack is widest — and they read **black rather than sea-coloured** because with terrain on, the `space-floor` background layer is drawn *into each render tile's texture*, so a gap between tiles is not covered by it at all and shows the transparent canvas clear behind the globe. **MapLibre's documented mitigation (an opaque background layer first) therefore cannot help**; we already satisfy it and it is the wrong shape for this failure. No background colour fixes a hole in geometry.
+
+**Static-only measurement nearly reached the wrong conclusion**, and the flag exists because of it: 0.41% of a still frame reads as "the skirts barely matter", which would have argued for leaving the default alone. The artifact lives entirely in the churn.
+
+**Rig error worth remembering: object spread evaluates left to right.** `{ ...(await shoot(name)), mode: await setSkirt(mode) }` runs the capture *before* the state change, so every frame was labelled one step ahead of its actual configuration. Caught only because all three byte counts came back nearly identical when one arm should have differed.
+
+**Still not shipped.** Terrain remains behind `?terrain=N` and is not wired to `full`; Steps 1–4 are untouched. **The request cost lands only on whoever `decideTier` promotes**, which makes Step 1's ladder fix materially more expensive to defer than it was yesterday — it currently promotes every Safari and Firefox visitor.
+
+### 2026-07-27 (Tier 3, step 0d — axis B) — the seam tearing is MapLibre's own documented cross-zoom limitation, and the declared tile size turns out to be coupled to the pyramid's depth
+
+Rohan reported **tearing/fragmenting at tile seams whenever the globe moves — three seams at declared 256, two at 512, none with terrain off** — at `?perf&terrain=15&demsize=512#map=8/28.403/85.376/0/60`. Diagnosed from MapLibre 6.0's source plus two settled live reads at that exact camera. **It is not our bug, it is not fixable in our code, and it is present in both arms, so it does not decide axis B.**
+
+**The tear is a skirt curtain over an LOD crack, and the crack has two independent causes.** Take two render tiles that meet on screen — one at render z7 fed by DEM z6, its neighbour at render z6 fed by DEM z5. That pairing is not exotic: the globe's covering set spans **three** render zooms in both arms.
+
+1. **Vertex-count mismatch.** Every tile gets 128 quads across regardless of the ground it covers, so along a shared border the finer tile has a vertex every 1,223 m and the coarser one every 2,446 m. Between two of the coarse tile's vertices its edge is a straight line while the fine tile's edge bends through an intermediate vertex. **This opens a gap even if both tiles held identical elevation data.**
+2. **Different source data.** z5 is a box-mean of four z6 cells, so the two edges disagree even where their vertices coincide. Measured over the 3,600 points of ground in frame, sampled from `elev_z4/z5/z6.tif`:
+
+   | seam | median | p95 | max | worst, displaced at 2.5× and projected at pitch 60 |
+   |---|---:|---:|---:|---:|
+   | z6 \| z5 — the 2× seam **256** has | 105 m | 383 m | 827 m | **6.7 CSS px** |
+   | z6 \| z4 — the 4× seam **512** has | 167 m | 690 m | 1,476 m | **11.9 CSS px** |
+
+3. **The skirt fills it, and the fill is what you see.** `getSkirtLength(zoom) = 2π·earthRadius / 2^zoom / 5` is **31,274 m at camera z8** — roughly 8× the worst displaced step — so the gap is never a hole you see through. It is covered by a curtain of the higher tile's edge pixels stretched vertically. **That curtain is the tear.**
+
+**So 512 has FEWER seams but WORSE ones**, which is exactly what Rohan saw: it straddles a 4× resolution jump (DEM z4/z5/z6 all on screen) where 256 straddles only 2× (z5/z6). Two tall tears against three short ones.
+
+**The seams are structural, not a loading race — measured, not argued.** `backfillDEM` runs only from `_tileLoaded`, against tiles renderable at that instant, and its comment says it exists "to eliminate visible tile boundaries". At rest, both arms measured **`unfilledPresent: 0`**: every same-zoom neighbour present in view had been backfilled. What is left unfilled — 33 slots of 56 at declared 512, 40 of 64 at 256 — points at same-zoom neighbours that **do not exist**, because that ground is covered by a tile at a different zoom. **`_getNeighboringTiles` builds every key at the tile's own `overscaledZ` and `canonical.z`; there is no cross-zoom entry, so those borders can never be reconciled.** Waiting does not heal them.
+
+**MapLibre documents this as a choice between two artifacts, not a bug with a fix.** `terrainSkirtLength` is `"none" | "auto"` (default `"auto"`, no length control): `"auto"` may introduce vertical artifacts, `"none"` removes them but introduces horizontal hairline gaps on tile boundaries **at different zoom levels** — MapLibre's own docs naming our seam. The single documented mitigation is to avoid transparent backgrounds and put an opaque background layer first; **we already satisfy it** (`globe.astro:688`, `space-floor` painted `DEEP_SEA`, first with `relief` second), so there is nothing to gain there. Nor can we fix it ourselves: MapLibre builds **one shared mesh for all tiles** (`_meshCache`), so per-neighbour edge stitching is structurally impossible. Cesium solves it at the format level — quantized-mesh stores explicit edge-vertex indices with neighbouring tiles' edge vertices coincident by construction — which `raster-dem` has no equivalent of. MapLibre discussion #4903 is the same class of complaint (blocky terrain from high-resolution DEMs, diagnosed there as the mesh subdividing past the source's max zoom without accounting for pixel resolution — i.e. our clamped case), still unresolved.
+
+**Live tile bookkeeping, both arms settled at camera z8 / pitch 60:**
+
+| | declared 512 | declared 256 |
+|---|---|---|
+| `terrainTileSize` (live) | 1024 | 512 |
+| render tiles · zooms in view | 5 · z5, z6, z7 | 11 · z6, z7, z8 |
+| CSS px per facet | 8 | 4 |
+| DEM levels feeding the view | z4, z5, z6 | z5, z6 |
+| DEM tiles fetched | 7 (854 KiB) | 8 |
+| neighbour borders backfilled | 23 / 56 | 24 / 64 |
+
+**The cost gap at this camera is one HTTP request**, not the 2–4× measured at shallower cameras — because both arms bottom out on the z6 pyramid floor. Render tiles 5 → 11 (~2× the per-tile layer passes) is the real cost.
+
+**CORRECTION to my own framing, and it refines the step-0d entry above.** I first reported the 512 mesh as "2× coarser than the data, half the detail never rendered", implying 256 repairs a defect. **The 2:1 ratio is universal, not a property of 512.** Unclamped, `demZoom = renderZoom − 1`, so a DEM tile always covers 2× the render tile's ground: 256 texels across a 128-quad mesh, i.e. **2 DEM texels per facet at every declaration**. The declaration moves the mesh and the DEM shelf *together* and does not change their ratio. **256 reads 1:1 at camera z8 only because it is clamped** — it asks for z7, our pyramid stops at z6, so the mesh got finer while the data did not. What 256 buys at the deepest camera is therefore **more faithful geometry for the same data**, not recovered detail.
+
+**Which makes the declaration and the pyramid depth ONE decision, not two.** At declared 512 the DEM is `camera − 2`, so reaching z7 would need camera z9 and the map caps at `maxZoom: 8` — **512 could never load a z7 tile at all**. At 256 the DEM is `camera − 1`, so z7 is reachable at camera z8 and is what would make the lever pay off at the deep end. Restated: **declare 512 → z6 is exactly the right depth and building z7 is wasted; declare 256 → z6 is one shelf short.** `terrainZoomsFor(8, 256, 7).demZoom === 7` already pins this.
+
+**128 was considered and rejected.** It would not *reach* z8 — it would *ask* for z8 and clamp to z6, harder than 256 clamps today. Making it pay needs z7 **and** z8 built. z8 is a clean endpoint (256 tiles × 512 px = **131,072 px, exactly the master `height_3857.tif` grid**, so nothing below it is real without a re-fuse), but it is ~21× the z6 level in tiles, the compute is **uncosted — PROCESS still has no terrain row** — and 128 costs ~4× the render tiles over 256, each a framebuffer bind plus a full replay of the layer stack, for a shelf only reachable by zooming fully in.
+
+**Two docstring errors found in `terrainSource.ts` and corrected.** `TERRAIN_TILE_SIZE` claimed DEM tiles load at `mapZoom − 1` and worked the example "map z7 → terrain z6, two levels apart"; `mapZoom − 1` is the **render tile** zoom, the DEM is `mapZoom − 2`, so map z7 is terrain **z5**, three levels from colour z8. Contradicted by `terrainZoomsFor`'s own pinned tests and by both live reads. `TERRAIN_MAX_ZOOM` derived "one mesh quad spans 512/128 = 4 DEM samples"; the 1-D answer is **2** (the derivation omits `deltaZoom`), and 4 is right only read as area — restated unambiguously. Its "a facet is ~8 CSS px AT EVERY ZOOM" holds only at declared 512.
+
+**Rig note, a new variant of the hidden-tab trap.** A freshly created Chrome automation tab never applied our style at all — `stylesheet: false`, zero layers, zero tile requests — and no wait loop could complete, because **Chrome throttles `setTimeout` in a hidden tab hard enough that even 15 × 60 ms exceeded the 45 s CDP limit**, while `await requestAnimationFrame` never resolves there at all. `map.redraw()` cost 0.3 ms and drove nothing, because the page's own setup had not run. Only a genuinely **visible** tab worked. Recipe: check `document.visibilityState` before anything else, never `await` rAF, and prefer the already-visible tab over a newly created one.
+
+### 2026-07-27 (Tier 3, step 0d) — the terrain archive gets a third smaller for nothing: 8 m ratified, and the codec turns out to be a free 0.67x
+
+**Both levers ratified on measurement, and they multiply: 0.49 x 0.67 = 0.33x.** A z0–8 bathymetry
+archive drops from ~10.1 GB to **~3.3 GB**, about the size of the colour archive.
+
+**Lossless WebP is 0.67x PNG and costs nothing, which makes it the better of the two levers.** Whole
+pyramid rebuilt: **0.32 GB vs 0.48 GB** at z0–6. The ratio holds at 1 m too (0.6755 on a 40-tile
+sample) — **it is independent of `--step`**, so the two levers compose rather than overlap. Proven
+identical at three levels, each with a positive control that was made to fail: (i) GDAL round-trip,
+40 tiles, max channel diff **0**, with a deliberate +7 corruption detected; (ii) the **browser's own**
+`createImageBitmap` → canvas → `getImageData`, 5 tiles across z2–z6, max RGB diff **0** and WebP
+alpha **255** everywhere — so the premultiply hazard that motivated the check is not real; (iii)
+**rendered frames**, PNG vs WebP at one camera, **0.0000 mean DN** against a swap-to-itself control
+of 0.0002. `TERRAIN_TILE_EXTENSION`'s reasoning was always about *losslessness*, not about PNG; it
+had simply conflated the two. GDAL 3.12.2 carries the driver, so the pipeline change is one line.
+
+**8 m under the shipping ramp is 3–20x cheaper than the pre-ramp figure suggested.** Five cameras,
+1 m vs 8 m: overview z2 **0.011** mean DN · Everest z5 **0.049** · Karakoram z6 **0.048** · Ganges
+plain z6 **0.042** · Himalaya z6 **pitched 0.145** (worst), against a rig noise floor of ~1 DN max.
+The plain is again the *lowest*, not the highest — still the opposite of terracing — and the pitched
+view is worst, which is correct because geometry reads through parallax rather than flat-on. **Step
+0b's ramp retroactively made 8 m cheaper**: the same pitched camera at constant 15x reads 0.343 /
+0.926%, i.e. 2.4x the ramped 0.146. The worst constructible pre-ramp case (z8 pitched, 15x) is 0.642
+/ 1.92%, the same order as the 2.20 / 2.49% recorded at step 0 — whose camera was never written
+down, so that is *consistent*, not reproduced. An amplified (x16) difference map is scattered
+single-pixel speckle on mountainous terrain plus faint tile-boundary lines: no bands, no structure.
+
+**Two rig bugs, both of which first reported a confident wrong answer, and both caught by controls.**
+(1) **`readPixels` must follow `map.redraw()` with no `await` between them** — the WebGL drawing
+buffer clears to all-zeros after ~1.2 s, which first read as a **168 DN** "difference" on a camera
+proven stationary by instrumenting `getCenter`/`getZoom` at every read. (2) **`areTilesLoaded()` goes
+transiently true immediately after `removeSource`/`addSource`**, so a poll-until-loaded settle exits
+before the new DEM has arrived — that manufactured a **9.2 DN** PNG-vs-WebP difference between
+byte-identical tiles. Fix: require ready for 5 consecutive polls past a minimum iteration count, and
+always run a **swap-to-itself control**, which is what exposed it.
+
+**Also landed:** `?quant=1|2|4|8` and `?demfmt=png|webp` compose the build directory *and* the decode
+factors **from the same parsed values** — independent flags could disagree, and a disagreement is
+undetectable at runtime because every tile still 200s and still decodes, just at the wrong scale.
+`?dem` now defaults to **bathy**: it still said `clamp` after step 0 chose bathymetry, so every
+unflagged capture was measuring the arm we rejected. Verified end-to-end that the unflagged default
+now resolves to `/terrain/bathy_s8_webp/…` with red=2048/green=8/blue=0 and **0 failed requests**.
+
+**The mesh is 128x128 because 16-bit indices make it so — this is not a tunable, and that is what
+axis B turns on.** `TriangleIndexArray extends StructArrayLayout3ui6` (three `uint16`s), and
+`getTerrainMesh` emits the whole tile as a single `SegmentVector.simpleSegment` with no splitting,
+so every vertex index must fit in 65,535. `delta = EXTENT / meshSize` with EXTENT 8192 admits only
+powers of two. **128 → 129² = 16,641 vertices fits; 256 → 257² = 66,049 overflows.** So 128 is
+exactly the largest power of two available, and raising it would need MapLibre to move to 32-bit
+indices. `meshSize` is a public field on `Terrain` and writing it type-checks, but `_meshCache` is
+keyed `m_${northPole}_${southPole}` — **the key omits meshSize**, so a write returns the stale mesh
+anyway.
+
+**Consequence, and the reason the `tileSize` question is not one option among several:** geometric
+detail is set by quads-per-render-tile times ground-per-render-tile. The first is hard-capped and
+unreachable. **Declaring `tileSize: 256` is therefore the ONLY lever that makes facets smaller** — a
+deeper pyramid cannot buy it, and smaller assets cannot buy it. That retires my own earlier framing
+of asset size as a co-equal detail lever; it is a *cost* lever (fewer unread texels), nothing more.
+
+**None of this is documented, which is why a canary now guards it.** The style spec defines exactly
+`source` and `exaggeration` for terrain, and describes `tileSize` only as "the minimum visual size
+to display tiles" with **nothing about zoom selection**. Every number above is read out of the
+bundle, and the one Terrain doc comment we did find is **wrong** (it claims RTT textures are 1024²;
+measured 2048). So `terrainSource.test.ts` now asserts, against the **shipped** `maplibre-gl.mjs`
+(property names survive minification), that `tileSize = _source.tileSize * 2 ** deltaZoom`,
+`deltaZoom = 1`, `meshSize = 128`, `qualityFactor = 2` and `rttSize = tileManager.tileSize *
+qualityFactor` — falsified by flipping 128 to 256 and confirming exactly that test reddens. A
+MapLibre minor could otherwise halve or double our geometry resolution with no error at all.
+
+**And the globe's covering set is MIXED, so the request multiplier is not the square of the zoom
+shift.** Measured at camera z6 with 256 declared: **9 render tiles at z6 plus 3 at z5** (variable
+zoom toward the limb), consuming DEM z5 and z4 — **12 render tiles against 4 at declared 512, i.e.
+3x, not 4x**. `terrainZoomsFor()` returns the *nominal* pair only, and says so; anyone sizing a
+request budget by squaring it gets an upper bound. `rttSize` confirmed 1024 at declared 256 against
+2048 at 512, so total render-to-texture pixels are neutral — the cost is draw calls, not fill.
+
+**Correction carried in from the same session:** the numpy 2.5 `Setting the shape` `DeprecationWarning`
+is **not ours and has no one-line fix** — under `filterwarnings("error")` it raises at
+**`rasterio/_io.pyx:660` in `DatasetReaderBase.read`**. Our files contain no `.shape` assignment; the
+printed line is only the call site. It had been recorded correctly on 2026-07-24 inside the Python
+3.14 entry, then re-diagnosed wrongly three times because that entry's index line names neither
+`numpy` nor `rasterio` — a correct record nobody can find loses to a wrong one that loads every session.
+
+### 2026-07-27 (chrome, cont.) — the ← Gallery link never reached the gallery, and centring the bar was costing it half the viewport
+
+**Rohan's report:** clicking the globe's top-left "← Gallery" lands back on the globe. He asked whether the auto-upgrade was the cause, and whether the gallery should move off `/`.
+
+**It was the steer flag, not the upgrade.** `Base.astro`'s pre-paint guard steers a capable visitor from `/` to `/globe/` once per session, gated on `sessionStorage["rg:steered"]` — but it **wrote that flag only on the auto-steer path**, so the flag meant *"we bounced you once"* rather than *"this session has seen the globe"*. Two ordinary routes therefore left it unset and re-armed the steer:
+
+- **A fresh session landing straight on `/globe`** — a bookmark, a typed URL, or any of the `?terrain=…` dev URLs. Never written.
+- **Clicking Globe or Full in the view bar**, which *explicitly* called `sessionStorage.removeItem("rg:steered")` before navigating to `/globe/` and never re-set it. The bar re-armed the exact trap the flag exists to prevent.
+
+Reproduced live before changing anything: cleared the flag, asked for `/`, landed on `/globe/`. **Fixed by writing the flag whenever a visitor is allowed to stay on the globe**, which is the semantic the guard actually needs, and by deleting the `removeItem` — traced every quality-switch path and it is load-bearing in none of them (each arrival at `/globe` is already permitted by `rg:quality` alone, and each arrival at `/` under Lite returns early), so its only effect was the bug.
+
+**Moving the gallery off `/` was rejected.** `/` is the Tier-1 pessimistic default by architecture: it must render real content for no-JS visitors, incapable devices and crawlers, and the country links live there. A router at `/` breaks *renders instantly for everyone*; keeping the gallery at `/` **and** adding `/gallery/` gives two URLs for one page.
+
+**`← Gallery` and the bar's `Lite` are not redundant, though they land on the same URL.** `← Gallery` is plain navigation with the tier preference untouched; `Lite` writes `rg:quality` to **localStorage**, which persists across sessions and makes `/globe` bounce on every future deep link until another tier is picked. Deleting the link would leave a persisted downgrade as the only way off the globe.
+
+**Then the credit folded into the bar, and `compact: false` turned out to be the whole answer.** Rohan asked whether the `AttributionControl` could be kept for its API while being restyled. It can, and the option is stronger than it looks: `_updateCompact` never adds `maplibregl-compact` when `compact` is explicitly `false`, **at any width**, so the container is a permanently-open `<details>` — its ⓘ `<summary>` stays `display: none` under MapLibre's own stylesheet, and `_updateCompactMinimize`'s drag handler is a no-op. That **deletes** the previously-blocking problem (the ⓘ's glyph is a baked-in black SVG that cannot be recoloured from CSS) rather than working around it, and with it the `MutationObserver` that used to race MapLibre to force the collapse back down on phones. Keeping the control also keeps `_updateAttributions` walking every used tile manager, so a future source declaring `attribution` still appears by itself.
+
+**The move adds the class that styles it** rather than relying on `.view-bar` as a selector ancestor — an ancestor prefix stops matching if anything re-parents the element again, and a failed fold then leaves the credit *half-styled* rather than plainly stock. Failing visible beats failing invisible for something carrying a licence obligation.
+
+**The find underneath the feature: `left: 50%` + `translateX(-50%)` was capping the bar's layout width at half the viewport.** The transform is applied *after* layout, so shrink-to-fit resolves against `viewport − left` and gives nothing back. Measured at 700 px: **350 px of available width for 388 px of content**, so the bar wrapped with two thirds of the row empty beside it; at 390 px it wrapped to **three rows**. This predated the credit — the credit only made it visible. `inset-inline: 0` + `margin-inline: auto` restores the whole viewport: **700 px went from two rows to one, 390 px from three to two.**
+
+**Phone clearance re-derived rather than re-assumed.** With the bar taller, the scale bar's old 5.2 rem lift was **−9 px at 320 px** — a genuine overlap. Swept 320–640 px for the worst-case bar top (92 px, two rows) and set 6.5 rem, clearing by 12 px. The sweep also exposed a **second window at 641–690 px**, where the lift stopped at the old 640 px breakpoint while the one-row bar's left edge was still inside the scale bar's 120 px reach — a band that collides only at high zoom, the worst kind to find by eye. Breakpoint moved to 700 px.
+
+**Then the credit became an ⓘ, and the icon was drawing at 60% of its own box.** Rohan asked for the glyph rather than the words, and reported it too small on desktop. The cause was geometric, not a taste call: MapLibre's info path is a circle centred (10,10) with r=6 inside a `0 0 20 20` viewBox, so **40% of that box is dead margin** and at a shared CSS `width` it renders ~60% the size of the octicon beside it. Cropping the viewBox to the ink (`4 4 12 12`) fixed it at the source rather than by inflating the width — 18.4 px of rendered ink against the octicon's 16.8. **The same bug was then found in the collapse trigger** (paths spanning 12 of 16 units), cropped the same way. The markup goes through MapLibre's `DOM.sanitize`, so the SVG was **verified to survive that round trip** — including `viewBox`, whose casing only survives because the HTML parser adjusts foreign-content attributes; a `data:` URI would have been stripped from an href silently. The trade is stated rather than hidden: an unlabelled glyph is less discoverable than the words were, so `title` + `aria-label` carry the name and a test pins that they exist — a link whose only content is a decorative SVG otherwise has **no accessible name at all**, which is the one change here that could cost compliance rather than just findability.
+
+**The phone collapse, and the bug that only a shared component would produce.** The bar collapses below 600 px to `[tune | ⓘ]` (102 px), persisted and defaulting closed. The credit sits **outside** the collapsible group and stays visible in both states — it is a licence pointer, not a view option, so the collapse must not be able to hide it. First implementation shipped a real defect: the media query hid `.view-bar-items` on **every** page at phone width, while the trigger renders only where the tier picker does — so a **hero page lost its Focus button with nothing on screen able to restore it**. `.view-bar` is shared by three page types, and testing only the globe would never have shown it. Fixed with an `is-collapsible` class gated on the identical prop, and a test now asserts the class and the trigger track the same condition.
+
+**An expanded bar outruns any fixed clearance constant.** Measured with the controls open: 75 px tall at 390 px, 108 at 360, and **141 — four rows — at 320**, against a 104 px scale-bar lift. Raising the constant would push the scale bar into mid-screen at the widths where it already fits, so instead the scale bar **drops for as long as the controls are open** (`body.viewbar-open`, the same layout-owns-the-state pattern as `borders-on`). Swept both states across 320–1200 px afterwards with zero collisions.
+
+**Two instrument bugs caught in this half, both reporting confidently.** A probe called `getComputedStyle` from the **parent** window on elements inside the iframe; and a sweep clicked the trigger to set state, but `rg:viewbar` is **shared localStorage across same-origin iframes**, so each iteration flipped the next one — producing a table where 320 px and 390 px silently measured the *collapsed* bar while claiming to measure the expanded one. Rewritten to set the state before load and **assert the state it got** (`stateAsIntended`) rather than assume the click landed. **And a third, which is the 2026-07-25 rAF trap recurring in a new costume.** The credit intermittently measured hidden, then absent outright, long after any load should have finished. Cause, verified rather than guessed: `document.visibilityState` reported `"visible"` while `document.hasFocus()` was `false` and **a `requestAnimationFrame` callback never fired at all** — so MapLibre's rAF-deferred `Style.loadJSON` never ran, the map had **zero sources**, and `_updateAttributions` correctly marked the control `maplibregl-attrib-empty` because there was genuinely nothing to credit. Not a defect and not the sub-200 ms startup window either: an unfocused automation tab, presenting as a missing element with no error anywhere. **The generalisable check is `rafFired`, not `visibilityState`** — the latter lies. Worth stating because the same trap has now produced three different false symptoms across three sessions (dead tile source, hidden element, missing element), and each time the surface looked like a bug in whatever had just been written.
+
+**Verification.** The guard is `is:inline` and cannot be imported, so the tests **extract the shipped script from the `.astro` file and execute it** against stubbed browser globals — one copy of the logic, exercised rather than string-matched. Its `try/catch` wrapper would swallow a broken stub and make every "does not redirect" assertion pass vacuously, so the auto-steer case is asserted **first, as a positive control that must redirect**. Falsified by reverting the fix: exactly the three route tests went red while the control stayed green. Geometry checked with a rect-overlap predicate against each element's **worst-case** size (the scale bar grows with zoom to its cap), and that predicate was itself falsified by removing the lift. All of it re-verified against a **production build**, where Astro extracts CSS to a `<link>` instead of injecting it via JS — the cascade hazard the four-class specificity exists to survive; computed values identical.
+
+### 2026-07-27 (chrome) — the credit line was holding the controls hostage, and MapLibre's stylesheet loads after ours
+
+**The ask was small:** move the view bar from bottom-right to bottom-centre, and link the now-public repository from the gallery and the globe.
+
+**The blocker was not.** Measured before touching anything: the globe's attribution is a **770 px bar** along the bottom-left (right edge 780 px), and a centred 321 px control bar lands at 460 px — a 320 px overlap. So **bottom-right was never a design choice**; it was the only bottom slot that cleared the credits, a constraint wearing a design's clothes. Anything that centres the bar has to deal with the credit line first.
+
+**The credit is ours, and it was never the compliant text.** It comes from `CREDITS` in `globe.astro`, handed to the raster source's `attribution` field — we author every character. And the legally required string was never on the map: Copernicus GLO-30 Art. 6(b) demands an exact notice ("produced using Copernicus WorldDEM-30 © DLR e.V. 2010-2014 and © Airbus…"), which — with the Art. 6(c) liability sentence and the no-endorsement statement — lives on `/about`. GEBCO, Natural Earth and NSIDC are public domain; GLOBathy is CC0; RGI 7.0 and OSI SAF are CC-BY, which a labelled link satisfies. **So shortening the line changes how findable the credits are, not whether we comply.** Now `<a href="/about/">Data sources</a>` — **770 → 111 px**. (One scare on the way: a grep for the liability sentence returned 0 and looked like a compliance gap. It was on `/about` all along, split across a line wrap.)
+
+**A width that moved.** The first measurement after shortening still read 195 px, because **two other sources also declared `attribution: "Natural Earth"`** — the borders source and, mounting unconditionally, the countries source in `countryHighlight.ts`. MapLibre concatenates every source's attribution with `" | "`, so the credit line **changed width depending on whether borders were toggled on** (107 px vs 195 px). A centred neighbour cannot be laid out against a width that moves, so both were removed; Natural Earth requires no attribution at all and is credited on `/about` with everything else.
+
+**Then the restyle, and the cascade.** Nothing in this project had ever styled a MapLibre control — the attribution and scale bar shipped as stock white boxes with Helvetica, the only chrome not speaking the floating-pill language `.globe-home`, `.country-chip` and `.view-bar` share. Bringing them in ran straight into a trap worth remembering:
+
+- **MapLibre's stylesheet is injected at RUNTIME by its ES-module import**, so it lands after any static CSS regardless of where that CSS sits. Equal-specificity rules therefore lose *silently, on source order*. The first version of the block computed `bottom: 5.2rem` as MapLibre's `0px`, and left the attribution with a **white background and 12 px corners under our border and shadow** — half-styled, which reads as a bug rather than a theme.
+- **Four repeated classes, not two.** Their `.maplibregl-ctrl-bottom-left > .maplibregl-ctrl-attrib.maplibregl-compact-show` is already (0,3,0). **The tell was a border-radius of 999 px on a phone and 12 px on desktop** — the phone case is re-parented to `<body>`, where that descendant selector stops matching. Same reason a tidy `#globe` prefix is unavailable here.
+- **`font-family: inherit` failed by working.** `.maplibregl-map` sets a `font` SHORTHAND on the map container, so `inherit` faithfully inherited Helvetica. Naming `var(--sans)` is the fix.
+- **The ⓘ toggle keeps MapLibre's pale wash on purpose.** Its glyph is a baked-in black SVG `background-image`, so tinting the button transparent or dark hides it outright on the dark theme — restyling it properly means replacing the image, not the colour. My first pass did exactly the wrong thing here.
+
+**Phone clearance comes from height, not width.** At 386 px the bar wraps to two rows and the scale bar **grows with the zoom** up to its 120 px cap, so the 2 px gap measured at that width was luck, not a margin. The bottom-left stack is lifted to 5.2rem under the existing 640 px breakpoint instead, so clearance depends on a known height rather than on two widths that both move. **Verified at 390 / 700 / 1200 px through an iframe**, because Chrome refuses to resize a window below ~500 px and the phone case is the one that matters.
+
+**The repository link** lives in `web/src/lib/siteLinks.ts` rather than inline twice — a renamed repo or moved org breaks every copy at once, and **a 404 on an outbound link is invisible from inside a build**. Gallery gets a text link in the masthead nav; the globe gets an icon pill beside "← Gallery", both wrapped in a `.globe-chrome` flex row so neither has to know the other's width. A test pins that both views import the constant, that no page inlines the URL, and that every `target="_blank"` carries `rel="noopener noreferrer"`.
+
+**Dev-only footnote:** Astro's dev toolbar also sits bottom-centre and now overlaps the control bar *locally*. It ships in no build — but it makes judging the change on `astro dev` awkward, so hide it before looking.
+
+### 2026-07-27 (Tier 3, cont. 2) — the globe atmosphere was clipping a quarter of every pitched frame, and MapLibre will ramp it from an expression
+
+**The symptom.** Judging terrain at pitch 60 over the Himalaya (`#map=6.96/31.496/80.966/84.1/60`), the top of the frame read washed out and harshly lit — the Tibetan Plateau bleached to a flat cream while the near foreground kept full colour.
+
+**Two hypotheses the screenshot cannot separate**, because in a pitched frame the top is *both* farther away *and* genuinely the high, pale end of the hypsometric ramp: the tiles are like that (palette), or the renderer added it (atmosphere/fog). Breaking that correlation is the whole diagnosis.
+
+**It is the atmosphere, isolated by changing only `atmosphere-blend`.** At the identical camera, the atmosphere's own contribution by screen row: **+59,+84,+94 DN** at the top, +19,+22,+21 mid-frame, **+0,+1,+0** at the bottom. A saturated `166,137,105` renders as a near-neutral `225,221,199`; red−blue separation collapses 61 → 26, which is why it reads *harsh* rather than merely bright.
+
+**The mechanism, from the shader rather than the spec prose.** `shaders/glsl/atmosphere.fragment.glsl` ray-marches the air column and truncates the integral at the planet (`rsi(r0, r, rPlanet)` → `p.y = min(p.y, p2.x)`), so **one uniform scales both the limb glow and full aerial perspective over the ground**. A grazing ray at the top of a pitched frame traverses far more air than a near-radial one at the bottom. The blue bias is Rayleigh by construction — coefficients `(5.5, 13.0, 22.4)e-6`, blue scattering four times as hard as red. **Terrain fog is a different thing and never runs for us**: `terrain.fragment.glsl` skips it outright under `u_is_globe_mode`.
+
+**The defect is clipping, not haze.** Whole-frame statistics at that camera:
+
+| `atmosphere-blend` | pixels ≥254 | mean saturation |
+|---|---:|---:|
+| 0.70 (was shipped) | **23.8%** | 0.251 |
+| 0.35 | 11.8% | 0.289 |
+| 0.15 | 5.8% | 0.311 |
+| 0 | 1.8% ← the tiles' own snow | 0.328 |
+
+Nearly a quarter of the frame pushed to pure white; detail that no longer exists in the buffer. One sampled row read `255,255,242` where the surface is `243,214,181` — two channels saturated.
+
+**Not terrain, and not new.** With `setTerrain(null)` the same camera still gains **+50,+77,+88** at the top row. This predates Tier 3 entirely. **And the shipped default never sees it: at pitch 0 the ground delta is exactly 0 at every zoom tested (z1, 3, 5, 6.96, 8)**, and `globe.astro` sets no pitch — 60° is reachable only by drag or hash. The reason to fix it anyway is that **terrain is the feature that makes pitching worth doing** (silhouette, parallax, occlusion — none exist at pitch 0), so Tier 3 turns a corner case into the payoff view.
+
+**Not a re-litigation.** HISTORY § the starfield records the atmosphere as *"kept unchanged… a gentle earth-glow"*, with the note that the worry it would *"wash to light grey was unfounded"* — judged **at overview, against dark space**. That worry is exactly right in a regime that judgement never covered.
+
+**Decision: ramp on ZOOM, 0.7 at z≤3 → 0.15 at z≥6.** The axis is chosen on a measurement, not on symmetry with the terrain ramp: the atmosphere's only job needs off-globe pixels to glow into, and sampling how many screen rows read as background gives **2 of 10 at z3 (pitch 0), 0 by z5, and 0 at z7–8 at ANY pitch**. So past the overview it delivers none of its purpose and only clips. That makes the ramp **strictly non-harmful**: at high zoom it either does nothing (pitch 0) or removes damage (pitched). The only real trade is z4–5 pitched, where the limb is partly in frame — worth it against a +96 DN haze. **0.15 rather than 0** because distance-lightening that stops short of clipping reads as depth, which is the one part of aerial perspective worth keeping.
+
+**The implementation finding, which changed the design: `atmosphere-blend` accepts a ZOOM EXPRESSION.** The style spec marks it interpolatable and its own doc says *"it is best to interpolate this expression when using globe projection"*. That is the opposite of terrain, whose `exaggeration` is typed a plain number and therefore *has* to be hand-driven. It matters beyond tidiness: `Style.setSky` re-runs the sky's transitions on every call at a **300 ms default** (`extend({duration: 300}, stylesheet.transition)`), so a per-zoom handler would chase the camera a third of a second behind and restart before ever landing. Declared once, MapLibre evaluates it per frame.
+
+**Exact geometric decay out of a two-stop expression, by an identity.** MapLibre interpolates `y = y₀ + (y₁−y₀)·(b^(x−x₀) − 1)/(b^(x₁−x₀) − 1)`; substituting `b = (y₁/y₀)^(1/(x₁−x₀))` makes `b^(x₁−x₀) = y₁/y₀`, the denominator becomes `(y₁−y₀)/y₀`, and the whole thing collapses to `y = y₀·b^(x−x₀)`. So `["exponential", 0.5984]` over stops `3→0.7, 6→0.15` *is* geometric decay, and the JS mirror used by `?perf` agrees with it to 1e-10 at every step. Geometric rather than linear on the measurement above — the limb is gone by z5, so the reduction should be mostly spent by then (geometric leaves 0.251 there, linear 0.333). A floor of 0 falls back to `["linear"]`, since geometric cannot reach zero and MapLibre's exponential divides by `base^span − 1`.
+
+**Verified end-to-end in the renderer, not just in the unit test.** The expression renders **0 DN** different from the constants it must equal at z3/z4/z5/z6.96 — with a positive control proving the comparison can see a difference at all (deliberately wrong constants register **16/34/16/4 DN**). Result at Rohan's camera: **25.28% → 5.13% clipped**, saturation 0.2847 → 0.3528; at pitched z5, 14.38% → 4.31%. **The overview is bit-identical** (0.57% clipped, 0.0537 saturation, both arms) — the ramp costs nothing where the atmosphere earns its keep, which is the entire justification for ramping instead of lowering the constant.
+
+**Rejected: lowering the constant to 0.35.** Halves the clipping for one line, but still leaves ~12% clipped and dims the overview glow that was deliberately chosen — and the overview is the one place the atmosphere is doing its job.
+
+**Two instrument bugs, both of which first reported success.** (1) A zoom×pitch sweep read **every delta as 0**, including at a camera where +94 had already been measured minutes earlier — it probed *inside* the 300 ms sky transition. Proven by sampling the transition directly: unchanged at t=0, half-applied at t=100 ms, settled by t=500 ms. It was caught only because the result contradicted something already known to be true. (2) The first end-to-end verification returned `maxDelta 0` at three of four zooms while sampling **black against black** — those rows were off-globe space, where the canvas is transparent and `readPixels` returns zeros, so the check would have passed against literally any implementation. Fixed by filtering to ground pixels and adding the wrong-constant control. Same disease both times, and the same tell: *a check that cannot fail is not a check*.
+
+**Where it lives.** New `web/src/lib/skyAtmosphere.ts` owns the sky spec (colours moved out of `globe.astro`, which now names none of them) plus the ramp, the `?sky=off|<floor>` sweep knob, and the `?perf` read-out; a source guard asserts one `setSky` call and no per-zoom sky handler. Deliberately a **sibling of `terrainSource.ts`, not a generalisation** — the two ramps share an interpolation shape and nothing else, and one is declarative where the other cannot be.
+
+### 2026-07-27 (Tier 3, cont.) — the terrain exaggeration ramp: one constant cannot serve both ends of the zoom range, and the floor is derived rather than preferred
+
+**The symptom.** With terrain live on Rohan's phone at ~z6.5, the Himalaya rendered as a **bed of nails** — sharp fins, with the snow band smeared vertically. Not a rendering bug and not, as first suspected, a resolution problem.
+
+**The mechanism, measured rather than reasoned.** MapLibre builds a fixed **128×128 mesh per terrain tile** (`render/terrain.ts`), and `TerrainTileManager` sets `deltaZoom = 1` with an overridden `tileSize` of 1024 that `tile_manager.ts` honours whenever `usedForTerrain` — so DEM tiles load at **mapZoom − 1**, a loaded tile always covers **1024 CSS px**, and **one facet is ~8 CSS px at every zoom**. Facet size on screen is therefore *constant*; only the vertical changes. Measured off the shipped z6 tiles at that stride:
+
+| | facet | real median \|dz\| | 1× | 5× | 15× |
+|---|---|---:|---:|---:|---:|
+| Karakoram | 4.0 km | 284 m | 4.0° / 21° p99 | 19° / 63° | **47° / 80° p99** |
+| Everest | 4.3 km | 159 m | 2.1° / 17° p99 | 11° / 56° | 29° / 77° p99 |
+| Ganges | 4.5 km | 8 m | 0.1° / 3° p99 | 0.5° / 14° | 1.5° / 37° p99 |
+
+Real Karakoram over a 4 km baseline is 4° median; 15× draws 47°. **The needles are a factor-of-15 amplitude overstatement, not aliasing.** Two effects compound: the colour texture is z8 (266 m/px) draped over 4 km facets that do not correspond to it, and a plan-projected texture smears vertically across a near-vertical face — the white streaking in the snow.
+
+**Why one constant cannot work.** Displacement is `elevation × N / 6371008.8` of the radius, so Everest at 15× is ~5 px against the overview globe and ~246 px at z7 — a **~25× swing**, and 15 was chosen against the first number.
+
+**The fix, and why the floor is derived.** `?terrain=N` now ramps geometrically from N at z≤3 to a floor at z≥8, joined by `?ramp=off|<floor>` (`off` is the control arm). Geometric because facet slope scales *with* exaggeration, so the perceived step between zooms is a ratio. The floor is not a preference: elevation change across a facet goes as roughly **`width^0.5`** while the facet halves each level, so apparent slope holds constant only if exaggeration falls by **2^−0.5 ≈ 0.707 per level**. From 15× over five levels that is exactly **2.652**; **2.5** is that rounded to something typable, costing 1.1%.
+
+- **The first floor tried was 4** (0.768 per level). It looked right at z6.45 and wrong at z8 — because the error *compounds*: p99 facet slope drifted 45° → 58° across five levels, and z8 is where it surfaced. z8 is also the harsher regime: the DEM clamps at z6 while the mesh keeps subdividing, so a facet spans **2 DEM samples (2.1 km) instead of 4**, and z8 at 4× is steeper than z7 at 6×.
+- Ratified on Rohan's eyes at z8 (2.5×, "decent") and z5 (7.3×, "flatter than before, but not by too much" — the *intended* consequence of constant apparent slope; floor 4 had over-exaggerated the mid zooms relative to z8).
+- **The endpoints are not independent.** 15× at z3 and 2.5× at z8 *is* the scale-invariant pair; moving either trades constant slope for more relief at one end. A test pins the per-level factor to within 2% of `2^−0.5` so a future floor change cannot silently break it.
+
+**Applied as a uniform, never via `setTerrain`.** `Map.setTerrain` constructs a **new `Terrain` and `RenderToTexture` on every call** and only reaches `Terrain.destroy()` on the removal path, so calling it from a zoom handler would leak a framebuffer pair per step and discard the mesh and RTT caches. `exaggeration` is a per-frame uniform (`u_terrain_exaggeration`), so writing `map.terrain.exaggeration` costs nothing and invalidates nothing. Consequence: `map.getTerrain()` reports the spec handed to `setTerrain` and goes **stale** after the first ramp step. A test asserts `globe.astro` contains exactly one `map.setTerrain(`.
+
+**The ramp is free, and terrain is cheaper than no terrain.** GPU frame time by timer query, two passes per arm: control 15× / default / harder are **identical to 0.01 ms at every zoom and DPR**, with identical tile counts. The covering-volume inflation that *could* have differed (`globe_covering_tiles_details_provider` expands each tile's bounds by `dem.max × exaggeration`) is bounded — Everest at 15× is 2% of the earth radius. Separately, **terrain ON is cheaper than OFF** and the gap widens with pixel ratio (0.42→0.37 ms at DPR 1, 1.76→1.16 at DPR 2, **4.52→2.58 at DPR 3**): terrain moves the globe onto the render-to-texture path, whose `rttSize = tileSize × qualityFactor` = 2048² per tile is **DPR-independent**, while the direct path pays the full drawing buffer. Median down, p95 marginally up (RTT repopulation frames).
+
+**Rejected, both measured.**
+- **Shrinking `rttSize`** (8 terrain tiles each get 2048² to cover ~435² of screen — 22× oversampled in area). Honest numbers after a full pool reset: repopulating frames 1.877 → 1.375 ms (**27%**, not the 6× a first attempt showed), at a cost of **15% of pixels differing by >8 DN** against a 0 DN noise floor. Bad trade where the aesthetic is the product. *The first attempt measured a broken render* — changing `rttSize` with stale objects in the painter's recycle pool draws sea instead of land, so the "6×" was the cost of not drawing the map.
+- **Low-passing the DEM before encoding**, tried at both z7 and z8 scales. It works, but buys smoothness at the same rate it costs peak height: 9×9 blur at 15× still leaves a 70° p99 while knocking Everest 8,290 → 6,758 m, whereas plain 5× with no blur gives 63° p99 with the peak intact. **Plain exaggeration reduction dominates blurring on every axis** — confirmed twice, at different strides.
+- **Capping pixel ratio** is worth ~55% of frame time at DPR 3→2 but is a *degradation* lever, not an optimisation: FUTURE § *Raster tile resolution vs device pixel ratio* establishes the tile scheme is centred on DPR 2, so a DPR-3 phone is already the under-served end at 0.67 texels per device pixel. It stays where it is, as an `fpsDegradation` rung.
+
+**What a deeper pyramid cannot buy.** Because a facet is always ~8 CSS px, z7/z8 terrain tiles would place those vertices more accurately but would **not give more of them**. The needles are the p99 tail and it falls slowly — 4× → 2× halves the median (22° → 11.4°) but only takes p99 from 65° to 47°, so the range flattens faster than the last spikes disappear.
+
+**`?perf` gained live frame numbers**, because the phone is where this is judged and it has no console: `fps N · worst N ms · slow N · z…` plus a `terrain 5.9x · ramp 15→4` line so a screenshot says which arm produced it. Frame cadence comes from MapLibre's own `render` event, **not a rAF loop** — a rAF loop would report a steady 60 on a map drawing nothing *and* hold the page at 60 Hz, changing what it measures. **A gap between renders counts as a frame only if it does not span an `idle`**, or every pause to look at the map records a multi-second "worst frame"; both readings reset at the first idle so they mean "since the map became usable" (load cost is what the long-task line already measures). **The count exists because the max alone is uninterpretable** — a screenshot or the URL bar pauses rAF and lands as a 400 ms frame; `worst 428 ms · slow 1` is that artifact, `worst 90 ms · slow 24` is real jank. Diagnosed from Rohan's own captures, where the *cheapest* arms recorded the worst frames. `last long task ended` was dropped to pay for the new line.
+
+**Method notes.** Two measurement rigs failed before one worked: **`gl.finish()` does not wait on the GPU in Chrome** (no change across a 4× pixel increase — it only flushes the command buffer), and **timer-query results resolve on a later task**, so a synchronous poll always reads unavailable. `readPixels` is a real sync point; `EXT_disjoint_timer_query_webgl2` batched-then-drained is the honest oracle, validated against DPR 1/2/3 giving 0.88/1.89/2.75 ms. Also: an arm sweep that silently measured **every row at z8** because the `setZoom` call was dropped in a refactor — caught only because tile counts were identical across zooms, which cannot be true. And this display is **164 Hz**, not 60, so an earlier "7% of frame budget" was really ~19%.
+
+**Still open.** `SPIN_MAX_ZOOM = 3` means the map only renders while touched above z3, so the fps readout is blank in most close-zoom screenshots — the persisted worst/slow pair is the usable signal there. Nothing is wired to `currentTier() === "full"` yet; terrain remains behind `?terrain=N`.
+
+### 2026-07-27 (Tier 3, step 0) — terrain does displace on the globe, and quantisation turns out to be nearly free because our shading is baked
+
+**Scope first, because it was smaller than PLAN said.** Tier 3 was specified as displacement + idle animation + lazy 8K hero on click. Two of the three already shipped: the idle spin is gated on `currentTier() === "full"` (`globe.astro`) and is the **only** `currentTier()` read on the page, so "Full" has meant *the spin* and nothing else; and `openPanel` already sets `src` + a full `srcset` on demand. Loading the 8K rung into a 420 px card would be a regression, not the feature. **Tier 3 is terrain, and only terrain.** Separately, PLAN Phase 5 bundled three *colour-pyramid* items (crispness re-fuse, occlusion `cos(lat)`, high-latitude coastlines) under "the first full tile restage"; terrain-RGB reads `height_3857.tif`, which exists, so **the line claiming it "shares the fine re-fuse input" is stale** and the phase splits in two.
+
+**MapLibre's globe DOES displace — verified in its source, not assumed.** `shaders/glsl/_projection_globe.vertex.glsl` defines `projectTileFor3D(posInTile, elevation)` → `interpolateProjectionFor3D` → `spherePos * (1.0 + elevation / GLOBE_RADIUS)`, and `terrain.vertex.glsl` calls exactly that. The one globe caveat, `vertical_perspective_transform.ts`'s `warnOnce('terrain is not fully supported on vertical perspective projection')`, guards **`recalculateZoomAndCenter`** — camera-follows-terrain, which a camera capped at `maxZoom: 8` never needs. Hit-testing survives because `screenPointToMercatorCoordinate` routes through `terrain.pointCoordinate` (the coords framebuffer is projection-agnostic), and DEM decode is dispatched to a worker, so terrain adds nothing to the Firefox main-thread decode carry-in.
+
+**The build (`pipeline/tile/terrain_rgb.py`, z0–6 spike): 7:55 for the first variant, 3:53 for the second**, which reuses the elevation chain — the 46 GB master is read once. **Oracle: decoded tiles vs the master read max error exactly 0.500 m** (half the 1 m step) at five sites, while a deliberately misaligned control read 1,070–4,187 m off, so the check demonstrably can fail. Sizes z0–6: **clamp 0.37 GB, bathymetry 0.98 GB**, growing a clean **3.35× per zoom level** → z0–8 projected **~3.8 GB clamp / ~10.1 GB bathy**. That corrects my own overcorrection: I had told Rohan FUTURE's "roughly the colour archive's size" (3.0 GB) was wrong and the figure was 4.7–7.8 GB, from a **7-tile hand-rolled sample biased toward rugged, fully-land tiles** — FUTURE was close and the estimate was not.
+
+**Look, judged on Rohan's eyes: exaggeration 15 and bathymetry.** Off already reads well; 5× lifts the plateau; **15× is where the range breaks the skyline** and shading and geometry agree; **40× shreds** into spikes past the 128×128-per-tile mesh. Sea treatment was built both ways and A/B'd rather than argued — and **bathymetry looked better than predicted**, the basins reading as depth with no shelf-edge wall at 15×, which weakened the clamp recommendation to a pure size argument. **The cost is camera-dependent and much wider than the archive-wide 2.6×**: on a land camera bathy is 1.26× clamp (3,665 → 4,630 KB), on open ocean it is **6.5× on the same ten tiles** (601 → 3,898 KB), because clamping collapses an abyssal tile to ~1.5 KB. At an ocean camera the DEM becomes larger than every colour tile combined.
+
+**Quantisation is the headline result, and the reason it works is structural.** Steps 1/2/4/8 m measured at z0–6: **939 / 763 / 602 / 462 MB — 8 m is 0.49×**. MapLibre's own decoder returns Everest at 6875.3 / 6874.3 / 6875.9 / 6872.8 m across those steps (max deviation 3.1 m, inside an 8 m step's budget), so the `custom` factors are right. Rendered 1 m vs 8 m at an identical camera differ by **mean 2.20 DN with 2.49% of pixels > 8**, against a **noise floor of exactly 0** (two captures of one state are byte-identical) — and the difference concentrates in the **mountains** (2.43) and is *lowest on the plain* (1.36), which is the opposite of terracing. Then the case rendering could not reach, measured on the master instead: adjacent-pixel elevation change is **0.44 m median on the Ganges plain**, so an 8 m step flattens **99.8%** of it — but **a 1 m step already flattens 77.1%**. The plain's real relief is finer than 1 m per 305 m cell at *any* step we would ship, and none of it matters because 1 m at 15× is 0.05 px and 8 m is 0.44 px against a zoom ceiling of 8. **Quantisation error is largest exactly where displacement is smallest, and smallest where displacement is largest.** We can spend it only because **our shading is baked**: consumers who compute hillshade client-side from the DEM would see quantisation in their lighting, and we cannot. 16 m buys only another 0.74× and reaches 0.87 px, so 8 m is the knee.
+
+**Two traps the module exists to avoid, and both are silent.** (1) **Never resample encoded elevation.** The value is `R*256 + G - 32768`, so green wraps every 256 m and any smooth resampler invents a 256 m cliff — `shade_planet.TILE_CUT` uses `cubic` for both the cut *and* its overviews, correct for colour and catastrophic here, so the risk is a well-meaning port. The pyramid is therefore built **per zoom from elevation downsampled in metres**, each level cut with `nearest`; `test_cut_zoom_never_resamples_encoded_bytes` is the only test in the file that would catch a change to `cubic`. (2) **The blue channel must be zeroed** — terrarium's 1/256 m fraction measured **2.5× larger** (Everest 631 vs 367 KiB) for noise a 305 m/px grid cannot hold.
+
+**Peak erosion, and the `tileSize` lever it exposes.** Box-mean downsampling preserves the mean exactly and erodes only extremes: over a fixed ~157 km box, Everest reads **8,586 m at the master, 8,290 at z6, 7,784 at z5, 7,099 at z4** (−17.3%), Karakoram −20.7% at z4, while the Ganges plain is unmoved because it has no extremes to lose. Terrain declares `tileSize: 512` — its true size, unlike the relief source's deliberate 256 — which loads one zoom shallower for ~¼ the requests, and *that* is what puts z4 tiles under a zoom-5 camera. **Declaring 256 would recover roughly half the lost peak height for ~4× the DEM requests**; untested, and now much more affordable given 8 m halves the bytes.
+
+**Per-view payload, cold, measured**: landing camera **+358 KB / +1 request** (one z0 tile covers the globe); Himalaya z6.5 **+4,630 KB / +14 requests** at 1 m, ~2,270 KB at 8 m. Synchronous render cost 0.5 → 0.8 ms at a country view and 0.6 → 1.5 ms at the landing view — **CPU side only; GL work is queued, so this is a floor and says nothing about a phone's GPU.** Heap figures were discarded as GC noise (they read *lower* with terrain on).
+
+**The polar feather is designed, shipped and unproven.** Custom layers are not draped (`LAYERS_TO_TEXTURES` in `render_to_texture.ts` covers background/fill/line/raster/hillshade/color-relief only), so displaced tiles under an undisplaced cap would open a geometric seam — worst in the south, where the 80–85° band the cap feathers over is 2–3 km of Antarctic ice. `terrain_rgb` ramps encoded elevation to zero across 78–85° with a smoothstep (linear would leave a slope break, and this multiplies geometry). The seam renders clean — but **no no-feather variant was built, so the counterfactual is untested**: this was designed from MapLibre's source rather than from an observed artifact.
+
+**Method notes, all three the same disease.** A rusty rim at the limb looked like a terrain artifact until the same camera with terrain **off** showed it identically — pre-existing, and the layer-on/off habit is what caught it. A first pass at the A/B reported 3.07% differing pixels that turned out to be **my own contamination** (one frame had the mouse cursor, another had gained the hover chip); with chrome held constant the noise floor is 0. And a check for whether production shipped `?terrain` returned 0 for `?perf` too — **which demonstrably works** — because the minifier rewrites every string literal to **backticks**, so quote-anchored greps silently match nothing. Each time, the tell was a result that disagreed with something already known to be true.
+
+**Also learned: `map.redraw()` forces a synchronous frame in a backgrounded tab.** The standing note was that automation tabs render black and never fetch tiles; half of that is wrong. Tiles fetch normally (37 requests, source loaded) — only the rAF-driven *paint* stalls, and `redraw()` unblocks it. That makes WebGL A/Bs scriptable rather than requiring a foregrounded window.
+
+### 2026-07-26 (reclaim + z10) — 35 GB back, and the deep-pyramid question turns out to be blocked on the disk, not the format
+
+**The reclaim: 35 GB, 441 → 476 GB free.** Four items, each checked against the rule that only what is required for nothing at all may go. **`tiles_old/` (16 GB)** — verified as the superseded pyramid by counting it (**87,381 PNGs, 0 WebP**) against a live `tiles/` of 87,381 WebP serving `200 image/webp` from R2, so its rollback window was closed rather than assumed closed. **`planet.mbtiles` (3 GB)** — the convert bridge; the archive it produced reads `spec 3 / webp / z0–8 / 87,381 tiles` and `tiles/` is intact, so it rebuilds in ~10 s. **`raw/globathy/` (16 GB, two zips)** — extraction verified intact first at **83,357 rasters, exactly INVENTORY's figure**, plus the VRT; both zips are pinned by size+md5 in `download_globathy.FILES`, and `extract_globathy` is their only consumer. **`_ab_shadow2/` (1.2 GB)** — its decision is archived (§ cast shadows REJECTED A SECOND TIME), and the finding is the product, not the pixels. INVENTORY's specific trap check ran on all four: **no `.py`/`.sh` living only inside them** — the failure that once had to be caught mid-`rm`.
+
+**Then the real question: is a z10 cut possible now that tiles are WebP? No — and the format was never what stood in the way.** The framing that settles it is already in PLAN: **z10 is a planet re-fuse at ~2.5″, never a tiling flag.** The grid is `131072²` = exactly `512 × 2⁸`, so a deeper pyramid re-fuses at 4× linear and re-warps every layer onto `524288²` — **16× area on every intermediate**. Projected off the real rasters: **1,773 GB of intermediates and ~43.2 h of build** (the lake warp alone 1:01:44 → **~16.5 h**, over a third of it), against a 1.8 TB disk already holding ~1.3 TB. **It does not fit**, and reclaiming every hero intermediate *and* WorldCover (~304 GB) still falls short while `glo30`'s 551 GB has to stay, being what the re-fuse reads. **This is a hardware precondition, not a scheduling one.**
+
+**What WebP actually bought, stated precisely so the question is not reopened on it:** a z10 archive would be **~48 GB in WebP vs ~260 GB in PNG** (5.2×, measured on the real pyramid at 16 GB → 3.0 GB). WebP is what would make a deep pyramid *shippable*; the intermediates are uncompressed working rasters and did not move at all. The delivery side improved; the wall did not.
+
+**The argument that stands even with infinite disk.** GEBCO is 15 arc-sec — **measured on the file at 464 m/px**. Land keeps real headroom at z10 (30 m source into 76.4 m/px); the sea has none. Sea upsampling goes **1.5× → 6.1×**, so z10 sharpens land while leaving the sea exactly as soft as it is today, **quadrupling the land/sea detail mismatch**. Bathymetry is signature rather than optional, so that is a look regression bought with 43 hours. **z9 is the reachable middle if depth is ever wanted** — 443 GB, ~11 h, 3× upsample — recorded as existing, not recommended.
+
+**A precondition that reads open and is closed.** § z8 LOCKED recorded a latent gap — `ocean`/`water`/`lakedepth` take their grid from `height_3857` but did not depend on it, so a re-fuse would leave `lakedepth` falsely fresh at old dimensions, *"a silently wrong composite, not a crash"* — under the instruction **"fix before any re-fuse, not after."** It was fixed at the Antarctica re-fuse: `warp_needs_rebuild` is now `is_stale(...) or not grid_matches(...)`, exactly the prescribed dimension/bounds comparison. Recorded here because **reading the 07-17 entry on its own still reads as outstanding**, and the next person to cost a re-fuse will read that entry.
+
+**Sequencing: Tier 3 first, and not close.** z10 is blocked so there is no ordering to decide; Tier 3 is disk-cheap (terrain-RGB is a single-band encode of the `height_3857.tif` that already exists, roughly the colour archive's size); and the two are **independent MapLibre sources with their own `maxzoom`**, so terrain need not match the colour pyramid's depth — displacement meshes are coarse and z8 terrain is ample. Tier 3 built now is therefore not invalidated by a later re-fuse. Full table and the revisit trigger → FUTURE § A z9 / z10 pyramid.
 
 ### 2026-07-26 (doc currency) — the repo was still advertising the architecture it rejected, in four places
 
@@ -445,6 +1700,18 @@ Rohan reported blank wedges at the periphery when zooming out on the live site, 
 **Fix: a `background` layer at the bottom of the stack, `#47808F`.** Zero bytes, zero requests, one constant-colour draw per frame, and on globe projection it clips to the sphere so the starfield around the limb is untouched. It also removes the see-through sphere during initial load — verified by accident and then on purpose: a backgrounded automation tab pauses rAF, so the first screenshot caught the globe with **no tiles at all** and showed a solid abyssal disc where the old build would have shown a black hole in space.
 
 **Rejected: raising `maxTileCacheZoomLevels` 5 → 8.** It costs **+264 MiB of GPU texture on desktop** (330 → 528 tiles at 1.33 MiB each) and buys only a *probabilistic* improvement — it is still one LRU across all zooms, so a long session at z6 still evicts the ancestors, just later. Wrong direction on memory in the same week the mobile tier is being made lighter. If a data-based floor is ever wanted, a pinned low-zoom base source (z1 = 4 tiles, **273 KB**, measured) puts those ancestors in the *in-view* set where the LRU cannot reach them — deterministic, and three orders of magnitude cheaper. Parked, not scheduled.
+
+> **CORRECTED 2026-07-29, by measurement (§ a missing tile paints background because the parent is
+> unreachable).** Two claims above are wrong. (1) The mechanism is not eviction: the ancestors are
+> **in the LRU with data** and structurally unreachable, because `_updateRetainedTiles` substitutes
+> only out of `_inViewTiles` and its one call to `_addTile` is gated on `parentWasRequested`. So
+> "a long session at z6 still evicts the ancestors, just later" understates it — the size of the
+> cache never mattered, and `maxTileCacheZoomLevels` raised to 20 changes **nothing** (measured:
+> still zero substitutes). The rejection stands; its reason was too generous. (2) **z1 is not
+> deterministic.** Its covering set is still camera-dependent, so a first visit to a cold quadrant
+> paints nothing. Only **z0** — one tile, ideal at every camera — carries the guarantee, and that
+> is what shipped (`RELIEF_BASE_MAX_ZOOM`). The 273 KB figure was independently re-measured and is
+> exactly right.
 
 **The colour is derived, not picked.** `#47808F` is `_srgb8(SEA_STOPS[4])`, the −3,800 m abyssal-plain stop — the tone most of the sea floor actually is. It lives in a new `web/src/lib/palette.ts` whose whole job is to be the one scannable home for pipeline colours the browser cannot import, and `test_palette.py` recomputes it through `_srgb8` and fails on drift **in both directions** (mutating the hex, and mutating the ramp stop, were each falsified). That guard exists because `WATER_RGB` drifted ~15% off the sea surface twice for exactly this reason. **Honest limit of the fix:** a hole over land still shows ocean blue; the flat colour is a floor, not a reconstruction.
 

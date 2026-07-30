@@ -3,6 +3,7 @@ import Base from "../layouts/Base.astro";
 import Masthead from "../components/Masthead.astro";
 import { manifest as data, type Country } from "../lib/manifest";
 import { HERO_BASE } from "../lib/assetBase";
+import { REPO_URL } from "../lib/siteLinks";
 
 // Rendered heroes first (so real imagery leads while the sweep fills in), then
 // everything else alphabetically.
@@ -74,6 +75,7 @@ const indexLetters = [...byLetter.keys()];
       <a href="/globe/">Globe</a>
       <a href="/about/">About</a>
       <a href="#index">Index</a>
+      <a href={REPO_URL} target="_blank" rel="noopener noreferrer">GitHub</a>
     </nav>
     <p class="tagline">
       Ray-traced relief maps of every country.
@@ -415,11 +417,10 @@ const indexLetters = [...byLetter.keys()];
 </style>
 
 <script>
-  import { probeSignals } from "../lib/capability";
+  import { canRunGlobe, probeSignals } from "../lib/capability";
   // Hide the "Globe" masthead link on devices that can't run it — the /globe head
   // guard would only bounce them straight back, so don't offer the dead end.
-  const gpu = probeSignals();
-  if (!(gpu.webgl2 && !gpu.softwareGpu)) {
+  if (!canRunGlobe(probeSignals())) {
     document.querySelector<HTMLAnchorElement>('.head-links a[href="/globe/"]')?.remove();
   }
 </script>

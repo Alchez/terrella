@@ -1,9 +1,12 @@
 {
   // Terrella's relief tile server. Deploy from this directory: `npx wrangler deploy`.
   //
-  // The bucket is reached through a BINDING, not a URL — that is what keeps the archive
+  // The bucket is reached through a BINDING, not a URL — that is what keeps the archives
   // private (terrella-tiles has no custom domain and its r2.dev domain is disabled) and what
   // makes the internal range reads subrequests, which Cloudflare does not bill.
+  //
+  // It serves TWO pyramids: relief at `{z}/{x}/{y}.webp` and terrain-RGB at
+  // `terrain/{z}/{x}/{y}.webp`. One binding, two object keys — see the vars block.
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "terrella-tiles",
 
@@ -60,6 +63,14 @@
     //
     // `planet.pmtiles` is the PNG pyramid this replaced; `-v2` is the WebP q95 cut.
     "ARCHIVE_KEY": "planet-v2.pmtiles",
+    // The Tier-3 elevation pyramid, served under the `/terrain/` prefix by the same Worker out of
+    // the same bucket. Same new-key-per-cut convention as above, and the same reason: a warm
+    // isolate holding directory offsets from one cut must never read them against another's bytes.
+    //
+    // A SECOND KEY RATHER THAN A SECOND BINDING — both objects live in `terrella-tiles`, so a
+    // second `r2_buckets` entry would only duplicate the bucket name and give it somewhere to
+    // drift out of step with the first.
+    "TERRAIN_ARCHIVE_KEY": "terrain-v1.pmtiles",
     // The site's own origin. MapLibre uploads tiles as WebGL textures, so a cross-origin
     // tile without CORS taints the canvas and never draws — this must stay in step with
     // the hostname in web/package.json's `build:deploy`.

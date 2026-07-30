@@ -93,20 +93,36 @@ a {
   color: var(--muted);
 }
 
-/* The view bar — one floating pill, bottom-right, holding every view option:
+/* The view bar — one floating pill, bottom-centre, holding every view option:
    layer/behavior toggles (Borders, Spin), a hairline divider, then the experience
    tier (Lite / Globe / Full). One visual system across all of it: ghost text when
    off, accent fill when on — so the bar reads as "what am I seeing", not a form.
-   (The globe's own scale + attribution live bottom-left, clear of this.) */
+
+   Centred, not bottom-right, which it was until the globe's credit line shrank. That
+   ordering matters: the old 770 px attribution ran bottom-left across the middle of the
+   row, so the right edge was the only bottom slot that cleared it — the position was a
+   constraint wearing a design's clothes. With the credit folded into the bar itself the
+   row is free, and centring is a choice again.
+
+   CENTRED BY AUTO MARGINS, NOT BY `left: 50%` + `translateX(-50%)`. The translate trick
+   places the element correctly but leaves its layout width shrink-to-fit against
+   `viewport − left`, i.e. HALF THE SCREEN — the transform is applied after layout and
+   gives nothing back. Measured at 700 px: 350 px of available width for 388 px of
+   content, so the bar wrapped to two rows with two thirds of the row empty beside it;
+   at 390 px it wrapped to three. `inset-inline: 0` + `margin-inline: auto` makes the
+   whole viewport available and centres on it, which is what the old rule looked like it
+   was doing. Any future "why is this wrapping early" starts here. */
 .view-bar {
   position: fixed;
   bottom: 1.2rem;
-  right: 1.2rem;
+  inset-inline: 0;
+  margin-inline: auto;
+  width: fit-content;
   z-index: 20;
-  display: inline-flex;
+  display: flex;
   align-items: center;
   flex-wrap: wrap; /* safety on very narrow screens: the tier segment wraps under */
-  justify-content: flex-end;
+  justify-content: center;
   gap: 0.2rem;
   padding: 0.25rem;
   max-width: calc(100vw - 2.4rem);
@@ -117,6 +133,52 @@ a {
   border-radius: 999px;
   box-shadow: var(--shadow);
 }
+/* The controls themselves. A real flex row rather than `display: contents`, which would keep the
+   buttons as direct children of .view-bar and change nothing visually — but has a history of
+   dropping the element from the accessibility tree, and this one carries role="group". */
+.view-bar-items {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.2rem;
+}
+
+/* The phone-only collapse trigger. Hidden above the breakpoint, where there is room for the whole
+   bar and hiding controls behind a tap would be a loss rather than a saving. */
+.view-bar-toggle {
+  display: none;
+  align-items: center;
+  padding: 0.4rem 0.55rem;
+  color: var(--muted);
+  background: transparent;
+  border: 0;
+  border-radius: 999px;
+  cursor: pointer;
+}
+/* Same rendered size as the credit's ⓘ, which shares the collapsed pill with it — the two are
+   the only things visible in that state, so a size mismatch between them is the whole design. */
+.view-bar-toggle svg {
+  display: block;
+  width: 1.15rem;
+  height: 1.15rem;
+}
+.view-bar-toggle:hover {
+  color: var(--text);
+}
+
+/* Below here the bar covers a meaningful share of the screen, so it collapses to its trigger.
+   The credit stays visible in BOTH states — it is a licence pointer, not a view option, and it
+   sits outside .view-bar-items for exactly that reason. Collapsed reads as [tune | ⓘ]. */
+@media (max-width: 600px) {
+  .view-bar-toggle {
+    display: inline-flex;
+  }
+  .view-bar.is-collapsible:not(.is-open) .view-bar-items {
+    display: none;
+  }
+}
+
 /* The view controls are pure JS enhancements — a dead toggle is worse than none,
    so hide the bar when JavaScript is unavailable. */
 .no-js .view-bar {

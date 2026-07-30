@@ -31,6 +31,7 @@ import type { Manifest } from "../src/lib/manifest";
 const WEB_ROOT = fileURLToPath(new URL("../", import.meta.url));
 const MANIFEST = `${WEB_ROOT}src/data/countries.json`;
 const BUCKET = "terrella-assets";
+const ARCHIVE_BUCKET = "terrella-tiles";
 const GEOJSON = ["borders/countries.geojson", "borders/boundary_lines.geojson"];
 
 /** Exits; typed `never` so callers are not treated as possibly falling through. */
@@ -69,13 +70,13 @@ function advertisedObjects(manifest: Manifest): Set<string> {
   return keys;
 }
 
-function listBucket(endpoint: string): Set<string> {
+function listBucket(endpoint: string, bucket: string = BUCKET): Set<string> {
   try {
     const stdout = execFileSync(
       "aws",
       [
         "s3api", "list-objects-v2",
-        "--bucket", BUCKET,
+        "--bucket", bucket,
         "--endpoint-url", endpoint,
         "--profile", "r2",
         "--query", "Contents[].Key",
@@ -89,10 +90,84 @@ function listBucket(endpoint: string): Set<string> {
     const detail = error instanceof Error ? error.message : String(error);
     const stderr = (error as { stderr?: Buffer | string }).stderr?.toString() ?? "";
     fail(
-      `could not list s3://${BUCKET}/.`,
+      `could not list s3://${bucket}/.`,
       (stderr || detail).trim().split("\n").pop() ?? "",
       "Check the `r2` profile in ~/.aws/credentials and R2_ENDPOINT in web/.env.",
       "To deploy anyway (code-only change, or R2 unreachable): SKIP_ASSET_SYNC_CHECK=1",
+    );
+  }
+}
+
+/** Every archive object key the tile Worker will ask R2 for, read out of its own config so this
+ *  cannot drift from what actually ships. Returns the KEYS, so the caller can say which is
+ *  missing rather than merely that something is.
+ *
+ *  Parsed with a regex rather than by importing the config: wrangler.jsonc is JSONC (the file is
+ *  more comment than setting), and a JSON parser would reject it. */
+function workerArchiveKeys(workerConfig: string): { name: string; key: string }[] {
+  const keys: { name: string; key: string }[] = [];
+  for (const name of ["ARCHIVE_KEY", "TERRAIN_ARCHIVE_KEY"]) {
+    const match = new RegExp(String.raw`"${name}"\s*:\s*"([^"]+)"`).exec(workerConfig);
+    if (match) keys.push({ name, key: match[1] });
+  }
+  return keys;
+}
+
+/**
+ * Refuse to deploy a globe that would request terrain nothing serves.
+ *
+ * Terrain rides on the `full` tier as of Tier 3 step 4, so a promoted visitor's map adds a
+ * `raster-dem` source pointing at `/terrain/...`. Every DEM tile 404ing is invisible: the globe
+ * still renders, just flat, and nothing reports it. It is also invisible to the object check
+ * below, because the archives are not in the manifest — the manifest describes heroes and
+ * borders, so "all advertised objects present" would report a clean deploy either way.
+ *
+ * TWO SEPARATE THINGS HAVE TO BE TRUE and each fails silently on its own: the Worker must ROUTE
+ * `/terrain/`, and the bucket must HOLD the object that route names. Checking only the source
+ * (which is all this could do before step 3) would pass on a Worker that routes perfectly at an
+ * object nobody uploaded.
+ */
+function checkTerrainHasAnOrigin(endpoint: string): void {
+  const globe = readFileSync(`${WEB_ROOT}src/pages/globe.astro`, "utf8");
+  const ridesOnTier = /resolveTerrainExaggeration\([\s\S]{0,80}?currentTier\(\)\s*===\s*"full"/.test(
+    globe,
+  );
+  if (!ridesOnTier) return;
+
+  const worker = readFileSync(`${WEB_ROOT}worker/index.ts`, "utf8");
+  const workerConfig = readFileSync(`${WEB_ROOT}worker/wrangler.jsonc`, "utf8");
+  if (!worker.includes("parseTerrainTilePath")) {
+    fail(
+      "the globe would request terrain that production cannot serve.",
+      "",
+      "  globe.astro enables terrain on the `full` tier, so a promoted visitor adds a raster-dem",
+      "  source at /terrain/{z}/{x}/{y}.webp — and worker/index.ts does not route that path, so",
+      "  every DEM tile would 404 silently.",
+      "",
+      "  Route it in worker/index.ts, or gate terrain off the tier again before deploying.",
+    );
+  }
+
+  // Both archives, not just terrain's: nothing has ever checked that the RELIEF archive the
+  // Worker names is present either, and the failure is the same shape — a live site whose every
+  // tile 404s, discovered by looking rather than by any check.
+  const declared = workerArchiveKeys(workerConfig);
+  if (!declared.some(({ name }) => name === "TERRAIN_ARCHIVE_KEY")) {
+    fail(
+      "worker/wrangler.jsonc names no TERRAIN_ARCHIVE_KEY.",
+      "  The Worker falls back to a default key, which is a silent way to serve nothing.",
+      "  Add it to the `vars` block, pointing at the uploaded terrain archive.",
+    );
+  }
+  const present = listBucket(endpoint, ARCHIVE_BUCKET);
+  const absent = declared.filter(({ key }) => !present.has(key));
+  if (absent.length) {
+    fail(
+      `${absent.length} archive(s) the tile Worker names are not in s3://${ARCHIVE_BUCKET}/.`,
+      ...absent.map(({ name, key }) => `  ${name} = ${key}`),
+      "",
+      "  Upload them before deploying — the Worker would answer every tile with a 404 and the",
+      "  globe would render flat, with no error anywhere.",
     );
   }
 }
@@ -110,9 +185,12 @@ function main(): void {
     );
   }
 
+  const endpoint = r2Endpoint();
+  checkTerrainHasAnOrigin(endpoint);
+
   const manifest = JSON.parse(readFileSync(MANIFEST, "utf8")) as Manifest;
   const advertised = advertisedObjects(manifest);
-  const present = listBucket(r2Endpoint());
+  const present = listBucket(endpoint);
 
   const missing = [...advertised].filter((key) => !present.has(key)).sort();
   const dead = [...present].filter((key) => !advertised.has(key) && !key.endsWith("/")).sort();

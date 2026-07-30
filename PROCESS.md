@@ -62,6 +62,7 @@ All stage numbers below are at the **131072² grid** (the full Mercator square) 
 | 5 | `global_occlusion` — sky-view factor | **3:23** (I/O-bound) | ~0 s | in-memory only | **lazy** |
 | 6 | `composite_planet` — ramps × hillshade × SVF + snow + sea ice + lake depth | **21:37** (1024 windows; the Antarctic windows are all snow+ice work) | ~0 s | `planet_rgb.tif` 11 GB | `is_stale` |
 | 7 | `build_tiles` — `gdal raster tile` z0–8, WebP q95 | **4:19** | **skip** | `tiles/` **3.1 GB**, 87,381 tiles | `tiles.done` + `tile_params.json` |
+| T | `tile/terrain_rgb.py` — terrain-RGB encode + cut **z0–8**, 8 m, lossless WebP *(separate lane: reads `height_3857.tif` directly, never the composite, and is not part of the shade pass)* | **41:00** for the shipping z0–8 pyramid, including building `elev_z7`. A z0–6 variant is **~4 min** once the chain exists. | **skip** | `work/planet_terrain/bathy_s8_webp/tiles/` **2.63 GB**, 87,381 tiles | `tiles.done` + `terrain_params.json`; chain on `elev_z*.done` |
 
 Why the numbers are what they are (current-state explanations, not history):
 
@@ -76,6 +77,39 @@ Why the numbers are what they are (current-state explanations, not history):
 - **A grid change restages every warp**: `warp_needs_rebuild` = mtime **or** off-grid, so the
   warps re-run only when the grid grows (next trigger: a z10 extension). The Antarctica grid
   change measured **2:28:01** end-to-end, dominated by the 1:01:44 lake warp.
+- **Stage T's ~4 min is three independent measurements, not one.** The first run built the shared
+  elevation chain and the `clamp` variant in **7:55**, then `bathy` in **3:53** reusing it — so the
+  chain is ~**4:02** and a variant is ~**4 min**. Three later re-cuts at 2/4/8 m, chain present,
+  came in at **3:49 / 3:57 / 4:16**. It is a single streaming descent from the 44 GB master, so it
+  is I/O-shaped, not DRAM-bound like the composite.
+- **Lossless WebP cuts ~3.8× FASTER than PNG, as well as 0.67× the size.** Same variant, same 8 m
+  step, z6 cut alone: **PNG 1:49 vs WebP 0:29** (z5 0:42 → 0:12, z4 0:35 → 0:10). PNG's adaptive
+  per-scanline filtering plus zlib 9 is simply more work than the WebP lossless coder. The whole
+  z0–6 cut at the shipping settings is **~0:57**. → HISTORY § the terrain archive gets a third smaller
+- **Stage T is guarded like every other stage.** `tiles/` is cut into `tiles_new`, swapped only on
+  success, stamped `tiles.done`, and keyed on the master's marker plus `terrain_params.json` — so a
+  `--step`, `--format` or `--max-zoom` change restages and nothing else does. One generation of
+  rollback stays at `tiles_old`. The elevation chain moved off `exists()` onto its own `.done`
+  markers, which is what stops a half-written level being trusted: rasterio creates its target at
+  write-start, so the BigTIFF crash below left a full-sized truncated `elev_z8.tif` that an
+  existence test accepts, and a truncated float32 raster reads as a very flat planet rather than as
+  an error. → HISTORY § stage T gets the guard every other stage already had
+- **z7/z8 MEASURED 2026-07-28, and both projections here were wrong in the same direction.** The
+  full z0–8 build is **41:00** and **2.63 GB**, against projections of 1.5–2.5 h and ~3.3 GB — so
+  ~3× over on time and 25% over on size. Per-zoom cut: **z8 5:29, z7 1:37, z6 0:27, z5 0:12,
+  z4 0:10, z3 0:05**, the rest sub-second.
+- **CORRECTION — z8 *did* write an elevation intermediate, and it was 47 GB of nothing.** This file
+  and HISTORY both claimed `--max-zoom 8` "encodes `height_3857.tif` in place"; it did not. The
+  factor-1 branch still called `downsample_elevation`, so the build materialised `elev_z8.tif` —
+  a byte-for-value copy of the 46 GB master, proven identical over six windows at exactly 0.0000 m
+  with shifted-window controls differing by 240–1660 m. Part of the 41:00 was spent making it.
+  `elevation_source` now returns the master itself at its native zoom, so **the claim is true going
+  forward and was false when written**. → HISTORY § stage T gets the guard every other stage already had
+- **BigTIFF is mandatory past z6 and was missing until 2026-07-28.** The first z0–8 attempt died in
+  83 s on `TIFFAppendToStrip:Maximum TIFF file size exceeded` — `GTIFF_CREATE` sets no BigTIFF and a
+  classic TIFF caps at 4 GB. It could not surface below z7, and **z6 was surviving on deflate alone**
+  (32768² float32 = 4.29 GB raw, 3.4 GB on disk). Both `terrain_rgb.py` sinks now pass
+  `bigtiff: "IF_SAFER"`. → HISTORY § tileSize 128 and a z0-8 pyramid ship together
 
 **End-to-end, measured:**
 
@@ -162,7 +196,7 @@ Run once; all are resumable and verify against a pinned size/md5, so a re-run is
 
 | Process | Command | Time | Notes |
 |---|---|---|---|
-| Astro dev server — **the product globe** | `pnpm dev` in `web` | ~2 s | `/globe` on Astro's default port 4321 (not pinned in config); serves the three store routes (`/heroes`, `/borders`, `/tiles`) from `web/.env` paths, dev-only middleware, `no-cache`. `/tiles/{z}/{x}/{y}.webp` is ranged out of `planet.pmtiles` in-process — the local twin of the production tile Worker |
+| Astro dev server — **the product globe** | `pnpm dev` in `web` | ~2 s | `/globe` on Astro's default port 4321 (not pinned in config); serves the three store routes (`/heroes`, `/borders`, `/tiles`) from `web/.env` paths, dev-only middleware, `no-cache`. `/tiles/{z}/{x}/{y}.webp` is ranged out of `planet.pmtiles` and `/tiles/terrain/{z}/{x}/{y}.webp` out of `terrain.pmtiles` (`TERRAIN_PMTILES_STORE`), both in-process — the local twin of the production tile Worker, dispatching on the same prefix it does |
 | Static build | `pnpm build` | ~seconds (206 pages) | emits HTML/CSS/JS only — assets stay external |
 | Tile smoke test — **not the product** | `python3 -m http.server` in `work/planet_tiles` | instant | proves the pyramid renders with zero deps; no starfield/borders/atmosphere by design |
 | Worker deploy + first TLS | `npx wrangler deploy` in `web/worker` | deploy seconds; **certificate a few minutes** | Universal SSL covers only the apex + first level, but Workers Custom Domains **auto-generate an Advanced Certificate** for the target hostname and R2/Pages custom domains use Cloudflare-for-SaaS certs — both automatic, no ACM, any depth. So depth changes *when* TLS works, not *whether*. Expect `TLS alert handshake failure` while the cert issues, even though DNS already resolves: `*.zone` is an RFC 4592 wildcard that answers at any depth, so **check the certificate, never `dig`** |
@@ -174,6 +208,8 @@ Run once; all are resumable and verify against a pinned size/md5, so a re-run is
 | Border layers — all rungs | `gen_borders.py` | **7m21s** (201 countries × 5 rungs, serial; no `--jobs` flag) | Redraws the full-res cairo layer per country and writes every rung from that one surface, so adding a rung costs a full regeneration. ~3 s per country |
 | R2 upload — heroes + borders | `aws … s3 sync … --exclude "*.aux.xml" --exclude "*_recipe.json"` | ~2 min (1,622 files, 2.13 GB) | **Both excludes are mandatory** — GDAL PAM sidecars are the bulk of them, and `hero_variants_recipe.json` is pipeline-internal freshness state that must not be published (the deploy preflight caught it as an unreferenced object). 609 of the variants store's 2,231 files are GDAL sidecars. GeoJSON needs `--content-type application/json` or the edge will not compress it |
 | PMTiles packaging | `pack_pmtiles.py` → `pmtiles convert` | **WebP q95 pyramid:** dir→MBTiles **10 s** (87,381 tiles, 3.19 GB); convert **5.8 s** → **3.0 GB** `planet.pmtiles`. *(The PNG pyramid it replaced: 33 s and 1m11s → 15 GB.)* | Always run convert **capped and with `--tmpdir` on ext4** — uncapped it stages ~12 GB through tmpfs `/tmp` (= RAM) → HISTORY § the uncapped pmtiles convert OOM'd the box. The format is read off the tile directory, never passed: a mixed directory fails loudly. Verify with `pmtiles show` (must read `tile type: webp`) plus a byte-compare of a few addresses against the tiles on disk — last checked clean, with 5 tiles byte-identical incl. z8 y=255 |
+| PMTiles packaging — terrain | `pack_pmtiles.py --tiles …/bathy_s8_webp/tiles --name terrella-terrain` → `pmtiles convert` | dir→MBTiles **12 s** (87,381 tiles, 2.69 GB); convert **6.1 s** → **2.63 GB** `terrain.pmtiles`. Same shape as the relief pack because the pyramids are the same size | `pack_pmtiles.py` needed no changes — it reads the encoding off the directory, so the only arguments are the paths and the archive name. Dedupe is much lower than relief's (86,120 of 87,381 unique = **1.4%**, against ~5%): elevation tiles repeat only where the sea is flat, and the polar feather makes even those differ. **Index is 196,747 B** — under `INDEX_PREFETCH_BYTES` (262,144), which the Worker's test asserts. Verify the same way: `pmtiles show` reads `tile type: webp`, then byte-compare addresses against the tiles on disk (6 checked identical incl. `z8/128/255`, the TMS-flip-sensitive row) |
+| R2 upload — the archives | `aws --profile r2 --endpoint-url <r2> s3 cp <archive> s3://terrella-tiles/<key>` | ~2 min per 3 GB archive at ~205 Mbps. Detach it | **A new key per cut, never an overwrite** (`planet-v2.pmtiles`, `terrain-v1.pmtiles`) — a warm Worker isolate holds directory byte OFFSETS, and offsets from one cut against another's bytes serve a corrupt tile with a 200. The key lives in `worker/wrangler.jsonc`; the deploy preflight refuses if the object it names is absent. Delete the superseded object only after the new one is verified live |
 
 ## If you only remember one thing
 

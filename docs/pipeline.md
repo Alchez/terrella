@@ -94,7 +94,8 @@ A separate, raster-only path that does **not** use Blender: fuse the whole plane
 | `pipeline.render.lake_depth` | GLOBathy lake depth on the tile grid (depth-keyed lake tint) |
 | `pipeline.tile.shade_planet` | the production planet pass: warp everything to one Web-Mercator grid, hillshade + fill sun, sky-view, windowed composite → `planet_rgb.tif`, then `gdal raster tile` → the z0–8 pyramid (`pipeline.tile.shade` is the region-sized A/B path) |
 | `pipeline.tile.cap_render` | both polar caps (AEQD, the same composite) → `web/public/caps/` |
-| `pipeline.tile.pack_pmtiles` + `tools/pmtiles convert` | `planet.pmtiles` — the single range-request-servable archive |
+| `pipeline.tile.terrain_rgb` | the terrain-RGB elevation pyramid for the globe's Tier-3 displacement — read straight off `height_3857.tif`, never the composite, so it is a separate lane rather than a stage of the shade pass |
+| `pipeline.tile.pack_pmtiles` + `tools/pmtiles convert` | `planet.pmtiles` and `terrain.pmtiles` — the range-request-servable archives, one per pyramid. The packer reads the tile encoding off the directory, so the same command packs either |
 
 Snow here is **not** the hero's WorldCover class-70 mask (permanent ice only, which left mid/high-latitude ranges bare) — it is observed MODIS snow *persistence* as a soft alpha, ramped by latitude, with RGI glaciers crisp on top. The decisions behind every piece are in [`HISTORY.md`](../HISTORY.md); the pipeline diagrams show the full graph.
 

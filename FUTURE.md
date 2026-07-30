@@ -6,6 +6,102 @@ graduates, it moves to PLAN and this file keeps a one-line pointer. Each entry c
 its analysis and the facts its numbers depend on — check both before trusting an old entry, and
 grep HISTORY before re-arguing anything an entry says was already decided.
 
+## MapLibre's WebGPU backend — irrelevant to our memory problem, and NOT the no-op we recorded (analysed 2026-07-29)
+
+Prompted by the graphics-modernization roadmap. Read it against the DEM-cache work rather than in
+the abstract, and the answer is "no" on the question that motivated the reading.
+
+- **The roadmap is four phases** — WebGL2 texture/shader work, a drawable architecture with UBOs,
+  WebGL2 vertex work, then **WebGPU as phase 4** including GLSL→WGSL conversion. Each phase is
+  independently shippable. **No timeline is published.**
+- **It contains no mention of GPU memory management, memory budgets, resource lifetimes, device
+  loss, or tile caching.** It is a rendering-backend modernization, not a resource-management one.
+- **It cannot touch our root cause, which is not in the renderer.** The `_source.tileSize` vs
+  `tileManager.tileSize` mismatch lives in `tile_manager.ts`, and `DEMData` holds a `Uint32Array` —
+  **JS heap, not GPU memory**. A backend swap leaves both exactly as they are.
+- **The seam already exists in the shipped API, which dates the work rather than the promise.**
+  `canvasContextAttributes.contextType` is typed today and documented as *restricted to `'webgl2'`,
+  kept as a forward-looking API for future WebGPU support* — i.e. the option is reserved and the
+  backend is not written. Found in the v6.0.0 `.d.ts` during the API audit, not in the roadmap.
+
+**The one real win is a failure SIGNAL, and it is the missing piece of the evidence-driven budget.**
+In WebGL an allocation that exhausts VRAM does not fail — it takes the context down, which is
+precisely the 2026-07-29 freeze. WebGPU has typed errors via `pushErrorScope`/`popErrorScope`, so
+`GPUOutOfMemoryError` is catchable and attributable *before* the tab dies rather than after. Today
+the only feedback the platform gives is "the context died". Secondary: `GPUDevice.lost` resolves
+once and permanently, forcing explicit recreation — a stricter contract than the
+`webglcontextlost`/`restored` pair whose ambiguity is what hid our recovery notice; and explicit
+`destroy()` on buffers and textures gives deterministic release.
+
+**Correction to a recorded prediction.** HISTORY § *Tier 2 globe + Natural Earth vector borders*
+assessed WebGPU as "a future no-op tier, not a rewrite". That was true of the code as it stood and
+is **false now**: `polarCaps.ts` is a MapLibre **custom layer**, and that API hands you a raw
+`WebGLRenderingContext`. We author GLSL, build VBOs and call `gl.drawElements` directly, so a
+WebGPU backend cannot preserve the signature — **the caps need a WGSL port, displacement shader
+included**. Anyone pricing the migration must count that; the old entry says they need not.
+
+**Verdict: not a lever for the cache work, and not free when it lands.** Revisit if MapLibre
+publishes a timeline, or if the evidence-driven cache budget gets built and wants a real
+out-of-memory signal to drive it.
+
+## Flat ice saturates the snow ramp, and the curve was fitted before Antarctica existed (analysed 2026-07-29)
+
+Rohan zoomed into Antarctica to judge the terrain feather and found it "basically washed out". Two
+independent causes, split by depth in the frame — the far field was the atmosphere (fixed, → HISTORY
+§ the atmosphere ramps on PITCH too), and **the near field is this**, which is unfixed.
+
+**Mechanism.** Over full snow (`alpha = 1`) the composite is `base_rgb * (1 - alpha) + snow_rgb *
+alpha`, so `base_rgb` is multiplied by zero and every bit of hillshade *and the entire elevation
+ramp* is discarded. Relief survives only through `snow_t`, a two-colour ramp. Antarctic land is
+forced to alpha 1 by `snow.antarctic_snow_mask` because **there is no snow dataset for it** —
+NSIDC-0791 is NH-only and RGI region 19 is excluded — so without the mask Antarctica renders on the
+tan LAND ramp, i.e. a brown continent. Flatness is a side effect of that substitution, not its
+purpose.
+
+**Then the ramp saturates.** Ice sheets have real elevation (the z6 plateau tile spans 2512–2944 m,
+a 432 m range) but almost no SLOPE — about 0.1° across a ~200 km tile, with a median neighbour step
+of 0.0 m, below the 8 m quantisation. Hillshade keys on slope, so the light lands at or above
+`snow_hi_pt = 1.05` and `snow_t` clips to exactly 1. **Elevation is therefore discarded twice:**
+once because hillshade cannot see it, once because the ramp clips.
+
+**Measured 2026-07-29, 3×3 z6 blocks, snow pixels only — the same method HISTORY's gamma8 table used:**
+
+| site | delivered | pinned at top of ramp |
+|---|---|---|
+| Greenland Summit *(in the gamma8 sample)* | 20.67 DN | 82.1% |
+| Greenland north *(in the gamma8 sample)* | 12.67 DN | 89.3% |
+| Dome A / Argus | 14.67 DN | 84.3% |
+| Vostok | 16.00 DN | 80.0% |
+| **E Antarctic plateau (−77, 0)** | **6.33 DN** | **91.3%** |
+| Transantarctic Mountains | 20.67 DN | 14.6% |
+
+**Not a systematic failure — a tail case.** Most of Antarctica lands inside the range already
+accepted (Dome A and Vostok beat Greenland north, which shipped), and the mountains are fine. The
+flat plateau is the outlier, and it is where Rohan happened to look.
+
+**The gap that makes a re-check legitimate rather than re-litigation:** `snow_curve = "gamma8"` was
+chosen **2026-07-17**, and Antarctica was fused into the pyramid **2026-07-22, five days later**.
+The curve's whole A/B table is Greenland Summit, Greenland north, Alps and Himalaya — **the largest
+snow surface on the planet was not in the sample it was fitted on, because it was not in the
+pyramid yet**. No regression was
+found (a Summit 3×3 block measures 20.7 DN against the entry's 18.84, consistent), so the curve
+does what it was tuned to do; it was simply never asked about this terrain.
+
+**`snow_hi_pt` is NOT the lever, and that is already settled** → HISTORY § Greenland's interior is blank because the snow blend throws the hillshade away. The
+window was measured and rejected: Greenland uses 7% of it, the Alps overflow at 122%, and **the two
+ranges are nested rather than adjacent**, so a window fitted to flat ice turns Alpine snow into a
+binary blue/white cartoon. Do not re-argue it.
+
+**Candidates, none costed:** re-fit the gamma exponent with Antarctic sites in the sample (a
+composite-stage knob — no re-fuse, no new data, and `experiments/ab_ice_damp.py` is the ~21 s
+browser-free precedent); or give the snow ramp an ELEVATION term the way the land ramp has one,
+which is what would make a 432 m dome read as a dome. The second is a genuine look decision, not a
+bug fix.
+
+**Consequence worth carrying:** while the plateau is pinned white, terrain displacement there is
+invisible — our shading is baked, so displacement reads as silhouette and parallax only, and a
+uniform white surface offers neither. That gates the payoff of PLAN's Step 2 feather re-cut.
+
 ## GDAL 3.13 — assessed and SKIPPED (analysed 2026-07-23)
 
 - **State at analysis:** system CLI 3.12.2 (Ubuntu 26.04 archive — the LTS will stay there);
@@ -116,6 +212,62 @@ magnitude, so the taxonomy is the decision:
 - **The big lever:** if Phase 5 goes no-go on a finer re-fuse, `glo30/` (551 GB) drops to
   per-country-on-demand like WorldCover — the upstream *is* the cloud store. Rohan deferred the
   whole topic to after Phase 5.
+
+## A z9 / z10 pyramid — z10 is BLOCKED ON DISK, z9 is reachable (analysed 2026-07-26)
+
+- **The framing that governs everything: z10 is a planet RE-FUSE at ~2.5″, never a tiling flag**
+  (PLAN Phase 2). The grid is `131072²` = exactly `512 × 2⁸`, so a deeper pyramid means re-fusing at
+  4× linear and re-warping every layer onto `524288²` — **16× area on every intermediate**.
+- **Measured cost model** (each stage ×16 from PROCESS's current numbers; storage projected off the
+  real rasters on disk):
+
+  | target | m/px | intermediates | build | tiles | archive | GEBCO upsample |
+  |---|---:|---:|---:|---:|---:|---:|
+  | z0–8 (live) | 305.7 | 111 GB | 2.7 h | 87,381 | 3.0 GB | 1.5× |
+  | z0–9 | 152.9 | 443 GB | 10.8 h | 349,525 | 12 GB | 3.0× |
+  | z0–10 | 76.4 | **1,773 GB** | **43.2 h** | 1,398,101 | 48 GB | 6.1× |
+
+- **z10 does not fit, and that is the decision.** 1.73 TB of intermediates against a 1.8 TB disk
+  already holding ~1.3 TB. Reclaiming every hero intermediate *and* WorldCover (~304 GB) still falls
+  short, and `glo30/`'s 551 GB cannot go — it is what the re-fuse reads. This is a hardware
+  precondition, not a scheduling one.
+- **The single worst stage is the lake warp: 1:01:44 → ~16.5 h**, more than a third of the 43 h.
+- **WebP changed the delivery side only.** A z10 archive is ~48 GB in WebP vs ~260 GB in PNG (5.2×,
+  measured on the real pyramid: 16 GB → 3.0 GB). That is what would make a deep pyramid *shippable*
+  at all. The intermediates are uncompressed working rasters and are unmoved — so "we use WebP now"
+  does not reopen z10.
+- **The aesthetic argument, which stands independently of cost.** GEBCO is 15 arc-sec — **measured on
+  the file: 464 m/px**. Land has real headroom at z10 (30 m source into 76 m/px); the sea does not.
+  Upsampling goes **1.5× → 6.1×**, so z10 makes land crisper while leaving the sea exactly as soft as
+  it is now, **quadrupling the land/sea detail mismatch**. Bathymetry is signature, not optional
+  (CLAUDE.md § Data sources), so this is a look regression bought with 43 hours.
+- **The old precondition is CLOSED — do not re-raise it.** HISTORY § z8 LOCKED recorded a latent gap
+  (`ocean`/`water`/`lakedepth` take their grid from `height_3857` but did not depend on it, so a
+  re-fuse would leave `lakedepth` falsely fresh at old dimensions — a silently wrong composite) with
+  *"fix before any re-fuse, not after."* It was fixed at the Antarctica re-fuse: `warp_needs_rebuild`
+  is now `is_stale(...) or not grid_matches(...)`, exactly the prescribed dimension/bounds test.
+  Reading the 07-17 entry alone still reads as outstanding; it is not.
+- **Sequencing vs Tier 3 — Tier 3 first, and it is not close.** (a) z10 is blocked, so there is no
+  ordering to decide; (b) Tier 3 is disk-cheap — terrain-RGB is a single-band elevation encode cut
+  from the `height_3857.tif` that already exists, roughly the colour archive's size, not another
+  1.7 TB; (c) they are **independent MapLibre sources with their own `maxzoom`**, so terrain need not
+  match the colour pyramid's depth — displacement meshes are coarse and z8 terrain is ample. Building
+  Tier 3 now is therefore not invalidated by a later re-fuse, and `warp_needs_rebuild`'s grid
+  comparison would restage it correctly if one ever landed.
+- **Measured 2026-07-27, correcting two estimates above; settled 2026-07-28.** (b) held, and better
+  than projected: the built z0–8 terrain archive is **2.63 GB** against the colour archive's 3.0 GB
+  (the ~3.3 GB projection was 25% high). (c) was wrong — **"z8 terrain is ample" confused what is
+  built with what is reachable.** MapLibre picks the DEM zoom from the *declared* tile size, so depth
+  is not a free choice: at `tileSize: 512` the DEM sits at `camera − 2` and **nothing past z6 could
+  ever load** against `maxZoom: 8`; 256 reaches z7; only **128 reaches z8**, which is what shipped.
+  z8 is the floor in any case — 256 tiles × 512 px = 131,072 px, exactly the master's grid, so
+  anything deeper needs a re-fuse and lands squarely in the z9/z10 question above.
+  → HISTORY § tileSize 128 and a z0-8 pyramid ship together
+- **If depth is wanted, z9 is the reachable one:** 443 GB and ~11 h, fits today's free space, 3×
+  GEBCO upsample rather than 6×. Not recommended, but it is the option that exists.
+- **Revisit when:** a larger disk lands. Then re-derive from PROCESS rather than trusting this table —
+  every number here is ×16 of a measured z8 stage, not itself measured. Ties to the `glo30/` retention
+  lever above: a firm no-go on a finer re-fuse is what would let 551 GB drop to on-demand.
 
 ## Kiribati presentation — the one antimeridian-deferred country (analysed 2026-07-24)
 
@@ -255,7 +407,19 @@ magnitude, so the taxonomy is the decision:
   country within a few hundred ms of the tap. **Verify the premise on a real phone before designing** —
   the flight is the reward, not a tax, and this may be a problem only on paper.
 
-## The tier ladder is more permissive than it reads (analysed 2026-07-26, DEFERRED)
+## The tier ladder is more permissive than it reads (analysed 2026-07-26, **FIXED 2026-07-28**)
+
+**Closed as Tier 3 Step 1** → HISTORY § the tier ladder stops guessing at hardware it cannot see.
+Kept here because the analysis below is what the fix was built from, and because one of its own
+claims turned out to be wrong. Outcome per gap: the threshold became **`<= 4`**; the softwareGpu
+asymmetry was closed by giving `Base.astro` the same floor; the Safari/Firefox blindness was
+**deliberately left optimistic** and handed to the runtime ladder, which gained a `disable-terrain`
+rung — so the deferral note's last line turned out to be the right instinct after all.
+
+**Corrected 2026-07-28:** "clamped at both ends" is wrong. There is no upper clamp in current
+Chrome — the W3C text describes one at 8 GiB and Chrome does not apply it (a 29 GiB machine
+measures **32**), and the rounding is to the *nearest* power of two, not down. Neither changes the
+conclusion below, which rests only on there being no value between 2 and 4.
 
 - **Trigger:** the capability probe looks like it protects weak devices. Measured against the spec and
   the code, it barely does. Deferred rather than fixed — the question is a product one (*is `full` the
@@ -277,6 +441,33 @@ magnitude, so the taxonomy is the decision:
   the softwareGpu asymmetry is simply a **guard that does not match the function it mirrors**.
 - **Verify before acting:** instrument a real mid-range phone rather than trusting the ladder's
   intent. The FPS watchdog already degrades at runtime, so the gate being permissive may cost nothing.
+- **`hardwareConcurrency` was investigated and REJECTED, 2026-07-28** — do not re-propose it as the
+  portable substitute this note suggests. **WebKit clamps it to 8 on macOS and 2 on iOS**, so every
+  iPhone and every iPad Pro reports 2 while a budget Android reports 8: as a device-strength signal
+  it is not merely weak, it is *inverted*. MDN says the same in general terms ("don't treat this as
+  an absolute measurement of the number of cores"), and Safari 26 blocks known fingerprinting
+  scripts from reading it at all.
+
+## The tier picker is a radiogroup made of toggle buttons (analysed 2026-07-27, DEFERRED)
+
+- **Trigger:** found while adding tooltips to Lite / Globe / Full. Verified in the live DOM, not read
+  off the source: `.quality-fab` carries `role="radiogroup"`, and its three children have
+  **`role: null`, `aria-pressed`, and no `aria-checked`**.
+- **Why it is wrong:** an ARIA `radiogroup` must own elements with `role="radio"`. A plain button with
+  `aria-pressed` inside one is announced as a *toggle button within a radio group* — incoherent — and
+  the group loses the positional "1 of 3" that makes a radio group worth using in the first place.
+  The three tiers are genuinely mutually exclusive, so radiogroup is the right *intent*; only the
+  children are wrong.
+- **Why it was not just fixed:** the correct markup is `role="radio"` + `aria-checked`, but the filled
+  "this one is active" styling is `.view-bar button[aria-pressed="true"]` — **one selector shared with
+  Borders, Spin and Focus**. Switching the tier buttons to `aria-checked` silently un-fills them
+  unless the CSS is split at the same time. So it is a markup + CSS change with a visual regression
+  risk, not the attribute swap it looks like.
+- **If reopened:** change all three children together, split the fill rule into
+  `[aria-pressed="true"], [aria-checked="true"]`, and check the active tier still reads filled on the
+  globe, the gallery **and** a hero page. Keyboard arrow-key navigation between radios is the other
+  half of the radio contract and is currently absent — decide whether to implement it or drop
+  `radiogroup` for a plain group, which is honest and costs nothing.
 
 ## Landing-page "poster mode" (deferred 2026-07-26, never scoped)
 

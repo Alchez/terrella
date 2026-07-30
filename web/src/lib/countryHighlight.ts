@@ -74,7 +74,10 @@ export function countriesSource(data: FeatureCollection): GeoJSONSourceSpecifica
     data,
     promoteId: "ADMIN", // feature id = ADMIN string, for feature-state hover
     buffer: 0,
-    attribution: "Natural Earth",
+    // No per-source credit — the globe's single `CREDITS` link stands for every source. MapLibre
+    // joins each source's attribution with " | ", so a string here widens the on-map credit, which
+    // is now a segment of the centred `.view-bar` and decides when that pill wraps. Natural Earth
+    // is public domain and requires no attribution; /about credits it. See globe.astro § CREDITS.
   };
 }
 

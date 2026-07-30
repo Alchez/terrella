@@ -1,0 +1,310 @@
+/** The globe's atmosphere — MapLibre's `sky`, and the zoom ramp on its strength.
+ *
+ *  Sibling of terrainSource.ts's exaggeration ramp, not a generalisation of it. The two share an
+ *  interpolation shape and nothing else: one scales geometry through a per-frame uniform we write
+ *  by hand, the other scales a post-process that MapLibre will evaluate from a zoom expression
+ *  (see ATMOSPHERE_BLEND below — the asymmetry is the whole reason this file is short and that
+ *  one is not). Kept apart on the same reasoning that keeps reliefTiles.ts and terrainSource.ts
+ *  apart.
+ *
+ *  WHAT THE ATMOSPHERE ACTUALLY IS, because the name undersells it. This is not a halo painted
+ *  behind the sphere: `shaders/glsl/atmosphere.fragment.glsl` ray-marches the air column from the
+ *  camera and truncates the integral at the planet surface (`rsi(r0, r, rPlanet)`, then
+ *  `p.y = min(p.y, p2.x)`), so one `atmosphere-blend` uniform scales BOTH the limb glow and full
+ *  aerial perspective over the ground. Its blue bias is Rayleigh — the shader's scattering
+ *  coefficients are `(5.5, 13.0, 22.4)e-6`, so blue scatters four times as hard as red.
+ *
+ *  Not to be confused with terrain fog, which shares these `fog-*` properties and never runs for
+ *  us: `terrain.fragment.glsl` skips fog entirely under `u_is_globe_mode`.
+ */
+
+import type { SkySpecification } from "maplibre-gl";
+
+/** Committed sky colours. Browser-only aesthetic constants — deliberately NOT in palette.ts,
+ *  whose contract is "colours the PIPELINE owns, restated for the browser", each one pinned by a
+ *  Python test that recomputes it from palette.py. Nothing here has a pipeline counterpart to be
+ *  pinned against, so filing them there would put unguarded values under a guarded banner. */
+const SKY_COLOR = "#8fb8d6";
+const HORIZON_COLOR = "#cbd8dd";
+const FOG_COLOR = "#dfe7ea";
+
+/** Atmosphere strength at and below ATMOSPHERE_RAMP_START_ZOOM. Chosen when the starfield landed
+ *  and left alone since: against dark space it reads as a gentle earth-glow, which is the entire
+ *  job the atmosphere was kept for. → HISTORY § the starfield. */
+export const BASE_ATMOSPHERE_BLEND = 0.7;
+
+/** Zoom at or below which the ramp holds BASE_ATMOSPHERE_BLEND. The glow needs off-globe pixels
+ *  to be drawn into, and at z3 they are still there (measured: 2 of 10 sampled screen rows read
+ *  as background at pitch 0, 5 of 10 at pitch 60). */
+export const ATMOSPHERE_RAMP_START_ZOOM = 3;
+
+/** Zoom at or above which the ramp holds its floor. By z5 at pitch 0 the sphere already fills the
+ *  viewport (0 of 10 rows off-globe) and at z7-8 nothing is off-globe at ANY pitch, so past here
+ *  the atmosphere cannot deliver the effect it exists for and only hazes the map. */
+export const ATMOSPHERE_RAMP_END_ZOOM = 6;
+
+/** Atmosphere strength held at ATMOSPHERE_RAMP_END_ZOOM.
+ *
+ *  Picked off measured damage rather than taste. At a pitched z7 frame the constant 0.7 pushes
+ *  23.8% of all pixels to a clipped >=254 and costs a quarter of the frame's saturation; the
+ *  atmosphere alone adds up to +59,+84,+94 DN at the top of the frame, turning a saturated
+ *  `166,137,105` into a near-neutral `225,221,199`. The ladder measured at that camera:
+ *
+ *      blend  0.70 -> 23.8% clipped, mean saturation 0.251
+ *      blend  0.35 -> 11.8%,         0.289
+ *      blend  0.15 ->  5.8%,         0.311
+ *      blend  0    ->  1.8%,         0.328   <- the tiles' own snow, the floor no setting beats
+ *
+ *  0.15 is where clipping stops being the thing you notice while distance still lightens — which
+ *  is the one part of aerial perspective worth keeping, since it reads as depth rather than as
+ *  blown highlights. → HISTORY § the atmosphere ramp. */
+export const DEFAULT_ATMOSPHERE_FLOOR = 0.15;
+
+/** Atmosphere strength at the pitched extreme, replacing BASE_ATMOSPHERE_BLEND as the value the
+ *  zoom ramp starts from. Chosen by Rohan from a five-rung ladder at z2.95 pitch 60 over
+ *  Antarctica (0.70/0.50/0.35/0.20/0.00, rendered through the live map with a swap-to-itself
+ *  control that came back at 1 DN max on 0.033% of pixels).
+ *
+ *  Why the zoom ramp could not already cover this: it keys on ZOOM, and the damage is driven by
+ *  PITCH. The 0.7 shelf below z3 was chosen because the overview is where the limb glow lives and
+ *  an unpitched overview takes no damage at all — which is true, and measured. A PITCHED overview
+ *  is a camera neither half of that reasoning describes: it has the off-globe pixels the glow
+ *  needs AND a frame full of ground for the aerial perspective to bleach. */
+export const PITCHED_ATMOSPHERE_BLEND = 0.25;
+
+/** Pitch below which the pitch term does nothing, so the glow is never spent for free.
+ *
+ *  MEASURED, not assumed, at z2.95 over Antarctica — the atmosphere's contribution to the far
+ *  field, against a blend-0 control, sampling ON-GLOBE pixels only so the box cannot silently be
+ *  reading space:
+ *
+ *      pitch  0 -> +0.0 DN,  0% clipped        pitch 50 -> +30.0 DN,  0% clipped
+ *      pitch 30 -> +0.0 DN,  0% clipped        pitch 55 -> +47.5 DN, 15% clipped
+ *      pitch 45 -> +4.6 DN,  0% clipped        pitch 60 -> +52.7 DN, 27% clipped
+ *
+ *  Flat to 30 and still negligible at 45, then a cliff. That is the air column: aerial perspective
+ *  needs a near-tangential line of sight, which only exists once the camera looks toward the
+ *  horizon. A ramp starting from 0 would therefore lower the atmosphere across pitch 20-40 where
+ *  there is provably nothing to fix — the same "strictly non-harmful" test the zoom ramp had to
+ *  pass. */
+export const ATMOSPHERE_PITCH_RAMP_START_DEG = 45;
+
+/** Pitch at or above which PITCHED_ATMOSPHERE_BLEND is fully applied — the map's own `maxPitch`,
+ *  so the ramp spends its whole range inside the reachable camera (the same reasoning that ties
+ *  ATMOSPHERE_RAMP_END_ZOOM to the globe's maxZoom). */
+export const ATMOSPHERE_PITCH_RAMP_END_DEG = 60;
+
+/**
+ * The value the zoom ramp starts from, after the pitch term.
+ *
+ * Returns `BASE_ATMOSPHERE_BLEND` EXACTLY at or below the start pitch — `Object.is`-exact, not
+ * approximately — because the unpitched overview is the first camera every visitor sees and it
+ * takes zero measured damage. This ramp must be incapable of changing it.
+ *
+ * Linear across the window rather than geometric, and that is a stated limitation rather than a
+ * finding: four samples across 15 degrees do not distinguish the two shapes, so this takes the one
+ * with fewer concepts. The zoom ramp's geometric decay IS backed by a measurement (the limb is
+ * gone by z5), which is why the two differ.
+ */
+export function pitchedAtmosphereBase(
+  pitchDeg: number,
+  pitchedBlend: number = PITCHED_ATMOSPHERE_BLEND,
+  baseBlend: number = BASE_ATMOSPHERE_BLEND,
+): number {
+  if (pitchDeg <= ATMOSPHERE_PITCH_RAMP_START_DEG) return baseBlend;
+  if (pitchDeg >= ATMOSPHERE_PITCH_RAMP_END_DEG) return pitchedBlend;
+  const span =
+    (pitchDeg - ATMOSPHERE_PITCH_RAMP_START_DEG) /
+    (ATMOSPHERE_PITCH_RAMP_END_DEG - ATMOSPHERE_PITCH_RAMP_START_DEG);
+  return baseBlend + (pitchedBlend - baseBlend) * span;
+}
+
+/** `?sky=off` — the control arm, holding BASE_ATMOSPHERE_BLEND at every zoom AND every pitch (what
+ *  shipped before either ramp). Deliberately deaf to pitch: a control that quietly acquired one of
+ *  the two behaviours it exists to isolate would be worse than no control. */
+export const ATMOSPHERE_RAMP_OFF = "off";
+
+export type AtmosphereRamp = { kind: "off" } | { kind: "ramp"; floor: number };
+
+/** Built fresh per call rather than exported as a shared literal, so no caller can mutate the
+ *  default out from under the next one — same reasoning as defaultTerrainRamp. */
+export function defaultAtmosphereRamp(): AtmosphereRamp {
+  return { kind: "ramp", floor: DEFAULT_ATMOSPHERE_FLOOR };
+}
+
+/**
+ * Read `?sky=off|<floor>` — absent is the default ramp, `off` holds the base constant, and a
+ * number is the strength to hold at ATMOSPHERE_RAMP_END_ZOOM.
+ *
+ * Returns null for malformed ONLY. Absent and malformed both end up on the default ramp, but the
+ * caller has to tell them apart to warn about a typo — mirrors parseTerrainRamp, for the reason
+ * given there: a run that believes it swept 0.15 while running 0.7 is worse than no run.
+ *
+ * Zero IS accepted here, unlike `?terrain=0`: a floor of 0 means "no atmosphere past the
+ * overview", which is a legitimate arm and visibly distinct from the default. The ceiling is 1,
+ * MapLibre's own maximum for the property.
+ */
+export function parseAtmosphereRamp(params: URLSearchParams): AtmosphereRamp | null {
+  const raw = params.get("sky");
+  if (raw === null || raw.trim() === "") return defaultAtmosphereRamp();
+  if (raw.trim().toLowerCase() === ATMOSPHERE_RAMP_OFF) return { kind: "off" };
+  const floor = Number(raw);
+  if (!Number.isFinite(floor) || floor < 0 || floor > 1) return null;
+  return { kind: "ramp", floor };
+}
+
+/**
+ * Per-zoom-level decay factor that carries `base` to `floor` across the ramp's span.
+ *
+ * Doubles as MapLibre's `["exponential", base]` interpolation base, which is not a coincidence
+ * but an identity: MapLibre interpolates `y = y0 + (y1-y0)·(b^(x-x0) - 1)/(b^(x1-x0) - 1)`, and
+ * substituting `b = (y1/y0)^(1/(x1-x0))` makes `b^(x1-x0) = y1/y0`, so the denominator becomes
+ * `(y1-y0)/y0` and the whole expression collapses to `y = y0·b^(x-x0)` — exact geometric decay.
+ * That is what lets one two-stop expression say precisely what rampedAtmosphereBlend says.
+ */
+export function atmosphereDecayRatio(
+  baseBlend: number = BASE_ATMOSPHERE_BLEND,
+  floorBlend: number = DEFAULT_ATMOSPHERE_FLOOR,
+): number {
+  return (floorBlend / baseBlend) ** (1 / (ATMOSPHERE_RAMP_END_ZOOM - ATMOSPHERE_RAMP_START_ZOOM));
+}
+
+/**
+ * Atmosphere strength for a map zoom, decaying geometrically from `base` to `floor`.
+ *
+ * MapLibre evaluates the shipped ramp from the expression `atmosphereBlend()` builds; this is the
+ * JS mirror, used for the `?perf` read-out, and a test pins the two together at every stop so the
+ * read-out cannot quietly disagree with what is on screen.
+ *
+ * Geometric rather than linear for a measured reason, not for symmetry with the terrain ramp: the
+ * limb is gone from the frame by z5 at pitch 0, so most of the reduction should be spent by then.
+ * Linear leaves 0.333 at z5 (52% of the way down); geometric leaves 0.251 (66%).
+ */
+export function rampedAtmosphereBlend(
+  baseBlend: number,
+  zoom: number,
+  floorBlend: number = DEFAULT_ATMOSPHERE_FLOOR,
+): number {
+  if (zoom <= ATMOSPHERE_RAMP_START_ZOOM) return baseBlend;
+  if (zoom >= ATMOSPHERE_RAMP_END_ZOOM) return floorBlend;
+  const span =
+    (zoom - ATMOSPHERE_RAMP_START_ZOOM) /
+    (ATMOSPHERE_RAMP_END_ZOOM - ATMOSPHERE_RAMP_START_ZOOM);
+  return baseBlend * (floorBlend / baseBlend) ** span;
+}
+
+/**
+ * `atmosphere-blend` as MapLibre will evaluate it — a zoom expression, not a number.
+ *
+ * The style spec marks this property zoom-interpolatable and its own doc says "it is best to
+ * interpolate this expression when using globe projection", so the ramp is declared once and
+ * evaluated per frame by MapLibre. That matters beyond tidiness: driving it from a `zoom` handler
+ * would mean a `setSky` per step, and Style.setSky re-runs the sky's transitions on every call
+ * with a **300 ms default duration** (style.ts, `extend({duration: 300}, stylesheet.transition)`)
+ * — measured live: a fresh value is unchanged at t=0, half-applied at t=100 ms, settled by
+ * t=500 ms. A per-step handler would therefore chase the camera a third of a second behind and
+ * restart the transition before it ever landed. An expression has no such lag.
+ *
+ * This is exactly where terrain cannot follow: `exaggeration` is typed a plain number, which is
+ * why that ramp has to be hand-driven while this one is declarative.
+ *
+ * A floor of 0 falls back to linear — geometric decay cannot reach zero, and MapLibre's
+ * `exponential` divides by `base^span - 1`, which a base of 0 degenerates.
+ *
+ * PITCH ENTERS HERE, AS A NEW BASE, NOT AS A SECOND EXPRESSION. MapLibre expressions can read
+ * `["zoom"]` and nothing else about the camera — there is no `["pitch"]` — so the pitch term
+ * cannot be declared and has to be applied by rebuilding this expression when the camera settles
+ * (globe.astro's `moveend`). That is the one thing skyAtmosphere.ts's header says an expression
+ * spares us, so it is worth being precise about what changed: the ramp is still evaluated per
+ * frame by MapLibre and still never chases zoom; only its starting value is re-declared, at most
+ * once per camera settle, where the 300 ms `setSky` transition reads as a crossfade rather than
+ * as lag.
+ *
+ * The pitched base is floored at `ramp.floor`. Without that, `?sky=0.5` plus a pitched camera
+ * would hand the expression a base BELOW its floor and silently invert the ramp — atmosphere
+ * rising with zoom, which is the opposite of everything above.
+ */
+export function atmosphereBlend(
+  ramp: AtmosphereRamp,
+  pitchDeg: number = 0,
+): SkySpecification["atmosphere-blend"] {
+  if (ramp.kind === "off") return BASE_ATMOSPHERE_BLEND;
+  const base = Math.max(pitchedAtmosphereBase(pitchDeg), ramp.floor);
+  const interpolation: ["exponential", number] | ["linear"] =
+    ramp.floor > 0 ? ["exponential", atmosphereDecayRatio(base, ramp.floor)] : ["linear"];
+  return [
+    "interpolate",
+    interpolation,
+    ["zoom"],
+    ATMOSPHERE_RAMP_START_ZOOM,
+    base,
+    ATMOSPHERE_RAMP_END_ZOOM,
+    ramp.floor,
+  ];
+}
+
+/**
+ * The whole `sky` spec, with the atmosphere ramped and every other property held.
+ *
+ * Owned here rather than inline in globe.astro so the colours and the ramp that scales them sit
+ * in one reviewable place — the module that defines a thing names it, as countryHighlight.ts owns
+ * COUNTRIES_SOURCE.
+ *
+ * `fog-*` is carried unchanged and is inert on our map (globe projection skips terrain fog
+ * outright); it is kept because it costs nothing and would be the correct configuration the day
+ * a mercator view exists.
+ */
+export function skySpec(ramp: AtmosphereRamp, pitchDeg: number = 0): SkySpecification {
+  return {
+    "sky-color": SKY_COLOR,
+    "horizon-color": HORIZON_COLOR,
+    "fog-color": FOG_COLOR,
+    "sky-horizon-blend": 0.5,
+    "horizon-fog-blend": 0.5,
+    "fog-ground-blend": 0.1,
+    "atmosphere-blend": atmosphereBlend(ramp, pitchDeg),
+  };
+}
+
+/** Whether a pitch change is worth a `setSky`, given the pitch the sky was last built for.
+ *
+ *  Exists because every `setSky` restarts the sky's 300 ms transition, so a call that changes
+ *  nothing is not free — it re-runs the crossfade. Below the ramp's start pitch the answer is
+ *  always no, which is most cameras.
+ *
+ *  The threshold is on the resulting BLEND, not on the pitch, so it means the same thing however
+ *  the ramp's endpoints are retuned: 0.01 of blend is ~0.33 degrees today and stays imperceptible
+ *  if that changes. */
+export function atmosphereNeedsRebuild(
+  lastPitchDeg: number,
+  pitchDeg: number,
+  minBlendDelta: number = 0.01,
+): boolean {
+  return Math.abs(pitchedAtmosphereBase(pitchDeg) - pitchedAtmosphereBase(lastPitchDeg))
+    >= minBlendDelta;
+}
+
+/**
+ * One line describing the live atmosphere for the `?perf` overlay.
+ *
+ * The ramp makes atmosphere strength a function of zoom, so a screenshot no longer says what
+ * produced it — the same reasoning that put the terrain arm on screen. `map.getSky()` returns the
+ * expression rather than the evaluated number, so the value here comes from the JS mirror.
+ */
+export function describeAtmosphereState(
+  zoom: number,
+  ramp: AtmosphereRamp,
+  pitchDeg: number = 0,
+): string {
+  if (ramp.kind === "off") {
+    return `sky ${BASE_ATMOSPHERE_BLEND.toFixed(2)} · ramp off`;
+  }
+  const base = Math.max(pitchedAtmosphereBase(pitchDeg), ramp.floor);
+  const blend = rampedAtmosphereBlend(base, zoom, ramp.floor);
+  // The pitch term is named only when it is doing something. Two ramps in every capture would
+  // make the line noise on the cameras where pitch provably changes nothing, and the point of
+  // this string is that a screenshot says what produced it.
+  const pitched =
+    base === BASE_ATMOSPHERE_BLEND ? "" : ` · pitch ${Math.round(pitchDeg)}°→${base.toFixed(2)}`;
+  return `sky ${blend.toFixed(2)} · ramp ${BASE_ATMOSPHERE_BLEND}→${ramp.floor}${pitched}`;
+}
