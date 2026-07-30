@@ -34,7 +34,9 @@ dev = [
 # TypedDict silently broke three test files that the pipeline-only scan could not see. An
 # unchecked directory is where a "zero errors" claim quietly rots.
 [tool.pyright]
-include = ["pipeline", "tests"]
+# `scripts` joined on the same footing as `tests` did: it holds a maintenance tool that WRITES to
+# source files, so an unchecked type there is not a cosmetic risk.
+include = ["pipeline", "tests", "scripts"]
 exclude = ["pipeline/experiments"]
 venvPath = "."
 venv = ".venv"

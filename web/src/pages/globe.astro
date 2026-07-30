@@ -515,9 +515,19 @@ import { REPO_URL } from "../lib/siteLinks";
     BORDERS_BASE,
     HERO_BASE,
     TERRAIN_URL_TEMPLATE,
+    TILE_BASE,
     TILE_URL_TEMPLATE,
   } from "../lib/assetBase";
   import { RELIEF_BASE_MAX_ZOOM, RELIEF_MAX_ZOOM, RELIEF_MIN_ZOOM } from "../lib/reliefTiles";
+  // The ONE static exemption for the instrument, and it is fifteen lines: the entry buffer has to be
+  // raised ahead of `new maplibregl.Map`, which no dynamic import can promise. Everything else that
+  // reads those entries lives in lib/perf/ and loads only under `?perf` — see that module's header
+  // for why splitting the import site was not enough, and lib/perf/lazyBoundary.test.ts for the rule.
+  import {
+    RESOURCE_TIMING_BUFFER_SIZE,
+    raiseResourceTimingBuffer,
+  } from "../lib/resourceTimingBuffer";
+  import type { CameraFill } from "../lib/perf/perfNetwork";
   import {
     MAX_TERRAIN_EXAGGERATION,
     TERRAIN_MAX_ZOOM,
@@ -596,10 +606,10 @@ import { REPO_URL } from "../lib/siteLinks";
     isSustainedSlow,
     nextDegradationAction,
   } from "../lib/fpsDegradation";
-  import type { PerfEventStamps, PerfSnapshot } from "../lib/perfOverlay";
+  import type { PerfEventStamps, PerfSnapshot } from "../lib/perf/perfOverlay";
   // Type-only, so the perf report module stays out of every non-?perf bundle — the values come
   // from the dynamic import beside the overlay's.
-  import type { LadderPosition } from "../lib/perfSnapshot";
+  import type { LadderPosition } from "../lib/perf/perfSnapshot";
 
   // `Country` (imported from ../lib/manifest) is the shape of the objects the
   // click/hover/panel handlers pass around.
@@ -654,6 +664,19 @@ import { REPO_URL } from "../lib/siteLinks";
   // expose the raster baseline, ?perf mounts the on-screen long-task overlay (phones have no
   // devtools console).
   const urlFlags = new URLSearchParams(location.search);
+
+  // Raised HERE, not in the ?perf block further down, and that is the whole point: the default
+  // buffer is 250 entries, one fresh viewport at Full already costs 97 tile requests, and entries
+  // dropped before the instrument mounts are gone for good. There is no API to read the limit back
+  // or to learn that an entry was discarded, so a late raise would leave the totals a silent floor.
+  // Gated on the flag so an ordinary visit keeps the browser's default.
+  const resourceTimingBufferSize = urlFlags.has("perf")
+    ? raiseResourceTimingBuffer(performance, RESOURCE_TIMING_BUFFER_SIZE)
+    : null;
+  // Resolved once: TILE_BASE is relative on the dev server and absolute in production, while
+  // Resource Timing entry names are always absolute.
+  const absoluteTileBase = new URL(TILE_BASE, location.href).href;
+
   // Read before the Map is constructed: terrainSkirtLength is a constructor option, because the
   // skirt is baked into the cached terrain mesh rather than applied per frame.
   const parsedSkirt = parseTerrainSkirt(urlFlags);
@@ -1163,16 +1186,60 @@ import { REPO_URL } from "../lib/siteLinks";
     const probedSignals = probeSignals();
     const probedDeviceClass = deviceClass();
 
-    // BOTH modules load dynamically, and perfSnapshot is in here rather than at the top for the
-    // same reason perfOverlay always was: a visitor without `?perf` must not download the
-    // instrument. Its TYPES are imported statically, which costs nothing — they are erased.
-    void Promise.all([import("../lib/perfOverlay"), import("../lib/perfSnapshot")]).then(
-      ([overlay, perfSnapshot]) => {
+    const tileEntryCount = () =>
+      performance
+        .getEntriesByType("resource")
+        .filter((entry) => entry.name.startsWith(absoluteTileBase)).length;
+
+    // ALL THREE load dynamically: a visitor without `?perf` must not download the instrument, and
+    // that has to mean the modules and not just the call sites — Rollup places a module wherever it
+    // is statically imported, so one static import of `perfNetwork` for its buffer raiser put the
+    // whole thing in the main chunk (+2,362 bytes for every visitor, gallery tier included). The
+    // raiser now lives in its own fifteen-line module outside lib/perf/. TYPES are still imported
+    // statically here, which costs nothing — they are erased at build.
+    void Promise.all([
+      import("../lib/perf/perfOverlay"),
+      import("../lib/perf/perfSnapshot"),
+      import("../lib/perf/perfNetwork"),
+    ]).then(([overlay, perfSnapshot, perfNetwork]) => {
+        // The fill timer binds here rather than above, which costs the first gesture if someone
+        // drags inside the import window. Accepted deliberately: a `?perf` session is a deliberate
+        // one (load, settle, then move), and the alternative was keeping the state machine in the
+        // main bundle for every visitor to pay for.
+        let cameraFill: CameraFill = perfNetwork.newCameraFill();
+        map.on("movestart", () => {
+          cameraFill = perfNetwork.onCameraMoveStart(cameraFill, performance.now(), tileEntryCount());
+        });
+        map.on("idle", () => {
+          cameraFill = perfNetwork.onCameraIdle(cameraFill, performance.now(), tileEntryCount());
+        });
+        // Read fresh from the entry buffer rather than accumulated by a PerformanceObserver: the
+        // buffer IS the accumulator, and a second copy of it is a second thing that can disagree.
+        const readTraffic = () =>
+          perfNetwork.summariseTileTraffic(
+            // `getEntriesByType` is typed as the base entry; the "resource" list is always
+            // PerformanceResourceTiming, which structurally satisfies the module's own narrow input.
+            performance.getEntriesByType("resource") as PerformanceResourceTiming[],
+            TILE_BASE,
+            // TILE_BASE is relative on the dev server and absolute in production; entry names are
+            // always absolute, so the base has to be resolved against this page to match either.
+            location.href,
+            resourceTimingBufferSize ?? RESOURCE_TIMING_BUFFER_SIZE,
+          );
         // ONE composer feeding both the panel and the export, so a screenshot and a saved snapshot
         // can never disagree about the same moment. `timing` is handed in by the overlay — it owns
         // the long-task and frame counters, and reaching into them from here would be a second copy
         // of a live number.
-        const composeReport = (timing: PerfSnapshot, panel = { expanded: true }) => {
+        // `sampleGlNow` is FALSE on the panel tick and true only on export, and that asymmetry is
+        // the whole point. A fresh reading walks the covering set and every tile manager; doing
+        // that 3.3 times a second to paint text is how the previous version of this instrument
+        // came to kill the map it was measuring. The panel shows the idle sample and its age; the
+        // export, being one user-initiated moment, can afford to be current.
+        const composeReport = (
+          timing: PerfSnapshot,
+          panel = { expanded: true },
+          { sampleGlNow = false } = {},
+        ) => {
           const canvas = map.getCanvas();
           return perfSnapshot.buildPerfReport({
             nowMs: performance.now(),
@@ -1194,9 +1261,13 @@ import { REPO_URL } from "../lib/siteLinks";
               panelExpanded: panel.expanded,
             },
             timing,
-            // The healthy `idle` sample, already being taken and thrown away unless the GPU died.
-            // Null before the first idle; the report states its age rather than implying freshness.
-            gl: lastHealthyGlState,
+            // On export, a reading taken NOW, falling back to the last healthy idle sample when a
+            // fresh one comes back empty — which is what a teardown reads as, and the reason the
+            // `idle`-only rule existed in the first place. On the panel tick, the idle sample alone.
+            // Either way the report carries `glSampleAgeMs`, so which one this is, is readable:
+            // a 25.7 s age is how the first production phone run came to describe the calm before
+            // the panning rather than the panning itself.
+            gl: (sampleGlNow ? sampledGlState() : null) ?? lastHealthyGlState,
             deviceClass: probedDeviceClass,
             signals: probedSignals,
             tier: decideTier(probedSignals, getQuality()),
@@ -1210,6 +1281,8 @@ import { REPO_URL } from "../lib/siteLinks";
             restoreFault: restoreFault(map),
             glLossCount,
             lastGlLossMs,
+            traffic: readTraffic(),
+            fill: cameraFill,
           });
         };
 
@@ -1218,12 +1291,18 @@ import { REPO_URL } from "../lib/siteLinks";
           extraLines: (timing) => [
             ...(terrainLine && demCache ? [terrainLine(), demCache()] : []),
             skyLine(),
+            // Cheap on the tick, unlike a GL sample: this reads an array the browser already
+            // maintains and does no work against the map.
+            perfNetwork.tileTrafficLine(readTraffic()),
+            // Omitted entirely until a move has settled — a `fill —` row before the first gesture
+            // is a row the eye learns to skip, and this is the one worth reading.
+            ...(perfNetwork.cameraFillLine(cameraFill) === null ? [] : [perfNetwork.cameraFillLine(cameraFill)!]),
             // `expanded: true` stated rather than defaulted: these lines are only ever rendered
             // when the panel IS expanded (the collapsed view calls perfCollapsedLines instead), so
             // the fact is knowable here and should not rest on a default happening to be right.
             ...perfSnapshot.perfReportLines(composeReport(timing, { expanded: true })),
           ],
-          buildReport: composeReport,
+          buildReport: (timing, panel) => composeReport(timing, panel, { sampleGlNow: true }),
         });
       },
     );
@@ -1270,12 +1349,18 @@ import { REPO_URL } from "../lib/siteLinks";
       coveringTiles: coveringTileCount(),
     });
 
+  // One home for "take a routine reading, and refuse an empty one". An empty snapshot is what a
+  // teardown looks like: it must never overwrite a good reading, nor be reported as a state.
+  const sampledGlState = (): GlLossSnapshot | null => {
+    const snapshot = readGlState("sampled", null);
+    return snapshotHasContent(snapshot) ? snapshot : null;
+  };
+
   // The last reading taken while the map was healthy. `idle` is the right cadence: it is the
   // steady state, it costs a few object-key counts, and it cannot fire during a teardown.
   let lastHealthyGlState: GlLossSnapshot | null = null;
   map.on("idle", () => {
-    const snapshot = readGlState("sampled", null);
-    if (snapshotHasContent(snapshot)) lastHealthyGlState = snapshot;
+    lastHealthyGlState = sampledGlState() ?? lastHealthyGlState;
   });
 
   // Losses still counting against the recovery budget. A page that keeps losing the context is not

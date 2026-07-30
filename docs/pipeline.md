@@ -97,7 +97,7 @@ A separate, raster-only path that does **not** use Blender: fuse the whole plane
 | `pipeline.tile.terrain_rgb` | the terrain-RGB elevation pyramid for the globe's Tier-3 displacement — read straight off `height_3857.tif`, never the composite, so it is a separate lane rather than a stage of the shade pass |
 | `pipeline.tile.pack_pmtiles` + `tools/pmtiles convert` | `planet.pmtiles` and `terrain.pmtiles` — the range-request-servable archives, one per pyramid. The packer reads the tile encoding off the directory, so the same command packs either |
 
-Snow here is **not** the hero's WorldCover class-70 mask (permanent ice only, which left mid/high-latitude ranges bare) — it is observed MODIS snow *persistence* as a soft alpha, ramped by latitude, with RGI glaciers crisp on top. The decisions behind every piece are in [`HISTORY.md`](../HISTORY.md); the pipeline diagrams show the full graph.
+Snow here is **not** the hero's WorldCover class-70 mask (permanent ice only, which left mid/high-latitude ranges bare) — it is observed MODIS snow *persistence* as a soft alpha, ramped by latitude, with RGI glaciers crisp on top. The decisions behind every piece are recorded in the project's decision archive, which is kept outside this repository (see the note in the README); the pipeline diagrams show the full graph.
 
 ## From heroes to the website
 

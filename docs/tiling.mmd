@@ -1,6 +1,7 @@
 %% Tiling and serving — how the shaded 3857 master becomes a served tile pyramid.
-%% Companion to pipeline-detail.mmd, which compresses all of this into its single
-%% "gdal raster tile" node (T2). Update both when the tiling stage changes.
+%% Companion to pipeline-detail.mmd, which compresses the relief cut into its single
+%% "gdal raster tile" node (T2) and the terrain lane into its own stage T.
+%% Update both when either lane changes.
 
 flowchart TD
 
@@ -12,13 +13,18 @@ flowchart TD
     P2["Phase 2 — recursive overviews (z7 down to z0)<br/>each tile built from the 2x2 tiles BELOW it, never from the source<br/>(proven: tiling with vs without source overviews is byte-identical,<br/>which is why the old gdaladdo step was deleted)<br/>--overview-resampling=cubic pins an otherwise-undocumented default;<br/>cubic ringing compounds across the 8 levels"]
   end
 
+  subgraph TERRAIN["Terrain-RGB — a SEPARATE LANE, not a variant of the above"]
+    TR["tile/terrain_rgb.py — reads height_3857.tif DIRECTLY<br/>never the shaded composite, so it is not part of the shading pass at all<br/>elevation → RGB (Terrarium: (e + 32768) / step), step = 8 m, sea left as bathymetry<br/>so the seafloor displaces instead of reading as a wall<br/>encoded elevation feathers to zero over 78°-85° by smoothstep<br/>LOSSLESS WebP — a lossy pixel here is a wrong ELEVATION, not a blemish"]
+    TD["bathy_s8_webp/tiles/&lt;z&gt;/&lt;x&gt;/&lt;y&gt;.webp — 87,381 tiles, z0-8<br/>same grid and count as the relief cut; guarded by its own tiles.done + terrain_params.json<br/>DECLARED tileSize 128 to the client, which is what makes z8 reachable at all"]
+  end
+
   subgraph OUT["Tile directory — the addressing IS the API"]
     DIR["planet_tiles/tiles/&lt;z&gt;/&lt;x&gt;/&lt;y&gt;.webp<br/>WebP q95 (--format=WEBP --co QUALITY), ~20% of an equivalent PNG cut<br/>XYZ convention (y counts down from the top-left)<br/>87,381 tiles, ~4x per level (z0=1, ... z8=65,536)<br/>--skip-blank omits empty tiles; --webviewer=none (no leaflet/ol junk)<br/>cuts CLEAN each time (no --resume — a truncated tile can't survive);<br/>guarded by tiles.done + tile_params.json (format/quality changes restage); staged in tiles_new, swapped atomically,<br/>tiles_old kept as rollback"]
   end
 
   subgraph SERVE["Serving"]
-    PM["PMTiles — tile/pack_pmtiles.py then pmtiles convert<br/>dir → MBTiles (blobs byte-moved, XYZ→TMS row flip) → planet.pmtiles, 16 GB<br/>~5% duplicate tiles collapsed; verified byte-identical vs the directory<br/>ONE object; the tile directory it was built from is not deployed"]
-    TS["Tile server — opens the archive, answers one z/x/y at a time<br/>dev: /tiles middleware in web/astro.config.ts, over a local file<br/>prod: a Worker, over an R2 object (see HISTORY, deploy target moves to R2)<br/>the browser NEVER ranges the archive: Workers Caching strips Range and<br/>would fetch all 16 GB per tile, and a 16 GB object is past the 512 MB cache ceiling"]
+    PM["PMTiles — tile/pack_pmtiles.py then pmtiles convert<br/>dir → MBTiles (blobs byte-moved, XYZ→TMS row flip) → planet.pmtiles, 3.1 GB<br/>~5% duplicate tiles collapsed; verified byte-identical vs the directory<br/>the tile directory it was built from is not deployed<br/>a SECOND archive rides the same path: terrain.pmtiles, 2.6 GB, from the terrain lane above"]
+    TS["Tile server — opens an archive, answers one z/x/y at a time<br/>dev: /tiles middleware in web/astro.config.ts, over a local file<br/>prod: a Worker, over R2 objects (see HISTORY, deploy target moves to R2)<br/>ONE server for both pyramids: a terrain/ path prefix selects the archive, and<br/>that prefix is load-bearing — both are WebP over z0-8, so nothing else in a<br/>tile URL tells them apart and the wrong one displaces the globe rather than 404ing<br/>the browser NEVER ranges an archive: Workers Caching strips Range and would<br/>fetch the whole multi-GB body per tile, which is also past the 512 MB cache ceiling"]
     ML["MapLibre GL raster source — globe.astro (LIVE today)<br/>tiles &lt;PUBLIC_TILE_BASE&gt;&lt;z&gt;/&lt;x&gt;/&lt;y&gt;.webp, minzoom 0 maxzoom 8<br/>base unset = same-origin /tiles/ (what astro dev serves); a deploy points it at the Worker<br/>tileSize:256 declared + 512 px assets = @2x retina crispness<br/>the globe projection re-warps the mercator tiles onto a sphere, GPU-side<br/>(WebMercatorQuad is dictated by this renderer, not chosen for itself)"]
   end
 
@@ -29,9 +35,10 @@ flowchart TD
   DIR --> PM
   PM --> TS
   TS --> ML
+  H[("height_3857.tif — the fused heightfield, pre-shading")] --> TR
+  TR --> TD
+  TD --> PM
 
   classDef done fill:#dcefe2,stroke:#2e7d4f,color:#1a3a28
-  classDef next fill:#fdf3d7,stroke:#b8860b,color:#4a3a10
 
-  class M,P1,Z8,P2,DIR,ML,PM done
-  class TS next
+  class M,P1,Z8,P2,DIR,ML,PM,TS,H,TR,TD done

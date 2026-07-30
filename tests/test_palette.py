@@ -2,8 +2,14 @@
 land/sea color ramps used by both the Cycles heroes and the raster tile shading.
 
 The load-bearing test is `test_color_relief_matches_locked_hero_hex`: an independent
-oracle (the frozen hex values recorded in PLAN.md § "Locked global constants") that
-fails loudly if the linear ramp stops ever drift off the approved hero look.
+oracle — the frozen hex values transcribed below — that fails loudly if the linear ramp stops ever
+drift off the approved hero look.
+
+THIS FILE IS THE ORACLE, not a copy of one. The values were transcribed from the living plan's
+locked-constants section, which is kept outside the repository, so nothing a reader can reach holds
+them independently of `palette.py` itself. That is the point: an oracle stored beside the code it
+checks is no oracle at all, and these literals are deliberately hand-written rather than derived.
+Changing one means re-rendering every hero. See ART.md for the look decisions behind them.
 """
 
 from pathlib import Path
@@ -19,7 +25,8 @@ def _hex(code: str) -> tuple[int, int, int]:
     return (int(code[0:2], 16), int(code[2:4], 16), int(code[4:6], 16))
 
 
-# The frozen hero ramp endpoints (PLAN.md § Locked global constants → Color).
+# The frozen hero ramp endpoints. Hand-transcribed on purpose — deriving them from `palette.py`
+# would make this test tautological. See ART.md § Lever index for what each one costs to move.
 LAND_COAST = _hex("E9D9C0")   # land ramp @ 0 m
 LAND_PEAK = _hex("E9DCC8")    # land ramp @ 6000 m
 SEA_SHALLOW = _hex("85B9B7")  # sea ramp @ 0 m (shallowest; deepened ~15% from 8FC7C5)
@@ -86,7 +93,7 @@ class TestColorRelief:
             assert elevs == sorted(elevs)
 
     def test_color_relief_matches_locked_hero_hex(self):
-        """Independent oracle: generated endpoints == the frozen PLAN.md hex."""
+        """Independent oracle: generated endpoints == the frozen hex transcribed in this file."""
         land = palette.color_relief_rows("land")
         sea = palette.color_relief_rows("sea")
         assert land[0][1] == LAND_COAST

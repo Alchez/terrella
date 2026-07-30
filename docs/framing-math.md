@@ -11,7 +11,7 @@ frame.json ──scene_build.py──▶ Blender scene (+ render)
 frame.json ──overlay_borders.py──▶ borders drawn in exactly the camera's view
 ```
 
-`country_config.py` resolves `config/countries.toml` — the committed source of truth for which ~200 countries get heroes and their per-country knobs. The frame is computed from the Natural Earth bbox (the `frame_country.py` math below) unless the config carries an override.
+`country_config.py` resolves `config/countries.toml` — the committed source of truth for which countries get heroes (203 ship; 204 are in scope, Kiribati deferred) and their per-country knobs. The frame is computed from the Natural Earth bbox (the `frame_country.py` math below) unless the config carries an override.
 
 `frame.json` is the hand-off: one small file per country holding every derived number. Blender's Python cannot read geographic metadata, so these numbers must be computed outside and handed over.
 

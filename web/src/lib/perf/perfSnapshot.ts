@@ -25,15 +25,20 @@
 // survive that; absolutes do not transfer at all. A report that does not state where it was taken
 // invites exactly that mistake again, so `origin` is not optional and `devServer` is not inferred.
 
-import type { DegradationAction } from "./fpsDegradation";
-import type { CapabilitySignals, Tier } from "./capability";
-import type { CapLayerState, GlLossSnapshot } from "./glDiagnostics";
+import type { DegradationAction } from "../fpsDegradation";
+import type { CapabilitySignals, Tier } from "../capability";
+import type { CapLayerState, GlLossSnapshot } from "../glDiagnostics";
 import type { PerfSnapshot } from "./perfOverlay";
-import type { DeviceClass } from "./polarCaps";
-import { megabytes } from "./format";
+import type { CameraFill, TileTraffic } from "./perfNetwork";
+import type { DeviceClass } from "../polarCaps";
+import { megabytes } from "../format";
 
-/** Bumped when a field changes meaning, so an exported file can be read against the right rules. */
-export const PERF_REPORT_SCHEMA = 1;
+/** Bumped when a field changes meaning, so an exported file can be read against the right rules.
+ *
+ *  2 adds `traffic` and `fill`. Additive, so a v1 file still reads correctly — but the bump earns its keep by
+ *  making the absence explicit: a v1 export cannot say whether its byte and timing numbers were
+ *  cold or warm, and that ambiguity is exactly what caused two misreadings on 2026-07-30. */
+export const PERF_REPORT_SCHEMA = 2;
 
 /** Where and under what conditions a reading was taken. */
 export interface PerfOrigin {
@@ -104,6 +109,24 @@ export interface PerfReportInputs {
   glLossCount: number;
   /** `performance.now()` at the most recent loss, or null if there has not been one. */
   lastGlLossMs: number | null;
+  /**
+   * Tile bytes and counts from Resource Timing, split relief/terrain, with browser-cache hits
+   * counted separately.
+   *
+   * The field that makes every absolute in this report interpretable. Two numbers were misreported
+   * in one evening for want of it: a phone `bootMs` of 2792 quoted as a startup cost when the next
+   * two arms read ~1450 because the first was a cold cache, and a desktop cap total quoted before
+   * anyone noticed four of its five files came from cache. "Fetched" and "already had it" are not
+   * the same measurement and the report could not tell them apart.
+   */
+  traffic: TileTraffic;
+  /**
+   * The most recent `movestart → idle` wait, and whether one is in progress.
+   *
+   * The metric for the complaint that started all of this — "tiles take a long time to load in" —
+   * which had only ever been measured once, by hand, with a rig built for the occasion.
+   */
+  fill: CameraFill;
 }
 
 export interface PerfReport extends PerfReportInputs {

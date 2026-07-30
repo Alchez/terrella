@@ -478,6 +478,8 @@ describe("globe.astro wires the diagnostics rather than re-stating them", () => 
   const idleSampler = globe.match(/map\.on\("idle", \(\) => \{[\s\S]*?\n  \}\);/g)
     ?.find((block) => block.includes("lastHealthyGlState"));
 
+  const sampledGlState = globe.match(/const sampledGlState = [\s\S]*?\n  \};/)?.[0];
+
   // The verdict logic lives here now rather than in the restore handler, because the restore event
   // is not guaranteed to fire (see the comment on the loss handler). Both entry points share it.
   const recoveryWatch = globe.match(/const startRecoveryWatch = [\s\S]*?\n  \};/)?.[0];
@@ -569,12 +571,41 @@ describe("globe.astro wires the diagnostics rather than re-stating them", () => 
     // The defect this replaced: MapLibre tears the style down before our listener runs, so the
     // loss-time read is always empty. Sampling on idle is the only place the numbers exist.
     expect(idleSampler, "an idle handler must maintain lastHealthyGlState").toBeTruthy();
-    expect(idleSampler).toContain("snapshotHasContent");
+    expect(idleSampler).toContain("sampledGlState(");
+  });
+
+  it("rejects an empty read at the single place a routine sample is taken", () => {
+    // These two assertions used to match `if (snapshotHasContent(snapshot)) lastHealthyGlState =`
+    // inline in the idle handler. The rejection moved into one shared helper when export gained a
+    // second caller, so the guard follows the invariant rather than the old shape of the code.
+    expect(sampledGlState, "sampledGlState must exist").toBeTruthy();
+    expect(sampledGlState).toContain("snapshotHasContent");
+    expect(sampledGlState).toMatch(/\?\s*snapshot\s*:\s*null/);
   });
 
   it("never overwrites the healthy sample with an empty read", () => {
-    // Without the guard, one idle tick during a teardown erases the only reading we had.
-    expect(idleSampler).toMatch(/if \(snapshotHasContent\(snapshot\)\) lastHealthyGlState =/);
+    // Without the fallback, one idle tick during a teardown erases the only reading we had.
+    expect(idleSampler).toMatch(/lastHealthyGlState = sampledGlState\(\) \?\? lastHealthyGlState/);
+  });
+
+  it("takes a FRESH sample on export and the stale one on the panel tick", () => {
+    // The asymmetry is the fix and the constraint at once. Export is one user-initiated moment, so
+    // it can afford a current reading — the first production phone capture carried a 25.7 s stale
+    // GL block describing the calm before the panning rather than the panning. The 300 ms panel
+    // tick cannot: a fresh read walks the covering set and every tile manager, and doing per-tick
+    // probe work is precisely how this instrument previously killed the map it was measuring.
+    expect(globe).toMatch(/gl: \(sampleGlNow \? sampledGlState\(\) : null\) \?\? lastHealthyGlState/);
+    // Both call sites asserted literally rather than by matching a span. A span match here has to
+    // reach past a comment block to its terminator, so it needs a bound, and a bound that is wrong
+    // fails as "not findable" — which reads as a missing feature rather than a bad matcher. These
+    // two strings ARE the asymmetry, so pin them and nothing else.
+    expect(globe).toMatch(
+      /buildReport: \(timing, panel\) => composeReport\(timing, panel, \{ sampleGlNow: true \}\)/,
+    );
+    expect(globe).toContain("perfReportLines(composeReport(timing, { expanded: true }))");
+    // Exactly one opt-in, and the line above proved it is the export's. A second would ship
+    // per-tick sampling while both assertions above kept passing.
+    expect(globe.match(/sampleGlNow: true/g)).toHaveLength(1);
   });
 
   it("reports the loss through describeLoss, so a stale reading is always labelled", () => {

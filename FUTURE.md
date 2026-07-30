@@ -269,6 +269,18 @@ magnitude, so the taxonomy is the decision:
   every number here is ×16 of a measured z8 stage, not itself measured. Ties to the `glo30/` retention
   lever above: a firm no-go on a finer re-fuse is what would let 551 GB drop to on-demand.
 
+## Hero presentation — geography-conditional, and no universal design exists (analysed 2026-07-09)
+
+Parked here from PLAN, where it was the last surviving open question with no tracked home.
+
+The finding is a **trilemma: consistent / coherent / neighbour-free — pick two.** Cutout-cream framing
+suits continental countries; real ocean suits islands; and most countries are *both* coastal and
+bordered, so every single treatment reads flat at the margin for a large fraction of the set.
+
+Not a look change in the locked-constants sense — the sun, ramps and exaggeration are untouched by it,
+so nothing here threatens the freeze. It is a *presentation* choice made per gallery/globe surface,
+which is why it never blocked anything. → HISTORY § 2026-07-09 — Hero presentation explored
+
 ## Kiribati presentation — the one antimeridian-deferred country (analysed 2026-07-24)
 
 - **Trigger:** Kiribati is the sole in-scope country with no hero (`status="antimeridian"`,

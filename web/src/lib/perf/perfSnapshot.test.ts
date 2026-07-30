@@ -3,8 +3,8 @@
 // texture that is still downloading, or render "nothing was measured" as a measurement.
 
 import { describe, expect, it } from "vitest";
-import type { CapabilitySignals } from "./capability";
-import type { GlLossSnapshot } from "./glDiagnostics";
+import type { CapabilitySignals } from "../capability";
+import type { GlLossSnapshot } from "../glDiagnostics";
 import type { PerfSnapshot } from "./perfOverlay";
 import {
   PERF_REPORT_SCHEMA,
@@ -34,6 +34,9 @@ const TIMING: PerfSnapshot = {
   longTaskMaxMs: 210,
   longTaskApiAvailable: true,
   fps: 58,
+  // A live rate, so the retained one is the same reading at age zero — the state during a gesture.
+  lastActiveFps: 58,
+  lastActiveFpsAgeMs: 0,
   worstFrameMs: 90,
   slowFrameCount: 4,
   zoom: 2.5,
@@ -89,6 +92,14 @@ const INPUTS: PerfReportInputs = {
   restoreFault: null,
   glLossCount: 0,
   lastGlLossMs: null,
+  traffic: {
+    relief: { count: 73, wireBytes: 6_500_000, fromBrowserCache: 0 },
+    terrain: { count: 24, wireBytes: 1_500_000, fromBrowserCache: 0 },
+    opaqueCount: 0,
+    medianNetworkDurationMs: 411,
+    bufferFull: false,
+  },
+  fill: { movingSinceMs: null, tilesAtMoveStart: null, last: { durationMs: 11_200, tilesFetched: 97 } },
 };
 
 describe("buildPerfReport", () => {

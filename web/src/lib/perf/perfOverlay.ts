@@ -20,7 +20,16 @@ export interface PerfEventStamps {
 }
 
 export interface PerfSnapshot {
-  /** Module-eval → overlay mount: the JS startup cost paid before the map exists. */
+  /**
+   * `performance.now()` at overlay mount — a TIMESTAMP on the navigation clock, not a duration,
+   * and the same clock `mapLoadMs` and `firstIdleMs` are stamped from.
+   *
+   * This used to claim it was "the JS startup cost paid before the map exists". The second half is
+   * false and production falsified it: the overlay arrives as a lazy chunk, so on a warm cache the
+   * map can load first — measured `bootMs` 1504.4 against `mapLoadMs` 1494.8 on the same run.
+   * `mapLoadMs - bootMs` is therefore not a phase duration and goes negative; the long-task totals
+   * are unaffected either way, because the observer replays with `buffered: true`.
+   */
   bootMs: number;
   mapLoadMs: number | null;
   firstIdleMs: number | null;
@@ -30,6 +39,25 @@ export interface PerfSnapshot {
   longTaskApiAvailable: boolean;
   /** Rendered frames per second over the last FPS_WINDOW_MS, or null when the map is idle. */
   fps: number | null;
+  /**
+   * The most recent non-null `fps`, kept after the map goes idle. Null until the map has drawn
+   * two frames in one window.
+   *
+   * Exists because the two things a reader is told to do before exporting are otherwise mutually
+   * exclusive. Letting the map settle is what makes the GL sample current — and settling is
+   * exactly what drops `fps` to null, so the frame rate for the gesture just performed is gone at
+   * the moment it gets written down. Measured on production: three phone runs, and the only one
+   * carrying an `fps` was the one exported mid-pan, whose GL sample was 25.7 s stale in exchange.
+   *
+   * `fps` itself stays honest and still reads null when idle. This is a SECOND field rather than a
+   * retained value in the first, because a rate presented as live while nothing is drawing is the
+   * class of lie this module exists to prevent.
+   */
+  lastActiveFps: number | null;
+  /** How long ago `lastActiveFps` was measured. Zero while the map is still drawing, and the
+   *  reason the retained value cannot masquerade as a live one — same contract as
+   *  `glSampleAgeMs` in the report. Null when there is no reading to date. */
+  lastActiveFpsAgeMs: number | null;
   /** Longest genuine frame interval since the map became usable — what "janky" means. A mean
    *  hides a single 120 ms stall; this is the number that matches the feeling. Deliberately
    *  cumulative and never cleared: the hitch happens during a gesture and the screenshot is
@@ -89,6 +117,29 @@ export function frameRate(
   const span = recent[recent.length - 1] - recent[0];
   if (span <= 0) return null;
   return Math.round(((recent.length - 1) / span) * 1000);
+}
+
+/** The last rate measured while the map was actually drawing, and when. */
+export interface RetainedFrameRate {
+  fps: number | null;
+  /** On the same clock as the tick that recorded it. Null while there is nothing to date. */
+  measuredAtMs: number | null;
+}
+
+/**
+ * Carry the last active rate across an idle map.
+ *
+ * Pure, and extracted rather than left inline in the tick for the reason every other helper here
+ * was: nothing mounts the overlay in a test, so logic inside `mountPerfOverlay` is logic no test
+ * can reach. An earlier version of this lived in the tick, and a deliberate sabotage of its
+ * condition went completely uncaught.
+ */
+export function retainFrameRate(
+  retained: RetainedFrameRate,
+  liveFps: number | null,
+  nowMs: number,
+): RetainedFrameRate {
+  return liveFps === null ? retained : { fps: liveFps, measuredAtMs: nowMs };
 }
 
 /**
@@ -212,7 +263,14 @@ export function perfSummaryLines(snapshot: PerfSnapshot): string[] {
     lines.push("long tasks n/a — no Long Tasks API in this browser");
   }
   // Worst and slow both show in either state, because they survive the gesture that produced them.
-  const rate = snapshot.fps === null ? "fps — (idle)" : `fps ${snapshot.fps}`;
+  // An idle map reports the rate it last drew at, dated — never as though it were current, and
+  // never in place of saying it is idle.
+  const seconds = (value: number) => `${(value / 1000).toFixed(0)}s`;
+  const idle =
+    snapshot.lastActiveFps === null || snapshot.lastActiveFpsAgeMs === null
+      ? "fps — (idle)"
+      : `fps — (idle · was ${snapshot.lastActiveFps}, ${seconds(snapshot.lastActiveFpsAgeMs)} ago)`;
+  const rate = snapshot.fps === null ? idle : `fps ${snapshot.fps}`;
   lines.push(
     `${rate} · worst ${ms(snapshot.worstFrameMs)} · slow ${snapshot.slowFrameCount}` +
       ` · z${snapshot.zoom.toFixed(2)}`,
@@ -289,6 +347,19 @@ export interface PerfOverlayOptions {
 
 export function mountPerfOverlay(map: MaplibreMap, options: PerfOverlayOptions = {}): void {
   const { eventStamps, extraLines, buildReport } = options;
+
+  // A seam for scripted diagnosis: without a map handle, a driven browser can reach the camera only
+  // through synthetic gestures or hash jumps, and an A/B whose arms cannot be given the identical
+  // camera route is the confound this project keeps paying for.
+  //
+  // It lives HERE, not in globe.astro, and that is what gates it. This module is dynamically
+  // imported inside the `?perf` branch alone, so an ordinary visit never downloads it, let alone
+  // runs this line — the module boundary IS the gate, and no edit to a page can accidentally widen
+  // it. The first version sat in globe.astro behind the flag with a test asserting the assignment
+  // appeared within the flag block's text span; a sabotage that moved it out of the block while
+  // leaving it inside the span passed that test cleanly. A guard that matches a region cannot
+  // decide what encloses a statement.
+  (window as unknown as { terrellaMap?: MaplibreMap }).terrellaMap = map;
   const snapshot: PerfSnapshot = {
     bootMs: performance.now(),
     mapLoadMs: null,
@@ -298,6 +369,8 @@ export function mountPerfOverlay(map: MaplibreMap, options: PerfOverlayOptions =
     longTaskMaxMs: 0,
     longTaskApiAvailable: true,
     fps: null,
+    lastActiveFps: null,
+    lastActiveFpsAgeMs: null,
     worstFrameMs: null,
     slowFrameCount: 0,
     zoom: map.getZoom(),
@@ -437,6 +510,8 @@ export function mountPerfOverlay(map: MaplibreMap, options: PerfOverlayOptions =
   // synchronously outside that loop and would be counted too, inflating the rate. Nothing on the
   // page calls redraw(); scripted diagnosis does, and should read this number accordingly.
   const renderStamps: number[] = [];
+  // Age is recomputed every tick from this stamp rather than stored, so it cannot go stale.
+  let retainedRate: RetainedFrameRate = { fps: null, measuredAtMs: null };
   let tracker = newFrameTracker();
   map.on("idle", () => {
     tracker = onIdle(tracker);
@@ -462,6 +537,10 @@ export function mountPerfOverlay(map: MaplibreMap, options: PerfOverlayOptions =
     }
     const now = performance.now();
     snapshot.fps = frameRate(renderStamps, now);
+    retainedRate = retainFrameRate(retainedRate, snapshot.fps, now);
+    snapshot.lastActiveFps = retainedRate.fps;
+    snapshot.lastActiveFpsAgeMs =
+      retainedRate.measuredAtMs === null ? null : now - retainedRate.measuredAtMs;
     snapshot.zoom = map.getZoom();
     while (renderStamps.length && now - renderStamps[0] > FPS_WINDOW_MS * 2) renderStamps.shift();
     // The collapsed view is a SUBSET of the same live snapshot, not a second reading — nothing on

@@ -13,6 +13,7 @@ import {
   onIdle,
   onRender,
   perfCollapsedLines,
+  retainFrameRate,
   perfSummaryLines,
   startsCollapsed,
   type PerfSnapshot,
@@ -27,6 +28,8 @@ const BASE: PerfSnapshot = {
   longTaskMaxMs: 0,
   longTaskApiAvailable: true,
   fps: null,
+  lastActiveFps: null,
+  lastActiveFpsAgeMs: null,
   worstFrameMs: null,
   slowFrameCount: 0,
   zoom: 3,
@@ -228,6 +231,78 @@ describe("longTaskApiSupported", () => {
       ...BASE, fps: null, worstFrameMs: 132.4, slowFrameCount: 9, zoom: 7.238,
     }).at(-1);
     expect(line).toBe("fps — (idle) · worst 132 ms · slow 9 · z7.24");
+  });
+
+  it("carries the last active rate across an idle map, and dates it", () => {
+    // The transition itself, which no test could reach while it lived inside the 300 ms tick.
+    const fresh = { fps: null, measuredAtMs: null };
+    const moving = retainFrameRate(fresh, 39, 1000);
+    expect(moving).toEqual({ fps: 39, measuredAtMs: 1000 });
+
+    // Idle: the reading survives AND keeps its original timestamp, which is what makes the age grow.
+    const settled = retainFrameRate(moving, null, 5200);
+    expect(settled).toEqual({ fps: 39, measuredAtMs: 1000 });
+
+    // Drawing again replaces both, so a stale rate can never outlive a newer one.
+    expect(retainFrameRate(settled, 55, 6000)).toEqual({ fps: 55, measuredAtMs: 6000 });
+  });
+
+  it("has nothing to retain until the map has drawn", () => {
+    // Zero would claim a measured rate of zero; null is "never measured". Different facts.
+    expect(retainFrameRate({ fps: null, measuredAtMs: null }, null, 400)).toEqual({
+      fps: null,
+      measuredAtMs: null,
+    });
+  });
+
+  it("reports the rate an idle map last drew at, because settling is what erases it", () => {
+    // The defect this closes: a reader is told to let the map settle so the GL sample is current,
+    // and settling is exactly what nulls `fps`. Measured on production — of three phone runs, the
+    // only one carrying an fps was the one exported mid-pan, whose GL sample was 25.7 s stale.
+    const line = perfSummaryLines({
+      ...BASE,
+      fps: null,
+      lastActiveFps: 39,
+      lastActiveFpsAgeMs: 4200,
+      worstFrameMs: 132.4,
+      slowFrameCount: 9,
+      zoom: 7.238,
+    }).at(-1);
+    expect(line).toBe("fps — (idle · was 39, 4s ago) · worst 132 ms · slow 9 · z7.24");
+  });
+
+  it("still says idle, and still dates the retained rate", () => {
+    // Two failure modes in one assertion. Dropping "idle" would present a retained rate as live —
+    // the exact class of lie `glSampleAgeMs` exists to prevent on the other half of the report.
+    const line = perfSummaryLines({
+      ...BASE, fps: null, lastActiveFps: 60, lastActiveFpsAgeMs: 300,
+    }).at(-1);
+    expect(line).toContain("idle");
+    expect(line).toMatch(/was 60, \d+s ago/);
+  });
+
+  it("does not show a retained rate while a live one exists", () => {
+    // Both present is the ordinary case during a gesture: the live number wins outright, because
+    // two rates on one line invite the reader to compare them as if they measured different things.
+    const line = perfSummaryLines({
+      ...BASE, fps: 52, lastActiveFps: 39, lastActiveFpsAgeMs: 0, zoom: 4,
+    }).at(-1);
+    expect(line).toBe("fps 52 · worst — · slow 0 · z4.00");
+    expect(line).not.toContain("was 39");
+  });
+
+  it("falls back to a bare idle when there has never been a rate to retain", () => {
+    // A first load that never moved. `was —` would imply a reading was taken and lost.
+    expect(perfSummaryLines({ ...BASE, lastActiveFps: null, lastActiveFpsAgeMs: null }).at(-1))
+      .toContain("fps — (idle) ·");
+  });
+
+  it("keeps the retained rate out of the collapsed view, which has a two-line budget", () => {
+    const collapsed = perfCollapsedLines({
+      ...BASE, fps: null, lastActiveFps: 39, lastActiveFpsAgeMs: 4200,
+    });
+    expect(collapsed).toHaveLength(2);
+    expect(collapsed.join("\n")).not.toContain("was 39");
   });
 
   it("puts the worst frame beside the rate, since the rate alone hides a stall", () => {
