@@ -10,7 +10,7 @@ import {
   TERRAIN_CACHE_SLOT_MULTIPLIER,
   applyDemCacheCap,
   demCacheCapFault,
-  demCacheLine,
+  demCacheLines,
   describeDemCacheState,
   demSlotBytes,
   parseDemCacheSetting,
@@ -407,7 +407,28 @@ describe("summariseDemCache", () => {
   });
 });
 
-describe("demCacheLine", () => {
+/** The rows joined the way they used to be one row, so the wording assertions stay wording. */
+const demCacheLine = (...args: Parameters<typeof demCacheLines>) =>
+  demCacheLines(...args).join(" · ");
+
+describe("demCacheLines", () => {
+  it("splits what the cache HOLDS from what bounds it, so neither row wraps", () => {
+    // 121 characters as one line, against a measured 53-character phone budget.
+    const summary = summariseDemCache(fakeTileManager({ cached: 100, inView: 20, max: 1260 }));
+    const rows = demCacheLines(summary, { kind: "derived" }, 33);
+    expect(rows).toHaveLength(3);
+    expect(rows[1]).toContain("needs 33");
+    expect(rows[2]).toContain("384 MB budget");
+    for (const row of rows) expect(row.length).toBeLessThanOrEqual(53);
+
+    // The widest realistic shape too, so the bound is not passing on small numbers alone: a full
+    // 1155-slot cache with a 605-tile view is the uncapped desktop arm this instrument exists for.
+    const widest = summariseDemCache(fakeTileManager({ cached: 1155, inView: 605, max: 1155 }));
+    for (const row of demCacheLines(widest, { kind: "derived" }, 605)) {
+      expect(row.length).toBeLessThanOrEqual(53);
+    }
+  });
+
   it("says so loudly when the summary is unavailable", () => {
     expect(demCacheLine(null)).toContain("n/a");
   });
@@ -417,7 +438,7 @@ describe("demCacheLine", () => {
     const line = demCacheLine(summary);
     expect(line).toContain("101/1270 MB"); // 100 tiles * 1,056,784 B = 100.8 MiB
     expect(line).toContain("100/1260 slots");
-    expect(line).toContain("+20 MB in 20 view tiles");
+    expect(line).toContain("view +20 MB / 20 tiles");
   });
 
   it("never shows resident exceeding the ceiling — in-view tiles are not capped", () => {
@@ -434,18 +455,20 @@ describe("describeDemCacheState", () => {
   it("says the source is absent rather than crying wolf about MapLibre", () => {
     // The ordinary state for the first frames and for every ?terrain=off visit. This was printing
     // "MapLibre internals moved" until the overlay was actually read on a running page.
-    const line = describeDemCacheState(undefined);
+    const line = describeDemCacheState(undefined).join(" · ");
     expect(line).toContain("no terrain source");
     expect(line).not.toContain("moved");
   });
 
   it("still cries wolf when the source EXISTS but its internals do not match", () => {
-    const line = describeDemCacheState({ _outOfViewCache: { max: 1 } } as TileManagerLike);
+    const line = describeDemCacheState({ _outOfViewCache: { max: 1 } } as TileManagerLike)
+      .join(" · ");
     expect(line).toContain("moved");
   });
 
   it("reports the numbers once the source is real", () => {
-    const line = describeDemCacheState(fakeTileManager({ cached: 100, inView: 20, max: 1260 }));
+    const line = describeDemCacheState(fakeTileManager({ cached: 100, inView: 20, max: 1260 }))
+      .join(" · ");
     expect(line).toContain("100/1260 slots");
   });
 });

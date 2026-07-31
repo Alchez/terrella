@@ -423,37 +423,57 @@ export function summariseDemCache(tileManager: TileManagerLike | undefined): Dem
   };
 }
 
-/** One `?perf` line: cached bytes against the cap, then the uncapped in-view tiles separately.
+/**
+ * The `?perf` rows: cached bytes against the cap, then the uncapped in-view tiles separately.
  *
- *  Names the arm as well as the numbers. A capture that does not say whether it was capped is
- *  unreadable a week later, and this is a flag whose whole point is being swept. */
-export function demCacheLine(
+ * Names the arm as well as the numbers. A capture that does not say whether it was capped is
+ * unreadable a week later, and this is a flag whose whole point is being swept.
+ *
+ * TWO rows rather than one, and measured rather than judged by eye: the single line ran to 121
+ * characters against the 53 the panel's own font allows on a 412 px phone, so it wrapped into three
+ * screen rows mid-fact. Split at the seam that already existed — what the cache HOLDS, then what
+ * the camera needs and which arm set the bound.
+ *
+ * These are **system RAM**, not VRAM: `demSlotBytes` prices the `Uint32Array` that `DEMData` keeps
+ * over the padded image. The panel groups them under RAM for that reason. That the 384 MiB ceiling
+ * exists to bound a *VRAM* failure is a fact about the budget's derivation, not about where these
+ * bytes live → HISTORY § the 2K freeze was VRAM, not heap.
+ */
+export function demCacheLines(
   summary: DemCacheSummary | null,
   setting?: DemCacheSetting,
   coveringTiles?: number | null,
-): string {
-  if (summary === null) return "dem cache n/a — MapLibre internals moved";
+): string[] {
+  if (summary === null) return ["dem cache n/a — MapLibre internals moved"];
   // What the camera needs against what the cap allows. The ratio is the number the byte budget
   // never had: "381 slots" is unreadable, "5.7x what this camera needs" prices the headroom.
   const need =
     typeof coveringTiles === "number"
-      ? ` · needs ${coveringTiles} (${(summary.maxSlots / Math.max(1, coveringTiles)).toFixed(1)}x headroom)`
+      ? `needs ${coveringTiles} (${(summary.maxSlots / Math.max(1, coveringTiles)).toFixed(1)}x headroom)`
       : "";
   const arm =
     setting === undefined
       ? ""
       : setting.kind === "off"
-        ? " · uncapped (?demcache=off)"
+        ? "uncapped (?demcache=off)"
         : setting.kind === "fixed"
-          ? ` · capped ${setting.slots} (?demcache)`
-          : ` · capped ${TERRAIN_CACHE_SLOT_MULTIPLIER}x derived, ` +
+          ? `capped ${setting.slots} (?demcache)`
+          : `capped ${TERRAIN_CACHE_SLOT_MULTIPLIER}x derived, ` +
             `${megabytes(TERRAIN_CACHE_BYTE_BUDGET)} MB budget`;
-  return (
-    `dem cache ${megabytes(summary.cachedBytes)}/` +
-    `${megabytes(summary.maxSlots * demSlotBytes(TERRAIN_ASSET_TILE_PX))} MB · ` +
-    `${summary.cachedTiles}/${summary.maxSlots} slots · ` +
-    `+${megabytes(summary.inViewBytes)} MB in ${summary.inViewTiles} view tiles${need}${arm}`
-  );
+  // Three rows, split where the facts already divide: what the cache HOLDS, what this camera puts
+  // in view against what it needs, and which arm set the bound. Two rows still overran — holding
+  // plus in-view came to 57 characters against the 53 the panel's font allows on a 412 px phone.
+  const inView =
+    `view +${megabytes(summary.inViewBytes)} MB / ${summary.inViewTiles} tiles` +
+    (need === "" ? "" : ` · ${need}`);
+  return [
+    `dem ${megabytes(summary.cachedBytes)}/` +
+      `${megabytes(summary.maxSlots * demSlotBytes(TERRAIN_ASSET_TILE_PX))} MB · ` +
+      `${summary.cachedTiles}/${summary.maxSlots} slots`,
+    inView,
+    // Omitted entirely when no setting was passed, rather than rendered as an empty row.
+    ...(arm === "" ? [] : [arm]),
+  ];
 }
 
 /**
@@ -470,7 +490,7 @@ export function describeDemCacheState(
   tileManager: TileManagerLike | undefined,
   setting?: DemCacheSetting,
   coveringTiles?: number | null,
-): string {
-  if (tileManager === undefined || tileManager === null) return "dem cache — no terrain source";
-  return demCacheLine(summariseDemCache(tileManager), setting, coveringTiles);
+): string[] {
+  if (tileManager === undefined || tileManager === null) return ["dem cache — no terrain source"];
+  return demCacheLines(summariseDemCache(tileManager), setting, coveringTiles);
 }

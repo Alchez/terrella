@@ -71,21 +71,31 @@ function healthyMap(overrides: Partial<MapLike> = {}): MapLike {
 }
 
 describe("capTextureBytes — the one VRAM term we allocate ourselves", () => {
-  it("prices an 8192 cap at 256 MiB, RGBA and no mipmaps", () => {
-    expect(capTextureBytes(8192)).toBe(268_435_456);
-    expect(capTextureBytes(8192) / (1024 * 1024)).toBe(256);
+  it("prices an 8192 cap at 341.3 MiB — RGBA WITH the mip chain the upload allocates", () => {
+    // The number this replaces was 256 MiB, and the old test asserted "no mipmaps" in its own name.
+    // The upload calls generateMipmap and filters LINEAR_MIPMAP_LINEAR, so the chain was always
+    // resident; the guard pinned the undercount rather than catching it. A test can only protect
+    // the model it encodes.
+    expect(capTextureBytes(8192)).toBe(357_913_940);
+    expect(capTextureBytes(8192) / (1024 * 1024)).toBeCloseTo(341.33, 2);
   });
 
-  it("quarters with each rung down, so the mobile rung really is a quarter", () => {
-    expect(capTextureBytes(4096)).toBe(capTextureBytes(8192) / 4);
-    expect(capTextureBytes(2048)).toBe(capTextureBytes(4096) / 4);
+  it("is the base level plus the whole chain below it, at every rung", () => {
+    // The exact recursive identity, which the old "quarters exactly" claim never was — a finite
+    // chain does not quarter cleanly, and asserting that it does is how the tail got dropped.
+    for (const rung of [8192, 4096, 2048, 1024]) {
+      expect(capTextureBytes(rung)).toBe(rung * rung * 4 + capTextureBytes(rung / 2));
+    }
+    // Still ~4x between rungs, so "the mobile rung is a quarter" survives as an approximation.
+    expect(capTextureBytes(4096) / capTextureBytes(8192)).toBeCloseTo(0.25, 4);
   });
 
-  it("puts 512 MiB on a desktop before MapLibre allocates anything", () => {
+  it("puts ~683 MiB on a desktop before MapLibre allocates anything", () => {
     // Desktop budget is Infinity, so BOTH poles reach the top rung. This is the number that has to
-    // appear in any VRAM attribution before an unexplained remainder can be claimed.
+    // appear in any VRAM attribution before an unexplained remainder can be claimed — and it is
+    // 683, not the 512 quoted while the mip chain was missing from the price.
     const bytes = totalCapTextureBytes(capLayerStates(healthyMap()));
-    expect(bytes / (1024 * 1024)).toBe(512);
+    expect(bytes / (1024 * 1024)).toBeCloseTo(682.67, 2);
   });
 
   it("counts an unloaded cap as zero rather than guessing a rung", () => {
@@ -228,7 +238,7 @@ describe("snapshotGlLoss — the state that is unreadable a moment later", () =>
   it("records terrain, every source, and the cap bytes together", () => {
     expect(snapshot.terrainOn).toBe(true);
     expect(snapshot.sources.map((entry) => entry.source)).toEqual(["terrain-dem"]);
-    expect(snapshot.capTextureBytes / (1024 * 1024)).toBe(512);
+    expect(snapshot.capTextureBytes / (1024 * 1024)).toBeCloseTo(682.67, 2);
   });
 
   it("does not throw on a map that is already in pieces", () => {
@@ -254,7 +264,7 @@ describe("formatGlLoss", () => {
     expect(line).toContain("[gl] context lost at 187.4s");
     expect(line).toContain("2560x1321 css / 5120x2642 buffer @ DPR 2");
     expect(line).toContain("terrain on");
-    expect(line).toContain("caps north 8192/south 8192 = 512 MB");
+    expect(line).toContain("caps north 8192/south 8192 = 683 MB");
     expect(line).toContain("terrain-dem 605/605 slots");
     expect(line).toContain("browser said: GPU process exited");
   });
@@ -289,13 +299,13 @@ describe("formatGlLoss", () => {
     );
     expect(climbing).toContain("north 4096→8192 loading (flat)");
     // The bytes stay billed to what is actually uploaded — 2 x 4096² x 4 = 128 MiB, not 8192's.
-    expect(climbing).toContain("= 128 MB");
+    expect(climbing).toContain("= 171 MB");
   });
 
   it("stays silent about a settled cap, so the climb annotation means something", () => {
     // If every reading carried an arrow the arrow would be noise. `caps north 8192/south 8192` is
     // the quiet state and must render exactly as it did before this field existed.
-    expect(line).toContain("caps north 8192/south 8192 = 512 MB");
+    expect(line).toContain("caps north 8192/south 8192 = 683 MB");
     expect(line).not.toContain("loading");
     expect(line).not.toContain("(flat)");
   });
@@ -324,7 +334,7 @@ describe("describeLoss — the loss handler cannot read the style, and must not 
   it("falls back to the healthy sample and says how old it is", () => {
     const line = describeLoss(tornDown, healthy);
     expect(line).toContain("terrain-dem 605/605 slots");
-    expect(line).toContain("caps north 8192/south 8192 = 512 MB");
+    expect(line).toContain("caps north 8192/south 8192 = 683 MB");
     expect(line).toContain("READ 0.6s EARLIER");
     // The LOSS's clock and phase, not the sample's — a loss report labelled "context sampled"
     // reads as a different event entirely, and someone would reason from it later.
@@ -465,6 +475,51 @@ describe("canary — the MapLibre surface this module depends on", () => {
     expect(declarations).toMatch(/_order: string\[\];/);
     expect(declarations).toMatch(/implementation: CustomLayerInterface;/);
     expect(declarations).toMatch(/getPixelRatio\(\): number;/);
+  });
+
+  // Three comments in globe.astro cite LINE NUMBERS in the shipped bundle, and they are load-
+  // bearing: the whole reason the DEM bound, the polar caps and the recovery watch are driven
+  // from a healthy `idle` rather than from `webglcontextrestored` is the ORDER of these five
+  // statements. A version bump moves every one of them, and a citation that has silently drifted
+  // is worse than none — it reads as evidence. This pins the order, and prints the real numbers
+  // when it breaks so the comments can be corrected rather than deleted.
+  it("still restores the context in the order those comments describe", () => {
+    const bundle = readFileSync(
+      new URL("../../node_modules/maplibre-gl/dist/maplibre-gl-dev.mjs", import.meta.url),
+      "utf8",
+    ).split("\n");
+    const lineOf = (needle: string) => {
+      const index = bundle.findIndex((line) => line.includes(needle));
+      expect(index, `MapLibre no longer contains ${needle}`).toBeGreaterThan(-1);
+      return index + 1; // findIndex is 0-based; comments cite 1-based editor lines
+    };
+    const contextRestored = lineOf("this._contextRestored = (event) => {");
+    const setStyle = lineOf("if (this._lostContextStyle.style) this.setStyle(");
+    const setupPainter = bundle.findIndex(
+      (line, index) => index > contextRestored && line.includes("this._setupPainter();"),
+    ) + 1;
+    const resize = bundle.findIndex(
+      (line, index) => index > setupPainter && line.trim() === "this.resize();",
+    ) + 1;
+    const fireRestored = lineOf('this.fire(new MapContextEvent("webglcontextrestored"');
+
+    const cited = { setStyle: 22594, setupPainter: 22600, resize: 22602, fireRestored: 22605 };
+    const actual = { setStyle, setupPainter, resize, fireRestored };
+    expect(
+      actual,
+      `globe.astro cites these bundle lines; MapLibre moved them. Update the comments beside ` +
+        `reassertTerrainBound, reassertPolarCaps and startRecoveryWatch to ` +
+        `${JSON.stringify(actual)}.`,
+    ).toEqual(cited);
+
+    // The ORDER is the claim those comments actually rest on, and it must hold even once the
+    // numbers move: setStyle (which fires `style.load`) runs BEFORE _setupPainter, so a cap or a
+    // custom layer added from `style.load` binds to the pre-restore context; and resize() — which
+    // is what throws on our hash-driven unproject — runs BEFORE the restored event is fired, which
+    // is why that event may never arrive.
+    expect(setStyle).toBeLessThan(setupPainter);
+    expect(setupPainter).toBeLessThan(resize);
+    expect(resize).toBeLessThan(fireRestored);
   });
 });
 

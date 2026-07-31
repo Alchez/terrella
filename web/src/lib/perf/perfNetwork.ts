@@ -44,6 +44,7 @@
 // why it is subtracted here rather than treated as payload.
 
 import { TERRAIN_PATH_PREFIX } from "../terrainSource";
+import type { PerfLine } from "./perfLines";
 
 /**
  * The fixed allowance Resource Timing adds to `transferSize` for response headers.
@@ -219,16 +220,23 @@ export function onCameraIdle(fill: CameraFill, nowMs: number, tileCount: number)
   };
 }
 
-/** The fill line, or null when there is nothing to report — a caller omits the row entirely. */
-export function cameraFillLine(fill: CameraFill): string | null {
-  if (fill.movingSinceMs !== null) return "fill · moving…";
+/**
+ * The fill line, or null when there is nothing to report — a caller omits the row entirely.
+ *
+ * Grouped with FEEL rather than NETWORK, even though it counts tiles. How long a camera move takes
+ * to settle is an outcome with no single owner: it is bandwidth, decode, upload and render pass at
+ * once, and the tile-count half of this line has already been read as though it meant bandwidth —
+ * the arm that pulled 340 KB from cache out-janked the one that pulled 1.90 MB fresh.
+ */
+export function cameraFillLine(fill: CameraFill): PerfLine | null {
+  if (fill.movingSinceMs !== null) return { group: "feel", text: "fill · moving…" };
   if (fill.last === null) return null;
   const seconds = (fill.last.durationMs / 1000).toFixed(1);
-  return `fill ${seconds}s · ${fill.last.tilesFetched} tiles`;
+  return { group: "feel", text: `fill ${seconds}s · ${fill.last.tilesFetched} tiles` };
 }
 
 /** The panel line. Bytes as whole MiB via the shared formatter's rules, not a second policy. */
-export function tileTrafficLine(traffic: TileTraffic): string {
+export function tileTrafficLine(traffic: TileTraffic): PerfLine {
   const slice = (label: string, part: TrafficSlice) => {
     const cached = part.fromBrowserCache > 0 ? ` (${part.fromBrowserCache} cached)` : "";
     return `${label} ${part.count}${cached}`;
@@ -242,8 +250,12 @@ export function tileTrafficLine(traffic: TileTraffic): string {
   // numbers in it, and an opaque entry is a known unknown, not a reason to distrust the rest.
   const truncated = traffic.bufferFull ? " · BUFFER FULL, totals are a floor" : "";
   const opaque = traffic.opaqueCount > 0 ? ` · ${traffic.opaqueCount} opaque` : "";
-  return (
-    `tiles ${slice("relief", traffic.relief)} · ${slice("terrain", traffic.terrain)} · ` +
-    `${(wire / (1024 * 1024)).toFixed(1)} MB wire · ${median}${opaque}${truncated}`
-  );
+  // No leading "tiles": the NETWORK heading says what these are, and the word cost one character
+  // more than a 412 px phone has (54 against a measured 53-character budget).
+  return {
+    group: "network",
+    text:
+      `${slice("relief", traffic.relief)} · ${slice("terrain", traffic.terrain)} · ` +
+      `${(wire / (1024 * 1024)).toFixed(1)} MB wire · ${median}${opaque}${truncated}`,
+  };
 }

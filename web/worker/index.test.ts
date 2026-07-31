@@ -4,9 +4,9 @@
 // is not a crash, it is a silent return to three reads that nothing would notice.
 
 import { readFileSync } from "node:fs";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { RangeResponse, Source } from "pmtiles";
-import { INDEX_PREFETCH_BYTES, PrefetchedIndexSource, resolveRoute } from "./index";
+import worker, { INDEX_PREFETCH_BYTES, PrefetchedIndexSource, resolveRoute } from "./index";
 import { TILE_CONTENT_TYPE } from "../src/lib/reliefTiles";
 import { TERRAIN_CONTENT_TYPE } from "../src/lib/terrainSource";
 
@@ -249,5 +249,310 @@ describe("per-archive isolate state", () => {
     const capacity = /new ResolvedValueCache\((\d+),/.exec(source);
     expect(capacity).not.toBeNull();
     expect(Number(capacity?.[1])).toBeGreaterThanOrEqual(2 * (22 + 1));
+  });
+});
+
+// --- the fetch handler ------------------------------------------------------------------------
+//
+// Everything above tests a piece the handler USES. This tests the handler itself, which is the
+// only code path a production tile actually takes, and which nothing reached until now.
+//
+// TWO HAZARDS SHAPE THESE TESTS.
+//
+// `indexInFlight`, `warnedTileTypeMismatch` and `warnedIndexOutgrewPrefetch` are module scope —
+// that is deliberate (an isolate reuses them across requests) and it means a test leaks into the
+// next one through the same doors a real isolate does. So every test that reaches R2 uses its OWN
+// archive key. A shared key would make these pass or fail depending on file order, which is the
+// kind of green that is worse than red.
+//
+// And `caches` does not exist in Node at all, so it is stubbed per test rather than shared: a
+// single fake cache would let one test's `put` answer another test's `match`.
+
+interface FakeCache {
+  match: ReturnType<typeof vi.fn>;
+  put: ReturnType<typeof vi.fn>;
+}
+
+/** A cache that misses everything and records what was stored. */
+function emptyCache(): FakeCache {
+  return { match: vi.fn(async () => undefined), put: vi.fn(async () => undefined) };
+}
+
+/** A bucket whose every `get` resolves to `null` — R2's "no such object". This is the shape a
+ *  missing or mis-keyed archive takes, and it is the ONLY hard failure the Worker claims to turn
+ *  into a 404 rather than an exception. */
+function emptyBucket() {
+  const get = vi.fn(async () => null);
+  return { get } as unknown as R2Bucket & { get: typeof get };
+}
+
+function callFetch(
+  url: string,
+  {
+    method = "GET",
+    origin = null,
+    env = {},
+    cache = emptyCache(),
+    bucket = emptyBucket(),
+  }: {
+    method?: string;
+    origin?: string | null;
+    env?: Record<string, unknown>;
+    cache?: FakeCache;
+    bucket?: R2Bucket;
+  } = {},
+) {
+  vi.stubGlobal("caches", { default: cache });
+  const waitUntil = vi.fn();
+  const request = new Request(url, {
+    method,
+    headers: origin === null ? undefined : { Origin: origin },
+  });
+  const response = worker.fetch(
+    request,
+    { ARCHIVE: bucket, ...env } as never,
+    { waitUntil, passThroughOnException: vi.fn() } as never,
+  );
+  return { response, waitUntil, cache, bucket };
+}
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+describe("fetch — rejections that must not cost an R2 read", () => {
+  // "A typo'd URL must not cost a range read on a 16 GB object" is the stated reason the router
+  // runs before the bucket is touched. Only a call counter can see that, so assert the absence.
+
+  it("refuses a write method with 405 and never looks at the bucket", async () => {
+    const { response, bucket } = callFetch("https://tiles.example/5/1/2.webp", { method: "POST" });
+    expect((await response).status).toBe(405);
+    expect(bucket.get).not.toHaveBeenCalled();
+  });
+
+  it("serves HEAD, which is not a write and must not be lumped in with one", async () => {
+    const { response } = callFetch("https://tiles.example/nope", { method: "HEAD" });
+    // Still a 404 (the path is not a tile), but a 404 rather than the 405 a naive GET-only gate
+    // would give — the distinction a monitoring probe depends on.
+    expect((await response).status).toBe(404);
+  });
+
+  it("404s a path that addresses neither pyramid, before any read", async () => {
+    const { response, bucket } = callFetch("https://tiles.example/robots.txt");
+    expect((await response).status).toBe(404);
+    expect(bucket.get).not.toHaveBeenCalled();
+  });
+
+  it("404s the index's own cache key, which is why it is safe to park it on this hostname", async () => {
+    // indexCacheUrl writes to /__pmtiles-index/<key> on the Worker's own origin. That is only
+    // unreachable from outside because the router rejects it here, before the cache is consulted.
+    const { response, bucket } = callFetch("https://tiles.example/__pmtiles-index/planet.pmtiles");
+    expect((await response).status).toBe(404);
+    expect(bucket.get).not.toHaveBeenCalled();
+  });
+
+  it("still carries CORS and Server-Timing on a rejection", async () => {
+    // Rejections go through `respond` like everything else. A 404 without CORS is a 404 the page
+    // cannot read the status of, which turns a clear failure into an opaque one.
+    const { response } = callFetch("https://tiles.example/robots.txt", {
+      origin: "https://terrella.example",
+      env: { ALLOWED_ORIGIN: "https://terrella.example" },
+    });
+    const headers = (await response).headers;
+    expect(headers.get("Access-Control-Allow-Origin")).toBe("https://terrella.example");
+    expect(headers.get("Server-Timing")).toContain("worker;dur=");
+  });
+});
+
+describe("fetch — the optional /v<N>/ prefix", () => {
+  // It exists so a re-cut can ship under a new base URL instead of a cache purge, and purge is
+  // ZONE-WIDE — on a shared zone it would evict everything else on the domain. A regex whose
+  // failure mode is "404 every versioned URL" deserves to be pinned from both sides.
+
+  it("strips a version segment and routes the address underneath it", async () => {
+    const { response } = callFetch("https://tiles.example/v3/5/1/2.webp", {
+      env: { ARCHIVE_KEY: "prefix-relief.pmtiles" },
+    });
+    // Past the router: the archive is missing, so this is the archive 404 and not the route 404.
+    expect((await response).status).toBe(404);
+    expect(await (await response).text()).toBe("Archive not found");
+  });
+
+  it("strips it ahead of the terrain prefix, so both survive together", async () => {
+    const { response, bucket } = callFetch("https://tiles.example/v12/terrain/5/1/2.webp", {
+      env: { TERRAIN_ARCHIVE_KEY: "prefix-terrain.pmtiles" },
+    });
+    // Awaited BEFORE the call assertion: the R2 read is what the response is waiting on, so
+    // checking the spy first reads an empty call list and passes for the wrong reason.
+    expect(await (await response).text()).toBe("Archive not found");
+    expect(bucket.get).toHaveBeenCalled();
+  });
+
+  it("does NOT strip a segment that merely looks like one", async () => {
+    // Over-eager stripping is the silent direction: `/v3x/...` becoming a valid tile address
+    // would serve one pyramid's bytes for another's URL space.
+    const { response, bucket } = callFetch("https://tiles.example/v3x/5/1/2.webp");
+    expect((await response).status).toBe(404);
+    expect(await (await response).text()).toBe("Not a tile path");
+    expect(bucket.get).not.toHaveBeenCalled();
+  });
+
+  it("strips only the LEADING segment, not one buried mid-path", async () => {
+    // The address is chosen so that dropping the `^` would MATTER: strip `/v2/` from the middle
+    // of `/5/v2/1/2.webp` and you get `/5/1/2.webp`, a perfectly valid tile that would then be
+    // served under a URL nobody minted. A shorter path like `/5/v2/2.webp` cannot show this —
+    // it fails to parse either way, so it passes while pinning nothing.
+    const { response, bucket } = callFetch("https://tiles.example/5/v2/1/2.webp");
+    expect(await (await response).text()).toBe("Not a tile path");
+    expect(bucket.get).not.toHaveBeenCalled();
+  });
+});
+
+describe("fetch — a cached body must not carry the first requester's CORS decision", () => {
+  // THE INVARIANT THIS FILE EXISTS FOR. `respond` applies CORS and Server-Timing on the way OUT,
+  // never into what is stored, so one cached entry serves every origin. Move
+  // `withCrossOriginHeaders` inside `store` and the first requester's Origin is baked into the
+  // cache and replayed to everyone after — a real cross-origin defect that is INVISIBLE in dev,
+  // where there is only ever one origin, and invisible in any test that uses only one either.
+
+  /** A cache that hits with a body carrying no CORS headers of its own — which is exactly what
+   *  `store` writes, and the point is that the hit still comes back correctly labelled. */
+  function hittingCache(): FakeCache {
+    return {
+      match: vi.fn(async () => new Response("tile-bytes", { headers: { "Content-Type": "image/webp" } })),
+      put: vi.fn(async () => undefined),
+    };
+  }
+
+  it("gives two different origins two different answers off the SAME cached body", async () => {
+    const env = { ALLOWED_ORIGIN: "https://terrella.example" };
+    const allowed = callFetch("https://tiles.example/5/1/2.webp", {
+      origin: "https://terrella.example",
+      env,
+      cache: hittingCache(),
+    });
+    const stranger = callFetch("https://tiles.example/5/1/2.webp", {
+      origin: "https://evil.example",
+      env,
+      cache: hittingCache(),
+    });
+    expect((await allowed.response).headers.get("Access-Control-Allow-Origin")).toBe(
+      "https://terrella.example",
+    );
+    expect((await stranger.response).headers.get("Access-Control-Allow-Origin")).toBeNull();
+    // Both were cache hits, so the difference cannot have come from re-reading the archive.
+    expect((await allowed.response).headers.get("X-Terrella-Cache")).toBe("hit");
+    expect((await stranger.response).headers.get("X-Terrella-Cache")).toBe("hit");
+  });
+
+  it("gives a cache hit THIS request's timings, not the miss's that filled it", async () => {
+    // A stored Server-Timing would let a hit replay the timings of the miss behind it, which is
+    // worse than no instrument: it would report the cold path's milliseconds as the warm path's.
+    const { response } = callFetch("https://tiles.example/5/1/2.webp", { cache: hittingCache() });
+    const timing = (await response).headers.get("Server-Timing") ?? "";
+    expect(timing).toContain("cache;dur=");
+    // Zero reads, because nothing went to R2 — the shape that distinguishes a hit from a miss.
+    expect(timing).toContain('r2;dur=0;desc="0 reads, 0 B"');
+  });
+
+  it("does not re-read the archive on a hit", async () => {
+    const { response, bucket } = callFetch("https://tiles.example/5/1/2.webp", {
+      cache: hittingCache(),
+    });
+    await response;
+    expect(bucket.get).not.toHaveBeenCalled();
+  });
+
+  it("keeps the cached body intact through the header rewrite", async () => {
+    const { response } = callFetch("https://tiles.example/5/1/2.webp", { cache: hittingCache() });
+    expect(await (await response).text()).toBe("tile-bytes");
+    expect((await response).headers.get("Content-Type")).toBe("image/webp");
+  });
+});
+
+describe("fetch — the cross-origin allowlist", () => {
+  const hit = () => ({
+    match: vi.fn(async () => new Response("tile-bytes")),
+    put: vi.fn(async () => undefined),
+  });
+
+  it('honours a wildcard ALLOWED_ORIGIN for an origin it has never seen', async () => {
+    const { response } = callFetch("https://tiles.example/5/1/2.webp", {
+      origin: "https://anywhere.example",
+      env: { ALLOWED_ORIGIN: "*" },
+      cache: hit(),
+    });
+    expect((await response).headers.get("Access-Control-Allow-Origin")).toBe("*");
+  });
+
+  it("sends no allow-origin at all when ALLOWED_ORIGIN is unset", async () => {
+    // Unset must not read as permissive. A tile without CORS taints the WebGL canvas and never
+    // draws, so the failure is loud on the page — but only if we never invent a default here.
+    const { response } = callFetch("https://tiles.example/5/1/2.webp", {
+      origin: "https://terrella.example",
+      cache: hit(),
+    });
+    expect((await response).headers.get("Access-Control-Allow-Origin")).toBeNull();
+  });
+
+  it("always varies on Origin, including when it refuses", async () => {
+    // Without `Vary: Origin` an intermediary may hand one origin's allow-header to another —
+    // the same defect as caching the decision, arrived at from outside instead of inside.
+    const { response } = callFetch("https://tiles.example/5/1/2.webp", {
+      origin: "https://evil.example",
+      env: { ALLOWED_ORIGIN: "https://terrella.example" },
+      cache: hit(),
+    });
+    expect((await response).headers.get("Vary")).toBe("Origin");
+  });
+
+  it("keeps Timing-Allow-Origin wide open even when ACAO is narrowed", async () => {
+    // They answer different questions: ACAO decides who may READ a tile, TAO only who may read
+    // the timing of a fetch already made. Narrowing TAO would blind Resource Timing everywhere
+    // except the production page — which is precisely where measurement does not happen.
+    const { response } = callFetch("https://tiles.example/5/1/2.webp", {
+      origin: "https://evil.example",
+      env: { ALLOWED_ORIGIN: "https://terrella.example" },
+      cache: hit(),
+    });
+    expect((await response).headers.get("Timing-Allow-Origin")).toBe("*");
+  });
+});
+
+describe("fetch — a missing archive is a 404, not an exception", () => {
+  // The handler names ArchiveNotFound explicitly and answers 404 for it. That matters because the
+  // alternative is an unhandled throw, which Cloudflare turns into a 500 — and a 500 on every
+  // tile in the world reads as "the Worker is broken" rather than "the bucket lost its object".
+
+  it("answers 404 when the bucket has no such object", async () => {
+    const { response } = callFetch("https://tiles.example/5/1/2.webp", {
+      env: { ARCHIVE_KEY: "missing-relief.pmtiles" },
+    });
+    await expect(response).resolves.toBeInstanceOf(Response);
+    expect((await response).status).toBe(404);
+    expect(await (await response).text()).toBe("Archive not found");
+  });
+
+  it("still labels that 404 for the requesting origin", async () => {
+    const { response } = callFetch("https://tiles.example/5/1/2.webp", {
+      origin: "https://terrella.example",
+      env: { ARCHIVE_KEY: "missing-cors.pmtiles", ALLOWED_ORIGIN: "https://terrella.example" },
+    });
+    expect((await response).headers.get("Access-Control-Allow-Origin")).toBe(
+      "https://terrella.example",
+    );
+  });
+
+  it("does not cache the failure — a restored bucket must recover without a purge", async () => {
+    const cache = emptyCache();
+    const { response, waitUntil } = callFetch("https://tiles.example/5/1/2.webp", {
+      env: { ARCHIVE_KEY: "missing-nocache.pmtiles" },
+      cache,
+    });
+    await response;
+    // `store` is what writes to the cache, and the ArchiveNotFound path deliberately bypasses it.
+    // Only the index's own entry may ever be scheduled here, never a 404 for the tile URL.
+    for (const call of waitUntil.mock.calls) void call;
+    expect(cache.put).not.toHaveBeenCalledWith("https://tiles.example/5/1/2.webp", expect.anything());
   });
 });

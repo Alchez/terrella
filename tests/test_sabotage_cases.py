@@ -39,8 +39,14 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 # is deliberately retired. An exact pin would be a maintenance tax that reports nothing a floor does not.
 MINIMUM_CASES = 70
 
+# Every root vitest actually runs from, not just `web/src`. The Worker's tests live in
+# `web/worker`, and while they were missing from here a case guarded by one of them failed this
+# check as "renamed" — the guard was real, the search was too narrow.
+VITEST_ROOTS = ("web/src", "web/worker")
 VITEST_TITLES = "\n".join(
-    path.read_text(encoding="utf-8") for path in sorted((REPO_ROOT / "web/src").rglob("*.test.ts"))
+    path.read_text(encoding="utf-8")
+    for root in VITEST_ROOTS
+    for path in sorted((REPO_ROOT / root).rglob("*.test.ts"))
 )
 PYTEST_SOURCE = "\n".join(
     path.read_text(encoding="utf-8") for path in sorted((REPO_ROOT / "tests").rglob("*.py"))

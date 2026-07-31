@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   TRANSFER_SIZE_HEADER_ALLOWANCE,
+  type TileTraffic,
   type TimedResource,
   cameraFillLine,
   median,
@@ -201,9 +202,12 @@ describe("summariseTileTraffic", () => {
   });
 });
 
+/** Just the rendered text — the subsystem tag is asserted once, on its own, below. */
+const trafficText = (traffic: TileTraffic) => tileTrafficLine(traffic).text;
+
 describe("tileTrafficLine", () => {
   it("names both pyramids, the wire cost, and the median", () => {
-    const line = tileTrafficLine(
+    const line = trafficText(
       summariseTileTraffic(
         [
           fetched("5/22/13.webp", 1_048_576, 411),
@@ -214,17 +218,21 @@ describe("tileTrafficLine", () => {
         3000,
       ),
     );
-    expect(line).toBe("tiles relief 1 · terrain 1 · 2.0 MB wire · med 270 ms");
+    expect(line).toBe("relief 1 · terrain 1 · 2.0 MB wire · med 270 ms");
+  });
+
+  it("is the panel's NETWORK row — the only line that is bytes on the wire and nothing else", () => {
+    expect(tileTrafficLine(summariseTileTraffic([], BASE, PAGE, 3000)).group).toBe("network");
   });
 
   it("shows the cache split only when there is one", () => {
     // A permanent `(0 cached)` is a row the eye learns to skip — the same rule the faults line
     // and the GPU-loss line already follow.
-    const warm = tileTrafficLine(
+    const warm = trafficText(
       summariseTileTraffic([cached("5/22/13.webp", 40_000)], BASE, PAGE, 3000),
     );
     expect(warm).toContain("relief 1 (1 cached)");
-    const cold = tileTrafficLine(
+    const cold = trafficText(
       summariseTileTraffic([fetched("5/22/13.webp", 40_000)], BASE, PAGE, 3000),
     );
     expect(cold).toContain("relief 1 ·");
@@ -233,11 +241,11 @@ describe("tileTrafficLine", () => {
 
   it("shouts when the buffer is full, because the numbers become a floor", () => {
     const entries = Array.from({ length: 250 }, (_, index) => fetched(`5/22/${index}.webp`, 10));
-    expect(tileTrafficLine(summariseTileTraffic(entries, BASE, PAGE, 250))).toContain("BUFFER FULL");
+    expect(trafficText(summariseTileTraffic(entries, BASE, PAGE, 250))).toContain("BUFFER FULL");
   });
 
   it("renders a median of — rather than 0 ms when nothing was fetched", () => {
-    expect(tileTrafficLine(summariseTileTraffic([], BASE, PAGE, 3000))).toContain("med —");
+    expect(trafficText(summariseTileTraffic([], BASE, PAGE, 3000))).toContain("med —");
   });
 });
 
@@ -254,7 +262,10 @@ describe("camera fill — movestart to idle", () => {
     let fill = onCameraMoveStart(newCameraFill(), 1000, 12);
     fill = onCameraIdle(fill, 12_200, 109);
     expect(fill.last).toEqual({ durationMs: 11_200, tilesFetched: 97 });
-    expect(cameraFillLine(fill)).toBe("fill 11.2s · 97 tiles");
+    // FEEL, not NETWORK, and asserted here rather than in a test of its own: a settle is
+    // bandwidth, decode, upload and render pass at once, and the tile count in this very line has
+    // already been read as though it meant bandwidth alone.
+    expect(cameraFillLine(fill)).toEqual({ group: "feel", text: "fill 11.2s · 97 tiles" });
     // ...and the window is closed, so the next idle cannot re-record it.
     expect(onCameraIdle(fill, 20_000, 200).last).toEqual(fill.last);
   });
@@ -272,7 +283,7 @@ describe("camera fill — movestart to idle", () => {
 
   it("says it is moving rather than showing a stale duration mid-gesture", () => {
     const moving = onCameraMoveStart(newCameraFill(), 1000, 10);
-    expect(cameraFillLine(moving)).toBe("fill · moving…");
+    expect(cameraFillLine(moving)).toEqual({ group: "feel", text: "fill · moving…" });
   });
 
   it("never reports negative tiles when the entry buffer evicts mid-window", () => {

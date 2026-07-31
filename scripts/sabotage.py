@@ -63,7 +63,7 @@ BACKUP_SUFFIX = ".sabotage-backup"
 # The only directories a case may write to. Paths are repo-root-relative, and this list is what keeps
 # "relative path" from meaning "anywhere in the repo" now that cases reach outside `web/`. Widen it
 # when a case genuinely needs to — deliberately, since `tests/test_sabotage_cases.py` enforces it.
-MUTABLE_ROOTS = ("web/src", "scripts")
+MUTABLE_ROOTS = ("web/src", "web/worker", "scripts")
 
 # Set for the duration of one case, so the backup THIS run is holding does not trip the leftover
 # canary in tests/test_sabotage_cases.py. Narrow on purpose: any other stray backup still fires.
@@ -287,8 +287,8 @@ SABOTAGES: list[Sabotage] = [
         suite='web',
         label='an unmeasured device class renders as a plain desktop verdict',
         path='web/src/lib/perf/perfSnapshot.ts',
-        needle='` (${report.deviceClass.via}) · ${budget} · tier ${report.tier}`,',
-        replacement='` · ${budget} · tier ${report.tier}`,',
+        needle='` (${report.deviceClass.via}) · tier ${report.tier}`,',
+        replacement='` · tier ${report.tier}`,',
         guard='never renders an unmeasured device class as a desktop reading',
     ),
     Sabotage(
@@ -359,8 +359,8 @@ SABOTAGES: list[Sabotage] = [
         suite='web',
         label='the loss line drops when the timestamp is missing',
         path='web/src/lib/perf/perfSnapshot.ts',
-        needle='lines.push(`GPU CONTEXT LOST ${report.glLossCount}x this page${since}`);',
-        replacement='if (report.lastGlLossMs !== null) lines.push(`GPU CONTEXT LOST ${report.glLossCount}x this page${since}`);',
+        needle='    lines.push({\n      group: "alarm",\n      text: `GPU CONTEXT LOST ${report.glLossCount}x this page${since}`,\n    });',
+        replacement='    if (report.lastGlLossMs !== null) {\n      lines.push({ group: "alarm", text: `GPU CONTEXT LOST ${report.glLossCount}x this page` });\n    }',
         guard='still reports the count when the timestamp is missing, rather than dropping the line',
     ),
     Sabotage(
@@ -439,8 +439,8 @@ SABOTAGES: list[Sabotage] = [
         suite='web',
         label='the perf overlay stops receiving the DEM cache line',
         path='web/src/pages/globe.astro',
-        needle='...(terrainLine && demCache ? [terrainLine(), demCache()] : []),',
-        replacement='...(terrainLine ? [terrainLine()] : []),',
+        needle='                  ...demCache().map((text) => ({ group: "ram" as const, text })),',
+        replacement='',
         guard='surfaces the line through the perf overlay, so it is visible in Zen without devtools',
     ),
     # --- the four instrument fixes and the lazy boundary (2026-07-30) --------------------------------
@@ -504,16 +504,16 @@ SABOTAGES: list[Sabotage] = [
         suite='web',
         label='a retained rate is presented as a live one',
         path='web/src/lib/perf/perfOverlay.ts',
-        needle='`fps — (idle · was ${snapshot.lastActiveFps}, ${seconds(snapshot.lastActiveFpsAgeMs)} ago)`',
-        replacement='`fps ${snapshot.lastActiveFps}`',
+        needle='  const rate = snapshot.fps === null ? "fps — (idle)" : `fps ${snapshot.fps}`;',
+        replacement='  const rate = `fps ${snapshot.fps ?? snapshot.lastActiveFps}`;',
         guard='still says idle, and still dates the retained rate',
     ),
     Sabotage(
         suite='web',
         label='the retained rate loses its age',
         path='web/src/lib/perf/perfOverlay.ts',
-        needle='`fps — (idle · was ${snapshot.lastActiveFps}, ${seconds(snapshot.lastActiveFpsAgeMs)} ago)`',
-        replacement='`fps — (idle · was ${snapshot.lastActiveFps})`',
+        needle='      text: `last drew ${snapshot.lastActiveFps} fps, ${seconds(snapshot.lastActiveFpsAgeMs)} ago`,',
+        replacement='      text: `last drew ${snapshot.lastActiveFps} fps`,',
         guard='reports the rate an idle map last drew at, because settling is what erases it',
     ),
     Sabotage(
@@ -536,8 +536,8 @@ SABOTAGES: list[Sabotage] = [
         suite='web',
         label='a live rate is shown alongside a stale one',
         path='web/src/lib/perf/perfOverlay.ts',
-        needle='const rate = snapshot.fps === null ? idle : `fps ${snapshot.fps}`;',
-        replacement='const rate = snapshot.fps === null ? idle : `fps ${snapshot.fps} (was ${snapshot.lastActiveFps})`;',
+        needle='  if (snapshot.fps === null && snapshot.lastActiveFps !== null && snapshot.lastActiveFpsAgeMs !== null) {',
+        replacement='  if (snapshot.lastActiveFps !== null && snapshot.lastActiveFpsAgeMs !== null) {',
         guard='does not show a retained rate while a live one exists',
     ),
     Sabotage(
@@ -648,7 +648,7 @@ SABOTAGES: list[Sabotage] = [
         suite='web',
         label='a stale duration is shown mid-gesture instead of saying it is moving',
         path='web/src/lib/perf/perfNetwork.ts',
-        needle='  if (fill.movingSinceMs !== null) return "fill · moving…";',
+        needle='  if (fill.movingSinceMs !== null) return { group: "feel", text: "fill · moving…" };',
         replacement='  if (false) return null;',
         guard='says it is moving rather than showing a stale duration mid-gesture',
     ),
@@ -666,7 +666,7 @@ SABOTAGES: list[Sabotage] = [
         path='web/src/pages/globe.astro',
         needle='import("../lib/perf/perfNetwork"),',
         replacement='import("../lib/perf/perfNetworkX"),',
-        guard='is reached only through a dynamic import, inside the ?perf branch',
+        guard='is reached only through a dynamic import, or through a sibling that is',
     ),
     Sabotage(
         suite='web',
@@ -691,6 +691,75 @@ SABOTAGES: list[Sabotage] = [
         needle='  const resourceTimingBufferSize = urlFlags.has("perf")\n    ? raiseResourceTimingBuffer(performance, RESOURCE_TIMING_BUFFER_SIZE)\n    : null;',
         replacement='  const resourceTimingBufferSize: number | null = null;',
         guard='calls the raiser, which a test of the function alone does not check',
+    ),
+    # --- the panel's subsystem grouping, web/src/lib/perf/perfLines.ts (2026-07-30) ---------------
+    # Every case here breaks a placement rather than a number, because that is what this layer is:
+    # the numbers were already correct and unreadable. A grouping defect is silent by nature — the
+    # panel still renders, still holds every reading, and simply says the wrong thing about which
+    # subsystem owns one.
+    Sabotage(
+        suite='web',
+        label='the group order is scrambled, so the panel reads in an arbitrary sequence',
+        path='web/src/lib/perf/perfLines.ts',
+        needle='  "alarm",\n  "feel",\n  "cpu",\n  "network",\n  "gpu",\n  "ram",\n  "device",\n  "config",\n  "origin",\n];',
+        replacement='  "cpu",\n  "feel",\n  "alarm",\n  "network",\n  "gpu",\n  "ram",\n  "device",\n  "config",\n  "origin",\n];',
+        guard='keeps the two positional promises: alarms first, origin last',
+    ),
+    Sabotage(
+        suite='web',
+        label='a group is dropped from the order, so its lines vanish without a trace',
+        path='web/src/lib/perf/perfLines.ts',
+        needle='  "ram",\n  "device",\n  "config",\n  "origin",\n];',
+        replacement='  "device",\n  "config",\n  "origin",\n];',
+        guard='orders every group exactly once — a group missing here renders NO lines at all',
+    ),
+    Sabotage(
+        suite='web',
+        label='the empty-group skip is deleted, so headings render over nothing',
+        path='web/src/lib/perf/perfLines.ts',
+        needle='    if (inGroup.length === 0) continue;',
+        replacement='    if (inGroup.length < 0) continue;',
+        guard='omits a group with no lines entirely — no orphan heading, no double blank',
+    ),
+    Sabotage(
+        suite='web',
+        label='the blank separator leads the panel, so it opens on an empty row',
+        path='web/src/lib/perf/perfLines.ts',
+        needle='    if (rendered.length > 0) rendered.push("");',
+        replacement='    rendered.push("");',
+        guard='separates groups rather than introducing them — never leads or trails with a blank',
+    ),
+    Sabotage(
+        suite='web',
+        label='the alarm block gets a heading, demoting the one row that must not be skipped',
+        path='web/src/lib/perf/perfLines.ts',
+        needle='  alarm: null,',
+        replacement='  alarm: "ALARM",',
+        guard='renders alarms and origin without a heading, and every subsystem with one',
+    ),
+    Sabotage(
+        suite='web',
+        label='the frame line claims a subsystem the panel cannot attribute it to',
+        path='web/src/lib/perf/perfOverlay.ts',
+        needle='  lines.push({\n    group: "feel",',
+        replacement='  lines.push({\n    group: "cpu",',
+        guard='stays four lines, and files the load timeline apart from the frame outcome',
+    ),
+    Sabotage(
+        suite='web',
+        label='a GPU context loss is filed under GPU, where a heading demotes it',
+        path='web/src/lib/perf/perfSnapshot.ts',
+        needle='      group: "alarm",\n      text: `GPU CONTEXT LOST',
+        replacement='      group: "gpu",\n      text: `GPU CONTEXT LOST',
+        guard='files the two alarm rows OUTSIDE any subsystem, so no heading can demote them',
+    ),
+    Sabotage(
+        suite='web',
+        label='the fill line is filed as network, which is the reading already got wrong once',
+        path='web/src/lib/perf/perfNetwork.ts',
+        needle='  return { group: "feel", text: `fill ${seconds}s · ${fill.last.tilesFetched} tiles` };',
+        replacement='  return { group: "network", text: `fill ${seconds}s · ${fill.last.tilesFetched} tiles` };',
+        guard='times one move and counts the tiles it caused',
     ),
     # --- the table's own freshness gate, tests/test_sabotage_cases.py (2026-07-30) ----------------
     Sabotage(
@@ -776,6 +845,132 @@ SABOTAGES: list[Sabotage] = [
         needle="",
         replacement="# left behind by a killed sabotage run\n",
         guard='test_no_sabotage_backups_are_left_in_the_tree',
+    ),
+
+    # --- terrain drape stacks (2026-07-30) --------------------------------------------------------
+    # `country-hit` is a `circle` that draws nothing, and while it sat mid-order it split one drape
+    # run into two — a third of the RTT pool spent on an invisible layer. The move is only durable
+    # if putting it back fails something.
+    Sabotage(
+        suite='web',
+        label='country-hit moves back above the highlight layers, costing a third drape stack',
+        path='web/src/pages/globe.astro',
+        needle=(
+            '      addCountryHighlight(); // hover outline on top of everything, so the edge stays crisp\n'
+        ),
+        replacement=(
+            '      addCountryHitTargets();\n'
+            '      addCountryHighlight(); // hover outline on top of everything, so the edge stays crisp\n'
+        ),
+        guard='matches what globe.astro actually adds last',
+    ),
+    Sabotage(
+        suite='web',
+        label='the drape-type list gains circle, which would make the whole precaution pointless',
+        path='web/src/lib/drapeStacks.ts',
+        needle='  "color-relief",\n];',
+        replacement='  "color-relief",\n  "circle",\n];',
+        guard='agrees with LAYERS_TO_TEXTURES in the shipped bundle',
+    ),
+    Sabotage(
+        suite='web',
+        label='a trailing non-drapeable layer starts charging for a stack',
+        path='web/src/lib/drapeStacks.ts',
+        needle='    if (draped && !previousWasDraped) stacks += 1;',
+        replacement='    if (draped !== previousWasDraped) stacks += 1;',
+        guard='charges nothing for a non-drapeable layer at the END',
+    ),
+
+    # --- the tile Worker's fetch handler (2026-07-30) --------------------------------------------
+    # Every production tile takes this path and nothing reached it until now. Each case below was
+    # run by hand against the real suite before being written down, so none of them is a guess
+    # about what a test would catch.
+    Sabotage(
+        suite='web',
+        label='a cache hit stops going through respond(), freezing one origin into the cached body',
+        path='web/worker/index.ts',
+        needle='    if (hit) return respond(tagCache(hit, "hit"));',
+        replacement='    if (hit) return tagCache(hit, "hit");',
+        guard='gives two different origins two different answers off the SAME cached body',
+    ),
+    Sabotage(
+        suite='web',
+        label='the version-prefix regex loses its ^ anchor and strips a mid-path /vN/',
+        path='web/worker/index.ts',
+        needle='.replace(/^\\/v\\d+\\//, "/")',
+        replacement='.replace(/\\/v\\d+\\//, "/")',
+        guard='strips only the LEADING segment, not one buried mid-path',
+    ),
+    Sabotage(
+        suite='web',
+        label='the version-prefix regex widens to \\w and swallows /v3x/',
+        path='web/worker/index.ts',
+        needle='.replace(/^\\/v\\d+\\//, "/")',
+        replacement='.replace(/^\\/v\\w+\\//, "/")',
+        guard='does NOT strip a segment that merely looks like one',
+    ),
+    # Reordered rather than deleted, on purpose. Dropping the `try {` leaves a dangling `} catch`
+    # — a SYNTAX error, which the compiler catches and no test ever sees, so the case reported
+    # WRONG/(unparsed) rather than naming a guard. A mutation has to compile to prove anything.
+    Sabotage(
+        suite='web',
+        label='the index load moves back outside the try, so a missing archive 500s instead of 404ing',
+        path='web/worker/index.ts',
+        needle=(
+            '    try {\n'
+            '      // The index is fetched whole, once, and then reused three ways: within this request, across\n'
+            '      // requests in this isolate (DIRECTORY_CACHE), and across isolates (the Cache API entry below,\n'
+            '      // which is colo-local and long-lived — live tiles come back with `age` in the tens of\n'
+            '      // thousands of seconds, far longer than any isolate survives).\n'
+            '      const index = await loadArchiveIndex(env.ARCHIVE, archiveKey, r2Source, cache, ctx, request);\n'
+            '      const archive = new PMTiles(\n'
+            '        index ? new PrefetchedIndexSource(r2Source, index) : r2Source,\n'
+            '        DIRECTORY_CACHE,\n'
+            '        nativeDecompress,\n'
+            '      );\n'
+        ),
+        replacement=(
+            '    const index = await loadArchiveIndex(env.ARCHIVE, archiveKey, r2Source, cache, ctx, request);\n'
+            '    const archive = new PMTiles(\n'
+            '      index ? new PrefetchedIndexSource(r2Source, index) : r2Source,\n'
+            '      DIRECTORY_CACHE,\n'
+            '      nativeDecompress,\n'
+            '    );\n'
+            '    try {\n'
+        ),
+        guard='answers 404 when the bucket has no such object',
+    ),
+    Sabotage(
+        suite='web',
+        label='ALLOWED_ORIGIN unset starts meaning "allow anyone"',
+        path='web/worker/index.ts',
+        needle='  if (allowed && (allowed === "*" || allowed === requestOrigin)) {',
+        replacement='  if (!allowed || allowed === "*" || allowed === requestOrigin) {',
+        guard='sends no allow-origin at all when ALLOWED_ORIGIN is unset',
+    ),
+    Sabotage(
+        suite='web',
+        label='Timing-Allow-Origin narrows to the allowlist, blinding Resource Timing off-origin',
+        path='web/worker/index.ts',
+        needle='  headers.set("Timing-Allow-Origin", "*");',
+        replacement='  if (allowed === requestOrigin) headers.set("Timing-Allow-Origin", "*");',
+        guard='keeps Timing-Allow-Origin wide open even when ACAO is narrowed',
+    ),
+    Sabotage(
+        suite='web',
+        label='the method gate lets a write through to the archive',
+        path='web/worker/index.ts',
+        needle='    if (request.method !== "GET" && request.method !== "HEAD") {',
+        replacement='    if (request.method === "NEVER") {',
+        guard='refuses a write method with 405 and never looks at the bucket',
+    ),
+    Sabotage(
+        suite='web',
+        label='the method gate rejects HEAD along with the writes',
+        path='web/worker/index.ts',
+        needle='    if (request.method !== "GET" && request.method !== "HEAD") {',
+        replacement='    if (request.method !== "GET") {',
+        guard='serves HEAD, which is not a write and must not be lumped in with one',
     ),
 ]
 
