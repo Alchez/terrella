@@ -39,15 +39,21 @@ const BASE: PerfSnapshot = {
 const evenFrames = (count: number, stepMs: number, now: number) =>
   Array.from({ length: count }, (_, index) => now - (count - 1 - index) * stepMs);
 
+/** Just the rendered text of each summary line. The lines carry a subsystem tag now, and every
+ *  assertion below it that predates the grouping is about wording, not about placement — those
+ *  are asserted once, on the sequence, rather than repeated on every case. */
+const summaryTexts = (snapshot: PerfSnapshot) =>
+  perfSummaryLines(snapshot).map((line) => line.text);
+
 describe("perfSummaryLines", () => {
   it("renders pending timings as em-dashes and rounds real ones", () => {
-    const lines = perfSummaryLines(BASE);
+    const lines = summaryTexts(BASE);
     expect(lines[0]).toBe("boot 1235 ms");
     expect(lines[1]).toBe("map load — · first idle —");
   });
 
   it("summarizes long tasks once they arrive", () => {
-    const lines = perfSummaryLines({
+    const lines = summaryTexts({
       ...BASE,
       mapLoadMs: 2100,
       firstIdleMs: 3400.4,
@@ -59,17 +65,27 @@ describe("perfSummaryLines", () => {
     expect(lines[2]).toBe("long tasks 14 · 2211 ms total · 480 ms max");
   });
 
-  it("stays four lines — the EXPANDED view's budget, not the panel's whole size", () => {
-    // The original rationale ("so the panel fits a phone corner") no longer holds and should not
-    // be relied on: the panel now wraps, scrolls, and starts collapsed on a narrow screen, and the
-    // page appends its own lines below these. The bound survives for a different reason — these
-    // four are the core reading, and anything wanting a fifth belongs in `extraLines` where it can
-    // be attributed to a subsystem. `perfCollapsedLines` is what actually guards the phone corner.
-    expect(perfSummaryLines(BASE)).toHaveLength(4);
+  it("stays four lines, and files the load timeline apart from the frame outcome", () => {
+    // Renegotiated, not dropped. The original rationale ("so the panel fits a phone corner") had
+    // already stopped holding — the panel wraps, scrolls, starts collapsed on a narrow screen, and
+    // the page appends its own lines below these. What the bound is worth keeping FOR is that these
+    // four are the core reading and a fifth belongs in `extraLines`, where it can be attributed.
+    //
+    // The sequence is the half that matters now. `boot` / `map load` / `first idle` are main-thread
+    // work and sit directly above the `long tasks` line that explains them; the frame line is an
+    // outcome with no owner, so it is FEEL. A tag drifting between the two would put a number under
+    // a heading that claims an attribution this panel cannot make — the exact false precision the
+    // grouping exists to avoid.
+    expect(perfSummaryLines(BASE).map((line) => line.group)).toEqual([
+      "cpu",
+      "cpu",
+      "cpu",
+      "feel",
+    ]);
   });
 
   it("says so plainly when the long-task API is missing", () => {
-    const lines = perfSummaryLines({ ...BASE, longTaskApiAvailable: false });
+    const lines = summaryTexts({ ...BASE, longTaskApiAvailable: false });
     expect(lines[2]).toBe("long tasks n/a — no Long Tasks API in this browser");
     expect(lines).toHaveLength(4);
   });
@@ -78,8 +94,8 @@ describe("perfSummaryLines", () => {
     // The whole point of the line: a Firefox screenshot once read `long tasks 0 · 0 ms total ·
     // 0 ms max` from an observer that never registered, and that zero was taken as evidence the
     // main thread was clean. The unavailable line must share no prefix with a real reading.
-    const unavailable = perfSummaryLines({ ...BASE, longTaskApiAvailable: false })[2];
-    const measuredZero = perfSummaryLines({ ...BASE, longTaskApiAvailable: true })[2];
+    const unavailable = summaryTexts({ ...BASE, longTaskApiAvailable: false })[2];
+    const measuredZero = summaryTexts({ ...BASE, longTaskApiAvailable: true })[2];
     expect(measuredZero).toBe("long tasks 0 · 0 ms total · 0 ms max");
     expect(unavailable).not.toBe(measuredZero);
     expect(unavailable).toContain("n/a");
@@ -220,14 +236,14 @@ describe("longTaskApiSupported", () => {
   it("reports idle rather than zero when nothing has been rendered", () => {
     // Zero fps would read as "the map is failing to draw". It renders on demand, so no frames
     // means nothing needed drawing — a different fact, and the one worth showing.
-    expect(perfSummaryLines({ ...BASE, zoom: 6.5 }).at(-1)).toBe(
+    expect(summaryTexts({ ...BASE, zoom: 6.5 }).at(-1)).toBe(
       "fps — (idle) · worst — · slow 0 · z6.50",
     );
   });
 
   it("keeps the worst frame on screen after the map goes idle", () => {
     // The whole point: the hitch happens during a gesture, the screenshot is taken after it.
-    const line = perfSummaryLines({
+    const line = summaryTexts({
       ...BASE, fps: null, worstFrameMs: 132.4, slowFrameCount: 9, zoom: 7.238,
     }).at(-1);
     expect(line).toBe("fps — (idle) · worst 132 ms · slow 9 · z7.24");
@@ -259,7 +275,7 @@ describe("longTaskApiSupported", () => {
     // The defect this closes: a reader is told to let the map settle so the GL sample is current,
     // and settling is exactly what nulls `fps`. Measured on production — of three phone runs, the
     // only one carrying an fps was the one exported mid-pan, whose GL sample was 25.7 s stale.
-    const line = perfSummaryLines({
+    const line = summaryTexts({
       ...BASE,
       fps: null,
       lastActiveFps: 39,
@@ -267,24 +283,31 @@ describe("longTaskApiSupported", () => {
       worstFrameMs: 132.4,
       slowFrameCount: 9,
       zoom: 7.238,
-    }).at(-1);
-    expect(line).toBe("fps — (idle · was 39, 4s ago) · worst 132 ms · slow 9 · z7.24");
+    });
+    // TWO rows now, and measured rather than styled: combined, this read 61 characters against the
+    // 53 the panel's font allows on a 412 px phone, so it wrapped — at the same height a second row
+    // costs, while splitting a single fact across the fold.
+    expect(line.at(-2)).toBe("fps — (idle) · worst 132 ms · slow 9 · z7.24");
+    expect(line.at(-1)).toBe("last drew 39 fps, 4s ago");
+    for (const row of line) expect(row.length).toBeLessThanOrEqual(53);
   });
 
   it("still says idle, and still dates the retained rate", () => {
     // Two failure modes in one assertion. Dropping "idle" would present a retained rate as live —
     // the exact class of lie `glSampleAgeMs` exists to prevent on the other half of the report.
-    const line = perfSummaryLines({
+    const rows = summaryTexts({
       ...BASE, fps: null, lastActiveFps: 60, lastActiveFpsAgeMs: 300,
-    }).at(-1);
-    expect(line).toContain("idle");
-    expect(line).toMatch(/was 60, \d+s ago/);
+    });
+    // Both halves still have to be present, just on their own rows: "idle" on the reading itself,
+    // so a retained rate can never be read as live, and the age beside the retained number.
+    expect(rows.join("\n")).toContain("(idle)");
+    expect(rows.at(-1)).toMatch(/last drew 60 fps, \d+s ago/);
   });
 
   it("does not show a retained rate while a live one exists", () => {
     // Both present is the ordinary case during a gesture: the live number wins outright, because
     // two rates on one line invite the reader to compare them as if they measured different things.
-    const line = perfSummaryLines({
+    const line = summaryTexts({
       ...BASE, fps: 52, lastActiveFps: 39, lastActiveFpsAgeMs: 0, zoom: 4,
     }).at(-1);
     expect(line).toBe("fps 52 · worst — · slow 0 · z4.00");
@@ -293,7 +316,7 @@ describe("longTaskApiSupported", () => {
 
   it("falls back to a bare idle when there has never been a rate to retain", () => {
     // A first load that never moved. `was —` would imply a reading was taken and lost.
-    expect(perfSummaryLines({ ...BASE, lastActiveFps: null, lastActiveFpsAgeMs: null }).at(-1))
+    expect(summaryTexts({ ...BASE, lastActiveFps: null, lastActiveFpsAgeMs: null }).at(-1))
       .toContain("fps — (idle) ·");
   });
 
@@ -306,7 +329,7 @@ describe("longTaskApiSupported", () => {
   });
 
   it("puts the worst frame beside the rate, since the rate alone hides a stall", () => {
-    const line = perfSummaryLines({
+    const line = summaryTexts({
       ...BASE, fps: 58, worstFrameMs: 47.4, slowFrameCount: 2, zoom: 7.238,
     }).at(-1);
     expect(line).toBe("fps 58 · worst 47 ms · slow 2 · z7.24");
@@ -315,10 +338,10 @@ describe("longTaskApiSupported", () => {
   it("makes a one-off interruption distinguishable from real jank", () => {
     // The whole reason the count sits beside the max. A screenshot pauses rAF and lands as a
     // 400 ms frame; without the count that is indistinguishable from a map that stutters.
-    const artifact = perfSummaryLines({
+    const artifact = summaryTexts({
       ...BASE, fps: null, worstFrameMs: 428, slowFrameCount: 1, zoom: 6.45,
     }).at(-1);
-    const jank = perfSummaryLines({
+    const jank = summaryTexts({
       ...BASE, fps: null, worstFrameMs: 90, slowFrameCount: 24, zoom: 6.45,
     }).at(-1);
     expect(artifact).toBe("fps — (idle) · worst 428 ms · slow 1 · z6.45");

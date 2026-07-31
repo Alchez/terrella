@@ -125,14 +125,31 @@ export function describeGiveUp(chargedLosses: readonly number[]): string {
   );
 }
 
-/** Bytes one polar cap texture occupies on the GPU at a given rung: RGBA, no mipmaps.
+/**
+ * Bytes one polar cap texture occupies on the GPU at a given rung: RGBA, **mip chain included**.
  *
- *  8192² × 4 = 268,435,456 B = 256 MiB, and desktop takes the top rung for BOTH poles
- *  (`capTextureBudget(false)` is `Infinity`) — so 512 MiB of VRAM is ours, by design, before
- *  MapLibre allocates anything at all. It is the largest single term anyone has been able to name
- *  in the 6.2 GB, which is exactly why it is reported at the moment of loss. */
+ * This used to return the base level alone and its test asserted "RGBA and no mipmaps" — so the
+ * undercount was PINNED rather than overlooked, and every reading since has been ~25% low. The cap
+ * upload calls `generateMipmap` and sets `LINEAR_MIPMAP_LINEAR` (polarCaps.ts), which allocates the
+ * whole chain; a geometric series in ¼ converges to 4/3 of the base, so the tail is a third again,
+ * not a rounding error.
+ *
+ * 8192² × 4 = 256 MiB of base becomes **341.3 MiB** with the chain, and desktop takes the top rung
+ * for BOTH poles (`capTextureBudget(false)` is `Infinity`) — so **~683 MiB** of VRAM is ours by
+ * design before MapLibre allocates anything, against the 512 MiB previously reported. Still the
+ * largest single term anyone has been able to name in the 6.2 GB, and now by more than it looked.
+ *
+ * Remains a floor, and deliberately so: drivers align and pad texture allocations, and nothing on
+ * the web reports actual residency. Under-claiming a bound we chose is the safe direction.
+ */
 export function capTextureBytes(rungPx: number): number {
-  return rungPx * rungPx * 4;
+  let bytes = 0;
+  // Every level of the chain, down to 1x1 — `generateMipmap` allocates all of them, and the
+  // geometric tail converges to 4/3 of the base rather than being negligible.
+  for (let level = rungPx; level >= 1; level = Math.floor(level / 2)) {
+    bytes += level * level * 4;
+  }
+  return bytes;
 }
 
 /**

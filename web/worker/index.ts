@@ -482,17 +482,6 @@ export default {
 
     const r2Source = new R2ArchiveSource(env.ARCHIVE, archiveKey, timing);
 
-    // The index is fetched whole, once, and then reused three ways: within this request, across
-    // requests in this isolate (DIRECTORY_CACHE), and across isolates (the Cache API entry below,
-    // which is colo-local and long-lived — live tiles come back with `age` in the tens of
-    // thousands of seconds, far longer than any isolate survives).
-    const index = await loadArchiveIndex(env.ARCHIVE, archiveKey, r2Source, cache, ctx, request);
-    const archive = new PMTiles(
-      index ? new PrefetchedIndexSource(r2Source, index) : r2Source,
-      DIRECTORY_CACHE,
-      nativeDecompress,
-    );
-
     /** Store in the edge cache, then serve. The body is an ArrayBuffer, so the two Responses can
      *  share it. `waitUntil` keeps the put off the response's critical path. */
     const store = (body: ArrayBuffer | string | null, status: number, contentType?: string) => {
@@ -503,7 +492,23 @@ export default {
       return respond(tagCache(new Response(body, { status, headers }), "miss"));
     };
 
+    // THE INDEX LOAD IS INSIDE THIS TRY, AND THAT IS THE WHOLE POINT OF WHERE THE BRACE SITS.
+    // `loadArchiveIndex` is the FIRST thing to touch R2 on a cold request, so a missing or
+    // mis-keyed archive throws ArchiveNotFound here — before `getHeader` is ever reached. With
+    // the try starting below it, that throw escaped the handler written to answer it and became
+    // an unhandled rejection, i.e. a 500 on every tile in the world where a 404 was intended.
     try {
+      // The index is fetched whole, once, and then reused three ways: within this request, across
+      // requests in this isolate (DIRECTORY_CACHE), and across isolates (the Cache API entry below,
+      // which is colo-local and long-lived — live tiles come back with `age` in the tens of
+      // thousands of seconds, far longer than any isolate survives).
+      const index = await loadArchiveIndex(env.ARCHIVE, archiveKey, r2Source, cache, ctx, request);
+      const archive = new PMTiles(
+        index ? new PrefetchedIndexSource(r2Source, index) : r2Source,
+        DIRECTORY_CACHE,
+        nativeDecompress,
+      );
+
       const header = await archive.getHeader();
 
       // The globe hardcodes the zoom range so it can request z0 without a round trip first

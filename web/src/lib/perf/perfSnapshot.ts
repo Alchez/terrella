@@ -30,6 +30,7 @@ import type { CapabilitySignals, Tier } from "../capability";
 import type { CapLayerState, GlLossSnapshot } from "../glDiagnostics";
 import type { PerfSnapshot } from "./perfOverlay";
 import type { CameraFill, TileTraffic } from "./perfNetwork";
+import type { PerfLine } from "./perfLines";
 import type { DeviceClass } from "../polarCaps";
 import { megabytes } from "../format";
 
@@ -194,16 +195,24 @@ export function buildPerfReport(inputs: PerfReportInputs): PerfReport {
  * position, faults, origin. The terrain / DEM-cache / sky lines already say what they say well and
  * are left where they are; rewriting them here would trade a real improvement for churn.
  */
-export function perfReportLines(report: PerfReport): string[] {
-  const lines: string[] = [];
+export function perfReportLines(report: PerfReport): PerfLine[] {
+  const lines: PerfLine[] = [];
 
   // A verdict WITH its provenance. `no-signal` is not "desktop" and must never render as one:
-  // it is the state where nothing was measured and the budget defaulted to Infinity anyway.
-  const budget = report.deviceClass.mobileClass ? "mobile budget" : "desktop budget";
-  lines.push(
-    `device ${report.deviceClass.mobileClass ? "mobile-class" : "desktop-class"}` +
-      ` (${report.deviceClass.via}) · ${budget} · tier ${report.tier}`,
-  );
+  // it is the state where nothing was measured and the budget defaulted to Infinity anyway — which
+  // is what `(no-signal)` says, and the reason that half is load-bearing.
+  //
+  // The `mobile budget` / `desktop budget` half was DELETED, and it is worth saying why it was not
+  // merely shortened: it read `mobileClass ? "mobile budget" : "desktop budget"` beside a class
+  // printed from the same boolean, so it restated its neighbour and carried no information at all.
+  // It was worth its width when nothing else on the panel grouped by device; the DEVICE heading
+  // now does that job, and the line was 67 characters against a 53-character phone budget.
+  lines.push({
+    group: "device",
+    text:
+      `${report.deviceClass.mobileClass ? "mobile-class" : "desktop-class"}` +
+      ` (${report.deviceClass.via}) · tier ${report.tier}`,
+  });
 
   // The ladder is the loudest confound in any capture: a reading taken after two rungs fired is
   // not a reading of the page as shipped, and nothing else on the panel says so.
@@ -212,18 +221,28 @@ export function perfReportLines(report: PerfReport): string[] {
     report.ladder.pixelRatioLowered ? "dpr lowered" : null,
     report.ladder.terrainRetired ? "terrain retired" : null,
   ].filter((rung): rung is string => rung !== null);
-  lines.push(
-    `ladder ${rungs.length ? rungs.join(" · ") : "unfired"} · next ${report.ladder.nextAction ?? "—"}`,
-  );
+  // The ladder is CONFIG, not a cost: it says which rungs have fired, i.e. which page this reading
+  // is even of. `dpr lowered` changes what every number below it means.
+  lines.push({
+    group: "config",
+    text: `ladder ${rungs.length ? rungs.join(" · ") : "unfired"} · next ${report.ladder.nextAction ?? "—"}`,
+  });
 
   // Only when it has happened. A permanent `losses 0` is a row the eye learns to skip, and this is
   // the row that explains a globe that "keeps reloading" without the page ever reloading.
+  //
+  // Tagged `alarm` rather than `gpu`, so it renders above the headings with the faults. It is a
+  // "this reading is compromised" warning of the same class as one, and putting it under a GPU
+  // heading demotes it exactly the way grouping demotes anything.
   if (report.glLossCount > 0) {
     const since =
       report.lastGlLossMs === null
         ? ""
         : ` · last ${((report.nowMs - report.lastGlLossMs) / 1000).toFixed(0)}s ago`;
-    lines.push(`GPU CONTEXT LOST ${report.glLossCount}x this page${since}`);
+    lines.push({
+      group: "alarm",
+      text: `GPU CONTEXT LOST ${report.glLossCount}x this page${since}`,
+    });
   }
 
   if (report.capTextureMb !== null) {
@@ -231,26 +250,33 @@ export function perfReportLines(report: PerfReport): string[] {
       ? ` · climbing ${report.capsClimbing.join("+")}`
       : "";
     const age = report.glSampleAgeMs === null ? "" : ` (${(report.glSampleAgeMs / 1000).toFixed(0)}s old)`;
-    lines.push(`caps ${report.capTextureMb} MB${climbing}${age}`);
+    lines.push({ group: "gpu", text: `caps ${report.capTextureMb} MB${climbing}${age}` });
   }
 
   // Faults get a line only when there are some. A permanent `faults none` trains the eye to skip
   // the row, which is the one row that must never be skipped. Before the first idle the checks
   // cannot mean anything, and that gets said rather than rendered as a clean bill of health.
   if (!report.faultsReadable) {
-    lines.push("faults not checked yet — before first idle");
+    lines.push({ group: "alarm", text: "faults not checked yet — before first idle" });
   } else if (report.faults.length) {
-    lines.push(`FAULT ${report.faults.join(" · ")}`);
+    lines.push({ group: "alarm", text: `FAULT ${report.faults.join(" · ")}` });
   }
 
   // Last, and unconditional. Whatever else is cropped out of a screenshot, the arm the numbers
   // came from should not be.
-  lines.push(originLine(report.origin));
+  for (const text of originLines(report.origin)) lines.push({ group: "origin", text });
   return lines;
 }
 
-/** The provenance line: server, screen and flags — everything needed to say what a number means. */
-export function originLine(origin: PerfOrigin): string {
+/**
+ * The provenance lines: server, screen and flags — everything needed to say what a number means.
+ *
+ * TWO lines, because the single line ran to 95 characters against a measured 53-character phone
+ * budget and wrapped mid-fact. The split is at the natural seam: which SERVER produced the numbers,
+ * then the geometry and flags they were produced under. Wrapping cost the same height and read
+ * worse, so the second row is spent deliberately.
+ */
+export function originLines(origin: PerfOrigin): string[] {
   const flags = origin.flags.length ? origin.flags.join(",") : "none";
   // "DEV SERVER" in capitals on purpose: it is a warning about the numbers above it, not a label.
   const server = origin.devServer ? "DEV SERVER — absolutes not comparable to prod" : "static build";
@@ -260,9 +286,10 @@ export function originLine(origin: PerfOrigin): string {
     Math.round(origin.realisedPixelRatio * 100) === Math.round(origin.devicePixelRatio * 100)
       ? ""
       : ` (realised ${origin.realisedPixelRatio.toFixed(2)} — clamped by maxCanvasSize)`;
-  return (
-    `${server} · ${origin.viewportCssWidth}x${origin.viewportCssHeight} @ DPR ` +
-    `${origin.devicePixelRatio}${realised} · flags ${flags}` +
-    ` · panel ${origin.panelExpanded ? "expanded" : "collapsed"}`
-  );
+  return [
+    server,
+    `${origin.viewportCssWidth}x${origin.viewportCssHeight} @ DPR ` +
+      `${origin.devicePixelRatio}${realised} · flags ${flags}` +
+      ` · panel ${origin.panelExpanded ? "expanded" : "collapsed"}`,
+  ];
 }

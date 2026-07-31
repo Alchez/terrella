@@ -8,6 +8,7 @@
 // longTaskApiSupported.
 
 import type { Map as MaplibreMap } from "maplibre-gl";
+import { groupPerfLines, type PerfLine } from "./perfLines";
 
 /** Map-event stamps recorded by the PAGE at map construction (globe.astro), not by this
  *  module: the overlay is dynamically imported and loses the race on fast (prod-built)
@@ -246,35 +247,55 @@ export function perfCollapsedLines(snapshot: PerfSnapshot): string[] {
   ];
 }
 
-/** Pure formatter, unit-tested: null renders as an em-dash, times round to whole ms. */
-export function perfSummaryLines(snapshot: PerfSnapshot): string[] {
+/**
+ * Pure formatter, unit-tested: null renders as an em-dash, times round to whole ms.
+ *
+ * The load timeline is tagged `cpu` rather than `feel`. `boot`, `map load` and `first idle` are
+ * main-thread work, and they belong directly above the `long tasks` line that explains them —
+ * whereas the frame line below is an OUTCOME this panel cannot attribute to any subsystem, so
+ * filing it under one would be false precision.
+ */
+export function perfSummaryLines(snapshot: PerfSnapshot): PerfLine[] {
   const ms = (value: number | null) => (value === null ? "—" : `${Math.round(value)} ms`);
-  const lines = [
-    `boot ${ms(snapshot.bootMs)}`,
-    `map load ${ms(snapshot.mapLoadMs)} · first idle ${ms(snapshot.firstIdleMs)}`,
+  const lines: PerfLine[] = [
+    { group: "cpu", text: `boot ${ms(snapshot.bootMs)}` },
+    {
+      group: "cpu",
+      text: `map load ${ms(snapshot.mapLoadMs)} · first idle ${ms(snapshot.firstIdleMs)}`,
+    },
   ];
   if (snapshot.longTaskApiAvailable) {
-    lines.push(
-      `long tasks ${snapshot.longTaskCount} · ${ms(snapshot.longTaskTotalMs)} total · ${ms(snapshot.longTaskMaxMs)} max`,
-    );
+    lines.push({
+      group: "cpu",
+      text: `long tasks ${snapshot.longTaskCount} · ${ms(snapshot.longTaskTotalMs)} total · ${ms(snapshot.longTaskMaxMs)} max`,
+    });
   } else {
     // Names the browser as the reason, so this cannot be read as "the observer failed to mount"
     // — and above all cannot be confused with a measured zero.
-    lines.push("long tasks n/a — no Long Tasks API in this browser");
+    lines.push({ group: "cpu", text: "long tasks n/a — no Long Tasks API in this browser" });
   }
   // Worst and slow both show in either state, because they survive the gesture that produced them.
   // An idle map reports the rate it last drew at, dated — never as though it were current, and
   // never in place of saying it is idle.
+  //
+  // The retained rate is a SECOND line rather than a parenthetical, and the reason is measured: the
+  // panel's own font gives 53 characters on a 412 px phone, and the combined form ran to 61 and
+  // wrapped. Wrapping costs the same height as a second line while making both halves harder to
+  // scan, so this spends the row deliberately — and only when there is a retained rate to explain.
   const seconds = (value: number) => `${(value / 1000).toFixed(0)}s`;
-  const idle =
-    snapshot.lastActiveFps === null || snapshot.lastActiveFpsAgeMs === null
-      ? "fps — (idle)"
-      : `fps — (idle · was ${snapshot.lastActiveFps}, ${seconds(snapshot.lastActiveFpsAgeMs)} ago)`;
-  const rate = snapshot.fps === null ? idle : `fps ${snapshot.fps}`;
-  lines.push(
-    `${rate} · worst ${ms(snapshot.worstFrameMs)} · slow ${snapshot.slowFrameCount}` +
+  const rate = snapshot.fps === null ? "fps — (idle)" : `fps ${snapshot.fps}`;
+  lines.push({
+    group: "feel",
+    text:
+      `${rate} · worst ${ms(snapshot.worstFrameMs)} · slow ${snapshot.slowFrameCount}` +
       ` · z${snapshot.zoom.toFixed(2)}`,
-  );
+  });
+  if (snapshot.fps === null && snapshot.lastActiveFps !== null && snapshot.lastActiveFpsAgeMs !== null) {
+    lines.push({
+      group: "feel",
+      text: `last drew ${snapshot.lastActiveFps} fps, ${seconds(snapshot.lastActiveFpsAgeMs)} ago`,
+    });
+  }
   return lines;
 }
 
@@ -334,7 +355,7 @@ export interface PerfOverlayOptions {
   /** Both callbacks receive the LIVE snapshot this module owns, rather than the page keeping its
    *  own copy of the long-task and frame counters. One number, one owner: a panel line and an
    *  exported file taken in the same moment cannot then disagree. */
-  extraLines?: (timing: PerfSnapshot) => string[];
+  extraLines?: (timing: PerfSnapshot) => PerfLine[];
   /** Called on export, at the moment of the tap, so the report carries the state the reader is
    *  looking at rather than the state at mount. Absent means the export control is not offered —
    *  a button that produces nothing is worse than no button.
@@ -547,6 +568,8 @@ export function mountPerfOverlay(map: MaplibreMap, options: PerfOverlayOptions =
     // the panel can disagree with the export because all three come from this one object.
     body.textContent = collapsed
       ? perfCollapsedLines(snapshot).join("\n")
-      : [...perfSummaryLines(snapshot), ...(extraLines?.(snapshot) ?? [])].join("\n");
+      : groupPerfLines([...perfSummaryLines(snapshot), ...(extraLines?.(snapshot) ?? [])]).join(
+          "\n",
+        );
   }, 300);
 }

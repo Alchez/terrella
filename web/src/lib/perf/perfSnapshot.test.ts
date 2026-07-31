@@ -9,7 +9,7 @@ import type { PerfSnapshot } from "./perfOverlay";
 import {
   PERF_REPORT_SCHEMA,
   buildPerfReport,
-  originLine,
+  originLines,
   perfReportLines,
   type PerfOrigin,
   type PerfReportInputs,
@@ -174,17 +174,25 @@ describe("buildPerfReport", () => {
 
 describe("perfReportLines", () => {
   const render = (overrides: Partial<PerfReportInputs> = {}) =>
-    perfReportLines(buildPerfReport({ ...INPUTS, ...overrides })).join("\n");
+    perfReportLines(buildPerfReport({ ...INPUTS, ...overrides }))
+      .map((line) => line.text)
+      .join("\n");
+
+  /** Which subsystem each line was filed under, in render order. */
+  const groupsOf = (overrides: Partial<PerfReportInputs> = {}) =>
+    perfReportLines(buildPerfReport({ ...INPUTS, ...overrides })).map((line) => line.group);
 
   it("carries the device verdict WITH the signal that produced it", () => {
-    expect(render()).toContain("device mobile-class (ua-client-hints) · mobile budget · tier full");
+    expect(render()).toContain("mobile-class (ua-client-hints) · tier full");
   });
 
   it("never renders an unmeasured device class as a desktop reading", () => {
     // `no-signal` resolves to mobileClass:false and buys the Infinity texture budget. The panel
     // has to show that the budget came from an absence, or the 512 MB looks like a decision.
+    // `(no-signal)` is what carries this, and it is why the redundant "desktop budget" could go:
+    // that half was printed from the same boolean as the class beside it.
     expect(render({ deviceClass: { mobileClass: false, via: "no-signal" } })).toContain(
-      "device desktop-class (no-signal) · desktop budget",
+      "desktop-class (no-signal) · tier full",
     );
   });
 
@@ -239,11 +247,47 @@ describe("perfReportLines", () => {
 
   it("always ends with the origin, whatever else is on the panel", () => {
     const lines = perfReportLines(buildPerfReport(INPUTS));
-    expect(lines[lines.length - 1]).toBe(originLine(ORIGIN));
+    expect(lines.slice(-2).map((line) => line.text)).toEqual(originLines(ORIGIN));
+    expect(lines.slice(-2).every((line) => line.group === "origin")).toBe(true);
+  });
+
+  it("files the two alarm rows OUTSIDE any subsystem, so no heading can demote them", () => {
+    // Both are "this reading is compromised", not readings. A GPU context loss is filed with the
+    // faults rather than under GPU · MEMORY for exactly that reason: a heading is what teaches the
+    // eye to skip a block, and these are the rows that must never be skipped.
+    expect(groupsOf({ nowMs: 26_000, glLossCount: 4, lastGlLossMs: 21_000 })).toEqual([
+      "device",
+      "config",
+      "alarm",
+      "gpu",
+      "origin",
+      "origin",
+    ]);
+    expect(groupsOf({ demCacheFault: "cap not enforced" })).toContain("alarm");
+    expect(groupsOf({ timing: { ...TIMING, firstIdleMs: null } })).toContain("alarm");
+  });
+
+  it("files the ladder as CONFIG and the cap textures as GPU VRAM", () => {
+    // The ladder says which page this reading is even OF — `dpr lowered` changes the meaning of
+    // every number beside it — while the cap figure is a cost with an owner, and that owner is the
+    // GPU. The DEM cache is NOT in this list: it is heap bytes, tagged `ram` at its own call site.
+    expect(groupsOf()).toEqual(["device", "config", "gpu", "origin", "origin"]);
   });
 });
 
-describe("originLine", () => {
+/** The two provenance rows joined the way they used to be one row, so every assertion below
+ *  stays about WORDING — the split is asserted once, on its own, above. */
+const originLine = (origin: PerfOrigin) => originLines(origin).join(" · ");
+
+describe("originLines", () => {
+  it("splits the server warning from the geometry, so neither wraps on a phone", () => {
+    // 95 characters against a measured 53-character budget: it wrapped mid-fact.
+    const [server, geometry] = originLines({ ...ORIGIN, devServer: true });
+    expect(server).toBe("DEV SERVER — absolutes not comparable to prod");
+    expect(geometry).toContain("412x915 @ DPR 2");
+    expect(Math.max(server.length, geometry.length)).toBeLessThanOrEqual(53);
+  });
+
   it("shouts when the numbers came from the dev server", () => {
     // Three exchanges were spent quoting dev-server phone numbers as if they were production.
     // The warning belongs ON the reading, not in someone's memory of how it was taken.

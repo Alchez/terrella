@@ -89,7 +89,14 @@ import { REPO_URL } from "../lib/siteLinks";
     inset: 0;
     z-index: 0;
     display: block;
-    background: #0e1519; /* very dark desaturated navy — space, not pure black */
+    /* Very dark desaturated navy — space, not pure black. THE ONLY COPY OF THIS VALUE: it has to
+       live in CSS so the backdrop is painted before the script that draws the stars has run, and
+       paintStarfield reads it back off this custom property rather than restating it. A second
+       hex in the script would be free to drift silently, which is the trap palette.ts and
+       HIGHLIGHT_GOLD both exist to avoid. Not a palette.ts constant: that file is colours the
+       PIPELINE owns, each pinned against palette._srgb8, and this one has no pipeline source. */
+    --space: #0e1519;
+    background: var(--space);
   }
   .globe {
     position: fixed;
@@ -107,7 +114,10 @@ import { REPO_URL } from "../lib/siteLinks";
     align-items: center;
     gap: 0.5rem;
   }
-  /* Floating "home" chrome, matching the .borders-fab token treatment. */
+  /* Floating chrome over the map: translucent `--bg-2` wash, backdrop blur, hairline `--line`
+     border. Stated here rather than cited from a sibling — this used to say "matching the
+     .borders-fab token treatment", and `.borders-fab` has since been removed, leaving a rule
+     whose stated reason pointed at nothing. */
   .globe-home,
   .globe-source {
     display: inline-flex;
@@ -452,7 +462,6 @@ import { REPO_URL } from "../lib/siteLinks";
   // otherwise, so no zoom-conditional logic is needed.
   const starCanvas = document.getElementById("starfield") as HTMLCanvasElement;
   const drawingContext = starCanvas.getContext("2d");
-  const SPACE_COLOR = "#0e1519";
   const STAR_TINT = "230, 235, 240"; // pale, faintly cool white
 
   function paintStarfield() {
@@ -467,8 +476,16 @@ import { REPO_URL } from "../lib/siteLinks";
     starCanvas.style.height = viewportHeight + "px";
     drawingContext.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
 
-    drawingContext.fillStyle = SPACE_COLOR;
-    drawingContext.fillRect(0, 0, viewportWidth, viewportHeight);
+    // Read from the stylesheet rather than restated here — see the `--space` declaration. Setting
+    // `.width` above cleared the bitmap to transparent, so if the property ever goes missing this
+    // skips the fill and the element's own CSS background shows through at exactly the same
+    // colour. That is the right fallback: a missing token degrades to the same pixels, where an
+    // empty fillStyle would silently keep whatever was painted last.
+    const spaceColor = getComputedStyle(starCanvas).getPropertyValue("--space").trim();
+    if (spaceColor) {
+      drawingContext.fillStyle = spaceColor;
+      drawingContext.fillRect(0, 0, viewportWidth, viewportHeight);
+    }
 
     // Sparse: roughly one star per 5200 CSS px² (~700 on a 2560×1440 screen).
     const starCount = Math.round((viewportWidth * viewportHeight) / 5200);
@@ -556,6 +573,7 @@ import { REPO_URL } from "../lib/siteLinks";
     parseAtmosphereRamp,
     skySpec,
   } from "../lib/skyAtmosphere";
+  import { attachRttPoolTrim, rttPoolLine } from "../lib/rttPoolTrim";
   import {
     applyDemCacheCap,
     demCacheCapFault,
@@ -750,7 +768,6 @@ import { REPO_URL } from "../lib/siteLinks";
   const VERTICAL_FIELD_OF_VIEW_DEG = 15;
 
   const map = new maplibregl.Map({
-    // Dev handle for console/automation debugging (used to diagnose the polar ring)
     container: "globe",
     style: {
       version: 8,
@@ -838,6 +855,20 @@ import { REPO_URL } from "../lib/siteLinks";
   map.addControl(new maplibregl.FullscreenControl({ container: document.body }), "top-right");
   map.addControl(new maplibregl.ScaleControl({ maxWidth: 120, unit: "metric" }), "bottom-left");
 
+  // ?perf only: a handle on the live map, because nothing else reaches one. MapLibre keeps no
+  // back-reference from any DOM node to its Map, the page script's `map` is a module-local const,
+  // and the numbers that have driven the last three investigations — `terrain.tileManager
+  // ._renderableTilesKeys`, `painter._rttObjectRecyclePool`, `painter.renderToTexture._stacks` —
+  // are private state on objects only the map can reach. Every one of those sessions ended up
+  // adding this line temporarily; making it permanent and flag-gated is the honest version.
+  //
+  // Gated rather than unconditional so production ships no writable global that can pin the map
+  // (and everything it owns, including GL resources) alive after teardown. Costs one property
+  // assignment when the flag is present and does not exist otherwise.
+  if (urlFlags.has("perf")) {
+    (window as unknown as { __map: maplibregl.Map }).__map = map;
+  }
+
   // The credit stays a real AttributionControl rather than hand-rolled markup, so that any source
   // which ever declares `attribution` is still picked up automatically by _updateAttributions —
   // the compliance safety net survives even though the visible string is ours.
@@ -900,12 +931,17 @@ import { REPO_URL } from "../lib/siteLinks";
   // per-view measurement can see it — which is exactly why development never did. Reading it needs
   // MapLibre's own structures (all present in its public .d.ts, underscore prefixes and all);
   // summariseDemCache returns null rather than 0 if any of them move.
-  let describeDemCache: (() => string) | null = null;
+  let describeDemCache: (() => string[]) | null = null;
   // The same reading as a FAULT rather than a sentence — the structured export needs to answer
   // "is anything actually wrong" without string-matching a human-readable line. Null both when
   // there is no terrain (nothing to bound) and when the bound is holding; the report distinguishes
   // those by the terrain flag it already carries.
   let demCacheFault: (() => string | null) | null = null;
+  // The RTT pool census, for the same reason the DEM cache has one and a stronger one besides:
+  // once the trim stops the crash, the renderable-tile overdraw that CAUSES it becomes invisible.
+  // `held` is the working set MapLibre genuinely needs; `pooled` is retained slack; `peak` is the
+  // number that indicts the tile count, and it is the one to watch after the symptom is muted.
+  let describeRttPool: (() => string) | null = null;
   // Tiles this camera needs, from MapLibre's own coveringTiles. Declared out here because the GL
   // loss snapshot wants it too and `?terrain=off` never enters the block below — in which case
   // there is no terrain source and null is the honest answer, not zero.
@@ -914,8 +950,10 @@ import { REPO_URL } from "../lib/siteLinks";
   // rebuilds the style from line 22594 of _contextRestored, which fires `style.load` BEFORE
   // _setupPainter() has run, so the terrain tile manager the cap is written to does not exist yet —
   // then setTerrain builds a fresh, uncapped one. Measured 4/4 forced losses: 381 slots -> 1155,
-  // i.e. straight back to the 1.16 GB ceiling the cap exists to remove, while the overlay still
-  // read "384 MB budget". Asserted from a healthy `idle` rather than from the restore event,
+  // i.e. straight back to the ~1.14 GiB ceiling the cap exists to remove (1155 x demSlotBytes(512)
+  // = 1,220,585,520 B; tileCacheBudget.ts derives the per-slot figure and is the one place that
+  // should state it), while the overlay still read "384 MB budget". Asserted from a healthy `idle`
+  // rather than from the restore event,
   // because that event is not guaranteed to arrive at all (see the GL block below).
   let reassertTerrainBound: () => void = () => {};
   // Set by the FPS ladder's last rung, and the reason it cannot be inferred instead: after
@@ -925,8 +963,16 @@ import { REPO_URL } from "../lib/siteLinks";
   // `map.getTerrain()` still returned a stale Terrain object on a style with zero sources
   // (measured). So the ladder declares its own retirement rather than leaving the check to guess.
   // Without this, every device that degrades logs `console.error` claiming the DEM cache is
-  // unbounded, at the one moment there is no DEM cache at all: seen live on every run of a hard
-  // pan/zoom route, within ~50 s, because `disable-terrain` is the ladder's FIRST rung.
+  // unbounded, at the one moment there is no DEM cache at all — seen live within ~50 s on a hard
+  // pan/zoom route.
+  //
+  // WHICH RUNG THIS IS DEPENDS ON THE DEVICE, and an earlier version of this comment asserted
+  // "the ladder's FIRST rung" flatly while the one beside the rung itself says "last". Both are
+  // half right. `nextDegradationAction` orders them retire-spin -> lower-pixel-ratio ->
+  // disable-terrain, but the middle rung is gated on `devicePixelRatio > DEGRADED_PIXEL_RATIO`
+  // (1). So on a DPR-1 desktop with the spin already off — reduced motion, or any tier below
+  // `full` — terrain-off is the FIRST action the ladder ever takes, and the ~50 s figure above
+  // was measured there. On a phone at DPR 3 it is the third and last.
   let terrainRetired = false;
   // Where the FPS ladder currently stands, assigned beside the ladder itself. Null until then,
   // which is the honest reading during the page's first frames rather than a fabricated "unfired".
@@ -1003,7 +1049,7 @@ import { REPO_URL } from "../lib/siteLinks";
 
     // Bound the DEM cache to what the source is actually FILLED at. MapLibre sizes it from the
     // declared tile size and fills it from twice that, so the shelves outrun the fill rate by a
-    // factor that costs ~1.24 GiB of decoded elevation on a desktop canvas — the arithmetic, the
+    // factor that costs ~1.14 GiB of decoded elevation on a desktop canvas — the arithmetic, the
     // measured knee and the multiplier all live in tileCacheBudget.ts.
     //
     // Re-derived rather than fixed: the working set scales with the viewport, so a constant would
@@ -1090,6 +1136,23 @@ import { REPO_URL } from "../lib/siteLinks";
       // re-applied it moments later; on a context restore no resize follows and the cap stayed off.
       map.setTerrain({ source: TERRAIN_SOURCE, exaggeration: exaggerationFor(map.getZoom()) });
       applyCacheCap();
+      // AFTER setTerrain for the same reason applyCacheCap is: the pool lives on the painter, but
+      // there is nothing to trim until terrain exists to fill it, and `rttHeldBy` reads through
+      // `map.terrain`. Bounding it is OURS to do because MapLibre's `releaseRTT` has no cap and
+      // only `Painter.destroy()` — map removal or a lost context — ever empties the pool; see
+      // rttPoolTrim.ts. This cannot lower the PEAK (acquire allocates only when the pool is empty,
+      // so the peak is the working set by construction) — it returns the card after the peak.
+      // `?nortt` keeps the census and skips the trimming, so the A/B that justifies this module
+      // stays runnable against the shipped build rather than against a build we no longer have —
+      // the same reason `?nocaps` exists.
+      // MAX_SAFE_INTEGER rather than Infinity: `trimRttPool` requires an integer bound, and today
+      // the early return means it is never reached — but a disable that depends on an early return
+      // staying where it is would break silently if the guards were ever reordered.
+      const rttTrim = attachRttPoolTrim(
+        map,
+        urlFlags.has("nortt") ? { bound: Number.MAX_SAFE_INTEGER } : {},
+      );
+      describeRttPool = () => rttPoolLine(rttTrim.stats());
     });
 
     // A resize changes the viewport, and with it the working set the cap has to hold — going
@@ -1165,6 +1228,10 @@ import { REPO_URL } from "../lib/siteLinks";
     const terrainLine = describeTerrain;
     const demCache = describeDemCache;
     const demFault = demCacheFault;
+    // Read through a closure rather than captured: the sole assignment is inside the terrain
+    // callback, so a straight capture narrows to `null` at this line and then to `never` at the
+    // call. Inside a function body the declared type survives, which is what makes this compile.
+    const rttPoolText = (): string | null => (describeRttPool === null ? null : describeRttPool());
     // The sky line is unconditional: the ramp runs on every visit, so a capture with no terrain
     // still has to say which atmosphere arm produced it.
     const skyLine = () => describeAtmosphereState(map.getZoom(), skyRamp, map.getPitch());
@@ -1288,9 +1355,21 @@ import { REPO_URL } from "../lib/siteLinks";
 
         overlay.mountPerfOverlay(map, {
           eventStamps: perfEventStamps,
+          // These three lines are built by closures on this page, so there is no module to tag
+          // them and it happens here. `terrain` and `sky` state which ARM produced the reading —
+          // configuration, not cost — while the DEM cache is that arm's GPU-memory consequence.
           extraLines: (timing) => [
-            ...(terrainLine && demCache ? [terrainLine(), demCache()] : []),
-            skyLine(),
+            ...(terrainLine && demCache
+              ? [
+                  { group: "config" as const, text: terrainLine() },
+                  // RAM, not VRAM: these price the JS heap DEMData pins, not texture bytes.
+                  ...demCache().map((text) => ({ group: "ram" as const, text })),
+                ]
+              : []),
+            // VRAM, and the largest term by far when terrain is on — one 512px RGBA target per
+            // renderable tile per layer stack, so pool length reads directly as MiB.
+            ...(rttPoolText() === null ? [] : [{ group: "gpu" as const, text: rttPoolText()! }]),
+            { group: "config" as const, text: skyLine() },
             // Cheap on the tick, unlike a GL sample: this reads an array the browser already
             // maintains and does no work against the map.
             perfNetwork.tileTrafficLine(readTraffic()),
@@ -1627,10 +1706,34 @@ import { REPO_URL } from "../lib/siteLinks";
     map.addSource(COUNTRIES_SOURCE, countriesSource(countries));
     // Invisible except on hover; a warm silhouette wash so the whole landmass lights up.
     map.addLayer(fillLayer(inScopeFilter));
-    // Fat, invisible per-island targets. The circle's own radius IS the hit tolerance
-    // (~12px at overview, wider zoomed in), so pointing anywhere near an atoll picks the
-    // country. Kept above the fill only for query order — it's transparent, never seen.
     map.addSource("country-hits", { type: "geojson", data: hitPointsFrom(countries) });
+    // Boundary lines for the hover outline. Same ADMIN promoteId as the polygon source, so one
+    // setFeatureState id drives the fill wash and this outline together (see countryHighlight).
+    map.addSource(OUTLINE_SOURCE, outlineSource(outlinesFrom(countries, isInScope)));
+  }
+
+  /**
+   * Fat, invisible per-island targets. The circle's own radius IS the hit tolerance (~12px at
+   * overview, wider zoomed in), so pointing anywhere near an atoll picks the country.
+   *
+   * ADDED LAST, AND THE POSITION IS THE POINT. MapLibre drapes only
+   * background/fill/line/raster/hillshade/color-relief onto the terrain mesh; any other type
+   * interrupts the run and starts a new render-to-texture stack, and the RTT pool holds one
+   * 1 MiB object per renderable terrain tile PER STACK. Sitting between `country-fill` and the
+   * border/highlight lines, this `circle` split one run into two and cost a third of the pool
+   * for a layer that draws nothing — `circle-opacity: 0`, no stroke. At the end it terminates
+   * the last run instead of splitting it: 3 stacks become 2, ~33% off the pool's peak, with no
+   * visual and no functional change.
+   *
+   * Free to move because layer order cannot reach the hit test: both `queryRenderedFeatures`
+   * calls in `countryAt` pass an explicit single-layer `layers` filter. An older comment here
+   * claimed it was "kept above the fill only for query order", which was never true.
+   *
+   * KEEP IT LAST. Anything appended after this goes back to paying for the third stack — see
+   * drapeStacks.ts, whose `drapeStackCount` is this rule as a function and whose canary fails if
+   * MapLibre ever starts draping `circle`.
+   */
+  function addCountryHitTargets() {
     map.addLayer({
       id: "country-hit",
       type: "circle",
@@ -1641,9 +1744,6 @@ import { REPO_URL } from "../lib/siteLinks";
         "circle-stroke-width": 0,
       },
     });
-    // Boundary lines for the hover outline. Same ADMIN promoteId as the polygon source, so one
-    // setFeatureState id drives the fill wash and this outline together (see countryHighlight).
-    map.addSource(OUTLINE_SOURCE, outlineSource(outlinesFrom(countries, isInScope)));
   }
 
   // The hovered country's outline — added ABOVE the borders so its edge stays crisp. A soft
@@ -1860,14 +1960,17 @@ import { REPO_URL } from "../lib/siteLinks";
       const countries = (await fetch(BORDERS_BASE + "countries.geojson").then(
         (response) => response.json(),
       )) as FeatureCollection;
-      addCountries(countries); // fill/hit layers under the borders, so border lines stay on top
+      addCountries(countries); // fill layer + both sources, under the borders so lines stay on top
       if (bordersOn()) addBorders(); // opted-in only — the default globe skips the download
       addCountryHighlight(); // hover outline on top of everything, so the edge stays crisp
+      // LAST, always. Everything above is drapeable (fill, line); this circle is not, so putting
+      // it here ends the drape run rather than splitting it. See addCountryHitTargets.
+      addCountryHitTargets();
     });
   }
 
-  // Idle rotation — a "living globe" at low zoom. Any interaction retires the spin (the
-  // Spin checkbox unticks); the toggle restarts it. Above z3 the fixed 2°/s sweep is too
+  // Idle rotation — a "living globe" at low zoom. Any interaction retires the spin (the Spin
+  // button drops to aria-pressed="false"); the toggle restarts it. Above z3 the fixed 2°/s sweep is too
   // fast to follow, so spin() is a no-op there. Kept deliberately simple: a single spin
   // easeTo driven off `moveend`, and interactions only flip the flag — no easeTo is ever
   // called re-entrantly from the map's own animation events.
@@ -1994,17 +2097,18 @@ import { REPO_URL } from "../lib/siteLinks";
           map.setPixelRatio(DEGRADED_PIXEL_RATIO);
           console.info("[globe] low frame rate persists — rendering at 1x pixel ratio");
         } else if (action === "disable-terrain") {
-          // Last rung, and last on purpose — lowering the pixel ratio above is what puts the
-          // device in the regime where dropping terrain actually pays (fpsDegradation.ts header).
+          // Last in the ladder's ORDER, and last on purpose — lowering the pixel ratio above is
+          // what puts the device in the regime where dropping terrain actually pays
+          // (fpsDegradation.ts header). Not necessarily the last rung REACHED: the pixel-ratio
+          // rung is gated on DPR > 1, so a DPR-1 desktop with the spin already off arrives here
+          // first. See the note beside `terrainRetired`.
           //
           // Flagged BEFORE the teardown, not after: `idle` fires during it, and an idle that lands
           // between setTerrain(null) and the flag would report the retirement as a broken cap.
           terrainRetired = true;
           map.setTerrain(null);
           // ...and then release the source, because dropping the geometry does NOT return the
-          // memory. The claim this replaces — "the DEM source is left in place: re-adding it
-          // would re-download tiles, and setTerrain is the whole cost here" — priced the rung in
-          // frame time and missed the larger cost: the cache ceiling runs to ~1.24 GiB on a
+          // memory. That reclaims the DEM cache's HEAP — the ceiling runs to ~1.24 GiB on a
           // desktop canvas, so a rung that left it resident bought nothing on the one axis a
           // struggling device actually needs. The arithmetic and its root cause live in
           // tileCacheBudget.ts, which is also where the bound that keeps it from getting there
@@ -2014,6 +2118,17 @@ import { REPO_URL } from "../lib/siteLinks";
           // whose eviction callback is the raster-dem unloadTile: it deletes tile.dem, destroys
           // tile.fbo, and returns the texture to the painter's recycle pool. Nothing re-adds the
           // source afterwards — the ladder is one-way and returns null once terrain is off.
+          //
+          // AND THAT LAST CLAUSE IS WHY THIS RUNG RECLAIMS ALMOST NO GPU MEMORY. "Returns the
+          // texture to the painter's recycle pool" is not a release: `Painter.releaseRTT` is a
+          // bare push onto an UNBOUNDED pool that only `Painter.destroy()` ever empties, so
+          // tearing terrain down FEEDS it. Measured 2026-07-30, twice: `disable-terrain` fired
+          // mid-tour and the GPU process still held 6,066 MiB with terrain gone from the style
+          // AND the sources — ~4 GB above the terrain-off plateau, owned by nothing left alive to
+          // release it. `setTerrain(null)` alone grew the pool 6,720 -> 6,933 objects across the
+          // call. So this rung is a fix for HEAP and for frame time, and must not be read as a
+          // fix for VRAM exhaustion — that is what rttPoolTrim.ts bounds, and it has to be
+          // attached before this rung runs to help at all.
           //
           // Guarded because a throw here escapes the rAF loop and silently retires the whole
           // watchdog; getTerrain() being non-null implies the source exists, so this cannot fire,
