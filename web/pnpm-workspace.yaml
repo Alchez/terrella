@@ -2,3 +2,5 @@ allowBuilds:
   esbuild: true
   sharp: true
   workerd: true
+patchedDependencies:
+  maplibre-gl@6.1.0: patches/maplibre-gl@6.1.0.patch

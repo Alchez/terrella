@@ -503,7 +503,7 @@ describe("canary — the MapLibre surface this module depends on", () => {
     ) + 1;
     const fireRestored = lineOf('this.fire(new MapContextEvent("webglcontextrestored"');
 
-    const cited = { setStyle: 22594, setupPainter: 22600, resize: 22602, fireRestored: 22605 };
+    const cited = { setStyle: 22446, setupPainter: 22452, resize: 22454, fireRestored: 22457 };
     const actual = { setStyle, setupPainter, resize, fireRestored };
     expect(
       actual,
