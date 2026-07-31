@@ -1,6 +1,6 @@
 """pack_pmtiles: the XYZ tile directory -> MBTiles bridge (blobs moved, never re-encoded).
 
-`pmtiles convert` reads only MBTiles (HISTORY § 2026-07-13: the pack path is
+`pmtiles convert` reads only MBTiles
 dir -> MBTiles -> convert), and the one real trap is the row flip: MBTiles stores
 TMS rows (origin bottom-left) while our pyramid is XYZ (origin top-left,
 `gdal raster tile --convention=xyz`). A silent flip error would serve a

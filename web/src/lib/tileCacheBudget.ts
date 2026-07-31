@@ -437,7 +437,7 @@ export function summariseDemCache(tileManager: TileManagerLike | undefined): Dem
  * These are **system RAM**, not VRAM: `demSlotBytes` prices the `Uint32Array` that `DEMData` keeps
  * over the padded image. The panel groups them under RAM for that reason. That the 384 MiB ceiling
  * exists to bound a *VRAM* failure is a fact about the budget's derivation, not about where these
- * bytes live → HISTORY § the 2K freeze was VRAM, not heap.
+ * bytes live
  */
 export function demCacheLines(
   summary: DemCacheSummary | null,

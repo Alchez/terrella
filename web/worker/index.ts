@@ -10,13 +10,13 @@
 // astro.config.ts. Both answer the same contract — parsed by the same reliefTiles.ts and
 // terrainSource.ts — and differ only in where the bytes come from: a local file there, an R2
 // binding here. The browser never opens an archive itself, because Workers Caching strips
-// `Range` and would ask for the full multi-GB body (→ HISTORY § the deploy target moves to R2).
+// `Range` and would ask for the full multi-GB body.
 //
 // Written rather than adopted from protomaps/PMTiles `serverless/cloudflare`, which is
 // `"private": true` and unpublished — adopting it means vendoring a fork of two files, not
 // taking a dependency. What that worker gets right and a naive one would not, we take from the
 // `pmtiles` library instead: the cross-request directory cache and the ETag guard below.
-// → HISTORY § the tile Worker is ours.
+//.
 
 import {
   Compression,

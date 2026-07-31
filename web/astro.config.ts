@@ -192,7 +192,7 @@ interface ResolvedTileRoute {
 // Dev-only: answer /tiles/{z}/{x}/{y}.webp and /tiles/terrain/{z}/{x}/{y}.webp out of the two
 // packaged PMTiles archives. This is the local twin of the production tile Worker, and it exists
 // for the same reason the Worker does — the archives are GB-scale, so the browser must never
-// address one directly and must never send a Range header (→ HISTORY § the deploy target moves
+// address one directly and must never send a Range header (
 // to R2). The ranging happens here against a local file; in production it happens inside a
 // Worker against an R2 object.
 //

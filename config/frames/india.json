@@ -1,5 +1,5 @@
 {
-  "_pinned": "hand-authored 2026-07-08: plane/ortho/displacement are the hand-rounded Phase 0 values the approved v3 hero was rendered with, NOT the formula derivations (2.05884 / 2.06007 / 8.0113e-6). render_prep.py never overwrites this file. See PLAN.md decision log.",
+  "_pinned": "hand-authored 2026-07-08: plane/ortho/displacement are the hand-rounded Phase 0 values the approved v3 hero was rendered with, NOT the formula derivations (2.05884 / 2.06007 / 8.0113e-6). render_prep.py never overwrites this file. See
   "frame_lonlat": [66.0, 4.0, 99.0, 38.0],
   "dst_crs": "+proj=aea +lat_0=21 +lon_0=82.5 +lat_1=10 +lat_2=32 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs=True",
   "width_px": 16384,

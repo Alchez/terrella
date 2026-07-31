@@ -10,7 +10,7 @@ never baked into the hero.
 The subject region is DEM-land MINUS the neighbours' Natural Earth polygons:
   - its seaward edge is therefore the *rendered* 30 m coastline (pixel-exact
     against the hero), not NE's 1:10 m generalisation (which wanders ~250 m —
-    see HISTORY § alignment oracle);
+    oracle-verified);
   - its landward edge is the NE political border (the only source there).
 One rule, correct on both boundary kinds.
 
@@ -75,7 +75,7 @@ TARGETS = (640, 960, 1280, 1920, 3840)   # plus each hero's native long edge
 # Unchanged at q88 by the quality pass, and provably so: build_overlay sets
 # overlay_alpha to 0 across the subject, so these pixels only ever cover the dimmed surroundings.
 WEBP_QUALITY = 88
-DIM_DEFAULT = 0.68       # outside brightness (Rohan's "subtle")
+DIM_DEFAULT = 0.68       # outside brightness (judged "subtle" by eye)
 DESAT_DEFAULT = 0.35     # outside desaturation
 OUTLINE_DIV_DEFAULT = 6000.0   # boundary hairline half-width = long_edge / this (~1.3px @7680)
 HALO_ALPHA_DEFAULT = 0.30      # faint dark keyline under the white line, for light-coast legibility

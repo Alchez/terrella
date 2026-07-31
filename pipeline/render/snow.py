@@ -6,7 +6,7 @@ mountains). Persistence (observed MODIS climatology, water years 2001-2023, 0.01
 smoothstep alpha so snow margins fade and take the hillshade instead of a hard cartoon edge. The
 persistence cutoff ramps with |latitude| (0.40 at 45 deg -> 0.60 at 63 deg) because high latitudes
 are seasonally snow-covered over huge areas, and a fixed cutoff floods them. Validated on five
-stress regions; -> HISTORY § Snow source reworked.
+stress regions;
 """
 
 import math
@@ -73,7 +73,6 @@ def warp_persistence_raster(bounds, width, height, out_path, sp_nc=SP_NC, band_r
     old per-window strips were faithful. With band_rows == the composite window height and bands
     aligned to it, each band IS the per-window warp it replaces, so the mosaic is byte-identical to
     the old path by construction. band_rows=None (region path, small grids) is a single direct warp.
-    -> HISTORY 2026-07-18.
     """
     left, bottom, right, top = bounds
     if band_rows is None or height <= band_rows:

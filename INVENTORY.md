@@ -39,7 +39,7 @@
 
 - **Itemised deliberately** — summarising this directory in one line is how ~43 GB of dead
   generations once hid; and a *deferred* measurement of a growing directory is the same failure
-  as a stale one. Re-measure when the chain moves (→ HISTORY § the reclaim log moves out of
+  as a stale one. Re-measure when the chain moves (
   INVENTORY).
 - Steady state is **one live pyramid + one rollback**: `tiles/` plus the `tiles_old/` that
   `build_tiles` auto-rotates on each cut. `tiles_old/` is currently absent — the WebP pyramid it
@@ -68,7 +68,7 @@
 
 - The only heavy store outside `data/`, gitignored the same way. Listed here because an
   unlisted store is an unaudited one — a 26 GB dead rollback archive lived here unnoticed
-  (→ HISTORY § the reclaim log moves out of INVENTORY).
+.
 
 | Store | Size | What it is | Reclaim? |
 |---|---|---|---|
@@ -126,7 +126,7 @@ Dev–prod differences that matter:
   re-runs if its output is missing, was never stamped `.done`, or is older than any input —
   including the chunk **directory** (a VRT's mtime does not move when its chunks are re-fused)
   and the materialised param files. An exists()-only guard cannot tell *built* from *still
-  correct*. → HISTORY § The staleness trap
+  correct*.
 - **It is blind to CODE changes by design** (params, not source, are the dependency — a
   `git checkout` cannot force a 33 GB rebuild); any *behavioural* change to a shading kernel must
   be verified against an oracle by hand.
@@ -137,7 +137,7 @@ Dev–prod differences that matter:
   still an interim product for an eventual re-run.
 - **Before reclaiming any `work/` directory:** `ls` it for `.py`/`.sh` and check `git ls-files` —
   scripts have twice been found living only in gitignored `data/`, once rescued mid-`rm`
-  (→ HISTORY § the reclaim log moves out of INVENTORY).
+.
 - **Re-measure this file after any reclaim or build** — that is its maintenance contract.
 - **Re-shading is all-or-nothing** (windowed patching was considered and rejected): budget a full
   pass, and batch every pending look change into it rather than paying it repeatedly.
@@ -145,14 +145,13 @@ Dev–prod differences that matter:
   - **`terrain.mbtiles` (2.69 GB) is the one dead thing** — the bridge `pmtiles convert` read, and
     the archive it produced is live and verified against production. Same shape as the
     `planet.mbtiles` exception: deleted once the archive verifies, rebuilt from `tiles/` in 12 s.
-  - The two most recent passes were both terrain: the **60 GB `elev/` chain** (→ HISTORY § stage T
+  - The two most recent passes were both terrain: the **60 GB `elev/` chain** (
     gets the guard every other stage already had) and the **3.4 GB spike A/B builds** — `bathy`,
     `bathy_s2/_s4/_s8`, `clamp`, `bathy_s8_webp_z6`, dead because the flags that selected them
     (`?dem`/`?quant`/`?demfmt`/`?demdepth`) retired with the archive, so no address reached a build
     directory any more. **This bullet lagged the first of those by a whole pass** — the row was
     updated and the picture was not, which is the failure mode the re-measure contract exists to
-    stop. Earlier passes (~41 / ~46+17 / ~35 GB) are in
-    HISTORY § the reclaim log moves out of INVENTORY.
+    stop. Earlier passes reclaimed ~41, ~46+17 and ~35 GB.
   - per-country hero intermediates (~190 GB) + `raw/worldcover/` (114 GB) — **still not dead
     even though the sweep ratified**: they are the input to any future re-render (a new country,
     a look change, the next `render_prep` fix), and worldcover only retires if the heroes also

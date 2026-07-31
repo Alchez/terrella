@@ -6,7 +6,7 @@ as a flat slab because GEBCO carries real bathymetry for those two only. GLOBath
 the rest as a calibrated cone D = l x Dmax / L over 1,427,688 waterbodies at 1 arc-second,
 using published maximum depths (Baikal 1642 m, Tanganyika 1470, Ladoga 230, Titicaca 281).
 
-Depth here is TINT-ONLY and never enters the heightfield (HISTORY.md 2026-07-07: at 15x
+Depth here is TINT-ONLY and never enters the heightfield
 exaggeration a carved Namtso becomes a 1.5 km crater and the shadow-catching plate dies),
 so this feeds the render layer beside snow -- not fusion. That also means we need no
 HydroLAKES join: it exists only to place basins vertically, and nothing is placed.

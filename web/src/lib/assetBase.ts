@@ -12,9 +12,9 @@
 //
 // The tile base is the one that is not simply "a directory of files": the archive is never
 // fetched by the browser. A tile server addresses it by z/x/y and answers with one tile (in
-// dev, the middleware in astro.config.ts; in production, a Worker reading R2). See
-// HISTORY § the deploy target moves to R2 for why the browser must not range-request the
-// archive itself.
+// dev, the middleware in astro.config.ts; in production, a Worker reading R2). The browser must
+// never range-request the archive itself: edge caching strips the Range header and asks the origin
+// for the whole multi-GB body, once per tile.
 
 import { TILE_PATH_TEMPLATE } from "./reliefTiles";
 import { TERRAIN_PATH_TEMPLATE } from "./terrainSource";

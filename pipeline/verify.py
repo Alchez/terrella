@@ -25,7 +25,7 @@ So this helper is deliberately incapable of returning a bare aggregate. Every co
   * a WITNESS -- worst pixel in lon/lat plus both values. Bug 2 died the instant its argmax was
     printed.
   * a CONTROL -- a self-comparison asserted to be exactly 0, so "0 differences" is proven reachable
-    rather than assumed. Per HISTORY 2026-07-06 (the blind-oracle bug: a structural diff whose
+    rather than assumed. Per
     filter removed the very lines the bug was in, so it passed on a broken scene), a check that
     cannot fail is indistinguishable from a check that passed.
   * COVERAGE -- how much of each raster was actually read, so a partial scan can never be reported

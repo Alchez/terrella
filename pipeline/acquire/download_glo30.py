@@ -15,7 +15,7 @@ and retry only what is missing. Failures never abort the run; they are listed
 in failures.txt and retried on the next run.
 
 Before downloading, a preflight proves the bucket hasn't changed editions
-under us (-> HISTORY § GLO-30 unversioned bucket gets an ETag oracle): the bucket carries no
+under us (
 edition in any path, so mixing tiles fetched years apart could silently mix
 Copernicus DEM editions. Local md5 of a few held tiles must equal their S3
 ETag (a plain md5 for these single-part objects); any mismatch aborts.

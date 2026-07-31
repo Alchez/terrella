@@ -1,0 +1,94 @@
+# Terrella — project memory
+
+A static site of ray-traced relief maps of every country, navigable as an interactive globe.
+Look target: Frank Ramspott's "3D Render Topographic Map — Neutral" — soft raytraced shadows,
+heavy vertical exaggeration, warm sand land, desaturated teal sea with bathymetry, white vector
+borders, minimal typography. The aesthetic decisions live in ART.md.
+
+This file is the standing brief for anyone working on the repo, human or agent. It states current
+truth only; it is not a changelog.
+
+## Purpose — learning first (overrides efficiency)
+
+This project is a vehicle for learning: the point is to understand every piece — DEM data, GDAL,
+Blender/Cycles, tiling, MapLibre, serving — not to be handed a finished site.
+
+- Be a **guide, not a workhorse**: explain the why, and involve the maintainer in the doing.
+- Where a choice has depth, present it rather than shortcutting past it.
+- **Claude writes the code**; the teaching lives in chat. Docstrings welcome, inline comments only where necessary.
+- Prefer the path that teaches over the path that merely ships. Slower is fine.
+- Expect the plan to change as understanding grows; don't resist rework.
+
+## Architecture (decided — do not re-litigate without explicit discussion)
+
+Three tiers of one site, one asset store, chosen by a client-side capability probe.
+
+- **Tier 1 gallery** — static HTML + responsive hero images; the pessimistic default while the probe runs.
+- **Tier 2 globe** — MapLibre globe projection over pre-shaded raster tiles; needs WebGL2. Pinned to an exact version in `web/package.json`, with one vendored patch (`patches/`, guarded by `vendoredPatches.test.ts`).
+- **Tier 3 full** — Tier 2 + terrain-RGB displacement + the idle spin + the in-globe hero panel, gated on GPU tier and network. The panel loads the srcset rung that fits the card, never the 8K master.
+
+Default pessimistic and upgrade optimistically; the Lite/Globe/Full toggle persists and beats the
+probe; degrade at runtime if frame rate tanks; honour `Save-Data`, `prefers-reduced-motion`,
+`prefers-reduced-data`.
+
+## Data sources
+
+- **Land:** Copernicus DEM GLO-30. The AWS *Public DGED 2021* edition withholds tiles over some regions and a missing tile fuses **silently as ocean** — fill gaps from OpenTopography `2023_1` (keyless S3, `--no-sign-request`).
+- **Bathymetry:** GEBCO, fused with the land DEM into one seamless heightfield. Part of the signature look, not optional.
+- **Snow / glaciers:** NSIDC-0791 persistence + RGI 7.0. **Access gotcha:** an Earthdata bearer token authenticates CMR granule downloads but *not* the NSIDC file pool, and RGI 7.0 is not granule-searchable at all → take it from the UNESCO IHP-WINS CKAN mirror.
+- **Sea ice:** OSI SAF OSI-450-a v3.0 reduced to a 1991–2020 ice-frequency climatology (`render/seaice.py`), chosen over the NSIDC CDR purely on access — anonymous over met.no THREDDS, no token churn.
+- **Boundaries:** Natural Earth. Borders are a white vector overlay, **never baked into raster tiles**; hero borders are composited in post, never rendered in the Blender scene. Worldview is NE default (de-facto) site-wide, disputed segments dashed, noted on the About page.
+
+## Rendering decisions
+
+- **Heroes:** headless Blender Cycles (bpy), RTX 4070 Super, OptiX backend + OpenImageDenoise — but **CPU denoise for 8K**, or render and denoise contend for the 12 GB VRAM and the driver throws an Xid 31 MMU fault.
+- One scene rig for every country: DEM displacement, low sun, two-ramp material (elevation-keyed land, depth-keyed sea), ortho camera framed from Natural Earth bounds.
+- **Vertical exaggeration 15×**, locked and shared by import (`palette.EXAGGERATION`) so hero and tile cannot drift.
+- **Tiles approximate the Cycles look:** single-NW hillshade (multidirectional rejected) + sky-view factor from our own `sky_view.py` (WhiteboxTools dropped) + the same ramps, composited with GDAL.
+- **z0–8, and z8 is LOCKED.** z9/z10 are parked in FUTURE and blocked on disk — a planet re-fuse at ~2.5″, never a tiling flag.
+- **Tiles are 512px**, declared to MapLibre as `tileSize: 256`, which centres the scheme on DPR 2. → FUTURE § raster tile resolution vs device pixel ratio
+- **Delivery encoding is a policy, not one constant** — masters stay lossless, delivery does not. → ART § Delivery encoding · § The srcset ladder
+- **Every writer records its recipe beside its output**, because existence cannot see a settings change.
+- Baked NW-ish lighting globally (cartographic convention); no per-region sun position.
+
+## Serving & deployment
+
+- Tiles ship as **PMTiles**, ranged *server-side* into whole `z/x/y` tiles — the browser never opens the archive.
+- **Cloudflare:** a site Worker over `web/dist`, R2 for archive/heroes/borders, and a separate tile Worker.
+- **The tile Worker is mandatory, not stylistic** — Cloudflare caps a cacheable object at 512 MB, so a multi-GB archive can never be an edge object; the Worker turns range reads into ~40 KB tiles, which *are* cacheable.
+- **Never let the browser send `Range` at a Worker** — Workers Caching strips the header and asks for the *full body*, i.e. the whole archive per tile. Request whole tiles by `z/x/y` and do the arithmetic inside, against an R2 binding.
+- Everything is pre-rendered; no server-side compute at request time.
+
+## Environment
+
+- Blender 5.1.2, tarball at `~/software/blender-5.1.2-linux-x64/blender`, **not on PATH**. Render headless (`blender -b`) — the GUI OOMs at 8K.
+- Pipeline Python is the uv-managed venv (`source .venv/bin/activate`); `uv sync` rebuilds it exactly, upgrades only via `uv lock --upgrade`. Blender's bundled Python is a **separate interpreter** — bpy scripts cannot import the venv's packages.
+- Dev/render box: dual-boot desktop, RTX 4070 Super, 12 GB VRAM. **All work happens in the Ubuntu boot** — never suggest Windows paths, WSL, or PowerShell.
+- **OptiX crash recipe:** `OPTIX_ERROR_UNKNOWN` at context creation → check `journalctl -k` for NVRM **Xid** lines; if the Xid's pid is Blender the driver is fine, just restart Blender to clear the dead CUDA context.
+- **One heavy job at a time under a 12 G cgroup cap, no third-party exemptions.** Keep project data and temp on ext4 — never tmpfs `/tmp`, never large rasters on NTFS.
+- A separate home server runs the pipeline; it is not the site's origin. The site is served entirely from the CDN.
+- Budget ~8–10 GB of DEM per large country and tens of GB for the full pyramid; keep intermediates out of backups.
+
+## Working conventions
+
+- Pipeline stages are **idempotent and resumable** — a crash at tile N must not restart the world. Cache intermediates, validate per stage.
+- Python for pipeline code; boring debuggable scripts over frameworks. (Upheld on measurement, not taste: numpy releases the GIL, so threads reach the same ceiling xarray/dask would.)
+- **`uv run pyright` stays at 0 and `pytest` stays green** — there is no "pre-existing error" allowance. rasterio call sites take a targeted `# pyright: ignore[reportCallIssue]`; GDAL creation-option dicts are `dict[str, Any]`.
+- **Docs in this repo state current truth, not history** — if a row and reality disagree, the row is the bug. Dated decisions live in a decision archive kept outside the repo.
+- **A learning goes where it will be met:** a fact about one function into that function's docstring, a general work heuristic into the agent's memory. One claim, one home; if it must appear twice, make one copy executable so drift fails loudly.
+- **A superseded path is deleted the same day**, or moved out of the production package — prose calling it "retired" does not disarm a runnable entry point. Exception: under gitignored `data/`, where deletion is permanent.
+- Never commit rendered assets or DEM data — code and config only.
+- Plan first (Plan Mode) before any multi-file or architectural task.
+- The other docs, so facts are looked up rather than re-guessed: **PROCESS.md** measured runtimes (the authority — read it before estimating), **INVENTORY.md** the storage map, **ART.md** the aesthetic decisions, **FUTURE.md** the v2 parking lot (check it before designing a "new" feature), **docs/*.mmd** the pipeline diagrams.
+
+## Skills context
+
+- Assume no prior Blender experience in GUI sessions: give exact click paths, introduce UI vocabulary as it is used, and verify state with screenshots rather than assuming it.
+- Local Blender is 5.1.2 and Claude's UI knowledge is 4.x-era — give 5.1.2 paths, and when uncertain say so and point at node search rather than guessing.
+- Shader gotchas proven in 5.1.2, all of which produce plausible-looking wrong output rather than an error: 8-bit images are divided by 255 on load (export masks as 0/255); Map Range with reversed ranges is undefined (use Math Multiply + Clamp); ColorRamp stops re-sort by position, so never address one by index. The bpy edition is documented where it bites, in `scene_build.make_ramp`.
+
+## Reference reading
+
+Daniel Huffman, "Creating Shaded Relief in Blender" (the canonical technique) · MapLibre globe
+projection docs · the PMTiles spec (Protomaps) · prior art for land/sea fusion: ETOPO 2022 (NOAA),
+Tozer et al. 2019 (SRTM15+), GMT grdblend docs, Tom Patterson's shadedrelief.com.

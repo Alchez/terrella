@@ -15,7 +15,7 @@ cache (GDAL_CACHEMAX=512) and runtime overhead. Re-measured: this fixture report
 3.88 GiB without depth / 4.50 GiB with, where the real pass peaks at 6.24 GiB against the 12 G
 cap (1.9x). The ~1.7 GiB gap is the machinery above and will not close by re-running -- PLAN
 spent a while chasing it as a stale number before noticing the two figures measure different
-things. See HISTORY 2026-07-16 "composite_ram.py was never the number PLAN said it was".
+things. See
 
 Reports ru_maxrss: the process high-water mark, which is what a cgroup MemoryMax accounts
 against. Run the two arms in SEPARATE processes -- ru_maxrss never decreases, so a single

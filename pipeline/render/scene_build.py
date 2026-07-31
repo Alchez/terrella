@@ -7,7 +7,7 @@ snow switch iff snowmask_aea.png exists in the render dir, and a depth-keyed
 lake ramp iff lakedepth_aea.tif does), sun plus a shadowless fill sun, ortho
 camera, locked render settings — entirely from the constants below.
 Verified against the hand-built .blend by structural dump-diff and a
-pixel-diff of test renders (see PLAN.md Phase 1).
+pixel-diff of test renders
 
 Runs inside Blender's Python, which has no GDAL: all geographic math
 (projection, frame width, plane aspect) happens in render_prep.py and
@@ -48,7 +48,7 @@ def _rgba(stops):
     return [(pos, (*rgb, 1.0)) for pos, rgb in stops]
 
 
-# ---- locked look (PLAN.md § "Locked global constants" — snow, fill sun, sun
+# ---- locked look
 # ---- angle, land ramp top). Colour + sun-altitude constants are DERIVED from
 # ---- pipeline/render/palette.py since the hero sea-sync: copies drifted three
 # ---- times (sea ramp, water tint, sun altitude) —

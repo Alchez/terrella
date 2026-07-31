@@ -36,7 +36,7 @@ ICE_FILL = 65535    # packed fill (land / no valid observation); matches snow.SP
 # frequency -> alpha smoothstep: 0 below ICE_LO, ICE_MAX_ALPHA at ICE_LO + ICE_BAND. A pixel frozen
 # for a small fraction of the record shows a faint ice edge; the perennial core saturates at
 # ICE_MAX_ALPHA -- kept <1 so even the year-round pack stays a touch translucent and the deep
-# bathymetry glows through (the "ocean floor under ice" reading, Rohan). Art knobs --
+# bathymetry glows through (the "ocean floor under ice" reading). Art knobs --
 # recorded in composite_params so a re-tune restages the composite.
 ICE_LO = 0.55
 ICE_BAND = 0.40

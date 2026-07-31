@@ -244,50 +244,45 @@ describe("Base.astro tier guard — rg:steered means 'this session has seen the 
   });
 });
 
-// The view bar's phone collapse. It lives here rather than beside the credit tests because its
-// render condition IS the capability control: the toggle exists exactly where the tier picker
-// does, since that segment is what makes the bar too wide for a phone.
-describe("Base.astro view bar — the phone collapse", () => {
+describe("Base.astro view bar", () => {
   const base = readFileSync(new URL("../layouts/Base.astro", import.meta.url), "utf8");
 
-  it("renders the trigger only alongside the tier picker", () => {
-    // A hero page's bar is one Focus button; collapsing that costs a tap and saves nothing.
-    const [, afterToggleGuard] = base.split('{quality && (\n            <button');
-    expect(afterToggleGuard).toBeDefined();
-    expect(afterToggleGuard).toContain('class="view-bar-toggle"');
+  it("carries no collapse machinery, on any of the four surfaces it used to touch", () => {
+    // The bar's controls measure 229.7 px against the 281.6 px it is allowed at 320 px, so they
+    // fit one row at every width the site serves — and a trigger is what pushes 320 px onto two,
+    // since trigger-plus-controls is what does not fit there. Reintroducing any one of these
+    // brings the wrap back, so all four are named: markup, class, persisted state, and the media
+    // query.
+    const css = readFileSync(new URL("../styles/global.css", import.meta.url), "utf8");
+    expect(base).not.toContain("view-bar-toggle");
+    expect(base).not.toContain("is-collapsible");
+    expect(base).not.toContain("rg:viewbar");
+    expect(css).not.toContain("view-bar-toggle");
+    expect(css).not.toMatch(/\.view-bar[^{]*:not\(\.is-open\)/);
   });
 
-  it("puts the trigger OUTSIDE the group it controls", () => {
-    // A control that collapses a group must not be inside it, or collapsing hides the only way
-    // to un-collapse. Structural, not stylistic: .view-bar-items is what `display: none` hits.
-    const toggleAt = base.indexOf('class="view-bar-toggle"');
-    const groupAt = base.indexOf('class="view-bar-items"');
-    expect(toggleAt).toBeGreaterThan(-1);
-    expect(groupAt).toBeGreaterThan(-1);
-    expect(toggleAt).toBeLessThan(groupAt);
-    // role="group" moved onto the collapsible wrapper, so the credit folded in beside it by
-    // globe.astro is not announced as a "view option".
+  it("announces the controls as a group without sweeping the whole pill into it", () => {
+    // role="group" sits on the inner wrapper, not on `.view-bar`: the globe absolutely positions
+    // its scale ruler inside that pill, and a readout must not be announced as a view option.
     expect(base).toMatch(/class="view-bar-items"[^>]*role="group"/);
     expect(base).not.toMatch(/class="view-bar"\s+role="group"/);
   });
 
-  it("wires the trigger to the group it hides, and reports its state", () => {
-    expect(base).toMatch(/aria-controls="view-bar-items"/);
-    expect(base).toMatch(/aria-expanded="false"/); // server default: closed
-    expect(base).toContain('viewBarToggle.setAttribute("aria-expanded", String(open))');
-  });
-
-  it("defaults closed, so a phone visitor gets the map rather than the chrome", () => {
-    // `=== "1"` and not `!== "0"`: an absent key must read as closed, not open.
-    expect(base).toContain('localStorage.getItem(VIEW_BAR_KEY) === "1"');
-  });
-
   it("gives every control in the bar a tooltip", () => {
-    // The bar is all short one-word labels ("Lite", "Focus", "Spin"), which name the thing
-    // without saying what it does. A control added without a title is the drift this catches.
+    // The bar is all short one-word labels ("Lite", "Focus"), which name the thing without saying
+    // what it does. A control added without a title is the drift this catches.
+    //
+    // THE COUNT IS AN ANTI-VACUITY GUARD, not a spec: if the slice or the regex ever stops
+    // matching, the loop below passes over an empty array and reports success having checked
+    // nothing. Five is what the source renders across every branch: borders, focus, lite, globe,
+    // full.
+    //
+    // The rail's own buttons are built in TypeScript, not markup, so they are out of this test's
+    // reach by construction; railControls.browser.test.ts pins their title/aria-label pair
+    // instead. Between the two, every control on the globe has a name.
     const items = base.slice(base.indexOf('class="view-bar-items"'), base.indexOf("</body>"));
     const buttons = items.match(/<button[\s\S]*?>/g) ?? [];
-    expect(buttons.length).toBeGreaterThanOrEqual(6); // borders, focus, spin, lite, globe, full
+    expect(buttons.length).toBeGreaterThanOrEqual(5);
     for (const button of buttons) expect(button).toMatch(/title="[^"]+"/);
   });
 
@@ -311,17 +306,6 @@ describe("Base.astro view bar — the phone collapse", () => {
     }
   });
 
-  it("marks the bar collapsible on EXACTLY the condition that renders the trigger", () => {
-    // The bug this catches, found by measurement: the media query hid .view-bar-items on every
-    // page at phone width, but the trigger renders only where `quality` does — so a hero page
-    // lost its Focus button with nothing on screen able to bring it back. The class and the
-    // trigger must be gated on the same prop, or the collapse strands controls.
-    expect(base).toMatch(/class:list=\{\["view-bar", quality && "is-collapsible"\]\}/);
-    const css = readFileSync(new URL("../styles/global.css", import.meta.url), "utf8");
-    expect(css).toContain(".view-bar.is-collapsible:not(.is-open) .view-bar-items");
-    // The unscoped form is the bug; it must not come back.
-    expect(css).not.toMatch(/\.view-bar:not\(\.is-open\) \.view-bar-items/);
-  });
 });
 
 // --- The two signals the probe reads, pulled out so they are testable at all -------------------

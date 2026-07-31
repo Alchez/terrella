@@ -7,8 +7,8 @@ color-relief stage they came from, so this cannot execute again without re-addin
 It is kept because it lived only in gitignored `data/work/_profile/` and was tracked nowhere:
 the "a superseded path gets deleted, git is the archive" rule explicitly does not apply under
 `data/`, where deletion is permanent. Rescued here when that directory was reclaimed, so the
-oracle's DESIGN survives even though its inputs do not — this is the script behind
-HISTORY § 2026-07-16 (the color-relief stage deleted).
+oracle's DESIGN survives even though its inputs do not — this is the script behind the decision
+to delete the `gdaldem color-relief` stage in favour of a LUT.
 
 The oracle is INDEPENDENT and PRE-EXISTING: land_3857.tif / sea_3857.tif were written by gdaldem
 during the pass, before this LUT was designed. They are not fixtures built to agree.

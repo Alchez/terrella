@@ -1,7 +1,7 @@
 # FUTURE — the v2 parking lot
 
 Ideas deliberately **not** planned: analysed enough to record, parked without commitment. This is
-not PLAN.md — nothing here has a phase or a checkbox, and nothing here is promised. When an idea
+not
 graduates, it moves to PLAN and this file keeps a one-line pointer. Each entry carries the date of
 its analysis and the facts its numbers depend on — check both before trusting an old entry, and
 grep HISTORY before re-arguing anything an entry says was already decided.
@@ -33,7 +33,7 @@ once and permanently, forcing explicit recreation — a stricter contract than t
 `webglcontextlost`/`restored` pair whose ambiguity is what hid our recovery notice; and explicit
 `destroy()` on buffers and textures gives deterministic release.
 
-**Correction to a recorded prediction.** HISTORY § *Tier 2 globe + Natural Earth vector borders*
+**Correction to a recorded prediction.** The Tier-2 globe work
 assessed WebGPU as "a future no-op tier, not a rewrite". That was true of the code as it stood and
 is **false now**: `polarCaps.ts` is a MapLibre **custom layer**, and that API hands you a raw
 `WebGLRenderingContext`. We author GLSL, build VBOs and call `gl.drawElements` directly, so a
@@ -46,7 +46,7 @@ out-of-memory signal to drive it.
 
 ## Flat ice saturates the snow ramp, and the curve was fitted before Antarctica existed (analysed 2026-07-29)
 
-Rohan zoomed into Antarctica to judge the terrain feather and found it "basically washed out". Two
+Zooming into Antarctica to judge the terrain feather showed it "basically washed out". Two
 independent causes, split by depth in the frame — the far field was the atmosphere (fixed, → HISTORY
 § the atmosphere ramps on PITCH too), and **the near field is this**, which is unfixed.
 
@@ -77,7 +77,7 @@ once because hillshade cannot see it, once because the ramp clips.
 
 **Not a systematic failure — a tail case.** Most of Antarctica lands inside the range already
 accepted (Dome A and Vostok beat Greenland north, which shipped), and the mountains are fine. The
-flat plateau is the outlier, and it is where Rohan happened to look.
+flat plateau is the outlier, and it is where the review happened to look.
 
 **The gap that makes a re-check legitimate rather than re-litigation:** `snow_curve = "gamma8"` was
 chosen **2026-07-17**, and Antarctica was fused into the pyramid **2026-07-22, five days later**.
@@ -87,7 +87,7 @@ pyramid yet**. No regression was
 found (a Summit 3×3 block measures 20.7 DN against the entry's 18.84, consistent), so the curve
 does what it was tuned to do; it was simply never asked about this terrain.
 
-**`snow_hi_pt` is NOT the lever, and that is already settled** → HISTORY § Greenland's interior is blank because the snow blend throws the hillshade away. The
+**`snow_hi_pt` is NOT the lever, and that is already settled**. The
 window was measured and rejected: Greenland uses 7% of it, the Alps overflow at 122%, and **the two
 ranges are nested rather than adjacent**, so a window fitted to flat ice turns Alpine snow into a
 binary blue/white cartoon. Do not re-argue it.
@@ -131,7 +131,7 @@ uniform white surface offers neither. That gates the payoff of PLAN's Step 2 fea
 - **Numbers depend on:** the z0–8 pyramid **≈ 3 GB** and ~87k tiles per look — it was 15–16 GB when
   this was analysed, so the WebP q95 switch made a second look **5× cheaper in storage** and moves
   Kind 2 well down the cost ladder; composite-stage restage ~29 min (PROCESS § what a change costs);
-  `countries.geojson` sub-pixel since the hover-outline fix (HISTORY § the blocky hover outline).
+  `countries.geojson` sub-pixel since the hover-outline fix
 
 Presets decompose into **three kinds by where the variation lives** — costs differ by orders of
 magnitude, so the taxonomy is the decision:
@@ -202,7 +202,7 @@ magnitude, so the taxonomy is the decision:
     = ESA's bucket, etc.) — the offload is deletion + on-demand re-fetch, already gated by the
     INVENTORY reclaim picture, never an upload.
   - ~360 GB of intermediates are compute-regenerable — and remote reads for full sequential scans
-    are a rejected shape (HISTORY § chasing the hero's "softness": "remote COG is the wrong shape
+    are a rejected shape
     for a full sequential scan").
   - The **~56 GB worth putting in a cloud is the backup set, not an offload**: heroes+raws+variants
     (27 GB real bytes, hardlink archives ~free; Cycles isn't bit-deterministic so ratified pixels
@@ -210,7 +210,7 @@ magnitude, so the taxonomy is the decision:
     cells (14 GB — the one expensive-to-rebuild intermediate), caps/geojson/frame pins. ≈ $1/mo on
     R2/B2 (ballpark; R2's zero egress is the differentiator — verify pricing at pickup).
 - **The big lever:** if Phase 5 goes no-go on a finer re-fuse, `glo30/` (551 GB) drops to
-  per-country-on-demand like WorldCover — the upstream *is* the cloud store. Rohan deferred the
+  per-country-on-demand like WorldCover — the upstream *is* the cloud store. Deferred the
   whole topic to after Phase 5.
 
 ## A z9 / z10 pyramid — z10 is BLOCKED ON DISK, z9 is reachable (analysed 2026-07-26)
@@ -241,7 +241,7 @@ magnitude, so the taxonomy is the decision:
   Upsampling goes **1.5× → 6.1×**, so z10 makes land crisper while leaving the sea exactly as soft as
   it is now, **quadrupling the land/sea detail mismatch**. Bathymetry is signature, not optional
   (CLAUDE.md § Data sources), so this is a look regression bought with 43 hours.
-- **The old precondition is CLOSED — do not re-raise it.** HISTORY § z8 LOCKED recorded a latent gap
+- **The old precondition is CLOSED — do not re-raise it.** Locking z8 recorded a latent gap
   (`ocean`/`water`/`lakedepth` take their grid from `height_3857` but did not depend on it, so a
   re-fuse would leave `lakedepth` falsely fresh at old dimensions — a silently wrong composite) with
   *"fix before any re-fuse, not after."* It was fixed at the Antarctica re-fuse: `warp_needs_rebuild`
@@ -262,7 +262,6 @@ magnitude, so the taxonomy is the decision:
   ever load** against `maxZoom: 8`; 256 reaches z7; only **128 reaches z8**, which is what shipped.
   z8 is the floor in any case — 256 tiles × 512 px = 131,072 px, exactly the master's grid, so
   anything deeper needs a re-fuse and lands squarely in the z9/z10 question above.
-  → HISTORY § tileSize 128 and a z0-8 pyramid ship together
 - **If depth is wanted, z9 is the reachable one:** 443 GB and ~11 h, fits today's free space, 3×
   GEBCO upsample rather than 6×. Not recommended, but it is the option that exists.
 - **Revisit when:** a larger disk lands. Then re-derive from PROCESS rather than trusting this table —
@@ -279,12 +278,12 @@ bordered, so every single treatment reads flat at the margin for a large fractio
 
 Not a look change in the locked-constants sense — the sun, ramps and exaggeration are untouched by it,
 so nothing here threatens the freeze. It is a *presentation* choice made per gallery/globe surface,
-which is why it never blocked anything. → HISTORY § 2026-07-09 — Hero presentation explored
+which is why it never blocked anything.
 
 ## Kiribati presentation — the one antimeridian-deferred country (analysed 2026-07-24)
 
 - **Trigger:** Kiribati is the sole in-scope country with no hero (`status="antimeridian"`,
-  `config/countries.toml`), skipped by design 2026-07-09 (HISTORY § Antimeridian: no wrap-math)
+  `config/countries.toml`), skipped by design 2026-07-09
   because its land is genuinely split — Gilberts 32% at 169–177°E (capital Tarawa) vs Phoenix+Line
   68% at 175–151°W (largest atoll Kiritimati), no dominant side. "No hero *for now*" lived only in
   a TOML note; this is its analysed home.
@@ -362,7 +361,7 @@ which is why it never blocked anything. → HISTORY § 2026-07-09 — Hero prese
   Cloudflare's backbone RTT.
 - **Second discount:** the 07-25 Mumbai control did the same read in **~60 ms**, so the Indian
   visitors who land at BOM next to the bucket already have a fast read and gain nothing. The hint
-  helps US/EU visitors and Rohan's Airtel-to-Marseille line — a real audience, but not "everyone".
+  helps US/EU visitors and the maintainer's own route — a real audience, but not "everyone".
 - **The blocker is gone**, so this is now cheap to test: Workers Caching shipped 2026-07-26, hits no
   longer run the Worker, and the docs are explicit that *"the cache is always consulted before Smart
   Placement is considered"*. Both the hint and the revert are config-only.
@@ -395,13 +394,13 @@ which is why it never blocked anything. → HISTORY § 2026-07-09 — Hero prese
   than clean teal. Judge on the sphere, not in the abstract.
 - **Decide at:** only if the flat fill is observed to read badly in practice. Strictly better than
   raising `maxTileCacheZoomLevels`, which buys a probabilistic win for **+264 MiB** of desktop GPU
-  texture → HISTORY § the hole to space was never a MapLibre regression.
+  texture
 
 ## Mobile lightweight identify — "what is this?" without committing (analysed 2026-07-26)
 
 - **Trigger:** the hover name chip shipped desktop-only, correctly — touch has no hover state to
   leave anonymous. But that framing hides a *different* gap on touch, and this is where it is parked
-  so the chip is not mistaken for having covered it → HISTORY § the gold outline finally says what it is.
+  so the chip is not mistaken for having covered it
 - **The asymmetry:** on desktop, "what country is this?" costs a pointer move. On touch it costs a
   **2.2 s `fitBounds` flight + a card over the screen + a hero image fetch**, then a close and a
   re-orient. Same question, wildly different price — and the expensive one is on the platform with
@@ -421,7 +420,7 @@ which is why it never blocked anything. → HISTORY § 2026-07-09 — Hero prese
 
 ## The tier ladder is more permissive than it reads (analysed 2026-07-26, **FIXED 2026-07-28**)
 
-**Closed as Tier 3 Step 1** → HISTORY § the tier ladder stops guessing at hardware it cannot see.
+**Closed as Tier 3 Step 1**.
 Kept here because the analysis below is what the fix was built from, and because one of its own
 claims turned out to be wrong. Outcome per gap: the threshold became **`<= 4`**; the softwareGpu
 asymmetry was closed by giving `Base.astro` the same floor; the Safari/Firefox blindness was
@@ -494,7 +493,7 @@ conclusion below, which rests only on there being no value between 2 and 4.
 
 ## Raster tile resolution vs device pixel ratio (analysed 2026-07-25)
 
-- **Trigger:** Rohan asked whether serving 512 px tiles "@2x" is wasted on a DPR-1 desktop, and
+- **Trigger:** the question of whether serving 512 px tiles "@2x" is wasted on a DPR-1 desktop, and
   whether phones get enough for DPR 3. The answer inverts the intuition, so it is worth parking
   rather than discarding.
 - **Mechanism, measured on the live globe:** the source declares `tileSize: 256` for 512 px
@@ -527,7 +526,7 @@ conclusion below, which rests only on there being no value between 2 and 4.
   that is merely soft, not broken.
 - **The polar caps solved this exact mechanism, and the tiles still have not** (2026-07-25). The cap
   now picks its texture from its projected on-screen size × the canvas backing ratio, so DPR is
-  handled per-device with no look change → HISTORY § the polar caps ship 156 KB. The tiles cannot
+  handled per-device with no look change
   reuse that: MapLibre's raster source has no DPR negotiation and `tileSize` is global, which is why
   the lever above is a one-line `tileSize` switch rather than a picker. Worth re-reading that
   implementation before picking this up — it settles what "demand" means here, and the
@@ -557,7 +556,7 @@ conclusion below, which rests only on there being no value between 2 and 4.
   4 ms; the geometry walk ~0 ms. Parsing is not the cost and never was.
 - **What the ~0.41 s actually is:** MapLibre **tessellation** — turning polygons into GPU
   triangles. That figure was inferred by subtraction and flagged as not directly measured.
-  **NOW MEASURED, and it holds: ~355 ms** → HISTORY § the 4.8 s finally has a name.
+  **NOW MEASURED, and it holds: ~355 ms.**
   - Chrome **LoAF script attribution** on production names one block: `sourceCharPosition`
     **1,005,956** (99.9% through the chunk, i.e. *our* page module, not MapLibre's vendor bulk),
     `invokerType: resolve-promise`, invoker `Response.json.then` — exactly the
@@ -581,7 +580,6 @@ conclusion below, which rests only on there being no value between 2 and 4.
 - **But weigh it against what the main thread costs:** ~4.8 s of script time on throttled mobile,
   and it is **execution, not parse** — measured 2026-07-26 by two independent instruments
   (Lighthouse `bootup-time`: **4,833 ms evaluation vs 2 ms parse**; Chrome LoAF: **0 ms compile**).
-  → HISTORY § the globe's script time is EXECUTION. Transfer size is not the globe's binding
   constraint, so measure the tessellation share directly before spending effort here.
 - **That measurement strengthens this entry rather than weakening it:** tessellation *is* execution,
   which is the term shown to dominate — so geometry reduction remains the only lever that touches
@@ -598,7 +596,7 @@ conclusion below, which rests only on there being no value between 2 and 4.
   WebP q85 across three rungs (France 0.7 / 2.3 / 6.9 MB at 1920/3840/native). The ladder is now
   **six rungs (640/960/1280/1920/3840/native) at a split quality — q85 up to 1920, q95 above** —
   so both the file count and the per-file baseline are different, and the AVIF comparison has to
-  be made against q95 where it matters. → HISTORY § the ladder ships against measured layout.
+  be made against q95 where it matters.
 - **Idea:** AVIF siblings of the existing rungs in `hero_variants.py`; gallery + globe panel
   switch to `<picture>` with `type` fallback. Rule-of-thumb gain ~20–30% smaller at similar
   quality — **unmeasured on our content; measure 2–3 heroes before deciding anything.**
@@ -612,7 +610,7 @@ conclusion below, which rests only on there being no value between 2 and 4.
 
 ## Hero presentation — large-country warp & small-island exaggeration (analysed 2026-07-24)
 
-Raised by Rohan reviewing the gallery after the sea-sync sweep (the sea look he approved;
+Raised while reviewing the gallery after the sea-sync sweep (the sea look was approved;
 these are pre-existing framing concerns). The country-extent concern is being SOLVED separately
 by the subject-spotlight "Focus" toggle (compose-layer, no re-render). These two remain, and BOTH
 require a re-render, so they are parked until a re-render is on the table anyway.

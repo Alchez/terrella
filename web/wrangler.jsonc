@@ -9,7 +9,7 @@
   // Why Workers Static Assets and not Pages: the build's inputs (src/data/countries.json,
   // public/caps/) are derived from the render store and gitignored, so a clean checkout
   // cannot build — push-to-deploy is impossible either way, which removes Pages' only
-  // real advantage. See HISTORY § the site shell goes live on Workers Static Assets.
+  // real advantage.
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "terrella-site",
   "compatibility_date": "2026-07-25",

@@ -6,7 +6,7 @@ z-factor, SVF off, per-strip `gdaldem` edges) caused the defects seen on the fir
 blown-out tropics / flat high latitudes (wrong exaggeration), and faint block seams. That
 script was deleted rather than left runnable beside this one -- it defaulted
 to the same --out and would have cut tiles into the LIVE pyramid with no rollback. Read it
-with `git show a7b7223:pipeline/tile/tile_planet.py`; the record is HISTORY 2026-07-14.
+with `git show a7b7223:pipeline/tile/tile_planet.py`.
 
 The fix is to compute every shading input GLOBALLY and STREAMING, so nothing is normalised
 or edge-extrapolated per block, then composite in RAM-budgeted horizontal windows (the
@@ -73,9 +73,9 @@ COMPOSITE_ROWS = 128       # PRODUCTION composite window (optimisation #5). Smal
                            # WINDOW_ROWS purely to fit N_WORKERS concurrent windows under the 12 G cap
                            # -- 256/N3 OOMs, and 128 is not a speed lever by itself (serial rows/s ~
                            # equal). It shifts the look sub-perceptibly (SVF window slicing; worst 15
-                           # DN on amplified mountain-snow edges, invisible at true scale -- Rohan
+                           # DN on amplified mountain-snow edges, invisible at true scale -- judged
                            # judged it on a render). Reads 128-row slices of the 256-banded
-                           # persistence, exactly as the delta A/B validated. → HISTORY 2026-07-18.
+                           # persistence, exactly as the delta A/B validated.
 N_WORKERS = 4              # composite worker threads. The knee: numpy is DRAM-bandwidth-bound, so
                            # threads scale 1.8×@2 / 3.1×@4 / 3.4×@6, and RAM grows linearly (128-row
                            # peak: N4 8.5 G, N6 11.3 G). 4 = ~3.1× at safe margin under 12 G.

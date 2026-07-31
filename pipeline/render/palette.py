@@ -14,7 +14,7 @@ image. `color_relief_rows` densely samples each ramp and sRGB-encodes it into th
 `gdaldem color-relief` consumes. Land and sea are separate ramps chosen later by the
 ocean mask (not the elevation sign), which keeps the coastline crisp.
 
-The frozen endpoints (PLAN.md → Locked global constants → Color) are E9D9C0/E9DCC8
+The frozen endpoints
 for land at 0/6000 m and 85B9B7/3A6E7D for sea at 0/-6000 m; `test_palette.py` guards
 against drift off those values.
 """

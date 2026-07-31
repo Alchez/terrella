@@ -11,7 +11,7 @@ Source: OSI SAF Global Sea Ice Concentration climate data record OSI-450-a, v3 (
 osi-450-a, product_version 3.0), monthly-mean fields. Passive microwave (SMMR/SSM/I/SSMIS),
 25 km, BOTH hemispheres, distributed as one NetCDF per hemisphere per month on the met.no
 THREDDS server over anonymous HTTP -- no NASA Earthdata login and no ~60-day token churn
-(the reason this was chosen over the equivalent NSIDC CDR; see PLAN 2b). License: EUMETSAT,
+(the reason this was chosen over the equivalent NSIDC CDR). License: EUMETSAT,
 free of charge, "Copyright EUMETSAT".
 
 Each file is on an EASE-Grid 2.0 azimuthal grid (EPSG:6931 north / 6932 south), variable

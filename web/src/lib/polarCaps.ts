@@ -342,7 +342,7 @@ function compile(gl: WebGL2RenderingContext, type: number, source: string): WebG
  *  terrain mesh only if its type is in `LAYERS_TO_TEXTURES` (render_to_texture.ts) — background,
  *  fill, line, raster, hillshade, color-relief. `custom` is not among them and cannot be, so while
  *  every tile around the cap rose with the terrain the cap stayed pinned at sea level: the flat,
- *  brighter disc with a hard edge, at both poles, that Rohan found on the live site.
+ *  brighter disc with a hard edge, at both poles, found on the live site.
  *
  *  The step and the radius are INTERPOLATED FROM CONSTANTS rather than written as GLSL literals —
  *  the step from the manifest (the pipeline packed these bytes, so the pipeline states how to read

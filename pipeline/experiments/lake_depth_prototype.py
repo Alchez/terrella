@@ -9,7 +9,7 @@ light, so the render's shading and cast shadows survive on the water.
 
 This answers the gating question only (does a gradient read at ~230 m/px?).
 Production would be a real depth channel from fusion plus a lake ramp in the
-shader — see the PLAN.md open question.
+shader — still an open question.
 
 Usage:
   lake_depth_prototype.py --render blender/renders/india_hero_8k_v3_water.png \

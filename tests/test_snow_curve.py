@@ -4,7 +4,6 @@
 Over full snow `base_rgb` is multiplied by (1 - alpha) = 0, so `snow_t` is the ONLY channel relief
 has. That makes this knob unusually load-bearing: it is the whole contrast budget for every ice
 sheet on the planet. Each claim here is paired with a companion that proves the check can fail.
--> HISTORY 2026-07-17 Greenland
 """
 import json
 from typing import Any, cast

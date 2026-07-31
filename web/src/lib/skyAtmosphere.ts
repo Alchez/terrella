@@ -30,7 +30,7 @@ const FOG_COLOR = "#dfe7ea";
 
 /** Atmosphere strength at and below ATMOSPHERE_RAMP_START_ZOOM. Chosen when the starfield landed
  *  and left alone since: against dark space it reads as a gentle earth-glow, which is the entire
- *  job the atmosphere was kept for. → HISTORY § the starfield. */
+ *  job the atmosphere was kept for. */
 export const BASE_ATMOSPHERE_BLEND = 0.7;
 
 /** Zoom at or below which the ramp holds BASE_ATMOSPHERE_BLEND. The glow needs off-globe pixels
@@ -57,11 +57,11 @@ export const ATMOSPHERE_RAMP_END_ZOOM = 6;
  *
  *  0.15 is where clipping stops being the thing you notice while distance still lightens — which
  *  is the one part of aerial perspective worth keeping, since it reads as depth rather than as
- *  blown highlights. → HISTORY § the atmosphere ramp. */
+ *  blown highlights. */
 export const DEFAULT_ATMOSPHERE_FLOOR = 0.15;
 
 /** Atmosphere strength at the pitched extreme, replacing BASE_ATMOSPHERE_BLEND as the value the
- *  zoom ramp starts from. Chosen by Rohan from a five-rung ladder at z2.95 pitch 60 over
+ *  zoom ramp starts from. Chosen by eye from a five-rung ladder at z2.95 pitch 60 over
  *  Antarctica (0.70/0.50/0.35/0.20/0.00, rendered through the live map with a swap-to-itself
  *  control that came back at 1 DN max on 0.033% of pixels).
  *

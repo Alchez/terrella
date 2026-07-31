@@ -58,12 +58,18 @@ describe("the on-map credit", () => {
     expect(globe).toMatch(/new maplibregl\.AttributionControl\(\{\s*compact:\s*false\s*\}\)/);
   });
 
-  it("folds into the view bar by class, not by relying on where the element sits", () => {
-    expect(globe).toContain('classList.add("view-bar-credit")');
-    expect(globe).toContain(".view-bar-credit.view-bar-credit");
+  it("folds into the top-left chrome row by class, not by relying on where the element sits", () => {
+    // It lives beside ← Gallery and the source link: all three are ways OFF the globe, where the
+    // view bar is what the globe SHOWS. The class travels with the element for exactly the reason
+    // below — this is the element's SECOND home, and an ancestor selector would have quietly
+    // stopped matching on the move rather than failing.
+    expect(globe).toContain('classList.add("chrome-credit")');
+    expect(globe).toContain(".chrome-credit.chrome-credit");
     // A descendant rule would stop matching the moment anything re-parents the element again,
     // and would leave it half-styled rather than plainly unstyled — the harder failure to see.
+    // Both former and current containers are named, so neither spelling can creep back in.
     expect(globe).not.toMatch(/\.view-bar\s+\.maplibregl-ctrl-attrib/);
+    expect(globe).not.toMatch(/\.globe-chrome\s+\.maplibregl-ctrl-attrib/);
   });
 
   it("no longer races MapLibre to collapse the control", () => {

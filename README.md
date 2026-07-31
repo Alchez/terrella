@@ -40,9 +40,9 @@ Code is [MIT](LICENSE). The rendered imagery (hero renders, tiles, polar caps) i
 - **Measured stage runtimes** → [`PROCESS.md`](PROCESS.md)
 - **Data sources & licenses** → [`ATTRIBUTIONS.md`](ATTRIBUTIONS.md)
 
-### A note on `→ HISTORY § …`
+### A note on `
 
-Comments and docs throughout this repo cite decisions as `→ HISTORY § <heading>`. Those point at a
+Comments and docs throughout this repo cite decisions as `. Those point at a
 dated decision archive, and a companion living plan, that are kept **outside** the repository — they
 are how the work gets done rather than part of what it ships. So a citation names *why* a value is
 what it is and tells you the reasoning was written down; it is not a link you can follow here. The

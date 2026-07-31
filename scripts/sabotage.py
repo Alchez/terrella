@@ -63,7 +63,9 @@ BACKUP_SUFFIX = ".sabotage-backup"
 # The only directories a case may write to. Paths are repo-root-relative, and this list is what keeps
 # "relative path" from meaning "anywhere in the repo" now that cases reach outside `web/`. Widen it
 # when a case genuinely needs to — deliberately, since `tests/test_sabotage_cases.py` enforces it.
-MUTABLE_ROOTS = ("web/src", "web/worker", "scripts")
+# PROCESS.md joins the roots because the structural-integrity guard covers repo docs, and a case
+# it cannot write to is a case that cannot prove anything.
+MUTABLE_ROOTS = ("web/src", "web/worker", "scripts", "PROCESS.md")
 
 # Set for the duration of one case, so the backup THIS run is holding does not trip the leftover
 # canary in tests/test_sabotage_cases.py. Narrow on purpose: any other stray backup still fires.
@@ -119,6 +121,51 @@ class Sabotage(NamedTuple):
 
 
 SABOTAGES: list[Sabotage] = [
+    # --- repo structural integrity: the bulk-edit corruption guard -------------------------------
+    # Every case below is a REAL corruption a repo-wide regex produced, not an invented one. The
+    # first two are the wound that mattered: a deleted `*/` does NOT leave a comment open at EOF
+    # (the next comment's terminator closes it), so an end-of-file check reports clean while real
+    # exports sit commented out. That check was written, shipped, and found vacuous by this table.
+    Sabotage(
+        suite='python',
+        label='delete a closing */ so a doc comment swallows an export',
+        path='web/src/lib/terrainSource.ts',
+        needle=' *  suggests, which is worth knowing before anyone cuts a z9 that could never load. */',
+        replacement=' *  suggests, which is worth knowing before anyone cuts a z9 that could never load.',
+        guard='test_no_block_comment_swallows_a_declaration',
+    ),
+    Sabotage(
+        suite='python',
+        label='delete the second closing */ (TERRAIN_TILE_SIZE this time)',
+        path='web/src/lib/terrainSource.ts',
+        needle=' *  DEM\'s. `terrainZoomsFor` has the arithmetic right and its tests pin it against two live reads. */',
+        replacement=' *  DEM\'s. `terrainZoomsFor` has the arithmetic right and its tests pin it against two live reads.',
+        guard='test_no_block_comment_swallows_a_declaration',
+    ),
+    Sabotage(
+        suite='python',
+        label='clip the closing pipe off a markdown table row',
+        path='PROCESS.md',
+        needle='| 1 | warp height → 3857 | **6:49** | ~0 s | `height_3857.tif` 44 GB | `is_stale` |',
+        replacement='| 1 | warp height → 3857 | **6:49** | ~0 s | `height_3857.tif` 44 GB | `is_stale`',
+        guard='test_markdown_table_rows_are_terminated',
+    ),
+    Sabotage(
+        suite='python',
+        label='leave a code fence unclosed',
+        path='PROCESS.md',
+        needle='```mermaid',
+        replacement='```mermaid\n```extra',
+        guard='test_code_fences_are_balanced',
+    ),
+    Sabotage(
+        suite='python',
+        label='cite a working document from a file that ships',
+        path='web/src/lib/assetBase.ts',
+        needle='// The tile base is the one',
+        replacement='// See ' + 'HISTORY' + ' \u00a7 something.\n// The tile base is the one',
+        guard='test_no_reference_to_a_file_a_clone_will_not_have',
+    ),
     # --- GL context-loss recovery and the DEM cache cap (2026-07-29) ---------------------------------
     Sabotage(
         suite='web',

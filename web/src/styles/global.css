@@ -93,16 +93,10 @@ a {
   color: var(--muted);
 }
 
-/* The view bar — one floating pill, bottom-centre, holding every view option:
-   layer/behavior toggles (Borders, Spin), a hairline divider, then the experience
-   tier (Lite / Globe / Full). One visual system across all of it: ghost text when
-   off, accent fill when on — so the bar reads as "what am I seeing", not a form.
-
-   Centred, not bottom-right, which it was until the globe's credit line shrank. That
-   ordering matters: the old 770 px attribution ran bottom-left across the middle of the
-   row, so the right edge was the only bottom slot that cleared it — the position was a
-   constraint wearing a design's clothes. With the credit folded into the bar itself the
-   row is free, and centring is a choice again.
+/* The view bar — one floating pill, bottom-centre, holding what the globe SHOWS: layer toggles
+   (Borders, Focus), a hairline divider, then the experience tier (Lite / Globe / Full). One visual
+   system across all of it: ghost text when off, accent fill when on — so the bar reads as "what am
+   I seeing", not a form.
 
    CENTRED BY AUTO MARGINS, NOT BY `left: 50%` + `translateX(-50%)`. The translate trick
    places the element correctly but leaves its layout width shrink-to-fit against
@@ -114,6 +108,10 @@ a {
    was doing. Any future "why is this wrapping early" starts here. */
 .view-bar {
   position: fixed;
+  /* Also the containing block for the globe's scale ruler, which is absolutely positioned onto
+     this pill's top edge (see `.view-bar-ruler` in globe.astro). `fixed` already establishes one,
+     so this is a statement of intent rather than a new behaviour — but the ruler's `bottom: 100%`
+     silently retargets the viewport if this element ever stops being positioned. */
   bottom: 1.2rem;
   inset-inline: 0;
   margin-inline: auto;
@@ -144,40 +142,8 @@ a {
   gap: 0.2rem;
 }
 
-/* The phone-only collapse trigger. Hidden above the breakpoint, where there is room for the whole
-   bar and hiding controls behind a tap would be a loss rather than a saving. */
-.view-bar-toggle {
-  display: none;
-  align-items: center;
-  padding: 0.4rem 0.55rem;
-  color: var(--muted);
-  background: transparent;
-  border: 0;
-  border-radius: 999px;
-  cursor: pointer;
-}
-/* Same rendered size as the credit's ⓘ, which shares the collapsed pill with it — the two are
-   the only things visible in that state, so a size mismatch between them is the whole design. */
-.view-bar-toggle svg {
-  display: block;
-  width: 1.15rem;
-  height: 1.15rem;
-}
-.view-bar-toggle:hover {
-  color: var(--text);
-}
-
-/* Below here the bar covers a meaningful share of the screen, so it collapses to its trigger.
-   The credit stays visible in BOTH states — it is a licence pointer, not a view option, and it
-   sits outside .view-bar-items for exactly that reason. Collapsed reads as [tune | ⓘ]. */
-@media (max-width: 600px) {
-  .view-bar-toggle {
-    display: inline-flex;
-  }
-  .view-bar.is-collapsible:not(.is-open) .view-bar-items {
-    display: none;
-  }
-}
+/* No phone collapse, deliberately — the controls fit one row at every width the site serves, and
+   a trigger is what pushes 320 px onto two. See Base.astro. */
 
 /* The view controls are pure JS enhancements — a dead toggle is worse than none,
    so hide the bar when JavaScript is unavailable. */
@@ -204,13 +170,6 @@ a {
   color: var(--bg);
   background: var(--accent);
 }
-/* Spin is unavailable above the overview zoom (see SPIN_MAX_ZOOM): grey it out and
-   signal it's not interactive, rather than letting the toggle silently do nothing. */
-.view-bar button.is-unavailable,
-.view-bar button:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
 .view-bar-divider {
   width: 1px;
   align-self: stretch;
@@ -219,7 +178,7 @@ a {
 }
 .quality-fab {
   display: inline-flex;
-  gap: 0.2rem; /* container chrome (pill, blur, border) now lives on .view-bar */
+  gap: 0.2rem; /* the pill, blur and border are .view-bar's; this is only the segment's spacing */
 }
 @media (prefers-reduced-motion: no-preference) {
   .view-bar button {
@@ -228,8 +187,7 @@ a {
       color 0.15s ease;
   }
 }
-/* Phones: slightly tighter buttons so the full bar sits in one row beside the
-   bottom-left attribution. */
+/* Phones: slightly tighter buttons, so the bar stays one row down to 320 px. */
 @media (max-width: 420px) {
   .view-bar button {
     padding: 0.35rem 0.7rem;

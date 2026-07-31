@@ -2,7 +2,7 @@
 
 The ice whites are light-keyed by `snow_t`, whose light over ocean is the seafloor's
 hillshade — so before this knob, the perennial pack painted the floor's ridges into the
-ice at full strength and read as terrain above the sea (Rohan, north pole).
+ice at full strength and read as terrain above the sea (seen at the north pole).
 The damp pulls the ice's light-key toward its flat-ocean value in proportion to
 `damp * ice_alpha`.
 
