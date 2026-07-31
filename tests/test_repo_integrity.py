@@ -67,8 +67,62 @@ def tracked_text_files() -> list[Path]:
 FILES = tracked_text_files()
 
 
+def with_suffix(*suffixes: str) -> list[Path]:
+    """The subset a check applies to, selected at COLLECTION time rather than skipped in the body.
+
+    The difference is diagnostic, not cosmetic. Skipping inside the test produced 652 no-op skips
+    in CI — four fifths of the matrix — and they buried the 13 skips that carry real information
+    (the data-bound and GDAL-version tests a reader is supposed to notice). A signal that fires
+    constantly trains the eye to skip the one time it mattered.
+    """
+    return [path for path in FILES if path.suffix in suffixes]
+
+
+BLOCK_COMMENT_FILES = with_suffix(".ts", ".astro", ".css")
+DECLARATION_FILES = with_suffix(".ts", ".astro")
+TABLE_FILES = with_suffix(".md")
+FENCE_FILES = with_suffix(".md", ".mmd")
+
+# Files whose job is to NAME the forbidden pattern, plus the unshipped working documents
+# themselves. Held as one visible list rather than four `pytest.skip` calls scattered through the
+# body, so the exemptions can be audited in one place.
+#
+# `.gitignore` is deliberately absent: its suffix is "" (a leading dot with no extension), so it is
+# never in CHECKED_SUFFIXES and never collected. It carried a skip branch here that could not
+# execute — a guard clause for a case that never arrives reads as coverage and is not.
+CITATION_EXEMPT = {
+    "PLAN.md",                  # the working documents ARE the archive; they cite each other
+    "HISTORY.md",
+    "test_repo_integrity.py",   # a guard must state the pattern it forbids
+    "sabotage.py",              # a mutation table must hold the needle verbatim
+}
+CITATION_FILES = [path for path in FILES if path.name not in CITATION_EXEMPT]
+
+CHECK_GROUPS = {
+    "BLOCK_COMMENT_FILES": BLOCK_COMMENT_FILES,
+    "DECLARATION_FILES": DECLARATION_FILES,
+    "TABLE_FILES": TABLE_FILES,
+    "FENCE_FILES": FENCE_FILES,
+    "CITATION_FILES": CITATION_FILES,
+}
+
+
 def ids(paths: list[Path]) -> list[str]:
     return [str(path.relative_to(REPO)) for path in paths]
+
+
+def test_no_check_is_vacuous() -> None:
+    """Every check must have files to check.
+
+    Selecting at collection time buys quiet runs and costs a failure mode: `parametrize` over an
+    EMPTY list collects zero tests and reports success. A suffix typo would silently retire a
+    check while the suite stayed green — the exact shape of guard this file exists to prevent.
+    """
+    empty = sorted(name for name, group in CHECK_GROUPS.items() if not group)
+    assert not empty, (
+        f"{empty} selected no files, so the corresponding check(s) ran against nothing and "
+        f"passed vacuously. A suffix filter stopped matching."
+    )
 
 
 def block_comment_spans(source: str) -> tuple[list[tuple[int, str]], int | None]:
@@ -116,7 +170,7 @@ def block_comment_spans(source: str) -> tuple[list[tuple[int, str]], int | None]
     return spans, opened_at
 
 
-@pytest.mark.parametrize("path", FILES, ids=ids(FILES))
+@pytest.mark.parametrize("path", BLOCK_COMMENT_FILES, ids=ids(BLOCK_COMMENT_FILES))
 def test_block_comments_are_closed(path: Path) -> None:
     """No block comment runs to end of file.
 
@@ -124,8 +178,6 @@ def test_block_comments_are_closed(path: Path) -> None:
     everything after it. The file still compiles; the declarations below simply cease to exist,
     and the error surfaces somewhere else entirely as "has no exported member".
     """
-    if path.suffix not in {".ts", ".astro", ".css"}:
-        pytest.skip("block comments are not a construct here")
     _, opened_at = block_comment_spans(path.read_text(encoding="utf-8"))
     assert opened_at is None, (
         f"{path.name}: block comment opened at line {opened_at} is never closed — everything "
@@ -141,7 +193,7 @@ SWALLOWED = re.compile(
     r"^\s*(?:export|import|function|class|interface|enum)\s|^(?:const|let|var|type)\s", re.M)
 
 
-@pytest.mark.parametrize("path", FILES, ids=ids(FILES))
+@pytest.mark.parametrize("path", DECLARATION_FILES, ids=ids(DECLARATION_FILES))
 def test_no_block_comment_swallows_a_declaration(path: Path) -> None:
     """No block comment contains a top-level declaration.
 
@@ -150,8 +202,6 @@ def test_no_block_comment_swallows_a_declaration(path: Path) -> None:
     TERRAIN_TILE_SIZE`; nothing failed to parse, and the error surfaced ten call sites away as
     "has no exported member".
     """
-    if path.suffix not in {".ts", ".astro"}:
-        pytest.skip("no block-comment/declaration interaction here")
     spans, _ = block_comment_spans(path.read_text(encoding="utf-8"))
     offenders = [
         (line, found.group(0).strip())
@@ -164,15 +214,13 @@ def test_no_block_comment_swallows_a_declaration(path: Path) -> None:
     )
 
 
-@pytest.mark.parametrize("path", FILES, ids=ids(FILES))
+@pytest.mark.parametrize("path", TABLE_FILES, ids=ids(TABLE_FILES))
 def test_markdown_table_rows_are_terminated(path: Path) -> None:
     """A row that starts with `|` ends with `|`.
 
     A clipped trailing pipe merges the last cell into the row's rendering and silently drops a
     column — invisible in a diff read quickly, and invisible to every other gate.
     """
-    if path.suffix != ".md":
-        pytest.skip("not markdown")
     offenders = [
         (number, line)
         for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1)
@@ -183,33 +231,23 @@ def test_markdown_table_rows_are_terminated(path: Path) -> None:
     )
 
 
-@pytest.mark.parametrize("path", FILES, ids=ids(FILES))
+@pytest.mark.parametrize("path", FENCE_FILES, ids=ids(FENCE_FILES))
 def test_code_fences_are_balanced(path: Path) -> None:
     """``` fences pair up, so a document cannot end mid-code-block."""
-    if path.suffix not in {".md", ".mmd"}:
-        pytest.skip("not markdown")
     fences = sum(
         1 for line in path.read_text(encoding="utf-8").splitlines() if line.lstrip().startswith("```")
     )
     assert fences % 2 == 0, f"{path.name}: {fences} code fences — one is unclosed"
 
 
-@pytest.mark.parametrize("path", FILES, ids=ids(FILES))
+@pytest.mark.parametrize("path", CITATION_FILES, ids=ids(CITATION_FILES))
 def test_no_reference_to_a_file_a_clone_will_not_have(path: Path) -> None:
     """Tracked files must not cite the working documents, which are deliberately not shipped.
 
     A pointer a reader cannot follow is worse than no pointer: it asserts that an explanation
-    exists somewhere reachable. `.gitignore` is exempt — naming them is its whole job.
+    exists somewhere reachable. The exemptions live in CITATION_EXEMPT above; none of them ships
+    an unfollowable pointer to a reader, they only describe one.
     """
-    if path.name == ".gitignore":
-        pytest.skip("the ignore rules must name the ignored files")
-    if path.name in {"PLAN.md", "HISTORY.md"}:
-        pytest.skip("the working documents ARE the archive; they may cite themselves and each other")
-    if path.name in {"test_repo_integrity.py", "sabotage.py"}:
-        # A guard must state the pattern it forbids, and a mutation table must hold the needle
-        # verbatim. Exempting them is not a loophole: neither ships an unfollowable pointer to a
-        # reader, they describe one. Same shape as the .gitignore exemption above.
-        pytest.skip("this file's job is to name the forbidden pattern")
     source = path.read_text(encoding="utf-8")
     unreachable = re.findall(
         r"HISTORY\.md|HISTORY §|HISTORY 20\d\d|PLAN\.md|PLAN §|see PLAN|claude-personal", source

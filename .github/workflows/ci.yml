@@ -68,12 +68,15 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # pnpm before setup-node, so setup-node's `cache: pnpm` finds it. pnpm 11 reads the
-      # committed lockfileVersion 9.0 lockfile (verified: frozen install is clean).
+      # pnpm before setup-node, so setup-node's `cache: pnpm` finds it. The version is NOT
+      # pinned here: it comes from `packageManager` in web/package.json, so the dev box and
+      # CI cannot drift (they did — CI ran 11 while local ran 10, and pnpm 11's default
+      # `minimumReleaseAge` of 24h failed a lockfile that installed clean locally).
+      # package_json_file is relative to the repo root, not this job's working-directory.
       - name: Install pnpm
         uses: pnpm/action-setup@v6
         with:
-          version: 11
+          package_json_file: web/package.json
 
       - name: Install Node
         uses: actions/setup-node@v6
