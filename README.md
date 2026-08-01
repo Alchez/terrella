@@ -40,11 +40,10 @@ Code is [MIT](LICENSE). The rendered imagery (hero renders, tiles, polar caps) i
 - **Measured stage runtimes** → [`PROCESS.md`](PROCESS.md)
 - **Data sources & licenses** → [`ATTRIBUTIONS.md`](ATTRIBUTIONS.md)
 
-### A note on `
+### Where the reasoning lives
 
-Comments and docs throughout this repo cite decisions as `. Those point at a
-dated decision archive, and a companion living plan, that are kept **outside** the repository — they
-are how the work gets done rather than part of what it ships. So a citation names *why* a value is
-what it is and tells you the reasoning was written down; it is not a link you can follow here. The
-constants themselves, and the reasoning that has to travel with the code, are in the files above and
-in the source comments beside each decision.
+A dated decision archive and a companion living plan are kept **outside** this repository — they are
+how the work gets done rather than part of what it ships. Nothing here points at them, so there is
+no dangling reference to chase: the constants, and the reasoning that has to travel with the code,
+are in the files above and in the source comments beside each decision. Where a value looks
+arbitrary, the comment next to it says why it is not.

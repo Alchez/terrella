@@ -743,8 +743,24 @@ describe("the deploy preflight must refuse a globe production cannot serve", () 
     const worker = readFileSync(new URL("../../worker/index.ts", import.meta.url), "utf8");
     const workerConfig = readFileSync(new URL("../../worker/wrangler.jsonc", import.meta.url), "utf8");
 
-    const ridesOnTier = /resolveTerrainExaggeration\([\s\S]{0,80}?currentTier\(\)\s*===\s*"full"/.test(globe);
-    expect(ridesOnTier, "terrain rides the full tier").toBe(true);
+    // Matched on the FACT, not on one spelling of it. This regex used to require the literal
+    // `currentTier()`, and went red the day that call was hoisted to a `bootTier` const to save a
+    // second WebGL probe — a refactor that changed nothing about whether terrain rides the tier.
+    // So: capture whatever is compared to "full", then require that identifier to actually BE a
+    // tier, which is what stops `anythingAtAll === "full"` from satisfying it.
+    // The twin of this check lives in capability.test.ts (it decides whether the Full tooltip must
+    // say "terrain"); both read the same call site, so both go red together rather than drifting.
+    const gate = globe.match(
+      /resolveTerrainExaggeration\(\s*urlFlags\s*,\s*([\w$]+(?:\(\))?)\s*===\s*"full"\s*\)/,
+    );
+    const tierExpression = gate?.[1] ?? "";
+    const ridesOnTier =
+      tierExpression === "currentTier()" ||
+      (tierExpression !== "" &&
+        new RegExp(`const\\s+${tierExpression}\\s*=\\s*decideTier\\(`).test(globe));
+    expect(ridesOnTier, `terrain rides the full tier (gate read: ${tierExpression || "none"})`).toBe(
+      true,
+    );
     expect(worker, "the worker routes it").toContain("parseTerrainTilePath");
     expect(workerConfig, "and names the object it reads").toMatch(/"TERRAIN_ARCHIVE_KEY"\s*:\s*"[^"]+\.pmtiles"/);
   });

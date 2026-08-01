@@ -294,9 +294,17 @@ describe("Base.astro view bar", () => {
     // nothing to catch it. Now: if terrain rides on the tier the tooltip must say so, and if it
     // ever stops riding on the tier the claim must come back out.
     const globe = readFileSync(new URL("../pages/globe.astro", import.meta.url), "utf8");
-    const terrainRidesOnTier = /resolveTerrainExaggeration\([\s\S]{0,80}?currentTier\(\)\s*===\s*"full"/.test(
-      globe,
+    // Keyed on the fact rather than on one spelling — the twin of this detector is in
+    // terrainSource.test.ts, and both went red together when `currentTier()` was hoisted to a
+    // `bootTier` const, which is the drift signal working rather than a defect.
+    const gate = globe.match(
+      /resolveTerrainExaggeration\(\s*urlFlags\s*,\s*([\w$]+(?:\(\))?)\s*===\s*"full"\s*\)/,
     );
+    const tierExpression = gate?.[1] ?? "";
+    const terrainRidesOnTier =
+      tierExpression === "currentTier()" ||
+      (tierExpression !== "" &&
+        new RegExp(`const\\s+${tierExpression}\\s*=\\s*decideTier\\(`).test(globe));
     const fullTooltip = base.match(/data-quality="full"[\s\S]*?title="([^"]+)"/)?.[1] ?? "";
     expect(fullTooltip, "the Full button must carry a tooltip at all").not.toBe("");
     if (terrainRidesOnTier) {

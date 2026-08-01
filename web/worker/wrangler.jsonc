@@ -5,8 +5,9 @@
   // private (terrella-tiles has no custom domain and its r2.dev domain is disabled) and what
   // makes the internal range reads subrequests, which Cloudflare does not bill.
   //
-  // It serves TWO pyramids: relief at `{z}/{x}/{y}.webp` and terrain-RGB at
-  // `terrain/{z}/{x}/{y}.webp`. One binding, two object keys — see the vars block.
+  // It serves THREE pyramids: relief at `{z}/{x}/{y}.webp`, terrain-RGB at
+  // `terrain/{z}/{x}/{y}.webp`, and country vector tiles at `countries/{z}/{x}/{y}.mvt`.
+  // One binding, three object keys — see the vars block.
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "terrella-tiles",
 
@@ -71,6 +72,14 @@
     // second `r2_buckets` entry would only duplicate the bucket name and give it somewhere to
     // drift out of step with the first.
     "TERRAIN_ARCHIVE_KEY": "terrain-v1.pmtiles",
+    // The country VECTOR pyramid, served under `/countries/` by the same Worker out of the same
+    // bucket — a third key, not a third binding, for the reason stated above. Same
+    // new-key-per-cut convention: this one is re-cut whenever the simplification settings in
+    // pipeline/compose/countries_pmtiles.py change, and its recipe sidecar records which.
+    //
+    // It is the one SPARSE archive: a missing tile is ocean, not a packaging fault, so the router
+    // answers 204 for it and 404 for the two raster pyramids. See `missingTileStatus`.
+    "COUNTRIES_ARCHIVE_KEY": "countries-v1.pmtiles",
     // The site's own origin. MapLibre uploads tiles as WebGL textures, so a cross-origin
     // tile without CORS taints the canvas and never draws — this must stay in step with
     // the hostname in web/package.json's `build:deploy`.

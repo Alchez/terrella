@@ -21,6 +21,10 @@
 import type { CustomLayerInterface, CustomRenderMethodInput, Map as MaplibreMap } from "maplibre-gl";
 
 import { smallestRungAtLeast } from "./rungs";
+// `perfSpans`, NOT anything in `lib/perf/`: a static import from there would place the whole
+// instrument directory in the main chunk, which is how 268 lines once shipped to every visitor.
+// `beginSpan` is a no-op returning a shared no-op function until `?perf` arms it.
+import { beginSpan } from "./perfSpans";
 
 /** Latitude subdivisions (the mesh conforms to the sphere's curvature).
  *
@@ -527,19 +531,34 @@ async function loadCapImage(
   url: string,
   options: ImageBitmapOptions = { premultiplyAlpha: "none" },
 ): Promise<ImageBitmap | HTMLImageElement> {
-  const response = await fetch(url);
-  if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  const blob = await response.blob();
+  // `caps:fetch` is mostly network WAIT, not main thread — which is the point of pricing spans
+  // against long-task windows rather than reporting their wall clock as a cost. A 900 ms fetch that
+  // blocks nothing attributes ~0 ms, and that is the correct answer.
+  const endFetch = beginSpan("caps:fetch");
+  let blob: Blob;
+  try {
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    blob = await response.blob();
+  } finally {
+    endFetch();
+  }
+  const endDecode = beginSpan("caps:decode");
   try {
     return await createImageBitmap(blob, options);
   } catch (decodeErr) {
     console.warn(`[caps] off-thread decode unavailable, using Image fallback`, decodeErr);
-    return new Promise((resolve, reject) => {
+    // `return await`, not `return`: inside try/finally an un-awaited promise closes the span the
+    // moment it is CONSTRUCTED, so the fallback — the slow, synchronous-decode path this span most
+    // needs to catch — would be recorded as taking no time at all.
+    return await new Promise<HTMLImageElement>((resolve, reject) => {
       const image = new Image();
       image.onload = () => resolve(image);
       image.onerror = () => reject(new Error(`Image decode failed: ${url}`));
       image.src = url; // browser cache makes this a re-decode, not a re-download
     });
+  } finally {
+    endDecode();
   }
 }
 
@@ -574,14 +593,20 @@ export async function syncCapRung(
   layer.rungLoading = rung.px;
   try {
     const bitmap = await loadCapImage(rung.url);
+    // Synchronous GL, so no try/finally: if either throws, the outer catch handles it and the span
+    // simply records nothing — which is the honest outcome, since the work did not complete.
+    const endUpload = beginSpan("caps:upload");
     gl.bindTexture(gl.TEXTURE_2D, layer.texture!);
     uploadCapTexture(gl, bitmap);
+    endUpload();
     // Mipmapped minification, not plain LINEAR: at low zoom the cap shrinks ~100:1 on screen, and
     // bilinear sampling of 4 texels per ~40×40-texel block aliases the fine relief detail — on this
     // radial polar mapping the alias energy reads as CONCENTRIC RINGS around the pole, strongest
     // zoomed out and gone by ~z8 (diagnosed after every texture-side tone fix left the
     // ring visually unchanged).
+    const endMipmap = beginSpan("caps:mipmap");
     gl.generateMipmap(gl.TEXTURE_2D);
+    endMipmap();
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
@@ -626,6 +651,10 @@ export async function loadCapElevation(
 ): Promise<void> {
   const gl = layer.gl;
   if (!gl || layer.elevLoaded) return;
+  // Deliberately ENCLOSES the `caps:fetch`/`caps:decode` spans inside `loadCapImage`. Nested spans
+  // are correct here and cannot double-count: each span's own total is wall clock, while the share
+  // of blocked time is computed from the UNION of all span intervals.
+  const endElev = beginSpan("caps:elev");
   try {
     const bitmap = await loadCapImage(opts.elevUrl, {
       premultiplyAlpha: "none",
@@ -648,6 +677,8 @@ export async function loadCapElevation(
     // The cap stays FLAT rather than disappearing — the placeholder decodes to 0 m, so a failed
     // fetch degrades to exactly the pre-displacement behaviour instead of collapsing the mesh.
     console.error(`[caps] ${opts.layerId} elevation failed`, opts.elevUrl, err);
+  } finally {
+    endElev();
   }
 }
 

@@ -35,7 +35,7 @@ What this does NOT do: it does not find missing guards, only vacuous ones — a 
 at all has no case here and never will, because cases are written from the guard side.
 
 Usage:
-    uv run scripts/sabotage.py                  # all cases (~5 min: 71 web at ~2 s, 10 python at ~11 s)
+    uv run scripts/sabotage.py                  # all cases (93 web at ~2 s, 15 python at ~11 s)
     uv run scripts/sabotage.py --filter cap     # only cases whose label or path matches
     uv run scripts/sabotage.py --suite python   # only one suite
     uv run scripts/sabotage.py --list           # print the table, run nothing
@@ -166,6 +166,35 @@ SABOTAGES: list[Sabotage] = [
         replacement='// See ' + 'HISTORY' + ' \u00a7 something.\n// The tile base is the one',
         guard='test_no_reference_to_a_file_a_clone_will_not_have',
     ),
+    # --- span attribution: the three ways it could quietly start lying -------------------------------
+    # All three mutations leave a report that still RENDERS and still reads plausible, which is the
+    # only reason they are worth a case: a broken attribution does not throw, it just blames the
+    # wrong subsystem.
+    Sabotage(
+        suite='web',
+        label='attribution reverts to naive subtraction instead of interval intersection',
+        path='web/src/lib/perf/perfTrace.ts',
+        needle='  const attributedMs = Math.min(overlapMs(entries.map(toInterval), longTasks), blockedTotal);',
+        replacement='  const attributedMs = Math.min(entries.reduce((sum, entry) => sum + entry.duration, 0), blockedTotal);',
+        guard='does not go negative when a span runs across SHORT tasks',
+    ),
+    Sabotage(
+        suite='web',
+        label='dropped long-task windows stop being counted, so a partial reading reads as whole',
+        path='web/src/lib/perf/perfOverlay.ts',
+        needle='    tally.longTaskIntervalsDropped += 1;',
+        replacement='',
+        guard='stops retaining windows at the ceiling and COUNTS what it dropped',
+    ),
+    Sabotage(
+        suite='web',
+        label='an unarmed instrument reports as an empty one',
+        path='web/src/lib/perf/perfSnapshot.ts',
+        needle='  if (!report.traceArmed) {',
+        replacement='  if (report.traceArmed) {',
+        guard='distinguishes an instrument that never armed from one that found nothing',
+    ),
+
     # --- GL context-loss recovery and the DEM cache cap (2026-07-29) ---------------------------------
     Sabotage(
         suite='web',

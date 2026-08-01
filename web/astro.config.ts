@@ -17,6 +17,12 @@ import {
   describeTerrainTileTypeMismatch,
   parseTerrainTilePath,
 } from './src/lib/terrainSource';
+import {
+  COUNTRIES_CONTENT_TYPE,
+  assertCountriesZoomRange,
+  describeCountriesTileTypeMismatch,
+  parseCountriesTilePath,
+} from './src/lib/countryTiles';
 
 // Asset store locations. DEV-ONLY: the dev server serves /heroes, /borders and /tiles
 // out of these external directories (R2 does it in production; the
@@ -36,6 +42,10 @@ const PMTILES_STORE = env.PMTILES_STORE;
 // than beside the pyramid it packed. In production they are two keys in one bucket, which is a
 // property of the deploy and not of this disk.
 const TERRAIN_PMTILES_STORE = env.TERRAIN_PMTILES_STORE;
+// A fifth store, for the same reason there is a fourth: the country vector pyramid is the product
+// of its own pipeline stage (data/work/planet_countries) and is written beside the geometry it was
+// cut from, not beside a raster pyramid it shares nothing with.
+const COUNTRIES_PMTILES_STORE = env.COUNTRIES_PMTILES_STORE;
 
 // Resolve a required asset-store path, or 500 the request with actionable guidance.
 // Checked PER-REQUEST (not when the middleware is registered) so a missing var only
@@ -103,6 +113,7 @@ function bordersDevServer(): Plugin {
 // The packaged pyramids, as the pipeline names them inside their stores.
 const ARCHIVE_NAME = 'planet.pmtiles';
 const TERRAIN_ARCHIVE_NAME = 'terrain.pmtiles';
+const COUNTRIES_ARCHIVE_NAME = 'countries.pmtiles';
 
 // One open archive per path per dev-server process. Opening means an fs handle plus a header
 // read, and PMTiles caches the directory pages it decodes, so re-opening per request would throw
@@ -179,6 +190,13 @@ function validateTerrainHeader(header: { minZoom: number; maxZoom: number; tileT
   if (mismatch) throw new Error(mismatch);
 }
 
+/** Header check for the country vector pyramid. */
+function validateCountriesHeader(header: { minZoom: number; maxZoom: number; tileType: number }) {
+  assertCountriesZoomRange(header.minZoom, header.maxZoom);
+  const mismatch = describeCountriesTileTypeMismatch(tileTypeExt(header.tileType));
+  if (mismatch) throw new Error(mismatch);
+}
+
 /** What one parsed request resolved to: which archive, and where in it. */
 interface ResolvedTileRoute {
   tile: { z: number; x: number; y: number };
@@ -187,6 +205,10 @@ interface ResolvedTileRoute {
   archiveName: string;
   contentType: string;
   validateHeader: (header: { minZoom: number; maxZoom: number; tileType: number }) => void;
+  /** What an absent tile MEANS for this archive — 404 where the pyramid is complete, 204 where it
+   *  is sparse. Mirrors `missingTileStatus` in the Worker; the two servers answering one contract
+   *  differently is the failure this whole arrangement exists to prevent. */
+  missingTileStatus: 404 | 204;
 }
 
 // Dev-only: answer /tiles/{z}/{x}/{y}.webp and /tiles/terrain/{z}/{x}/{y}.webp out of the two
@@ -202,9 +224,9 @@ interface ResolvedTileRoute {
 // the `terrain/` prefix, so in dev (`TILE_BASE = /tiles/`) the mount strips `/tiles` and this
 // sees precisely the path the Worker sees at the root of its own hostname.
 //
-// Order matters and is safe in both directions: `parseTilePath` requires the FIRST segment to be
-// a zoom, so it can never match a `/terrain/...` path, and `parseTerrainTilePath` requires the
-// literal prefix, so it can never match a bare one. Neither is a prefix of the other.
+// Order does not matter and cannot: `parseTilePath` requires the FIRST segment to be a zoom, so
+// it can never match a prefixed path, and the other two require their own literal prefix, so
+// neither can match a bare one. No prefix is a prefix of another.
 function tilesDevServer(): Plugin {
   return {
     name: 'tiles-dev-server',
@@ -213,7 +235,8 @@ function tilesDevServer(): Plugin {
         const requested = decodeURIComponent((req.url || '').split('?')[0]);
         const relief = parseTilePath(requested);
         const terrain = relief ? null : parseTerrainTilePath(requested);
-        if (!relief && !terrain) return next();
+        const countries = relief || terrain ? null : parseCountriesTilePath(requested);
+        if (!relief && !terrain && !countries) return next();
         const route: ResolvedTileRoute = relief
           ? {
               tile: relief,
@@ -222,14 +245,27 @@ function tilesDevServer(): Plugin {
               archiveName: ARCHIVE_NAME,
               contentType: TILE_CONTENT_TYPE,
               validateHeader: validateReliefHeader,
+              missingTileStatus: 404,
             }
-          : {
-              tile: terrain!,
+          : terrain
+          ? {
+              tile: terrain,
               storeName: 'TERRAIN_PMTILES_STORE',
               store: TERRAIN_PMTILES_STORE,
               archiveName: TERRAIN_ARCHIVE_NAME,
               contentType: TERRAIN_CONTENT_TYPE,
               validateHeader: validateTerrainHeader,
+              missingTileStatus: 404,
+            }
+          : {
+              tile: countries!,
+              storeName: 'COUNTRIES_PMTILES_STORE',
+              store: COUNTRIES_PMTILES_STORE,
+              archiveName: COUNTRIES_ARCHIVE_NAME,
+              contentType: COUNTRIES_CONTENT_TYPE,
+              // The one sparse pyramid — most of the planet is ocean and holds no country.
+              missingTileStatus: 204,
+              validateHeader: validateCountriesHeader,
             };
         const store = resolveStore(route.storeName, route.store, res);
         if (!store) return;
@@ -242,12 +278,19 @@ function tilesDevServer(): Plugin {
             );
             const entry = await archive.getZxy(tile.z, tile.x, tile.y);
             if (!entry) {
-              // Both pyramids are COMPLETE (87,381 tiles each = every address from z0 to z8), so
-              // a miss is a bug in the packaging, not an empty region. Say so rather than
-              // rendering a silent hole.
-              res.statusCode = 404;
-              res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-              res.end(`No tile ${tile.z}/${tile.x}/${tile.y} in ${route.archiveName}`);
+              // What a miss MEANS is a property of the archive, so the status comes off the
+              // route. The two RASTER pyramids are COMPLETE (87,381 tiles each = every address
+              // from z0 to z8), so a miss there is a packaging bug and gets a 404 that says so
+              // rather than a silent hole. The COUNTRY pyramid is sparse — most of the planet is
+              // ocean — so a miss there is ordinary and gets an empty 204, which MapLibre reads
+              // as a tile with no features.
+              res.statusCode = route.missingTileStatus;
+              if (route.missingTileStatus === 404) {
+                res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+                res.end(`No tile ${tile.z}/${tile.x}/${tile.y} in ${route.archiveName}`);
+              } else {
+                res.end();
+              }
               return;
             }
             res.setHeader('Content-Type', route.contentType);

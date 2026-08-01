@@ -33,6 +33,8 @@ const TIMING: PerfSnapshot = {
   longTaskTotalMs: 900,
   longTaskMaxMs: 210,
   longTaskApiAvailable: true,
+  longTaskIntervals: [],
+  longTaskIntervalsDropped: 0,
   fps: 58,
   // A live rate, so the retained one is the same reading at age zero — the state during a gesture.
   lastActiveFps: 58,
@@ -100,6 +102,9 @@ const INPUTS: PerfReportInputs = {
     bufferFull: false,
   },
   fill: { movingSinceMs: null, tilesAtMoveStart: null, last: { durationMs: 11_200, tilesFetched: 97 } },
+  traceSpans: [],
+  longTaskIntervals: null,
+  traceArmed: true,
 };
 
 describe("buildPerfReport", () => {
@@ -258,6 +263,7 @@ describe("perfReportLines", () => {
     expect(groupsOf({ nowMs: 26_000, glLossCount: 4, lastGlLossMs: 21_000 })).toEqual([
       "device",
       "config",
+      "cpu",
       "alarm",
       "gpu",
       "origin",
@@ -271,7 +277,58 @@ describe("perfReportLines", () => {
     // The ladder says which page this reading is even OF — `dpr lowered` changes the meaning of
     // every number beside it — while the cap figure is a cost with an owner, and that owner is the
     // GPU. The DEM cache is NOT in this list: it is heap bytes, tagged `ram` at its own call site.
-    expect(groupsOf()).toEqual(["device", "config", "gpu", "origin", "origin"]);
+    expect(groupsOf()).toEqual(["device", "config", "cpu", "gpu", "origin", "origin"]);
+  });
+
+  it("always states the unattributed remainder, so the breakdown cannot read as complete", () => {
+    // No span can wrap MapLibre's internals or a driver stall. A spans list printed without its
+    // remainder would claim to account for the blocked time while accounting for part of it.
+    const lines = perfReportLines(
+      buildPerfReport({
+        ...INPUTS,
+        traceSpans: [{ name: "caps:decode", startTime: 0, duration: 300 }],
+        longTaskIntervals: [{ startMs: 0, endMs: 1000 }],
+      }),
+    );
+    const cpu = lines.filter((line) => line.group === "cpu").map((line) => line.text);
+    expect(cpu.some((text) => text.includes("caps:decode 300 ms ×1"))).toBe(true);
+    // 900 comes from `timing.longTaskTotalMs`, NOT from the interval passed in: the observer
+    // replays with `buffered: true`, so its total outranks any window this call happens to hold.
+    expect(cpu.some((text) => text.includes("unattributed 600 ms"))).toBe(true);
+  });
+
+  it("distinguishes an instrument that never armed from one that found nothing", () => {
+    // A browser without User Timing records no spans. Printing the ordinary empty breakdown would
+    // make that indistinguishable from a session where the traced work genuinely never ran — the
+    // same lie the `long tasks n/a` line already exists to prevent one field over.
+    const lines = perfReportLines(buildPerfReport({ ...INPUTS, traceArmed: false }));
+    expect(lines.filter((line) => line.group === "cpu").map((line) => line.text)).toEqual([
+      "spans not armed — no User Timing in this browser",
+    ]);
+  });
+
+  it("flags a PARTIAL attribution when long-task windows were dropped", () => {
+    // Dropping windows biases the remainder upward — toward blaming code we did not write. The
+    // reading must say it is partial rather than let the bias pass as a finding.
+    const lines = perfReportLines(
+      buildPerfReport({
+        ...INPUTS,
+        timing: { ...TIMING, longTaskIntervalsDropped: 12 },
+        traceSpans: [{ name: "caps:decode", startTime: 0, duration: 100 }],
+        longTaskIntervals: [{ startMs: 0, endMs: 100 }],
+      }),
+    );
+    expect(lines.some((line) => line.text.includes("PARTIAL, 12 windows dropped"))).toBe(true);
+  });
+
+  it("says the spans are UNPRICED rather than reporting a zero remainder", () => {
+    // Two cases reach this line — Firefox, which has no Long Tasks API at all, and a build whose
+    // spans are not yet placed. A `0 ms unattributed` in either would read as a fully explained
+    // session, so the wording blames neither the browser nor the reader.
+    const lines = perfReportLines(buildPerfReport({ ...INPUTS, longTaskIntervals: null }));
+    expect(lines.filter((line) => line.group === "cpu").map((line) => line.text)).toEqual([
+      "spans unpriced — no long-task windows to attribute against",
+    ]);
   });
 });
 

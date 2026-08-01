@@ -1,16 +1,21 @@
 // The tile server: one tile per request, ranged out of a PMTiles archive in R2.
 //
-// TWO archives since Tier 3 step 3, in one bucket behind one router — `{z}/{x}/{y}.webp` is the
-// relief pyramid and `terrain/{z}/{x}/{y}.webp` the elevation one. Everything below the router is
-// archive-agnostic: the index prefetch, the directory cache and the ETag chain all key on the
-// archive key, so the second pyramid cost a route and some per-key bookkeeping, not a second
-// server.
+// THREE archives in one bucket behind one router — `{z}/{x}/{y}.webp` is the relief pyramid,
+// `terrain/{z}/{x}/{y}.webp` the elevation one, and `countries/{z}/{x}/{y}.mvt` the country
+// vector tiles. Everything below the router is archive-agnostic: the index prefetch, the
+// directory cache and the ETag chain all key on the archive key, so each new pyramid cost a route
+// and some per-key bookkeeping, not a second server.
+//
+// The country pyramid differs from the other two in one way the router has to carry: it is
+// SPARSE. Relief and terrain hold every address from z0 to z8, so a miss there is a packaging
+// fault worth a 404. Most of the planet is ocean and holds no country, so a miss there is
+// ordinary and answers 204 — see `missingTileStatus`.
 //
 // This is the production half of the pair whose dev half is the /tiles middleware in
-// astro.config.ts. Both answer the same contract — parsed by the same reliefTiles.ts and
-// terrainSource.ts — and differ only in where the bytes come from: a local file there, an R2
-// binding here. The browser never opens an archive itself, because Workers Caching strips
-// `Range` and would ask for the full multi-GB body.
+// astro.config.ts. Both answer the same contract — parsed by the same reliefTiles.ts,
+// terrainSource.ts and countryTiles.ts — and differ only in where the bytes come from: a local
+// file there, an R2 binding here. The browser never opens an archive itself, because Workers
+// Caching strips `Range` and would ask for the full multi-GB body.
 //
 // Written rather than adopted from protomaps/PMTiles `serverless/cloudflare`, which is
 // `"private": true` and unpublished — adopting it means vendoring a fork of two files, not
@@ -43,16 +48,25 @@ import {
   describeTerrainTileTypeMismatch,
   parseTerrainTilePath,
 } from "../src/lib/terrainSource";
+import {
+  COUNTRIES_CONTENT_TYPE,
+  COUNTRIES_MAX_ZOOM,
+  COUNTRIES_MIN_ZOOM,
+  describeCountriesTileTypeMismatch,
+  parseCountriesTilePath,
+} from "../src/lib/countryTiles";
 
 interface Env {
-  /** R2 binding for the bucket holding BOTH archives (bucket `terrella-tiles`). One binding, two
-   *  keys: the archives differ by object, not by bucket, so a second binding would buy nothing
-   *  and add a second place for the bucket name to drift. */
+  /** R2 binding for the bucket holding ALL THREE archives (bucket `terrella-tiles`). One binding,
+   *  three keys: the archives differ by object, not by bucket, so a second binding would buy
+   *  nothing and add a second place for the bucket name to drift. */
   ARCHIVE: R2Bucket;
   /** Object key of the relief archive within that bucket. */
   ARCHIVE_KEY?: string;
   /** Object key of the terrain-RGB archive within that bucket. */
   TERRAIN_ARCHIVE_KEY?: string;
+  /** Object key of the country vector-tile archive within that bucket. */
+  COUNTRIES_ARCHIVE_KEY?: string;
   /** Origin allowed to read tiles — the site's own hostname. MapLibre uploads tiles as WebGL
    *  textures, so a cross-origin tile without CORS taints the canvas and never draws. */
   ALLOWED_ORIGIN?: string;
@@ -62,6 +76,7 @@ interface Env {
 
 const DEFAULT_ARCHIVE_KEY = "planet.pmtiles";
 const DEFAULT_TERRAIN_ARCHIVE_KEY = "terrain.pmtiles";
+const DEFAULT_COUNTRIES_ARCHIVE_KEY = "countries.pmtiles";
 
 /** The pyramid is immutable for the life of a cut — the globe already sets
  *  `refreshExpiredTiles: false` on the same reasoning. A re-cut therefore requires purging the
@@ -73,16 +88,21 @@ const DEFAULT_CACHE_CONTROL = "public, max-age=31536000, immutable";
  *  own bytes — three round trips per tile instead of one. Module scope is the point: the cache
  *  outlives the request.
  *
- *  Shared across both archives, which is safe because the library keys entries by
- *  `source.getKey()` (the archive key) plus the ETag, offset and length — so the two pyramids
+ *  Shared across all three archives, which is safe because the library keys entries by
+ *  `source.getKey()` (the archive key) plus the ETag, offset and length — so the pyramids
  *  namespace themselves and cannot serve each other's directories.
  *
- *  50, raised from 25 when terrain shipped. 25 was sized for exactly one archive: each cut has
- *  **22 leaf directories** plus its header, so one fits with two entries to spare and two do not
- *  fit at all. Left at 25 the two would evict each other on every alternating request — which
- *  costs a gunzip and a deserialize rather than an R2 read (PrefetchedIndexSource already holds
- *  the bytes), so it would have shown up as nothing but a slightly slower Worker. */
-const DIRECTORY_CACHE = new ResolvedValueCache(50, undefined, nativeDecompress);
+ *  SIZED BY COUNTING, EACH TIME AN ARCHIVE WAS ADDED, because being one entry short is invisible:
+ *  an evicted directory costs a gunzip and a deserialize rather than an R2 read
+ *  (PrefetchedIndexSource already holds the bytes), so it shows up as nothing but a slightly
+ *  slower Worker. It was 25 for one archive, then 50 for two.
+ *
+ *  Each archive occupies `1 header + 1 root + N leaf` entries. Measured on the shipped cuts:
+ *  relief **21** leaves, terrain **21**, countries **7** (it is 10 MB against 16 GB) — so
+ *  23 + 23 + 9 = **55**, which 50 does not hold. Three archives at 50 would evict each other on
+ *  every alternating request, which is precisely the regression the 25 → 50 raise fixed.
+ *  64 leaves nine entries of headroom. */
+const DIRECTORY_CACHE = new ResolvedValueCache(64, undefined, nativeDecompress);
 
 /** Archive keys whose tile-type disagreement has already been logged — latched so a mismatch
  *  says so once per isolate rather than once per tile, since a global mismatch shouted 40,000
@@ -408,6 +428,11 @@ interface TileRoute {
   /** Names the constants a zoom disagreement should send someone to. */
   zoomConstants: string;
   describeTileTypeMismatch: (archiveExtension: string) => string | null;
+  /** What an absent tile MEANS for this archive: 404 where the pyramid is complete and a miss is
+   *  therefore a packaging fault, 204 where it is sparse and a miss is just ocean. Per-route
+   *  rather than a shared constant, because sharing it would either silence real faults on the
+   *  raster pyramids or emit tens of thousands of errors for correctly-absent country tiles. */
+  missingTileStatus: 404 | 204;
 }
 
 /**
@@ -419,8 +444,11 @@ interface TileRoute {
  * failure either: MapLibre would decode relief colour as terrarium elevation and displace the
  * globe by whatever those bytes happen to mean.
  *
- * The two parsers cannot both match, in either direction: `parseTilePath` requires the first
- * segment to be a zoom, and `parseTerrainTilePath` requires the literal prefix.
+ * No two parsers can match the same path, in any direction: `parseTilePath` requires the first
+ * segment to be a zoom, and the other two require their own literal prefix. The country parser
+ * additionally requires `.mvt`, but the PREFIX is what the router leans on — resting it on the
+ * extension would make correctness depend on a codec choice, and the codec is exactly what a
+ * re-cut is allowed to change.
  */
 export function resolveRoute(pathname: string, env: Env): TileRoute | null {
   const relief = parseTilePath(pathname);
@@ -431,6 +459,7 @@ export function resolveRoute(pathname: string, env: Env): TileRoute | null {
       contentType: TILE_CONTENT_TYPE,
       zoomConstants: `RELIEF_MIN_ZOOM/RELIEF_MAX_ZOOM (z${RELIEF_MIN_ZOOM}-z${RELIEF_MAX_ZOOM}) in web/src/lib/reliefTiles.ts`,
       describeTileTypeMismatch,
+      missingTileStatus: 404,
     };
   }
   const terrain = parseTerrainTilePath(pathname);
@@ -441,6 +470,19 @@ export function resolveRoute(pathname: string, env: Env): TileRoute | null {
       contentType: TERRAIN_CONTENT_TYPE,
       zoomConstants: `TERRAIN_MIN_ZOOM/TERRAIN_MAX_ZOOM (z${TERRAIN_MIN_ZOOM}-z${TERRAIN_MAX_ZOOM}) in web/src/lib/terrainSource.ts`,
       describeTileTypeMismatch: describeTerrainTileTypeMismatch,
+      missingTileStatus: 404,
+    };
+  }
+  const countries = parseCountriesTilePath(pathname);
+  if (countries) {
+    return {
+      tile: countries,
+      archiveKey: env.COUNTRIES_ARCHIVE_KEY ?? DEFAULT_COUNTRIES_ARCHIVE_KEY,
+      contentType: COUNTRIES_CONTENT_TYPE,
+      zoomConstants: `COUNTRIES_MIN_ZOOM/COUNTRIES_MAX_ZOOM (z${COUNTRIES_MIN_ZOOM}-z${COUNTRIES_MAX_ZOOM}) in web/src/lib/countryTiles.ts`,
+      describeTileTypeMismatch: describeCountriesTileTypeMismatch,
+      // The one sparse pyramid: most tiles on the planet hold no country at all.
+      missingTileStatus: 204,
     };
   }
   return null;
@@ -537,9 +579,15 @@ export default {
       }
 
       const entry = await archive.getZxy(tile.z, tile.x, tile.y);
-      // Both pyramids are complete (87,381 addresses each, z0-z8), so a miss means the packaging
-      // is wrong, not that the region is empty. 404 rather than an empty 200, so it is visible.
-      if (!entry) return store(null, 404);
+      // What a MISS means is a property of the archive, not of this handler — which is why the
+      // status comes off the route rather than being a constant here.
+      //
+      // The two RASTER pyramids are complete (87,381 addresses each, z0-z8), so a miss means the
+      // packaging is wrong, not that the region is empty: 404, loudly, rather than an empty 200.
+      // The COUNTRY pyramid is legitimately sparse — most of the planet is ocean and holds no
+      // country — so the same 404 would be tens of thousands of errors for tiles that are
+      // correctly absent, and would bury a real packaging fault in the noise it created.
+      if (!entry) return store(null, route.missingTileStatus);
 
       return store(entry.data, 200, route.contentType);
     } catch (error) {

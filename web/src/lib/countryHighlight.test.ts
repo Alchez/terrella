@@ -1,142 +1,103 @@
+import { readFileSync } from "node:fs";
 import { describe, it, expect } from "vitest";
-import type { Feature, FeatureCollection } from "geojson";
 import type { FilterSpecification } from "maplibre-gl";
+import { COUNTRY_FILL_LAYER, COUNTRY_HIT_LAYER, COUNTRY_OUTLINE_LAYER } from "./countryTiles";
 import {
   COUNTRIES_SOURCE,
-  OUTLINE_SOURCE,
-  outlinesFrom,
-  countriesSource,
-  outlineSource,
+  VECTOR_BINDING,
+  featureStateTargets,
   fillLayer,
   highlightLayers,
+  hitLayer,
 } from "./countryHighlight";
 
-// --- fixtures -------------------------------------------------------------------------------
-// Rings are closed (first === last), the way GeoJSON polygons come; outlinesFrom passes them
-// through verbatim, so the tests assert the exact ring arrays survive.
-const squareRing = [
-  [0, 0],
-  [2, 0],
-  [2, 2],
-  [0, 2],
-  [0, 0],
-];
-const holeRing = [
-  [0.5, 0.5],
-  [1.5, 0.5],
-  [1.5, 1.5],
-  [0.5, 1.5],
-  [0.5, 0.5],
-];
-const otherRing = [
-  [10, 10],
-  [12, 10],
-  [12, 12],
-  [10, 10],
-];
-
-const polygonCountry = (admin: string, rings = [squareRing]): Feature => ({
-  type: "Feature",
-  properties: { ADMIN: admin },
-  geometry: { type: "Polygon", coordinates: rings },
-});
-
-const collection = (features: Feature[]): FeatureCollection => ({
-  type: "FeatureCollection",
-  features,
-});
-
-const all = () => true;
 const filter: FilterSpecification = ["in", ["get", "ADMIN"], ["literal", ["Testland"]]];
 
-// --- outlinesFrom: the polygon -> boundary-lines conversion ----------------------------------
-describe("outlinesFrom — polygon rings become boundary lines", () => {
-  it("a Polygon becomes a MultiLineString of its rings (outer + every hole)", () => {
-    const out = outlinesFrom(collection([polygonCountry("Testland", [squareRing, holeRing])]), all);
-    expect(out.features).toHaveLength(1);
-    const geometry = out.features[0].geometry;
-    expect(geometry.type).toBe("MultiLineString");
-    // holes are stroked too — the old inline `line`-over-polygon did, so parity is preserved.
-    expect(geometry).toMatchObject({ coordinates: [squareRing, holeRing] });
-  });
-
-  it("a MultiPolygon flattens ALL parts' rings into one MultiLineString", () => {
-    const multi: Feature = {
-      type: "Feature",
-      properties: { ADMIN: "Archipelago" },
-      geometry: { type: "MultiPolygon", coordinates: [[squareRing], [otherRing]] },
-    };
-    const out = outlinesFrom(collection([multi]), all);
-    expect(out.features[0].geometry).toMatchObject({
-      type: "MultiLineString",
-      coordinates: [squareRing, otherRing],
-    });
-  });
-
-  it("carries ADMIN through so feature-state hover keys the whole country", () => {
-    const out = outlinesFrom(collection([polygonCountry("Testland")]), all);
-    expect(out.features[0].properties?.ADMIN).toBe("Testland");
-  });
-
-  it("keeps only in-scope countries (the predicate selects rendered/interactive ones)", () => {
-    const fc = collection([polygonCountry("Testland"), polygonCountry("Elsewhere")]);
-    const out = outlinesFrom(fc, (admin) => admin === "Testland");
-    expect(out.features.map((f) => f.properties?.ADMIN)).toEqual(["Testland"]);
-  });
-
-  it("skips features with a non-string ADMIN", () => {
-    const bad: Feature = {
-      type: "Feature",
-      properties: { ADMIN: 42 },
-      geometry: { type: "Polygon", coordinates: [squareRing] },
-    };
-    expect(outlinesFrom(collection([bad]), all).features).toHaveLength(0);
-  });
-
-  it("skips non-polygon geometry (e.g. the hit-point Points)", () => {
-    const point: Feature = {
-      type: "Feature",
-      properties: { ADMIN: "Testland" },
-      geometry: { type: "Point", coordinates: [0, 0] },
-    };
-    expect(outlinesFrom(collection([point]), all).features).toHaveLength(0);
-  });
-});
-
-// --- wiring guards: the two non-obvious config choices that fix globe artifacts --------------
-// If either of these regresses, the corresponding artifact returns on /globe (and it only shows
-// looking down the pole, which is easy to miss in review) — so lock them here.
-describe("countriesSource — the polygon source's buffer:0 stops the fill double-paint", () => {
-  it("sets buffer:0 (default 128px tile buffers make the translucent fill paint twice)", () => {
-    expect(countriesSource(collection([])).buffer).toBe(0);
-  });
-
-  it("promotes ADMIN to the feature id for feature-state hover", () => {
-    expect(countriesSource(collection([])).promoteId).toBe("ADMIN");
-  });
-});
-
-describe("layer wiring — the hover outline must stroke the LINE source, never the polygon", () => {
-  it("the fill wash is a fill on the polygon source (fills never stroke a clipped edge)", () => {
+// --- layer wiring ----------------------------------------------------------------------------
+// All four layers read one vector source and differ only by SOURCE-LAYER. MapLibre renders a layer
+// whose `source-layer` matches nothing as empty — no error, no warning — so a wrong name here is
+// an invisible defect, which is why every layer's binding is asserted rather than just its type.
+describe("layer wiring — one source, four source-layers", () => {
+  it("the fill wash is a fill on the fill layer (fills never stroke a clipped edge)", () => {
     const layer = fillLayer(filter);
     expect(layer.type).toBe("fill");
     expect(layer.source).toBe(COUNTRIES_SOURCE);
+    expect(layer["source-layer"]).toBe(COUNTRY_FILL_LAYER);
   });
 
-  it("BOTH highlight layers are lines on the outline source — this is the stray-meridian fix", () => {
+  it("BOTH highlight layers are lines on the OUTLINE layer — this is the stray-meridian fix", () => {
     const layers = highlightLayers(filter);
     expect(layers.map((l) => l.id)).toEqual(["country-hl-casing", "country-hl-line"]);
     for (const layer of layers) {
       expect(layer.type).toBe("line");
-      // the regression: pointing these back at COUNTRIES_SOURCE strokes the polygon's clipped
-      // tile edge as a stray gold meridian across the hovered country.
-      expect(layer.source).toBe(OUTLINE_SOURCE);
-      expect(layer.source).not.toBe(COUNTRIES_SOURCE);
+      // The regression these guard: stroking the POLYGON layer instead draws the ring MapLibre
+      // closes along a tile cut, as a stray gold meridian across the hovered country. Clipping a
+      // line only trims it, which is why the archive carries the rings as their own line layer.
+      expect(layer["source-layer"]).toBe(COUNTRY_OUTLINE_LAYER);
+      expect(layer["source-layer"]).not.toBe(COUNTRY_FILL_LAYER);
     }
   });
 
-  it("the outline source is a distinct id from the polygon source, both promoting ADMIN", () => {
-    expect(OUTLINE_SOURCE).not.toBe(COUNTRIES_SOURCE);
-    expect(outlineSource(collection([])).promoteId).toBe("ADMIN");
+  it("the hit targets are circles on the hit layer, and carry the in-scope filter", () => {
+    // The filter is a correctness fix rather than symmetry: the archive deliberately carries ALL
+    // countries so a newly rendered hero needs no re-cut, so without it every unrendered country
+    // would become clickable and fly to a page that has no hero.
+    const layer = hitLayer(filter);
+    expect(layer.type).toBe("circle");
+    expect(layer["source-layer"]).toBe(COUNTRY_HIT_LAYER);
+    expect(layer.filter).toEqual(filter);
+  });
+
+  it("every layer reads the same source, which is what lets one write light them together", () => {
+    const layers = [fillLayer(filter), ...highlightLayers(filter), hitLayer(filter)];
+    expect(new Set(layers.map((layer) => layer.source))).toEqual(new Set([COUNTRIES_SOURCE]));
+    expect(new Set(layers.map((layer) => layer["source-layer"])).size).toBe(3);
+  });
+});
+
+// --- featureStateTargets: where the hover flag is written -------------------------------------
+// The regression these exist for shipped to production: the hover painter named its source ids
+// literally, so it addressed a source that does not exist here AND a vector source without a
+// `sourceLayer`. MapLibre answers both by firing an ErrorEvent and returning — no throw, nothing a
+// unit test could catch from the outside — so the outline and the wash simply never painted.
+describe("featureStateTargets — the hover flag reaches both painted layers", () => {
+  it("addresses the fill and the outline, and never the hit layer", () => {
+    const targets = featureStateTargets(VECTOR_BINDING);
+    expect(targets).toHaveLength(2);
+    // The hit circles carry no hover paint; a write there could only mask a missing one here.
+    expect(targets).not.toContainEqual({
+      source: VECTOR_BINDING.hit.source,
+      sourceLayer: VECTOR_BINDING.hit["source-layer"],
+    });
+  });
+
+  it("every target carries a sourceLayer — MapLibre refuses a vector target without one", () => {
+    const targets = featureStateTargets(VECTOR_BINDING);
+    for (const target of targets) {
+      expect(target.sourceLayer, JSON.stringify(target)).toBeTruthy();
+    }
+    expect(targets).toEqual([
+      { source: COUNTRIES_SOURCE, sourceLayer: COUNTRY_FILL_LAYER },
+      { source: COUNTRIES_SOURCE, sourceLayer: COUNTRY_OUTLINE_LAYER },
+    ]);
+  });
+
+  it("the two targets are distinct, because feature state keys on (source, sourceLayer, id)", () => {
+    // Same source id twice is correct and must NOT be deduplicated: fill and outline live in
+    // different source-layers, so one setFeatureState cannot light both.
+    const [fill, outline] = featureStateTargets(VECTOR_BINDING);
+    expect(fill.source).toBe(outline.source);
+    expect(fill.sourceLayer).not.toBe(outline.sourceLayer);
+  });
+
+  it("the hover painter derives its targets rather than naming source ids", () => {
+    // The unit tests above cannot see the call site, and the call site is where this went wrong.
+    // A literal `source:` inside a setFeatureState call is that mistake, in the only shape it takes.
+    const globe = readFileSync(new URL("../pages/globe.astro", import.meta.url), "utf8");
+    const calls = globe.match(/setFeatureState\([^)]*\)/g) ?? [];
+    expect(calls.length, "globe.astro must still paint the hover highlight").toBeGreaterThan(0);
+    for (const call of calls) {
+      expect(call, "spread a featureStateTargets entry instead").not.toMatch(/\bsource:/);
+    }
   });
 });

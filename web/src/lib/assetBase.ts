@@ -16,6 +16,7 @@
 // never range-request the archive itself: edge caching strips the Range header and asks the origin
 // for the whole multi-GB body, once per tile.
 
+import { COUNTRIES_PATH_TEMPLATE } from "./countryTiles";
 import { TILE_PATH_TEMPLATE } from "./reliefTiles";
 import { TERRAIN_PATH_TEMPLATE } from "./terrainSource";
 
@@ -50,3 +51,14 @@ export const TILE_URL_TEMPLATE = `${TILE_BASE}${TILE_PATH_TEMPLATE}`;
  *  hostnames — configuration for a deployment nobody intends. It also keeps
  *  `build:deploy` at three variables, which the assetBase test asserts against the source. */
 export const TERRAIN_URL_TEMPLATE = `${TILE_BASE}${TERRAIN_PATH_TEMPLATE}`;
+
+/** MapLibre `vector` source template for the country pyramid — fill, outline and hit layers.
+ *
+ *  Derived from TILE_BASE for exactly the reason TERRAIN_URL_TEMPLATE is, and the reason applies
+ *  a third time: this is not a fourth store. All three archives sit in one R2 bucket behind one
+ *  tile Worker, and COUNTRIES_PATH_TEMPLATE's own prefix is what tells that Worker which of the
+ *  three a request is for. A `PUBLIC_COUNTRIES_BASE` would let one server's three halves be
+ *  addressed at three hostnames, and would be a fourth variable for `build:deploy` to forget —
+ *  the failure mode assetBase.test.ts exists to prevent, where an unsupplied base silently
+ *  becomes same-origin and every URL under it 404s in production. */
+export const COUNTRIES_URL_TEMPLATE = `${TILE_BASE}${COUNTRIES_PATH_TEMPLATE}`;
