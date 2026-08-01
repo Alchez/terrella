@@ -38,7 +38,7 @@ export const COUNTRIES_SOURCE = "countries";
  *  ONE VALUE TODAY, AND STILL WORTH THE INDIRECTION. This carried the difference between the
  *  vector arm and the GeoJSON arm it replaced; what it carries now is the SOURCE-LAYER NAMES,
  *  spelled once. MapLibre renders a layer whose `source-layer` matches nothing as EMPTY — no
- *  error, no warning — so a typo at any of the four call sites would silently blank a layer.
+ *  error, no warning — so a typo at any site that builds a layer spec would silently blank it.
  *  Spelling them here instead makes that a single point of failure with a test on it. */
 interface LayerBinding {
   source: string;

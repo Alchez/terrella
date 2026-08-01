@@ -13,9 +13,16 @@ happens. A case names the test that should catch it, so "the suite went red" is 
 proof — red for the wrong reason is a different guard doing someone else's job, and it will stop
 covering this case the moment that other guard changes.
 
-Two suites, because the guards live in two languages. `suite='web'` runs `pnpm test`; `suite='python'`
-runs `pytest`, and those cases exist to check `tests/test_sabotage_cases.py`, the table's own
-freshness gate. That gate is a guard like any other and gets the same treatment.
+Three suites, because not every guard is a test. `suite='web'` runs `pnpm test`; `suite='python'` runs
+`pytest`, and those cases check `tests/test_sabotage_cases.py`, the table's own freshness gate, along
+with the repo-integrity guards over the docs. That gate is a guard like any other and gets the same
+treatment.
+
+`suite='collection'` runs `web/scripts/check_test_collection.ts`, which is a script and not a test on
+purpose: it asserts that every test file on disk is collected by some vitest project, and a vitest
+test that checked the same thing would be dropped by the very broken glob it exists to catch. A guard
+that can be disabled by its own subject has to live outside the suite, so the harness reads a named
+check out of its output the way it reads a test name out of the other two.
 
 Four lessons are baked into the control flow because each cost a full run to learn:
 
@@ -35,7 +42,7 @@ What this does NOT do: it does not find missing guards, only vacuous ones — a 
 at all has no case here and never will, because cases are written from the guard side.
 
 Usage:
-    uv run scripts/sabotage.py                  # all cases (93 web at ~2 s, 15 python at ~11 s)
+    uv run scripts/sabotage.py                  # all cases; each runs its whole suite once
     uv run scripts/sabotage.py --filter cap     # only cases whose label or path matches
     uv run scripts/sabotage.py --suite python   # only one suite
     uv run scripts/sabotage.py --list           # print the table, run nothing
@@ -65,7 +72,7 @@ BACKUP_SUFFIX = ".sabotage-backup"
 # when a case genuinely needs to — deliberately, since `tests/test_sabotage_cases.py` enforces it.
 # PROCESS.md joins the roots because the structural-integrity guard covers repo docs, and a case
 # it cannot write to is a case that cannot prove anything.
-MUTABLE_ROOTS = ("web/src", "web/worker", "scripts", "PROCESS.md")
+MUTABLE_ROOTS = ("web/src", "web/worker", "scripts", "PROCESS.md", "web/vitest.config.ts")
 
 # Set for the duration of one case, so the backup THIS run is holding does not trip the leftover
 # canary in tests/test_sabotage_cases.py. Narrow on purpose: any other stray backup still fires.
@@ -95,6 +102,14 @@ SUITES: dict[str, Suite] = {
         cwd=".",
         environment={"PYTHONDONTWRITEBYTECODE": "1"},
         fail_pattern=re.compile(r"^FAILED\s+\S+::([^\s\[]+)"),
+    ),
+    # Not a test framework: a script that names its own failing check, so a case here is held to
+    # the same standard as one naming a vitest title or a pytest function.
+    "collection": Suite(
+        command=["node", "scripts/check_test_collection.ts"],
+        cwd="web",
+        environment={},
+        fail_pattern=re.compile(r"^✗ test collection: (\S+)$"),
     ),
 }
 
@@ -1047,6 +1062,17 @@ SABOTAGES: list[Sabotage] = [
         needle='    if (request.method !== "GET" && request.method !== "HEAD") {',
         replacement='    if (request.method !== "GET") {',
         guard='serves HEAD, which is not a write and must not be lumped in with one',
+    ),
+    # The subject here is the SUITE ITSELF, which is why the guard is a script. Under this
+    # mutation `pnpm test` reports `28 passed (28)` and exits 0 — measured, not assumed — so a
+    # case with suite='web' would record CAUGHT for a run that noticed nothing.
+    Sabotage(
+        suite='collection',
+        label='a vitest project glob stops matching, and the run stays green',
+        path='web/vitest.config.ts',
+        needle='include: ["src/**/*.browser.test.ts"],',
+        replacement='include: ["src/**/*.nomatch.test.ts"],',
+        guard='every-test-file-is-collected',
     ),
 ]
 

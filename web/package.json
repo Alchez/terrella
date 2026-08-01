@@ -14,6 +14,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "check": "astro check",
+    "check:test-collection": "node scripts/check_test_collection.ts",
     "build:deploy": "PUBLIC_HERO_BASE=https://assets.terrella.alchez.dev/heroes/ PUBLIC_BORDERS_BASE=https://assets.terrella.alchez.dev/borders/ PUBLIC_TILE_BASE=https://tiles.terrella.alchez.dev/ astro build",
     "check:deploy-sync": "node scripts/check_deploy_sync.ts",
     "deploy": "pnpm run check:deploy-sync && pnpm run build:deploy && wrangler deploy"

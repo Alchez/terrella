@@ -13,11 +13,17 @@ import { playwright } from "@vitest/browser-playwright";
  * clearance constants re-derived by hand three times because there was no way to assert them;
  * this is that gap closed.
  *
- * THE SPLIT ITSELF IS THE HAZARD. Before this file existed the whole suite ran on vitest's
- * defaults, so a `projects` block that mis-globs would report a green run having executed
- * nothing — the failure mode that looks exactly like success. The control is the count: the
- * node project ran 698 tests across 24 files immediately before this file was added, and any
- * change here that drops below that has lost tests rather than fixed them.
+ * THE SPLIT ITSELF IS THE HAZARD, and vitest does not flag it. A project whose `include` matches
+ * nothing is simply absent from the run — pointing the browser glob at a non-matching pattern
+ * reports `Test Files 28 passed (28)` and exits 0. Not a discrepancy, not a warning: a clean green
+ * run with two files silently uncollected, which is the failure mode that looks exactly like
+ * success. A green suite is therefore not evidence that both projects ran.
+ *
+ * `scripts/check_test_collection.ts` is the guard: it walks the tree and diffs it against what
+ * `vitest list` resolves, so every `*.test.ts` under `src/` and `worker/` must be collected exactly
+ * once. It runs as its own CI step and deliberately is not a test in here — a vitest test would be
+ * dropped by the same broken glob it exists to catch. Do not put an expected count back in this
+ * comment instead: a number in a docstring ratchets nothing, and the one that was here went stale.
  */
 export default defineConfig({
   test: {
