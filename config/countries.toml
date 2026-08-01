@@ -17,7 +17,7 @@
 #   frame          [W, S, E, N] lon/lat — overrides the computed padded bbox
 #   hero_long_edge px — overrides [defaults].hero_long_edge
 #   fusion         "1s" | "3s" — overrides the automatic choice
-#   status         "antimeridian" — batch must skip loudly (own PLAN item)
+#   status         "antimeridian" — batch must skip loudly
 #   sky_view_strength  hero AO burn strength (0..1) — overrides [defaults]
 #   resolution_floor_m hero heightfield detail floor (m) — overrides [defaults];
 #                      set 0 to exempt a country from the floor
@@ -63,7 +63,7 @@ include = [
 # ----   0.0   volcanic islands, fine dendritic drainage — any AO blackens every
 # ----         micro-valley into a "pinecone"; raw Cycles relief is enough.
 # ----   0.38  flat countries — the original reason sky_view exists (Paraguay/
-# ----         Qatar looked "basic", HISTORY § Hero look v3): subtle relief needs
+# ----         Qatar looked "basic"): subtle relief needs
 # ----         the stronger burn to read. The flat set is pinned below.
 # ---- (Alpine microstates Andorra/Liechtenstein/Monaco want 0.2 = the default,
 # ---- ladder-confirmed, so they carry no override. Monaco also needs a resolution
@@ -99,11 +99,11 @@ notes = "volcanic fine drainage: any AO tendrils (pinecone); raw relief is enoug
 
 [countries.qatar]
 sky_view_strength = 0.38
-notes = "flat: subtle relief needs the stronger burn to read (the original sky_view case, HISTORY 2026-07-10)"
+notes = "flat: subtle relief needs the stronger burn to read (the original sky_view case)"
 
 [countries.paraguay]
 sky_view_strength = 0.38
-notes = "flat: subtle relief needs the stronger burn to read (the original sky_view case, HISTORY 2026-07-10)"
+notes = "flat: subtle relief needs the stronger burn to read (the original sky_view case)"
 
 # ---- resolution floor (hero heightfield anti-striping). [defaults].resolution_floor_m
 # ---- is 60 m: render_prep box-lowpasses the heightfield ONLY where the frame

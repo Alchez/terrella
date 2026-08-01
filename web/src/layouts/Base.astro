@@ -8,7 +8,6 @@ interface Props {
   borders?: boolean;
   spotlight?: boolean;
   quality?: boolean;
-  spin?: boolean;
 }
 const {
   title = "Terrella",
@@ -16,7 +15,6 @@ const {
   borders = false,
   spotlight = false,
   quality = false,
-  spin = false,
 } = Astro.props;
 ---
 
@@ -110,46 +108,21 @@ const {
   <body>
     <slot />
     {
-      /* The view bar — ONE floating pill for every view option, replacing the old
-         stack of separate fabs. Toggle buttons (Borders, Spin) and the tier picker
-         share a single visual system: filled = on. The hairline divider separates
-         what-the-globe-shows from what-tier-you-get. */
-      (borders || spotlight || quality || spin) && (
-        // `is-collapsible` must track the toggle's own render condition EXACTLY. Without it the
-        // phone media query hid .view-bar-items on every page, including hero pages that render
-        // no trigger — leaving the Focus button unreachable with nothing on screen to restore it.
-        <div class:list={["view-bar", quality && "is-collapsible"]}>
-          {/* Phone-only collapse. Rendered only where the tier picker is — that segment is what
-              makes the bar wide, and on a hero page the bar is a single Focus button, where
-              collapsing would cost a tap and save nothing. Hidden by CSS above the breakpoint. */}
-          {quality && (
-            <button
-              type="button"
-              class="view-bar-toggle"
-              id="view-bar-toggle"
-              aria-expanded="false"
-              aria-controls="view-bar-items"
-              aria-label="View options"
-              title="View options"
-            >
-              {/* viewBox cropped to the ink (paths span 1.2–14.8 once the 1.6 stroke is counted),
-                  not the nominal 0 0 16 16 — otherwise a quarter of the box is margin and this
-                  renders visibly smaller than the credit ⓘ sharing the collapsed pill with it. */}
-              <svg
-                viewBox="1 1 14 14"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="1.6"
-                stroke-linecap="round"
-                aria-hidden="true"
-                focusable="false"
-              >
-                <path d="M2 4.5h4.2M10.8 4.5h3.2M2 11.5h2.2M8.8 11.5h5.2" />
-                <circle cx="8.5" cy="4.5" r="1.9" />
-                <circle cx="6.5" cy="11.5" r="1.9" />
-              </svg>
-            </button>
-          )}
+      /* The view bar — ONE floating pill for what the globe SHOWS. Layer toggles (Borders,
+         Focus) and the tier picker share a single visual system: filled = on. The hairline
+         divider separates what-the-globe-shows from what-tier-you-get.
+
+         CAMERA CONTROLS DO NOT BELONG IN HERE. This bar holds what you are looking AT; the
+         globe's top-right rail holds where you are looking FROM. Anything that moves or frames
+         the camera goes in the rail (see railControls.ts) — putting it here would sort controls
+         by which layer built them rather than by what they do. */
+      (borders || spotlight || quality) && (
+        // DO NOT ADD A PHONE COLLAPSE. The controls measure 229.7 px and the bar is allowed
+        // 281.6 px at 320 px, so they sit on one row at every width the site serves — and a
+        // trigger costs more than it saves: adding one back puts 320 px onto two rows, because
+        // trigger-plus-controls is what does not fit there, not the controls.
+        //
+        <div class="view-bar">
           <div class="view-bar-items" id="view-bar-items" role="group" aria-label="View options">
           {borders && (
             <button type="button" id="border-toggle" aria-pressed="false" title="Country borders">
@@ -166,12 +139,7 @@ const {
               Focus
             </button>
           )}
-          {spin && (
-            <button type="button" id="spin-toggle" aria-pressed="false" title="Toggle globe auto-rotate">
-              Spin
-            </button>
-          )}
-          {(borders || spotlight || spin) && quality && <span class="view-bar-divider" aria-hidden="true" />}
+          {(borders || spotlight) && quality && <span class="view-bar-divider" aria-hidden="true" />}
           {/* Tooltips describe what each tier DOES TODAY, not what the architecture plans for it.
               `currentTier()` has exactly one behavioural read in the whole site — globe.astro's
               `spinning` — so Full currently buys idle rotation and nothing else. Saying "3D
@@ -228,33 +196,6 @@ const {
       // Pages with map layers (the globe) react to this, not to the raw click —
       // it keeps the layout as the single writer of the persisted state.
       document.dispatchEvent(new CustomEvent("rg:borders", { detail: { on } }));
-    });
-  }
-
-  // View-bar collapse — phone-only, and the only toggle here whose effect is purely CSS: the
-  // class drives a `display: none` that lives inside a media query, so above the breakpoint the
-  // state is carried but inert. Persisted like the others rather than reset per page, because the
-  // bar is a thing you open to use for a while (flip Borders, try a tier) and re-collapsing it on
-  // every navigation would punish exactly that. Default is CLOSED — on a phone the pill covers
-  // the globe, which is the content.
-  const viewBar = document.querySelector<HTMLElement>(".view-bar");
-  const viewBarToggle = document.getElementById("view-bar-toggle") as HTMLButtonElement | null;
-  const VIEW_BAR_KEY = "rg:viewbar";
-  if (viewBar && viewBarToggle) {
-    const applyViewBarState = (open: boolean) => {
-      viewBar.classList.toggle("is-open", open);
-      // Pages with corner chrome of their own react to this (the globe hides its scale bar), the
-      // same layout-owns-the-state pattern as `borders-on` / `spotlight-on`. Needed because an
-      // expanded bar is TALL on a narrow phone — measured 141 px, four rows, at 320 px — and no
-      // fixed clearance constant can outrun something that grows with the viewport shrinking.
-      document.body.classList.toggle("viewbar-open", open);
-      viewBarToggle.setAttribute("aria-expanded", String(open));
-    };
-    applyViewBarState(localStorage.getItem(VIEW_BAR_KEY) === "1");
-    viewBarToggle.addEventListener("click", () => {
-      const open = viewBarToggle.getAttribute("aria-expanded") !== "true";
-      applyViewBarState(open);
-      localStorage.setItem(VIEW_BAR_KEY, open ? "1" : "0");
     });
   }
 

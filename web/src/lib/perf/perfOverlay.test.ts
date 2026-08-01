@@ -2,10 +2,13 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   FPS_WINDOW_MS,
+  MAX_RETAINED_LONG_TASKS,
   NARROW_VIEWPORT_PX,
   PERF_EXPORT_PATH,
   SLOW_FRAME_MS,
   exportPerfReport,
+  recordLongTask,
+  type LongTaskTally,
   frameInterval,
   frameRate,
   longTaskApiSupported,
@@ -27,6 +30,8 @@ const BASE: PerfSnapshot = {
   longTaskTotalMs: 0,
   longTaskMaxMs: 0,
   longTaskApiAvailable: true,
+  longTaskIntervals: [],
+  longTaskIntervalsDropped: 0,
   fps: null,
   lastActiveFps: null,
   lastActiveFpsAgeMs: null,
@@ -454,5 +459,55 @@ describe("frameRate", () => {
     expect(frameRate([4010, 4990], 5000, 100)).toBeNull();
     // And a stamp 1010 ms old is outside the default window, by one interval's worth of margin.
     expect(frameRate([3990, 4990], 5000)).toBeNull();
+  });
+});
+
+describe("recordLongTask", () => {
+  const newTally = (): LongTaskTally => ({
+    longTaskCount: 0,
+    longTaskTotalMs: 0,
+    longTaskMaxMs: 0,
+    longTaskIntervals: [],
+    longTaskIntervalsDropped: 0,
+  });
+
+  it("retains the WINDOW, not just the totals — the intervals cannot be recovered later", () => {
+    // Long tasks reach a PerformanceObserver and are never added to the performance timeline, so
+    // `getEntriesByType("longtask")` returns nothing. Retained here or lost for good.
+    const tally = newTally();
+    recordLongTask(tally, { startTime: 100, duration: 80 });
+    expect(tally.longTaskIntervals).toEqual([{ startMs: 100, endMs: 180 }]);
+    expect(tally.longTaskCount).toBe(1);
+    expect(tally.longTaskTotalMs).toBe(80);
+    expect(tally.longTaskMaxMs).toBe(80);
+  });
+
+  it("keeps the max across entries rather than the latest", () => {
+    const tally = newTally();
+    recordLongTask(tally, { startTime: 0, duration: 300 });
+    recordLongTask(tally, { startTime: 400, duration: 60 });
+    expect(tally.longTaskMaxMs).toBe(300);
+    expect(tally.longTaskTotalMs).toBe(360);
+  });
+
+  it("stops retaining windows at the ceiling and COUNTS what it dropped", () => {
+    const tally = newTally();
+    for (let index = 0; index < MAX_RETAINED_LONG_TASKS + 5; index += 1) {
+      recordLongTask(tally, { startTime: index * 100, duration: 60 });
+    }
+    expect(tally.longTaskIntervals).toHaveLength(MAX_RETAINED_LONG_TASKS);
+    expect(tally.longTaskIntervalsDropped).toBe(5);
+  });
+
+  it("keeps the TOTALS exact even when windows are dropped", () => {
+    // The invariant that makes the ceiling safe: a truncated interval list costs attribution
+    // detail and must never make the headline blocked figure wrong.
+    const tally = newTally();
+    const entries = MAX_RETAINED_LONG_TASKS + 50;
+    for (let index = 0; index < entries; index += 1) {
+      recordLongTask(tally, { startTime: index * 100, duration: 60 });
+    }
+    expect(tally.longTaskCount).toBe(entries);
+    expect(tally.longTaskTotalMs).toBe(entries * 60);
   });
 });

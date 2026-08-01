@@ -28,11 +28,17 @@ from pipeline.tile import cap_render, shade_planet, terrain_rgb
 
 
 class TestCapGridGeometry:
-    def test_aeqd_is_pole_centred_spherical(self):
-        assert "+proj=aeqd" in cap_render.NORTH.aeqd
-        assert "+lat_0=90.0" in cap_render.NORTH.aeqd
-        assert "+lat_0=-90.0" in cap_render.SOUTH.aeqd
-        assert f"+a={cap_render.SPHERE_R}" in cap_render.NORTH.aeqd
+    def test_aeqd_is_pole_centred_spherical(self, subtests):
+        """Subtests because these are four independent claims about one projection string, and a
+        bad edit to it breaks the projection, both centres and the sphere together."""
+        with subtests.test("projection is aeqd"):
+            assert "+proj=aeqd" in cap_render.NORTH.aeqd
+        with subtests.test("north is centred on the north pole"):
+            assert "+lat_0=90.0" in cap_render.NORTH.aeqd
+        with subtests.test("south is centred on the south pole"):
+            assert "+lat_0=-90.0" in cap_render.SOUTH.aeqd
+        with subtests.test("sphere radius"):
+            assert f"+a={cap_render.SPHERE_R}" in cap_render.NORTH.aeqd
 
     def test_edge_m_is_linear_in_colatitude(self):
         """AEQD from the pole: radius = R * colatitude(rad) — the linear law the

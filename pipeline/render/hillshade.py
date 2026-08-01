@@ -78,7 +78,7 @@ def combine_fill(main: np.ndarray, fill: np.ndarray, strength: float, altitude: 
     THE one implementation, called by both shade paths. `shade_planet` reaches it through
     `per_row_zfactor_hillshade`; `tile/shade.py`'s gdaldem branch calls it directly on a second
     gdaldem pass. A per-call-site copy of this arithmetic is exactly how the float32 window fix
-    reached `composite` and never reached this module (HISTORY 2026-07-16), so it lives here once.
+    reached `composite` and never reached this module
 
     The fill COMPRESSES rather than brightens: it lifts faces the main sun cannot reach and, via the
     rescale, darkens the ones it can. Measured max output DN therefore FALLS with strength (255 ->

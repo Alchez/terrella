@@ -5,13 +5,13 @@ Two of these are load-bearing beyond their size:
   * `test_shore_stop_is_water_rgb` pins LAKE_STOPS[0] to WATER_RGB. An untracked colour
     relationship drifting silently is precisely how the whole inland-water thread started --
     test_palette.py froze the land/sea ramps but not WATER_RGB, the sea rework
-    moved the sea out from under it, and nothing failed until Rohan spotted it in a
+    moved the sea out from under it, and nothing failed until it was spotted by eye in a
     screenshot. This is that guard, for the relationship that replaces it.
   * `TestLakesOnly` is the Caspian regression at unit level: the Caspian is watermask class 1
     since the re-fuse specifically so GEBCO's measured bathymetry beats GLOBathy's
     modelled cone there, and `lakes_only` is what enforces it.
 
-Per HISTORY.md 2026-07-06 (the blind-oracle bug: a structural diff whose filter deleted the
+Per
 very lines the bug was in, so it passed on a broken scene), each guard here also has a
 companion proving it FAILS on a known-bad input.
 """

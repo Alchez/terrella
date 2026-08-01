@@ -86,7 +86,7 @@ class Knobs(TypedDict):
 # it in hs_params.json, so a change to it correctly restages the hillshade (and, through
 # composite_deps' dependency on hs, the composite and the tiles).
 #
-# **0.15, chosen (Rohan)** off a five-strength sweep on real tiles under production's own
+# **0.15, chosen by eye** off a five-strength sweep on real tiles under production's own
 # global SVF. It is the hero's own ratio, and any value >= 0.10 already drives pure black to 0.00%
 # everywhere; past ~0.20 the compression starts reading flat rather than soft.
 #
@@ -95,37 +95,36 @@ class Knobs(TypedDict):
 # `ambient` deliberately STAYS 0.50 -- the sweep tried 0.56/0.62 and both re-created the "washed
 # rosy and flat" failure the hero's own A/B already rejected. The fill IS the shadow floor
 # (ART.md:90); a second floor under it only hazes the pale high country. Every metric said 0.62 was
-# best and every metric was wrong -- the eye decided it. -> HISTORY § the tiles were missing the
+# best and every metric was wrong -- the eye decided it.
 # hero's fill sun
 #
-# `snow_curve` **"gamma8", chosen (Rohan)** off a four-curve A/B (linear/gamma4/gamma8/
+# `snow_curve` **"gamma8", chosen by eye** off a four-curve A/B (linear/gamma4/gamma8/
 # knee) rendered through composite() at Greenland Summit + north and the Alps + Himalaya. It rides
 # here, not as a function parameter, for the same reason `lake_curve` does: it is a tunable, so
 # composite_params must see it. `snow_lo`/`snow_hi_pt` deliberately stay 0.55/1.05 -- the window is
 # not the lever, the CURVE is; a window narrow enough for Greenland is a threshold for the Alps.
-# -> HISTORY 2026-07-17 Greenland
-# `shadow_strength` 0.0 -- **REJECTED TWICE by Rohan (once under the ambient clip, once under the
+# `shadow_strength` 0.0 -- **REJECTED TWICE on the look (once under the ambient clip, once under the
 # knee) and rejected on the MECHANISM the second time.** Do not re-open with a new strength
 # value: `per_row_zfactor_hillshade` applies `shaded *= (1 - strength * shadow)`, which scales the
 # MAIN sun, and fine detail amplitude is proportional to light amplitude -- so local high-frequency
 # detail falls with it (68% kept at 0.35, 55% in full shadow; predicted to within a point by
 # arithmetic). Any cast shadow that attenuates the main sun erases the modeling it carries. Reopening
-# requires a different mechanism, not a different number. -> HISTORY 2026-07-21 (night)
+# requires a different mechanism, not a different number.
 # `shadow_reach` is a truncation distance in pixels, not a
 # safety limit -- a shadow longer than this simply stops, with no error and no visible edge. 300 px
 # covers Damavand (5,610 m -> 275 px) and the Zagros (~4,400 m -> 216 px) at the z8 grid; use
 # `cast_shadow.shadow_reach_px` to size it for any other terrain.
-# `ambient_knee` **0.30, chosen (Rohan)** on a full-planet pass judged on /globe. See
+# `ambient_knee` **0.30, chosen by eye** on a full-planet pass judged on /globe. See
 # `apply_ambient_floor`: `ambient` is a CLIFF, not a floor -- measured, 18.07% of Iran's
 # land sat under it carrying no hillshade information at all, and the knee is what gives that land
 # its form back. My metric-based recommendation was 0.15 and the eye overruled it; the local-contrast
 # std that argued for 0.15 is the same proxy that lost the fill-sun A/B, so it is now
-# twice-failed as a stand-in for perceived softness. -> HISTORY 2026-07-20 (evening) softness
-# `shadow_warmth` **0.55, chosen (Rohan)** on a full-planet pass judged on /globe, after
+# twice-failed as a stand-in for perceived softness.
+# `shadow_warmth` **0.55, chosen by eye** on a full-planet pass judged on /globe, after
 # 1.0 read too copper on Alpine crops. 1.0 would reproduce the hero's MEASURED shadow warmth (see
 # SHADOW_TINT), so this is 55% of the hero -- the value is anchored to a measurement even where it
 # departs from it. 0.0 is the pre-`shadow_warmth` look and is bit-identical when off.
-# `ice_relief_damp` **0.75, chosen (Rohan)** off a five-rung cap A/B (0/0.25/0.5/0.75/
+# `ice_relief_damp` **0.75, chosen by eye** off a five-rung cap A/B (0/0.25/0.5/0.75/
 # 1.0, `experiments/ab_ice_damp.py` -- the 21 s browser-free pole loop): how much thick sea ice
 # CONCEALS the seafloor's shading. The ice whites are light-keyed by `snow_t`, whose light over
 # ocean is the SEAFLOOR's hillshade -- so at full pack the floor's ridges painted into the ice at
@@ -380,7 +379,7 @@ def lake_position(depth, curve):
 # (1 - alpha) = 0 there. So a LINEAR window is forced to choose: wide enough for the Alps hands
 # Greenland 7% of its travel (2.87 DN delivered, i.e. blank); narrow enough for Greenland is a
 # threshold for the Alps. A curve is the only single global knob that can serve both, exactly as
-# `lake_curve` answers the pond-vs-Baikal version of this. -> HISTORY 2026-07-17 Greenland
+# `lake_curve` answers the pond-vs-Baikal version of this.
 KNEE_X = 0.93      # where Greenland's band starts on the normalised window
 KNEE_SHARE = 0.45  # fraction of the ramp handed to everything above KNEE_X
 

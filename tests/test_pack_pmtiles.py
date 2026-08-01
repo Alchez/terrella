@@ -1,6 +1,6 @@
 """pack_pmtiles: the XYZ tile directory -> MBTiles bridge (blobs moved, never re-encoded).
 
-`pmtiles convert` reads only MBTiles (HISTORY § 2026-07-13: the pack path is
+`pmtiles convert` reads only MBTiles
 dir -> MBTiles -> convert), and the one real trap is the row flip: MBTiles stores
 TMS rows (origin bottom-left) while our pyramid is XYZ (origin top-left,
 `gdal raster tile --convention=xyz`). A silent flip error would serve a
@@ -51,17 +51,25 @@ class TestPackDirectory:
         assert rows[(1, 1, 0)] == b"z1-se"       # XYZ y=1 -> TMS row 0
         assert len(rows) == 3
 
-    def test_metadata_carries_the_contract(self, tmp_path):
+    def test_metadata_carries_the_contract(self, subtests, tmp_path):
+        """Subtests over one pack: the setup builds a pyramid and writes sqlite, so re-running it
+        per field would be wasteful, and a regression in `pack_directory` corrupts several fields
+        at once. This reports every broken key from a single build."""
         make_pyramid(tmp_path / "tiles", self.TILES)
         out = tmp_path / "planet.mbtiles"
         pack_directory(tmp_path / "tiles", out, name="test")
         with sqlite3.connect(out) as db:
             metadata = dict(db.execute("SELECT name, value FROM metadata"))
-        assert metadata["format"] == "png"
-        assert metadata["name"] == "test"
-        assert metadata["minzoom"] == "0"
-        assert metadata["maxzoom"] == "1"        # derived from what is actually present
-        assert "-85.05" in metadata["bounds"]    # the post-Antarctica pyramid floor
+        with subtests.test("format"):
+            assert metadata["format"] == "png"
+        with subtests.test("name"):
+            assert metadata["name"] == "test"
+        with subtests.test("minzoom"):
+            assert metadata["minzoom"] == "0"
+        with subtests.test("maxzoom is derived from what is actually present"):
+            assert metadata["maxzoom"] == "1"
+        with subtests.test("bounds reach the post-Antarctica pyramid floor"):
+            assert "-85.05" in metadata["bounds"]
 
     def test_final_name_means_complete(self, tmp_path):
         """Interrupted packs must not leave a plausible .mbtiles behind (the .tmp +

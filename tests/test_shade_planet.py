@@ -514,18 +514,32 @@ class TestTileRecipe:
     halves — that TILE_CUT reaches the command line, and that changing it restages.
     """
 
-    def test_every_setting_reaches_the_command(self, tmp_path):
+    def test_every_setting_reaches_the_command(self, subtests, tmp_path):
         """The command and the recorded recipe cannot disagree, because one is built from the other.
-        A setting recorded but never passed would restage the world for no pixel change."""
+        A setting recorded but never passed would restage the world for no pixel change.
+
+        Subtests because the realistic regression is a rewritten `_tile_cmd`, which drops SEVERAL
+        settings at once; a chain of asserts would name the first and hide the rest. `skip_blank`
+        is TILE_CUT's ninth key and is asserted next door, from the flag rather than the constant,
+        because its presence depends on its value.
+        """
         cmd = " ".join(shade_planet._tile_cmd(tmp_path / "planet_rgb.tif", tmp_path / "tiles_new"))
-        assert f"--format={shade_planet.TILE_CUT['format']}" in cmd
-        assert f"QUALITY={shade_planet.TILE_CUT['quality']}" in cmd
-        assert f"--tile-size={shade_planet.TILE_CUT['tile_size']}" in cmd
-        assert f"--min-zoom={shade_planet.TILE_CUT['min_zoom']}" in cmd
-        assert f"--max-zoom={shade_planet.TILE_CUT['max_zoom']}" in cmd
-        assert f"--resampling={shade_planet.TILE_CUT['resampling']}" in cmd
-        assert f"--overview-resampling={shade_planet.TILE_CUT['overview_resampling']}" in cmd
-        assert f"--convention={shade_planet.TILE_CUT['convention']}" in cmd
+        with subtests.test("format"):
+            assert f"--format={shade_planet.TILE_CUT['format']}" in cmd
+        with subtests.test("quality"):
+            assert f"QUALITY={shade_planet.TILE_CUT['quality']}" in cmd
+        with subtests.test("tile_size"):
+            assert f"--tile-size={shade_planet.TILE_CUT['tile_size']}" in cmd
+        with subtests.test("min_zoom"):
+            assert f"--min-zoom={shade_planet.TILE_CUT['min_zoom']}" in cmd
+        with subtests.test("max_zoom"):
+            assert f"--max-zoom={shade_planet.TILE_CUT['max_zoom']}" in cmd
+        with subtests.test("resampling"):
+            assert f"--resampling={shade_planet.TILE_CUT['resampling']}" in cmd
+        with subtests.test("overview_resampling"):
+            assert f"--overview-resampling={shade_planet.TILE_CUT['overview_resampling']}" in cmd
+        with subtests.test("convention"):
+            assert f"--convention={shade_planet.TILE_CUT['convention']}" in cmd
 
     def test_params_serialise_the_whole_recipe(self):
         assert json.loads(shade_planet.tile_params()) == dict(shade_planet.TILE_CUT)

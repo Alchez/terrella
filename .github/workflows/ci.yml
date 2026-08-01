@@ -68,12 +68,15 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # pnpm before setup-node, so setup-node's `cache: pnpm` finds it. pnpm 11 reads the
-      # committed lockfileVersion 9.0 lockfile (verified: frozen install is clean).
+      # pnpm before setup-node, so setup-node's `cache: pnpm` finds it. The version is NOT
+      # pinned here: it comes from `packageManager` in web/package.json, so the dev box and
+      # CI cannot drift (they did — CI ran 11 while local ran 10, and pnpm 11's default
+      # `minimumReleaseAge` of 24h failed a lockfile that installed clean locally).
+      # package_json_file is relative to the repo root, not this job's working-directory.
       - name: Install pnpm
         uses: pnpm/action-setup@v6
         with:
-          version: 11
+          package_json_file: web/package.json
 
       - name: Install Node
         uses: actions/setup-node@v6
@@ -87,6 +90,25 @@ jobs:
 
       - name: Type-check (astro check)
         run: pnpm check
+
+      # The vitest `browser` project launches a real chromium; `pnpm install` fetches the
+      # playwright NPM package but never its browser binaries, so without this the project
+      # cannot start and the run reports `28 passed (30)` with an unhandled launch error.
+      # Placed after the type-check so a type error fails before paying for the download.
+      #
+      # `--only-shell` is coupled to `headless: true` in web/vitest.config.ts: headless
+      # chromium launches chrome-headless-shell, a separate ~100 MB artifact from the full
+      # Chrome for Testing build. Flipping that flag to headed needs this narrowing dropped,
+      # or CI fails with the same "Executable doesn't exist" it exists to prevent.
+      - name: Install the browser vitest launches
+        run: pnpm exec playwright install --with-deps --only-shell chromium
+
+      # A vitest project whose `include` matches nothing is absent from the run, not an error —
+      # green, exit 0, files silently uncollected — and `passWithNoTests` cannot be set per
+      # project. Its own step rather than part of `pnpm test`, because a guard inside the suite
+      # would be dropped by the same broken glob it is meant to catch.
+      - name: Every test file is collected
+        run: pnpm run check:test-collection
 
       - name: Tests (vitest)
         run: pnpm test

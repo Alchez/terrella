@@ -93,7 +93,7 @@ A separate, raster-only path that does **not** use Blender: fuse the whole plane
 | `pipeline.render.seaice` | sea-ice alpha over the ocean (translucent white, seafloor glows through) |
 | `pipeline.render.lake_depth` | GLOBathy lake depth on the tile grid (depth-keyed lake tint) |
 | `pipeline.tile.shade_planet` | the production planet pass: warp everything to one Web-Mercator grid, hillshade + fill sun, sky-view, windowed composite → `planet_rgb.tif`, then `gdal raster tile` → the z0–8 pyramid (`pipeline.tile.shade` is the region-sized A/B path) |
-| `pipeline.tile.cap_render` | both polar caps (AEQD, the same composite) → `web/public/caps/` |
+| `pipeline.tile.cap_render` | both polar caps (AEQD, the same composite) → `web/public/caps/`. The cap assets are gitignored, so a fresh clone regenerates them here; `--elev-only` rebuilds just the per-pole terrain-RGB textures, which have their own freshness gate and do not require the ~14 GB colour render |
 | `pipeline.tile.terrain_rgb` | the terrain-RGB elevation pyramid for the globe's Tier-3 displacement — read straight off `height_3857.tif`, never the composite, so it is a separate lane rather than a stage of the shade pass |
 | `pipeline.tile.pack_pmtiles` + `tools/pmtiles convert` | `planet.pmtiles` and `terrain.pmtiles` — the range-request-servable archives, one per pyramid. The packer reads the tile encoding off the directory, so the same command packs either |
 

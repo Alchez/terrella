@@ -29,13 +29,19 @@ class TestSimplifyTolerance:
 
 
 class TestOgrCommand:
-    def test_command_carries_the_contract(self):
+    def test_command_carries_the_contract(self, subtests):
+        """Subtests over one built command: the regression that matters is an edited flag list,
+        which drops more than one pair at a time."""
         command = countries_geojson.ogr_command(Path("src.shp"), Path("out.tmp"))
         adjacent_pairs = set(zip(command, command[1:]))
-        assert ("-simplify", str(countries_geojson.SIMPLIFY_DEG)) in adjacent_pairs
-        assert ("-select", "ADMIN") in adjacent_pairs  # the frontend join key
-        assert ("-lco", "RFC7946=YES") in adjacent_pairs  # WGS84 lon/lat GeoJSON
-        assert ("-lco", "COORDINATE_PRECISION=4") in adjacent_pairs
+        with subtests.test("simplify"):
+            assert ("-simplify", str(countries_geojson.SIMPLIFY_DEG)) in adjacent_pairs
+        with subtests.test("select ADMIN — the frontend join key"):
+            assert ("-select", "ADMIN") in adjacent_pairs
+        with subtests.test("RFC7946 — WGS84 lon/lat GeoJSON"):
+            assert ("-lco", "RFC7946=YES") in adjacent_pairs
+        with subtests.test("coordinate precision"):
+            assert ("-lco", "COORDINATE_PRECISION=4") in adjacent_pairs
 
     def test_destination_precedes_source(self):
         """ogr2ogr's argument order is [options] DESTINATION SOURCE — swapped,

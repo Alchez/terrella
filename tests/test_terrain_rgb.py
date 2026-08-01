@@ -411,16 +411,26 @@ def test_an_identical_recipe_does_not_move_its_mtime(tmp_path):
     assert path.stat().st_mtime_ns == stamped
 
 
-def test_the_recipe_records_what_the_directory_name_cannot():
+def test_the_recipe_records_what_the_directory_name_cannot(subtests):
     """`bathy_s8_webp` states the codec by convention and the depth by nothing at all — the z6
-    build sits beside the z8 one under names differing by a suffix somebody chose by hand."""
+    build sits beside the z8 one under names differing by a suffix somebody chose by hand.
+
+    Subtests so one `terrain_params` call reports every field it stopped recording: a setting that
+    silently drops out of the recipe is invisible to `is_stale`, which is the whole failure this
+    test guards.
+    """
     recipe = json.loads(terrain_rgb.terrain_params(8, 8.0, False, True, "webp"))
-    assert recipe["max_zoom"] == 8
-    assert recipe["format"] == "WEBP"
-    assert recipe["creation_options"] == ["LOSSLESS=YES"]
+    with subtests.test("max_zoom"):
+        assert recipe["max_zoom"] == 8
+    with subtests.test("format"):
+        assert recipe["format"] == "WEBP"
+    with subtests.test("creation_options"):
+        assert recipe["creation_options"] == ["LOSSLESS=YES"]
     # Module constants have no other file to move an mtime, so they must ride here or be invisible.
-    assert recipe["feather_lat_lo"] == terrain_rgb.FEATHER_LAT_LO
-    assert recipe["feather_lat_hi"] == terrain_rgb.FEATHER_LAT_HI
+    with subtests.test("feather_lat_lo rides the recipe"):
+        assert recipe["feather_lat_lo"] == terrain_rgb.FEATHER_LAT_LO
+    with subtests.test("feather_lat_hi rides the recipe"):
+        assert recipe["feather_lat_hi"] == terrain_rgb.FEATHER_LAT_HI
 
 
 def test_an_empty_pyramid_is_never_fresh(tmp_path):

@@ -40,6 +40,7 @@ describe("lib/perf is a lazy boundary", () => {
       "perfNetwork",
       "perfOverlay",
       "perfSnapshot",
+      "perfTrace",
     ]);
     expect(pageSources.length).toBeGreaterThan(0);
   });

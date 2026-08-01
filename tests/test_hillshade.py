@@ -7,7 +7,7 @@ the last line. `composite()` had the identical bug and was fixed (float32 @ 256
 rows, ~18 GB -> 6.93 GiB); the fix was never carried to its sibling. These tests are what make
 carrying it safe.
 
-Three things must hold, and each has a companion showing it can FAIL (HISTORY 2026-07-06: the
+Three things must hold, and each has a companion showing it can FAIL
 blind-oracle bug, a check whose filter deleted the very lines the bug was in):
 
   1. dtype does not silently upcast   -- the float32 saving is void if anything promotes back

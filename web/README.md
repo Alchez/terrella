@@ -42,9 +42,10 @@ pnpm dev --host
 > and a failed SSR import can stay cached — a server restart plus a hard reload clears both.
 
 > **Vite does not hot-reload `astro.config.ts`.** Page and lib code reloads, the `/tiles` middleware
-> does not — so changing the tile contract (`src/lib/reliefTiles.ts`) leaves a running dev server
-> answering the *old* request shape while the freshly-compiled globe asks for the new one, and every
-> tile 404s. **Restart the dev server after touching either.**
+> does not — so changing a tile contract (any of the `src/lib/` modules the config imports) leaves a
+> running dev server answering the *old* request shape while the freshly-compiled globe asks for the
+> new one, and every tile 404s. **Restart the dev server after touching the config, or any module it
+> imports.**
 
 ### Baked or live — the rule for where a value gets computed
 
@@ -124,7 +125,7 @@ worse than no run.
 | `?bare` | — | Tiles only: no caps, no borders, no country interaction. The floor of the loading window. |
 | `?nocaps` | — | Drops the polar caps. They are the largest VRAM term we allocate ourselves. |
 | `?terrain=` | `N` \| `off` | Forces 3D displacement on at any tier with exaggeration `N`, or `off` as a flat control **without demoting the tier**. Zero is refused — indistinguishable from off. |
-| `?maxreq=` | integer | MapLibre's parallel image cap (default 16). Measured: do not go below 8, and above 8 there is nothing to win. |
+| `?maxreq=` | 1–`MAX_PARALLEL_IMAGE_REQUESTS_CEILING` | MapLibre's parallel image cap, which every tile, sprite and icon shares as one FIFO queue. The site raises MapLibre's own 16 to `RAISED_MAX_PARALLEL_IMAGE_REQUESTS` for an unconstrained visitor, and leaves it at 16 under `Save-Data`, a slow link, or a phone — see `src/lib/tileConcurrency.ts`. The sweep found no saturation below the ceiling, so a higher arm needs that constant raised first. |
 | `?demcache=` | `off` \| slots | The DEM tile cache bound — `off`, an explicit slot count, or absent for the canvas-derived cap. |
 | `?demsize=` | `256` \| `512` | The DEM tile size declaration. 512 is the most expensive arm by far: render tiles are per-frame framebuffer binds plus a full replay of the layer stack. |
 | `?skirt=` | `auto` \| `none` | Terrain skirt length (ships `none`). A **constructor** option — the skirt is baked into the cached mesh, so it needs one page load per arm. |
@@ -145,6 +146,7 @@ Run from `web/`:
 | `pnpm astro -- --help` | Get help using the Astro CLI                     |
 | `pnpm check`           | Type-check (`astro check`) — must report 0 errors |
 | `pnpm test`            | Unit tests (vitest)                              |
+| `pnpm run check:test-collection` | Asserts every `*.test.ts` is collected by a vitest project |
 | `pnpm run build:deploy` | Build addressing the production asset hosts      |
 | `pnpm run deploy`      | `build:deploy`, then upload to Cloudflare        |
 
@@ -156,11 +158,13 @@ duplicate assertion in `capability.test.ts` was vacuous its whole life. Both pas
 
 **`uv run scripts/sabotage.py`** (from the repo root) settles it. Each case breaks one string in one
 source file, runs the suite, and restores the file — and it names the test that must catch it, so "the
-suite went red" is not accepted as proof. **81 cases, about 5 minutes.**
+suite went red" is not accepted as proof. A full pass runs the whole suite once per case, so budget
+roughly that: `--list` prints the current table and runs nothing.
 
-Seventy-one drive `pnpm test`. The other ten drive `pytest`, and they exist to sabotage
-`tests/test_sabotage_cases.py` — the gate that keeps this table honest is a guard like any other, so it
-gets the same treatment.
+Most cases drive `pnpm test`. The rest drive `pytest`, and they are the ones worth knowing about: they
+sabotage the guards that keep the *documentation and the table itself* honest — an unclosed code fence,
+a clipped table row, a case whose needle a refactor has moved. The gate that keeps this table honest is
+a guard like any other, so it gets the same treatment.
 
 ```sh
 uv run scripts/sabotage.py                  # every case

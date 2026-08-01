@@ -8,7 +8,6 @@ import { REPO_URL } from "../lib/siteLinks";
   description="An interactive globe of ray-traced relief, every country."
   borders={true}
   quality={true}
-  spin={true}
 >
   <!-- Static space backdrop: a sparse starfield painted behind the transparent
        map, so it shows only in the space around the sphere (zoomed out). -->
@@ -113,6 +112,13 @@ import { REPO_URL } from "../lib/siteLinks";
     display: flex;
     align-items: center;
     gap: 0.5rem;
+    /* ONE LINE BOX FOR THE WHOLE ROW — it is what makes the pills agree. A 0.9rem word carries a
+       21.6 px line box where a 1.05rem icon carries 16.8, so without this the text pill stands
+       41.2 px against the icon pills' 36.4. Pinning the line box to the icon's height makes every
+       pill `ink + padding + border` over the same ink, matching by construction rather than by
+       three padding values tuned against each other. */
+    --chrome-ink: 1.05rem;
+    line-height: var(--chrome-ink);
   }
   /* Floating chrome over the map: translucent `--bg-2` wash, backdrop blur, hairline `--line`
      border. Stated here rather than cited from a sibling — this used to say "matching the
@@ -142,8 +148,8 @@ import { REPO_URL } from "../lib/siteLinks";
   }
   .globe-source svg {
     display: block;
-    width: 1.05rem;
-    height: 1.05rem;
+    width: var(--chrome-ink);
+    height: var(--chrome-ink);
     fill: currentColor;
   }
   .globe-home:hover,
@@ -368,42 +374,63 @@ import { REPO_URL } from "../lib/siteLinks";
      A `#globe` prefix would be the tidier way to gain specificity, but the credit is re-parented
      out of #globe entirely (see the script below) and would stop matching. */
 
-  /* The credit, once the script has folded it into the view bar. Keyed on the class that move
-     adds — NOT on `.view-bar` as an ancestor — so the styling and the re-parenting can never
-     disagree about where the element is. Everything here UNWINDS a box property MapLibre ships,
-     because the pill around it already provides that box: no background, no border, no radius,
-     no shadow. Four classes because `.maplibregl-ctrl.maplibregl-ctrl-attrib` is (0,2,0) and
-     MapLibre's stylesheet is injected at RUNTIME by its ES-module import, so it lands after this
-     block wherever the block sits and an equal-specificity rule loses silently on source order.
+  /* The credit, once the script has folded it into the top-left chrome row. Keyed on the class
+     that move adds — NOT on `.globe-chrome` as an ancestor — so the styling and the re-parenting
+     can never disagree about where the element is; the element has now moved twice, and an
+     ancestor selector would have silently stopped matching on the second move.
+
+     It REPLACES MapLibre's box rather than unwinding it: every sibling in this row carries its
+     own. The treatment is `.globe-source`'s to the pixel — same wash, blur, hairline, radius,
+     padding and icon size — because three pills in one row that differ slightly read as a mistake
+     rather than as a family.
+
+     Four classes because `.maplibregl-ctrl.maplibregl-ctrl-attrib` is (0,2,0) and MapLibre's
+     stylesheet is injected at RUNTIME by its ES-module import, so it lands after this block
+     wherever the block sits and an equal-specificity rule loses silently on source order.
      `font-family` is named rather than `inherit` because `.maplibregl-map` sets a `font`
      SHORTHAND on the map container, so `inherit` once faithfully inherited Helvetica. */
-  .view-bar-credit.view-bar-credit.maplibregl-ctrl.maplibregl-ctrl {
-    background: none;
-    border: 0;
-    border-radius: 0;
-    box-shadow: none;
+  .chrome-credit.chrome-credit.maplibregl-ctrl.maplibregl-ctrl {
+    display: inline-flex;
+    align-items: center;
     margin: 0;
-    padding: 0.35rem 0.55rem; /* square-ish, since the credit is a glyph rather than a word */
-    color: var(--muted);
+    padding: 0.55rem;
+    background: color-mix(in srgb, var(--bg-2) 92%, transparent);
+    -webkit-backdrop-filter: blur(6px);
+    backdrop-filter: blur(6px);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    box-shadow: var(--shadow);
+    color: var(--text);
     font-family: var(--sans);
-    font-size: 0.78rem;
-    line-height: 1.1;
+    font-size: 0.9rem;
+    line-height: 1;
   }
-  .view-bar-credit.view-bar-credit a {
+  /* THE WRAPPER IS WHY THE PILL WAS AN OVAL. MapLibre nests the link inside
+     `.maplibregl-ctrl-attrib-inner`, a block whose own line box measured 19.2 px around a 16.8 px
+     anchor — 2.4 px of height the width never received, so a pill that should have been 36.4
+     square rendered 36.4 × 38.8. `.globe-source` has no such wrapper, which is why only one of the
+     two circles was a circle. Collapsing the wrapper to a flex line fixes it at the source rather
+     than by shaving the padding until it happens to look round. */
+  .chrome-credit.chrome-credit .maplibregl-ctrl-attrib-inner {
+    display: flex;
+    align-items: center;
+    line-height: var(--chrome-ink);
+  }
+  .chrome-credit.chrome-credit a {
     display: inline-flex; /* kills the inline-box descender gap under the glyph */
     align-items: center;
-    color: var(--muted);
+    color: inherit;
     text-decoration: none;
   }
-  /* Sized to match .globe-source's octicon, so the page's two icon links read as one family.
-     `fill: currentColor` is the whole reason this is our SVG and not MapLibre's raster ⓘ. */
-  .view-bar-credit.view-bar-credit svg {
+  /* Exactly `.globe-source`'s octicon size, so the row's icons compare by rendered INK rather than
+     by CSS box. `fill: currentColor` is the whole reason this is our SVG and not MapLibre's ⓘ. */
+  .chrome-credit.chrome-credit svg {
     display: block;
-    width: 1.15rem;
-    height: 1.15rem;
+    width: var(--chrome-ink);
+    height: var(--chrome-ink);
     fill: currentColor;
   }
-  .view-bar-credit.view-bar-credit a:hover {
+  .chrome-credit.chrome-credit:hover {
     color: var(--accent);
   }
   /* No ⓘ rules any more, and that is the point: `compact: false` means MapLibre never adds
@@ -411,44 +438,310 @@ import { REPO_URL } from "../lib/siteLinks";
      baked-black-SVG glyph off the page at every width. The button we could not safely recolour is
      simply never shown. */
 
-  /* The scale bar is the one control still docked bottom-left — leaving it stock white would make
-     the credit's treatment look like an accident rather than a theme. */
-  .maplibregl-ctrl-scale.maplibregl-ctrl-scale.maplibregl-ctrl {
+  /* THE RULER — the scale bar, re-sited onto the view bar's top edge.
+
+     It used to be the one control docked to a page corner, and that corner cost it two rules that
+     are now DELETED with it: a `bottom: 6.5rem` lift under a 700 px media query, and a
+     `display: none` under `body.viewbar-open` below 600 px. Both existed because a bar that grows
+     with the zoom (to a 120 px cap) was being kept clear of a centred pill that grows with the
+     viewport shrinking — two widths moving at runtime, chased with constants.
+
+     Out of flow is what makes this safe: MapLibre rewrites the element's inline `width` on every
+     zoom, so an in-flow ruler would resize the centred pill on every zoom step. `position:
+     absolute` inside `.view-bar` (which is `position: relative` for exactly this) means the bar's
+     width is decided by its controls alone.
+
+     The shape is MapLibre's own, re-read rather than replaced: the control already renders as a
+     `└──┘` bracket — borders left, right and bottom around the distance text. We keep the ticks,
+     drop the bottom rule, and let THE PILL'S OWN TOP BORDER be the ruler's line. Two coincident
+     1 px lines would just read as a thicker border; one line doing both jobs is the idea. */
+  /* A TAB, not a bare bracket: the readout has no control over what it sits on, and hairlines over
+     lit desert are unreadable. It carries the same wash, blur and hairline as every other floating
+     element, so it reads as part of the pill it grows out of, and its own left and right borders
+     are the extent marks. The pill's top border is the baseline they measure against — one line
+     doing both jobs rather than two coincident ones.
+
+     NO `width` HERE. It is set inline from `RULER_WIDTH_PX`, the same constant that decides which
+     two screen points get measured — a stylesheet free to disagree would make the ruler lie. */
+  .view-bar-ruler {
+    position: absolute;
+    /* +1px, not a flat 100%. An absolute child is positioned against the PADDING box, so `100%`
+       leaves a one-pixel gap above the pill's border — invisible at DPR 1, a hairline at DPR 2. */
+    bottom: calc(100% + 1px);
+    /* Centred on the pill, at every width. A left-anchored ruler earns its position only when its
+       span means something — MapLibre's did, because the span WAS the measurement. Ours is a
+       constant, so anchoring it off-centre is an arbitrary offset with nothing behind it, and
+       centring makes it read as the pill's own scale mark. */
+    left: 50%;
+    transform: translateX(-50%);
+    margin: 0;
+    padding: 0.16rem 0 0.2rem;
     background: color-mix(in srgb, var(--bg-2) 92%, transparent);
     -webkit-backdrop-filter: blur(6px);
     backdrop-filter: blur(6px);
     border: 1px solid var(--line);
-    border-top: 0;
-    border-radius: 0 0 6px 6px;
-    box-shadow: var(--shadow);
+    border-bottom: 0;
+    border-radius: 7px 7px 0 0;
+    /* The marginalia voice, shared with `.legend figcaption` on the gallery — the elevation legend
+       and the globe's scale are the same register of caption, so they read as one hand. */
     color: var(--muted);
-    font-family: var(--sans);
-    font-size: 0.7rem;
-    padding: 0 0.4rem;
+    font-family: var(--mono);
+    font-size: 0.6rem;
+    letter-spacing: 0.04em;
+    line-height: 1.25;
+    text-align: center;
+    white-space: nowrap;
+    /* A readout, not a control — it must never eat a drag aimed at the globe behind it. */
+    pointer-events: none;
+  }
+  /* Centred at every width; the transform is safe here, unlike on the bar itself, because the
+     width is explicit and there is no shrink-to-fit for `left: 50%` to halve.
+
+     BUT A TAB NEEDS SOMETHING TO REST ON. Below the collapse breakpoint the bar shrinks to a
+     single ~38 px trigger, and a 96 px ruler perched on it reads as a speech bubble pointing at
+     nothing — its bottom corners overhang into empty space on both sides. So when the bar is
+     collapsed the ruler closes into a pill of its own and lifts clear: it is not resting on
+     anything, and it should not pretend to.
+
+     Measured across 320/360/414 px, the bar is 271-284 px wide — always wider than the 96 px
+     ruler — so the tab always has a straight edge under it and needs no narrow-screen variant. */
+
+  /* ── THE CAMERA RAIL ───────────────────────────────────────────────────────────────────────
+
+     Until now this stack was the only chrome on the page not speaking the floating-pill language
+     that `.globe-home`, `.country-chip` and `.view-bar` share, and the reason was cost, recorded
+     at the time: every MapLibre icon is a `background-image` data-URI with its fill BAKED IN
+     (`#333` light, `#fff` dark, `#33b5e5` for an enabled state, `#ccc` for the compass's south
+     half), so recolouring meant re-authoring an image per state rather than swapping a token.
+
+     `mask-image` retires that. The icon becomes an alpha stencil and `background-color:
+     currentColor` paints it, so the glyph simply takes the button's `color` — and hover, pressed,
+     disabled and dark mode all fall out of the same four tokens the rest of the site uses. The
+     permanent blue goes with it.
+
+     EVERY SELECTOR REPEATS A CLASS, as everywhere else in this block: MapLibre's stylesheet is
+     injected at RUNTIME by its ES-module import, so it lands after this block wherever the block
+     sits, and an equal-specificity rule loses silently on source order. */
+  .maplibregl-ctrl-top-right .maplibregl-ctrl-group.maplibregl-ctrl-group {
+    /* WHAT IS HELD CONSTANT IS THE INK, NOT THE BOX — the same rule the top-left row now follows.
+       `mask-size` sizes the whole viewBox, so identical sizes across icons whose ink fills
+       different fractions of their boxes render at visibly different weights: measured, the six
+       glyphs were landing between 0.72rem and 1.05rem of actual ink while all claiming one size.
+       Two constants, because there are two kinds of source (do not collapse them into one):
+         --rail-ink       MapLibre's fill icons, viewBoxes CROPPED to their ink below, so the box
+                          is the ink and one size covers them.
+         --rail-ink-24    ours, authored on a shared 24-unit box so the 2-unit stroke renders at
+                          one weight; the larger size compensates for the margin that box carries.
+       Both land ~17 px of ink. Changing either alone will break the match. */
+    --rail-ink: 1.0625rem;
+    --rail-ink-24: 1.36rem;
+    background: color-mix(in srgb, var(--bg-2) 92%, transparent);
+    -webkit-backdrop-filter: blur(6px);
+    backdrop-filter: blur(6px);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    box-shadow: var(--shadow);
+    overflow: hidden; /* so the end buttons clip to the stadium rather than squaring it off */
+  }
+  .maplibregl-ctrl-top-right .maplibregl-ctrl-group.maplibregl-ctrl-group button {
+    width: 2.15rem;
+    height: 2.15rem;
+    color: var(--muted);
+    background: transparent;
+  }
+  /* Hairlines BETWEEN buttons only — MapLibre ships `#ddd`, which is a light-theme constant. */
+  .maplibregl-ctrl-top-right .maplibregl-ctrl-group.maplibregl-ctrl-group button + button {
+    border-top: 1px solid var(--line);
+  }
+  .maplibregl-ctrl-top-right .maplibregl-ctrl-group.maplibregl-ctrl-group button:hover {
+    color: var(--text);
+  }
+  /* Filled = on. The same grammar the view bar's toggles use, so a pressed glyph in the rail and
+     a pressed word in the pill mean the same thing without looking alike. */
+  .maplibregl-ctrl-top-right
+    .maplibregl-ctrl-group.maplibregl-ctrl-group
+    button[aria-pressed="true"] {
+    color: var(--bg);
+    background: var(--accent);
+  }
+  .maplibregl-ctrl-top-right .maplibregl-ctrl-group.maplibregl-ctrl-group button:disabled,
+  .maplibregl-ctrl-top-right .maplibregl-ctrl-group.maplibregl-ctrl-group button.is-unavailable {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+  /* MapLibre's focus ring is a hardcoded `#0096ff`, the one remaining off-palette colour. */
+  .maplibregl-ctrl-top-right .maplibregl-ctrl-group.maplibregl-ctrl-group button:focus-visible {
+    box-shadow: 0 0 0 2px var(--accent);
   }
 
-  /* The scale bar GROWS WITH THE ZOOM up to its 120 px cap, so its right edge reaches x=130 and
-     the centred bar's left edge comes to meet it as the viewport narrows. Clearance therefore has
-     to come from HEIGHT — fixed and known — not from two widths that both move at runtime.
-     The bar is COLLAPSED by default below 600 px, so the case this constant has to clear is a
-     one-row bar whose top sits 62 px above the viewport bottom; 6.5rem = 104 px clears it by 42.
-     The breakpoint is 700 px, not 600: between them the bar is always expanded, and its left edge
-     is still inside the scale bar's reach (they cross at 690 px) — a band that collides only at
-     high zoom, which is the worst kind to find by eye. */
-  @media (max-width: 700px) {
-    .maplibregl-ctrl-bottom-left.maplibregl-ctrl-bottom-left {
-      bottom: 6.5rem;
-    }
+  /* The stencil. `--rail-icon` is set per button below; anything without one renders nothing,
+     which fails visibly rather than falling back to a stock black glyph on a dark pill. */
+  .maplibregl-ctrl-top-right .maplibregl-ctrl-group.maplibregl-ctrl-group .maplibregl-ctrl-icon {
+    background-image: none;
+    background-color: currentColor;
+    -webkit-mask-image: var(--rail-icon);
+    mask-image: var(--rail-icon);
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
+    -webkit-mask-position: center;
+    mask-position: center;
+    -webkit-mask-size: var(--rail-icon-size, var(--rail-ink));
+    mask-size: var(--rail-icon-size, var(--rail-ink));
   }
 
-  /* An EXPANDED bar on a narrow phone outruns any fixed lift: measured 75 px tall at 390 px,
-     108 at 360, and 141 — four rows — at 320, against a 104 px lift. Rather than chase it with a
-     bigger constant (which would push the scale bar into the middle of the screen at the widths
-     where it does fit), drop the scale bar for as long as the controls are open. It is the lowest
-     value element on the page, the state is one the user just chose, and it returns on collapse. */
-  @media (max-width: 600px) {
-    body.viewbar-open .maplibregl-ctrl-bottom-left.maplibregl-ctrl-bottom-left {
-      display: none;
+  /* VIEWBOXES ARE CROPPED TO THE INK, not left at MapLibre's nominal 0 0 29 29. Their plus spans
+     8.5-20.5 of a 29-unit box, so 40% of it is margin and at a shared mask-size it would render
+     visibly smaller than the glyphs beside it — the same geometry that made the credit's ⓘ draw at
+     60% of its box. Cropping fixes it at the source instead of tuning six sizes by eye. */
+  .maplibregl-ctrl-top-right .maplibregl-ctrl-zoom-in .maplibregl-ctrl-icon {
+    --rail-icon: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='8.5 8.5 12 12'%3E%3Cpath d='M14.5 8.5c-.75 0-1.5.75-1.5 1.5v3h-3c-.75 0-1.5.75-1.5 1.5S9.25 16 10 16h3v3c0 .75.75 1.5 1.5 1.5S16 19.75 16 19v-3h3c.75 0 1.5-.75 1.5-1.5S19.75 13 19 13h-3v-3c0-.75-.75-1.5-1.5-1.5'/%3E%3C/svg%3E");
+  }
+  .maplibregl-ctrl-top-right .maplibregl-ctrl-zoom-out .maplibregl-ctrl-icon {
+    --rail-icon: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='8.5 8.5 12 12'%3E%3Cpath d='M10 13c-.75 0-1.5.75-1.5 1.5S9.25 16 10 16h9c.75 0 1.5-.75 1.5-1.5S19.75 13 19 13z'/%3E%3C/svg%3E");
+  }
+  .maplibregl-ctrl-top-right .maplibregl-ctrl-fullscreen .maplibregl-ctrl-icon {
+    --rail-icon: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='4 4 21 21'%3E%3Cpath d='M24 16v5.5c0 1.75-.75 2.5-2.5 2.5H16v-1l3-1.5-4-5.5 1-1 5.5 4 1.5-3zM6 16l1.5 3 5.5-4 1 1-4 5.5 3 1.5v1H7.5C5.75 24 5 23.25 5 21.5V16zm7-11v1l-3 1.5 4 5.5-1 1-5.5-4L6 13H5V7.5C5 5.75 5.75 5 7.5 5zm11 2.5c0-1.75-.75-2.5-2.5-2.5H16v1l3 1.5-4 5.5 1 1 5.5-4 1.5 3h1z'/%3E%3C/svg%3E");
+  }
+  .maplibregl-ctrl-top-right .maplibregl-ctrl-shrink .maplibregl-ctrl-icon {
+    --rail-icon: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='4 4 21 21'%3E%3Cpath d='M18.5 16c-1.75 0-2.5.75-2.5 2.5V24h1l1.5-3 5.5 4 1-1-4-5.5 3-1.5v-1zM13 18.5c0-1.75-.75-2.5-2.5-2.5H5v1l3 1.5L4 24l1 1 5.5-4 1.5 3h1zm3-8c0 1.75.75 2.5 2.5 2.5H24v-1l-3-1.5L25 5l-1-1-5.5 4L17 5h-1zM10.5 13c1.75 0 2.5-.75 2.5-2.5V5h-1l-1.5 3L5 4 4 5l4 5.5L5 12v1z'/%3E%3C/svg%3E");
+  }
+
+  /* Idle rotation: a broken ring with two heads, around a body it plainly encircles. Three
+     constraints, each of which a redesign will otherwise rediscover at 18 device pixels: a TILTED
+     ring thin enough to read as one passes straight through the body, leaving its arrowheads
+     nowhere clear to sit; heads on a CLOSED outline merge into it and read as squiggles; and a
+     single circular arrow reads as "reload" on anything that loads. */
+  .maplibregl-ctrl-top-right .rg-ctrl-spin .maplibregl-ctrl-icon {
+    --rail-icon: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3.5 8.9A9 9 0 0 1 20.5 8.9'/%3E%3Cpath d='M20.5 15.1A9 9 0 0 1 3.5 15.1'/%3E%3Cpath d='M21.1 5.8 20.5 8.9 17.9 7'/%3E%3Cpath d='M2.9 18.2 3.5 15.1 6.1 17.1'/%3E%3Ccircle cx='12' cy='12' r='4.3' fill='%23000' stroke='none'/%3E%3C/svg%3E");
+    --rail-icon-size: var(--rail-ink-24);
+  }
+  /* Hide controls: a closed eye, opening when pressed. The pair is the whole reason for it —
+     closed means the chrome is hidden, open means it is back — and a button that has just hidden
+     every other control has to carry that state itself, because nothing else is left to show it.
+     The earlier chevron-to-a-baseline was dropped for reading as a download glyph, and the
+     frame-corner alternative for reading as fullscreen, which is the button directly above. */
+  .maplibregl-ctrl-top-right .rg-ctrl-quiet .maplibregl-ctrl-icon {
+    --rail-icon: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2.8 9.9C5 13.4 8.3 15.4 12 15.4s7-2 9.2-5.5'/%3E%3Cpath d='M4.6 14.1 2.9 16.6'/%3E%3Cpath d='M12 15.4v3'/%3E%3Cpath d='M19.4 14.1 21.1 16.6'/%3E%3C/svg%3E");
+    --rail-icon-size: var(--rail-ink-24);
+  }
+  .maplibregl-ctrl-top-right .rg-ctrl-quiet[aria-pressed="true"] .maplibregl-ctrl-icon {
+    --rail-icon: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2.5 12S6 5.8 12 5.8s9.5 6.2 9.5 6.2-3.5 6.2-9.5 6.2S2.5 12 2.5 12'/%3E%3Ccircle cx='12' cy='12' r='2.9'/%3E%3C/svg%3E");
+  }
+
+  /* THE COMPASS IS AUTHORED, NOT MASKED. Its icon is two triangles — `#333` north over `#ccc`
+     south — and a single mask flattens both to one colour, rendering a bowtie. Two pseudo-elements
+     instead, so north can take the accent and south the hairline. They sit inside the icon span,
+     which is the element MapLibre writes its `scale() rotateX(pitch) rotateZ(-bearing)` transform
+     onto, so the needle keeps rotating with the bearing for free. */
+  /* THE DOUBLED `.maplibregl-ctrl-group` IS LOAD-BEARING. The shared icon rule above is (0,4,0)
+     through its own doubled class, so an exception written at (0,3,0) loses to it — the span then
+     keeps `background-color: currentColor` with no mask to shape it and paints the whole 2.15 rem
+     box `--muted`, a grey block with the needle halves drawn on top. Any rule here that overrides
+     the shared one needs the same doubled class, including against our own rules. */
+  .maplibregl-ctrl-top-right
+    .maplibregl-ctrl-group.maplibregl-ctrl-group
+    .maplibregl-ctrl-compass
+    .maplibregl-ctrl-icon {
+    position: relative;
+    background-color: transparent;
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
+  .maplibregl-ctrl-top-right .maplibregl-ctrl-compass .maplibregl-ctrl-icon::before,
+  .maplibregl-ctrl-top-right .maplibregl-ctrl-compass .maplibregl-ctrl-icon::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
+    -webkit-mask-position: center;
+    mask-position: center;
+    -webkit-mask-size: var(--rail-ink);
+    mask-size: var(--rail-ink);
+  }
+  .maplibregl-ctrl-top-right .maplibregl-ctrl-compass .maplibregl-ctrl-icon::before {
+    background-color: var(--accent);
+    -webkit-mask-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='5.5 6 18 18'%3E%3Cpath d='m10.5 14 4-8 4 8z'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='5.5 6 18 18'%3E%3Cpath d='m10.5 14 4-8 4 8z'/%3E%3C/svg%3E");
+  }
+  /* The south half sits well back. MapLibre's own geometry leaves a 2-unit gap between the two
+     triangles, which at 17 px is a visible ~2 px channel — so two halves of similar weight read as
+     a separate up-arrow and down-arrow (an increase/decrease pair) rather than as one needle.
+     Dropping the south to a hint makes the north the pointer and the south its shadow. */
+  .maplibregl-ctrl-top-right .maplibregl-ctrl-compass .maplibregl-ctrl-icon::after {
+    background-color: var(--muted);
+    opacity: 0.28;
+    -webkit-mask-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='5.5 6 18 18'%3E%3Cpath d='m10.5 16 4 8 4-8z'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='5.5 6 18 18'%3E%3Cpath d='m10.5 16 4 8 4-8z'/%3E%3C/svg%3E");
+  }
+
+  /* QUIET MODE. Everything that is not the globe goes, on a class the page owns. `visibility`
+     rather than `display` so nothing reflows on the way out and back — the bar is `width:
+     fit-content` and a re-layout would make it jump — and `pointer-events: none` so hidden chrome
+     cannot swallow a drag aimed at the sphere.
+
+     TWO GHOSTS SURVIVE, one in each occupied corner, and both are deliberate: the rail's frame
+     group, which holds the only visible way back out, and the credit, which is a licence pointer
+     rather than a view option. Each fades to a quarter and returns on hover or focus, so the exit
+     and the licence are both reachable without either reading as chrome.
+
+     `.globe-chrome` is NOT hidden as a whole any more — it holds the credit now, so its two links
+     are hidden individually. `visibility` rather than `display` keeps the ⓘ where it already is;
+     collapsing the row would slide it into the corner, which is motion for no reason. */
+  body.is-quiet .country-chip,
+  body.is-quiet .view-bar {
+    visibility: hidden;
+    pointer-events: none;
+  }
+  body.is-quiet .maplibregl-ctrl-top-right .maplibregl-ctrl-group:not(:has(.rg-ctrl-quiet)) {
+    visibility: hidden;
+    pointer-events: none;
+  }
+  /* `display`, not `visibility` — the reflow is the point here. Hidden-but-present, these keep
+     their width and leave the credit parked mid-row: adrift near the middle of the top edge on a
+     phone, touching no corner. Collapsing them lets it fall into the corner, where a lone ghost
+     belongs. */
+  body.is-quiet .globe-home,
+  body.is-quiet .globe-source {
+    display: none;
+  }
+  /* Fullscreen goes too: one ghost per corner, per the note above. And a ghost is a GLYPH, not a
+     filled button — the quiet toggle is pressed in this state, and leaving its accent fill on
+     under a group whose background has been stripped lets `overflow: hidden` clip the fill into a
+     shield floating over the map. */
+  body.is-quiet .maplibregl-ctrl-fullscreen {
+    display: none;
+  }
+  body.is-quiet .rg-ctrl-quiet[aria-pressed="true"] {
+    color: var(--muted);
+    background: none;
+  }
+  body.is-quiet .chrome-credit.chrome-credit.maplibregl-ctrl,
+  body.is-quiet .maplibregl-ctrl-top-right .maplibregl-ctrl-group:has(.rg-ctrl-quiet) {
+    opacity: 0.25;
+    background: none;
+    border-color: transparent;
+    box-shadow: none;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  body.is-quiet .chrome-credit.chrome-credit.maplibregl-ctrl:hover,
+  body.is-quiet .chrome-credit.chrome-credit.maplibregl-ctrl:focus-within,
+  body.is-quiet .maplibregl-ctrl-top-right .maplibregl-ctrl-group:has(.rg-ctrl-quiet):hover,
+  body.is-quiet
+    .maplibregl-ctrl-top-right
+    .maplibregl-ctrl-group:has(.rg-ctrl-quiet):focus-within {
+    opacity: 1;
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .globe-home,
+    .globe-source,
+    .chrome-credit,
+    .view-bar,
+    .maplibregl-ctrl-top-right .maplibregl-ctrl-group {
+      transition:
+        opacity 0.25s ease,
+        visibility 0.25s ease;
     }
   }
 </style>
@@ -525,11 +818,11 @@ import { REPO_URL } from "../lib/siteLinks";
     Point,
     RasterSourceSpecification,
   } from "maplibre-gl";
-  import type { Feature, FeatureCollection } from "geojson";
   import "maplibre-gl/dist/maplibre-gl.css";
   import { manifest, type Country } from "../lib/manifest";
   import {
     BORDERS_BASE,
+    COUNTRIES_URL_TEMPLATE,
     HERO_BASE,
     TERRAIN_URL_TEMPLATE,
     TILE_BASE,
@@ -544,6 +837,9 @@ import { REPO_URL } from "../lib/siteLinks";
     RESOURCE_TIMING_BUFFER_SIZE,
     raiseResourceTimingBuffer,
   } from "../lib/resourceTimingBuffer";
+  // Same split, same reason: the span call sites are ordinary always-shipped code, so the runtime
+  // half lives outside lib/perf/ while the analysis stays behind the lazy boundary.
+  import { TRACED_SPANS, beginSpan, enablePerfTrace } from "../lib/perfSpans";
   import type { CameraFill } from "../lib/perf/perfNetwork";
   import {
     MAX_TERRAIN_EXAGGERATION,
@@ -585,6 +881,7 @@ import { REPO_URL } from "../lib/siteLinks";
   import {
     MAPLIBRE_DEFAULT_MAX_PARALLEL_IMAGE_REQUESTS,
     MAX_PARALLEL_IMAGE_REQUESTS_CEILING,
+    defaultMaxParallelImageRequests,
     parseMaxParallelImageRequests,
   } from "../lib/tileConcurrency";
   import {
@@ -606,18 +903,21 @@ import { REPO_URL } from "../lib/siteLinks";
   // Ids and poles only — the cap MESH and its textures stay behind the dynamic import below.
   // glDiagnostics already pulls these two statically, so this adds nothing to the bundle.
   import { CAP_POLES, capLayerId, deviceClass } from "../lib/polarCaps";
-  import { currentTier, decideTier, getQuality, probeSignals } from "../lib/capability";
+  import { decideTier, getQuality, probeSignals } from "../lib/capability";
   import {
     COUNTRIES_SOURCE,
     HIGHLIGHT_GOLD,
-    OUTLINE_SOURCE,
-    countriesSource,
-    outlineSource,
-    outlinesFrom,
+    VECTOR_BINDING,
+    countryTilesSource,
+    featureStateTargets,
     fillLayer,
     highlightLayers,
+    hitLayer,
   } from "../lib/countryHighlight";
   import { createHoverTracker } from "../lib/hoverTracking";
+  import { createRailToggle, joinRailGroup } from "../lib/railControls";
+  import { createQuietMode } from "../lib/quietMode";
+  import { createScaleRuler, rulerSamplePoints } from "../lib/scaleRuler";
   import {
     DEGRADED_PIXEL_RATIO,
     MAXIMUM_SAMPLE_COUNT,
@@ -691,6 +991,12 @@ import { REPO_URL } from "../lib/siteLinks";
   const resourceTimingBufferSize = urlFlags.has("perf")
     ? raiseResourceTimingBuffer(performance, RESOURCE_TIMING_BUFFER_SIZE)
     : null;
+  // Armed HERE, synchronously, for the same ordering reason the buffer is raised here: the polar
+  // caps load from `style.load`, which can fire before a dynamically imported module has resolved,
+  // so arming any later would silently drop the very cap spans this exists to capture. The return
+  // value is kept because a browser without User Timing arms nothing, and an empty span list from
+  // an instrument that never ran must not read as "no work happened".
+  const perfTraceArmed = urlFlags.has("perf") ? enablePerfTrace(performance) : false;
   // Resolved once: TILE_BASE is relative on the dev server and absolute in production, while
   // Resource Timing entry names are always absolute.
   const absoluteTileBase = new URL(TILE_BASE, location.href).href;
@@ -707,22 +1013,38 @@ import { REPO_URL } from "../lib/siteLinks";
   const terrainSkirtMode = parsedSkirt ?? TERRAIN_SKIRT_DEFAULT;
   const bareDiagnostic = urlFlags.has("bare");
 
-  // ?maxreq=N — MapLibre's parallel image-request cap (default 16), applied BEFORE the Map is
-  // constructed because the style starts requesting tiles as soon as it loads. Diagnostic only:
-  // absent means the library default, untouched. A malformed value is refused loudly rather than
-  // falling back silently — a run that believes it measured 8 while running at 16 is worse than
-  // no run at all. See tileConcurrency.ts for why the right value is not obvious a priori.
-  const maxParallelImageRequests = parseMaxParallelImageRequests(urlFlags);
-  if (maxParallelImageRequests !== null) {
-    maplibregl.setMaxParallelImageRequests(maxParallelImageRequests);
-    // eslint-disable-next-line no-console
-    console.log(`[tiles] maxParallelImageRequests = ${maxParallelImageRequests}`);
-  } else if (urlFlags.has("maxreq")) {
+  // MapLibre's parallel image-request cap, applied BEFORE the Map is constructed because the
+  // style starts requesting tiles the moment it loads. An unconstrained visitor now gets 32
+  // instead of the library's 16 — measured, see tileConcurrency.ts for the ladder and for why the
+  // gate is the network SIGNALS rather than the resolved tier.
+  //
+  // The probe is hoisted here rather than called again: `currentTier()` re-runs `probeSignals()`
+  // on every call and each run creates WebGL contexts, so this snapshot is taken once and reused
+  // by the terrain gate below. Cost measured live at ~2.1 ms per context.
+  const bootSignals = probeSignals();
+  const bootTier = decideTier(bootSignals, getQuality());
+  const requestedMaxParallelImageRequests = parseMaxParallelImageRequests(urlFlags);
+  if (requestedMaxParallelImageRequests === null && urlFlags.has("maxreq")) {
+    // Refused loudly rather than falling back silently — a run that believes it measured 8 while
+    // running at the default is worse than no run at all.
     console.warn(
       `[tiles] ignoring ?maxreq=${urlFlags.get("maxreq")} — want an integer 1..` +
-        `${MAX_PARALLEL_IMAGE_REQUESTS_CEILING}. Running at MapLibre's default ` +
-        `${MAPLIBRE_DEFAULT_MAX_PARALLEL_IMAGE_REQUESTS}.`,
+        `${MAX_PARALLEL_IMAGE_REQUESTS_CEILING}. Running at the resolved default.`,
     );
+  }
+  const maxParallelImageRequests =
+    requestedMaxParallelImageRequests ??
+    defaultMaxParallelImageRequests({
+      saveData: bootSignals.saveData,
+      slowNetwork: bootSignals.slowNetwork,
+      mobileClass: deviceClass().mobileClass,
+    });
+  if (maxParallelImageRequests !== MAPLIBRE_DEFAULT_MAX_PARALLEL_IMAGE_REQUESTS) {
+    maplibregl.setMaxParallelImageRequests(maxParallelImageRequests);
+  }
+  if (urlFlags.has("perf")) {
+    // eslint-disable-next-line no-console
+    console.log(`[tiles] maxParallelImageRequests = ${maxParallelImageRequests}`);
   }
 
   // The relief pyramid lives in ONE multi-GB PMTiles archive, and the browser never touches it.
@@ -730,7 +1052,7 @@ import { REPO_URL } from "../lib/siteLinks";
   // ranged server-side (dev: the middleware in astro.config.ts, prod: a Worker over R2). The
   // earlier pmtiles:// path did that ranging in the browser, which cannot survive the move to
   // a CDN — Workers Caching strips Range and would fetch the whole archive per tile
-  // (→ HISTORY § the deploy target moves to R2). Dropping it also drops the pmtiles client
+  // (
   // from the bundle entirely.
   //
   // minzoom/maxzoom used to come free from the archive header, which the pmtiles client read
@@ -847,12 +1169,25 @@ import { REPO_URL } from "../lib/siteLinks";
     perfEventStamps.firstIdleMs = performance.now();
   });
 
+  // THE CAMERA RAIL. Two groups by design: zoom + compass + spin (where you are looking FROM),
+  // then fullscreen + the quiet toggle (the frame around it). Spin and quiet are appended into
+  // these two groups further down, beside the state each one drives — see railControls.ts for why
+  // they are plain widgets rather than IControls.
   map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-right");
-  map.addControl(new maplibregl.GlobeControl(), "top-right"); // globe⇄flat toggle
   // Fullscreen the PAGE, not the map container: the floating UI (gallery link, detail
   // card, toggle stack) are siblings of #globe and would vanish if only it went fullscreen.
   map.addControl(new maplibregl.FullscreenControl({ container: document.body }), "top-right");
-  map.addControl(new maplibregl.ScaleControl({ maxWidth: 120, unit: "metric" }), "bottom-left");
+  //
+  // DO NOT ADD GlobeControl. Flat Mercator drops two signature features silently: `polarCaps.ts`
+  // returns early from render() while `defaultProjectionData.projectionTransition < 1` ("on the
+  // flat Mercator map there is no pole to draw"), and the sky/atmosphere is globe-only for the
+  // same reason. A projection toggle is only offerable once both degrade honestly. The projection
+  // is declared in the STYLE (`projection: { type: "globe" }`), so no control is needed to hold
+  // the globe.
+
+  // NO ScaleControl. It sizes its element to a round distance and rewrites that inline width on
+  // every camera change, which is invisible in a page corner and a twitching span once the ruler
+  // rests against a centred pill. Ours fixes the span and lets the number move — see scaleRuler.ts.
 
   // ?perf only: a handle on the live map, because nothing else reaches one. MapLibre keeps no
   // back-reference from any DOM node to its Map, the page script's `map` is a module-local const,
@@ -881,25 +1216,62 @@ import { REPO_URL } from "../lib/siteLinks";
   // that used to race MapLibre to force the collapse back down on phones.
   map.addControl(new maplibregl.AttributionControl({ compact: false }), "bottom-left");
 
-  // Fold the credit into the centred view bar, so the bottom edge carries ONE floating element
-  // instead of three. addControl runs onAdd synchronously, so the container already exists and can
-  // be moved before the first paint. MapLibre only ever rewrites `.maplibregl-ctrl-attrib-inner`
-  // and removes the container via parentNode, so both keep working from its new home.
+  // Fold the credit into the TOP-LEFT chrome row, beside ← Gallery and the source link: a link to
+  // /about is a way OFF the globe, which is what that row holds, where the view bar holds what the
+  // globe SHOWS. addControl runs onAdd synchronously, so the container already exists and can be
+  // moved before the first paint. MapLibre only ever rewrites `.maplibregl-ctrl-attrib-inner` and
+  // removes the container via parentNode, so both keep working from its new home.
   //
-  // The move ADDS THE CLASS THAT STYLES IT rather than relying on `.view-bar` as an ancestor in
-  // the selector. Two reasons: an ancestor prefix silently stops matching if the element is ever
-  // re-parented again, and if this block ever fails to find its targets the credit is left in
-  // MapLibre's own readable stock box instead of a half-styled one. Failing visible beats failing
-  // invisible for something that carries a licence obligation.
+  // THE MOVE ADDS THE CLASS THAT STYLES IT rather than relying on `.globe-chrome` as an ancestor
+  // in the selector. An ancestor prefix stops matching silently the next time anything re-parents
+  // this element, and a block that fails to find its targets then leaves the credit in MapLibre's
+  // own readable stock box instead of a half-styled one — failing visible beats failing invisible
+  // for something carrying a licence obligation.
   const viewBar = document.querySelector(".view-bar");
+  const chromeRow = document.querySelector(".globe-chrome");
   const attributionEl = document.querySelector<HTMLElement>(".maplibregl-ctrl-attrib");
-  if (viewBar && attributionEl) {
-    const divider = document.createElement("span");
-    divider.className = "view-bar-divider";
-    divider.setAttribute("aria-hidden", "true");
-    attributionEl.classList.add("view-bar-credit");
-    viewBar.append(divider, attributionEl);
+  if (chromeRow && attributionEl) {
+    attributionEl.classList.add("chrome-credit");
+    chromeRow.append(attributionEl);
   }
+
+  // The scale is the view bar's TOP EDGE — a fixed ruler dimensioning the pill it rests on.
+  // Positioned `absolute` inside the bar, so a readout can never widen the pill it annotates, and
+  // prepended so reading order is scale → controls. Docking it to a page corner instead costs a
+  // clearance constant against a centred bar whose width moves with the viewport; there is nothing
+  // to keep clear of when it rides the bar itself.
+  const ruler = createScaleRuler();
+  viewBar?.prepend(ruler.element);
+
+  // `move`, not `moveend` — the reading has to be true while you are dragging, which is when
+  // anyone actually looks at it. setDistance is a no-op when the label has not changed, so a drag
+  // costs a distance calculation per frame and almost no DOM writes.
+  function updateRuler(): void {
+    const container = map.getContainer();
+    const [left, right] = rulerSamplePoints(container.clientWidth, container.clientHeight);
+    ruler.setDistance(map.unproject(left).distanceTo(map.unproject(right)));
+  }
+  map.on("move", updateRuler);
+  updateRuler();
+
+  // Quiet mode — the chrome put away so the render is the whole frame. Its button joins the
+  // rail's SECOND group, beside fullscreen: both frame the view rather than move the camera, and
+  // that hairline gap is the only thing on the page stating the difference.
+  //
+  // Wired through a hoisted `reflectQuiet` rather than two consts referring to each other: the
+  // mode announces changes the button must mirror, and the button asks the mode to change, which
+  // is a cycle no declaration order can satisfy on its own.
+  const quiet = createQuietMode({ onChange: reflectQuiet });
+  const quietToggle = createRailToggle({
+    className: "rg-ctrl-quiet",
+    label: "Hide controls",
+    pressedLabel: "Show controls",
+    onToggle: () => quiet.toggle(),
+  });
+  function reflectQuiet(next: boolean): void {
+    quietToggle.setPressed(next);
+  }
+  joinRailGroup(map.getContainer(), ".maplibregl-ctrl-fullscreen", quietToggle.button);
 
   // Terrain (?terrain=N, off by default) — the Tier-3 displacement layer, behind a flag while it
   // is judged. MapLibre's globe DOES displace: _projection_globe.vertex.glsl's projectTileFor3D
@@ -980,7 +1352,9 @@ import { REPO_URL } from "../lib/siteLinks";
   // still overrides in both directions — a number forces it on at any tier, `off` forces it flat
   // without demoting the tier — so every A/B flag below stays usable and there is still a way to
   // remove ONLY the geometry.
-  const terrainExaggeration = resolveTerrainExaggeration(urlFlags, currentTier() === "full");
+  // `bootTier`, not a fresh `currentTier()`: that would be a second `probeSignals()` and four more
+  // WebGL contexts for an answer that cannot have changed within one page load.
+  const terrainExaggeration = resolveTerrainExaggeration(urlFlags, bootTier === "full");
   if (
     terrainExaggeration === null &&
     urlFlags.has("terrain") &&
@@ -1267,7 +1641,8 @@ import { REPO_URL } from "../lib/siteLinks";
       import("../lib/perf/perfOverlay"),
       import("../lib/perf/perfSnapshot"),
       import("../lib/perf/perfNetwork"),
-    ]).then(([overlay, perfSnapshot, perfNetwork]) => {
+      import("../lib/perf/perfTrace"),
+    ]).then(([overlay, perfSnapshot, perfNetwork, perfTrace]) => {
         // The fill timer binds here rather than above, which costs the first gesture if someone
         // drags inside the import window. Accepted deliberately: a `?perf` session is a deliberate
         // one (load, settle, then move), and the alternative was keeping the state machine in the
@@ -1349,6 +1724,13 @@ import { REPO_URL } from "../lib/siteLinks";
             lastGlLossMs,
             traffic: readTraffic(),
             fill: cameraFill,
+            // Read fresh at compose time, like `traffic` above: the entry buffer IS the
+            // accumulator, and a second copy is a second thing that can disagree with it.
+            traceSpans: perfTrace.collectSpans(TRACED_SPANS),
+            // Null where the API is absent, so the report says "unpriced" rather than pricing
+            // spans against an empty window list and calling every millisecond unattributed.
+            longTaskIntervals: timing.longTaskApiAvailable ? timing.longTaskIntervals : null,
+            traceArmed: perfTraceArmed,
           });
         };
 
@@ -1649,7 +2031,6 @@ import { REPO_URL } from "../lib/siteLinks";
   const inScope = manifest.countries.map((c) => c.name);
   // Only in-scope (rendered) countries are interactive; reused by every country layer.
   const inScopeFilter: FilterSpecification = ["in", ["get", "ADMIN"], ["literal", inScope]];
-  const isInScope = (admin: string) => byName.has(admin);
 
   /** srcset w-descriptor is the real pixel WIDTH, not the long edge (portrait
    * variants are narrower than their key) — mirrors the gallery detail page. */
@@ -1662,53 +2043,20 @@ import { REPO_URL } from "../lib/siteLinks";
       })
       .join(", ");
 
-  // One invisible hit-point per polygon PART (its bbox centre), for every in-scope
-  // country. Scattered archipelagos (Maldives is 176 sub-pixel atolls) can't be
-  // pointed at via their real geometry at any zoom, so these fat circle targets stand
-  // in — each resolves back to its country's ADMIN, which drives the same whole-country
-  // highlight as hitting a large landmass directly.
-  function hitPointsFrom(countries: FeatureCollection): FeatureCollection {
-    const features: Feature[] = [];
-    for (const feature of countries.features) {
-      const admin = feature.properties?.ADMIN;
-      if (typeof admin !== "string" || !byName.has(admin)) continue;
-      const geometry = feature.geometry;
-      const parts =
-        geometry.type === "MultiPolygon"
-          ? geometry.coordinates
-          : geometry.type === "Polygon"
-            ? [geometry.coordinates]
-            : [];
-      for (const polygon of parts) {
-        const outerRing = polygon[0];
-        let minLon = Infinity;
-        let minLat = Infinity;
-        let maxLon = -Infinity;
-        let maxLat = -Infinity;
-        for (const [lon, lat] of outerRing) {
-          if (lon < minLon) minLon = lon;
-          if (lon > maxLon) maxLon = lon;
-          if (lat < minLat) minLat = lat;
-          if (lat > maxLat) maxLat = lat;
-        }
-        features.push({
-          type: "Feature",
-          properties: { ADMIN: admin },
-          geometry: { type: "Point", coordinates: [(minLon + maxLon) / 2, (minLat + maxLat) / 2] },
-        });
-      }
-    }
-    return { type: "FeatureCollection", features };
-  }
-
-  function addCountries(countries: FeatureCollection) {
-    map.addSource(COUNTRIES_SOURCE, countriesSource(countries));
+  /** ONE vector source carrying fill, outline and hit as three source-layers.
+   *
+   *  Nothing here touches geometry. MapLibre's worker fetches the tiles, parses them, and
+   *  tessellates them; the main thread does the two `add*` calls and stops. What this replaced
+   *  handed three parsed FeatureCollections to `addSource`, which `serialize()` deep-rebuilt and
+   *  `postMessage` then structured-cloned — two full walks of 413,141 vertices on the main thread,
+   *  and the session's worst long task at 358 ms. It now has nothing to run in.
+   *
+   *  The per-island hit points are cut into the archive rather than derived here at runtime, which
+   *  is why there is no geometry walk left on this path at all. */
+  function addCountryTiles() {
+    map.addSource(COUNTRIES_SOURCE, countryTilesSource(COUNTRIES_URL_TEMPLATE));
     // Invisible except on hover; a warm silhouette wash so the whole landmass lights up.
-    map.addLayer(fillLayer(inScopeFilter));
-    map.addSource("country-hits", { type: "geojson", data: hitPointsFrom(countries) });
-    // Boundary lines for the hover outline. Same ADMIN promoteId as the polygon source, so one
-    // setFeatureState id drives the fill wash and this outline together (see countryHighlight).
-    map.addSource(OUTLINE_SOURCE, outlineSource(outlinesFrom(countries, isInScope)));
+    map.addLayer(fillLayer(inScopeFilter, VECTOR_BINDING.fill));
   }
 
   /**
@@ -1733,23 +2081,14 @@ import { REPO_URL } from "../lib/siteLinks";
    * MapLibre ever starts draping `circle`.
    */
   function addCountryHitTargets() {
-    map.addLayer({
-      id: "country-hit",
-      type: "circle",
-      source: "country-hits",
-      paint: {
-        "circle-radius": ["interpolate", ["linear"], ["zoom"], 0.5, 12, 4, 14, 8, 16],
-        "circle-opacity": 0,
-        "circle-stroke-width": 0,
-      },
-    });
+    map.addLayer(hitLayer(inScopeFilter, VECTOR_BINDING.hit));
   }
 
   // The hovered country's outline — added ABOVE the borders so its edge stays crisp. A soft
   // dark casing under a gold line: the boundary pops as one glowing silhouette, legible on
   // sea, sand, and snow alike. Both layers stroke the LINE source (see highlightLayers).
   function addCountryHighlight() {
-    for (const layer of highlightLayers(inScopeFilter)) map.addLayer(layer);
+    for (const layer of highlightLayers(inScopeFilter, VECTOR_BINDING.outline)) map.addLayer(layer);
   }
 
   // Resolve which country the pointer is picking. Precise polygon fill first (so a
@@ -1805,12 +2144,13 @@ import { REPO_URL } from "../lib/siteLinks";
   // Hover highlight, keyed on the whole country (ADMIN) so every part lights together —
   // pointing at one Maldives atoll outlines all of Maldives, exactly as hovering Java
   // outlines all of Indonesia.
-  // Both sources share the ADMIN promoteId: `countries` drives the fill wash, `country-outlines`
-  // the gold boundary line. One id toggles both so the whole country lights as a unit.
+  // Fill wash and gold boundary line share the ADMIN promoteId, so one id toggles both and the
+  // whole country lights as a unit. WHERE that id is written comes from the binding rather than
+  // from named source ids — see `featureStateTargets`, whose header records what naming them cost.
+  const highlightTargets = featureStateTargets(VECTOR_BINDING);
   function paintHighlight(admin: string | null, previousAdmin: string | null) {
     const setState = (id: string, hover: boolean) => {
-      map.setFeatureState({ source: COUNTRIES_SOURCE, id }, { hover });
-      map.setFeatureState({ source: OUTLINE_SOURCE, id }, { hover });
+      for (const target of highlightTargets) map.setFeatureState({ ...target, id }, { hover });
     };
     if (previousAdmin !== null) setState(previousAdmin, false);
     if (admin !== null) setState(admin, true);
@@ -1884,8 +2224,14 @@ import { REPO_URL } from "../lib/siteLinks";
   }
 
   document.getElementById("hero-close")?.addEventListener("click", closePanel);
+  // Escape peels ONE layer at a time, card first. The card is the most recent thing opened and
+  // the largest thing in the way, so it goes before quiet mode; the alternative order would
+  // restore the chrome while leaving a 420 px panel sitting on top of it. Quiet deliberately does
+  // NOT close the card by itself — the card is content you asked for, not chrome.
   window.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && !panel.hidden) closePanel();
+    if (event.key !== "Escape") return;
+    if (!panel.hidden) closePanel();
+    else quiet.exit();
   });
 
   function flyToCountry(country: Country) {
@@ -1945,26 +2291,28 @@ import { REPO_URL } from "../lib/siteLinks";
     map.setSky(skySpec(skyRamp, pitch));
   });
 
-  // Country polygons (hover/click hit-testing, highlight, island markers) are
-  // interaction data, not first-paint content — deferred to the first idle so their
-  // 2.6 MB fetch + worker parse stay out of the loading window (measured: 0.41 s of
-  // the desktop warm floor; far more on phones). Degrades gracefully by construction:
-  // a click before they land finds no country, exactly as during the fetch today.
-  // Borders toggled on in that gap land above where the highlight will sit — the
+  // Country polygons (hover/click hit-testing, highlight, island markers) are interaction data,
+  // not first-paint content — deferred to the first idle so nothing about them competes with the
+  // tiles for the loading window. Degrades gracefully by construction: a click before they land
+  // finds no country. Borders toggled on in that gap land above where the highlight will sit — the
   // highlight layers append later and still end up on top, the intended order.
   if (!bareDiagnostic) {
-    map.once("idle", async () => {
-      // Fetch the polygons ourselves so the parsed geometry can seed both the hit-test
-      // source and the per-island markers from one download (see addCountries).
-      const countries = (await fetch(BORDERS_BASE + "countries.geojson").then(
-        (response) => response.json(),
-      )) as FeatureCollection;
-      addCountries(countries); // fill layer + both sources, under the borders so lines stay on top
+    map.once("idle", () => {
+      // Spans the whole construction run, not each call: MapLibre does the work when the source
+      // and layers are added, and splitting it four ways would price the caller rather than the
+      // library. `addBorders` only KICKS OFF its download, so no fetch time is folded in here.
+      //
+      // ONE ORDERED RUN, and the order is the point — `drapeStacks.test.ts` reads it out of this
+      // source by position, so a second ordered run would be indistinguishable from the order
+      // having changed.
+      const endLayers = beginSpan("countries:layers");
+      addCountryTiles(); // vector source + fill layer, under the borders so lines stay on top
       if (bordersOn()) addBorders(); // opted-in only — the default globe skips the download
       addCountryHighlight(); // hover outline on top of everything, so the edge stays crisp
       // LAST, always. Everything above is drapeable (fill, line); this circle is not, so putting
       // it here ends the drape run rather than splitting it. See addCountryHitTargets.
       addCountryHitTargets();
+      endLayers();
     });
   }
 
@@ -1976,7 +2324,7 @@ import { REPO_URL } from "../lib/siteLinks";
   const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const DEGREES_PER_STEP = 2; // ~one 360° revolution every 3 minutes at 1s steps
   const SPIN_MAX_ZOOM = 3; // above this the fixed sweep is too fast to follow — spin is an overview affordance
-  let spinning = currentTier() === "full" && !reduceMotion;
+  let spinning = bootTier === "full" && !reduceMotion;
   // Applying the style's globe projection fires an instant camera jump at style.load
   // (movestart+moveend ~1 ms apart, measured at 141 ms on ?bare) — and that moveend
   // reaches the moveend→spin chain below, starting the spin mid-load despite the
@@ -1984,13 +2332,24 @@ import { REPO_URL } from "../lib/siteLinks";
   // spin() therefore no-ops until the first idle has actually been seen; an explicit
   // user toggle overrides the wait (their intent beats our pacing).
   let firstIdleSeen = false;
-  const spinToggle = document.getElementById("spin-toggle") as HTMLButtonElement | null;
+
+  // Spin belongs in the rail's first group with zoom and compass: it is a CAMERA control — it
+  // changes where you are looking from. The greying below depends on that placement too: a greyed
+  // word among scene toggles reads as broken, while a greyed glyph among camera buttons reads as
+  // "not applicable at this zoom", which is what it means.
+  const spinToggle = createRailToggle({
+    className: "rg-ctrl-spin",
+    label: "Toggle globe auto-rotate",
+    pressed: spinning,
+    onToggle: setSpinning, // hoisted; the callback only ever fires on a click, long after setup
+  });
+  joinRailGroup(map.getContainer(), ".maplibregl-ctrl-zoom-in", spinToggle.button);
 
   // Single writer for `spinning` so the toggle button always mirrors reality — user
   // toggle, an interaction retiring it, a country pick, or the FPS watchdog.
   function setSpinning(value: boolean) {
     spinning = value;
-    spinToggle?.setAttribute("aria-pressed", String(value));
+    spinToggle.setPressed(value);
     if (value) {
       firstIdleSeen = true; // user intent overrides the first-idle wait
       spin(); // kick off now; spin() itself no-ops above SPIN_MAX_ZOOM
@@ -2004,23 +2363,12 @@ import { REPO_URL } from "../lib/siteLinks";
     map.easeTo({ center, duration: 1000, easing: (progress) => progress });
   }
 
-  if (spinToggle) {
-    spinToggle.setAttribute("aria-pressed", String(spinning));
-    spinToggle.addEventListener("click", () =>
-      setSpinning(spinToggle.getAttribute("aria-pressed") !== "true"),
-    );
-  }
-
   // Spin is an overview affordance: above SPIN_MAX_ZOOM the fixed sweep is too fast to
   // follow, so the control would silently do nothing there. Reflect that in the UI —
   // grey + disable the toggle when zoomed in, re-enable on zoom-out (a tap restarts it).
+  // The replacement name says what would make it work again rather than just going quiet.
   function syncSpinAvailability() {
-    const available = map.getZoom() <= SPIN_MAX_ZOOM;
-    if (spinToggle) {
-      spinToggle.disabled = !available;
-      spinToggle.classList.toggle("is-unavailable", !available);
-      spinToggle.title = available ? "Toggle globe auto-rotate" : "Zoom out to spin";
-    }
+    spinToggle.setAvailable(map.getZoom() <= SPIN_MAX_ZOOM, "Zoom out to spin");
   }
   syncSpinAvailability();
 

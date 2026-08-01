@@ -1,6 +1,5 @@
 """Single home for the raster conventions every windowed writer shares.
 
--> HISTORY § commonification LANDED. The same fix had landed at
 one call site and been missed at its siblings four separate times — float32 +
 windowed reads (composite had it, hillshade didn't), warp-once (lakedepth had
 it, snow didn't), NUM_THREADS (warps had it, writers didn't), and the pyright
@@ -17,7 +16,7 @@ from rasterio.windows import Window
 # threading (num_threads) is per-call-site policy, because fuse_planet sets
 # GDAL_NUM_THREADS=1 on purpose (its parallelism is across cells) and an
 # explicit creation option would override it — putting the flag here would
-# silently oversubscribe fusion (HISTORY § optimisation #3 landed).
+# silently oversubscribe fusion
 GTIFF_CREATE: dict[str, Any] = {
     "tiled": True, "blockxsize": 512, "blockysize": 512, "compress": "deflate"}
 

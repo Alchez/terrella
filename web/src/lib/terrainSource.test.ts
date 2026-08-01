@@ -115,7 +115,7 @@ describe("the archive replaced four flags, and the answers outlive them", () => 
   // reasoning below is the whole reason the retired defaults were the values they were.
 
   it("ships the sea treatment, quantisation, codec and depth the A/Bs actually chose", () => {
-    // bathymetry (Step 0, on Rohan's eyes), 8 m (the knee of the size curve), lossless WebP
+    // bathymetry (Step 0, judged by eye), 8 m (the knee of the size curve), lossless WebP
     // (0.67x PNG, byte-exact) and z0-8 (what made the 128 declaration spendable). Each of these
     // was a default someone could have got wrong silently, which is why they were flags first.
     expect(TERRAIN_QUANTISATION_M).toBe(8);
@@ -233,7 +233,7 @@ describe("the contract", () => {
     // of the ground, which is the only way to shrink a facet: meshSize is hardcoded at 128 quads
     // per tile, so covering less ground per tile is the sole lever.
     //
-    // Was 512 ("declared honestly") until 2026-07-28. Ratified on Rohan's eyes at z8 pitch 60,
+    // Was 512 ("declared honestly"). Ratified by eye at z8 pitch 60,
     // affordable because GPU frame cost is FLAT across declarations (3.87 / 4.54 / 4.31 ms at
     // 512 / 256 / 128, Chrome, DPR control passed) — rttSize halves as tile count doubles.
     expect(TERRAIN_TILE_SIZE).toBe(128);
@@ -386,7 +386,7 @@ describe("the ?perf terrain line", () => {
 
 describe("?skirt=auto|none — which seam artifact you get", () => {
   it("defaults to the ratified \"none\", NOT to MapLibre's default", () => {
-    // Ratified on Rohan's eyes in motion 2026-07-28: "none" removes essentially all the pan-time
+    // Ratified by eye, in motion: "none" removes essentially all the pan-time
     // tearing, trading it for tiny black specks that appear ONLY on drastic elevation changes and
     // never on flatland. That distribution is the LOD crack showing itself — it is widest exactly
     // where elevation changes fastest between two DEM levels.
@@ -743,8 +743,24 @@ describe("the deploy preflight must refuse a globe production cannot serve", () 
     const worker = readFileSync(new URL("../../worker/index.ts", import.meta.url), "utf8");
     const workerConfig = readFileSync(new URL("../../worker/wrangler.jsonc", import.meta.url), "utf8");
 
-    const ridesOnTier = /resolveTerrainExaggeration\([\s\S]{0,80}?currentTier\(\)\s*===\s*"full"/.test(globe);
-    expect(ridesOnTier, "terrain rides the full tier").toBe(true);
+    // Matched on the FACT, not on one spelling of it. This regex used to require the literal
+    // `currentTier()`, and went red the day that call was hoisted to a `bootTier` const to save a
+    // second WebGL probe — a refactor that changed nothing about whether terrain rides the tier.
+    // So: capture whatever is compared to "full", then require that identifier to actually BE a
+    // tier, which is what stops `anythingAtAll === "full"` from satisfying it.
+    // The twin of this check lives in capability.test.ts (it decides whether the Full tooltip must
+    // say "terrain"); both read the same call site, so both go red together rather than drifting.
+    const gate = globe.match(
+      /resolveTerrainExaggeration\(\s*urlFlags\s*,\s*([\w$]+(?:\(\))?)\s*===\s*"full"\s*\)/,
+    );
+    const tierExpression = gate?.[1] ?? "";
+    const ridesOnTier =
+      tierExpression === "currentTier()" ||
+      (tierExpression !== "" &&
+        new RegExp(`const\\s+${tierExpression}\\s*=\\s*decideTier\\(`).test(globe));
+    expect(ridesOnTier, `terrain rides the full tier (gate read: ${tierExpression || "none"})`).toBe(
+      true,
+    );
     expect(worker, "the worker routes it").toContain("parseTerrainTilePath");
     expect(workerConfig, "and names the object it reads").toMatch(/"TERRAIN_ARCHIVE_KEY"\s*:\s*"[^"]+\.pmtiles"/);
   });

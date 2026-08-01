@@ -19,6 +19,7 @@ cases sabotage the assertions below, so this file is held to the same standard i
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 
 import pytest
@@ -51,10 +52,16 @@ VITEST_TITLES = "\n".join(
 PYTEST_SOURCE = "\n".join(
     path.read_text(encoding="utf-8") for path in sorted((REPO_ROOT / "tests").rglob("*.py"))
 )
+# `suite='collection'` is a script, not a test framework, so its guards are the check names that
+# script prints on failure. Same standard as the other two: the name has to exist in the source.
+COLLECTION_SOURCE = (REPO_ROOT / "web/scripts/check_test_collection.ts").read_text(encoding="utf-8")
 
 
 def guard_is_findable(case: Sabotage) -> bool:
     """True when `case.guard` names a test that exists in the suite it belongs to.
+
+    A `collection` guard is the check name `check_test_collection.ts` prints, so it must be a name
+    that script can actually reach `fail()` with.
 
     A pytest guard is a function name, so it must be defined. A vitest guard is a title, usually a
     literal — but `test.each` builds titles by interpolating `%s`, so the RENDERED title the harness
@@ -64,6 +71,10 @@ def guard_is_findable(case: Sabotage) -> bool:
     """
     if case.suite == "python":
         return f"def {case.guard}(" in PYTEST_SOURCE
+    if case.suite == "collection":
+        # Anchored on `fail(` so a name that only appears in a comment does not count, but
+        # tolerant of the line break the formatter puts after the paren on multi-line calls.
+        return re.search(rf'fail\(\s*"{re.escape(case.guard)}"', COLLECTION_SOURCE) is not None
     if case.guard in VITEST_TITLES:
         return True
     for split in range(20, len(case.guard)):

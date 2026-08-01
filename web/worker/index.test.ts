@@ -9,6 +9,7 @@ import type { RangeResponse, Source } from "pmtiles";
 import worker, { INDEX_PREFETCH_BYTES, PrefetchedIndexSource, resolveRoute } from "./index";
 import { TILE_CONTENT_TYPE } from "../src/lib/reliefTiles";
 import { TERRAIN_CONTENT_TYPE } from "../src/lib/terrainSource";
+import { COUNTRIES_CONTENT_TYPE } from "../src/lib/countryTiles";
 
 const INDEX_ETAG = "etag-of-the-shipped-cut";
 
@@ -154,6 +155,7 @@ describe("resolveRoute", () => {
     ARCHIVE: null as never,
     ARCHIVE_KEY: "planet-v2.pmtiles",
     TERRAIN_ARCHIVE_KEY: "terrain-v1.pmtiles",
+    COUNTRIES_ARCHIVE_KEY: "countries-v1.pmtiles",
   };
 
   it("sends a bare address to the relief archive", () => {
@@ -196,9 +198,14 @@ describe("resolveRoute", () => {
       "/terrain/",
       "/terrain/bathy_s8_webp/8/189/107.webp", // the retired spike route's shape
       "/8/189/107.png",
-      "/9/0/0.webp", // past both pyramids' depth
+      "/9/0/0.webp", // past every pyramid's depth
       "/terrain/9/0/0.webp",
+      "/countries/9/0/0.mvt",
       "/0/1/0.webp", // outside the 2^z grid
+      "/countries",
+      "/countries/",
+      "/countries/8/189/107.webp", // right prefix, raster extension
+      "/8/189/107.mvt", // vector extension, no prefix
     ]) {
       expect(resolveRoute(path, env), path).toBeNull();
     }
@@ -223,6 +230,39 @@ describe("resolveRoute", () => {
     );
     expect(resolveRoute("/0/0/0.webp", env)?.describeTileTypeMismatch(".webp")).toBeNull();
     expect(resolveRoute("/terrain/0/0/0.webp", env)?.describeTileTypeMismatch(".webp")).toBeNull();
+  });
+
+  it("sends a countries address to the vector archive", () => {
+    const route = resolveRoute("/countries/8/189/107.mvt", env);
+    expect(route?.tile).toEqual({ z: 8, x: 189, y: 107 });
+    expect(route?.archiveKey).toBe("countries-v1.pmtiles");
+    expect(route?.contentType).toBe(COUNTRIES_CONTENT_TYPE);
+    expect(route?.zoomConstants).toContain("countryTiles.ts");
+  });
+
+  it("gives the countries archive its own default key too", () => {
+    expect(resolveRoute("/countries/0/0/0.mvt", { ARCHIVE: null as never })?.archiveKey).toBe(
+      "countries.pmtiles",
+    );
+  });
+
+  // The distinction the whole route table exists for. A miss is diagnostic on the two COMPLETE
+  // raster pyramids and ordinary on the SPARSE vector one, so the status cannot be a shared
+  // constant: 404 everywhere would emit tens of thousands of errors for correctly-absent ocean
+  // tiles and bury a real packaging fault in that noise, while 204 everywhere would silence the
+  // packaging fault outright.
+  it("answers a missing tile per ARCHIVE, 404 where complete and 204 where sparse", () => {
+    expect(resolveRoute("/0/0/0.webp", env)?.missingTileStatus).toBe(404);
+    expect(resolveRoute("/terrain/0/0/0.webp", env)?.missingTileStatus).toBe(404);
+    expect(resolveRoute("/countries/0/0/0.mvt", env)?.missingTileStatus).toBe(204);
+  });
+
+  it("carries a countries tile-type check that accepts .mvt and rejects the raster codec", () => {
+    const route = resolveRoute("/countries/0/0/0.mvt", env);
+    expect(route?.describeTileTypeMismatch(".mvt")).toBeNull();
+    // Pointing this route at a raster archive yields a globe with no countries and no error —
+    // indistinguishable from a source-layer typo — so the message has to name the constant.
+    expect(route?.describeTileTypeMismatch(".webp")).toContain("COUNTRIES_TILE_EXTENSION");
   });
 });
 

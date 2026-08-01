@@ -32,7 +32,7 @@ export const TERRAIN_SOURCE = "terrain-dem";
  *  `--step`, so it multiplies with quantisation rather than overlapping it. Proven identical at
  *  three levels, each with a positive control: GDAL round-trip, the browser's own
  *  `createImageBitmap` decode (alpha 255 everywhere, so nothing premultiplies), and rendered
- *  frames at 0.0000 mean DN. → HISTORY § the terrain archive gets a third smaller for nothing. */
+ *  frames at 0.0000 mean DN. */
 export const TERRAIN_TILE_EXTENSION = "webp";
 export const TERRAIN_CONTENT_TYPE = "image/webp";
 
@@ -78,8 +78,7 @@ export const TERRAIN_MIN_ZOOM = 0;
  *  the DEM wants z8 and gets it at pitch 0 — the mesh refines and the data refines with it. Pitch
  *  takes it back: MapLibre's globe LOD heuristic drops the covering a level, so a pitched z8 view
  *  reads z7 (see terrainZoomsFor). The payoff view is therefore one level shallower than the flag
- *  suggests, which is worth knowing before anyone cuts a z9 that could never load.
- *  → HISTORY § the seam tearing is MapLibre's own documented cross-zoom limitation */
+ *  suggests, which is worth knowing before anyone cuts a z9 that could never load. */
 export const TERRAIN_MAX_ZOOM = 8;
 
 /** Built from the prefix and the extension rather than spelled out, so the path we ASK for and
@@ -144,7 +143,7 @@ export function assertTerrainZoomRange(archiveMinZoom: number, archiveMaxZoom: n
  *  this declares 128 so a render tile covers a quarter of the ground, making the fixed 128-quad
  *  mesh land ~2 CSS px facets instead of 8).
  *
- *  Was 512 ("declared honestly") until 2026-07-28. Ratified on Rohan's eyes at z8 pitch 60 against
+ *  Was 512 ("declared honestly"). Ratified by eye at z8 pitch 60 against
  *  256 and 512, and these are the numbers that made it affordable rather than merely nicer:
  *    - GPU frame cost is FLAT across declarations — 3.87 / 4.54 / 4.31 ms at 512 / 256 / 128, with
  *      256 and 128 indistinguishable (overlapping IQRs). `rttSize` halves at every step down, so
@@ -166,8 +165,7 @@ export function assertTerrainZoomRange(archiveMinZoom: number, archiveMaxZoom: n
  *
  *  Corrected 2026-07-27: this previously stopped at the first discount and claimed DEM loads at
  *  mapZoom - 1 ("map z7 → terrain z6, two levels apart"). That is the render tile's zoom, not the
- *  DEM's. `terrainZoomsFor` has the arithmetic right and its tests pin it against two live reads.
- *  → HISTORY § the seam tearing is MapLibre's own documented cross-zoom limitation */
+ *  DEM's. `terrainZoomsFor` has the arithmetic right and its tests pin it against two live reads. */
 export const TERRAIN_TILE_SIZE = 128;
 
 /** Metres per encoded level, matching the pipeline's `--step`.
@@ -178,7 +176,7 @@ export const TERRAIN_TILE_SIZE = 128;
  *  reading is on the Ganges plain, which is the opposite of terracing. We can only spend this
  *  because our shading is BAKED into the colour tiles: anyone computing hillshade client-side
  *  from this DEM would see the steps in their lighting. 16 m buys only another 0.74x, so this is
- *  the knee. → HISTORY § the terrain archive gets a third smaller for nothing. */
+ *  the knee. */
 export const TERRAIN_QUANTISATION_M = 8;
 
 /** Terrarium's zero point (dem_data.ts hard-codes 32768 for the named encoding). */
@@ -235,7 +233,7 @@ export function parseTerrainExaggeration(params: URLSearchParams): number | null
 export const TERRAIN_OFF = "off";
 
 /**
- * The exaggeration terrain runs at on the `full` tier, chosen by Rohan on the frames at Step 0:
+ * The exaggeration terrain runs at on the `full` tier, chosen by eye on the frames at Step 0:
  * 40x shreds the mesh into needles, 5x is too subtle to be worth the geometry. This is the value
  * the ramp DECAYS FROM — it holds to z3 and lands at DEFAULT_TERRAIN_RAMP_FLOOR by z8, so no
  * camera below the overview actually renders at 15x.
@@ -292,7 +290,7 @@ export const TERRAIN_RAMP_END_ZOOM = 8;
  *
  *  Consequence worth knowing before changing it: the endpoints are not independent. Holding 15x
  *  at TERRAIN_RAMP_START_ZOOM and 2.5x at the end IS the scale-invariant pair; moving either one
- *  trades constant apparent slope for more relief at one end. → HISTORY § the terrain
+ *  trades constant apparent slope for more relief at one end.
  *  exaggeration ramp. */
 export const DEFAULT_TERRAIN_RAMP_FLOOR = 2.5;
 
@@ -382,19 +380,19 @@ export function describeTerrainState(
 // and the same call that retired `?pmtiles` when the archive became the only relief path.
 //
 // What each one settled is recorded, so retiring the flag does not retire the answer:
-//   ?dem      -> bathymetry, on Rohan's eyes at Step 0        (HISTORY § 2026-07-27, Tier 3 step 0)
-//   ?quant    -> 8 m, the knee of the size curve              (HISTORY § the terrain archive gets
+//   ?dem      -> bathymetry, judged by eye at Step 0
+//   ?quant    -> 8 m, the knee of the size curve
 //   ?demfmt   -> lossless WebP, 0.67x PNG and byte-exact       a third smaller for nothing)
 //   ?demdepth -> z0-8, because the declaration made depth spendable
-//                                                  (HISTORY § tileSize 128 and a z0-8 pyramid)
+//
 //
 // The flags that SURVIVE are the ones that never named a directory — `?terrain`, `?ramp`,
 // `?demsize` and `?skirt` are all client-side knobs over these same bytes, so each still works
 // identically against the archive and stays usable for any future look question.
 
 /** MapLibre's two skirt strategies, and we ship "none". Skirts are vertical curtains hung off every
- *  tile edge to cover the LOD crack where render tiles of different zoom meet — see HISTORY § the
- *  seam tearing is MapLibre's own documented cross-zoom limitation.
+ *  tile edge to cover the LOD crack where render tiles of different zoom meet — MapLibre documents
+ *  this cross-zoom seam tearing as a known limitation.
  *
  *  There is no third option and no length control: MapLibre's docs frame the choice as vertical
  *  artifacts ("auto") against horizontal hairline gaps at boundaries between zoom levels ("none").
@@ -403,7 +401,7 @@ export function describeTerrainState(
  *  was never the complaint, though: the tearing is during MOTION, when the covering set churns and
  *  skirts appear and vanish at new boundaries every frame.
  *
- *  RATIFIED "none" 2026-07-28 on Rohan's eyes, in motion: **basically zero tearing on pan**, traded
+ *  RATIFIED "none" by eye, in motion: **basically zero tearing on pan**, traded
  *  for tiny black specks. The specks confirm the mechanism twice over — they sit **only on drastic
  *  elevation changes and never on flatland**, which is exactly where the LOD crack is widest, and
  *  they read BLACK rather than sea-coloured because with terrain on the `space-floor` background is

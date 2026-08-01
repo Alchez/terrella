@@ -29,8 +29,8 @@ HOME_ALLOWED = {
 
 # Tracked file types that are RUN rather than read: a machine-specific path in
 # one of these breaks another checkout. Prose is deliberately out of scope —
-# HISTORY.md records real paths as evidence, and editing the archive to satisfy
-# a scan would corrupt the record it exists to keep.
+# Prose records real paths as evidence, and editing a record to satisfy a scan
+# would corrupt the thing it exists to keep.
 CODE_SUFFIXES = {".py", ".sh", ".ts", ".astro", ".toml", ".yml", ".yaml", ".json", ".conf"}
 
 # This file necessarily contains the pattern it searches for.

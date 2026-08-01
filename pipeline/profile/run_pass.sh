@@ -25,7 +25,7 @@
 # subprocess, which inherits this scope's cgroup) and the caps peak at ~14 GB -- so a 12 G pass
 # completed every tile stage and then died at the very last one. Known cost of the raise: 12 G was
 # also an accidental tripwire on composite footprint, and a regression there now goes unnoticed
-# until 16 G. → HISTORY § the cap rung
+# until 16 G.
 #
 # Tiling cap 16 G, and it is NOT the same calculation. The composite is skipped when planet_rgb is
 # fresh, so the peak stage becomes `gdal raster tile`, which spawns -j ALL_CPUS workers that EACH

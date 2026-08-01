@@ -32,14 +32,20 @@ import type { PerfSnapshot } from "./perfOverlay";
 import type { CameraFill, TileTraffic } from "./perfNetwork";
 import type { PerfLine } from "./perfLines";
 import type { DeviceClass } from "../polarCaps";
+import type { SpanEntry } from "../perfSpans";
 import { megabytes } from "../format";
+import { summariseSpans, type Interval, type TraceSummary } from "./perfTrace";
 
 /** Bumped when a field changes meaning, so an exported file can be read against the right rules.
  *
  *  2 adds `traffic` and `fill`. Additive, so a v1 file still reads correctly — but the bump earns its keep by
  *  making the absence explicit: a v1 export cannot say whether its byte and timing numbers were
- *  cold or warm, and that ambiguity is exactly what caused two misreadings on 2026-07-30. */
-export const PERF_REPORT_SCHEMA = 2;
+ *  cold or warm, and that ambiguity is exactly what caused two misreadings on 2026-07-30.
+ *
+ *  3 adds `trace`: named spans, and the share of blocked time they do and do not explain. A v2 file
+ *  carries long-task totals with no attribution at all, so the two cannot be compared on "how much
+ *  of this was ours" — the absence is the point of the bump again. */
+export const PERF_REPORT_SCHEMA = 3;
 
 /** Where and under what conditions a reading was taken. */
 export interface PerfOrigin {
@@ -128,6 +134,24 @@ export interface PerfReportInputs {
    * which had only ever been measured once, by hand, with a rig built for the occasion.
    */
   fill: CameraFill;
+  /**
+   * Named spans recorded since page setup, and the long-task windows to price them against.
+   *
+   * Raw rather than pre-summarised, so the report — not the caller — owns the arithmetic that
+   * decides what "attributed" means. `longTaskIntervals` is null where the Long Tasks API is
+   * absent (Firefox), which is exactly the browser the spans exist to serve: the spans still
+   * report, and the report declines to invent a remainder it cannot compute.
+   */
+  traceSpans: readonly SpanEntry[];
+  longTaskIntervals: readonly Interval[] | null;
+  /**
+   * Whether span tracing actually armed.
+   *
+   * Separate from "there are no spans", and the distinction is the whole point: a browser without
+   * User Timing records nothing, and an empty list from an instrument that never ran is
+   * indistinguishable from a session where the traced work genuinely never happened.
+   */
+  traceArmed: boolean;
 }
 
 export interface PerfReport extends PerfReportInputs {
@@ -163,6 +187,8 @@ export interface PerfReport extends PerfReportInputs {
    * cap's `terrainRetired` flag was added to stop.
    */
   faultsReadable: boolean;
+  /** Span totals, plus how much of the blocked time they explain. See `perfTrace`. */
+  trace: TraceSummary;
 }
 
 /** Compose the report. Pure: same inputs, same output, no clock and no globals. */
@@ -175,6 +201,11 @@ export function buildPerfReport(inputs: PerfReportInputs): PerfReport {
     ...inputs,
     schema: PERF_REPORT_SCHEMA,
     faultsReadable,
+    trace: summariseSpans(
+      inputs.traceSpans,
+      inputs.longTaskIntervals,
+      inputs.longTaskIntervals === null ? null : inputs.timing.longTaskTotalMs,
+    ),
     glSampleAgeMs: inputs.gl === null ? null : inputs.nowMs - inputs.gl.msSinceLoad,
     capTextureMb: inputs.gl === null ? null : Number(megabytes(inputs.gl.capTextureBytes)),
     capsClimbing: caps
@@ -227,6 +258,35 @@ export function perfReportLines(report: PerfReport): PerfLine[] {
     group: "config",
     text: `ladder ${rungs.length ? rungs.join(" · ") : "unfired"} · next ${report.ladder.nextAction ?? "—"}`,
   });
+
+  // Attribution, and the line that keeps it honest. No span can wrap MapLibre's internals or a
+  // driver stall, so a breakdown printed WITHOUT its remainder would read as a complete account of
+  // the blocked time while being nothing of the sort. The remainder is therefore not optional, and
+  // it says "unavailable" rather than 0 where there is no long-task total to subtract from.
+  if (!report.traceArmed) {
+    lines.push({ group: "cpu", text: "spans not armed — no User Timing in this browser" });
+  } else {
+    if (report.trace.spans.length > 0) {
+      const top = report.trace.spans
+        .slice(0, 3)
+        .map((span) => `${span.name} ${Math.round(span.totalMs)} ms ×${span.count}`)
+        .join(" · ");
+      lines.push({ group: "cpu", text: `spans ${top}` });
+    }
+    // A dropped WINDOW costs attribution detail, never the blocked headline — but it biases the
+    // remainder upward, i.e. toward blaming code we did not write. Say so rather than let a
+    // partial reading pass as a whole one.
+    const dropped = report.timing.longTaskIntervalsDropped;
+    const partial = dropped > 0 ? ` · PARTIAL, ${dropped} windows dropped` : "";
+    lines.push({
+      group: "cpu",
+      text:
+        report.trace.unattributedMs === null
+          ? "spans unpriced — no long-task windows to attribute against"
+          : `blocked ours ${Math.round(report.trace.attributedMs)} ms · unattributed ` +
+            `${Math.round(report.trace.unattributedMs)} ms${partial}`,
+    });
+  }
 
   // Only when it has happened. A permanent `losses 0` is a row the eye learns to skip, and this is
   // the row that explains a globe that "keeps reloading" without the page ever reloading.

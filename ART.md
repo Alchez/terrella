@@ -17,8 +17,8 @@
   `shade.KNOBS` and the composite LUT. One edit moves every surface.
 - **`pipeline/render/scene_build.py` constants** — the hero-only look (light rig, render
   quality). The .blend is *generated* from these; editing one means rebuild scene + re-render,
-  for every country (that's the point: one look, one series). Record changes in PLAN.md's locked
-  section.
+  for every country (that's the point: one look, one series). A change here is an amendment to
+  the locked look, not a tweak.
 - **`config/countries.toml`** — which countries get heroes, and per-country knobs: scope, mainland
   frame overrides, `hero_long_edge` (default 7680), fusion 1″/3″ override, antimeridian markers.
   `pipeline/frame/country_config.py` resolves it; committed frame pins live in
@@ -114,17 +114,17 @@ Cost: hero sweep **~10–13 h** + tile restage **~29 min** + caps auto-restage *
 |---|---|---|---|
 | border style dicts (overlay_borders.py) | — | composite pass only | § Borders |
 | variant rungs / quality (hero_variants.py) | `TARGETS` (1920, 3840) + native / `QUALITY` 85 | variant regen | § Borders |
-| `SIMPLIFY_DEG` (countries_geojson.py) | 0.002° — guard-tested sub-pixel vs `Z8_RES` | regen, seconds | HISTORY § blocky hover outline |
-| `COORDINATE_PRECISION` (both geojson emitters) | 4 (countries) / 5 (borders) | regen, seconds | HISTORY § blocky hover outline |
+| `SIMPLIFY_DEG` (countries_geojson.py) | 0.002° — guard-tested sub-pixel vs `Z8_RES` | regen, seconds |
+| `COORDINATE_PRECISION` (both geojson emitters) | 4 (countries) / 5 (borders) | regen, seconds |
 | highlight look (web/src/lib/countryHighlight.ts) | `HIGHLIGHT_GOLD` `#eca834`, casing `#1c140c`, wash 0.16 | `pnpm build` | § Borders |
 | border line ramps (globe.astro `inkWidth`/`casingWidth`) | 0.6→1.7 px ink, 2.2→5.0 px casing over z1–8 | `pnpm build` | § Borders |
-| hover name chip (globe.astro `.country-chip`) | top-centre pill on `.globe-home`'s treatment, `var(--serif)` 1.05 rem, 0.4 rem dot taking `HIGHLIGHT_GOLD` from the constant (never a CSS copy); no fade, hidden under `(hover: none)` and while the detail card is open | `pnpm build` | HISTORY § the gold outline finally says what it is |
-| globe camera flatness (globe.astro `VERTICAL_FIELD_OF_VIEW_DEG`) | 15° — tested band 5–15 (MapLibre default 36.87° reads as low-orbit fisheye; 5° ≈ the hero's orthographic camera) | `pnpm build` | HISTORY § the MapLibre API survey |
-| on-map credit + chrome placement (globe.astro `CREDITS`, global.css `.view-bar`) | credit is an **ⓘ** linking to /about, folded into the centred `.view-bar` as its own segment — the bottom edge carries ONE floating element, not three. Still a MapLibre `AttributionControl`, constructed **`compact: false`**: any source declaring `attribution` is still picked up automatically (joined with `\|`), while MapLibre's own ⓘ — a baked-in black SVG that CSS cannot recolour — is never shown at any width. Ours is the same glyph redrawn with `currentColor`, its **viewBox cropped to the ink** (`4 4 12 12`, not `0 0 20 20`): the untrimmed box is 40% margin and renders ~60% the size of the octicon beside it. `title` + `aria-label` are mandatory — an icon-only link has no accessible name without them | `pnpm build` | HISTORY § the ← Gallery link never reached the gallery · § the credit line was holding the controls hostage |
-| view bar geometry + phone collapse (global.css `.view-bar`, Base.astro) | centres by `inset-inline: 0` + auto margins, **never** `left: 50%` + `translateX` — the transform applies after layout, so that form caps the bar's width at half the viewport and wraps it early. Below **600 px** it collapses to `[tune \| ⓘ]`, persisted, defaulting closed; the credit sits OUTSIDE `.view-bar-items` so a collapse can never hide it. `is-collapsible` must track the trigger's render condition exactly, or pages without a trigger lose their controls. An expanded bar reaches **141 px at 320 px**, so the scale bar drops via `body.viewbar-open` rather than the lift chasing it. MapLibre's CSS is injected at runtime, so overrides must out-specify, not just follow | `pnpm build` | HISTORY § the ← Gallery link never reached the gallery |
-| globe atmosphere (web/src/lib/skyAtmosphere.ts) | `atmosphere-blend` **0.7 at z≤3 → 0.15 at z≥6**, geometric, as a zoom expression MapLibre evaluates per frame. Not a halo: the same uniform lays aerial perspective over the ground, and the overview-tuned 0.7 clips 23.8% of a pitched z7 frame to ≥254. `?sky=off\|<floor>` sweeps it | `pnpm build` | HISTORY § the globe atmosphere was clipping a quarter of every pitched frame |
-| terrain displacement (web/src/lib/terrainSource.ts) | **15× at z≤3 decaying geometrically to 2.5× at z8**, written to `terrain.exaggeration` per frame — **never** via `setTerrain`, which rebuilds the Terrain + RenderToTexture and only destroys on removal. Rides the **`full` tier**; `?terrain=N` forces it on at any tier and `?terrain=off` removes only the geometry. The floor is **derived, not preferred**: elevation change goes as ~`width^0.5` while the facet halves per level, so slope holds constant only at 0.707 per level. Declared **`tileSize: 128` over a z0–8 pyramid** (one decision — 512's DEM sits at `camera − 2` and could never reach z7), and **`terrainSkirtLength: "none"`**, which trades MapLibre's seam-tearing for tiny black specks that land only on drastic elevation change | `pnpm build` | HISTORY § the terrain exaggeration ramp · § tileSize 128 and a z0-8 pyramid ship together |
-| terrain polar feather (pipeline/tile/terrain_rgb.py `FEATHER_LAT_LO/HI`) | encoded elevation ramps to zero over **78°–85°** by smoothstep, the geometric twin of the alpha feather `polarCaps.ts` already applies across the same band. Not optional: MapLibre does **not** drape custom layers onto the terrain mesh, so displaced tiles under an undisplaced cap would open a geometric seam — worst in the south, where that band is 2–3 km of Antarctic ice. Smoothstep rather than linear because this multiplies *geometry*, and a slope discontinuity is a visible crease where an alpha one is not | terrain re-cut, ~41 min | HISTORY § tileSize 128 and a z0-8 pyramid ship together |
+| hover name chip (globe.astro `.country-chip`) | top-centre pill on `.globe-home`'s treatment, `var(--serif)` 1.05 rem, 0.4 rem dot taking `HIGHLIGHT_GOLD` from the constant (never a CSS copy); no fade, hidden under `(hover: none)` and while the detail card is open | `pnpm build` |
+| globe camera flatness (globe.astro `VERTICAL_FIELD_OF_VIEW_DEG`) | 15° — tested band 5–15 (MapLibre default 36.87° reads as low-orbit fisheye; 5° ≈ the hero's orthographic camera) | `pnpm build` |
+| on-map credit + chrome placement (globe.astro `CREDITS`, global.css `.view-bar`) | credit is an **ⓘ** linking to /about, folded into the centred `.view-bar` as its own segment — the bottom edge carries ONE floating element, not three. Still a MapLibre `AttributionControl`, constructed **`compact: false`**: any source declaring `attribution` is still picked up automatically (joined with `\|`), while MapLibre's own ⓘ — a baked-in black SVG that CSS cannot recolour — is never shown at any width. Ours is the same glyph redrawn with `currentColor`, its **viewBox cropped to the ink** (`4 4 12 12`, not `0 0 20 20`): the untrimmed box is 40% margin and renders ~60% the size of the octicon beside it. `title` + `aria-label` are mandatory — an icon-only link has no accessible name without them | `pnpm build` |
+| view bar geometry + phone collapse (global.css `.view-bar`, Base.astro) | centres by `inset-inline: 0` + auto margins, **never** `left: 50%` + `translateX` — the transform applies after layout, so that form caps the bar's width at half the viewport and wraps it early. Below **600 px** it collapses to `[tune \| ⓘ]`, persisted, defaulting closed; the credit sits OUTSIDE `.view-bar-items` so a collapse can never hide it. `is-collapsible` must track the trigger's render condition exactly, or pages without a trigger lose their controls. An expanded bar reaches **141 px at 320 px**, so the scale bar drops via `body.viewbar-open` rather than the lift chasing it. MapLibre's CSS is injected at runtime, so overrides must out-specify, not just follow | `pnpm build` |
+| globe atmosphere (web/src/lib/skyAtmosphere.ts) | `atmosphere-blend` **0.7 at z≤3 → 0.15 at z≥6**, geometric, as a zoom expression MapLibre evaluates per frame. Not a halo: the same uniform lays aerial perspective over the ground, and the overview-tuned 0.7 clips 23.8% of a pitched z7 frame to ≥254. `?sky=off\|<floor>` sweeps it | `pnpm build` |
+| terrain displacement (web/src/lib/terrainSource.ts) | **15× at z≤3 decaying geometrically to 2.5× at z8**, written to `terrain.exaggeration` per frame — **never** via `setTerrain`, which rebuilds the Terrain + RenderToTexture and only destroys on removal. Rides the **`full` tier**; `?terrain=N` forces it on at any tier and `?terrain=off` removes only the geometry. The floor is **derived, not preferred**: elevation change goes as ~`width^0.5` while the facet halves per level, so slope holds constant only at 0.707 per level. Declared **`tileSize: 128` over a z0–8 pyramid** (one decision — 512's DEM sits at `camera − 2` and could never reach z7), and **`terrainSkirtLength: "none"`**, which trades MapLibre's seam-tearing for tiny black specks that land only on drastic elevation change | `pnpm build` |
+| terrain polar feather (pipeline/tile/terrain_rgb.py `FEATHER_LAT_LO/HI`) | encoded elevation ramps to zero over **78°–85°** by smoothstep, the geometric twin of the alpha feather `polarCaps.ts` already applies across the same band. Not optional: MapLibre does **not** drape custom layers onto the terrain mesh, so displaced tiles under an undisplaced cap would open a geometric seam — worst in the south, where that band is 2–3 km of Antarctic ice. Smoothstep rather than linear because this multiplies *geometry*, and a slope discontinuity is a visible crease where an alpha one is not | terrain re-cut, ~41 min |
 
 ## Levers (play with these)
 
@@ -182,7 +182,6 @@ Cost: hero sweep **~10–13 h** + tile restage **~29 min** + caps auto-restage *
   `arctan(15 · gradient)`, so a 4° real slope presents as 46° — past the sun — and the face goes
   to hillshade **0**. Measured: 43.7% of the Alps at zero; any fill ≥ 0.10 → 0.00% everywhere.
   Flat country is untouched (Amazon 0.02%) — if flat terrain ever moves, the port is broken.
-  → HISTORY § the tiles were missing the hero's fill sun
 - **DO NOT raise `ambient` to soften. It will look like the obvious fix; it is the rejected
   one** — every metric improved and every render got worse (hazy), the same wash the hero A/B
   rejected. The fill IS the shadow floor; `ambient` stays 0.50.
@@ -191,7 +190,6 @@ Cost: hero sweep **~10–13 h** + tile restage **~29 min** + caps auto-restage *
 - **Do NOT reach for `fill_strength` as a softness lever.** 0.15 is not a tuned value, it is the
   hero's own ratio — the tile look's single principled anchor. Moving it breaks the anchor and
   compresses the same axis `ambient_knee` already compresses.
-  → HISTORY § the hillshade-side lever is DROPPED
 - **Adjust:** `--knob fill_strength=…` for a region A/B (`shade.py --cells` runs the same light
   model as the planet path, verified to 2 DN); past ~0.20 the compression reads flat rather than
   soft. Hillshade-stage: ~46 min to live tiles.
@@ -210,7 +208,7 @@ Cost: hero sweep **~10–13 h** + tile restage **~29 min** + caps auto-restage *
   hillshade_for_light`).
 - **The floor is asymptotic**: darkest reachable light 0.5519, just above `snow_lo` 0.55 — shaded
   snow survives on a 0.9%-of-ramp margin, pinned by test. A future knee raise bleaches snow
-  first. → HISTORY § ambient_knee 0.30 SHIPS
+  first.
 - **Adjust:** `--knob ambient_knee=…`; composite-stage, ~29 min. Judge on `/globe` at planet
   scale — region crops and contrast metrics both got this one wrong.
 
@@ -220,7 +218,6 @@ Cost: hero sweep **~10–13 h** + tile restage **~29 min** + caps auto-restage *
   hillshade lever**. "Can we just tune the tiles softer?" = "should the tiles stop matching the
   heroes?" Colour constants are shared by import from `palette.py` (see the Lever index) and
   pinned by `tests/test_scene_build_sync.py`, so colour drift fails a test, not an audit.
-  → HISTORY § the hero/tile colour constants AUDITED
 
 | Tile | Hero | Relationship |
 |---|---|---|
@@ -237,7 +234,7 @@ Cost: hero sweep **~10–13 h** + tile restage **~29 min** + caps auto-restage *
     the strength: `shaded *= (1 − strength · shadow)` scales the main sun, and fine detail is
     proportional to light amplitude, so shadowed nooks keep only 55–68% of their modeling. **Do
     not re-open with a new strength value.** Also ~8× the cost of the composite knobs that
-    shipped. → HISTORY § cast shadows REJECTED A SECOND TIME
+    shipped.
   - **Warm shadow floor — SHIPPED as `KNOBS["shadow_warmth"] = 0.55`.** The hero fills shadow
     with warm sky + GI bounce, so its shadows are warmer in *hue* at matched elevation (measured
     +61…98% linear R/B); our composite's shift was exactly 0% by construction. `SHADOW_TINT` is
@@ -246,10 +243,8 @@ Cost: hero sweep **~10–13 h** + tile restage **~29 min** + caps auto-restage *
     ice margin does not seam. 1.0 = the hero's measured warmth (rejected as too copper), so 0.55
     is 55% of the hero, anchored not tasted. `KNOBS["warmth"]` is NOT this — it tints uniformly,
     light-invariant. **Adjust:** `--knob shadow_warmth=…`.
-    → HISTORY § shadow_warmth 0.55 SHIPS
   - **Global illumination — the SVF term is the stand-in**, and it is falsified as *the*
     softness term; don't chase softness through it.
-    → HISTORY § chasing the hero's "softness" into the tiles
 
 ### Light balance — Sun Strength + World (scene_build.py)
 
@@ -293,7 +288,7 @@ Cost: hero sweep **~10–13 h** + tile restage **~29 min** + caps auto-restage *
 - **Why a curve and not the window:** Greenland's interior light span sits *nested inside* the
   Alps' span, 17× narrower — no linear window serves both (wide = Greenland blank, narrow =
   Alpine binary cartoon). **`snow_lo`/`snow_hi_pt` are NOT the lever; that is the rejected
-  fix.** → HISTORY § Greenland's interior is blank
+  fix.**
 - **`gamma8` chosen:** Greenland Summit contrast ×6.0, and nearly free because rugged snow's
   light is bimodal (mostly pinned at the floor) — but that's luck, not design: **if a future
   re-tune un-pins the floor, the bill arrives.**
@@ -320,7 +315,7 @@ Cost: hero sweep **~10–13 h** + tile restage **~29 min** + caps auto-restage *
   is this sea frozen", reference period 1991–2020) drives a translucent white overlay over the
   bathymetry, **gated on `ocean`** in `shade.composite`. It lands on the Mercator tiles and both
   caps through the one shared composite; the region path (`--cells`) passes no ice. The dataset
-  is pinned provenance — not a lever. → HISTORY § sea ice over bathymetry
+  is pinned provenance — not a lever.
 - **`ICE_LO` / `ICE_BAND` (0.55 / 0.40) — the alpha ramp.** Smoothstep on frequency, no latitude
   term (the field already encodes where ice is). `ICE_LO` is the *"how much seasonal fringe do I
   paint"* knob: **raise for less ice**, lower for more. It does NOT move the perennial core
@@ -348,7 +343,7 @@ Cost: hero sweep **~10–13 h** + tile restage **~29 min** + caps auto-restage *
 ### Polar caps — the pole look (`tile/cap_render.py`)
 
 - Web Mercator can't reach the poles, and **no flat cap colour works** — dark reads as a hole,
-  pale as a plug; the problem is flatness, not hue. → HISTORY § the polar cap: flat fails
+  pale as a plug; the problem is flatness, not hue.
 - **The look:** the pole is deep ocean floor UNDER floating sea ice — sea ice draped over the
   real (uncapped) bathymetry, the Patterson/Blue-Earth school.
 - **Delivered as AEQD caps via a MapLibre custom layer** (`+proj=aeqd` per pole), not baked into
@@ -365,12 +360,10 @@ Cost: hero sweep **~10–13 h** + tile restage **~29 min** + caps auto-restage *
   mostly-seasonal belt, and the NH-strength climatology read as a bright halo.
 - **No pole special-case remains:** the old flat-pole taper (hiding the azimuth-sweep "pinwheel"
   where meridians converge) is retired — `ice_relief_damp` quenches the wash at the source.
-  → HISTORY § the flat-pole taper RETIRED
 - **Production assets:** 8192² WebP q85 at `web/public/caps/` (3.2 + 2.1 MB). The web layer
   fetches `caps.json` (edge_lat, feather ceiling, URLs) instead of hand-copying pipeline
   constants. Default-on; `?nocaps` disables (kept for layer-on/off artifact diagnosis);
   constrained GPUs clamp to `MAX_TEXTURE_SIZE`, so mobile effectively ships 4096.
-  → HISTORY § polar caps PRODUCTIONIZED
 - `CAP_RGB` in `shade_planet.py` is only the flat fill on Mercator tiles under the caps — not a
   lever.
 
@@ -384,11 +377,11 @@ Cost: hero sweep **~10–13 h** + tile restage **~29 min** + caps auto-restage *
   on most terrain — it mudded alpine depth); **0.0** on 7 volcanic islands where the AO blackens
   dendritic drainage into dark "pinecones"; **0.38** on flat Qatar/Paraguay (the original reason
   it exists — subtle relief needs the burn). The distinction is morphological, so it is a curated
-  list, not a formula. → HISTORY § the "pinecone" islands
+  list, not a formula.
 - **Adjust:** `--strength` (per-country, default 0.20), `--threshold` (0.45), `--svf-long`
   (compute res). Tile-side the analogues are `svf_strength` / `svf_threshold` in KNOBS.
 - Chosen over per-country adaptive exaggeration (breaks consistent vertical scale) and
-  in-Blender Cycles AO (dims scene, grainy, +2.5 min/render). → HISTORY § Hero look v3
+  in-Blender Cycles AO (dims scene, grainy, +2.5 min/render).
 
 ### Resolution floor — heroes (`render_prep.py`, `resolution_floor_m`)
 
@@ -402,7 +395,7 @@ Cost: hero sweep **~10–13 h** + tile restage **~29 min** + caps auto-restage *
   striping severity is a clean function of the upsample factor (it caught nauru a hand list missed).
 - **Adjust:** `resolution_floor_m` per country — set **0 to exempt** a borderline alpine case
   (andorra, where the floor softened real ridge detail). Changes pixel values, not the grid → no
-  re-pin; needs a re-render. → HISTORY § the tiny-country "shredding" cured
+  re-pin; needs a re-render.
 - Occlusion resolution is pinned by `OCCLUSION_TARGET_M_PER_PX` — one constant for region and
   planet paths, so A/Bs judge the resolution production ships.
 
@@ -410,12 +403,11 @@ Cost: hero sweep **~10–13 h** + tile restage **~29 min** + caps auto-restage *
 
 - Lakes and rivers come from the WBM masks; the flat tint is `WATER_RGB` `8EC6C4`, **pinned
   relationally to the sea-surface stop (+7%)** and shared by import — the tint can no longer
-  strand when the sea ramp moves. → HISTORY § Inland water: the WATER_RGB drift
+  strand when the sea ramp moves.
 - **Lake depth is depth-keyed, not flat:** GLOBathy depths drive `LAKE_STOPS` (stop 0 IS the
   water tint, far end Baikal at 1642 m) through `lake_curve` (log1p). Heroes wire it via
   `lake_mask.py` → `lakedepth_aea.tif` (file absent → flat graph, old render dirs stay
   renderable); tiles via `lake_depth.py`. Calibrated to published max depths within 1%.
-  → HISTORY § GLOBathy lake depth
 - **Depth is tint-only — NEVER displacement**: at 15× exaggeration Namtso would become a 1.5 km
   crater and the shadow-catching plate dies. Flat *surfaces* stay locally honest (GLO-30
   hydro-flattens lakes).
@@ -465,7 +457,7 @@ the first question to ask about any visual artifact.
   magnitude only, never as the verdict. Local-contrast std in particular is retired as a proxy.
 - **Occlusion is NOT the softness term — falsified by a six-run sweep.** Local contrast moved the
   *wrong way* across the sweep. Do not re-litigate this; a reopening needs a new mechanism, not a new
-  value. → HISTORY § chasing the hero's "softness" into the tiles
+  value.
 - **Softness is view-independent, so it is fully bakeable; crispness is a data ceiling.** z8 is
   305.7483 m/px, which *is* the 10″ fuse (308.7 m) — so real crispness means re-fusing finer and
   box-filtering the shaded RGB down, never the heights.
@@ -473,7 +465,6 @@ the first question to ask about any visual artifact.
   the first question for any visual artifact is *assets or screen?* — answered by a same-camera
   screenshot with the layer on and off, not by inspection. The custom-layer GL contract that seam bugs
   usually violate is documented in `web/src/lib/polarCaps.ts`.
-  → HISTORY § 2026-07-22 Antarctica FILL
 
 ## Delivery encoding — what the browser actually receives
 
@@ -502,7 +493,7 @@ below is *delivery only* and regenerable, so a wrong call here costs an encode p
   q95 measures mean |Δ| **1.91/255** on the busiest terrain in Europe, for a fifth of the bytes.
 - **Never judge a format A/B where resolution also moved.** The cap comparison that appeared to
   settle this had 4096 PNG on one side and 8192 WebP q85 on the other — a 4× pixel gain comfortably
-  masks a quality penalty, so what got chosen was "more pixels". → HISTORY § the delivery formats
+  masks a quality penalty, so what got chosen was "more pixels".
   were never chosen
 
 ## The srcset ladder — 640 / 960 / 1280 / 1920 / 3840 / native
@@ -530,7 +521,7 @@ from the cap's **projected size on the globe**, which is the same idea arrived a
   there was a 74× linear oversupply, and 1024 is still ~9× more than the screen can show at DPR 1.
 - **The top rung is not retired, it is deferred.** 8192 remains the ratified look and still arrives
   the moment someone actually zooms to a pole — which is the only place its detail was ever visible
-  (below zoom ~3.4 the GPU discards it). → HISTORY § the polar caps ship 156 KB
+  (below zoom ~3.4 the GPU discards it).
 - **It upgrades in one step, never a walk.** Each swap costs a main-thread decode and texture upload,
   so going 1024 → 8192 directly is a look decision as much as a performance one: one brief refinement
   rather than three. Ratified live as graceful — no pop.
@@ -544,7 +535,6 @@ from the cap's **projected size on the globe**, which is the same idea arrived a
   distinguish *softer* from *flatter* — precisely the distinction every lever on this page turns
   on, and the sweep that "improved every number monotonically" while visibly degrading into haze
   is the proof. Compute them to know where to look, then decide with your eyes.
-  → HISTORY § the tiles were missing the hero's fill sun
 - Reference image on one screen, render on the other. **One lever per iteration.**
 - Cheap arms: the scripted-A/B pattern above at `resolution_percentage 27` (~2K, under a minute
   per arm) — matched-crop strips beat memory every time. Tile-side: `--knob` + `shade.py
@@ -555,5 +545,4 @@ from the cap's **projected size on the globe**, which is the same idea arrived a
   it. After a GUI session, audit against scene_build.py — the constants are the record, the
   .blend is disposable.
 - When it looks right: promote the value into palette.py / scene_build.py / KNOBS, rebuild +
-  re-render the reference countries, record the amendment in PLAN.md's locked section and the
-  rationale in HISTORY.
+  re-render the reference countries, and record the amendment beside the constant it changed.

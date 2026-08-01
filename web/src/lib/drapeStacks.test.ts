@@ -80,15 +80,26 @@ describe("the globe's own layer order", () => {
     const globe = readFileSync(new URL("../pages/globe.astro", import.meta.url), "utf8");
     const hitAt = globe.indexOf("addCountryHitTargets();");
     const highlightAt = globe.indexOf("addCountryHighlight();");
-    const countriesAt = globe.indexOf("addCountries(countries);");
+    const countriesAt = globe.indexOf("addCountryTiles();");
+    // ANTI-VACUITY, and it is not hypothetical: this used to look for `addCountries(countries);`,
+    // and when that call was deleted with the GeoJSON arm `indexOf` returned -1 — so the ordering
+    // assertions compared against -1 and passed while checking nothing. Every anchor must be
+    // PRESENT before its position means anything.
+    for (const [label, at] of [
+      ["addCountryTiles();", countriesAt],
+      ["addCountryHighlight();", highlightAt],
+      ["addCountryHitTargets();", hitAt],
+    ] as const) {
+      expect(at, `${label} is missing from globe.astro — the order below would be vacuous`).toBeGreaterThan(-1);
+    }
     expect(hitAt).toBeGreaterThan(highlightAt);
     expect(highlightAt).toBeGreaterThan(countriesAt);
-    // And the layer itself must not have crept back into addCountries.
-    const addCountriesBody = globe.slice(
-      globe.indexOf("function addCountries("),
+    // And the layer itself must not have crept back into the source-and-fill run.
+    const addCountryTilesBody = globe.slice(
+      globe.indexOf("function addCountryTiles("),
       globe.indexOf("function addCountryHitTargets("),
     );
-    expect(addCountriesBody).not.toContain('id: "country-hit"');
+    expect(addCountryTilesBody).not.toContain('id: "country-hit"');
   });
 });
 

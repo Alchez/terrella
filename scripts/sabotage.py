@@ -13,9 +13,16 @@ happens. A case names the test that should catch it, so "the suite went red" is 
 proof — red for the wrong reason is a different guard doing someone else's job, and it will stop
 covering this case the moment that other guard changes.
 
-Two suites, because the guards live in two languages. `suite='web'` runs `pnpm test`; `suite='python'`
-runs `pytest`, and those cases exist to check `tests/test_sabotage_cases.py`, the table's own
-freshness gate. That gate is a guard like any other and gets the same treatment.
+Three suites, because not every guard is a test. `suite='web'` runs `pnpm test`; `suite='python'` runs
+`pytest`, and those cases check `tests/test_sabotage_cases.py`, the table's own freshness gate, along
+with the repo-integrity guards over the docs. That gate is a guard like any other and gets the same
+treatment.
+
+`suite='collection'` runs `web/scripts/check_test_collection.ts`, which is a script and not a test on
+purpose: it asserts that every test file on disk is collected by some vitest project, and a vitest
+test that checked the same thing would be dropped by the very broken glob it exists to catch. A guard
+that can be disabled by its own subject has to live outside the suite, so the harness reads a named
+check out of its output the way it reads a test name out of the other two.
 
 Four lessons are baked into the control flow because each cost a full run to learn:
 
@@ -35,7 +42,7 @@ What this does NOT do: it does not find missing guards, only vacuous ones — a 
 at all has no case here and never will, because cases are written from the guard side.
 
 Usage:
-    uv run scripts/sabotage.py                  # all cases (~5 min: 71 web at ~2 s, 10 python at ~11 s)
+    uv run scripts/sabotage.py                  # all cases; each runs its whole suite once
     uv run scripts/sabotage.py --filter cap     # only cases whose label or path matches
     uv run scripts/sabotage.py --suite python   # only one suite
     uv run scripts/sabotage.py --list           # print the table, run nothing
@@ -63,7 +70,9 @@ BACKUP_SUFFIX = ".sabotage-backup"
 # The only directories a case may write to. Paths are repo-root-relative, and this list is what keeps
 # "relative path" from meaning "anywhere in the repo" now that cases reach outside `web/`. Widen it
 # when a case genuinely needs to — deliberately, since `tests/test_sabotage_cases.py` enforces it.
-MUTABLE_ROOTS = ("web/src", "web/worker", "scripts")
+# PROCESS.md joins the roots because the structural-integrity guard covers repo docs, and a case
+# it cannot write to is a case that cannot prove anything.
+MUTABLE_ROOTS = ("web/src", "web/worker", "scripts", "PROCESS.md", "web/vitest.config.ts")
 
 # Set for the duration of one case, so the backup THIS run is holding does not trip the leftover
 # canary in tests/test_sabotage_cases.py. Narrow on purpose: any other stray backup still fires.
@@ -94,6 +103,14 @@ SUITES: dict[str, Suite] = {
         environment={"PYTHONDONTWRITEBYTECODE": "1"},
         fail_pattern=re.compile(r"^FAILED\s+\S+::([^\s\[]+)"),
     ),
+    # Not a test framework: a script that names its own failing check, so a case here is held to
+    # the same standard as one naming a vitest title or a pytest function.
+    "collection": Suite(
+        command=["node", "scripts/check_test_collection.ts"],
+        cwd="web",
+        environment={},
+        fail_pattern=re.compile(r"^✗ test collection: (\S+)$"),
+    ),
 }
 
 
@@ -119,6 +136,80 @@ class Sabotage(NamedTuple):
 
 
 SABOTAGES: list[Sabotage] = [
+    # --- repo structural integrity: the bulk-edit corruption guard -------------------------------
+    # Every case below is a REAL corruption a repo-wide regex produced, not an invented one. The
+    # first two are the wound that mattered: a deleted `*/` does NOT leave a comment open at EOF
+    # (the next comment's terminator closes it), so an end-of-file check reports clean while real
+    # exports sit commented out. That check was written, shipped, and found vacuous by this table.
+    Sabotage(
+        suite='python',
+        label='delete a closing */ so a doc comment swallows an export',
+        path='web/src/lib/terrainSource.ts',
+        needle=' *  suggests, which is worth knowing before anyone cuts a z9 that could never load. */',
+        replacement=' *  suggests, which is worth knowing before anyone cuts a z9 that could never load.',
+        guard='test_no_block_comment_swallows_a_declaration',
+    ),
+    Sabotage(
+        suite='python',
+        label='delete the second closing */ (TERRAIN_TILE_SIZE this time)',
+        path='web/src/lib/terrainSource.ts',
+        needle=' *  DEM\'s. `terrainZoomsFor` has the arithmetic right and its tests pin it against two live reads. */',
+        replacement=' *  DEM\'s. `terrainZoomsFor` has the arithmetic right and its tests pin it against two live reads.',
+        guard='test_no_block_comment_swallows_a_declaration',
+    ),
+    Sabotage(
+        suite='python',
+        label='clip the closing pipe off a markdown table row',
+        path='PROCESS.md',
+        needle='| 1 | warp height → 3857 | **6:49** | ~0 s | `height_3857.tif` 44 GB | `is_stale` |',
+        replacement='| 1 | warp height → 3857 | **6:49** | ~0 s | `height_3857.tif` 44 GB | `is_stale`',
+        guard='test_markdown_table_rows_are_terminated',
+    ),
+    Sabotage(
+        suite='python',
+        label='leave a code fence unclosed',
+        path='PROCESS.md',
+        needle='```mermaid',
+        replacement='```mermaid\n```extra',
+        guard='test_code_fences_are_balanced',
+    ),
+    Sabotage(
+        suite='python',
+        label='cite a working document from a file that ships',
+        path='web/src/lib/assetBase.ts',
+        needle='// The tile base is the one',
+        replacement='// See ' + 'HISTORY' + ' \u00a7 something.\n// The tile base is the one',
+        guard='test_no_reference_to_a_file_a_clone_will_not_have',
+    ),
+    # --- span attribution: the three ways it could quietly start lying -------------------------------
+    # All three mutations leave a report that still RENDERS and still reads plausible, which is the
+    # only reason they are worth a case: a broken attribution does not throw, it just blames the
+    # wrong subsystem.
+    Sabotage(
+        suite='web',
+        label='attribution reverts to naive subtraction instead of interval intersection',
+        path='web/src/lib/perf/perfTrace.ts',
+        needle='  const attributedMs = Math.min(overlapMs(entries.map(toInterval), longTasks), blockedTotal);',
+        replacement='  const attributedMs = Math.min(entries.reduce((sum, entry) => sum + entry.duration, 0), blockedTotal);',
+        guard='does not go negative when a span runs across SHORT tasks',
+    ),
+    Sabotage(
+        suite='web',
+        label='dropped long-task windows stop being counted, so a partial reading reads as whole',
+        path='web/src/lib/perf/perfOverlay.ts',
+        needle='    tally.longTaskIntervalsDropped += 1;',
+        replacement='',
+        guard='stops retaining windows at the ceiling and COUNTS what it dropped',
+    ),
+    Sabotage(
+        suite='web',
+        label='an unarmed instrument reports as an empty one',
+        path='web/src/lib/perf/perfSnapshot.ts',
+        needle='  if (!report.traceArmed) {',
+        replacement='  if (report.traceArmed) {',
+        guard='distinguishes an instrument that never armed from one that found nothing',
+    ),
+
     # --- GL context-loss recovery and the DEM cache cap (2026-07-29) ---------------------------------
     Sabotage(
         suite='web',
@@ -971,6 +1062,17 @@ SABOTAGES: list[Sabotage] = [
         needle='    if (request.method !== "GET" && request.method !== "HEAD") {',
         replacement='    if (request.method !== "GET") {',
         guard='serves HEAD, which is not a write and must not be lumped in with one',
+    ),
+    # The subject here is the SUITE ITSELF, which is why the guard is a script. Under this
+    # mutation `pnpm test` reports `28 passed (28)` and exits 0 — measured, not assumed — so a
+    # case with suite='web' would record CAUGHT for a run that noticed nothing.
+    Sabotage(
+        suite='collection',
+        label='a vitest project glob stops matching, and the run stays green',
+        path='web/vitest.config.ts',
+        needle='include: ["src/**/*.browser.test.ts"],',
+        replacement='include: ["src/**/*.nomatch.test.ts"],',
+        guard='every-test-file-is-collected',
     ),
 ]
 

@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 """Does `-co NUM_THREADS` actually speed up the composite's GTiff writer?
 
-PLAN item 3 proposes `num_threads="ALL_CPUS"` on the two rasterio writers on the strength of one
-number -- libdeflate = 9.93% of python-side CPU -- that lives nowhere but PLAN and has no surviving
-perf artifact. The NUM_THREADS family has already been measured and REJECTED three times here
-(HISTORY 2026-07-16: `-multi`, `-wm`/`-wo NUM_THREADS`, and `-co NUM_THREADS` for color-relief,
-where libdeflate was only 4.33% of the stage). A fourth instance of a flag this project keeps
+A proposal to set `num_threads="ALL_CPUS"` on the two rasterio writers rested on a single number
+-- libdeflate = 9.93% of python-side CPU -- with no surviving perf artifact behind it. The NUM_THREADS family has already been measured and REJECTED three times here
+(`-multi`, `-wm`/`-wo NUM_THREADS`, and `-co NUM_THREADS` for color-relief, where libdeflate was
+only 4.33% of the stage). A fourth instance of a flag this project keeps
 killing needs evidence, not a plausible percentage.
 
 Two things would make a synthetic version of this lie, and both are avoided:

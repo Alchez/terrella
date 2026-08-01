@@ -9,6 +9,7 @@
 
 import type { Map as MaplibreMap } from "maplibre-gl";
 import { groupPerfLines, type PerfLine } from "./perfLines";
+import type { Interval } from "./perfTrace";
 
 /** Map-event stamps recorded by the PAGE at map construction (globe.astro), not by this
  *  module: the overlay is dynamically imported and loses the race on fast (prod-built)
@@ -38,6 +39,23 @@ export interface PerfSnapshot {
   longTaskTotalMs: number;
   longTaskMaxMs: number;
   longTaskApiAvailable: boolean;
+  /**
+   * Each long-task WINDOW, retained so named spans can be priced against them.
+   *
+   * The aggregate totals above cannot answer "how much of this was ours" — that needs the actual
+   * intervals to intersect against, and they cannot be recovered later: long tasks reach a
+   * `PerformanceObserver` and are never added to the performance timeline, so
+   * `getEntriesByType("longtask")` returns nothing. Retained here or lost.
+   */
+  longTaskIntervals: Interval[];
+  /**
+   * Windows discarded once {@link MAX_RETAINED_LONG_TASKS} was reached.
+   *
+   * Reported rather than silently absorbed, because a truncated interval list understates
+   * `attributedMs` and therefore OVERSTATES the unattributed remainder — it would read as
+   * "MapLibre's fault" with no sign that the reading was partial.
+   */
+  longTaskIntervalsDropped: number;
   /** Rendered frames per second over the last FPS_WINDOW_MS, or null when the map is idle. */
   fps: number | null;
   /**
@@ -92,6 +110,53 @@ export function longTaskApiSupported(
 ): boolean {
   const supported = observerConstructor?.supportedEntryTypes;
   return Array.isArray(supported) && supported.includes("longtask");
+}
+
+/**
+ * Long-task windows to retain before dropping the excess.
+ *
+ * A long task is by definition ≥50 ms, so this ceiling represents at least ~3.4 minutes of solid
+ * blocking — a session that reaches it is already pathological. Bounded at all because an
+ * instrument that allocates without limit becomes the thing it is measuring, which is not a
+ * hypothetical here: `?perf` once created 13.3 WebGL contexts a second and killed the map.
+ */
+export const MAX_RETAINED_LONG_TASKS = 4096;
+
+/** What {@link recordLongTask} accumulates into — the long-task fields of a {@link PerfSnapshot}. */
+export type LongTaskTally = Pick<
+  PerfSnapshot,
+  | "longTaskCount"
+  | "longTaskTotalMs"
+  | "longTaskMaxMs"
+  | "longTaskIntervals"
+  | "longTaskIntervalsDropped"
+>;
+
+/**
+ * Fold one long-task entry into the tally.
+ *
+ * Extracted from the observer callback so the retention ceiling is testable without a
+ * `PerformanceObserver` — an untested cap is how a silent truncation ships.
+ *
+ * The ordering matters: the three TOTALS are updated unconditionally and only the WINDOW is
+ * subject to the ceiling, so a session past the limit still reports its blocked time exactly and
+ * loses only the ability to attribute part of it.
+ */
+export function recordLongTask(
+  tally: LongTaskTally,
+  entry: { startTime: number; duration: number },
+): void {
+  tally.longTaskCount += 1;
+  tally.longTaskTotalMs += entry.duration;
+  tally.longTaskMaxMs = Math.max(tally.longTaskMaxMs, entry.duration);
+  if (tally.longTaskIntervals.length < MAX_RETAINED_LONG_TASKS) {
+    tally.longTaskIntervals.push({
+      startMs: entry.startTime,
+      endMs: entry.startTime + entry.duration,
+    });
+  } else {
+    tally.longTaskIntervalsDropped += 1;
+  }
 }
 
 /** A frame this slow is visible as a hitch. Matched to the Long Tasks threshold so the two
@@ -389,6 +454,8 @@ export function mountPerfOverlay(map: MaplibreMap, options: PerfOverlayOptions =
     longTaskTotalMs: 0,
     longTaskMaxMs: 0,
     longTaskApiAvailable: true,
+    longTaskIntervals: [],
+    longTaskIntervalsDropped: 0,
     fps: null,
     lastActiveFps: null,
     lastActiveFpsAgeMs: null,
@@ -509,11 +576,7 @@ export function mountPerfOverlay(map: MaplibreMap, options: PerfOverlayOptions =
   } else {
     try {
       const observer = new PerformanceObserver((list) => {
-        for (const entry of list.getEntries()) {
-          snapshot.longTaskCount += 1;
-          snapshot.longTaskTotalMs += entry.duration;
-          snapshot.longTaskMaxMs = Math.max(snapshot.longTaskMaxMs, entry.duration);
-        }
+        for (const entry of list.getEntries()) recordLongTask(snapshot, entry);
       });
       observer.observe({ type: "longtask", buffered: true });
     } catch {

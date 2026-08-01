@@ -1,7 +1,7 @@
 # FUTURE — the v2 parking lot
 
 Ideas deliberately **not** planned: analysed enough to record, parked without commitment. This is
-not PLAN.md — nothing here has a phase or a checkbox, and nothing here is promised. When an idea
+not the plan — nothing here has a phase or a checkbox, and nothing here is promised. When an idea
 graduates, it moves to PLAN and this file keeps a one-line pointer. Each entry carries the date of
 its analysis and the facts its numbers depend on — check both before trusting an old entry, and
 grep HISTORY before re-arguing anything an entry says was already decided.
@@ -33,7 +33,7 @@ once and permanently, forcing explicit recreation — a stricter contract than t
 `webglcontextlost`/`restored` pair whose ambiguity is what hid our recovery notice; and explicit
 `destroy()` on buffers and textures gives deterministic release.
 
-**Correction to a recorded prediction.** HISTORY § *Tier 2 globe + Natural Earth vector borders*
+**Correction to a recorded prediction.** The Tier-2 globe work
 assessed WebGPU as "a future no-op tier, not a rewrite". That was true of the code as it stood and
 is **false now**: `polarCaps.ts` is a MapLibre **custom layer**, and that API hands you a raw
 `WebGLRenderingContext`. We author GLSL, build VBOs and call `gl.drawElements` directly, so a
@@ -46,7 +46,7 @@ out-of-memory signal to drive it.
 
 ## Flat ice saturates the snow ramp, and the curve was fitted before Antarctica existed (analysed 2026-07-29)
 
-Rohan zoomed into Antarctica to judge the terrain feather and found it "basically washed out". Two
+Zooming into Antarctica to judge the terrain feather showed it "basically washed out". Two
 independent causes, split by depth in the frame — the far field was the atmosphere (fixed, → HISTORY
 § the atmosphere ramps on PITCH too), and **the near field is this**, which is unfixed.
 
@@ -77,7 +77,7 @@ once because hillshade cannot see it, once because the ramp clips.
 
 **Not a systematic failure — a tail case.** Most of Antarctica lands inside the range already
 accepted (Dome A and Vostok beat Greenland north, which shipped), and the mountains are fine. The
-flat plateau is the outlier, and it is where Rohan happened to look.
+flat plateau is the outlier, and it is where the review happened to look.
 
 **The gap that makes a re-check legitimate rather than re-litigation:** `snow_curve = "gamma8"` was
 chosen **2026-07-17**, and Antarctica was fused into the pyramid **2026-07-22, five days later**.
@@ -87,7 +87,7 @@ pyramid yet**. No regression was
 found (a Summit 3×3 block measures 20.7 DN against the entry's 18.84, consistent), so the curve
 does what it was tuned to do; it was simply never asked about this terrain.
 
-**`snow_hi_pt` is NOT the lever, and that is already settled** → HISTORY § Greenland's interior is blank because the snow blend throws the hillshade away. The
+**`snow_hi_pt` is NOT the lever, and that is already settled**. The
 window was measured and rejected: Greenland uses 7% of it, the Alps overflow at 122%, and **the two
 ranges are nested rather than adjacent**, so a window fitted to flat ice turns Alpine snow into a
 binary blue/white cartoon. Do not re-argue it.
@@ -131,7 +131,7 @@ uniform white surface offers neither. That gates the payoff of PLAN's Step 2 fea
 - **Numbers depend on:** the z0–8 pyramid **≈ 3 GB** and ~87k tiles per look — it was 15–16 GB when
   this was analysed, so the WebP q95 switch made a second look **5× cheaper in storage** and moves
   Kind 2 well down the cost ladder; composite-stage restage ~29 min (PROCESS § what a change costs);
-  `countries.geojson` sub-pixel since the hover-outline fix (HISTORY § the blocky hover outline).
+  `countries.geojson` sub-pixel since the hover-outline fix
 
 Presets decompose into **three kinds by where the variation lives** — costs differ by orders of
 magnitude, so the taxonomy is the decision:
@@ -202,7 +202,7 @@ magnitude, so the taxonomy is the decision:
     = ESA's bucket, etc.) — the offload is deletion + on-demand re-fetch, already gated by the
     INVENTORY reclaim picture, never an upload.
   - ~360 GB of intermediates are compute-regenerable — and remote reads for full sequential scans
-    are a rejected shape (HISTORY § chasing the hero's "softness": "remote COG is the wrong shape
+    are a rejected shape
     for a full sequential scan").
   - The **~56 GB worth putting in a cloud is the backup set, not an offload**: heroes+raws+variants
     (27 GB real bytes, hardlink archives ~free; Cycles isn't bit-deterministic so ratified pixels
@@ -210,7 +210,7 @@ magnitude, so the taxonomy is the decision:
     cells (14 GB — the one expensive-to-rebuild intermediate), caps/geojson/frame pins. ≈ $1/mo on
     R2/B2 (ballpark; R2's zero egress is the differentiator — verify pricing at pickup).
 - **The big lever:** if Phase 5 goes no-go on a finer re-fuse, `glo30/` (551 GB) drops to
-  per-country-on-demand like WorldCover — the upstream *is* the cloud store. Rohan deferred the
+  per-country-on-demand like WorldCover — the upstream *is* the cloud store. Deferred the
   whole topic to after Phase 5.
 
 ## A z9 / z10 pyramid — z10 is BLOCKED ON DISK, z9 is reachable (analysed 2026-07-26)
@@ -241,7 +241,7 @@ magnitude, so the taxonomy is the decision:
   Upsampling goes **1.5× → 6.1×**, so z10 makes land crisper while leaving the sea exactly as soft as
   it is now, **quadrupling the land/sea detail mismatch**. Bathymetry is signature, not optional
   (CLAUDE.md § Data sources), so this is a look regression bought with 43 hours.
-- **The old precondition is CLOSED — do not re-raise it.** HISTORY § z8 LOCKED recorded a latent gap
+- **The old precondition is CLOSED — do not re-raise it.** Locking z8 recorded a latent gap
   (`ocean`/`water`/`lakedepth` take their grid from `height_3857` but did not depend on it, so a
   re-fuse would leave `lakedepth` falsely fresh at old dimensions — a silently wrong composite) with
   *"fix before any re-fuse, not after."* It was fixed at the Antarctica re-fuse: `warp_needs_rebuild`
@@ -262,7 +262,6 @@ magnitude, so the taxonomy is the decision:
   ever load** against `maxZoom: 8`; 256 reaches z7; only **128 reaches z8**, which is what shipped.
   z8 is the floor in any case — 256 tiles × 512 px = 131,072 px, exactly the master's grid, so
   anything deeper needs a re-fuse and lands squarely in the z9/z10 question above.
-  → HISTORY § tileSize 128 and a z0-8 pyramid ship together
 - **If depth is wanted, z9 is the reachable one:** 443 GB and ~11 h, fits today's free space, 3×
   GEBCO upsample rather than 6×. Not recommended, but it is the option that exists.
 - **Revisit when:** a larger disk lands. Then re-derive from PROCESS rather than trusting this table —
@@ -279,12 +278,12 @@ bordered, so every single treatment reads flat at the margin for a large fractio
 
 Not a look change in the locked-constants sense — the sun, ramps and exaggeration are untouched by it,
 so nothing here threatens the freeze. It is a *presentation* choice made per gallery/globe surface,
-which is why it never blocked anything. → HISTORY § 2026-07-09 — Hero presentation explored
+which is why it never blocked anything.
 
 ## Kiribati presentation — the one antimeridian-deferred country (analysed 2026-07-24)
 
 - **Trigger:** Kiribati is the sole in-scope country with no hero (`status="antimeridian"`,
-  `config/countries.toml`), skipped by design 2026-07-09 (HISTORY § Antimeridian: no wrap-math)
+  `config/countries.toml`), skipped by design 2026-07-09
   because its land is genuinely split — Gilberts 32% at 169–177°E (capital Tarawa) vs Phoenix+Line
   68% at 175–151°W (largest atoll Kiritimati), no dominant side. "No hero *for now*" lived only in
   a TOML note; this is its analysed home.
@@ -362,7 +361,7 @@ which is why it never blocked anything. → HISTORY § 2026-07-09 — Hero prese
   Cloudflare's backbone RTT.
 - **Second discount:** the 07-25 Mumbai control did the same read in **~60 ms**, so the Indian
   visitors who land at BOM next to the bucket already have a fast read and gain nothing. The hint
-  helps US/EU visitors and Rohan's Airtel-to-Marseille line — a real audience, but not "everyone".
+  helps US/EU visitors and the maintainer's own route — a real audience, but not "everyone".
 - **The blocker is gone**, so this is now cheap to test: Workers Caching shipped 2026-07-26, hits no
   longer run the Worker, and the docs are explicit that *"the cache is always consulted before Smart
   Placement is considered"*. Both the hint and the revert are config-only.
@@ -395,13 +394,13 @@ which is why it never blocked anything. → HISTORY § 2026-07-09 — Hero prese
   than clean teal. Judge on the sphere, not in the abstract.
 - **Decide at:** only if the flat fill is observed to read badly in practice. Strictly better than
   raising `maxTileCacheZoomLevels`, which buys a probabilistic win for **+264 MiB** of desktop GPU
-  texture → HISTORY § the hole to space was never a MapLibre regression.
+  texture
 
 ## Mobile lightweight identify — "what is this?" without committing (analysed 2026-07-26)
 
 - **Trigger:** the hover name chip shipped desktop-only, correctly — touch has no hover state to
   leave anonymous. But that framing hides a *different* gap on touch, and this is where it is parked
-  so the chip is not mistaken for having covered it → HISTORY § the gold outline finally says what it is.
+  so the chip is not mistaken for having covered it
 - **The asymmetry:** on desktop, "what country is this?" costs a pointer move. On touch it costs a
   **2.2 s `fitBounds` flight + a card over the screen + a hero image fetch**, then a close and a
   re-orient. Same question, wildly different price — and the expensive one is on the platform with
@@ -421,7 +420,7 @@ which is why it never blocked anything. → HISTORY § 2026-07-09 — Hero prese
 
 ## The tier ladder is more permissive than it reads (analysed 2026-07-26, **FIXED 2026-07-28**)
 
-**Closed as Tier 3 Step 1** → HISTORY § the tier ladder stops guessing at hardware it cannot see.
+**Closed as Tier 3 Step 1**.
 Kept here because the analysis below is what the fix was built from, and because one of its own
 claims turned out to be wrong. Outcome per gap: the threshold became **`<= 4`**; the softwareGpu
 asymmetry was closed by giving `Base.astro` the same floor; the Safari/Firefox blindness was
@@ -494,7 +493,7 @@ conclusion below, which rests only on there being no value between 2 and 4.
 
 ## Raster tile resolution vs device pixel ratio (analysed 2026-07-25)
 
-- **Trigger:** Rohan asked whether serving 512 px tiles "@2x" is wasted on a DPR-1 desktop, and
+- **Trigger:** the question of whether serving 512 px tiles "@2x" is wasted on a DPR-1 desktop, and
   whether phones get enough for DPR 3. The answer inverts the intuition, so it is worth parking
   rather than discarding.
 - **Mechanism, measured on the live globe:** the source declares `tileSize: 256` for 512 px
@@ -527,7 +526,7 @@ conclusion below, which rests only on there being no value between 2 and 4.
   that is merely soft, not broken.
 - **The polar caps solved this exact mechanism, and the tiles still have not** (2026-07-25). The cap
   now picks its texture from its projected on-screen size × the canvas backing ratio, so DPR is
-  handled per-device with no look change → HISTORY § the polar caps ship 156 KB. The tiles cannot
+  handled per-device with no look change
   reuse that: MapLibre's raster source has no DPR negotiation and `tileSize` is global, which is why
   the lever above is a one-line `tileSize` switch rather than a picker. Worth re-reading that
   implementation before picking this up — it settles what "demand" means here, and the
@@ -549,43 +548,185 @@ conclusion below, which rests only on there being no value between 2 and 4.
 - **Low priority on purpose:** this is deferred-to-idle transfer (~0.4 s), entirely off the
   first-paint path. The polar caps are the larger and simpler target → PLAN Phase 4.
 
-## Vector-tile countries (analysed 2026-07-25 — the stated reason was FALSIFIED)
+## Metatile batching — collapse round trips instead of running more of them (analysed 2026-08-01)
+
+- **Trigger:** the concurrency sweep answered "run more requests at once" and shipped it — MapLibre's
+  parallel image-request cap went 16 → 32, worth ~2.1× the achieved concurrency. This is the *other*
+  half of the same cost, and the cap cannot touch it: the queue limits how many requests are in
+  flight, not how many are needed.
+- **The measurement that argues for it**, from `server-timing` on cold z7 tiles:
+  `worker;dur=280` of a **760 ms** tile, `worker;dur=383` of a **1030 ms** tile. Roughly **half of
+  every tile is client↔edge round trip**, paid once per tile — 119 times on one cold z5 load.
+- **Shape:** an `addProtocol` handler asks the tile Worker for a 2×2 (or 4×4) metatile and slices it
+  client-side. Four MapLibre queue slots are still held, but only ONE ocean crossing happens behind
+  them. The R2 reads it replaces become subrequests inside Cloudflare's network, which
+  `worker/wrangler.jsonc` already records as unbilled.
+- **Deliberately unquantified.** The gain depends on how R2 read latency composes when several are
+  issued together, which cannot be known without building the endpoint. Two predicted effect sizes
+  were quoted and then falsified on 2026-08-01 alone; this one waits for a measurement.
+- **Cost is the reason it is parked:** a new Worker route, a client protocol handler, and slicing
+  code — against a one-line constant that already bought 2.1×.
+- **Known-settled, so it is not re-derived** (read out of the shipped MapLibre source, not the
+  docs): `addProtocol` does NOT escape the request queue — `ImageRequest.getImage` pushes to
+  `imageRequestQueue` unconditionally, and `getProtocol(url)` appears only as a condition choosing
+  `makeRequest` over an `<img>` load, both inside the queued path. So a protocol handler can only
+  ever be MORE restrictive than the cap. `transformRequest` cannot help either: its
+  `RequestParameters` carries no priority or ordering field. The one true bypass is
+  `addSourceType`, i.e. reimplementing `RasterTileSource` with its fade/retain/unload/expiry
+  surface — far more than this idea is worth on its own.
+
+## Vector-tile countries — BUILT AND SHIPPED 2026-07-31 (kept as the record of two falsified reasons and one that held)
+
+- **LEFT THIS FILE — the pyramid is cut, served and default.** `pipeline/compose/countries_pmtiles.py`
+  writes one 10.2 MB archive with three source-layers in **17 s**; the tile Worker and the dev
+  middleware answer it as a third route; `web/src/lib/countryTiles.ts` is the contract. Measured
+  A/B/A/B against the GeoJSON control arm it replaced (since deleted): **total blocking 421 → 56.5 ms
+  (−87%)**, max long task **361.5 → 56.5 ms (−84%)**, `countries:layers` **22.4 → 1.5 ms (−93%)**.
+  The vector arm has ONE long task left in the whole load and it is bundle execution.
+- **What the build found that the analysis did not:** Natural Earth ships **Greenland as a
+  `GeometryCollection`**, and the parts-walk was written inline TWICE — so Greenland had a fill
+  wash and a working click but **no hover outline and no hit targets**, live, in production, unseen.
+  One shared `polygonPartsOf` fixes both copies. Also: the country hit layer was the only one of
+  the four with no runtime filter, which the archive carrying all 258 countries would have turned
+  into unrendered countries becoming clickable.
+- Kept below: the reasoning, because two of this entry's three stated reasons were falsified and
+  the record of *which* is what stops them being re-proposed.
 
 - **Trigger:** "the 9.39 MB `countries.geojson` costs a big JSON parse, so make it vector tiles."
   That reason does not survive measurement.
 - **Falsified, measured on the live page:** `JSON.parse` of the 9.39 MB is **19 ms**; TextDecode
   4 ms; the geometry walk ~0 ms. Parsing is not the cost and never was.
-- **What the ~0.41 s actually is:** MapLibre **tessellation** — turning polygons into GPU
-  triangles. That figure was inferred by subtraction and flagged as not directly measured.
-  **NOW MEASURED, and it holds: ~355 ms** → HISTORY § the 4.8 s finally has a name.
-  - Chrome **LoAF script attribution** on production names one block: `sourceCharPosition`
+- **The ~0.41 s was attributed to MapLibre *tessellation*, and that attribution is now FALSIFIED
+  too (2026-07-31).** Tessellation runs in the **worker**, not on the main thread: `earcut` and
+  `classifyRings` appear **0 times** in `maplibre-gl-dev.mjs` (the main bundle) and 19 times in the
+  shared bundle, which `maplibre-gl-worker-dev.mjs` imports alongside `FillBucket`, `LineBucket`
+  and `GeoJSONVT`. No main-thread frame can contain it.
+  - The 355 ms measurement itself stands — it just measured the **chain**, not tessellation.
+    Chrome **LoAF script attribution** on production named one block: `sourceCharPosition`
     **1,005,956** (99.9% through the chunk, i.e. *our* page module, not MapLibre's vendor bulk),
-    `invokerType: resolve-promise`, invoker `Response.json.then` — exactly the
+    `invokerType: resolve-promise`, invoker `Response.json.then` — the
     `addCountries → addBorders → addCountryHighlight` chain after `countries.geojson` resolves.
-  - **365 / 357 / 352 / 348 ms over four cold loads — ±2.5%**, and **~54% of all long-frame script
-    time** (total 640–686 ms). Unthrottled desktop; 4× CPU throttle would put it near 1.4 s.
-  - **Not yet split** between the three `addSource` calls and our two geometry walks. `outlinesFrom`
-    builds a full second copy of every ring as `MultiLineString`, so MapLibre ingests the geometry
-    **twice** — that duplication exists to fix the stray-gold-meridian bug and is the first thing to
-    measure if this is reopened.
-- **Consequence for the design space:** only *geometry reduction* (fewer/simpler polygons) touches
-  tessellation. Compression, a faster parser, and a binary container all miss it entirely.
+    **365 / 357 / 352 / 348 ms over four cold loads, ±2.5%**, ~54% of all long-frame script time.
+- **What the main-thread cost ACTUALLY is: the worker handoff, and it is a property of how we call
+  `addSource`, not of the geometry.** `GeoJSONSource._getLoadGeoJSONParameters` branches on the
+  type of `data`:
+  - a **string** sets `params.request`, and the worker's `loadAndProcessGeoJSON` does
+    `params.data = (await getJSON(params.request…)).data` — fetch, parse, tile and tessellate all
+    happen off the main thread, which pays **nothing**;
+  - an **object** sets `params.data`, and `Actor.sendAsync` then calls `serialize(message.data)`,
+    which **recursively rebuilds every array and object**, before `postMessage` structured-clones
+    that rebuilt copy. Two full deep walks of the geometry, on the main thread.
+- **We pass objects for all three country sources** (`globe.astro`, `addCountries`) while
+  `boundary_lines.geojson` in the same file is passed as a **URL**. The asymmetry inside one file
+  is the defect; the geometry is only the multiplier.
+- **Measured** (Node 24 / V8, warm, ×3 — same engine as Chrome, different host, so a proxy):
+  `countries` **143.7 / 117.4 / 97.5 ms**, `country-outlines` **98.5 / 91.1 / 96.4**,
+  `country-hits` **3.3 / 6.8 / 3.3** — total **245.5 / 215.3 / 197.1 ms**. Those are promise
+  continuations, i.e. microtasks, so they drain inside the task that queued them — which is why
+  they land in the same long task as the `addSource` calls rather than a later one.
+- **CONFIRMED IN THE BROWSER, A/B/A/B, 2026-07-31** (`?countriesurl` is the arm-B flag; dev server,
+  Chrome, DPR 1, tab verified visible at 165 rAF fps in every arm, each arm its own page load):
+
+  | | `countries:layers` | max long task | total blocked | windows |
+  |---|---|---|---|---|
+  | A1 objects | 21.0 ms | 357 ms | 424 ms | 67 · **357** |
+  | A2 objects | 20.0 ms | 360 ms | 418 ms | 58 · **360** |
+  | B1 URLs | 1.1 ms | 82 ms | 216 ms | 60 · 74 · 82 |
+  | B2 URLs | 1.1 ms | 84 ms | 218 ms | 62 · 72 · 84 |
+
+  **The 358 ms task — the worst in the session — disappears entirely.** Max long task
+  **358 → 83 ms (−77%)**, total blocking **421 → 217 ms (−48%)**, `countries:layers`
+  **20.5 → 1.1 ms (−95%)**. Repeats agree to ±0.4% (A) and ±1.2% (B), so the effect is orders
+  outside the noise band. In arm A the long task begins at 724 ms and `countries:layers` begins at
+  724.5 — the task *is* the handoff — and the 336 ms after our span closes carries no span at all.
+- **Arm B is not fast because it did nothing:** 112–114 features rendered in `country-fill`, both
+  sources `isSourceLoaded`, and `setFeatureState` reaches a URL-loaded source on both `countries`
+  and `country-outlines`, so the hover highlight's `promoteId` wiring survives the change.
+- **Consequence for the design space, restated.** Geometry reduction is no longer the only lever
+  and no longer the first one: **passing a URL removes the entire main-thread cost at any geometry
+  size.** Geometry reduction is what makes the *transfer* case, and vector tiles happen to do both.
+- **The geometry, censused 2026-07-31:** 258 features, 4,274 polygon parts, 4,293 rings,
+  **413,141 vertices**, 22.7 bytes/vertex. Canada alone is 13.1%, the top 12 countries 53.7%, the
+  median country 487 vertices. One oddity: Greenland is a `GeometryCollection` containing a stray
+  `LineString`, which every polygon path silently skips.
 - **"The transfer side is already handled" was true when written and is now the weakest claim here.**
   It is deferred to first idle and gzipped 9.39 → 2.99 MB, but the Lighthouse pass
   (2026-07-25) puts it at **3.08 MB — the single largest item in the globe's cold window, bigger
   than all 36 tiles combined (2.65 MB)**, now that the polar caps dropped to 0.15 MB. Shrinking
   everything around it promoted this to the top of the payload.
-- **So the idea is alive, on a different reason than it started with.** Do not resurrect the parse
-  argument (19 ms, falsified); the case is transfer size plus tessellation. Both are touched only by
-  geometry reduction, which is exactly what vector tiles do.
-- **But weigh it against what the main thread costs:** ~4.8 s of script time on throttled mobile,
-  and it is **execution, not parse** — measured 2026-07-26 by two independent instruments
-  (Lighthouse `bootup-time`: **4,833 ms evaluation vs 2 ms parse**; Chrome LoAF: **0 ms compile**).
-  → HISTORY § the globe's script time is EXECUTION. Transfer size is not the globe's binding
-  constraint, so measure the tessellation share directly before spending effort here.
-- **That measurement strengthens this entry rather than weakening it:** tessellation *is* execution,
-  which is the term shown to dominate — so geometry reduction remains the only lever that touches
-  either half of the case, and compression / a faster parser / a binary container still miss both.
+- **So the idea is alive on its THIRD reason, and both earlier ones are dead.** Do not resurrect
+  the parse argument (19 ms) or the tessellation argument (worker-side). The case is now: transfer
+  size, which only geometry reduction touches, plus a main-thread handoff, which a URL alone
+  removes — vector tiles are the one option that does both and reuses machinery we already own.
+- **PROBED END TO END, 2026-07-31 — the build is smaller than the design assumed and every
+  blocking unknown came back clean.** A GDAL-built archive was served as z/x/y over a throwaway
+  local server and added to the live globe as a `vector` source. Rendered at 162 fps: **129 fill,
+  116 line, 338 hit features**, `isSourceLoaded` true. Specifically settled:
+  - **`ogr2ogr` writes PMTiles directly (GDAL 3.12.2, driver is rw).** No tippecanoe, no Node build
+    step, no MBTiles intermediate, no `pmtiles convert` — so the pipeline stays Python + GDAL, the
+    shape `countries_geojson.py` already has, and the converter that once OOM'd the box is not in
+    the path. The driver **cannot append layers**, so the stage is: stage a multi-layer GPKG, then
+    one conversion.
+  - **The gzip question is moot, and it was the top-ranked risk.** The archive is
+    `tileCompression: gzip` while relief and terrain are both `none`/`webp` — but `PMTiles.getZxy`
+    calls `decompress(data, header.tileCompression)` before returning, and **both servers already
+    read tiles through `getZxy`**. They receive plain MVT. No `Content-Encoding` anywhere, and R2's
+    undocumented passthrough never enters it. Verified on the wire: every tile served began `1a …`,
+    never the `1f 8b` gzip magic.
+  - **`promoteId: "ADMIN"` works on a vector source as a bare string**, and — the part that could
+    have quietly half-worked — **feature-state crosses tile boundaries**: Brazil arrives as 2 tile
+    pieces at z1.6 and setting hover once lit **both**.
+  - **The hit layer comes back as `Point`, not `MultiPoint`**, despite GDAL declaring the layer
+    Multi Point. `countryAt` drops any feature whose `geometry.type !== "Point"`, so the opposite
+    result would have silently killed every archipelago target with no error and no visual tell.
+  - **Drape stacks are keyed on layer TYPE, not source type**, so the RTT-pool multiplier is
+    untouched by the source change.
+- **CORRECTED: GDAL applies NO simplification by default, and the geojson-vt estimate below did.**
+  The first archive's z0 tile was **246 KB gzip against the 57 KB predicted, 4.3×** — the estimate
+  and the build were not measuring the same thing. `SIMPLIFICATION` plus `SIMPLIFICATION_MAX_ZOOM`
+  is the fix and it is exactly the shape this file's constraint needs, because **z8 is untouched at
+  395 B in every arm** while the overview zooms fall:
+
+  | dsco | archive | z0 gzip | z2 gzip | z8 gzip |
+  |---|---|---|---|---|
+  | none (default) | 11.44 MB | 246,472 | 110,644 | 395 |
+  | `SIMPLIFICATION=1 …MAX_ZOOM=0.5` | 10.31 MB | 141,564 | 61,562 | 395 |
+  | `SIMPLIFICATION=2 …MAX_ZOOM=0.5` | 9.54 MB | 107,779 | 44,016 | 395 |
+  | `SIMPLIFICATION=4 …MAX_ZOOM=0.5` | 8.68 MB | 85,620 | 32,253 | 395 |
+
+  So the z8 hover-outline fidelity that the 9.39 MB file exists to protect is a **separate knob**
+  from overview weight, which is the property the whole idea rested on and had not been checked.
+  `BUFFER=0` is real too, not a silently-ignored option: 11.44 MB against 12.23 MB at the default
+  80. Two further defaults worth pinning rather than inheriting: `MAX_SIZE` 500,000 B **drops
+  features** past it (largest tile here is far under), and `EXTENT` 4096 is what quantises overview
+  geometry for free — ~38 m at z8, ~9.8 km at z0.
+- **Pyramid estimated first (2026-07-31)** — `@maplibre/geojson-vt` and `@maplibre/vt-pbf`
+  are already installed as MapLibre's own transitive deps, so the real data was tiled through them
+  at z0–8, two layers (`country_fill` polygons + `country_outline` lines), `buffer: 0`, gzip -9.
+  **Read this as a floor, not a forecast** — it is what a tolerance-3 tiler produces, which is why
+  the GDAL build above needed its own simplification setting to approach it:
+
+  | z | tiles | gzip total | mean tile |
+  |---|---|---|---|
+  | 0 | 1 | 57,438 | 57,438 |
+  | 1 | 4 | 103,424 | 25,856 |
+  | 2 | 16 | 182,842 | 11,428 |
+  | 4 | 244 | 533,480 | 2,186 |
+  | 8 | 31,972 | 5,091,265 | 159 |
+
+  Whole pyramid **11.19 MB gzip stored**, never all fetched. The globe opens at **zoom 1.6**, so
+  the cold window is z1–z2: **~50–180 KB against 2.51 MB today.** Storage is a non-issue against
+  R2's remaining headroom, and **no tippecanoe dependency** — the stage is a Node script using the
+  same tiler MapLibre already runs at runtime.
+- **The stray-gold-meridian fix survives by construction:** ship the rings as a separate LINE layer
+  in the same tileset. Clipping a line trims it; clipping a polygon closes the ring along the cut.
+  That is exactly what `outlinesFrom` does today, moved to build time — which also deletes the
+  runtime geometry walk and the second serialize it feeds.
+- **Weigh it against the ceiling:** ~4.8 s of script time on throttled mobile, **execution, not
+  parse** — measured 2026-07-26 by two independent instruments (Lighthouse `bootup-time`:
+  **4,833 ms evaluation vs 2 ms parse**; Chrome LoAF: **0 ms compile**). The handoff is ~190–230 ms
+  unthrottled, so ~0.8 s throttled, i.e. **~17% of that ceiling — material, not the headline.**
+  The transfer win is the unambiguous half; do not sell this as the fix for the 4.8 s.
 - Related: the same `countries.geojson` is the input to Kind 1 look presets above, so any
   re-encoding decision should be taken once, for both.
 
@@ -598,7 +739,7 @@ conclusion below, which rests only on there being no value between 2 and 4.
   WebP q85 across three rungs (France 0.7 / 2.3 / 6.9 MB at 1920/3840/native). The ladder is now
   **six rungs (640/960/1280/1920/3840/native) at a split quality — q85 up to 1920, q95 above** —
   so both the file count and the per-file baseline are different, and the AVIF comparison has to
-  be made against q95 where it matters. → HISTORY § the ladder ships against measured layout.
+  be made against q95 where it matters.
 - **Idea:** AVIF siblings of the existing rungs in `hero_variants.py`; gallery + globe panel
   switch to `<picture>` with `type` fallback. Rule-of-thumb gain ~20–30% smaller at similar
   quality — **unmeasured on our content; measure 2–3 heroes before deciding anything.**
@@ -612,7 +753,7 @@ conclusion below, which rests only on there being no value between 2 and 4.
 
 ## Hero presentation — large-country warp & small-island exaggeration (analysed 2026-07-24)
 
-Raised by Rohan reviewing the gallery after the sea-sync sweep (the sea look he approved;
+Raised while reviewing the gallery after the sea-sync sweep (the sea look was approved;
 these are pre-existing framing concerns). The country-extent concern is being SOLVED separately
 by the subject-spotlight "Focus" toggle (compose-layer, no re-render). These two remain, and BOTH
 require a re-render, so they are parked until a re-render is on the table anyway.
