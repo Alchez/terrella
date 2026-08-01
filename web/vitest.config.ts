@@ -38,6 +38,8 @@ export default defineConfig({
           include: ["src/**/*.browser.test.ts"],
           browser: {
             enabled: true,
+            // CI installs `--only-shell`, which is the binary this flag selects. Going headed
+            // needs that narrowing dropped in .github/workflows/ci.yml first.
             headless: true,
             provider: playwright(),
             instances: [{ browser: "chromium" }],

@@ -91,5 +91,17 @@ jobs:
       - name: Type-check (astro check)
         run: pnpm check
 
+      # The vitest `browser` project launches a real chromium; `pnpm install` fetches the
+      # playwright NPM package but never its browser binaries, so without this the project
+      # cannot start and the run reports `28 passed (30)` with an unhandled launch error.
+      # Placed after the type-check so a type error fails before paying for the download.
+      #
+      # `--only-shell` is coupled to `headless: true` in web/vitest.config.ts: headless
+      # chromium launches chrome-headless-shell, a separate ~100 MB artifact from the full
+      # Chrome for Testing build. Flipping that flag to headed needs this narrowing dropped,
+      # or CI fails with the same "Executable doesn't exist" it exists to prevent.
+      - name: Install the browser vitest launches
+        run: pnpm exec playwright install --with-deps --only-shell chromium
+
       - name: Tests (vitest)
         run: pnpm test
