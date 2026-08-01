@@ -162,12 +162,18 @@ describe("buildMesh", () => {
     const { vertices, indices } = buildMesh(north);
     expect(vertices.length).toBe((RINGS + 1) * (SECTORS + 1) * 6);
     expect(indices.length).toBe(RINGS * SECTORS * 6);
+
+    // Collect, then assert ONCE. Four `expect`s per vertex is 412,804 calls across this grid,
+    // which cost ~1.5 s locally and timed out CI's 5 s — and a failure inside the loop named no
+    // vertex, so the message was worse as well as slower. This reports where and how many.
+    const outOfRange: string[] = [];
     for (let vertex = 0; vertex < vertices.length; vertex += 6) {
-      expect(vertices[vertex + 3]).toBeGreaterThanOrEqual(0); // u
-      expect(vertices[vertex + 3]).toBeLessThanOrEqual(1);
-      expect(vertices[vertex + 4]).toBeGreaterThanOrEqual(0); // v
-      expect(vertices[vertex + 4]).toBeLessThanOrEqual(1);
+      const u = vertices[vertex + 3];
+      const v = vertices[vertex + 4];
+      if (u >= 0 && u <= 1 && v >= 0 && v <= 1) continue;
+      outOfRange.push(`#${vertex / 6} u=${u} v=${v}`);
     }
+    expect(outOfRange.length, `out-of-range UVs: ${outOfRange.slice(0, 5).join(", ")}`).toBe(0);
   });
 
   it("pins the pole ring to the texture centre (AEQD radius 0 at the pole)", () => {
