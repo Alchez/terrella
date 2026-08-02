@@ -608,8 +608,11 @@ const PROMOTE_STYLESHEET = "this.media='all'";
     box-shadow: 0 0 0 2px var(--accent);
   }
 
-  /* The stencil. `--rail-icon` is set per button below; anything without one renders nothing,
-     which fails visibly rather than falling back to a stock black glyph on a dark pill. */
+  /* The stencil. `--rail-icon` is set per button below, and a button without one gets NO MASK —
+     so `background-color: currentColor` paints the whole box as a solid slab. Measured, not
+     assumed. That is the same end state a malformed data URI or a losing override produces, and
+     nothing throws on the way there: `mask-image: none` is a valid computed value, so the CSS is
+     healthy and the button is a block. `railIcons.browser.test.ts` is the only thing that sees it. */
   .maplibregl-ctrl-top-right .maplibregl-ctrl-group.maplibregl-ctrl-group .maplibregl-ctrl-icon {
     background-image: none;
     background-color: currentColor;
@@ -977,7 +980,7 @@ const PROMOTE_STYLESHEET = "this.media='all'";
   import { createHoverTracker } from "../lib/hoverTracking";
   import { createRailToggle, joinRailGroup } from "../lib/railControls";
   import { createQuietMode } from "../lib/quietMode";
-  import { createScaleRuler, rulerSamplePoints } from "../lib/scaleRuler";
+  import { createScaleRuler, rulerGroundDistance } from "../lib/scaleRuler";
   import {
     DEGRADED_PIXEL_RATIO,
     MAXIMUM_SAMPLE_COUNT,
@@ -1261,7 +1264,7 @@ const PROMOTE_STYLESHEET = "this.media='all'";
   // (and everything it owns, including GL resources) alive after teardown. Costs one property
   // assignment when the flag is present and does not exist otherwise.
   if (urlFlags.has("perf")) {
-    (window as unknown as { __map: maplibregl.Map }).__map = map;
+    window.__map = map;
   }
 
   // The credit stays a real AttributionControl rather than hand-rolled markup, so that any source
@@ -1304,13 +1307,54 @@ const PROMOTE_STYLESHEET = "this.media='all'";
   const ruler = createScaleRuler();
   viewBar?.prepend(ruler.element);
 
+  // THE MEASUREMENT IS THE EXPENSIVE HALF, not the DOM writes — this comment used to say the
+  // opposite. `map.unproject` resolves a screen point against the DRAPED surface, which means
+  // rendering tile coordinates offscreen and reading them back SYNCHRONOUSLY: two GPU stalls per
+  // move event, at frame rate. Measured on production at 1.9 readPixels per frame and 9.8% of the
+  // main thread, against 0.00 per frame with this listener detached.
+  //
+  // `transform.screenPointToLocation` answers on the DATUM for no GPU work, which is the right
+  // question for a scale bar anyway — it dimensions the map, not the mountain in front of it.
+  //
+  // IT IS `map.painter.transform`, NOT `map.transform` — checked against the live object, because
+  // the first version of this reached for `map.transform` on the strength of a `get transform()` in
+  // the .d.ts that turns out to belong to an internal TransformProvider. That property is undefined
+  // at runtime, the fallback below fired, and the readback was still there: 1.89 per frame, fix
+  // measuring as no fix at all. A type declaration is not a runtime surface.
+  //
+  // A deliberate reach past the public API, the same trade rttPoolTrim.ts makes and for the same
+  // reason: the public route costs a GPU readback per call. A canary in scaleRuler.test.ts fails
+  // loudly if the symbol moves, and the check below degrades to the slow-but-CORRECT call rather
+  // than throwing inside every move event — which is exactly what it did when I got it wrong.
+  // READ THE TRANSFORM PER CALL. MapLibre REPLACES `painter.transform` after this script runs, so a
+  // reference captured once keeps answering from the camera it was captured at. That shipped: the
+  // ruler sat at its z4 reading at every zoom — a plausible number, never updating, throwing
+  // nothing, and with the readback correctly gone, so every metric said the fix had worked.
+  // Caught only by reading the LABEL after a zoom. A per-call property lookup is free next to the
+  // GPU stall this exists to avoid.
+  let warnedAboutFallback = false;
+  function locateOnDatum([x, y]: [number, number]): maplibregl.LngLat {
+    const transform = (map.painter as unknown as { transform?: Record<string, unknown> } | undefined)
+      ?.transform;
+    if (typeof transform?.screenPointToLocation !== "function") {
+      if (!warnedAboutFallback) {
+        warnedAboutFallback = true;
+        console.warn("[ruler] painter.transform.screenPointToLocation is gone — measuring slowly");
+      }
+      return map.unproject([x, y]);
+    }
+    const locate = transform.screenPointToLocation as (p: maplibregl.Point) => maplibregl.LngLat;
+    return locate.call(transform, new maplibregl.Point(x, y));
+  }
+
   // `move`, not `moveend` — the reading has to be true while you are dragging, which is when
-  // anyone actually looks at it. setDistance is a no-op when the label has not changed, so a drag
-  // costs a distance calculation per frame and almost no DOM writes.
+  // anyone actually looks at it. setDistance is a no-op when the label has not changed, so the DOM
+  // writes really are near-free.
   function updateRuler(): void {
     const container = map.getContainer();
-    const [left, right] = rulerSamplePoints(container.clientWidth, container.clientHeight);
-    ruler.setDistance(map.unproject(left).distanceTo(map.unproject(right)));
+    ruler.setDistance(
+      rulerGroundDistance(locateOnDatum, container.clientWidth, container.clientHeight),
+    );
   }
   map.on("move", updateRuler);
   updateRuler();

@@ -38,6 +38,35 @@ export function rulerSamplePoints(
   ];
 }
 
+/** The one screen→ground result the ruler needs. Structural, so this module still imports nothing. */
+export interface GroundPoint {
+  distanceTo(other: GroundPoint): number;
+}
+
+/**
+ * Ground metres spanned by the ruler, measured through `locate`.
+ *
+ * `locate` MUST NOT BE `map.unproject`, and that is a performance contract rather than a style
+ * preference. `unproject` resolves a screen point against the DRAPED surface, which on a terrain
+ * map means rendering tile coordinates into an offscreen framebuffer and reading them back —
+ * a synchronous GPU stall. This runs on `move`, so it was paid TWICE PER FRAME of every drag and
+ * every ease: measured at 1.9 `readPixels` per frame, 9.8% of the main thread, and 0.00 per frame
+ * with the listener detached. Pass the transform's own `screenPointToLocation(point)` with no
+ * terrain argument — same answer on the datum, no GPU work.
+ *
+ * Living here rather than at the call site so the measurement has ONE home that a test can reach;
+ * the caller supplies only the conversion, and `scaleRuler.test.ts` pins which conversion that is.
+ */
+export function rulerGroundDistance(
+  locate: (point: [number, number]) => GroundPoint,
+  width: number,
+  height: number,
+  spanPx: number = RULER_WIDTH_PX,
+): number {
+  const [left, right] = rulerSamplePoints(width, height, spanPx);
+  return locate(left).distanceTo(locate(right));
+}
+
 /**
  * A ground distance in metres as a short label: "1,800 km", "480 km", "4.8 km", "480 m".
  *

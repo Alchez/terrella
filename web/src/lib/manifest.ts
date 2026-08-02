@@ -40,6 +40,8 @@ export interface Manifest {
 // `smallestRungAtLeast` moved to ./rungs — the polar caps need it too, and importing it from here
 // would have pulled this module's countries.json import into the globe's cap chunk.
 
-// `as unknown as` because rawManifest is `any` when the JSON is absent (CI) and the loosely
-// inferred JSON type when present — the double cast compiles in both states.
-export const manifest = rawManifest as unknown as Manifest;
+// A single cast, checked in both states: `rawManifest` is `any` when the JSON is absent (CI), and
+// `any` converts to anything; when present, its loosely inferred JSON type overlaps `Manifest`
+// enough that TypeScript accepts the assertion directly. This was `as unknown as` with a comment
+// claiming the double hop was needed for the present case — measured, and it is not.
+export const manifest = rawManifest as Manifest;
