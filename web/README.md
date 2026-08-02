@@ -180,25 +180,44 @@ second, rather than as a shrug minutes into a run nobody is watching.
 
 ### Running a Lighthouse pass
 
+**The GL flag chooses which tier you measure**, so it is the experiment rather than boilerplate.
+`Base.astro`'s pre-paint guard bounces `/globe/` back to `/` whenever the renderer string names a
+software rasterizer — which makes SwiftShader the Tier-1 recipe and hardware ANGLE the Tier-3 one.
+
 ```sh
+# The globe. Hardware ANGLE, or the guard sends you to the gallery.
 npx lighthouse https://terrella.alchez.dev/globe/ \
-  --output=json --output-path=/tmp/lh.json --only-categories=performance --quiet \
+  --output=json --output-path=/tmp/lh-globe.json --only-categories=performance --quiet \
+  --chrome-flags="--headless=new --no-sandbox --use-gl=angle --use-angle=gl"
+
+# The gallery. SwiftShader fails that same guard, on purpose.
+npx lighthouse https://terrella.alchez.dev/ \
+  --output=json --output-path=/tmp/lh-gallery.json --only-categories=performance --quiet \
   --chrome-flags="--headless=new --no-sandbox --enable-unsafe-swiftshader --use-gl=angle --use-angle=swiftshader"
 ```
 
-Three things will otherwise waste a run:
+These will otherwise waste a run:
 
-- **Headless Chrome needs the SwiftShader flags** or the globe never gets a WebGL2 context, and the
-  page silently measures as the gallery instead.
-- **`/` client-side steers to `/globe/`** (the `Base.astro` tier guard). Always check
-  `finalDisplayedUrl` against `requestedUrl` in the JSON — otherwise you measure the globe twice and
-  believe one run was the gallery.
-- **Lighthouse cannot seed `localStorage`**, so the tier guard always decides for itself. Forcing
-  Tier 1 needs `rg:quality = "lite"` in a pre-seeded Chrome profile; for a quick check, set it in a
-  real browser instead and read Resource Timing. `rg:quality` persists — restore it afterwards.
+- **Always check `finalDisplayedUrl` against `requestedUrl`.** The guard steers both ways — `/` to
+  `/globe/` for a capable visitor, `/globe/` to `/` for everyone else — and a steered run is a
+  clean, green, entirely valid report about the wrong document. It is the only check that catches a
+  recipe the site has outgrown, which is how the SwiftShader flags above stopped measuring the globe.
+- **Headless Chrome reaches for SwiftShader on its own.** Dropping the GL flags entirely does not
+  give you the GPU, it gives you the gallery. Read `UNMASKED_RENDERER_WEBGL` before believing a
+  surprising number.
+- **Read the tier off the final screenshot.** The view bar's highlighted pill says which tier the
+  run actually got; `full` and `globe` differ by the idle spin and the in-globe hero panel, and
+  nothing else in the report distinguishes them.
+- **One run is not evidence.** Take three, quote the median and the spread. TBT has swung by most of
+  its own magnitude between consecutive runs of an identical command, which is larger than most
+  effects worth chasing.
+- **Lighthouse cannot seed `localStorage`.** Tier 1 no longer needs a pre-seeded profile because the
+  SwiftShader recipe reaches it; pinning Tier 2 on a capable machine still does (`rg:quality =
+  "globe"`, which persists — restore it afterwards).
 
-The default (mobile) preset **is** the weak-Android test: Moto G Power, 4× CPU throttle, slow 4G.
-Use `--preset=desktop` for the unthrottled number; the two differ by roughly 30 points here.
+The default preset **is** the weak-Android test: Moto G Power, 4× CPU throttle, slow 4G.
+`--preset=desktop` is the unthrottled number. Both keep the host's real GPU, so neither is a phone —
+and a score measured under a software rasterizer is not comparable to one measured on a GPU.
 
 ## Deploying
 

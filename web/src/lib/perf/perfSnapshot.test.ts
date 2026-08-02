@@ -84,6 +84,7 @@ const INPUTS: PerfReportInputs = {
   deviceClass: { mobileClass: true, via: "ua-client-hints" },
   signals: SIGNALS,
   tier: "full",
+  probedTier: "full",
   ladder: {
     spinning: true,
     pixelRatioLowered: false,
@@ -189,6 +190,25 @@ describe("perfReportLines", () => {
 
   it("carries the device verdict WITH the signal that produced it", () => {
     expect(render()).toContain("mobile-class (ua-client-hints) · tier full");
+  });
+
+  it("stays quiet about the raw probe while it agrees with what the page is running", () => {
+    // Habituation is the failure mode this panel already designs against — the GPU-loss line is
+    // absent until there is a loss. A permanent "(probe: full)" beside "tier full" would train the
+    // reader to skip the one place the disagreement can ever appear.
+    expect(render()).toContain("tier full");
+    expect(render()).not.toContain("probe:");
+  });
+
+  it("prints the raw probe verdict the moment it disagrees with the running tier", () => {
+    // The whole reason `probedTier` is carried separately. `decideGlobeTier` clamps a soft
+    // `gallery` verdict away so it cannot reach the view bar — which also means this line is the
+    // only surviving evidence that a soft signal tried to send a visitor to the gallery from a
+    // page already showing them the globe. That string, `tier gallery` on a globe running at
+    // 243 fps, is how the downlink defect was found; after the clamp it lives here or nowhere.
+    expect(render({ tier: "globe", probedTier: "gallery" })).toContain(
+      "tier globe (probe: gallery)",
+    );
   });
 
   it("never renders an unmeasured device class as a desktop reading", () => {

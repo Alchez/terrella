@@ -754,10 +754,14 @@ describe("the deploy preflight must refuse a globe production cannot serve", () 
       /resolveTerrainExaggeration\(\s*urlFlags\s*,\s*([\w$]+(?:\(\))?)\s*===\s*"full"\s*\)/,
     );
     const tierExpression = gate?.[1] ?? "";
+    // `decide(Globe)?Tier`: the globe page uses the `decideGlobeTier` wrapper, which clamps a soft
+    // `gallery` verdict on a page already showing the globe. Both spellings are the tier decision;
+    // its twin in capability.test.ts carries the longer note.
     const ridesOnTier =
       tierExpression === "currentTier()" ||
+      tierExpression === "currentGlobeTier()" ||
       (tierExpression !== "" &&
-        new RegExp(`const\\s+${tierExpression}\\s*=\\s*decideTier\\(`).test(globe));
+        new RegExp(`const\\s+${tierExpression}\\s*=\\s*decide(?:Globe)?Tier\\(`).test(globe));
     expect(ridesOnTier, `terrain rides the full tier (gate read: ${tierExpression || "none"})`).toBe(
       true,
     );

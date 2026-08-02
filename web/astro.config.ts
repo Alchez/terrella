@@ -408,6 +408,23 @@ export default defineConfig({
       fallbacks: ['Georgia', 'Times New Roman', 'serif'],
     },
   ],
+  build: {
+    // Inline every page stylesheet into its document instead of linking it.
+    //
+    // The default is 'auto', which inlines only below Vite's 4 KB assetsInlineLimit — and the
+    // globe's own sheet is 12 KB, so it sat just outside and cost a full round trip before anything
+    // could paint. Measured on a devtools-throttled mobile profile: FCP **1,264 → 629 ms**, because
+    // the document already has to arrive and a stylesheet that arrives with it is free of latency.
+    //
+    // This is deliberately NOT paired with inlining MapLibre's 70 KB, which is linked non-blocking
+    // from globe.astro instead. Inlining both was measured too and came out SLOWER (689 ms): past
+    // roughly the document's own size, the bytes you add to every page cost more than the round trip
+    // you remove. The rule is "inline what blocks paint, link what does not".
+    //
+    // The cost is real and accepted: page CSS is no longer separately cacheable across navigations.
+    // It is 12 KB on the globe and 5 KB on the gallery, against a 265 KB script that dwarfs both.
+    inlineStylesheets: 'always',
+  },
   vite: {
     plugins: [
       heroDevServer(),

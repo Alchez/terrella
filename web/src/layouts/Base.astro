@@ -104,6 +104,11 @@ const {
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <Font cssVariable="--font-serif" />
     <title>{title}</title>
+    {/* For stylesheets a page wants discovered by the preload scanner but NOT blocking paint.
+        A page could put the same <link> in its own body and the scanner would still find it, but
+        a stylesheet in the body is the kind of thing a later reader "tidies" back into the head
+        without knowing it was deliberate. Named, so the gallery does not inherit the globe's. */}
+    <slot name="head" />
   </head>
   <body>
     <slot />
@@ -225,13 +230,18 @@ const {
   // the idle animation runs), so it reads as "what am I seeing" not "what did the
   // probe guess". A pick persists via setQuality and navigates to that tier's
   // canonical page; the head guard + globe module enforce it from there.
-  import { setQuality, currentTier, type Quality } from "../lib/capability";
+  import { setQuality, currentGlobeTier, type Quality } from "../lib/capability";
 
   const control = document.querySelector<HTMLElement>(".quality-fab");
   if (control) {
     const buttons = Array.from(control.querySelectorAll<HTMLButtonElement>("button"));
     const onGlobe = location.pathname === "/globe" || location.pathname === "/globe/";
-    const active: Quality = !onGlobe ? "lite" : currentTier() === "full" ? "full" : "globe";
+    // `currentGlobeTier`, and only reached when `onGlobe`: it cannot return `gallery` for a soft
+    // signal, which is what makes the collapse below lossless rather than merely tidy. The plain
+    // `currentTier()` CAN, and this line used to fold that into "globe" silently — so a probe
+    // saying "this device cannot run the globe" and a probe saying "capable, skipping the extras"
+    // lit the same chip, and the first one went unnoticed on a globe running at 243 fps.
+    const active: Quality = !onGlobe ? "lite" : currentGlobeTier() === "full" ? "full" : "globe";
     for (const button of buttons) {
       const isActive = button.dataset.quality === active;
       button.classList.toggle("is-active", isActive);

@@ -44,10 +44,15 @@ MINIMUM_CASES = 70
 # `web/worker`, and while they were missing from here a case guarded by one of them failed this
 # check as "renamed" — the guard was real, the search was too narrow.
 VITEST_ROOTS = ("web/src", "web/worker")
+# `is_file()` is not defensive padding. A FAILING browser test makes vitest write
+# `__screenshots__/<spec>.browser.test.ts/` — a directory named exactly like a spec — and
+# `read_text()` on it raises `IsADirectoryError` at import time, which takes down collection for
+# the WHOLE pytest suite. Adding the first sabotage case that fails a browser test is what found it.
 VITEST_TITLES = "\n".join(
     path.read_text(encoding="utf-8")
     for root in VITEST_ROOTS
     for path in sorted((REPO_ROOT / root).rglob("*.test.ts"))
+    if path.is_file()
 )
 PYTEST_SOURCE = "\n".join(
     path.read_text(encoding="utf-8") for path in sorted((REPO_ROOT / "tests").rglob("*.py"))
