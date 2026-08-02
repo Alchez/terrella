@@ -6,6 +6,25 @@ graduates, it moves to PLAN and this file keeps a one-line pointer. Each entry c
 its analysis and the facts its numbers depend on — check both before trusting an old entry, and
 grep HISTORY before re-arguing anything an entry says was already decided.
 
+## `forced-colors` is unhandled, and the rail's icons are the thing it breaks (analysed 2026-08-02)
+
+- **State at analysis:** no `forced-colors` or `prefers-contrast` rule exists anywhere in `web/src`.
+  Grepped, not assumed.
+- **Why the rail specifically:** its icons are alpha stencils — `mask-image` shapes a box painted by
+  `background-color: currentColor`. Windows High Contrast overrides `background-color`, so the
+  *paint* is exactly what the mode takes away. Every other surface degrades to "wrong colours"; this
+  one can degrade to "no glyph" or "solid slab", which is the same failure class
+  `railIcons.browser.test.ts` was written for — reached through a door that guard cannot see, since
+  it asserts the authored cascade and not the UA's override of it.
+- **Testable, which is why it is worth recording rather than shrugging at:** Playwright takes
+  `forcedColors: 'active'`, and the browser project already runs Playwright-backed chromium, so the
+  cost is a context option and a handful of assertions — not new infrastructure.
+- **Not scheduled** because nobody has reported it and the audience is unmeasured. Deliberately kept
+  out of the rail-icon guard rather than smuggled in: a guard that asserts two different worlds at
+  once tells you nothing about which one broke.
+- **Adjacent, same sweep:** the tier picker's `radiogroup` a11y defect is already parked here. If
+  either is ever picked up, do both — one accessibility pass, one round of judgement.
+
 ## MapLibre's WebGPU backend — irrelevant to our memory problem, and NOT the no-op we recorded (analysed 2026-07-29)
 
 Prompted by the graphics-modernization roadmap. Read it against the DEM-cache work rather than in

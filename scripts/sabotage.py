@@ -96,6 +96,13 @@ class Suite(NamedTuple):
     environment: dict[str, str]
     # Vitest prints ` FAIL  <file> > <describe> > <title>`; pytest prints `FAILED <file>::<name>`.
     # `guard` is matched against the whole output, so it may be any substring of the name.
+    #
+    # The vitest form gains a `|browser (chromium)|` segment for the browser project and NOT for
+    # node, so the project label has to be optional. Judging never noticed, because it greps the
+    # whole output — but `--harvest` reads this pattern, and without the optional segment it
+    # reported "(nothing failed)" for a case three browser tests were in fact catching. Harvest is
+    # exactly the tool you reach for when you do not yet know which test catches a case, so a blind
+    # spot there reads as "nothing guards this".
     fail_pattern: re.Pattern[str]
 
 
@@ -104,7 +111,7 @@ SUITES: dict[str, Suite] = {
         command=["pnpm", "run", "test"],
         cwd="web",
         environment={},
-        fail_pattern=re.compile(r"^\s*FAIL\s+\S+\s+>\s+(.+)$"),
+        fail_pattern=re.compile(r"^\s*FAIL\s+(?:\|[^|]*\|\s+)?\S+\s+>\s+(.+)$"),
     ),
     "python": Suite(
         command=["uv", "run", "pytest", "-q", "-p", "no:cacheprovider"],
@@ -662,8 +669,8 @@ SABOTAGES: list[Sabotage] = [
         suite='web',
         label='the seam is removed, so scripted A/Bs silently lose the camera',
         path='web/src/lib/perf/perfOverlay.ts',
-        needle='(window as unknown as { terrellaMap?: MaplibreMap }).terrellaMap = map;',
-        replacement='// seam removed',
+        needle='  window.terrellaMap = map;',
+        replacement='  // seam removed',
         guard='lives in the lazily-imported instrument, so an ordinary visit cannot reach it',
     ),
     Sabotage(
@@ -671,7 +678,7 @@ SABOTAGES: list[Sabotage] = [
         label='the page writes the seam itself, where nothing structural gates it',
         path='web/src/pages/globe.astro',
         needle='    const probedSignals = probeSignals();',
-        replacement='    (window as unknown as { terrellaMap?: maplibregl.Map }).terrellaMap = map;\n    const probedSignals = probeSignals();',
+        replacement='    window.terrellaMap = map;\n    const probedSignals = probeSignals();',
         guard='is not also written from the page, where nothing structural would gate it',
     ),
     Sabotage(
@@ -1201,6 +1208,38 @@ SABOTAGES: list[Sabotage] = [
         ),
         guard='cancels BOTH the accent fill and the accent text colour, at a specificity that wins',
     ),
+    # The rail's icons are masks, and every one of these mutations leaves VALID CSS that renders a
+    # solid slab instead of a glyph. Nothing throws, nothing logs, and no node test can see it —
+    # which is why the guards live in the browser project against the page's real stylesheet.
+    # Both prefixed and unprefixed go together: Chromium honours `-webkit-mask-image` on its own,
+    # so removing only one of the pair mutates nothing.
+    Sabotage(
+        suite='web',
+        label='the icon stencil is deleted, so currentColor paints the whole button box',
+        path='web/src/pages/globe.astro',
+        needle=(
+            '    -webkit-mask-image: var(--rail-icon);\n'
+            '    mask-image: var(--rail-icon);\n'
+        ),
+        replacement='',
+        guard='gives every masked control a real stencil painted in currentColor',
+    ),
+    Sabotage(
+        suite='web',
+        label='an icon payload is truncated, which CSS accepts and SVG does not',
+        path='web/src/pages/globe.astro',
+        needle="1.5-.75 1.5-1.5S19.75 13 19 13z'/%3E%3C/svg%3E\");",
+        replacement="1.5-.75 1.5-1.5S19.75 13 19 13z'/%3E\");",
+        guard='parses each data URI the page authors, and proves it found them',
+    ),
+    Sabotage(
+        suite='web',
+        label='a rail toggle is renamed past the rule that gives it an icon',
+        path='web/src/pages/globe.astro',
+        needle='    className: "rg-ctrl-spin",',
+        replacement='    className: "rg-ctrl-orbit",',
+        guard='gives every rail toggle the page builds an icon to draw',
+    ),
     # The subject here is the SUITE ITSELF, which is why the guard is a script. Under this
     # mutation `pnpm test` reports `28 passed (28)` and exits 0 — measured, not assumed — so a
     # case with suite='web' would record CAUGHT for a run that noticed nothing.
@@ -1211,6 +1250,62 @@ SABOTAGES: list[Sabotage] = [
         needle='include: ["src/**/*.browser.test.ts"],',
         replacement='include: ["src/**/*.nomatch.test.ts"],',
         guard='every-test-file-is-collected',
+    ),
+
+    # --- the scale ruler's terrain readback ---------------------------------------------------------
+    # These mutations are INVISIBLE to every other signal: the page renders identically, the ruler
+    # shows the same label, nothing throws, and no other test's output changes. They only cost two
+    # synchronous GPU readbacks on every frame of every drag, measured at 9.8% of the main thread.
+    # A guard nobody can mutate-test is a guard nobody should trust, which is why all three are here.
+    # The FIRST version of this case passed vacuously and the table is why it was found: the guard
+    # asserted only that `unproject` appeared after the symbol check, which the degraded path
+    # satisfies whatever the primary branch does. The guard now counts them.
+    Sabotage(
+        suite='web',
+        label='the ruler goes back to map.unproject, paying a GPU readback twice per frame',
+        path='web/src/pages/globe.astro',
+        needle='    return locate.call(transform, new maplibregl.Point(x, y));',
+        replacement='    return map.unproject([x, y]);',
+        guard='measures through the transform, not through map.unproject',
+    ),
+    Sabotage(
+        suite='web',
+        label='terrain is handed to screenPointToLocation, which is the expensive overload',
+        path='web/src/pages/globe.astro',
+        needle='locate.call(transform, new maplibregl.Point(x, y))',
+        replacement='locate.call(transform, new maplibregl.Point(x, y), map.terrain)',
+        guard='names no terrain, which is the only way to make that call read back the GPU',
+    ),
+    # The guard reads functions BY NAME out of the page source, so a rename is how it could go
+    # vacuous — passing by finding nothing rather than by finding something correct. It must fail
+    # loudly instead, and these two cases are what prove it does, one per anchored name.
+    Sabotage(
+        suite='web',
+        label='the measured function is renamed, so a name-anchored guard could silently find nothing',
+        path='web/src/pages/globe.astro',
+        needle='  function updateRuler(): void {',
+        replacement='  function refreshRulerReading(): void {',
+        guard='keeps the per-frame path free of any unproject at all',
+    ),
+    Sabotage(
+        suite='web',
+        label='the locator function is renamed, the other half of the same vacuity risk',
+        path='web/src/pages/globe.astro',
+        needle='  function locateOnDatum([x, y]: [number, number]): maplibregl.LngLat {',
+        replacement='  function pickLocator([x, y]: [number, number]): maplibregl.LngLat {',
+        guard='measures through the transform, not through map.unproject',
+    ),
+    # THE ONE THAT ACTUALLY SHIPPED. Hoisting the transform lookup out of the per-call function
+    # freezes the ruler at whatever camera existed when the script ran, because MapLibre replaces
+    # `painter.transform` afterwards. It throws nothing, the readback stays correctly gone, and the
+    # number it prints is plausible — it simply never changes again. Nothing but the label catches it.
+    Sabotage(
+        suite='web',
+        label='the transform lookup is hoisted out of the per-call path, freezing the reading',
+        path='web/src/pages/globe.astro',
+        needle='    const transform = (map.painter as unknown as { transform?: Record<string, unknown> } | undefined)\n      ?.transform;',
+        replacement='    const transform = hoistedTransform;',
+        guard='measures through the transform, not through map.unproject',
     ),
 ]
 

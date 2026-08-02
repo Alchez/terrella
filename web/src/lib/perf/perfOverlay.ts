@@ -445,7 +445,7 @@ export function mountPerfOverlay(map: MaplibreMap, options: PerfOverlayOptions =
   // appeared within the flag block's text span; a sabotage that moved it out of the block while
   // leaving it inside the span passed that test cleanly. A guard that matches a region cannot
   // decide what encloses a statement.
-  (window as unknown as { terrellaMap?: MaplibreMap }).terrellaMap = map;
+  window.terrellaMap = map;
   const snapshot: PerfSnapshot = {
     bootMs: performance.now(),
     mapLoadMs: null,
