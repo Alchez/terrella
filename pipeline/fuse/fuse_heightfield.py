@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Fuse GLO-30 land elevation with GEBCO bathymetry into one heightfield.
 
-Recipe (
+Recipe:
   ocean  = WBM class 1, or outside GLO-30 tile coverage (open-ocean cells),
            or WBM lake/river (2/3) within 1 m of sea level - ESA classifies
            coastal lagoons and tidal channels as lake/river; at sea level

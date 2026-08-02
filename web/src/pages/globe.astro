@@ -740,9 +740,9 @@ const PROMOTE_STYLESHEET = "this.media='all'";
     display: none;
   }
   /* Fullscreen goes too: one ghost per corner, per the note above. And a ghost is a GLYPH, not a
-     filled button — the quiet toggle is pressed in this state, and leaving its accent fill on
-     under a group whose background has been stripped lets `overflow: hidden` clip the fill into a
-     shield floating over the map. */
+     filled button — the quiet toggle is pressed in this state, so without the cancel below it keeps
+     its accent fill, and as the group's only remaining child it fills the whole 999px box: a solid
+     disc over the map where a ghost belongs. */
   body.is-quiet .maplibregl-ctrl-fullscreen {
     display: none;
   }
@@ -763,7 +763,15 @@ const PROMOTE_STYLESHEET = "this.media='all'";
     + button {
     border-top-width: 0;
   }
-  body.is-quiet .rg-ctrl-quiet[aria-pressed="true"] {
+  /* The cancel itself, and it needs the doubled group class for the same reason the divider's does.
+     The "filled = on" rule is (0,4,1) through its own doubled class, so the obvious
+     `body.is-quiet .rg-ctrl-quiet[aria-pressed="true"]` is (0,3,1) and loses — written that way it
+     never applied at all. BOTH declarations are load-bearing and both were dead: `color` loses to
+     that rule's `--bg` exactly as `background` loses to its `--accent`. */
+  body.is-quiet
+    .maplibregl-ctrl-top-right
+    .maplibregl-ctrl-group.maplibregl-ctrl-group
+    .rg-ctrl-quiet[aria-pressed="true"] {
     color: var(--muted);
     background: none;
   }
@@ -1105,9 +1113,8 @@ const PROMOTE_STYLESHEET = "this.media='all'";
   // It asks a tile endpoint for z/x/y and gets a single tile back; the archive is opened and
   // ranged server-side (dev: the middleware in astro.config.ts, prod: a Worker over R2). The
   // earlier pmtiles:// path did that ranging in the browser, which cannot survive the move to
-  // a CDN — Workers Caching strips Range and would fetch the whole archive per tile
-  // (
-  // from the bundle entirely.
+  // a CDN — Workers Caching strips Range and would fetch the whole archive per tile.
+  // Dropping it also drops the pmtiles client from the bundle entirely.
   //
   // minzoom/maxzoom used to come free from the archive header, which the pmtiles client read
   // before the first tile. Stating them here costs that one round trip back, and they are

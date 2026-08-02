@@ -1168,6 +1168,39 @@ SABOTAGES: list[Sabotage] = [
         replacement='button.setAttribute("aria-label", name.toLowerCase());',
         guard='carries title AND aria-label, in agreement',
     ),
+    # Both of these SHIPPED, in the first form, and neither changed a test. A losing selector is
+    # valid CSS that parses, cascades and does nothing, so the only thing that can catch it is a
+    # guard that asserts the specificity itself.
+    Sabotage(
+        suite='web',
+        label='the pressed-quiet cancel is tidied back to the selector that loses',
+        path='web/src/pages/globe.astro',
+        needle=(
+            '  body.is-quiet\n'
+            '    .maplibregl-ctrl-top-right\n'
+            '    .maplibregl-ctrl-group.maplibregl-ctrl-group\n'
+            '    .rg-ctrl-quiet[aria-pressed="true"] {'
+        ),
+        replacement='  body.is-quiet .rg-ctrl-quiet[aria-pressed="true"] {',
+        guard='never reverts to the un-doubled form that silently loses',
+    ),
+    Sabotage(
+        suite='web',
+        label='only the fill is cancelled, leaving the glyph painted in the background colour',
+        path='web/src/pages/globe.astro',
+        needle=(
+            '    .rg-ctrl-quiet[aria-pressed="true"] {\n'
+            '    color: var(--muted);\n'
+            '    background: none;\n'
+            '  }'
+        ),
+        replacement=(
+            '    .rg-ctrl-quiet[aria-pressed="true"] {\n'
+            '    background: none;\n'
+            '  }'
+        ),
+        guard='cancels BOTH the accent fill and the accent text colour, at a specificity that wins',
+    ),
     # The subject here is the SUITE ITSELF, which is why the guard is a script. Under this
     # mutation `pnpm test` reports `28 passed (28)` and exits 0 — measured, not assumed — so a
     # case with suite='web' would record CAUGHT for a run that noticed nothing.

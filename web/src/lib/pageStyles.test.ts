@@ -42,3 +42,34 @@ describe("quiet mode leaves no orphaned divider on the rail", () => {
     expect(globe).toMatch(/button\s*\+\s*button\s*\{\s*border-top:\s*1px solid var\(--line\)/);
   });
 });
+
+describe("the pressed quiet toggle is a bare glyph, not a filled button", () => {
+  it("cancels BOTH the accent fill and the accent text colour, at a specificity that wins", () => {
+    // Measured on the live page before this guard existed: the cancel shipped as
+    // `body.is-quiet .rg-ctrl-quiet[aria-pressed="true"]` — (0,3,1) against the "filled = on" rule's
+    // (0,4,1) — so it never applied once, and BOTH its declarations were dead. The button read
+    // `background: rgb(124,184,184)` and `color: rgb(27,26,22)`, i.e. accent on bg, identical to the
+    // pressed spin button. Matching the doubled group class here asserts the specificity; capturing
+    // the block asserts neither declaration gets dropped on the way past.
+    const cancel = globe.match(
+      /body\.is-quiet\s*\n?\s*\.maplibregl-ctrl-top-right\s*\n?\s*\.maplibregl-ctrl-group\.maplibregl-ctrl-group\s*\n?\s*\.rg-ctrl-quiet\[aria-pressed="true"\]\s*\{([^}]*)\}/,
+    );
+    expect(cancel, "the pressed-quiet cancel must carry the doubled group class").not.toBeNull();
+    expect(cancel![1], "the fill must be cancelled").toMatch(/background:\s*none/);
+    expect(cancel![1], "the glyph colour must be cancelled too").toMatch(/color:\s*var\(--muted\)/);
+  });
+
+  it("never reverts to the un-doubled form that silently loses", () => {
+    // The exact shape that shipped and did nothing. Asserting its ABSENCE is what catches someone
+    // "tidying" the selector above back into the obvious one.
+    expect(globe).not.toMatch(/body\.is-quiet\s+\.rg-ctrl-quiet\[aria-pressed="true"\]\s*\{/);
+  });
+
+  it("leaves every OTHER pressed rail button filled", () => {
+    // The cancel is an exception, not a repeal — "filled = on" is the grammar the view bar shares,
+    // and the spin toggle still depends on it.
+    expect(globe).toMatch(
+      /\.maplibregl-ctrl-group\.maplibregl-ctrl-group\s*\n?\s*button\[aria-pressed="true"\]\s*\{[^}]*background:\s*var\(--accent\)/,
+    );
+  });
+});
