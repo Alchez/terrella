@@ -40,8 +40,7 @@
 
 - **Itemised deliberately** — summarising this directory in one line is how ~43 GB of dead
   generations once hid; and a *deferred* measurement of a growing directory is the same failure
-  as a stale one. Re-measure when the chain moves (
-  INVENTORY).
+  as a stale one. Re-measure when the chain moves.
 - Steady state is **one live pyramid + one rollback**: `tiles/` plus the `tiles_old/` that
   `build_tiles` auto-rotates on each cut. `tiles_old/` is currently absent — the WebP pyramid it
   guarded is live and served, so the rollback window closed and its 16 GB was reclaimed.

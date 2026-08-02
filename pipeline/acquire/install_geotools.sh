@@ -13,7 +13,7 @@
 #                      GDAL's PMTiles driver is vector-only, so this stays the one
 #                      genuinely-mandatory new tool for raster tiles.
 #
-#   NOT vendored here (
+#   NOT vendored here:
 #     GDAL 3.13.x      hillshade / color-relief / `gdal raster tile` — pinned via
 #                      the official OSGeo GDAL container for the production run
 #                      (apt on Ubuntu 26.04 tops out at 3.12.2).

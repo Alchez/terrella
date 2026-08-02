@@ -214,9 +214,8 @@ interface ResolvedTileRoute {
 // Dev-only: answer /tiles/{z}/{x}/{y}.webp and /tiles/terrain/{z}/{x}/{y}.webp out of the two
 // packaged PMTiles archives. This is the local twin of the production tile Worker, and it exists
 // for the same reason the Worker does — the archives are GB-scale, so the browser must never
-// address one directly and must never send a Range header (
-// to R2). The ranging happens here against a local file; in production it happens inside a
-// Worker against an R2 object.
+// address one directly and must never send a Range header. The ranging happens here against a
+// local file; in production it happens inside a Worker against an R2 object.
 //
 // ONE middleware over both, dispatching exactly the way the Worker does, because the two servers
 // answering the same contract differently is the failure this arrangement exists to prevent. It

@@ -15,10 +15,10 @@ and retry only what is missing. Failures never abort the run; they are listed
 in failures.txt and retried on the next run.
 
 Before downloading, a preflight proves the bucket hasn't changed editions
-under us (
-edition in any path, so mixing tiles fetched years apart could silently mix
-Copernicus DEM editions. Local md5 of a few held tiles must equal their S3
-ETag (a plain md5 for these single-part objects); any mismatch aborts.
+under us: the bucket carries no edition in any path, so mixing tiles fetched
+years apart could silently mix Copernicus DEM editions. Local md5 of a few
+held tiles must equal their S3 ETag (a plain md5 for these single-part
+objects); any mismatch aborts.
 
 Usage: python3 download_glo30.py --extent 60 0 100 40   # the Phase 0 window
 """
