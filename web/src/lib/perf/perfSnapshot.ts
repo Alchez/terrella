@@ -105,7 +105,16 @@ export interface PerfReportInputs {
   gl: GlLossSnapshot | null;
   deviceClass: DeviceClass;
   signals: CapabilitySignals;
+  /** The tier the page is actually running at — `decideGlobeTier`, so never `gallery` for a soft
+   *  signal. This is the one that describes behaviour. */
   tier: Tier;
+  /** What the raw probe said before the globe-page clamp, i.e. `decideTier`. Carried SEPARATELY
+   *  and on purpose: the clamp is what stops a contradiction reaching the view bar, and it is
+   *  therefore also what would stop anyone ever seeing the contradiction again. `tier gallery` on
+   *  a globe running at 243 fps is how the downlink defect was found, and after the clamp that
+   *  string only exists here. An instrument that reports the corrected value is an instrument that
+   *  cannot find the next one of these. */
+  probedTier: Tier;
   ladder: LadderPosition;
   demCacheFault: string | null;
   restoreFault: string | null;
@@ -238,11 +247,18 @@ export function perfReportLines(report: PerfReport): PerfLine[] {
   // printed from the same boolean, so it restated its neighbour and carried no information at all.
   // It was worth its width when nothing else on the panel grouped by device; the DEVICE heading
   // now does that job, and the line was 67 characters against a 53-character phone budget.
+  // The probe's raw verdict is appended ONLY when it disagrees with what the page is running. A
+  // permanent `(probe: globe)` beside `tier globe` is the habituation this panel already refuses
+  // elsewhere — the GPU-loss line is absent until there is a loss, for the same reason. Here the
+  // disagreement is the whole signal: it means a soft demotion tried to send a visitor to the
+  // gallery from a page already showing them the globe.
+  const probeDisagrees = report.probedTier !== report.tier;
   lines.push({
     group: "device",
     text:
       `${report.deviceClass.mobileClass ? "mobile-class" : "desktop-class"}` +
-      ` (${report.deviceClass.via}) · tier ${report.tier}`,
+      ` (${report.deviceClass.via}) · tier ${report.tier}` +
+      (probeDisagrees ? ` (probe: ${report.probedTier})` : ""),
   });
 
   // The ladder is the loudest confound in any capture: a reading taken after two rungs fired is

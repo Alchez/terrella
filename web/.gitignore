@@ -27,3 +27,8 @@ public/caps/
 
 # ?perf snapshot exports (dev-only endpoint in astro.config.ts) — captures, not source
 .perf/
+
+# Vitest browser-mode failure artifacts. Note `__screenshots__/<spec>.browser.test.ts/` is a
+# DIRECTORY named like a spec — anything globbing *.test.ts must filter to files.
+.vitest-attachments/
+**/__screenshots__/

@@ -99,17 +99,22 @@
 | Asset | Wire size (prod, gz) | Dev | Prod | Store |
 |---|---|---|---|---|
 | globe JS chunk (MapLibre + the **bundled** `countries.json` manifest — an import, never a fetch) | 280 KB (1.08 MB raw) | vite, unminified, larger | edge gzip/brotli | `web/dist/_astro/` |
-| CSS + small chunks (polarCaps, capability probe) | ~15 KB total | same | same | `web/dist/_astro/` |
+| page CSS | **inlined into every document** (`build.inlineStylesheets: 'always'`), so it costs document bytes and no request — 12 KB on the globe, 5 KB on the gallery, uncompressed | dev injects it as `<style>` via Vite instead, which is a different cascade order | same | in the HTML |
+| MapLibre's stylesheet | 70 KB raw, a **non-blocking** `<link media="print">` promoted on load — it styles widgets that cannot exist until the globe chunk has run | same link; dev *also* injects it as `<style>`, so it loads twice | same | `web/dist/_astro/maplibre-gl.*.css` |
+| small chunks (polarCaps, capability probe) | ~3 KB total | same | same | `web/dist/_astro/` |
 | relief tiles | **~36 KB avg/tile** (3.1 GB ÷ 87,381), viewport-driven | `/tiles/{z}/{x}/{y}.webp`, ranged out of the archive by the dev middleware | same URL shape, ranged by the Worker out of R2 — measured: first paint ≈ 40 requests | `planet.pmtiles` |
 | polar caps | **desktop 3.2 + 2.1 MB** (8192 rung) · **mobile 1.0 + 0.8 MB** (4096 rung) + `caps.json` (fetched eagerly at globe load, revalidated not cached; decode off-thread) | identical | identical — WebP ships pre-compressed | `web/public/caps/` |
 | `boundary_lines.geojson` | 0.55 MB gz (1.95 MB raw) — **opt-in only**: fetched on the first Borders toggle-on, never by default | uncompressed | edge gzip/brotli | `work/borders/` |
-| `countries.geojson` | 2.5 MB gz (9.4 MB raw at the 0.002° guard-tested tolerance) | uncompressed | edge gzip/brotli | `work/borders/` |
+| country vector tiles | **4 tiles, 175 KB brotli** in the cold window at the default camera (z1 covers the globe; 22–65 KB each, largest 122 KB raw), viewport-driven like the relief tiles | `/countries/{z}/{x}/{y}.mvt`, ranged by the dev middleware, identity bytes | same URL shape, ranged by the Worker out of R2; edge-compressed as text | `planet_countries.pmtiles` |
+| `countries.geojson` | 2.5 MB gz (9.4 MB raw at the 0.002° guard-tested tolerance) — **no longer delivered**: superseded by the vector tiles above, and now only the cut's input | — | — | `work/borders/` |
 | hero variants (gallery srcset + globe click panel) | mean per rung **60 KB / 130 / 222 / 466 / 2,838 / 8,624** (640/960/1280/1920/3840/native WebP) + border overlays 0.14–1.1 MB PNG | `loading="lazy"`, srcset picks the rung | same | `blender/renders/variants/` |
 
 Dev–prod differences that matter:
 
-- **Compression** — dev sends identity bytes (the geojson pair alone is 11.4 MB on the wire vs
-  3.1 MB gz); the CDN compresses text assets. WebP/PNG are pre-compressed either way.
+- **Compression** — dev sends identity bytes (`boundary_lines.geojson` alone is 1.95 MB on the wire
+  vs 0.55 MB gz); the CDN compresses text assets. WebP/PNG are pre-compressed either way. **MVT is
+  not**: the archive stores it gzipped but both tile servers read through that, so the Worker emits
+  plain protobuf and the edge compresses it like text (measured: 122 KB → 65 KB brotli).
 - **Validators** — the dev store routes send no ETag/Last-Modified, so every dev reload
   re-downloads everything (recorded on the PLAN Lighthouse item); prod sends validators plus
   aggressive cache headers.

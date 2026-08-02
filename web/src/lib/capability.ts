@@ -81,6 +81,80 @@ export function isLowMemory(deviceMemoryGib: number | undefined): boolean {
   return (deviceMemoryGib ?? Infinity) <= LOW_MEMORY_GIB;
 }
 
+/**
+ * `navigator.connection.downlink` at or below this reads as a slow link.
+ *
+ * Calibrate this against what the API actually reports, not against real bandwidth. Chrome rounds
+ * the estimate to the nearest 25 kbps and caps it, and it is *observed* throughput rather than
+ * link speed — this project's own dev box, on fibre, measured **1.6**. The threshold therefore sits
+ * one tenth of a megabit under a healthy desktop, which is worth knowing before anyone reads a
+ * demotion here as evidence about someone's connection.
+ */
+export const SLOW_DOWNLINK_MBPS = 1.5;
+
+/**
+ * Whether the connection reads as slow. **Zero is not slow — it is "no estimate yet"**, and the
+ * distinction is a whole tier of real visitors.
+ *
+ * `downlink` is an estimate built from observed traffic, so a browser that has not yet moved enough
+ * bytes reports `0` — which is exactly the state a COLD PAGE LOAD is in when `probeSignals` runs.
+ * Read literally, `0 < 1.5` is true, and `decideTier` sends a slow network to `gallery`: not the
+ * lighter `globe` rung, the gallery. So the fastest possible connection and an unmeasured one
+ * produced the same verdict, and the view bar could not report it because it renders `gallery` and
+ * `globe` with the same chip.
+ *
+ * Measured on one served page: inside a Lighthouse session (fresh profile, no network history)
+ * `downlink` is **0** and the tier came out `gallery` while the globe rendered at 243 fps having
+ * pulled 37 tiles; the same page in plain headless Chrome reports **1.6** and comes out `full`.
+ *
+ * The `undefined` case is the same optimism `isLowMemory` applies for the same reason: absence
+ * describes the browser, not the network. Zero now joins it, because it describes the *estimator*.
+ *
+ * Pure, and separate from the probe, so both edges are testable without a fake `navigator`.
+ */
+export function isSlowNetwork(
+  effectiveType: string | undefined,
+  downlinkMbps: number | undefined,
+): boolean {
+  if (/(^|\b)(slow-2g|2g)\b/.test(String(effectiveType ?? ""))) return true;
+  // Absent OR zero: no usable estimate, so do not demote on it. `effectiveType` above is the
+  // signal that still works in that state — it is bucketed, not measured, and browsers seed it.
+  if (downlinkMbps === undefined || downlinkMbps === 0) return false;
+  return downlinkMbps < SLOW_DOWNLINK_MBPS;
+}
+
+/**
+ * The tier for a page that is **already showing the globe**, where a `gallery` verdict from a soft
+ * signal is a contradiction rather than a decision.
+ *
+ * `decideTier` answers "where does this visitor belong", and `gallery` is a legitimate answer to
+ * that question. On `/globe/` the question has already been settled — `Base.astro`'s pre-paint
+ * guard admitted them — so the same verdict means the module is disagreeing with the guard, and
+ * the guard is the one that ran first and won. The two admission criteria are NOT the same set:
+ * the guard consults `capable()` and `quality`, and has never consulted `saveData` (nor
+ * `slowNetwork`, back when that reached `gallery` too). Anything demoted here on a signal the guard
+ * does not read was admitted and then told it should not have been.
+ *
+ * Observed before this existed: `tier gallery` on the panel of a globe running at 243 fps, having
+ * pulled 37 tiles — and invisible in the view bar, which renders `gallery` and `globe` with the
+ * same chip. Clamping is what makes that chip honest by construction rather than by remembering.
+ *
+ * NOT a behaviour change on the page today: `bootTier` is only ever compared against `"full"`, so
+ * `gallery` and `globe` already did exactly the same thing here. It is a truthfulness fix, and the
+ * moment a third rung starts reading the tier it becomes a correctness one.
+ *
+ * The two verdicts that survive are the two the guard DOES act on, so they cannot disagree with it.
+ */
+export function decideGlobeTier(signals: CapabilitySignals, quality: Quality): Tier {
+  const tier = decideTier(signals, quality);
+  if (tier !== "gallery") return tier;
+  // An explicit Lite is the visitor's own instruction, and a failed hard floor is a fact about the
+  // device. The guard bounces both, so seeing either here means a redirect is already in flight —
+  // report it rather than paper over it.
+  if (quality === "lite" || !canRunGlobe(signals)) return "gallery";
+  return "globe";
+}
+
 /** Renderer strings that mean "there is no real GPU behind this context". */
 export const SOFTWARE_RENDERER_PATTERN =
   /swiftshader|llvmpipe|software|basic render|microsoft basic|softpipe|mesa offscreen/i;
@@ -119,8 +193,15 @@ export function decideTier(signals: CapabilitySignals, quality: Quality): Tier {
 
   // quality === "auto": the probe decides, pessimistically.
   if (!canRunGlobe(signals)) return "gallery";
-  if (signals.saveData || signals.slowNetwork) return "gallery"; // tiles are data-heavy
-  if (signals.lowMemory || signals.reducedMotion) return "globe"; // capable, but skip full
+  // Save-Data is an EXPLICIT ask to minimise data and the globe is ~2.6 MB of tiles, so it is the
+  // one soft signal still worth refusing the globe over.
+  if (signals.saveData) return "gallery";
+  // A slow link is NOT. It used to sit on the line above, which meant a visitor standing on
+  // `/globe/` was told the device could not run it — while `Base.astro`'s pre-paint guard, which
+  // consults `saveData` and has never consulted this, had already let them in. The two places
+  // disagreed, and the module's answer was the harsh one. A slow network buys the same treatment as
+  // low memory: keep the globe, drop what `full` adds (the idle spin and the in-globe hero panel).
+  if (signals.lowMemory || signals.reducedMotion || signals.slowNetwork) return "globe";
   return "full";
 }
 
@@ -232,9 +313,7 @@ export function probeSignals(): CapabilitySignals {
   const reducedData =
     typeof matchMedia === "function" && matchMedia("(prefers-reduced-data: reduce)").matches;
   const saveData = Boolean(connection.saveData) || reducedData;
-  const effectiveType = String(connection.effectiveType ?? "");
-  const downlink = Number(connection.downlink ?? Infinity);
-  const slowNetwork = /(^|\b)(slow-2g|2g)\b/.test(effectiveType) || downlink < 1.5;
+  const slowNetwork = isSlowNetwork(connection.effectiveType, connection.downlink);
 
   // ABSENT deviceMemory stays optimistic, deliberately — this is every Safari and every Firefox.
   //
@@ -285,4 +364,16 @@ export function setQuality(quality: Quality): void {
 /** Convenience: probe the live device and fold in the saved choice. */
 export function currentTier(): Tier {
   return decideTier(probeSignals(), getQuality());
+}
+
+/**
+ * The same, for a caller that is already on the globe page — see `decideGlobeTier`.
+ *
+ * Separate rather than a flag on `currentTier`, because the choice of which one to call is a fact
+ * about the CALLER's page, and a boolean argument at the call site reads as a mode rather than as
+ * that fact. Each probes independently, which is its own known cost: two `probeSignals()` calls
+ * per globe load, four WebGL contexts, and no shared answer between the chip and the page.
+ */
+export function currentGlobeTier(): Tier {
+  return decideGlobeTier(probeSignals(), getQuality());
 }

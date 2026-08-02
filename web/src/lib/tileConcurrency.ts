@@ -49,12 +49,14 @@ export const RAISED_MAX_PARALLEL_IMAGE_REQUESTS = 32;
 
 /** The conditions that decide whether a visitor gets the raised cap.
  *
- *  These are SIGNALS, not the resolved tier, and that is deliberate. On `auto` the tier ladder
- *  already sends `saveData || slowNetwork` to the gallery, so tier would look like a sufficient
- *  gate — but an explicit `full` choice **bypasses that check**, so a visitor who picked Full on a
- *  metered connection is `full` tier on exactly the link that must not get 32 streams. Gating on
- *  the tier would have raised the cap for them. The bottleneck here is the network path, so the
- *  network facts are what it keys on. */
+ *  These are SIGNALS, not the resolved tier, and that is deliberate — for two reasons that have
+ *  both been demonstrated rather than argued. An explicit `full` choice **bypasses the ladder's
+ *  soft checks entirely**, so a visitor who picked Full on a metered connection is `full` tier on
+ *  exactly the link that must not get 32 streams; gating on tier would have raised the cap for
+ *  them. And the ladder's own answer for `slowNetwork` has since MOVED — it used to mean `gallery`
+ *  and now means `globe` — which would silently have changed this cap had it keyed on the verdict
+ *  instead of the fact. The bottleneck here is the network path, so the network facts are what it
+ *  keys on, and that is what made this survive a change to the thing it does not read. */
 export interface ConcurrencyConditions {
   /** `navigator.connection.saveData` or `prefers-reduced-data` — an explicit ask for restraint. */
   saveData: boolean;

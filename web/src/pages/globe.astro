@@ -1,6 +1,22 @@
 ---
 import Base from "../layouts/Base.astro";
 import { REPO_URL } from "../lib/siteLinks";
+
+// `?url` gives the emitted asset's href WITHOUT injecting the stylesheet, which is the whole point:
+// a bare `import "maplibre-gl/dist/maplibre-gl.css"` in the client script below made Vite hoist it
+// into a render-blocking <link>, so **70 KB of widget CSS gated first paint** on a page where no
+// widget exists until the 265 KB globe chunk has downloaded and run. Measured: FCP 1,264 → 629 ms.
+//
+// Imported from the package, never copied into public/ — the version is pinned and guarded
+// (vendoredPatches.test.ts), and a hand-copied stylesheet is the copy that silently stops matching.
+import maplibreStylesheet from "maplibre-gl/dist/maplibre-gl.css?url";
+
+// The onload body lives here as a STRING rather than inline on the element. Written inline, Astro
+// type-checks the attribute as an expression and reports `ts(6133): 'media' is declared but its
+// value is never read` — a hint about a variable that does not exist, on code the browser runs and
+// the checker cannot model. `astro check` is held at zero, so a spurious hint costs the same as a
+// real one: it trains the next reader to skim the output.
+const PROMOTE_STYLESHEET = "this.media='all'";
 ---
 
 <Base
@@ -9,6 +25,24 @@ import { REPO_URL } from "../lib/siteLinks";
   borders={true}
   quality={true}
 >
+  {/* Non-blocking by `media="print"`: it matches no screen, so the parser does not wait on it, and
+      the onload swap promotes it the moment it lands. Safe against the cascade because every one of
+      our 26 overrides either beats the vendor rule on specificity or targets a different element —
+      verified by reading computed styles off both orderings, not by argument.
+
+      The <noscript> twin is not decoration. `onload` is an inline handler, so with JS off the sheet
+      would stay `media="print"` forever and the controls would render unstyled. The globe needs JS
+      anyway, but "needs JS" and "renders wrong without it" are different failures. */}
+  <link
+    slot="head"
+    rel="stylesheet"
+    href={maplibreStylesheet}
+    media="print"
+    onload={PROMOTE_STYLESHEET}
+  />
+  <noscript slot="head">
+    <link rel="stylesheet" href={maplibreStylesheet} />
+  </noscript>
   <!-- Static space backdrop: a sparse starfield painted behind the transparent
        map, so it shows only in the space around the sphere (zoomed out). -->
   <canvas id="starfield" class="starfield" aria-hidden="true"></canvas>
@@ -712,6 +746,23 @@ import { REPO_URL } from "../lib/siteLinks";
   body.is-quiet .maplibregl-ctrl-fullscreen {
     display: none;
   }
+  /* ...and the divider it left behind. `+` matches DOM ORDER, not visibility, so hiding fullscreen
+     does not stop the quiet button below it from still counting as "a button after a button" — it
+     kept its 1px hairline while becoming the group's first VISIBLE child, and the group's 999px
+     radius clipped that line into a dark chord across the top of the circle. Reported from a phone,
+     where it reads as a nick out of the icon.
+
+     Keyed on the hidden NEIGHBOUR rather than on the quiet button, so it states the actual rule —
+     a divider needs two visible siblings — and stays right if anything else is ever hidden here.
+     The doubled group class is not decoration: the divider above is (0,4,2) and this has to beat
+     it, which the obvious `body.is-quiet .rg-ctrl-quiet` (0,3,1) would not. */
+  body.is-quiet
+    .maplibregl-ctrl-top-right
+    .maplibregl-ctrl-group.maplibregl-ctrl-group
+    .maplibregl-ctrl-fullscreen
+    + button {
+    border-top-width: 0;
+  }
   body.is-quiet .rg-ctrl-quiet[aria-pressed="true"] {
     color: var(--muted);
     background: none;
@@ -818,7 +869,8 @@ import { REPO_URL } from "../lib/siteLinks";
     Point,
     RasterSourceSpecification,
   } from "maplibre-gl";
-  import "maplibre-gl/dist/maplibre-gl.css";
+  // NOT `import "maplibre-gl/dist/maplibre-gl.css"` — that is what made it render-blocking. The
+  // stylesheet is linked non-blocking from this page's frontmatter; see the note beside that link.
   import { manifest, type Country } from "../lib/manifest";
   import {
     BORDERS_BASE,
@@ -903,7 +955,7 @@ import { REPO_URL } from "../lib/siteLinks";
   // Ids and poles only — the cap MESH and its textures stay behind the dynamic import below.
   // glDiagnostics already pulls these two statically, so this adds nothing to the bundle.
   import { CAP_POLES, capLayerId, deviceClass } from "../lib/polarCaps";
-  import { decideTier, getQuality, probeSignals } from "../lib/capability";
+  import { decideGlobeTier, decideTier, getQuality, probeSignals } from "../lib/capability";
   import {
     COUNTRIES_SOURCE,
     HIGHLIGHT_GOLD,
@@ -1022,7 +1074,9 @@ import { REPO_URL } from "../lib/siteLinks";
   // on every call and each run creates WebGL contexts, so this snapshot is taken once and reused
   // by the terrain gate below. Cost measured live at ~2.1 ms per context.
   const bootSignals = probeSignals();
-  const bootTier = decideTier(bootSignals, getQuality());
+  // `decideGlobeTier`, because this module only ever runs on the globe page: a `gallery` verdict
+  // from a soft signal here contradicts the pre-paint guard that already admitted us.
+  const bootTier = decideGlobeTier(bootSignals, getQuality());
   const requestedMaxParallelImageRequests = parseMaxParallelImageRequests(urlFlags);
   if (requestedMaxParallelImageRequests === null && urlFlags.has("maxreq")) {
     // Refused loudly rather than falling back silently — a run that believes it measured 8 while
@@ -1711,7 +1765,11 @@ import { REPO_URL } from "../lib/siteLinks";
             gl: (sampleGlNow ? sampledGlState() : null) ?? lastHealthyGlState,
             deviceClass: probedDeviceClass,
             signals: probedSignals,
-            tier: decideTier(probedSignals, getQuality()),
+            tier: decideGlobeTier(probedSignals, getQuality()),
+            // The UNCLAMPED verdict, which is the only place it survives now — see the field's
+            // docstring. Recomputed rather than reusing `bootTier` for the same reason that one
+            // is: the quality toggle writes localStorage mid-session.
+            probedTier: decideTier(probedSignals, getQuality()),
             ladder: ladderPosition?.() ?? {
               spinning: false,
               pixelRatioLowered: false,

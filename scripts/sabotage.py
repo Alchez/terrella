@@ -72,7 +72,16 @@ BACKUP_SUFFIX = ".sabotage-backup"
 # when a case genuinely needs to — deliberately, since `tests/test_sabotage_cases.py` enforces it.
 # PROCESS.md joins the roots because the structural-integrity guard covers repo docs, and a case
 # it cannot write to is a case that cannot prove anything.
-MUTABLE_ROOTS = ("web/src", "web/worker", "scripts", "PROCESS.md", "web/vitest.config.ts")
+MUTABLE_ROOTS = (
+    "web/src",
+    "web/worker",
+    "scripts",
+    "PROCESS.md",
+    "web/vitest.config.ts",
+    # Joined when `build.inlineStylesheets` became load-bearing: the globe's own 12 KB sheet sits
+    # just past Vite's 4 KB inline limit, so the default 'auto' left it blocking first paint.
+    "web/astro.config.ts",
+)
 
 # Set for the duration of one case, so the backup THIS run is holding does not trip the leftover
 # canary in tests/test_sabotage_cases.py. Narrow on purpose: any other stray backup still fires.
@@ -378,8 +387,8 @@ SABOTAGES: list[Sabotage] = [
         suite='web',
         label='an unmeasured device class renders as a plain desktop verdict',
         path='web/src/lib/perf/perfSnapshot.ts',
-        needle='` (${report.deviceClass.via}) · tier ${report.tier}`,',
-        replacement='` · tier ${report.tier}`,',
+        needle='` (${report.deviceClass.via}) · tier ${report.tier}` +',
+        replacement='` · tier ${report.tier}` +',
         guard='never renders an unmeasured device class as a desktop reading',
     ),
     Sabotage(
@@ -498,9 +507,72 @@ SABOTAGES: list[Sabotage] = [
         suite='web',
         label='the tier is cached, so a mid-session quality change goes unreported',
         path='web/src/pages/globe.astro',
-        needle='            tier: decideTier(probedSignals, getQuality()),',
-        replacement='            tier: probedTier,',
+        needle='            tier: decideGlobeTier(probedSignals, getQuality()),',
+        replacement='            tier: bootTier,',
         guard='still tracks a quality change the user makes mid-session',
+    ),
+    Sabotage(
+        suite='web',
+        # The chord comes back. `+` matches DOM order, so hiding fullscreen leaves its divider on
+        # the quiet button below, and the group's 999px radius clips it into a dark arc.
+        label='quiet mode keeps the divider of the button it hid',
+        path='web/src/pages/globe.astro',
+        needle='    border-top-width: 0;',
+        replacement='    border-top-width: 1px;',
+        guard='cancels the hairline on the button after the hidden fullscreen control',
+    ),
+    Sabotage(
+        suite='web',
+        # The specificity, tidied away. `body.is-quiet .rg-ctrl-quiet` is the obvious way to write
+        # this cancel and it is (0,3,1) against a (0,4,2) divider — it loses, silently.
+        label="the divider cancel is rewritten without the specificity that makes it win",
+        path='web/src/pages/globe.astro',
+        needle='    .maplibregl-ctrl-group.maplibregl-ctrl-group\n    .maplibregl-ctrl-fullscreen\n    + button {',
+        replacement='    .maplibregl-ctrl-group\n    .maplibregl-ctrl-fullscreen\n    + button {',
+        guard='keeps the cancel more specific than the divider it has to beat',
+    ),
+    Sabotage(
+        suite='web',
+        # The original defect restored: a side-effect import makes Vite hoist MapLibre's 70 KB
+        # widget sheet into a render-blocking <link>, in front of a paint that needs none of it.
+        label="MapLibre's stylesheet goes back to blocking first paint",
+        path='web/src/pages/globe.astro',
+        needle='import maplibreStylesheet from "maplibre-gl/dist/maplibre-gl.css?url";',
+        replacement='import "maplibre-gl/dist/maplibre-gl.css";\nconst maplibreStylesheet = "";',
+        guard='imports it for its URL, never for its side effect',
+    ),
+    Sabotage(
+        suite='web',
+        # The scripts-off hole. `onload` is an inline handler, so without the noscript twin a
+        # visitor with JS disabled keeps media="print" forever and the controls render unstyled.
+        label='the deferred stylesheet loses its noscript fallback',
+        path='web/src/pages/globe.astro',
+        needle='  <noscript slot="head">',
+        replacement='  <template slot="head">',
+        guard='links it non-blocking, with the noscript twin that makes that safe',
+    ),
+    Sabotage(
+        suite='web',
+        # Deferring MapLibre's sheet buys nothing while OUR 12 KB one still blocks — and at Vite's
+        # default 4 KB inline limit, 'auto' leaves it linked. This is the half that carries the win.
+        label="the page's own stylesheet goes back to a blocking request",
+        path='web/astro.config.ts',
+        needle="    inlineStylesheets: 'always',",
+        replacement="    inlineStylesheets: 'auto',",
+        guard='astro.config sets inlineStylesheets to always',
+    ),
+    Sabotage(
+        suite='web',
+        # The clamp disarmed. Without it the report, and before it the view bar, can say `gallery`
+        # about a page that is demonstrably running the globe — which is exactly the contradiction
+        # that hid the downlink defect, because the chip renders `gallery` and `globe` identically.
+        # Two leading spaces are load-bearing: the other `return "globe";` in this file sits after
+        # a `)` on the soft-signal line and must not be the one that gets rewritten.
+        label='the globe page stops clamping a soft gallery verdict',
+        path='web/src/lib/capability.ts',
+        needle='  return "globe";',
+        replacement='  return "gallery";',
+        guard='clamps a soft demotion to globe, where plain decideTier says gallery',
     ),
     Sabotage(
         suite='web',
@@ -509,6 +581,17 @@ SABOTAGES: list[Sabotage] = [
         needle='      gl.getExtension("WEBGL_lose_context")?.loseContext();',
         replacement='',
         guard='releases the context it creates, not just the canvas',
+    ),
+    Sabotage(
+        suite='web',
+        # The shipped defect, restored exactly: `downlink` is 0 until the browser has observed
+        # enough traffic to estimate, so a cold load read as slower than 1.5 Mbps and decideTier
+        # sent it to `gallery` — measured live at `tier gallery` on a globe running at 243 fps.
+        label='an unmeasured downlink counts as a slow link again',
+        path='web/src/lib/capability.ts',
+        needle='  if (downlinkMbps === undefined || downlinkMbps === 0) return false;',
+        replacement='  if (downlinkMbps === undefined) return false;',
+        guard='does NOT treat zero as slow',
     ),
     Sabotage(
         suite='web',
@@ -1062,6 +1145,28 @@ SABOTAGES: list[Sabotage] = [
         needle='    if (request.method !== "GET" && request.method !== "HEAD") {',
         replacement='    if (request.method !== "GET") {',
         guard='serves HEAD, which is not a write and must not be lumped in with one',
+    ),
+    # Escape belongs to the PAGE, not to this module: the globe's Escape closes the country card
+    # first and only then leaves quiet. A module that swallowed it would make the card uncloseable
+    # while quiet — a bug with no error, so only a guard sees it.
+    Sabotage(
+        suite='web',
+        label='quiet mode starts acting on Escape, stealing it from the page',
+        path='web/src/lib/quietMode.ts',
+        needle='if (event.key.toLowerCase() !== QUIET_KEY) return;',
+        replacement='if (event.key.toLowerCase() !== QUIET_KEY && event.key !== "Escape") return;',
+        guard='does not act on Escape at all',
+    ),
+    # `title` and `aria-label` come from one writer so they cannot disagree. The button's only
+    # content is a decorative masked span, so a wrong `aria-label` leaves it with no accessible
+    # name at all — and nothing renders differently.
+    Sabotage(
+        suite='web',
+        label='the rail button\'s aria-label drifts from its title',
+        path='web/src/lib/railControls.ts',
+        needle='button.setAttribute("aria-label", name);',
+        replacement='button.setAttribute("aria-label", name.toLowerCase());',
+        guard='carries title AND aria-label, in agreement',
     ),
     # The subject here is the SUITE ITSELF, which is why the guard is a script. Under this
     # mutation `pnpm test` reports `28 passed (28)` and exits 0 — measured, not assumed — so a

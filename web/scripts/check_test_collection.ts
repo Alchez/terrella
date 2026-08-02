@@ -21,7 +21,7 @@
 // covers scripts/: node 24 strips the types at run time, so there is no build step.
 
 import { execFileSync } from "node:child_process";
-import { readdirSync } from "node:fs";
+import { readdirSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const WEB_ROOT = fileURLToPath(new URL("../", import.meta.url));
@@ -64,6 +64,10 @@ function testFilesOnDisk(): string[] {
     for (const entry of entries) {
       const relative = `${root}/${String(entry)}`;
       if (!relative.endsWith(".test.ts")) continue;
+      // A name ending `.test.ts` is not necessarily a FILE. When a browser test fails, vitest
+      // writes `__screenshots__/<spec>.browser.test.ts/` — a directory named exactly like the spec
+      // — and counting it here reported two uncollected tests that do not exist.
+      if (!statSync(`${WEB_ROOT}${relative}`).isFile()) continue;
       // Defensive: neither root should contain these, but a stray build output here would look
       // like an uncollected test rather than the packaging mistake it is.
       if (relative.split("/").includes("node_modules")) continue;
