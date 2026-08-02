@@ -86,9 +86,21 @@ class TestPolicy:
 
     def test_the_ladder_matches_the_spotlight_overlay(self):
         """The gallery layers the overlay on the hero with one shared `sizes`, so a rung present in
-        one ladder and absent from the other makes the browser pick mismatched files."""
+        one ladder and absent from the other makes the browser pick mismatched files.
+
+        COMPARING THE TUPLES IS NOT ENOUGH, and was briefly the whole test. The portrait fill rung is
+        computed per hero from its aspect, so two modules can hold identical `TARGETS` and still
+        disagree about what a portrait country gets — the tuple check passes while the overlay is
+        missing exactly the rung this work added. The ladder is a FUNCTION now, so the pin has to be
+        on the function.
+        """
         from pipeline.compose import gen_spotlight
         assert gen_spotlight.TARGETS == hero_variants.TARGETS
+        assert gen_spotlight.rungs_for is hero_variants.rungs_for, (
+            "gen_spotlight must IMPORT rungs_for rather than restate the ladder — a copy cannot "
+            "track an aspect-dependent rung")
+        portrait = (round(NATIVE * 0.465), NATIVE)   # Albania: needs a fill rung
+        assert hero_variants.fill_rung(*portrait) in hero_variants.rungs_for(*portrait)
 
 
 class TestFirstRun:
@@ -233,6 +245,43 @@ class TestLadderServesTheLayout:
         ("globe.astro", "sizesAttr", ("hero", "border")),
     )
 
+    # The viewports the `vw` arm of `sizes` actually serves, as (CSS px, device pixel ratio).
+    # This guard used to read ONLY the fixed-px arm — its regex skips `640px` inside `(max-width:
+    # 640px)` and kept just `440` — so the entire mobile branch, which is where the defect was,
+    # was never evaluated. Six comfortable cells reported coverage of a ladder that was failing.
+    MOBILE_VIEWPORTS = (
+        (412, 1.75),   # Moto G Power — the Lighthouse mobile preset, and the LOWEST DPR here
+        (360, 2.0),    # a cheap Android
+        (412, 2.625),  # Pixel 7
+        (390, 3.0),    # iPhone 15
+        (430, 3.0),    # iPhone 15 Pro Max — the widest real mobile demand
+    )
+
+    # Aspect ratios the atlas actually contains, as width/height of the native render. The ladder is
+    # keyed to the LONG EDGE while `srcset` selects on WIDTH, so for anything portrait the two are
+    # not the same number and a guard that conflates them is testing landscape only. 0.234 is
+    # Maldives, the narrowest; 1.0 and above stand in for every landscape country, where long edge
+    # IS width and the distinction collapses.
+    ASPECTS = (0.234, 0.307, 0.401, 0.465, 0.530, 0.603, 0.770, 1.0, 1.302, 1.659)
+
+    # Aspects for which no rung below the q95 floor can cover mobile demand — a fill rung there
+    # would arrive at inspection quality for a thumbnail, so they wait for the width-keyed ladder.
+    # Named rather than silently skipped: an exemption that is not written down is a hole.
+    UNSERVEABLE_ASPECTS = (0.234, 0.307)
+
+    # Ladders the mobile contract does NOT yet hold, each with its reason. `test_every_exemption_is
+    # _load_bearing` asserts each one would FAIL without the exemption, so the day a gap is closed
+    # this list fails loudly rather than quietly covering nothing — the failure mode of every
+    # skip-list ever written.
+    MOBILE_EXEMPT_LADDERS = {
+        "border": (
+            "gen_borders tops out at 1920, so a portrait border jumps straight to the country's "
+            "native rung — a lossless PNG at ~3x the width the panel draws. It is off the cold "
+            "path: `.hp-border` is display:none unless the visitor turns Borders on, and a lazy "
+            "image with no layout box is never fetched. Closed by the width-keyed ladder in FUTURE."
+        ),
+    }
+
     @staticmethod
     def ladders() -> dict[str, tuple[int, ...]]:
         """Every rung ladder the pipeline produces, by the name the surfaces know it as."""
@@ -251,25 +300,53 @@ class TestLadderServesTheLayout:
             assert match, (f"{filename} no longer declares `const {constant} = \"...\"` — this "
                            f"guard reads the layout's own words, so a rename must fail here "
                            f"rather than silently stop checking anything")
+            declaration = match.group(1)
             found.append((filename, constant,
-                          [int(px) for px in re.findall(r"(\d+)px(?!\s*\))", match.group(1))],
-                          ladder_names))
+                          [int(px) for px in re.findall(r"(\d+)px(?!\s*\))", declaration)],
+                          ladder_names, declaration))
         return found
 
     def test_every_ladder_is_actually_checked(self):
         """Stops a ladder being added to the pipeline and quietly escaping this guard."""
-        covered = {name for _f, _c, _w, names in self.declarations() for name in names}
+        covered = {name for _f, _c, _w, names, _d in self.declarations() for name in names}
         assert covered == set(self.ladders()), (
             f"ladders {set(self.ladders()) - covered} are produced but no surface claims them — "
             f"either wire them into PAGES or they are unreachable and should not be generated")
 
     @staticmethod
-    def picked_rung(ladder: tuple[int, ...], needed_px: int) -> int:
-        """What a browser fetches for `needed_px`: the smallest rung that covers it, or the largest
-        there is when none does. A ladder is coarse by design, so rounding UP is correct — the
-        defect is only ever how FAR up it has to round."""
+    def picked_rung(ladder: tuple[int, ...], needed_px: int, aspect: float = 1.0) -> int:
+        """What a browser fetches for `needed_px` of WIDTH: the smallest rung whose delivered width
+        covers it, or the largest there is when none does. A ladder is coarse by design, so rounding
+        UP is correct — the defect is only ever how FAR up it has to round.
+
+        `aspect` is width/height of the native render, and it is the correction this guard was
+        missing. A rung names the LONG EDGE, so for a portrait hero the delivered width is
+        `rung * aspect` — Albania's 1920 rung is 892 px wide, not 1920. Comparing the rung number
+        straight against needed pixels silently models every country as landscape, which is exactly
+        how a 2x width gap at DPR 3 sat under a passing test.
+        """
         ascending = sorted(ladder)
-        return next((rung for rung in ascending if rung >= needed_px), ascending[-1])
+        delivered = min(1.0, aspect)
+        return next((rung for rung in ascending if rung * delivered >= needed_px), ascending[-1])
+
+    @staticmethod
+    def delivered_width(rung: int, aspect: float) -> float:
+        return rung * min(1.0, aspect)
+
+    @staticmethod
+    def ladder_at(ladder_name: str, aspect: float, ladders: dict[str, tuple[int, ...]]):
+        """The rungs a country of this aspect actually gets.
+
+        For hero and spotlight this calls the pipeline's OWN `rungs_for`, because the portrait fill
+        rung is computed per hero and a copied tuple could not represent it — the guard would model
+        a ladder nobody produces. The two share one function by import, so asking either is asking
+        both. Everything else has a fixed ladder and is read as a tuple.
+        """
+        if ladder_name not in ("hero", "spotlight"):
+            return ladders[ladder_name]
+        native = 7680
+        width, height = (round(native * aspect), native) if aspect < 1 else (native, round(native / aspect))
+        return tuple(hero_variants.rungs_for(width, height))
 
     def test_every_ladder_serves_its_surface_at_every_common_dpr(self):
         """Simulates selection rather than pinning rung numbers, so it stays true if either end
@@ -278,7 +355,7 @@ class TestLadderServesTheLayout:
         The 2x linear ceiling is one rung of slack, not a tuning knob.
         """
         ladders = self.ladders()
-        for filename, constant, widths, ladder_names in self.declarations():
+        for filename, constant, widths, ladder_names, _declaration in self.declarations():
             assert widths, (
                 f"{filename} {constant} declares no fixed CSS px. The gallery is masonry, so the "
                 f"card is a near-constant column and a viewport fraction over-declares by up to "
@@ -297,6 +374,97 @@ class TestLadderServesTheLayout:
                             f"{filename} {constant} / {ladder_name}: {width} CSS px at DPR "
                             f"{device_pixel_ratio} needs {needed} device px but the next rung is "
                             f"{picked} — {picked / needed:.1f}x wider than the layout draws")
+
+    @staticmethod
+    def viewport_fractions(declaration: str) -> list[float]:
+        """The `vw` fractions in a `sizes` declaration, as fractions of the viewport.
+
+        The fixed-px arm serves desktop, where the gallery is masonry and a card is a near-constant
+        column. The `vw` arm serves the single-column mobile layout — a DIFFERENT band, and the one
+        the ladder was never checked against.
+        """
+        return [int(value) / 100 for value in re.findall(r"(\d+)vw", declaration)]
+
+    def test_the_vw_arm_of_sizes_is_declared_and_therefore_checkable(self):
+        """The guard reads the layout's own words, so a `sizes` that stops declaring a mobile arm
+        must fail here rather than silently reduce this suite to the desktop case again."""
+        for filename, constant, _widths, _ladders, declaration in self.declarations():
+            assert self.viewport_fractions(declaration), (
+                f"{filename} {constant} declares no `vw` arm. Below the single-column breakpoint a "
+                f"card IS a viewport fraction, and dropping that arm would leave this guard "
+                f"checking desktop only — which is how the portrait rung gap shipped")
+
+    def test_every_ladder_serves_a_PORTRAIT_country_on_a_real_phone(self):
+        """The mobile half of the ladder contract, which the desktop-only guard above cannot see.
+
+        Two directions, and they fail differently: under-delivering shows as blur, over-delivering
+        shows as bytes. The bytes direction is the one that bit — a portrait hero on a DPR-3 phone
+        was landing two rungs up AND across the q85/q95 boundary, 399 KiB becoming 2,252 KiB.
+
+        The 2x ceiling is one rung of slack, the same as the desktop case, and not a tuning knob.
+        """
+        ladders = self.ladders()
+        for filename, constant, _widths, ladder_names, declaration in self.declarations():
+            for fraction in self.viewport_fractions(declaration):
+                for ladder_name in ladder_names:
+                    if ladder_name in self.MOBILE_EXEMPT_LADDERS:
+                        continue
+                    for aspect in self.ASPECTS:
+                        if aspect in self.UNSERVEABLE_ASPECTS:
+                            continue
+                        ladder = self.ladder_at(ladder_name, aspect, ladders)
+                        for viewport, device_pixel_ratio in self.MOBILE_VIEWPORTS:
+                            needed = round(viewport * fraction * device_pixel_ratio)
+                            picked = self.picked_rung(ladder, needed, aspect)
+                            got = self.delivered_width(picked, aspect)
+                            assert got >= needed, (
+                                f"{filename} {constant} / {ladder_name}: aspect {aspect} at "
+                                f"{viewport} CSS px x DPR {device_pixel_ratio} needs {needed} px of "
+                                f"width, and the top rung {picked} delivers only {got:.0f} — upscales")
+                            assert got / needed < 2, (
+                                f"{filename} {constant} / {ladder_name}: aspect {aspect} at "
+                                f"{viewport} CSS px x DPR {device_pixel_ratio} needs {needed} px of "
+                                f"width but rung {picked} delivers {got:.0f} — {got / needed:.1f}x "
+                                f"the layout, and a portrait hero crossing 3840 also crosses q85->q95")
+                            if ladder_name == "hero":
+                                # THE INVARIANT THAT WAS ACTUALLY BROKEN, and the reason the width
+                                # ceiling above is not enough on its own: at aspect 0.465 the 3840
+                                # rung is only 1.50x too wide, comfortably inside one rung of slack
+                                # — but 3840 is also where `quality_for` steps q85 -> q95, so the
+                                # pixel jump and the quality jump compound and 399 KiB becomes
+                                # 2,252 KiB. A card in a gallery is a thumbnail by definition; it
+                                # must never select the rung reserved for a surface being zoomed in
+                                # to. The bytes hid inside an acceptable-looking width ratio.
+                                assert picked < hero_variants.LARGE_RUNG_PX, (
+                                    f"{filename} {constant}: aspect {aspect} at {viewport} CSS px x "
+                                    f"DPR {device_pixel_ratio} selects rung {picked}, which is at or "
+                                    f"above the q{hero_variants.LARGE_QUALITY} inspection floor "
+                                    f"({hero_variants.LARGE_RUNG_PX}) — inspection quality for a "
+                                    f"thumbnail {got:.0f} px wide")
+
+    def test_every_exemption_is_load_bearing(self):
+        """An exemption that no longer exempts anything is a hole with a comment over it.
+
+        Same reasoning as the vacuous-control problem this class already documents: a skip-list is
+        the easiest place for coverage to quietly disappear, so each entry has to earn its place by
+        still being a real failure. When a gap is closed, this fails and the entry gets deleted.
+        """
+        ladders = self.ladders()
+        for ladder_name, reason in self.MOBILE_EXEMPT_LADDERS.items():
+            assert ladder_name in ladders, f"exemption names {ladder_name!r}, which is not a ladder"
+            assert reason.strip(), f"{ladder_name} is exempt with no reason recorded"
+            ladder = ladders[ladder_name]
+            failures = [
+                (aspect, viewport, dpr)
+                for aspect in self.ASPECTS if aspect not in self.UNSERVEABLE_ASPECTS
+                for viewport, dpr in self.MOBILE_VIEWPORTS
+                if self.delivered_width(
+                    self.picked_rung(ladder, round(viewport * 0.92 * dpr), aspect), aspect
+                ) < round(viewport * 0.92 * dpr)
+            ]
+            assert failures, (
+                f"{ladder_name} is on the exemption list but now SERVES every mobile case — the "
+                f"gap it was exempted for is closed, so delete the entry and let the guard cover it")
 
 
 class TestSubsetRuns:

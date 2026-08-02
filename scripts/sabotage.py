@@ -81,6 +81,14 @@ MUTABLE_ROOTS = (
     # Joined when `build.inlineStylesheets` became load-bearing: the globe's own 12 KB sheet sits
     # just past Vite's 4 KB inline limit, so the default 'auto' left it blocking first paint.
     "web/astro.config.ts",
+    # Joined for the portrait fill rung: the srcset ladder is decided in the PIPELINE and consumed by
+    # the page, so the mutations that matter (a rung that stops being produced, an overlay that
+    # stops sharing the ladder) can only be made here.
+    "pipeline/compose",
+    # A single test file, on the same principle as PROCESS.md above. The mobile ladder contract
+    # carries an exemption list, and a skip-list nobody can mutate is a skip-list nobody can prove
+    # is still doing anything — which is the failure mode it exists to prevent.
+    "tests/test_hero_variants.py",
 )
 
 # Set for the duration of one case, so the backup THIS run is holding does not trip the leftover
@@ -1306,6 +1314,143 @@ SABOTAGES: list[Sabotage] = [
         needle='    const transform = (map.painter as unknown as { transform?: Record<string, unknown> } | undefined)\n      ?.transform;',
         replacement='    const transform = hoistedTransform;',
         guard='measures through the transform, not through map.unproject',
+    ),
+    # --- Gallery deferral -------------------------------------------------------------------
+    # Every one of these leaves a page that renders correctly on a fast link. They cost bytes, or
+    # they cost a no-JS visitor the imagery — neither of which shows up as an error anywhere.
+    Sabotage(
+        suite='web',
+        label='the eager count creeps back past the fold, re-creating the contention it removed',
+        path='web/src/lib/lazyCards.ts',
+        needle='export const EAGER_CARD_COUNT = 2;',
+        replacement='export const EAGER_CARD_COUNT = 8;',
+        guard='keeps the eager count small enough to be worth doing at all',
+    ),
+    # One eager card is the subtle direction: the page still works, but the measured LCP element is
+    # the SECOND card, so this puts the one image that decides LCP behind script.
+    Sabotage(
+        suite='web',
+        label='the eager count drops to one, putting the LCP image behind the observer',
+        path='web/src/lib/lazyCards.ts',
+        needle='export const EAGER_CARD_COUNT = 2;',
+        replacement='export const EAGER_CARD_COUNT = 1;',
+        guard='keeps enough cards eager for the LCP image to skip the observer entirely',
+    ),
+    # `src` before `srcset` starts a fetch of the fallback rung and abandons it — a wasted request
+    # per card, on the one connection this whole module exists to keep clear.
+    Sabotage(
+        suite='web',
+        label='src is assigned before srcset, so the fallback rung is fetched and abandoned',
+        path='web/src/lib/lazyCards.ts',
+        needle=(
+            '  if (stagedSrcset !== undefined) {\n'
+            '    image.srcset = stagedSrcset;\n'
+            '    image.removeAttribute("data-srcset");\n'
+            '  }\n'
+            '  if (stagedSrc !== undefined) {\n'
+            '    image.src = stagedSrc;\n'
+            '    image.removeAttribute("data-src");\n'
+            '  }'
+        ),
+        replacement=(
+            '  if (stagedSrc !== undefined) {\n'
+            '    image.src = stagedSrc;\n'
+            '    image.removeAttribute("data-src");\n'
+            '  }\n'
+            '  if (stagedSrcset !== undefined) {\n'
+            '    image.srcset = stagedSrcset;\n'
+            '    image.removeAttribute("data-srcset");\n'
+            '  }'
+        ),
+        guard='assigns srcset BEFORE src',
+    ),
+    # THE ONE I ACTUALLY SHIPPED, for one test run. Withholding `src` reads as the obviously correct
+    # way to stage a URL, and it puts Chrome in the BROKEN state: a broken-image icon and the alt
+    # text painted across every deferred card. Only a real renderer can see it.
+    Sabotage(
+        suite='web',
+        label='the staged placeholder is emptied, so the alt fallback paints on every deferred card',
+        path='web/src/lib/lazyCards.ts',
+        needle='export const STAGED_PLACEHOLDER =\n  "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";',
+        replacement='export const STAGED_PLACEHOLDER = "";',
+        guard='holds a DECODED placeholder, so the alt fallback is never painted',
+    ),
+    # A browser too old for IntersectionObserver must still get its images. This mutation is the
+    # quiet version of that bug: the function returns cleanly, and the gallery is simply blank.
+    Sabotage(
+        suite='web',
+        label='the no-IntersectionObserver fallback stops promoting, blanking the whole gallery',
+        path='web/src/lib/lazyCards.ts',
+        needle='    for (const card of pending) promoteCard(card);\n    return null;',
+        replacement='    return null;',
+        guard='loads everything immediately when the browser has no IntersectionObserver',
+    ),
+    Sabotage(
+        suite='web',
+        label='the intersection check is dropped, so every card promotes on the first callback',
+        path='web/src/lib/lazyCards.ts',
+        needle='      if (!entry.isIntersecting) continue;',
+        replacement='',
+        guard='holds back a card parked far below the viewport',
+    ),
+    # The no-JS twin and the rule that hides its stand-in are one mechanism; removing either leaves
+    # a scripted visitor perfectly happy and a scriptless one looking at empty cards.
+    Sabotage(
+        suite='web',
+        label='the no-js rule goes, so the staged image pushes the twin out of the figure',
+        path='web/src/pages/index.astro',
+        needle='  :global(html.no-js) .card figure img[data-src] {\n    display: none;\n  }',
+        replacement='',
+        guard='hides the staged image when script never runs',
+    ),
+    Sabotage(
+        suite='web',
+        label='the watched set is taken with :has(), which the fallback browsers do not support',
+        path='web/src/pages/index.astro',
+        needle='  for (const image of document.querySelectorAll<HTMLImageElement>("img[data-src]")) {\n    const card = image.closest(".card");\n    if (card) deferredCards.add(card);\n  }',
+        replacement='  for (const card of document.querySelectorAll(".card:has(img[data-src])")) {\n    deferredCards.add(card);\n  }',
+        guard='derives the watched set from the staged attribute rather than repeating the card index',
+    ),
+    # --- The portrait fill rung ----------------------------------------------------------------
+    # A rung names the LONG EDGE while `srcset` selects on WIDTH, so these mutations all produce a
+    # ladder that is correct for landscape and silently two rungs short for portrait — which is the
+    # original defect, and it shipped under a guard that modelled every country as landscape.
+    Sabotage(
+        suite='python',
+        label='mobile demand is priced off the Lighthouse preset, so no portrait fill rung is made',
+        path='pipeline/compose/hero_variants.py',
+        needle='MOBILE_DEMAND_PX = 1187',
+        replacement='MOBILE_DEMAND_PX = 663',
+        guard='test_every_ladder_serves_a_PORTRAIT_country_on_a_real_phone',
+    ),
+    Sabotage(
+        suite='python',
+        label='the fill rung is dropped from the ladder, leaving the gap it was added to close',
+        path='pipeline/compose/hero_variants.py',
+        needle='    fill = fill_rung(width, height)\n    if fill is not None:\n        targets.add(fill)',
+        replacement='',
+        guard='test_every_ladder_serves_a_PORTRAIT_country_on_a_real_phone',
+    ),
+    # The overlay is layered on the hero under ONE `sizes`, so a ladder it does not share makes the
+    # browser fetch a bigger file for the top layer than for the one underneath. This is the exact
+    # revert the tuple-only version of the guard could not see.
+    Sabotage(
+        suite='python',
+        label='gen_spotlight restates the ladder instead of importing it, and misses the fill rung',
+        path='pipeline/compose/gen_spotlight.py',
+        needle='    sizes = rungs_for(full_w, full_h)',
+        replacement='    sizes = sorted(set(list(TARGETS) + [max(full_w, full_h)]))',
+        guard='test_the_ladder_matches_the_spotlight_overlay',
+    ),
+    # An exemption list is where coverage goes to die quietly. If the border ladder is ever fixed,
+    # this entry must fail rather than keep exempting nothing.
+    Sabotage(
+        suite='python',
+        label='a ladder is exempted from the mobile contract without actually having a gap',
+        path='tests/test_hero_variants.py',
+        needle='    MOBILE_EXEMPT_LADDERS = {\n        "border": (',
+        replacement='    MOBILE_EXEMPT_LADDERS = {\n        "hero": ("no reason at all"),\n        "border": (',
+        guard='test_every_exemption_is_load_bearing',
     ),
 ]
 

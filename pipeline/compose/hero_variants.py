@@ -32,6 +32,7 @@ Usage:
 
 import argparse
 import json
+import math
 import os
 import subprocess
 import sys
@@ -58,6 +59,20 @@ TARGETS = (640, 960, 1280, 1920, 3840)   # plus each hero's native long edge (fu
 LARGE_RUNG_PX = 3840     # at or above this a variant is an inspection surface, not a thumbnail
 SMALL_QUALITY = 85
 LARGE_QUALITY = 95
+
+# A rung names the LONG EDGE, but `srcset` selects on WIDTH. For a landscape hero those are the same
+# number and the ladder above lands where the comment says. For a PORTRAIT hero the width is
+# `rung * aspect`, so the same five rungs deliver a compressed set of widths — Albania (aspect 0.465)
+# gets 297/446/595/892/1786, where the last step DOUBLES. A DPR-3 phone asking for ~1,076 px of width
+# falls straight through that gap onto 3840, which is also where quality steps q85 -> q95: the pixel
+# jump and the quality jump compound and one card goes from 399 KiB to 2,252 KiB.
+#
+# So a portrait hero gets one extra rung, sized from its own aspect rather than shared. A single
+# shared rung cannot work — checked: 2560 covers Albania and leaves Tonga and Israel exactly as
+# broken, because a fixed long edge serves every aspect differently, which is the original defect one
+# level down.
+MOBILE_DEMAND_PX = 1187  # 430 CSS px viewport (the widest phone) x `sizes` 92vw x DPR 3
+FILL_GRID = 512          # keeps the fill rungs to a handful of values instead of one per country
 # What the store was written at before RECIPE existed: this module carried a bare `QUALITY = 85`
 # for its whole life before that, so an unrecorded rung is known, not unknown.
 LEGACY_QUALITY = 85
@@ -68,10 +83,36 @@ def quality_for(long_px: int) -> int:
     return LARGE_QUALITY if long_px >= LARGE_RUNG_PX else SMALL_QUALITY
 
 
+def fill_rung(width: int, height: int) -> int | None:
+    """The extra long-edge rung a portrait hero needs to serve a phone, or None.
+
+    Returns the smallest FILL_GRID multiple whose DELIVERED WIDTH covers MOBILE_DEMAND_PX, and None
+    when the existing thumbnail rungs already cover it (every landscape hero, and any portrait one
+    wide enough) or when no rung below LARGE_RUNG_PX can.
+
+    That last case is a real exclusion, not an oversight: Chile (0.307) and Maldives (0.234) need
+    long edges of 3,867 and 5,064, so their fill rung would itself be an inspection-quality file
+    delivered as a thumbnail — trading one form of the bug for the other. They wait for a ladder
+    keyed to width rather than to long edge, which is the fix this one approximates.
+    """
+    aspect = min(1.0, width / height)
+    thumbnail_targets = [target for target in TARGETS if target < LARGE_RUNG_PX]
+    if any(round(target * aspect) >= MOBILE_DEMAND_PX for target in thumbnail_targets):
+        return None
+    wanted = math.ceil(MOBILE_DEMAND_PX / aspect)
+    snapped = math.ceil(wanted / FILL_GRID) * FILL_GRID
+    return snapped if snapped < LARGE_RUNG_PX else None
+
+
 def rungs_for(width: int, height: int) -> list[int]:
-    """Rung set for one hero: every TARGET strictly below its native long edge, plus native."""
+    """Rung set for one hero: every TARGET strictly below its native long edge, plus native, plus
+    the portrait fill rung when `fill_rung` calls for one."""
     native = max(width, height)
-    return sorted({target for target in TARGETS if target < native} | {native})
+    targets: set[int] = set(TARGETS)
+    fill = fill_rung(width, height)
+    if fill is not None:
+        targets.add(fill)
+    return sorted({target for target in targets if target < native} | {native})
 
 
 def read_recipe() -> dict[int, int]:

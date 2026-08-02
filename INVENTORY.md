@@ -74,7 +74,7 @@
 |---|---|---|---|
 | `heroes/raw/` | 13 GB | the un-post-processed Cycles frames, one 8K PNG per country | Keep — `sky_view` re-shades finals from these with **no GPU re-render** (the AO retune took 203 countries off them in minutes) |
 | `heroes/` | 12 GB | the shaded finals (raw + `sky_view`), one per country | Keep — the source `hero_variants` encodes from |
-| `variants/` | **3.5 GB** | **the served store**: 1,218 hero WebP (6 rungs, q85 to 1920 / q95 above) + 1,218 spotlight overlays + 1,010 border PNGs (5 rungs) | Keep — this is what the browser fetches |
+| `variants/` | **3.5 GB** | **the served store**: 1,243 hero WebP (6 rungs, q85 to 1920 / q95 above, **+ a per-country portrait fill rung on 25 of them**) + 1,243 spotlight overlays + 1,010 border PNGs (5 rungs) | Keep — this is what the browser fetches |
 | `borders/` | 158 MB | per-country transparent border PNGs | Keep — the globe click-panel overlay builds from them |
 | `archive/` | 595 MB | one-off look experiments (india/nepal/swiss look v1–v3) — the visual record behind ART's decisions | Keep (small); **not** a place for rollback trees |
 | `*.log`, `batch_failures*.jsonl` | <10 MB | sweep logs + the failure roster batch retries from | Keep (tiny) |
@@ -106,7 +106,7 @@
 | `boundary_lines.geojson` | 0.55 MB gz (1.95 MB raw) — **opt-in only**: fetched on the first Borders toggle-on, never by default | uncompressed | edge gzip/brotli | `work/borders/` |
 | country vector tiles | **4 tiles, 175 KB brotli** in the cold window at the default camera (z1 covers the globe; 22–65 KB each, largest 122 KB raw), viewport-driven like the relief tiles | `/countries/{z}/{x}/{y}.mvt`, ranged by the dev middleware, identity bytes | same URL shape, ranged by the Worker out of R2; edge-compressed as text | `planet_countries.pmtiles` |
 | `countries.geojson` | 2.5 MB gz (9.4 MB raw at the 0.002° guard-tested tolerance) — **no longer delivered**: superseded by the vector tiles above, and now only the cut's input | — | — | `work/borders/` |
-| hero variants (gallery srcset + globe click panel) | mean per rung **60 KB / 130 / 222 / 466 / 2,838 / 8,624** (640/960/1280/1920/3840/native WebP) + border overlays 0.14–1.1 MB PNG | `loading="lazy"`, srcset picks the rung | same | `blender/renders/variants/` |
+| hero variants (gallery srcset + globe click panel) | mean per rung **60 KB / 130 / 222 / 466 / 2,838 / 8,624** (640/960/1280/1920/3840/native WebP) + the portrait fill rung (**2048/2560/3072, 19.0 MB over 25 countries**) + border overlays 0.14–1.1 MB PNG | staged behind an IntersectionObserver past the first two cards; srcset picks the rung, and for a portrait country the rung's WIDTH is `rung × aspect` | same | `blender/renders/variants/` |
 
 Dev–prod differences that matter:
 
