@@ -1696,6 +1696,29 @@ SABOTAGES: list[Sabotage] = [
         replacement='    base = 0.0\n    colors = ',
         guard='test_relief_lut_bytes_are_unchanged',
     ),
+    # --- Where a body's intermediates live -----------------------------------------------------------
+    # The body is carried by the PATH, deliberately not by the freshness recipes: adding a body key to
+    # composite_params.json would restage a 21:37 composite and a 4:19 cut to emit identical pixels.
+    # That makes the path resolver load-bearing, and both mutations below are silent — Earth keeps
+    # running, and only a second planet discovers it has been writing into Earth's directories.
+    Sabotage(
+        suite='python',
+        label='the work prefix is dropped, so every body writes into Earth\'s own directories',
+        path='pipeline/bodies.py',
+        needle='    return paths.DATA / "work" / body.work_prefix / stage',
+        replacement='    return paths.DATA / "work" / stage',
+        guard='test_another_body_nests_under_its_own_name',
+    ),
+    # A stage name assembled by concatenation then walks out of the body's tree — and lands in
+    # another planet's intermediates, which is where a mistake here stops being recoverable.
+    Sabotage(
+        suite='python',
+        label='the stage-name check is relaxed, letting a path expression escape the body tree',
+        path='pipeline/bodies.py',
+        needle='    if not stage or "/" in stage or "\\\\" in stage or stage in {".", ".."}:',
+        replacement='    if False:',
+        guard='test_a_stage_name_cannot_escape_the_body_s_own_directory',
+    ),
     # --- The portrait fill rung ----------------------------------------------------------------
     # A rung names the LONG EDGE while `srcset` selects on WIDTH, so these mutations all produce a
     # ladder that is correct for landscape and silently two rungs short for portrait — which is the

@@ -22,7 +22,7 @@ import dataclasses
 
 import pytest
 
-from pipeline import bodies
+from pipeline import bodies, paths
 from pipeline.compose import countries_pmtiles
 from pipeline.render import hillshade, palette, snow
 from pipeline.tile import shade_planet
@@ -90,3 +90,47 @@ def test_tile_ceiling_agrees_with_both_pyramids() -> None:
     """The raster cut and the country vector cut must agree, or the layers stop at different zooms."""
     assert bodies.EARTH.tile_max_zoom == shade_planet.TILE_CUT["max_zoom"]
     assert bodies.EARTH.tile_max_zoom == countries_pmtiles.MAX_ZOOM
+
+
+# --- Where a body's intermediates live -----------------------------------------------------------
+
+
+def test_earth_keeps_its_existing_unprefixed_work_paths() -> None:
+    """Earth's directories must not move, and this is the assertion that says so.
+
+    THE REASON IS MEASURED, NOT AESTHETIC. `data/work/planet_tiles` currently holds 97 GB including
+    the live pyramid. Relocating it would make every stage read as missing and re-derive the planet
+    — a full composite and cut, ~26 minutes — to produce pixels identical to the ones already there.
+    So Earth carries an empty `work_prefix` and a second body nests under its own name.
+    """
+    assert bodies.work_dir(bodies.EARTH, "planet_tiles") == paths.DATA / "work/planet_tiles"
+    assert bodies.work_dir(bodies.EARTH, "planet") == paths.DATA / "work/planet"
+
+
+def test_another_body_nests_under_its_own_name() -> None:
+    """Two bodies must never be able to write to one directory.
+
+    This is also what keeps the body OUT of the freshness recipes: a second body writes its own
+    `composite_params.json` at its own path, so the params file is already body-specific and adding
+    a body key inside it would only invalidate Earth's correct output.
+    """
+    other = dataclasses.replace(bodies.EARTH, name="mars", work_prefix="mars")
+    assert bodies.work_dir(other, "planet_tiles") == paths.DATA / "work/mars/planet_tiles"
+
+
+def test_no_two_bodies_share_a_work_prefix() -> None:
+    """One shared prefix is one planet silently overwriting another's intermediates."""
+    prefixes = [body.work_prefix for body in bodies.BODIES.values()]
+    assert len(prefixes) == len(set(prefixes))
+
+
+@pytest.mark.parametrize("stage", ["", "/absolute", "../escape", "a/../../b"])
+def test_a_stage_name_cannot_escape_the_body_s_own_directory(stage: str) -> None:
+    """A stage name is a directory name, never a path expression.
+
+    Without this, a caller that built a stage name by concatenation could write outside the body's
+    tree — and the failure would land on ANOTHER body's intermediates, which is the one place a
+    mistake here becomes unrecoverable rather than merely wrong.
+    """
+    with pytest.raises(ValueError):
+        bodies.work_dir(bodies.EARTH, stage)

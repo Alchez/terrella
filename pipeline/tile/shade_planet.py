@@ -50,7 +50,7 @@ import rasterio
 from rasterio.enums import Resampling
 from rasterio.windows import Window
 
-from pipeline import paths
+from pipeline import bodies, paths
 from pipeline.raster_io import GTIFF_CREATE, band_window
 from pipeline.render import cast_shadow, hillshade, lake_depth, palette, seaice, snow
 from pipeline.render import sky_view
@@ -59,7 +59,8 @@ from pipeline.tile import shade
 from pipeline.tile.shade import KNOBS
 
 ROOT = paths.ROOT
-PLANET = ROOT / "data/work/planet"
+# Same routing as --out below: the body owns the location, and this honours MAPS_DATA.
+PLANET = bodies.work_dir(bodies.EARTH, "planet")
 Z8_RES = 305.7483          # metres/pixel of a 512px WebMercatorQuad tile at zoom 8
 EXAG = palette.EXAGGERATION
 ALT, AZ = KNOBS["alt"], 315.0
@@ -864,7 +865,12 @@ def build_tiles(planet_tif: Path, out: Path):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--out", type=Path, default=ROOT / "data/work/planet_tiles")
+    # Resolved through the body registry rather than assembled from ROOT. Two things fall out: the
+    # body owns where its intermediates live (so a second planet cannot land on Earth's), and the
+    # default finally honours the MAPS_DATA seam — `ROOT / "data/..."` bypassed it, so a run with the
+    # data store relocated would have written this one directory back into the checkout.
+    ap.add_argument("--out", type=Path,
+                    default=bodies.work_dir(bodies.EARTH, "planet_tiles"))
     ap.add_argument("--tiles", action="store_true", help="also cut z0-8 tiles from the mosaic")
     ap.add_argument("--knob", action="append", default=[], metavar="KEY=VALUE",
                     help="override a locked KNOBS entry (repeatable), as tile/shade.py does. "

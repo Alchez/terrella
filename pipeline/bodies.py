@@ -30,6 +30,9 @@ adding a field is a hard error at every construction until each body answers for
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
+
+from pipeline import paths
 
 
 @dataclass(frozen=True)
@@ -58,6 +61,14 @@ class Body:
     #: Deepest zoom the tile pyramids are cut to. Bounds the raster and vector cuts together — they
     #: must agree, or the layers stop at different zooms and the overlay drifts off its basemap.
     tile_max_zoom: int
+    #: Directory segment this body's intermediates nest under, inside `data/work/`.
+    #:
+    #: EARTH'S IS DELIBERATELY EMPTY, and that asymmetry is a measured decision rather than an
+    #: oversight. `data/work/planet_tiles` already holds 97 GB including the live pyramid; moving it
+    #: under a new segment would make every stage read as missing and re-derive the whole planet —
+    #: a full composite and cut, ~26 minutes — to produce pixels identical to the ones sitting there.
+    #: A second body pays no such cost, so it nests properly from the start.
+    work_prefix: str
 
 
 EARTH = Body(
@@ -68,6 +79,8 @@ EARTH = Body(
     exaggeration=15.0,
     # Duplicated today in tile/shade_planet.py's TILE_CUT and compose/countries_pmtiles.py.
     tile_max_zoom=8,
+    # Empty on purpose — see the field's note. Earth's intermediates stay exactly where they are.
+    work_prefix="",
 )
 
 
@@ -89,3 +102,27 @@ def get(name: str) -> Body:
     except KeyError:
         known = ", ".join(sorted(BODIES))
         raise KeyError(f"unknown body {name!r}; known bodies are: {known}") from None
+
+
+def work_dir(body: Body, stage: str) -> Path:
+    """Where one body's `stage` intermediates live, under `data/work/`.
+
+    THE BODY GOES IN THE PATH, NOT IN THE FRESHNESS RECIPE, and that is the load-bearing decision
+    here. Every stage of the tile pipeline is gated on a recipe sidecar — `composite_params.json`,
+    `hs_params.json`, `tile_params.json` — whose *contents* are its dependency: change a byte and the
+    stage restages. Adding a body field to those recipes would therefore invalidate Earth's entire
+    correct output the moment a second body existed, for no pixel change at all. Giving each body its
+    own directory makes every one of those sidecars body-specific for free, because they are
+    different files. The identity is carried by location, which costs nothing.
+
+    `stage` is a DIRECTORY NAME, never a path expression. A caller that assembled one by
+    concatenation could otherwise walk out of this body's tree and land in another's — the single
+    place a mistake here stops being wrong and starts being unrecoverable.
+    """
+    if not stage or "/" in stage or "\\" in stage or stage in {".", ".."}:
+        raise ValueError(
+            f"stage must be a single directory name, got {stage!r} — "
+            "compose nested paths from the returned directory instead"
+        )
+    # An empty prefix collapses, which is what keeps Earth on its historical layout.
+    return paths.DATA / "work" / body.work_prefix / stage
