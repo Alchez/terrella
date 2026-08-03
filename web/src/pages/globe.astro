@@ -248,6 +248,17 @@ const PROMOTE_STYLESHEET = "this.media='all'";
       display: none;
     }
   }
+  /* THE OVERLAP WITH `.globe-chrome` BELOW ~695 px IS NOT A DEFECT — measured, then deliberately
+     left alone. This chip is centred on the viewport while the chrome is anchored top-left, so on a
+     narrow hover-capable window a long name does sit on top of "← Gallery": at 640 px it clips the
+     GitHub mark, and at 412 px it buries both. Pinning it visible and photographing it makes that
+     look damning, which is exactly the mistake to avoid here — the state does not persist. The chip
+     is `pointer-events: none` and its visibility is a pure function of `hoverTracker.current()`
+     (three call sites, all of them), and `map.on("mouseout")` clears the tracker the moment the
+     pointer leaves the canvas. So moving toward the chrome hides the chip on the way, and there is
+     no reachable state where it covers something the user is trying to use. A width breakpoint that
+     suppressed it would cost the feature on every window under ~848 px to fix an appearance that
+     dissolves as soon as anyone acts on it. */
   .globe-noscript {
     position: fixed;
     inset: auto 1.2rem 1.2rem;

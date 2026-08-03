@@ -1411,6 +1411,140 @@ SABOTAGES: list[Sabotage] = [
         replacement='  for (const card of document.querySelectorAll(".card:has(img[data-src])")) {\n    deferredCards.add(card);\n  }',
         guard='derives the watched set from the staged attribute rather than repeating the card index',
     ),
+    # --- The masthead's slack ------------------------------------------------------------------
+    # The gallery's CLS of 0.328 was a masthead row that measured 352px inside 352px, so a 14px
+    # metric change wrapped the nav and moved 203 cards. Every mutation here puts the row back
+    # within a few pixels of that threshold — which is invisible in a screenshot, invisible in a
+    # node test, and only shows up as content moving under a thumb on a phone.
+    Sabotage(
+        suite='web',
+        label='the Globe link returns to the nav, refilling the row it was removed from',
+        path='web/src/pages/index.astro',
+        needle='      <a href="/about/">About</a>',
+        replacement='      <a href="/globe/">Globe</a>\n      <a href="/about/">About</a>',
+        guard='holds one layout across every heading width at 412px',
+    ),
+    # The subtle direction: the row still fits on THIS machine's fallback font, and stops fitting
+    # on a visitor whose serif is wider. The sweep is what makes that reachable from a test.
+    Sabotage(
+        suite='web',
+        label='the source link becomes a word again, spending the slack the icon bought',
+        path='web/src/pages/index.astro',
+        needle='    width: 1.05rem;\n    height: 1.05rem;',
+        replacement='    width: 4rem;\n    height: 1.05rem;',
+        guard='leaves the row real slack at the narrowest width it does not stack',
+    ),
+    Sabotage(
+        suite='web',
+        label='the 320px stack goes, so the narrowest phone fits by two pixels or not at all',
+        path='web/src/components/Masthead.astro',
+        needle=(
+            '  @media (max-width: 359.98px) {\n'
+            '    .masthead-row {\n'
+            '      flex-direction: column;\n'
+            '      align-items: flex-start;\n'
+            '      gap: 0.6rem;\n'
+            '    }\n'
+            '  }'
+        ),
+        replacement='',
+        guard='holds one layout across every heading width at 320px',
+    ),
+    # The stacked row inherits `align-items: flex-end` unless the rule overrides it, which is how
+    # the first version of this shipped right-aligned against a left-aligned tagline.
+    Sabotage(
+        suite='web',
+        label='the stacked row keeps flex-end, so the title and nav align right against everything else',
+        path='web/src/components/Masthead.astro',
+        needle='      flex-direction: column;\n      align-items: flex-start;',
+        replacement='      flex-direction: column;',
+        guard='stacks to the LEFT, aligned with everything else in the header',
+    ),
+    # Padding on an icon link reads as decoration and gets tidied. It is the touch target.
+    Sabotage(
+        suite='web',
+        label='the icon link loses its padding, leaving 16.8px of ink as the whole touch target',
+        path='web/src/pages/index.astro',
+        needle='    padding: 0.25rem;',
+        replacement='',
+        guard='gives the icon link a real touch target, not just its ink',
+    ),
+    Sabotage(
+        suite='web',
+        label='the source link loses its accessible name, announcing as a bare URL',
+        path='web/src/pages/index.astro',
+        needle='        aria-label="Source on GitHub"\n',
+        replacement='',
+        guard='gives the source link an accessible name, since its only content is a decorative SVG',
+    ),
+    # The second of the two shifts, restored: a post-paint DOM change to the nav.
+    Sabotage(
+        suite='web',
+        label='a script removes a masthead link again, re-arming the un-wrap half of the shift',
+        path='web/src/pages/index.astro',
+        needle='  import { watchDeferredCards } from "../lib/lazyCards";',
+        replacement=(
+            '  import { watchDeferredCards } from "../lib/lazyCards";\n'
+            '  import { canRunGlobe, probeSignals } from "../lib/capability";\n'
+            '  if (!canRunGlobe(probeSignals())) {\n'
+            '    document.querySelector<HTMLAnchorElement>(\'.head-links a[href="/about/"]\')?.remove();\n'
+            '  }'
+        ),
+        guard='never removes a masthead link from script',
+    ),
+    # Dropping the nav link orphaned /globe/ — it held the only <a> to it on the site, and the view
+    # bar is display:none without JS. The About link is the replacement route, and nothing about a
+    # build can see that it has gone.
+    Sabotage(
+        suite='web',
+        label='the About page stops linking the globe, orphaning it from crawlers and no-JS',
+        path='web/src/pages/about.astro',
+        needle='<a href="/globe/">an interactive globe</a>',
+        replacement='an interactive globe',
+        guard='keeps a real, crawlable link to the globe somewhere a clone can follow',
+    ),
+    # --- The view bar's one row ------------------------------------------------------------------
+    # The bar is `position: fixed`, so a wrap here can never move page content — this is a LOOK
+    # regression, not a layout shift, and that is why it went unguarded for so long. What makes it
+    # worth catching is that the tier segment in this bar is now the gallery's only route to the
+    # globe, and that the union of every group Base.astro can emit already needs 293 px where 320 px
+    # allows 282. The margin is one control wide.
+    Sabotage(
+        suite='web',
+        label='the globe gains a second toggle, spending the row it had left at 320px',
+        path='web/src/pages/globe.astro',
+        needle='  borders={true}',
+        replacement='  borders={true}\n  spotlight={true}',
+        guard='fits on one row at 320px on the globe',
+    ),
+    # The label direction: nothing about the markup changes shape, one word just gets longer. This is
+    # the mutation a reviewer waves through.
+    Sabotage(
+        suite='web',
+        label='a button label grows by a word, which no diff makes look like a layout change',
+        path='web/src/layouts/Base.astro',
+        needle='              Borders',
+        replacement='              Country borders',
+        guard='fits on one row at 320px on the globe',
+    ),
+    # The tighter phone padding is what buys the fit; reverting it to the desktop values is the kind
+    # of tidy-up that looks like removing a redundant override.
+    Sabotage(
+        suite='web',
+        label='the phone padding is tidied back to the desktop values it deliberately overrides',
+        path='web/src/styles/global.css',
+        needle='    padding: 0.35rem 0.7rem;\n    font-size: 0.78rem;',
+        replacement='    padding: 0.4rem 0.85rem;\n    font-size: 0.82rem;',
+        guard='keeps the tighter phone padding, which is what buys the fit',
+    ),
+    Sabotage(
+        suite='web',
+        label='the segment gap is opened up, spending the slack on air between the buttons',
+        path='web/src/styles/global.css',
+        needle='  justify-content: center;\n  gap: 0.2rem;\n}',
+        replacement='  justify-content: center;\n  gap: 1.2rem;\n}',
+        guard='fits on one row at 320px on the globe',
+    ),
     # --- The portrait fill rung ----------------------------------------------------------------
     # A rung names the LONG EDGE while `srcset` selects on WIDTH, so these mutations all produce a
     # ladder that is correct for landscape and silently two rungs short for portrait — which is the
