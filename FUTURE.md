@@ -6,6 +6,40 @@ graduates, it moves to PLAN and this file keeps a one-line pointer. Each entry c
 its analysis and the facts its numbers depend on — check both before trusting an old entry, and
 grep HISTORY before re-arguing anything an entry says was already decided.
 
+## The display face swaps in at a different width, and the metric-matched fallback is inert (analysed 2026-08-02)
+
+- **State at analysis:** Fraunces is self-hosted at `font-display: swap`, so the browser lays text
+  out in a substitute and re-lays it when the real face arrives. Measured on the gallery heading:
+  **103 px in the fallback, 117 px in Fraunces** — a 13.6% width change after first paint.
+- **The mitigation is present and does nothing.** Astro generates a metric-matched fallback face at
+  `size-adjust: 115.4462%` with `ascent-override`/`descent-override`, which is exactly the right
+  mechanism — but its source is **`src: local("Times New Roman")`**, and that family resolves on
+  neither Linux nor Android, so the face errors and the browser falls through to plain
+  `Georgia, serif` at 100%. Confirmed in the built page: the fallback faces report `status: "error"`
+  while the real ones report `"loaded"`.
+- **There is no configuration route to fixing it.** Building with
+  `fallbacks: ['Noto Serif', 'Georgia', 'Times New Roman', 'serif']` still emits a Times New Roman
+  face — Astro picks from its own metrics table regardless of the order given, and that table does
+  not carry the families Android and Linux actually ship.
+- **What it still costs, now that the gallery masthead has been given slack:** `/about/` **0.0936**
+  and the longest country pages **0.0191**, both cold-load only and both inside the "good" band
+  (≤ 0.1). The gallery reads 0.0000 because its header row now has 31–97 px spare at every width it
+  serves, not because the swap stopped happening — it still does, on every cold visit.
+- **Options priced, none taken:**
+  - `display: 'optional'` — one line, and measured at **0.0010 cold on the gallery before the
+    masthead fix**. Deterministic, but it means the display face **does not render at all** on a cold
+    slow visit: measured `h1` stayed at the fallback's 103 px. Renders on repeat visits.
+  - Hand-written fallback faces in `global.css`, one `local()` per platform family with its own
+    `size-adjust`. Keeps Fraunces on every visit. The measured ratio here is 113.6%, close to
+    Astro's 115.4% for Times New Roman — but each platform's family needs its own number and only
+    the Linux one is verifiable on this box.
+  - **Preloading is measured and REJECTED, do not revive.** `<Font preload />` cost **+100 ms FCP and
+    +164 ms LCP** and did not get the face in inside the block window on a 1.6 Mbps link, so it buys
+    nothing in either `swap` or `optional`.
+- **The one thing to measure first if this is picked up:** whether `optional` renders Fraunces on an
+  ordinary connection. Everything above was measured at the Lighthouse mobile throttle (1.6 Mbps,
+  150 ms RTT), where it does not.
+
 ## The ladder is keyed to the long edge, and `srcset` selects on width (analysed 2026-08-02)
 
 - **State at analysis:** the variant ladder is a fixed tuple of LONG EDGES (640/960/1280/1920/3840 +

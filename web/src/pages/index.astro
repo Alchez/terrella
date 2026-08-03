@@ -72,11 +72,34 @@ const indexLetters = [...byLetter.keys()];
 
 <Base title="Terrella — Gallery" spotlight={true} quality={true}>
   <Masthead eyebrow="Atlas" heading="Terrella" maxWidth="min(2200px, 94vw)">
+    {/* No "Globe" link here on purpose. The masthead row has to hold this nav beside a 32 px
+        display heading, and at 360–412 px it had NO room to spare — so the heading widening by
+        14 px when the webfont swapped in was enough to wrap the nav onto a second line, grow the
+        header by 38 px, and move the entire gallery. The globe is reached from the view bar's tier
+        picker instead. The trade is stated rather than hidden: that picker PERSISTS a tier to
+        localStorage, where this link was plain navigation, so a visitor who wants the globe now
+        makes an explicit tier choice rather than staying on `auto`. */}
     <nav slot="actions" class="head-links">
-      <a href="/globe/">Globe</a>
       <a href="/about/">About</a>
       <a href="#index">Index</a>
-      <a href={REPO_URL} target="_blank" rel="noopener noreferrer">GitHub</a>
+      {/* The mark, not the word — the same 31 px of the row that the wrap needed. `aria-label`
+          and `title` are load-bearing, not decoration: the only content is an `aria-hidden` SVG,
+          so without them this link has no accessible name at all. Mirrors `.globe-source` in
+          globe.astro, which made this same trade for the same reason. */}
+      <a
+        class="head-source"
+        href={REPO_URL}
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label="Source on GitHub"
+        title="Source on GitHub"
+      >
+        <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+          <path
+            d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.012 8.012 0 0 0 16 8c0-4.42-3.58-8-8-8z"
+          ></path>
+        </svg>
+      </a>
     </nav>
     <p class="tagline">
       Ray-traced relief maps of every country.
@@ -196,6 +219,9 @@ const indexLetters = [...byLetter.keys()];
   }
   .head-links {
     display: flex;
+    /* A 0.9rem word carries a 21.6 px line box and a 1.05rem icon carries 16.8, so the two would
+       sit on different baselines without this (the lesson `.globe-chrome` records). */
+    align-items: center;
     gap: 1.1rem;
   }
   .head-links a {
@@ -205,6 +231,20 @@ const indexLetters = [...byLetter.keys()];
   }
   .head-links a:hover {
     color: var(--accent);
+  }
+  /* Padded to a 24.8 px hit target, because 16.8 px of ink is not a touch target. The padding is
+     symmetric so the nav's width stays something this file can reason about: 41 + 38 + 24.8 plus
+     two 17.6 px gaps = 139 px, against the 31–213 px the row has spare from 360 px up. */
+  .head-source {
+    display: flex;
+    padding: 0.25rem;
+    color: var(--muted);
+  }
+  .head-source svg {
+    display: block;
+    width: 1.05rem;
+    height: 1.05rem;
+    fill: currentColor;
   }
 
   .gallery {
@@ -453,13 +493,7 @@ const indexLetters = [...byLetter.keys()];
 </style>
 
 <script>
-  import { canRunGlobe, probeSignals } from "../lib/capability";
   import { watchDeferredCards } from "../lib/lazyCards";
-  // Hide the "Globe" masthead link on devices that can't run it — the /globe head
-  // guard would only bounce them straight back, so don't offer the dead end.
-  if (!canRunGlobe(probeSignals())) {
-    document.querySelector<HTMLAnchorElement>('.head-links a[href="/globe/"]')?.remove();
-  }
 
   // Promote the deferred cards as they approach. The set is derived from the STAGED attribute
   // rather than from a card index, so it cannot drift from what the markup above actually emitted —

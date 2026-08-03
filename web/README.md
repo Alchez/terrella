@@ -242,6 +242,37 @@ held constant and only the markup varies. Heroes come from R2 in both arms, so i
 - Gate every run on `finalDisplayedUrl`, on a non-zero hero request count, and on CLS, which a
   layout-collapsing arm is otherwise the obvious way to fake.
 
+### Chasing a layout shift
+
+Lighthouse gives a CLS number and a list of shifted elements; neither is enough to fix one, because
+**the element that moves is rarely the element that caused the move**. Drive a browser directly and
+read `layout-shift` entries with their `sources` — each carries the node plus its `previousRect` and
+`currentRect`, so the direction and distance are readable rather than inferred.
+
+- **Record the state of the document at the instant of each shift** — how much of it had parsed,
+  which resources had landed, `readyState`. That is what separates "an image arrived" from "a font
+  swapped" from "a script mutated the DOM", and it is not recoverable afterwards.
+- **The score is driven by the furthest distance anything travelled, not by the height change.**
+  A header growing 38 px scored 0.19 because the nav inside it also moved 190 px sideways. Reasoning
+  about the vertical shift alone will not reproduce the number.
+- **Measure cold and warm as separate arms.** A webfont applies at first paint on a repeat visit and
+  after it on a first one, which are different experiments — one CLS fix measured 0.001 cold and
+  0.193 warm. Warm requires the harness to send `Cache-Control: immutable` on `/_astro/*`; without
+  it the browser revalidates, the font misses its window, and the warm arm silently degrades into a
+  second cold one. Prove it with `transferSize === 0`.
+  - **That arm is currently a hypothesis, not production.** Measured on the live site: every
+    content-hashed asset — fonts, chunks, CSS — comes back `public, max-age=0, must-revalidate`
+    with an ETag, and `If-None-Match` confirms a `304`. So a repeat visitor revalidates before the
+    font can be used, and the true warm behaviour sits between the two arms rather than at the
+    immutable one. `worker/index.ts` does send `immutable`, but it serves *tiles* on another
+    origin; the site's own assets are Workers Static Assets defaults, and there is no `_headers`
+    file. The local nginx twin **does** send `immutable` (`deploy/nginx/terrella-locations.conf`),
+    which makes it kinder than the CDN — the same shape as the identity-encoding trap above.
+- **Never intercept the document to simulate a change.** Rewriting the response body (Playwright's
+  `route.fulfill`, or any equivalent) serves it from memory instead of streaming it over the
+  throttled link, which moves every resource's arrival relative to paint. The control is decisive:
+  the *unchanged* page measured 0.328 served normally and 0.001 intercepted. Build the arm.
+
 ## Deploying
 
 **→ [`DEPLOY.md`](DEPLOY.md)** — two Workers, the R2 bucket, the three dashboard-only zone

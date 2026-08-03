@@ -56,6 +56,25 @@ const {
     gap: 1rem;
     flex-wrap: wrap;
   }
+  /* Below 360 px the row cannot hold a title and an actions slot without landing within a few
+     pixels of its wrap threshold — and a threshold that close is what cost the gallery a CLS of
+     0.328: the header changed height after paint and every card below it moved. Stacking here is
+     deterministic, so the masthead's height is a property of the viewport width alone.
+     At 320 px the gallery's widths are 117 + 16 + 139 = 272 against 266 available, which fits in
+     the fallback serif and does not fit in Fraunces. From 360 px up the slack is 31 px and rising.
+
+     THIS RULE BELONGS TO THIS FILE, not to the page. Astro scopes a component's selectors with a
+     generated attribute, so `.masthead-row` here is (0,2,0) while a page's `:global(.masthead-row)`
+     is (0,1,0) — a page trying to own this loses to `align-items: flex-end` above and gets a column
+     that is still right-aligned. That exact bug shipped for one build and only a screenshot caught
+     it; `masthead.test.ts` now asserts the rule lives here. */
+  @media (max-width: 359.98px) {
+    .masthead-row {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 0.6rem;
+    }
+  }
   .masthead-title {
     min-width: 0;
   }

@@ -587,20 +587,6 @@ describe("canRunGlobe — one floor, exported so nothing re-derives it", () => {
   });
 });
 
-describe("index.astro asks the floor rather than restating it", () => {
-  const index = readFileSync(new URL("../pages/index.astro", import.meta.url), "utf8");
-
-  it("uses canRunGlobe to decide whether to offer the Globe link", () => {
-    expect(index).toContain("canRunGlobe(probeSignals())");
-  });
-
-  it("no longer re-derives the floor inline", () => {
-    // It read `gpu.webgl2 && !gpu.softwareGpu`, which would have silently kept offering the globe
-    // to caveated devices the moment a third signal joined the floor.
-    expect(index).not.toMatch(/webgl2\s*&&\s*!\w+\.softwareGpu/);
-  });
-});
-
 describe("the scripted-diagnosis seam is gated by the module boundary", () => {
   const globe = readFileSync(new URL("../pages/globe.astro", import.meta.url), "utf8");
   const overlay = readFileSync(new URL("./perf/perfOverlay.ts", import.meta.url), "utf8");
