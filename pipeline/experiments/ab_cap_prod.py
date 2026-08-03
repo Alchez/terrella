@@ -14,6 +14,7 @@ import os
 import shutil
 import time
 
+from pipeline import bodies
 from pipeline.tile import cap_render
 
 os.environ.setdefault("GDAL_CACHEMAX", "512")
@@ -22,7 +23,9 @@ os.environ.setdefault("GDAL_CACHEMAX", "512")
 # assets match cap_render's constants when the script exits.
 RUNGS = [(8192, cap_render.CAP_WEBP_QUALITY),
          (cap_render.CAP_PX, cap_render.CAP_WEBP_QUALITY)]
-AB_DIR = cap_render.WORK / "ab_prod"
+# Earth by name, because this ladder is a record of a decision taken about Earth's caps. A second
+# body wanting the same sweep names itself here rather than inheriting whatever the default was.
+AB_DIR = cap_render.cap_work_dir(bodies.EARTH) / "ab_prod"
 
 
 def render_rung(px: int, quality: int) -> None:
@@ -47,9 +50,10 @@ def main() -> int:
     # The final rung is the default: stamp the sidecars so production sees the live assets as
     # fresh (render_cap_* alone never writes them — that is main()'s job).
     for grid in (cap_render.NORTH, cap_render.SOUTH):
-        sidecar = cap_render.WORK / f"cap_{grid.name}_params.json"
+        sidecar = cap_render.cap_work_dir(grid.body) / f"cap_{grid.name}_params.json"
         sidecar.write_text(cap_render.cap_recipe(grid))
-    (cap_render.CAPS_DIR / "caps.json").write_text(cap_render.caps_manifest() + "\n")
+    served = cap_render.caps_public_dir(bodies.EARTH)
+    (served / "caps.json").write_text(cap_render.caps_manifest() + "\n")
     print(f"ladder archived under {AB_DIR}; live = default rung", flush=True)
     return 0
 

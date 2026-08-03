@@ -1808,6 +1808,37 @@ SABOTAGES: list[Sabotage] = [
         replacement='    aeqd_radius_m=6378137.0,',
         guard='test_a_body_carries_two_distinct_radii_and_they_are_not_interchangeable',
     ),
+    # --- Where a cap reads and writes ----------------------------------------------------------
+    # Each of these leaves a cap that renders and blends perfectly; only its LOCATION is wrong, and
+    # a location is exactly what no rendered pixel can report on.
+    Sabotage(
+        suite='python',
+        label='the served cap directory ignores the body, so a Mars cap overwrites Earth\'s texture',
+        path='pipeline/tile/cap_render.py',
+        needle='    return bodies.public_dir(body, "caps")',
+        replacement='    return bodies.public_dir(bodies.EARTH, "caps")',
+        guard='test_a_second_body_cannot_land_its_caps_on_earths',
+    ),
+    # The reading half, which is worse: it does not overwrite anything, it renders a clean Arctic
+    # from Earth's fused heightfield and publishes it as another planet's pole.
+    Sabotage(
+        suite='python',
+        label="a second body's caps source Earth's fused planet rasters",
+        path='pipeline/tile/cap_render.py',
+        needle='    return bodies.work_dir(body, "planet")',
+        replacement='    return bodies.work_dir(bodies.EARTH, "planet")',
+        guard='test_a_second_body_cannot_land_its_caps_on_earths',
+    ),
+    # The two roots collapse. Served assets would follow the relocatable data store instead of the
+    # checkout, so a run with MAPS_DATA set publishes nothing and reports success.
+    Sabotage(
+        suite='python',
+        label='served cap textures follow the data store rather than the checkout',
+        path='pipeline/tile/cap_render.py',
+        needle='    return bodies.public_dir(body, "caps")',
+        replacement='    return bodies.work_dir(body, "caps")',
+        guard='test_earth_reads_and_writes_exactly_where_it_always_has',
+    ),
     # --- The portrait fill rung ----------------------------------------------------------------
     # A rung names the LONG EDGE while `srcset` selects on WIDTH, so these mutations all produce a
     # ladder that is correct for landscape and silently two rungs short for portrait — which is the

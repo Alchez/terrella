@@ -58,16 +58,6 @@ from pipeline.tile.shade_planet import (ALT, AZ, CAP_NORTH, CAP_SOUTH, EXAG,
                                         composite_params)
 
 ROOT = paths.ROOT
-# Both resolved through the body registry, so a second planet cannot land its caps on Earth's.
-# The recipe sidecars below (cap_<name>_params.json) therefore need NO body field: they are already
-# body-specific by being different files, and adding one would restage a render that peaks ~14.3 GB
-# to emit identical pixels. WORK also picks up the MAPS_DATA seam that `ROOT / "data/..."` bypassed.
-# STILL EARTH-BOUND, deliberately and only until this module takes its own --body. It used to read
-# `PLANET` out of shade_planet's module scope; that global is gone now the shade pass resolves it
-# per invocation, and reaching into another module for a path was the coupling that made it fragile.
-PLANET = bodies.work_dir(bodies.EARTH, "planet")
-WORK = bodies.work_dir(bodies.EARTH, "cap")
-CAPS_DIR = bodies.public_dir(bodies.EARTH, "caps")  # production home (was dev-assets/ behind ?polarspike)
 CAP_PX = 8192          # square texture side (south is a bigger disc -> coarser per px). 8192 chosen
                        # by eye (crop A/B + /globe): visibly crisper coast/pack/sastrugi
                        # at deep pole zoom; 3.2+2.1 MB WebP
@@ -145,10 +135,44 @@ COAST_SHP = ROOT / "data/raw/naturalearth/ne_10m_coastline/ne_10m_coastline.shp"
 COAST_RGB = (96, 122, 142)  # muted steel-blue
 
 
+def planet_work_dir(body: bodies.Body) -> Path:
+    """The fused planet rasters this body's caps warp from — heightfield, ocean mask, water mask.
+
+    Resolved per call rather than read out of `shade_planet`'s module scope, which is where it used
+    to come from. Reaching into another module for a path is the coupling that made this fragile:
+    that global is gone now the shade pass resolves its own, and a cap that silently sourced another
+    body's fused heightfield would render a clean Arctic and label it Mars.
+    """
+    return bodies.work_dir(body, "planet")
+
+
+def cap_work_dir(body: bodies.Body) -> Path:
+    """This body's cap intermediates: the AEQD warps, the render TIFs, the freshness sidecars.
+
+    THE BODY IS IN THE PATH, WHICH IS WHY THE SIDECARS HERE CARRY NO BODY FIELD. They are gated on
+    their own contents, so a `body` key inside `cap_<name>_params.json` would restage a render that
+    peaks ~14.3 GB to emit byte-identical pixels. Two bodies at two paths are two files already.
+
+    Also picks up the `MAPS_DATA` seam that the old `ROOT / "data/work/cap"` literal bypassed — a
+    relocated data store used to write its caps back into the checkout.
+    """
+    return bodies.work_dir(body, "cap")
+
+
+def caps_public_dir(body: bodies.Body) -> Path:
+    """Where this body's cap textures are SERVED from — a different root from `cap_work_dir`.
+
+    Published assets follow the checkout because the site build reads them from there, while
+    intermediates follow the (relocatable) data store. Earth's segment is empty, so `/caps/caps.json`
+    stays the exact URL the frontend already fetches.
+    """
+    return bodies.public_dir(body, "caps")
+
+
 def cap_asset(grid: CapGrid, px: int) -> Path:
     """The served file for one rung. Every rung is size-suffixed, including the top one — an
     unsuffixed name would encode 'the big one' as a convention nothing checks."""
-    return CAPS_DIR / f"cap_{grid.name}_{px}.webp"
+    return caps_public_dir(grid.body) / f"cap_{grid.name}_{px}.webp"
 
 
 def cap_elev_asset(grid: CapGrid) -> Path:
@@ -158,7 +182,7 @@ def cap_elev_asset(grid: CapGrid) -> Path:
     by the eye at all: it is sampled by the cap MESH, which is orders of magnitude coarser
     (RINGS/SECTORS give ~6-13 km spacing against this grid's ~5.2 km), so a ladder would ship
     bytes no vertex ever reads."""
-    return CAPS_DIR / f"cap_{grid.name}_elev.webp"
+    return caps_public_dir(grid.body) / f"cap_{grid.name}_elev.webp"
 
 
 def cap_assets(grid: CapGrid) -> list[Path]:
@@ -172,7 +196,7 @@ def cap_assets(grid: CapGrid) -> list[Path]:
 
 def cap_height_warp(grid: CapGrid) -> Path:
     """The AEQD height warp both the composite and the elevation texture read."""
-    return WORK / f"cap{grid.name[0].upper()}_height.tif"
+    return cap_work_dir(grid.body) / f"cap{grid.name[0].upper()}_height.tif"
 
 
 def cap_elev_recipe(grid: CapGrid) -> str:
@@ -213,7 +237,8 @@ def write_cap_elevation(grid: CapGrid) -> Path:
         raise ValueError(f"CAP_ELEV_PX {CAP_ELEV_PX} must divide CAP_PX {CAP_PX}")
     warp = cap_height_warp(grid)
     if not warp.exists():
-        _warp(grid, PLANET / "planet_heightfield.vrt", warp, "bilinear", "Float32")
+        _warp(grid, planet_work_dir(grid.body) / "planet_heightfield.vrt", warp,
+              "bilinear", "Float32")
     with rasterio.open(warp) as dataset:
         raw = dataset.read(1)
     # The same nodata convention the composite applies before shading, so the elevation texture and
@@ -226,12 +251,12 @@ def write_cap_elevation(grid: CapGrid) -> Path:
     encoded = terrain_rgb.encode_array(metres, terrain_rgb.QUANTISATION_M,
                                        terrain_rgb.SHIPPED_SEA_CLAMP)
 
-    tif = WORK / f"cap_{grid.name}_elev.tif"
+    tif = cap_work_dir(grid.body) / f"cap_{grid.name}_elev.tif"
     profile: dict[str, Any] = dict(driver="GTiff", width=CAP_ELEV_PX, height=CAP_ELEV_PX,
                                    count=3, dtype="uint8", photometric="RGB")
     with rasterio.open(tif, "w", **profile) as dataset:
         dataset.write(encoded)
-    CAPS_DIR.mkdir(parents=True, exist_ok=True)
+    caps_public_dir(grid.body).mkdir(parents=True, exist_ok=True)
     # LOSSLESS IS NOT AN ENCODER PREFERENCE HERE. A lossy elevation texture decodes to plausible
     # bytes and therefore to wrong metres, silently — the same argument TILE_FORMATS makes.
     _run(["gdal_translate", "-q", "-of", "WEBP", "-co", "LOSSLESS=YES",
@@ -307,8 +332,9 @@ def caps_manifest() -> str:
 def cap_sources(grid: CapGrid) -> list[Path]:
     """The source files whose change must re-render this cap — composite_deps' sibling. Constants
     ride in cap_recipe; these are the mtime dependencies."""
-    sources = [PLANET / "planet_heightfield.vrt", PLANET / "planet_oceanmask.vrt",
-               PLANET / "planet_watermask.vrt", Path(seaice.SEAICE_SRC)]
+    planet = planet_work_dir(grid.body)
+    sources = [planet / "planet_heightfield.vrt", planet / "planet_oceanmask.vrt",
+               planet / "planet_watermask.vrt", Path(seaice.SEAICE_SRC)]
     if grid.name == "north":
         sources.append(Path(snow.SP_NC))  # the south's snow is FORCED, not read from a dataset
     if grid.coast_opacity > 0.0:
@@ -389,8 +415,9 @@ def _bake_coastline(grid: CapGrid, rgb: np.ndarray) -> None:
     if grid.coast_opacity <= 0.0:
         return
     edge = grid.edge_m
-    coast_aeqd = WORK / f"cap_{grid.name}_coast_aeqd.gpkg"
-    coast_tif = WORK / f"cap_{grid.name}_coast.tif"
+    work = cap_work_dir(grid.body)
+    coast_aeqd = work / f"cap_{grid.name}_coast_aeqd.gpkg"
+    coast_tif = work / f"cap_{grid.name}_coast.tif"
     _run(["ogr2ogr", "-overwrite", "-t_srs", grid.aeqd, str(coast_aeqd), str(COAST_SHP)])
     _run(["gdal_rasterize", "-q", "-burn", "1", "-init", "0", "-ot", "Byte",
           "-te", str(-edge), str(-edge), str(edge), str(edge),
@@ -414,12 +441,12 @@ def _write_cap(grid: CapGrid, heights: np.ndarray, ocean: np.ndarray, water: np.
                           (grid.px, grid.px), depth=None, ice_a=ice_a)
     _bake_coastline(grid, rgb)  # the land/sea line, so ice sheet reads distinct from sea ice at the pole
 
-    tif = WORK / f"cap_{grid.name}.tif"
+    tif = cap_work_dir(grid.body) / f"cap_{grid.name}.tif"
     profile: dict[str, Any] = dict(driver="GTiff", width=grid.px, height=grid.px, count=3,
                                    dtype="uint8", photometric="RGB")
     with rasterio.open(tif, "w", **profile) as dataset:
         dataset.write(rgb)
-    CAPS_DIR.mkdir(parents=True, exist_ok=True)
+    caps_public_dir(grid.body).mkdir(parents=True, exist_ok=True)
     for px in CAP_RUNGS:
         # -outsize on the render TIF, so every rung is the SAME picture at a different scale;
         # gdal_translate's average resampling supersamples (4:1 at the 4096 rung).
@@ -431,14 +458,16 @@ def _write_cap(grid: CapGrid, heights: np.ndarray, ocean: np.ndarray, water: np.
 
 def render_cap_north() -> Path:
     """North cap from the fused planet VRTs + snow persistence + sea ice."""
-    WORK.mkdir(parents=True, exist_ok=True)
     grid = NORTH
-    height = _warp(grid, PLANET / "planet_heightfield.vrt", cap_height_warp(grid), "bilinear", "Float32")
-    ocean_raw = _warp(grid, PLANET / "planet_oceanmask.vrt", WORK / "capN_ocean.tif", "near", "Byte")
-    watercode = _warp(grid, PLANET / "planet_watermask.vrt", WORK / "capN_water.tif", "near", "Byte")
-    sp_raw = _warp(grid, f'NETCDF:"{snow.SP_NC}":{snow.SP_VAR}', WORK / "capN_sp.tif",
+    work = cap_work_dir(grid.body)
+    planet = planet_work_dir(grid.body)
+    work.mkdir(parents=True, exist_ok=True)
+    height = _warp(grid, planet / "planet_heightfield.vrt", cap_height_warp(grid), "bilinear", "Float32")
+    ocean_raw = _warp(grid, planet / "planet_oceanmask.vrt", work / "capN_ocean.tif", "near", "Byte")
+    watercode = _warp(grid, planet / "planet_watermask.vrt", work / "capN_water.tif", "near", "Byte")
+    sp_raw = _warp(grid, f'NETCDF:"{snow.SP_NC}":{snow.SP_VAR}', work / "capN_sp.tif",
                    "bilinear", "Float32", srcnodata=snow.SP_FILL)
-    ice_raw = _warp(grid, seaice.SEAICE_SRC, WORK / "capN_seaice.tif",
+    ice_raw = _warp(grid, seaice.SEAICE_SRC, work / "capN_seaice.tif",
                     "bilinear", "Float32", srcnodata=seaice.ICE_FILL)
 
     heights = np.where(height < -1e4, 0.0, height).astype(np.float32)  # DEM nodata -> flat, as hillshade does
@@ -470,12 +499,14 @@ def render_cap_south() -> Path:
     the tiles it feathered into -- the visible interior ring). Snow is FORCED over Antarctic land
     (no SH snow dataset, no RGI region 19), exactly as the tile composite does.
     """
-    WORK.mkdir(parents=True, exist_ok=True)
     grid = SOUTH
-    height = _warp(grid, PLANET / "planet_heightfield.vrt", cap_height_warp(grid), "bilinear", "Float32")
-    ocean_raw = _warp(grid, PLANET / "planet_oceanmask.vrt", WORK / "capS_ocean.tif", "near", "Byte")
-    watercode = _warp(grid, PLANET / "planet_watermask.vrt", WORK / "capS_water.tif", "near", "Byte")
-    ice_raw = _warp(grid, seaice.SEAICE_SRC, WORK / "capS_seaice.tif",
+    work = cap_work_dir(grid.body)
+    planet = planet_work_dir(grid.body)
+    work.mkdir(parents=True, exist_ok=True)
+    height = _warp(grid, planet / "planet_heightfield.vrt", cap_height_warp(grid), "bilinear", "Float32")
+    ocean_raw = _warp(grid, planet / "planet_oceanmask.vrt", work / "capS_ocean.tif", "near", "Byte")
+    watercode = _warp(grid, planet / "planet_watermask.vrt", work / "capS_water.tif", "near", "Byte")
+    ice_raw = _warp(grid, seaice.SEAICE_SRC, work / "capS_seaice.tif",
                     "bilinear", "Float32", srcnodata=seaice.ICE_FILL)
 
     heights = np.where(height < -1e4, 0.0, height).astype(np.float32)  # DEM nodata -> flat, as hillshade does
@@ -506,9 +537,10 @@ def main() -> int:
                                  (not args.north, SOUTH, render_cap_south)):
         if not wanted:
             continue
+        work = cap_work_dir(grid.body)
         if not args.elev_only:
             recipe = cap_recipe(grid)
-            sidecar = WORK / f"cap_{grid.name}_params.json"
+            sidecar = work / f"cap_{grid.name}_params.json"
             if not args.force and cap_is_fresh(recipe, cap_assets(grid), sidecar,
                                                cap_sources(grid)):
                 print(f"cap {grid.name} fresh -> skip", flush=True)
@@ -520,15 +552,17 @@ def main() -> int:
         # reads the height warp alone. A look change must not drag it along, and an encoding change
         # must not drag the ~14 GB composite behind it.
         elev_recipe = cap_elev_recipe(grid)
-        elev_sidecar = WORK / f"cap_{grid.name}_elev_params.json"
-        if not args.force and cap_is_fresh(elev_recipe, [cap_elev_asset(grid)], elev_sidecar,
-                                           [PLANET / "planet_heightfield.vrt"]):
+        elev_sidecar = work / f"cap_{grid.name}_elev_params.json"
+        if not args.force and cap_is_fresh(
+                elev_recipe, [cap_elev_asset(grid)], elev_sidecar,
+                [planet_work_dir(grid.body) / "planet_heightfield.vrt"]):
             print(f"cap {grid.name} elevation fresh -> skip", flush=True)
         else:
             print(f"wrote {write_cap_elevation(grid)}", flush=True)
             elev_sidecar.write_text(elev_recipe)
-    CAPS_DIR.mkdir(parents=True, exist_ok=True)
-    (CAPS_DIR / "caps.json").write_text(caps_manifest() + "\n")  # the web contract, always current
+    served = caps_public_dir(NORTH.body)  # both poles of one body publish to one directory
+    served.mkdir(parents=True, exist_ok=True)
+    (served / "caps.json").write_text(caps_manifest() + "\n")  # the web contract, always current
     return 0
 
 

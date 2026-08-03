@@ -11,6 +11,7 @@ Run: python -m pipeline.experiments.ab_ice_damp
 import shutil
 from typing import Any, cast
 
+from pipeline import bodies
 from pipeline.tile import cap_render, shade
 
 NORTH_RUNGS = [1.0, 0.75, 0.5, 0.0]  # the pole that prompted the knob gets the full ladder
@@ -18,7 +19,7 @@ SOUTH_RUNGS = [1.0, 0.0]             # the shared-code side effect only needs a 
 
 
 def main() -> None:
-    ladder_dir = cap_render.WORK / "ab_ice_damp"
+    ladder_dir = cap_render.cap_work_dir(bodies.EARTH) / "ab_ice_damp"
     ladder_dir.mkdir(parents=True, exist_ok=True)
     knobs = cast(dict[str, Any], shade.KNOBS)
     for strength, renderer, cap_name in (

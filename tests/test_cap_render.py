@@ -13,6 +13,7 @@ encoding that disagrees by one step lifts two surfaces to different heights acro
 crossfade — which reads as ghosting, not as an error.
 """
 
+import dataclasses
 import json
 import re
 import shutil
@@ -24,7 +25,7 @@ import pytest
 import rasterio
 from rasterio.transform import from_bounds
 
-from pipeline import bodies
+from pipeline import bodies, paths
 from pipeline.tile import cap_render, shade_planet, terrain_rgb
 
 
@@ -88,6 +89,54 @@ class TestShade:
         assert np.allclose(shaded, shaded[0, 0])
         again = cap_render._shade(grid_8px, heights, longitude)
         assert np.array_equal(shaded, again)
+
+
+class TestCapPathsFollowTheBody:
+    """Every file a cap reads or writes is located by the grid's own body, not by a module constant.
+
+    The first test is a CHARACTERISATION: it passed before the resolution moved onto the body and
+    has to keep passing after. Earth's served names are a contract the frontend fetches by URL, and
+    its intermediates are 1.3 GB that a moved directory would silently re-derive.
+    """
+
+    def test_earth_reads_and_writes_exactly_where_it_always_has(self, subtests):
+        """Subtests because these are four independent locations, and a resolver that broke would
+        break the served ones and the intermediate ones for different reasons."""
+        with subtests.test("served colour rung"):
+            assert (cap_render.cap_asset(cap_render.NORTH, 8192)
+                    == paths.ROOT / "web/public/caps/cap_north_8192.webp")
+        with subtests.test("served elevation texture"):
+            assert (cap_render.cap_elev_asset(cap_render.SOUTH)
+                    == paths.ROOT / "web/public/caps/cap_south_elev.webp")
+        with subtests.test("intermediate height warp"):
+            assert (cap_render.cap_height_warp(cap_render.NORTH)
+                    == paths.DATA / "work/cap/capN_height.tif")
+        with subtests.test("fused planet source"):
+            assert (paths.DATA / "work/planet/planet_heightfield.vrt"
+                    in cap_render.cap_sources(cap_render.NORTH))
+
+    def test_a_second_body_cannot_land_its_caps_on_earths(self, subtests):
+        """The failure this forbids is silent and destructive in one direction only: a Mars cap
+        written to `web/public/caps/cap_north_8192.webp` overwrites Earth's shipped texture, and
+        nothing downstream would report anything but a wrong-looking pole.
+
+        Reading matters as much as writing — a Mars cap that sourced Earth's fused heightfield would
+        render a perfectly clean Arctic and call it Mars.
+        """
+        mars = dataclasses.replace(bodies.EARTH, name="mars", path_prefix="mars")
+        grid = dataclasses.replace(cap_render.NORTH, body=mars)
+        with subtests.test("served colour rung"):
+            assert (cap_render.cap_asset(grid, 8192)
+                    == paths.ROOT / "web/public/caps/mars/cap_north_8192.webp")
+        with subtests.test("served elevation texture"):
+            assert (cap_render.cap_elev_asset(grid)
+                    == paths.ROOT / "web/public/caps/mars/cap_north_elev.webp")
+        with subtests.test("intermediate height warp"):
+            assert (cap_render.cap_height_warp(grid)
+                    == paths.DATA / "work/mars/cap/capN_height.tif")
+        with subtests.test("fused planet source"):
+            assert (paths.DATA / "work/mars/planet/planet_heightfield.vrt"
+                    in cap_render.cap_sources(grid))
 
 
 class TestCapsManifest:
@@ -181,13 +230,22 @@ def _ramp(px: int) -> np.ndarray:
 
 def _tiny_cap(monkeypatch, tmp_path, cap_px: int, elev_px: int) -> cap_render.CapGrid:
     """Point both output homes at tmp_path and shrink the grid. The grid keeps the real
-    `edge_lat` so `edge_m` stays honest; only the pixel counts move."""
-    monkeypatch.setattr(cap_render, "WORK", tmp_path)
-    monkeypatch.setattr(cap_render, "CAPS_DIR", tmp_path)
+    `edge_lat` so `edge_m` stays honest; only the pixel counts move.
+
+    REDIRECTS THE TWO ROOTS, not the module's own path helpers. Both `paths.DATA` and `paths.ROOT`
+    are read at call time, so moving them exercises the real derivation — registry lookup, prefix
+    join and all — where stubbing `cap_work_dir` would have tested a lambda. It also keeps the two
+    roots distinct here exactly as production keeps them: a body whose served and working
+    directories collapsed onto one path would still pass a fixture that stubbed both to tmp_path.
+    """
+    monkeypatch.setattr(paths, "DATA", tmp_path / "data")
+    monkeypatch.setattr(paths, "ROOT", tmp_path / "checkout")
     monkeypatch.setattr(cap_render, "CAP_PX", cap_px)
     monkeypatch.setattr(cap_render, "CAP_ELEV_PX", elev_px)
-    return cap_render.CapGrid(lat_0=90.0, edge_lat=78.0, px=cap_px, name="tiny", az_sign=-1.0,
+    grid = cap_render.CapGrid(lat_0=90.0, edge_lat=78.0, px=cap_px, name="tiny", az_sign=-1.0,
                               body=bodies.EARTH)
+    cap_render.cap_work_dir(grid.body).mkdir(parents=True, exist_ok=True)
+    return grid
 
 
 #: WEBP write support in the GDAL this box has. The cap pipeline cannot run at all without it, so
@@ -249,7 +307,7 @@ class TestCapElevationTexture:
         _write_warp(grid, _ramp(64))
 
         asset = cap_render.write_cap_elevation(grid)
-        source = tmp_path / "cap_tiny_elev.tif"
+        source = cap_render.cap_work_dir(grid.body) / "cap_tiny_elev.tif"
         with rasterio.open(source) as dataset:
             authored = dataset.read()
         with rasterio.open(asset) as dataset:
@@ -277,7 +335,7 @@ class TestCapElevationTexture:
         _write_warp(grid, straddle)
 
         cap_render.write_cap_elevation(grid)
-        with rasterio.open(tmp_path / "cap_tiny_elev.tif") as dataset:
+        with rasterio.open(cap_render.cap_work_dir(grid.body) / "cap_tiny_elev.tif") as dataset:
             encoded = dataset.read()
         decoded = terrain_rgb.decode_array(encoded, terrain_rgb.QUANTISATION_M)
         assert abs(float(decoded[0, 0]) - 2044.0) <= terrain_rgb.QUANTISATION_M / 2
@@ -303,7 +361,7 @@ class TestCapElevationTexture:
         _write_warp(grid, heights)
 
         cap_render.write_cap_elevation(grid)
-        with rasterio.open(tmp_path / "cap_tiny_elev.tif") as dataset:
+        with rasterio.open(cap_render.cap_work_dir(grid.body) / "cap_tiny_elev.tif") as dataset:
             decoded = terrain_rgb.decode_array(dataset.read(), terrain_rgb.QUANTISATION_M)
         half = terrain_rgb.QUANTISATION_M / 2
         assert abs(float(decoded[0, 0]) - 0.0) <= half        # sentinel neutralised, not averaged
