@@ -496,20 +496,38 @@ below is *delivery only* and regenerable, so a wrong call here costs an encode p
   masks a quality penalty, so what got chosen was "more pixels".
   were never chosen
 
-## The srcset ladder — 640 / 960 / 1280 / 1920 / 3840 / native
+## The srcset ladder — 640 / 960 / 1280 / 1920 / 3840 / native, plus a portrait fill rung
 
+- **A rung names the LONG EDGE; `srcset` selects on WIDTH.** For a landscape hero they are the same
+  number. For a portrait one the delivered width is `rung × aspect`, so the same six rungs give
+  Albania 297/446/595/892/1786 — and that last step **doubles** where the others are 1.33–1.5×.
 - **Chosen against measured layout, not viewport intuition.** The gallery is masonry
-  (`columns: 320px`), so a card renders **324–516 CSS px at every viewport from 390 to 3440** — a 4K
-  monitor gets a 335 px card, it just gets more of them. Device pixel ratio is therefore the only
-  real variable, and demand falls in three bands (~350 · ~700–820 · ~1000–1100) that these rungs
-  serve exactly.
-- **`sizes` must state a fixed width, not a viewport fraction.** Fractions over-declared by up to
-  3.08× at 3440, and the browser selects on the *declared* width — so a wrong `sizes` defeats the
-  ladder on precisely the largest screens.
-- **All three layers share the ladder** (hero, spotlight, border), because the gallery and the globe
-  panel stack them under one `sizes`. A rung present in one and missing from another makes the
-  browser fetch mismatched files — which is how an 85 kB border once landed on a 48 kB hero.
-- **Never under-declare.** Rounding down shows as blur; rounding up shows only as bytes.
+  (`columns: 320px`), so above the single-column breakpoint a card renders **324–516 CSS px at every
+  viewport from 390 to 3440** — a 4K monitor gets a 335 px card, it just gets more of them. Device
+  pixel ratio is the only real variable there, and demand falls in three bands (~350 · ~700–820 ·
+  ~1000–1100) that 640/960/1280 serve exactly **for a landscape country**.
+- **Below the breakpoint the card is 92vw, which is a different band the ladder was never fitted
+  to.** A DPR-3 phone asks ~1,076–1,187 px of width; for a portrait country nothing between 892 and
+  1786 exists, so it takes 3840 — which is also where quality steps q85 → q95, compounding the pixel
+  jump with a quality jump: **399 KiB → 2,252 KiB** for one card.
+- **So a portrait hero gets ONE extra rung, sized from its own aspect** — the smallest 512-multiple
+  long edge delivering 1,187 px of width (`hero_variants.fill_rung`). Currently {2048, 2560, 3072}
+  across 25 countries. **A single shared extra rung does not work**: a fixed long edge serves every
+  aspect differently, which is the same defect one level down.
+- **Two countries are knowingly unserved.** Chile (0.307) and Maldives (0.234) need long edges above
+  the 3840 inspection floor, so their fill rung would itself be a q95 file delivered as a thumbnail.
+  They wait for a ladder keyed to width rather than to long edge.
+- **`sizes` must state a fixed width above the breakpoint, not a viewport fraction.** Fractions
+  over-declared by up to 3.08× at 3440, and the browser selects on the *declared* width — so a wrong
+  `sizes` defeats the ladder on precisely the largest screens.
+- **Hero and spotlight share one ladder by IMPORT, not by a copied constant** — the gallery stacks
+  them under one `sizes`, and a rung present in one and missing from the other makes the browser
+  fetch mismatched files (which is how an 85 kB border once landed on a 48 kB hero). The border
+  ladder does **not** share it: `gen_borders` stops at 1920, so a portrait border jumps to native.
+  That is a real gap, off the cold path only because the layer is hidden until Borders is turned on.
+- **Never under-declare.** Rounding down shows as blur; rounding up shows only as bytes — which is
+  why the rejected alternative here was `sizes` 92vw → 80vw: it buys the same rung by lying about
+  the layout.
 
 ## The polar caps have their own ladder — 1024 / 2048 / 4096 / 8192
 

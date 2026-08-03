@@ -4,6 +4,7 @@ import Masthead from "../components/Masthead.astro";
 import { manifest as data, type Country } from "../lib/manifest";
 import { HERO_BASE } from "../lib/assetBase";
 import { REPO_URL } from "../lib/siteLinks";
+import { EAGER_CARD_COUNT, STAGED_PLACEHOLDER } from "../lib/lazyCards";
 
 // Rendered heroes first (so real imagery leads while the sweep fills in), then
 // everything else alphabetically.
@@ -85,14 +86,16 @@ const indexLetters = [...byLetter.keys()];
 
   <main class="gallery">
     {
-      countries.map((country) => (
+      countries.map((country, index) => (
         <article class="card" data-name={country.name.toLowerCase()} data-rendered={String(country.rendered)}>
           <a class="card-link" href={`/${country.slug}/`}>
           {country.rendered ? (
             <figure style={`aspect-ratio:${country.aspect}`}>
               <img
-                src={`${HERO_BASE}${country.slug}-${country.sizes[0]}.webp`}
-                srcset={srcset(country)}
+                src={index < EAGER_CARD_COUNT ? `${HERO_BASE}${country.slug}-${country.sizes[0]}.webp` : STAGED_PLACEHOLDER}
+                srcset={index < EAGER_CARD_COUNT ? srcset(country) : undefined}
+                data-src={index < EAGER_CARD_COUNT ? undefined : `${HERO_BASE}${country.slug}-${country.sizes[0]}.webp`}
+                data-srcset={index < EAGER_CARD_COUNT ? undefined : srcset(country)}
                 sizes={SIZES}
                 alt={`Ray-traced relief map of ${country.name}`}
                 loading="lazy"
@@ -101,13 +104,35 @@ const indexLetters = [...byLetter.keys()];
               {country.hasSpotlight && (
                 <img
                   class="spotlight-layer"
-                  src={`${HERO_BASE}${country.slug}-spotlight-${country.spotlightSizes[0]}.webp`}
-                  srcset={spotlightSrcset(country)}
+                  src={index < EAGER_CARD_COUNT ? `${HERO_BASE}${country.slug}-spotlight-${country.spotlightSizes[0]}.webp` : STAGED_PLACEHOLDER}
+                  srcset={index < EAGER_CARD_COUNT ? spotlightSrcset(country) : undefined}
+                  data-src={index < EAGER_CARD_COUNT ? undefined : `${HERO_BASE}${country.slug}-spotlight-${country.spotlightSizes[0]}.webp`}
+                  data-srcset={index < EAGER_CARD_COUNT ? undefined : spotlightSrcset(country)}
                   sizes={SIZES}
                   alt=""
                   aria-hidden="true"
                   loading="lazy"
                 />
+              )}
+              {index >= EAGER_CARD_COUNT && (
+                /* The no-JS twin. `/` is the pessimistic Tier-1 default that must render for
+                   no-JS visitors, incapable devices and crawlers, so deferring behind an
+                   IntersectionObserver may not cost them the imagery. Rendered only inside
+                   <noscript>, so a scripted visitor never fetches it, and paired with the
+                   `html.no-js` rule below that hides the staged <img> — otherwise both would sit
+                   in the figure's flow and overflow it. The spotlight overlay is deliberately
+                   absent: `body.spotlight-on` is only ever set by script, so without JS that
+                   layer can never be shown and shipping it would double this for nothing. */
+                <noscript>
+                  <img
+                    src={`${HERO_BASE}${country.slug}-${country.sizes[0]}.webp`}
+                    srcset={srcset(country)}
+                    sizes={SIZES}
+                    alt={`Ray-traced relief map of ${country.name}`}
+                    loading="lazy"
+                    decoding="async"
+                  />
+                </noscript>
               )}
               <figcaption>{country.name}</figcaption>
             </figure>
@@ -219,6 +244,17 @@ const indexLetters = [...byLetter.keys()];
     height: 100%;
     object-fit: cover;
   }
+  /* Without script nothing ever promotes `data-src`, so the staged <img> would sit in the figure's
+     flow as an empty box above the <noscript> twin and push it out of an `overflow: hidden` box.
+     Hiding it is safe precisely BECAUSE it is staged: `display: none` suppresses the fetch for a
+     lazy image (which is why 203 hidden spotlight overlays cost zero bytes today), and here there
+     is no URL on a fetchable attribute to suppress anyway. Keyed to `html.no-js`, the class the
+     layout's first inline script replaces with `js` before paint — so a scripted visitor never
+     matches this, and a visitor whose script never runs matches it for the whole session. */
+  :global(html.no-js) .card figure img[data-src] {
+    display: none;
+  }
+
   .spotlight-layer {
     position: absolute;
     inset: 0;
@@ -418,9 +454,31 @@ const indexLetters = [...byLetter.keys()];
 
 <script>
   import { canRunGlobe, probeSignals } from "../lib/capability";
+  import { watchDeferredCards } from "../lib/lazyCards";
   // Hide the "Globe" masthead link on devices that can't run it — the /globe head
   // guard would only bounce them straight back, so don't offer the dead end.
   if (!canRunGlobe(probeSignals())) {
     document.querySelector<HTMLAnchorElement>('.head-links a[href="/globe/"]')?.remove();
   }
+
+  // Promote the deferred cards as they approach. The set is derived from the STAGED attribute
+  // rather than from a card index, so it cannot drift from what the markup above actually emitted —
+  // an index repeated here and disagreeing with EAGER_CARD_COUNT there would leave cards unwatched,
+  // which looks exactly like a working page until you scroll.
+  //
+  // `closest` rather than `.card:has(img[data-src])`, because the whole reason the factory below is
+  // conditional is a browser too old for IntersectionObserver — and such a browser is also too old
+  // for `:has()`, so that selector would match nothing and the fallback would dutifully promote an
+  // empty list. `closest` predates both. Cards are deduplicated because a card stages two images.
+  const deferredCards = new Set<Element>();
+  for (const image of document.querySelectorAll<HTMLImageElement>("img[data-src]")) {
+    const card = image.closest(".card");
+    if (card) deferredCards.add(card);
+  }
+  watchDeferredCards(
+    deferredCards,
+    typeof IntersectionObserver === "function"
+      ? (callback, options) => new IntersectionObserver(callback, options)
+      : undefined,
+  );
 </script>

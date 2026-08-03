@@ -6,6 +6,61 @@ graduates, it moves to PLAN and this file keeps a one-line pointer. Each entry c
 its analysis and the facts its numbers depend on — check both before trusting an old entry, and
 grep HISTORY before re-arguing anything an entry says was already decided.
 
+## The ladder is keyed to the long edge, and `srcset` selects on width (analysed 2026-08-02)
+
+- **State at analysis:** the variant ladder is a fixed tuple of LONG EDGES (640/960/1280/1920/3840 +
+  native). `srcset` selects on WIDTH. For a landscape hero those coincide; for a portrait one the
+  delivered width is `rung × aspect`, so the same rungs give Albania 297/446/595/892/1786 and a
+  DPR-3 phone falls through the doubling gap onto 3840 — across the q85 → q95 boundary.
+- **A per-country fill rung has SHIPPED as the approximation** — `hero_variants.fill_rung` adds the
+  smallest 512-multiple long edge delivering 1,187 px of width, closing 25 of the 27 affected
+  countries for 19.0 MB. What remains here is the root cause, not the symptom.
+- **The principled fix is to key the ladder to WIDTH.** Generate variants at target widths, so every
+  country — portrait or landscape — has rungs exactly where `srcset` selects. It **deletes** code:
+  `variantWidth()` in `index.astro` exists only to translate long-edge keys into widths, and under a
+  width ladder the descriptor is just the rung.
+- **It is the only thing that can serve Chile (0.307) and Maldives (0.234)**, which need long edges
+  of 3,867 and 5,064 — above the inspection floor — so no fill rung below 3840 can reach them, and
+  one above it would be a q95 file delivered as a thumbnail.
+- **It would also let `quality_for` key on the right quantity.** Today it takes the long edge, which
+  for a portrait file is its HEIGHT — so a 3840-long-edge hero only 1,786 px wide is charged
+  inspection quality for a thumbnail. Under a width ladder the discriminator is the same number
+  `srcset` selects on. Note the tension to resolve first: the *same file* also serves the country
+  page full-screen, where q95 is right.
+- **Compute is not the obstacle, storage might be.** Measured: hero variants **6 min** at `--jobs 8`,
+  spotlight **1m45s**, borders **7m21s** (and a border rung costs a full regeneration). But a
+  portrait country gets TALLER files for the same width, so the 3.5 GB served store could grow into
+  870 MB of R2 headroom — that has to be measured before committing, not estimated.
+- **It would close the border gap too**, which is real and currently exempted in the ladder guard:
+  `gen_borders` stops at 1920, so a portrait border jumps to native — a lossless PNG at ~3× the
+  width the panel draws. Off the cold path only because the layer is hidden until Borders is on.
+
+## No test ever drives a real map, and the scale ruler showed what that costs (analysed 2026-08-02)
+
+- **State at analysis:** every frontend guard is a unit test over a pure function, a source-text
+  assertion over `globe.astro?raw`, or a canary over the shipped bundle. **Nothing instantiates a
+  MapLibre map and checks what it does.** Grepped, not assumed.
+- **The evidence this is a real gap, not a purity argument:** the scale-ruler fix shipped to
+  production frozen — one label at every zoom — and *everything* said it was fine. Unit tests green,
+  source guards green, bundle byte-identical to the local build, three deploy needles correct, and
+  the metric the fix targeted read a perfect **0 readPixels per frame**. The defect was one property
+  read hoisted out of a per-call path, and the *only* observation that could see it was **the label
+  changing when the camera changed**.
+- **The shape of the missing check** is cheap to state: load the globe, jump across a zoom range,
+  assert the readout takes **distinct** values. That single assertion catches staleness, a dead
+  listener, a thrown handler and a unit error at once — the whole class that "renders plausibly and
+  never updates" hides in.
+- **Infrastructure already exists**: the browser project runs Playwright-backed chromium, so this is
+  a fixture and a page, not a new toolchain. What it is *not* free of is tiles — a real map wants a
+  network, so the fixture question (stub the tile route, or point at the dev server) is the actual
+  design work and the reason this is parked rather than done.
+- **Deliberately narrow if picked up.** The temptation is a general "e2e suite"; the value measured
+  here is much smaller and sharper — **assert that outputs which must track the camera actually
+  track it.** The ruler is one; the hovered-country chip and the scale-linked tier readout are the
+  same shape.
+- **Adjacent:** `forced-colors` below also needs Playwright. One browser-fixture pass would carry
+  both.
+
 ## `forced-colors` is unhandled, and the rail's icons are the thing it breaks (analysed 2026-08-02)
 
 - **State at analysis:** no `forced-colors` or `prefers-contrast` rule exists anywhere in `web/src`.

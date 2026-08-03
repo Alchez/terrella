@@ -68,10 +68,12 @@ NE_COUNTRIES = (ROOT / "data/raw/naturalearth/ne_10m_admin_0_countries"
                 / "ne_10m_admin_0_countries.shp")
 WORK = ROOT / "data/work"
 PLANE_WIDTH_UNITS = 2.0
-# Must stay the same ladder as hero_variants.TARGETS: the gallery layers this overlay directly on
-# the hero and gives both the same `sizes`, so a rung the overlay lacks makes the browser pull a
-# larger file for the top layer than for the one underneath it.
-TARGETS = (640, 960, 1280, 1920, 3840)   # plus each hero's native long edge
+# The ladder is IMPORTED, not restated. The gallery layers this overlay directly on the hero and
+# gives both the same `sizes`, so a rung the overlay lacks makes the browser pull a larger file for
+# the top layer than for the one underneath it. This used to be a copied tuple kept honest by a
+# test — which worked for a fixed ladder, but the portrait fill rung is computed per hero from its
+# aspect, and there is no way to copy a function and stay in step. One definition, no drift.
+from pipeline.compose.hero_variants import TARGETS, rungs_for  # noqa: E402  (re-exported)
 # Unchanged at q88 by the quality pass, and provably so: build_overlay sets
 # overlay_alpha to 0 across the subject, so these pixels only ever cover the dimmed surroundings.
 WEBP_QUALITY = 88
@@ -230,7 +232,7 @@ def render_one(slug, dim, desat, force, outline_div=OUTLINE_DIV_DEFAULT, halo=HA
         return
     fwd = pyproj.Transformer.from_crs("EPSG:4326", crs, always_xy=True)
 
-    sizes = sorted(set(list(TARGETS) + [max(full_w, full_h)]))
+    sizes = rungs_for(full_w, full_h)
     for long_edge in sizes:
         if long_edge > max(full_w, full_h):
             continue

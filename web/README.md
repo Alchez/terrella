@@ -219,6 +219,29 @@ The default preset **is** the weak-Android test: Moto G Power, 4× CPU throttle,
 `--preset=desktop` is the unthrottled number. Both keep the host's real GPU, so neither is a phone —
 and a score measured under a software rasterizer is not comparable to one measured on a GPU.
 
+**The preset is DPR 1.75, which is lower than any current phone** (2.6–3.0). That matters for
+anything `srcset` selects, because rung choice is a step function of device pixels: a payload can be
+fine at 1.75 and three times larger at 3.0. Override with
+`--screenEmulation.mobile --screenEmulation.width=390 --screenEmulation.height=844
+--screenEmulation.deviceScaleFactor=3` and read `audits['network-requests']` to see which rung the
+browser actually took.
+
+### A two-arm A/B against a local build
+
+Build both arms, then serve them **sequentially on the same port** so origin, port and protocol are
+held constant and only the markup varies. Heroes come from R2 in both arms, so image bytes are real.
+
+- **Serve through something that compresses.** `python3 -m http.server` sends identity encoding, so
+  an arm that adds markup is billed for its full uncompressed size — 201 `<noscript>` twins cost
+  +164 KiB raw against +2.6 KiB gzipped, which ate about a second and understated a fix by a third.
+  The tell is `transferSize == resourceSize` on the document; assert `transferSize < resourceSize`
+  before quoting anything.
+- **Then validate the harness against production itself** before believing the delta. One run
+  against the live site should land near the *before* arm — 3% on LCP and identical CLS is what
+  a faithful harness looks like. Absolutes do not transfer between origins; deltas do.
+- Gate every run on `finalDisplayedUrl`, on a non-zero hero request count, and on CLS, which a
+  layout-collapsing arm is otherwise the obvious way to fake.
+
 ## Deploying
 
 **→ [`DEPLOY.md`](DEPLOY.md)** — two Workers, the R2 bucket, the three dashboard-only zone
