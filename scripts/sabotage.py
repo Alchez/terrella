@@ -95,6 +95,10 @@ MUTABLE_ROOTS = (
     # load-bearing. The look package as a whole, because the parameterisation touches all of it.
     "pipeline/bodies.py",
     "pipeline/render",
+    # Joined with the required `--body`. The planet entry points are where a silent Earth assumption
+    # would be reintroduced, and it is invisible while Earth is the only body — so the guards against
+    # it are worth exactly as much as the proof that they still fire.
+    "pipeline/tile",
 )
 
 # Set for the duration of one case, so the backup THIS run is holding does not trip the leftover
@@ -1739,6 +1743,27 @@ SABOTAGES: list[Sabotage] = [
         needle='    return paths.ROOT / "web/public" / stage / body.path_prefix',
         replacement='    return paths.ROOT / "web/public" / body.path_prefix / stage',
         guard='test_a_second_body_publishes_under_its_own_segment',
+    ),
+    # --- The body is required --------------------------------------------------------------------
+    # Both mutations restore a silent Earth assumption. Neither raises, neither changes a pixel today,
+    # and both mean a Mars pass would quietly shade with Earth's geometry into Earth's directories —
+    # the one failure this whole workstream exists to make impossible.
+    Sabotage(
+        suite='python',
+        label='--body regains a default, so a pass with no planet named silently means Earth',
+        path='pipeline/tile/shade_planet.py',
+        needle='    ap.add_argument("--body", required=True,',
+        replacement='    ap.add_argument("--body", default="earth",',
+        guard='test_omitting_the_body_is_an_error_rather_than_an_assumption',
+    ),
+    # The override stops being honoured, so a look A/B silently writes over the production tree.
+    Sabotage(
+        suite='python',
+        label='--out stops overriding the body default, so an A/B overwrites the live pyramid',
+        path='pipeline/tile/shade_planet.py',
+        needle='    return args.out if args.out is not None else bodies.work_dir(resolve_body(args), "planet_tiles")',
+        replacement='    return bodies.work_dir(resolve_body(args), "planet_tiles")',
+        guard='test_an_explicit_out_still_wins_over_the_body_s_default',
     ),
     # --- The portrait fill rung ----------------------------------------------------------------
     # A rung names the LONG EDGE while `srcset` selects on WIDTH, so these mutations all produce a

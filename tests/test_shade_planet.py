@@ -15,6 +15,7 @@ import rasterio
 from rasterio.transform import from_bounds
 
 from pipeline.render import palette, seaice
+from pipeline import bodies
 from pipeline.tile import shade_planet
 
 
@@ -583,3 +584,31 @@ class TestTileRecipe:
         before = params.stat().st_mtime
         shade_planet.write_if_changed(params, shade_planet.tile_params())
         assert params.stat().st_mtime == before
+
+
+class TestTheBodyIsRequired:
+    """`--body` has no default, and that is the point of it.
+
+    A pipeline that assumes Earth when nobody said so is the most expensive failure mode this
+    registry exists to prevent: it does not raise, it produces a complete, plausible, entirely wrong
+    pyramid. Cheap to re-run, ruinous to discover late — so the argument is required rather than
+    defaulted, and every documented invocation names the planet it means.
+    """
+
+    def test_omitting_the_body_is_an_error_rather_than_an_assumption(self):
+        with pytest.raises(SystemExit):
+            shade_planet.build_parser().parse_args([])
+
+    def test_a_named_body_resolves_to_its_own_work_tree(self):
+        args = shade_planet.build_parser().parse_args(["--body", "earth"])
+        assert shade_planet.resolve_out(args) == bodies.work_dir(bodies.EARTH, "planet_tiles")
+
+    def test_an_explicit_out_still_wins_over_the_body_s_default(self, tmp_path):
+        """The override has to survive, because a look A/B is run by pointing --out elsewhere."""
+        args = shade_planet.build_parser().parse_args(["--body", "earth", "--out", str(tmp_path)])
+        assert shade_planet.resolve_out(args) == tmp_path
+
+    def test_an_unknown_body_is_rejected_by_the_registry_not_silently_accepted(self):
+        args = shade_planet.build_parser().parse_args(["--body", "pluto"])
+        with pytest.raises(KeyError):
+            shade_planet.resolve_body(args)

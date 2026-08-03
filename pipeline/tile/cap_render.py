@@ -54,7 +54,7 @@ from pipeline import bodies, paths
 from pipeline.render import hillshade, lake_depth, seaice, snow
 from pipeline.tile import shade, terrain_rgb
 from pipeline.tile.shade import KNOBS
-from pipeline.tile.shade_planet import (ALT, AZ, CAP_NORTH, CAP_SOUTH, EXAG, PLANET,
+from pipeline.tile.shade_planet import (ALT, AZ, CAP_NORTH, CAP_SOUTH, EXAG,
                                         composite_params)
 
 ROOT = paths.ROOT
@@ -62,6 +62,10 @@ ROOT = paths.ROOT
 # The recipe sidecars below (cap_<name>_params.json) therefore need NO body field: they are already
 # body-specific by being different files, and adding one would restage a render that peaks ~14.3 GB
 # to emit identical pixels. WORK also picks up the MAPS_DATA seam that `ROOT / "data/..."` bypassed.
+# STILL EARTH-BOUND, deliberately and only until this module takes its own --body. It used to read
+# `PLANET` out of shade_planet's module scope; that global is gone now the shade pass resolves it
+# per invocation, and reaching into another module for a path was the coupling that made it fragile.
+PLANET = bodies.work_dir(bodies.EARTH, "planet")
 WORK = bodies.work_dir(bodies.EARTH, "cap")
 CAPS_DIR = bodies.public_dir(bodies.EARTH, "caps")  # production home (was dev-assets/ behind ?polarspike)
 CAP_PX = 8192          # square texture side (south is a bigger disc -> coarser per px). 8192 chosen

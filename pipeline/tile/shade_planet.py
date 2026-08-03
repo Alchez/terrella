@@ -27,8 +27,8 @@ the Caspian re-fuse rewrote 4 of the 540 chunks, and a plain re-run would have
 skipped every stage and silently re-cut tiles from the pre-Caspian, pre-sea-rework rasters.
 Grid matches the existing tile pyramid exactly (131072 x 93009).
 
-    python -m pipeline.tile.shade_planet --out data/work/planet_tiles            # shade only
-    python -m pipeline.tile.shade_planet --out data/work/planet_tiles --tiles    # + cut tiles
+    python -m pipeline.tile.shade_planet --body earth            # shade only
+    python -m pipeline.tile.shade_planet --body earth --tiles    # + cut tiles
 """
 
 import argparse
@@ -59,8 +59,6 @@ from pipeline.tile import shade
 from pipeline.tile.shade import KNOBS
 
 ROOT = paths.ROOT
-# Same routing as --out below: the body owns the location, and this honours MAPS_DATA.
-PLANET = bodies.work_dir(bodies.EARTH, "planet")
 Z8_RES = 305.7483          # metres/pixel of a 512px WebMercatorQuad tile at zoom 8
 EXAG = palette.EXAGGERATION
 ALT, AZ = KNOBS["alt"], 315.0
@@ -313,21 +311,21 @@ def composite_deps(work, hs, params) -> tuple:
             work / "glacier_3857.tif", work / "seaice_3857.tif", params)
 
 
-def warp_inputs(work: Path):
+def warp_inputs(work: Path, planet: Path):
     """Warp height + ocean/water masks to the shared WMQ-aligned 3857 grid (skip if fresh).
 
     Each warp depends on the chunk DIRECTORY, not just its VRT -- re-fusing a cell leaves the
     VRT untouched, so the directory walk is the only thing that sees the change.
     """
-    chunks = PLANET / "chunks"
+    chunks = planet / "chunks"
     height = work / "height_3857.tif"
-    if is_stale(height, PLANET / "planet_heightfield.vrt", chunks):
+    if is_stale(height, planet / "planet_heightfield.vrt", chunks):
         print("warp height -> 3857 ...", flush=True)
         height.unlink(missing_ok=True)  # gdalwarp UPDATES an existing target; it must be gone
         _run(["gdalwarp", "-q", "-t_srs", "EPSG:3857", "-tr", Z8_RES, Z8_RES, "-tap",
               "-r", "bilinear", "-ot", "Float32", "-co", "TILED=YES", "-co", "COMPRESS=DEFLATE",
               "-co", "BIGTIFF=YES", "-co", "NUM_THREADS=ALL_CPUS",
-              PLANET / "planet_heightfield.vrt", height])
+              planet / "planet_heightfield.vrt", height])
         mark_done(height)
     with rasterio.open(height) as dataset:
         bounds = [repr(value) for value in dataset.bounds]
@@ -341,12 +339,12 @@ def warp_inputs(work: Path):
     grid = (grid_width, grid_height, grid_bounds)
     for name, src in (("ocean", "planet_oceanmask.vrt"), ("water", "planet_watermask.vrt")):
         out = work / f"{name}_3857.tif"
-        if warp_needs_rebuild(out, grid, PLANET / src, chunks):
+        if warp_needs_rebuild(out, grid, planet / src, chunks):
             print(f"warp {name} -> 3857 ...", flush=True)
             out.unlink(missing_ok=True)
             _run(["gdalwarp", "-q", "-t_srs", "EPSG:3857", "-te", *bounds, "-ts", *size,
                   "-r", "near", "-ot", "Byte", "-co", "TILED=YES", "-co", "COMPRESS=DEFLATE",
-                  "-co", "BIGTIFF=YES", PLANET / src, out])
+                  "-co", "BIGTIFF=YES", planet / src, out])
             mark_done(out)
 
     # GLOBathy lake depth, warped ONCE here rather than per window: it is an 83k-source VRT,
@@ -863,14 +861,17 @@ def build_tiles(planet_tif: Path, out: Path):
     print(f"tiles live -> {live} (previous kept at {out / 'tiles_old'})", flush=True)
 
 
-def main():
+def build_parser() -> argparse.ArgumentParser:
+    """The CLI, split out of `main` so its contract is testable without running a pass."""
     ap = argparse.ArgumentParser()
-    # Resolved through the body registry rather than assembled from ROOT. Two things fall out: the
-    # body owns where its intermediates live (so a second planet cannot land on Earth's), and the
-    # default finally honours the MAPS_DATA seam — `ROOT / "data/..."` bypassed it, so a run with the
-    # data store relocated would have written this one directory back into the checkout.
-    ap.add_argument("--out", type=Path,
-                    default=bodies.work_dir(bodies.EARTH, "planet_tiles"))
+    # REQUIRED, WITH NO DEFAULT, and that is the whole point. A pass that assumes Earth because
+    # nobody said otherwise does not fail — it produces a complete, plausible, entirely wrong
+    # pyramid, and the cost of discovering that late is a planet. Naming it costs one word.
+    ap.add_argument("--body", required=True,
+                    help=f"which planet this pass is for ({', '.join(sorted(bodies.BODIES))})")
+    # Optional override. Left unset it follows the body, which also honours the MAPS_DATA seam that
+    # the old `ROOT / "data/..."` default bypassed; set, it is how a look A/B is pointed elsewhere.
+    ap.add_argument("--out", type=Path, default=None)
     ap.add_argument("--tiles", action="store_true", help="also cut z0-8 tiles from the mosaic")
     ap.add_argument("--knob", action="append", default=[], metavar="KEY=VALUE",
                     help="override a locked KNOBS entry (repeatable), as tile/shade.py does. "
@@ -879,7 +880,21 @@ def main():
                          "safe for freshness by construction: composite_params/hs_params "
                          "serialise KNOBS, so an override restages exactly what it changes and "
                          "the recorded params always describe the pyramid that exists.")
-    args = ap.parse_args()
+    return ap
+
+
+def resolve_body(args: argparse.Namespace) -> bodies.Body:
+    """The body this run is for. Raises through the registry, which names the ones that exist."""
+    return bodies.get(args.body)
+
+
+def resolve_out(args: argparse.Namespace) -> Path:
+    """Where this run writes: the explicit `--out`, else the body's own tile-work directory."""
+    return args.out if args.out is not None else bodies.work_dir(resolve_body(args), "planet_tiles")
+
+
+def main():
+    args = build_parser().parse_args()
     # A key off argv is dynamic by construction, so a TypedDict cannot check it -- this view is
     # the honest escape hatch, and the membership test below is what actually validates the key.
     knobs = cast(dict[str, Any], KNOBS)
@@ -889,10 +904,11 @@ def main():
             raise SystemExit(f"unknown knob {key!r}; valid: {', '.join(sorted(knobs))}")
         knobs[key] = value if isinstance(knobs[key], str) else float(value)
         print(f"knob override: {key} = {knobs[key]}", flush=True)
-    work = args.out
+    body = resolve_body(args)
+    work = resolve_out(args)
     work.mkdir(parents=True, exist_ok=True)
 
-    height = warp_inputs(work)
+    height = warp_inputs(work, bodies.work_dir(body, "planet"))
     hs = build_hillshade(work, height)
     # Passed unevaluated: composite_planet runs it only if the composite is actually stale.
     # Production composite is threaded at COMPOSITE_ROWS/N_WORKERS (optimisation #5); the snow

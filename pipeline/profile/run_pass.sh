@@ -2,8 +2,11 @@
 # Instrumented planet pass.
 #
 # Usage:
-#   pipeline/profile/run_pass.sh           # shade only
-#   pipeline/profile/run_pass.sh --tiles   # shade (skipped when fresh) + cut z0-8 tiles
+#   pipeline/profile/run_pass.sh --body earth           # shade only
+#   pipeline/profile/run_pass.sh --body earth --tiles   # shade (skipped when fresh) + cut z0-8 tiles
+#
+# `--body` is REQUIRED and this wrapper deliberately does not supply one: injecting a default here
+# would reintroduce, one layer up, exactly the silent Earth assumption shade_planet refuses to make.
 #
 # Args are passed through to shade_planet.py; --tiles additionally picks its own output dir,
 # scope name and memory cap, so a tiling run never overwrites a shade run's profile.
