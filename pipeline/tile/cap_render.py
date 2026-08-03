@@ -88,10 +88,9 @@ CAP_ELEV_PX = 512      # elevation texture side; see cap_elev_asset for why ther
                        # 512 over this grid's 2,668 km diameter is ~5.2 km/px, finer than the mesh
                        # that samples it at every latitude, so the mesh is the limit and not this.
                        # MUST divide CAP_PX exactly — write_cap_elevation box-means by the ratio.
-SPHERE_R = 6371000.0   # spherical AEQD radius; the frontend's linear-colatitude UV assumes a sphere.
-                       # NOT the displacement radius: polarCaps.ts must lift vertices on MapLibre's
-                       # own GLOBE_RADIUS (6371008.8) or the cap sits 8.8 m off the tiles it blends
-                       # into. Two radii, two jobs — do not collapse them.
+# The AEQD sphere now comes from the body — see `Body.aeqd_radius_m`, which records why it is a
+# separate field from the Mercator radius and from MapLibre's globe radius. The warning that used to
+# live here lives there, beside the value it is about.
 # The south-cap forced-snow latitude and toned sea-ice pair moved to their shared homes so the tile
 # composite applies the identical rule (one home per concept): snow.antarctic_snow_mask's lat_max=-60,
 # and seaice.SH_ICE_LO / seaice.SH_ICE_MAX_ALPHA (used by the SOUTH grid below).
@@ -107,6 +106,10 @@ class CapGrid:
     px: int
     name: str
     az_sign: float
+    #: Which planet this cap belongs to. Required, so a second body cannot inherit Earth's sphere
+    #: by omission — the AEQD radius below is what turns a texture radius into a latitude, and a
+    #: wrong one produces a cap that projects perfectly and lands on the wrong parallel.
+    body: bodies.Body
     coast_opacity: float = 0.55  # baked coastline strength over the cap RGB; 0 = skip
     coast_dilate: int = 1        # binary-dilation iterations -> ~3 px line at 4096 when 1
     ice_lo: "float | None" = None         # sea-ice threshold override; None -> seaice.ICE_LO
@@ -114,20 +117,23 @@ class CapGrid:
 
     @property
     def aeqd(self) -> str:
+        radius = self.body.aeqd_radius_m
         return (f"+proj=aeqd +lat_0={self.lat_0} +lon_0=0 "
-                f"+a={SPHERE_R} +b={SPHERE_R} +units=m +no_defs")
+                f"+a={radius} +b={radius} +units=m +no_defs")
 
     @property
     def edge_m(self) -> float:
         """Half-width of the square texture, in AEQD metres (radius of the inscribed circle)."""
-        return SPHERE_R * float(np.radians(90.0 - abs(self.edge_lat)))
+        return self.body.aeqd_radius_m * float(np.radians(90.0 - abs(self.edge_lat)))
 
 
-NORTH = CapGrid(lat_0=90.0, edge_lat=78.0, px=CAP_PX, name="north", az_sign=-1.0)
+NORTH = CapGrid(lat_0=90.0, edge_lat=78.0, px=CAP_PX, name="north", az_sign=-1.0,
+                body=bodies.EARTH)
 # South: NO baked coastline. The north NEEDS it (Greenland's white ice sheet abuts the white Arctic
 # pack -- without a line they merge), but on the south white ice sits on teal ocean, which already
 # separates itself; a dark line there just reads as a cartoonish outline around the continent.
 SOUTH = CapGrid(lat_0=-90.0, edge_lat=-78.0, px=CAP_PX, name="south", az_sign=1.0,
+                body=bodies.EARTH,
                 coast_opacity=0.0, coast_dilate=0,
                 ice_lo=seaice.SH_ICE_LO, ice_max_alpha=seaice.SH_ICE_MAX_ALPHA)
 
@@ -175,7 +181,7 @@ def cap_elev_recipe(grid: CapGrid) -> str:
     Deliberately small: this product depends on the grid, the encoding, and nothing else. It does
     NOT carry composite_params, because a look change repaints the cap's colour without moving a
     single vertex."""
-    return json.dumps({"grid": asdict(grid),
+    return json.dumps({"grid": grid_recipe_fields(grid),
                        "elev": {"px": CAP_ELEV_PX,
                                 "step": terrain_rgb.QUANTISATION_M,
                                 "sea_clamp": terrain_rgb.SHIPPED_SEA_CLAMP,
@@ -233,6 +239,26 @@ def write_cap_elevation(grid: CapGrid) -> Path:
     return cap_elev_asset(grid)
 
 
+def grid_recipe_fields(grid: CapGrid) -> dict:
+    """The grid as a freshness recipe: its own fields, minus the body, plus the one body fact that
+    can move a cap pixel.
+
+    TWO THINGS, BOTH LEARNED THE EXPENSIVE WAY. A bare `asdict` would inline the whole Body —
+    `path_prefix`, `tile_max_zoom`, `exaggeration` — and bind the caps' freshness to fields that
+    cannot change a cap pixel, restaging a render that peaks ~14 GB on an entirely unrelated edit.
+    And the AEQD radius must be here: while it was a module constant it reached NO recipe at all
+    (`asdict` serialises fields, and the projection string is a property), so changing it would have
+    left both caps falsely fresh — the same untracked-input trap the composite's params exist to
+    close, one module over.
+
+    ONE HELPER because both recipes need it. They were briefly patched separately, which is how a
+    fix lands in one and not the other.
+    """
+    fields = {key: value for key, value in asdict(grid).items() if key != "body"}
+    fields["aeqd_radius_m"] = grid.body.aeqd_radius_m
+    return fields
+
+
 def cap_recipe(grid: CapGrid) -> str:
     """Everything a cap's pixels depend on besides the source rasters, serialised for the
     freshness sidecar. Reuses shade_planet.composite_params — ONE recipe home — so any look change
@@ -241,7 +267,7 @@ def cap_recipe(grid: CapGrid) -> str:
     adrift. `fill_strength` is listed explicitly because
     composite_params filters it out as hillshade-stage — for the tiles it rides in hs_params.json,
     but the caps have no hillshade sidecar, so it must ride here."""
-    return json.dumps({"grid": asdict(grid),
+    return json.dumps({"grid": grid_recipe_fields(grid),
                        "light": {"az": AZ, "alt": ALT, "exag": EXAG,
                                  "fill_azimuth": hillshade.FILL_AZIMUTH,
                                  "fill_altitude": hillshade.FILL_ALTITUDE,

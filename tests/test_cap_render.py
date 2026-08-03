@@ -24,6 +24,7 @@ import pytest
 import rasterio
 from rasterio.transform import from_bounds
 
+from pipeline import bodies
 from pipeline.tile import cap_render, shade_planet, terrain_rgb
 
 
@@ -38,12 +39,12 @@ class TestCapGridGeometry:
         with subtests.test("south is centred on the south pole"):
             assert "+lat_0=-90.0" in cap_render.SOUTH.aeqd
         with subtests.test("sphere radius"):
-            assert f"+a={cap_render.SPHERE_R}" in cap_render.NORTH.aeqd
+            assert f"+a={bodies.EARTH.aeqd_radius_m}" in cap_render.NORTH.aeqd
 
     def test_edge_m_is_linear_in_colatitude(self):
         """AEQD from the pole: radius = R * colatitude(rad) — the linear law the
         frontend's UV mapping assumes."""
-        expected = cap_render.SPHERE_R * np.radians(90.0 - 78.0)
+        expected = bodies.EARTH.aeqd_radius_m * np.radians(90.0 - 78.0)
         assert cap_render.NORTH.edge_m == pytest.approx(expected)
         assert cap_render.SOUTH.edge_m == pytest.approx(expected)  # |−78| — same disc
 
@@ -52,20 +53,22 @@ class TestLonlatGrid:
     def test_latitude_matches_the_linear_radius_law(self):
         """Independent oracle: on a spherical pole-centred AEQD, latitude at radius rho
         is exactly 90° − degrees(rho / R). Sample centre and edge pixels of a 9-px grid."""
-        grid_9px = cap_render.CapGrid(lat_0=90.0, edge_lat=78.0, px=9, name="tiny", az_sign=-1.0)
+        grid_9px = cap_render.CapGrid(lat_0=90.0, edge_lat=78.0, px=9, name="tiny", az_sign=-1.0,
+                                   body=bodies.EARTH)
         longitude, latitude = cap_render._lonlat_grid(grid_9px)
         cell = 2 * grid_9px.edge_m / 9
         for row, col in ((4, 4), (4, 8), (0, 4), (8, 8)):
             x = -grid_9px.edge_m + (col + 0.5) * cell
             y = grid_9px.edge_m - (row + 0.5) * cell
             rho = np.hypot(x, y)
-            expected_lat = 90.0 - np.degrees(rho / cap_render.SPHERE_R)
+            expected_lat = 90.0 - np.degrees(rho / bodies.EARTH.aeqd_radius_m)
             assert latitude[row, col] == pytest.approx(expected_lat, abs=0.01)
 
     def test_longitude_orientation(self):
         """x = rho*sin(lon), y = −rho*cos(lon) for the north grid (the convention
         polarCaps.ts mirrors in its UV math): the right-centre pixel sits at lon ≈ +90."""
-        grid_9px = cap_render.CapGrid(lat_0=90.0, edge_lat=78.0, px=9, name="tiny", az_sign=-1.0)
+        grid_9px = cap_render.CapGrid(lat_0=90.0, edge_lat=78.0, px=9, name="tiny", az_sign=-1.0,
+                                   body=bodies.EARTH)
         longitude, _latitude = cap_render._lonlat_grid(grid_9px)
         assert longitude[4, 8] == pytest.approx(90.0, abs=0.1)   # +x axis -> 90E
         assert longitude[8, 4] == pytest.approx(0.0, abs=0.1)    # bottom-centre (-y) -> lon 0
@@ -76,7 +79,8 @@ class TestShade:
     def test_flat_ground_shades_uniformly_whatever_the_azimuth(self):
         """Zero slope makes the per-pixel rotated azimuth irrelevant — flat terrain must
         come out one constant DN across the whole disc (and deterministically so)."""
-        grid_8px = cap_render.CapGrid(lat_0=90.0, edge_lat=78.0, px=8, name="tiny", az_sign=-1.0)
+        grid_8px = cap_render.CapGrid(lat_0=90.0, edge_lat=78.0, px=8, name="tiny", az_sign=-1.0,
+                                   body=bodies.EARTH)
         heights = np.zeros((8, 8), dtype=np.float32)
         longitude = np.linspace(-180.0, 180.0, 64, dtype=np.float32).reshape(8, 8)
         shaded = cap_render._shade(grid_8px, heights, longitude)
@@ -182,7 +186,8 @@ def _tiny_cap(monkeypatch, tmp_path, cap_px: int, elev_px: int) -> cap_render.Ca
     monkeypatch.setattr(cap_render, "CAPS_DIR", tmp_path)
     monkeypatch.setattr(cap_render, "CAP_PX", cap_px)
     monkeypatch.setattr(cap_render, "CAP_ELEV_PX", elev_px)
-    return cap_render.CapGrid(lat_0=90.0, edge_lat=78.0, px=cap_px, name="tiny", az_sign=-1.0)
+    return cap_render.CapGrid(lat_0=90.0, edge_lat=78.0, px=cap_px, name="tiny", az_sign=-1.0,
+                              body=bodies.EARTH)
 
 
 #: WEBP write support in the GDAL this box has. The cap pipeline cannot run at all without it, so

@@ -1776,6 +1776,38 @@ SABOTAGES: list[Sabotage] = [
         replacement='    return bodies.work_dir(resolve_body(args), "planet_tiles")',
         guard='test_an_explicit_out_still_wins_over_the_body_s_default',
     ),
+    # --- The caps' body facts ------------------------------------------------------------------------
+    # The AEQD sphere moved onto the body. Both mutations below leave caps that render, project and
+    # blend — one records a radius nothing checks, the other gates a ~14 GB render on fields that
+    # cannot move a pixel. Neither is visible in any output.
+    Sabotage(
+        suite='python',
+        label='the whole Body is inlined in the cap recipe, gating a 14 GB render on tile_max_zoom',
+        path='pipeline/tile/cap_render.py',
+        needle='    fields = {key: value for key, value in asdict(grid).items() if key != "body"}',
+        replacement='    fields = dict(asdict(grid))',
+        guard='test_the_whole_body_is_not_inlined',
+    ),
+    # And the other direction: the radius drops out of the recipe, which is the state it was in
+    # before this change — a module constant that reached no sidecar, so moving it left caps fresh.
+    Sabotage(
+        suite='python',
+        label='the AEQD radius drops out of the recipe, so moving it leaves both caps falsely fresh',
+        path='pipeline/tile/cap_render.py',
+        needle='    fields["aeqd_radius_m"] = grid.body.aeqd_radius_m\n',
+        replacement='',
+        guard='test_the_projection_radius_is_recorded',
+    ),
+    # The two spheres collapse into one. 7 km apart, so the cap still projects and still blends —
+    # it simply lands on a different parallel than the tiles it feathers into.
+    Sabotage(
+        suite='python',
+        label='the AEQD sphere is collapsed onto the Mercator one, moving the cap off its parallel',
+        path='pipeline/bodies.py',
+        needle='    aeqd_radius_m=6371000.0,',
+        replacement='    aeqd_radius_m=6378137.0,',
+        guard='test_a_body_carries_two_distinct_radii_and_they_are_not_interchangeable',
+    ),
     # --- The portrait fill rung ----------------------------------------------------------------
     # A rung names the LONG EDGE while `srcset` selects on WIDTH, so these mutations all produce a
     # ladder that is correct for landscape and silently two rungs short for portrait — which is the

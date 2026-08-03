@@ -182,3 +182,26 @@ def test_served_assets_follow_the_checkout_not_the_data_store() -> None:
 def test_a_served_stage_name_cannot_escape_either(stage: str) -> None:
     with pytest.raises(ValueError):
         bodies.public_dir(bodies.EARTH, stage)
+
+
+def test_a_body_carries_two_distinct_radii_and_they_are_not_interchangeable() -> None:
+    """Mercator and AEQD are different projections on different spheres, by construction.
+
+    THE PROJECT ALREADY CARRIES A WARNING ABOUT COLLAPSING THESE. Three radii are in play: Web
+    Mercator's 6378137 (the tile grid), the caps' AEQD sphere at 6371000, and MapLibre's own globe
+    radius at 6371008.8 on the frontend. The last two are 8.8 m apart, which is precisely why they
+    must stay separate — the cap is drawn on one and blended against tiles drawn on another, and
+    collapsing them puts the seam that far out. A single `radius_m` field would invite exactly that.
+    """
+    assert bodies.EARTH.aeqd_radius_m != bodies.EARTH.mercator_radius_m
+    assert bodies.EARTH.aeqd_radius_m == 6371000.0
+
+
+def test_the_cap_module_no_longer_carries_its_own_sphere_radius() -> None:
+    """Anti-regrowth, same shape as the render package's scan."""
+    from pipeline.tile import cap_render
+
+    source = Path(cap_render.__file__).read_text(encoding="utf-8")  # pyright: ignore[reportArgumentType]
+    assert "6371000" not in source, (
+        "cap_render has regrown a hard-coded AEQD sphere radius — it belongs to the body"
+    )

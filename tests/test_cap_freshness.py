@@ -4,8 +4,10 @@ adrift. The guard is a recipe sidecar built on
 shade_planet.composite_params (one recipe home) plus source-mtime comparison.
 """
 
+import json
 import os
 
+from pipeline import bodies
 from pipeline.tile import cap_render
 from pipeline.tile.shade import KNOBS
 
@@ -118,3 +120,35 @@ class TestCapSources:
         sources = cap_render.cap_sources(cap_render.SOUTH)
         assert not any(str(cap_render.snow.SP_NC) in str(source) for source in sources)
         assert cap_render.COAST_SHP not in sources
+
+
+class TestTheRecipeTracksTheBodyNarrowly:
+    """A cap's recipe must carry every body fact that moves a pixel and no body fact that cannot.
+
+    BOTH DIRECTIONS ARE SILENT, which is why they need a guard rather than a convention.
+    Under-tracking leaves the caps falsely fresh against a change that did move them — the AEQD
+    radius was in exactly that state, a module constant that reached no recipe at all. Over-tracking
+    binds a ~14 GB render to fields like `tile_max_zoom`, so an unrelated edit quietly buys a full
+    re-render. Neither shows up as a failure; one ships a stale cap, the other burns an hour.
+    """
+
+    def test_the_projection_radius_is_recorded(self):
+        recipe = json.loads(cap_render.cap_recipe(cap_render.NORTH))
+        assert recipe["grid"]["aeqd_radius_m"] == bodies.EARTH.aeqd_radius_m
+
+    def test_the_whole_body_is_not_inlined(self):
+        recipe = json.loads(cap_render.cap_recipe(cap_render.NORTH))
+        assert "body" not in recipe["grid"], (
+            "the Body object is inlined in the cap recipe — a change to any of its fields, including "
+            "ones that cannot move a cap pixel, would restage both caps"
+        )
+        for irrelevant in ("tile_max_zoom", "path_prefix", "mercator_radius_m"):
+            assert irrelevant not in recipe["grid"], (
+                f"{irrelevant} cannot change a cap pixel and must not gate a cap render"
+            )
+
+    def test_both_recipes_agree_on_how_a_grid_is_serialised(self):
+        """They were briefly patched separately, which is how a fix lands in one and not the other."""
+        elev = json.loads(cap_render.cap_elev_recipe(cap_render.NORTH))
+        full = json.loads(cap_render.cap_recipe(cap_render.NORTH))
+        assert elev["grid"] == full["grid"]

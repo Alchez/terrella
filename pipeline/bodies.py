@@ -52,6 +52,14 @@ class Body:
     #: the per-row hillshade z-factor, both of which must agree with whatever radius the raster was
     #: warped with. Mixing two radii yields a latitude-varying error that renders plausibly.
     mercator_radius_m: float
+    #: Sphere radius for the polar caps' azimuthal-equidistant projection, in metres.
+    #:
+    #: A SECOND RADIUS, AND DELIBERATELY NOT THE FIRST. Three are in play on Earth: Web Mercator's
+    #: 6378137 (the tile grid), this AEQD sphere at 6371000, and MapLibre's own globe radius of
+    #: 6371008.8 on the frontend. The last two sit 8.8 m apart, and that gap is load-bearing — the
+    #: cap texture is projected on one and blended against tiles drawn on another, so collapsing
+    #: them puts the polar seam exactly that far out. One `radius_m` field would invite the collapse.
+    aeqd_radius_m: float
     #: Vertical exaggeration the relief is drawn at, shared by the hero scene and the tile shading.
     #:
     #: A look constant rather than a physical one: it is chosen so the planet reads well, and it is
@@ -77,6 +85,8 @@ EARTH = Body(
     name="earth",
     # Web Mercator's sphere. Duplicated today in render/hillshade.py and render/snow.py.
     mercator_radius_m=6378137.0,
+    # The caps' AEQD sphere. NOT the Mercator one above, and not MapLibre's globe radius.
+    aeqd_radius_m=6371000.0,
     # Duplicated today in render/palette.py, which the hero scene imports directly.
     exaggeration=15.0,
     # Duplicated today in tile/shade_planet.py's TILE_CUT and compose/countries_pmtiles.py.
