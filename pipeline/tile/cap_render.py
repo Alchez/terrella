@@ -50,7 +50,7 @@ import rasterio
 from pyproj import Transformer
 from scipy.ndimage import binary_dilation
 
-from pipeline import paths
+from pipeline import bodies, paths
 from pipeline.render import hillshade, lake_depth, seaice, snow
 from pipeline.tile import shade, terrain_rgb
 from pipeline.tile.shade import KNOBS
@@ -58,8 +58,12 @@ from pipeline.tile.shade_planet import (ALT, AZ, CAP_NORTH, CAP_SOUTH, EXAG, PLA
                                         composite_params)
 
 ROOT = paths.ROOT
-WORK = ROOT / "data/work/cap"
-CAPS_DIR = ROOT / "web/public/caps"  # production home (was dev-assets/ behind ?polarspike)
+# Both resolved through the body registry, so a second planet cannot land its caps on Earth's.
+# The recipe sidecars below (cap_<name>_params.json) therefore need NO body field: they are already
+# body-specific by being different files, and adding one would restage a render that peaks ~14.3 GB
+# to emit identical pixels. WORK also picks up the MAPS_DATA seam that `ROOT / "data/..."` bypassed.
+WORK = bodies.work_dir(bodies.EARTH, "cap")
+CAPS_DIR = bodies.public_dir(bodies.EARTH, "caps")  # production home (was dev-assets/ behind ?polarspike)
 CAP_PX = 8192          # square texture side (south is a bigger disc -> coarser per px). 8192 chosen
                        # by eye (crop A/B + /globe): visibly crisper coast/pack/sastrugi
                        # at deep pole zoom; 3.2+2.1 MB WebP

@@ -61,14 +61,16 @@ class Body:
     #: Deepest zoom the tile pyramids are cut to. Bounds the raster and vector cuts together — they
     #: must agree, or the layers stop at different zooms and the overlay drifts off its basemap.
     tile_max_zoom: int
-    #: Directory segment this body's intermediates nest under, inside `data/work/`.
+    #: Directory segment this body's outputs nest under — BOTH its `data/work/` intermediates and
+    #: its served assets under `web/public/`. One prefix for both, because a body that nested its
+    #: intermediates one way and its published files another is two conventions to remember.
     #:
     #: EARTH'S IS DELIBERATELY EMPTY, and that asymmetry is a measured decision rather than an
     #: oversight. `data/work/planet_tiles` already holds 97 GB including the live pyramid; moving it
     #: under a new segment would make every stage read as missing and re-derive the whole planet —
     #: a full composite and cut, ~26 minutes — to produce pixels identical to the ones sitting there.
     #: A second body pays no such cost, so it nests properly from the start.
-    work_prefix: str
+    path_prefix: str
 
 
 EARTH = Body(
@@ -80,7 +82,7 @@ EARTH = Body(
     # Duplicated today in tile/shade_planet.py's TILE_CUT and compose/countries_pmtiles.py.
     tile_max_zoom=8,
     # Empty on purpose — see the field's note. Earth's intermediates stay exactly where they are.
-    work_prefix="",
+    path_prefix="",
 )
 
 
@@ -104,6 +106,23 @@ def get(name: str) -> Body:
         raise KeyError(f"unknown body {name!r}; known bodies are: {known}") from None
 
 
+def _require_directory_name(stage: str) -> None:
+    """A stage is a single directory name, never a path expression.
+
+    ONE COPY, shared by both resolvers. It was briefly written out twice, and the mutation harness's
+    freshness gate caught it within seconds — a duplicated guard is the same drift this whole module
+    exists to remove, and it would have let one resolver be hardened while the other was not.
+
+    Without it, a stage assembled by concatenation could walk out of this body's tree and land in
+    another's, which is the one place a mistake here stops being wrong and becomes unrecoverable.
+    """
+    if not stage or "/" in stage or "\\" in stage or stage in {".", ".."}:
+        raise ValueError(
+            f"stage must be a single directory name, got {stage!r} — "
+            "compose nested paths from the returned directory instead"
+        )
+
+
 def work_dir(body: Body, stage: str) -> Path:
     """Where one body's `stage` intermediates live, under `data/work/`.
 
@@ -119,10 +138,21 @@ def work_dir(body: Body, stage: str) -> Path:
     concatenation could otherwise walk out of this body's tree and land in another's — the single
     place a mistake here stops being wrong and starts being unrecoverable.
     """
-    if not stage or "/" in stage or "\\" in stage or stage in {".", ".."}:
-        raise ValueError(
-            f"stage must be a single directory name, got {stage!r} — "
-            "compose nested paths from the returned directory instead"
-        )
+    _require_directory_name(stage)
     # An empty prefix collapses, which is what keeps Earth on its historical layout.
-    return paths.DATA / "work" / body.work_prefix / stage
+    return paths.DATA / "work" / body.path_prefix / stage
+
+
+def public_dir(body: Body, stage: str) -> Path:
+    """Where one body's SERVED assets live, under `web/public/`.
+
+    A separate root from `work_dir`, and deliberately so. `paths.py` draws this line: intermediates
+    follow the data store (relocatable via `MAPS_DATA`), while anything the site actually ships must
+    follow the CHECKOUT, because the build reads it from there. Collapsing the two would make a
+    relocated data store silently publish nothing.
+
+    Earth's assets keep their exact URLs — `/caps/caps.json` is a contract the frontend fetches, and
+    an empty prefix is what stops a second body rewriting it. Mars nests one level in.
+    """
+    _require_directory_name(stage)
+    return paths.ROOT / "web/public" / stage / body.path_prefix

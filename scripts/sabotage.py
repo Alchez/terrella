@@ -1705,7 +1705,7 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label='the work prefix is dropped, so every body writes into Earth\'s own directories',
         path='pipeline/bodies.py',
-        needle='    return paths.DATA / "work" / body.work_prefix / stage',
+        needle='    return paths.DATA / "work" / body.path_prefix / stage',
         replacement='    return paths.DATA / "work" / stage',
         guard='test_another_body_nests_under_its_own_name',
     ),
@@ -1718,6 +1718,27 @@ SABOTAGES: list[Sabotage] = [
         needle='    if not stage or "/" in stage or "\\\\" in stage or stage in {".", ".."}:',
         replacement='    if False:',
         guard='test_a_stage_name_cannot_escape_the_body_s_own_directory',
+    ),
+    # --- The caps' two roots -------------------------------------------------------------------------
+    # Intermediates follow the data store, served assets follow the checkout. Collapsing them is
+    # silent in every local run, because on an unrelocated checkout the two roots coincide.
+    Sabotage(
+        suite='python',
+        label='served assets are resolved against the data store, so a relocated store publishes nothing',
+        path='pipeline/bodies.py',
+        needle='    return paths.ROOT / "web/public" / stage / body.path_prefix',
+        replacement='    return paths.DATA / "web/public" / stage / body.path_prefix',
+        guard='test_served_assets_follow_the_checkout_not_the_data_store',
+    ),
+    # The prefix moves to the wrong side of the stage: Earth is unaffected (its prefix is empty), so
+    # this ships green and only a second body finds its caps published at the wrong URL.
+    Sabotage(
+        suite='python',
+        label='the caps prefix is applied above the stage, publishing a second body at the wrong URL',
+        path='pipeline/bodies.py',
+        needle='    return paths.ROOT / "web/public" / stage / body.path_prefix',
+        replacement='    return paths.ROOT / "web/public" / body.path_prefix / stage',
+        guard='test_a_second_body_publishes_under_its_own_segment',
     ),
     # --- The portrait fill rung ----------------------------------------------------------------
     # A rung names the LONG EDGE while `srcset` selects on WIDTH, so these mutations all produce a

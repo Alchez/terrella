@@ -101,7 +101,7 @@ def test_earth_keeps_its_existing_unprefixed_work_paths() -> None:
     THE REASON IS MEASURED, NOT AESTHETIC. `data/work/planet_tiles` currently holds 97 GB including
     the live pyramid. Relocating it would make every stage read as missing and re-derive the planet
     — a full composite and cut, ~26 minutes — to produce pixels identical to the ones already there.
-    So Earth carries an empty `work_prefix` and a second body nests under its own name.
+    So Earth carries an empty `path_prefix` and a second body nests under its own name.
     """
     assert bodies.work_dir(bodies.EARTH, "planet_tiles") == paths.DATA / "work/planet_tiles"
     assert bodies.work_dir(bodies.EARTH, "planet") == paths.DATA / "work/planet"
@@ -114,13 +114,13 @@ def test_another_body_nests_under_its_own_name() -> None:
     `composite_params.json` at its own path, so the params file is already body-specific and adding
     a body key inside it would only invalidate Earth's correct output.
     """
-    other = dataclasses.replace(bodies.EARTH, name="mars", work_prefix="mars")
+    other = dataclasses.replace(bodies.EARTH, name="mars", path_prefix="mars")
     assert bodies.work_dir(other, "planet_tiles") == paths.DATA / "work/mars/planet_tiles"
 
 
-def test_no_two_bodies_share_a_work_prefix() -> None:
+def test_no_two_bodies_share_a_path_prefix() -> None:
     """One shared prefix is one planet silently overwriting another's intermediates."""
-    prefixes = [body.work_prefix for body in bodies.BODIES.values()]
+    prefixes = [body.path_prefix for body in bodies.BODIES.values()]
     assert len(prefixes) == len(set(prefixes))
 
 
@@ -134,3 +134,29 @@ def test_a_stage_name_cannot_escape_the_body_s_own_directory(stage: str) -> None
     """
     with pytest.raises(ValueError):
         bodies.work_dir(bodies.EARTH, stage)
+
+
+def test_earth_keeps_the_served_cap_urls_the_frontend_already_fetches() -> None:
+    """`/caps/caps.json` is a shipped contract; a prefix here would break it silently at runtime."""
+    assert bodies.public_dir(bodies.EARTH, "caps") == paths.ROOT / "web/public/caps"
+
+
+def test_a_second_body_publishes_under_its_own_segment() -> None:
+    other = dataclasses.replace(bodies.EARTH, name="mars", path_prefix="mars")
+    assert bodies.public_dir(other, "caps") == paths.ROOT / "web/public/caps/mars"
+
+
+def test_served_assets_follow_the_checkout_not_the_data_store() -> None:
+    """The two roots must not be collapsed.
+
+    Intermediates are relocatable via MAPS_DATA; published assets are read by the site build from
+    the checkout. One root for both means a relocated data store publishes nothing, silently.
+    """
+    assert paths.ROOT in bodies.public_dir(bodies.EARTH, "caps").parents
+    assert paths.DATA in bodies.work_dir(bodies.EARTH, "cap").parents
+
+
+@pytest.mark.parametrize("stage", ["", "/absolute", "../escape"])
+def test_a_served_stage_name_cannot_escape_either(stage: str) -> None:
+    with pytest.raises(ValueError):
+        bodies.public_dir(bodies.EARTH, stage)
