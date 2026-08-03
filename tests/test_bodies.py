@@ -609,3 +609,118 @@ def test_the_sky_view_is_sized_and_searched_in_ground_metres(monkeypatch, tmp_pa
     assert handed["search_res"] == pytest.approx(earth["search_res"]
                                                  * (bodies.MARS.map_units_per_pixel * ratio)
                                                  / bodies.EARTH.map_units_per_pixel)
+
+
+def test_every_body_names_only_surface_layers_the_pipeline_knows() -> None:
+    """A typo in a layer name turns that layer OFF, silently — the same failure the field closes.
+
+    Nothing else would notice: the composite would skip a warp, the recipe would record a layer
+    nobody recognises, and the planet would render one product short with every gate green.
+    """
+    for body in bodies.BODIES.values():
+        unknown = body.surface_layers - bodies.SURFACE_LAYERS
+        assert not unknown, (
+            f"{body.name} declares {sorted(unknown)}, which no stage builds — the vocabulary is "
+            f"{sorted(bodies.SURFACE_LAYERS)}, and an unrecognised name reads as a layer switched off"
+        )
+
+
+def test_earth_has_every_surface_layer_and_the_second_body_has_none() -> None:
+    """Earth is the reference body, so its set is what "all of them" means. Mars's emptiness is the
+    whole point of the field and is a statement about our DATA, not about the planet."""
+    assert bodies.EARTH.surface_layers == bodies.SURFACE_LAYERS
+    assert bodies.MARS.surface_layers == frozenset()
+
+
+def test_a_layer_is_refused_for_a_body_that_does_not_declare_it_even_though_earths_file_is_there(
+        capsys) -> None:
+    """THE BUG THIS PHASE EXISTS TO CLOSE, stated as an executable claim.
+
+    Every source behind these layers is a module constant at one global path, so `.exists()` asks
+    "have we downloaded Earth's data" — which is True for every body on a build box that has it.
+    A gate that checked the file first would let Mars through on Earth's NSIDC snow, warp it onto
+    Mars's grid at the same latitudes and composite it: snow in the north, none in the south, no
+    error raised, and a planet that looks entirely reasonable.
+
+    So this asserts the refusal WHILE the file is present. A test that deleted the source first
+    would pass against the broken gate too, which is the whole trap.
+    """
+    from pipeline.render import snow
+
+    assert snow.SP_NC.exists(), (
+        "this test is vacuous without Earth's snow source on disk — it exists to prove the body is "
+        "asked BEFORE the filesystem, and with the file absent both orders refuse"
+    )
+    assert shade_planet.layer_is_buildable(bodies.EARTH, "snow", snow.SP_NC, "no snow") is True
+    assert shade_planet.layer_is_buildable(bodies.MARS, "snow", snow.SP_NC, "no snow") is False
+    assert "mars declares no snow layer" in capsys.readouterr().out
+
+
+def test_the_composite_recipe_records_only_the_layers_that_are_off() -> None:
+    """The conditional-record idiom again, and here it is load-bearing rather than tidy.
+
+    An unbuilt raster is SILENTLY not a dependency — `newest_mtime` scores a missing path 0.0 and
+    `composite_deps` lists all four unconditionally — so turning a layer off would otherwise leave
+    the old composite, painted with that layer, looking perfectly fresh. Earth has every layer, so
+    its list is empty and nothing is written: the live 46 GB composite cannot restage.
+    """
+    earth = json.loads(shade_planet.composite_params({None: None}, bodies.EARTH))
+    assert "layers_off" not in earth, (
+        "Earth's composite recipe grew a key for a body that omits nothing — the live sidecar on "
+        "disk does not have it, so the whole pyramid just went stale for no pixel change"
+    )
+    mars = json.loads(shade_planet.composite_params({None: None}, bodies.MARS))
+    assert mars["layers_off"] == sorted(bodies.SURFACE_LAYERS)
+
+
+def _southern_window(body: bodies.Body, persistence: "np.ndarray | None"):
+    """One synthetic composite window over land at ~70 degrees south, where the Antarctic patch
+    fires. All land, no ocean: the patch's other term is `land`, so a sea-less body is exactly the
+    case that would come out entirely white."""
+    from rasterio.windows import Window
+
+    rows, cols = 8, 16
+    zeros = np.zeros((rows, cols), dtype=np.float32)
+    return shade_planet._WindowInputs(
+        win=Window(0, 0, cols, rows),  # pyright: ignore[reportCallIssue]
+        win_h=rows,
+        win_top=-11_000_000.0,   # ~ -68 deg; the whole window sits south of the patch's -60
+        win_bottom=-12_000_000.0,
+        height_win=zeros,
+        ocean_raw=np.zeros((rows, cols), dtype=np.uint8),   # all land
+        watercode=np.zeros((rows, cols), dtype=np.uint8),   # no inland water
+        hs_raw=np.full((rows, cols), 128, dtype=np.uint8),
+        depth_raw=None,
+        persistence_raw=persistence,
+        glacier_raw=None,
+        sea_ice_raw=None,
+        occ_win=zeros,
+        body=body)
+
+
+def test_a_body_without_the_snow_layer_composites_no_snow_at_all() -> None:
+    """Two independent Earth-only rules meet in this window, and both must be off.
+
+    The dataset half: `persistence_raw` was the one read of four with no `.exists()` guard, so a
+    body whose snow layer is off used to die here on a raster that was never built. The rule half:
+    `antarctic_snow_mask` is pure latitude-and-land with no dataset behind it, so nothing on disk
+    could ever switch it off — on a body with no sea, every pixel below 60 south is land, and the
+    southern third of the planet would render solid white.
+    """
+    shared = shade_planet._compute_shared(_southern_window(bodies.MARS, None))
+    assert shared.snow_a.max() == 0.0, (
+        f"a body with no snow layer painted snow (max alpha {shared.snow_a.max()}) — over all-land "
+        "high southern latitudes, which is the Antarctic patch firing on a planet that has none"
+    )
+    assert shared.ice_a is None
+
+
+def test_earth_still_forces_its_antarctic_land_white() -> None:
+    """The companion that shows the guard above can FAIL — without it the assertion would pass on a
+    composite that had simply stopped painting snow for everyone."""
+    persistence = np.zeros((8, 16), dtype=np.float32)  # no measured snow; the patch is the only source
+    shared = shade_planet._compute_shared(_southern_window(bodies.EARTH, persistence))
+    assert shared.snow_a.min() == 1.0, (
+        "Earth stopped forcing its Antarctic land white — NSIDC-0791 is northern-hemisphere-only "
+        "and RGI excludes region 19, so without this patch the continent renders on the tan ramp"
+    )

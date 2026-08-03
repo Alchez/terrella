@@ -130,7 +130,7 @@ class TestFreshness:
 
         from pipeline.tile.shade_planet import composite_params
 
-        assert "shadow_warmth" in json.loads(composite_params({}))["knobs"]
+        assert "shadow_warmth" in json.loads(composite_params({}, bodies.EARTH))["knobs"]
 
     def test_it_is_not_hillshade_only(self):
         """It is consumed by composite(), so a re-tune must restage the composite (~19.6 min),

@@ -86,6 +86,24 @@ work below is legible as *remaining*.
     one wanted: a tile URL for it is refused before any storage is touched, a lookup throws rather
     than borrowing Earth's pyramid, and the deploy preflight demands no object for it.
   - The preflight *enumerates* that registry, so an archive is checked for the day it is published.
+- **Which surface layers a body has is a body fact, not a question about the filesystem.** Snow
+  persistence, glaciers, sea ice and lake depth are declared per planet; Mars declares none.
+  - **The `.exists()` guards that made three of them "optional" could never have worked.** Every one
+    of those sources is a module constant at a single global path, so the check asks "have we
+    downloaded Earth's data" — true on the build box for every body alike. A Mars pass would have
+    warped Earth's northern-hemisphere snow, its glaciers, its sea ice and its lake bathymetry onto
+    Mars's grid *at the same latitudes* and composited them. Snow in the north, none in the south:
+    no error, no missing file, and an entirely plausible planet.
+  - The body is therefore asked **before** the disk, and the Antarctic land-ice patch — pure
+    latitude-and-land, with no dataset behind it that could ever switch it off — rides with the snow
+    layer it patches. Left on, it whitens every piece of land below 60° south, which on a sea-less
+    body is most of one.
+  - Earth declares all four, so its composite recipe is unchanged and its 46 GB of output cannot
+    restage. A body that omits a layer records the omission, because an unbuilt raster is *silently*
+    not a dependency: a missing path scores zero in the mtime comparison.
+  - **Empty is a statement about our data, not about Mars.** It has polar ice and seasonal CO₂
+    frost; we have no product for any of it and the physics is not Earth's. A Phase-2 question, to
+    re-ask with Mars on screen.
 - **The tile shading converts map units to ground metres through the body's own sphere.** Every
   raster here is EPSG:3857 whatever planet the elevations describe, so a slope is a rise in body
   metres over a run in map units — and on Mars a map unit is worth 0.53 of a ground metre, making
@@ -199,8 +217,9 @@ Each with its "or else", because a seam without a failure mode is a preference.
   the planet fuse currently emits into: heightfield, ocean mask, water mask.
   - Or else: mirroring Copernicus's tiling, void-filling and bathymetry fusion for a single
     pre-fused download is inventing work that has no input.
-- **The Earth-only composite layers must become off-switchable, not conditionally patched.** Snow
-  persistence, glaciers, sea ice, lake depth.
+- **The Earth-only layers are off-switchable in the tile composite; the CAP pass still is not.**
+  Snow persistence, glaciers, sea ice and lake depth are declared per body, and the cap render still
+  warps snow and sea ice unconditionally and bakes a Natural Earth coastline.
   - Or else: every one of them is a dataset with no Martian analogue, and a conditional branch
     inside the composite is where the two bodies' looks start diverging by accident.
 - **Keep the tile grid in standard Earth-radius Web Mercator — this is forced, not preferred.** Tile

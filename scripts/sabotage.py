@@ -1930,6 +1930,65 @@ SABOTAGES: list[Sabotage] = [
     # The over-recording direction, which no pixel test can see because no pixel changes. Adding the
     # key marks the live 46 GB chain stale and buys an 8:28 hillshade, a 53.8 min composite and a
     # 3:44 cut, all to write the bytes already on disk.
+    Sabotage(
+        suite='python',
+        label='the layer gate asks the filesystem before it asks the body',
+        path='pipeline/tile/shade_planet.py',
+        needle='    if layer not in body.surface_layers:',
+        replacement='    if layer not in body.surface_layers and not source.exists():',
+        guard='test_a_layer_is_refused_for_a_body_that_does_not_declare_it_even_though_earths_file_is_there',
+    ),
+    # THE ORIGINAL BUG, as the tidy-looking refactor that reintroduces it: two branches that both
+    # print and both return False, collapsed into one condition. It reads as a simplification and it
+    # is a different function — refusing only when the body lacks the layer AND the file is missing,
+    # so on a box that has Earth's data every planet passes. Mars then warps Earth's northern-
+    # hemisphere snow onto its own grid at the same latitudes and paints it: no exception, no
+    # missing file, and a Martian pyramid with a plausible snow line.
+    #
+    # THE FIRST ATTEMPT AT THIS CASE WAS VACUOUS AND THE HARNESS SAID SO. It reordered the two
+    # checks, which changes nothing: both still refuse, so the mutation reproduced no bug and the
+    # guard correctly did not fire. A mutation has to make the subject WRONG, not merely different.
+    Sabotage(
+        suite='python',
+        label='the Antarctic land-ice patch is applied to every body again',
+        path='pipeline/tile/shade_planet.py',
+        needle='    if "snow" in inputs.body.surface_layers:',
+        replacement='    if True:',
+        guard='test_a_body_without_the_snow_layer_composites_no_snow_at_all',
+    ),
+    # A latitude-and-land rule with no dataset behind it, so no file on disk could ever switch it
+    # off. On a body with no sea every pixel below 60 south is land, and the southern third of the
+    # planet renders solid white — while the raster layers all correctly sat out.
+    Sabotage(
+        suite='python',
+        label='the snow read loses the guard its three sibling layers have always had',
+        path='pipeline/tile/shade_planet.py',
+        needle='            persistence_raw=read1_window(persistence_p, win) if persistence_p.exists() else None,',
+        replacement='            persistence_raw=read1_window(persistence_p, win),',
+        guard='test_a_body_with_no_snow_layer_composites_without_the_raster',
+    ),
+    # Caught only end-to-end: the guard lives in a closure inside `composite_planet`, and the
+    # synthetic planet fixture WRITES a persistence raster, so every other test in the suite
+    # exercises the present-file branch and passes with this reverted.
+    Sabotage(
+        suite='python',
+        label="Earth's composite recipe records an empty layers-off list, restaging the pyramid",
+        path='pipeline/tile/shade_planet.py',
+        needle='    layers = {"layers_off": absent} if absent else {}',
+        replacement='    layers = {"layers_off": absent}',
+        guard='test_the_composite_recipe_records_only_the_layers_that_are_off',
+    ),
+    Sabotage(
+        suite='python',
+        label='Earth quietly loses a surface layer it has always composited',
+        path='pipeline/bodies.py',
+        needle='    surface_layers=frozenset({"lake_depth", "snow", "glaciers", "sea_ice"}),',
+        replacement='    surface_layers=frozenset({"lake_depth", "snow", "glaciers"}),',
+        guard='test_earth_has_every_surface_layer_and_the_second_body_has_none',
+    ),
+    # The under-declaring direction: Earth stops painting a product it has, which is a look change
+    # nothing else asserts — the sea ice would simply not be there, and the pass would say so once
+    # in a line of output nobody reads back.
     # --- The look seam ------------------------------------------------------------------------------
     # The ramps' kind-dispatch used to be transcribed in four functions; it is now one resolver over a
     # frozen Look. That is a refactor whose contract is "nothing changes", so its guard is a byte

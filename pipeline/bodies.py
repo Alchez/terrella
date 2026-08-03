@@ -33,6 +33,19 @@ from pathlib import Path
 from pipeline import paths
 
 
+#: The optional layers a body may declare, and the whole vocabulary `Body.surface_layers` may use.
+#:
+#: Each names a raster the composite paints OVER the heightfield, and each comes from a dataset that
+#: describes exactly one planet — Earth. That is why this is a body fact and not, as it looks, a
+#: question of whether a file happens to be on disk: every one of these sources is a module constant
+#: at a fixed global path (`snow.SP_NC`, `snow.RGI_GPKG`, `seaice.SEAICE_SRC`, `lake_depth.LAKE_VRT`),
+#: shared by every body. So an `.exists()` check answers "did we download Earth's data", which is
+#: True on this machine for every planet — and a Mars run would warp Earth's northern-hemisphere snow
+#: onto Mars's grid at the same latitudes and composite it. Snow in the north, none in the south,
+#: entirely plausible, entirely wrong, and nothing raises.
+SURFACE_LAYERS = frozenset({"lake_depth", "snow", "glaciers", "sea_ice"})
+
+
 @dataclass(frozen=True)
 class Body:
     """One planet's geometry and pyramid depth. Frozen: a stage must not be able to retune another.
@@ -125,6 +138,19 @@ class Body:
     #: a full composite and cut, ~26 minutes — to produce pixels identical to the ones sitting there.
     #: A second body pays no such cost, so it nests properly from the start.
     path_prefix: str
+    #: Which of `SURFACE_LAYERS` this body actually has, as a frozenset. Empty is a real answer.
+    #:
+    #: Spelled out per body rather than defaulting to "all of them", so adding a fifth layer is a
+    #: decision for every planet including Earth. `tests/test_bodies.py` refuses a name outside the
+    #: vocabulary — a typo would otherwise turn a layer off silently, which is the same failure this
+    #: field exists to close.
+    #:
+    #: THE ANTARCTIC LAND-ICE RULE RIDES WITH `snow`, and that is not a conflation. The rule exists
+    #: only because the snow dataset has a hole — NSIDC-0791 is northern-hemisphere-only and RGI
+    #: region 19 is excluded — so the continent would render on the tan LAND ramp. It is a patch on
+    #: the snow layer, so a body without that layer has nothing to patch. On a body with no sea it
+    #: would instead whiten every piece of land below 60 degrees south.
+    surface_layers: frozenset[str]
 
 
 EARTH = Body(
@@ -148,6 +174,9 @@ EARTH = Body(
     tile_max_zoom=8,
     # Empty on purpose — see the field's note. Earth's intermediates stay exactly where they are.
     path_prefix="",
+    # All four, written out rather than spelled `SURFACE_LAYERS`: Earth is the reference body, and
+    # "whatever the vocabulary happens to contain" is how it would inherit a fifth layer unexamined.
+    surface_layers=frozenset({"lake_depth", "snow", "glaciers", "sea_ice"}),
 )
 
 
@@ -193,6 +222,16 @@ MARS = Body(
     tile_max_zoom=6,
     # Nests, where Earth's is empty. A second body pays no relocation cost, so it starts correct.
     path_prefix="mars",
+    # NONE OF THEM, and this is the field's whole reason for existing. Every source behind these
+    # layers is an Earth dataset at a fixed global path that IS present on the build box, so the
+    # `.exists()` guards that make them "optional" all answer yes for Mars. Left unstated, a Mars
+    # pass would warp Earth's snow, glaciers, sea ice and lake bathymetry onto Mars's grid at the
+    # same latitudes and paint them — no error, no missing file, and a plausible planet.
+    #
+    # Empty is a statement about our DATA, not about Mars: it has polar ice, seasonal CO2 frost and
+    # its own cryosphere. We have no product for any of it, and the physics is not Earth's, so the
+    # honest answer today is none. That is a Phase-2 question to re-ask with Mars on screen.
+    surface_layers=frozenset(),
 )
 
 

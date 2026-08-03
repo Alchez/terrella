@@ -126,14 +126,14 @@ class TestFreshness:
     exists to prevent."""
 
     def test_snow_curve_is_recorded_in_composite_params(self):
-        params = json.loads(shade_planet.composite_params({}))
+        params = json.loads(shade_planet.composite_params({}, bodies.EARTH))
         assert params["knobs"]["snow_curve"] == "gamma8"
 
     def test_changing_it_changes_the_params(self):
         """Companion: proves the assertion above is load-bearing rather than reading a constant."""
-        before = shade_planet.composite_params({})
+        before = shade_planet.composite_params({}, bodies.EARTH)
         shade.KNOBS["snow_curve"] = "linear"
-        assert shade_planet.composite_params({}) != before
+        assert shade_planet.composite_params({}, bodies.EARTH) != before
 
     def test_snow_curve_is_NOT_hillshade_only(self):
         """It is consumed by composite(), not by the hillshade -- so it must NOT be filtered out.

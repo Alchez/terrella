@@ -15,6 +15,7 @@ NOTHING; varying `window_rows` legitimately may.
 Companion tests prove the guard can fail (a corrupted pixel is caught) and that the serial and
 multi-variant paths never even construct a thread pool.
 """
+import dataclasses
 import math
 import shutil
 from typing import Any, cast
@@ -103,7 +104,7 @@ def _run(work, max_workers, variants=None):
     """Composite the synthetic planet. `max_windows=N_WINDOWS` covers every window while bypassing
     the freshness early-return, so a second run re-composites instead of skipping as fresh."""
     return shade_planet.composite_planet(
-        work, work / "hs_3857.tif", _occ, variants=variants,
+        work, work / "hs_3857.tif", _occ, bodies.EARTH, variants=variants,
         window_rows=WINDOW_ROWS, max_windows=N_WINDOWS, max_workers=max_workers)
 
 
@@ -171,3 +172,29 @@ def test_multivariant_stays_serial_even_with_workers(planet, monkeypatch):
 
 def _forbidden(*args, **kwargs):
     raise AssertionError("ThreadPoolExecutor must not be constructed on this path")
+
+
+def test_a_body_with_no_snow_layer_composites_without_the_raster(planet):
+    """The whole composite must survive a layer its body does not have — driven end to end, because
+    the guard that was missing lives in `read_window`, which no unit test reaches.
+
+    `snow_persistence_3857.tif` was the one read of four with no `.exists()` check, so a body whose
+    snow layer is off died here on a raster nothing ever built. Its three siblings have always read
+    `... if p.exists() else None`; this is snow joining them.
+
+    The fixture WRITES that raster, which is why deleting it is the whole setup: a test run against
+    the complete planet exercises only the present-file branch and would pass with the guard gone.
+
+    Only `surface_layers` is varied. That is the one field this path reads — `work` is passed
+    explicitly, so no path is derived from the body — and varying more would suggest otherwise.
+    """
+    (planet / "snow_persistence_3857.tif").unlink()
+    no_snow = dataclasses.replace(bodies.EARTH, surface_layers=frozenset())
+
+    out = shade_planet.composite_planet(
+        planet, planet / "hs_3857.tif", _occ, no_snow,
+        window_rows=WINDOW_ROWS, max_windows=N_WINDOWS, max_workers=1)
+
+    with rasterio.open(out[None]) as dataset:
+        rgb = dataset.read()
+    assert rgb.shape[0] == 3 and rgb.any(), "the composite produced no pixels without a snow raster"

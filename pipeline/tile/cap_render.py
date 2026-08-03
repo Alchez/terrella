@@ -330,7 +330,7 @@ def cap_recipe(grid: CapGrid) -> str:
                        "coast_rgb": list(COAST_RGB),
                        "asset": {"format": "webp", "quality": CAP_WEBP_QUALITY,
                                  "rungs": list(CAP_RUNGS)},
-                       "composite": json.loads(composite_params({}))},
+                       "composite": json.loads(composite_params({}, grid.body))},
                       sort_keys=True, indent=2)
 
 
