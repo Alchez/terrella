@@ -1604,6 +1604,38 @@ SABOTAGES: list[Sabotage] = [
         replacement='  const midX = spanPx / 2;',
         guard='agrees with the ground-resolution identity, which the ruler never computes',
     ),
+    # --- Hover against a real map ------------------------------------------------------------------
+    # `hoverTracking.test.ts` drives these paths with a FAKE resolve, so it proves the state machine
+    # and cannot see whether the answer is true. These three run the same machine over
+    # queryRenderedFeatures on a rendered globe, which is where "the chip names the wrong country"
+    # actually lives.
+    Sabotage(
+        suite='web',
+        label='viewChanged stops resolving, so a parked pointer keeps naming the country that moved away',
+        path='web/src/lib/hoverTracking.ts',
+        needle='      if (lastPointerPosition === null) return;\n      scheduleResolve();\n    },',
+        replacement='      if (lastPointerPosition === null) return;\n    },',
+        guard='FOLLOWS THE CAMERA under a parked pointer, which is the bug viewChanged exists for',
+    ),
+    # The original defect, restored exactly: hover recomputed on pointer movement alone. It was
+    # invisible for as long as the highlight was an anonymous outline, and became a chip stating a
+    # wrong country by name the moment one was added.
+    Sabotage(
+        suite='web',
+        label='leaving stops clearing the cached point, so the next camera move revives a dead hover',
+        path='web/src/lib/hoverTracking.ts',
+        needle='    pointerLeft() {\n      lastPointerPosition = null;',
+        replacement='    pointerLeft() {',
+        guard='does not revive a hover when the camera moves after the pointer has left',
+    ),
+    Sabotage(
+        suite='web',
+        label='leaving is deferred to a frame, so the chip lingers over empty canvas',
+        path='web/src/lib/hoverTracking.ts',
+        needle='      lastPointerPosition = null;\n      setHovered(null);\n    },',
+        replacement='      lastPointerPosition = null;\n      scheduleFrame(() => setHovered(null));\n    },',
+        guard='clears synchronously when the pointer leaves, with no frame of lingering chip',
+    ),
     # --- The portrait fill rung ----------------------------------------------------------------
     # A rung names the LONG EDGE while `srcset` selects on WIDTH, so these mutations all produce a
     # ladder that is correct for landscape and silently two rungs short for portrait — which is the
