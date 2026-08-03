@@ -5,6 +5,7 @@ Caspian miss, where re-fusing 4 of 540 chunks left every derived raster
 silently stale because the old guard only asked whether the output existed.
 """
 
+import dataclasses
 import json
 import os
 import time
@@ -16,7 +17,7 @@ from rasterio.transform import from_bounds
 
 from pipeline.render import palette, seaice
 from pipeline import bodies
-from pipeline.tile import shade_planet
+from pipeline.tile import cap_render, shade_planet
 
 
 def _age(path, seconds):
@@ -612,3 +613,31 @@ class TestTheBodyIsRequired:
         args = shade_planet.build_parser().parse_args(["--body", "pluto"])
         with pytest.raises(KeyError):
             shade_planet.resolve_body(args)
+
+    def test_the_shade_pass_hands_its_own_body_down_to_the_cap_pass(self, subtests):
+        """The caps run as a SUBPROCESS at the tail of this pass, so the body crosses a process
+        boundary as a string on a command line — the one place the registry cannot protect it.
+
+        Without this, a Mars pass composites Mars and then shells out to a cap render that renders
+        EARTH, into Earth's directories, over Earth's shipped textures. Every stage reports success.
+
+        Written as a round trip rather than as two pinned strings on purpose: it builds the real
+        command and parses it with the real parser on the other side, so renaming the flag on either
+        side fails here instead of at the next multi-body render.
+        """
+        for name in sorted(bodies.BODIES):
+            with subtests.test(name):
+                body = bodies.get(name)
+                command = shade_planet.cap_pass_command(body)
+                module = command.index("pipeline.tile.cap_render")
+                parsed = cap_render.build_parser().parse_args(command[module + 1:])
+                assert bodies.get(parsed.body) is body
+
+        with subtests.test("a body the registry does not know yet"):
+            # THE LOOP ABOVE CANNOT CATCH A HARDCODED "earth" while the registry holds one body —
+            # every assertion in it would pass against a command that ignored its argument entirely.
+            # This is the arm that says the command names the body it was GIVEN, and it is the arm
+            # that will still be doing work on the day a second planet is added.
+            other = dataclasses.replace(bodies.EARTH, name="other", path_prefix="other")
+            command = shade_planet.cap_pass_command(other)
+            assert command[command.index("--body") + 1] == "other"

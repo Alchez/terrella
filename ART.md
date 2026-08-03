@@ -106,7 +106,7 @@ Cost: hero sweep **~10–13 h** + tile restage **~29 min** + caps auto-restage *
 |---|---|---|
 | `CAP_PX` | 8192 (web clamps to `MAX_TEXTURE_SIZE` at runtime) | § Polar caps |
 | `CAP_WEBP_QUALITY` | 85 | § Polar caps |
-| `edge_lat` (NORTH/SOUTH grids) | ±78° | § Polar caps |
+| `edge_lat` (`north_grid` / `south_grid`) | ±78° | § Polar caps |
 
 ### No re-render — compositing / packaging / web (seconds to minutes)
 

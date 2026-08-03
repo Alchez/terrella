@@ -171,6 +171,29 @@ class TestTheGridsAreBuiltPerBody:
                             == cap_render.cap_elev_asset(grid))
 
 
+class TestTheCapPassRequiresABody:
+    """`--body` has no default here for the same reason the shade pass has none.
+
+    A cap is the one output where the wrong sphere is entirely invisible: it projects, it blends,
+    it downsamples to every rung — and it sits on the wrong parallel, feathering into tiles drawn on
+    a different globe. Nothing in the pipeline can report that, and nothing in the picture shows it.
+    """
+
+    def test_omitting_the_body_is_an_error_rather_than_an_assumption(self):
+        with pytest.raises(SystemExit):
+            cap_render.build_parser().parse_args([])
+
+    def test_a_named_body_still_parses_the_pole_and_force_flags(self):
+        """The required argument must not have displaced the flags a pole-look loop actually uses."""
+        args = cap_render.build_parser().parse_args(["--body", "earth", "--north", "--force"])
+        assert (args.body, args.north, args.south, args.force) == ("earth", True, False, True)
+
+    def test_an_unknown_body_is_rejected_by_the_registry_not_silently_accepted(self):
+        args = cap_render.build_parser().parse_args(["--body", "pluto"])
+        with pytest.raises(KeyError):
+            bodies.get(args.body)
+
+
 class TestCapPathsFollowTheBody:
     """Every file a cap reads or writes is located by the grid's own body, not by a module constant.
 

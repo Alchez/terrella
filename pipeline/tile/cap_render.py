@@ -36,7 +36,8 @@ shade_planet.composite_params so caps restage exactly when the tile look does) p
 a fresh cap skips. shade_planet's pass tail invokes this module, so the guard actually runs — with
 nothing invoking it, both caps once sat a full day stale against the look they feather into.
 
-Usage: GDAL_CACHEMAX=512 uv run python -m pipeline.tile.cap_render [--north | --south] [--force]
+Usage: GDAL_CACHEMAX=512 uv run python -m pipeline.tile.cap_render --body earth
+       [--north | --south] [--force]
 """
 import argparse
 import json
@@ -557,8 +558,17 @@ def render_cap_south(grid: CapGrid) -> Path:
     return _write_cap(grid, heights, ocean, water, snow_a, ice_a, hillshade_dn)
 
 
-def main() -> int:
+def build_parser() -> argparse.ArgumentParser:
+    """The CLI, split out of `main` so its contract is testable without rendering a cap."""
     parser = argparse.ArgumentParser(description=(__doc__ or "").split("\n")[0])
+    # REQUIRED, WITH NO DEFAULT, exactly as the shade pass requires it. A cap is the one output
+    # where the wrong sphere leaves no trace: it projects, blends and downsamples to every rung, and
+    # simply sits on a different parallel than the tiles it feathers into. `shade_planet` passes
+    # this through when it invokes the cap pass — the flag name is stated in both places, and
+    # `test_the_shade_pass_hands_its_own_body_down_to_the_cap_pass` is what stops the two drifting.
+    parser.add_argument("--body", required=True,
+                        help=f"which planet these caps are for "
+                             f"({', '.join(sorted(bodies.BODIES))})")
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--north", action="store_true", help="render only the north cap")
     group.add_argument("--south", action="store_true", help="render only the south cap")
@@ -566,12 +576,12 @@ def main() -> int:
                         help="render even when the freshness sidecar says the cap is current")
     parser.add_argument("--elev-only", action="store_true",
                         help="rebuild only the displacement textures, skipping the colour render")
-    args = parser.parse_args()
+    return parser
 
-    # THE LAST EARTH LITERAL IN THIS MODULE, and it is the entry point's alone — everything below
-    # takes the body from the grid it is handed. It becomes a required `--body` next; naming it here
-    # rather than defaulting one inside the resolvers keeps the choice in one visible place.
-    body = bodies.EARTH
+
+def main() -> int:
+    args = build_parser().parse_args()
+    body = bodies.get(args.body)  # raises on an unknown name; never falls back to Earth
 
     for wanted, grid, render in ((not args.south, north_grid(body), render_cap_north),
                                  (not args.north, south_grid(body), render_cap_south)):

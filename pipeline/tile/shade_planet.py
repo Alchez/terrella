@@ -888,6 +888,17 @@ def resolve_body(args: argparse.Namespace) -> bodies.Body:
     return bodies.get(args.body)
 
 
+def cap_pass_command(body: bodies.Body) -> list[str]:
+    """The command that renders this body's polar caps at the tail of a shade pass.
+
+    Built here rather than spelled inline because the body crosses a PROCESS boundary as a string
+    on a command line, which is the one hop the registry cannot type-check. Left off, the cap pass
+    would refuse to start (its `--body` is required too) — which is the failure this shape converts
+    into a hard stop instead of a Mars pass quietly re-rendering Earth's poles.
+    """
+    return [sys.executable, "-m", "pipeline.tile.cap_render", "--body", body.name]
+
+
 def resolve_out(args: argparse.Namespace) -> Path:
     """Where this run writes: the explicit `--out`, else the body's own tile-work directory."""
     return args.out if args.out is not None else bodies.work_dir(resolve_body(args), "planet_tiles")
@@ -925,7 +936,7 @@ def main():
     # import: cap_render imports FROM this module, and the caps' pyproj/scipy stack stays out
     # of the tile pass.
     print("polar caps ...", flush=True)
-    subprocess.run([sys.executable, "-m", "pipeline.tile.cap_render"], check=True)
+    subprocess.run(cap_pass_command(body), check=True)
     print("DONE", flush=True)
 
 

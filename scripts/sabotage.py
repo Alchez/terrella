@@ -1684,8 +1684,12 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label='a Body field gains a default, so a new planet inherits Earth without being asked',
         path='pipeline/bodies.py',
-        needle='    tile_max_zoom: int\n',
-        replacement='    tile_max_zoom: int = 8\n',
+        # THE LAST FIELD, deliberately. Defaulting any earlier one is followed by a field without a
+        # default, so Python refuses the class at import and the module never loads — which reads as
+        # "caught" while leaving the guard itself unexercised. Only a mutation the interpreter
+        # accepts can prove the test does the work.
+        needle='    path_prefix: str\n',
+        replacement='    path_prefix: str = ""\n',
         guard='test_no_field_carries_a_default_so_a_new_one_must_be_decided_per_body',
     ),
     # --- The look seam ------------------------------------------------------------------------------
@@ -1838,6 +1842,36 @@ SABOTAGES: list[Sabotage] = [
         needle='    return bodies.public_dir(body, "caps")',
         replacement='    return bodies.work_dir(body, "caps")',
         guard='test_earth_reads_and_writes_exactly_where_it_always_has',
+    ),
+    # --- The cap pass takes its own body ---------------------------------------------------------
+    # The same argument the shade pass requires, on the entry point that renders the caps. A default
+    # here is worse than one there: the caps are invoked automatically at the shade pass's tail, so
+    # a defaulted body means a Mars pass ends by re-rendering Earth's poles and reporting success.
+    Sabotage(
+        suite='python',
+        label='the cap pass defaults its body, so a Mars pass ends by re-rendering Earth\'s poles',
+        path='pipeline/tile/cap_render.py',
+        needle='    parser.add_argument("--body", required=True,',
+        replacement='    parser.add_argument("--body", default="earth",',
+        guard='test_omitting_the_body_is_an_error_rather_than_an_assumption',
+    ),
+    # The handoff itself. Dropping the flag is loud (the cap pass refuses to start); hardcoding the
+    # name is silent, and stays silent until the day a second body exists.
+    Sabotage(
+        suite='python',
+        label='the shade pass hands the cap pass a hardcoded earth instead of its own body',
+        path='pipeline/tile/shade_planet.py',
+        needle='    return [sys.executable, "-m", "pipeline.tile.cap_render", "--body", body.name]',
+        replacement='    return [sys.executable, "-m", "pipeline.tile.cap_render", "--body", "earth"]',
+        guard='test_the_shade_pass_hands_its_own_body_down_to_the_cap_pass',
+    ),
+    Sabotage(
+        suite='python',
+        label='the shade pass stops passing --body to the cap pass at all',
+        path='pipeline/tile/shade_planet.py',
+        needle='    return [sys.executable, "-m", "pipeline.tile.cap_render", "--body", body.name]',
+        replacement='    return [sys.executable, "-m", "pipeline.tile.cap_render"]',
+        guard='test_the_shade_pass_hands_its_own_body_down_to_the_cap_pass',
     ),
     # --- The grids are built per body ----------------------------------------------------------
     # A factory that ignores its argument is the exact failure the module constants were deleted to
