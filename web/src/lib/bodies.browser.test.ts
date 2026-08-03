@@ -3,7 +3,9 @@ import { afterEach, describe, expect, it } from "vitest";
 import "../styles/global.css";
 import globalCss from "../styles/global.css?raw";
 import baseLayout from "../layouts/Base.astro?raw";
-import { BODIES, bodyFor, type BodySlug } from "./bodies";
+import globePage from "../pages/globe.astro?raw";
+import { BODIES, bodyFor, currentBody, type BodySlug } from "./bodies";
+import { DEEP_SEA } from "./palette";
 
 /**
  * The accent is declared once, per body, and selected by an attribute on `<html>`.
@@ -98,6 +100,51 @@ describe("the layout writes the body onto the element the tokens are declared on
     // against has not quietly gained a default, which would make the check pass and the guard moot.
     expect(baseLayout).toMatch(/\n {2}body: BodySlug;/);
     expect(baseLayout).not.toMatch(/body = ["']/);
+  });
+});
+
+describe("the page resolves which body it draws from that same attribute", () => {
+  it("returns the declared body's descriptor", () => {
+    // One declaration serving both the stylesheet and the script is the point of putting it on
+    // <html>: a `define:vars` would have given the script a body the CSS could not see, and the two
+    // could then disagree about which planet the page is.
+    root.setAttribute("data-body", "earth");
+    expect(currentBody()).toBe(BODIES.earth);
+  });
+
+  it("throws when the layout declared nothing, rather than assuming Earth", () => {
+    root.removeAttribute("data-body");
+    expect(() => currentBody()).toThrow(/no data-body/);
+  });
+
+  it("throws on a body the site cannot draw", () => {
+    root.setAttribute("data-body", "mercury");
+    expect(() => currentBody()).toThrow(/unknown body "mercury"/);
+  });
+});
+
+describe("the globe's space-floor is the body's colour, not a constant", () => {
+  it("paints the background layer from the descriptor", () => {
+    // The layer exists so a gap reads as more of this planet rather than as a hole to space. Wired
+    // to a fixed colour it does the opposite for every body but the one it was written for: Earth's
+    // abyssal teal under a missing Martian tile reads as data loss, which is the exact impression
+    // the layer was added to prevent.
+    expect(globePage).toMatch(
+      /id: "space-floor", type: "background", paint: \{ "background-color": body\.spaceFloor \}/,
+    );
+  });
+
+  it("no longer reaches past the descriptor for the raw palette constant", () => {
+    // Both the import and the use. Leaving the import behind would let the old constant be
+    // reintroduced at a second call site without anything noticing.
+    expect(globePage).not.toContain("DEEP_SEA");
+  });
+
+  it("takes Earth's floor from the pipeline's own stop rather than a third copy of the hex", () => {
+    // palette.ts restates the pipeline's ramp and is pinned against it by tests/test_palette.py.
+    // Retyping the hex here would be a copy with nothing comparing it back to the sea it matches —
+    // which is precisely how WATER_RGB drifted 15% brighter than the surface it was meant to be.
+    expect(BODIES.earth.spaceFloor).toBe(DEEP_SEA);
   });
 });
 

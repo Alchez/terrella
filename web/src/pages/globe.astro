@@ -974,7 +974,7 @@ const PROMOTE_STYLESHEET = "this.media='all'";
     snapshotGlLoss,
     snapshotHasContent,
   } from "../lib/glDiagnostics";
-  import { DEEP_SEA } from "../lib/palette";
+  import { currentBody } from "../lib/bodies";
   // Ids and poles only — the cap MESH and its textures stay behind the dynamic import below.
   // glDiagnostics already pulls these two statically, so this adds nothing to the bundle.
   import { CAP_POLES, capLayerId, deviceClass } from "../lib/polarCaps";
@@ -1134,6 +1134,11 @@ const PROMOTE_STYLESHEET = "this.media='all'";
   // minzoom/maxzoom used to come free from the archive header, which the pmtiles client read
   // before the first tile. Stating them here costs that one round trip back, and they are
   // asserted against the archive by the dev middleware on startup.
+  // Which planet this page draws, resolved ONCE at module scope so a missing or unknown
+  // `data-body` fails here — before a map exists — rather than somewhere inside init where it would
+  // read as a rendering problem.
+  const body = currentBody();
+
   const reliefSource: RasterSourceSpecification = {
     type: "raster",
     tiles: [TILE_URL_TEMPLATE],
@@ -1191,7 +1196,7 @@ const PROMOTE_STYLESHEET = "this.media='all'";
         // Raising `maxTileCacheZoomLevels` does nothing here (tried at 20: still zero
         // substitutes); it sizes a cache the retain path cannot read. Cold tiles take 1.2-1.7 s
         // from R2, so the gap is long enough to see.
-        { id: "space-floor", type: "background", paint: { "background-color": DEEP_SEA } },
+        { id: "space-floor", type: "background", paint: { "background-color": body.spaceFloor } },
         // ...which is why the layer under the map is a colour and this one is the map. One tile,
         // 71 KB, one request. It cannot make the fill faster; it makes a gap the right COLOUR —
         // sandy over land instead of abyssal teal over land, which is what made a slow fill read

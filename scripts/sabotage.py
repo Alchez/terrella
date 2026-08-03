@@ -1895,6 +1895,38 @@ SABOTAGES: list[Sabotage] = [
         replacement='  body = "earth",\n} = Astro.props;',
         guard='takes the body as a required prop with no default',
     ),
+    # --- The globe's floor is a body fact --------------------------------------------------------
+    # `space-floor` exists so a gap in the tiles reads as more of this planet rather than as a hole
+    # to space. Every mutation below leaves a globe that renders perfectly for Earth and is wrong in
+    # a way that looks like slow loading for anything else.
+    Sabotage(
+        suite='web',
+        label='the space-floor goes back to a fixed colour, so every body gets Earth\'s ocean',
+        path='web/src/pages/globe.astro',
+        needle='paint: { "background-color": body.spaceFloor }',
+        replacement='paint: { "background-color": "#47808F" }',
+        guard='paints the background layer from the descriptor',
+    ),
+    # The runtime lookup stops being strict. A page whose layout forgot to declare its body then
+    # draws Earth's sea under its missing tiles and reports nothing.
+    Sabotage(
+        suite='web',
+        label='the page falls back to Earth when no body is declared instead of failing',
+        path='web/src/lib/bodies.ts',
+        needle='  if (slug === undefined) {\n    throw new Error(\n      "<html> carries no data-body: the page\'s layout must declare which body it draws",\n    );\n  }',
+        replacement='  if (slug === undefined) {\n    return BODIES.earth;\n  }',
+        guard='throws when the layout declared nothing, rather than assuming Earth',
+    ),
+    # The imported stop becomes a third hand-typed copy of the hex, with nothing comparing it back
+    # to the sea surface it is supposed to match — the WATER_RGB failure, repeated.
+    Sabotage(
+        suite='web',
+        label="the body's floor colour is retyped instead of imported, and drifts off the ramp",
+        path='web/src/lib/bodies.ts',
+        needle='    spaceFloor: DEEP_SEA,',
+        replacement='    spaceFloor: "#478090",',
+        guard="takes Earth's floor from the pipeline's own stop rather than a third copy of the hex",
+    ),
     # --- The cap pass takes its own body ---------------------------------------------------------
     # The same argument the shade pass requires, on the entry point that renders the caps. A default
     # here is worse than one there: the caps are invoked automatically at the shade pass's tail, so
