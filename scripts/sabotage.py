@@ -1545,6 +1545,97 @@ SABOTAGES: list[Sabotage] = [
         replacement='  justify-content: center;\n  gap: 1.2rem;\n}',
         guard='fits on one row at 320px on the globe',
     ),
+    # --- The globe fixture ------------------------------------------------------------------------
+    # The fixture is the first thing here that instantiates a real map, so everything later built on
+    # it inherits its correctness. Both mutations below produce a fixture that still mounts, still
+    # reaches `load`, and still passes anything that only asks whether a map exists — which is the
+    # shape of failure this whole file exists to make visible.
+    Sabotage(
+        suite='web',
+        label='the fixture container loses its height, so every geometry assertion passes by collapsing',
+        path='web/src/lib/testing/mountGlobe.ts',
+        needle='  container.style.height = `${options.height ?? FIXTURE_HEIGHT_PX}px`;\n',
+        replacement='',
+        guard='builds the map at the size the fixture asked for, not merely a non-zero one',
+    ),
+    # The height mutation was MISSED on its first run, and the miss is the point. The guard asked
+    # only for a non-zero box, and deleting the height still gave one: with no MapLibre stylesheet
+    # injected the canvas flows normally and hands the div a height back. Measured 800x158 where the
+    # fixture declares 800x600 — not a collapse, a silent reframe, which every geometric assertion
+    # built on the fixture would then have been measuring. The guard now pins the declared size.
+    Sabotage(
+        suite='web',
+        label='the fixture quietly mounts mercator, so the globe transform is never the one under test',
+        path='web/src/lib/testing/mountGlobe.ts',
+        needle='projection: { type: "globe" }',
+        replacement='projection: { type: "mercator" }',
+        guard='carries the globe projection the page ships, not the default mercator',
+    ),
+    # --- The ruler's reading, against a real transform ---------------------------------------------
+    # The source guards beside these pin the MECHANISM (per-call transform lookup, one unproject, no
+    # terrain). These pin the OUTCOME, which no source assertion can reach: a reading that is true
+    # and that moves. Every mutation below leaves a ruler that renders a plausible number.
+    Sabotage(
+        suite='web',
+        label='the measured span drifts from the drawn one, so every reading is scaled wrong',
+        path='web/src/lib/scaleRuler.ts',
+        needle='rulerSamplePoints(width, height, spanPx)',
+        replacement='rulerSamplePoints(width, height, spanPx * 2)',
+        guard='agrees with the ground-resolution identity, which the ruler never computes',
+    ),
+    # Both sample points collapse onto one: distance 0, label the em dash. The ruler still renders,
+    # still updates, still never throws — it just stops being a distance.
+    Sabotage(
+        suite='web',
+        label='the two sample points collapse onto one, so the ruler measures nothing at all',
+        path='web/src/lib/scaleRuler.ts',
+        needle='    [midX - spanPx / 2, midY],\n    [midX + spanPx / 2, midY],',
+        replacement='    [midX, midY],\n    [midX, midY],',
+        guard='reports a finite, positive distance at every zoom the globe serves',
+    ),
+    # The span is re-anchored at the viewport edge, which is what MapLibre's own control does and
+    # what this module's header explains it must not: on a globe the left edge is frequently off the
+    # sphere, where unprojecting answers on the plane behind it.
+    Sabotage(
+        suite='web',
+        label='the span is anchored at the viewport edge, off the sphere, like the control we replaced',
+        path='web/src/lib/scaleRuler.ts',
+        needle='  const midX = width / 2;',
+        replacement='  const midX = spanPx / 2;',
+        guard='agrees with the ground-resolution identity, which the ruler never computes',
+    ),
+    # --- Hover against a real map ------------------------------------------------------------------
+    # `hoverTracking.test.ts` drives these paths with a FAKE resolve, so it proves the state machine
+    # and cannot see whether the answer is true. These three run the same machine over
+    # queryRenderedFeatures on a rendered globe, which is where "the chip names the wrong country"
+    # actually lives.
+    Sabotage(
+        suite='web',
+        label='viewChanged stops resolving, so a parked pointer keeps naming the country that moved away',
+        path='web/src/lib/hoverTracking.ts',
+        needle='      if (lastPointerPosition === null) return;\n      scheduleResolve();\n    },',
+        replacement='      if (lastPointerPosition === null) return;\n    },',
+        guard='FOLLOWS THE CAMERA under a parked pointer, which is the bug viewChanged exists for',
+    ),
+    # The original defect, restored exactly: hover recomputed on pointer movement alone. It was
+    # invisible for as long as the highlight was an anonymous outline, and became a chip stating a
+    # wrong country by name the moment one was added.
+    Sabotage(
+        suite='web',
+        label='leaving stops clearing the cached point, so the next camera move revives a dead hover',
+        path='web/src/lib/hoverTracking.ts',
+        needle='    pointerLeft() {\n      lastPointerPosition = null;',
+        replacement='    pointerLeft() {',
+        guard='does not revive a hover when the camera moves after the pointer has left',
+    ),
+    Sabotage(
+        suite='web',
+        label='leaving is deferred to a frame, so the chip lingers over empty canvas',
+        path='web/src/lib/hoverTracking.ts',
+        needle='      lastPointerPosition = null;\n      setHovered(null);\n    },',
+        replacement='      lastPointerPosition = null;\n      scheduleFrame(() => setHovered(null));\n    },',
+        guard='clears synchronously when the pointer leaves, with no frame of lingering chip',
+    ),
     # --- The portrait fill rung ----------------------------------------------------------------
     # A rung names the LONG EDGE while `srcset` selects on WIDTH, so these mutations all produce a
     # ladder that is correct for landscape and silently two rungs short for portrait — which is the
