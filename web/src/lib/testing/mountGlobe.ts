@@ -65,6 +65,19 @@ export async function mountGlobe(options: MountGlobeOptions = {}): Promise<Mount
   container.style.left = "0";
   document.body.appendChild(container);
 
+  // PRE-FLIGHT, so a GL-less runner says so instead of timing out. MapLibre's own failure here is
+  // late and indirect, and on CI a bare "test timed out" would send the next reader looking at the
+  // assertions rather than at the browser. Measured on the binary CI installs
+  // (`playwright install --only-shell chromium`, HeadlessChrome/151): WebGL2 is present and backed
+  // by SwiftShader through ANGLE/Vulkan — software, deterministic, and exactly what we want here.
+  if (!document.createElement("canvas").getContext("webgl2")) {
+    container.remove();
+    throw new Error(
+      "no WebGL2 context in this runner — the globe fixture cannot mount. " +
+        "Check the browser binary supports GL (CI: playwright install --only-shell chromium).",
+    );
+  }
+
   const map = new maplibregl.Map({
     container,
     style: emptyGlobeStyle(),
