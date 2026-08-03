@@ -1673,6 +1673,29 @@ SABOTAGES: list[Sabotage] = [
         replacement='    tile_max_zoom: int = 8\n',
         guard='test_no_field_carries_a_default_so_a_new_one_must_be_decided_per_body',
     ),
+    # --- The look seam ------------------------------------------------------------------------------
+    # The ramps' kind-dispatch used to be transcribed in four functions; it is now one resolver over a
+    # frozen Look. That is a refactor whose contract is "nothing changes", so its guard is a byte
+    # hash rather than a property — every mutation below leaves ramps that are still monotonic, still
+    # hit their stops, and still agree with gdaldem within 1 DN, which is all the property tests ask.
+    Sabotage(
+        suite='python',
+        label='the look resolver swaps land and sea, repainting the whole planet inside out',
+        path='pipeline/render/palette.py',
+        needle='    if kind == "land":\n        return look.land\n    if kind == "sea":\n        return look.sea',
+        replacement='    if kind == "land":\n        return look.sea\n    if kind == "sea":\n        return look.land',
+        guard='test_gdaldem_ramp_text_is_unchanged',
+    ),
+    # The sea ramp's LUT starts at the abyss, not at 0 m. Dropping the offset leaves a table that is
+    # the right length, the right dtype and the right shape, and wrong at every index.
+    Sabotage(
+        suite='python',
+        label='the sea LUT loses its abyss offset, so every depth reads the wrong colour',
+        path='pipeline/render/palette.py',
+        needle='    base = min(0.0, ramp.extreme_m)\n    colors = ',
+        replacement='    base = 0.0\n    colors = ',
+        guard='test_relief_lut_bytes_are_unchanged',
+    ),
     # --- The portrait fill rung ----------------------------------------------------------------
     # A rung names the LONG EDGE while `srcset` selects on WIDTH, so these mutations all produce a
     # ladder that is correct for landscape and silently two rungs short for portrait — which is the

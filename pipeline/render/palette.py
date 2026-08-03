@@ -19,6 +19,7 @@ for land at 0/6000 m and 85B9B7/3A6E7D for sea at 0/-6000 m; `test_palette.py` g
 against drift off those values.
 """
 
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
@@ -129,6 +130,65 @@ LAKE_STOPS: list[Stop] = [
 ]
 
 
+@dataclass(frozen=True)
+class Surface:
+    """One ramp, and the elevation at which it reaches position 1.0.
+
+    `extreme_m` carries the DIRECTION in its sign, which is what lets land and sea share every
+    formula below instead of each carrying its own transcription: position is `elevation /
+    extreme_m`, so land runs 0 -> +6000 and sea runs 0 -> -6000 with no branch. The elevation a
+    ramp's first LUT index sits at is `min(0, extreme_m)`, which is 0 for land and the abyss for sea.
+    """
+
+    stops: list[Stop]
+    extreme_m: float
+
+
+@dataclass(frozen=True)
+class Look:
+    """Everything the ramps need to draw one planet.
+
+    A LOOK IS NOT A BODY. The body registry owns geometry — how big the sphere is, how deep its
+    pyramid cuts. A look owns colour, and the two are independent: one planet could carry several
+    looks (the parked seasonal/preset idea), and a look says nothing about a radius.
+
+    Frozen and whole, so a second look is a second instance rather than a second module. That is the
+    entire reason this type exists: today every ramp is a module-level global, and a second planet
+    with globals means either copied constants or mutation — and copied look constants have already
+    cost this project one overnight re-render of all 203 heroes.
+    """
+
+    land: Surface
+    sea: Surface
+
+
+#: Terrella's look, assembled from the constants above rather than restating them — those remain
+#: the authored values, and every consumer still reads them directly. This is the seam a second
+#: look plugs into, not a second copy of the first.
+EARTH_LOOK = Look(
+    land=Surface(stops=LAND_STOPS, extreme_m=LAND_MAX_M),
+    sea=Surface(stops=SEA_STOPS, extreme_m=SEA_MIN_M),
+)
+
+
+def surface(kind: str, look: Look = EARTH_LOOK) -> Surface:
+    """Resolve `'land'`/`'sea'` to its ramp.
+
+    THE ONE PLACE THAT DISPATCH LIVES. It used to be transcribed in four functions —
+    `color_relief_rows`, `relief_lut`, `lut_index` and the LUT's own bounds — each independently
+    re-deriving which stops and which range a kind meant. Four copies of one mapping is the shape
+    of drift this file exists to prevent, and it was sitting inside the file itself.
+
+    `look` is defaulted only because nothing selects a look yet; the moment a second one exists it
+    becomes a required argument, for the reason the body registry states.
+    """
+    if kind == "land":
+        return look.land
+    if kind == "sea":
+        return look.sea
+    raise ValueError(f"kind must be 'land' or 'sea', got {kind!r}")
+
+
 def lake_lut(size: int = 256) -> list[RGB8]:
     """`size` sRGB colours sampled uniformly along the lake ramp's 0..1 POSITION axis.
 
@@ -145,18 +205,16 @@ def color_relief_rows(kind: str, step: float = 25.0) -> list[tuple[float, RGB8]]
 
     'land' maps elevation 0..6000 m; 'sea' maps depth -6000..0 m (deepest first). Each
     ramp only has to be correct on its own side — the ocean mask selects between them."""
-    if kind == "land":
-        count = round(LAND_MAX_M / step)
-        return [(i * step, _srgb8(ramp_color(i * step / LAND_MAX_M, LAND_STOPS)))
-                for i in range(count + 1)]
-    if kind == "sea":
-        count = round(-SEA_MIN_M / step)
-        rows = []
-        for i in range(count + 1):
-            elev = SEA_MIN_M + i * step
-            rows.append((elev, _srgb8(ramp_color(-elev / -SEA_MIN_M, SEA_STOPS))))
-        return rows
-    raise ValueError(f"kind must be 'land' or 'sea', got {kind!r}")
+    ramp = surface(kind)
+    count = round(abs(ramp.extreme_m) / step)
+    # Land starts at 0 and climbs; sea starts at the abyss and rises to 0. One expression, because
+    # `extreme_m` carries the direction — see Surface.
+    base = min(0.0, ramp.extreme_m)
+    rows = []
+    for i in range(count + 1):
+        elev = base + i * step
+        rows.append((elev, _srgb8(ramp_color(elev / ramp.extreme_m, ramp.stops))))
+    return rows
 
 
 LUT_STEP_M = 1.0  # LUT resolution in metres. 6001 entries x 3 B = 18 KB per surface.
@@ -177,17 +235,13 @@ def relief_lut(kind: str, step: float = LUT_STEP_M) -> np.ndarray:
     is strictly FINER than the 25 m rows gdaldem interpolates across, so it is if anything the
     more faithful rendering of the authored ramp -- and it is 18 KB.
     """
-    if kind == "land":
-        count = round(LAND_MAX_M / step)
-        colors = [_srgb8(ramp_color(index * step / LAND_MAX_M, LAND_STOPS))
-                  for index in range(count + 1)]
-    elif kind == "sea":
-        count = round(-SEA_MIN_M / step)
-        # index 0 == SEA_MIN_M (deepest), matching color_relief_rows' ordering.
-        colors = [_srgb8(ramp_color(-(SEA_MIN_M + index * step) / -SEA_MIN_M, SEA_STOPS))
-                  for index in range(count + 1)]
-    else:
-        raise ValueError(f"kind must be 'land' or 'sea', got {kind!r}")
+    ramp = surface(kind)
+    count = round(abs(ramp.extreme_m) / step)
+    # index 0 is the extreme end for sea (deepest) and 0 m for land, matching color_relief_rows'
+    # ordering — both fall out of `min(0, extreme_m)` rather than being restated per kind.
+    base = min(0.0, ramp.extreme_m)
+    colors = [_srgb8(ramp_color((base + index * step) / ramp.extreme_m, ramp.stops))
+              for index in range(count + 1)]
     return np.asarray(colors, dtype=np.uint8).T  # (3, N)
 
 
@@ -200,14 +254,9 @@ def lut_index(kind: str, elevation, step: float = LUT_STEP_M) -> np.ndarray:
     ramp, never the sign -- so the land ramp must clamp those to its 0 m colour.
     """
     elevation = np.asarray(elevation, dtype=np.float32)
-    if kind == "land":
-        raw = elevation / np.float32(step)
-        limit = round(LAND_MAX_M / step)
-    elif kind == "sea":
-        raw = (elevation - np.float32(SEA_MIN_M)) / np.float32(step)
-        limit = round(-SEA_MIN_M / step)
-    else:
-        raise ValueError(f"kind must be 'land' or 'sea', got {kind!r}")
+    ramp = surface(kind)
+    raw = (elevation - np.float32(min(0.0, ramp.extreme_m))) / np.float32(step)
+    limit = round(abs(ramp.extreme_m) / step)
     return np.clip(np.rint(raw), 0, limit).astype(np.int32)
 
 
