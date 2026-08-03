@@ -45,9 +45,6 @@ export const COUNTRIES_CONTENT_TYPE = "application/x-protobuf";
  *  codec is exactly the thing a re-cut is allowed to change. */
 export const COUNTRIES_PATH_PREFIX = "countries";
 
-export const COUNTRIES_PATH_TEMPLATE =
-  `${COUNTRIES_PATH_PREFIX}/{z}/{x}/{y}.${COUNTRIES_TILE_EXTENSION}`;
-
 export const COUNTRIES_MIN_ZOOM = 0;
 
 /** Matches the relief pyramid's ceiling, and not by coincidence: the hover outline is judged

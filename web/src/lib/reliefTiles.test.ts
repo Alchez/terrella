@@ -10,7 +10,6 @@ import {
   RELIEF_MIN_ZOOM,
   TILE_CONTENT_TYPE,
   TILE_EXTENSION,
-  TILE_PATH_TEMPLATE,
   assertZoomRange,
   describeTileTypeMismatch,
   parseTilePath,
@@ -25,12 +24,13 @@ describe("the tile encoding", () => {
   it("declares the archive's encoding, and declares it once", () => {
     expect(TILE_EXTENSION).toBe("webp");
     expect(TILE_CONTENT_TYPE).toBe("image/webp");
-    expect(TILE_PATH_TEMPLATE).toBe("{z}/{x}/{y}.webp");
   });
 
-  it("keeps the template, the content type and the parser on the same format", () => {
+  it("keeps the content type and the parser on the same format", () => {
+    // The template that used to be pinned here has moved to tileAddress.ts, which composes this
+    // extension into `{body}/{layer}/{token}/{z}/{x}/{y}.webp` and is pinned there. What is left in
+    // this module is the encoding itself and the parser that must follow it.
     expect(TILE_CONTENT_TYPE).toBe(`image/${TILE_EXTENSION}`);
-    expect(TILE_PATH_TEMPLATE.endsWith(`.${TILE_EXTENSION}`)).toBe(true);
     expect(parseTilePath(tile("/3/4/3"))).not.toBeNull();
   });
 });

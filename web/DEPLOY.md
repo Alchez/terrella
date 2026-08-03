@@ -13,13 +13,22 @@ Only the shell is small enough to ship inside the build, so production is three 
 | Hero renders, border GeoJSON  | R2 bucket `terrella-assets`                |
 | Relief tiles, terrain-RGB DEM | tile Worker (`worker/`) over an R2 binding |
 
-The tile Worker serves **two** archives out of one bucket, told apart by a path prefix:
-`{z}/{x}/{y}.webp` is relief and `terrain/{z}/{x}/{y}.webp` is the Tier-3 elevation pyramid. The
-prefix carries the whole distinction — both are lossless WebP over z0–8 on the same grid, so
-there is nothing else in a tile URL to tell them apart, and serving the wrong one would displace
-the globe rather than fail. Uploading a new archive is `aws --profile r2 --endpoint-url <r2> s3 cp
-<file> s3://terrella-tiles/<key>`, then bump the matching key in `worker/wrangler.jsonc`; a re-cut
-always ships under a **new key**, never an overwrite.
+The tile Worker serves **three** archives out of one bucket, told apart by the address:
+`{body}/{layer}/{token}/{z}/{x}/{y}.{ext}`, where the layer segment is `relief`, `terrain` or
+`countries`. That segment carries the whole distinction between the two raster pyramids — both are
+lossless WebP over z0–8 on the same grid, so there is nothing else in a tile URL to tell them
+apart, and serving the wrong one would displace the globe rather than fail.
+
+Which archive each `{body}/{layer}` resolves to is the registry in `src/lib/tileAddress.ts`, which
+the Worker and the client both compile. Uploading a new archive is `aws --profile r2 --endpoint-url
+<r2> s3 cp <file> s3://terrella-tiles/<key>`, then point that layer's registry entry at the new
+key and regenerate its token with `pnpm check:tile-tokens --write`; a re-cut always ships under a
+**new key**, never an overwrite.
+
+**Ship the tile Worker BEFORE the site.** The token in a tile URL comes from the site bundle, and
+the Worker is what routes it — so a site deployed first advertises addresses the live Worker may
+not answer, and the globe comes up blank. The reverse is harmless: a Worker that understands an
+address nobody is asking for yet costs nothing.
 
 **There are TWO deploys.** `pnpm run deploy` ships the shell only; the tile Worker has its own
 config and its own command. Neither touches the other.

@@ -103,10 +103,10 @@
 | page CSS | **inlined into every document** (`build.inlineStylesheets: 'always'`), so it costs document bytes and no request — 12 KB on the globe, 5 KB on the gallery, uncompressed | dev injects it as `<style>` via Vite instead, which is a different cascade order | same | in the HTML |
 | MapLibre's stylesheet | 70 KB raw, a **non-blocking** `<link media="print">` promoted on load — it styles widgets that cannot exist until the globe chunk has run | same link; dev *also* injects it as `<style>`, so it loads twice | same | `web/dist/_astro/maplibre-gl.*.css` |
 | small chunks (polarCaps, capability probe) | ~3 KB total | same | same | `web/dist/_astro/` |
-| relief tiles | **~36 KB avg/tile** (3.1 GB ÷ 87,381), viewport-driven | `/tiles/{z}/{x}/{y}.webp`, ranged out of the archive by the dev middleware | same URL shape, ranged by the Worker out of R2 — measured: first paint ≈ 40 requests | `planet.pmtiles` |
+| relief tiles | **~36 KB avg/tile** (3.1 GB ÷ 87,381), viewport-driven | `/tiles/earth/relief/{token}/{z}/{x}/{y}.webp`, ranged out of the archive by the dev middleware | same URL shape, ranged by the Worker out of R2 — measured: first paint ≈ 40 requests | `planet_tiles/planet.pmtiles` |
 | polar caps | **desktop 3.2 + 2.1 MB** (8192 rung) · **mobile 1.0 + 0.8 MB** (4096 rung) + `caps.json` (fetched eagerly at globe load, revalidated not cached; decode off-thread) | identical | identical — WebP ships pre-compressed | `web/public/caps/` |
 | `boundary_lines.geojson` | 0.55 MB gz (1.95 MB raw) — **opt-in only**: fetched on the first Borders toggle-on, never by default | uncompressed | edge gzip/brotli | `work/borders/` |
-| country vector tiles | **4 tiles, 175 KB brotli** in the cold window at the default camera (z1 covers the globe; 22–65 KB each, largest 122 KB raw), viewport-driven like the relief tiles | `/countries/{z}/{x}/{y}.mvt`, ranged by the dev middleware, identity bytes | same URL shape, ranged by the Worker out of R2; edge-compressed as text | `planet_countries.pmtiles` |
+| country vector tiles | **4 tiles, 175 KB brotli** in the cold window at the default camera (z1 covers the globe; 22–65 KB each, largest 122 KB raw), viewport-driven like the relief tiles | `/tiles/earth/countries/{token}/{z}/{x}/{y}.mvt`, ranged by the dev middleware, identity bytes | same URL shape, ranged by the Worker out of R2; edge-compressed as text | `planet_countries/countries.pmtiles` |
 | `countries.geojson` | 2.5 MB gz (9.4 MB raw at the 0.002° guard-tested tolerance) — **no longer delivered**: superseded by the vector tiles above, and now only the cut's input | — | — | `work/borders/` |
 | hero variants (gallery srcset + globe click panel) | mean per rung **60 KB / 130 / 222 / 466 / 2,838 / 8,624** (640/960/1280/1920/3840/native WebP) + the portrait fill rung (**2048/2560/3072, 19.0 MB over 25 countries**) + border overlays 0.14–1.1 MB PNG | staged behind an IntersectionObserver past the first two cards; srcset picks the rung, and for a portrait country the rung's WIDTH is `rung × aspect` | same | `blender/renders/variants/` |
 
@@ -119,10 +119,14 @@ Dev–prod differences that matter:
 - **Validators** — the dev store routes send no ETag/Last-Modified, so every dev reload
   re-downloads everything (recorded on the PLAN Lighthouse item); prod sends validators plus
   aggressive cache headers.
-- **Tile source** — one archive either way, and the browser never opens it: it asks for
-  `{z}/{x}/{y}.webp` and a tile server does the ranging (dev middleware locally, a Worker over
-  R2 in production). The extension follows `TILE_EXTENSION` in `web/src/lib/reliefTiles.ts`, which
-  both servers import. The XYZ directory the archive was packed from is not deployed at all.
+- **Tile source** — one archive per layer either way, and the browser never opens any of them: it
+  asks for `{body}/{layer}/{token}/{z}/{x}/{y}.{ext}` and a tile server does the ranging (dev
+  middleware locally, a Worker over R2 in production). Six segments, always — a planet, a layer or
+  a re-cut adds a word to one of the first three and never changes the shape. The token is the
+  archive's own content hash, which is what a re-cut changes: tiles ship `immutable` for a year and
+  a zone purge cannot reach a browser cache, so the URL *is* the version. `web/src/lib/tileAddress.ts`
+  is the one grammar, imported by both servers and by the client that builds the URLs. The XYZ
+  directory the archive was packed from is not deployed at all.
 - `countries.geojson` fetches on every globe load (it drives interactivity); `boundary_lines`
   loads only after the user opts into borders (the source is added lazily on first toggle-on,
   and the stored preference re-adds it on later visits) — async, first paint never waits.

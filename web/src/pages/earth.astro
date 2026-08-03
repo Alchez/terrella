@@ -479,14 +479,7 @@ const PROMOTE_STYLESHEET = "this.media='all'";
   // NOT `import "maplibre-gl/dist/maplibre-gl.css"` — that is what made it render-blocking. The
   // stylesheet is linked non-blocking from this page's frontmatter; see the note beside that link.
   import { manifest, type Country } from "../lib/manifest";
-  import {
-    BORDERS_BASE,
-    COUNTRIES_URL_TEMPLATE,
-    HERO_BASE,
-    TERRAIN_URL_TEMPLATE,
-    TILE_BASE,
-    TILE_URL_TEMPLATE,
-  } from "../lib/assetBase";
+  import { BORDERS_BASE, HERO_BASE, TILE_BASE, tileUrlTemplate } from "../lib/assetBase";
   import { RELIEF_BASE_MAX_ZOOM, RELIEF_MAX_ZOOM, RELIEF_MIN_ZOOM } from "../lib/reliefTiles";
   // The ONE static exemption for the instrument, and it is fifteen lines: the entry buffer has to be
   // raised ahead of `new maplibregl.Map`, which no dynamic import can promise. Everything else that
@@ -723,9 +716,18 @@ const PROMOTE_STYLESHEET = "this.media='all'";
   // read as a rendering problem.
   const body = currentBody();
 
+  // The three tile addresses this page draws from, built HERE rather than read as module constants
+  // — the template needs a body, and there is no such thing as a bodyless tile URL. Resolved
+  // eagerly for the same reason `body` is: an archive this planet does not publish throws now,
+  // beside the declaration that names it, instead of inside a `style.load` handler where a missing
+  // pyramid reads as slow loading.
+  const reliefTileUrlTemplate = tileUrlTemplate(body.slug, "relief");
+  const terrainTileUrlTemplate = tileUrlTemplate(body.slug, "terrain");
+  const countriesTileUrlTemplate = tileUrlTemplate(body.slug, "countries");
+
   const reliefSource: RasterSourceSpecification = {
     type: "raster",
-    tiles: [TILE_URL_TEMPLATE],
+    tiles: [reliefTileUrlTemplate],
     minzoom: RELIEF_MIN_ZOOM,
     maxzoom: RELIEF_MAX_ZOOM,
     tileSize: 256, // 512px assets served @2x for crisp high-DPI shading
@@ -741,7 +743,7 @@ const PROMOTE_STYLESHEET = "this.media='all'";
   // No `attribution`: `relief` already carries CREDITS and MapLibre would render it twice.
   const reliefBaseSource: RasterSourceSpecification = {
     type: "raster",
-    tiles: [TILE_URL_TEMPLATE],
+    tiles: [reliefTileUrlTemplate],
     minzoom: RELIEF_MIN_ZOOM,
     maxzoom: RELIEF_BASE_MAX_ZOOM,
     tileSize: 256,
@@ -1203,7 +1205,7 @@ const PROMOTE_STYLESHEET = "this.media='all'";
     map.on("style.load", () => {
       map.addSource(TERRAIN_SOURCE, {
         type: "raster-dem",
-        tiles: [TERRAIN_URL_TEMPLATE],
+        tiles: [terrainTileUrlTemplate],
         minzoom: TERRAIN_MIN_ZOOM,
         maxzoom: TERRAIN_MAX_ZOOM,
         tileSize: declaredTileSize,
@@ -1764,7 +1766,7 @@ const PROMOTE_STYLESHEET = "this.media='all'";
    *  The per-island hit points are cut into the archive rather than derived here at runtime, which
    *  is why there is no geometry walk left on this path at all. */
   function addCountryTiles() {
-    map.addSource(COUNTRIES_SOURCE, countryTilesSource(COUNTRIES_URL_TEMPLATE));
+    map.addSource(COUNTRIES_SOURCE, countryTilesSource(countriesTileUrlTemplate));
     // Invisible except on hover; a warm silhouette wash so the whole landmass lights up.
     map.addLayer(fillLayer(inScopeFilter, VECTOR_BINDING.fill));
   }

@@ -43,7 +43,8 @@ The rest fails loudly enough to find:
 
 ## What this sim deliberately cannot do
 
-**Relief tiles.** The site asks for one tile per request at `/tiles/{z}/{x}/{y}.webp`, ranged out of
+**Relief tiles.** The site asks for one tile per request at
+`/tiles/{body}/{layer}/{token}/{z}/{x}/{y}.{ext}`, ranged out of
 the PMTiles archive by a tile server — the Astro dev middleware locally, a Worker over R2 in
 production. nginx can be neither, so `/tiles/` returns a `501` that says so rather than letting the
 globe render an unexplained blank sphere. Everything else here is a faithful twin.

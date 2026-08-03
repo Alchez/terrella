@@ -797,14 +797,6 @@ SABOTAGES: list[Sabotage] = [
     ),
     Sabotage(
         suite='web',
-        label='the terrain split matches the prefix anywhere in the path',
-        path='web/src/lib/perf/perfNetwork.ts',
-        needle='path.startsWith(`${TERRAIN_PATH_PREFIX}/`)',
-        replacement='path.includes(TERRAIN_PATH_PREFIX)',
-        guard='does not mistake a relief tile at zoom level named like the prefix',
-    ),
-    Sabotage(
-        suite='web',
         label='an r2-derived cache verdict is revived',
         path='web/src/lib/perf/perfNetwork.ts',
         needle='  traffic.medianNetworkDurationMs = median(networkDurations);',
@@ -2194,6 +2186,46 @@ SABOTAGES: list[Sabotage] = [
         needle='  if (terrain) return { body: LEGACY_BODY, layer: "terrain", token: null, ...terrain };',
         replacement='  if (terrain) return { body: LEGACY_BODY, layer: "relief", token: null, ...terrain };',
         guard='resolves the SAME tile address to two different archives, which is the whole risk',
+    ),
+
+    # --- the client asks the addressed shape, and the instrument reads it -----------------------------
+    # The address only matters if the browser uses it, and the panel that reports on it only means
+    # anything if it reads the same grammar. Both failures are silent by construction: a template built
+    # from the wrong half still renders a globe, and a misclassified tile still shows a plausible count.
+    Sabotage(
+        suite='web',
+        label='the tile template stops carrying the body and the cut',
+        path='web/src/lib/assetBase.ts',
+        needle='  return `${TILE_BASE}${tilePathTemplate(body, layer)}`;',
+        replacement='  return `${TILE_BASE}{z}/{x}/{y}.webp`;',
+        guard='names the body, the layer and the cut in every URL it builds',
+    ),
+    Sabotage(
+        suite='web',
+        label='every layer is addressed at the relief pyramid',
+        path='web/src/lib/assetBase.ts',
+        needle='  return `${TILE_BASE}${tilePathTemplate(body, layer)}`;',
+        replacement='  return `${TILE_BASE}${tilePathTemplate(body, "relief")}`;',
+        guard='rides the SAME base for every layer, because one Worker serves them all',
+    ),
+    # The regression this pass actually found, re-armed. It was live: a `startsWith("terrain/")` test
+    # survived the move to `{body}/{layer}/{token}/…` untouched, so every terrain tile counted as relief
+    # on the one panel whose job is telling those two apart.
+    Sabotage(
+        suite='web',
+        label='the traffic split reads a path prefix instead of the servers\' own parser',
+        path='web/src/lib/perf/perfNetwork.ts',
+        needle='    const slice = traffic[address.layer];',
+        replacement='    const slice = path.startsWith("terrain/") ? traffic.terrain : traffic.relief;',
+        guard='reads the ADDRESSED grammar, which is what the browser now asks for',
+    ),
+    Sabotage(
+        suite='web',
+        label='an entry that parses as no tile is dropped instead of counted',
+        path='web/src/lib/perf/perfNetwork.ts',
+        needle='      traffic.unaddressedCount++;',
+        replacement='',
+        guard='does not mistake a path merely CONTAINING a layer word for that layer',
     ),
 ]
 

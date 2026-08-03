@@ -14,9 +14,6 @@
 export const TILE_EXTENSION = "webp";
 export const TILE_CONTENT_TYPE = "image/webp";
 
-/** Path portion of a tile URL, with MapLibre's placeholders. */
-export const TILE_PATH_TEMPLATE = `{z}/{x}/{y}.${TILE_EXTENSION}`;
-
 /** Zoom range of the packaged pyramid. The source of truth is the PMTiles header; these are a
  *  copy, so that the browser can request its first tile without a round trip to learn them.
  *  assertZoomRange() below is what stops the copy drifting. */

@@ -3,7 +3,7 @@ import {
   COUNTRIES_CONTENT_TYPE,
   COUNTRIES_MAX_ZOOM,
   COUNTRIES_MIN_ZOOM,
-  COUNTRIES_PATH_TEMPLATE,
+  COUNTRIES_PATH_PREFIX,
   COUNTRIES_TILE_EXTENSION,
   COUNTRY_FILL_LAYER,
   COUNTRY_HIT_LAYER,
@@ -83,8 +83,13 @@ describe("assertCountriesZoomRange", () => {
 });
 
 describe("the archive contract the pipeline writes", () => {
-  it("addresses tiles under the prefix MapLibre will interpolate", () => {
-    expect(COUNTRIES_PATH_TEMPLATE).toBe("countries/{z}/{x}/{y}.mvt");
+  it("keeps the prefix its own parser reads, which is the legacy grammar's discriminator", () => {
+    // The prefix no longer appears in anything the browser ASKS for — tileAddress.ts builds those
+    // from `{body}/{layer}/…`, where `countries` is the layer segment. It survives here because
+    // `parseCountriesTilePath` is what still accepts the shape pages built before the switch are
+    // asking for, and it goes when that branch does.
+    expect(COUNTRIES_PATH_PREFIX).toBe("countries");
+    expect(parseCountriesTilePath(`${COUNTRIES_PATH_PREFIX}/3/4/3.mvt`)).toEqual({ z: 3, x: 4, y: 3 });
   });
 
   it("declares protobuf, not an image type", () => {

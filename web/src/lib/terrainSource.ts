@@ -48,9 +48,6 @@ export const TERRAIN_CONTENT_TYPE = "image/webp";
  *  object keys — so this costs no new deploy variable and no second custom domain. */
 export const TERRAIN_PATH_PREFIX = "terrain";
 
-/** Path portion of a terrain tile URL, with MapLibre's placeholders. */
-export const TERRAIN_PATH_TEMPLATE = `${TERRAIN_PATH_PREFIX}/{z}/{x}/{y}.${TERRAIN_TILE_EXTENSION}`;
-
 export const TERRAIN_MIN_ZOOM = 0;
 
 /** Depth of the elevation pyramid, matching the colour pyramid's z8 — which is also the full extent

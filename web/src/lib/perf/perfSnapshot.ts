@@ -44,8 +44,18 @@ import { summariseSpans, type Interval, type TraceSummary } from "./perfTrace";
  *
  *  3 adds `trace`: named spans, and the share of blocked time they do and do not explain. A v2 file
  *  carries long-task totals with no attribution at all, so the two cannot be compared on "how much
- *  of this was ours" — the absence is the point of the bump again. */
-export const PERF_REPORT_SCHEMA = 3;
+ *  of this was ours" — the absence is the point of the bump again.
+ *
+ *  4 narrows what `traffic.relief` MEANS. In a v3 export it was the fall-through: anything under
+ *  the tile base that did not start `terrain/` counted as relief, including entries that are no
+ *  tile at all. It is now what the tile servers' own parser calls relief, with `countries` and
+ *  `unaddressedCount` as the answers it used to absorb. The field did not move, so nothing about a
+ *  v3 file looks different — which is exactly why the number has to say so.
+ *
+ *  How much this changed in practice is MEASURED, not assumed: on the live globe, all 407 tile
+ *  entries were `img`-initiated raster, so a v3 relief count was inflated only by whatever failed
+ *  to parse. Vector tiles are fetched from MapLibre's worker and never reach this buffer at all. */
+export const PERF_REPORT_SCHEMA = 4;
 
 /** Where and under what conditions a reading was taken. */
 export interface PerfOrigin {

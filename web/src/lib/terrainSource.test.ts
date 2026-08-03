@@ -21,7 +21,6 @@ import {
   TERRAIN_MIN_ZOOM,
   TERRAIN_OFF,
   TERRAIN_PATH_PREFIX,
-  TERRAIN_PATH_TEMPLATE,
   TERRAIN_QUANTISATION_M,
   TERRAIN_RAMP_END_ZOOM,
   TERRAIN_RAMP_START_ZOOM,
@@ -158,17 +157,22 @@ describe("the archive replaced four flags, and the answers outlive them", () => 
     // halves of that are retired: the build segment, and the same-origin assumption that would
     // send production's DEM requests at the site Worker instead of the tile Worker.
     const globe = readFileSync(new URL("../pages/earth.astro", import.meta.url), "utf8");
-    expect(globe).toContain("TERRAIN_URL_TEMPLATE");
+    expect(globe).toContain('tileUrlTemplate(body.slug, "terrain")');
     expect(globe, "the DEM base must follow the tile hostname").not.toContain(
       "location.origin}/terrain",
     );
   });
 });
 
-describe("the path contract — the prefix is the only discriminator left", () => {
-  it("puts the prefix in the template, so the URL says which pyramid it means", () => {
-    expect(TERRAIN_PATH_TEMPLATE).toBe(
-      `${TERRAIN_PATH_PREFIX}/{z}/{x}/{y}.${TERRAIN_TILE_EXTENSION}`,
+describe("the path contract — the layer segment is the only discriminator left", () => {
+  it("keeps the prefix its own parser reads, which is the legacy grammar's discriminator", () => {
+    // Nothing the browser asks for carries this prefix any more: tileAddress.ts builds those as
+    // `{body}/terrain/{token}/…`, where `terrain` is the LAYER segment and does the same job with
+    // a body and a cut beside it. The prefix survives because `parseTerrainTilePath` is still what
+    // accepts the shape a page built before the switch is asking for, and it goes when that does.
+    expect(TERRAIN_PATH_PREFIX).toBe("terrain");
+    expect(parseTerrainTilePath(`${TERRAIN_PATH_PREFIX}/8/189/107.${TERRAIN_TILE_EXTENSION}`)).toEqual(
+      { z: 8, x: 189, y: 107 },
     );
   });
 
@@ -225,7 +229,6 @@ describe("the contract", () => {
     // and the rendered frame. If this ever reads a lossy codec, elevation is silently wrong.
     expect(TERRAIN_TILE_EXTENSION).toBe("webp");
     expect(TERRAIN_CONTENT_TYPE).toBe("image/webp");
-    expect(TERRAIN_PATH_TEMPLATE).toBe("terrain/{z}/{x}/{y}.webp");
   });
 
   it("declares a QUARTER of its true 512 px size, which is the whole of the axis-B decision", () => {
@@ -621,7 +624,7 @@ describe("source guard — the pipeline is the source of truth for the numbers",
     // reason it is rewritten rather than retargeted.
     const globe = readFileSync(new URL("../pages/earth.astro", import.meta.url), "utf8");
     const source = globe.slice(globe.indexOf('type: "raster-dem"'), globe.indexOf('type: "raster-dem"') + 400);
-    expect(source).toContain("tiles: [TERRAIN_URL_TEMPLATE]");
+    expect(source).toContain("tiles: [terrainTileUrlTemplate]");
     expect(source).toContain("maxzoom: TERRAIN_MAX_ZOOM");
     expect(source).toContain("...terrainEncoding()");
     // The one value still parsed per-request is the declared tile size, which cannot corrupt a
