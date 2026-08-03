@@ -72,14 +72,19 @@ see `docs/pipeline.md`.
 
 **The preflight can refuse.** `scripts/check_deploy_sync.ts` runs before the upload and blocks on
 three things: an object the manifest promises that R2 does not have, a globe that would request
-terrain no Worker routes, and an archive key `worker/wrangler.jsonc` names that is not in
+terrain no Worker routes, and **any archive the registry publishes** that is not in
 `terrella-tiles`. All three are silent in production — a 404ing tile does not stop the globe
 rendering, it just renders wrong, flat, or blank with nothing in any log. The refusal message names
 the file to change.
 
-The third is the one to expect after a re-cut: packing and uploading an archive are separate steps
-from deploying, and the Worker reads its key from config, so bumping the key before the upload
-finishes is the easy mistake. The preflight turns that into a refusal instead of an outage.
+The third enumerates rather than naming keys, and that is what closed a real hole: it used to read
+two named variables out of the Worker's config, so the country pyramid was never checked at all and
+a deploy missing it reported clean. A fourth archive is now checked the day it is published, by a
+script nobody edited.
+
+It is also the one to expect after a re-cut: packing and uploading an archive are separate steps
+from deploying, so bumping the registry entry before the upload finishes is the easy mistake. The
+preflight turns that into a refusal instead of an outage.
 
 ## 2. The tile Worker
 

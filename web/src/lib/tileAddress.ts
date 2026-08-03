@@ -211,6 +211,11 @@ export function parseTileAddress(pathname: string): TileAddress | null {
   const match = TILE_PATH_PATTERN.exec(pathname);
   if (!match) return null;
   const [, bodySlug, layerId, token, zoom, column, row, extension] = match;
+  // Unreachable: every group in TILE_PATH_PATTERN is mandatory, so a match yields all seven. Stated
+  // as a check rather than a non-null assertion because the Worker compiles this file under
+  // `noUncheckedIndexedAccess`, where the destructure is `string | undefined` — and an assertion
+  // would go on silencing it the day someone makes a group optional and one really can be absent.
+  if (!bodySlug || !layerId || !token || !zoom || !column || !row || !extension) return null;
   if (!(bodySlug in PUBLISHED)) return null;
   const body = bodySlug as BodySlug;
   if (!(layerId in LAYERS)) return null;

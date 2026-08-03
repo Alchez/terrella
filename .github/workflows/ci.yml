@@ -88,7 +88,11 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Type-check (astro check)
+      # TWO PROGRAMS, and `pnpm check` runs both. `astro check` excludes worker/ on purpose —
+      # @cloudflare/workers-types redefines fetch/Response and breaks the site's program — so the
+      # Worker has its own tsconfig, and for a while nothing ran it. Nothing would have noticed
+      # either: wrangler's esbuild strips types without checking them, so a deploy ships regardless.
+      - name: Type-check (astro check + the tile Worker)
         run: pnpm check
 
       # The vitest `browser` project launches a real chromium; `pnpm install` fetches the

@@ -733,16 +733,34 @@ describe("the deploy preflight must refuse a globe production cannot serve", () 
     // that routes /terrain/ perfectly at an object nobody uploaded — so the guard has to know
     // about the bucket too. That is the assertion that replaces the old source-only one.
     const script = readFileSync(new URL("../../scripts/check_deploy_sync.ts", import.meta.url), "utf8");
-    expect(script).toContain("checkTerrainHasAnOrigin");
-    // The route half is now two greps, because routing moved into the registry: the Worker has to
+    // DEFINED **AND CALLED**. Asserting the name alone was vacuous and mutation-testing proved it:
+    // deleting the call from main() left the function sitting there unreferenced, the grep passed,
+    // and the deploy would have stopped checking archives entirely. Two occurrences each — the
+    // declaration and the one call — so neither deleting a call nor smuggling in a second one goes
+    // unnoticed.
+    const occurrences = (name: string) => script.split(name).length - 1;
+    expect(occurrences("checkTerrainIsRoutable"), "declared and called exactly once").toBe(2);
+    expect(occurrences("checkEveryPublishedArchiveIsUploaded"), "declared and called once").toBe(2);
+    expect(script, "and main() is what calls them").toMatch(
+      /checkTerrainIsRoutable\(\);\s*\n\s*checkEveryPublishedArchiveIsUploaded\(endpoint\);/,
+    );
+    // The route half is two greps, because routing lives in the registry: the Worker has to
     // dispatch through the shared resolver, AND the registry has to publish a terrain archive for
     // it to find. Either alone is satisfiable while every DEM tile 404s.
     expect(script, "the route half — the worker dispatches").toMatch(
       /worker\.includes\("resolveTileRequest"\)/,
     );
     expect(script, "the route half — the registry publishes").toMatch(/registry\)/);
-    expect(script, "the bytes half").toContain("ARCHIVE_BUCKET");
-    expect(script, "and it must name which key is missing").toContain("TERRAIN_ARCHIVE_KEY");
+    // The bytes half is no longer terrain-specific and no longer named key by key. It enumerates
+    // every archive the registry publishes — which is what closed the hole this test could not see:
+    // the check named two variables, so the COUNTRY archive was never verified at all, and a
+    // deploy missing it reported clean.
+    expect(script, "the bytes half").toContain("checkEveryPublishedArchiveIsUploaded");
+    expect(script, "and it enumerates rather than naming").toContain("publishedArchiveKeys");
+    expect(script, "against the archive bucket").toContain("ARCHIVE_BUCKET");
+    // Vacuity: a parse that matched nothing would report a perfect deploy for every archive at
+    // once, so the script must refuse to run on an empty enumeration.
+    expect(script, "and it must refuse a vacuous enumeration").toMatch(/keys\.length === 0/);
   });
 
   it("is satisfied by what step 3 actually landed, in every place it looks", () => {
@@ -751,7 +769,6 @@ describe("the deploy preflight must refuse a globe production cannot serve", () 
     // asserted to agree rather than to disagree.
     const globe = readFileSync(new URL("../pages/earth.astro", import.meta.url), "utf8");
     const worker = readFileSync(new URL("../../worker/index.ts", import.meta.url), "utf8");
-    const workerConfig = readFileSync(new URL("../../worker/wrangler.jsonc", import.meta.url), "utf8");
 
     // Matched on the FACT, not on one spelling of it. This regex used to require the literal
     // `currentTier()`, and went red the day that call was hoisted to a `bootTier` const to save a
@@ -779,6 +796,10 @@ describe("the deploy preflight must refuse a globe production cannot serve", () 
       "resolveTileRequest",
     );
     expect(PUBLISHED.earth.terrain, "and the registry publishes a terrain cut").not.toBeNull();
-    expect(workerConfig, "and names the object it reads").toMatch(/"TERRAIN_ARCHIVE_KEY"\s*:\s*"[^"]+\.pmtiles"/);
+    // The object it reads is named HERE, in the registry, and nowhere else. It used to also be a
+    // `TERRAIN_ARCHIVE_KEY` var in wrangler.jsonc, pinned against this entry — two copies of one
+    // fact, kept in step by a test. The var is gone: an env-only swap could not work anyway, since
+    // a tile URL carries the archive's token and that token is compiled into the site bundle.
+    expect(PUBLISHED.earth.terrain?.objectKey).toMatch(/\.pmtiles$/);
   });
 });

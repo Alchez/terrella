@@ -4,7 +4,11 @@ import "../styles/global.css";
 import globalCss from "../styles/global.css?raw";
 import baseLayout from "../layouts/Base.astro?raw";
 import globePage from "../pages/earth.astro?raw";
-import { BODIES, bodyFor, currentBody, type BodySlug } from "./bodies";
+import { BODIES, bodyFor, type BodySlug } from "./bodies";
+// Its own module now, because `bodies.ts` is compiled by the tile Worker (via tileAddress.ts) and
+// a `document` reference there fails that program. Tested from here anyway: the split is a runtime
+// boundary, not a change of subject, and these cases are about the registry a slug resolves in.
+import { currentBody } from "./currentBody";
 import { DEEP_SEA } from "./palette";
 
 /**

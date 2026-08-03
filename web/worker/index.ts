@@ -50,12 +50,6 @@ interface Env {
    *  three keys: the archives differ by object, not by bucket, so a second binding would buy
    *  nothing and add a second place for the bucket name to drift. */
   ARCHIVE: R2Bucket;
-  /** Object key of the relief archive within that bucket. */
-  ARCHIVE_KEY?: string;
-  /** Object key of the terrain-RGB archive within that bucket. */
-  TERRAIN_ARCHIVE_KEY?: string;
-  /** Object key of the country vector-tile archive within that bucket. */
-  COUNTRIES_ARCHIVE_KEY?: string;
   /** Origin allowed to read tiles — the site's own hostname. MapLibre uploads tiles as WebGL
    *  textures, so a cross-origin tile without CORS taints the canvas and never draws. */
   ALLOWED_ORIGIN?: string;
@@ -63,11 +57,17 @@ interface Env {
   TILE_CACHE_CONTROL?: string;
 }
 
-// The three DEFAULT_*_ARCHIVE_KEY constants that used to sit here are gone. They named the FIRST
-// cut of each pyramid — and `planet.pmtiles`, the PNG one, was deleted from the bucket the day its
-// WebP replacement was verified live. A fallback that names a deleted object is not a safety net;
-// it is a second, staler answer to a question the registry now answers correctly, since every
-// published key is recorded there against the archive it belongs to.
+// NO ARCHIVE KEYS IN `vars`, and no defaults here either. Both were answers to "which object is
+// this pyramid" that the registry now answers on its own, and both were worse answers: the deleted
+// constants named each pyramid's FIRST cut, including `planet.pmtiles`, removed from the bucket the
+// day its WebP replacement went live.
+//
+// The three `*_ARCHIVE_KEY` vars went with them, and the reason is stronger than tidiness — an
+// env-only archive swap CANNOT WORK any more. A tile URL carries the archive's content token, that
+// token is compiled into the SITE bundle from this same registry, and tiles ship immutable for a
+// year. Repointing a var without deploying the site would serve the new cut's bytes at the old
+// cut's URL to anyone whose browser already has it, for as long as their cache lives. The var
+// looked like an operational lever and had quietly become a way to ship a mixed pyramid.
 
 /** The pyramid is immutable for the life of a cut — the globe already sets
  *  `refreshExpiredTiles: false` on the same reasoning. A re-cut therefore requires purging the
@@ -422,19 +422,6 @@ interface TileRoute {
   layer: TileLayer;
 }
 
-/** Object keys, per layer, as this deploy names them.
- *
- *  STILL READ FROM `vars`, and only for Earth. The registry records the same three keys, so this is
- *  a second copy — pinned by a test that reads wrangler.jsonc, and deleted along with the vars once
- *  the deploy preflight enumerates the registry instead. Consulting them for another body would be
- *  the drift the pin exists to catch: these three name EARTH's cuts. */
-function configuredArchiveKey(address: TileAddress, env: Env): string | undefined {
-  if (address.body !== "earth") return undefined;
-  if (address.layer === "relief") return env.ARCHIVE_KEY;
-  if (address.layer === "terrain") return env.TERRAIN_ARCHIVE_KEY;
-  return env.COUNTRIES_ARCHIVE_KEY;
-}
-
 /** Latched per isolate: which layers have been asked for under the pre-token grammar.
  *
  *  The migration's only exit condition. The legacy branch can be deleted when production has served
@@ -457,7 +444,7 @@ const seenLegacyGrammar = new Set<string>();
  * addressed path in either direction — they require a leading zoom or their own literal prefix, and
  * an addressed path begins with a body slug.
  */
-export function resolveRoute(pathname: string, env: Env): TileRoute | null {
+export function resolveRoute(pathname: string): TileRoute | null {
   const address = resolveTileRequest(pathname);
   if (!address) return null;
   if (address.token === null && !seenLegacyGrammar.has(address.layer)) {
@@ -469,7 +456,7 @@ export function resolveRoute(pathname: string, env: Env): TileRoute | null {
   }
   return {
     address,
-    archiveKey: configuredArchiveKey(address, env) ?? archiveFor(address.body, address.layer).objectKey,
+    archiveKey: archiveFor(address.body, address.layer).objectKey,
     layer: LAYERS[address.layer],
   };
 }
@@ -494,7 +481,13 @@ export default {
     // means a future re-cut can ship under a NEW base URL instead of purging the cache — and
     // purge is zone-wide, so on a shared zone it would evict everything else on alchez.dev too.
     // Tolerating it now costs one regex; retrofitting it later costs a purge.
-    const route = resolveRoute(new URL(request.url).pathname.replace(/^\/v\d+\//, "/"), env);
+    // NO VERSION-PREFIX STRIP HERE. There used to be a `.replace(/^\/v\d+\//, "/")` on this line,
+    // and it was a second copy of a rule the resolver already applies — to the legacy branch only,
+    // deliberately, because tolerating `/v3/` in front of an ADDRESSED path would invent a second
+    // way to spell one tile. Stripping here applied it to both, so this Worker accepted
+    // `/v3/earth/relief/<token>/…` while the dev middleware 404'd it: the same dev-vs-prod split
+    // the addressed grammar was meant to close, surviving one line lower down.
+    const route = resolveRoute(new URL(request.url).pathname);
     if (!route) {
       return respond(new Response("Not a tile path", { status: 404 }));
     }

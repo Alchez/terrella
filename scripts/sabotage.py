@@ -75,6 +75,11 @@ BACKUP_SUFFIX = ".sabotage-backup"
 MUTABLE_ROOTS = (
     "web/src",
     "web/worker",
+    # Joined when the deploy preflight started ENUMERATING the archive registry rather than naming
+    # two keys out of the Worker's config. That check is the only thing between a re-cut and a site
+    # whose every tile 404s, and it cannot run in CI (it needs R2) — so its shape is what gets
+    # mutation-tested, and the mutations have to be able to reach it.
+    "web/scripts",
     "scripts",
     "PROCESS.md",
     "web/vitest.config.ts",
@@ -1957,9 +1962,10 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='the page falls back to Earth when no body is declared instead of failing',
-        path='web/src/lib/bodies.ts',
+        # Moved out of bodies.ts: the registry is compiled by the tile Worker, which has no DOM.
+        path='web/src/lib/currentBody.ts',
         needle='  if (slug === undefined) {\n    throw new Error(\n      "<html> carries no data-body: the page\'s layout must declare which body it draws",\n    );\n  }',
-        replacement='  if (slug === undefined) {\n    return BODIES.earth;\n  }',
+        replacement='  if (slug === undefined) {\n    return bodyFor("earth");\n  }',
         guard='throws when the layout declared nothing, rather than assuming Earth',
     ),
     # The imported stop becomes a third hand-typed copy of the hex, with nothing comparing it back
@@ -2226,6 +2232,37 @@ SABOTAGES: list[Sabotage] = [
         needle='      traffic.unaddressedCount++;',
         replacement='',
         guard='does not mistake a path merely CONTAINING a layer word for that layer',
+    ),
+
+    # --- one home for the archive keys, and a preflight that enumerates it -----------------------------
+    # The preflight is the only thing standing between a re-cut and a live site whose tiles all 404,
+    # and it cannot be exercised in CI (it needs R2). So what IS pinned is its shape: that it
+    # enumerates rather than naming, and that it refuses to run on an enumeration that found nothing.
+    Sabotage(
+        suite='web',
+        label='the preflight goes back to naming archive keys instead of enumerating them',
+        path='web/scripts/check_deploy_sync.ts',
+        needle='  checkEveryPublishedArchiveIsUploaded(endpoint);',
+        replacement='',
+        guard='checks BOTH halves — that the route exists and that the bytes do',
+    ),
+    Sabotage(
+        suite='web',
+        label='a parse that finds no archives reports a clean deploy instead of refusing',
+        path='web/scripts/check_deploy_sync.ts',
+        needle='  if (keys.length === 0) {',
+        replacement='  if (false) {',
+        guard='checks BOTH halves — that the route exists and that the bytes do',
+    ),
+    # The vars are gone; what stops them growing back is that nothing in the Worker's config may name
+    # an object at all. A fourth key under a new name would slip past a check written on the old names.
+    Sabotage(
+        suite='web',
+        label='an archive key reappears in the Worker config, as a new spelling',
+        path='web/worker/wrangler.jsonc',
+        needle='  "vars": {',
+        replacement='  "vars": {\n    "RELIEF_OBJECT": "planet-v2.pmtiles",',
+        guard='names no archive object in the Worker\'s config at all',
     ),
 ]
 

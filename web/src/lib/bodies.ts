@@ -73,24 +73,7 @@ export function bodyFor(slug: string): BodyDescriptor {
   return body;
 }
 
-/** The body THIS page draws, read off the attribute the layout declared.
- *
- *  `data-body` is already load-bearing for the stylesheet — it selects the token block that carries
- *  the accent — so reading it here does not invent a second channel: it makes one declaration serve
- *  both the CSS and the script, which is the point of putting it on `<html>` rather than in a
- *  `define:vars` the styles could not see.
- *
- *  THROWS RATHER THAN ASSUMING EARTH. The attribute is server-rendered by a layout every page goes
- *  through and `astro check` refuses a page that omits it, so reaching the throw means the invariant
- *  is already broken — and a globe that drew the wrong planet's sea colour under its missing tiles
- *  would look like slow loading, not like a bug.
- */
-export function currentBody(): BodyDescriptor {
-  const slug = document.documentElement.dataset.body;
-  if (slug === undefined) {
-    throw new Error(
-      "<html> carries no data-body: the page's layout must declare which body it draws",
-    );
-  }
-  return bodyFor(slug);
-}
+// `currentBody()` lives in ./currentBody.ts, and NOT here. This file is imported — for `BodySlug`
+// — by tileAddress.ts, which the tile Worker compiles under a runtime that has no DOM, so a single
+// `document` reference here fails that program. See that module's header for why adding `DOM` to
+// the Worker's lib is not the way out.
