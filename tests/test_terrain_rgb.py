@@ -202,7 +202,7 @@ def test_encode_raster_matches_the_array_encoder(tmp_path):
 def test_cut_zoom_never_resamples_encoded_bytes(monkeypatch):
     """Cubic/average/bilinear interpolate ACROSS the green byte's 256 m wrap and invent cliffs.
 
-    `shade_planet.TILE_CUT` uses cubic for both its cut and its overviews — correct for colour,
+    `shade_planet.tile_cut` uses cubic for both its cut and its overviews — correct for colour,
     catastrophic here — so the risk is a well-meaning port, not a typo. Every other test in this
     file passes with `--resampling=cubic`.
     """

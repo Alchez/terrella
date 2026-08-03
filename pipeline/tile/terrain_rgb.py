@@ -12,7 +12,7 @@ THE ONE TRAP THIS MODULE EXISTS TO AVOID
 Elevation packed into RGB is not an image. The value is `R*256 + G - 32768`, so the green byte
 WRAPS every 256 metres — and interpolating across a wrap invents a 256 m cliff. That makes every
 smooth resampler wrong on this data: `average`, `cubic`, `bilinear`, `lanczos` all mix bytes.
-`shade_planet.TILE_CUT` uses `cubic` for both the cut and its overviews, which is correct for
+`shade_planet.tile_cut` uses `cubic` for both the cut and its overviews, which is correct for
 colour and catastrophic here.
 
 So the pyramid is built **per zoom, from elevation downsampled in elevation space**, and each

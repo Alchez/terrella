@@ -39,12 +39,14 @@ SRC = NE / "ne_10m_admin_0_countries" / "ne_10m_admin_0_countries.shp"
 OUT = OUT_DIR / "countries.geojson"
 
 # Douglas-Peucker tolerance in degrees. 0.002 deg ~= 220 m ~= 0.7 px at z8 on
-# the equator (shade_planet.Z8_RES = 305.75 m/px) — sub-pixel where the raster
+# the equator (Earth's grid pixel, ~305.75 m/px) — sub-pixel where the raster
 # is sharpest, so the hover outline tracks the coast it traces. N-S error grows
 # toward the poles in Mercator pixels (~3 px at 75N: latitude degrees don't
 # shrink with cos(lat) but Mercator pixels do) — accepted; buying it back costs
 # ~1 MB more gzip for fjord vertices only a Svalbard hover would notice.
-# Pinned relationally against Z8_RES in tests/test_countries_geojson.py.
+# Pinned relationally in tests/test_countries_geojson.py against EARTH's grid pixel — Earth's
+# specifically, because this pyramid is Earth-only and the tolerance is justified against the
+# raster it overlays, not against whatever the sharpest body in the registry cuts to.
 SIMPLIFY_DEG = 0.002
 
 

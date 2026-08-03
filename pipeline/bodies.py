@@ -126,12 +126,14 @@ EARTH = Body(
     # Earth's equatorial radius. That identity is what makes Earth's ground ratio exactly 1.0 and
     # every existing pixel byte-identical; it is not a copy of the field above.
     ground_radius_m=6378137.0,
-    # Duplicated today in tile/shade_planet.py's Z8_RES, which the live 46 GB raster was built at.
-    # A rounded value: the exact z8 figure is 305.748113. See the field's note for why it stays.
+    # The ONE home now: the shade pass reads this, and a test scans it for a regrown literal. The
+    # number is what the live 46 GB raster was actually warped at, and it is a rounded value — the
+    # exact z8 figure is 305.748113. See the field's note for why the rounding stays.
     map_units_per_pixel=305.7483,
     # Duplicated today in render/palette.py, which the hero scene imports directly.
     exaggeration=15.0,
-    # Duplicated today in tile/shade_planet.py's TILE_CUT and compose/countries_pmtiles.py.
+    # The raster cut reads this; compose/countries_pmtiles.py still carries its own copy, because
+    # the vector pyramid is Earth-only until a Mars layer is designed. That last copy is bridged.
     tile_max_zoom=8,
     # Empty on purpose — see the field's note. Earth's intermediates stay exactly where they are.
     path_prefix="",

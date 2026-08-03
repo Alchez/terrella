@@ -43,7 +43,8 @@ warnings.filterwarnings("ignore")
 # at a resolution production does not have. Deriving both from ONE ground scale makes that
 # divergence unrepresentable rather than merely fixed.
 #
-# 9784 is today's PLANET value (Z8_RES * 32), chosen here to keep production byte-identical while
+# 9784 is today's PLANET value (Earth's grid pixel x 32), chosen here to keep production
+# byte-identical while
 # the foundation lands; it is the number the softness work then moves. The hero path is deliberately
 # NOT on this constant: it shades per-country in an equal-area projection at its own tuned scale,
 # and folding it in would restage 204 renders to answer a tile question.

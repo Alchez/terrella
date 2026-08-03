@@ -25,12 +25,14 @@ import rasterio
 from rasterio.crs import CRS
 from rasterio.transform import from_bounds
 
+from pipeline import bodies
 from pipeline.render import snow
 from pipeline.tile import shade
 from pipeline.tile import shade_planet
 from pipeline.verify import compare_rasters
 
-EARTH_RADIUS = 6378137.0
+# Read from the registry rather than restated — see the note in test_snow_warp_once.py.
+EARTH_RADIUS = bodies.EARTH.mercator_radius_m
 WIDTH, HEIGHT = 40, 64          # a few windows tall so the in-flight throttle actually fires
 WINDOW_ROWS = 8                 # -> 8 windows; > max_workers + INFLIGHT_BUFFER, so writes drain mid-loop
 N_WINDOWS = len(range(0, HEIGHT, WINDOW_ROWS))
@@ -70,8 +72,8 @@ def planet(tmp_path):
     work = tmp_path / "planet_tiles"
     work.mkdir()
     left, top = _merc(47.0, 6.0)
-    transform = from_bounds(left, top - HEIGHT * shade_planet.Z8_RES,
-                            left + WIDTH * shade_planet.Z8_RES, top, WIDTH, HEIGHT)
+    transform = from_bounds(left, top - HEIGHT * bodies.EARTH.map_units_per_pixel,
+                            left + WIDTH * bodies.EARTH.map_units_per_pixel, top, WIDTH, HEIGHT)
     rng = np.random.default_rng(0)
 
     height = rng.uniform(-3000.0, 5000.0, (HEIGHT, WIDTH))

@@ -12,8 +12,8 @@ display requirement head-on.
 
 from pathlib import Path
 
+from pipeline import bodies
 from pipeline.compose import countries_geojson
-from pipeline.tile.shade_planet import Z8_RES
 
 # Metres per degree of latitude (equatorial circumference / 360): converts the
 # Douglas-Peucker tolerance (degrees) into worst-case ground deviation.
@@ -25,7 +25,10 @@ class TestSimplifyTolerance:
         """The hover outline traces the raster coastline, so its worst-case
         deviation must sit under one pixel of the sharpest tiles it overlays."""
         worst_case_deviation_m = countries_geojson.SIMPLIFY_DEG * METERS_PER_DEGREE
-        assert worst_case_deviation_m <= Z8_RES
+        # Earth's pixel specifically: the countries pyramid is Earth-only, and its tolerance is
+        # justified against the raster IT overlays rather than against whatever the sharpest
+        # planet in the registry happens to cut to.
+        assert worst_case_deviation_m <= bodies.EARTH.map_units_per_pixel
 
 
 class TestOgrCommand:

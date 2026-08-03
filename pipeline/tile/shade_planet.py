@@ -19,7 +19,8 @@ composite is per-pixel, so windowing it cannot seam):
   5. composite each full-width horizontal window (reusing tile/shade.py::composite) with the
      latitude-ramped snow (blue-white shadows) and RGI glaciers, and cap both polar edges
      (>84N, <-59.5S -> flat pale sea-ice) so MapLibre's globe shows clean polar discs;
-  6. cut z0-8 512px tiles (no overview step -- `gdal raster tile` never reads them; see build_tiles).
+  6. cut 512px tiles from z0 to THIS BODY's ceiling -- z8 for Earth, and the body says so rather
+     than this module (no overview step: `gdal raster tile` never reads them; see build_tiles).
 
 Every stage skips if its output is FRESH -- present, completed, and newer than everything it
 derives from (`is_stale`). An exists()-only guard cannot tell "built" from "still correct":
@@ -60,7 +61,13 @@ from pipeline.tile import shade
 from pipeline.tile.shade import KNOBS
 
 ROOT = paths.ROOT
-Z8_RES = 305.7483          # metres/pixel of a 512px WebMercatorQuad tile at zoom 8
+# The grid resolution used to live here as a module constant named for the one zoom Earth cuts to.
+# It is `Body.map_units_per_pixel` now, because a planet with a different ceiling needs a different
+# pixel and a module constant cannot have one — and because a constant with no field to be bridged
+# to is exactly how this one survived the body parameterisation with every gate green.
+#
+# The value is deliberately NOT written out here. `tests/test_bodies.py` scans this file for it, and
+# a comment quoting a deleted number re-creates the needle the scan exists to find.
 EXAG = palette.EXAGGERATION
 ALT, AZ = KNOBS["alt"], 315.0
 WINDOW_ROWS = 256          # the snow-persistence banded-warp height (Phase A) AND composite_planet's
@@ -312,7 +319,7 @@ def composite_deps(work, hs, params) -> tuple:
             work / "glacier_3857.tif", work / "seaice_3857.tif", params)
 
 
-def warp_inputs(work: Path, planet: Path):
+def warp_inputs(work: Path, planet: Path, body: bodies.Body):
     """Warp height + ocean/water masks to the shared WMQ-aligned 3857 grid (skip if fresh).
 
     Each warp depends on the chunk DIRECTORY, not just its VRT -- re-fusing a cell leaves the
@@ -323,7 +330,8 @@ def warp_inputs(work: Path, planet: Path):
     if is_stale(height, planet / "planet_heightfield.vrt", chunks):
         print("warp height -> 3857 ...", flush=True)
         height.unlink(missing_ok=True)  # gdalwarp UPDATES an existing target; it must be gone
-        _run(["gdalwarp", "-q", "-t_srs", "EPSG:3857", "-tr", Z8_RES, Z8_RES, "-tap",
+        resolution = body.map_units_per_pixel
+        _run(["gdalwarp", "-q", "-t_srs", "EPSG:3857", "-tr", resolution, resolution, "-tap",
               "-r", "bilinear", "-ot", "Float32", "-co", "TILED=YES", "-co", "COMPRESS=DEFLATE",
               "-co", "BIGTIFF=YES", "-co", "NUM_THREADS=ALL_CPUS",
               planet / "planet_heightfield.vrt", height])
@@ -438,28 +446,34 @@ def build_hillshade(work: Path, height: Path):
     return hs
 
 
-def global_occlusion(height: Path):
+def global_occlusion(height: Path, body: bodies.Body):
     """Sky-view occlusion (1 = valley, 0 = open) on a global downsample, normalised globally.
 
     Sized from `sky_view.OCCLUSION_TARGET_M_PER_PX` — the same constant the region path uses — so
     a region preview and the planet it predicts can no longer drift apart. `SVF_LONG_EDGE` was the
     old planet-only spelling of this and is now derived, not chosen.
 
-    KNOWN INCORRECT, deliberately unchanged here: `Z8_RES` is a MAP-unit scale, and
-    ground metres in Web Mercator are `Z8_RES * cos(lat)`. Using map units understates the horizon
+    KNOWN INCORRECT, deliberately unchanged here: `map_units_per_pixel` is a MAP-unit scale, and
+    ground metres in Web Mercator are that times `cos(lat)`. Using map units understates the horizon
     run by `1/cos(lat)` — 1.22x at 35N, 2.00x at 60N, 3.86x at 75N — so high latitudes are
     systematically under-occluded, and the global affine renormalisation provably cannot absorb a
     latitude-varying error. Fixing it needs a per-ROW ground scale (the hillshade's z-factor trick)
     and changes production pixels, so it rides with the resolution change rather than sneaking in
     under a refactor.
+
+    A SECOND, INDEPENDENT MAP-UNIT ERROR ARRIVES WITH A NON-EARTH BODY, and it is not fixed here
+    either, for the same reason. Every projection in this pipeline is Earth-sphered, so a map unit
+    is a ground metre only on Earth; elsewhere it is worth `ground_metres_per_map_unit(body)` — a
+    constant scale, unlike the latitude term above, but just as invisible. The two are fixed
+    together, in the commit that gives every ground-metre consumer the body's own sphere.
     """
     with rasterio.open(height) as dataset:
         full_w, full_h = dataset.width, dataset.height
-        small_h, small_w = occlusion_shape(full_w, full_h, Z8_RES)
+        small_h, small_w = occlusion_shape(full_w, full_h, body.map_units_per_pixel)
         low = dataset.read(1, out_shape=(small_h, small_w),
                            resampling=Resampling.average).astype(float)
     low = np.nan_to_num(np.where(low < -500, np.nan, low), nan=0.0)
-    m_per_px = Z8_RES * (full_w / small_w)
+    m_per_px = body.map_units_per_pixel * (full_w / small_w)
     return normalised_occlusion(low, m_per_px)  # shape (small_h, small_w)
 
 
@@ -744,21 +758,39 @@ class TileCut(TypedDict):
 # zooms: q95 is 20.0% of PNG byte-weighted, and z8 -- three quarters of the pyramid -- is the
 # cheapest at 14.8%, so the aggregate is conservative. The archive goes ~16 GB -> ~3.2 GB and the
 # Worker's single R2 read per cold tile drops with it (~380 ms -> ~80 ms, it is bandwidth-bound).
-TILE_CUT = TileCut(format="WEBP", quality=95, tile_size=512, min_zoom=0, max_zoom=8,
+def tile_cut(body: bodies.Body) -> TileCut:
+    """This body's cut settings — eight encoder facts that are the same everywhere, and its ceiling.
+
+    A FUNCTION RATHER THAN A CONSTANT because exactly one of these keys belongs to the planet.
+    `max_zoom` was a literal 8 here, which is Earth's ceiling and nobody else's, and it is the
+    second of the two constants that survived the body parameterisation by having no field to be
+    bridged to. The other seven are properties of the encoder and the tile scheme, so they stay
+    written once here rather than being copied onto every body — a body answers for what differs
+    about it, not for what does not.
+
+    Earth's result is the same dict the constant held, so `tile_params` still serialises the exact
+    bytes beside the live pyramid and the cut does not restage.
+    """
+    return TileCut(format="WEBP", quality=95, tile_size=512, min_zoom=0,
+                   max_zoom=body.tile_max_zoom,
                    resampling="cubic", overview_resampling="cubic", convention="xyz",
                    skip_blank=True)
 
 
-def tile_params() -> str:
+def tile_params(body: bodies.Body) -> str:
     """The tile cut's own settings, recorded as the live pyramid's dependency — hs_params' sibling.
 
     This stage used to key freshness off `planet_rgb` ALONE, which meant the cut was the
     one stage that could not see its own recipe: changing the output format left `tiles_are_fresh`
     true, so the PNG->WebP switch would have silently shipped the old pyramid. Everything in
-    TILE_CUT alters the emitted bytes, and nothing outside it does — the input raster and the output
+    the cut alters the emitted bytes, and nothing outside it does — the input raster and the output
     directory are `is_stale`'s own arguments, not settings.
+
+    The BODY is not recorded here and must not be: each body writes this file into its own work
+    tree, so the recipe is already body-specific by location, and adding the name would restage
+    Earth's entire pyramid the day a second planet existed for no pixel change at all.
     """
-    return json.dumps(TILE_CUT, sort_keys=True, indent=2)
+    return json.dumps(tile_cut(body), sort_keys=True, indent=2)
 
 
 def tile_params_path(out: Path) -> Path:
@@ -766,10 +798,10 @@ def tile_params_path(out: Path) -> Path:
     return out / "tile_params.json"
 
 
-def _tile_cmd(planet_tif: Path, staging: Path) -> list[str]:
-    """The `gdal raster tile` invocation that cuts z0-8 512px tiles into `staging`.
+def _tile_cmd(planet_tif: Path, staging: Path, body: bodies.Body) -> list[str]:
+    """The `gdal raster tile` invocation that cuts this body's 512px tiles into `staging`.
 
-    Built FROM `TILE_CUT` rather than from literals, so the command and the freshness record cannot
+    Built FROM `tile_cut` rather than from literals, so the command and the freshness record cannot
     disagree about what was cut — the same one-fact-one-spelling rule pack_pmtiles now follows for
     the tile encoding.
 
@@ -785,14 +817,15 @@ def _tile_cmd(planet_tif: Path, staging: Path) -> list[str]:
     so a truncated tile from a mid-write kill would survive a resume. build_tiles instead removes
     any partial staging dir and cuts clean every time -- see its docstring.
     """
+    cut = tile_cut(body)
     cmd = ["gdal", "raster", "tile",
-           f"--min-zoom={TILE_CUT['min_zoom']}", f"--max-zoom={TILE_CUT['max_zoom']}",
-           f"--tile-size={TILE_CUT['tile_size']}",
-           f"--resampling={TILE_CUT['resampling']}",
-           f"--overview-resampling={TILE_CUT['overview_resampling']}",
-           f"--convention={TILE_CUT['convention']}",
-           f"--format={TILE_CUT['format']}", "--co", f"QUALITY={TILE_CUT['quality']}"]
-    if TILE_CUT["skip_blank"]:
+           f"--min-zoom={cut['min_zoom']}", f"--max-zoom={cut['max_zoom']}",
+           f"--tile-size={cut['tile_size']}",
+           f"--resampling={cut['resampling']}",
+           f"--overview-resampling={cut['overview_resampling']}",
+           f"--convention={cut['convention']}",
+           f"--format={cut['format']}", "--co", f"QUALITY={cut['quality']}"]
+    if cut["skip_blank"]:
         cmd.append("--skip-blank")
     return [*cmd, "--webviewer=none", str(planet_tif), str(staging)]
 
@@ -816,8 +849,8 @@ def tiles_are_fresh(planet_tif: Path, out: Path) -> bool:
             and not is_stale(live, done_marker(planet_tif), tile_params_path(out)))
 
 
-def build_tiles(planet_tif: Path, out: Path):
-    """Cut z0-8 512px tiles into a staging dir, then swap over the live tiles.
+def build_tiles(planet_tif: Path, out: Path, body: bodies.Body):
+    """Cut this body's 512px tiles into a staging dir, then swap over the live tiles.
 
     Fresh-guarded like every other stage (`tiles_are_fresh`): a re-run whose `planet_rgb` AND
     `tile_params.json` are unchanged skips the ~4:19 cut entirely. This used to be the one
@@ -825,7 +858,7 @@ def build_tiles(planet_tif: Path, out: Path):
     empty and the cut re-ran in full every time. The completion stamp is `tiles.done`, touched only
     after the swap.
 
-    The recipe is written BEFORE the freshness question is asked, so changing TILE_CUT is what
+    The recipe is written BEFORE the freshness question is asked, so changing the cut is what
     triggers its own re-cut; `write_if_changed` means an unchanged recipe never moves an mtime and
     never restages a pyramid that is still correct.
 
@@ -842,15 +875,17 @@ def build_tiles(planet_tif: Path, out: Path):
     note that justified them credited a confounded fix: materialising the 194-source VRT
     to a GTiff was the real speed-up; the overviews rode along on the same commit untested.
     """
-    write_if_changed(tile_params_path(out), tile_params())
+    cut = tile_cut(body)
+    write_if_changed(tile_params_path(out), tile_params(body))
     if tiles_are_fresh(planet_tif, out):
         print("tiles fresh -> skip cut", flush=True)
         return
     staging = out / "tiles_new"
     if staging.exists():
         _run(["rm", "-rf", str(staging)])   # a partial from a prior mid-cut crash: never resume over it
-    print(f"cutting z0-8 512px tiles -> {staging} ...", flush=True)
-    _run(_tile_cmd(planet_tif, staging))
+    print(f"cutting z{cut['min_zoom']}-{cut['max_zoom']} {cut['tile_size']}px tiles "
+          f"-> {staging} ...", flush=True)
+    _run(_tile_cmd(planet_tif, staging, body))
     live = out / "tiles"
     if live.exists():
         old = out / "tiles_old"
@@ -873,7 +908,8 @@ def build_parser() -> argparse.ArgumentParser:
     # Optional override. Left unset it follows the body, which also honours the MAPS_DATA seam that
     # the old `ROOT / "data/..."` default bypassed; set, it is how a look A/B is pointed elsewhere.
     ap.add_argument("--out", type=Path, default=None)
-    ap.add_argument("--tiles", action="store_true", help="also cut z0-8 tiles from the mosaic")
+    ap.add_argument("--tiles", action="store_true",
+                    help="also cut tiles from the mosaic, z0 to the body's own ceiling")
     ap.add_argument("--knob", action="append", default=[], metavar="KEY=VALUE",
                     help="override a locked KNOBS entry (repeatable), as tile/shade.py does. "
                          "Look changes used to be made by EDITING the constant, which meant an "
@@ -920,15 +956,15 @@ def main():
     work = resolve_out(args)
     work.mkdir(parents=True, exist_ok=True)
 
-    height = warp_inputs(work, bodies.work_dir(body, "planet"))
+    height = warp_inputs(work, bodies.work_dir(body, "planet"), body)
     hs = build_hillshade(work, height)
     # Passed unevaluated: composite_planet runs it only if the composite is actually stale.
     # Production composite is threaded at COMPOSITE_ROWS/N_WORKERS (optimisation #5); the snow
     # persistence stays banded at WINDOW_ROWS (256), sliced 128 rows at a time.
-    planet_tif = composite_planet(work, hs, lambda: global_occlusion(height),
+    planet_tif = composite_planet(work, hs, lambda: global_occlusion(height, body),
                                   window_rows=COMPOSITE_ROWS, max_workers=N_WORKERS)[None]
     if args.tiles:
-        build_tiles(planet_tif, work)
+        build_tiles(planet_tif, work, body)
     # The polar caps are shade-stage outputs too: they run the same composite over the same
     # sources, so a look change that restages planet_rgb must restage them. Both caps once sat
     # stale against the tiles they feather into (the north −6.7 DN adrift) because nothing

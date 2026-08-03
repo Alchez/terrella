@@ -502,7 +502,8 @@ class TestBuildTilesGuard:
     def test_tile_cmd_omits_resume(self, tmp_path):
         """No --resume: GDAL would skip a truncated tile by existence. --skip-blank is asserted too
         so a wrong or empty arg list would trip the check rather than pass vacuously."""
-        cmd = shade_planet._tile_cmd(tmp_path / "planet_rgb.tif", tmp_path / "tiles_new")
+        cmd = shade_planet._tile_cmd(tmp_path / "planet_rgb.tif", tmp_path / "tiles_new",
+                                     bodies.EARTH)
         assert "--resume" not in cmd
         assert "--skip-blank" in cmd
 
@@ -513,7 +514,7 @@ class TestTileRecipe:
     This stage was the one that could not see its own recipe: `tiles_are_fresh` keyed off
     `planet_rgb` alone, so changing the output format left the guard true and a `--tiles` run would
     have reported "tiles fresh -> skip cut" while shipping the previous encoding. These lock both
-    halves — that TILE_CUT reaches the command line, and that changing it restages.
+    halves — that the cut reaches the command line, and that changing it restages.
     """
 
     def test_every_setting_reaches_the_command(self, subtests, tmp_path):
@@ -522,35 +523,37 @@ class TestTileRecipe:
 
         Subtests because the realistic regression is a rewritten `_tile_cmd`, which drops SEVERAL
         settings at once; a chain of asserts would name the first and hide the rest. `skip_blank`
-        is TILE_CUT's ninth key and is asserted next door, from the flag rather than the constant,
+        is the cut's ninth key and is asserted next door, from the flag rather than the constant,
         because its presence depends on its value.
         """
-        cmd = " ".join(shade_planet._tile_cmd(tmp_path / "planet_rgb.tif", tmp_path / "tiles_new"))
+        cmd = " ".join(shade_planet._tile_cmd(tmp_path / "planet_rgb.tif", tmp_path / "tiles_new",
+                                     bodies.EARTH))
         with subtests.test("format"):
-            assert f"--format={shade_planet.TILE_CUT['format']}" in cmd
+            assert f"--format={shade_planet.tile_cut(bodies.EARTH)['format']}" in cmd
         with subtests.test("quality"):
-            assert f"QUALITY={shade_planet.TILE_CUT['quality']}" in cmd
+            assert f"QUALITY={shade_planet.tile_cut(bodies.EARTH)['quality']}" in cmd
         with subtests.test("tile_size"):
-            assert f"--tile-size={shade_planet.TILE_CUT['tile_size']}" in cmd
+            assert f"--tile-size={shade_planet.tile_cut(bodies.EARTH)['tile_size']}" in cmd
         with subtests.test("min_zoom"):
-            assert f"--min-zoom={shade_planet.TILE_CUT['min_zoom']}" in cmd
+            assert f"--min-zoom={shade_planet.tile_cut(bodies.EARTH)['min_zoom']}" in cmd
         with subtests.test("max_zoom"):
-            assert f"--max-zoom={shade_planet.TILE_CUT['max_zoom']}" in cmd
+            assert f"--max-zoom={shade_planet.tile_cut(bodies.EARTH)['max_zoom']}" in cmd
         with subtests.test("resampling"):
-            assert f"--resampling={shade_planet.TILE_CUT['resampling']}" in cmd
+            assert f"--resampling={shade_planet.tile_cut(bodies.EARTH)['resampling']}" in cmd
         with subtests.test("overview_resampling"):
-            assert f"--overview-resampling={shade_planet.TILE_CUT['overview_resampling']}" in cmd
+            assert f"--overview-resampling={shade_planet.tile_cut(bodies.EARTH)['overview_resampling']}" in cmd
         with subtests.test("convention"):
-            assert f"--convention={shade_planet.TILE_CUT['convention']}" in cmd
+            assert f"--convention={shade_planet.tile_cut(bodies.EARTH)['convention']}" in cmd
 
     def test_params_serialise_the_whole_recipe(self):
-        assert json.loads(shade_planet.tile_params()) == dict(shade_planet.TILE_CUT)
+        assert json.loads(shade_planet.tile_params(bodies.EARTH)) == dict(shade_planet.tile_cut(bodies.EARTH))
 
     def test_skip_blank_follows_the_recipe(self, tmp_path):
         """Asserted from the flag rather than the constant, so flipping it off is a real change and
         not a silently ignored field in the record."""
-        cmd = shade_planet._tile_cmd(tmp_path / "planet_rgb.tif", tmp_path / "tiles_new")
-        assert ("--skip-blank" in cmd) is shade_planet.TILE_CUT["skip_blank"]
+        cmd = shade_planet._tile_cmd(tmp_path / "planet_rgb.tif", tmp_path / "tiles_new",
+                                     bodies.EARTH)
+        assert ("--skip-blank" in cmd) is shade_planet.tile_cut(bodies.EARTH)["skip_blank"]
 
     def test_a_newer_recipe_restages_a_current_pyramid(self, tmp_path):
         """The whole point: composite untouched, pyramid present and stamped, recipe rewritten
@@ -560,7 +563,7 @@ class TestTileRecipe:
         _at(planet, 300)
         _at(tmp_path / "tiles", 200)
         params = shade_planet.tile_params_path(tmp_path)
-        params.write_text(shade_planet.tile_params())
+        params.write_text(shade_planet.tile_params(bodies.EARTH))
         _at(params, 100)                # recipe changed after the cut
         assert shade_planet.tiles_are_fresh(planet, tmp_path) is False
 
@@ -570,7 +573,7 @@ class TestTileRecipe:
         planet = _built(tmp_path, "planet_rgb.tif")
         _built_pyramid(tmp_path)
         params = shade_planet.tile_params_path(tmp_path)
-        params.write_text(shade_planet.tile_params())
+        params.write_text(shade_planet.tile_params(bodies.EARTH))
         _at(params, 300)
         _at(planet, 200)
         _at(tmp_path / "tiles", 100)
@@ -580,10 +583,10 @@ class TestTileRecipe:
         """build_tiles rewrites the recipe on every run, so an unchanged one must not move its
         mtime — otherwise every --tiles invocation would restage the pyramid."""
         params = shade_planet.tile_params_path(tmp_path)
-        shade_planet.write_if_changed(params, shade_planet.tile_params())
+        shade_planet.write_if_changed(params, shade_planet.tile_params(bodies.EARTH))
         _age(params, 500)
         before = params.stat().st_mtime
-        shade_planet.write_if_changed(params, shade_planet.tile_params())
+        shade_planet.write_if_changed(params, shade_planet.tile_params(bodies.EARTH))
         assert params.stat().st_mtime == before
 
 

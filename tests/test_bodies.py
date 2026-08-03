@@ -109,14 +109,18 @@ def test_earth_carries_web_mercator_s_defining_sphere() -> None:
     assert bodies.EARTH.mercator_radius_m == 6378137.0
 
 
-def test_earth_s_grid_resolution_pins_the_constant_its_live_raster_was_built_at() -> None:
-    """The bridge `Z8_RES` never had, which is the whole reason it survived the parameterisation.
+def test_earth_s_grid_resolution_is_the_one_its_live_raster_was_built_at() -> None:
+    """Pinned to the literal, like Web Mercator's sphere above and for a stronger reason.
 
-    `tile_max_zoom` and `exaggeration` each had a field to be pinned to and were caught by the two
-    bridges below. The grid resolution had none, so it stayed a module constant that no body could
-    reach — and a `--body <anything>` run would have warped at Earth's 305.7483 and said nothing.
+    THE BRIDGE THIS REPLACES IS GONE BECAUSE ITS COPY IS. `Z8_RES` briefly lived in `shade_planet`
+    beside this field, held to it by an assertion; the constant has since been deleted and every
+    caller reads the body. What survives it is the fact the bridge existed to protect, which is not
+    derivable and not a tunable: **46 GB of `height_3857.tif` was warped at exactly this number**.
+    The exact z8 figure is 305.748113, and `-tap` snapped the live grid 12.2 m past the true
+    Mercator edge on every side because of the difference. Correcting it here restages nothing
+    today and everything at the next unrelated re-fuse, which would then be blamed for it.
     """
-    assert bodies.EARTH.map_units_per_pixel == shade_planet.Z8_RES
+    assert bodies.EARTH.map_units_per_pixel == 305.7483
 
 
 def test_every_body_s_grid_resolution_agrees_with_its_own_tile_ceiling() -> None:
@@ -131,7 +135,7 @@ def test_every_body_s_grid_resolution_agrees_with_its_own_tile_ceiling() -> None
     body whose pixels already exist. A wrong ceiling, the error actually worth catching, is a factor
     of two. 1e-5 admits the first and cannot admit the second.
     """
-    tile_px = shade_planet.TILE_CUT["tile_size"]
+    tile_px = shade_planet.tile_cut(bodies.EARTH)["tile_size"]
     for body in bodies.BODIES.values():
         exact = 2.0 * math.pi * body.mercator_radius_m / (tile_px * 2 ** body.tile_max_zoom)
         assert math.isclose(body.map_units_per_pixel, exact, rel_tol=1e-5), (
@@ -146,10 +150,34 @@ def test_exaggeration_agrees_with_the_shared_palette_constant() -> None:
     assert bodies.EARTH.exaggeration == palette.EXAGGERATION
 
 
-def test_tile_ceiling_agrees_with_both_pyramids() -> None:
-    """The raster cut and the country vector cut must agree, or the layers stop at different zooms."""
-    assert bodies.EARTH.tile_max_zoom == shade_planet.TILE_CUT["max_zoom"]
+def test_tile_ceiling_agrees_with_the_vector_pyramid() -> None:
+    """The raster cut and the country vector cut must agree, or the layers stop at different zooms.
+
+    Only the vector half is a bridge now: the raster cut READS the body, so asserting the two match
+    would be asking a function to agree with its own argument. The countries pyramid is still
+    Earth-hardcoded, deliberately — vectors stay Earth's until a Mars layer is designed — so this
+    stays a real statement about a real second copy, and it dies with that copy.
+    """
     assert bodies.EARTH.tile_max_zoom == countries_pmtiles.MAX_ZOOM
+
+
+def test_the_cut_differs_between_bodies_in_exactly_one_setting() -> None:
+    """The ceiling is the planet's; the other eight belong to the encoder and the tile scheme.
+
+    THE GUARD IS AGAINST OVER-PARAMETERISATION, which is the quieter of the two failures here.
+    Under-parameterising is loud — Mars would cut to Earth's z8 and the disk would say so. Moving
+    quality, format or tile size onto the body is silent: it reads as thoroughness, it duplicates
+    eight facts across every planet, and it lets two bodies' encodings drift apart while every test
+    still passes. Nothing about a WebP quality is a property of Mars.
+    """
+    earth, mars = shade_planet.tile_cut(bodies.EARTH), shade_planet.tile_cut(bodies.MARS)
+    differing = {key for key in earth if earth[key] != mars[key]}  # pyright: ignore[reportTypedDictNotRequiredAccess]
+    assert differing == {"max_zoom"}, (
+        f"the cut differs between Earth and Mars in {sorted(differing)} — only the ceiling is a "
+        "body fact; the rest describe the encoder and belong in one place"
+    )
+    assert earth["max_zoom"] == bodies.EARTH.tile_max_zoom
+    assert mars["max_zoom"] == bodies.MARS.tile_max_zoom
 
 
 # --- Where a body's intermediates live -----------------------------------------------------------
@@ -351,4 +379,30 @@ def test_the_cap_module_no_longer_carries_its_own_sphere_radius() -> None:
     source = Path(cap_render.__file__).read_text(encoding="utf-8")  # pyright: ignore[reportArgumentType]
     assert "6371000" not in source, (
         "cap_render has regrown a hard-coded AEQD sphere radius — it belongs to the body"
+    )
+
+
+def test_the_shade_pass_no_longer_carries_its_own_grid_or_ceiling() -> None:
+    """Anti-regrowth over the two constants that survived the body parameterisation.
+
+    THIS IS THE GUARD THAT SHOULD HAVE EXISTED A PHASE AGO. `Z8_RES = 305.7483` and a literal
+    `max_zoom=8` sat in this module through a refactor whose entire purpose was to remove exactly
+    that, and nothing noticed, because the only thing exercising the parameterisation was the Earth
+    run — which produces identical output whether the value comes from the body or from a literal.
+    A scan is the only oracle that can see a regrown constant: it type-checks, it tests green, and
+    it reads as a tidy local.
+
+    Both spellings are checked because they fail differently. The resolution silently orphans the
+    raster of any body whose ceiling is not z8; the ceiling silently cuts every planet to Earth's.
+    """
+    source = Path(shade_planet.__file__).read_text(encoding="utf-8")  # pyright: ignore[reportArgumentType]
+    # The prose above the deleted constant explains WHY it left, and naming the number there would
+    # re-create this needle in a comment — so the note describes it and this stays a code scan.
+    assert "305.7483" not in source, (
+        "shade_planet has regrown a hard-coded grid resolution — it is Body.map_units_per_pixel, "
+        "and a literal here warps every planet onto Earth's z8 lattice"
+    )
+    assert "max_zoom=8" not in source, (
+        "shade_planet has regrown a hard-coded tile ceiling — it is Body.tile_max_zoom, and a "
+        "literal here cuts every planet's pyramid to Earth's depth"
     )

@@ -1711,7 +1711,7 @@ SABOTAGES: list[Sabotage] = [
         path='pipeline/bodies.py',
         needle='    map_units_per_pixel=305.7483,',
         replacement='    map_units_per_pixel=305.748113,',
-        guard='test_earth_s_grid_resolution_pins_the_constant_its_live_raster_was_built_at',
+        guard='test_earth_s_grid_resolution_is_the_one_its_live_raster_was_built_at',
     ),
     # The most tempting edit in the file, because the exact figure IS more correct. It restages
     # nothing today — height_3857 is gated on its sources' mtimes and every sibling compares against
@@ -1785,6 +1785,38 @@ SABOTAGES: list[Sabotage] = [
     # browser requests it under another, which surfaces as a 404 at the edge long after the run that
     # produced it. Mutating the WEB file against a PYTHON guard on purpose — the drift is the gap
     # between the two languages, so a case that stayed inside one of them would not be testing it.
+    Sabotage(
+        suite='python',
+        label='the warp regrows Earth\'s grid resolution, putting every body on the z8 lattice',
+        path='pipeline/tile/shade_planet.py',
+        needle='        resolution = body.map_units_per_pixel',
+        replacement='        resolution = 305.7483',
+        guard='test_the_shade_pass_no_longer_carries_its_own_grid_or_ceiling',
+    ),
+    # Identical output for Earth — which is exactly why nothing else can see it. The module has
+    # quietly stopped asking the body and gone back to knowing the answer, and the next planet gets
+    # a raster warped to a lattice its pyramid was never going to be cut on. The scan is the only
+    # oracle available: a regrown constant type-checks and tests green.
+    Sabotage(
+        suite='python',
+        label='the cut ceiling is hardcoded again, so every planet stops at Earth\'s depth',
+        path='pipeline/tile/shade_planet.py',
+        needle='                   max_zoom=body.tile_max_zoom,',
+        replacement='                   max_zoom=8,',
+        guard='test_the_cut_differs_between_bodies_in_exactly_one_setting',
+    ),
+    Sabotage(
+        suite='python',
+        label='the encoder quality is parameterised by body, duplicating a fact that is not one',
+        path='pipeline/tile/shade_planet.py',
+        needle='    return TileCut(format="WEBP", quality=95, tile_size=512, min_zoom=0,',
+        replacement=('    return TileCut(format="WEBP", quality=95 if body.name == "earth" else 90,\n'
+                     '                   tile_size=512, min_zoom=0,'),
+        guard='test_the_cut_differs_between_bodies_in_exactly_one_setting',
+    ),
+    # The OVER-parameterisation direction, and the quieter one. Under-parameterising is loud — Mars
+    # cuts to z8 and the disk says so. Moving an encoder setting onto the body reads as thoroughness
+    # and silently lets two planets' encodings drift, with every other test still green.
     # --- The look seam ------------------------------------------------------------------------------
     # The ramps' kind-dispatch used to be transcribed in four functions; it is now one resolver over a
     # frozen Look. That is a refactor whose contract is "nothing changes", so its guard is a byte
