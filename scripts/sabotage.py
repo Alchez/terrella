@@ -1571,6 +1571,39 @@ SABOTAGES: list[Sabotage] = [
         replacement='projection: { type: "mercator" }',
         guard='carries the globe projection the page ships, not the default mercator',
     ),
+    # --- The ruler's reading, against a real transform ---------------------------------------------
+    # The source guards beside these pin the MECHANISM (per-call transform lookup, one unproject, no
+    # terrain). These pin the OUTCOME, which no source assertion can reach: a reading that is true
+    # and that moves. Every mutation below leaves a ruler that renders a plausible number.
+    Sabotage(
+        suite='web',
+        label='the measured span drifts from the drawn one, so every reading is scaled wrong',
+        path='web/src/lib/scaleRuler.ts',
+        needle='rulerSamplePoints(width, height, spanPx)',
+        replacement='rulerSamplePoints(width, height, spanPx * 2)',
+        guard='agrees with the ground-resolution identity, which the ruler never computes',
+    ),
+    # Both sample points collapse onto one: distance 0, label the em dash. The ruler still renders,
+    # still updates, still never throws — it just stops being a distance.
+    Sabotage(
+        suite='web',
+        label='the two sample points collapse onto one, so the ruler measures nothing at all',
+        path='web/src/lib/scaleRuler.ts',
+        needle='    [midX - spanPx / 2, midY],\n    [midX + spanPx / 2, midY],',
+        replacement='    [midX, midY],\n    [midX, midY],',
+        guard='reports a finite, positive distance at every zoom the globe serves',
+    ),
+    # The span is re-anchored at the viewport edge, which is what MapLibre's own control does and
+    # what this module's header explains it must not: on a globe the left edge is frequently off the
+    # sphere, where unprojecting answers on the plane behind it.
+    Sabotage(
+        suite='web',
+        label='the span is anchored at the viewport edge, off the sphere, like the control we replaced',
+        path='web/src/lib/scaleRuler.ts',
+        needle='  const midX = width / 2;',
+        replacement='  const midX = spanPx / 2;',
+        guard='agrees with the ground-resolution identity, which the ruler never computes',
+    ),
     # --- The portrait fill rung ----------------------------------------------------------------
     # A rung names the LONG EDGE while `srcset` selects on WIDTH, so these mutations all produce a
     # ladder that is correct for landscape and silently two rungs short for portrait — which is the
