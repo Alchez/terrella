@@ -106,7 +106,7 @@ describe("describeTileTypeMismatch", () => {
 });
 
 describe("the pinned base source — a floor that is a map, not a colour", () => {
-  const globe = readFileSync(new URL("../pages/globe.astro", import.meta.url), "utf8");
+  const globe = readFileSync(new URL("../pages/earth.astro", import.meta.url), "utf8");
 
   it("caps the base source at z0, because that is what makes it unmissable", () => {
     // The guarantee is arithmetic, not luck: a raster source's covering set is clamped to its own

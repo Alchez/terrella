@@ -133,7 +133,7 @@ describe("the terrain rung, and why it is last", () => {
 });
 
 describe("the page reads the pixel ratio from the right place", () => {
-  const globe = readFileSync(new URL("../pages/globe.astro", import.meta.url), "utf8");
+  const globe = readFileSync(new URL("../pages/earth.astro", import.meta.url), "utf8");
 
   it("feeds the ladder the MAP's ratio, never the display's", () => {
     // The ladder LOWERS the map's ratio itself, so after its middle rung the two disagree.

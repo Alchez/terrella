@@ -82,5 +82,5 @@ export const GLOBE_LAYER_TYPES: readonly string[] = [
   "line", // b-ink-dashed     )
   "line", // country-hl-casing
   "line", // country-hl-line
-  "circle", // country-hit — LAST on purpose; see addCountryHitTargets in globe.astro
+  "circle", // country-hit — LAST on purpose; see addCountryHitTargets in earth.astro
 ];

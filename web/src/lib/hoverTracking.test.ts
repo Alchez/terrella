@@ -266,7 +266,7 @@ describe("coalescing to one resolve per frame", () => {
   });
 
   it("defaults to the browser's requestAnimationFrame when no clock is injected", () => {
-    // globe.astro injects nothing, so the default is what ships. A silent synchronous fallback
+    // earth.astro injects nothing, so the default is what ships. A silent synchronous fallback
     // would coalesce nothing while every test here stayed green.
     const requestAnimationFrame = vi.fn<(callback: () => void) => number>();
     vi.stubGlobal("requestAnimationFrame", requestAnimationFrame);
@@ -281,12 +281,12 @@ describe("coalescing to one resolve per frame", () => {
 });
 
 describe("the staleness contract", () => {
-  it("globe.astro re-resolves the hover on moveend", () => {
-    const source = readFileSync(new URL("../pages/globe.astro", import.meta.url), "utf8");
+  it("earth.astro re-resolves the hover on moveend", () => {
+    const source = readFileSync(new URL("../pages/earth.astro", import.meta.url), "utf8");
     const boundToMoveEnd = /map\.on\(\s*["']moveend["'][\s\S]{0,200}?viewChanged/.test(source);
     expect(
       boundToMoveEnd,
-      "globe.astro must call hoverTracker.viewChanged() from a `moveend` handler. Hover is " +
+      "earth.astro must call hoverTracker.viewChanged() from a `moveend` handler. Hover is " +
         "otherwise only ever recomputed on mousemove, so a drag, a zoom, the country fly-to and " +
         "every spin step leave the outline, the cursor AND the name chip describing the country " +
         "that used to be under the pointer — unbounded until the next mouse jiggle. Every unit " +

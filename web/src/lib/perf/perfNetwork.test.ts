@@ -17,7 +17,7 @@ import {
 } from "./perfNetwork";
 
 const BASE = "https://tiles.terrella.alchez.dev/";
-const PAGE = "https://terrella.alchez.dev/globe/?perf";
+const PAGE = "https://terrella.alchez.dev/earth/?perf";
 
 /** A network-served entry, built the way production reports one: transferSize = encoded + 300. */
 const fetched = (path: string, encodedBytes: number, durationMs = 400): TimedResource => ({
@@ -173,7 +173,7 @@ describe("summariseTileTraffic", () => {
         encodedBodySize: 10_000, decodedBodySize: 10_000, duration: 2 },
     ];
     const traffic = summariseTileTraffic(
-      devEntries, "/tiles/", "http://localhost:4321/globe/?perf", 3000,
+      devEntries, "/tiles/", "http://localhost:4321/earth/?perf", 3000,
     );
     expect(traffic.relief.count).toBe(1);
     expect(traffic.terrain.count).toBe(1);
@@ -187,7 +187,7 @@ describe("summariseTileTraffic", () => {
       [{ name: "http://evil.example/tiles/3/4/2.webp", transferSize: 40_300,
          encodedBodySize: 40_000, decodedBodySize: 40_000, duration: 3 }],
       "/tiles/",
-      "http://localhost:4321/globe/?perf",
+      "http://localhost:4321/earth/?perf",
       3000,
     );
     expect(traffic.relief.count).toBe(0);

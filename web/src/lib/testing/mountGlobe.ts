@@ -1,7 +1,7 @@
 import * as maplibregl from "maplibre-gl";
 // v6 resolves its worker at runtime from `import.meta.url`, which does not survive bundling. The
 // page hits the same problem and solves it the same way — `?worker&url` emits one self-contained
-// asset and hands back its hashed href. Kept identical to `globe.astro` on purpose: a fixture that
+// asset and hands back its hashed href. Kept identical to `earth.astro` on purpose: a fixture that
 // wires MapLibre up differently from the page is testing a configuration nobody ships.
 import maplibreWorkerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
 

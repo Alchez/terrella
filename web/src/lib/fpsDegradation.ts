@@ -1,5 +1,5 @@
 /**
- * The globe's runtime-degradation ladder, factored out of globe.astro so the
+ * The globe's runtime-degradation ladder, factored out of earth.astro so the
  * decision logic is unit-testable (see fpsDegradation.test.ts).
  *
  * Two ideas, kept separate on purpose:

@@ -63,7 +63,7 @@ describe("lib/perf is a lazy boundary", () => {
   });
 
   it("is reached only through a dynamic import, or through a sibling that is", () => {
-    // The direct rule is "globe.astro dynamic-imports it". A shared helper needs no import of its
+    // The direct rule is "earth.astro dynamic-imports it". A shared helper needs no import of its
     // own and must not be given a dead one to satisfy a test: Rollup places a module in the chunk
     // of whatever imports it, so a helper imported ONLY by modules that are themselves behind the
     // dynamic boundary lands behind that boundary too. What the rule still forbids — a module in
@@ -72,8 +72,8 @@ describe("lib/perf is a lazy boundary", () => {
     // Sibling imports are matched with the same `(?!type\b)` exclusion as the page sweep above: a
     // type-only import is erased at build, so it would leave the module genuinely unreachable at
     // runtime while looking reached from here.
-    const globe = pageSources.find((page) => page.name === "globe.astro");
-    expect(globe, "globe.astro must exist").toBeTruthy();
+    const globe = pageSources.find((page) => page.name === "earth.astro");
+    expect(globe, "earth.astro must exist").toBeTruthy();
     for (const module of instrumentModules) {
       const importedDynamically = globe!.text.includes(`import("../lib/perf/${module}")`);
       const valueImportPattern = new RegExp(

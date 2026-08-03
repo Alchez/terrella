@@ -21,7 +21,7 @@ interface ImportMetaEnv {
  *
  * BOTH ARE OPTIONAL AND BOTH ARE FLAG-GATED, which is the point of typing them `?`. Production
  * ships neither: a writable global pins the map, and everything it owns including GL resources,
- * alive past teardown. `__map` is written only under `?perf` in globe.astro; `terrellaMap` only
+ * alive past teardown. `__map` is written only under `?perf` in earth.astro; `terrellaMap` only
  * from `lib/perf/perfOverlay.ts`, which is behind a lazy import boundary that `lazyBoundary.test.ts`
  * and `capability.test.ts` both guard. Declaring them here does NOT relax either gate — the type
  * says the property may exist, never that it does.

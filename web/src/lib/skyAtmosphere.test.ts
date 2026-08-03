@@ -296,12 +296,12 @@ describe("atmosphereNeedsRebuild", () => {
   });
 });
 
-describe("globe.astro wires the ramp rather than re-stating it", () => {
-  const globe = readFileSync(new URL("../pages/globe.astro", import.meta.url), "utf8");
+describe("earth.astro wires the ramp rather than re-stating it", () => {
+  const globe = readFileSync(new URL("../pages/earth.astro", import.meta.url), "utf8");
 
   it("builds every sky from the module's spec — the page never states one itself", () => {
     // Was "exactly once" until the pitch term landed, and the count was never the point: the
-    // guard exists so globe.astro cannot grow its own sky literal. Asserting that EVERY call goes
+    // guard exists so earth.astro cannot grow its own sky literal. Asserting that EVERY call goes
     // through skySpec says that directly, and survives a second legitimate call site.
     const calls = globe.match(/map\.setSky\([^)]*/g) ?? [];
     expect(calls.length).toBeGreaterThan(0);

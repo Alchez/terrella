@@ -181,12 +181,12 @@ second, rather than as a shrug minutes into a run nobody is watching.
 ### Running a Lighthouse pass
 
 **The GL flag chooses which tier you measure**, so it is the experiment rather than boilerplate.
-`Base.astro`'s pre-paint guard bounces `/globe/` back to `/` whenever the renderer string names a
+`Base.astro`'s pre-paint guard bounces `/earth/` back to `/` whenever the renderer string names a
 software rasterizer — which makes SwiftShader the Tier-1 recipe and hardware ANGLE the Tier-3 one.
 
 ```sh
 # The globe. Hardware ANGLE, or the guard sends you to the gallery.
-npx lighthouse https://terrella.alchez.dev/globe/ \
+npx lighthouse https://terrella.alchez.dev/earth/ \
   --output=json --output-path=/tmp/lh-globe.json --only-categories=performance --quiet \
   --chrome-flags="--headless=new --no-sandbox --use-gl=angle --use-angle=gl"
 
@@ -199,7 +199,7 @@ npx lighthouse https://terrella.alchez.dev/ \
 These will otherwise waste a run:
 
 - **Always check `finalDisplayedUrl` against `requestedUrl`.** The guard steers both ways — `/` to
-  `/globe/` for a capable visitor, `/globe/` to `/` for everyone else — and a steered run is a
+  `/earth/` for a capable visitor, `/earth/` to `/` for everyone else — and a steered run is a
   clean, green, entirely valid report about the wrong document. It is the only check that catches a
   recipe the site has outgrown, which is how the SwiftShader flags above stopped measuring the globe.
 - **Headless Chrome reaches for SwiftShader on its own.** Dropping the GL flags entirely does not

@@ -5,7 +5,7 @@
  * DELIBERATELY NOT `IControl`s. MapLibre gives every control its OWN `.maplibregl-ctrl-group`
  * pill, so registering these the ordinary way renders four stacked pills in the top-right — nav,
  * spin, fullscreen, quiet — where the design calls for two. They are plain widgets instead, and
- * `globe.astro` appends each into the group it belongs to: spin joins zoom+compass (the camera),
+ * `earth.astro` appends each into the group it belongs to: spin joins zoom+compass (the camera),
  * quiet joins fullscreen (the frame), so the grouping states the concern.
  *
  * The markup mirrors MapLibre's own exactly — `<button class="…"><span
@@ -56,7 +56,7 @@ export function createRailToggle(options: RailToggleOptions): RailToggle {
   button.className = className;
   button.setAttribute("aria-pressed", String(pressed));
 
-  // The icon is a masked background on this span (see the rail block in globe.astro), so the
+  // The icon is a masked background on this span (see the rail block in earth.astro), so the
   // button's only content is decorative. Without BOTH of these it would have no accessible name
   // at all — the trap the credit's ⓘ hit when it stopped being words.
   const icon = document.createElement("span");

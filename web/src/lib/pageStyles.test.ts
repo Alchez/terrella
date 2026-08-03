@@ -79,7 +79,7 @@ describe("the pressed quiet toggle is a bare glyph, not a filled button", () => 
 });
 
 describe("the globe's stylesheets stay split the way the cascade needs", () => {
-  const globeAstro = readFileSync(`${WEB_ROOT}src/pages/globe.astro`, "utf8");
+  const globeAstro = readFileSync(`${WEB_ROOT}src/pages/earth.astro`, "utf8");
 
   it("keeps the SCOPED block in the page, where Astro can stamp it", () => {
     // This is the constraint that decided the split. Astro rewrites a scoped selector with a
@@ -88,7 +88,7 @@ describe("the globe's stylesheets stay split the way the cascade needs", () => {
     // losing to things it currently beats — silently, and only in the build, since the rules
     // themselves are unchanged. There is no error and no visual tell until something overlaps.
     const scoped = globeAstro.match(/<style>([\s\S]*?)<\/style>/);
-    expect(scoped, "globe.astro must still carry its scoped <style> block").not.toBeNull();
+    expect(scoped, "earth.astro must still carry its scoped <style> block").not.toBeNull();
     expect(scoped![1], "the scoped block must still hold the page's own elements").toContain(
       ".starfield",
     );

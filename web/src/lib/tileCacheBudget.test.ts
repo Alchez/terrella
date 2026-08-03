@@ -473,8 +473,8 @@ describe("describeDemCacheState", () => {
   });
 });
 
-describe("globe.astro wires the instrument rather than re-stating it", () => {
-  const globe = readFileSync(new URL("../pages/globe.astro", import.meta.url), "utf8");
+describe("earth.astro wires the instrument rather than re-stating it", () => {
+  const globe = readFileSync(new URL("../pages/earth.astro", import.meta.url), "utf8");
 
   it("reads the terrain source's own tile manager, not some other source's", () => {
     // Getting the source id wrong here reports the RELIEF cache and reads as a reassuringly small

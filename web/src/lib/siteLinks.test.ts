@@ -14,7 +14,7 @@ describe("the repository link", () => {
   });
 
   it("reaches both views the user asked for", () => {
-    for (const name of ["index.astro", "globe.astro"]) {
+    for (const name of ["index.astro", "earth.astro"]) {
       expect(page(name)).toContain('from "../lib/siteLinks"');
       expect(page(name)).toContain("REPO_URL");
     }
@@ -22,14 +22,14 @@ describe("the repository link", () => {
 
   it("is never inlined as a literal, which is the drift this constant exists to stop", () => {
     // A renamed repo or moved org would 404 silently — nothing in a build can see it.
-    for (const name of ["index.astro", "globe.astro", "about.astro", "[slug].astro"]) {
+    for (const name of ["index.astro", "earth.astro", "about.astro", "[slug].astro"]) {
       expect(page(name)).not.toContain("github.com/Alchez");
     }
   });
 
   it("opens externally without handing the opener over", () => {
     // target=_blank without rel=noopener gives the new tab window.opener on older engines.
-    for (const name of ["index.astro", "globe.astro"]) {
+    for (const name of ["index.astro", "earth.astro"]) {
       const source = page(name);
       const blankLinks = source.match(/target="_blank"/g) ?? [];
       const guarded = source.match(/rel="noopener noreferrer"/g) ?? [];
@@ -41,7 +41,7 @@ describe("the repository link", () => {
 // The on-map credit, which is the one link on the site carrying a licence obligation rather than
 // a convenience. It is folded into the centred view bar, but it is still MapLibre's own control.
 describe("the on-map credit", () => {
-  const globe = page("globe.astro");
+  const globe = page("earth.astro");
 
   it("stays a real AttributionControl, so a new source's credit still appears by itself", () => {
     // Hand-rolled markup would look identical today and silently omit the credit of whichever
@@ -109,10 +109,10 @@ describe("the on-map credit", () => {
   });
 });
 
-/** The CREDITS expression as written in globe.astro, spanning however many lines it takes. */
+/** The CREDITS expression as written in earth.astro, spanning however many lines it takes. */
 function creditsMarkup(): string {
-  const globe = page("globe.astro");
+  const globe = page("earth.astro");
   const match = globe.match(/const CREDITS =([\s\S]*?);\n/);
-  if (!match) throw new Error("globe.astro no longer declares a CREDITS constant");
+  if (!match) throw new Error("earth.astro no longer declares a CREDITS constant");
   return match[1];
 }

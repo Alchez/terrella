@@ -128,7 +128,7 @@ function workerArchiveKeys(workerConfig: string): { name: string; key: string }[
  * object nobody uploaded.
  */
 function checkTerrainHasAnOrigin(endpoint: string): void {
-  const globe = readFileSync(`${WEB_ROOT}src/pages/globe.astro`, "utf8");
+  const globe = readFileSync(`${WEB_ROOT}src/pages/earth.astro`, "utf8");
   const ridesOnTier = /resolveTerrainExaggeration\([\s\S]{0,80}?currentTier\(\)\s*===\s*"full"/.test(
     globe,
   );
@@ -140,7 +140,7 @@ function checkTerrainHasAnOrigin(endpoint: string): void {
     fail(
       "the globe would request terrain that production cannot serve.",
       "",
-      "  globe.astro enables terrain on the `full` tier, so a promoted visitor adds a raster-dem",
+      "  earth.astro enables terrain on the `full` tier, so a promoted visitor adds a raster-dem",
       "  source at /terrain/{z}/{x}/{y}.webp — and worker/index.ts does not route that path, so",
       "  every DEM tile would 404 silently.",
       "",

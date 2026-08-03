@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import "../styles/global.css";
 import globalCss from "../styles/global.css?raw";
 import baseLayout from "../layouts/Base.astro?raw";
-import globePage from "../pages/globe.astro?raw";
+import globePage from "../pages/earth.astro?raw";
 import { BODIES, bodyFor, currentBody, type BodySlug } from "./bodies";
 import { DEEP_SEA } from "./palette";
 
@@ -145,6 +145,34 @@ describe("the globe's space-floor is the body's colour, not a constant", () => {
     // Retyping the hex here would be a copy with nothing comparing it back to the sea it matches —
     // which is precisely how WATER_RGB drifted 15% brighter than the surface it was meant to be.
     expect(BODIES.earth.spaceFloor).toBe(DEEP_SEA);
+  });
+});
+
+describe("a body's slug is its route", () => {
+  it("gives every body in the registry a page at its own slug", () => {
+    // THE ACCEPTANCE CRITERION FOR THIS WHOLE DESCRIPTOR: adding a planet should be a registry
+    // entry plus data, and this is the half a type cannot check. Astro routes by filename, so
+    // `slug` and the page name are one fact stored in two places — add `mars` to the registry with
+    // no `mars.astro` and the switcher would link at a 404, with every other gate green.
+    //
+    // `import.meta.glob` is resolved by Vite at build time, so this sees the real page directory
+    // rather than a list someone maintained by hand.
+    const pages = Object.keys(import.meta.glob("../pages/*.astro"));
+    const names = pages.map((p) => p.split("/").pop()!.replace(".astro", ""));
+    for (const slug of Object.keys(BODIES)) {
+      expect(names, `${slug} needs a page at src/pages/${slug}.astro`).toContain(slug);
+    }
+  });
+
+  it("has no page left at the route the globe used to live at", () => {
+    // The rename was a move, not a copy. A leftover `globe.astro` would go on building and serving
+    // a second, diverging globe at the old URL — reachable, stale, and invisible to every test that
+    // reads the page by its new name.
+    const names = Object.keys(import.meta.glob("../pages/*.astro")).map((p) => p.split("/").pop());
+    // An absence check passes on an empty list, so prove the list is real first — otherwise a
+    // broken glob would report "the old page is gone" about a directory it never read.
+    expect(names, "the page glob must actually resolve").toContain("about.astro");
+    expect(names).not.toContain("globe.astro");
   });
 });
 

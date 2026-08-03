@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """A/B ladder for cap productionisation: CAP_PX x WebP-quality rungs.
 
-Each rung renders BOTH caps into the live web/public/caps/ path (what /globe reads), then
+Each rung renders BOTH caps into the live web/public/caps/ path (what /earth reads), then
 archives the pair into data/work/cap/ab_prod/px<px>_q<q>/ so any rung can be restored by
 copying it back. The ladder ends on the DEFAULT rung so the served assets match the shipped
 constants, and rewrites the freshness sidecars so the next cap_render run skips instead of

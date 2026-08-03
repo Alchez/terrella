@@ -45,7 +45,7 @@ const TIMING: PerfSnapshot = {
 };
 
 const ORIGIN: PerfOrigin = {
-  href: "https://terrella.alchez.dev/globe?perf",
+  href: "https://terrella.alchez.dev/earth?perf",
   devServer: false,
   userAgent: "test",
   devicePixelRatio: 2,

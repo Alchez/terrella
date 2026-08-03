@@ -99,13 +99,13 @@ broken one. Both checks below exist to get around one.
 
 ### The shell — use a cache-buster, not the plain URL
 
-For about a minute after `pnpm run deploy`, `https://terrella.alchez.dev/globe/` can still serve the
+For about a minute after `pnpm run deploy`, `https://terrella.alchez.dev/earth/` can still serve the
 **previous** HTML — `cf-cache-status: HIT`, referencing the old `_astro` chunk hash — while the new
 chunk is already uploaded and reachable. It reads exactly like a silent failure. It is not; the edge
 copy clears itself. Bypass the cached key instead:
 
 ```sh
-curl -s "https://terrella.alchez.dev/globe/?cachebust=$RANDOM" | grep -o '/_astro/globe[^"]*\.js'
+curl -s "https://terrella.alchez.dev/earth/?cachebust=$RANDOM" | grep -o '/_astro/earth[^"]*\.js'
 ```
 
 Compare that against the chunk name wrangler just listed as uploaded.
