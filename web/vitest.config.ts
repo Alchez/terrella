@@ -39,6 +39,11 @@ export default defineConfig({
         },
       },
       {
+        // Pre-bundled rather than discovered. The first test to import maplibre-gl triggers Vite's
+        // dependency optimizer mid-run, and Vite then RELOADS the page it is already testing —
+        // vitest prints "this may cause tests to fail, lead to flaky behaviour or duplicated test
+        // runs" and it is right. Naming it here moves that work before the first test instead.
+        optimizeDeps: { include: ["maplibre-gl"] },
         test: {
           name: "browser",
           include: ["src/**/*.browser.test.ts"],

@@ -1545,6 +1545,32 @@ SABOTAGES: list[Sabotage] = [
         replacement='  justify-content: center;\n  gap: 1.2rem;\n}',
         guard='fits on one row at 320px on the globe',
     ),
+    # --- The globe fixture ------------------------------------------------------------------------
+    # The fixture is the first thing here that instantiates a real map, so everything later built on
+    # it inherits its correctness. Both mutations below produce a fixture that still mounts, still
+    # reaches `load`, and still passes anything that only asks whether a map exists — which is the
+    # shape of failure this whole file exists to make visible.
+    Sabotage(
+        suite='web',
+        label='the fixture container loses its height, so every geometry assertion passes by collapsing',
+        path='web/src/lib/testing/mountGlobe.ts',
+        needle='  container.style.height = `${options.height ?? FIXTURE_HEIGHT_PX}px`;\n',
+        replacement='',
+        guard='builds the map at the size the fixture asked for, not merely a non-zero one',
+    ),
+    # The height mutation was MISSED on its first run, and the miss is the point. The guard asked
+    # only for a non-zero box, and deleting the height still gave one: with no MapLibre stylesheet
+    # injected the canvas flows normally and hands the div a height back. Measured 800x158 where the
+    # fixture declares 800x600 — not a collapse, a silent reframe, which every geometric assertion
+    # built on the fixture would then have been measuring. The guard now pins the declared size.
+    Sabotage(
+        suite='web',
+        label='the fixture quietly mounts mercator, so the globe transform is never the one under test',
+        path='web/src/lib/testing/mountGlobe.ts',
+        needle='projection: { type: "globe" }',
+        replacement='projection: { type: "mercator" }',
+        guard='carries the globe projection the page ships, not the default mercator',
+    ),
     # --- The portrait fill rung ----------------------------------------------------------------
     # A rung names the LONG EDGE while `srcset` selects on WIDTH, so these mutations all produce a
     # ladder that is correct for landscape and silently two rungs short for portrait — which is the
