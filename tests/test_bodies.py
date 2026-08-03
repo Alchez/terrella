@@ -506,10 +506,16 @@ def test_the_caps_are_shaded_at_the_body_s_exaggeration(monkeypatch) -> None:
     """The same probe on the module where this was genuinely broken: cap_render imported the
     constant, so both suns lit every planet at Earth's relief. Both are checked because the fill is
     a second call with its own argument list, and a fix applied to one line is how the pair drifts.
+
+    ASSERTED AS A RATIO BETWEEN TWO BODIES, not against a literal, because the z-factor stopped being
+    the bare exaggeration: the cap divides it by the body's AEQD ground scale, so an equality here
+    would only restate that arithmetic and would fail again at the next honest change to it. What
+    this test owns is narrower and does not move — that the number reaching the shader tracks THE
+    BODY'S exaggeration. A reimported module constant makes both bodies equal and the ratio 1.0;
+    `TestTheCapIsShadedInGroundMetres` in test_cap_render.py owns the scale itself.
     """
     from pipeline.tile import cap_render
 
-    flatter = dataclasses.replace(bodies.EARTH, exaggeration=3.0)
     handed: list[float] = []
 
     def fake(heights, _cell, zfactor, *_args, **_kwargs):
@@ -517,13 +523,18 @@ def test_the_caps_are_shaded_at_the_body_s_exaggeration(monkeypatch) -> None:
         return np.zeros((heights.shape[0] - 2, heights.shape[1]), dtype=np.float32)
 
     monkeypatch.setattr(cap_render.hillshade, "hillshade_array", fake)
-    grid = cap_render.north_grid(flatter)
-    cap_render._shade(grid, np.zeros((4, 4), dtype=np.float32), np.zeros((4, 4), dtype=np.float32))
+    for exaggeration in (3.0, 15.0):
+        body = dataclasses.replace(bodies.EARTH, exaggeration=exaggeration)
+        cap_render._shade(cap_render.north_grid(body), np.zeros((4, 4), dtype=np.float32),
+                          np.zeros((4, 4), dtype=np.float32))
 
-    assert handed == [3.0, 3.0], (
-        f"the caps' main and fill suns were driven at {handed} for a body whose exaggeration is "
-        "3.0 — a cap shaded at another planet's relief feathers into tiles shaded at this one's"
+    main_at_3, fill_at_3, main_at_15, fill_at_15 = handed
+    assert (main_at_3, fill_at_3) == (pytest.approx(main_at_15 * 0.2),
+                                      pytest.approx(fill_at_15 * 0.2)), (
+        f"the caps' suns were driven at {handed} for bodies whose exaggerations are 3.0 and 15.0 — "
+        "a cap shaded at another planet's relief feathers into tiles shaded at this one's"
     )
+    assert main_at_3 == fill_at_3  # one correction, applied to both lights
 
 
 def test_the_projection_s_sphere_and_earth_s_own_are_the_same_number_for_a_reason() -> None:
@@ -670,7 +681,10 @@ def test_the_composite_recipe_records_only_the_layers_that_are_off() -> None:
         "disk does not have it, so the whole pyramid just went stale for no pixel change"
     )
     mars = json.loads(shade_planet.composite_params({None: None}, bodies.MARS))
-    assert mars["layers_off"] == sorted(bodies.SURFACE_LAYERS)
+    # THE COMPOSITE'S OWN VOCABULARY, not the whole one. `coastline` is a cap-only layer, and
+    # recording it here would make a decision about a polar texture restage the 46 GB planet.
+    assert mars["layers_off"] == sorted(bodies.COMPOSITE_LAYERS)
+    assert "coastline" not in mars["layers_off"]
 
 
 def _southern_window(body: bodies.Body, persistence: "np.ndarray | None"):
@@ -723,4 +737,102 @@ def test_earth_still_forces_its_antarctic_land_white() -> None:
     assert shared.snow_a.min() == 1.0, (
         "Earth stopped forcing its Antarctic land white — NSIDC-0791 is northern-hemisphere-only "
         "and RGI excludes region 19, so without this patch the continent renders on the tan ramp"
+    )
+
+
+def test_the_stage_vocabularies_together_cover_the_whole_one_and_nothing_else(subtests) -> None:
+    """Every layer belongs to at least one stage, and no stage invents a name.
+
+    A layer in `SURFACE_LAYERS` that no stage claims is one a body can declare and nothing will ever
+    build — the failure `test_every_body_names_only_surface_layers_the_pipeline_knows` closes, one
+    level up. A name in a stage vocabulary that is not in `SURFACE_LAYERS` is the mirror: it would
+    appear in that stage's `layers_off` for every body alike, including the ones that have it.
+    """
+    with subtests.test("cover"):
+        assert bodies.COMPOSITE_LAYERS | bodies.CAP_LAYERS == bodies.SURFACE_LAYERS
+    for name, vocabulary in (("composite", bodies.COMPOSITE_LAYERS), ("cap", bodies.CAP_LAYERS)):
+        with subtests.test(name):
+            assert vocabulary <= bodies.SURFACE_LAYERS
+            assert vocabulary
+
+
+def test_the_stages_disagree_about_which_layers_they_read(subtests) -> None:
+    """The split is load-bearing, not bookkeeping, so it is pinned by the DIFFERENCES.
+
+    Equal vocabularies would defeat the purpose while passing the coverage test above: the caps would
+    record `lake_depth` and `glaciers`, which they never read (`depth=None`, persistence-only snow),
+    and the tile composite would record `coastline`, which it cannot contain — so a cap-only look
+    decision would restage a 46 GB planet. Over- and under-tracking are both silent.
+    """
+    with subtests.test("cap only"):
+        assert bodies.CAP_LAYERS - bodies.COMPOSITE_LAYERS == {"coastline"}
+    with subtests.test("composite only"):
+        assert bodies.COMPOSITE_LAYERS - bodies.CAP_LAYERS == {"lake_depth", "glaciers"}
+
+
+def test_layers_off_names_what_is_missing_and_stays_silent_when_nothing_is(subtests) -> None:
+    """Off, never on. Earth answers with an empty list at every stage, which is what lets the
+    callers' conditional record write nothing and leave a live 46 GB composite and a 14 GB cap
+    render byte-identical."""
+    for name, vocabulary in (("composite", bodies.COMPOSITE_LAYERS), ("cap", bodies.CAP_LAYERS)):
+        with subtests.test(f"earth {name}"):
+            assert bodies.layers_off(bodies.EARTH, vocabulary) == []
+    with subtests.test("mars cap"):
+        assert bodies.layers_off(bodies.MARS, bodies.CAP_LAYERS) == ["coastline", "sea_ice", "snow"]
+    with subtests.test("sorted"):
+        # Sorted, so a frozenset's iteration order cannot make one body's recipe two recipes.
+        partial = dataclasses.replace(bodies.EARTH, name="partial",
+                                      surface_layers=frozenset({"snow"}))
+        assert bodies.layers_off(partial, bodies.SURFACE_LAYERS) == sorted(
+            bodies.layers_off(partial, bodies.SURFACE_LAYERS))
+
+
+def test_the_cap_ground_ratio_divides_by_the_cap_sphere_and_not_the_tile_grids() -> None:
+    """Two conversions, two spheres, and Earth is the body that cannot tell them apart by value.
+
+    Its Mercator ratio is exactly 1.0 because EPSG:3857 is defined on Earth's own equatorial radius;
+    its AEQD ratio is 1.0011202 because the cap discs are drawn on 6371000. Reaching for the wrong
+    helper in the cap path is therefore a 0.11% error on Earth — invisible — and a 1.88x error on
+    Mars. Pinned against the arithmetic spelled out, so the assertion cannot be satisfied by the
+    same expression it is checking.
+    """
+    assert bodies.ground_metres_per_mercator_unit(bodies.EARTH) == 1.0
+    assert bodies.ground_metres_per_aeqd_unit(bodies.EARTH) == pytest.approx(1.0011202, abs=1e-7)
+    assert bodies.ground_metres_per_aeqd_unit(bodies.EARTH) == 6378137.0 / 6371000.0
+    assert bodies.ground_metres_per_aeqd_unit(bodies.MARS) == 3396190.0 / 6371000.0
+    assert bodies.ground_metres_per_aeqd_unit(bodies.MARS) == pytest.approx(0.5330, abs=1e-4)
+
+
+def test_every_body_rides_the_projections_aeqd_sphere_too(subtests) -> None:
+    """The cap's sphere is as forced as the tile grid's, and separately measured: PROJ refuses
+    EPSG:3857 -> `+proj=aeqd +a=3396190` with "do not belong to the same celestial body", from a
+    bare proj4 string naming no body at all. So the tempting fix — give Mars its own cap sphere —
+    fails at the tiler, and this is what makes it fail at the gate instead."""
+    for body in bodies.BODIES.values():
+        with subtests.test(body.name):
+            assert body.aeqd_radius_m == bodies.EARTH.aeqd_radius_m
+
+
+def test_the_defaulted_field_case_still_names_the_last_field_of_body() -> None:
+    """The one mutation case whose validity depends on FIELD ORDER, made executable.
+
+    Defaulting anything but the final field leaves a field without a default after it, so Python
+    refuses the class at import: the module never loads, the harness scores the mutation as caught,
+    and `test_no_field_carries_a_default_so_a_new_one_must_be_decided_per_body` is never actually
+    run. The case becomes a hollow pass that reads exactly like a real one.
+
+    IT HAS NOW DRIFTED TWICE, both times invisibly. The case names a field by text, so appending a
+    field to `Body` invalidates it while its needle still matches exactly once — which is all
+    `tests/test_sabotage_cases.py` can check, and all it stayed green on. Order is not a property a
+    string can carry, so it is asserted here against the dataclass itself.
+    """
+    from scripts.sabotage import SABOTAGES
+
+    case = next(sabotage for sabotage in SABOTAGES
+                if sabotage.guard == "test_no_field_carries_a_default_so_a_new_one_must_be_decided_per_body")
+    last = dataclasses.fields(bodies.Body)[-1].name
+    assert f"    {last}:" in case.needle, (
+        f"the defaulted-field mutation targets {case.needle.strip()!r}, but Body's last field is now "
+        f"{last!r} — defaulting anything earlier makes the module unimportable, which the harness "
+        "scores as CAUGHT while the guard it names never runs"
     )

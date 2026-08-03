@@ -128,8 +128,17 @@ work below is legible as *remaining*.
   - So the caps' disc is Earth-sphered for every planet, exactly as the tile grid is, and the caps
     need their own map-unit-to-ground ratio: `ground_radius_m ÷ aeqd_radius_m`, which is **not** the
     Mercator one, because the two projections are defined on different spheres.
-- **Two web seams are already body-agnostic** and need no work: the ground-distance readout takes
-  its distance function injected, and the tile base is a single environment knob.
+- **The tile base is per-body**: a URL is built from the body's slug and its layer, with the body a
+  required argument, so nothing derives a tile address without naming a planet.
+- **The scale ruler is NOT body-agnostic, and its injection seam is why that was missed.**
+  `rulerGroundDistance` takes a `locate` function, which looks parameterised — but `locate` returns
+  a MapLibre `LngLat`, and the distance comes from `LngLat.distanceTo`, whose radius is a module
+  constant in the shipped bundle (`earthRadius = 6371008.8`). The seam injects *where the points
+  are*, never *what a metre is worth*.
+  - So on a second body the ruler reads ~1.878× too long: plausible at every zoom, wrong at all of
+    them, and the one readout on the page that claims to be measured rather than drawn.
+  - Fixing it means computing the great-circle distance ourselves against `Body`'s ground radius,
+    not passing a different `locate`. Web-side, and not urgent while Mars publishes no globe.
 - **The tile Worker's directory cache is sized by summing every published archive**, across bodies,
   rather than by a hand tally — because two planets asked for alternately is precisely the traffic
   an undersized LRU handles worst, and an evicted directory costs a gunzip rather than a fetch, so
@@ -217,11 +226,20 @@ Each with its "or else", because a seam without a failure mode is a preference.
   the planet fuse currently emits into: heightfield, ocean mask, water mask.
   - Or else: mirroring Copernicus's tiling, void-filling and bathymetry fusion for a single
     pre-fused download is inventing work that has no input.
-- **The Earth-only layers are off-switchable in the tile composite; the CAP pass still is not.**
-  Snow persistence, glaciers, sea ice and lake depth are declared per body, and the cap render still
-  warps snow and sea ice unconditionally and bakes a Natural Earth coastline.
-  - Or else: every one of them is a dataset with no Martian analogue, and a conditional branch
-    inside the composite is where the two bodies' looks start diverging by accident.
+- **The Earth-only layers are declared per body, and both render paths obey.** Snow persistence,
+  glaciers, sea ice, lake depth and the baked coastline are named on the body; the tile composite and
+  the polar caps each ask it before they ask the disk, and each records the layers it is missing so
+  that switching one restages the output it changes.
+  - Or else: every one of them is a dataset with no Martian analogue sitting at one global path that
+    is present on the build box, so a file-presence check answers *"did we download Earth's data"*
+    for every planet alike — and a Mars pass would paint Earth's cryosphere onto Mars's grid at the
+    same latitudes, with no error and no missing file.
+  - The forced Antarctic ice patch rides the snow layer rather than a file, because there is no
+    dataset behind it: it is latitude and land, so on a sea-less body it whitens everything below 60
+    degrees south. Nothing on disk could ever have switched it off.
+  - Each stage records only the layers **it** reads. The caps never composite lake bathymetry and the
+    tiles never bake a coastline, so a shared vocabulary would make one stage's decision restage the
+    other's output — 46 GB of planet for the sake of a polar texture.
 - **Keep the tile grid in standard Earth-radius Web Mercator — this is forced, not preferred.** Tile
   boundaries in longitude and latitude are identical whichever sphere is named, so the scheme, the
   archive format and the client carry over untouched. But the deciding fact is upstream of taste:
@@ -233,8 +251,14 @@ Each with its "or else", because a seam without a failure mode is a preference.
   - The Mars radius then enters only where **ground metres** are needed. The ratio is **1.878** —
     Earth's Mercator sphere over the IAU 2015 Mars sphere of 3,396,190 m, which is the figure the
     ceiling table above is built on and the one the source DEM's own CRS declares.
-  - The tile shading already converts through it; what does not yet is the **caps' AEQD disc**,
-    which needs its own ratio against a different sphere, and the **scale ruler** in the browser.
+  - Both render paths convert through it now, but **not through the same ratio**, because they are
+    projected on different spheres. The caps' azimuthal-equidistant disc divides by 6,371,000 m, so
+    its Mars ratio is 0.5331 and its **Earth ratio is 1.0011, not 1.0** — the one place adopting the
+    conversion moved Earth's own pixels rather than none. What still does not convert at all is the
+    **scale ruler** in the browser.
+  - That AEQD sphere is as forced as the Mercator one, and separately measured: PROJ refuses
+    EPSG:3857 to `+proj=aeqd +a=3396190` with the same celestial-body objection, from a bare proj4
+    string that names no body at all.
   - Or else: mixing the two radii yields a latitude-varying wrong exaggeration that renders
     plausibly everywhere and is true nowhere — the failure mode with no symptom.
 - **The palette must be body-parameterised, not copied.** A second set of look constants is the same

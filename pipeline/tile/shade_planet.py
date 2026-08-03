@@ -282,7 +282,10 @@ def composite_params(variants, body: bodies.Body, window_rows=WINDOW_ROWS) -> st
     # nothing is written: the live 46 GB composite stays fresh. A body missing one records it, and
     # turning a layer off on a body that had it correctly restages, which file mtimes cannot do —
     # `newest_mtime` scores an absent path 0.0, so an unbuilt raster is silently not a dependency.
-    absent = sorted(bodies.SURFACE_LAYERS - body.surface_layers)
+    #
+    # COMPOSITE_LAYERS, not the whole vocabulary: the caps read a coastline and this stage does not,
+    # so enumerating every layer here would make a cap-only decision restage the planet.
+    absent = bodies.layers_off(body, bodies.COMPOSITE_LAYERS)
     layers = {"layers_off": absent} if absent else {}
     return json.dumps({**layers, "knobs": knobs, "water_rgb": palette.WATER_RGB,
                        "composite_window_rows": window_rows,
@@ -350,21 +353,37 @@ def composite_deps(work, hs, params) -> tuple:
             work / "glacier_3857.tif", work / "seaice_3857.tif", params)
 
 
+def body_declares_layer(body: bodies.Body, layer: str, consequence: str) -> bool:
+    """Whether this body has `layer` at all — the body half of the gate, on its own.
+
+    SPLIT OUT BECAUSE ONE RULE HAS NO DATASET BEHIND IT. The forced Antarctic land-ice patch is pure
+    latitude-and-land arithmetic (`snow.antarctic_snow_mask`), so there is no file whose absence
+    could ever switch it off — on a sea-less body it would simply whiten every piece of land below
+    60 degrees south. It rides the `snow` layer, and this is what lets it ask that question with the
+    same words and the same printed consequence as the four layers that do read a file.
+    """
+    if layer not in body.surface_layers:
+        print(f"{body.name} declares no {layer} layer -> skipped ({consequence})", flush=True)
+        return False
+    return True
+
+
 def layer_is_buildable(body: bodies.Body, layer: str, source: Path, consequence: str) -> bool:
     """Whether this body's `layer` can be warped — asked of the BODY first, then of the disk.
 
-    THE ORDER IS THE POINT. Each of these sources is a module constant at a fixed global path, so
-    `source.exists()` answers "have we downloaded Earth's data" for every planet alike. Asking it
-    first would let a second body pass the check on Earth's file and composite Earth's cryosphere
-    onto its own grid — at the same latitudes, so it renders as a perfectly plausible planet.
+    THE ORDER IS THE POINT, and it is structural here rather than a convention: the body half is a
+    separate function and this one calls it first. Each of these sources is a module constant at a
+    fixed global path, so `source.exists()` answers "have we downloaded Earth's data" for every
+    planet alike. Asking it first would let a second body pass the check on Earth's file and paint
+    Earth's cryosphere onto its own grid — at the same latitudes, so it renders as a perfectly
+    plausible planet.
 
     Both branches print, and each states the consequence rather than only the cause: a skipped layer
     is a look decision, and a pass that goes quiet about one is a pass whose output cannot be read
     back. Returning False rather than raising keeps a partial build legal, which is what makes the
     layers switchable at all.
     """
-    if layer not in body.surface_layers:
-        print(f"{body.name} declares no {layer} layer -> skipped ({consequence})", flush=True)
+    if not body_declares_layer(body, layer, consequence):
         return False
     if not source.exists():
         print(f"no {source.name} -> {layer} skipped ({consequence})", flush=True)

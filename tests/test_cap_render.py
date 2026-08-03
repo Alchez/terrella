@@ -25,7 +25,10 @@ import pytest
 import rasterio
 from rasterio.transform import from_bounds
 
+from pathlib import Path
+
 from pipeline import bodies, paths
+from pipeline.render import seaice, snow
 from pipeline.tile import cap_render, shade_planet, terrain_rgb
 
 #: Earth's two cap grids. The module no longer exposes them as constants — see `north_grid` — so a
@@ -527,3 +530,260 @@ class TestCapElevationContract:
         for name, grid in (("north", EARTH_NORTH), ("south", EARTH_SOUTH)):
             assert manifest[name]["elev_url"] == f"/caps/cap_{name}_elev.webp"
             assert cap_render.cap_elev_asset(grid).name == f"cap_{name}_elev.webp"
+
+
+#: A body that declares no layers at all — the whole of what a second planet costs the cap pass.
+#:
+#: Built from Earth so that geometry, exaggeration and grid are held fixed and `surface_layers` is
+#: the only thing varying. A synthetic body with several fields changed cannot say WHICH one a gate
+#: responded to.
+LAYERLESS_BODY = dataclasses.replace(bodies.EARTH, name="layerless", path_prefix="layerless",
+                                     surface_layers=frozenset())
+
+
+def _drive_cap(monkeypatch, tmp_path, body, pole, missing=()):
+    """Run one REAL cap renderer with its two GDAL edges recorded rather than executed.
+
+    `_warp` and `_write_cap` are the boundaries of the code under test — one shells out to gdalwarp,
+    the other writes a texture — so they are captured. Everything between them, which is every layer
+    gate, is the real function. Recording `_warp` IS the assertion: a layer that is off must never
+    reach it, and a test that only inspected the composite's arguments would pass a version that
+    warped Earth's climatology and then discarded it.
+
+    Every Earth source is redirected onto a file that DOES exist here, and that is the point rather
+    than a convenience — it reproduces the build box, where each of these is one global path to an
+    Earth dataset present whatever planet is being rendered. A gate that consulted the disk before
+    the body would pass on all of them.
+
+    `missing` names sources to point at a path that does NOT exist, so the disk half of the gate can
+    be exercised on a body that does declare the layer — body-first is not body-only.
+
+    The coastline is deliberately not exercised here: it is baked inside `_write_cap`, which this
+    replaces. `TestTheCoastlineIsABodyFact` drives that gate directly.
+    """
+    monkeypatch.setattr(paths, "DATA", tmp_path / "data")
+    monkeypatch.setattr(paths, "ROOT", tmp_path / "checkout")
+    present = tmp_path / "an-earth-dataset-this-box-already-has"
+    present.write_text("")
+    absent = tmp_path / "never-downloaded"
+    for attribute, module in (("SP_NC", snow), ("SEAICE_SRC", seaice)):
+        monkeypatch.setattr(module, attribute,
+                            str(absent if attribute in missing else present))
+    monkeypatch.setattr(cap_render, "COAST_SHP",
+                        absent if "COAST_SHP" in missing else present)
+
+    warped: list[str] = []
+
+    def fake_warp(grid, src, out, resampling, dtype, srcnodata=None):
+        warped.append(Path(out).stem.split("_", 1)[1])
+        return np.zeros((grid.px, grid.px), dtype=np.float32)
+
+    painted: dict[str, Any] = {}
+
+    def fake_write(grid, heights, ocean, water, snow_a, ice_a, hillshade_dn):
+        painted.update(snow_a=snow_a, ice_a=ice_a)
+        return tmp_path / f"cap_{grid.name}.webp"
+
+    monkeypatch.setattr(cap_render, "_warp", fake_warp)
+    monkeypatch.setattr(cap_render, "_write_cap", fake_write)
+
+    factory, render = ((cap_render.north_grid, cap_render.render_cap_north) if pole == "north"
+                       else (cap_render.south_grid, cap_render.render_cap_south))
+    render(dataclasses.replace(factory(body), px=8))
+    return sorted(warped), painted
+
+
+class TestTheCapPassAsksTheBodyBeforeTheDisk:
+    """The layer gates, driven through the real renderers.
+
+    The failure these close has no symptom: a Mars cap wearing Earth's Arctic renders cleanly, at the
+    same latitudes, and simply describes another planet. So each test asserts on what was OPENED, not
+    on how the picture looked.
+    """
+
+    def test_earth_warps_its_cryosphere_at_both_poles(self, tmp_path, monkeypatch, subtests):
+        """The positive control, and the reason the negatives below mean anything: with the layers
+        declared, both climatologies are read exactly as they always were."""
+        north, painted_n = _drive_cap(monkeypatch, tmp_path, bodies.EARTH, "north")
+        with subtests.test("north"):
+            assert north == ["height", "ocean", "seaice", "sp", "water"]
+            assert painted_n["ice_a"] is not None
+
+        south, painted_s = _drive_cap(monkeypatch, tmp_path, bodies.EARTH, "south")
+        with subtests.test("south"):
+            # No `sp`: the south's snow is forced, never read from a dataset.
+            assert south == ["height", "ocean", "seaice", "water"]
+            assert painted_s["ice_a"] is not None
+            # Antarctica forced white — the whole disc is land below -60 in this fixture.
+            assert np.all(painted_s["snow_a"] == 1.0)
+
+    def test_a_body_with_no_layers_opens_none_of_earths_files(self, tmp_path, monkeypatch,
+                                                             subtests):
+        """The bug this commit exists to close. Every source is present on disk in this fixture, so
+        the only thing that can refuse them is the body — and it must, at both poles."""
+        for pole in ("north", "south"):
+            with subtests.test(pole):
+                warped, painted = _drive_cap(monkeypatch, tmp_path, LAYERLESS_BODY, pole)
+                assert warped == ["height", "ocean", "water"]
+                assert painted["ice_a"] is None
+                assert np.all(painted["snow_a"] == 0.0)
+
+    def test_the_forced_antarctic_patch_is_refused_for_a_body_with_no_snow_layer(
+            self, tmp_path, monkeypatch):
+        """The one rule with no file behind it, and therefore the one nothing on disk could ever
+        switch off. It is pure latitude and land, so on a sea-less body it would whiten every scrap
+        of ground below 60 degrees south and call it an ice cap.
+
+        Asserted against Earth's own south cap in the same fixture, which forces the whole disc
+        white: the two runs differ in `surface_layers` and in nothing else.
+        """
+        _, earths = _drive_cap(monkeypatch, tmp_path, bodies.EARTH, "south")
+        _, layerless = _drive_cap(monkeypatch, tmp_path, LAYERLESS_BODY, "south")
+        assert np.all(earths["snow_a"] == 1.0)
+        assert np.all(layerless["snow_a"] == 0.0)
+
+    def test_a_missing_dataset_still_skips_the_layer_for_a_body_that_declares_it(
+            self, tmp_path, monkeypatch):
+        """Body first does not mean body only. Earth with the download absent must skip the layer
+        rather than crash the pass — that half of the gate predates this commit and has to survive
+        it, or a partial build stops being legal."""
+        warped, painted = _drive_cap(monkeypatch, tmp_path, bodies.EARTH, "north",
+                                     missing={"SP_NC"})
+        assert warped == ["height", "ocean", "seaice", "water"]  # no `sp`
+        assert np.all(painted["snow_a"] == 0.0)
+        assert painted["ice_a"] is not None  # the OTHER layer is unaffected
+
+
+class TestTheCoastlineIsABodyFact:
+    """`COAST_SHP` is one global path to a Natural Earth product. Its presence answers "did we
+    download Earth's vectors", which is yes for every planet on this box."""
+
+    def test_earth_bakes_it_in_the_north_and_declines_it_in_the_south(self, subtests, monkeypatch,
+                                                                     tmp_path):
+        present = tmp_path / "ne_10m_coastline.shp"
+        present.write_text("")
+        monkeypatch.setattr(cap_render, "COAST_SHP", present)
+        with subtests.test("north"):
+            assert cap_render.bakes_coastline(cap_render.north_grid(bodies.EARTH)) is True
+        with subtests.test("south"):
+            # A look decision, unchanged: white ice on teal ocean separates itself.
+            assert cap_render.bakes_coastline(cap_render.south_grid(bodies.EARTH)) is False
+
+    def test_a_body_without_the_layer_declines_it_though_earths_file_is_right_there(
+            self, monkeypatch, tmp_path):
+        present = tmp_path / "ne_10m_coastline.shp"
+        present.write_text("")
+        monkeypatch.setattr(cap_render, "COAST_SHP", present)
+        grid = cap_render.north_grid(LAYERLESS_BODY)
+        assert present.exists()
+        assert grid.coast_opacity == 0.55  # the LOOK still says draw it; the body says there is none
+        assert cap_render.bakes_coastline(grid) is False
+
+    def test_the_opacity_stays_a_look_constant_rather_than_a_second_copy_of_the_body_fact(self):
+        """Deriving `coast_opacity` from the body would record the same fact twice — as a 0.0 in the
+        grid block and as an entry in `layers_off` — which is the copy-drift the registry removes."""
+        assert cap_render.north_grid(LAYERLESS_BODY).coast_opacity == 0.55
+        recipe = json.loads(cap_render.cap_recipe(cap_render.north_grid(LAYERLESS_BODY)))
+        assert recipe["grid"]["coast_opacity"] == 0.55
+        assert "coastline" in recipe["layers_off"]
+
+
+class TestCapSourcesFollowTheLayers:
+    def test_a_source_for_an_absent_layer_is_not_a_dependency(self, subtests):
+        """`cap_is_fresh` demands every source EXIST and be older than the oldest rung, so listing
+        Earth's climatology for a body that paints no ice ties that body's caps to the mtime of a
+        file whose contents can never reach a pixel of them."""
+        for pole, factory in (("north", cap_render.north_grid),
+                              ("south", cap_render.south_grid)):
+            with subtests.test(pole):
+                earth = cap_render.cap_sources(factory(bodies.EARTH))
+                bare = cap_render.cap_sources(factory(LAYERLESS_BODY))
+                assert Path(seaice.SEAICE_SRC) in earth
+                assert not any(source.name == Path(seaice.SEAICE_SRC).name for source in bare)
+                assert len(bare) == 3  # heightfield, oceanmask, watermask — the body's own relief
+
+
+class TestTheCapIsShadedInGroundMetres:
+    """The cap's map units are metres on `aeqd_radius_m`, its heights are ground metres on the body.
+    Divide one by the other without converting and the slope is a number in neither unit."""
+
+    def _zfactors(self, monkeypatch, body):
+        seen: list[float] = []
+        real = cap_render.hillshade.hillshade_array
+
+        def spy(heights, cell, zfactor, altitude, azimuth):
+            seen.append(zfactor)
+            return real(heights, cell, zfactor, altitude, azimuth)
+
+        monkeypatch.setattr(cap_render.hillshade, "hillshade_array", spy)
+        grid = cap_render.CapGrid(lat_0=90.0, edge_lat=78.0, px=8, name="tiny", az_sign=-1.0,
+                                  body=body)
+        cap_render._shade(grid, np.zeros((8, 8), dtype=np.float32),
+                          np.zeros((8, 8), dtype=np.float32))
+        return seen
+
+    def test_both_lights_are_driven_at_the_ground_scaled_z_factor(self, monkeypatch):
+        """Main and fill, not just the main one: they are two calls, and a correction applied to one
+        of them tilts the fill against the light it is meant to soften."""
+        expected = bodies.EARTH.exaggeration / bodies.ground_metres_per_aeqd_unit(bodies.EARTH)
+        assert self._zfactors(monkeypatch, bodies.EARTH) == [expected, expected]
+        assert expected != bodies.EARTH.exaggeration  # Earth's cap ratio is 1.0011202, not 1.0
+
+    def test_a_body_whose_spheres_coincide_is_driven_at_its_bare_exaggeration(self, monkeypatch):
+        """The discriminator that a wrong-way division cannot pass: with ground and AEQD radius
+        equal the ratio is exactly 1, so the z-factor must be the exaggeration itself — inverting
+        the quotient leaves this case identical and every other case wrong."""
+        identity = dataclasses.replace(bodies.EARTH, name="identity",
+                                       ground_radius_m=bodies.EARTH.aeqd_radius_m)
+        assert self._zfactors(monkeypatch, identity) == [15.0, 15.0]
+
+    def test_a_smaller_body_is_shaded_more_steeply_for_the_same_exaggeration(self, monkeypatch):
+        """A body half Earth's size fits the same angle into half the ground distance, so the same
+        physical exaggeration needs roughly twice the z-factor. Direction AND magnitude, because a
+        correction applied backwards is still monotonic in the body's radius."""
+        smaller = dataclasses.replace(bodies.EARTH, name="smaller", ground_radius_m=3396190.0)
+        got = self._zfactors(monkeypatch, smaller)
+        assert got[0] == pytest.approx(15.0 / (3396190.0 / 6371000.0))
+        assert got[0] == pytest.approx(28.14, abs=0.01)
+        assert got[0] > self._zfactors(monkeypatch, bodies.EARTH)[0]
+
+    def test_the_ground_scale_rides_in_the_recipe_that_gates_the_render(self, monkeypatch):
+        """Unconditionally, unlike the Mercator one: no body's cap ratio is the identity, so a
+        conditional would never fire and would only read as though it might. Untracked, a body
+        change would leave a cap falsely fresh at another planet's relief."""
+        recipe = json.loads(cap_render.cap_recipe(EARTH_NORTH))
+        assert recipe["light"]["ground_scale"] == bodies.ground_metres_per_aeqd_unit(bodies.EARTH)
+        smaller = dataclasses.replace(bodies.EARTH, name="smaller", ground_radius_m=3396190.0)
+        other = cap_render.cap_recipe(dataclasses.replace(EARTH_NORTH, body=smaller))
+        assert json.loads(other)["light"]["ground_scale"] != recipe["light"]["ground_scale"]
+
+    def test_the_elevation_texture_is_not_dragged_through_the_ground_scale(self):
+        """It encodes true metres and contains no slope at all, so a ground scale in the shared grid
+        block would re-encode both displacement textures for a number they never read."""
+        assert "ground_scale" not in json.dumps(
+            cap_render.grid_recipe_fields(EARTH_NORTH))
+        assert "ground_scale" not in cap_render.cap_elev_recipe(EARTH_NORTH)
+
+
+class TestTheCapRecipeRecordsWhatIsOff:
+    def test_earth_records_no_layers_off_so_its_caps_keep_their_recipe_shape(self):
+        assert "layers_off" not in json.loads(cap_render.cap_recipe(EARTH_NORTH))
+        assert "layers_off" not in json.loads(cap_render.cap_recipe(EARTH_SOUTH))
+
+    def test_a_bare_body_records_exactly_the_cap_layers_it_lacks(self):
+        """The cap vocabulary, not the whole one: `lake_depth` and `glaciers` never reach a cap, so
+        recording them would restage a 14 GB render on a decision it cannot contain."""
+        recipe = json.loads(cap_render.cap_recipe(cap_render.north_grid(LAYERLESS_BODY)))
+        assert recipe["layers_off"] == ["coastline", "sea_ice", "snow"]
+
+    def test_turning_a_layer_off_restages_although_its_source_stops_being_a_dependency(self):
+        """The two halves have to move together. Switching a layer off REMOVES its file from
+        `cap_sources`, so the mtime that would have noticed disappears along with the layer — the
+        recipe is the only thing left that can tell the cap it is stale."""
+        with_ice = cap_render.north_grid(bodies.EARTH)
+        without = cap_render.north_grid(
+            dataclasses.replace(bodies.EARTH, name="noice",
+                                surface_layers=bodies.EARTH.surface_layers - {"sea_ice"}))
+        assert Path(seaice.SEAICE_SRC) in cap_render.cap_sources(with_ice)
+        assert Path(seaice.SEAICE_SRC) not in cap_render.cap_sources(without)
+        assert cap_render.cap_recipe(with_ice) != cap_render.cap_recipe(without)

@@ -55,7 +55,8 @@ from pipeline import bodies, paths
 from pipeline.render import hillshade, lake_depth, seaice, snow
 from pipeline.tile import shade, terrain_rgb
 from pipeline.tile.shade import KNOBS
-from pipeline.tile.shade_planet import ALT, AZ, CAP_NORTH, CAP_SOUTH, composite_params
+from pipeline.tile.shade_planet import (ALT, AZ, CAP_NORTH, CAP_SOUTH, body_declares_layer,
+                                        composite_params, layer_is_buildable)
 
 ROOT = paths.ROOT
 CAP_PX = 8192          # square texture side (south is a bigger disc -> coarser per px). 8192 chosen
@@ -134,10 +135,13 @@ def south_grid(body: bodies.Body) -> CapGrid:
     -- without a line they merge), but on the south white ice sits on teal ocean, which already
     separates itself; a dark line there just reads as a cartoonish outline around the continent.
 
-    The two sea-ice overrides and that coastline decision are EARTH LOOK CONSTANTS applied to
-    whatever body is passed. They are honest only while Earth is the only body: a second planet's
-    cryosphere is a Phase-1 question (the snow / sea-ice / glacier layers are Earth-only sources and
-    have to become off-switchable, not conditionally patched), and this is where it will surface.
+    The two sea-ice overrides and that coastline opacity are EARTH LOOK CONSTANTS applied to whatever
+    body is passed, and they stay that way ON PURPOSE now the layers are switchable. Opacity says how
+    strongly a line is drawn IF one is drawn at all; whether this body has a coastline dataset is a
+    separate fact, and it lives in `Body.surface_layers` where `bakes_coastline` reads it. Deriving
+    the opacity from the body instead would record the same fact twice -- as a 0.0 here and as an
+    entry in the recipe's `layers_off` -- which is the copy-drift this registry exists to remove.
+    A second body's look constants are a Phase-2 question, decided with its cap on screen.
     """
     return CapGrid(lat_0=-90.0, edge_lat=-78.0, px=CAP_PX, name="south", az_sign=1.0, body=body,
                    coast_opacity=0.0, coast_dilate=0,
@@ -149,6 +153,29 @@ def south_grid(body: bodies.Body) -> CapGrid:
 # delicately on both whites without going harsh. Line strength/width are per-cap (CapGrid).
 COAST_SHP = ROOT / "data/raw/naturalearth/ne_10m_coastline/ne_10m_coastline.shp"
 COAST_RGB = (96, 122, 142)  # muted steel-blue
+
+
+def bakes_coastline(grid: CapGrid) -> bool:
+    """Whether this cap burns the land/sea line into its own pixels: look, then body, then disk.
+
+    THREE QUESTIONS IN ONE PLACE, because they were about to become three answers in three. The look
+    question is silent -- the south sets `coast_opacity=0.0` deliberately and there is nothing to
+    announce about a decision that was made. The other two go through `layer_is_buildable`, so a body
+    without the layer prints the same sentence the four raster layers print.
+
+    THE BODY QUESTION CANNOT BE THE DISK QUESTION, which is the lesson this whole gate carries:
+    `COAST_SHP` is one global path to a Natural Earth product that is present on this box, so
+    `.exists()` returns True for Mars exactly as it does for Earth. Ordered the other way, a Martian
+    north cap would have had Earth's coastline reprojected onto it and blended in steel-blue -- a
+    crisp, confident, entirely fictional shoreline.
+
+    One predicate, two callers: the render (which draws the line) and `cap_sources` (which makes it a
+    freshness dependency). Those must agree, or a cap depends on a file it never opens.
+    """
+    if grid.coast_opacity <= 0.0:
+        return False
+    return layer_is_buildable(grid.body, "coastline", COAST_SHP,
+                              "the cap ships with no land/sea line")
 
 
 def planet_work_dir(body: bodies.Body) -> Path:
@@ -321,9 +348,29 @@ def cap_recipe(grid: CapGrid) -> str:
     once let both caps sit stale against the tiles they feather into, the north −6.7 DN
     adrift. `fill_strength` is listed explicitly because
     composite_params filters it out as hillshade-stage — for the tiles it rides in hs_params.json,
-    but the caps have no hillshade sidecar, so it must ride here."""
-    return json.dumps({"grid": grid_recipe_fields(grid),
+    but the caps have no hillshade sidecar, so it must ride here.
+
+    `ground_scale` is recorded UNCONDITIONALLY, where `hs_params` records the Mercator one only when
+    it is not 1.0. Not an inconsistency: that idiom exists to keep a body whose value IS the identity
+    byte-identical, and no body's cap ratio is the identity — Earth's is 1.0011202, because its
+    Mercator sphere doubles as its ground radius and its AEQD sphere does not. A conditional here
+    would therefore never fire and would only read as though it might.
+
+    It sits in the light block rather than in `grid_recipe_fields` deliberately. That helper is
+    shared with `cap_elev_recipe`, and the elevation texture encodes true metres with no slope in it
+    at all — a ground scale there would drag both displacement textures through a re-encode for a
+    number they never read.
+
+    `layers_off` IS conditional, and for the reason the tile composite's is: Earth declares every cap
+    layer, so nothing is written and its recipe keeps the shape it has always had. It cannot be left
+    to `cap_sources` mtimes, because turning a layer off REMOVES its source from that list — the
+    dependency disappears along with the layer, and the cap would sit fresh wearing the old one."""
+    absent = bodies.layers_off(grid.body, bodies.CAP_LAYERS)
+    layers = {"layers_off": absent} if absent else {}
+    return json.dumps({**layers,
+                       "grid": grid_recipe_fields(grid),
                        "light": {"az": AZ, "alt": ALT, "exag": grid.body.exaggeration,
+                                 "ground_scale": bodies.ground_metres_per_aeqd_unit(grid.body),
                                  "fill_azimuth": hillshade.FILL_AZIMUTH,
                                  "fill_altitude": hillshade.FILL_ALTITUDE,
                                  "fill_strength": KNOBS["fill_strength"]},
@@ -372,13 +419,22 @@ def caps_manifest(body: bodies.Body) -> str:
 
 def cap_sources(grid: CapGrid) -> list[Path]:
     """The source files whose change must re-render this cap — composite_deps' sibling. Constants
-    ride in cap_recipe; these are the mtime dependencies."""
+    ride in cap_recipe; these are the mtime dependencies.
+
+    ONLY THE FILES THIS BODY'S CAP ACTUALLY OPENS. A source listed for a layer the body does not have
+    is not merely noise: `cap_is_fresh` requires every source to EXIST and to be older than the
+    oldest rung, so listing Earth's sea-ice climatology for a body that paints no sea ice ties that
+    body's caps to the mtime of a file whose contents can never reach a pixel of them. The layer's
+    own absence is tracked in `cap_recipe` instead, where turning it off restages exactly once.
+    """
     planet = planet_work_dir(grid.body)
     sources = [planet / "planet_heightfield.vrt", planet / "planet_oceanmask.vrt",
-               planet / "planet_watermask.vrt", Path(seaice.SEAICE_SRC)]
-    if grid.name == "north":
+               planet / "planet_watermask.vrt"]
+    if "sea_ice" in grid.body.surface_layers:
+        sources.append(Path(seaice.SEAICE_SRC))
+    if grid.name == "north" and "snow" in grid.body.surface_layers:
         sources.append(Path(snow.SP_NC))  # the south's snow is FORCED, not read from a dataset
-    if grid.coast_opacity > 0.0:
+    if bakes_coastline(grid):
         sources.append(COAST_SHP)
     return sources
 
@@ -436,14 +492,22 @@ def _shade(grid: CapGrid, heights: np.ndarray, longitude: np.ndarray) -> np.ndar
 
     The exaggeration is the GRID's body, not this module's: it was imported from shade_planet, so
     the caps drew every planet at Earth's relief however `--body` was set, and feathered that into
-    tiles shaded at the right one. A seam nothing would have flagged as a parameterisation bug."""
+    tiles shaded at the right one. A seam nothing would have flagged as a parameterisation bug.
+
+    AND THE Z-FACTOR CARRIES THE CAP'S OWN UNIT CONVERSION, which is not the tiles'. `cell` is in
+    AEQD map units -- metres on `aeqd_radius_m`, the sphere PROJ forces every body onto -- while
+    `heights` are ground metres on the body itself, so the rise and the run are measured with
+    different rulers and the quotient is a slope in neither. Dividing the exaggeration by
+    `ground_metres_per_aeqd_unit` makes the units cancel. There is no latitude term to go with it,
+    unlike the Mercator path: AEQD tangential distortion inside the edge latitude is small, which is
+    the same reason a scalar z-factor is admissible here at all."""
     cell = 2 * grid.edge_m / grid.px
+    zfactor = grid.body.exaggeration / bodies.ground_metres_per_aeqd_unit(grid.body)
     haloed = np.pad(heights, ((1, 1), (0, 0)), mode="edge")
     main_az = (AZ + grid.az_sign * longitude).astype(np.float32)
     fill_az = (hillshade.FILL_AZIMUTH + grid.az_sign * longitude).astype(np.float32)
-    shaded = hillshade.hillshade_array(haloed, cell, grid.body.exaggeration, ALT, main_az)
-    fill = hillshade.hillshade_array(haloed, cell, grid.body.exaggeration,
-                                     hillshade.FILL_ALTITUDE, fill_az)
+    shaded = hillshade.hillshade_array(haloed, cell, zfactor, ALT, main_az)
+    fill = hillshade.hillshade_array(haloed, cell, zfactor, hillshade.FILL_ALTITUDE, fill_az)
     # No pole special-case: the rotating azimuth's pinwheel wash at the exact pole is quenched by
     # `shade.KNOBS["ice_relief_damp"]` (the pack conceals the shading that fed the wash). The
     # colat-3 flat taper that used to sit here was measured retirable at damp 0.75 and deleted:
@@ -458,7 +522,7 @@ def _bake_coastline(grid: CapGrid, rgb: np.ndarray) -> None:
     ne_10m_coastline is 4326, so reproject to AEQD (gdal_rasterize does not reproject) before burning
     it onto the cap grid; a small dilation makes it a ~3 px line rather than a 1 px thread at 4096.
     """
-    if grid.coast_opacity <= 0.0:
+    if not bakes_coastline(grid):
         return
     edge = grid.edge_m
     work = cap_work_dir(grid.body)
@@ -478,7 +542,7 @@ def _bake_coastline(grid: CapGrid, rgb: np.ndarray) -> None:
 
 
 def _write_cap(grid: CapGrid, heights: np.ndarray, ocean: np.ndarray, water: np.ndarray,
-               snow_a: np.ndarray, ice_a: np.ndarray, hillshade_dn: np.ndarray) -> Path:
+               snow_a: np.ndarray, ice_a: "np.ndarray | None", hillshade_dn: np.ndarray) -> Path:
     """Shared composite + coastline bake + WebP write for either pole. SVF off, measured:
     the tiles' ocean SVF is thresholded out over flat seafloor, so a cap SVF pass changes the ocean
     sub-perceptibly and does not close the cap<->tile seam -- the seam is projection/DEM, not SVF)."""
@@ -502,17 +566,39 @@ def _write_cap(grid: CapGrid, heights: np.ndarray, ocean: np.ndarray, water: np.
     return cap_asset(grid, grid.px)
 
 
+def _cap_sea_ice(grid: CapGrid, consequence: str) -> "np.ndarray | None":
+    """This cap's sea-ice alpha, or None when the body has no sea ice — shared by both poles.
+
+    ONE HOME BECAUSE BOTH POLES WARP THE SAME CLIMATOLOGY. The two renderers differ only in their
+    `ice_lo` / `ice_max_alpha` overrides, which ride on the grid; writing the gate out twice is how a
+    fix reaches one pole and not the other, which this module has already done once with GEBCO.
+
+    None rather than a zero array: `shade.composite` takes `ice_a=None` and skips the blend entirely,
+    where zeros would run it and multiply the whole disc by nothing.
+    """
+    if not layer_is_buildable(grid.body, "sea_ice", Path(seaice.SEAICE_SRC), consequence):
+        return None
+    ice_raw = _warp(grid, seaice.SEAICE_SRC, cap_warp(grid, "seaice"),
+                    "bilinear", "Float32", srcnodata=seaice.ICE_FILL)
+    # No latitude term in ice_alpha -> valid on an AEQD grid. The south's fainter, pulled-in fringe
+    # comes from the grid's seaice.SH_ICE_* overrides, not from a second code path.
+    return seaice.ice_alpha(seaice.unpack_seaice(ice_raw),
+                            ice_lo=grid.ice_lo, ice_max_alpha=grid.ice_max_alpha)
+
+
 def render_cap_north(grid: CapGrid) -> Path:
-    """North cap from the fused planet VRTs + snow persistence + sea ice."""
+    """North cap from the fused planet VRTs + snow persistence + sea ice.
+
+    The two cryosphere layers are gated on the BODY, not on their files: both sources are single
+    global paths to Earth datasets, so an existence check passes for every planet and would have
+    painted an Arctic onto whatever was rendered. Off, the cap is bare relief and bathymetry, which
+    is a complete picture rather than a degraded one.
+    """
     planet = planet_work_dir(grid.body)
     cap_work_dir(grid.body).mkdir(parents=True, exist_ok=True)
     height = _warp(grid, planet / "planet_heightfield.vrt", cap_height_warp(grid), "bilinear", "Float32")
     ocean_raw = _warp(grid, planet / "planet_oceanmask.vrt", cap_warp(grid, "ocean"), "near", "Byte")
     watercode = _warp(grid, planet / "planet_watermask.vrt", cap_warp(grid, "water"), "near", "Byte")
-    sp_raw = _warp(grid, f'NETCDF:"{snow.SP_NC}":{snow.SP_VAR}', cap_warp(grid, "sp"),
-                   "bilinear", "Float32", srcnodata=snow.SP_FILL)
-    ice_raw = _warp(grid, seaice.SEAICE_SRC, cap_warp(grid, "seaice"),
-                    "bilinear", "Float32", srcnodata=seaice.ICE_FILL)
 
     heights = np.where(height < -1e4, 0.0, height).astype(np.float32)  # DEM nodata -> flat, as hillshade does
     ocean = ocean_raw != 0
@@ -523,14 +609,17 @@ def render_cap_north(grid: CapGrid) -> Path:
     # Snow alpha: the whole cap is >CAP_EDGE_LAT (78) > snow.RAMP_LAT_HI (63), so snow_alpha's
     # latitude ramp is CONSTANT here -- reproduce it with the fixed high-latitude thresholds rather
     # than snow_alpha, whose per-row latitude is Mercator-specific and wrong on an AEQD grid.
-    persistence = snow.unpack_persistence(sp_raw)
-    low = snow.RAMP_LOW_MAX
-    high = low + snow.RAMP_BAND
-    fraction = np.clip((persistence - low) / (high - low), 0.0, 1.0)
-    snow_a = fraction * fraction * (3.0 - 2.0 * fraction)  # float64, as before the N/S refactor
+    snow_a = np.zeros((grid.px, grid.px), dtype=np.float32)
+    if layer_is_buildable(grid.body, "snow", Path(snow.SP_NC), "the north cap paints no snow"):
+        sp_raw = _warp(grid, f'NETCDF:"{snow.SP_NC}":{snow.SP_VAR}', cap_warp(grid, "sp"),
+                       "bilinear", "Float32", srcnodata=snow.SP_FILL)
+        persistence = snow.unpack_persistence(sp_raw)
+        low = snow.RAMP_LOW_MAX
+        high = low + snow.RAMP_BAND
+        fraction = np.clip((persistence - low) / (high - low), 0.0, 1.0)
+        snow_a = fraction * fraction * (3.0 - 2.0 * fraction)  # float64, as before the N/S refactor
 
-    ice_a = seaice.ice_alpha(seaice.unpack_seaice(ice_raw),  # no latitude term -> valid on AEQD
-                             ice_lo=grid.ice_lo, ice_max_alpha=grid.ice_max_alpha)
+    ice_a = _cap_sea_ice(grid, "the north cap paints no pack ice")
     return _write_cap(grid, heights, ocean, water, snow_a, ice_a, hillshade_dn)
 
 
@@ -542,14 +631,17 @@ def render_cap_south(grid: CapGrid) -> Path:
     the -84 cap<->tile crossfade agrees by construction (the GEBCO cap measured ~2.5 DN darker than
     the tiles it feathered into -- the visible interior ring). Snow is FORCED over Antarctic land
     (no SH snow dataset, no RGI region 19), exactly as the tile composite does.
+
+    THAT FORCED PATCH IS THE ONE GATE WITH NO FILE BEHIND IT. It is latitude and land and nothing
+    else, so no missing dataset could ever switch it off; it rides the `snow` layer via
+    `body_declares_layer`. Left ungated on a body with no sea, it whitens every piece of land below
+    60 degrees south -- a polar ice cap invented out of arithmetic.
     """
     planet = planet_work_dir(grid.body)
     cap_work_dir(grid.body).mkdir(parents=True, exist_ok=True)
     height = _warp(grid, planet / "planet_heightfield.vrt", cap_height_warp(grid), "bilinear", "Float32")
     ocean_raw = _warp(grid, planet / "planet_oceanmask.vrt", cap_warp(grid, "ocean"), "near", "Byte")
     watercode = _warp(grid, planet / "planet_watermask.vrt", cap_warp(grid, "water"), "near", "Byte")
-    ice_raw = _warp(grid, seaice.SEAICE_SRC, cap_warp(grid, "seaice"),
-                    "bilinear", "Float32", srcnodata=seaice.ICE_FILL)
 
     heights = np.where(height < -1e4, 0.0, height).astype(np.float32)  # DEM nodata -> flat, as hillshade does
     ocean = ocean_raw != 0
@@ -557,10 +649,11 @@ def render_cap_south(grid: CapGrid) -> Path:
     longitude, latitude = _lonlat_grid(grid)
     hillshade_dn = _shade(grid, heights, longitude)
 
-    land = ~(ocean | water)                            # the tile composite's land definition
-    snow_a = snow.antarctic_snow_mask(land, latitude)  # Antarctica = permanent ice -> forced white
-    ice_a = seaice.ice_alpha(seaice.unpack_seaice(ice_raw),  # fainter, pulled-in fringe (seaice.SH_ICE_*)
-                             ice_lo=grid.ice_lo, ice_max_alpha=grid.ice_max_alpha)
+    snow_a = np.zeros((grid.px, grid.px), dtype=np.float32)
+    if body_declares_layer(grid.body, "snow", "polar land stays on the relief ramp"):
+        land = ~(ocean | water)                            # the tile composite's land definition
+        snow_a = snow.antarctic_snow_mask(land, latitude)  # Antarctica = permanent ice -> forced white
+    ice_a = _cap_sea_ice(grid, "the south cap paints no pack ice")
     return _write_cap(grid, heights, ocean, water, snow_a, ice_a, hillshade_dn)
 
 

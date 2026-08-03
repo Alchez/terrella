@@ -1730,8 +1730,14 @@ SABOTAGES: list[Sabotage] = [
         # default, so Python refuses the class at import and the module never loads — which reads as
         # "caught" while leaving the guard itself unexercised. Only a mutation the interpreter
         # accepts can prove the test does the work.
-        needle='    path_prefix: str\n',
-        replacement='    path_prefix: str = ""\n',
+        #
+        # WHICH FIELD IS LAST IS NOT THIS FILE'S TO KNOW, and it has drifted twice: naming
+        # `path_prefix` here quietly stopped being valid the moment `surface_layers` was appended to
+        # `Body`, and the needle still matched exactly once, so the table's own freshness gate stayed
+        # green. `test_the_defaulted_field_case_still_names_the_last_field_of_body` is what makes the
+        # next append a red test instead of a silently hollow case.
+        needle='    surface_layers: frozenset[str]\n',
+        replacement='    surface_layers: frozenset[str] = frozenset()\n',
         guard='test_no_field_carries_a_default_so_a_new_one_must_be_decided_per_body',
     ),
     # --- The second body ---------------------------------------------------------------------------
@@ -1840,8 +1846,8 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label="the caps' fill sun keeps Earth's relief while the main sun takes the body's",
         path='pipeline/tile/cap_render.py',
-        needle='    fill = hillshade.hillshade_array(haloed, cell, grid.body.exaggeration,',
-        replacement='    fill = hillshade.hillshade_array(haloed, cell, 15.0,',
+        needle='    fill = hillshade.hillshade_array(haloed, cell, zfactor, hillshade.FILL_ALTITUDE, fill_az)',
+        replacement='    fill = hillshade.hillshade_array(haloed, cell, 15.0, hillshade.FILL_ALTITUDE, fill_az)',
         guard='test_the_caps_are_shaded_at_the_body_s_exaggeration',
     ),
     # ONE of the two suns, deliberately: a fix applied to the line someone happened to be reading is
@@ -1982,13 +1988,107 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label='Earth quietly loses a surface layer it has always composited',
         path='pipeline/bodies.py',
-        needle='    surface_layers=frozenset({"lake_depth", "snow", "glaciers", "sea_ice"}),',
-        replacement='    surface_layers=frozenset({"lake_depth", "snow", "glaciers"}),',
+        needle='    surface_layers=frozenset({"lake_depth", "snow", "glaciers", "sea_ice", "coastline"}),',
+        replacement='    surface_layers=frozenset({"lake_depth", "snow", "glaciers", "coastline"}),',
         guard='test_earth_has_every_surface_layer_and_the_second_body_has_none',
     ),
     # The under-declaring direction: Earth stops painting a product it has, which is a look change
     # nothing else asserts — the sea ice would simply not be there, and the pass would say so once
     # in a line of output nobody reads back.
+    # --- The cap pass's layer gates -----------------------------------------------------------------
+    # Every source below is one global path to an Earth dataset that IS on this box, so each mutation
+    # here leaves a cap that renders cleanly, at plausible latitudes, describing another planet.
+    Sabotage(
+        suite='python',
+        label="the north cap asks the disk before the body, so Earth's snow reaches every planet",
+        path='pipeline/tile/cap_render.py',
+        needle='    if layer_is_buildable(grid.body, "snow", Path(snow.SP_NC), "the north cap paints no snow"):',
+        replacement='    if Path(snow.SP_NC).exists():',
+        guard='test_a_body_with_no_layers_opens_none_of_earths_files',
+    ),
+    Sabotage(
+        suite='python',
+        label="the cap's sea ice asks the disk before the body, painting an Arctic on any planet",
+        path='pipeline/tile/cap_render.py',
+        needle='    if not layer_is_buildable(grid.body, "sea_ice", Path(seaice.SEAICE_SRC), consequence):',
+        replacement='    if not Path(seaice.SEAICE_SRC).exists():',
+        guard='test_a_body_with_no_layers_opens_none_of_earths_files',
+    ),
+    # Both of the above are the tidy-looking collapse rather than a typo: the body check reads as
+    # redundant once you have seen the file sitting there, and dropping it is silent on the only
+    # body anyone builds.
+    Sabotage(
+        suite='python',
+        label="the south's forced Antarctic ice loses its gate and whitens a sea-less planet's pole",
+        path='pipeline/tile/cap_render.py',
+        needle='    if body_declares_layer(grid.body, "snow", "polar land stays on the relief ramp"):',
+        replacement='    if True:',
+        guard='test_the_forced_antarctic_patch_is_refused_for_a_body_with_no_snow_layer',
+    ),
+    # The one rule with no file behind it, so nothing on disk could ever have switched it off.
+    Sabotage(
+        suite='python',
+        label='the coastline gate keeps only its look half, burning Natural Earth onto any body',
+        path='pipeline/tile/cap_render.py',
+        needle='    if grid.coast_opacity <= 0.0:\n        return False\n    return layer_is_buildable(grid.body, "coastline", COAST_SHP,\n                              "the cap ships with no land/sea line")',
+        replacement='    return grid.coast_opacity > 0.0',
+        guard='test_a_body_without_the_layer_declines_it_though_earths_file_is_right_there',
+    ),
+    Sabotage(
+        suite='python',
+        label='a cap depends on a climatology it never opens, so it can never read fresh',
+        path='pipeline/tile/cap_render.py',
+        needle='    if "sea_ice" in grid.body.surface_layers:\n        sources.append(Path(seaice.SEAICE_SRC))',
+        replacement='    sources.append(Path(seaice.SEAICE_SRC))',
+        guard='test_a_source_for_an_absent_layer_is_not_a_dependency',
+    ),
+    Sabotage(
+        suite='python',
+        label='the cap recipe stops recording which layers are off, so switching one restages nothing',
+        path='pipeline/tile/cap_render.py',
+        needle='    absent = bodies.layers_off(grid.body, bodies.CAP_LAYERS)\n    layers = {"layers_off": absent} if absent else {}',
+        replacement='    layers = {}',
+        guard='test_turning_a_layer_off_restages_although_its_source_stops_being_a_dependency',
+    ),
+    # Load-bearing rather than tidy: turning a layer off also REMOVES its file from cap_sources, so
+    # the mtime that would have noticed disappears along with the layer. The recipe is what is left.
+    Sabotage(
+        suite='python',
+        label='the composite recipe enumerates every layer, so a cap-only decision restages 46 GB',
+        path='pipeline/tile/shade_planet.py',
+        needle='    absent = bodies.layers_off(body, bodies.COMPOSITE_LAYERS)',
+        replacement='    absent = bodies.layers_off(body, bodies.SURFACE_LAYERS)',
+        guard='test_the_composite_recipe_records_only_the_layers_that_are_off',
+    ),
+    # Over-tracking is exactly as silent as under-tracking, and this is its direction: the tile
+    # composite cannot contain a coastline, so recording one restages the planet for a texture's sake.
+    # --- The cap's ground metres --------------------------------------------------------------------
+    Sabotage(
+        suite='python',
+        label="the cap converts through the tile grid's sphere, which is not the one it is drawn on",
+        path='pipeline/tile/cap_render.py',
+        needle='    zfactor = grid.body.exaggeration / bodies.ground_metres_per_aeqd_unit(grid.body)',
+        replacement='    zfactor = grid.body.exaggeration / bodies.ground_metres_per_mercator_unit(grid.body)',
+        guard='test_a_body_whose_spheres_coincide_is_driven_at_its_bare_exaggeration',
+    ),
+    # THE MOST PLAUSIBLE MUTATION IN THIS FILE. The helper next door has almost the same name, is
+    # already imported, and is wrong by 0.11% on Earth — invisible — and by 1.88x on Mars.
+    Sabotage(
+        suite='python',
+        label='the cap ground scale is applied the wrong way round, flattening the smaller body',
+        path='pipeline/tile/cap_render.py',
+        needle='    zfactor = grid.body.exaggeration / bodies.ground_metres_per_aeqd_unit(grid.body)',
+        replacement='    zfactor = grid.body.exaggeration * bodies.ground_metres_per_aeqd_unit(grid.body)',
+        guard='test_a_smaller_body_is_shaded_more_steeply_for_the_same_exaggeration',
+    ),
+    Sabotage(
+        suite='python',
+        label='the cap recipe drops the ground scale, so a body change leaves the cap falsely fresh',
+        path='pipeline/tile/cap_render.py',
+        needle='                                 "ground_scale": bodies.ground_metres_per_aeqd_unit(grid.body),\n',
+        replacement='',
+        guard='test_the_ground_scale_rides_in_the_recipe_that_gates_the_render',
+    ),
     # --- The look seam ------------------------------------------------------------------------------
     # The ramps' kind-dispatch used to be transcribed in four functions; it is now one resolver over a
     # frozen Look. That is a refactor whose contract is "nothing changes", so its guard is a byte

@@ -35,15 +35,37 @@ from pipeline import paths
 
 #: The optional layers a body may declare, and the whole vocabulary `Body.surface_layers` may use.
 #:
-#: Each names a raster the composite paints OVER the heightfield, and each comes from a dataset that
+#: Each names something the render paints OVER the heightfield, and each comes from a dataset that
 #: describes exactly one planet — Earth. That is why this is a body fact and not, as it looks, a
 #: question of whether a file happens to be on disk: every one of these sources is a module constant
-#: at a fixed global path (`snow.SP_NC`, `snow.RGI_GPKG`, `seaice.SEAICE_SRC`, `lake_depth.LAKE_VRT`),
-#: shared by every body. So an `.exists()` check answers "did we download Earth's data", which is
-#: True on this machine for every planet — and a Mars run would warp Earth's northern-hemisphere snow
-#: onto Mars's grid at the same latitudes and composite it. Snow in the north, none in the south,
-#: entirely plausible, entirely wrong, and nothing raises.
-SURFACE_LAYERS = frozenset({"lake_depth", "snow", "glaciers", "sea_ice"})
+#: at a fixed global path (`snow.SP_NC`, `snow.RGI_GPKG`, `seaice.SEAICE_SRC`, `lake_depth.LAKE_VRT`,
+#: `cap_render.COAST_SHP`), shared by every body. So an `.exists()` check answers "did we download
+#: Earth's data", which is True on this machine for every planet — and a Mars run would warp Earth's
+#: northern-hemisphere snow onto Mars's grid at the same latitudes and composite it. Snow in the
+#: north, none in the south, entirely plausible, entirely wrong, and nothing raises.
+#:
+#: NOT EVERY LAYER IS A RASTER, AND NO STAGE READS ALL OF THEM — hence the two subsets below.
+SURFACE_LAYERS = frozenset({"lake_depth", "snow", "glaciers", "sea_ice", "coastline"})
+
+#: The layers the Mercator tile composite reads.
+#:
+#: `coastline` is absent because the tiles never bake one: coasts and borders are a vector overlay
+#: the client draws, and only the caps — which reach past the latitude those vectors can be drawn at
+#: — burn the line into their own pixels.
+COMPOSITE_LAYERS = frozenset({"lake_depth", "snow", "glaciers", "sea_ice"})
+
+#: The layers the polar cap render reads.
+#:
+#: No `lake_depth` (the cap composites with `depth=None`) and no `glaciers` (the north's snow is
+#: persistence-only), so naming either here would claim a dependency the render does not have.
+#:
+#: WHY THE VOCABULARY IS SPLIT PER STAGE RATHER THAN SHARED, which is the whole reason these two
+#: constants exist: each stage records the layers it is MISSING in its own freshness recipe, so that
+#: turning one off restages it — something file mtimes cannot do, because an unbuilt raster scores
+#: 0.0 and is therefore silently not a dependency. Recording a layer a stage never reads inverts the
+#: trap instead of closing it: switching the coastline would restage a 46 GB tile composite that
+#: cannot contain one. Over-tracking and under-tracking are both silent, so this has to be exact.
+CAP_LAYERS = frozenset({"snow", "sea_ice", "coastline"})
 
 
 @dataclass(frozen=True)
@@ -77,9 +99,10 @@ class Body:
     #: `+a=3396190 +b=3396190` is refused with "do not belong to the same celestial body (Mars vs
     #: Earth)", with no EPSG code anywhere, while the identical warp to `+a=6371000` succeeds. So a
     #: cap's map units are Earth metres too, and turning them into ground metres needs
-    #: `ground_radius_m / aeqd_radius_m` — NOT `ground_metres_per_mercator_unit`, which divides by a
-    #: different sphere. Earth's cap ratio is 1.00112 rather than 1.0, so unlike the Mercator one it
-    #: cannot be adopted for free, and it is unwritten until the cap pass is made body-capable.
+    #: `ground_metres_per_aeqd_unit` — NOT `ground_metres_per_mercator_unit`, which divides by a
+    #: different sphere. Earth's cap ratio is 1.0011202 rather than 1.0, so unlike the Mercator one
+    #: it could not be adopted for free; what made it affordable is that both cap sidecars were
+    #: already stale against this very field, so the render it costs was owed either way.
     aeqd_radius_m: float
     #: Radius of the body ITSELF, in metres — what a ground metre is worth on this planet.
     #:
@@ -174,9 +197,9 @@ EARTH = Body(
     tile_max_zoom=8,
     # Empty on purpose — see the field's note. Earth's intermediates stay exactly where they are.
     path_prefix="",
-    # All four, written out rather than spelled `SURFACE_LAYERS`: Earth is the reference body, and
-    # "whatever the vocabulary happens to contain" is how it would inherit a fifth layer unexamined.
-    surface_layers=frozenset({"lake_depth", "snow", "glaciers", "sea_ice"}),
+    # All of them, written out rather than spelled `SURFACE_LAYERS`: Earth is the reference body, and
+    # "whatever the vocabulary happens to contain" is how it would inherit the next layer unexamined.
+    surface_layers=frozenset({"lake_depth", "snow", "glaciers", "sea_ice", "coastline"}),
 )
 
 
@@ -226,7 +249,8 @@ MARS = Body(
     # layers is an Earth dataset at a fixed global path that IS present on the build box, so the
     # `.exists()` guards that make them "optional" all answer yes for Mars. Left unstated, a Mars
     # pass would warp Earth's snow, glaciers, sea ice and lake bathymetry onto Mars's grid at the
-    # same latitudes and paint them — no error, no missing file, and a plausible planet.
+    # same latitudes and paint them — no error, no missing file, and a plausible planet. The
+    # coastline is the same failure in vector form: Natural Earth's line burnt into a Martian cap.
     #
     # Empty is a statement about our DATA, not about Mars: it has polar ice, seasonal CO2 frost and
     # its own cryosphere. We have no product for any of it, and the physics is not Earth's, so the
@@ -281,6 +305,49 @@ def ground_metres_per_mercator_unit(body: Body) -> float:
         ground_metres_per_pixel = body.map_units_per_pixel * ground_metres_per_mercator_unit(body)
     """
     return body.ground_radius_m / body.mercator_radius_m
+
+
+def ground_metres_per_aeqd_unit(body: Body) -> float:
+    """How many real ground metres one map unit of this body's polar-cap AEQD grid is worth.
+
+    THE CAP'S OWN CONVERSION, and deliberately not the Mercator one above. Both answer "what is a map
+    unit worth", and they answer differently because they divide by different spheres: a cap disc is
+    projected on `aeqd_radius_m` and the tile grid on `mercator_radius_m`. A single
+    `ground_metres_per_map_unit` would have been adopted here by name and been wrong by the ratio
+    between those two spheres, at every pixel, in the one output where nothing would show it.
+
+    EARTH'S IS NOT 1.0, WHICH IS THE WHOLE DIFFERENCE FROM THE MERCATOR CASE. It is 1.0011202,
+    because Earth's Mercator sphere doubles as its `ground_radius_m` and its AEQD sphere does not. So
+    adopting this moved Earth's cap pixels, where adopting the Mercator one moved none.
+
+    EXACT FOR A BODY PUBLISHED ON A SPHERE, PARTIAL FOR EARTH — worth stating, because the residual
+    is larger than the correction. Measured with `pyproj.Geod` on WGS84: the true meridian arc from
+    78N to the pole is 1,340,131 m where this AEQD grid calls it 1,334,339 m, a true ratio of
+    1.004341. The 1.001120 here therefore closes about a quarter of that gap and leaves three
+    quarters of sphere-versus-ellipsoid, which nothing in this pipeline models. Mars's DEM is
+    published on a sphere, so for Mars there is no residual at all and this is simply right.
+
+    Composes the same way, and the units cancel where it is read:
+
+        ground_metres_per_pixel = (2 * grid.edge_m / grid.px) * ground_metres_per_aeqd_unit(body)
+    """
+    return body.ground_radius_m / body.aeqd_radius_m
+
+
+def layers_off(body: Body, vocabulary: frozenset[str]) -> list[str]:
+    """Which of `vocabulary` this body does NOT have, sorted — one stage's freshness record.
+
+    THE LAYERS THAT ARE OFF, NEVER THE ONES THAT ARE ON, and that asymmetry is load-bearing rather
+    than stylistic. Earth declares every layer, so its list is empty and the caller's conditional
+    record writes nothing at all, leaving a 46 GB composite and a 14 GB cap render byte-identical.
+    Recording the layers that are ON would put a list into Earth's recipe for the first time and
+    restage the planet to produce the pixels already sitting there.
+
+    `vocabulary` is the CALLER'S stage vocabulary — `COMPOSITE_LAYERS` or `CAP_LAYERS`, never
+    `SURFACE_LAYERS` — so that a stage records only what it actually reads. See `CAP_LAYERS` for why
+    a shared vocabulary here would trade one silent freshness bug for another.
+    """
+    return sorted(vocabulary - body.surface_layers)
 
 
 def _require_directory_name(stage: str) -> None:
