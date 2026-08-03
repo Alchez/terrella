@@ -13,17 +13,18 @@ SCOPE -- this is a LOWER BOUND on the pass, not a model of it. It measures compo
 isolation and opens no dataset; the real pass adds five readers, the writers, the GDAL block
 cache (GDAL_CACHEMAX=512) and runtime overhead. Re-measured: this fixture reports
 3.88 GiB without depth / 4.50 GiB with, where the real pass peaks at 6.24 GiB against the 12 G
-cap (1.9x). The ~1.7 GiB gap is the machinery above and will not close by re-running -- PLAN
-spent a while chasing it as a stale number before noticing the two figures measure different
-things. See
+cap (1.9x). The ~1.7 GiB gap is the machinery above and will not close by re-running -- it was
+chased for a while as a stale number before anyone noticed the two figures measure different
+things. So do not reconcile them: compare an arm against the OTHER ARM, and size the cap against
+the pass's own measurement.
 
 Reports ru_maxrss: the process high-water mark, which is what a cgroup MemoryMax accounts
 against. Run the two arms in SEPARATE processes -- ru_maxrss never decreases, so a single
 process would report the larger arm for both.
 
 Usage:
-  python3 -m pipeline.experiments.composite_ram --depth
-  python3 -m pipeline.experiments.composite_ram --no-depth
+  python3 -m pipeline.profile.composite_ram --depth
+  python3 -m pipeline.profile.composite_ram --no-depth
 """
 
 import argparse
@@ -45,7 +46,7 @@ def peak_gib() -> float:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    parser = argparse.ArgumentParser(description=(__doc__ or "").split("\n")[0])
     parser.add_argument("--depth", dest="depth", action="store_true", default=True)
     parser.add_argument("--no-depth", dest="depth", action="store_false")
     parser.add_argument("--rows", type=int, default=ROWS)

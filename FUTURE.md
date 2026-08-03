@@ -201,7 +201,7 @@ ranges are nested rather than adjacent**, so a window fitted to flat ice turns A
 binary blue/white cartoon. Do not re-argue it.
 
 **Candidates, none costed:** re-fit the gamma exponent with Antarctic sites in the sample (a
-composite-stage knob — no re-fuse, no new data, and `experiments/ab_ice_damp.py` is the ~21 s
+composite-stage knob — no re-fuse, no new data, and `pipeline/tile/cap_ladder.py` is the ~21 s
 browser-free precedent); or give the snow ramp an ELEVATION term the way the land ramp has one,
 which is what would make a 432 m dome read as a dome. The second is a genuine look decision, not a
 bug fix.
@@ -403,8 +403,8 @@ which is why it never blocked anything.
     *only* real blocker is the antimeridian split.
   - **The render pipeline is single-frame end-to-end** — one slug → one bbox → one `frame.json` →
     one ortho render → one hero (`country_config.py:100-102` unpacks exactly one `[W,S,E,N]`;
-    `scene_build.py` one camera/one render; no montage in `pipeline/compose/` — the only `montage()`
-    is an unwired RGB experiment in `experiments/tile_chunk.py`).
+    `scene_build.py` one camera/one render; there is no `montage()` anywhere in the tree, so a
+    multi-frame hero has no existing machinery to extend).
   - **The frontend already degrades gracefully for a hero-less country** — `rendered:false`/`sizes:[]`
     is a first-class manifest state (`gen_manifest.py:97-98`, `lib/manifest.ts`), and both the
     gallery card (`index.astro:110-115`) and detail page (`[slug].astro:57-61`) render a placeholder.

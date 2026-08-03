@@ -196,7 +196,7 @@ Cost: hero sweep **~10–13 h** + tile restage **~29 min** + caps auto-restage *
 
 ### Ambient floor — TILES (`KNOBS["ambient"]` + `KNOBS["ambient_knee"]`)
 
-- Baseline **`ambient` 0.50, `ambient_knee` 0.30** (judged on `/globe`). `ambient` used to be a
+- Baseline **`ambient` 0.50, `ambient_knee` 0.30** (judged on `/earth`). `ambient` used to be a
   hard clip — a cliff that parked 18% of Iran's land on one value with no hillshade information.
   The knee (softplus) lets sub-floor terrain keep varying; `ambient_knee=0.0` restores the old
   clip bit-for-bit.
@@ -209,7 +209,7 @@ Cost: hero sweep **~10–13 h** + tile restage **~29 min** + caps auto-restage *
 - **The floor is asymptotic**: darkest reachable light 0.5519, just above `snow_lo` 0.55 — shaded
   snow survives on a 0.9%-of-ramp margin, pinned by test. A future knee raise bleaches snow
   first.
-- **Adjust:** `--knob ambient_knee=…`; composite-stage, ~29 min. Judge on `/globe` at planet
+- **Adjust:** `--knob ambient_knee=…`; composite-stage, ~29 min. Judge on `/earth` at planet
   scale — region crops and contrast metrics both got this one wrong.
 
 ### Hero → tile parameter map

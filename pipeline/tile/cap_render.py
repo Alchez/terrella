@@ -60,7 +60,7 @@ from pipeline.tile.shade_planet import (ALT, AZ, CAP_NORTH, CAP_SOUTH, EXAG,
 
 ROOT = paths.ROOT
 CAP_PX = 8192          # square texture side (south is a bigger disc -> coarser per px). 8192 chosen
-                       # by eye (crop A/B + /globe): visibly crisper coast/pack/sastrugi
+                       # by eye (crop A/B + /earth): visibly crisper coast/pack/sastrugi
                        # at deep pole zoom; 3.2+2.1 MB WebP
 CAP_RUNGS = (1024, 2048, 4096, CAP_PX)  # shipped texture sizes, ascending; the largest IS the render
                        # grid and every smaller rung is DOWNSAMPLED from it, never rendered natively.
