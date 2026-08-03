@@ -1,0 +1,91 @@
+"""The single home for what differs between one planet and the next.
+
+Modelled on `paths.py`, which does the same job for filesystem roots: one module states the facts,
+a test enforces that nothing else grows a second copy, and every consumer derives.
+
+WHAT A BODY IS. Not a look and not a dataset — the small set of facts that make the same pipeline
+produce a different planet. Geometry (how big the sphere is), the vertical exaggeration its relief
+is drawn at, and how deep its pyramid is cut. Everything else about a planet is data.
+
+WHY THIS EXISTS BEFORE THERE IS A SECOND BODY. Every one of these values is currently a module-level
+constant sized for Earth, and two of them are already written out twice with nothing relating them
+(`EARTH_RADIUS` in `render/hillshade.py` and `render/snow.py`). Adding a planet turns each into a
+cross-body bug of the worst kind: the wrong sphere radius does not raise, it scales the per-row
+hillshade z-factor by latitude and produces a relief that is plausible everywhere and true nowhere.
+
+THE VALUES HERE ARE STILL DUPLICATED ELSEWHERE, ON PURPOSE AND UNDER GUARD. This module is a pure
+addition — nothing reads it yet — so every constant it states also still lives at its original call
+site. `tests/test_bodies.py` pins each pair, so the interim cannot drift, and each bridge assertion
+dies with the copy it holds. Copied look constants have already cost this project one overnight
+re-render of every hero; the only safe copy is one a test refuses to let diverge.
+
+NO FIELD MAY CARRY A DEFAULT. A default would let a field added later be inherited unexamined by
+every planet but the one it was written for — invisible in the diff that adds it. Without defaults,
+adding a field is a hard error at every construction until each body answers for it.
+
+    from pipeline import bodies
+    body = bodies.get("earth")     # raises on an unknown name; never falls back
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class Body:
+    """One planet's geometry and pyramid depth. Frozen: a stage must not be able to retune another.
+
+    Every field is required. See the module note — a default is how a new planet silently inherits
+    Earth's answer to a question nobody asked it.
+    """
+
+    #: Registry key and path segment. Lowercase, no spaces — it names directories and archive keys.
+    name: str
+    #: Sphere radius used for Web-Mercator ground-metre arithmetic, in metres.
+    #:
+    #: This is the projection's sphere, NOT the body's mean or equatorial radius, and the two are
+    #: different questions. Consumers use it to turn a Mercator y back into a latitude and to size
+    #: the per-row hillshade z-factor, both of which must agree with whatever radius the raster was
+    #: warped with. Mixing two radii yields a latitude-varying error that renders plausibly.
+    mercator_radius_m: float
+    #: Vertical exaggeration the relief is drawn at, shared by the hero scene and the tile shading.
+    #:
+    #: A look constant rather than a physical one: it is chosen so the planet reads well, and it is
+    #: not transferable between bodies. Relief as a fraction of radius differs by ~2.8x between
+    #: Earth and Mars, so the same number does not produce the same drama.
+    exaggeration: float
+    #: Deepest zoom the tile pyramids are cut to. Bounds the raster and vector cuts together — they
+    #: must agree, or the layers stop at different zooms and the overlay drifts off its basemap.
+    tile_max_zoom: int
+
+
+EARTH = Body(
+    name="earth",
+    # Web Mercator's sphere. Duplicated today in render/hillshade.py and render/snow.py.
+    mercator_radius_m=6378137.0,
+    # Duplicated today in render/palette.py, which the hero scene imports directly.
+    exaggeration=15.0,
+    # Duplicated today in tile/shade_planet.py's TILE_CUT and compose/countries_pmtiles.py.
+    tile_max_zoom=8,
+)
+
+
+#: Every body the pipeline knows. Keyed by `Body.name`, which a test pins so one planet cannot
+#: acquire two spellings.
+BODIES: dict[str, Body] = {EARTH.name: EARTH}
+
+
+def get(name: str) -> Body:
+    """Look a body up by name, or raise.
+
+    THERE IS DELIBERATELY NO DEFAULT AND NO FALLBACK. A run that quietly borrows Earth's geometry
+    because a name was misspelled produces a full pyramid that is wrong everywhere and looks right —
+    the single most expensive failure this registry exists to make impossible. Raising costs one
+    re-run; defaulting costs a planet.
+    """
+    try:
+        return BODIES[name]
+    except KeyError:
+        known = ", ".join(sorted(BODIES))
+        raise KeyError(f"unknown body {name!r}; known bodies are: {known}") from None

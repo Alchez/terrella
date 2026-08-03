@@ -89,6 +89,12 @@ MUTABLE_ROOTS = (
     # carries an exemption list, and a skip-list nobody can mutate is a skip-list nobody can prove
     # is still doing anything — which is the failure mode it exists to prevent.
     "tests/test_hero_variants.py",
+    # Joined for the body registry. Its whole safety story is a set of bridge tests holding the
+    # duplicated constants (`EARTH_RADIUS` twice, `EXAGGERATION` once) to the registry's copy until
+    # each original is deleted — and a bridge nobody can mutate is a bridge nobody can prove is
+    # load-bearing. The look package as a whole, because the parameterisation touches all of it.
+    "pipeline/bodies.py",
+    "pipeline/render",
 )
 
 # Set for the duration of one case, so the backup THIS run is holding does not trip the leftover
@@ -1635,6 +1641,37 @@ SABOTAGES: list[Sabotage] = [
         needle='      lastPointerPosition = null;\n      setHovered(null);\n    },',
         replacement='      lastPointerPosition = null;\n      scheduleFrame(() => setHovered(null));\n    },',
         guard='clears synchronously when the pointer leaves, with no frame of lingering chip',
+    ),
+    # --- The body registry -------------------------------------------------------------------------
+    # The registry is a pure addition that nothing reads yet, so the only thing it can be wrong about
+    # is its own contract. All three mutations below leave a pipeline that runs and a planet that
+    # renders — which is the entire reason a second body needs this module before it needs data.
+    Sabotage(
+        suite='python',
+        label='the hillshade radius is "corrected" to the spherical mean, drifting off the registry',
+        path='pipeline/render/hillshade.py',
+        needle='EARTH_RADIUS = 6378137.0',
+        replacement='EARTH_RADIUS = 6371000.0',
+        guard='test_earth_radius_agrees_with_both_copies_in_the_render_package',
+    ),
+    # The plausible edit: 6371000 IS a real earth radius, just not the projection's one. Nothing
+    # crashes; the per-row z-factor is quietly 0.1% wrong at every latitude.
+    Sabotage(
+        suite='python',
+        label='an unknown body silently falls back to Earth instead of raising',
+        path='pipeline/bodies.py',
+        needle='    try:\n        return BODIES[name]',
+        replacement='    if name not in BODIES:\n        return EARTH\n    try:\n        return BODIES[name]',
+        guard='test_an_unknown_body_raises_and_names_the_ones_that_exist',
+    ),
+    # A misspelt body name then produces a complete, plausible, entirely wrong pyramid.
+    Sabotage(
+        suite='python',
+        label='a Body field gains a default, so a new planet inherits Earth without being asked',
+        path='pipeline/bodies.py',
+        needle='    tile_max_zoom: int\n',
+        replacement='    tile_max_zoom: int = 8\n',
+        guard='test_no_field_carries_a_default_so_a_new_one_must_be_decided_per_body',
     ),
     # --- The portrait fill rung ----------------------------------------------------------------
     # A rung names the LONG EDGE while `srcset` selects on WIDTH, so these mutations all produce a
