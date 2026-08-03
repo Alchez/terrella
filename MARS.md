@@ -235,7 +235,8 @@ Listed so they are not re-proposed as if new.
 Triaged by when each must be answered, because most of them cannot be answered early.
 
 - **Before any download.** The blended DEM itself, and one gazetteer shapefile to settle whether its
-  geometry is points or polygons. Both are openly licensed; neither is pulled without a decision.
+  geometry is points or polygons. Both are public domain and neither adds an obligation — the
+  licensing is settled, so this is a decision about disk and time, not about terms.
 - **At the end of the first pyramid.** Does the HRSC/MOLA boundary read as texture banding? Answered
   by the provenance mask on a real z6 pyramid, not by argument.
 - **During the look loop**, all decided on the sphere.
@@ -260,22 +261,32 @@ Triaged by when each must be answered, because most of them cannot be answered e
 
 ## Sources
 
-All openly licensed, but **not all under the same licence**, and the distinction has to be checked
-before anything ships rather than assumed from the table.
+**No Mars source below imposes a notice obligation.** Checked against the primary statements, not
+assumed from the agency name — every credit here is a courtesy, where Copernicus imposes three
+verbatim notices on the Earth build.
 
-- The USGS and NASA products are US public domain and impose no notice obligation, so they are
-  credited as a courtesy rather than as a condition — the opposite of Copernicus, which imposes
-  three verbatim notices.
-- **The HRSC material is ESA**, not NASA, and carries ESA's own open licence with an attribution
-  condition. It is the one row here that could add a real obligation, and it is needed only for the
-  provenance mask.
+- **The blend is a USGS product, not an ESA one**, even though it contains HRSC data: it is
+  published through the USGS Astrogeology PDS Annex as a US government work. A citation is
+  *requested* — Fergason, Hare & Laura (2018) — not required.
+- **ESA's Planetary Science Archive is registered as public domain**, and ESA's own acknowledgement
+  page asks rather than requires: it *suggests* wording crediting the instrument's Principal
+  Investigators and the archive. HRSC products are additionally mirrored by the NASA PDS
+  Geosciences Node under an ESA–NASA cooperative agreement, which states no terms at all.
+- **The one genuine trap is ESA's published imagery, which is a different thing from its archive.**
+  ESA releases its HRSC *pictures* — the colour perspective views — under CC BY-SA 3.0 IGO, and that
+  licence names "images, videos or other ESA works" while saying nothing about science archives.
+  - Share-alike is the problem, not attribution. This site's renders are CC BY-NC 4.0, and **BY-SA
+    input cannot flow into an NC output**. The permitted direction is the other one: individual
+    renders may additionally be released as free-culture at the author's discretion.
+  - So the rule is simply: take HRSC from the archive, never from the picture gallery. Nothing about
+    the planned work needs the gallery.
 
 | dataset | what it is | where |
 | --- | --- | --- |
 | MOLA/HRSC blend | 200 m/px global DEM, 44% HRSC over MOLA | USGS Astrogeology |
 | MOLA MEGDR | 463 m/px global DEM, single instrument | NASA PDS Geosciences Node |
 | MOLA polar grids | 512 px/degree polar DEMs | NASA PDS Geosciences Node |
-| HRSC DTM footprints | per-DTM coverage, for the provenance mask | ESA PSA / USGS |
+| HRSC DTM footprints | per-DTM coverage, for the provenance mask | NASA PDS, or ESA PSA |
 | SIM 3292 | 1:20M geologic map, polygon units | USGS Publications Warehouse |
 | USGS/IAU gazetteer | planetary nomenclature | USGS Astrogeology |
 | THEMIS day/night IR | 100 m/px global infrared | ASU / USGS Astrogeology |
