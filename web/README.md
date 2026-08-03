@@ -16,9 +16,15 @@ until all three exist**. In order:
    var fails the dev server with a clear message:
    ```sh
    cp .env.example .env
-   # edit HERO_STORE / BORDERS_STORE / PMTILES_STORE, e.g. PMTILES_STORE=/path/to/maps/data/work/planet_tiles
+   # edit HERO_STORE / BORDERS_STORE, e.g. HERO_STORE=/path/to/maps/blender/renders/variants
    ```
    `.env` is gitignored (machine-specific), which is why it does not travel with the checkout.
+
+   The three PMTiles archives are **not** configured: `/tiles` derives each one from the
+   pipeline's work tree (`data/work/<body>/planet_tiles/planet.pmtiles` and its terrain and
+   countries siblings), so a second body adds no variables. Set `MAPS_DATA` only if your data
+   store is not `<repo>/data` — it is the same variable the pipeline reads, so both halves move
+   together. A missing archive answers 500 naming the path and the stage that writes it.
 
 2. **Dependencies**:
    ```sh

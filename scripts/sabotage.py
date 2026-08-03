@@ -2114,6 +2114,38 @@ SABOTAGES: list[Sabotage] = [
         replacement='        fractional = []',
         guard='test_a_fractional_pixel_rung_is_refused_rather_than_rounded',
     ),
+
+    # --- the derived dev store: a wrong path must never be a served pixel ----------------------------
+    # The dev server stopped being TOLD where each archive is and now computes it. The value of that
+    # is that a second body costs no configuration; the risk it takes on is that a bad derivation is
+    # a plausible path rather than an obvious blank, so these break the two rules the paths rest on.
+    Sabotage(
+        suite='web',
+        label='a blank MAPS_DATA stops counting as unset and resolves to a path made of spaces',
+        path='web/src/lib/devStores.ts',
+        needle='  const configured = env.MAPS_DATA?.trim();',
+        replacement='  const configured = env.MAPS_DATA;',
+        guard='treats a blank MAPS_DATA as unset, not as the filesystem root',
+    ),
+    # The copy-paste that would matter: two archives pointing into one stage directory. The terrain
+    # request would then open the relief pyramid, whose header check rejects it — but only because
+    # the two encodings differ, which is luck rather than a guarantee for the next pyramid.
+    Sabotage(
+        suite='web',
+        label='the terrain archive resolves into the relief stage directory',
+        path='web/src/lib/devStores.ts',
+        needle='    stage: "planet_terrain",',
+        replacement='    stage: "planet_tiles",',
+        guard="puts Earth's archives where the pipeline has always written them",
+    ),
+    Sabotage(
+        suite='web',
+        label='a blank retired store variable warns anyway, so the warning stops meaning anything',
+        path='web/src/lib/devStores.ts',
+        needle='  const stillSet = RETIRED_STORE_VARS.filter((name) => env[name]?.trim());',
+        replacement='  const stillSet = RETIRED_STORE_VARS.filter((name) => env[name] !== undefined);',
+        guard='ignores a blank one, the same way the resolver does',
+    ),
 ]
 
 

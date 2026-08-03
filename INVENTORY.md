@@ -86,9 +86,11 @@
 ## What the browser loads (dev vs prod)
 
 - The wire view — which stores actually reach a visitor, and how dev differs from the deploy
-  target. Dev serves stores through three routes in `web/astro.config.ts`, pointed by `web/.env`
-  (`HERO_STORE` → `blender/renders/variants`, `BORDERS_STORE` → `work/borders`,
-  `PMTILES_STORE` → `planet_tiles/`); the deploy target is Cloudflare — a **site Worker** serving
+  target. Dev serves stores through three routes in `web/astro.config.ts`: two pointed by
+  `web/.env` (`HERO_STORE` → `blender/renders/variants`, `BORDERS_STORE` → `work/borders`) and
+  `/tiles`, whose three archives are derived from the work tree itself
+  (`work/<body>/planet_tiles/planet.pmtiles` and siblings, rooted at `MAPS_DATA`); the deploy
+  target is Cloudflare — a **site Worker** serving
   `web/dist` as static assets (`web/wrangler.jsonc`, *not* Pages), R2 for the hero and border
   stores, and a **separate tile Worker** for tiles. The site addresses all three through
   `web/src/lib/assetBase.ts`, whose defaults are the same-origin dev paths.

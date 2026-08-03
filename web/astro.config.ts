@@ -4,7 +4,17 @@ import type { Plugin } from 'vite';
 import type { ServerResponse } from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { EtagMismatch, PMTiles, type RangeResponse, type Source, tileTypeExt } from 'pmtiles';
+import type { BodySlug } from './src/lib/bodies';
+import {
+  archiveFileName,
+  archivePath,
+  describeMissingArchive,
+  describeRetiredStoreVars,
+  resolveDataRoot,
+  type ArchiveKind,
+} from './src/lib/devStores';
 import {
   TILE_CONTENT_TYPE,
   assertZoomRange,
@@ -26,26 +36,30 @@ import {
 
 // Asset store locations. DEV-ONLY: the dev server serves /heroes, /borders and /tiles
 // out of these external directories (R2 does it in production; the
-// static build never reads them). The paths are machine-specific and MUST come from .env — copy
-// .env.example to .env and set them. `loadEnv` is required because .env files are not in
-// process.env by the time this config runs. There is deliberately NO fallback: the on-disk
-// layout differs per checkout (and this frontend worktree will eventually fold into the
-// main repo), so an unset var fails loudly (see resolveStore) rather than silently
-// pointing somewhere wrong.
+// static build never reads them). `loadEnv` is required because .env files are not in
+// process.env by the time this config runs.
+//
+// TWO KINDS OF STORE, AND ONLY ONE OF THEM IS CONFIGURED. Heroes and borders are named
+// explicitly, machine-specific, with deliberately NO fallback — an unset var fails loudly (see
+// resolveStore) rather than silently pointing somewhere wrong. The three tile ARCHIVES are not
+// named at all any more: they are derived from the pipeline's own work tree, because one variable
+// per archive per body does not survive a second planet. See src/lib/devStores.ts for the
+// convention and for where the fail-loud property went.
 const env = loadEnv(process.env.NODE_ENV || 'development', process.cwd(), '');
 const HERO_STORE = env.HERO_STORE;
 const BORDERS_STORE = env.BORDERS_STORE;
-const PMTILES_STORE = env.PMTILES_STORE;
-// A fourth store rather than a second file inside PMTILES_STORE: the two archives are products
-// of two different pipeline outputs (data/work/planet_tiles and data/work/planet_terrain), and
-// pointing one var at both would mean the packer had to write terrain.pmtiles somewhere other
-// than beside the pyramid it packed. In production they are two keys in one bucket, which is a
-// property of the deploy and not of this disk.
-const TERRAIN_PMTILES_STORE = env.TERRAIN_PMTILES_STORE;
-// A fifth store, for the same reason there is a fourth: the country vector pyramid is the product
-// of its own pipeline stage (data/work/planet_countries) and is written beside the geometry it was
-// cut from, not beside a raster pyramid it shares nothing with.
-const COUNTRIES_PMTILES_STORE = env.COUNTRIES_PMTILES_STORE;
+
+// The checkout, taken from this file's own location rather than from cwd — `pipeline/paths.py`
+// derives its ROOT the same way and for the same reason: a root that moved with the working
+// directory would resolve differently depending on where the server was started.
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const DATA_ROOT = resolveDataRoot(env, REPO_ROOT);
+
+// Every tile request is Earth's until the URL carries a body — the tile paths are
+// `{z}/{x}/{y}` and two prefixed variants, none of which name a planet. A literal here rather than
+// a default inside the resolver: this is the one line that has to change when the router learns to
+// read a body off the request, and it should be visible in that diff.
+const DEV_BODY: BodySlug = 'earth';
 
 // Resolve a required asset-store path, or 500 the request with actionable guidance.
 // Checked PER-REQUEST (not when the middleware is registered) so a missing var only
@@ -109,11 +123,6 @@ function bordersDevServer(): Plugin {
     },
   };
 }
-
-// The packaged pyramids, as the pipeline names them inside their stores.
-const ARCHIVE_NAME = 'planet.pmtiles';
-const TERRAIN_ARCHIVE_NAME = 'terrain.pmtiles';
-const COUNTRIES_ARCHIVE_NAME = 'countries.pmtiles';
 
 // One open archive per path per dev-server process. Opening means an fs handle plus a header
 // read, and PMTiles caches the directory pages it decodes, so re-opening per request would throw
@@ -200,9 +209,8 @@ function validateCountriesHeader(header: { minZoom: number; maxZoom: number; til
 /** What one parsed request resolved to: which archive, and where in it. */
 interface ResolvedTileRoute {
   tile: { z: number; x: number; y: number };
-  storeName: string;
-  store: string | undefined;
-  archiveName: string;
+  /** Which pyramid, not where it is — the path is derived from this plus the body. */
+  kind: ArchiveKind;
   contentType: string;
   validateHeader: (header: { minZoom: number; maxZoom: number; tileType: number }) => void;
   /** What an absent tile MEANS for this archive — 404 where the pyramid is complete, 204 where it
@@ -211,17 +219,18 @@ interface ResolvedTileRoute {
   missingTileStatus: 404 | 204;
 }
 
-// Dev-only: answer /tiles/{z}/{x}/{y}.webp and /tiles/terrain/{z}/{x}/{y}.webp out of the two
-// packaged PMTiles archives. This is the local twin of the production tile Worker, and it exists
-// for the same reason the Worker does — the archives are GB-scale, so the browser must never
-// address one directly and must never send a Range header. The ranging happens here against a
-// local file; in production it happens inside a Worker against an R2 object.
+// Dev-only: answer /tiles/{z}/{x}/{y}.webp, /tiles/terrain/{z}/{x}/{y}.webp and
+// /tiles/countries/{z}/{x}/{y}.mvt out of the three packaged PMTiles archives, each found under
+// the pipeline's own work tree (src/lib/devStores.ts). This is the local twin of the production
+// tile Worker, and it exists for the same reason the Worker does — the archives are GB-scale, so
+// the browser must never address one directly and must never send a Range header. The ranging
+// happens here against a local file; in production it happens inside a Worker against an R2 object.
 //
-// ONE middleware over both, dispatching exactly the way the Worker does, because the two servers
-// answering the same contract differently is the failure this arrangement exists to prevent. It
-// falls out of the base URLs rather than being arranged: TERRAIN_URL_TEMPLATE is TILE_BASE plus
-// the `terrain/` prefix, so in dev (`TILE_BASE = /tiles/`) the mount strips `/tiles` and this
-// sees precisely the path the Worker sees at the root of its own hostname.
+// ONE middleware over all three, dispatching exactly the way the Worker does, because the two
+// servers answering the same contract differently is the failure this arrangement exists to
+// prevent. It falls out of the base URLs rather than being arranged: TERRAIN_URL_TEMPLATE is
+// TILE_BASE plus the `terrain/` prefix, so in dev (`TILE_BASE = /tiles/`) the mount strips `/tiles`
+// and this sees precisely the path the Worker sees at the root of its own hostname.
 //
 // Order does not matter and cannot: `parseTilePath` requires the FIRST segment to be a zoom, so
 // it can never match a prefixed path, and the other two require their own literal prefix, so
@@ -230,6 +239,10 @@ function tilesDevServer(): Plugin {
   return {
     name: 'tiles-dev-server',
     configureServer(server) {
+      // Said once, at startup, rather than per request: a variable that used to steer this server
+      // and now does nothing is state someone edits, restarts, and then disbelieves the result of.
+      const retired = describeRetiredStoreVars(env);
+      if (retired) console.warn(`[tiles] ${retired}`);
       server.middlewares.use('/tiles', (req, res, next) => {
         const requested = decodeURIComponent((req.url || '').split('?')[0]);
         const relief = parseTilePath(requested);
@@ -239,9 +252,7 @@ function tilesDevServer(): Plugin {
         const route: ResolvedTileRoute = relief
           ? {
               tile: relief,
-              storeName: 'PMTILES_STORE',
-              store: PMTILES_STORE,
-              archiveName: ARCHIVE_NAME,
+              kind: 'relief',
               contentType: TILE_CONTENT_TYPE,
               validateHeader: validateReliefHeader,
               missingTileStatus: 404,
@@ -249,32 +260,34 @@ function tilesDevServer(): Plugin {
           : terrain
           ? {
               tile: terrain,
-              storeName: 'TERRAIN_PMTILES_STORE',
-              store: TERRAIN_PMTILES_STORE,
-              archiveName: TERRAIN_ARCHIVE_NAME,
+              kind: 'terrain',
               contentType: TERRAIN_CONTENT_TYPE,
               validateHeader: validateTerrainHeader,
               missingTileStatus: 404,
             }
           : {
               tile: countries!,
-              storeName: 'COUNTRIES_PMTILES_STORE',
-              store: COUNTRIES_PMTILES_STORE,
-              archiveName: COUNTRIES_ARCHIVE_NAME,
+              kind: 'countries',
               contentType: COUNTRIES_CONTENT_TYPE,
               // The one sparse pyramid — most of the planet is ocean and holds no country.
               missingTileStatus: 204,
               validateHeader: validateCountriesHeader,
             };
-        const store = resolveStore(route.storeName, route.store, res);
-        if (!store) return;
         const { tile } = route;
+        const archivePathname = archivePath(DATA_ROOT, DEV_BODY, route.kind);
+        const archiveName = archiveFileName(route.kind);
+        // Checked per request, not once at startup, for the reason resolveStore is: `astro build`
+        // creates a Vite server and runs configureServer, but never asks for a tile, so a missing
+        // archive must not be able to fail a build that does not need it.
+        if (!fs.existsSync(archivePathname)) {
+          res.statusCode = 500;
+          res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+          res.end(describeMissingArchive(DEV_BODY, route.kind, archivePathname, DATA_ROOT));
+          return;
+        }
         void (async () => {
           try {
-            const archive = await openArchive(
-              path.resolve(store, route.archiveName),
-              route.validateHeader,
-            );
+            const archive = await openArchive(archivePathname, route.validateHeader);
             const entry = await archive.getZxy(tile.z, tile.x, tile.y);
             if (!entry) {
               // What a miss MEANS is a property of the archive, so the status comes off the
@@ -286,7 +299,7 @@ function tilesDevServer(): Plugin {
               res.statusCode = route.missingTileStatus;
               if (route.missingTileStatus === 404) {
                 res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-                res.end(`No tile ${tile.z}/${tile.x}/${tile.y} in ${route.archiveName}`);
+                res.end(`No tile ${tile.z}/${tile.x}/${tile.y} in ${archiveName}`);
               } else {
                 res.end();
               }
@@ -299,7 +312,7 @@ function tilesDevServer(): Plugin {
             res.statusCode = 500;
             res.setHeader('Content-Type', 'text/plain; charset=utf-8');
             res.end(
-              `Tile ${tile.z}/${tile.x}/${tile.y} from ${route.archiveName} failed: ` +
+              `Tile ${tile.z}/${tile.x}/${tile.y} from ${archiveName} failed: ` +
                 `${(error as Error).message}`,
             );
           }
