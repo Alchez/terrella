@@ -1,6 +1,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import globeSource from "../pages/globe.astro?raw";
 import globalCss from "../styles/global.css?raw";
+import globeStyles from "../styles/globe.css?raw";
 import maplibreCss from "maplibre-gl/dist/maplibre-gl.css?raw";
 
 /**
@@ -26,13 +27,17 @@ import maplibreCss from "maplibre-gl/dist/maplibre-gl.css?raw";
  * the whole reason every selector in there doubles a class.
  */
 
-/** The page's global style block — the one the rail lives in. */
+/** The globe's global stylesheet — the one the rail lives in.
+ *
+ *  A file now, where this used to dig the `<style is:global>` block out of the page. The
+ *  non-vacuity check moved with it and is the point: read from the wrong path this returns nothing,
+ *  every assertion below runs against an empty stylesheet, and the whole file passes silently. */
 function globalStyleBlock(): string {
-  const blocks = [...globeSource.matchAll(/<style is:global>([\s\S]*?)<\/style>/g)];
-  // If this ever matches zero, every assertion below would run against an empty stylesheet and
-  // pass. Pinning the count is what stops the whole file going vacuous.
-  expect(blocks, "globe.astro must contain exactly one <style is:global> block").toHaveLength(1);
-  return blocks[0][1];
+  expect(
+    globeStyles,
+    "src/styles/globe.css must carry the rail's rules — an empty read makes this file vacuous",
+  ).toContain(".maplibregl-ctrl-top-right");
+  return globeStyles;
 }
 
 const installed: HTMLStyleElement[] = [];

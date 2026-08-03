@@ -541,9 +541,9 @@ SABOTAGES: list[Sabotage] = [
         # The chord comes back. `+` matches DOM order, so hiding fullscreen leaves its divider on
         # the quiet button below, and the group's 999px radius clips it into a dark arc.
         label='quiet mode keeps the divider of the button it hid',
-        path='web/src/pages/globe.astro',
-        needle='    border-top-width: 0;',
-        replacement='    border-top-width: 1px;',
+        path='web/src/styles/globe.css',
+        needle='  border-top-width: 0;',
+        replacement='  border-top-width: 1px;',
         guard='cancels the hairline on the button after the hidden fullscreen control',
     ),
     Sabotage(
@@ -551,9 +551,9 @@ SABOTAGES: list[Sabotage] = [
         # The specificity, tidied away. `body.is-quiet .rg-ctrl-quiet` is the obvious way to write
         # this cancel and it is (0,3,1) against a (0,4,2) divider — it loses, silently.
         label="the divider cancel is rewritten without the specificity that makes it win",
-        path='web/src/pages/globe.astro',
-        needle='    .maplibregl-ctrl-group.maplibregl-ctrl-group\n    .maplibregl-ctrl-fullscreen\n    + button {',
-        replacement='    .maplibregl-ctrl-group\n    .maplibregl-ctrl-fullscreen\n    + button {',
+        path='web/src/styles/globe.css',
+        needle='  .maplibregl-ctrl-group.maplibregl-ctrl-group\n  .maplibregl-ctrl-fullscreen\n  + button {',
+        replacement='  .maplibregl-ctrl-group\n  .maplibregl-ctrl-fullscreen\n  + button {',
         guard='keeps the cancel more specific than the divider it has to beat',
     ),
     Sabotage(
@@ -1199,30 +1199,30 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='the pressed-quiet cancel is tidied back to the selector that loses',
-        path='web/src/pages/globe.astro',
+        path='web/src/styles/globe.css',
         needle=(
-            '  body.is-quiet\n'
-            '    .maplibregl-ctrl-top-right\n'
-            '    .maplibregl-ctrl-group.maplibregl-ctrl-group\n'
-            '    .rg-ctrl-quiet[aria-pressed="true"] {'
+            'body.is-quiet\n'
+            '  .maplibregl-ctrl-top-right\n'
+            '  .maplibregl-ctrl-group.maplibregl-ctrl-group\n'
+            '  .rg-ctrl-quiet[aria-pressed="true"] {'
         ),
-        replacement='  body.is-quiet .rg-ctrl-quiet[aria-pressed="true"] {',
+        replacement='body.is-quiet .rg-ctrl-quiet[aria-pressed="true"] {',
         guard='never reverts to the un-doubled form that silently loses',
     ),
     Sabotage(
         suite='web',
         label='only the fill is cancelled, leaving the glyph painted in the background colour',
-        path='web/src/pages/globe.astro',
+        path='web/src/styles/globe.css',
         needle=(
-            '    .rg-ctrl-quiet[aria-pressed="true"] {\n'
-            '    color: var(--muted);\n'
-            '    background: none;\n'
-            '  }'
+            '  .rg-ctrl-quiet[aria-pressed="true"] {\n'
+            '  color: var(--muted);\n'
+            '  background: none;\n'
+            '}'
         ),
         replacement=(
-            '    .rg-ctrl-quiet[aria-pressed="true"] {\n'
-            '    background: none;\n'
-            '  }'
+            '  .rg-ctrl-quiet[aria-pressed="true"] {\n'
+            '  background: none;\n'
+            '}'
         ),
         guard='cancels BOTH the accent fill and the accent text colour, at a specificity that wins',
     ),
@@ -1234,10 +1234,10 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='the icon stencil is deleted, so currentColor paints the whole button box',
-        path='web/src/pages/globe.astro',
+        path='web/src/styles/globe.css',
         needle=(
-            '    -webkit-mask-image: var(--rail-icon);\n'
-            '    mask-image: var(--rail-icon);\n'
+            '  -webkit-mask-image: var(--rail-icon);\n'
+            '  mask-image: var(--rail-icon);\n'
         ),
         replacement='',
         guard='gives every masked control a real stencil painted in currentColor',
@@ -1245,7 +1245,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='an icon payload is truncated, which CSS accepts and SVG does not',
-        path='web/src/pages/globe.astro',
+        path='web/src/styles/globe.css',
         needle="1.5-.75 1.5-1.5S19.75 13 19 13z'/%3E%3C/svg%3E\");",
         replacement="1.5-.75 1.5-1.5S19.75 13 19 13z'/%3E\");",
         guard='parses each data URI the page authors, and proves it found them',
@@ -1894,6 +1894,37 @@ SABOTAGES: list[Sabotage] = [
         needle='  body,\n} = Astro.props;',
         replacement='  body = "earth",\n} = Astro.props;',
         guard='takes the body as a required prop with no default',
+    ),
+    # --- The globe's two stylesheets -------------------------------------------------------------
+    # The global rules are a file so a second body's page can import the same one; the SCOPED block
+    # cannot follow, because Astro stamps it with `[data-astro-cid-…]` and that attribute is worth a
+    # class of specificity. Both mutations below leave every rule intact and change only where it
+    # lives, which is the entire failure mode: no error, no missing declaration, just a level lost.
+    Sabotage(
+        suite='web',
+        label='the page stops importing its global stylesheet, shipping the widgets unstyled',
+        path='web/src/pages/globe.astro',
+        needle='import "../styles/globe.css";\n',
+        replacement='',
+        guard='imports the global stylesheet, or the page ships with none of it',
+    ),
+    # The scoped block is re-declared global, which strips the cid from every rule in it.
+    Sabotage(
+        suite='web',
+        label='the scoped block goes global, dropping a specificity level off every page rule',
+        path='web/src/pages/globe.astro',
+        needle='\n<style>\n',
+        replacement='\n<style is:global>\n',
+        guard='keeps the SCOPED block in the page, where Astro can stamp it',
+    ),
+    # A scoped rule migrates into the shared file, where it compiles without its cid.
+    Sabotage(
+        suite='web',
+        label='a page-scoped rule is moved into the shared stylesheet and loses its cid',
+        path='web/src/styles/globe.css',
+        needle='.chrome-credit.chrome-credit.maplibregl-ctrl.maplibregl-ctrl {',
+        replacement='.starfield {\n  z-index: 0;\n}\n.chrome-credit.chrome-credit.maplibregl-ctrl.maplibregl-ctrl {',
+        guard="keeps the page's own elements out of the shared stylesheet",
     ),
     # --- The globe's floor is a body fact --------------------------------------------------------
     # `space-floor` exists so a gap in the tiles reads as more of this planet rather than as a hole

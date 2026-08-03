@@ -3,6 +3,8 @@ import { readFileSync } from "node:fs";
 import { REPO_URL } from "./siteLinks";
 
 const page = (name: string) => readFileSync(new URL(`../pages/${name}`, import.meta.url), "utf8");
+/** The globe's global stylesheet, which its page imports — the rules that reach MapLibre's widgets. */
+const globeStyles = readFileSync(new URL("../styles/globe.css", import.meta.url), "utf8");
 
 describe("the repository link", () => {
   it("is an absolute https URL, since it is rendered into an href verbatim", () => {
@@ -63,13 +65,16 @@ describe("the on-map credit", () => {
     // view bar is what the globe SHOWS. The class travels with the element for exactly the reason
     // below — this is the element's SECOND home, and an ancestor selector would have quietly
     // stopped matching on the move rather than failing.
+    // The two halves sit in two files now — the script that adds the class in the page, the rule
+    // that reads it in the globe's stylesheet — which is exactly why both are asserted here rather
+    // than in whichever file happens to hold one of them.
     expect(globe).toContain('classList.add("chrome-credit")');
-    expect(globe).toContain(".chrome-credit.chrome-credit");
+    expect(globeStyles).toContain(".chrome-credit.chrome-credit");
     // A descendant rule would stop matching the moment anything re-parents the element again,
     // and would leave it half-styled rather than plainly unstyled — the harder failure to see.
     // Both former and current containers are named, so neither spelling can creep back in.
-    expect(globe).not.toMatch(/\.view-bar\s+\.maplibregl-ctrl-attrib/);
-    expect(globe).not.toMatch(/\.globe-chrome\s+\.maplibregl-ctrl-attrib/);
+    expect(globeStyles).not.toMatch(/\.view-bar\s+\.maplibregl-ctrl-attrib/);
+    expect(globeStyles).not.toMatch(/\.globe-chrome\s+\.maplibregl-ctrl-attrib/);
   });
 
   it("no longer races MapLibre to collapse the control", () => {
