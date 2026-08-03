@@ -22,11 +22,13 @@ def main() -> None:
     ladder_dir = cap_render.cap_work_dir(bodies.EARTH) / "ab_ice_damp"
     ladder_dir.mkdir(parents=True, exist_ok=True)
     knobs = cast(dict[str, Any], shade.KNOBS)
-    for strength, renderer, cap_name in (
-            [(value, cap_render.render_cap_north, "north") for value in NORTH_RUNGS]
-            + [(value, cap_render.render_cap_south, "south") for value in SOUTH_RUNGS]):
+    north = cap_render.north_grid(bodies.EARTH)
+    south = cap_render.south_grid(bodies.EARTH)
+    for strength, renderer, grid, cap_name in (
+            [(value, cap_render.render_cap_north, north, "north") for value in NORTH_RUNGS]
+            + [(value, cap_render.render_cap_south, south, "south") for value in SOUTH_RUNGS]):
         knobs["ice_relief_damp"] = strength
-        rendered_png = renderer()
+        rendered_png = renderer(grid)
         rung_png = ladder_dir / f"cap_{cap_name}_damp_{strength:.2f}.png"
         shutil.copyfile(rendered_png, rung_png)
         print(f"{cap_name} damp {strength:.2f} -> {rung_png}", flush=True)

@@ -1741,7 +1741,7 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label='served assets are resolved against the data store, so a relocated store publishes nothing',
         path='pipeline/bodies.py',
-        needle='    return paths.ROOT / "web/public" / stage / body.path_prefix',
+        needle='    return PUBLIC_ROOT / stage / body.path_prefix',
         replacement='    return paths.DATA / "web/public" / stage / body.path_prefix',
         guard='test_served_assets_follow_the_checkout_not_the_data_store',
     ),
@@ -1751,8 +1751,8 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label='the caps prefix is applied above the stage, publishing a second body at the wrong URL',
         path='pipeline/bodies.py',
-        needle='    return paths.ROOT / "web/public" / stage / body.path_prefix',
-        replacement='    return paths.ROOT / "web/public" / body.path_prefix / stage',
+        needle='    return PUBLIC_ROOT / stage / body.path_prefix',
+        replacement='    return PUBLIC_ROOT / body.path_prefix / stage',
         guard='test_a_second_body_publishes_under_its_own_segment',
     ),
     # --- The body is required --------------------------------------------------------------------
@@ -1837,6 +1837,38 @@ SABOTAGES: list[Sabotage] = [
         path='pipeline/tile/cap_render.py',
         needle='    return bodies.public_dir(body, "caps")',
         replacement='    return bodies.work_dir(body, "caps")',
+        guard='test_earth_reads_and_writes_exactly_where_it_always_has',
+    ),
+    # --- The grids are built per body ----------------------------------------------------------
+    # A factory that ignores its argument is the exact failure the module constants were deleted to
+    # remove, and it is invisible: the cap projects, blends and publishes — on Earth's sphere, from
+    # Earth's heightfield, over Earth's shipped textures.
+    Sabotage(
+        suite='python',
+        label='the north grid factory pins Earth, so every body inherits Earth by construction',
+        path='pipeline/tile/cap_render.py',
+        needle='    return CapGrid(lat_0=90.0, edge_lat=78.0, px=CAP_PX, name="north", az_sign=-1.0, body=body)',
+        replacement='    return CapGrid(lat_0=90.0, edge_lat=78.0, px=CAP_PX, name="north", az_sign=-1.0,\n                   body=bodies.EARTH)',
+        guard='test_a_factory_carries_the_body_it_was_given_all_the_way_through',
+    ),
+    # The URL is rebuilt from the basename, which is what it used to be. Correct for Earth, whose
+    # segment is empty; every nesting body advertises its whole texture set one directory up.
+    Sabotage(
+        suite='python',
+        label="a cap's served URL is rebuilt from its basename, 404ing every body that nests",
+        path='pipeline/tile/cap_render.py',
+        needle='    return "/" + asset.relative_to(bodies.PUBLIC_ROOT).as_posix()',
+        replacement='    return f"/caps/{asset.name}"',
+        guard='test_the_served_url_matches_where_the_texture_is_actually_written',
+    ),
+    # The pole prefix stops being derived. Both renderers then share one set of AEQD warps, so
+    # whichever ran last decides what the other one shaded.
+    Sabotage(
+        suite='python',
+        label='the cap warp prefix is hardcoded north, so both poles share one set of warps',
+        path='pipeline/tile/cap_render.py',
+        needle='    return cap_work_dir(grid.body) / f"cap{grid.name[0].upper()}_{layer}.tif"',
+        replacement='    return cap_work_dir(grid.body) / f"capN_{layer}.tif"',
         guard='test_earth_reads_and_writes_exactly_where_it_always_has',
     ),
     # --- The portrait fill rung ----------------------------------------------------------------

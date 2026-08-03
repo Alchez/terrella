@@ -83,7 +83,7 @@ CAP_ELEV_PX = 512      # elevation texture side; see cap_elev_asset for why ther
 # live here lives there, beside the value it is about.
 # The south-cap forced-snow latitude and toned sea-ice pair moved to their shared homes so the tile
 # composite applies the identical rule (one home per concept): snow.antarctic_snow_mask's lat_max=-60,
-# and seaice.SH_ICE_LO / seaice.SH_ICE_MAX_ALPHA (used by the SOUTH grid below).
+# and seaice.SH_ICE_LO / seaice.SH_ICE_MAX_ALPHA (used by `south_grid` below).
 
 
 @dataclass(frozen=True)
@@ -117,15 +117,31 @@ class CapGrid:
         return self.body.aeqd_radius_m * float(np.radians(90.0 - abs(self.edge_lat)))
 
 
-NORTH = CapGrid(lat_0=90.0, edge_lat=78.0, px=CAP_PX, name="north", az_sign=-1.0,
-                body=bodies.EARTH)
-# South: NO baked coastline. The north NEEDS it (Greenland's white ice sheet abuts the white Arctic
-# pack -- without a line they merge), but on the south white ice sits on teal ocean, which already
-# separates itself; a dark line there just reads as a cartoonish outline around the continent.
-SOUTH = CapGrid(lat_0=-90.0, edge_lat=-78.0, px=CAP_PX, name="south", az_sign=1.0,
-                body=bodies.EARTH,
-                coast_opacity=0.0, coast_dilate=0,
-                ice_lo=seaice.SH_ICE_LO, ice_max_alpha=seaice.SH_ICE_MAX_ALPHA)
+def north_grid(body: bodies.Body) -> CapGrid:
+    """This body's north cap grid.
+
+    A FACTORY RATHER THAN A CONSTANT, which is the whole of the difference between one planet and
+    two: a module-level grid pins `body` at import, so every caller downstream inherits Earth by
+    construction and no amount of argument-passing anywhere else can undo it.
+    """
+    return CapGrid(lat_0=90.0, edge_lat=78.0, px=CAP_PX, name="north", az_sign=-1.0, body=body)
+
+
+def south_grid(body: bodies.Body) -> CapGrid:
+    """This body's south cap grid.
+
+    NO BAKED COASTLINE. The north NEEDS it (Greenland's white ice sheet abuts the white Arctic pack
+    -- without a line they merge), but on the south white ice sits on teal ocean, which already
+    separates itself; a dark line there just reads as a cartoonish outline around the continent.
+
+    The two sea-ice overrides and that coastline decision are EARTH LOOK CONSTANTS applied to
+    whatever body is passed. They are honest only while Earth is the only body: a second planet's
+    cryosphere is a Phase-1 question (the snow / sea-ice / glacier layers are Earth-only sources and
+    have to become off-switchable, not conditionally patched), and this is where it will surface.
+    """
+    return CapGrid(lat_0=-90.0, edge_lat=-78.0, px=CAP_PX, name="south", az_sign=1.0, body=body,
+                   coast_opacity=0.0, coast_dilate=0,
+                   ice_lo=seaice.SH_ICE_LO, ice_max_alpha=seaice.SH_ICE_MAX_ALPHA)
 
 # The coastline baked into the cap texture -- the land/sea line separating land snow from sea ice
 # where MapLibre's Mercator vector borders can't reach the pole. It must be DARK, not the globe's
@@ -194,9 +210,21 @@ def cap_assets(grid: CapGrid) -> list[Path]:
     return [cap_asset(grid, px) for px in CAP_RUNGS]
 
 
+def cap_warp(grid: CapGrid, layer: str) -> Path:
+    """One of this cap's AEQD source warps, named for the pole it belongs to.
+
+    The `capN_`/`capS_` prefix DERIVES from the grid rather than being spelled out per call site. It
+    was literal at four of five sites and derived at the fifth, which was harmless while each
+    renderer read a module constant and could only ever be one pole — and stops being harmless the
+    moment the grid is a parameter, because a mismatch then writes a file set half-labelled north
+    and half south, each half internally consistent.
+    """
+    return cap_work_dir(grid.body) / f"cap{grid.name[0].upper()}_{layer}.tif"
+
+
 def cap_height_warp(grid: CapGrid) -> Path:
     """The AEQD height warp both the composite and the elevation texture read."""
-    return cap_work_dir(grid.body) / f"cap{grid.name[0].upper()}_height.tif"
+    return cap_warp(grid, "height")
 
 
 def cap_elev_recipe(grid: CapGrid) -> str:
@@ -304,7 +332,18 @@ def cap_recipe(grid: CapGrid) -> str:
                       sort_keys=True, indent=2)
 
 
-def caps_manifest() -> str:
+def served_url(asset: Path) -> str:
+    """The URL a served asset is fetched at, derived from where it was written.
+
+    NOT `f"/caps/{asset.name}"`, which is what this was. That spelling is correct for Earth and
+    correct-looking for everyone else: Earth's path segment is empty, so basename and URL coincide,
+    while a nesting body writes to `caps/<body>/` and would have had its whole texture set
+    advertised one directory up — every rung a 404, discovered only by loading the globe.
+    """
+    return "/" + asset.relative_to(bodies.PUBLIC_ROOT).as_posix()
+
+
+def caps_manifest(body: bodies.Body) -> str:
     """The pipeline->web contract, served beside the textures as caps.json.
 
     polarCaps.ts used to hand-copy `edge_lat` (as texEdgeLat) and the ±84 feather ceiling
@@ -316,16 +355,16 @@ def caps_manifest() -> str:
     `rungs` replaced the old single `url`/`px` pair rather than joining it: two homes for
     'which texture is shipped' is the very drift this contract exists to prevent."""
     return json.dumps({
-        grid.name: {"rungs": [{"px": px, "url": f"/caps/{cap_asset(grid, px).name}"}
+        grid.name: {"rungs": [{"px": px, "url": served_url(cap_asset(grid, px))}
                               for px in CAP_RUNGS],
                     "edge_lat": grid.edge_lat,
                     "feather_hi": feather_hi,
                     # The displacement texture and the step needed to decode it. The step ships
                     # here rather than as a web-side literal for the same reason edge_lat does:
                     # the pipeline encoded these bytes, so the pipeline states how to read them.
-                    "elev_url": f"/caps/{cap_elev_asset(grid).name}",
+                    "elev_url": served_url(cap_elev_asset(grid)),
                     "elev_step": terrain_rgb.QUANTISATION_M}
-        for grid, feather_hi in ((NORTH, CAP_NORTH), (SOUTH, CAP_SOUTH))
+        for grid, feather_hi in ((north_grid(body), CAP_NORTH), (south_grid(body), CAP_SOUTH))
     }, sort_keys=True, indent=2)
 
 
@@ -456,18 +495,16 @@ def _write_cap(grid: CapGrid, heights: np.ndarray, ocean: np.ndarray, water: np.
     return cap_asset(grid, grid.px)
 
 
-def render_cap_north() -> Path:
+def render_cap_north(grid: CapGrid) -> Path:
     """North cap from the fused planet VRTs + snow persistence + sea ice."""
-    grid = NORTH
-    work = cap_work_dir(grid.body)
     planet = planet_work_dir(grid.body)
-    work.mkdir(parents=True, exist_ok=True)
+    cap_work_dir(grid.body).mkdir(parents=True, exist_ok=True)
     height = _warp(grid, planet / "planet_heightfield.vrt", cap_height_warp(grid), "bilinear", "Float32")
-    ocean_raw = _warp(grid, planet / "planet_oceanmask.vrt", work / "capN_ocean.tif", "near", "Byte")
-    watercode = _warp(grid, planet / "planet_watermask.vrt", work / "capN_water.tif", "near", "Byte")
-    sp_raw = _warp(grid, f'NETCDF:"{snow.SP_NC}":{snow.SP_VAR}', work / "capN_sp.tif",
+    ocean_raw = _warp(grid, planet / "planet_oceanmask.vrt", cap_warp(grid, "ocean"), "near", "Byte")
+    watercode = _warp(grid, planet / "planet_watermask.vrt", cap_warp(grid, "water"), "near", "Byte")
+    sp_raw = _warp(grid, f'NETCDF:"{snow.SP_NC}":{snow.SP_VAR}', cap_warp(grid, "sp"),
                    "bilinear", "Float32", srcnodata=snow.SP_FILL)
-    ice_raw = _warp(grid, seaice.SEAICE_SRC, work / "capN_seaice.tif",
+    ice_raw = _warp(grid, seaice.SEAICE_SRC, cap_warp(grid, "seaice"),
                     "bilinear", "Float32", srcnodata=seaice.ICE_FILL)
 
     heights = np.where(height < -1e4, 0.0, height).astype(np.float32)  # DEM nodata -> flat, as hillshade does
@@ -490,7 +527,7 @@ def render_cap_north() -> Path:
     return _write_cap(grid, heights, ocean, water, snow_a, ice_a, hillshade_dn)
 
 
-def render_cap_south() -> Path:
+def render_cap_south(grid: CapGrid) -> Path:
     """South (Antarctica) cap from the fused planet VRTs + the SH half of the sea-ice climatology.
 
     Re-sourced from GEBCO-direct when the Antarctica fill pushed the planet VRTs
@@ -499,14 +536,12 @@ def render_cap_south() -> Path:
     the tiles it feathered into -- the visible interior ring). Snow is FORCED over Antarctic land
     (no SH snow dataset, no RGI region 19), exactly as the tile composite does.
     """
-    grid = SOUTH
-    work = cap_work_dir(grid.body)
     planet = planet_work_dir(grid.body)
-    work.mkdir(parents=True, exist_ok=True)
+    cap_work_dir(grid.body).mkdir(parents=True, exist_ok=True)
     height = _warp(grid, planet / "planet_heightfield.vrt", cap_height_warp(grid), "bilinear", "Float32")
-    ocean_raw = _warp(grid, planet / "planet_oceanmask.vrt", work / "capS_ocean.tif", "near", "Byte")
-    watercode = _warp(grid, planet / "planet_watermask.vrt", work / "capS_water.tif", "near", "Byte")
-    ice_raw = _warp(grid, seaice.SEAICE_SRC, work / "capS_seaice.tif",
+    ocean_raw = _warp(grid, planet / "planet_oceanmask.vrt", cap_warp(grid, "ocean"), "near", "Byte")
+    watercode = _warp(grid, planet / "planet_watermask.vrt", cap_warp(grid, "water"), "near", "Byte")
+    ice_raw = _warp(grid, seaice.SEAICE_SRC, cap_warp(grid, "seaice"),
                     "bilinear", "Float32", srcnodata=seaice.ICE_FILL)
 
     heights = np.where(height < -1e4, 0.0, height).astype(np.float32)  # DEM nodata -> flat, as hillshade does
@@ -533,8 +568,13 @@ def main() -> int:
                         help="rebuild only the displacement textures, skipping the colour render")
     args = parser.parse_args()
 
-    for wanted, grid, render in ((not args.south, NORTH, render_cap_north),
-                                 (not args.north, SOUTH, render_cap_south)):
+    # THE LAST EARTH LITERAL IN THIS MODULE, and it is the entry point's alone — everything below
+    # takes the body from the grid it is handed. It becomes a required `--body` next; naming it here
+    # rather than defaulting one inside the resolvers keeps the choice in one visible place.
+    body = bodies.EARTH
+
+    for wanted, grid, render in ((not args.south, north_grid(body), render_cap_north),
+                                 (not args.north, south_grid(body), render_cap_south)):
         if not wanted:
             continue
         work = cap_work_dir(grid.body)
@@ -545,7 +585,7 @@ def main() -> int:
                                                cap_sources(grid)):
                 print(f"cap {grid.name} fresh -> skip", flush=True)
             else:
-                print(f"wrote {render()}", flush=True)
+                print(f"wrote {render(grid)}", flush=True)
                 sidecar.write_text(recipe)  # AFTER the render, so a crash leaves the cap stale
 
         # Gated separately, and NOT behind the colour stage's `continue`: the displacement texture
@@ -560,9 +600,9 @@ def main() -> int:
         else:
             print(f"wrote {write_cap_elevation(grid)}", flush=True)
             elev_sidecar.write_text(elev_recipe)
-    served = caps_public_dir(NORTH.body)  # both poles of one body publish to one directory
+    served = caps_public_dir(body)  # both poles of one body publish to one directory
     served.mkdir(parents=True, exist_ok=True)
-    (served / "caps.json").write_text(caps_manifest() + "\n")  # the web contract, always current
+    (served / "caps.json").write_text(caps_manifest(body) + "\n")  # the web contract, always current
     return 0
 
 

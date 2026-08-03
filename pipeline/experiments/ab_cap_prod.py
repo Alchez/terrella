@@ -29,15 +29,17 @@ AB_DIR = cap_render.cap_work_dir(bodies.EARTH) / "ab_prod"
 
 
 def render_rung(px: int, quality: int) -> None:
-    cap_render.NORTH = dataclasses.replace(cap_render.NORTH, px=px)
-    cap_render.SOUTH = dataclasses.replace(cap_render.SOUTH, px=px)
+    # The grid is passed in rather than assigned back onto the module. It used to be the latter,
+    # which left the rung's pixel count as global state a reader of `render_cap_north` could not see.
     cap_render.CAP_WEBP_QUALITY = quality
     rung_dir = AB_DIR / f"px{px}_q{quality}"
     rung_dir.mkdir(parents=True, exist_ok=True)
-    for label, render in (("north", cap_render.render_cap_north),
-                          ("south", cap_render.render_cap_south)):
+    for label, grid, render in (("north", cap_render.north_grid(bodies.EARTH),
+                                 cap_render.render_cap_north),
+                                ("south", cap_render.south_grid(bodies.EARTH),
+                                 cap_render.render_cap_south)):
         started = time.monotonic()
-        asset = render()
+        asset = render(dataclasses.replace(grid, px=px))
         seconds = time.monotonic() - started
         size_mb = asset.stat().st_size / 1e6
         shutil.copy2(asset, rung_dir / asset.name)
@@ -49,11 +51,11 @@ def main() -> int:
         render_rung(px, quality)
     # The final rung is the default: stamp the sidecars so production sees the live assets as
     # fresh (render_cap_* alone never writes them — that is main()'s job).
-    for grid in (cap_render.NORTH, cap_render.SOUTH):
+    for grid in (cap_render.north_grid(bodies.EARTH), cap_render.south_grid(bodies.EARTH)):
         sidecar = cap_render.cap_work_dir(grid.body) / f"cap_{grid.name}_params.json"
         sidecar.write_text(cap_render.cap_recipe(grid))
     served = cap_render.caps_public_dir(bodies.EARTH)
-    (served / "caps.json").write_text(cap_render.caps_manifest() + "\n")
+    (served / "caps.json").write_text(cap_render.caps_manifest(bodies.EARTH) + "\n")
     print(f"ladder archived under {AB_DIR}; live = default rung", flush=True)
     return 0
 

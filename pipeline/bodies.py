@@ -153,6 +153,13 @@ def work_dir(body: Body, stage: str) -> Path:
     return paths.DATA / "work" / body.path_prefix / stage
 
 
+#: The directory the site serves at its URL root. Named because two things need it: where a served
+#: asset is WRITTEN (`public_dir`) and what its URL IS — a path under here, minus this prefix. A
+#: caller that assembled the URL from a literal instead would be right for Earth, whose segment is
+#: empty, and quietly advertise a 404 for every body that nests.
+PUBLIC_ROOT = paths.ROOT / "web/public"
+
+
 def public_dir(body: Body, stage: str) -> Path:
     """Where one body's SERVED assets live, under `web/public/`.
 
@@ -165,4 +172,4 @@ def public_dir(body: Body, stage: str) -> Path:
     an empty prefix is what stops a second body rewriting it. Mars nests one level in.
     """
     _require_directory_name(stage)
-    return paths.ROOT / "web/public" / stage / body.path_prefix
+    return PUBLIC_ROOT / stage / body.path_prefix
