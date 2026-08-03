@@ -2178,6 +2178,23 @@ SABOTAGES: list[Sabotage] = [
         replacement='      objectKey: "planet-v2.pmtiles",',
         guard='never puts two raster pyramids in one archive',
     ),
+    # The compatibility half, which is temporary and therefore exactly the half nobody re-reads.
+    Sabotage(
+        suite='web',
+        label='the version-prefix strip loses its anchor and eats a segment mid-path',
+        path='web/src/lib/tileAddress.ts',
+        needle='const LEGACY_VERSION_PREFIX = /^\\/v\\d+\\//;',
+        replacement='const LEGACY_VERSION_PREFIX = /\\/v\\d+\\//;',
+        guard='strips that prefix only at the front',
+    ),
+    Sabotage(
+        suite='web',
+        label='a legacy terrain URL is mapped to the relief layer',
+        path='web/src/lib/tileAddress.ts',
+        needle='  if (terrain) return { body: LEGACY_BODY, layer: "terrain", token: null, ...terrain };',
+        replacement='  if (terrain) return { body: LEGACY_BODY, layer: "relief", token: null, ...terrain };',
+        guard='resolves the SAME tile address to two different archives, which is the whole risk',
+    ),
 ]
 
 

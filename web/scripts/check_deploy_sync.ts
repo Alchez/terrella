@@ -136,15 +136,24 @@ function checkTerrainHasAnOrigin(endpoint: string): void {
 
   const worker = readFileSync(`${WEB_ROOT}worker/index.ts`, "utf8");
   const workerConfig = readFileSync(`${WEB_ROOT}worker/wrangler.jsonc`, "utf8");
-  if (!worker.includes("parseTerrainTilePath")) {
+  const registry = readFileSync(`${WEB_ROOT}src/lib/tileAddress.ts`, "utf8");
+  // TWO GREPS SINCE ROUTING MOVED TO THE REGISTRY: the Worker must dispatch through the shared
+  // resolver, and that resolver must have a terrain archive to dispatch AT. Either half alone is
+  // satisfiable while terrain 404s — a Worker that resolves nothing, or a registry entry no server
+  // reads. Read as source rather than imported because this script is plain node, which does not
+  // resolve the extensionless imports the app's modules use.
+  const routesTerrain =
+    worker.includes("resolveTileRequest") && /terrain:\s*\{[^}]*objectKey/.test(registry);
+  if (!routesTerrain) {
     fail(
       "the globe would request terrain that production cannot serve.",
       "",
       "  earth.astro enables terrain on the `full` tier, so a promoted visitor adds a raster-dem",
-      "  source at /terrain/{z}/{x}/{y}.webp — and worker/index.ts does not route that path, so",
-      "  every DEM tile would 404 silently.",
+      "  source pointing at the terrain pyramid — and either worker/index.ts does not route through",
+      "  resolveTileRequest, or src/lib/tileAddress.ts publishes no terrain archive for it to find.",
+      "  Every DEM tile would 404 silently.",
       "",
-      "  Route it in worker/index.ts, or gate terrain off the tier again before deploying.",
+      "  Fix whichever half is missing, or gate terrain off the tier again before deploying.",
     );
   }
 

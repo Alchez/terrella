@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
+import { PUBLISHED } from "./tileAddress";
 import {
   assertTerrainZoomRange,
   DEFAULT_TERRAIN_EXAGGERATION,
@@ -730,7 +731,13 @@ describe("the deploy preflight must refuse a globe production cannot serve", () 
     // about the bucket too. That is the assertion that replaces the old source-only one.
     const script = readFileSync(new URL("../../scripts/check_deploy_sync.ts", import.meta.url), "utf8");
     expect(script).toContain("checkTerrainHasAnOrigin");
-    expect(script, "the route half").toMatch(/worker\.includes\("parseTerrainTilePath"\)/);
+    // The route half is now two greps, because routing moved into the registry: the Worker has to
+    // dispatch through the shared resolver, AND the registry has to publish a terrain archive for
+    // it to find. Either alone is satisfiable while every DEM tile 404s.
+    expect(script, "the route half — the worker dispatches").toMatch(
+      /worker\.includes\("resolveTileRequest"\)/,
+    );
+    expect(script, "the route half — the registry publishes").toMatch(/registry\)/);
     expect(script, "the bytes half").toContain("ARCHIVE_BUCKET");
     expect(script, "and it must name which key is missing").toContain("TERRAIN_ARCHIVE_KEY");
   });
@@ -765,7 +772,10 @@ describe("the deploy preflight must refuse a globe production cannot serve", () 
     expect(ridesOnTier, `terrain rides the full tier (gate read: ${tierExpression || "none"})`).toBe(
       true,
     );
-    expect(worker, "the worker routes it").toContain("parseTerrainTilePath");
+    expect(worker, "the worker dispatches through the shared resolver").toContain(
+      "resolveTileRequest",
+    );
+    expect(PUBLISHED.earth.terrain, "and the registry publishes a terrain cut").not.toBeNull();
     expect(workerConfig, "and names the object it reads").toMatch(/"TERRAIN_ARCHIVE_KEY"\s*:\s*"[^"]+\.pmtiles"/);
   });
 });

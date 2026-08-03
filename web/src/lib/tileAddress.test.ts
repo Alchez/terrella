@@ -8,6 +8,7 @@ import {
   TOKEN_LENGTH,
   archiveFor,
   parseTileAddress,
+  resolveTileRequest,
   tilePathTemplate,
   type LayerId,
 } from "./tileAddress";
@@ -90,6 +91,38 @@ describe("what it refuses, all without touching storage", () => {
       expect(parseTileAddress(pathname)).toBeNull();
     });
   }
+});
+
+describe("the legacy grammar, which both servers still accept", () => {
+  const legacy: [string, LayerId][] = [
+    ["5/17/11.webp", "relief"],
+    ["terrain/5/17/11.webp", "terrain"],
+    ["countries/1/0/0.mvt", "countries"],
+  ];
+
+  for (const [pathname, layer] of legacy) {
+    it(`resolves ${pathname} to Earth's ${layer} pyramid, with no token`, () => {
+      // A null token is the honest answer: the request named none. Filling in the current one
+      // would erase the only signal that tells us when the legacy branch is safe to delete.
+      expect(resolveTileRequest(pathname)).toMatchObject({ body: "earth", layer, token: null });
+    });
+  }
+
+  it("still tolerates the version prefix production has always accepted", () => {
+    // It exists so a re-cut could ship under a new base URL instead of a zone-wide purge. The dev
+    // server used to 404 this exact shape while the Worker served it — one resolver, one answer.
+    expect(resolveTileRequest("/v2/5/17/11.webp")).toMatchObject({ layer: "relief", token: null });
+  });
+
+  it("strips that prefix only at the front", () => {
+    // Unanchored, `/5/v2/1/2.webp` becomes `/5/1/2.webp` — a perfectly valid tile served under an
+    // address nobody ever minted.
+    expect(resolveTileRequest("/5/v2/1/2.webp")).toBeNull();
+  });
+
+  it("cannot shadow an addressed path", () => {
+    expect(resolveTileRequest(EARTH_RELIEF)).toMatchObject({ layer: "relief", token: expect.any(String) });
+  });
 });
 
 describe("the registry", () => {

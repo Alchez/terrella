@@ -1,10 +1,14 @@
 // The tile server: one tile per request, ranged out of a PMTiles archive in R2.
 //
-// THREE archives in one bucket behind one router — `{z}/{x}/{y}.webp` is the relief pyramid,
-// `terrain/{z}/{x}/{y}.webp` the elevation one, and `countries/{z}/{x}/{y}.mvt` the country
-// vector tiles. Everything below the router is archive-agnostic: the index prefetch, the
-// directory cache and the ETag chain all key on the archive key, so each new pyramid cost a route
-// and some per-key bookkeeping, not a second server.
+// THREE archives in one bucket behind one router. Addresses are `{body}/{layer}/{token}/{z}/{x}/{y}`
+// with the layer's extension — see src/lib/tileAddress.ts, which owns the grammar and which the dev
+// middleware routes through too. The pre-token shapes (`{z}/{x}/{y}.webp`, `terrain/…`,
+// `countries/….mvt`) are still served, because a visitor holding a page built before the switch
+// should not go blank while the site and this Worker deploy separately.
+//
+// Everything below the router is archive-agnostic: the index prefetch, the directory cache and the
+// ETag chain all key on the archive key, so each new pyramid cost a route and some per-key
+// bookkeeping, not a second server.
 //
 // The country pyramid differs from the other two in one way the router has to carry: it is
 // SPARSE. Relief and terrain hold every address from z0 to z8, so a miss there is a packaging
@@ -34,27 +38,12 @@ import {
   tileTypeExt,
 } from "pmtiles";
 import {
-  RELIEF_MAX_ZOOM,
-  RELIEF_MIN_ZOOM,
-  TILE_CONTENT_TYPE,
-  type TileCoordinate,
-  describeTileTypeMismatch,
-  parseTilePath,
-} from "../src/lib/reliefTiles";
-import {
-  TERRAIN_CONTENT_TYPE,
-  TERRAIN_MAX_ZOOM,
-  TERRAIN_MIN_ZOOM,
-  describeTerrainTileTypeMismatch,
-  parseTerrainTilePath,
-} from "../src/lib/terrainSource";
-import {
-  COUNTRIES_CONTENT_TYPE,
-  COUNTRIES_MAX_ZOOM,
-  COUNTRIES_MIN_ZOOM,
-  describeCountriesTileTypeMismatch,
-  parseCountriesTilePath,
-} from "../src/lib/countryTiles";
+  LAYERS,
+  archiveFor,
+  resolveTileRequest,
+  type TileAddress,
+  type TileLayer,
+} from "../src/lib/tileAddress";
 
 interface Env {
   /** R2 binding for the bucket holding ALL THREE archives (bucket `terrella-tiles`). One binding,
@@ -74,9 +63,11 @@ interface Env {
   TILE_CACHE_CONTROL?: string;
 }
 
-const DEFAULT_ARCHIVE_KEY = "planet.pmtiles";
-const DEFAULT_TERRAIN_ARCHIVE_KEY = "terrain.pmtiles";
-const DEFAULT_COUNTRIES_ARCHIVE_KEY = "countries.pmtiles";
+// The three DEFAULT_*_ARCHIVE_KEY constants that used to sit here are gone. They named the FIRST
+// cut of each pyramid — and `planet.pmtiles`, the PNG one, was deleted from the bucket the day its
+// WebP replacement was verified live. A fallback that names a deleted object is not a safety net;
+// it is a second, staler answer to a question the registry now answers correctly, since every
+// published key is recorded there against the archive it belongs to.
 
 /** The pyramid is immutable for the life of a cut — the globe already sets
  *  `refreshExpiredTiles: false` on the same reasoning. A re-cut therefore requires purging the
@@ -422,70 +413,65 @@ function withCrossOriginHeaders(
 
 /** One resolved request: which tile, out of which archive, labelled and decoded how. */
 interface TileRoute {
-  tile: TileCoordinate;
+  /** Which tile, of which body's which layer, under whichever grammar asked. */
+  address: TileAddress;
   archiveKey: string;
-  contentType: string;
-  /** Names the constants a zoom disagreement should send someone to. */
-  zoomConstants: string;
-  describeTileTypeMismatch: (archiveExtension: string) => string | null;
-  /** What an absent tile MEANS for this archive: 404 where the pyramid is complete and a miss is
-   *  therefore a packaging fault, 204 where it is sparse and a miss is just ocean. Per-route
-   *  rather than a shared constant, because sharing it would either silence real faults on the
-   *  raster pyramids or emit tens of thousands of errors for correctly-absent country tiles. */
-  missingTileStatus: 404 | 204;
+  /** The layer's contract — content type, what a miss means, how a header mismatch reads. Held as
+   *  the registry entry rather than copied field by field, so this router cannot drift from the one
+   *  the dev middleware answers with. */
+  layer: TileLayer;
 }
 
+/** Object keys, per layer, as this deploy names them.
+ *
+ *  STILL READ FROM `vars`, and only for Earth. The registry records the same three keys, so this is
+ *  a second copy — pinned by a test that reads wrangler.jsonc, and deleted along with the vars once
+ *  the deploy preflight enumerates the registry instead. Consulting them for another body would be
+ *  the drift the pin exists to catch: these three name EARTH's cuts. */
+function configuredArchiveKey(address: TileAddress, env: Env): string | undefined {
+  if (address.body !== "earth") return undefined;
+  if (address.layer === "relief") return env.ARCHIVE_KEY;
+  if (address.layer === "terrain") return env.TERRAIN_ARCHIVE_KEY;
+  return env.COUNTRIES_ARCHIVE_KEY;
+}
+
+/** Latched per isolate: which layers have been asked for under the pre-token grammar.
+ *
+ *  The migration's only exit condition. The legacy branch can be deleted when production has served
+ *  no legacy request for a day, and there is no other way to learn that — a client asking the old
+ *  shape is served correctly and silently, which is exactly what makes it safe and exactly what
+ *  makes it invisible. */
+const seenLegacyGrammar = new Set<string>();
+
 /**
- * Decide which pyramid a path addresses, or null if it addresses neither.
+ * Decide which pyramid a path addresses, or null if it addresses none.
  *
- * THE PREFIX IS THE WHOLE DISCRIMINATOR AND IT HAS TO BE. Both archives are lossless WebP over
- * z0-8 on the same tiling scheme, so `/8/189/107.webp` is a valid address in both — there is
- * nothing else in a tile URL left to tell them apart. Serving the wrong one is not a visible
- * failure either: MapLibre would decode relief colour as terrarium elevation and displace the
- * globe by whatever those bytes happen to mean.
+ * THE LAYER SEGMENT IS THE WHOLE DISCRIMINATOR AND IT HAS TO BE. Both raster archives are WebP over
+ * z0-8 on the same tiling scheme, so `/8/189/107.webp` is a valid address in both — there is nothing
+ * else in a tile URL left to tell them apart. Serving the wrong one is not a visible failure either:
+ * MapLibre would decode relief colour as terrarium elevation and displace the globe by whatever
+ * those bytes happen to mean. One body out, the same holds between planets.
  *
- * No two parsers can match the same path, in any direction: `parseTilePath` requires the first
- * segment to be a zoom, and the other two require their own literal prefix. The country parser
- * additionally requires `.mvt`, but the PREFIX is what the router leans on — resting it on the
- * extension would make correctness depend on a codec choice, and the codec is exactly what a
- * re-cut is allowed to change.
+ * Exclusivity is now structural rather than argued: an addressed path names its body and its layer,
+ * so two archives cannot share one. The legacy shapes are still accepted, and cannot collide with an
+ * addressed path in either direction — they require a leading zoom or their own literal prefix, and
+ * an addressed path begins with a body slug.
  */
 export function resolveRoute(pathname: string, env: Env): TileRoute | null {
-  const relief = parseTilePath(pathname);
-  if (relief) {
-    return {
-      tile: relief,
-      archiveKey: env.ARCHIVE_KEY ?? DEFAULT_ARCHIVE_KEY,
-      contentType: TILE_CONTENT_TYPE,
-      zoomConstants: `RELIEF_MIN_ZOOM/RELIEF_MAX_ZOOM (z${RELIEF_MIN_ZOOM}-z${RELIEF_MAX_ZOOM}) in web/src/lib/reliefTiles.ts`,
-      describeTileTypeMismatch,
-      missingTileStatus: 404,
-    };
+  const address = resolveTileRequest(pathname);
+  if (!address) return null;
+  if (address.token === null && !seenLegacyGrammar.has(address.layer)) {
+    seenLegacyGrammar.add(address.layer);
+    console.warn(
+      `${address.body}/${address.layer} was requested under the pre-token grammar (${pathname}) — ` +
+        "a client built before the addressed URLs shipped is still live",
+    );
   }
-  const terrain = parseTerrainTilePath(pathname);
-  if (terrain) {
-    return {
-      tile: terrain,
-      archiveKey: env.TERRAIN_ARCHIVE_KEY ?? DEFAULT_TERRAIN_ARCHIVE_KEY,
-      contentType: TERRAIN_CONTENT_TYPE,
-      zoomConstants: `TERRAIN_MIN_ZOOM/TERRAIN_MAX_ZOOM (z${TERRAIN_MIN_ZOOM}-z${TERRAIN_MAX_ZOOM}) in web/src/lib/terrainSource.ts`,
-      describeTileTypeMismatch: describeTerrainTileTypeMismatch,
-      missingTileStatus: 404,
-    };
-  }
-  const countries = parseCountriesTilePath(pathname);
-  if (countries) {
-    return {
-      tile: countries,
-      archiveKey: env.COUNTRIES_ARCHIVE_KEY ?? DEFAULT_COUNTRIES_ARCHIVE_KEY,
-      contentType: COUNTRIES_CONTENT_TYPE,
-      zoomConstants: `COUNTRIES_MIN_ZOOM/COUNTRIES_MAX_ZOOM (z${COUNTRIES_MIN_ZOOM}-z${COUNTRIES_MAX_ZOOM}) in web/src/lib/countryTiles.ts`,
-      describeTileTypeMismatch: describeCountriesTileTypeMismatch,
-      // The one sparse pyramid: most tiles on the planet hold no country at all.
-      missingTileStatus: 204,
-    };
-  }
-  return null;
+  return {
+    address,
+    archiveKey: configuredArchiveKey(address, env) ?? archiveFor(address.body, address.layer).objectKey,
+    layer: LAYERS[address.layer],
+  };
 }
 
 export default {
@@ -512,7 +498,7 @@ export default {
     if (!route) {
       return respond(new Response("Not a tile path", { status: 404 }));
     }
-    const { tile, archiveKey } = route;
+    const { address: tile, archiveKey, layer } = route;
 
     const cache = caches.default;
     const cacheLookupStartedAt = Date.now();
@@ -561,7 +547,7 @@ export default {
       if (tile.z < header.minZoom || tile.z > header.maxZoom) {
         console.warn(
           `z${tile.z} requested but ${archiveKey} covers z${header.minZoom}-z${header.maxZoom} — ` +
-            `${route.zoomConstants} is stale`,
+            `${layer.zoomConstants} is stale`,
         );
         return store(null, 404);
       }
@@ -571,7 +557,7 @@ export default {
       // 404ing the planet over a mislabel would be a self-inflicted outage; the dev server's
       // throw is where this is meant to be caught, and this is the net under it.
       if (!warnedTileTypeMismatch.has(archiveKey)) {
-        const mismatch = route.describeTileTypeMismatch(tileTypeExt(header.tileType));
+        const mismatch = layer.describeTileTypeMismatch(tileTypeExt(header.tileType));
         if (mismatch) {
           warnedTileTypeMismatch.add(archiveKey);
           console.warn(`${archiveKey}: ${mismatch}`);
@@ -587,9 +573,9 @@ export default {
       // The COUNTRY pyramid is legitimately sparse — most of the planet is ocean and holds no
       // country — so the same 404 would be tens of thousands of errors for tiles that are
       // correctly absent, and would bury a real packaging fault in the noise it created.
-      if (!entry) return store(null, route.missingTileStatus);
+      if (!entry) return store(null, layer.missingTileStatus);
 
-      return store(entry.data, 200, route.contentType);
+      return store(entry.data, 200, layer.contentType);
     } catch (error) {
       if (error instanceof ArchiveNotFound) {
         console.error(`${archiveKey} missing from the bound bucket`);

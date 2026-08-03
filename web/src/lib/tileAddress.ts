@@ -42,6 +42,7 @@ import {
   COUNTRIES_MIN_ZOOM,
   COUNTRIES_TILE_EXTENSION,
   describeCountriesTileTypeMismatch,
+  parseCountriesTilePath,
 } from "./countryTiles";
 import {
   RELIEF_MAX_ZOOM,
@@ -49,6 +50,7 @@ import {
   TILE_CONTENT_TYPE,
   TILE_EXTENSION,
   describeTileTypeMismatch,
+  parseTilePath,
 } from "./reliefTiles";
 import {
   TERRAIN_CONTENT_TYPE,
@@ -56,6 +58,7 @@ import {
   TERRAIN_MIN_ZOOM,
   TERRAIN_TILE_EXTENSION,
   describeTerrainTileTypeMismatch,
+  parseTerrainTilePath,
 } from "./terrainSource";
 // Beside this module rather than in src/data/, which LOOKS like its home and is gitignored: the
 // repo's root `data/` pattern is unanchored, so it matches a directory of that name at any depth.
@@ -95,6 +98,10 @@ export interface TileLayer {
    *  carries layers inside each tile — which is why every one of a body's vector products belongs
    *  in ONE archive, and why two raster products can never share one. */
   multiLayer: boolean;
+  /** Where this layer's copy of the zoom range lives, quoted into the message a server logs when an
+   *  archive header disagrees with it. The reader's next question after "these disagree" is always
+   *  "which copy do I edit", and it is a different file per layer. */
+  zoomConstants: string;
 }
 
 /** The layer contracts. A `Record` over the union, so a fourth pyramid is a compile error here
@@ -106,6 +113,7 @@ export const LAYERS: Record<LayerId, TileLayer> = {
     describeTileTypeMismatch,
     missingTileStatus: 404,
     multiLayer: false,
+    zoomConstants: "RELIEF_MIN_ZOOM/RELIEF_MAX_ZOOM in web/src/lib/reliefTiles.ts",
   },
   terrain: {
     extension: TERRAIN_TILE_EXTENSION,
@@ -113,6 +121,7 @@ export const LAYERS: Record<LayerId, TileLayer> = {
     describeTileTypeMismatch: describeTerrainTileTypeMismatch,
     missingTileStatus: 404,
     multiLayer: false,
+    zoomConstants: "TERRAIN_MIN_ZOOM/TERRAIN_MAX_ZOOM in web/src/lib/terrainSource.ts",
   },
   countries: {
     extension: COUNTRIES_TILE_EXTENSION,
@@ -121,6 +130,7 @@ export const LAYERS: Record<LayerId, TileLayer> = {
     // The one sparse pyramid: most of the planet is ocean and holds no country.
     missingTileStatus: 204,
     multiLayer: true,
+    zoomConstants: "COUNTRIES_MIN_ZOOM/COUNTRIES_MAX_ZOOM in web/src/lib/countryTiles.ts",
   },
 };
 
@@ -175,8 +185,12 @@ export const PUBLISHED: Record<BodySlug, Record<LayerId, PublishedArchive | null
 export interface TileAddress {
   body: BodySlug;
   layer: LayerId;
-  /** As requested. Well-formed, not necessarily current — see the module note. */
-  token: string;
+  /** As requested. Well-formed, not necessarily current — see the module note.
+   *
+   *  NULL when the request came in under the legacy grammar, which has no token at all. A null here
+   *  is the one honest answer: filling in the current token would claim the request named something
+   *  it did not, and the whole point of the migration is being able to see which shape asked. */
+  token: string | null;
   z: number;
   x: number;
   y: number;
@@ -226,6 +240,54 @@ export function archiveFor(body: BodySlug, layer: LayerId): PublishedArchive {
   }
   return published;
 }
+
+// ── The legacy grammar ───────────────────────────────────────────────────────────────────────────
+//
+// Everything below this line is temporary, and it is one function plus its tests to delete. It
+// exists because the site and the tile Worker deploy separately: a visitor holding a page built
+// before the switch keeps asking for the shape that page was built with, and their globe should not
+// go blank while the two halves roll. Once production has served no legacy request for a day, this
+// half goes, and `resolveTileRequest` collapses into `parseTileAddress`.
+
+/** What an untokened path means. Production has only ever served one planet, so a legacy address is
+ *  Earth's by definition — not by default. The distinction matters: this is a statement about what
+ *  those URLs already are, and it cannot become a fallback for a body that fails to parse. */
+const LEGACY_BODY: BodySlug = "earth";
+
+/** The optional version segment the Worker has always tolerated and ignored.
+ *
+ *  It was the pre-token answer to the same question this scheme now answers per layer: a re-cut
+ *  needed a new base URL, because a zone purge cannot reach a browser cache. Anchored, and it must
+ *  stay anchored — `/5/v2/1/2.webp` with an unanchored strip becomes `/5/1/2.webp`, a perfectly
+ *  valid tile served under an address nobody ever minted. */
+const LEGACY_VERSION_PREFIX = /^\/v\d+\//;
+
+/** Parse the shapes production serves today: `{z}/{x}/{y}.webp` and the two prefixed variants. */
+function parseLegacyTilePath(pathname: string): TileAddress | null {
+  const path = pathname.replace(LEGACY_VERSION_PREFIX, "/");
+  const relief = parseTilePath(path);
+  if (relief) return { body: LEGACY_BODY, layer: "relief", token: null, ...relief };
+  const terrain = parseTerrainTilePath(path);
+  if (terrain) return { body: LEGACY_BODY, layer: "terrain", token: null, ...terrain };
+  const countries = parseCountriesTilePath(path);
+  if (countries) return { body: LEGACY_BODY, layer: "countries", token: null, ...countries };
+  return null;
+}
+
+/** Resolve a tile request under either grammar — what a SERVER should call.
+ *
+ *  The addressed form is tried first, so the legacy parsers can never shadow it. They could not
+ *  anyway (each requires either a leading zoom or its own literal prefix, and a body slug is
+ *  neither), but the order makes that independent of their internals rather than dependent on them.
+ *
+ *  The version-prefix strip deliberately applies only to the legacy branch. Nothing has ever been
+ *  served under `/v<N>/`, and the token now does that job properly — so tolerating it in front of an
+ *  addressed path would be inventing a second way to spell one tile. */
+export function resolveTileRequest(pathname: string): TileAddress | null {
+  return parseTileAddress(pathname) ?? parseLegacyTilePath(pathname);
+}
+
+// ── End of the legacy grammar ────────────────────────────────────────────────────────────────────
 
 /** The path portion of a tile URL, with MapLibre's placeholders left in place.
  *

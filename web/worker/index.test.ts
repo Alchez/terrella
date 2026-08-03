@@ -10,6 +10,7 @@ import worker, { INDEX_PREFETCH_BYTES, PrefetchedIndexSource, resolveRoute } fro
 import { TILE_CONTENT_TYPE } from "../src/lib/reliefTiles";
 import { TERRAIN_CONTENT_TYPE } from "../src/lib/terrainSource";
 import { COUNTRIES_CONTENT_TYPE } from "../src/lib/countryTiles";
+import { archiveFor, tilePathTemplate } from "../src/lib/tileAddress";
 
 const INDEX_ETAG = "etag-of-the-shipped-cut";
 
@@ -160,33 +161,38 @@ describe("resolveRoute", () => {
 
   it("sends a bare address to the relief archive", () => {
     const route = resolveRoute("/8/189/107.webp", env);
-    expect(route?.tile).toEqual({ z: 8, x: 189, y: 107 });
+    expect(route?.address).toMatchObject({ z: 8, x: 189, y: 107 });
     expect(route?.archiveKey).toBe("planet-v2.pmtiles");
-    expect(route?.contentType).toBe(TILE_CONTENT_TYPE);
+    expect(route?.layer.contentType).toBe(TILE_CONTENT_TYPE);
   });
 
   it("sends a prefixed address to the terrain archive", () => {
     const route = resolveRoute("/terrain/8/189/107.webp", env);
-    expect(route?.tile).toEqual({ z: 8, x: 189, y: 107 });
+    expect(route?.address).toMatchObject({ z: 8, x: 189, y: 107 });
     expect(route?.archiveKey).toBe("terrain-v1.pmtiles");
-    expect(route?.contentType).toBe(TERRAIN_CONTENT_TYPE);
+    expect(route?.layer.contentType).toBe(TERRAIN_CONTENT_TYPE);
   });
 
   it("resolves the SAME tile address to two different archives, which is the whole risk", () => {
     const relief = resolveRoute("/6/47/26.webp", env);
     const terrain = resolveRoute("/terrain/6/47/26.webp", env);
-    expect(relief?.tile).toEqual(terrain?.tile);
+    const coordinates = ({ z, x, y }: { z: number; x: number; y: number }) => ({ z, x, y });
+    expect(coordinates(relief!.address)).toEqual(coordinates(terrain!.address));
     expect(relief?.archiveKey).not.toBe(terrain?.archiveKey);
   });
 
-  it("falls back to a default key per archive rather than reading the other one's", () => {
-    // An unset var must not resolve to the wrong archive. Distinct defaults are what make a
+  it("falls back to the REGISTRY's key per archive rather than reading the other one's", () => {
+    // An unset var must not resolve to the wrong archive. Distinct fallbacks are what make a
     // missing TERRAIN_ARCHIVE_KEY a 404 rather than a globe displaced by relief colour.
+    //
+    // The fallback is the registry, not a constant here. The constants it replaces named each
+    // pyramid's FIRST cut, and the relief one — `planet.pmtiles` — was deleted from the bucket the
+    // day its WebP replacement went live, so the "safe" default pointed at nothing at all.
     const bare = { ARCHIVE: null as never };
     const relief = resolveRoute("/0/0/0.webp", bare);
     const terrain = resolveRoute("/terrain/0/0/0.webp", bare);
-    expect(relief?.archiveKey).toBe("planet.pmtiles");
-    expect(terrain?.archiveKey).toBe("terrain.pmtiles");
+    expect(relief?.archiveKey).toBe(archiveFor("earth", "relief").objectKey);
+    expect(terrain?.archiveKey).toBe(archiveFor("earth", "terrain").objectKey);
     expect(relief?.archiveKey).not.toBe(terrain?.archiveKey);
   });
 
@@ -215,34 +221,34 @@ describe("resolveRoute", () => {
     // The warning has to send someone to the file that is actually wrong; two archives means two
     // sets of constants, and a message naming the relief ones for a terrain drift is a wild goose
     // chase through the wrong module.
-    expect(resolveRoute("/0/0/0.webp", env)?.zoomConstants).toContain("reliefTiles.ts");
-    expect(resolveRoute("/terrain/0/0/0.webp", env)?.zoomConstants).toContain("terrainSource.ts");
+    expect(resolveRoute("/0/0/0.webp", env)?.layer.zoomConstants).toContain("reliefTiles.ts");
+    expect(resolveRoute("/terrain/0/0/0.webp", env)?.layer.zoomConstants).toContain("terrainSource.ts");
   });
 
   it("carries each archive's OWN tile-type check, not one shared one", () => {
     // Only the terrain message may talk about losslessness: a mislabelled relief tile is cosmetic
     // (browsers content-sniff past it), while a lossy elevation tile decodes to wrong metres.
-    expect(resolveRoute("/terrain/0/0/0.webp", env)?.describeTileTypeMismatch(".png")).toMatch(
+    expect(resolveRoute("/terrain/0/0/0.webp", env)?.layer.describeTileTypeMismatch(".png")).toMatch(
       /LOSSLESS/,
     );
-    expect(resolveRoute("/0/0/0.webp", env)?.describeTileTypeMismatch(".png")).not.toMatch(
+    expect(resolveRoute("/0/0/0.webp", env)?.layer.describeTileTypeMismatch(".png")).not.toMatch(
       /LOSSLESS/,
     );
-    expect(resolveRoute("/0/0/0.webp", env)?.describeTileTypeMismatch(".webp")).toBeNull();
-    expect(resolveRoute("/terrain/0/0/0.webp", env)?.describeTileTypeMismatch(".webp")).toBeNull();
+    expect(resolveRoute("/0/0/0.webp", env)?.layer.describeTileTypeMismatch(".webp")).toBeNull();
+    expect(resolveRoute("/terrain/0/0/0.webp", env)?.layer.describeTileTypeMismatch(".webp")).toBeNull();
   });
 
   it("sends a countries address to the vector archive", () => {
     const route = resolveRoute("/countries/8/189/107.mvt", env);
-    expect(route?.tile).toEqual({ z: 8, x: 189, y: 107 });
+    expect(route?.address).toMatchObject({ z: 8, x: 189, y: 107 });
     expect(route?.archiveKey).toBe("countries-v1.pmtiles");
-    expect(route?.contentType).toBe(COUNTRIES_CONTENT_TYPE);
-    expect(route?.zoomConstants).toContain("countryTiles.ts");
+    expect(route?.layer.contentType).toBe(COUNTRIES_CONTENT_TYPE);
+    expect(route?.layer.zoomConstants).toContain("countryTiles.ts");
   });
 
-  it("gives the countries archive its own default key too", () => {
+  it("gives the countries archive its own fallback key too", () => {
     expect(resolveRoute("/countries/0/0/0.mvt", { ARCHIVE: null as never })?.archiveKey).toBe(
-      "countries.pmtiles",
+      archiveFor("earth", "countries").objectKey,
     );
   });
 
@@ -252,17 +258,17 @@ describe("resolveRoute", () => {
   // tiles and bury a real packaging fault in that noise, while 204 everywhere would silence the
   // packaging fault outright.
   it("answers a missing tile per ARCHIVE, 404 where complete and 204 where sparse", () => {
-    expect(resolveRoute("/0/0/0.webp", env)?.missingTileStatus).toBe(404);
-    expect(resolveRoute("/terrain/0/0/0.webp", env)?.missingTileStatus).toBe(404);
-    expect(resolveRoute("/countries/0/0/0.mvt", env)?.missingTileStatus).toBe(204);
+    expect(resolveRoute("/0/0/0.webp", env)?.layer.missingTileStatus).toBe(404);
+    expect(resolveRoute("/terrain/0/0/0.webp", env)?.layer.missingTileStatus).toBe(404);
+    expect(resolveRoute("/countries/0/0/0.mvt", env)?.layer.missingTileStatus).toBe(204);
   });
 
   it("carries a countries tile-type check that accepts .mvt and rejects the raster codec", () => {
     const route = resolveRoute("/countries/0/0/0.mvt", env);
-    expect(route?.describeTileTypeMismatch(".mvt")).toBeNull();
+    expect(route?.layer.describeTileTypeMismatch(".mvt")).toBeNull();
     // Pointing this route at a raster archive yields a globe with no countries and no error —
     // indistinguishable from a source-layer typo — so the message has to name the constant.
-    expect(route?.describeTileTypeMismatch(".webp")).toContain("COUNTRIES_TILE_EXTENSION");
+    expect(route?.layer.describeTileTypeMismatch(".webp")).toContain("COUNTRIES_TILE_EXTENSION");
   });
 });
 
@@ -401,6 +407,55 @@ describe("fetch — rejections that must not cost an R2 read", () => {
     const headers = (await response).headers;
     expect(headers.get("Access-Control-Allow-Origin")).toBe("https://terrella.example");
     expect(headers.get("Server-Timing")).toContain("worker;dur=");
+  });
+});
+
+describe("fetch — the addressed grammar", () => {
+  // The shape the client moves to next. The Worker has to serve it BEFORE anything asks for it,
+  // or the two deploys have to land in the same second — which they cannot, being two Workers.
+
+  it("routes an addressed path to the same archive its legacy address reaches", async () => {
+    const addressed = `https://tiles.example/${tilePathTemplate("earth", "relief")
+      .replace("{z}", "5")
+      .replace("{x}", "1")
+      .replace("{y}", "2")}`;
+    const { response, bucket } = callFetch(addressed, {
+      env: { ARCHIVE_KEY: "addressed-relief.pmtiles" },
+    });
+    // Past the router — an archive 404, not a route 404, which is what proves it resolved.
+    expect(await (await response).text()).toBe("Archive not found");
+    expect(bucket.get).toHaveBeenCalled();
+  });
+
+  it("refuses an addressed path for a body that publishes nothing, without an R2 read", async () => {
+    const { response, bucket } = callFetch("https://tiles.example/venus/relief/4d04db58/5/1/2.webp");
+    expect(await (await response).text()).toBe("Not a tile path");
+    expect(bucket.get).not.toHaveBeenCalled();
+  });
+
+  it("keeps naming the object out of the registry when no var overrides it", () => {
+    const route = resolveRoute(
+      `/${tilePathTemplate("earth", "countries").replace("{z}", "1").replace("{x}", "0").replace("{y}", "0")}`,
+      { ARCHIVE: null as never },
+    );
+    expect(route?.archiveKey).toBe(archiveFor("earth", "countries").objectKey);
+  });
+});
+
+describe("the wrangler vars and the registry name the same objects", () => {
+  // Two copies of one fact while the vars still exist: the deploy reads wrangler.jsonc, the client
+  // will build URLs from the registry. Pinned rather than trusted, because the failure is a Worker
+  // that serves the previous cut forever with every gate green.
+  const workerConfig = readFileSync(new URL("./wrangler.jsonc", import.meta.url), "utf8");
+  const declared = (name: string) =>
+    new RegExp(String.raw`"${name}"\s*:\s*"([^"]+)"`).exec(workerConfig)?.[1];
+
+  it.each([
+    ["ARCHIVE_KEY", "relief"],
+    ["TERRAIN_ARCHIVE_KEY", "terrain"],
+    ["COUNTRIES_ARCHIVE_KEY", "countries"],
+  ] as const)("%s matches the registry's %s objectKey", (variable, layer) => {
+    expect(declared(variable)).toBe(archiveFor("earth", layer).objectKey);
   });
 });
 
