@@ -30,8 +30,6 @@ here instead — the honest coverage statement is that severed PROSE is caught b
 baseline, not by this file.
 """
 
-from __future__ import annotations
-
 import re
 import subprocess
 from pathlib import Path

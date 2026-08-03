@@ -25,7 +25,8 @@ Every stage skips if its output is FRESH -- present, completed, and newer than e
 derives from (`is_stale`). An exists()-only guard cannot tell "built" from "still correct":
 the Caspian re-fuse rewrote 4 of the 540 chunks, and a plain re-run would have
 skipped every stage and silently re-cut tiles from the pre-Caspian, pre-sea-rework rasters.
-Grid matches the existing tile pyramid exactly (131072 x 93009).
+Grid matches the existing tile pyramid exactly (131072 x 131072 — square since Antarctica was
+fused in; it was 131072 x 93009 while the pyramid stopped at -60).
 
     python -m pipeline.tile.shade_planet --body earth            # shade only
     python -m pipeline.tile.shade_planet --body earth --tiles    # + cut tiles

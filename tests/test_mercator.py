@@ -11,8 +11,6 @@ The radius is an explicit argument rather than a module constant, because that i
 the conversion is not about Earth, it is about whichever sphere the raster was projected on.
 """
 
-from __future__ import annotations
-
 import math
 
 import numpy as np

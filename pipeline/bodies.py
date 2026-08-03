@@ -27,8 +27,6 @@ adding a field is a hard error at every construction until each body answers for
     body = bodies.get("earth")     # raises on an unknown name; never falls back
 """
 
-from __future__ import annotations
-
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -60,6 +58,43 @@ class Body:
     #: cap texture is projected on one and blended against tiles drawn on another, so collapsing
     #: them puts the polar seam exactly that far out. One `radius_m` field would invite the collapse.
     aeqd_radius_m: float
+    #: Radius of the body ITSELF, in metres — what a ground metre is worth on this planet.
+    #:
+    #: A THIRD RADIUS, AND THE ONLY ONE THAT IS PHYSICS. The two above name projections; this one
+    #: names the sphere. They are separate because a radius does exactly one job here — turning an
+    #: angle into a length — and that job is asked in three different coordinate systems.
+    #:
+    #: EARTH HIDES THE DISTINCTION, which is why nothing noticed it until a second body: EPSG:3857
+    #: is defined on a sphere of 6378137 m, which is also Earth's own equatorial radius, so
+    #: `mercator_radius_m` has been answering two questions with one number. Earth's ratio below is
+    #: therefore exactly 1.0 by construction of the projection, not by luck or by rounding.
+    #:
+    #: WHY A BODY DOES NOT SIMPLY PROJECT ONTO ITS OWN SPHERE, which would make this field
+    #: redundant: PROJ refuses to build an operation between two celestial bodies ("Source and
+    #: target ellipsoid do not belong to the same celestial body"), and `gdal raster tile` reprojects
+    #: into WebMercatorQuad, i.e. EPSG:3857. So a Mars-radius Mercator raster cannot be cut into
+    #: tiles at all without disabling that guard globally. Every projection in this pipeline is
+    #: therefore Earth-sphered for every body, a non-Earth heightfield enters by having its CRS
+    #: DECLARED as EPSG:4326 (an identity on angles; only the sphere label changes), and this field
+    #: is the single fact that converts the resulting map units back into real ground metres.
+    ground_radius_m: float
+    #: Size of one pixel of the EPSG:3857 raster the pyramid is cut from, in MAP UNITS.
+    #:
+    #: Map units, not ground metres — they are metres on `mercator_radius_m`'s sphere, so a ground
+    #: distance is this times `ground_metres_per_map_unit(body)`. Writing the conversion out at each
+    #: call site is deliberate: the units then cancel visibly, and a site that forgot it reads wrong.
+    #:
+    #: STORED RATHER THAN DERIVED FROM `tile_max_zoom`, and the reason is measured. Earth's live
+    #: 46 GB `height_3857.tif` was warped at 305.7483, a rounded value: the exact figure is
+    #: 305.748113, and `-tap` snapped the grid 12.2 m past the true Mercator edge on every side.
+    #: Deriving would not restage anything today — `height_3857` is gated on its sources' mtimes and
+    #: every sibling raster compares against height's ACTUAL grid rather than against this number —
+    #: it would instead sit inert until the next unrelated re-fuse re-warped height at a new
+    #: resolution, moving the grid under all six siblings at once and restaging the planet under
+    #: someone else's change. A latent trap that misattributes itself is worse than a recorded
+    #: asymmetry, so Earth keeps the number its pixels were actually built at, and
+    #: `tests/test_bodies.py` pins every body's value against its own ceiling relationally.
+    map_units_per_pixel: float
     #: Vertical exaggeration the relief is drawn at, shared by the hero scene and the tile shading.
     #:
     #: A look constant rather than a physical one: it is chosen so the planet reads well, and it is
@@ -87,6 +122,13 @@ EARTH = Body(
     mercator_radius_m=6378137.0,
     # The caps' AEQD sphere. NOT the Mercator one above, and not MapLibre's globe radius.
     aeqd_radius_m=6371000.0,
+    # Earth's own sphere — the SAME number as its Mercator grid, because EPSG:3857 is defined on
+    # Earth's equatorial radius. That identity is what makes Earth's ground ratio exactly 1.0 and
+    # every existing pixel byte-identical; it is not a copy of the field above.
+    ground_radius_m=6378137.0,
+    # Duplicated today in tile/shade_planet.py's Z8_RES, which the live 46 GB raster was built at.
+    # A rounded value: the exact z8 figure is 305.748113. See the field's note for why it stays.
+    map_units_per_pixel=305.7483,
     # Duplicated today in render/palette.py, which the hero scene imports directly.
     exaggeration=15.0,
     # Duplicated today in tile/shade_planet.py's TILE_CUT and compose/countries_pmtiles.py.
@@ -114,6 +156,28 @@ def get(name: str) -> Body:
     except KeyError:
         known = ", ".join(sorted(BODIES))
         raise KeyError(f"unknown body {name!r}; known bodies are: {known}") from None
+
+
+def ground_metres_per_map_unit(body: Body) -> float:
+    """How many real ground metres one map unit of this body's Mercator raster is worth.
+
+    THE WHOLE OF WHAT A NON-EARTH BODY COSTS, in one number. Every projection in this pipeline is
+    Earth-sphered (see `ground_radius_m` for the PROJ constraint that forces it), so a raster's map
+    units are Earth metres whatever planet the elevations came from. Anything that mixes the two —
+    a hillshade dividing a rise in body metres by a run in map units, a horizon search, a shadow
+    length — must pass through here or it computes a slope that is plausible at every latitude and
+    correct at none. That is the failure this module exists to prevent, and it does not raise.
+
+    Returns EXACTLY 1.0 for Earth, and not by rounding: EPSG:3857's defining sphere is Earth's own
+    equatorial radius, so the division is a number by itself. Earth's pixels are therefore
+    byte-identical through every call site that adopts this, which is what lets it be adopted one
+    stage at a time.
+
+    Composes so the units cancel where it is read:
+
+        ground_metres_per_pixel = body.map_units_per_pixel * ground_metres_per_map_unit(body)
+    """
+    return body.ground_radius_m / body.mercator_radius_m
 
 
 def _require_directory_name(stage: str) -> None:

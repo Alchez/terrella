@@ -53,8 +53,6 @@ Usage:
 needle that a refactor moved is a 0.1 s pytest failure rather than a shrugged-off SKIP 5 min in.
 """
 
-from __future__ import annotations
-
 import argparse
 import os
 import re
@@ -1678,6 +1676,45 @@ SABOTAGES: list[Sabotage] = [
         guard='test_an_unknown_body_raises_and_names_the_ones_that_exist',
     ),
     # A misspelt body name then produces a complete, plausible, entirely wrong pyramid.
+    Sabotage(
+        suite='python',
+        label='the ground ratio is inverted, which Earth cannot notice because its ratio is 1.0',
+        path='pipeline/bodies.py',
+        needle='    return body.ground_radius_m / body.mercator_radius_m',
+        replacement='    return body.mercator_radius_m / body.ground_radius_m',
+        guard='test_a_body_on_a_smaller_sphere_reports_a_ratio_below_one',
+    ),
+    # THE CASE THIS WHOLE MODULE EXISTS FOR, and the reason its guard uses a synthetic body rather
+    # than Earth. Inverted, the helper still returns exactly 1.0 for Earth — the division is
+    # symmetric when both radii are the same number — so every Earth-only assertion passes, every
+    # Earth pixel is byte-identical, and the error is a 3.5x wrong exaggeration on the first planet
+    # whose sphere is not Earth's. A guard written against the registered body would be vacuous.
+    Sabotage(
+        suite='python',
+        label='the body sphere is "corrected" to the spherical mean, tilting the ratio off 1.0',
+        path='pipeline/bodies.py',
+        needle='    ground_radius_m=6378137.0,',
+        replacement='    ground_radius_m=6371000.0,',
+        guard='test_earths_ground_sphere_is_its_mercator_sphere_so_the_ratio_is_exactly_one',
+    ),
+    # The tidying edit that looks like a fix: 6371000 is a real Earth radius and reads as the more
+    # "correct" one. It takes Earth's ratio to 0.99888, so every hillshade z-factor on the live
+    # planet shifts by a tenth of a percent — visible nowhere, byte-identical nothing.
+    Sabotage(
+        suite='python',
+        label='the grid resolution is rounded to its exact value, orphaning the raster on disk',
+        path='pipeline/bodies.py',
+        needle='    map_units_per_pixel=305.7483,',
+        replacement='    map_units_per_pixel=305.748113,',
+        guard='test_earth_s_grid_resolution_pins_the_constant_its_live_raster_was_built_at',
+    ),
+    # The most tempting edit in the file, because the exact figure IS more correct. It restages
+    # nothing today — height_3857 is gated on its sources' mtimes and every sibling compares against
+    # height's actual grid — so it sits inert until an unrelated re-fuse re-warps height at the new
+    # resolution, moves the grid under all six siblings at once and restages the planet under
+    # someone else's change. `test_every_body_s_grid_resolution_agrees_with_its_own_tile_ceiling`
+    # has no case of its own yet: on Earth alone it is redundant with the bridge above, and it earns
+    # its keep at the first body that has no module constant to be bridged to.
     Sabotage(
         suite='python',
         label='a Body field gains a default, so a new planet inherits Earth without being asked',

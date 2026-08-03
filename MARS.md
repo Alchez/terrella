@@ -39,8 +39,12 @@
 Stated in the present tense because it is verifiable in the tree, and listed so that the remaining
 work below is legible as *remaining*.
 
-- **`pipeline/bodies.py` is the registry**, and a body is a small set of facts: two sphere
-  radii, the vertical exaggeration, the pyramid depth, and the path segment its outputs nest under.
+- **`pipeline/bodies.py` is the registry**, and a body is a small set of facts: two projection
+  spheres and the body's own, the resolution of the raster its pyramid is cut from, the vertical
+  exaggeration, the pyramid depth, and the path segment its outputs nest under.
+  - The body's own sphere is separate from the projections' because Earth hides the distinction:
+    EPSG:3857 is defined on Earth's equatorial radius, so one number has been answering both "what
+    is a map unit" and "what is a ground metre". Earth's ratio between them is exactly 1.
   - No field carries a default, so adding one is a hard error at every construction until each body
     answers for it — rather than a value silently inherited by every planet but the one it was
     written for.
@@ -163,11 +167,18 @@ Each with its "or else", because a seam without a failure mode is a preference.
   persistence, glaciers, sea ice, lake depth.
   - Or else: every one of them is a dataset with no Martian analogue, and a conditional branch
     inside the composite is where the two bodies' looks start diverging by accident.
-- **Keep the tile grid in standard Earth-radius Web Mercator.** Tile boundaries in longitude and
-  latitude are identical whichever sphere is named, so the scheme, the archive format and the client
-  carry over untouched.
-  - The Mars radius enters only where **ground metres** are needed: the hillshade z-factor and the
-    scale ruler. The ratio is about **1.88** (Earth's Mercator sphere over Mars's mean radius).
+- **Keep the tile grid in standard Earth-radius Web Mercator — this is forced, not preferred.** Tile
+  boundaries in longitude and latitude are identical whichever sphere is named, so the scheme, the
+  archive format and the client carry over untouched. But the deciding fact is upstream of taste:
+  **PROJ refuses to build an operation between two celestial bodies**, and the tiler reprojects into
+  WebMercatorQuad, so a Mars-radius Mercator raster cannot be cut into tiles at all without
+  disabling that guard globally.
+  - So a non-Earth heightfield enters by having its CRS **declared** as EPSG:4326 — an identity on
+    angles, since only the sphere label changes — and every projection downstream stays Earth-sphered.
+  - The Mars radius then enters only where **ground metres** are needed: the hillshade z-factor, the
+    horizon search, the shadow length and the scale ruler. The ratio is **1.878** — Earth's Mercator
+    sphere over the IAU 2015 Mars sphere of 3,396,190 m, which is the figure the ceiling table above
+    is built on and the one the source DEM's own CRS declares.
   - Or else: mixing the two radii yields a latitude-varying wrong exaggeration that renders
     plausibly everywhere and is true nowhere — the failure mode with no symptom.
 - **The palette must be body-parameterised, not copied.** A second set of look constants is the same

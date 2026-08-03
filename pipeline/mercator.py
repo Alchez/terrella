@@ -16,8 +16,6 @@ Kept free of the body registry deliberately: this is projection maths, and coupl
 catalogue would mean every caller that has a radius but no `Body` had to invent one.
 """
 
-from __future__ import annotations
-
 import math
 
 import numpy as np

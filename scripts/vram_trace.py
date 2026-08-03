@@ -13,8 +13,6 @@ Sampling pid and age continuously turns that inference into an observation: a pi
 a crash, and only a number that grows under a stable pid is a genuine steady-state cost.
 """
 
-from __future__ import annotations
-
 import subprocess
 import sys
 import time

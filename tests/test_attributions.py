@@ -11,8 +11,6 @@ public domain or CC0) are deliberately excluded: adding them would make the test
 that are not legal ones, and a check that cries wolf gets deleted.
 """
 
-from __future__ import annotations
-
 import re
 from pathlib import Path
 

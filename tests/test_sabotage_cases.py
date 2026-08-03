@@ -16,8 +16,6 @@ because only the harness runs the suites. And the harness returns the favour: it
 cases sabotage the assertions below, so this file is held to the same standard it imposes.
 """
 
-from __future__ import annotations
-
 import os
 import re
 from pathlib import Path

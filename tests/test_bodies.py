@@ -16,9 +16,8 @@ NO FIELD MAY CARRY A DEFAULT. That is what makes adding a field to `Body` a hard
 call site rather than a silent inheritance of Earth's value by a planet nobody checked.
 """
 
-from __future__ import annotations
-
 import dataclasses
+import math
 from pathlib import Path
 
 import pytest
@@ -101,6 +100,38 @@ def test_earth_carries_web_mercator_s_defining_sphere() -> None:
     comes out plausible at every latitude and correct at none.
     """
     assert bodies.EARTH.mercator_radius_m == 6378137.0
+
+
+def test_earth_s_grid_resolution_pins_the_constant_its_live_raster_was_built_at() -> None:
+    """The bridge `Z8_RES` never had, which is the whole reason it survived the parameterisation.
+
+    `tile_max_zoom` and `exaggeration` each had a field to be pinned to and were caught by the two
+    bridges below. The grid resolution had none, so it stayed a module constant that no body could
+    reach — and a `--body <anything>` run would have warped at Earth's 305.7483 and said nothing.
+    """
+    assert bodies.EARTH.map_units_per_pixel == shade_planet.Z8_RES
+
+
+def test_every_body_s_grid_resolution_agrees_with_its_own_tile_ceiling() -> None:
+    """The relational pin that makes two fields which must move together un-driftable.
+
+    `map_units_per_pixel` is stored rather than derived (see its field note: deriving it would leave
+    Earth's existing 46 GB raster inert until an unrelated re-fuse restaged the planet under someone
+    else's change). Stored means two fields can disagree, so they are compared here instead.
+
+    THE TOLERANCE IS DOING REAL WORK IN BOTH DIRECTIONS. Earth's value is rounded — 305.7483 against
+    an exact 305.748113, six parts in ten million — so an equality assertion would fail on the one
+    body whose pixels already exist. A wrong ceiling, the error actually worth catching, is a factor
+    of two. 1e-5 admits the first and cannot admit the second.
+    """
+    tile_px = shade_planet.TILE_CUT["tile_size"]
+    for body in bodies.BODIES.values():
+        exact = 2.0 * math.pi * body.mercator_radius_m / (tile_px * 2 ** body.tile_max_zoom)
+        assert math.isclose(body.map_units_per_pixel, exact, rel_tol=1e-5), (
+            f"{body.name}'s grid resolution ({body.map_units_per_pixel}) is not the pixel size of a "
+            f"{tile_px}px tile at its own ceiling z{body.tile_max_zoom} ({exact}) — the two fields "
+            "have drifted, and the raster would be cut at a zoom it was not built for"
+        )
 
 
 def test_exaggeration_agrees_with_the_shared_palette_constant() -> None:
@@ -195,6 +226,59 @@ def test_a_body_carries_two_distinct_radii_and_they_are_not_interchangeable() ->
     """
     assert bodies.EARTH.aeqd_radius_m != bodies.EARTH.mercator_radius_m
     assert bodies.EARTH.aeqd_radius_m == 6371000.0
+
+
+# --- The body's own sphere, and the ratio that is the whole cost of not being Earth --------------
+
+
+def test_earths_ground_sphere_is_its_mercator_sphere_so_the_ratio_is_exactly_one() -> None:
+    """Not approximately one — one, and the distinction is the reason every Earth pixel survives.
+
+    EPSG:3857 is defined on a sphere of Earth's own equatorial radius, so the two fields hold the
+    same number by construction of the projection rather than by our choice. That identity is what
+    lets `ground_metres_per_map_unit` be adopted one stage at a time with no restage: at every site
+    it reaches, Earth's arithmetic is multiplication by a literal 1.0.
+
+    Asserted with `is`-style exactness on purpose. A near-1.0 would still round-trip most pixels and
+    would move a few, which is the shape of change this project cannot see until it ships.
+    """
+    assert bodies.EARTH.ground_radius_m == bodies.EARTH.mercator_radius_m
+    assert bodies.ground_metres_per_map_unit(bodies.EARTH) == 1.0
+
+
+def test_a_body_on_a_smaller_sphere_reports_a_ratio_below_one() -> None:
+    """The case Earth cannot test, because Earth is the value every default already holds.
+
+    A synthetic body is the only way to exercise this before a second planet is registered — and it
+    is the cheap version of the lesson that a parameterisation is unverified until something
+    non-default runs through it. Mars's own sphere is ~53% of Earth's, so one map unit of its
+    Mercator raster buys about half a ground metre, and the hillshade z-factor that divides by this
+    comes out ~1.88x larger. Getting the direction backwards is a 3.5x error in the exaggeration
+    that renders perfectly plausibly.
+    """
+    smaller = dataclasses.replace(bodies.EARTH, name="smaller", path_prefix="smaller",
+                                  ground_radius_m=3396190.0)
+    ratio = bodies.ground_metres_per_map_unit(smaller)
+    assert ratio == pytest.approx(0.532474, abs=1e-6)
+    assert 1.0 / ratio == pytest.approx(1.878, abs=1e-3)
+
+
+def test_ground_metres_per_pixel_composes_from_the_two_fields() -> None:
+    """The composition the call sites are meant to write, pinned so it cannot be written backwards.
+
+    `map_units_per_pixel * ground_metres_per_map_unit` — units cancel, and the result is what a
+    hillshade, a horizon search or a shadow length actually needs. Multiplying by the reciprocal
+    instead is dimensionally silent and off by the square of the ratio.
+    """
+    smaller = dataclasses.replace(bodies.EARTH, name="smaller", path_prefix="smaller",
+                                  ground_radius_m=3396190.0, map_units_per_pixel=1222.992453,
+                                  tile_max_zoom=6)
+    ground = smaller.map_units_per_pixel * bodies.ground_metres_per_map_unit(smaller)
+    # 651 m/px at z6 on a 21,339 km circumference — the figure MARS.md's ceiling table is built on.
+    assert ground == pytest.approx(651.2, abs=0.1)
+    earth_ground = (bodies.EARTH.map_units_per_pixel
+                    * bodies.ground_metres_per_map_unit(bodies.EARTH))
+    assert earth_ground == bodies.EARTH.map_units_per_pixel
 
 
 def test_the_cap_module_no_longer_carries_its_own_sphere_radius() -> None:
