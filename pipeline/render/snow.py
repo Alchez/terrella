@@ -18,7 +18,7 @@ import numpy as np
 import rasterio
 from rasterio.transform import from_bounds
 
-from pipeline import paths
+from pipeline import bodies, mercator, paths
 from pipeline.raster_io import band_window, row_bands
 
 DATA = paths.DATA
@@ -32,7 +32,6 @@ RGI_GPKG = DATA / "raw/rgi/rgi7_g_3857.gpkg"  # RGI 7.0 glaciers merged to EPSG:
 RAMP_LAT_LO, RAMP_LAT_HI = 45.0, 63.0
 RAMP_LOW_MIN, RAMP_LOW_MAX = 0.40, 0.60
 RAMP_BAND = 0.32          # high = low + band (soft-alpha width)
-EARTH_RADIUS = 6378137.0  # Web Mercator sphere radius
 
 
 def _run(cmd):
@@ -159,7 +158,9 @@ def latitude_per_row(top, bottom, height):
     """Latitude of each pixel-row centre for a Web-Mercator grid spanning [bottom, top] metres."""
     rows = np.arange(height)
     merc_y = top - (rows + 0.5) * (top - bottom) / height
-    return np.degrees(2.0 * np.arctan(np.exp(merc_y / EARTH_RADIUS)) - math.pi / 2.0)
+    # The second of the two copies this module and hillshade.py each used to carry, constant and
+    # formula alike. One home now, and the Earth binding is named rather than a bare literal.
+    return mercator.latitude_at(merc_y, bodies.EARTH.mercator_radius_m)
 
 
 def ramp_thresholds(latitude):

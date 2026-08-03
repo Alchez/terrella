@@ -1652,14 +1652,25 @@ SABOTAGES: list[Sabotage] = [
     # renders — which is the entire reason a second body needs this module before it needs data.
     Sabotage(
         suite='python',
-        label='the hillshade radius is "corrected" to the spherical mean, drifting off the registry',
-        path='pipeline/render/hillshade.py',
-        needle='EARTH_RADIUS = 6378137.0',
-        replacement='EARTH_RADIUS = 6371000.0',
-        guard='test_earth_radius_agrees_with_both_copies_in_the_render_package',
+        label='the registry radius is "corrected" to the spherical mean, tilting every latitude',
+        path='pipeline/bodies.py',
+        needle='    mercator_radius_m=6378137.0,',
+        replacement='    mercator_radius_m=6371000.0,',
+        guard='test_earth_carries_web_mercator_s_defining_sphere',
     ),
     # The plausible edit: 6371000 IS a real earth radius, just not the projection's one. Nothing
-    # crashes; the per-row z-factor is quietly 0.1% wrong at every latitude.
+    # crashes; the per-row z-factor is quietly wrong at every latitude. It used to be catchable only
+    # as drift between two copies; now there is one home, so the guard pins the value itself.
+    Sabotage(
+        suite='python',
+        label='a shading module regrows its own sphere radius beside the shared one',
+        path='pipeline/render/snow.py',
+        needle='    return mercator.latitude_at(merc_y, bodies.EARTH.mercator_radius_m)',
+        replacement='    return mercator.latitude_at(merc_y, 6378137.0)',
+        guard='test_the_render_package_no_longer_carries_its_own_earth_radius',
+    ),
+    # Identical output today, which is exactly why nothing else would notice: the module has quietly
+    # stopped asking the body and gone back to knowing the answer.
     Sabotage(
         suite='python',
         label='an unknown body silently falls back to Earth instead of raising',

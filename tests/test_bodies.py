@@ -19,6 +19,7 @@ call site rather than a silent inheritance of Earth's value by a planet nobody c
 from __future__ import annotations
 
 import dataclasses
+from pathlib import Path
 
 import pytest
 
@@ -75,10 +76,31 @@ def test_the_registry_key_is_the_body_s_own_name() -> None:
 # Each of these dies with the copy it pins. Until then it is what makes the duplication safe.
 
 
-def test_earth_radius_agrees_with_both_copies_in_the_render_package() -> None:
-    """`hillshade` and `snow` each hold their own literal, and nothing related them before this."""
-    assert bodies.EARTH.mercator_radius_m == hillshade.EARTH_RADIUS
-    assert bodies.EARTH.mercator_radius_m == snow.EARTH_RADIUS
+def test_the_render_package_no_longer_carries_its_own_earth_radius() -> None:
+    """The bridge that pinned the two copies is GONE because the copies are.
+
+    Replaced by an anti-regrowth scan rather than deleted outright, in the shape `test_paths.py`
+    already uses for filesystem roots: the failure worth catching now is not divergence between two
+    literals but the reappearance of a second literal at all. A source scan is the only thing that
+    can see that, because a regrown constant type-checks, tests green, and reads as a tidy local.
+    """
+    for module in (hillshade, snow):
+        source = Path(module.__file__).read_text(encoding="utf-8")  # pyright: ignore[reportArgumentType]
+        assert "6378137" not in source, (
+            f"{Path(module.__file__).name} has regrown a hard-coded sphere radius — "  # pyright: ignore[reportArgumentType]
+            "it belongs to the body, and the conversion lives in pipeline/mercator.py"
+        )
+
+
+def test_earth_carries_web_mercator_s_defining_sphere() -> None:
+    """Pinned to the literal, because this one is not a tunable.
+
+    EPSG:3857 IS a sphere of exactly 6378137 m — the value is fixed by the projection's definition,
+    not chosen by us, so an oracle that restates it is honest rather than circular. Every latitude
+    the hillshade z-factor is computed at depends on it, and a wrong one is invisible: the relief
+    comes out plausible at every latitude and correct at none.
+    """
+    assert bodies.EARTH.mercator_radius_m == 6378137.0
 
 
 def test_exaggeration_agrees_with_the_shared_palette_constant() -> None:
