@@ -20,8 +20,10 @@
 import { DEEP_SEA } from "./palette";
 
 /** Every body the site knows how to draw. Widening this union is what makes the compiler ask the
- *  record below for a full descriptor. */
-export type BodySlug = "earth";
+ *  record below for a full descriptor — and the same of every other `Record<BodySlug, …>` in the
+ *  codebase: the tile registry, the dev server's work-tree prefixes. That is the whole mechanism
+ *  by which a second planet cannot be half-added. */
+export type BodySlug = "earth" | "mars";
 
 /** One body's browser-side facts. Every field required — see the module note. */
 export interface BodyDescriptor {
@@ -55,6 +57,21 @@ export const BODIES: Record<BodySlug, BodyDescriptor> = {
     // against them by tests/test_palette.py; a hex copied to here instead would be a third copy
     // with nothing comparing it back to the sea it is meant to match.
     spaceFloor: DEEP_SEA,
+  },
+  // MARS: BOTH COLOURS ARE PROVISIONAL AND NEITHER IS A DECISION.
+  //
+  // Earth's accent is not a choice — it is the hero ramp's deep-sea teal, imported, which is why
+  // the chrome reads as part of the map rather than as a shell around it. Mars has no ramp yet: its
+  // palette is the deepest open question about the second body, and it gets answered by rendering
+  // candidate looks on the sphere, not by picking a hex in a registry. These two hold the shape of
+  // the answer so the type system stays satisfied and the route can exist; they are the FIRST thing
+  // to replace once a look is ratified, and they must become imports from the Mars palette exactly
+  // as Earth's are — a hand-typed hex that survives into production is the copied-look-constant
+  // failure that has already cost this project an overnight re-render of every hero.
+  mars: {
+    slug: "mars",
+    accent: { light: "#8c4a32", dark: "#d08b6a" },
+    spaceFloor: "#6b3a2a",
   },
 };
 

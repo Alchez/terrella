@@ -79,6 +79,12 @@ const ARCHIVES: Record<LayerId, ArchiveLocation> = {
  *  colour or radius, which renders. `Record<BodySlug, string>` is what forces a new body to answer. */
 const WORK_PREFIX: Record<BodySlug, string> = {
   earth: "",
+  // One level in, which is what `pipeline/bodies.py` already says a nesting body does. Answered
+  // here before the pipeline has a Mars entry of its own — that entry needs an exaggeration and a
+  // zoom ceiling, and both are questions this project decides by looking at the sphere rather than
+  // by picking a number. The prefix is not one of those: it is a directory name, and the record
+  // demands an answer for every body whether or not any archive exists yet.
+  mars: "mars",
 };
 
 /** Store variables the dev server no longer reads. Kept by name so a checkout that still sets one

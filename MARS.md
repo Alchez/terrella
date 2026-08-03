@@ -59,8 +59,23 @@ work below is legible as *remaining*.
 - **The web side has the same registry**, keyed by a `data-body` attribute on `<html>` that the
   layout must declare. There is no bare fallback: a page that omits it has no accent at all, loudly,
   rather than quietly wearing Earth's.
+  - **Mars is already in it**, with a route, accent tokens and a work-tree prefix — and publishes no
+    pyramid. Its chrome colours are placeholders held to satisfy the type, not choices; they are
+    downstream of a palette nobody has ratified, and replacing them with imports from a Mars ramp is
+    the first thing a decided look changes.
+- **Every tile URL names its body**, in a fixed six-segment grammar — body, layer, a content token
+  for the cut, then `z/x/y` and an extension. Adding a planet, a layer or a re-cut adds a *word*,
+  never a shape, which is what makes two archives unable to share an address by construction.
+  - A body that publishes nothing says so explicitly, layer by layer, and every consequence is the
+    one wanted: a tile URL for it is refused before any storage is touched, a lookup throws rather
+    than borrowing Earth's pyramid, and the deploy preflight demands no object for it.
+  - The preflight *enumerates* that registry, so an archive is checked for the day it is published.
 - **Two web seams are already body-agnostic** and need no work: the ground-distance readout takes
   its distance function injected, and the tile base is a single environment knob.
+- **The tile Worker's directory cache is sized by summing every published archive**, across bodies,
+  rather than by a hand tally — because two planets asked for alternately is precisely the traffic
+  an undersized LRU handles worst, and an evicted directory costs a gunzip rather than a fetch, so
+  the failure is invisible. The per-archive cost is generated from the archive's own bytes.
 
 ## The data
 

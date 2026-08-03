@@ -39,6 +39,7 @@ import {
 } from "pmtiles";
 import {
   LAYERS,
+  PUBLISHED,
   archiveFor,
   resolveTileRequest,
   type TileAddress,
@@ -46,9 +47,9 @@ import {
 } from "../src/lib/tileAddress";
 
 interface Env {
-  /** R2 binding for the bucket holding ALL THREE archives (bucket `terrella-tiles`). One binding,
-   *  three keys: the archives differ by object, not by bucket, so a second binding would buy
-   *  nothing and add a second place for the bucket name to drift. */
+  /** R2 binding for the bucket holding EVERY archive (bucket `terrella-tiles`). One binding, one
+   *  key per published pyramid: they differ by object, not by bucket, so a second binding would buy
+   *  nothing and add a second place for the bucket name to drift — including for a second body. */
   ARCHIVE: R2Bucket;
   /** Origin allowed to read tiles — the site's own hostname. MapLibre uploads tiles as WebGL
    *  textures, so a cross-origin tile without CORS taints the canvas and never draws. */
@@ -74,26 +75,50 @@ interface Env {
  *  zone cache; that is the price of not paying revalidation on every tile forever. */
 const DEFAULT_CACHE_CONTROL = "public, max-age=31536000, immutable";
 
+/** What one archive can occupy in the directory cache: an entry for its header, an entry for its
+ *  root directory, and one per leaf directory.
+ *
+ *  Read off `ResolvedValueCache`, not inferred. `getHeader` writes TWO entries — the header under
+ *  `source.getKey()`, and the root directory under `${key}|${etag}|${offset}|${length}` — and
+ *  `getDirectory` writes one under that same compound key per leaf it resolves. The compound key is
+ *  also why one cache is safe for every archive: the pyramids namespace themselves and cannot serve
+ *  each other's directories. */
+const CACHE_ENTRIES_BEFORE_LEAVES = 2;
+
+/** Spare entries above the worst case. Not superstition: `prune()` evicts the single
+ *  least-recently-used entry each time the cache passes its limit, so a cache sized to EXACTLY the
+ *  worst case thrashes on the first interleaved request rather than degrading gently. */
+const DIRECTORY_CACHE_HEADROOM = 8;
+
+/** Entries the directory cache must hold for every published archive at once.
+ *
+ *  DERIVED, AND THAT IS THE POINT. This number was hand-tallied and re-tallied each time an archive
+ *  was added — 25 for one, 50 for two, 64 for three — and the last tally was wrong: it recorded
+ *  terrain at 21 leaves when the archive has 22. Nothing could have caught that by behaviour. An
+ *  evicted directory costs a gunzip and a deserialize, NOT an R2 read (`PrefetchedIndexSource`
+ *  already holds the bytes), so an undersized cache is a slightly slower Worker and no other
+ *  symptom at all. Summing what the registry publishes turns the next archive from something
+ *  someone must remember into something the code already knows.
+ *
+ *  Worst case across every BODY, not just the one being drawn, because that is exactly the traffic
+ *  a body switch produces: alternating requests against two planets' pyramids, which is the access
+ *  pattern an undersized LRU handles worst. */
+export function directoryCacheEntries(): number {
+  let entries = 0;
+  for (const layers of Object.values(PUBLISHED)) {
+    for (const archive of Object.values(layers)) {
+      if (archive) entries += CACHE_ENTRIES_BEFORE_LEAVES + archive.indexLeaves;
+    }
+  }
+  return entries + DIRECTORY_CACHE_HEADROOM;
+}
+
 /** Directory pages resolved by one request, reused by the next request this isolate serves.
  *  Without it every tile re-reads the root directory and a leaf from R2 before it can find its
  *  own bytes — three round trips per tile instead of one. Module scope is the point: the cache
- *  outlives the request.
- *
- *  Shared across all three archives, which is safe because the library keys entries by
- *  `source.getKey()` (the archive key) plus the ETag, offset and length — so the pyramids
- *  namespace themselves and cannot serve each other's directories.
- *
- *  SIZED BY COUNTING, EACH TIME AN ARCHIVE WAS ADDED, because being one entry short is invisible:
- *  an evicted directory costs a gunzip and a deserialize rather than an R2 read
- *  (PrefetchedIndexSource already holds the bytes), so it shows up as nothing but a slightly
- *  slower Worker. It was 25 for one archive, then 50 for two.
- *
- *  Each archive occupies `1 header + 1 root + N leaf` entries. Measured on the shipped cuts:
- *  relief **21** leaves, terrain **21**, countries **7** (it is 10 MB against 16 GB) — so
- *  23 + 23 + 9 = **55**, which 50 does not hold. Three archives at 50 would evict each other on
- *  every alternating request, which is precisely the regression the 25 → 50 raise fixed.
- *  64 leaves nine entries of headroom. */
-const DIRECTORY_CACHE = new ResolvedValueCache(64, undefined, nativeDecompress);
+ *  outlives the request. Per ISOLATE, though — it is heap, so it does not survive an eviction and
+ *  is not shared between data centres; the Cache API entry below is what covers that. */
+const DIRECTORY_CACHE = new ResolvedValueCache(directoryCacheEntries(), undefined, nativeDecompress);
 
 /** Archive keys whose tile-type disagreement has already been logged — latched so a mismatch
  *  says so once per isolate rather than once per tile, since a global mismatch shouted 40,000
@@ -481,12 +506,17 @@ export default {
     // means a future re-cut can ship under a NEW base URL instead of purging the cache — and
     // purge is zone-wide, so on a shared zone it would evict everything else on alchez.dev too.
     // Tolerating it now costs one regex; retrofitting it later costs a purge.
-    // NO VERSION-PREFIX STRIP HERE. There used to be a `.replace(/^\/v\d+\//, "/")` on this line,
-    // and it was a second copy of a rule the resolver already applies — to the legacy branch only,
-    // deliberately, because tolerating `/v3/` in front of an ADDRESSED path would invent a second
-    // way to spell one tile. Stripping here applied it to both, so this Worker accepted
+    // NO VERSION-PREFIX STRIP HERE. This line used to strip a leading version segment itself, which
+    // was a second copy of a rule the resolver already applies — to the legacy branch only,
+    // deliberately, because tolerating one in front of an ADDRESSED path would invent a second way
+    // to spell one tile. Stripping here applied it to both, so this Worker accepted
     // `/v3/earth/relief/<token>/…` while the dev middleware 404'd it: the same dev-vs-prod split
     // the addressed grammar was meant to close, surviving one line lower down.
+    //
+    // The rule and its guards now live beside `LEGACY_VERSION_PREFIX` in tileAddress.ts. Note this
+    // comment describes the deleted regex rather than quoting it: the quoted form CAPTURED the
+    // mutation case that used to target the code, so the harness went on dutifully mutating a
+    // sentence and reporting the guard as intact.
     const route = resolveRoute(new URL(request.url).pathname);
     if (!route) {
       return respond(new Response("Not a tile path", { status: 404 }));

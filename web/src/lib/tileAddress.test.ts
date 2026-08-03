@@ -152,12 +152,28 @@ describe("the registry", () => {
   });
 
   it("refuses to hand back a cut a body does not publish", () => {
-    expect(() => archiveFor("mars" as keyof typeof PUBLISHED, "relief")).toThrow(/publishes no/);
+    // No longer a hypothetical cast: Mars is a real body in the registry that publishes nothing.
+    expect(() => archiveFor("mars", "relief")).toThrow(/publishes no/);
+  });
+
+  it("refuses a Mars tile address outright, rather than serving Earth's pyramid", () => {
+    // The failure this prevents does not 404 and does not look broken: Earth relief served at a
+    // Mars address is a complete, plausible, wrong planet. `null` in PUBLISHED is what makes the
+    // parser reject it — before any storage is touched, so a probe costs no range read.
+    const marsAddress = `mars/relief/${archiveFor("earth", "relief").token}/5/17/11.webp`;
+    expect(parseTileAddress(marsAddress)).toBeNull();
+    expect(resolveTileRequest(marsAddress)).toBeNull();
+  });
+
+  it("still lets Mars be a body, which is what a page and a work tree need", () => {
+    // Publishing nothing is not the same as not existing. The slug has to resolve for the route,
+    // the accent tokens and the dev server's work-tree prefix.
+    expect(Object.keys(PUBLISHED)).toContain("mars");
   });
 });
 
-describe("the committed tokens", () => {
-  const committed = TOKENS as Record<string, Record<string, string>>;
+describe("the committed archive facts", () => {
+  const committed = TOKENS as Record<string, Record<string, { token: string; indexLeaves: number }>>;
 
   it("lists exactly the archives the registry publishes", () => {
     const published = Object.entries(PUBLISHED).flatMap(([body, layers]) =>
@@ -173,14 +189,27 @@ describe("the committed tokens", () => {
     // A forgotten `gen_tile_tokens.ts --write` would otherwise ship a token that names nothing,
     // and every tile would still serve — under an address that can never be busted.
     for (const [body, layers] of Object.entries(committed)) {
-      for (const [layer, token] of Object.entries(layers)) {
-        expect(token, `${body}/${layer}`).toMatch(new RegExp(`^[0-9a-f]{${TOKEN_LENGTH}}$`));
-        expect(token, `${body}/${layer}`).not.toBe("0".repeat(TOKEN_LENGTH));
+      for (const [layer, facts] of Object.entries(layers)) {
+        expect(facts.token, `${body}/${layer}`).toMatch(new RegExp(`^[0-9a-f]{${TOKEN_LENGTH}}$`));
+        expect(facts.token, `${body}/${layer}`).not.toBe("0".repeat(TOKEN_LENGTH));
+      }
+    }
+  });
+
+  it("holds a real leaf count for every one, which the Worker's cache is sized from", () => {
+    // Zero is the shape a placeholder takes here, and it is also a plausible-looking number — a
+    // cache sized from zeros would be all headroom and would thrash on the first interleaved
+    // request. Every PMTiles archive big enough to need leaves has at least one.
+    for (const [body, layers] of Object.entries(committed)) {
+      for (const [layer, facts] of Object.entries(layers)) {
+        expect(facts.indexLeaves, `${body}/${layer}`).toBeGreaterThan(0);
+        expect(Number.isInteger(facts.indexLeaves), `${body}/${layer}`).toBe(true);
       }
     }
   });
 
   it("is what the registry actually advertises", () => {
-    expect(archiveFor("earth", "relief").token).toBe(committed.earth.relief);
+    expect(archiveFor("earth", "relief").token).toBe(committed.earth.relief.token);
+    expect(archiveFor("earth", "relief").indexLeaves).toBe(committed.earth.relief.indexLeaves);
   });
 });

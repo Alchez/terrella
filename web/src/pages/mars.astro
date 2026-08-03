@@ -1,0 +1,103 @@
+---
+// Mars's route, which exists before Mars's globe does.
+//
+// WHY THIS PAGE IS HERE AT ALL. `lib/bodies.ts` now carries a `mars` descriptor, and
+// `bodies.browser.test.ts` requires every body in that registry to have a page at its own slug —
+// Astro routes by filename, so the slug and the page name are one fact stored in two places, and a
+// registry entry with no page is a link to a 404 with every other gate green. That guard is what
+// binds this file to the registry entry; the two land together or neither does.
+//
+// WHAT IT DELIBERATELY IS NOT. It is not the Lite stub, and it is not a globe. `PUBLISHED.mars` is
+// three nulls: no relief pyramid has been cut, so there is nothing for a map to draw and a globe
+// shell here would render an empty sphere that looks like a failure. The tier ladder does not route
+// here yet either. This page states the true state of the body and gets replaced wholesale once a
+// look is ratified and a pyramid exists.
+//
+// The accent it wears is Mars's own `[data-body="mars"]` token block — provisional, like the
+// descriptor it mirrors, and the first thing to change when the palette is decided.
+import Base from "../layouts/Base.astro";
+import Masthead from "../components/Masthead.astro";
+import { BODIES } from "../lib/bodies";
+import { PUBLISHED } from "../lib/tileAddress";
+
+const body = BODIES.mars;
+// Read from the registry rather than written as prose, so this page cannot go on saying "not yet
+// published" after the first Mars pyramid ships. The day one lands, this reads as a stale page
+// rather than as a correct one — which is the tell that it is time to replace it.
+const published = Object.entries(PUBLISHED[body.slug])
+  .filter(([, archive]) => archive !== null)
+  .map(([layer]) => layer);
+---
+
+<Base
+  title="Mars — Terrella"
+  description="Mars is not published yet. Terrella's second body is in preparation."
+  body="mars"
+>
+  {/* Same container width as the main below, which is what puts the heading and the copy on one
+      left edge — the About page's idiom, and the reason `maxWidth` is a prop at all. */}
+  <Masthead
+    heading="Mars"
+    eyebrow="The second body"
+    legend={false}
+    back="/"
+    backLabel="← Gallery"
+    maxWidth="min(1500px, 92vw)"
+  />
+
+  <main class="holding">
+    {
+      published.length === 0 ? (
+        <>
+          <p class="lede">Not published yet.</p>
+          <p>
+            No relief pyramid has been cut for this body, so there is nothing here to draw. The
+            elevation data exists — a blended MOLA and HRSC grid — but the shading, the palette and
+            the zoom ceiling are all still being decided, and they are decided by looking at the
+            sphere rather than by arithmetic.
+          </p>
+        </>
+      ) : (
+        <>
+          <p class="lede">This page is out of date.</p>
+          <p>
+            Mars now publishes {published.join(", ")}, so this holding page should have been
+            replaced by the globe. See <code>src/pages/mars.astro</code>.
+          </p>
+        </>
+      )
+    }
+    <p><a class="onward" href="/earth/">Go to the Earth globe →</a></p>
+  </main>
+</Base>
+
+<style>
+  .holding {
+    max-width: min(1500px, 92vw);
+    margin: 0 auto;
+    padding: 0 clamp(1.1rem, 4vw, 2.5rem) 5rem;
+    color: var(--muted);
+    line-height: 1.65;
+  }
+  .holding p {
+    max-width: 62ch;
+  }
+  .lede {
+    color: var(--text);
+    font-size: 1.15rem;
+    font-weight: 600;
+    /* The one place the body's accent appears on this page. It is the whole reason the token block
+       exists yet, and it makes a provisional colour visible to anyone judging it. */
+    border-left: 3px solid var(--accent);
+    padding-left: 0.75rem;
+  }
+  .onward {
+    color: var(--accent);
+    font-weight: 600;
+    text-decoration: none;
+  }
+  .onward:hover,
+  .onward:focus-visible {
+    text-decoration: underline;
+  }
+</style>

@@ -42,6 +42,18 @@
   }
 }
 
+/* Mars. PROVISIONAL, both values — see the note beside its descriptor in lib/bodies.ts. Earth's
+   accent is imported from the hero ramp and is therefore not a choice; Mars has no ramp yet, so
+   these are placeholders holding the shape of an answer the look loop gives. */
+:root[data-body="mars"] {
+  --accent: #8c4a32;
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-body="mars"] {
+    --accent: #d08b6a;
+  }
+}
+
 * {
   box-sizing: border-box;
 }

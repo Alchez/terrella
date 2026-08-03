@@ -148,6 +148,15 @@ export interface PublishedArchive {
   objectKey: string;
   /** Cache-busting segment; see the module note. Generated, never typed by hand. */
   token: string;
+  /** Leaf directories in this archive — the third term in what it costs the tile Worker's
+   *  directory cache, after one entry for the header and one for the root.
+   *
+   *  Recorded here because the Worker sizes that cache by SUMMING over everything published, and a
+   *  cache one entry short evicts on alternating requests while reporting nothing: a resolved
+   *  directory that falls out costs a gunzip and a deserialize, not an R2 read. Generated from the
+   *  archive alongside the token, for the reason the hand tally deserves no trust — it was wrong,
+   *  recording terrain's 22 leaves as 21. */
+  indexLeaves: number;
   minZoom: number;
   maxZoom: number;
 }
@@ -162,22 +171,39 @@ export const PUBLISHED: Record<BodySlug, Record<LayerId, PublishedArchive | null
   earth: {
     relief: {
       objectKey: "planet-v2.pmtiles",
-      token: TOKENS.earth.relief,
+      token: TOKENS.earth.relief.token,
+      indexLeaves: TOKENS.earth.relief.indexLeaves,
       minZoom: RELIEF_MIN_ZOOM,
       maxZoom: RELIEF_MAX_ZOOM,
     },
     terrain: {
       objectKey: "terrain-v1.pmtiles",
-      token: TOKENS.earth.terrain,
+      token: TOKENS.earth.terrain.token,
+      indexLeaves: TOKENS.earth.terrain.indexLeaves,
       minZoom: TERRAIN_MIN_ZOOM,
       maxZoom: TERRAIN_MAX_ZOOM,
     },
     countries: {
       objectKey: "countries-v1.pmtiles",
-      token: TOKENS.earth.countries,
+      token: TOKENS.earth.countries.token,
+      indexLeaves: TOKENS.earth.countries.indexLeaves,
       minZoom: COUNTRIES_MIN_ZOOM,
       maxZoom: COUNTRIES_MAX_ZOOM,
     },
+  },
+  // MARS PUBLISHES NOTHING YET, and three explicit nulls are the point rather than an omission —
+  // the record forces this body to answer for every layer, so nothing can be forgotten into
+  // existence later. Every consequence of `null` is already the one wanted: `parseTileAddress`
+  // refuses a Mars tile URL without touching storage, `archiveFor` throws rather than borrowing
+  // Earth's pyramid, and the deploy preflight enumerates no Mars object to demand from R2.
+  //
+  // That last one is load-bearing in the other direction too: naming a Mars key here BEFORE the
+  // archive is uploaded would block every deploy, since the preflight refuses on any published
+  // object the bucket does not hold. The entry and the upload land together or not at all.
+  mars: {
+    relief: null,
+    terrain: null,
+    countries: null,
   },
 };
 

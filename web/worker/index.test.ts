@@ -6,11 +6,16 @@
 import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { RangeResponse, Source } from "pmtiles";
-import worker, { INDEX_PREFETCH_BYTES, PrefetchedIndexSource, resolveRoute } from "./index";
+import worker, {
+  INDEX_PREFETCH_BYTES,
+  PrefetchedIndexSource,
+  directoryCacheEntries,
+  resolveRoute,
+} from "./index";
 import { TILE_CONTENT_TYPE } from "../src/lib/reliefTiles";
 import { TERRAIN_CONTENT_TYPE } from "../src/lib/terrainSource";
 import { COUNTRIES_CONTENT_TYPE } from "../src/lib/countryTiles";
-import { archiveFor, tilePathTemplate } from "../src/lib/tileAddress";
+import { PUBLISHED, archiveFor, tilePathTemplate } from "../src/lib/tileAddress";
 
 const INDEX_ETAG = "etag-of-the-shipped-cut";
 
@@ -284,13 +289,41 @@ describe("per-archive isolate state", () => {
     expect(source).toContain("const warnedIndexOutgrewPrefetch = new Set<string>()");
   });
 
-  it("sizes the directory cache for both pyramids' leaves, not one's", () => {
-    // 22 leaf dirs + a header per archive. At the old 25 the two would evict each other on every
-    // alternating request — which costs a gunzip rather than an R2 read, so it would have shown
-    // up as nothing at all.
-    const capacity = /new ResolvedValueCache\((\d+),/.exec(source);
-    expect(capacity).not.toBeNull();
-    expect(Number(capacity?.[1])).toBeGreaterThanOrEqual(2 * (22 + 1));
+  it("sizes the directory cache by SUMMING the registry, not by a literal", () => {
+    // The number used to be typed in and re-tallied whenever an archive was added — 25, then 50,
+    // then 64 — and the last tally was wrong: terrain has 22 leaf directories and was recorded as
+    // 21. Nothing could have caught it by behaviour. An evicted directory costs a gunzip and a
+    // deserialize rather than an R2 read, so an undersized cache is a slightly slower Worker with
+    // no other symptom, and a body switch is exactly the alternating traffic that provokes it.
+    expect(source, "a literal capacity is the thing this replaces").not.toMatch(
+      /new ResolvedValueCache\(\d+,/,
+    );
+    expect(source).toContain("new ResolvedValueCache(directoryCacheEntries()");
+  });
+
+  it("covers every published archive at once, with room above the worst case", () => {
+    // The arithmetic, against the registry rather than against the source. Every archive costs a
+    // header entry, a root entry and one per leaf; the cache has to hold them all SIMULTANEOUSLY,
+    // because two bodies' pyramids being asked for alternately is the whole point of the sum.
+    const worstCase = Object.values(PUBLISHED)
+      .flatMap((layers) => Object.values(layers))
+      .filter((archive) => archive !== null)
+      .reduce((total, archive) => total + 2 + archive.indexLeaves, 0);
+    expect(directoryCacheEntries()).toBeGreaterThan(worstCase);
+    // And it is not merely large: a cache sized so far above the need that this test cannot fail
+    // would pin nothing. The headroom is a handful of entries, not a multiple.
+    expect(directoryCacheEntries()).toBeLessThan(worstCase * 2);
+  });
+
+  it("grows when a body publishes a pyramid, which is what makes it self-maintaining", () => {
+    // The property worth having, stated as a property. Mars carries three nulls today; the day one
+    // of them becomes an archive, this number moves without anyone editing it.
+    const marsPublishes = Object.values(PUBLISHED.mars).some((archive) => archive !== null);
+    expect(marsPublishes, "Mars publishes nothing yet — see PUBLISHED in tileAddress.ts").toBe(false);
+    const earthOnly = Object.values(PUBLISHED.earth)
+      .filter((archive) => archive !== null)
+      .reduce((total, archive) => total + 2 + archive.indexLeaves, 0);
+    expect(directoryCacheEntries()).toBeGreaterThan(earthOnly);
   });
 });
 

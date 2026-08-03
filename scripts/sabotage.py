@@ -1089,20 +1089,21 @@ SABOTAGES: list[Sabotage] = [
         replacement='    if (hit) return tagCache(hit, "hit");',
         guard='gives two different origins two different answers off the SAME cached body',
     ),
+    # The two version-prefix cases that used to sit here are GONE, and how they died is the lesson.
+    # The Worker stripped the prefix itself on the way into `resolveRoute`, duplicating a rule the
+    # resolver already applies; that line was deleted and a comment put in its place explaining why.
+    # The comment QUOTED the deleted regex — so both needles went on matching, exactly once, in
+    # prose. The freshness gate was satisfied, the harness mutated a sentence, and two guards
+    # reported intact while guarding nothing. Only the MISSED verdict from running them said so.
+    #
+    # The rule lives in tileAddress.ts now, and so do its cases: the anchor one directly below, and
+    # the character-class one beside it.
     Sabotage(
         suite='web',
-        label='the version-prefix regex loses its ^ anchor and strips a mid-path /vN/',
-        path='web/worker/index.ts',
-        needle='.replace(/^\\/v\\d+\\//, "/")',
-        replacement='.replace(/\\/v\\d+\\//, "/")',
-        guard='strips only the LEADING segment, not one buried mid-path',
-    ),
-    Sabotage(
-        suite='web',
-        label='the version-prefix regex widens to \\w and swallows /v3x/',
-        path='web/worker/index.ts',
-        needle='.replace(/^\\/v\\d+\\//, "/")',
-        replacement='.replace(/^\\/v\\w+\\//, "/")',
+        label='the legacy version prefix widens to \\w and swallows /v3x/',
+        path='web/src/lib/tileAddress.ts',
+        needle='const LEGACY_VERSION_PREFIX = /^\\/v\\d+\\//;',
+        replacement='const LEGACY_VERSION_PREFIX = /^\\/v\\w+\\//;',
         guard='does NOT strip a segment that merely looks like one',
     ),
     # Reordered rather than deleted, on purpose. Dropping the `try {` leaves a dangling `} catch`
@@ -2263,6 +2264,52 @@ SABOTAGES: list[Sabotage] = [
         needle='  "vars": {',
         replacement='  "vars": {\n    "RELIEF_OBJECT": "planet-v2.pmtiles",',
         guard='names no archive object in the Worker\'s config at all',
+    ),
+
+    # --- a second body, and a cache sized for every pyramid at once -----------------------------------
+    # Both failures here are silent by construction. A Mars address resolving to Earth's archive draws a
+    # complete, plausible, wrong planet; a directory cache one entry short costs a gunzip per tile and
+    # reports nothing at all — which is exactly how the hand tally got terrain's leaf count wrong.
+    Sabotage(
+        suite='web',
+        label='Mars quietly publishes Earth\'s relief pyramid',
+        path='web/src/lib/tileAddress.ts',
+        needle='  mars: {\n    relief: null,',
+        replacement=(
+            '  mars: {\n'
+            '    relief: {\n'
+            '      objectKey: "planet-v2.pmtiles",\n'
+            '      token: TOKENS.earth.relief.token,\n'
+            '      indexLeaves: TOKENS.earth.relief.indexLeaves,\n'
+            '      minZoom: RELIEF_MIN_ZOOM,\n'
+            '      maxZoom: RELIEF_MAX_ZOOM,\n'
+            '    },'
+        ),
+        guard='refuses a Mars tile address outright, rather than serving Earth\'s pyramid',
+    ),
+    Sabotage(
+        suite='web',
+        label='the directory cache goes back to a hand-typed capacity',
+        path='web/worker/index.ts',
+        needle='const DIRECTORY_CACHE = new ResolvedValueCache(directoryCacheEntries(), undefined, nativeDecompress);',
+        replacement='const DIRECTORY_CACHE = new ResolvedValueCache(64, undefined, nativeDecompress);',
+        guard='sizes the directory cache by SUMMING the registry, not by a literal',
+    ),
+    Sabotage(
+        suite='web',
+        label='the cache sum counts archives but not their leaf directories',
+        path='web/worker/index.ts',
+        needle='      if (archive) entries += CACHE_ENTRIES_BEFORE_LEAVES + archive.indexLeaves;',
+        replacement='      if (archive) entries += CACHE_ENTRIES_BEFORE_LEAVES;',
+        guard='covers every published archive at once, with room above the worst case',
+    ),
+    Sabotage(
+        suite='web',
+        label='a leaf count is committed as a placeholder zero',
+        path='web/src/lib/tileTokens.json',
+        needle='      "indexLeaves": 21',
+        replacement='      "indexLeaves": 0',
+        guard='holds a real leaf count for every one, which the Worker\'s cache is sized from',
     ),
 ]
 
