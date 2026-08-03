@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Shade planet chunks into one seamless Web Mercator RGB raster, ready to tile.
 
-The production form of the tile_chunk experiment: reproject each chunk's height + masks
+Reproject each chunk's height + masks
 to a WebMercatorQuad-aligned 3857 grid, mosaic them (VRT), then shade the MOSAIC once
 (color-relief x hillshade x SVF, composited by mask) so there are no chunk-edge seams.
 Knobs are locked to the values validated on the Nepal chunk (single-NW sun, the physical
@@ -114,18 +114,18 @@ class Knobs(TypedDict):
 # safety limit -- a shadow longer than this simply stops, with no error and no visible edge. 300 px
 # covers Damavand (5,610 m -> 275 px) and the Zagros (~4,400 m -> 216 px) at the z8 grid; use
 # `cast_shadow.shadow_reach_px` to size it for any other terrain.
-# `ambient_knee` **0.30, chosen by eye** on a full-planet pass judged on /globe. See
+# `ambient_knee` **0.30, chosen by eye** on a full-planet pass judged on /earth. See
 # `apply_ambient_floor`: `ambient` is a CLIFF, not a floor -- measured, 18.07% of Iran's
 # land sat under it carrying no hillshade information at all, and the knee is what gives that land
 # its form back. My metric-based recommendation was 0.15 and the eye overruled it; the local-contrast
 # std that argued for 0.15 is the same proxy that lost the fill-sun A/B, so it is now
 # twice-failed as a stand-in for perceived softness.
-# `shadow_warmth` **0.55, chosen by eye** on a full-planet pass judged on /globe, after
+# `shadow_warmth` **0.55, chosen by eye** on a full-planet pass judged on /earth, after
 # 1.0 read too copper on Alpine crops. 1.0 would reproduce the hero's MEASURED shadow warmth (see
 # SHADOW_TINT), so this is 55% of the hero -- the value is anchored to a measurement even where it
 # departs from it. 0.0 is the pre-`shadow_warmth` look and is bit-identical when off.
 # `ice_relief_damp` **0.75, chosen by eye** off a five-rung cap A/B (0/0.25/0.5/0.75/
-# 1.0, `experiments/ab_ice_damp.py` -- the 21 s browser-free pole loop): how much thick sea ice
+# 1.0, swept with `cap_ladder --axis ice_relief_damp` -- the 21 s pole loop): how much thick sea ice
 # CONCEALS the seafloor's shading. The ice whites are light-keyed by `snow_t`, whose light over
 # ocean is the SEAFLOOR's hillshade -- so at full pack the floor's ridges painted into the ice at
 # full strength and the Arctic pack read as terrain above the sea. This pulls the ice's light-key

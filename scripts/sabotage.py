@@ -2083,6 +2083,37 @@ SABOTAGES: list[Sabotage] = [
         replacement='    MOBILE_EXEMPT_LADDERS = {\n        "hero": ("no reason at all"),\n        "border": (',
         guard='test_every_exemption_is_load_bearing',
     ),
+    # --- the cap ladder: a sweep must not leave a shipped constant swapped -----------------------
+    # These three reproduce, exactly, what the two scripts this module replaced actually did. None
+    # of them is invented: the first is how a ladder that no longer ended on the default left
+    # damp-0.0 pixels under a sidecar the freshness gate called current, and neither predecessor was
+    # visible to any gate because they lived in the one directory pyright was told to skip.
+    Sabotage(
+        suite='python',
+        label='the knob sweep restores on the happy path only, so a failed rung leaks its value',
+        path='pipeline/tile/cap_ladder.py',
+        needle='    previous_knob = knobs[axis]\n    knobs[axis] = value\n    try:\n        yield\n    finally:\n        knobs[axis] = previous_knob',
+        replacement='    previous_knob = knobs[axis]\n    knobs[axis] = value\n    yield\n    knobs[axis] = previous_knob',
+        guard='test_a_knob_is_restored_when_the_rung_raises',
+    ),
+    Sabotage(
+        suite='python',
+        label='a typo\'d axis CREATES a knob instead of being refused, sweeping something unread',
+        path='pipeline/tile/cap_ladder.py',
+        needle='    if axis not in knobs:\n        raise KeyError(f"unknown axis {axis!r}; sweepable: {\', \'.join(sweepable_axes())}")\n',
+        replacement='',
+        guard='test_an_unknown_axis_is_refused_rather_than_silently_added',
+    ),
+    # The label and the picture must agree: a rounded rung renders one size and files it under
+    # another, which is the one thing a judging harness may never do.
+    Sabotage(
+        suite='python',
+        label='a fractional px rung is rounded into the ladder instead of refused',
+        path='pipeline/tile/cap_ladder.py',
+        needle='        fractional = [value for value in parsed if not value.is_integer()]',
+        replacement='        fractional = []',
+        guard='test_a_fractional_pixel_rung_is_refused_rather_than_rounded',
+    ),
 ]
 
 

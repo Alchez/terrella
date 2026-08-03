@@ -264,7 +264,7 @@ const {
         const choice = button.dataset.quality as Quality;
         setQuality(choice);
         // No sessionStorage juggling here on purpose. This used to clear "rg:steered" so a new
-        // choice could steer the session again, but nothing needs that: every arrival at /globe
+        // choice could steer the session again, but nothing needs that: every arrival at /earth
         // is already permitted by rg:quality alone, and every arrival at / with quality "lite"
         // returns early from the head guard. Clearing it only re-armed the auto-steer, which
         // then hijacked the next ← Gallery click.

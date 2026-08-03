@@ -1,6 +1,6 @@
 # Terrella — frontend (`web/`)
 
-The Astro site: Tier-1 gallery, country detail pages, About, and the `/globe` route (a MapLibre
+The Astro site: Tier-1 gallery, country detail pages, About, and the `/earth` route (a MapLibre
 globe over the raster tile pyramid), with a capability probe that auto-steers between tiers.
 
 ## First-run setup (fresh checkout / worktree)
@@ -108,7 +108,7 @@ header.
 
 ## Diagnostic flags
 
-Query flags on `/globe`, for isolating one variable during a measurement. They are **URLs rather than
+Query flags on `/earth`, for isolating one variable during a measurement. They are **URLs rather than
 UI controls on purpose**: several are `Map` *constructor* options that cannot be changed on a live map
 (`skirt` is baked into the cached terrain mesh, `maxreq` is set before any request goes out,
 `demcache` sizes a cache at construction), and more importantly an experiment arm should be a

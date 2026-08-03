@@ -16,7 +16,7 @@ dependencies = [
 ]
 
 # Dependency manifest only — the repo is scripts, not an installable library.
-# The bpy scripts (scene_build, scene_dump, probe_tap) run under Blender's own
+# The bpy scripts (scene_build, scene_dump) run under Blender's own
 # bundled Python and cannot use this environment.
 [tool.uv]
 package = false
@@ -29,15 +29,19 @@ dev = [
 ]
 
 # Same engine as Pylance, so `uv run pyright` reproduces the IDE's findings.
-# experiments/ = archival one-off prototypes (kept for history, not maintained).
 # tests/ joined `include` on 2026-07-16: it had never been checked, so typing shade.KNOBS as a
 # TypedDict silently broke three test files that the pipeline-only scan could not see. An
 # unchecked directory is where a "zero errors" claim quietly rots.
+# THERE IS NO LONGER AN EXCLUDE. `pipeline/experiments` used to be one, on the grounds that archival
+# prototypes are not maintained — and they were maintained anyway, by hand, whenever a refactor moved
+# under them, with nothing checking the result. Two of them had rotted into no-ops nobody could see:
+# one swept a ladder whose rungs had become identical, the other restored a default that had moved.
+# An unmaintained directory inside a checked package is not cheaper than deleting it; it just moves
+# the cost somewhere no gate reports.
 [tool.pyright]
 # `scripts` joined on the same footing as `tests` did: it holds a maintenance tool that WRITES to
 # source files, so an unchecked type there is not a cosmetic risk.
 include = ["pipeline", "tests", "scripts"]
-exclude = ["pipeline/experiments"]
 venvPath = "."
 venv = ".venv"
 typeCheckingMode = "standard"
@@ -63,8 +67,6 @@ testpaths = ["tests"]
 [tool.coverage.run]
 source = ["pipeline"]
 omit = [
-    # archival one-off prototypes, kept for history, not maintained (pyright skips them too)
-    "pipeline/experiments/*",
     # bpy scripts run under Blender's bundled Python — unit tests can never import them
     # (their shared constants ARE covered, via tests/test_scene_build_sync.py's bpy stub)
     "pipeline/render/scene_build.py",
