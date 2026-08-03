@@ -25,7 +25,7 @@ import rasterio
 from rasterio.enums import Resampling
 from scipy.ndimage import zoom
 
-from pipeline import paths
+from pipeline import bodies, paths
 from pipeline.raster_io import GTIFF_CREATE
 from pipeline.render import hillshade, lake_depth, palette, relief, snow
 from pipeline.render.sky_view import (
@@ -277,6 +277,11 @@ def main():
         print(f"hillshade: per-row z-factor (EXAG={EXAG}/cos(lat)), custom seamless shader"
               f"{shadow_note}", flush=True)
         hillshade.per_row_zfactor_hillshade(height_vrt, hs_tif, EXAG, KNOBS["alt"], 315.0,
+                                            # Spelled through the registry rather than as a bare
+                                            # 1.0: this path takes Copernicus cells, so Earth is
+                                            # not a default here, it is the subject.
+                                            ground_scale=bodies.ground_metres_per_mercator_unit(
+                                                bodies.EARTH),
                                             fill_strength=KNOBS["fill_strength"],
                                             shadow_strength=KNOBS["shadow_strength"],
                                             shadow_reach_px=int(KNOBS["shadow_reach"]))

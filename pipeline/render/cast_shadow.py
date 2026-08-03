@@ -55,11 +55,17 @@ def shadow_mask(heights: np.ndarray, zfactor: float | np.ndarray, m_per_px: floa
                 reach_px: int = 200) -> np.ndarray:
     """Occluded fraction of the sun's disc, 0.0 (fully lit) .. 1.0 (fully shadowed).
 
-    `heights` is metres on a north-up grid of `m_per_px` map units. `zfactor` is the vertical
-    exaggeration, scalar or a column vector of shape (rows, 1) for the per-latitude Mercator
-    correction (`relief.mercator_zfactor` = EXAG / cos(lat)) — the same value and the same shape
-    the hillshade uses, so the two terms exaggerate identically. They must agree: a shadow cast by
-    15x relief onto terrain shaded at some other exaggeration is visibly wrong.
+    `heights` is metres on a north-up grid of `m_per_px` MAP units, and `zfactor` is what converts
+    that mismatch away — it is the vertical exaggeration already divided by the map-unit-to-ground
+    ratio, scalar or a column vector of shape (rows, 1) carrying the per-latitude Mercator term.
+    Hand it exactly what the hillshade uses, because the two terms must exaggerate identically: a
+    shadow cast by 15x relief onto terrain shaded at some other exaggeration is visibly wrong.
+
+    THIS FUNCTION THEREFORE NEEDED NO CHANGE FOR A SECOND BODY, and that is worth stating rather
+    than leaving to be rediscovered. The tangent it accumulates is `zfactor * dh / (d * m_per_px)`,
+    so a body whose map units are not ground metres is corrected the moment its scale reaches the
+    z-factor — the same one number fixing the shading also fixes the shadows, and a second
+    correction applied here would double it.
 
     `reach_px` truncates the march. A shadow longer than this is silently cut short, so it is a
     real quality/cost lever and not a safety limit: cost is O(reach_px) full-array passes. At the

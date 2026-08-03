@@ -1666,12 +1666,14 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label='a shading module regrows its own sphere radius beside the shared one',
         path='pipeline/render/snow.py',
-        needle='    return mercator.latitude_at(merc_y, bodies.EARTH.mercator_radius_m)',
+        needle='    return mercator.latitude_at(merc_y, mercator.WEB_MERCATOR_RADIUS_M)',
         replacement='    return mercator.latitude_at(merc_y, 6378137.0)',
         guard='test_the_render_package_no_longer_carries_its_own_earth_radius',
     ),
     # Identical output today, which is exactly why nothing else would notice: the module has quietly
-    # stopped asking the body and gone back to knowing the answer.
+    # stopped asking the projection module and gone back to knowing the answer. The needle moved off
+    # `bodies.EARTH` when the sphere did: a grid row's latitude is a property of the GRID, and every
+    # grid here is EPSG:3857 for every planet, so reading it from a body was the misleading half.
     Sabotage(
         suite='python',
         label='an unknown body silently falls back to Earth instead of raising',
@@ -1739,10 +1741,15 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label="Mars is given its own sphere to project on, which cannot be tiled at all",
         path='pipeline/bodies.py',
-        # Mars's two projection radii are ADJACENT; Earth's are separated by a comment, so this pair
-        # is unique without needing one.
-        needle='    mercator_radius_m=6378137.0,\n    aeqd_radius_m=6371000.0,',
-        replacement='    mercator_radius_m=3396190.0,\n    aeqd_radius_m=3396190.0,',
+        # ANCHORED ON MARS'S OWN COMMENT, not on the two radii being adjacent — which is what this
+        # needle used to rely on, and a comment inserted between them broke it one commit later.
+        # Adjacency is not a property of the code; it is a property of nobody having explained it yet.
+        # Only the AEQD radius moves, which makes this the HALF-fix: the guard asserts both spheres,
+        # so a case that changed both would pass even against a test that had lost one assertion.
+        needle=('    # proj4 string names no celestial body: it does not escape the check either. '
+                'See the field note.\n    aeqd_radius_m=6371000.0,'),
+        replacement=('    # proj4 string names no celestial body: it does not escape the check either. '
+                     'See the field note.\n    aeqd_radius_m=3396190.0,'),
         guard='test_mars_projects_on_earths_spheres_and_that_is_deliberate',
     ),
     # THE MOST TEMPTING EDIT IN THE REGISTRY, and the reason that guard is written as a deliberate
@@ -1821,8 +1828,8 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label='the planet hillshade is driven at a literal, so the recipe records a relief nobody drew',
         path='pipeline/tile/shade_planet.py',
-        needle='        hillshade.per_row_zfactor_hillshade(height, hs, body.exaggeration, ALT, AZ,',
-        replacement='        hillshade.per_row_zfactor_hillshade(height, hs, 15.0, ALT, AZ,',
+        needle='            height, hs, body.exaggeration, ALT, AZ,',
+        replacement='            height, hs, 15.0, ALT, AZ,',
         guard='test_the_hillshade_is_driven_at_the_body_s_exaggeration',
     ),
     # The WORST available shape and the reason a scan is not enough here. The sidecar still records
@@ -1881,6 +1888,48 @@ SABOTAGES: list[Sabotage] = [
     # Byte-identical output TODAY, which is the whole hazard: the region path is where every look
     # A/B is judged, so a private copy only diverges once someone re-tunes the shared constant — and
     # then the previews that ratified the change were rendered at the value it replaced.
+    Sabotage(
+        suite='python',
+        label='the ground scale is multiplied into the z-factor instead of divided out',
+        path='pipeline/render/hillshade.py',
+        needle='                zfactor = (exaggeration\n                           / (ground_scale * np.cos(np.radians(latitude)))).reshape(-1, 1)',
+        replacement='                zfactor = (exaggeration * ground_scale\n                           / np.cos(np.radians(latitude))).reshape(-1, 1)',
+        guard='test_the_scale_divides_exactly_as_an_equal_exaggeration_change_would',
+    ),
+    # THE SABOTAGE EARTH CANNOT FAIL, which is the only kind worth writing here: at a scale of
+    # exactly 1.0 multiply and divide are the same operation, so every Earth pixel and every Earth
+    # test stays green while the first non-Earth body is shaded 3.5x wrong in the flattening
+    # direction. Only a synthetic body driven through the real shader can see it.
+    Sabotage(
+        suite='python',
+        label='the hillshade forgets the ground scale, shading a small planet at Earth\'s relief',
+        path='pipeline/tile/shade_planet.py',
+        needle='            ground_scale=bodies.ground_metres_per_mercator_unit(body))',
+        replacement='            ground_scale=1.0)',
+        guard='test_the_hillshade_is_driven_at_the_body_s_exaggeration',
+    ),
+    Sabotage(
+        suite='python',
+        label='the ground scale reaches the recipe but never the pixels it claims to describe',
+        path='pipeline/tile/shade_planet.py',
+        needle='    ground_res = body.map_units_per_pixel * ground',
+        replacement='    ground_res = body.map_units_per_pixel',
+        guard='test_the_sky_view_is_sized_and_searched_in_ground_metres',
+    ),
+    # The sky-view half, and it fails silently in the flattest possible way: a body whose map units
+    # overstate distance searches a horizon 1.878x too long, so its valleys read as open ground and
+    # the global renormalisation spreads the error over the whole planet rather than localising it.
+    Sabotage(
+        suite='python',
+        label='Earth\'s hillshade recipe records a scale of 1.0, restaging the live pyramid for nothing',
+        path='pipeline/tile/shade_planet.py',
+        needle='    if ground_scale != 1.0:\n        params["ground_scale"] = ground_scale',
+        replacement='    params["ground_scale"] = ground_scale',
+        guard='test_the_hillshade_recipe_records_the_ground_scale_only_when_it_is_not_the_identity',
+    ),
+    # The over-recording direction, which no pixel test can see because no pixel changes. Adding the
+    # key marks the live 46 GB chain stale and buys an 8:28 hillshade, a 53.8 min composite and a
+    # 3:44 cut, all to write the bytes already on disk.
     # --- The look seam ------------------------------------------------------------------------------
     # The ramps' kind-dispatch used to be transcribed in four functions; it is now one resolver over a
     # frozen Look. That is a refactor whose contract is "nothing changes", so its guard is a byte

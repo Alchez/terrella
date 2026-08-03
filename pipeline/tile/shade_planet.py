@@ -237,6 +237,14 @@ def hs_params(body: bodies.Body) -> str:
     restages an 11:48 hillshade that would produce identical bytes.
     """
     params: dict[str, Any] = {"exag": body.exaggeration, "alt": ALT, "az": AZ}
+    # Recorded only when it is not the identity, the same rule the fill and the shadow follow below
+    # and for the same reason: on Earth the scale is exactly 1.0, so writing it would restage an
+    # 8:28 hillshade, a 53.8 min composite and a 3:44 cut to reproduce identical bytes. On any other
+    # body it is a genuine input to every slope in the raster, and an untracked one would leave a
+    # re-shaded planet reporting fresh.
+    ground_scale = bodies.ground_metres_per_mercator_unit(body)
+    if ground_scale != 1.0:
+        params["ground_scale"] = ground_scale
     if KNOBS["fill_strength"] != 0.0:
         params["fill"] = {"strength": KNOBS["fill_strength"],
                           "alt": hillshade.FILL_ALTITUDE, "az": hillshade.FILL_AZIMUTH}
@@ -449,10 +457,12 @@ def build_hillshade(work: Path, height: Path, body: bodies.Body):
                        else "")
         print(f"per-row-z hillshade (exag={body.exaggeration}{fill_note}{shadow_note}) ...",
               flush=True)
-        hillshade.per_row_zfactor_hillshade(height, hs, body.exaggeration, ALT, AZ,
-                                            fill_strength=KNOBS["fill_strength"],
-                                            shadow_strength=KNOBS["shadow_strength"],
-                                            shadow_reach_px=int(KNOBS["shadow_reach"]))
+        hillshade.per_row_zfactor_hillshade(
+            height, hs, body.exaggeration, ALT, AZ,
+            fill_strength=KNOBS["fill_strength"],
+            shadow_strength=KNOBS["shadow_strength"],
+            shadow_reach_px=int(KNOBS["shadow_reach"]),
+            ground_scale=bodies.ground_metres_per_mercator_unit(body))
         mark_done(hs)
     return hs
 
@@ -464,27 +474,35 @@ def global_occlusion(height: Path, body: bodies.Body):
     a region preview and the planet it predicts can no longer drift apart. `SVF_LONG_EDGE` was the
     old planet-only spelling of this and is now derived, not chosen.
 
-    KNOWN INCORRECT, deliberately unchanged here: `map_units_per_pixel` is a MAP-unit scale, and
-    ground metres in Web Mercator are that times `cos(lat)`. Using map units understates the horizon
-    run by `1/cos(lat)` — 1.22x at 35N, 2.00x at 60N, 3.86x at 75N — so high latitudes are
-    systematically under-occluded, and the global affine renormalisation provably cannot absorb a
-    latitude-varying error. Fixing it needs a per-ROW ground scale (the hillshade's z-factor trick)
-    and changes production pixels, so it rides with the resolution change rather than sneaking in
-    under a refactor.
+    `occlusion_shape` and `normalised_occlusion` both document that they want a GROUND scale, and
+    this function used to hand them a map-unit one. Two independent errors hid behind that, and only
+    one of them is fixed here.
 
-    A SECOND, INDEPENDENT MAP-UNIT ERROR ARRIVES WITH A NON-EARTH BODY, and it is not fixed here
-    either, for the same reason. Every projection in this pipeline is Earth-sphered, so a map unit
-    is a ground metre only on Earth; elsewhere it is worth `ground_metres_per_map_unit(body)` — a
-    constant scale, unlike the latitude term above, but just as invisible. The two are fixed
-    together, in the commit that gives every ground-metre consumer the body's own sphere.
+    FIXED: THE BODY TERM. Every projection in this pipeline is Earth-sphered, so a map unit is a
+    ground metre only on Earth; elsewhere it is worth `ground_metres_per_mercator_unit(body)`. On
+    Mars the horizon run would be overstated by 1.878x, flattening the sky-view exactly where the
+    relief is most dramatic. The factor is EXACTLY 1.0 for Earth by construction of EPSG:3857, so
+    adopting it here moves no existing pixel.
+
+    NOT FIXED: THE LATITUDE TERM, which is the older half and is Earth's. Ground metres in Web
+    Mercator are also `cos(lat)` times map units, so the run is understated by `1/cos(lat)` —
+    1.22x at 35N, 2.00x at 60N, 3.86x at 75N — and high latitudes come out systematically
+    under-occluded. The global affine renormalisation provably cannot absorb a latitude-varying
+    error. It stays out because it is a different KIND of change: it needs a per-ROW scale (the
+    hillshade's z-factor trick) plus a decision about which latitude sizes the downsample, and it
+    moves Earth's production pixels — a re-shade and a re-cut, judged on the sphere rather than
+    accepted from a number. The region path already applies its own `cos(mid_lat)`, so the two
+    shading paths disagree on this term today; that is the shape of the outstanding work.
     """
+    ground = bodies.ground_metres_per_mercator_unit(body)
+    ground_res = body.map_units_per_pixel * ground
     with rasterio.open(height) as dataset:
         full_w, full_h = dataset.width, dataset.height
-        small_h, small_w = occlusion_shape(full_w, full_h, body.map_units_per_pixel)
+        small_h, small_w = occlusion_shape(full_w, full_h, ground_res)
         low = dataset.read(1, out_shape=(small_h, small_w),
                            resampling=Resampling.average).astype(float)
     low = np.nan_to_num(np.where(low < -500, np.nan, low), nan=0.0)
-    m_per_px = body.map_units_per_pixel * (full_w / small_w)
+    m_per_px = ground_res * (full_w / small_w)
     return normalised_occlusion(low, m_per_px)  # shape (small_h, small_w)
 
 

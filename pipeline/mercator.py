@@ -21,6 +21,17 @@ import math
 import numpy as np
 from numpy.typing import NDArray
 
+#: The sphere EPSG:3857 is DEFINED on, in metres. A projection constant, not a planet's property —
+#: it happens to equal Earth's equatorial radius because that is where the projection came from,
+#: and it stays this number for every body: PROJ refuses to build an operation between two celestial
+#: bodies, so every raster in this pipeline is EPSG:3857 whatever planet its elevations describe.
+#:
+#: So a northing on a tile grid names a latitude on THIS sphere for Mars exactly as it does for
+#: Earth, and a caller reaching into the body registry for it is asking the wrong question — the
+#: latitude of a grid row is a property of the grid, not of the ground under it. `bodies.EARTH`
+#: pins the same value as the body's own radius, which is a separate coincidence with its own test.
+WEB_MERCATOR_RADIUS_M = 6378137.0
+
 
 def latitude_at(mercator_y, radius_m: float):
     """Latitude in degrees of a Web-Mercator northing, on a sphere of `radius_m`.

@@ -25,7 +25,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from pipeline import bodies, paths
+from pipeline import bodies, mercator, paths
 from pipeline.compose import countries_pmtiles
 from pipeline.render import hillshade, palette, snow
 from pipeline.tile import shade_planet
@@ -271,14 +271,14 @@ def test_earths_ground_sphere_is_its_mercator_sphere_so_the_ratio_is_exactly_one
 
     EPSG:3857 is defined on a sphere of Earth's own equatorial radius, so the two fields hold the
     same number by construction of the projection rather than by our choice. That identity is what
-    lets `ground_metres_per_map_unit` be adopted one stage at a time with no restage: at every site
+    lets `ground_metres_per_mercator_unit` be adopted one stage at a time with no restage: at every site
     it reaches, Earth's arithmetic is multiplication by a literal 1.0.
 
     Asserted with `is`-style exactness on purpose. A near-1.0 would still round-trip most pixels and
     would move a few, which is the shape of change this project cannot see until it ships.
     """
     assert bodies.EARTH.ground_radius_m == bodies.EARTH.mercator_radius_m
-    assert bodies.ground_metres_per_map_unit(bodies.EARTH) == 1.0
+    assert bodies.ground_metres_per_mercator_unit(bodies.EARTH) == 1.0
 
 
 def test_a_body_on_a_smaller_sphere_reports_a_ratio_below_one() -> None:
@@ -293,7 +293,7 @@ def test_a_body_on_a_smaller_sphere_reports_a_ratio_below_one() -> None:
     """
     smaller = dataclasses.replace(bodies.EARTH, name="smaller", path_prefix="smaller",
                                   ground_radius_m=3396190.0)
-    ratio = bodies.ground_metres_per_map_unit(smaller)
+    ratio = bodies.ground_metres_per_mercator_unit(smaller)
     assert ratio == pytest.approx(0.532474, abs=1e-6)
     assert 1.0 / ratio == pytest.approx(1.878, abs=1e-3)
 
@@ -301,18 +301,18 @@ def test_a_body_on_a_smaller_sphere_reports_a_ratio_below_one() -> None:
 def test_ground_metres_per_pixel_composes_from_the_two_fields() -> None:
     """The composition the call sites are meant to write, pinned so it cannot be written backwards.
 
-    `map_units_per_pixel * ground_metres_per_map_unit` — units cancel, and the result is what a
+    `map_units_per_pixel * ground_metres_per_mercator_unit` — units cancel, and the result is what a
     hillshade, a horizon search or a shadow length actually needs. Multiplying by the reciprocal
     instead is dimensionally silent and off by the square of the ratio.
     """
     smaller = dataclasses.replace(bodies.EARTH, name="smaller", path_prefix="smaller",
                                   ground_radius_m=3396190.0, map_units_per_pixel=1222.992453,
                                   tile_max_zoom=6)
-    ground = smaller.map_units_per_pixel * bodies.ground_metres_per_map_unit(smaller)
+    ground = smaller.map_units_per_pixel * bodies.ground_metres_per_mercator_unit(smaller)
     # 651 m/px at z6 on a 21,339 km circumference — the figure MARS.md's ceiling table is built on.
     assert ground == pytest.approx(651.2, abs=0.1)
     earth_ground = (bodies.EARTH.map_units_per_pixel
-                    * bodies.ground_metres_per_map_unit(bodies.EARTH))
+                    * bodies.ground_metres_per_mercator_unit(bodies.EARTH))
     assert earth_ground == bodies.EARTH.map_units_per_pixel
 
 
@@ -348,7 +348,7 @@ def test_mars_is_the_first_body_whose_ground_sphere_is_not_its_grid() -> None:
     Mars needs 1.878x Earth's z for the same physical exaggeration.
     """
     assert bodies.MARS.ground_radius_m != bodies.MARS.mercator_radius_m
-    ratio = bodies.ground_metres_per_map_unit(bodies.MARS)
+    ratio = bodies.ground_metres_per_mercator_unit(bodies.MARS)
     assert ratio == pytest.approx(0.532474, abs=1e-6)
     assert 1.0 / ratio == pytest.approx(1.878, abs=1e-3)
     ground = bodies.MARS.map_units_per_pixel * ratio
@@ -524,3 +524,88 @@ def test_the_caps_are_shaded_at_the_body_s_exaggeration(monkeypatch) -> None:
         f"the caps' main and fill suns were driven at {handed} for a body whose exaggeration is "
         "3.0 — a cap shaded at another planet's relief feathers into tiles shaded at this one's"
     )
+
+
+def test_the_projection_s_sphere_and_earth_s_own_are_the_same_number_for_a_reason() -> None:
+    """Two literals, one value, and the coincidence is the whole reason Earth hid the distinction.
+
+    `mercator.WEB_MERCATOR_RADIUS_M` states what EPSG:3857 is DEFINED on; `EARTH.mercator_radius_m`
+    states which sphere Earth's grid is projected on. They agree because the projection was built
+    on Earth's equatorial radius — and that agreement is what makes Earth's ground ratio exactly
+    1.0, so every stage can adopt the conversion without restaging a pixel.
+
+    Related rather than collapsed: one is projection maths that no planet can change, the other is a
+    registry field a second body answers for itself. Collapsing them would make the identity
+    unfalsifiable, and it is the identity that is load-bearing.
+    """
+    assert mercator.WEB_MERCATOR_RADIUS_M == bodies.EARTH.mercator_radius_m
+    assert bodies.ground_metres_per_mercator_unit(bodies.EARTH) == 1.0
+
+
+def test_every_body_rides_the_projection_s_sphere_because_proj_allows_no_other() -> None:
+    """Measured, not assumed: `gdalwarp` refuses EPSG:3857 -> a Mars-radius target with "Source and
+    target ellipsoid do not belong to the same celestial body", and it identifies the body from a
+    bare radius in a proj4 string — an AEQD written `+a=3396190` is refused the same way an
+    EPSG-coded one is. So no body can be given its own projection sphere while its rasters are
+    EPSG:3857, and a grid row's latitude is the projection's question on every planet.
+    """
+    for body in bodies.BODIES.values():
+        assert body.mercator_radius_m == mercator.WEB_MERCATOR_RADIUS_M, (
+            f"{body.name} projects on a sphere that is not EPSG:3857's — PROJ will refuse to warp "
+            "it, and `gdal raster tile` will refuse to cut it"
+        )
+
+
+def test_the_hillshade_recipe_records_the_ground_scale_only_when_it_is_not_the_identity() -> None:
+    """The conditional-record idiom, third use in this recipe after the fill and the shadow.
+
+    Earth's scale is exactly 1.0, so writing the key would restage an 8:28 hillshade, a 53.8 min
+    composite and a 3:44 cut to reproduce identical bytes — and would report the LIVE pyramid stale.
+    Any other body's scale is a genuine input to every slope in the raster, and leaving it out would
+    let a re-shade at a corrected scale find a matching sidecar and skip.
+    """
+    earth = json.loads(shade_planet.hs_params(bodies.EARTH))
+    assert "ground_scale" not in earth, (
+        "Earth's hillshade recipe grew a key whose value is the identity — the live sidecar on disk "
+        "does not have it, so every existing tile just went stale for no pixel change"
+    )
+    mars = json.loads(shade_planet.hs_params(bodies.MARS))
+    assert mars["ground_scale"] == bodies.ground_metres_per_mercator_unit(bodies.MARS)
+
+
+def test_the_sky_view_is_sized_and_searched_in_ground_metres(monkeypatch, tmp_path) -> None:
+    """Both sky-view entry points document that they want a GROUND scale, and this function used to
+    hand them map units. The body half of that is fixed, so a smaller planet must search a
+    proportionally shorter horizon — otherwise its valleys read as open ground.
+
+    Captured at the boundary rather than compared as pixels: the quantity that was wrong is the
+    number crossing into `sky_view`, and asserting on it says which of the two errors is closed.
+    """
+    import rasterio
+    import rasterio.transform
+
+    handed: dict[str, float] = {}
+    monkeypatch.setattr(shade_planet, "occlusion_shape",
+                        lambda w, h, res: (handed.setdefault("shape_res", res), (8, 16))[1])
+    monkeypatch.setattr(shade_planet, "normalised_occlusion",
+                        lambda low, m_per_px: (handed.setdefault("search_res", m_per_px), low)[1])
+
+    height = tmp_path / "height_3857.tif"
+    transform = rasterio.transform.from_origin(0.0, 5_000_000.0, 305.7483, 305.7483)
+    with rasterio.open(height, "w", driver="GTiff", height=32, width=64, count=1,
+                       dtype="float32", crs="EPSG:3857", transform=transform) as dataset:
+        dataset.write(np.zeros((32, 64), dtype="float32"), 1)
+
+    shade_planet.global_occlusion(height, bodies.EARTH)
+    earth = dict(handed)
+    handed.clear()
+    shade_planet.global_occlusion(height, bodies.MARS)
+
+    assert earth["shape_res"] == bodies.EARTH.map_units_per_pixel, (
+        "Earth's sky-view sizing moved — its ground scale is exactly 1.0, so it must not"
+    )
+    ratio = bodies.ground_metres_per_mercator_unit(bodies.MARS)
+    assert handed["shape_res"] == pytest.approx(bodies.MARS.map_units_per_pixel * ratio)
+    assert handed["search_res"] == pytest.approx(earth["search_res"]
+                                                 * (bodies.MARS.map_units_per_pixel * ratio)
+                                                 / bodies.EARTH.map_units_per_pixel)

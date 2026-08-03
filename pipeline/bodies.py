@@ -57,6 +57,16 @@ class Body:
     #: 6371008.8 on the frontend. The last two sit 8.8 m apart, and that gap is load-bearing — the
     #: cap texture is projected on one and blended against tiles drawn on another, so collapsing
     #: them puts the polar seam exactly that far out. One `radius_m` field would invite the collapse.
+    #:
+    #: A SECOND UNIT CONVENTION, THEREFORE A SECOND GROUND RATIO. Like the Mercator sphere above,
+    #: this one is forced to Earth's for every body — measured, and the interesting half is that a
+    #: bare proj4 string does not escape the check: `gdalwarp` from EPSG:3857 to an AEQD written
+    #: `+a=3396190 +b=3396190` is refused with "do not belong to the same celestial body (Mars vs
+    #: Earth)", with no EPSG code anywhere, while the identical warp to `+a=6371000` succeeds. So a
+    #: cap's map units are Earth metres too, and turning them into ground metres needs
+    #: `ground_radius_m / aeqd_radius_m` — NOT `ground_metres_per_mercator_unit`, which divides by a
+    #: different sphere. Earth's cap ratio is 1.00112 rather than 1.0, so unlike the Mercator one it
+    #: cannot be adopted for free, and it is unwritten until the cap pass is made body-capable.
     aeqd_radius_m: float
     #: Radius of the body ITSELF, in metres — what a ground metre is worth on this planet.
     #:
@@ -81,8 +91,9 @@ class Body:
     #: Size of one pixel of the EPSG:3857 raster the pyramid is cut from, in MAP UNITS.
     #:
     #: Map units, not ground metres — they are metres on `mercator_radius_m`'s sphere, so a ground
-    #: distance is this times `ground_metres_per_map_unit(body)`. Writing the conversion out at each
-    #: call site is deliberate: the units then cancel visibly, and a site that forgot it reads wrong.
+    #: distance is this times `ground_metres_per_mercator_unit(body)`. Writing the conversion out at
+    #: each call site is deliberate: the units then cancel visibly, and a site that forgot it reads
+    #: wrong.
     #:
     #: STORED RATHER THAN DERIVED FROM `tile_max_zoom`, and the reason is measured. Earth's live
     #: 46 GB `height_3857.tif` was warped at 305.7483, a rounded value: the exact figure is
@@ -153,6 +164,8 @@ MARS = Body(
     # changes — and `ground_radius_m` below is what converts back. `tests/test_bodies.py` asserts
     # this sameness deliberately, so the "fix" fails at the gate rather than at the tiler.
     mercator_radius_m=6378137.0,
+    # The same constraint, separately measured, because the obvious objection is that a hand-written
+    # proj4 string names no celestial body: it does not escape the check either. See the field note.
     aeqd_radius_m=6371000.0,
     # The IAU 2015 Mars sphere, which is also what the source DEM's own CRS declares — so our
     # ground metres agree with the grid the data was published on. It is the equatorial radius used
@@ -203,8 +216,14 @@ def get(name: str) -> Body:
         raise KeyError(f"unknown body {name!r}; known bodies are: {known}") from None
 
 
-def ground_metres_per_map_unit(body: Body) -> float:
+def ground_metres_per_mercator_unit(body: Body) -> float:
     """How many real ground metres one map unit of this body's Mercator raster is worth.
+
+    NAMED FOR ITS PROJECTION, because "map unit" cannot answer the question on its own. This
+    pipeline projects into two systems — the Mercator tile grid and the caps' AEQD disc — and each
+    is defined on its own sphere, so each has its own conversion. An unqualified name here would
+    read as the general one and be adopted by the cap path, which needs `aeqd_radius_m` in the
+    denominator and gets a different number (1.00112 for Earth, not 1.0). One name per concept.
 
     THE WHOLE OF WHAT A NON-EARTH BODY COSTS, in one number. Every projection in this pipeline is
     Earth-sphered (see `ground_radius_m` for the PROJ constraint that forces it), so a raster's map
@@ -220,7 +239,7 @@ def ground_metres_per_map_unit(body: Body) -> float:
 
     Composes so the units cancel where it is read:
 
-        ground_metres_per_pixel = body.map_units_per_pixel * ground_metres_per_map_unit(body)
+        ground_metres_per_pixel = body.map_units_per_pixel * ground_metres_per_mercator_unit(body)
     """
     return body.ground_radius_m / body.mercator_radius_m
 

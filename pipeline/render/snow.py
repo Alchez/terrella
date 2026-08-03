@@ -18,7 +18,7 @@ import numpy as np
 import rasterio
 from rasterio.transform import from_bounds
 
-from pipeline import bodies, mercator, paths
+from pipeline import mercator, paths
 from pipeline.raster_io import band_window, row_bands
 
 DATA = paths.DATA
@@ -159,8 +159,9 @@ def latitude_per_row(top, bottom, height):
     rows = np.arange(height)
     merc_y = top - (rows + 0.5) * (top - bottom) / height
     # The second of the two copies this module and hillshade.py each used to carry, constant and
-    # formula alike. One home now, and the Earth binding is named rather than a bare literal.
-    return mercator.latitude_at(merc_y, bodies.EARTH.mercator_radius_m)
+    # formula alike. One home now, and it is the PROJECTION's sphere rather than a body's: the
+    # grid is EPSG:3857 for every planet, so this number is the same on all of them.
+    return mercator.latitude_at(merc_y, mercator.WEB_MERCATOR_RADIUS_M)
 
 
 def ramp_thresholds(latitude):

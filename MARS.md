@@ -86,6 +86,30 @@ work below is legible as *remaining*.
     one wanted: a tile URL for it is refused before any storage is touched, a lookup throws rather
     than borrowing Earth's pyramid, and the deploy preflight demands no object for it.
   - The preflight *enumerates* that registry, so an archive is checked for the day it is published.
+- **The tile shading converts map units to ground metres through the body's own sphere.** Every
+  raster here is EPSG:3857 whatever planet the elevations describe, so a slope is a rise in body
+  metres over a run in map units — and on Mars a map unit is worth 0.53 of a ground metre, making
+  the real relief 1.878× steeper than the grid says. That one ratio divides the hillshade's z-factor
+  and scales the sky-view's horizon search.
+  - The cast shadow needed no change and that is not an accident worth rediscovering: it accumulates
+    `zfactor × Δh ÷ (distance × map units)`, so the correction arrives with the z-factor it is
+    already handed, and applying it a second time there would double it.
+  - The ratio is **exactly 1.0 for Earth**, by construction of EPSG:3857 rather than by rounding, so
+    the conversion reached production without restaging a pixel. It is written into the hillshade's
+    freshness recipe only when it is *not* 1.0 — the same rule the fill sun and the cast shadow
+    already follow, and for the same reason: a key whose value is the identity would mark 46 GB of
+    correct output stale.
+  - A grid row's latitude is a separate question with the opposite answer: it is a property of the
+    projection, not of the ground, so it stays on EPSG:3857's own sphere for every body. That
+    constant lives in the projection module now rather than being read off Earth's registry entry,
+    where it invited a "fix" that would have put Mars's rows 31° out.
+- **The polar caps cannot be given Mars's own sphere either, and this was measured.** PROJ refuses
+  `EPSG:3857` → an AEQD written `+a=3396190` with *"Source and target ellipsoid do not belong to the
+  same celestial body (Mars vs Earth)"* — it identifies the body from a bare radius in a proj4
+  string, with no EPSG code involved. An Earth-radius AEQD target from the same source succeeds.
+  - So the caps' disc is Earth-sphered for every planet, exactly as the tile grid is, and the caps
+    need their own map-unit-to-ground ratio: `ground_radius_m ÷ aeqd_radius_m`, which is **not** the
+    Mercator one, because the two projections are defined on different spheres.
 - **Two web seams are already body-agnostic** and need no work: the ground-distance readout takes
   its distance function injected, and the tile base is a single environment knob.
 - **The tile Worker's directory cache is sized by summing every published archive**, across bodies,
@@ -187,10 +211,11 @@ Each with its "or else", because a seam without a failure mode is a preference.
   disabling that guard globally.
   - So a non-Earth heightfield enters by having its CRS **declared** as EPSG:4326 — an identity on
     angles, since only the sphere label changes — and every projection downstream stays Earth-sphered.
-  - The Mars radius then enters only where **ground metres** are needed: the hillshade z-factor, the
-    horizon search, the shadow length and the scale ruler. The ratio is **1.878** — Earth's Mercator
-    sphere over the IAU 2015 Mars sphere of 3,396,190 m, which is the figure the ceiling table above
-    is built on and the one the source DEM's own CRS declares.
+  - The Mars radius then enters only where **ground metres** are needed. The ratio is **1.878** —
+    Earth's Mercator sphere over the IAU 2015 Mars sphere of 3,396,190 m, which is the figure the
+    ceiling table above is built on and the one the source DEM's own CRS declares.
+  - The tile shading already converts through it; what does not yet is the **caps' AEQD disc**,
+    which needs its own ratio against a different sphere, and the **scale ruler** in the browser.
   - Or else: mixing the two radii yields a latitude-varying wrong exaggeration that renders
     plausibly everywhere and is true nowhere — the failure mode with no symptom.
 - **The palette must be body-parameterised, not copied.** A second set of look constants is the same
