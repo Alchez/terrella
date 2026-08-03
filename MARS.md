@@ -319,8 +319,10 @@ One small commit at a time, each green and each shippable alone. No commit may l
 - **Vectors and the product model.** One commit per layer: units, then labels, then hit-testing.
 - **Heroes**, if they are wanted at all.
 
-Estimated cost of the first phase is **11–18 GB** all-in, against a disk with several hundred GB
-free. Disk is not a constraint for Mars, which is the opposite of Earth's situation at z9.
+The first phase costs roughly **15–22 GB** all-in, against a disk with several hundred GB free. The
+source blend is **10.6 GiB** — measured from the server rather than estimated, and about half again
+the first guess, because the mosaic is uncompressed Int16 rather than compressed. Disk is still not
+a constraint for Mars, which is the opposite of Earth's situation at z9.
 
 ## Deliberately not doing
 

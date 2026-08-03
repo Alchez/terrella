@@ -102,6 +102,11 @@ MUTABLE_ROOTS = (
     # would be reintroduced, and it is invisible while Earth is the only body — so the guards against
     # it are worth exactly as much as the proof that they still fire.
     "pipeline/tile",
+    # Joined with the Mars DEM recipe, and for the sharpest version of the same argument: an
+    # acquisition guard runs ONCE, against a server, before ~10.6 GiB lands. It cannot be exercised
+    # by any pipeline run, it has no output to inspect, and by the time it would have mattered the
+    # wrong edition is already on disk. Mutation is the only proof available that it still fires.
+    "pipeline/acquire",
 )
 
 # Set for the duration of one case, so the backup THIS run is holding does not trip the leftover
@@ -2088,6 +2093,43 @@ SABOTAGES: list[Sabotage] = [
         needle='                                 "ground_scale": bodies.ground_metres_per_aeqd_unit(grid.body),\n',
         replacement='',
         guard='test_the_ground_scale_rides_in_the_recipe_that_gates_the_render',
+    ),
+    # --- The Mars acquisition recipe ----------------------------------------------------------------
+    # Nothing here can be caught by looking at output: the file is not on disk, and every one of these
+    # mutations leaves a module that imports, type-checks and reads perfectly sensibly.
+    Sabotage(
+        suite='python',
+        label='the edition preflight checks only the size, so a re-upload passes as the pinned one',
+        path='pipeline/acquire/download_mars_dem.py',
+        needle='    for field, served, expected in (("size", served_bytes, EXPECTED_BYTES),\n                                    ("Last-Modified", served_date, EXPECTED_LAST_MODIFIED)):',
+        replacement='    for field, served, expected in (("size", served_bytes, EXPECTED_BYTES),):',
+        guard='test_a_re_upload_of_the_SAME_bytes_still_aborts',
+    ),
+    Sabotage(
+        suite='python',
+        label='the sphere is read as PROJ `a`, which an unflattened body does not have at all',
+        path='pipeline/acquire/download_mars_dem.py',
+        needle='        ellipsoid = pyproj.CRS.from_user_input(crs.to_wkt()).ellipsoid\n        semi_major = ellipsoid.semi_major_metre if ellipsoid is not None else None',
+        replacement='        semi_major = crs.to_dict().get("a")',
+        guard='test_the_published_grid_passes',
+    ),
+    # NOT INVENTED — this is the spelling I reached for first, and the test above refused it. PROJ
+    # serialises a sphere as `+R=`, so `to_dict()["a"]` is None for exactly the products this checks.
+    Sabotage(
+        suite='python',
+        label='the sphere tolerance widens enough to admit the 3,389,500 m spherical mean',
+        path='pipeline/acquire/download_mars_dem.py',
+        needle='        if semi_major is None or abs(semi_major - bodies.MARS.ground_radius_m) > 1.0:',
+        replacement='        if semi_major is None or abs(semi_major - bodies.MARS.ground_radius_m) > 10000.0:',
+        guard='test_a_source_on_the_MEAN_sphere_is_refused_though_it_is_only_0_2_percent_out',
+    ),
+    Sabotage(
+        suite='python',
+        label='--check falls through and starts a 10.6 GiB download nobody authorised',
+        path='pipeline/acquire/download_mars_dem.py',
+        needle='    if args.check:\n        return 0',
+        replacement='    if False:\n        return 0',
+        guard='test_check_stops_after_the_preflight',
     ),
     # --- The look seam ------------------------------------------------------------------------------
     # The ramps' kind-dispatch used to be transcribed in four functions; it is now one resolver over a
