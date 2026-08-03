@@ -37,7 +37,11 @@ from pipeline.render.sky_view import (
 DATA = paths.DATA
 CHUNKS = DATA / "work/planet/chunks"
 Z8_MERC_RES = 305.7483  # metres/pixel of a 512px WebMercatorQuad tile at zoom 8
-EXAG = 15.0
+EXAG = palette.EXAGGERATION  # the region path exists to PREDICT the planet, so it cannot hold its
+                             # own copy of a look value. This was a third literal 15.0, uncovered by
+                             # the guard that calls the hero/planet pair "the last copy-pair". It
+                             # stays Earth-shaped: this path takes --cells, not --body, and a
+                             # Copernicus cell name is not a thing another planet has.
 MERCATOR = "EPSG:3857"
 
 class Knobs(TypedDict):

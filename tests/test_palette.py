@@ -133,14 +133,22 @@ class TestSharedConstants:
         assert shade.KNOBS["alt"] == palette.SUN_ALT_DEG
 
     def test_exaggeration_is_shared(self):
-        """render_prep's displacement_scale and shade_planet's EXAG both source
-        palette.EXAGGERATION — the last copy-pair, collapsed to one constant."""
+        """render_prep's displacement_scale and the region shader both source palette.EXAGGERATION.
+
+        The planet leg USED to be here and is gone on purpose: the planet path takes its
+        exaggeration from `Body.exaggeration`, which `test_bodies.py` pins against this constant
+        for Earth. Asserting it twice would say nothing new.
+
+        Its replacement is not a downgrade — `shade.EXAG` was a THIRD literal 15.0 that this
+        guard's own docstring called "the last copy-pair", and no test named it. The region path
+        exists to predict the planet, so a look value it holds privately is drift by construction.
+        """
         from pipeline.render import render_prep
-        from pipeline.tile import shade_planet
+        from pipeline.tile import shade
 
         assert palette.EXAGGERATION == 15.0
         assert render_prep.EXAGGERATION == palette.EXAGGERATION
-        assert shade_planet.EXAG == palette.EXAGGERATION
+        assert shade.EXAG == palette.EXAGGERATION
 
     def test_web_palette_matches_the_ramp_it_copies(self):
         """web/src/lib/palette.ts restates pipeline colours for the browser, which cannot

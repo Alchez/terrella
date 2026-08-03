@@ -43,7 +43,7 @@ probe; degrade at runtime if frame rate tanks; honour `Save-Data`, `prefers-redu
 
 - **Heroes:** headless Blender Cycles (bpy), RTX 4070 Super, OptiX backend + OpenImageDenoise — but **CPU denoise for 8K**, or render and denoise contend for the 12 GB VRAM and the driver throws an Xid 31 MMU fault.
 - One scene rig for every country: DEM displacement, low sun, two-ramp material (elevation-keyed land, depth-keyed sea), ortho camera framed from Natural Earth bounds.
-- **Vertical exaggeration 15×**, locked and shared by import (`palette.EXAGGERATION`) so hero and tile cannot drift.
+- **Vertical exaggeration belongs to the body** — 15× on Earth. The hero imports `palette.EXAGGERATION`, the tiles and caps read `Body.exaggeration`, and a test pins Earth's field equal to the constant; unpinned, the tiles drift away from the heroes they must match.
 - **Tiles approximate the Cycles look:** single-NW hillshade (multidirectional rejected) + sky-view factor from our own `sky_view.py` (WhiteboxTools dropped) + the same ramps, composited with GDAL.
 - **z0–8, and z8 is LOCKED.** z9/z10 are parked in FUTURE and blocked on disk — a planet re-fuse at ~2.5″, never a tiling flag.
 - **Tiles are 512px**, declared to MapLibre as `tileSize: 256`, which centres the scheme on DPR 2. → FUTURE § raster tile resolution vs device pixel ratio

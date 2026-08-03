@@ -68,7 +68,12 @@ ROOT = paths.ROOT
 #
 # The value is deliberately NOT written out here. `tests/test_bodies.py` scans this file for it, and
 # a comment quoting a deleted number re-creates the needle the scan exists to find.
-EXAG = palette.EXAGGERATION
+#
+# The vertical exaggeration left the same way and for a sharper reason: it is a LOOK decision, and
+# two bodies whose relief is a different fraction of their radius cannot read right at one value.
+# It is `Body.exaggeration`, threaded to the two places that shade — the hillshade here, and the
+# caps, which used to import it from this module and therefore drew every planet at Earth's.
+# Same rule as above: the number is not written out, because the same scan looks for its name.
 ALT, AZ = KNOBS["alt"], 315.0
 WINDOW_ROWS = 256          # the snow-persistence banded-warp height (Phase A) AND composite_planet's
                            # DEFAULT window. Must stay 256: the persistence raster is banded at this
@@ -208,8 +213,13 @@ def write_if_changed(path: Path, text: str) -> Path:
 HILLSHADE_ONLY_KNOBS = frozenset({"fill_strength", "shadow_strength", "shadow_reach"})
 
 
-def hs_params() -> str:
+def hs_params(body: bodies.Body) -> str:
     """The hillshade's tunables, recorded as hs_3857's dependency — composite_params' sibling.
+
+    Takes the body because the exaggeration is one of those tunables and belongs to the planet, not
+    to this module. Recording it was already right; sourcing it from a module constant was not, and
+    the two were indistinguishable while Earth was the only body. Earth's sidecar is unmoved — its
+    field holds the value the constant did — so this cannot restage the live pyramid.
 
     Split out of build_hillshade so BOTH halves of the freshness contract are
     testable from the outside. The asymmetry was itself the hazard: composite_params had tests
@@ -226,7 +236,7 @@ def hs_params() -> str:
     Composite-stage knobs must NOT appear here: this raster cannot see them, so recording one
     restages an 11:48 hillshade that would produce identical bytes.
     """
-    params: dict[str, Any] = {"exag": EXAG, "alt": ALT, "az": AZ}
+    params: dict[str, Any] = {"exag": body.exaggeration, "alt": ALT, "az": AZ}
     if KNOBS["fill_strength"] != 0.0:
         params["fill"] = {"strength": KNOBS["fill_strength"],
                           "alt": hillshade.FILL_ALTITUDE, "az": hillshade.FILL_AZIMUTH}
@@ -422,8 +432,8 @@ def warp_inputs(work: Path, planet: Path, body: bodies.Body):
     return height
 
 
-def build_hillshade(work: Path, height: Path):
-    """The seamless per-row-z hillshade (skip if fresh).
+def build_hillshade(work: Path, height: Path, body: bodies.Body):
+    """The seamless per-row-z hillshade (skip if fresh), at THIS body's vertical exaggeration.
 
     Was `color_and_hillshade`: the two `gdaldem color-relief` passes it also ran were deleted
     (28:19 and 24.4% of all pass CPU, single-threaded; profile said `libgdal` 19.37%
@@ -432,13 +442,14 @@ def build_hillshade(work: Path, height: Path):
     over all 12.19 G px, 6/6 bands, zero pixels beyond 1 DN.
     """
     hs = work / "hs_3857.tif"
-    hs_params_path = write_if_changed(work / "hs_params.json", hs_params())
+    hs_params_path = write_if_changed(work / "hs_params.json", hs_params(body))
     if is_stale(hs, height, hs_params_path):
         fill_note = (f", fill {KNOBS['fill_strength']:.2f}" if KNOBS["fill_strength"] else "")
         shadow_note = (f", shadow {KNOBS['shadow_strength']:.2f}" if KNOBS["shadow_strength"]
                        else "")
-        print(f"per-row-z hillshade (EXAG={EXAG}{fill_note}{shadow_note}) ...", flush=True)
-        hillshade.per_row_zfactor_hillshade(height, hs, EXAG, ALT, AZ,
+        print(f"per-row-z hillshade (exag={body.exaggeration}{fill_note}{shadow_note}) ...",
+              flush=True)
+        hillshade.per_row_zfactor_hillshade(height, hs, body.exaggeration, ALT, AZ,
                                             fill_strength=KNOBS["fill_strength"],
                                             shadow_strength=KNOBS["shadow_strength"],
                                             shadow_reach_px=int(KNOBS["shadow_reach"]))
@@ -957,7 +968,7 @@ def main():
     work.mkdir(parents=True, exist_ok=True)
 
     height = warp_inputs(work, bodies.work_dir(body, "planet"), body)
-    hs = build_hillshade(work, height)
+    hs = build_hillshade(work, height, body)
     # Passed unevaluated: composite_planet runs it only if the composite is actually stale.
     # Production composite is threaded at COMPOSITE_ROWS/N_WORKERS (optimisation #5); the snow
     # persistence stays banded at WINDOW_ROWS (256), sliced 128 rows at a time.

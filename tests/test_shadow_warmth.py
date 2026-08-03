@@ -18,6 +18,7 @@ import numpy as np
 import pytest
 from conftest import hillshade_for_light
 
+from pipeline import bodies
 from pipeline.render import palette
 from pipeline.tile import shade
 from pipeline.tile.shade import SHADOW_TINT, shadow_tint
@@ -137,4 +138,4 @@ class TestFreshness:
         from pipeline.tile.shade_planet import HILLSHADE_ONLY_KNOBS, hs_params
 
         assert "shadow_warmth" not in HILLSHADE_ONLY_KNOBS
-        assert "shadow_warmth" not in math.__name__ + str(hs_params())
+        assert "shadow_warmth" not in math.__name__ + str(hs_params(bodies.EARTH))

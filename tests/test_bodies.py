@@ -17,10 +17,12 @@ call site rather than a silent inheritance of Earth's value by a planet nobody c
 """
 
 import dataclasses
+import json
 import math
 import re
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from pipeline import bodies, paths
@@ -405,4 +407,120 @@ def test_the_shade_pass_no_longer_carries_its_own_grid_or_ceiling() -> None:
     assert "max_zoom=8" not in source, (
         "shade_planet has regrown a hard-coded tile ceiling — it is Body.tile_max_zoom, and a "
         "literal here cuts every planet's pyramid to Earth's depth"
+    )
+
+
+def test_neither_shading_module_carries_its_own_exaggeration() -> None:
+    """Anti-regrowth over the third constant, and the one that reached furthest.
+
+    `EXAG` was a module constant in shade_planet and an IMPORT in cap_render, so the caps drew
+    every planet at Earth's relief however `--body` was set — and then feathered that into tiles
+    shaded at the body's own. Both spellings are scanned because both are how it comes back: a
+    local `EXAG = ...` reads as tidy, and re-importing it from the sibling reads as reuse.
+
+    The name is scanned rather than the number. A literal scan would miss `EXAG = 15` and
+    `EXAGGERATION = palette.EXAGGERATION` alike, and both are the same bug: a look value pinned
+    at module scope, where a body cannot reach it.
+    """
+    from pipeline.tile import cap_render
+
+    for module in (shade_planet, cap_render):
+        source = Path(module.__file__).read_text(encoding="utf-8")  # pyright: ignore[reportArgumentType]
+        assert re.search(r"\bEXAG", source) is None, (
+            f"{module.__name__} has regrown a module-scope exaggeration — it is Body.exaggeration, "
+            "and a constant here draws every planet at whichever one happens to be written down"
+        )
+
+
+def test_the_hillshade_recipe_records_the_body_s_own_exaggeration() -> None:
+    """The freshness half. Recording the exaggeration was always right; sourcing it from a
+    module constant meant the record could not MOVE, so re-tuning a body's relief would have left
+    its own sidecar unchanged and its hillshade reported fresh. Not a cross-body collision — each
+    body writes into its own work tree — but the quieter intra-body one: the recipe answers "would
+    a rerun produce different pixels?", and a frozen field always answers no."""
+    flatter = dataclasses.replace(bodies.EARTH, exaggeration=3.0)
+
+    earth = json.loads(shade_planet.hs_params(bodies.EARTH))
+    other = json.loads(shade_planet.hs_params(flatter))
+
+    assert earth["exag"] == bodies.EARTH.exaggeration
+    assert other["exag"] == 3.0
+    differing = {key for key in earth | other if earth.get(key) != other.get(key)}
+    assert differing == {"exag"}, (
+        f"changing only the exaggeration moved {sorted(differing)} in the hillshade recipe — "
+        "anything else here is a field that restages for a reason it does not have"
+    )
+
+
+def test_the_cap_recipe_records_the_body_s_own_exaggeration() -> None:
+    """The same claim one module over, on the recipe whose subject was actually broken. The
+    caps drew every planet at Earth's relief, and the recipe faithfully recorded the constant they
+    used — so the record was honest about a shader that was not. Now that the shader asks the body,
+    a frozen record is the remaining way to be wrong: re-tune a body's exaggeration and the ~14 GB
+    render reports fresh against a recipe that cannot see the change."""
+    from pipeline.tile import cap_render
+
+    flatter = dataclasses.replace(bodies.EARTH, exaggeration=3.0)
+
+    earth = json.loads(cap_render.cap_recipe(cap_render.north_grid(bodies.EARTH)))
+    other = json.loads(cap_render.cap_recipe(cap_render.north_grid(flatter)))
+
+    assert earth["light"]["exag"] == bodies.EARTH.exaggeration
+    assert other["light"]["exag"] == 3.0
+    earth["light"].pop("exag")
+    other["light"].pop("exag")
+    assert earth == other, (
+        "changing only the exaggeration moved something else in the cap recipe — the body enters "
+        "this record one named field at a time, and a whole-Body inline is how that stops holding"
+    )
+
+
+def test_the_hillshade_is_driven_at_the_body_s_exaggeration(tmp_path, monkeypatch) -> None:
+    """The scan above cannot see a bare literal at a CALL SITE, and the recipe tests cannot see a
+    pixel path that disagrees with the recipe. This drives the real entry point with a synthetic
+    body and reads back the number the shader was actually handed.
+
+    A recipe that says one exaggeration while the shader draws another is the worst shape available:
+    the sidecar reports fresh, the pyramid is wrong, and re-running changes nothing.
+    """
+    flatter = dataclasses.replace(bodies.EARTH, exaggeration=3.0)
+    handed: list[float] = []
+
+    def fake(_height, out, exaggeration, *_args, **_kwargs):
+        handed.append(exaggeration)
+        Path(out).write_text("shaded")
+
+    monkeypatch.setattr(shade_planet.hillshade, "per_row_zfactor_hillshade", fake)
+    height = tmp_path / "height_3857.tif"
+    height.write_text("heights")
+
+    shade_planet.build_hillshade(tmp_path, height, flatter)
+
+    assert handed == [3.0], (
+        f"the hillshade was driven at {handed} for a body whose exaggeration is 3.0 — "
+        "the shader has stopped asking the body and gone back to knowing the answer"
+    )
+
+
+def test_the_caps_are_shaded_at_the_body_s_exaggeration(monkeypatch) -> None:
+    """The same probe on the module where this was genuinely broken: cap_render imported the
+    constant, so both suns lit every planet at Earth's relief. Both are checked because the fill is
+    a second call with its own argument list, and a fix applied to one line is how the pair drifts.
+    """
+    from pipeline.tile import cap_render
+
+    flatter = dataclasses.replace(bodies.EARTH, exaggeration=3.0)
+    handed: list[float] = []
+
+    def fake(heights, _cell, zfactor, *_args, **_kwargs):
+        handed.append(zfactor)
+        return np.zeros((heights.shape[0] - 2, heights.shape[1]), dtype=np.float32)
+
+    monkeypatch.setattr(cap_render.hillshade, "hillshade_array", fake)
+    grid = cap_render.north_grid(flatter)
+    cap_render._shade(grid, np.zeros((4, 4), dtype=np.float32), np.zeros((4, 4), dtype=np.float32))
+
+    assert handed == [3.0, 3.0], (
+        f"the caps' main and fill suns were driven at {handed} for a body whose exaggeration is "
+        "3.0 — a cap shaded at another planet's relief feathers into tiles shaded at this one's"
     )

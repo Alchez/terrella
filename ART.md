@@ -61,7 +61,7 @@ Cost: hero sweep **~10–13 h** + tile restage **~29 min** + caps auto-restage *
 | `SNOW_RGB` / `SNOW_SHADOW_RGB` | `E8F1F6` / `B0C7DB` | § Snow |
 | `ICE_RGB` / `ICE_SHADOW_RGB` | `D4E4F0` / `9CB8D2` | § Sea ice |
 | `SUN_ALT_DEG` | 45.0 — hero X-tilt and tile `alt` both derive from it | § Sun altitude |
-| `EXAGGERATION` | 15.0 — hero displacement + tile `EXAG` both import it (the copy pair was collapsed) | § Vertical exaggeration |
+| `EXAGGERATION` | 15.0 — the hero's and the region preview's; the tiles read `Body.exaggeration`, pinned equal to it for Earth | § Vertical exaggeration |
 | `LUT_STEP_M` | 1.0 m — ramp LUT resolution (fidelity, not hue) | § Land color ramp |
 
 ### Hero only (`scene_build.py`, `render_prep.py`) — the 203-country sweep, ~10–13 h
@@ -87,7 +87,7 @@ Cost: hero sweep **~10–13 h** + tile restage **~29 min** + caps auto-restage *
 |---|---|---|---|
 | `fill_strength` | 0.15 | hillshade ~46 min | § Fill sun — TILES |
 | `shadow_strength` / `shadow_reach` | 0.0 (off; +~2.1 h when on) / 300 px | hillshade | § Fill sun — TILES |
-| tile `EXAG` (shade_planet.py) | 15 — imports `palette.EXAGGERATION` (shared, no longer a copy pair) | hillshade | § Vertical exaggeration |
+| `exaggeration` (bodies.py) | 15 on Earth — a per-body field; tiles AND caps read it, pinned equal to `palette.EXAGGERATION` | hillshade | § Vertical exaggeration |
 | `ambient` / `ambient_knee` | 0.50 / 0.30 | composite ~29 min | § Ambient floor |
 | `hi` / `exposure` / `saturation` / `warmth` | 1.12 / 1.05 / 1.18 / 0.06 | composite | § Ambient floor |
 | `shadow_warmth` | 0.55 | composite | § Hero → tile parameter map |
@@ -130,11 +130,12 @@ Cost: hero sweep **~10–13 h** + tile restage **~29 min** + caps auto-restage *
 
 ### Vertical exaggeration — global constant, per-country number
 
-- Baseline **15× globally** (`EXAGGERATION`, `palette.py` — imported by `render_prep` + `shade_planet`). The number in the scene is
+- Baseline **15× globally** (`EXAGGERATION`, `palette.py` — imported by `render_prep`; the tiles and caps read `Body.exaggeration`). The number in the scene is
   per-frame: `displacement_scale = 15 ÷ (extent_w_m / 2)` because the plane is always 2 units
   wide (India 8.0e-6, Nepal 3.3e-5, Sri Lanka 1.0e-4 — docs/framing-math.md). Copying one
   country's scale onto another multiplies exaggeration by the frame-width ratio.
-- **Adjust globally:** `EXAGGERATION` in `palette.py`, then regenerate frame.json per country
+- **Adjust globally:** `EXAGGERATION` in `palette.py` AND `exaggeration` on the body in `bodies.py` — a
+  test fails if you move one alone — then regenerate frame.json per country
   (delete + rerun; hand-edit pinned ones). **Adjust one country:** edit `displacement_scale` in
   its frame.json — legitimate only as a recorded pathology override; per-country drama
   re-litigates the series promise (same border, two posters, same mountain height).
@@ -221,7 +222,7 @@ Cost: hero sweep **~10–13 h** + tile restage **~29 min** + caps auto-restage *
 
 | Tile | Hero | Relationship |
 |---|---|---|
-| `EXAG` (shade_planet.py) | `render_prep` displacement (both import `palette.EXAGGERATION` 15.0) | **now import-shared** — the copy pair was collapsed into `palette` |
+| `exaggeration` (bodies.py) | `render_prep` displacement (imports `palette.EXAGGERATION` 15.0) | **pinned, not shared** — the tiles must vary per body, so a test holds Earth's field equal to the hero's constant |
 | `KNOBS["alt"]` 45°, azimuth 315° | `SUN_ROTATION` X = `90 − SUN_ALT_DEG`, NW | both derive from `palette.SUN_ALT_DEG` |
 | `KNOBS["fill_strength"]` 0.15 | `FILL_STRENGTH 0.45 / SUN_STRENGTH 3.0` | the ratio, ported exactly |
 | `FILL_ALTITUDE 60°` / `FILL_AZIMUTH 135°` | `FILL_ROTATION` | identical geometry |

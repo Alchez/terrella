@@ -13,6 +13,7 @@ import pytest
 
 from conftest import hillshade_for_light
 
+from pipeline import bodies
 from pipeline.render import palette
 from pipeline.tile import shade
 from pipeline.tile import shade_planet
@@ -142,7 +143,7 @@ class TestFreshness:
     def test_it_does_not_reach_the_hillshade_params(self):
         """The other half: a composite knob must not restage an 11:48 hillshade that cannot see
         it. hs_params carries the sun geometry and fill only."""
-        assert "snow_curve" not in json.dumps(shade_planet.hs_params())
+        assert "snow_curve" not in json.dumps(shade_planet.hs_params(bodies.EARTH))
 
 
 class TestCompositeHonoursTheKnob:

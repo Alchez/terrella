@@ -1817,6 +1817,70 @@ SABOTAGES: list[Sabotage] = [
     # The OVER-parameterisation direction, and the quieter one. Under-parameterising is loud — Mars
     # cuts to z8 and the disk says so. Moving an encoder setting onto the body reads as thoroughness
     # and silently lets two planets' encodings drift, with every other test still green.
+    Sabotage(
+        suite='python',
+        label='the planet hillshade is driven at a literal, so the recipe records a relief nobody drew',
+        path='pipeline/tile/shade_planet.py',
+        needle='        hillshade.per_row_zfactor_hillshade(height, hs, body.exaggeration, ALT, AZ,',
+        replacement='        hillshade.per_row_zfactor_hillshade(height, hs, 15.0, ALT, AZ,',
+        guard='test_the_hillshade_is_driven_at_the_body_s_exaggeration',
+    ),
+    # The WORST available shape and the reason a scan is not enough here. The sidecar still records
+    # the body's exaggeration, so it reports fresh; the pixels are drawn at Earth's; and re-running
+    # changes nothing, because the recipe it compares against never moved. Only driving the real
+    # entry point with a body that is not Earth can see the gap between the record and the shader.
+    Sabotage(
+        suite='python',
+        label="the caps' fill sun keeps Earth's relief while the main sun takes the body's",
+        path='pipeline/tile/cap_render.py',
+        needle='    fill = hillshade.hillshade_array(haloed, cell, grid.body.exaggeration,',
+        replacement='    fill = hillshade.hillshade_array(haloed, cell, 15.0,',
+        guard='test_the_caps_are_shaded_at_the_body_s_exaggeration',
+    ),
+    # ONE of the two suns, deliberately: a fix applied to the line someone happened to be reading is
+    # how a pair drifts, and a guard that checks only the main call would pass this cleanly.
+    Sabotage(
+        suite='python',
+        label='the hillshade recipe hardcodes the exaggeration, so re-tuning relief restages nothing',
+        path='pipeline/tile/shade_planet.py',
+        needle='    params: dict[str, Any] = {"exag": body.exaggeration, "alt": ALT, "az": AZ}',
+        replacement='    params: dict[str, Any] = {"exag": 15.0, "alt": ALT, "az": AZ}',
+        guard='test_the_hillshade_recipe_records_the_body_s_own_exaggeration',
+    ),
+    Sabotage(
+        suite='python',
+        label='the cap recipe hardcodes the exaggeration, so a re-tuned cap reports fresh forever',
+        path='pipeline/tile/cap_render.py',
+        needle='                       "light": {"az": AZ, "alt": ALT, "exag": grid.body.exaggeration,',
+        replacement='                       "light": {"az": AZ, "alt": ALT, "exag": 15.0,',
+        guard='test_the_cap_recipe_records_the_body_s_own_exaggeration',
+    ),
+    # The mirror of the two above: the shader takes the body and the RECORD forgets it. Each body
+    # writes into its own work tree, so this is not a collision between planets — it is the quieter
+    # one WITHIN a planet. Re-tune its relief and the sidecar never moves, so a 53.8 min composite and
+    # a ~14 GB cap render both find a matching recipe and skip, forever.
+    Sabotage(
+        suite='python',
+        label='a dormant Earth exaggeration reappears at module scope in the cap renderer',
+        path='pipeline/tile/cap_render.py',
+        needle='ROOT = paths.ROOT',
+        replacement='ROOT = paths.ROOT\nEXAG = 15.0',
+        guard='test_neither_shading_module_carries_its_own_exaggeration',
+    ),
+    # Unused, so every behavioural guard above stays green and the diff reads as a tidy local. This
+    # is the case that isolates what the SCAN is for: the constant is how the wiring comes back, and
+    # it is at its most invisible in the commit that merely defines it.
+    Sabotage(
+        suite='python',
+        label='the region preview regrows its own exaggeration and stops predicting the planet',
+        path='pipeline/tile/shade.py',
+        needle='EXAG = palette.EXAGGERATION  # the region path exists to PREDICT the planet',
+        replacement='EXAG = 15.0  # the region path exists to PREDICT the planet',
+        guard='test_exaggeration_is_shared',
+    ),
+    # Byte-identical output TODAY, which is the whole hazard: the region path is where every look
+    # A/B is judged, so a private copy only diverges once someone re-tunes the shared constant — and
+    # then the previews that ratified the change were rendered at the value it replaced.
     # --- The look seam ------------------------------------------------------------------------------
     # The ramps' kind-dispatch used to be transcribed in four functions; it is now one resolver over a
     # frozen Look. That is a refactor whose contract is "nothing changes", so its guard is a byte

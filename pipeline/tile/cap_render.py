@@ -55,8 +55,7 @@ from pipeline import bodies, paths
 from pipeline.render import hillshade, lake_depth, seaice, snow
 from pipeline.tile import shade, terrain_rgb
 from pipeline.tile.shade import KNOBS
-from pipeline.tile.shade_planet import (ALT, AZ, CAP_NORTH, CAP_SOUTH, EXAG,
-                                        composite_params)
+from pipeline.tile.shade_planet import ALT, AZ, CAP_NORTH, CAP_SOUTH, composite_params
 
 ROOT = paths.ROOT
 CAP_PX = 8192          # square texture side (south is a bigger disc -> coarser per px). 8192 chosen
@@ -298,8 +297,10 @@ def grid_recipe_fields(grid: CapGrid) -> dict:
     can move a cap pixel.
 
     TWO THINGS, BOTH LEARNED THE EXPENSIVE WAY. A bare `asdict` would inline the whole Body —
-    `path_prefix`, `tile_max_zoom`, `exaggeration` — and bind the caps' freshness to fields that
-    cannot change a cap pixel, restaging a render that peaks ~14 GB on an entirely unrelated edit.
+    `path_prefix`, `tile_max_zoom`, `map_units_per_pixel` — and bind the caps' freshness to fields
+    that cannot change a cap pixel, restaging a render that peaks ~14 GB on an unrelated edit. The
+    body fields that CAN move a cap pixel are named one at a time, here and in `cap_recipe`'s light
+    block, so that adding a field to the registry stays free until someone decides it is not.
     And the AEQD radius must be here: while it was a module constant it reached NO recipe at all
     (`asdict` serialises fields, and the projection string is a property), so changing it would have
     left both caps falsely fresh — the same untracked-input trap the composite's params exist to
@@ -322,7 +323,7 @@ def cap_recipe(grid: CapGrid) -> str:
     composite_params filters it out as hillshade-stage — for the tiles it rides in hs_params.json,
     but the caps have no hillshade sidecar, so it must ride here."""
     return json.dumps({"grid": grid_recipe_fields(grid),
-                       "light": {"az": AZ, "alt": ALT, "exag": EXAG,
+                       "light": {"az": AZ, "alt": ALT, "exag": grid.body.exaggeration,
                                  "fill_azimuth": hillshade.FILL_AZIMUTH,
                                  "fill_altitude": hillshade.FILL_ALTITUDE,
                                  "fill_strength": KNOBS["fill_strength"]},
@@ -431,13 +432,18 @@ def _lonlat_grid(grid: CapGrid) -> tuple[np.ndarray, np.ndarray]:
 def _shade(grid: CapGrid, heights: np.ndarray, longitude: np.ndarray) -> np.ndarray:
     """Combined light (main + fill) with the per-pixel longitude-rotated azimuth. heights get a
     1-row edge halo top+bottom (hillshade_array wraps columns itself; the wrapped seam sits in the
-    unused corners past the edge latitude)."""
+    unused corners past the edge latitude).
+
+    The exaggeration is the GRID's body, not this module's: it was imported from shade_planet, so
+    the caps drew every planet at Earth's relief however `--body` was set, and feathered that into
+    tiles shaded at the right one. A seam nothing would have flagged as a parameterisation bug."""
     cell = 2 * grid.edge_m / grid.px
     haloed = np.pad(heights, ((1, 1), (0, 0)), mode="edge")
     main_az = (AZ + grid.az_sign * longitude).astype(np.float32)
     fill_az = (hillshade.FILL_AZIMUTH + grid.az_sign * longitude).astype(np.float32)
-    shaded = hillshade.hillshade_array(haloed, cell, EXAG, ALT, main_az)
-    fill = hillshade.hillshade_array(haloed, cell, EXAG, hillshade.FILL_ALTITUDE, fill_az)
+    shaded = hillshade.hillshade_array(haloed, cell, grid.body.exaggeration, ALT, main_az)
+    fill = hillshade.hillshade_array(haloed, cell, grid.body.exaggeration,
+                                     hillshade.FILL_ALTITUDE, fill_az)
     # No pole special-case: the rotating azimuth's pinwheel wash at the exact pole is quenched by
     # `shade.KNOBS["ice_relief_damp"]` (the pack conceals the shading that fed the wash). The
     # colat-3 flat taper that used to sit here was measured retirable at damp 0.75 and deleted:

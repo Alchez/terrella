@@ -367,7 +367,7 @@ class TestCompositeDeps:
         """Snow is consumed by composite(), not the hillshade -- so its warp rasters belong in
         composite_deps, never hs_params. Recording them there would restage an 11:48 hillshade
         that cannot see them. (The composite-vs-hillshade split, same as snow_curve.)"""
-        hs_recorded = shade_planet.hs_params()
+        hs_recorded = shade_planet.hs_params(bodies.EARTH)
         assert "snow_persistence_3857" not in hs_recorded
         assert "glacier_3857" not in hs_recorded
 

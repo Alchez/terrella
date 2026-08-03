@@ -68,9 +68,12 @@ LAKE_MAX_M = 1642.0  # Baikal — the deepest lake GLOBathy carries; the lake ra
 SUN_ALT_DEG = 45.0   # the shared sun altitude: tile KNOBS["alt"] and the hero SUN_ROTATION
 # X-tilt (90 - alt) both derive from this (the sea-sync — the cure for the 46/45
 # split). Azimuth stays per-side: both are NW by their own conventions (tile 315, hero -45).
-EXAGGERATION = 15.0  # the shared vertical exaggeration: hero displacement_scale
-# (render_prep.scene_numbers) and tile hillshade (shade_planet.EXAG) both derive from it
-# — the last surviving copy-pair, moved here at the freeze-lift.
+EXAGGERATION = 15.0  # the HERO's vertical exaggeration: render_prep.scene_numbers derives
+# displacement_scale from it, and the region preview shades at it. The tile and cap path reads
+# Body.exaggeration instead — relief is a different fraction of the radius on every planet, so it
+# cannot be one number — and tests/test_bodies.py holds Earth's field equal to this. Pinned rather
+# than shared: shared would be wrong for the second body, and unpinned would let the tiles drift
+# away from the heroes they must match.
 
 
 def smoothstep(t: float) -> float:
