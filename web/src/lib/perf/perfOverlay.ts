@@ -1,4 +1,4 @@
-// On-screen performance overlay for /globe?perf — phones have no devtools console, so the
+// On-screen performance overlay for /earth?perf — phones have no devtools console, so the
 // numbers render into a corner panel the user can screenshot. Long tasks (main-thread blocks
 // >50 ms, the Long Tasks API) are the jank currency: their count/total/max during the first
 // seconds attribute "it lags" to real main-thread stalls, while map load / first idle separate
@@ -11,7 +11,7 @@ import type { Map as MaplibreMap } from "maplibre-gl";
 import { groupPerfLines, type PerfLine } from "./perfLines";
 import type { Interval } from "./perfTrace";
 
-/** Map-event stamps recorded by the PAGE at map construction (globe.astro), not by this
+/** Map-event stamps recorded by the PAGE at map construction (earth.astro), not by this
  *  module: the overlay is dynamically imported and loses the race on fast (prod-built)
  *  pages — "load" can fire before the module mounts, and the idle-triggered spin then
  *  keeps the map from ever idling again. The page fills this live object; the overlay
@@ -438,10 +438,10 @@ export function mountPerfOverlay(map: MaplibreMap, options: PerfOverlayOptions =
   // through synthetic gestures or hash jumps, and an A/B whose arms cannot be given the identical
   // camera route is the confound this project keeps paying for.
   //
-  // It lives HERE, not in globe.astro, and that is what gates it. This module is dynamically
+  // It lives HERE, not in earth.astro, and that is what gates it. This module is dynamically
   // imported inside the `?perf` branch alone, so an ordinary visit never downloads it, let alone
   // runs this line — the module boundary IS the gate, and no edit to a page can accidentally widen
-  // it. The first version sat in globe.astro behind the flag with a test asserting the assignment
+  // it. The first version sat in earth.astro behind the flag with a test asserting the assignment
   // appeared within the flag block's text span; a sabotage that moved it out of the block while
   // leaving it inside the span passed that test cleanly. A guard that matches a region cannot
   // decide what encloses a statement.

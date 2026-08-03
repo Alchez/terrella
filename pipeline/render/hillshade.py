@@ -28,10 +28,10 @@ from typing import Any
 import numpy as np
 import rasterio
 
+from pipeline import bodies, mercator
 from pipeline.raster_io import GTIFF_CREATE, band_window, row_bands
 from pipeline.render import cast_shadow
 
-EARTH_RADIUS = 6378137.0  # Web Mercator sphere radius
 
 # The hero's fill sun, ported to the tiles (scene_build.FILL_ROTATION (30, 0, 135) -> 60 deg up
 # from the SE; FILL_ANGLE 10; use_shadow off). "Shadowless" used to reproduce for free, because a
@@ -101,7 +101,9 @@ def combine_fill(main: np.ndarray, fill: np.ndarray, strength: float, altitude: 
 def _latitude_of_rows(transform, row_indices: np.ndarray) -> np.ndarray:
     """Latitude (degrees) of pixel-row centres from an EPSG:3857 geotransform."""
     merc_y = transform.f + (row_indices + 0.5) * transform.e  # transform.e < 0 (north-up)
-    return np.degrees(2.0 * np.arctan(np.exp(merc_y / EARTH_RADIUS)) - math.pi / 2.0)
+    # Still Earth-bound at this one explicit site, where it used to be a bare literal duplicated in
+    # snow.py. The conversion itself now lives in `mercator` and takes the sphere it is projected on.
+    return mercator.latitude_at(merc_y, bodies.EARTH.mercator_radius_m)
 
 
 def hillshade_array(heights: np.ndarray, cellsize: float, zfactor,

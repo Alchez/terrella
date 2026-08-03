@@ -5,6 +5,7 @@ Caspian miss, where re-fusing 4 of 540 chunks left every derived raster
 silently stale because the old guard only asked whether the output existed.
 """
 
+import dataclasses
 import json
 import os
 import time
@@ -15,7 +16,8 @@ import rasterio
 from rasterio.transform import from_bounds
 
 from pipeline.render import palette, seaice
-from pipeline.tile import shade_planet
+from pipeline import bodies
+from pipeline.tile import cap_render, shade_planet
 
 
 def _age(path, seconds):
@@ -583,3 +585,59 @@ class TestTileRecipe:
         before = params.stat().st_mtime
         shade_planet.write_if_changed(params, shade_planet.tile_params())
         assert params.stat().st_mtime == before
+
+
+class TestTheBodyIsRequired:
+    """`--body` has no default, and that is the point of it.
+
+    A pipeline that assumes Earth when nobody said so is the most expensive failure mode this
+    registry exists to prevent: it does not raise, it produces a complete, plausible, entirely wrong
+    pyramid. Cheap to re-run, ruinous to discover late — so the argument is required rather than
+    defaulted, and every documented invocation names the planet it means.
+    """
+
+    def test_omitting_the_body_is_an_error_rather_than_an_assumption(self):
+        with pytest.raises(SystemExit):
+            shade_planet.build_parser().parse_args([])
+
+    def test_a_named_body_resolves_to_its_own_work_tree(self):
+        args = shade_planet.build_parser().parse_args(["--body", "earth"])
+        assert shade_planet.resolve_out(args) == bodies.work_dir(bodies.EARTH, "planet_tiles")
+
+    def test_an_explicit_out_still_wins_over_the_body_s_default(self, tmp_path):
+        """The override has to survive, because a look A/B is run by pointing --out elsewhere."""
+        args = shade_planet.build_parser().parse_args(["--body", "earth", "--out", str(tmp_path)])
+        assert shade_planet.resolve_out(args) == tmp_path
+
+    def test_an_unknown_body_is_rejected_by_the_registry_not_silently_accepted(self):
+        args = shade_planet.build_parser().parse_args(["--body", "pluto"])
+        with pytest.raises(KeyError):
+            shade_planet.resolve_body(args)
+
+    def test_the_shade_pass_hands_its_own_body_down_to_the_cap_pass(self, subtests):
+        """The caps run as a SUBPROCESS at the tail of this pass, so the body crosses a process
+        boundary as a string on a command line — the one place the registry cannot protect it.
+
+        Without this, a Mars pass composites Mars and then shells out to a cap render that renders
+        EARTH, into Earth's directories, over Earth's shipped textures. Every stage reports success.
+
+        Written as a round trip rather than as two pinned strings on purpose: it builds the real
+        command and parses it with the real parser on the other side, so renaming the flag on either
+        side fails here instead of at the next multi-body render.
+        """
+        for name in sorted(bodies.BODIES):
+            with subtests.test(name):
+                body = bodies.get(name)
+                command = shade_planet.cap_pass_command(body)
+                module = command.index("pipeline.tile.cap_render")
+                parsed = cap_render.build_parser().parse_args(command[module + 1:])
+                assert bodies.get(parsed.body) is body
+
+        with subtests.test("a body the registry does not know yet"):
+            # THE LOOP ABOVE CANNOT CATCH A HARDCODED "earth" while the registry holds one body —
+            # every assertion in it would pass against a command that ignored its argument entirely.
+            # This is the arm that says the command names the body it was GIVEN, and it is the arm
+            # that will still be doing work on the day a second planet is added.
+            other = dataclasses.replace(bodies.EARTH, name="other", path_prefix="other")
+            command = shade_planet.cap_pass_command(other)
+            assert command[command.index("--body") + 1] == "other"

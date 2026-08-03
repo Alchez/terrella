@@ -23,7 +23,7 @@ import { readFileSync } from "node:fs";
  * for something ~700 ms away from needing it. Reverting the import costs FCP 629 → 1,264 ms.
  */
 const WEB_ROOT = new URL("../../", import.meta.url).pathname;
-const globe = readFileSync(`${WEB_ROOT}src/pages/globe.astro`, "utf8");
+const globe = readFileSync(`${WEB_ROOT}src/pages/earth.astro`, "utf8");
 const astroConfig = readFileSync(`${WEB_ROOT}astro.config.ts`, "utf8");
 
 describe("MapLibre's stylesheet must not block the globe's first paint", () => {

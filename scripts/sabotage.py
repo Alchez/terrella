@@ -89,6 +89,16 @@ MUTABLE_ROOTS = (
     # carries an exemption list, and a skip-list nobody can mutate is a skip-list nobody can prove
     # is still doing anything — which is the failure mode it exists to prevent.
     "tests/test_hero_variants.py",
+    # Joined for the body registry. Its whole safety story is a set of bridge tests holding the
+    # duplicated constants (`EARTH_RADIUS` twice, `EXAGGERATION` once) to the registry's copy until
+    # each original is deleted — and a bridge nobody can mutate is a bridge nobody can prove is
+    # load-bearing. The look package as a whole, because the parameterisation touches all of it.
+    "pipeline/bodies.py",
+    "pipeline/render",
+    # Joined with the required `--body`. The planet entry points are where a silent Earth assumption
+    # would be reintroduced, and it is invisible while Earth is the only body — so the guards against
+    # it are worth exactly as much as the proof that they still fire.
+    "pipeline/tile",
 )
 
 # Set for the duration of one case, so the backup THIS run is holding does not trip the leftover
@@ -238,7 +248,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='cap ordering: put applyCacheCap back BEFORE setTerrain',
-        path='web/src/pages/globe.astro',
+        path='web/src/pages/earth.astro',
         needle='      map.setTerrain({ source: TERRAIN_SOURCE, exaggeration: exaggerationFor(map.getZoom()) });\n      applyCacheCap();',
         replacement='      applyCacheCap();\n      map.setTerrain({ source: TERRAIN_SOURCE, exaggeration: exaggerationFor(map.getZoom()) });',
         guard='caps the DEM cache AFTER setTerrain, which is what builds the manager it lands on',
@@ -246,7 +256,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='recovery watch no longer re-adds the polar caps',
-        path='web/src/pages/globe.astro',
+        path='web/src/pages/earth.astro',
         needle='        reassertPolarCaps();\n',
         replacement='',
         guard='puts back what a restore silently drops, once the map reads healthy',
@@ -254,7 +264,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='recovery watch no longer re-asserts the DEM bound',
-        path='web/src/pages/globe.astro',
+        path='web/src/pages/earth.astro',
         needle='        reassertTerrainBound();\n',
         replacement='',
         guard='puts back what a restore silently drops, once the map reads healthy',
@@ -262,7 +272,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='loss handler stops starting the watch (back to event-driven recovery)',
-        path='web/src/pages/globe.astro',
+        path='web/src/pages/earth.astro',
         needle='    startRecoveryWatch(performance.now() + GL_RESTORE_GRACE_MS);',
         replacement='',
         guard='starts the recovery watch from the LOSS, because the restore event may never fire',
@@ -270,7 +280,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='loss handler stops charging the recurrence budget',
-        path='web/src/pages/globe.astro',
+        path='web/src/pages/earth.astro',
         needle='    if (recoveryVerdict(chargedLosses) === "give-up") {',
         replacement='    if (false) {',
         guard='bounds recovery by recurrence rather than trying to read a cause that does not exist',
@@ -278,7 +288,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='cap re-assertion reports without repairing',
-        path='web/src/pages/globe.astro',
+        path='web/src/pages/earth.astro',
         needle='        applyCacheCap();\n        console.info(`[terrain] DEM cache cap was not in force',
         replacement='        console.info(`[terrain] DEM cache cap was not in force',
         guard='REPAIRS a dropped cap before reporting it, and lets the next idle be the judge',
@@ -286,7 +296,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='cap re-assertion verifies its own write synchronously (the stale-oracle bug)',
-        path='web/src/pages/globe.astro',
+        path='web/src/pages/earth.astro',
         needle='        applyCacheCap();\n        console.info(',
         replacement='        applyCacheCap();\n        demCacheCapFault(map.style?.tileManagers?.[TERRAIN_SOURCE], intendedCacheSlots);\n        console.info(',
         guard='REPAIRS a dropped cap before reporting it, and lets the next idle be the judge',
@@ -294,7 +304,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='polar cap re-add stops clearing the dead layers first',
-        path='web/src/pages/globe.astro',
+        path='web/src/pages/earth.astro',
         needle='        if (map.getLayer(layerId)) map.removeLayer(layerId);',
         replacement='        void layerId;',
         guard='re-adds the caps on recovery, from OUTSIDE style.load, because that ordering is too early',
@@ -302,7 +312,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='restore handler touches the notice again (the original bug)',
-        path='web/src/pages/globe.astro',
+        path='web/src/pages/earth.astro',
         needle='    window.clearTimeout(restoreWatchdog);\n    startRecoveryWatch(performance.now());',
         replacement='    window.clearTimeout(restoreWatchdog);\n    glLostNotice?.setAttribute("hidden", "");\n    startRecoveryWatch(performance.now());',
         guard='NEVER hides the notice on the restore event alone — this is the whole bug',
@@ -327,7 +337,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='base source uncapped — maxzoom follows relief, losing the one-tile guarantee',
-        path='web/src/pages/globe.astro',
+        path='web/src/pages/earth.astro',
         needle='    maxzoom: RELIEF_BASE_MAX_ZOOM,',
         replacement='    maxzoom: RELIEF_MAX_ZOOM,',
         guard='caps the base source at z0, because that is what makes it unmissable',
@@ -343,7 +353,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='base layer drawn OVER relief, hiding the real tiles',
-        path='web/src/pages/globe.astro',
+        path='web/src/pages/earth.astro',
         needle='        { id: "relief", type: "raster", source: "relief", paint: { "raster-fade-duration": 0 } },\n      ],',
         replacement='      ],',
         guard='draws the base UNDER relief and OVER the background, or it is pointless',
@@ -351,7 +361,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='base source registered but never added to the style',
-        path='web/src/pages/globe.astro',
+        path='web/src/pages/earth.astro',
         needle='sources: { relief: reliefSource, "relief-base": reliefBaseSource },',
         replacement='sources: { relief: reliefSource },',
         guard='draws the base UNDER relief and OVER the background, or it is pointless',
@@ -359,7 +369,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='base source grows a second attribution, doubling the credit',
-        path='web/src/pages/globe.astro',
+        path='web/src/pages/earth.astro',
         needle='    maxzoom: RELIEF_BASE_MAX_ZOOM,\n    tileSize: 256,\n  };',
         replacement='    maxzoom: RELIEF_BASE_MAX_ZOOM,\n    tileSize: 256,\n    attribution: CREDITS,\n  };',
         guard='caps the base source at z0, because that is what makes it unmissable',
@@ -368,7 +378,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='re-assertion stops honouring the retirement flag',
-        path='web/src/pages/globe.astro',
+        path='web/src/pages/earth.astro',
         needle='    reassertTerrainBound = () => {\n      if (terrainRetired) return;',
         replacement='    reassertTerrainBound = () => {\n      if (false) return;',
         guard='goes quiet when the FPS ladder retires terrain, instead of crying wolf about the cap',
@@ -376,7 +386,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='applyCacheCap stops honouring the retirement flag',
-        path='web/src/pages/globe.astro',
+        path='web/src/pages/earth.astro',
         needle='    const applyCacheCap = () => {\n      if (terrainRetired) return;',
         replacement='    const applyCacheCap = () => {\n      if (false) return;',
         guard='goes quiet when the FPS ladder retires terrain, instead of crying wolf about the cap',
@@ -384,7 +394,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='flag raised AFTER the teardown, so an idle inside it still false-alarms',
-        path='web/src/pages/globe.astro',
+        path='web/src/pages/earth.astro',
         needle='          terrainRetired = true;\n          map.setTerrain(null);',
         replacement='          map.setTerrain(null);\n          terrainRetired = true;',
         guard='goes quiet when the FPS ladder retires terrain, instead of crying wolf about the cap',
@@ -489,7 +499,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label="the ladder reads the DISPLAY ratio again, not the map's",
-        path='web/src/pages/globe.astro',
+        path='web/src/pages/earth.astro',
         needle='          pixelRatioLowered,\n          devicePixelRatio: map.getPixelRatio(),',
         replacement='          pixelRatioLowered,\n          devicePixelRatio: window.devicePixelRatio || 1,',
         guard="feeds the ladder the MAP's ratio, never the display's",
@@ -497,7 +507,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='the dead-globe notice sinks back under the perf panel',
-        path='web/src/pages/globe.astro',
+        path='web/src/pages/earth.astro',
         needle='    z-index: 50;',
         replacement='    z-index: 20;',
         guard='keeps the dead-globe notice above the ?perf panel',
@@ -505,7 +515,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label="the perf report reads the DISPLAY ratio instead of the map's",
-        path='web/src/pages/globe.astro',
+        path='web/src/pages/earth.astro',
         needle='              devicePixelRatio: map.getPixelRatio(),',
         replacement='              devicePixelRatio: window.devicePixelRatio || 1,',
         guard="reports the MAP's ratio in the perf snapshot too, not the display's",
@@ -513,7 +523,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='the report probes capabilities per tick again — 13.3 WebGL contexts/second',
-        path='web/src/pages/globe.astro',
+        path='web/src/pages/earth.astro',
         needle='            signals: probedSignals,',
         replacement='            signals: probeSignals(),',
         guard="is never called from the ?perf overlay's per-tick path",
@@ -521,7 +531,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='the tier is cached, so a mid-session quality change goes unreported',
-        path='web/src/pages/globe.astro',
+        path='web/src/pages/earth.astro',
         needle='            tier: decideGlobeTier(probedSignals, getQuality()),',
         replacement='            tier: bootTier,',
         guard='still tracks a quality change the user makes mid-session',
@@ -531,9 +541,9 @@ SABOTAGES: list[Sabotage] = [
         # The chord comes back. `+` matches DOM order, so hiding fullscreen leaves its divider on
         # the quiet button below, and the group's 999px radius clips it into a dark arc.
         label='quiet mode keeps the divider of the button it hid',
-        path='web/src/pages/globe.astro',
-        needle='    border-top-width: 0;',
-        replacement='    border-top-width: 1px;',
+        path='web/src/styles/globe.css',
+        needle='  border-top-width: 0;',
+        replacement='  border-top-width: 1px;',
         guard='cancels the hairline on the button after the hidden fullscreen control',
     ),
     Sabotage(
@@ -541,9 +551,9 @@ SABOTAGES: list[Sabotage] = [
         # The specificity, tidied away. `body.is-quiet .rg-ctrl-quiet` is the obvious way to write
         # this cancel and it is (0,3,1) against a (0,4,2) divider — it loses, silently.
         label="the divider cancel is rewritten without the specificity that makes it win",
-        path='web/src/pages/globe.astro',
-        needle='    .maplibregl-ctrl-group.maplibregl-ctrl-group\n    .maplibregl-ctrl-fullscreen\n    + button {',
-        replacement='    .maplibregl-ctrl-group\n    .maplibregl-ctrl-fullscreen\n    + button {',
+        path='web/src/styles/globe.css',
+        needle='  .maplibregl-ctrl-group.maplibregl-ctrl-group\n  .maplibregl-ctrl-fullscreen\n  + button {',
+        replacement='  .maplibregl-ctrl-group\n  .maplibregl-ctrl-fullscreen\n  + button {',
         guard='keeps the cancel more specific than the divider it has to beat',
     ),
     Sabotage(
@@ -551,7 +561,7 @@ SABOTAGES: list[Sabotage] = [
         # The original defect restored: a side-effect import makes Vite hoist MapLibre's 70 KB
         # widget sheet into a render-blocking <link>, in front of a paint that needs none of it.
         label="MapLibre's stylesheet goes back to blocking first paint",
-        path='web/src/pages/globe.astro',
+        path='web/src/pages/earth.astro',
         needle='import maplibreStylesheet from "maplibre-gl/dist/maplibre-gl.css?url";',
         replacement='import "maplibre-gl/dist/maplibre-gl.css";\nconst maplibreStylesheet = "";',
         guard='imports it for its URL, never for its side effect',
@@ -561,7 +571,7 @@ SABOTAGES: list[Sabotage] = [
         # The scripts-off hole. `onload` is an inline handler, so without the noscript twin a
         # visitor with JS disabled keeps media="print" forever and the controls render unstyled.
         label='the deferred stylesheet loses its noscript fallback',
-        path='web/src/pages/globe.astro',
+        path='web/src/pages/earth.astro',
         needle='  <noscript slot="head">',
         replacement='  <template slot="head">',
         guard='links it non-blocking, with the noscript twin that makes that safe',
@@ -627,7 +637,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='the perf overlay stops receiving the DEM cache line',
-        path='web/src/pages/globe.astro',
+        path='web/src/pages/earth.astro',
         needle='                  ...demCache().map((text) => ({ group: "ram" as const, text })),',
         replacement='',
         guard='surfaces the line through the perf overlay, so it is visible in Zen without devtools',
@@ -636,7 +646,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='helper stops rejecting an empty read',
-        path='web/src/pages/globe.astro',
+        path='web/src/pages/earth.astro',
         needle='return snapshotHasContent(snapshot) ? snapshot : null;',
         replacement='return snapshot;',
         guard='rejects an empty read at the single place a routine sample is taken',
@@ -644,7 +654,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='an empty idle read erases the healthy sample',
-        path='web/src/pages/globe.astro',
+        path='web/src/pages/earth.astro',
         needle='lastHealthyGlState = sampledGlState() ?? lastHealthyGlState;',
         replacement='lastHealthyGlState = sampledGlState();',
         guard='never overwrites the healthy sample with an empty read',
@@ -652,7 +662,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='export stops taking a fresh sample',
-        path='web/src/pages/globe.astro',
+        path='web/src/pages/earth.astro',
         needle='{ sampleGlNow: true }',
         replacement='{ sampleGlNow: false }',
         guard='takes a FRESH sample on export and the stale one on the panel tick',
@@ -660,7 +670,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='the 300 ms panel tick opts into per-tick sampling',
-        path='web/src/pages/globe.astro',
+        path='web/src/pages/earth.astro',
         needle='perfReportLines(composeReport(timing, { expanded: true }))',
         replacement='perfReportLines(composeReport(timing, { expanded: true }, { sampleGlNow: true }))',
         guard='takes a FRESH sample on export and the stale one on the panel tick',
@@ -668,7 +678,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='the fresh/stale switch is bypassed entirely',
-        path='web/src/pages/globe.astro',
+        path='web/src/pages/earth.astro',
         needle='gl: (sampleGlNow ? sampledGlState() : null) ?? lastHealthyGlState,',
         replacement='gl: lastHealthyGlState,',
         guard='takes a FRESH sample on export and the stale one on the panel tick',
@@ -684,7 +694,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='the page writes the seam itself, where nothing structural gates it',
-        path='web/src/pages/globe.astro',
+        path='web/src/pages/earth.astro',
         needle='    const probedSignals = probeSignals();',
         replacement='    window.terrellaMap = map;\n    const probedSignals = probeSignals();',
         guard='is not also written from the page, where nothing structural would gate it',
@@ -804,7 +814,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='the buffer is never raised, so totals silently truncate at 250',
-        path='web/src/pages/globe.astro',
+        path='web/src/pages/earth.astro',
         needle='? raiseResourceTimingBuffer(performance, RESOURCE_TIMING_BUFFER_SIZE)',
         replacement='? RESOURCE_TIMING_BUFFER_SIZE',
         guard='calls the raiser, which a test of the function alone does not check',
@@ -844,7 +854,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='a page statically VALUE-imports the instrument, shipping it to every visitor',
-        path='web/src/pages/globe.astro',
+        path='web/src/pages/earth.astro',
         needle='  import type { CameraFill } from "../lib/perf/perfNetwork";',
         replacement='  import { newCameraFill } from "../lib/perf/perfNetwork";',
         guard='is never statically VALUE-imported by a page',
@@ -852,7 +862,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='an instrument module stops loading dynamically',
-        path='web/src/pages/globe.astro',
+        path='web/src/pages/earth.astro',
         needle='import("../lib/perf/perfNetwork"),',
         replacement='import("../lib/perf/perfNetworkX"),',
         guard='is reached only through a dynamic import, or through a sibling that is',
@@ -876,7 +886,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='the buffer raise moves AFTER the map, so early entries are lost in silence',
-        path='web/src/pages/globe.astro',
+        path='web/src/pages/earth.astro',
         needle='  const resourceTimingBufferSize = urlFlags.has("perf")\n    ? raiseResourceTimingBuffer(performance, RESOURCE_TIMING_BUFFER_SIZE)\n    : null;',
         replacement='  const resourceTimingBufferSize: number | null = null;',
         guard='calls the raiser, which a test of the function alone does not check',
@@ -1043,7 +1053,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='country-hit moves back above the highlight layers, costing a third drape stack',
-        path='web/src/pages/globe.astro',
+        path='web/src/pages/earth.astro',
         needle=(
             '      addCountryHighlight(); // hover outline on top of everything, so the edge stays crisp\n'
         ),
@@ -1051,7 +1061,7 @@ SABOTAGES: list[Sabotage] = [
             '      addCountryHitTargets();\n'
             '      addCountryHighlight(); // hover outline on top of everything, so the edge stays crisp\n'
         ),
-        guard='matches what globe.astro actually adds last',
+        guard='matches what earth.astro actually adds last',
     ),
     Sabotage(
         suite='web',
@@ -1189,30 +1199,30 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='the pressed-quiet cancel is tidied back to the selector that loses',
-        path='web/src/pages/globe.astro',
+        path='web/src/styles/globe.css',
         needle=(
-            '  body.is-quiet\n'
-            '    .maplibregl-ctrl-top-right\n'
-            '    .maplibregl-ctrl-group.maplibregl-ctrl-group\n'
-            '    .rg-ctrl-quiet[aria-pressed="true"] {'
+            'body.is-quiet\n'
+            '  .maplibregl-ctrl-top-right\n'
+            '  .maplibregl-ctrl-group.maplibregl-ctrl-group\n'
+            '  .rg-ctrl-quiet[aria-pressed="true"] {'
         ),
-        replacement='  body.is-quiet .rg-ctrl-quiet[aria-pressed="true"] {',
+        replacement='body.is-quiet .rg-ctrl-quiet[aria-pressed="true"] {',
         guard='never reverts to the un-doubled form that silently loses',
     ),
     Sabotage(
         suite='web',
         label='only the fill is cancelled, leaving the glyph painted in the background colour',
-        path='web/src/pages/globe.astro',
+        path='web/src/styles/globe.css',
         needle=(
-            '    .rg-ctrl-quiet[aria-pressed="true"] {\n'
-            '    color: var(--muted);\n'
-            '    background: none;\n'
-            '  }'
+            '  .rg-ctrl-quiet[aria-pressed="true"] {\n'
+            '  color: var(--muted);\n'
+            '  background: none;\n'
+            '}'
         ),
         replacement=(
-            '    .rg-ctrl-quiet[aria-pressed="true"] {\n'
-            '    background: none;\n'
-            '  }'
+            '  .rg-ctrl-quiet[aria-pressed="true"] {\n'
+            '  background: none;\n'
+            '}'
         ),
         guard='cancels BOTH the accent fill and the accent text colour, at a specificity that wins',
     ),
@@ -1224,10 +1234,10 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='the icon stencil is deleted, so currentColor paints the whole button box',
-        path='web/src/pages/globe.astro',
+        path='web/src/styles/globe.css',
         needle=(
-            '    -webkit-mask-image: var(--rail-icon);\n'
-            '    mask-image: var(--rail-icon);\n'
+            '  -webkit-mask-image: var(--rail-icon);\n'
+            '  mask-image: var(--rail-icon);\n'
         ),
         replacement='',
         guard='gives every masked control a real stencil painted in currentColor',
@@ -1235,7 +1245,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='an icon payload is truncated, which CSS accepts and SVG does not',
-        path='web/src/pages/globe.astro',
+        path='web/src/styles/globe.css',
         needle="1.5-.75 1.5-1.5S19.75 13 19 13z'/%3E%3C/svg%3E\");",
         replacement="1.5-.75 1.5-1.5S19.75 13 19 13z'/%3E\");",
         guard='parses each data URI the page authors, and proves it found them',
@@ -1243,7 +1253,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='a rail toggle is renamed past the rule that gives it an icon',
-        path='web/src/pages/globe.astro',
+        path='web/src/pages/earth.astro',
         needle='    className: "rg-ctrl-spin",',
         replacement='    className: "rg-ctrl-orbit",',
         guard='gives every rail toggle the page builds an icon to draw',
@@ -1271,7 +1281,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='the ruler goes back to map.unproject, paying a GPU readback twice per frame',
-        path='web/src/pages/globe.astro',
+        path='web/src/pages/earth.astro',
         needle='    return locate.call(transform, new maplibregl.Point(x, y));',
         replacement='    return map.unproject([x, y]);',
         guard='measures through the transform, not through map.unproject',
@@ -1279,7 +1289,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='terrain is handed to screenPointToLocation, which is the expensive overload',
-        path='web/src/pages/globe.astro',
+        path='web/src/pages/earth.astro',
         needle='locate.call(transform, new maplibregl.Point(x, y))',
         replacement='locate.call(transform, new maplibregl.Point(x, y), map.terrain)',
         guard='names no terrain, which is the only way to make that call read back the GPU',
@@ -1290,7 +1300,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='the measured function is renamed, so a name-anchored guard could silently find nothing',
-        path='web/src/pages/globe.astro',
+        path='web/src/pages/earth.astro',
         needle='  function updateRuler(): void {',
         replacement='  function refreshRulerReading(): void {',
         guard='keeps the per-frame path free of any unproject at all',
@@ -1298,7 +1308,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='the locator function is renamed, the other half of the same vacuity risk',
-        path='web/src/pages/globe.astro',
+        path='web/src/pages/earth.astro',
         needle='  function locateOnDatum([x, y]: [number, number]): maplibregl.LngLat {',
         replacement='  function pickLocator([x, y]: [number, number]): maplibregl.LngLat {',
         guard='measures through the transform, not through map.unproject',
@@ -1310,7 +1320,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='the transform lookup is hoisted out of the per-call path, freezing the reading',
-        path='web/src/pages/globe.astro',
+        path='web/src/pages/earth.astro',
         needle='    const transform = (map.painter as unknown as { transform?: Record<string, unknown> } | undefined)\n      ?.transform;',
         replacement='    const transform = hoistedTransform;',
         guard='measures through the transform, not through map.unproject',
@@ -1421,7 +1431,7 @@ SABOTAGES: list[Sabotage] = [
         label='the Globe link returns to the nav, refilling the row it was removed from',
         path='web/src/pages/index.astro',
         needle='      <a href="/about/">About</a>',
-        replacement='      <a href="/globe/">Globe</a>\n      <a href="/about/">About</a>',
+        replacement='      <a href="/earth/">Globe</a>\n      <a href="/about/">About</a>',
         guard='holds one layout across every heading width at 412px',
     ),
     # The subtle direction: the row still fits on THIS machine's fallback font, and stops fitting
@@ -1492,14 +1502,14 @@ SABOTAGES: list[Sabotage] = [
         ),
         guard='never removes a masthead link from script',
     ),
-    # Dropping the nav link orphaned /globe/ — it held the only <a> to it on the site, and the view
+    # Dropping the nav link orphaned /earth/ — it held the only <a> to it on the site, and the view
     # bar is display:none without JS. The About link is the replacement route, and nothing about a
     # build can see that it has gone.
     Sabotage(
         suite='web',
         label='the About page stops linking the globe, orphaning it from crawlers and no-JS',
         path='web/src/pages/about.astro',
-        needle='<a href="/globe/">an interactive globe</a>',
+        needle='<a href="/earth/">an interactive globe</a>',
         replacement='an interactive globe',
         guard='keeps a real, crawlable link to the globe somewhere a clone can follow',
     ),
@@ -1512,7 +1522,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='the globe gains a second toggle, spending the row it had left at 320px',
-        path='web/src/pages/globe.astro',
+        path='web/src/pages/earth.astro',
         needle='  borders={true}',
         replacement='  borders={true}\n  spotlight={true}',
         guard='fits on one row at 320px on the globe',
@@ -1635,6 +1645,402 @@ SABOTAGES: list[Sabotage] = [
         needle='      lastPointerPosition = null;\n      setHovered(null);\n    },',
         replacement='      lastPointerPosition = null;\n      scheduleFrame(() => setHovered(null));\n    },',
         guard='clears synchronously when the pointer leaves, with no frame of lingering chip',
+    ),
+    # --- The body registry -------------------------------------------------------------------------
+    # The registry is a pure addition that nothing reads yet, so the only thing it can be wrong about
+    # is its own contract. All three mutations below leave a pipeline that runs and a planet that
+    # renders — which is the entire reason a second body needs this module before it needs data.
+    Sabotage(
+        suite='python',
+        label='the registry radius is "corrected" to the spherical mean, tilting every latitude',
+        path='pipeline/bodies.py',
+        needle='    mercator_radius_m=6378137.0,',
+        replacement='    mercator_radius_m=6371000.0,',
+        guard='test_earth_carries_web_mercator_s_defining_sphere',
+    ),
+    # The plausible edit: 6371000 IS a real earth radius, just not the projection's one. Nothing
+    # crashes; the per-row z-factor is quietly wrong at every latitude. It used to be catchable only
+    # as drift between two copies; now there is one home, so the guard pins the value itself.
+    Sabotage(
+        suite='python',
+        label='a shading module regrows its own sphere radius beside the shared one',
+        path='pipeline/render/snow.py',
+        needle='    return mercator.latitude_at(merc_y, bodies.EARTH.mercator_radius_m)',
+        replacement='    return mercator.latitude_at(merc_y, 6378137.0)',
+        guard='test_the_render_package_no_longer_carries_its_own_earth_radius',
+    ),
+    # Identical output today, which is exactly why nothing else would notice: the module has quietly
+    # stopped asking the body and gone back to knowing the answer.
+    Sabotage(
+        suite='python',
+        label='an unknown body silently falls back to Earth instead of raising',
+        path='pipeline/bodies.py',
+        needle='    try:\n        return BODIES[name]',
+        replacement='    if name not in BODIES:\n        return EARTH\n    try:\n        return BODIES[name]',
+        guard='test_an_unknown_body_raises_and_names_the_ones_that_exist',
+    ),
+    # A misspelt body name then produces a complete, plausible, entirely wrong pyramid.
+    Sabotage(
+        suite='python',
+        label='a Body field gains a default, so a new planet inherits Earth without being asked',
+        path='pipeline/bodies.py',
+        # THE LAST FIELD, deliberately. Defaulting any earlier one is followed by a field without a
+        # default, so Python refuses the class at import and the module never loads — which reads as
+        # "caught" while leaving the guard itself unexercised. Only a mutation the interpreter
+        # accepts can prove the test does the work.
+        needle='    path_prefix: str\n',
+        replacement='    path_prefix: str = ""\n',
+        guard='test_no_field_carries_a_default_so_a_new_one_must_be_decided_per_body',
+    ),
+    # --- The look seam ------------------------------------------------------------------------------
+    # The ramps' kind-dispatch used to be transcribed in four functions; it is now one resolver over a
+    # frozen Look. That is a refactor whose contract is "nothing changes", so its guard is a byte
+    # hash rather than a property — every mutation below leaves ramps that are still monotonic, still
+    # hit their stops, and still agree with gdaldem within 1 DN, which is all the property tests ask.
+    Sabotage(
+        suite='python',
+        label='the look resolver swaps land and sea, repainting the whole planet inside out',
+        path='pipeline/render/palette.py',
+        needle='    if kind == "land":\n        return look.land\n    if kind == "sea":\n        return look.sea',
+        replacement='    if kind == "land":\n        return look.sea\n    if kind == "sea":\n        return look.land',
+        guard='test_gdaldem_ramp_text_is_unchanged',
+    ),
+    # The sea ramp's LUT starts at the abyss, not at 0 m. Dropping the offset leaves a table that is
+    # the right length, the right dtype and the right shape, and wrong at every index.
+    Sabotage(
+        suite='python',
+        label='the sea LUT loses its abyss offset, so every depth reads the wrong colour',
+        path='pipeline/render/palette.py',
+        needle='    base = min(0.0, ramp.extreme_m)\n    colors = ',
+        replacement='    base = 0.0\n    colors = ',
+        guard='test_relief_lut_bytes_are_unchanged',
+    ),
+    # --- Where a body's intermediates live -----------------------------------------------------------
+    # The body is carried by the PATH, deliberately not by the freshness recipes: adding a body key to
+    # composite_params.json would restage a 21:37 composite and a 4:19 cut to emit identical pixels.
+    # That makes the path resolver load-bearing, and both mutations below are silent — Earth keeps
+    # running, and only a second planet discovers it has been writing into Earth's directories.
+    Sabotage(
+        suite='python',
+        label='the work prefix is dropped, so every body writes into Earth\'s own directories',
+        path='pipeline/bodies.py',
+        needle='    return paths.DATA / "work" / body.path_prefix / stage',
+        replacement='    return paths.DATA / "work" / stage',
+        guard='test_another_body_nests_under_its_own_name',
+    ),
+    # A stage name assembled by concatenation then walks out of the body's tree — and lands in
+    # another planet's intermediates, which is where a mistake here stops being recoverable.
+    Sabotage(
+        suite='python',
+        label='the stage-name check is relaxed, letting a path expression escape the body tree',
+        path='pipeline/bodies.py',
+        needle='    if not stage or "/" in stage or "\\\\" in stage or stage in {".", ".."}:',
+        replacement='    if False:',
+        guard='test_a_stage_name_cannot_escape_the_body_s_own_directory',
+    ),
+    # --- The caps' two roots -------------------------------------------------------------------------
+    # Intermediates follow the data store, served assets follow the checkout. Collapsing them is
+    # silent in every local run, because on an unrelocated checkout the two roots coincide.
+    Sabotage(
+        suite='python',
+        label='served assets are resolved against the data store, so a relocated store publishes nothing',
+        path='pipeline/bodies.py',
+        needle='    return PUBLIC_ROOT / stage / body.path_prefix',
+        replacement='    return paths.DATA / "web/public" / stage / body.path_prefix',
+        guard='test_served_assets_follow_the_checkout_not_the_data_store',
+    ),
+    # The prefix moves to the wrong side of the stage: Earth is unaffected (its prefix is empty), so
+    # this ships green and only a second body finds its caps published at the wrong URL.
+    Sabotage(
+        suite='python',
+        label='the caps prefix is applied above the stage, publishing a second body at the wrong URL',
+        path='pipeline/bodies.py',
+        needle='    return PUBLIC_ROOT / stage / body.path_prefix',
+        replacement='    return PUBLIC_ROOT / body.path_prefix / stage',
+        guard='test_a_second_body_publishes_under_its_own_segment',
+    ),
+    # --- The body is required --------------------------------------------------------------------
+    # Both mutations restore a silent Earth assumption. Neither raises, neither changes a pixel today,
+    # and both mean a Mars pass would quietly shade with Earth's geometry into Earth's directories —
+    # the one failure this whole workstream exists to make impossible.
+    Sabotage(
+        suite='python',
+        label='--body regains a default, so a pass with no planet named silently means Earth',
+        path='pipeline/tile/shade_planet.py',
+        needle='    ap.add_argument("--body", required=True,',
+        replacement='    ap.add_argument("--body", default="earth",',
+        guard='test_omitting_the_body_is_an_error_rather_than_an_assumption',
+    ),
+    # The override stops being honoured, so a look A/B silently writes over the production tree.
+    Sabotage(
+        suite='python',
+        label='--out stops overriding the body default, so an A/B overwrites the live pyramid',
+        path='pipeline/tile/shade_planet.py',
+        needle='    return args.out if args.out is not None else bodies.work_dir(resolve_body(args), "planet_tiles")',
+        replacement='    return bodies.work_dir(resolve_body(args), "planet_tiles")',
+        guard='test_an_explicit_out_still_wins_over_the_body_s_default',
+    ),
+    # --- The caps' body facts ------------------------------------------------------------------------
+    # The AEQD sphere moved onto the body. Both mutations below leave caps that render, project and
+    # blend — one records a radius nothing checks, the other gates a ~14 GB render on fields that
+    # cannot move a pixel. Neither is visible in any output.
+    Sabotage(
+        suite='python',
+        label='the whole Body is inlined in the cap recipe, gating a 14 GB render on tile_max_zoom',
+        path='pipeline/tile/cap_render.py',
+        needle='    fields = {key: value for key, value in asdict(grid).items() if key != "body"}',
+        replacement='    fields = dict(asdict(grid))',
+        guard='test_the_whole_body_is_not_inlined',
+    ),
+    # And the other direction: the radius drops out of the recipe, which is the state it was in
+    # before this change — a module constant that reached no sidecar, so moving it left caps fresh.
+    Sabotage(
+        suite='python',
+        label='the AEQD radius drops out of the recipe, so moving it leaves both caps falsely fresh',
+        path='pipeline/tile/cap_render.py',
+        needle='    fields["aeqd_radius_m"] = grid.body.aeqd_radius_m\n',
+        replacement='',
+        guard='test_the_projection_radius_is_recorded',
+    ),
+    # The two spheres collapse into one. 7 km apart, so the cap still projects and still blends —
+    # it simply lands on a different parallel than the tiles it feathers into.
+    Sabotage(
+        suite='python',
+        label='the AEQD sphere is collapsed onto the Mercator one, moving the cap off its parallel',
+        path='pipeline/bodies.py',
+        needle='    aeqd_radius_m=6371000.0,',
+        replacement='    aeqd_radius_m=6378137.0,',
+        guard='test_a_body_carries_two_distinct_radii_and_they_are_not_interchangeable',
+    ),
+    # --- Where a cap reads and writes ----------------------------------------------------------
+    # Each of these leaves a cap that renders and blends perfectly; only its LOCATION is wrong, and
+    # a location is exactly what no rendered pixel can report on.
+    Sabotage(
+        suite='python',
+        label='the served cap directory ignores the body, so a Mars cap overwrites Earth\'s texture',
+        path='pipeline/tile/cap_render.py',
+        needle='    return bodies.public_dir(body, "caps")',
+        replacement='    return bodies.public_dir(bodies.EARTH, "caps")',
+        guard='test_a_second_body_cannot_land_its_caps_on_earths',
+    ),
+    # The reading half, which is worse: it does not overwrite anything, it renders a clean Arctic
+    # from Earth's fused heightfield and publishes it as another planet's pole.
+    Sabotage(
+        suite='python',
+        label="a second body's caps source Earth's fused planet rasters",
+        path='pipeline/tile/cap_render.py',
+        needle='    return bodies.work_dir(body, "planet")',
+        replacement='    return bodies.work_dir(bodies.EARTH, "planet")',
+        guard='test_a_second_body_cannot_land_its_caps_on_earths',
+    ),
+    # The two roots collapse. Served assets would follow the relocatable data store instead of the
+    # checkout, so a run with MAPS_DATA set publishes nothing and reports success.
+    Sabotage(
+        suite='python',
+        label='served cap textures follow the data store rather than the checkout',
+        path='pipeline/tile/cap_render.py',
+        needle='    return bodies.public_dir(body, "caps")',
+        replacement='    return bodies.work_dir(body, "caps")',
+        guard='test_earth_reads_and_writes_exactly_where_it_always_has',
+    ),
+    # --- The web body descriptor -----------------------------------------------------------------
+    # `--accent` has no bare `:root` declaration by design: a page that reaches the stylesheet
+    # without `data-body` must lose its accent visibly rather than wear Earth's silently. That makes
+    # the attribute load-bearing for every link, button and heading rule on the site.
+    Sabotage(
+        suite='web',
+        label='the layout stops writing data-body, so every page loads with no accent at all',
+        path='web/src/layouts/Base.astro',
+        needle='<html lang="en" class="no-js" data-body={body}>',
+        replacement='<html lang="en" class="no-js">',
+        guard='renders data-body on <html>, server-side and unconditionally',
+    ),
+    # The attribute goes on the wrong element. `:root` IS <html>, so this compiles, renders, and
+    # silently matches nothing — a mistake no type can catch, since both spellings are valid Astro.
+    Sabotage(
+        suite='web',
+        label='data-body lands on <body>, where the token block cannot see it',
+        path='web/src/layouts/Base.astro',
+        needle='<html lang="en" class="no-js" data-body={body}>',
+        replacement='<html lang="en" class="no-js">\n  <body data-body={body}>',
+        guard='renders data-body on <html>, server-side and unconditionally',
+    ),
+    # A bare fallback creeps back in. Earth looks perfect and the attribute becomes decorative, so
+    # the second body inherits Earth's teal at exactly the moment nobody is checking Earth.
+    Sabotage(
+        suite='web',
+        label='a bare :root accent returns, making a page that declares no body silently Earth',
+        path='web/src/styles/global.css',
+        needle=':root[data-body="earth"] {\n  --accent: #3a6e7d;',
+        replacement=':root {\n  --accent: #3a6e7d;',
+        guard='leaves the accent undefined when no body is declared, rather than defaulting to Earth',
+    ),
+    # The copied colour drifts. This is the WATER_RGB failure one layer up: the stylesheet and the
+    # descriptor both state the accent, and only a test comparing them can notice they stopped agreeing.
+    Sabotage(
+        suite='web',
+        label="the stylesheet's accent drifts from the descriptor that is supposed to own it",
+        path='web/src/styles/global.css',
+        needle='  --accent: #3a6e7d; /* deep-sea teal, from the hero ramp */',
+        replacement='  --accent: #3a6f7d; /* deep-sea teal, from the hero ramp */',
+        guard="computes the descriptor's colour for every body the site knows",
+    ),
+    # The prop gains a default, which is what makes `astro check` stop asking. The page that forgets
+    # to name its body then renders in Earth's chrome and passes every gate.
+    Sabotage(
+        suite='web',
+        label='the body prop gains a default, so a page that names no planet quietly gets Earth',
+        path='web/src/layouts/Base.astro',
+        needle='  body,\n} = Astro.props;',
+        replacement='  body = "earth",\n} = Astro.props;',
+        guard='takes the body as a required prop with no default',
+    ),
+    # --- The route is the body's slug ------------------------------------------------------------
+    # `/earth/` is a body route now, not a page name that happens to be there. The guard that admits
+    # a capable visitor cannot import the registry (it runs before the bundle), so the route is
+    # spelled in both places and only a test can hold them together.
+    Sabotage(
+        suite='web',
+        label='the pre-paint guard sends capable visitors to a route that no longer exists',
+        path='web/src/layouts/Base.astro',
+        needle='          location.replace("/earth/");',
+        replacement='          location.replace("/globe/");',
+        guard='steers a capable first-time visitor from the gallery to the globe',
+    ),
+    # The other half of the same guard: it stops recognising that it is already on a globe route, so
+    # a visitor who lands there is bounced or re-steered rather than left alone.
+    Sabotage(
+        suite='web',
+        label='the guard stops recognising the globe route it is standing on',
+        path='web/src/layouts/Base.astro',
+        needle='          var atGlobe = path === "/earth" || path === "/earth/";',
+        replacement='          var atGlobe = path === "/globe" || path === "/globe/";',
+        guard='marks the session steered when the globe is reached by deep link',
+    ),
+    # --- The globe's two stylesheets -------------------------------------------------------------
+    # The global rules are a file so a second body's page can import the same one; the SCOPED block
+    # cannot follow, because Astro stamps it with `[data-astro-cid-…]` and that attribute is worth a
+    # class of specificity. Both mutations below leave every rule intact and change only where it
+    # lives, which is the entire failure mode: no error, no missing declaration, just a level lost.
+    Sabotage(
+        suite='web',
+        label='the page stops importing its global stylesheet, shipping the widgets unstyled',
+        path='web/src/pages/earth.astro',
+        needle='import "../styles/globe.css";\n',
+        replacement='',
+        guard='imports the global stylesheet, or the page ships with none of it',
+    ),
+    # The scoped block is re-declared global, which strips the cid from every rule in it.
+    Sabotage(
+        suite='web',
+        label='the scoped block goes global, dropping a specificity level off every page rule',
+        path='web/src/pages/earth.astro',
+        needle='\n<style>\n',
+        replacement='\n<style is:global>\n',
+        guard='keeps the SCOPED block in the page, where Astro can stamp it',
+    ),
+    # A scoped rule migrates into the shared file, where it compiles without its cid.
+    Sabotage(
+        suite='web',
+        label='a page-scoped rule is moved into the shared stylesheet and loses its cid',
+        path='web/src/styles/globe.css',
+        needle='.chrome-credit.chrome-credit.maplibregl-ctrl.maplibregl-ctrl {',
+        replacement='.starfield {\n  z-index: 0;\n}\n.chrome-credit.chrome-credit.maplibregl-ctrl.maplibregl-ctrl {',
+        guard="keeps the page's own elements out of the shared stylesheet",
+    ),
+    # --- The globe's floor is a body fact --------------------------------------------------------
+    # `space-floor` exists so a gap in the tiles reads as more of this planet rather than as a hole
+    # to space. Every mutation below leaves a globe that renders perfectly for Earth and is wrong in
+    # a way that looks like slow loading for anything else.
+    Sabotage(
+        suite='web',
+        label='the space-floor goes back to a fixed colour, so every body gets Earth\'s ocean',
+        path='web/src/pages/earth.astro',
+        needle='paint: { "background-color": body.spaceFloor }',
+        replacement='paint: { "background-color": "#47808F" }',
+        guard='paints the background layer from the descriptor',
+    ),
+    # The runtime lookup stops being strict. A page whose layout forgot to declare its body then
+    # draws Earth's sea under its missing tiles and reports nothing.
+    Sabotage(
+        suite='web',
+        label='the page falls back to Earth when no body is declared instead of failing',
+        path='web/src/lib/bodies.ts',
+        needle='  if (slug === undefined) {\n    throw new Error(\n      "<html> carries no data-body: the page\'s layout must declare which body it draws",\n    );\n  }',
+        replacement='  if (slug === undefined) {\n    return BODIES.earth;\n  }',
+        guard='throws when the layout declared nothing, rather than assuming Earth',
+    ),
+    # The imported stop becomes a third hand-typed copy of the hex, with nothing comparing it back
+    # to the sea surface it is supposed to match — the WATER_RGB failure, repeated.
+    Sabotage(
+        suite='web',
+        label="the body's floor colour is retyped instead of imported, and drifts off the ramp",
+        path='web/src/lib/bodies.ts',
+        needle='    spaceFloor: DEEP_SEA,',
+        replacement='    spaceFloor: "#478090",',
+        guard="takes Earth's floor from the pipeline's own stop rather than a third copy of the hex",
+    ),
+    # --- The cap pass takes its own body ---------------------------------------------------------
+    # The same argument the shade pass requires, on the entry point that renders the caps. A default
+    # here is worse than one there: the caps are invoked automatically at the shade pass's tail, so
+    # a defaulted body means a Mars pass ends by re-rendering Earth's poles and reporting success.
+    Sabotage(
+        suite='python',
+        label='the cap pass defaults its body, so a Mars pass ends by re-rendering Earth\'s poles',
+        path='pipeline/tile/cap_render.py',
+        needle='    parser.add_argument("--body", required=True,',
+        replacement='    parser.add_argument("--body", default="earth",',
+        guard='test_omitting_the_body_is_an_error_rather_than_an_assumption',
+    ),
+    # The handoff itself. Dropping the flag is loud (the cap pass refuses to start); hardcoding the
+    # name is silent, and stays silent until the day a second body exists.
+    Sabotage(
+        suite='python',
+        label='the shade pass hands the cap pass a hardcoded earth instead of its own body',
+        path='pipeline/tile/shade_planet.py',
+        needle='    return [sys.executable, "-m", "pipeline.tile.cap_render", "--body", body.name]',
+        replacement='    return [sys.executable, "-m", "pipeline.tile.cap_render", "--body", "earth"]',
+        guard='test_the_shade_pass_hands_its_own_body_down_to_the_cap_pass',
+    ),
+    Sabotage(
+        suite='python',
+        label='the shade pass stops passing --body to the cap pass at all',
+        path='pipeline/tile/shade_planet.py',
+        needle='    return [sys.executable, "-m", "pipeline.tile.cap_render", "--body", body.name]',
+        replacement='    return [sys.executable, "-m", "pipeline.tile.cap_render"]',
+        guard='test_the_shade_pass_hands_its_own_body_down_to_the_cap_pass',
+    ),
+    # --- The grids are built per body ----------------------------------------------------------
+    # A factory that ignores its argument is the exact failure the module constants were deleted to
+    # remove, and it is invisible: the cap projects, blends and publishes — on Earth's sphere, from
+    # Earth's heightfield, over Earth's shipped textures.
+    Sabotage(
+        suite='python',
+        label='the north grid factory pins Earth, so every body inherits Earth by construction',
+        path='pipeline/tile/cap_render.py',
+        needle='    return CapGrid(lat_0=90.0, edge_lat=78.0, px=CAP_PX, name="north", az_sign=-1.0, body=body)',
+        replacement='    return CapGrid(lat_0=90.0, edge_lat=78.0, px=CAP_PX, name="north", az_sign=-1.0,\n                   body=bodies.EARTH)',
+        guard='test_a_factory_carries_the_body_it_was_given_all_the_way_through',
+    ),
+    # The URL is rebuilt from the basename, which is what it used to be. Correct for Earth, whose
+    # segment is empty; every nesting body advertises its whole texture set one directory up.
+    Sabotage(
+        suite='python',
+        label="a cap's served URL is rebuilt from its basename, 404ing every body that nests",
+        path='pipeline/tile/cap_render.py',
+        needle='    return "/" + asset.relative_to(bodies.PUBLIC_ROOT).as_posix()',
+        replacement='    return f"/caps/{asset.name}"',
+        guard='test_the_served_url_matches_where_the_texture_is_actually_written',
+    ),
+    # The pole prefix stops being derived. Both renderers then share one set of AEQD warps, so
+    # whichever ran last decides what the other one shaded.
+    Sabotage(
+        suite='python',
+        label='the cap warp prefix is hardcoded north, so both poles share one set of warps',
+        path='pipeline/tile/cap_render.py',
+        needle='    return cap_work_dir(grid.body) / f"cap{grid.name[0].upper()}_{layer}.tif"',
+        replacement='    return cap_work_dir(grid.body) / f"capN_{layer}.tif"',
+        guard='test_earth_reads_and_writes_exactly_where_it_always_has',
     ),
     # --- The portrait fill rung ----------------------------------------------------------------
     # A rung names the LONG EDGE while `srcset` selects on WIDTH, so these mutations all produce a

@@ -71,7 +71,7 @@ describe("decideTier — auto (probe decides), pessimistic by default", () => {
   it("slow network → globe, NOT gallery (a slow link is not a reason to refuse the globe)", () => {
     // It used to return `gallery`, sharing a line with Save-Data. That made the module disagree
     // with `Base.astro`'s pre-paint guard, which consults `saveData` and has never consulted this:
-    // the guard admitted a slow-network visitor to /globe/ and the module then declared the device
+    // the guard admitted a slow-network visitor to /earth/ and the module then declared the device
     // unable to run it. A slow link now buys what low memory buys — the globe minus what `full` adds.
     expect(decideTier(signals({ slowNetwork: true }), "auto")).toBe("globe");
   });
@@ -103,7 +103,7 @@ describe("decideGlobeTier — `gallery` on a page already showing the globe is a
   it("clamps a soft demotion to globe, where plain decideTier says gallery", () => {
     // Save-Data is the live case: `Base.astro`'s pre-paint guard bounces on `quality === "lite"`
     // and on the hard floor, and has NEVER consulted saveData — so a Save-Data visitor who
-    // deep-links /globe/ is admitted and was then told the device could not run it.
+    // deep-links /earth/ is admitted and was then told the device could not run it.
     expect(decideTier(signals({ saveData: true }), "auto")).toBe("gallery");
     expect(decideGlobeTier(signals({ saveData: true }), "auto")).toBe("globe");
   });
@@ -153,7 +153,7 @@ describe("decideTier — quality type is the persisted contract", () => {
 //
 // These tests exist because the guard shipped with a bug nothing pinned. `rg:steered` was written
 // ONLY on the auto-steer path, so it meant "we bounced you once" rather than "this session has
-// seen the globe" — and a visitor who reached /globe any other way (deep link, or the view bar's
+// seen the globe" — and a visitor who reached /earth any other way (deep link, or the view bar's
 // Globe/Full button, which additionally cleared the flag) had their ← Gallery click hijacked
 // straight back to the globe.
 const guardSource = (() => {
@@ -246,7 +246,7 @@ describe("Base.astro tier guard — steering onto the globe", () => {
   // and every "does not redirect" assertion below would pass vacuously. This test is the one that
   // fails loudly if the harness stops driving the real code.
   it("steers a capable first-time visitor from the gallery to the globe", () => {
-    expect(visit({ path: "/" })).toEqual({ redirects: ["/globe/"], steered: true });
+    expect(visit({ path: "/" })).toEqual({ redirects: ["/earth/"], steered: true });
   });
 
   it("steers only once per session, so a deliberate return to the gallery sticks", () => {
@@ -263,28 +263,28 @@ describe("Base.astro tier guard — steering onto the globe", () => {
 
   it("respects data-saver on auto, but not against an explicit choice", () => {
     expect(visit({ path: "/", saveData: true }).redirects).toEqual([]);
-    expect(visit({ path: "/", quality: "full", saveData: true }).redirects).toEqual(["/globe/"]);
+    expect(visit({ path: "/", quality: "full", saveData: true }).redirects).toEqual(["/earth/"]);
   });
 });
 
 describe("Base.astro tier guard — rg:steered means 'this session has seen the globe'", () => {
   // The regression the flag's old meaning caused, one test per route onto the globe.
   it("marks the session steered when the globe is reached by deep link", () => {
-    expect(visit({ path: "/globe/" })).toEqual({ redirects: [], steered: true });
+    expect(visit({ path: "/earth/" })).toEqual({ redirects: [], steered: true });
   });
 
   it("marks it for the extensionless path too", () => {
-    expect(visit({ path: "/globe" }).steered).toBe(true);
+    expect(visit({ path: "/earth" }).steered).toBe(true);
   });
 
   it("does NOT mark it when the globe refuses to render, since it was never seen", () => {
-    expect(visit({ path: "/globe/", quality: "lite" })).toEqual({ redirects: ["/"], steered: false });
-    expect(visit({ path: "/globe/", webgl2: false })).toEqual({ redirects: ["/"], steered: false });
+    expect(visit({ path: "/earth/", quality: "lite" })).toEqual({ redirects: ["/"], steered: false });
+    expect(visit({ path: "/earth/", webgl2: false })).toEqual({ redirects: ["/"], steered: false });
   });
 
   it("lets ← Gallery reach the gallery after a deep-linked globe visit", () => {
     // The reported bug, end to end: the flag written by visit one must survive into visit two.
-    const globeVisit = visit({ path: "/globe/" });
+    const globeVisit = visit({ path: "/earth/" });
     expect(globeVisit.steered).toBe(true);
     expect(visit({ path: "/", steered: globeVisit.steered }).redirects).toEqual([]);
   });
@@ -344,7 +344,7 @@ describe("Base.astro view bar", () => {
     // for the copy — a tooltip left describing only the idle spin would have been undersold with
     // nothing to catch it. Now: if terrain rides on the tier the tooltip must say so, and if it
     // ever stops riding on the tier the claim must come back out.
-    const globe = readFileSync(new URL("../pages/globe.astro", import.meta.url), "utf8");
+    const globe = readFileSync(new URL("../pages/earth.astro", import.meta.url), "utf8");
     // Keyed on the fact rather than on one spelling — the twin of this detector is in
     // terrainSource.test.ts, and both went red together when `currentTier()` was hoisted to a
     // `bootTier` const, which is the drift signal working rather than a defect.
@@ -496,16 +496,16 @@ describe("isSoftwareRenderer — and the two browsers that report it differently
 });
 
 describe("Base.astro tier guard — the software-rasterizer floor it used to be missing", () => {
-  it("bounces a software-rasterizer visitor who deep-links /globe", () => {
+  it("bounces a software-rasterizer visitor who deep-links /earth", () => {
     // Previously the guard tested WebGL2 alone, so this visitor rendered the globe while the
     // page module was independently deciding "gallery" — the two disagreed on the same device.
-    const outcome = visit({ path: "/globe/", unmaskedRenderer: "Google SwiftShader" });
+    const outcome = visit({ path: "/earth/", unmaskedRenderer: "Google SwiftShader" });
     expect(outcome.redirects).toEqual(["/"]);
   });
 
   it("bounces one whose only renderer string is the standard parameter (Firefox)", () => {
     const outcome = visit({
-      path: "/globe/",
+      path: "/earth/",
       unmaskedRenderer: null, // no WEBGL_debug_renderer_info
       renderer: "llvmpipe (LLVM 15.0.7, 256 bits)",
     });
@@ -520,7 +520,7 @@ describe("Base.astro tier guard — the software-rasterizer floor it used to be 
 
   it("still steers a real GPU — the control that stops the three above passing vacuously", () => {
     const outcome = visit({ path: "/", unmaskedRenderer: "Apple M2 Pro" });
-    expect(outcome.redirects).toEqual(["/globe/"]);
+    expect(outcome.redirects).toEqual(["/earth/"]);
   });
 });
 
@@ -588,7 +588,7 @@ describe("canRunGlobe — one floor, exported so nothing re-derives it", () => {
 });
 
 describe("the scripted-diagnosis seam is gated by the module boundary", () => {
-  const globe = readFileSync(new URL("../pages/globe.astro", import.meta.url), "utf8");
+  const globe = readFileSync(new URL("../pages/earth.astro", import.meta.url), "utf8");
   const overlay = readFileSync(new URL("./perf/perfOverlay.ts", import.meta.url), "utf8");
 
   it("lives in the lazily-imported instrument, so an ordinary visit cannot reach it", () => {
@@ -603,7 +603,7 @@ describe("the scripted-diagnosis seam is gated by the module boundary", () => {
   });
 
   it("is not also written from the page, where nothing structural would gate it", () => {
-    // The first version of this seam DID live in globe.astro behind the flag, guarded by a test
+    // The first version of this seam DID live in earth.astro behind the flag, guarded by a test
     // asserting the assignment appeared within the flag block's text span. A sabotage that closed
     // the block early and re-opened it after the assignment passed that test: the statement was
     // outside the gate and still inside the span. A region match cannot decide what encloses a
@@ -614,7 +614,7 @@ describe("the scripted-diagnosis seam is gated by the module boundary", () => {
 
 describe("probeSignals is a GPU allocation, and callers must treat it as one", () => {
   const capability = readFileSync(new URL("./capability.ts", import.meta.url), "utf8");
-  const globe = readFileSync(new URL("../pages/globe.astro", import.meta.url), "utf8");
+  const globe = readFileSync(new URL("../pages/earth.astro", import.meta.url), "utf8");
 
   it("releases the context it creates, not just the canvas", () => {
     // A live WebGL context is a GPU resource held until GC. Browsers force-lose the OLDEST live
@@ -639,7 +639,7 @@ describe("probeSignals is a GPU allocation, and callers must treat it as one", (
     // the least stable part of a declaration.
     const compose = globe.match(/const composeReport = \([\s\S]*?\n {8}\};/)?.[0];
     expect(compose, "the report composer must exist").toBeTruthy();
-    // A RUNAWAY DETECTOR, not a size budget — globe.astro is ~100 KB, so anything that escaped the
+    // A RUNAWAY DETECTOR, not a size budget — earth.astro is ~100 KB, so anything that escaped the
     // composer overshoots this by an order of magnitude. Bumped once, when the report gained
     // `probedTier`; bump it again for a legitimate growth rather than trimming the composer to fit.
     expect(compose!.length, "matched a runaway span, not the composer").toBeLessThan(4000);

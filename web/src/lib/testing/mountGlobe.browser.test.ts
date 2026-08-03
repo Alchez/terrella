@@ -5,7 +5,7 @@ import { FIXTURE_HEIGHT_PX, FIXTURE_WIDTH_PX, mountGlobe, type MountedGlobe } fr
  * The first test in this suite that instantiates a real MapLibre map.
  *
  * WHY THIS EXISTS. Every frontend guard here is a unit test over a pure function, a source-text
- * assertion over `globe.astro?raw`, or a canary over the shipped bundle. None of them can watch the
+ * assertion over `earth.astro?raw`, or a canary over the shipped bundle. None of them can watch the
  * map DO anything, and that gap has shipped a defect: the scale ruler went to production frozen —
  * one label at every zoom — with the unit tests green, the source guards green, the bundle
  * byte-identical to the local build, and the metric the fix targeted reading a perfect 0 readPixels

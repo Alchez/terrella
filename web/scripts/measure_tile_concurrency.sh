@@ -24,7 +24,7 @@
 
 set -euo pipefail
 
-URL_BASE="${URL_BASE:-https://terrella.alchez.dev/globe/}"
+URL_BASE="${URL_BASE:-https://terrella.alchez.dev/earth/}"
 RUNS="${1:-3}"
 RUNGS=(4 8 16 32)
 OUT="${OUT:-/tmp/tile-concurrency}"

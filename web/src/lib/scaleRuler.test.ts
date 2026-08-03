@@ -6,10 +6,10 @@ import {
   rulerSamplePoints,
   RULER_WIDTH_PX,
 } from "./scaleRuler";
-import globeSource from "../pages/globe.astro?raw";
+import globeSource from "../pages/earth.astro?raw";
 
 /**
- * The body of a named function in globe.astro, matched by BRACES rather than by a text span.
+ * The body of a named function in earth.astro, matched by BRACES rather than by a text span.
  *
  * A span matcher cannot tell what encloses a statement — it happily reports a line that has been
  * moved out of the block it was guarding. Counting braces is the only reading that answers
@@ -17,7 +17,7 @@ import globeSource from "../pages/globe.astro?raw";
  */
 function functionBody(source: string, signature: string): string {
   const start = source.indexOf(signature);
-  expect(start, `globe.astro no longer contains \`${signature}\``).toBeGreaterThan(-1);
+  expect(start, `earth.astro no longer contains \`${signature}\``).toBeGreaterThan(-1);
   let depth = 0;
   for (let index = start + signature.length - 1; index < source.length; index += 1) {
     if (source[index] === "{") depth += 1;

@@ -1,5 +1,9 @@
 ---
 import Base from "../layouts/Base.astro";
+// The globe's global styles — the MapLibre re-skin and the page-level state classes. A file rather
+// than a `<style is:global>` block so a second body's page can import the same one; see its header
+// for why the SCOPED block below could not move with it.
+import "../styles/globe.css";
 import { REPO_URL } from "../lib/siteLinks";
 
 // `?url` gives the emitted asset's href WITHOUT injecting the stylesheet, which is the whole point:
@@ -22,6 +26,7 @@ const PROMOTE_STYLESHEET = "this.media='all'";
 <Base
   title="Terrella — Globe"
   description="An interactive globe of ray-traced relief, every country."
+  body="earth"
   borders={true}
   quality={true}
 >
@@ -399,426 +404,6 @@ const PROMOTE_STYLESHEET = "this.media='all'";
   }
 </style>
 
-<!-- MapLibre builds its controls itself, outside Astro's component scoping, so these selectors
-     cannot be scoped — is:global is the only thing that reaches them. Until now nothing in the
-     project styled them at all: the attribution and scale bar shipped as stock white boxes with
-     4–12 px corners and Helvetica, which made them the only chrome on the page not speaking the
-     floating-pill language that .globe-home, .country-chip and .view-bar share. The credit no
-     longer needs a pill of its own — the script folds it into .view-bar — so what is left here is
-     the reset that makes it sit inside one, plus the scale bar, which is now the only control
-     still docked to a page corner. The top-right navigation stack is deliberately NOT included:
-     its buttons carry MapLibre's own black SVG icons, so re-skinning it means recolouring icons
-     across hover/active/disabled states, which is a real piece of work rather than a token swap. -->
-<style is:global>
-  /* EVERY SELECTOR HERE REPEATS A CLASS ON PURPOSE. MapLibre's stylesheet is injected at RUNTIME
-     by its ES-module import, so it lands after this block wherever the block sits, and an
-     equal-specificity rule loses silently on source order. Measured what that costs: the first
-     version of this block had its scale-bar lift computed as MapLibre's `0px`, and left the
-     credit with a WHITE background and 12 px corners under our border and shadow — half-styled,
-     which reads as a bug rather than as a theme. The repeat is what makes it win.
-     A `#globe` prefix would be the tidier way to gain specificity, but the credit is re-parented
-     out of #globe entirely (see the script below) and would stop matching. */
-
-  /* The credit, once the script has folded it into the top-left chrome row. Keyed on the class
-     that move adds — NOT on `.globe-chrome` as an ancestor — so the styling and the re-parenting
-     can never disagree about where the element is; the element has now moved twice, and an
-     ancestor selector would have silently stopped matching on the second move.
-
-     It REPLACES MapLibre's box rather than unwinding it: every sibling in this row carries its
-     own. The treatment is `.globe-source`'s to the pixel — same wash, blur, hairline, radius,
-     padding and icon size — because three pills in one row that differ slightly read as a mistake
-     rather than as a family.
-
-     Four classes because `.maplibregl-ctrl.maplibregl-ctrl-attrib` is (0,2,0) and MapLibre's
-     stylesheet is injected at RUNTIME by its ES-module import, so it lands after this block
-     wherever the block sits and an equal-specificity rule loses silently on source order.
-     `font-family` is named rather than `inherit` because `.maplibregl-map` sets a `font`
-     SHORTHAND on the map container, so `inherit` once faithfully inherited Helvetica. */
-  .chrome-credit.chrome-credit.maplibregl-ctrl.maplibregl-ctrl {
-    display: inline-flex;
-    align-items: center;
-    margin: 0;
-    padding: 0.55rem;
-    background: color-mix(in srgb, var(--bg-2) 92%, transparent);
-    -webkit-backdrop-filter: blur(6px);
-    backdrop-filter: blur(6px);
-    border: 1px solid var(--line);
-    border-radius: 999px;
-    box-shadow: var(--shadow);
-    color: var(--text);
-    font-family: var(--sans);
-    font-size: 0.9rem;
-    line-height: 1;
-  }
-  /* THE WRAPPER IS WHY THE PILL WAS AN OVAL. MapLibre nests the link inside
-     `.maplibregl-ctrl-attrib-inner`, a block whose own line box measured 19.2 px around a 16.8 px
-     anchor — 2.4 px of height the width never received, so a pill that should have been 36.4
-     square rendered 36.4 × 38.8. `.globe-source` has no such wrapper, which is why only one of the
-     two circles was a circle. Collapsing the wrapper to a flex line fixes it at the source rather
-     than by shaving the padding until it happens to look round. */
-  .chrome-credit.chrome-credit .maplibregl-ctrl-attrib-inner {
-    display: flex;
-    align-items: center;
-    line-height: var(--chrome-ink);
-  }
-  .chrome-credit.chrome-credit a {
-    display: inline-flex; /* kills the inline-box descender gap under the glyph */
-    align-items: center;
-    color: inherit;
-    text-decoration: none;
-  }
-  /* Exactly `.globe-source`'s octicon size, so the row's icons compare by rendered INK rather than
-     by CSS box. `fill: currentColor` is the whole reason this is our SVG and not MapLibre's ⓘ. */
-  .chrome-credit.chrome-credit svg {
-    display: block;
-    width: var(--chrome-ink);
-    height: var(--chrome-ink);
-    fill: currentColor;
-  }
-  .chrome-credit.chrome-credit:hover {
-    color: var(--accent);
-  }
-  /* No ⓘ rules any more, and that is the point: `compact: false` means MapLibre never adds
-     `maplibregl-compact`, so its own `.maplibregl-ctrl-attrib-button { display: none }` keeps the
-     baked-black-SVG glyph off the page at every width. The button we could not safely recolour is
-     simply never shown. */
-
-  /* THE RULER — the scale bar, re-sited onto the view bar's top edge.
-
-     It used to be the one control docked to a page corner, and that corner cost it two rules that
-     are now DELETED with it: a `bottom: 6.5rem` lift under a 700 px media query, and a
-     `display: none` under `body.viewbar-open` below 600 px. Both existed because a bar that grows
-     with the zoom (to a 120 px cap) was being kept clear of a centred pill that grows with the
-     viewport shrinking — two widths moving at runtime, chased with constants.
-
-     Out of flow is what makes this safe: MapLibre rewrites the element's inline `width` on every
-     zoom, so an in-flow ruler would resize the centred pill on every zoom step. `position:
-     absolute` inside `.view-bar` (which is `position: relative` for exactly this) means the bar's
-     width is decided by its controls alone.
-
-     The shape is MapLibre's own, re-read rather than replaced: the control already renders as a
-     `└──┘` bracket — borders left, right and bottom around the distance text. We keep the ticks,
-     drop the bottom rule, and let THE PILL'S OWN TOP BORDER be the ruler's line. Two coincident
-     1 px lines would just read as a thicker border; one line doing both jobs is the idea. */
-  /* A TAB, not a bare bracket: the readout has no control over what it sits on, and hairlines over
-     lit desert are unreadable. It carries the same wash, blur and hairline as every other floating
-     element, so it reads as part of the pill it grows out of, and its own left and right borders
-     are the extent marks. The pill's top border is the baseline they measure against — one line
-     doing both jobs rather than two coincident ones.
-
-     NO `width` HERE. It is set inline from `RULER_WIDTH_PX`, the same constant that decides which
-     two screen points get measured — a stylesheet free to disagree would make the ruler lie. */
-  .view-bar-ruler {
-    position: absolute;
-    /* +1px, not a flat 100%. An absolute child is positioned against the PADDING box, so `100%`
-       leaves a one-pixel gap above the pill's border — invisible at DPR 1, a hairline at DPR 2. */
-    bottom: calc(100% + 1px);
-    /* Centred on the pill, at every width. A left-anchored ruler earns its position only when its
-       span means something — MapLibre's did, because the span WAS the measurement. Ours is a
-       constant, so anchoring it off-centre is an arbitrary offset with nothing behind it, and
-       centring makes it read as the pill's own scale mark. */
-    left: 50%;
-    transform: translateX(-50%);
-    margin: 0;
-    padding: 0.16rem 0 0.2rem;
-    background: color-mix(in srgb, var(--bg-2) 92%, transparent);
-    -webkit-backdrop-filter: blur(6px);
-    backdrop-filter: blur(6px);
-    border: 1px solid var(--line);
-    border-bottom: 0;
-    border-radius: 7px 7px 0 0;
-    /* The marginalia voice, shared with `.legend figcaption` on the gallery — the elevation legend
-       and the globe's scale are the same register of caption, so they read as one hand. */
-    color: var(--muted);
-    font-family: var(--mono);
-    font-size: 0.6rem;
-    letter-spacing: 0.04em;
-    line-height: 1.25;
-    text-align: center;
-    white-space: nowrap;
-    /* A readout, not a control — it must never eat a drag aimed at the globe behind it. */
-    pointer-events: none;
-  }
-  /* Centred at every width; the transform is safe here, unlike on the bar itself, because the
-     width is explicit and there is no shrink-to-fit for `left: 50%` to halve.
-
-     BUT A TAB NEEDS SOMETHING TO REST ON. Below the collapse breakpoint the bar shrinks to a
-     single ~38 px trigger, and a 96 px ruler perched on it reads as a speech bubble pointing at
-     nothing — its bottom corners overhang into empty space on both sides. So when the bar is
-     collapsed the ruler closes into a pill of its own and lifts clear: it is not resting on
-     anything, and it should not pretend to.
-
-     Measured across 320/360/414 px, the bar is 271-284 px wide — always wider than the 96 px
-     ruler — so the tab always has a straight edge under it and needs no narrow-screen variant. */
-
-  /* ── THE CAMERA RAIL ───────────────────────────────────────────────────────────────────────
-
-     Until now this stack was the only chrome on the page not speaking the floating-pill language
-     that `.globe-home`, `.country-chip` and `.view-bar` share, and the reason was cost, recorded
-     at the time: every MapLibre icon is a `background-image` data-URI with its fill BAKED IN
-     (`#333` light, `#fff` dark, `#33b5e5` for an enabled state, `#ccc` for the compass's south
-     half), so recolouring meant re-authoring an image per state rather than swapping a token.
-
-     `mask-image` retires that. The icon becomes an alpha stencil and `background-color:
-     currentColor` paints it, so the glyph simply takes the button's `color` — and hover, pressed,
-     disabled and dark mode all fall out of the same four tokens the rest of the site uses. The
-     permanent blue goes with it.
-
-     EVERY SELECTOR REPEATS A CLASS, as everywhere else in this block: MapLibre's stylesheet is
-     injected at RUNTIME by its ES-module import, so it lands after this block wherever the block
-     sits, and an equal-specificity rule loses silently on source order. */
-  .maplibregl-ctrl-top-right .maplibregl-ctrl-group.maplibregl-ctrl-group {
-    /* WHAT IS HELD CONSTANT IS THE INK, NOT THE BOX — the same rule the top-left row now follows.
-       `mask-size` sizes the whole viewBox, so identical sizes across icons whose ink fills
-       different fractions of their boxes render at visibly different weights: measured, the six
-       glyphs were landing between 0.72rem and 1.05rem of actual ink while all claiming one size.
-       Two constants, because there are two kinds of source (do not collapse them into one):
-         --rail-ink       MapLibre's fill icons, viewBoxes CROPPED to their ink below, so the box
-                          is the ink and one size covers them.
-         --rail-ink-24    ours, authored on a shared 24-unit box so the 2-unit stroke renders at
-                          one weight; the larger size compensates for the margin that box carries.
-       Both land ~17 px of ink. Changing either alone will break the match. */
-    --rail-ink: 1.0625rem;
-    --rail-ink-24: 1.36rem;
-    background: color-mix(in srgb, var(--bg-2) 92%, transparent);
-    -webkit-backdrop-filter: blur(6px);
-    backdrop-filter: blur(6px);
-    border: 1px solid var(--line);
-    border-radius: 999px;
-    box-shadow: var(--shadow);
-    overflow: hidden; /* so the end buttons clip to the stadium rather than squaring it off */
-  }
-  .maplibregl-ctrl-top-right .maplibregl-ctrl-group.maplibregl-ctrl-group button {
-    width: 2.15rem;
-    height: 2.15rem;
-    color: var(--muted);
-    background: transparent;
-  }
-  /* Hairlines BETWEEN buttons only — MapLibre ships `#ddd`, which is a light-theme constant. */
-  .maplibregl-ctrl-top-right .maplibregl-ctrl-group.maplibregl-ctrl-group button + button {
-    border-top: 1px solid var(--line);
-  }
-  .maplibregl-ctrl-top-right .maplibregl-ctrl-group.maplibregl-ctrl-group button:hover {
-    color: var(--text);
-  }
-  /* Filled = on. The same grammar the view bar's toggles use, so a pressed glyph in the rail and
-     a pressed word in the pill mean the same thing without looking alike. */
-  .maplibregl-ctrl-top-right
-    .maplibregl-ctrl-group.maplibregl-ctrl-group
-    button[aria-pressed="true"] {
-    color: var(--bg);
-    background: var(--accent);
-  }
-  .maplibregl-ctrl-top-right .maplibregl-ctrl-group.maplibregl-ctrl-group button:disabled,
-  .maplibregl-ctrl-top-right .maplibregl-ctrl-group.maplibregl-ctrl-group button.is-unavailable {
-    opacity: 0.45;
-    cursor: not-allowed;
-  }
-  /* MapLibre's focus ring is a hardcoded `#0096ff`, the one remaining off-palette colour. */
-  .maplibregl-ctrl-top-right .maplibregl-ctrl-group.maplibregl-ctrl-group button:focus-visible {
-    box-shadow: 0 0 0 2px var(--accent);
-  }
-
-  /* The stencil. `--rail-icon` is set per button below, and a button without one gets NO MASK —
-     so `background-color: currentColor` paints the whole box as a solid slab. Measured, not
-     assumed. That is the same end state a malformed data URI or a losing override produces, and
-     nothing throws on the way there: `mask-image: none` is a valid computed value, so the CSS is
-     healthy and the button is a block. `railIcons.browser.test.ts` is the only thing that sees it. */
-  .maplibregl-ctrl-top-right .maplibregl-ctrl-group.maplibregl-ctrl-group .maplibregl-ctrl-icon {
-    background-image: none;
-    background-color: currentColor;
-    -webkit-mask-image: var(--rail-icon);
-    mask-image: var(--rail-icon);
-    -webkit-mask-repeat: no-repeat;
-    mask-repeat: no-repeat;
-    -webkit-mask-position: center;
-    mask-position: center;
-    -webkit-mask-size: var(--rail-icon-size, var(--rail-ink));
-    mask-size: var(--rail-icon-size, var(--rail-ink));
-  }
-
-  /* VIEWBOXES ARE CROPPED TO THE INK, not left at MapLibre's nominal 0 0 29 29. Their plus spans
-     8.5-20.5 of a 29-unit box, so 40% of it is margin and at a shared mask-size it would render
-     visibly smaller than the glyphs beside it — the same geometry that made the credit's ⓘ draw at
-     60% of its box. Cropping fixes it at the source instead of tuning six sizes by eye. */
-  .maplibregl-ctrl-top-right .maplibregl-ctrl-zoom-in .maplibregl-ctrl-icon {
-    --rail-icon: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='8.5 8.5 12 12'%3E%3Cpath d='M14.5 8.5c-.75 0-1.5.75-1.5 1.5v3h-3c-.75 0-1.5.75-1.5 1.5S9.25 16 10 16h3v3c0 .75.75 1.5 1.5 1.5S16 19.75 16 19v-3h3c.75 0 1.5-.75 1.5-1.5S19.75 13 19 13h-3v-3c0-.75-.75-1.5-1.5-1.5'/%3E%3C/svg%3E");
-  }
-  .maplibregl-ctrl-top-right .maplibregl-ctrl-zoom-out .maplibregl-ctrl-icon {
-    --rail-icon: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='8.5 8.5 12 12'%3E%3Cpath d='M10 13c-.75 0-1.5.75-1.5 1.5S9.25 16 10 16h9c.75 0 1.5-.75 1.5-1.5S19.75 13 19 13z'/%3E%3C/svg%3E");
-  }
-  .maplibregl-ctrl-top-right .maplibregl-ctrl-fullscreen .maplibregl-ctrl-icon {
-    --rail-icon: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='4 4 21 21'%3E%3Cpath d='M24 16v5.5c0 1.75-.75 2.5-2.5 2.5H16v-1l3-1.5-4-5.5 1-1 5.5 4 1.5-3zM6 16l1.5 3 5.5-4 1 1-4 5.5 3 1.5v1H7.5C5.75 24 5 23.25 5 21.5V16zm7-11v1l-3 1.5 4 5.5-1 1-5.5-4L6 13H5V7.5C5 5.75 5.75 5 7.5 5zm11 2.5c0-1.75-.75-2.5-2.5-2.5H16v1l3 1.5-4 5.5 1 1 5.5-4 1.5 3h1z'/%3E%3C/svg%3E");
-  }
-  .maplibregl-ctrl-top-right .maplibregl-ctrl-shrink .maplibregl-ctrl-icon {
-    --rail-icon: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='4 4 21 21'%3E%3Cpath d='M18.5 16c-1.75 0-2.5.75-2.5 2.5V24h1l1.5-3 5.5 4 1-1-4-5.5 3-1.5v-1zM13 18.5c0-1.75-.75-2.5-2.5-2.5H5v1l3 1.5L4 24l1 1 5.5-4 1.5 3h1zm3-8c0 1.75.75 2.5 2.5 2.5H24v-1l-3-1.5L25 5l-1-1-5.5 4L17 5h-1zM10.5 13c1.75 0 2.5-.75 2.5-2.5V5h-1l-1.5 3L5 4 4 5l4 5.5L5 12v1z'/%3E%3C/svg%3E");
-  }
-
-  /* Idle rotation: a broken ring with two heads, around a body it plainly encircles. Three
-     constraints, each of which a redesign will otherwise rediscover at 18 device pixels: a TILTED
-     ring thin enough to read as one passes straight through the body, leaving its arrowheads
-     nowhere clear to sit; heads on a CLOSED outline merge into it and read as squiggles; and a
-     single circular arrow reads as "reload" on anything that loads. */
-  .maplibregl-ctrl-top-right .rg-ctrl-spin .maplibregl-ctrl-icon {
-    --rail-icon: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3.5 8.9A9 9 0 0 1 20.5 8.9'/%3E%3Cpath d='M20.5 15.1A9 9 0 0 1 3.5 15.1'/%3E%3Cpath d='M21.1 5.8 20.5 8.9 17.9 7'/%3E%3Cpath d='M2.9 18.2 3.5 15.1 6.1 17.1'/%3E%3Ccircle cx='12' cy='12' r='4.3' fill='%23000' stroke='none'/%3E%3C/svg%3E");
-    --rail-icon-size: var(--rail-ink-24);
-  }
-  /* Hide controls: a closed eye, opening when pressed. The pair is the whole reason for it —
-     closed means the chrome is hidden, open means it is back — and a button that has just hidden
-     every other control has to carry that state itself, because nothing else is left to show it.
-     The earlier chevron-to-a-baseline was dropped for reading as a download glyph, and the
-     frame-corner alternative for reading as fullscreen, which is the button directly above. */
-  .maplibregl-ctrl-top-right .rg-ctrl-quiet .maplibregl-ctrl-icon {
-    --rail-icon: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2.8 9.9C5 13.4 8.3 15.4 12 15.4s7-2 9.2-5.5'/%3E%3Cpath d='M4.6 14.1 2.9 16.6'/%3E%3Cpath d='M12 15.4v3'/%3E%3Cpath d='M19.4 14.1 21.1 16.6'/%3E%3C/svg%3E");
-    --rail-icon-size: var(--rail-ink-24);
-  }
-  .maplibregl-ctrl-top-right .rg-ctrl-quiet[aria-pressed="true"] .maplibregl-ctrl-icon {
-    --rail-icon: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2.5 12S6 5.8 12 5.8s9.5 6.2 9.5 6.2-3.5 6.2-9.5 6.2S2.5 12 2.5 12'/%3E%3Ccircle cx='12' cy='12' r='2.9'/%3E%3C/svg%3E");
-  }
-
-  /* THE COMPASS IS AUTHORED, NOT MASKED. Its icon is two triangles — `#333` north over `#ccc`
-     south — and a single mask flattens both to one colour, rendering a bowtie. Two pseudo-elements
-     instead, so north can take the accent and south the hairline. They sit inside the icon span,
-     which is the element MapLibre writes its `scale() rotateX(pitch) rotateZ(-bearing)` transform
-     onto, so the needle keeps rotating with the bearing for free. */
-  /* THE DOUBLED `.maplibregl-ctrl-group` IS LOAD-BEARING. The shared icon rule above is (0,4,0)
-     through its own doubled class, so an exception written at (0,3,0) loses to it — the span then
-     keeps `background-color: currentColor` with no mask to shape it and paints the whole 2.15 rem
-     box `--muted`, a grey block with the needle halves drawn on top. Any rule here that overrides
-     the shared one needs the same doubled class, including against our own rules. */
-  .maplibregl-ctrl-top-right
-    .maplibregl-ctrl-group.maplibregl-ctrl-group
-    .maplibregl-ctrl-compass
-    .maplibregl-ctrl-icon {
-    position: relative;
-    background-color: transparent;
-    -webkit-mask-image: none;
-    mask-image: none;
-  }
-  .maplibregl-ctrl-top-right .maplibregl-ctrl-compass .maplibregl-ctrl-icon::before,
-  .maplibregl-ctrl-top-right .maplibregl-ctrl-compass .maplibregl-ctrl-icon::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    -webkit-mask-repeat: no-repeat;
-    mask-repeat: no-repeat;
-    -webkit-mask-position: center;
-    mask-position: center;
-    -webkit-mask-size: var(--rail-ink);
-    mask-size: var(--rail-ink);
-  }
-  .maplibregl-ctrl-top-right .maplibregl-ctrl-compass .maplibregl-ctrl-icon::before {
-    background-color: var(--accent);
-    -webkit-mask-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='5.5 6 18 18'%3E%3Cpath d='m10.5 14 4-8 4 8z'/%3E%3C/svg%3E");
-    mask-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='5.5 6 18 18'%3E%3Cpath d='m10.5 14 4-8 4 8z'/%3E%3C/svg%3E");
-  }
-  /* The south half sits well back. MapLibre's own geometry leaves a 2-unit gap between the two
-     triangles, which at 17 px is a visible ~2 px channel — so two halves of similar weight read as
-     a separate up-arrow and down-arrow (an increase/decrease pair) rather than as one needle.
-     Dropping the south to a hint makes the north the pointer and the south its shadow. */
-  .maplibregl-ctrl-top-right .maplibregl-ctrl-compass .maplibregl-ctrl-icon::after {
-    background-color: var(--muted);
-    opacity: 0.28;
-    -webkit-mask-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='5.5 6 18 18'%3E%3Cpath d='m10.5 16 4 8 4-8z'/%3E%3C/svg%3E");
-    mask-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='5.5 6 18 18'%3E%3Cpath d='m10.5 16 4 8 4-8z'/%3E%3C/svg%3E");
-  }
-
-  /* QUIET MODE. Everything that is not the globe goes, on a class the page owns. `visibility`
-     rather than `display` so nothing reflows on the way out and back — the bar is `width:
-     fit-content` and a re-layout would make it jump — and `pointer-events: none` so hidden chrome
-     cannot swallow a drag aimed at the sphere.
-
-     TWO GHOSTS SURVIVE, one in each occupied corner, and both are deliberate: the rail's frame
-     group, which holds the only visible way back out, and the credit, which is a licence pointer
-     rather than a view option. Each fades to a quarter and returns on hover or focus, so the exit
-     and the licence are both reachable without either reading as chrome.
-
-     `.globe-chrome` is NOT hidden as a whole any more — it holds the credit now, so its two links
-     are hidden individually. `visibility` rather than `display` keeps the ⓘ where it already is;
-     collapsing the row would slide it into the corner, which is motion for no reason. */
-  body.is-quiet .country-chip,
-  body.is-quiet .view-bar {
-    visibility: hidden;
-    pointer-events: none;
-  }
-  body.is-quiet .maplibregl-ctrl-top-right .maplibregl-ctrl-group:not(:has(.rg-ctrl-quiet)) {
-    visibility: hidden;
-    pointer-events: none;
-  }
-  /* `display`, not `visibility` — the reflow is the point here. Hidden-but-present, these keep
-     their width and leave the credit parked mid-row: adrift near the middle of the top edge on a
-     phone, touching no corner. Collapsing them lets it fall into the corner, where a lone ghost
-     belongs. */
-  body.is-quiet .globe-home,
-  body.is-quiet .globe-source {
-    display: none;
-  }
-  /* Fullscreen goes too: one ghost per corner, per the note above. And a ghost is a GLYPH, not a
-     filled button — the quiet toggle is pressed in this state, so without the cancel below it keeps
-     its accent fill, and as the group's only remaining child it fills the whole 999px box: a solid
-     disc over the map where a ghost belongs. */
-  body.is-quiet .maplibregl-ctrl-fullscreen {
-    display: none;
-  }
-  /* ...and the divider it left behind. `+` matches DOM ORDER, not visibility, so hiding fullscreen
-     does not stop the quiet button below it from still counting as "a button after a button" — it
-     kept its 1px hairline while becoming the group's first VISIBLE child, and the group's 999px
-     radius clipped that line into a dark chord across the top of the circle. Reported from a phone,
-     where it reads as a nick out of the icon.
-
-     Keyed on the hidden NEIGHBOUR rather than on the quiet button, so it states the actual rule —
-     a divider needs two visible siblings — and stays right if anything else is ever hidden here.
-     The doubled group class is not decoration: the divider above is (0,4,2) and this has to beat
-     it, which the obvious `body.is-quiet .rg-ctrl-quiet` (0,3,1) would not. */
-  body.is-quiet
-    .maplibregl-ctrl-top-right
-    .maplibregl-ctrl-group.maplibregl-ctrl-group
-    .maplibregl-ctrl-fullscreen
-    + button {
-    border-top-width: 0;
-  }
-  /* The cancel itself, and it needs the doubled group class for the same reason the divider's does.
-     The "filled = on" rule is (0,4,1) through its own doubled class, so the obvious
-     `body.is-quiet .rg-ctrl-quiet[aria-pressed="true"]` is (0,3,1) and loses — written that way it
-     never applied at all. BOTH declarations are load-bearing and both were dead: `color` loses to
-     that rule's `--bg` exactly as `background` loses to its `--accent`. */
-  body.is-quiet
-    .maplibregl-ctrl-top-right
-    .maplibregl-ctrl-group.maplibregl-ctrl-group
-    .rg-ctrl-quiet[aria-pressed="true"] {
-    color: var(--muted);
-    background: none;
-  }
-  body.is-quiet .chrome-credit.chrome-credit.maplibregl-ctrl,
-  body.is-quiet .maplibregl-ctrl-top-right .maplibregl-ctrl-group:has(.rg-ctrl-quiet) {
-    opacity: 0.25;
-    background: none;
-    border-color: transparent;
-    box-shadow: none;
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
-  }
-  body.is-quiet .chrome-credit.chrome-credit.maplibregl-ctrl:hover,
-  body.is-quiet .chrome-credit.chrome-credit.maplibregl-ctrl:focus-within,
-  body.is-quiet .maplibregl-ctrl-top-right .maplibregl-ctrl-group:has(.rg-ctrl-quiet):hover,
-  body.is-quiet
-    .maplibregl-ctrl-top-right
-    .maplibregl-ctrl-group:has(.rg-ctrl-quiet):focus-within {
-    opacity: 1;
-  }
-  @media (prefers-reduced-motion: no-preference) {
-    .globe-home,
-    .globe-source,
-    .chrome-credit,
-    .view-bar,
-    .maplibregl-ctrl-top-right .maplibregl-ctrl-group {
-      transition:
-        opacity 0.25s ease,
-        visibility 0.25s ease;
-    }
-  }
-</style>
-
 <script>
   // --- Starfield backdrop -----------------------------------------------------
   // A static field of faint stars on a dark navy ground, painted once (and on
@@ -973,7 +558,7 @@ const PROMOTE_STYLESHEET = "this.media='all'";
     snapshotGlLoss,
     snapshotHasContent,
   } from "../lib/glDiagnostics";
-  import { DEEP_SEA } from "../lib/palette";
+  import { currentBody } from "../lib/bodies";
   // Ids and poles only — the cap MESH and its textures stay behind the dynamic import below.
   // glDiagnostics already pulls these two statically, so this adds nothing to the bundle.
   import { CAP_POLES, capLayerId, deviceClass } from "../lib/polarCaps";
@@ -1133,6 +718,11 @@ const PROMOTE_STYLESHEET = "this.media='all'";
   // minzoom/maxzoom used to come free from the archive header, which the pmtiles client read
   // before the first tile. Stating them here costs that one round trip back, and they are
   // asserted against the archive by the dev middleware on startup.
+  // Which planet this page draws, resolved ONCE at module scope so a missing or unknown
+  // `data-body` fails here — before a map exists — rather than somewhere inside init where it would
+  // read as a rendering problem.
+  const body = currentBody();
+
   const reliefSource: RasterSourceSpecification = {
     type: "raster",
     tiles: [TILE_URL_TEMPLATE],
@@ -1190,7 +780,7 @@ const PROMOTE_STYLESHEET = "this.media='all'";
         // Raising `maxTileCacheZoomLevels` does nothing here (tried at 20: still zero
         // substitutes); it sizes a cache the retain path cannot read. Cold tiles take 1.2-1.7 s
         // from R2, so the gap is long enough to see.
-        { id: "space-floor", type: "background", paint: { "background-color": DEEP_SEA } },
+        { id: "space-floor", type: "background", paint: { "background-color": body.spaceFloor } },
         // ...which is why the layer under the map is a colour and this one is the map. One tile,
         // 71 KB, one request. It cannot make the fill faster; it makes a gap the right COLOUR —
         // sandy over land instead of abyssal teal over land, which is what made a slow fill read
@@ -1678,7 +1268,7 @@ const PROMOTE_STYLESHEET = "this.media='all'";
     );
   }
 
-  // Polar caps (default ON; /globe?nocaps disables): source-shaded AEQD caps drawn ABOVE the
+  // Polar caps (default ON; /earth?nocaps disables): source-shaded AEQD caps drawn ABOVE the
   // Web-Mercator limit — north (Arctic sea ice + bathymetry) and south (Antarctica +
   // Southern-Ocean sea ice). The escape flag stays for layer-on/off artifact diagnosis — the
   // polar ring was isolated by exactly that comparison. Config comes from the

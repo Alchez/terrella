@@ -12,6 +12,7 @@ checks is no oracle at all, and these literals are deliberately hand-written rat
 Changing one means re-rendering every hero. See ART.md for the look decisions behind them.
 """
 
+import hashlib
 from pathlib import Path
 
 import pytest
@@ -172,3 +173,48 @@ class TestWriteColorRelief:
         assert len(first) == 4                       # elevation R G B
         assert first[0] == "0.00"
         assert all(0 <= int(v) <= 255 for v in first[1:])
+
+
+class TestTheLookIsByteStable:
+    """Golden hashes over every artefact the ramps produce.
+
+    WHY A HASH WHEN THE TESTS ABOVE ALREADY CHECK THE RAMPS. They check PROPERTIES — the stops are
+    hit exactly, the sea darkens monotonically, the LUT agrees with the gdaldem rows within 1 DN.
+    Every one of those can hold while the output still moves, because they each look at a handful of
+    the 6,001 entries. These say the opposite thing: nothing at all moved, anywhere.
+
+    THIS IS THE ORACLE FOR A REFACTOR WHOSE CONTRACT IS "NOTHING CHANGES". A restructuring of how the
+    ramps are looked up must leave every byte identical, and no property test can promise that. It is
+    also the thing that makes a deliberate look change visible: these hashes are meant to be updated
+    in the same commit that moves a colour, and a diff that changes a ramp without touching them is
+    a diff whose author did not know what they changed.
+
+    The readable anchors live in the classes above, so a failure here is diagnosed there rather than
+    from the hash — an opaque digest is a good ratchet and a poor error message.
+    """
+
+    @staticmethod
+    def _digest(payload: bytes) -> str:
+        return hashlib.sha256(payload).hexdigest()[:16]
+
+    @pytest.mark.parametrize(
+        "kind,expected",
+        [("land", "c2137fc21d35aaf5"), ("sea", "3318a6ec1e793420")],
+    )
+    def test_gdaldem_ramp_text_is_unchanged(self, kind, expected):
+        assert self._digest(palette.color_relief_text(kind).encode()) == expected
+
+    @pytest.mark.parametrize(
+        "kind,expected",
+        [("land", "2981572a5c8865f4"), ("sea", "6839535a4a018129")],
+    )
+    def test_relief_lut_bytes_are_unchanged(self, kind, expected):
+        lut = palette.relief_lut(kind)
+        # Shape is part of the artefact: a (3, N) that quietly became (N, 3) would hash differently
+        # but so would a genuinely different ramp, and only one of those is a transpose bug.
+        assert lut.shape == (3, 6001)
+        assert self._digest(lut.tobytes()) == expected
+
+    def test_lake_lut_is_unchanged(self):
+        flat = bytes(channel for colour in palette.lake_lut() for channel in colour)
+        assert self._digest(flat) == "f5395a2466878b91"

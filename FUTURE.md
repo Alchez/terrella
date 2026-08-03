@@ -72,7 +72,7 @@ grep HISTORY before re-arguing anything an entry says was already decided.
 ## No test ever drives a real map, and the scale ruler showed what that costs (analysed 2026-08-02)
 
 - **State at analysis:** every frontend guard is a unit test over a pure function, a source-text
-  assertion over `globe.astro?raw`, or a canary over the shipped bundle. **Nothing instantiates a
+  assertion over `earth.astro?raw`, or a canary over the shipped bundle. **Nothing instantiates a
   MapLibre map and checks what it does.** Grepped, not assumed.
 - **The evidence this is a real gap, not a purity argument:** the scale-ruler fix shipped to
   production frozen — one label at every zoom — and *everything* said it was fine. Unit tests green,
@@ -432,7 +432,7 @@ which is why it never blocked anything.
   `rendered:false` manifest entry for antimeridian-deferred countries instead of dropping them
   (`gen_manifest.py:82-83`); (2) author a `bbox` — Kiribati has `status`/`notes` but no `frame`, and
   the gazetteer + globe fly-to read `country.bbox`; (3) guard the globe's `openPanel()`
-  (`globe.astro:685`) which unconditionally requests `…-${sizes[0]}.webp` → a broken
+  (`earth.astro:685`) which unconditionally requests `…-${sizes[0]}.webp` → a broken
   `kiribati-undefined.webp` for an unrendered entry; (4) optional distinct "deferred" copy — today's
   only placeholder string is "still rendering," which misrepresents a permanent state.
 
@@ -550,9 +550,9 @@ conclusion below, which rests only on there being no value between 2 and 4.
   visitor gets `full`** regardless of the machine.
 - **The Moto G Power reports exactly 4** → `full`. That is Lighthouse's own mobile reference device,
   i.e. the mobile score is measured on a device the ladder treats as healthy.
-- **A second, independent gap:** `Base.astro`'s pre-paint guard gates `/globe/` on `webgl2()` alone,
+- **A second, independent gap:** `Base.astro`'s pre-paint guard gates `/earth/` on `webgl2()` alone,
   while `decideTier`'s `capable()` also requires `!softwareGpu`. A software-rasterizer visitor who
-  deep-links `/globe/` is therefore never bounced to the gallery, and `globe.astro` reads
+  deep-links `/earth/` is therefore never bounced to the gallery, and `earth.astro` reads
   `currentTier()` only to decide whether to spin — so they get a full globe on SwiftShader.
 - **If reopened, decide these separately:** the memory threshold is a *tuning* question (2 GB is a very
   low bar; `<= 4` would catch mid-range Android), the Safari/Firefox blindness is a *coverage* question
@@ -724,7 +724,7 @@ conclusion below, which rests only on there being no value between 2 and 4.
   - an **object** sets `params.data`, and `Actor.sendAsync` then calls `serialize(message.data)`,
     which **recursively rebuilds every array and object**, before `postMessage` structured-clones
     that rebuilt copy. Two full deep walks of the geometry, on the main thread.
-- **We pass objects for all three country sources** (`globe.astro`, `addCountries`) while
+- **We pass objects for all three country sources** (`earth.astro`, `addCountries`) while
   `boundary_lines.geojson` in the same file is passed as a **URL**. The asymmetry inside one file
   is the defect; the geometry is only the multiplier.
 - **Measured** (Node 24 / V8, warm, ×3 — same engine as Chrome, different host, so a proxy):

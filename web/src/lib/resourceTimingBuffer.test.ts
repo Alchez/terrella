@@ -19,7 +19,7 @@ describe("raiseResourceTimingBuffer", () => {
 });
 
 describe("the page raises the buffer, early, and pays nothing else for it", () => {
-  const globe = readFileSync(new URL("../pages/globe.astro", import.meta.url), "utf8");
+  const globe = readFileSync(new URL("../pages/earth.astro", import.meta.url), "utf8");
 
   it("calls the raiser, which a test of the function alone does not check", () => {
     // Found by sabotage: replacing the call site with the bare constant broke nothing, because

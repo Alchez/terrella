@@ -1,6 +1,6 @@
 // Hover resolution for the globe: WHICH country the pointer is on, kept true as the globe moves.
 //
-// Factored out of globe.astro for the same reason countryHighlight.ts was — the wiring is
+// Factored out of earth.astro for the same reason countryHighlight.ts was — the wiring is
 // load-bearing and a future edit would break it silently. The non-obvious member is viewChanged().
 //
 // Hover used to be recomputed on pointer movement alone, so any camera move under a parked pointer
@@ -10,10 +10,10 @@
 // caller MUST also drive viewChanged() from `moveend`.
 //
 // The tracker never inspects a point, it only caches one and replays it, hence the type parameter:
-// globe.astro passes MapLibre's Point, tests pass a plain object, and this module imports neither.
+// earth.astro passes MapLibre's Point, tests pass a plain object, and this module imports neither.
 //
 // RESOLUTION IS COALESCED TO ONE PER FRAME, and that is a performance fix with a measured cause.
-// `resolve` is globe.astro's countryAt, i.e. queryRenderedFeatures — and with terrain enabled that
+// `resolve` is earth.astro's countryAt, i.e. queryRenderedFeatures — and with terrain enabled that
 // routes through terrain.pointCoordinate, which renders tile coordinates into a 1024x1024 offscreen
 // framebuffer and readPixels it back. That is a synchronous GPU stall: measured 2.2-2.4 ms with
 // terrain against 0.2 ms without, and the camera invalidates the framebuffer every frame so it

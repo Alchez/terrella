@@ -416,7 +416,7 @@ export default defineConfig({
     // the document already has to arrive and a stylesheet that arrives with it is free of latency.
     //
     // This is deliberately NOT paired with inlining MapLibre's 70 KB, which is linked non-blocking
-    // from globe.astro instead. Inlining both was measured too and came out SLOWER (689 ms): past
+    // from earth.astro instead. Inlining both was measured too and came out SLOWER (689 ms): past
     // roughly the document's own size, the bytes you add to every page cost more than the round trip
     // you remove. The rule is "inline what blocks paint, link what does not".
     //

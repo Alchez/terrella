@@ -1,7 +1,7 @@
 // The relief tile contract — the shape of a tile request, and the zoom range behind it.
 //
 // Deliberately dependency-free and free of `import.meta.env`, because this module is imported
-// from three runtimes that share nothing else: the browser (globe.astro builds the MapLibre
+// from three runtimes that share nothing else: the browser (earth.astro builds the MapLibre
 // source), the Astro dev server (astro.config.ts, which is Node and evaluates before any Vite
 // env exists), and eventually the tile Worker. Anything env-shaped belongs in assetBase.ts.
 
@@ -23,7 +23,7 @@ export const TILE_PATH_TEMPLATE = `{z}/{x}/{y}.${TILE_EXTENSION}`;
 export const RELIEF_MIN_ZOOM = 0;
 export const RELIEF_MAX_ZOOM = 8;
 
-/** Max zoom of the pinned base source that floors the globe (`relief-base` in globe.astro).
+/** Max zoom of the pinned base source that floors the globe (`relief-base` in earth.astro).
  *
  *  It must be **0**, and that is a guarantee rather than a preference. A raster source's covering
  *  set is clamped to its own maxzoom, so at 0 there is exactly one tile — the same tile at every

@@ -13,6 +13,7 @@ encoding that disagrees by one step lifts two surfaces to different heights acro
 crossfade — which reads as ghosting, not as an error.
 """
 
+import dataclasses
 import json
 import re
 import shutil
@@ -24,7 +25,14 @@ import pytest
 import rasterio
 from rasterio.transform import from_bounds
 
+from pipeline import bodies, paths
 from pipeline.tile import cap_render, shade_planet, terrain_rgb
+
+#: Earth's two cap grids. The module no longer exposes them as constants — see `north_grid` — so a
+#: test that means "the shipped north cap" has to name the body it is talking about, which is the
+#: point. Built once here because these are fixtures, not the thing under test.
+EARTH_NORTH = cap_render.north_grid(bodies.EARTH)
+EARTH_SOUTH = cap_render.south_grid(bodies.EARTH)
 
 
 class TestCapGridGeometry:
@@ -32,40 +40,42 @@ class TestCapGridGeometry:
         """Subtests because these are four independent claims about one projection string, and a
         bad edit to it breaks the projection, both centres and the sphere together."""
         with subtests.test("projection is aeqd"):
-            assert "+proj=aeqd" in cap_render.NORTH.aeqd
+            assert "+proj=aeqd" in EARTH_NORTH.aeqd
         with subtests.test("north is centred on the north pole"):
-            assert "+lat_0=90.0" in cap_render.NORTH.aeqd
+            assert "+lat_0=90.0" in EARTH_NORTH.aeqd
         with subtests.test("south is centred on the south pole"):
-            assert "+lat_0=-90.0" in cap_render.SOUTH.aeqd
+            assert "+lat_0=-90.0" in EARTH_SOUTH.aeqd
         with subtests.test("sphere radius"):
-            assert f"+a={cap_render.SPHERE_R}" in cap_render.NORTH.aeqd
+            assert f"+a={bodies.EARTH.aeqd_radius_m}" in EARTH_NORTH.aeqd
 
     def test_edge_m_is_linear_in_colatitude(self):
         """AEQD from the pole: radius = R * colatitude(rad) — the linear law the
         frontend's UV mapping assumes."""
-        expected = cap_render.SPHERE_R * np.radians(90.0 - 78.0)
-        assert cap_render.NORTH.edge_m == pytest.approx(expected)
-        assert cap_render.SOUTH.edge_m == pytest.approx(expected)  # |−78| — same disc
+        expected = bodies.EARTH.aeqd_radius_m * np.radians(90.0 - 78.0)
+        assert EARTH_NORTH.edge_m == pytest.approx(expected)
+        assert EARTH_SOUTH.edge_m == pytest.approx(expected)  # |−78| — same disc
 
 
 class TestLonlatGrid:
     def test_latitude_matches_the_linear_radius_law(self):
         """Independent oracle: on a spherical pole-centred AEQD, latitude at radius rho
         is exactly 90° − degrees(rho / R). Sample centre and edge pixels of a 9-px grid."""
-        grid_9px = cap_render.CapGrid(lat_0=90.0, edge_lat=78.0, px=9, name="tiny", az_sign=-1.0)
+        grid_9px = cap_render.CapGrid(lat_0=90.0, edge_lat=78.0, px=9, name="tiny", az_sign=-1.0,
+                                   body=bodies.EARTH)
         longitude, latitude = cap_render._lonlat_grid(grid_9px)
         cell = 2 * grid_9px.edge_m / 9
         for row, col in ((4, 4), (4, 8), (0, 4), (8, 8)):
             x = -grid_9px.edge_m + (col + 0.5) * cell
             y = grid_9px.edge_m - (row + 0.5) * cell
             rho = np.hypot(x, y)
-            expected_lat = 90.0 - np.degrees(rho / cap_render.SPHERE_R)
+            expected_lat = 90.0 - np.degrees(rho / bodies.EARTH.aeqd_radius_m)
             assert latitude[row, col] == pytest.approx(expected_lat, abs=0.01)
 
     def test_longitude_orientation(self):
         """x = rho*sin(lon), y = −rho*cos(lon) for the north grid (the convention
         polarCaps.ts mirrors in its UV math): the right-centre pixel sits at lon ≈ +90."""
-        grid_9px = cap_render.CapGrid(lat_0=90.0, edge_lat=78.0, px=9, name="tiny", az_sign=-1.0)
+        grid_9px = cap_render.CapGrid(lat_0=90.0, edge_lat=78.0, px=9, name="tiny", az_sign=-1.0,
+                                   body=bodies.EARTH)
         longitude, _latitude = cap_render._lonlat_grid(grid_9px)
         assert longitude[4, 8] == pytest.approx(90.0, abs=0.1)   # +x axis -> 90E
         assert longitude[8, 4] == pytest.approx(0.0, abs=0.1)    # bottom-centre (-y) -> lon 0
@@ -76,7 +86,8 @@ class TestShade:
     def test_flat_ground_shades_uniformly_whatever_the_azimuth(self):
         """Zero slope makes the per-pixel rotated azimuth irrelevant — flat terrain must
         come out one constant DN across the whole disc (and deterministically so)."""
-        grid_8px = cap_render.CapGrid(lat_0=90.0, edge_lat=78.0, px=8, name="tiny", az_sign=-1.0)
+        grid_8px = cap_render.CapGrid(lat_0=90.0, edge_lat=78.0, px=8, name="tiny", az_sign=-1.0,
+                                   body=bodies.EARTH)
         heights = np.zeros((8, 8), dtype=np.float32)
         longitude = np.linspace(-180.0, 180.0, 64, dtype=np.float32).reshape(8, 8)
         shaded = cap_render._shade(grid_8px, heights, longitude)
@@ -86,10 +97,162 @@ class TestShade:
         assert np.array_equal(shaded, again)
 
 
+#: Both poles as they shipped, field for field — the golden this module's grids are held to.
+#:
+#: EVERY FIELD, not the interesting ones. The grids stopped being module constants and became
+#: factories, and a factory can quietly answer a question the constant was never asked: a dropped
+#: `ice_lo` leaves the southern pack at the NH threshold, a dropped `coast_opacity` draws a dark
+#: outline around Antarctica. Both render, and neither raises. This is also the exact block that
+#: rides in the freshness sidecar, so a change here is a ~14 GB re-render either way — worth stating
+#: once, in full, rather than trusting eight separate assertions to stay complete.
+SHIPPED_GRIDS = {
+    "north": {"aeqd_radius_m": 6371000.0, "az_sign": -1.0, "coast_dilate": 1,
+              "coast_opacity": 0.55, "edge_lat": 78.0, "ice_lo": None, "ice_max_alpha": None,
+              "lat_0": 90.0, "name": "north", "px": 8192},
+    "south": {"aeqd_radius_m": 6371000.0, "az_sign": 1.0, "coast_dilate": 0,
+              "coast_opacity": 0.0, "edge_lat": -78.0, "ice_lo": 0.62, "ice_max_alpha": 0.55,
+              "lat_0": -90.0, "name": "south", "px": 8192},
+}
+
+
+#: A second body, deliberately NOT Mars's real figures — the plan has not ratified a radius, and a
+#: plausible one here would read as a decision. What matters is that every number differs visibly
+#: from Earth's, so a factory that ignored its argument cannot pass by coincidence.
+OTHER_BODY = dataclasses.replace(bodies.EARTH, name="other", path_prefix="other",
+                                 aeqd_radius_m=1234567.0)
+
+
+class TestTheGridsAreBuiltPerBody:
+    def test_earths_grids_are_field_for_field_what_they_shipped(self, subtests):
+        for name, grid in (("north", EARTH_NORTH), ("south", EARTH_SOUTH)):
+            with subtests.test(name):
+                assert json.loads(cap_render.cap_recipe(grid))["grid"] == SHIPPED_GRIDS[name]
+
+    def test_a_factory_carries_the_body_it_was_given_all_the_way_through(self, subtests):
+        """A factory that pinned Earth would be invisible everywhere it mattered: the cap would
+        project on Earth's sphere (landing on the wrong parallel), read Earth's fused heightfield,
+        and overwrite Earth's shipped textures — all while rendering a perfectly clean disc.
+
+        Asserted at three depths on purpose. The body reaching the dataclass is not the claim; the
+        claim is that the projection string, the served location and the recipe all follow it.
+        """
+        for label, grid in (("north", cap_render.north_grid(OTHER_BODY)),
+                            ("south", cap_render.south_grid(OTHER_BODY))):
+            with subtests.test(label):
+                assert grid.body is OTHER_BODY
+                assert f"+a={OTHER_BODY.aeqd_radius_m}" in grid.aeqd
+                assert (cap_render.cap_asset(grid, 8192).parent
+                        == paths.ROOT / "web/public/caps/other")
+                assert (json.loads(cap_render.cap_recipe(grid))["grid"]["aeqd_radius_m"]
+                        == OTHER_BODY.aeqd_radius_m)
+
+    def test_the_served_url_matches_where_the_texture_is_actually_written(self, subtests):
+        """caps.json is fetched by the browser, so a URL that disagrees with the file's location is
+        a 404 that no pipeline gate can see — the pyramid renders, the manifest validates, and the
+        pole is simply missing. Earth's URLs are pinned as the contract they already are.
+        """
+        with subtests.test("earth"):
+            manifest = json.loads(cap_render.caps_manifest(bodies.EARTH))
+            assert manifest["north"]["rungs"][0]["url"] == "/caps/cap_north_1024.webp"
+            assert manifest["south"]["elev_url"] == "/caps/cap_south_elev.webp"
+        with subtests.test("a nesting body"):
+            manifest = json.loads(cap_render.caps_manifest(OTHER_BODY))
+            assert manifest["north"]["rungs"][0]["url"] == "/caps/other/cap_north_1024.webp"
+            assert manifest["south"]["elev_url"] == "/caps/other/cap_south_elev.webp"
+        with subtests.test("every url resolves back to its own file"):
+            for body in (bodies.EARTH, OTHER_BODY):
+                manifest = json.loads(cap_render.caps_manifest(body))
+                for name, grid in (("north", cap_render.north_grid(body)),
+                                   ("south", cap_render.south_grid(body))):
+                    for rung in manifest[name]["rungs"]:
+                        assert (bodies.PUBLIC_ROOT / rung["url"].lstrip("/")
+                                == cap_render.cap_asset(grid, rung["px"]))
+                    assert (bodies.PUBLIC_ROOT / manifest[name]["elev_url"].lstrip("/")
+                            == cap_render.cap_elev_asset(grid))
+
+
+class TestTheCapPassRequiresABody:
+    """`--body` has no default here for the same reason the shade pass has none.
+
+    A cap is the one output where the wrong sphere is entirely invisible: it projects, it blends,
+    it downsamples to every rung — and it sits on the wrong parallel, feathering into tiles drawn on
+    a different globe. Nothing in the pipeline can report that, and nothing in the picture shows it.
+    """
+
+    def test_omitting_the_body_is_an_error_rather_than_an_assumption(self):
+        with pytest.raises(SystemExit):
+            cap_render.build_parser().parse_args([])
+
+    def test_a_named_body_still_parses_the_pole_and_force_flags(self):
+        """The required argument must not have displaced the flags a pole-look loop actually uses."""
+        args = cap_render.build_parser().parse_args(["--body", "earth", "--north", "--force"])
+        assert (args.body, args.north, args.south, args.force) == ("earth", True, False, True)
+
+    def test_an_unknown_body_is_rejected_by_the_registry_not_silently_accepted(self):
+        args = cap_render.build_parser().parse_args(["--body", "pluto"])
+        with pytest.raises(KeyError):
+            bodies.get(args.body)
+
+
+class TestCapPathsFollowTheBody:
+    """Every file a cap reads or writes is located by the grid's own body, not by a module constant.
+
+    The first test is a CHARACTERISATION: it passed before the resolution moved onto the body and
+    has to keep passing after. Earth's served names are a contract the frontend fetches by URL, and
+    its intermediates are 1.3 GB that a moved directory would silently re-derive.
+    """
+
+    def test_earth_reads_and_writes_exactly_where_it_always_has(self, subtests):
+        """Subtests because these are four independent locations, and a resolver that broke would
+        break the served ones and the intermediate ones for different reasons."""
+        with subtests.test("served colour rung"):
+            assert (cap_render.cap_asset(EARTH_NORTH, 8192)
+                    == paths.ROOT / "web/public/caps/cap_north_8192.webp")
+        with subtests.test("served elevation texture"):
+            assert (cap_render.cap_elev_asset(EARTH_SOUTH)
+                    == paths.ROOT / "web/public/caps/cap_south_elev.webp")
+        with subtests.test("intermediate height warp"):
+            # Both poles, because the N/S prefix is DERIVED from the grid: one pole alone would
+            # pass just as happily against a hardcoded prefix, which is a north renderer and a
+            # south renderer sharing one set of warps.
+            assert (cap_render.cap_height_warp(EARTH_NORTH)
+                    == paths.DATA / "work/cap/capN_height.tif")
+            assert (cap_render.cap_height_warp(EARTH_SOUTH)
+                    == paths.DATA / "work/cap/capS_height.tif")
+            assert (cap_render.cap_warp(EARTH_SOUTH, "seaice")
+                    == paths.DATA / "work/cap/capS_seaice.tif")
+        with subtests.test("fused planet source"):
+            assert (paths.DATA / "work/planet/planet_heightfield.vrt"
+                    in cap_render.cap_sources(EARTH_NORTH))
+
+    def test_a_second_body_cannot_land_its_caps_on_earths(self, subtests):
+        """The failure this forbids is silent and destructive in one direction only: a Mars cap
+        written to `web/public/caps/cap_north_8192.webp` overwrites Earth's shipped texture, and
+        nothing downstream would report anything but a wrong-looking pole.
+
+        Reading matters as much as writing — a Mars cap that sourced Earth's fused heightfield would
+        render a perfectly clean Arctic and call it Mars.
+        """
+        mars = dataclasses.replace(bodies.EARTH, name="mars", path_prefix="mars")
+        grid = dataclasses.replace(EARTH_NORTH, body=mars)
+        with subtests.test("served colour rung"):
+            assert (cap_render.cap_asset(grid, 8192)
+                    == paths.ROOT / "web/public/caps/mars/cap_north_8192.webp")
+        with subtests.test("served elevation texture"):
+            assert (cap_render.cap_elev_asset(grid)
+                    == paths.ROOT / "web/public/caps/mars/cap_north_elev.webp")
+        with subtests.test("intermediate height warp"):
+            assert (cap_render.cap_height_warp(grid)
+                    == paths.DATA / "work/mars/cap/capN_height.tif")
+        with subtests.test("fused planet source"):
+            assert (paths.DATA / "work/mars/planet/planet_heightfield.vrt"
+                    in cap_render.cap_sources(grid))
+
+
 class TestCapsManifest:
     def test_contract_fields_come_from_their_single_homes(self):
-        manifest = json.loads(cap_render.caps_manifest())
-        for name, grid in (("north", cap_render.NORTH), ("south", cap_render.SOUTH)):
+        manifest = json.loads(cap_render.caps_manifest(bodies.EARTH))
+        for name, grid in (("north", EARTH_NORTH), ("south", EARTH_SOUTH)):
             entry = manifest[name]
             assert entry["edge_lat"] == grid.edge_lat
             assert [rung["px"] for rung in entry["rungs"]] == list(cap_render.CAP_RUNGS)
@@ -103,28 +266,28 @@ class TestCapsManifest:
         rung above CAP_PX would silently be an upscale."""
         assert list(cap_render.CAP_RUNGS) == sorted(cap_render.CAP_RUNGS)
         assert cap_render.CAP_RUNGS[-1] == cap_render.CAP_PX
-        for grid in (cap_render.NORTH, cap_render.SOUTH):
+        for grid in (EARTH_NORTH, EARTH_SOUTH):
             assert cap_render.CAP_RUNGS[-1] == grid.px
 
     def test_manifest_is_stable_json(self):
-        assert cap_render.caps_manifest() == cap_render.caps_manifest()
+        assert cap_render.caps_manifest(bodies.EARTH) == cap_render.caps_manifest(bodies.EARTH)
 
 
 class TestRecipeCoversTheAsset:
     def test_webp_quality_rides_in_the_recipe(self, monkeypatch):
         """The encoder setting changes the shipped pixels, so it must restage the cap —
         the same freshness rule that caught the stale caps."""
-        before = cap_render.cap_recipe(cap_render.NORTH)
+        before = cap_render.cap_recipe(EARTH_NORTH)
         assert '"webp"' in before
         monkeypatch.setattr(cap_render, "CAP_WEBP_QUALITY", 101)
-        assert cap_render.cap_recipe(cap_render.NORTH) != before
+        assert cap_render.cap_recipe(EARTH_NORTH) != before
 
     def test_rung_set_rides_in_the_recipe(self, monkeypatch):
         """Adding a rung changes the shipped ASSET SET, so it must restage — otherwise the new
         rung's file would never be written and the manifest would advertise a 404."""
-        before = cap_render.cap_recipe(cap_render.NORTH)
+        before = cap_render.cap_recipe(EARTH_NORTH)
         monkeypatch.setattr(cap_render, "CAP_RUNGS", (2048, cap_render.CAP_PX))
-        assert cap_render.cap_recipe(cap_render.NORTH) != before
+        assert cap_render.cap_recipe(EARTH_NORTH) != before
 
 
 # --- The elevation texture ----------------------------------------------------------------
@@ -177,12 +340,22 @@ def _ramp(px: int) -> np.ndarray:
 
 def _tiny_cap(monkeypatch, tmp_path, cap_px: int, elev_px: int) -> cap_render.CapGrid:
     """Point both output homes at tmp_path and shrink the grid. The grid keeps the real
-    `edge_lat` so `edge_m` stays honest; only the pixel counts move."""
-    monkeypatch.setattr(cap_render, "WORK", tmp_path)
-    monkeypatch.setattr(cap_render, "CAPS_DIR", tmp_path)
+    `edge_lat` so `edge_m` stays honest; only the pixel counts move.
+
+    REDIRECTS THE TWO ROOTS, not the module's own path helpers. Both `paths.DATA` and `paths.ROOT`
+    are read at call time, so moving them exercises the real derivation — registry lookup, prefix
+    join and all — where stubbing `cap_work_dir` would have tested a lambda. It also keeps the two
+    roots distinct here exactly as production keeps them: a body whose served and working
+    directories collapsed onto one path would still pass a fixture that stubbed both to tmp_path.
+    """
+    monkeypatch.setattr(paths, "DATA", tmp_path / "data")
+    monkeypatch.setattr(paths, "ROOT", tmp_path / "checkout")
     monkeypatch.setattr(cap_render, "CAP_PX", cap_px)
     monkeypatch.setattr(cap_render, "CAP_ELEV_PX", elev_px)
-    return cap_render.CapGrid(lat_0=90.0, edge_lat=78.0, px=cap_px, name="tiny", az_sign=-1.0)
+    grid = cap_render.CapGrid(lat_0=90.0, edge_lat=78.0, px=cap_px, name="tiny", az_sign=-1.0,
+                              body=bodies.EARTH)
+    cap_render.cap_work_dir(grid.body).mkdir(parents=True, exist_ok=True)
+    return grid
 
 
 #: WEBP write support in the GDAL this box has. The cap pipeline cannot run at all without it, so
@@ -244,7 +417,7 @@ class TestCapElevationTexture:
         _write_warp(grid, _ramp(64))
 
         asset = cap_render.write_cap_elevation(grid)
-        source = tmp_path / "cap_tiny_elev.tif"
+        source = cap_render.cap_work_dir(grid.body) / "cap_tiny_elev.tif"
         with rasterio.open(source) as dataset:
             authored = dataset.read()
         with rasterio.open(asset) as dataset:
@@ -272,7 +445,7 @@ class TestCapElevationTexture:
         _write_warp(grid, straddle)
 
         cap_render.write_cap_elevation(grid)
-        with rasterio.open(tmp_path / "cap_tiny_elev.tif") as dataset:
+        with rasterio.open(cap_render.cap_work_dir(grid.body) / "cap_tiny_elev.tif") as dataset:
             encoded = dataset.read()
         decoded = terrain_rgb.decode_array(encoded, terrain_rgb.QUANTISATION_M)
         assert abs(float(decoded[0, 0]) - 2044.0) <= terrain_rgb.QUANTISATION_M / 2
@@ -298,7 +471,7 @@ class TestCapElevationTexture:
         _write_warp(grid, heights)
 
         cap_render.write_cap_elevation(grid)
-        with rasterio.open(tmp_path / "cap_tiny_elev.tif") as dataset:
+        with rasterio.open(cap_render.cap_work_dir(grid.body) / "cap_tiny_elev.tif") as dataset:
             decoded = terrain_rgb.decode_array(dataset.read(), terrain_rgb.QUANTISATION_M)
         half = terrain_rgb.QUANTISATION_M / 2
         assert abs(float(decoded[0, 0]) - 0.0) <= half        # sentinel neutralised, not averaged
@@ -320,13 +493,13 @@ class TestCapElevationContract:
         identically — this is the tie that makes a copied literal fail. Both the recipe (which
         decides whether to re-render) and the manifest (which tells the browser how to decode) have
         to move when the pipeline's step does."""
-        recipe_before = cap_render.cap_elev_recipe(cap_render.NORTH)
-        manifest_before = json.loads(cap_render.caps_manifest())
+        recipe_before = cap_render.cap_elev_recipe(EARTH_NORTH)
+        manifest_before = json.loads(cap_render.caps_manifest(bodies.EARTH))
         assert manifest_before["north"]["elev_step"] == terrain_rgb.QUANTISATION_M
 
         monkeypatch.setattr(terrain_rgb, "QUANTISATION_M", 3.0)
-        assert cap_render.cap_elev_recipe(cap_render.NORTH) != recipe_before
-        assert json.loads(cap_render.caps_manifest())["north"]["elev_step"] == 3.0
+        assert cap_render.cap_elev_recipe(EARTH_NORTH) != recipe_before
+        assert json.loads(cap_render.caps_manifest(bodies.EARTH))["north"]["elev_step"] == 3.0
 
     def test_the_cap_carries_bathymetry_because_the_pyramid_does(self):
         """Sea treatment is not a per-product choice. The shipped archive was cut `--sea bathy`
@@ -340,17 +513,17 @@ class TestCapElevationContract:
         """Elevation depends on the height warp alone. Folding it into the colour asset set would
         make a step change demand the full composite re-render — the ~14 GB pass — so the texture
         is deliberately absent from `cap_assets`, and its recipe deliberately carries no look."""
-        for grid in (cap_render.NORTH, cap_render.SOUTH):
+        for grid in (EARTH_NORTH, EARTH_SOUTH):
             assert cap_render.cap_elev_asset(grid) not in cap_render.cap_assets(grid)
-        recipe = json.loads(cap_render.cap_elev_recipe(cap_render.NORTH))
+        recipe = json.loads(cap_render.cap_elev_recipe(EARTH_NORTH))
         assert set(recipe) == {"grid", "elev"}
 
-        before = cap_render.cap_elev_recipe(cap_render.NORTH)
+        before = cap_render.cap_elev_recipe(EARTH_NORTH)
         monkeypatch.setattr(cap_render, "CAP_ELEV_PX", 256)
-        assert cap_render.cap_elev_recipe(cap_render.NORTH) != before
+        assert cap_render.cap_elev_recipe(EARTH_NORTH) != before
 
     def test_the_manifest_names_the_texture_both_poles_ship(self):
-        manifest = json.loads(cap_render.caps_manifest())
-        for name, grid in (("north", cap_render.NORTH), ("south", cap_render.SOUTH)):
+        manifest = json.loads(cap_render.caps_manifest(bodies.EARTH))
+        for name, grid in (("north", EARTH_NORTH), ("south", EARTH_SOUTH)):
             assert manifest[name]["elev_url"] == f"/caps/cap_{name}_elev.webp"
             assert cap_render.cap_elev_asset(grid).name == f"cap_{name}_elev.webp"

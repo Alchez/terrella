@@ -1,7 +1,7 @@
 import * as maplibregl from "maplibre-gl";
 // v6 resolves its worker at runtime from `import.meta.url`, which does not survive bundling. The
 // page hits the same problem and solves it the same way — `?worker&url` emits one self-contained
-// asset and hands back its hashed href. Kept identical to `globe.astro` on purpose: a fixture that
+// asset and hands back its hashed href. Kept identical to `earth.astro` on purpose: a fixture that
 // wires MapLibre up differently from the page is testing a configuration nobody ships.
 import maplibreWorkerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
 
@@ -64,6 +64,19 @@ export async function mountGlobe(options: MountGlobeOptions = {}): Promise<Mount
   container.style.top = "0";
   container.style.left = "0";
   document.body.appendChild(container);
+
+  // PRE-FLIGHT, so a GL-less runner says so instead of timing out. MapLibre's own failure here is
+  // late and indirect, and on CI a bare "test timed out" would send the next reader looking at the
+  // assertions rather than at the browser. Measured on the binary CI installs
+  // (`playwright install --only-shell chromium`, HeadlessChrome/151): WebGL2 is present and backed
+  // by SwiftShader through ANGLE/Vulkan — software, deterministic, and exactly what we want here.
+  if (!document.createElement("canvas").getContext("webgl2")) {
+    container.remove();
+    throw new Error(
+      "no WebGL2 context in this runner — the globe fixture cannot mount. " +
+        "Check the browser binary supports GL (CI: playwright install --only-shell chromium).",
+    );
+  }
 
   const map = new maplibregl.Map({
     container,

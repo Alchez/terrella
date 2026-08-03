@@ -128,7 +128,7 @@ export function isSlowNetwork(
  * signal is a contradiction rather than a decision.
  *
  * `decideTier` answers "where does this visitor belong", and `gallery` is a legitimate answer to
- * that question. On `/globe/` the question has already been settled — `Base.astro`'s pre-paint
+ * that question. On `/earth/` the question has already been settled — `Base.astro`'s pre-paint
  * guard admitted them — so the same verdict means the module is disagreeing with the guard, and
  * the guard is the one that ran first and won. The two admission criteria are NOT the same set:
  * the guard consults `capable()` and `quality`, and has never consulted `saveData` (nor
@@ -197,7 +197,7 @@ export function decideTier(signals: CapabilitySignals, quality: Quality): Tier {
   // one soft signal still worth refusing the globe over.
   if (signals.saveData) return "gallery";
   // A slow link is NOT. It used to sit on the line above, which meant a visitor standing on
-  // `/globe/` was told the device could not run it — while `Base.astro`'s pre-paint guard, which
+  // `/earth/` was told the device could not run it — while `Base.astro`'s pre-paint guard, which
   // consults `saveData` and has never consulted this, had already let them in. The two places
   // disagreed, and the module's answer was the harsh one. A slow network buys the same treatment as
   // low memory: keep the globe, drop what `full` adds (the idle spin and the in-globe hero panel).

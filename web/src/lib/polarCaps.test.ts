@@ -821,7 +821,7 @@ describe("the cap's draw call", () => {
   });
 
   it("takes exaggeration from map.terrain, and 0 when there is no terrain", () => {
-    // map.terrain is the object globe.astro MUTATES on zoom — it never re-calls setTerrain, because
+    // map.terrain is the object earth.astro MUTATES on zoom — it never re-calls setTerrain, because
     // that rebuilds Terrain and RenderToTexture and leaks framebuffers. So map.getTerrain() reports
     // the spec handed in once and goes stale after the first ramp step; reading it here would
     // silently freeze the cap at the base exaggeration while the tiles ramped away from it.
@@ -831,13 +831,13 @@ describe("the cap's draw call", () => {
 });
 
 describe("the context-loss recovery contract", () => {
-  const globe = readFileSync(new URL("../pages/globe.astro", import.meta.url), "utf8");
+  const globe = readFileSync(new URL("../pages/earth.astro", import.meta.url), "utf8");
 
-  it("globe.astro installs the caps from style.load, not from a one-shot load", () => {
+  it("earth.astro installs the caps from style.load, not from a one-shot load", () => {
     const boundToStyleLoad = /map\.on\(\s*["']style\.load["']\s*,\s*addCaps\s*\)/.test(globe);
     expect(
       boundToStyleLoad,
-      "globe.astro must install the caps from a `style.load` handler. MapLibre re-applies a " +
+      "earth.astro must install the caps from a `style.load` handler. MapLibre re-applies a " +
         "serialized style on restore and that style cannot carry a `custom` layer, so a one-shot " +
         "`load` binding leaves every rebuilt globe capless: no error, just holes at the poles.",
     ).toBe(true);

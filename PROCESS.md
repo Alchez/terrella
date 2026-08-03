@@ -26,8 +26,8 @@
 
 ## The planet tile pipeline
 
-`python -m pipeline.tile.shade_planet [--tiles]` — or instrumented:
-`bash pipeline/profile/run_pass.sh [--tiles]`
+`python -m pipeline.tile.shade_planet --body earth [--tiles]` — or instrumented:
+`bash pipeline/profile/run_pass.sh --body earth [--tiles]`
 
 **It is ONE global streaming pass, and the shape is the cost model:** warp → per-row-z hillshade
 (full-width, with a 1-row halo, which is what makes it seamless) → globally-normalised SVF →

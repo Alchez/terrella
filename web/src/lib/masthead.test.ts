@@ -17,11 +17,11 @@ describe("the gallery masthead has nothing that changes its width after paint", 
     // view bar's tier picker instead; `about.astro` keeps a crawlable route (asserted below).
     const nav = gallery().match(/<nav slot="actions" class="head-links">[\s\S]*?<\/nav>/)?.[0];
     expect(nav, "the head-links nav is no longer recognisable in index.astro").toBeDefined();
-    expect(nav).not.toContain('href="/globe/"');
+    expect(nav).not.toContain('href="/earth/"');
   });
 
   it("never removes a masthead link from script", () => {
-    // The second of the two shifts was `.head-links a[href="/globe/"]` being removed after paint,
+    // The second of the two shifts was `.head-links a[href="/earth/"]` being removed after paint,
     // which took the nav from 219px to 162px and un-wrapped the row. Any post-paint mutation of
     // this nav re-arms that, whatever it is keyed to.
     const html = gallery();
@@ -45,10 +45,10 @@ describe("the gallery masthead has nothing that changes its width after paint", 
   });
 
   it("keeps a real, crawlable link to the globe somewhere a clone can follow", () => {
-    // index.astro held the ONLY <a href="/globe/"> on the site, and `.no-js .view-bar` is
-    // display:none — so dropping it with nothing else in place orphans /globe/ for crawlers and
+    // index.astro held the ONLY <a href="/earth/"> on the site, and `.no-js .view-bar` is
+    // display:none — so dropping it with nothing else in place orphans /earth/ for crawlers and
     // for anyone without JavaScript. There is no sitemap integration to fall back on.
-    expect(source("pages/about.astro")).toContain('href="/globe/"');
+    expect(source("pages/about.astro")).toContain('href="/earth/"');
   });
 });
 

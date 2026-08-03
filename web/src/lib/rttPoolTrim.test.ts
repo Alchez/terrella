@@ -305,7 +305,7 @@ describe("defaults", () => {
 
 describe("the ?nortt disable arm", () => {
   it("is a no-op at MAX_SAFE_INTEGER without relying on an early return", () => {
-    // globe.astro disables trimming with this exact bound. `trimRttPool` demands an integer, so
+    // earth.astro disables trimming with this exact bound. `trimRttPool` demands an integer, so
     // Infinity would throw if the length guard above it were ever reordered away.
     const objects = pool(10);
     expect(trimRttPool(objects, Number.MAX_SAFE_INTEGER)).toBe(0);

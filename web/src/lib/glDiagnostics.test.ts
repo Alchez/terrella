@@ -437,7 +437,7 @@ describe("formatGpuInitFailure — MapLibre names what we used to infer from a t
 
 describe("canary — the MapLibre surface this module depends on", () => {
   it("GPUInitializationError is still a constructable VALUE, not just a type", () => {
-    // The instanceof branch in globe.astro fails SILENTLY if this becomes type-only or is renamed:
+    // The instanceof branch in earth.astro fails SILENTLY if this becomes type-only or is renamed:
     // the check simply never matches, and the GPU-dead case goes back to being inferred from a
     // four-second timeout with no error in the console.
     expect(typeof maplibregl.GPUInitializationError).toBe("function");
@@ -477,7 +477,7 @@ describe("canary — the MapLibre surface this module depends on", () => {
     expect(declarations).toMatch(/getPixelRatio\(\): number;/);
   });
 
-  // Three comments in globe.astro cite LINE NUMBERS in the shipped bundle, and they are load-
+  // Three comments in earth.astro cite LINE NUMBERS in the shipped bundle, and they are load-
   // bearing: the whole reason the DEM bound, the polar caps and the recovery watch are driven
   // from a healthy `idle` rather than from `webglcontextrestored` is the ORDER of these five
   // statements. A version bump moves every one of them, and a citation that has silently drifted
@@ -507,7 +507,7 @@ describe("canary — the MapLibre surface this module depends on", () => {
     const actual = { setStyle, setupPainter, resize, fireRestored };
     expect(
       actual,
-      `globe.astro cites these bundle lines; MapLibre moved them. Update the comments beside ` +
+      `earth.astro cites these bundle lines; MapLibre moved them. Update the comments beside ` +
         `reassertTerrainBound, reassertPolarCaps and startRecoveryWatch to ` +
         `${JSON.stringify(actual)}.`,
     ).toEqual(cited);
@@ -523,8 +523,8 @@ describe("canary — the MapLibre surface this module depends on", () => {
   });
 });
 
-describe("globe.astro wires the diagnostics rather than re-stating them", () => {
-  const globe = readFileSync(new URL("../pages/globe.astro", import.meta.url), "utf8");
+describe("earth.astro wires the diagnostics rather than re-stating them", () => {
+  const globe = readFileSync(new URL("../pages/earth.astro", import.meta.url), "utf8");
 
   const restoredHandler = globe
     .match(/map\.on\("webglcontextrestored"[\s\S]*?\n  \}\);/)?.[0];
@@ -816,8 +816,8 @@ describe("the snapshot names its library and what the camera needed", () => {
   });
 });
 
-describe("globe.astro feeds the snapshot the version and the covering count", () => {
-  const globe = readFileSync(new URL("../pages/globe.astro", import.meta.url), "utf8");
+describe("earth.astro feeds the snapshot the version and the covering count", () => {
+  const globe = readFileSync(new URL("../pages/earth.astro", import.meta.url), "utf8");
   const reader = globe.match(/const readGlState = [\s\S]*?\n    \}\);/)?.[0];
 
   it("passes MapLibre's own getVersion, not a hard-coded string", () => {

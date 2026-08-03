@@ -4,7 +4,7 @@ import { page } from "vitest/browser";
 import "../styles/global.css";
 import baseLayout from "../layouts/Base.astro?raw";
 import galleryPage from "../pages/index.astro?raw";
-import globePage from "../pages/globe.astro?raw";
+import globePage from "../pages/earth.astro?raw";
 
 /**
  * The view bar has to hold one row at 320 px.

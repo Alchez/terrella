@@ -242,7 +242,7 @@ class TestLadderServesTheLayout:
     # page -> the `sizes` constant it declares, and the ladders layered into that surface.
     PAGES = (
         ("index.astro", "SIZES", ("hero", "spotlight")),
-        ("globe.astro", "sizesAttr", ("hero", "border")),
+        ("earth.astro", "sizesAttr", ("hero", "border")),
     )
 
     # The viewports the `vw` arm of `sizes` actually serves, as (CSS px, device pixel ratio).

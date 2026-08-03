@@ -74,10 +74,10 @@ describe("the globe's own layer order", () => {
     ]);
   });
 
-  it("matches what globe.astro actually adds last", () => {
+  it("matches what earth.astro actually adds last", () => {
     // The array above is a MODEL of the page. Pin it to the page, or it becomes a description of
     // a layer order that used to exist — the exact rot this module was written after finding.
-    const globe = readFileSync(new URL("../pages/globe.astro", import.meta.url), "utf8");
+    const globe = readFileSync(new URL("../pages/earth.astro", import.meta.url), "utf8");
     const hitAt = globe.indexOf("addCountryHitTargets();");
     const highlightAt = globe.indexOf("addCountryHighlight();");
     const countriesAt = globe.indexOf("addCountryTiles();");
@@ -90,7 +90,7 @@ describe("the globe's own layer order", () => {
       ["addCountryHighlight();", highlightAt],
       ["addCountryHitTargets();", hitAt],
     ] as const) {
-      expect(at, `${label} is missing from globe.astro — the order below would be vacuous`).toBeGreaterThan(-1);
+      expect(at, `${label} is missing from earth.astro — the order below would be vacuous`).toBeGreaterThan(-1);
     }
     expect(hitAt).toBeGreaterThan(highlightAt);
     expect(highlightAt).toBeGreaterThan(countriesAt);
