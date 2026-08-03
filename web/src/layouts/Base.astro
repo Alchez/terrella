@@ -1,6 +1,7 @@
 ---
 import "../styles/global.css";
 import { Font } from "astro:assets";
+import type { BodySlug } from "../lib/bodies";
 
 interface Props {
   title?: string;
@@ -8,6 +9,13 @@ interface Props {
   borders?: boolean;
   spotlight?: boolean;
   quality?: boolean;
+  /** Which body this page is dressed in — see `lib/bodies.ts`.
+   *
+   *  REQUIRED, WITH NO DEFAULT, and `astro check` is what enforces it: a page that omitted it
+   *  would render with no accent at all rather than quietly wearing Earth's. That is the whole
+   *  design. A default here is invisible in the diff that adds the second body's page, and the
+   *  result — a Mars view in Earth's teal — is the kind of wrong that ships. */
+  body: BodySlug;
 }
 const {
   title = "Terrella",
@@ -15,11 +23,15 @@ const {
   borders = false,
   spotlight = false,
   quality = false,
+  body,
 } = Astro.props;
 ---
 
 <!doctype html>
-<html lang="en" class="no-js">
+{/* `data-body` selects this page's token block in global.css. Server-rendered onto the element the
+    tokens are declared on, so the accent is correct in the first painted frame — a class flipped by
+    script would repaint the chrome after paint, which is the CLS this site has already paid for. */}
+<html lang="en" class="no-js" data-body={body}>
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />

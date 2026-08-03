@@ -1843,6 +1843,58 @@ SABOTAGES: list[Sabotage] = [
         replacement='    return bodies.work_dir(body, "caps")',
         guard='test_earth_reads_and_writes_exactly_where_it_always_has',
     ),
+    # --- The web body descriptor -----------------------------------------------------------------
+    # `--accent` has no bare `:root` declaration by design: a page that reaches the stylesheet
+    # without `data-body` must lose its accent visibly rather than wear Earth's silently. That makes
+    # the attribute load-bearing for every link, button and heading rule on the site.
+    Sabotage(
+        suite='web',
+        label='the layout stops writing data-body, so every page loads with no accent at all',
+        path='web/src/layouts/Base.astro',
+        needle='<html lang="en" class="no-js" data-body={body}>',
+        replacement='<html lang="en" class="no-js">',
+        guard='renders data-body on <html>, server-side and unconditionally',
+    ),
+    # The attribute goes on the wrong element. `:root` IS <html>, so this compiles, renders, and
+    # silently matches nothing — a mistake no type can catch, since both spellings are valid Astro.
+    Sabotage(
+        suite='web',
+        label='data-body lands on <body>, where the token block cannot see it',
+        path='web/src/layouts/Base.astro',
+        needle='<html lang="en" class="no-js" data-body={body}>',
+        replacement='<html lang="en" class="no-js">\n  <body data-body={body}>',
+        guard='renders data-body on <html>, server-side and unconditionally',
+    ),
+    # A bare fallback creeps back in. Earth looks perfect and the attribute becomes decorative, so
+    # the second body inherits Earth's teal at exactly the moment nobody is checking Earth.
+    Sabotage(
+        suite='web',
+        label='a bare :root accent returns, making a page that declares no body silently Earth',
+        path='web/src/styles/global.css',
+        needle=':root[data-body="earth"] {\n  --accent: #3a6e7d;',
+        replacement=':root {\n  --accent: #3a6e7d;',
+        guard='leaves the accent undefined when no body is declared, rather than defaulting to Earth',
+    ),
+    # The copied colour drifts. This is the WATER_RGB failure one layer up: the stylesheet and the
+    # descriptor both state the accent, and only a test comparing them can notice they stopped agreeing.
+    Sabotage(
+        suite='web',
+        label="the stylesheet's accent drifts from the descriptor that is supposed to own it",
+        path='web/src/styles/global.css',
+        needle='  --accent: #3a6e7d; /* deep-sea teal, from the hero ramp */',
+        replacement='  --accent: #3a6f7d; /* deep-sea teal, from the hero ramp */',
+        guard="computes the descriptor's colour for every body the site knows",
+    ),
+    # The prop gains a default, which is what makes `astro check` stop asking. The page that forgets
+    # to name its body then renders in Earth's chrome and passes every gate.
+    Sabotage(
+        suite='web',
+        label='the body prop gains a default, so a page that names no planet quietly gets Earth',
+        path='web/src/layouts/Base.astro',
+        needle='  body,\n} = Astro.props;',
+        replacement='  body = "earth",\n} = Astro.props;',
+        guard='takes the body as a required prop with no default',
+    ),
     # --- The cap pass takes its own body ---------------------------------------------------------
     # The same argument the shade pass requires, on the entry point that renders the caps. A default
     # here is worse than one there: the caps are invoked automatically at the shade pass's tail, so

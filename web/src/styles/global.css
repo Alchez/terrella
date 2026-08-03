@@ -8,7 +8,6 @@
   --text: #2c2822;
   --muted: #6b6458;
   --line: #d6d0c2;
-  --accent: #3a6e7d; /* deep-sea teal, from the hero ramp */
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.06), 0 6px 18px rgba(0, 0, 0, 0.08);
   --serif: var(--font-serif, Georgia, "Times New Roman", serif);
   --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -21,8 +20,25 @@
     --text: #e7e2d5;
     --muted: #9a9384;
     --line: #35312a;
-    --accent: #7cb8b8; /* shallow teal in the dark */
     --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 22px rgba(0, 0, 0, 0.45);
+  }
+}
+
+/* Per-body tokens. `data-body` is written onto <html> by Base.astro, which every page goes
+   through, so this block is the accent's ONLY declaration — there is deliberately no bare `:root`
+   fallback. A fallback would be the wrong shape twice over: it would have to be one body's colour
+   pretending to be nobody's, and a page that forgot to declare its body would inherit it silently
+   rather than showing an unstyled accent the moment it loads.
+
+   The pairs here are pinned against `lib/bodies.ts` by bodies.browser.test.ts, which reads this
+   file and then checks what the browser actually computes from it. A copied colour with nothing
+   comparing it back is how WATER_RGB drifted 15% off the sea it was supposed to match. */
+:root[data-body="earth"] {
+  --accent: #3a6e7d; /* deep-sea teal, from the hero ramp */
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-body="earth"] {
+    --accent: #7cb8b8; /* shallow teal in the dark */
   }
 }
 
