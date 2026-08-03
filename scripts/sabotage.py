@@ -2146,6 +2146,38 @@ SABOTAGES: list[Sabotage] = [
         replacement='  const stillSet = RETIRED_STORE_VARS.filter((name) => env[name] !== undefined);',
         guard='ignores a blank one, the same way the resolver does',
     ),
+
+    # --- the tile address grammar: every rejection has to be free ------------------------------------
+    # A tile server that reaches storage before refusing a typo pays a range read on a multi-gigabyte
+    # object for a URL nobody minted. Each of these turns a free refusal into a paid one, or into a
+    # served tile — and none of them changes how a CORRECT address behaves, which is why they need a
+    # guard rather than a glance.
+    Sabotage(
+        suite='web',
+        label='the extension stops being checked against the layer it names',
+        path='web/src/lib/tileAddress.ts',
+        needle='  if (extension !== LAYERS[layer].extension) return null;',
+        replacement='',
+        guard='refuses the wrong extension for the layer',
+    ),
+    Sabotage(
+        suite='web',
+        label='a zoom outside the cut is accepted and handed to the archive',
+        path='web/src/lib/tileAddress.ts',
+        needle='  if (z < published.minZoom || z > published.maxZoom) return null;',
+        replacement='',
+        guard='refuses a zoom past the cut',
+    ),
+    # The rule the whole scheme rests on: two raster pyramids in one archive is not a tight packing,
+    # it is an address collision — and it would serve terrain bytes where relief was asked for.
+    Sabotage(
+        suite='web',
+        label='terrain is published out of the relief archive',
+        path='web/src/lib/tileAddress.ts',
+        needle='      objectKey: "terrain-v1.pmtiles",',
+        replacement='      objectKey: "planet-v2.pmtiles",',
+        guard='never puts two raster pyramids in one archive',
+    ),
 ]
 
 

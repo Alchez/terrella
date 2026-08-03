@@ -28,10 +28,7 @@
 import path from "node:path";
 
 import type { BodySlug } from "./bodies";
-
-/** The three pyramids the dev middleware answers out of, named by what they draw rather than by
- *  their file names — the router dispatches on URL prefix, and this is that dispatch's other half. */
-export type ArchiveKind = "relief" | "terrain" | "countries";
+import type { LayerId } from "./tileAddress";
 
 /** One archive's place in the pipeline's work tree, and the stage that puts it there. */
 interface ArchiveLocation {
@@ -47,9 +44,11 @@ interface ArchiveLocation {
 
 /** Every archive, and where its own pipeline stage leaves it.
  *
- *  A RECORD OVER THE KIND UNION, so a fourth pyramid is a compile error here rather than a route
- *  that silently resolves to `undefined` and reads a path spelled "undefined/undefined". */
-const ARCHIVES: Record<ArchiveKind, ArchiveLocation> = {
+ *  A RECORD OVER `LayerId`, so a fourth pyramid is a compile error here rather than a route that
+ *  silently resolves to `undefined` and reads a path spelled "undefined/undefined". The layer
+ *  vocabulary is `tileAddress.ts`'s — the URL segment, the R2 key and this lookup all spell a
+ *  layer one way, because two spellings would be two concepts to keep in step. */
+const ARCHIVES: Record<LayerId, ArchiveLocation> = {
   relief: {
     stage: "planet_tiles",
     file: "planet.pmtiles",
@@ -102,17 +101,17 @@ export function resolveDataRoot(
   return configured ? path.resolve(configured) : path.resolve(repoRoot, "data");
 }
 
-/** Absolute path to one body's archive of `kind`, under an already-resolved data root.
+/** Absolute path to one body's archive of `layer`, under an already-resolved data root.
  *
  *  Mirrors `bodies.work_dir(body, stage) / file`. The empty prefix collapses, which is what keeps
  *  Earth's archives exactly where they have always been. */
-export function archivePath(dataRoot: string, body: BodySlug, kind: ArchiveKind): string {
-  return path.join(dataRoot, "work", WORK_PREFIX[body], ARCHIVES[kind].stage, ARCHIVES[kind].file);
+export function archivePath(dataRoot: string, body: BodySlug, layer: LayerId): string {
+  return path.join(dataRoot, "work", WORK_PREFIX[body], ARCHIVES[layer].stage, ARCHIVES[layer].file);
 }
 
 /** What an archive is called, for the messages that name one. */
-export function archiveFileName(kind: ArchiveKind): string {
-  return ARCHIVES[kind].file;
+export function archiveFileName(layer: LayerId): string {
+  return ARCHIVES[layer].file;
 }
 
 /** The 500 body for a request whose archive is not on disk.
@@ -121,13 +120,13 @@ export function archiveFileName(kind: ArchiveKind): string {
  *  file there, and how to point the server somewhere else. */
 export function describeMissingArchive(
   body: BodySlug,
-  kind: ArchiveKind,
+  layer: LayerId,
   expected: string,
   dataRoot: string,
 ): string {
   return [
-    `No ${body} ${kind} archive at ${expected}.`,
-    `It is written by ${ARCHIVES[kind].producedBy}.`,
+    `No ${body} ${layer} archive at ${expected}.`,
+    `It is written by ${ARCHIVES[layer].producedBy}.`,
     `The dev server derives that path from the data store at ${dataRoot} — set MAPS_DATA to`,
     "relocate it (the same variable pipeline/paths.py reads), or run the stage above.",
   ].join("\n");

@@ -13,8 +13,8 @@ import {
   describeMissingArchive,
   describeRetiredStoreVars,
   resolveDataRoot,
-  type ArchiveKind,
 } from './src/lib/devStores';
+import type { LayerId } from './src/lib/tileAddress';
 import {
   TILE_CONTENT_TYPE,
   assertZoomRange,
@@ -210,7 +210,7 @@ function validateCountriesHeader(header: { minZoom: number; maxZoom: number; til
 interface ResolvedTileRoute {
   tile: { z: number; x: number; y: number };
   /** Which pyramid, not where it is — the path is derived from this plus the body. */
-  kind: ArchiveKind;
+  layer: LayerId;
   contentType: string;
   validateHeader: (header: { minZoom: number; maxZoom: number; tileType: number }) => void;
   /** What an absent tile MEANS for this archive — 404 where the pyramid is complete, 204 where it
@@ -252,7 +252,7 @@ function tilesDevServer(): Plugin {
         const route: ResolvedTileRoute = relief
           ? {
               tile: relief,
-              kind: 'relief',
+              layer: 'relief',
               contentType: TILE_CONTENT_TYPE,
               validateHeader: validateReliefHeader,
               missingTileStatus: 404,
@@ -260,29 +260,29 @@ function tilesDevServer(): Plugin {
           : terrain
           ? {
               tile: terrain,
-              kind: 'terrain',
+              layer: 'terrain',
               contentType: TERRAIN_CONTENT_TYPE,
               validateHeader: validateTerrainHeader,
               missingTileStatus: 404,
             }
           : {
               tile: countries!,
-              kind: 'countries',
+              layer: 'countries',
               contentType: COUNTRIES_CONTENT_TYPE,
               // The one sparse pyramid — most of the planet is ocean and holds no country.
               missingTileStatus: 204,
               validateHeader: validateCountriesHeader,
             };
         const { tile } = route;
-        const archivePathname = archivePath(DATA_ROOT, DEV_BODY, route.kind);
-        const archiveName = archiveFileName(route.kind);
+        const archivePathname = archivePath(DATA_ROOT, DEV_BODY, route.layer);
+        const archiveName = archiveFileName(route.layer);
         // Checked per request, not once at startup, for the reason resolveStore is: `astro build`
         // creates a Vite server and runs configureServer, but never asks for a tile, so a missing
         // archive must not be able to fail a build that does not need it.
         if (!fs.existsSync(archivePathname)) {
           res.statusCode = 500;
           res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-          res.end(describeMissingArchive(DEV_BODY, route.kind, archivePathname, DATA_ROOT));
+          res.end(describeMissingArchive(DEV_BODY, route.layer, archivePathname, DATA_ROOT));
           return;
         }
         void (async () => {

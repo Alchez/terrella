@@ -8,11 +8,11 @@ import {
   describeMissingArchive,
   describeRetiredStoreVars,
   resolveDataRoot,
-  type ArchiveKind,
 } from "./devStores";
+import type { LayerId } from "./tileAddress";
 
 const REPO = "/checkout/maps";
-const KINDS: ArchiveKind[] = ["relief", "terrain", "countries"];
+const LAYERS_UNDER_TEST: LayerId[] = ["relief", "terrain", "countries"];
 
 describe("resolveDataRoot", () => {
   it("defaults to <repo>/data, the same fallback pipeline/paths.py takes", () => {
@@ -60,14 +60,14 @@ describe("archivePath", () => {
   });
 
   it("keeps the three archives in three directories", () => {
-    const paths = KINDS.map((kind) => archivePath("/data", "earth", kind));
-    expect(new Set(paths).size).toBe(KINDS.length);
+    const paths = LAYERS_UNDER_TEST.map((layer) => archivePath("/data", "earth", layer));
+    expect(new Set(paths).size).toBe(LAYERS_UNDER_TEST.length);
   });
 
   it("follows the data root, so MAPS_DATA moves every archive at once", () => {
     const relocated = resolveDataRoot({ MAPS_DATA: "/mnt/store" }, REPO);
-    for (const kind of KINDS) {
-      expect(archivePath(relocated, "earth", kind).startsWith("/mnt/store/work/")).toBe(true);
+    for (const layer of LAYERS_UNDER_TEST) {
+      expect(archivePath(relocated, "earth", layer).startsWith("/mnt/store/work/")).toBe(true);
     }
   });
 });

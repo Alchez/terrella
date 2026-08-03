@@ -1,0 +1,237 @@
+// The address of a tile: one grammar for every body, every layer and every cut.
+//
+// THE SHAPE IS FIXED AND THE VOCABULARY IS NOT. Every tile URL is exactly six segments:
+//
+//     {body}/{layer}/{token}/{z}/{x}/{y}.{ext}
+//     earth/relief/3f9c1ab2/5/17/11.webp
+//
+// Adding a planet, a layer or a re-cut adds a WORD to one of the first three segments; it never
+// changes the shape. That is the whole design, and it is what makes exclusivity structural instead
+// of argued: two archives cannot share an address, because the address names its archive. The
+// arrangement it replaces had a bare relief path, a `terrain/` prefix and a `countries/` prefix,
+// and its correctness rested on the observation that no prefix was a prefix of another — true, but
+// a property that has to be re-checked by hand every time a word is added.
+//
+// WHY THE BODY IS IN THE PATH AT ALL. Two bodies' pyramids are byte-comparable nonsense for each
+// other: Mars terrain served at an Earth address does not 404, it displaces the globe by plausible
+// metres. This is the same failure that made `terrain/` mandatory once both raster pyramids became
+// WebP, one axis out.
+//
+// WHY THE TOKEN IS IN THE PATH. Tiles ship `immutable, max-age=31536000`, and a zone purge cannot
+// reach a browser cache — so for a re-cut to be seen, THE URL MUST CHANGE. The token is the only
+// thing in the address that can carry that, and it is per layer so that re-cutting 10 MB of country
+// geometry does not re-fetch 3 GB of relief.
+//
+// WHAT THE TOKEN IS DERIVED FROM, AND WHY NOT THE RECIPE. It is a prefix of the SHA-256 of the
+// archive's own bytes, computed by scripts/gen_tile_tokens.ts and committed in
+// ../data/tileTokens.json. Hashing the cut's recipe sidecar was the obvious alternative and is
+// wrong: `tile_params.json` records format, quality and zoom range, so a look change re-shades the
+// composite, re-cuts every tile, and leaves that file byte-identical — the token would hold still
+// through exactly the re-cut it exists to announce. The bytes cannot lie about themselves.
+//
+// PARSING IS GRAMMAR, NOT POLICY. `parseTileAddress` checks that a token is well-FORMED, never that
+// it is current. A visitor holding a minute-old page must keep getting tiles while a deploy lands,
+// and the archive a request resolves to does not depend on its token — so an old address serves the
+// same object under a different cache key, which is exactly the behaviour that makes the token
+// safe to change.
+
+import type { BodySlug } from "./bodies";
+import {
+  COUNTRIES_CONTENT_TYPE,
+  COUNTRIES_MAX_ZOOM,
+  COUNTRIES_MIN_ZOOM,
+  COUNTRIES_TILE_EXTENSION,
+  describeCountriesTileTypeMismatch,
+} from "./countryTiles";
+import {
+  RELIEF_MAX_ZOOM,
+  RELIEF_MIN_ZOOM,
+  TILE_CONTENT_TYPE,
+  TILE_EXTENSION,
+  describeTileTypeMismatch,
+} from "./reliefTiles";
+import {
+  TERRAIN_CONTENT_TYPE,
+  TERRAIN_MAX_ZOOM,
+  TERRAIN_MIN_ZOOM,
+  TERRAIN_TILE_EXTENSION,
+  describeTerrainTileTypeMismatch,
+} from "./terrainSource";
+// Beside this module rather than in src/data/, which LOOKS like its home and is gitignored: the
+// repo's root `data/` pattern is unanchored, so it matches a directory of that name at any depth.
+// A committed file has to live somewhere git will actually keep it.
+import TOKENS from "./tileTokens.json";
+
+/** Every pyramid the site knows how to draw, named by what it draws.
+ *
+ *  ONE VOCABULARY FOR THE WHOLE STACK — the URL segment, the work-tree lookup and the R2 key all
+ *  spell a layer this way. A second spelling anywhere is a second concept to keep in step. */
+export type LayerId = "relief" | "terrain" | "countries";
+
+/** A tile URL is always this many segments. Stated as a constant because it is the invariant the
+ *  grammar rests on, and a test pins it against the parser. */
+export const TILE_PATH_SEGMENTS = 6;
+
+/** Hex characters of SHA-256 kept in the address. Eight is ~4.3 billion values against a handful of
+ *  archives ever cut, and short enough that a tile URL stays readable in a network panel. */
+export const TOKEN_LENGTH = 8;
+
+/** What is true of a layer on EVERY body: how its tiles are encoded, and what a miss means.
+ *
+ *  Every field is imported from the module that already owns it rather than restated here. This
+ *  registry composes the three tile contracts; it does not become a fourth copy of them. */
+export interface TileLayer {
+  /** Tile encoding, as a bare extension. Documents and labels the bytes — it is deliberately NOT
+   *  the discriminator, because a re-cut is allowed to change a codec and correctness may not
+   *  depend on that. The layer segment discriminates. */
+  extension: string;
+  contentType: string;
+  /** Reports an archive whose header disagrees with `extension`. */
+  describeTileTypeMismatch: (archiveExtension: string) => string | null;
+  /** What an absent tile MEANS here: 404 where the pyramid is complete and a hole is a packaging
+   *  fault, 204 where it is sparse and a hole is just ocean. */
+  missingTileStatus: 404 | 204;
+  /** Whether one archive may hold several named layers. TRUE only for vector pyramids, where MVT
+   *  carries layers inside each tile — which is why every one of a body's vector products belongs
+   *  in ONE archive, and why two raster products can never share one. */
+  multiLayer: boolean;
+}
+
+/** The layer contracts. A `Record` over the union, so a fourth pyramid is a compile error here
+ *  rather than an `undefined` that resolves to a path spelled "undefined". */
+export const LAYERS: Record<LayerId, TileLayer> = {
+  relief: {
+    extension: TILE_EXTENSION,
+    contentType: TILE_CONTENT_TYPE,
+    describeTileTypeMismatch,
+    missingTileStatus: 404,
+    multiLayer: false,
+  },
+  terrain: {
+    extension: TERRAIN_TILE_EXTENSION,
+    contentType: TERRAIN_CONTENT_TYPE,
+    describeTileTypeMismatch: describeTerrainTileTypeMismatch,
+    missingTileStatus: 404,
+    multiLayer: false,
+  },
+  countries: {
+    extension: COUNTRIES_TILE_EXTENSION,
+    contentType: COUNTRIES_CONTENT_TYPE,
+    describeTileTypeMismatch: describeCountriesTileTypeMismatch,
+    // The one sparse pyramid: most of the planet is ocean and holds no country.
+    missingTileStatus: 204,
+    multiLayer: true,
+  },
+};
+
+/** One body's cut of one layer, as published.
+ *
+ *  This is the per-BODY half — everything here can differ between planets while the layer contract
+ *  above stays the same. */
+export interface PublishedArchive {
+  /** The R2 object key, recorded rather than derived.
+   *
+   *  DELIBERATELY NOT `{body}/{layer}-v{N}.pmtiles`. The keys carry the history of what has been
+   *  uploaded (`planet-v2.pmtiles` is the WebP cut that replaced a PNG one), and renaming them
+   *  means copying 5.7 GB into a bucket with under a gigabyte of headroom. A field costs one line
+   *  and lets each key be tidied the next time that archive is re-cut anyway. */
+  objectKey: string;
+  /** Cache-busting segment; see the module note. Generated, never typed by hand. */
+  token: string;
+  minZoom: number;
+  maxZoom: number;
+}
+
+/** Which cuts exist, per body.
+ *
+ *  `null` means "this body does not publish this layer" and is a required answer, not an omission —
+ *  a `Partial` record here would let a new body inherit silence for a layer nobody considered, and
+ *  a new layer appear published on every planet at once. Mars will carry `null` for its vectors
+ *  until they are cut. */
+export const PUBLISHED: Record<BodySlug, Record<LayerId, PublishedArchive | null>> = {
+  earth: {
+    relief: {
+      objectKey: "planet-v2.pmtiles",
+      token: TOKENS.earth.relief,
+      minZoom: RELIEF_MIN_ZOOM,
+      maxZoom: RELIEF_MAX_ZOOM,
+    },
+    terrain: {
+      objectKey: "terrain-v1.pmtiles",
+      token: TOKENS.earth.terrain,
+      minZoom: TERRAIN_MIN_ZOOM,
+      maxZoom: TERRAIN_MAX_ZOOM,
+    },
+    countries: {
+      objectKey: "countries-v1.pmtiles",
+      token: TOKENS.earth.countries,
+      minZoom: COUNTRIES_MIN_ZOOM,
+      maxZoom: COUNTRIES_MAX_ZOOM,
+    },
+  },
+};
+
+/** One parsed tile request. */
+export interface TileAddress {
+  body: BodySlug;
+  layer: LayerId;
+  /** As requested. Well-formed, not necessarily current — see the module note. */
+  token: string;
+  z: number;
+  x: number;
+  y: number;
+}
+
+const TILE_PATH_PATTERN = new RegExp(
+  String.raw`^\/?([a-z][a-z0-9]*)\/([a-z][a-z0-9]*)\/([0-9a-f]{${TOKEN_LENGTH}})\/` +
+    String.raw`(\d{1,2})\/(\d{1,7})\/(\d{1,7})\.([a-z0-9]+)$`,
+);
+
+/** Parse a tile path into an address, or null if it is not one.
+ *
+ *  Null covers every rejection, and every rejection is answerable without touching storage: an
+ *  unknown body or layer, a body that does not publish that layer, an extension that is not the
+ *  layer's, a zoom outside the cut, an address outside the 2^z grid. A tile server must be able to
+ *  refuse a typo without range-reading a multi-gigabyte object. */
+export function parseTileAddress(pathname: string): TileAddress | null {
+  const match = TILE_PATH_PATTERN.exec(pathname);
+  if (!match) return null;
+  const [, bodySlug, layerId, token, zoom, column, row, extension] = match;
+  if (!(bodySlug in PUBLISHED)) return null;
+  const body = bodySlug as BodySlug;
+  if (!(layerId in LAYERS)) return null;
+  const layer = layerId as LayerId;
+  if (extension !== LAYERS[layer].extension) return null;
+  const published = PUBLISHED[body][layer];
+  if (!published) return null;
+  const z = Number(zoom);
+  const x = Number(column);
+  const y = Number(row);
+  if (z < published.minZoom || z > published.maxZoom) return null;
+  const gridSize = 2 ** z;
+  if (x >= gridSize || y >= gridSize) return null;
+  return { body, layer, token, z, x, y };
+}
+
+/** Look one body's cut of a layer up, or throw.
+ *
+ *  NO FALLBACK, for the reason both registries give: a caller that quietly borrowed Earth's archive
+ *  because a body does not publish this layer would serve a complete, plausible, wrong planet. */
+export function archiveFor(body: BodySlug, layer: LayerId): PublishedArchive {
+  // The body lookup is defensive even though it is typed: the argument reaches here from a URL
+  // segment and from `data-body`, neither of which the type system has ever seen.
+  const published = PUBLISHED[body]?.[layer];
+  if (!published) {
+    throw new Error(`${body} publishes no ${layer} pyramid`);
+  }
+  return published;
+}
+
+/** The path portion of a tile URL, with MapLibre's placeholders left in place.
+ *
+ *  Built from the same registry the parser reads, so the address we ASK for and the address we
+ *  ACCEPT cannot drift across a re-cut, a new layer or a new planet. */
+export function tilePathTemplate(body: BodySlug, layer: LayerId): string {
+  const { token } = archiveFor(body, layer);
+  return `${body}/${layer}/${token}/{z}/{x}/{y}.${LAYERS[layer].extension}`;
+}
