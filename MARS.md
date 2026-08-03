@@ -48,6 +48,18 @@ work below is legible as *remaining*.
   - No field carries a default, so adding one is a hard error at every construction until each body
     answers for it — rather than a value silently inherited by every planet but the one it was
     written for.
+  - **Mars is registered**, and answers every field. **Both its projection spheres are Earth's, on
+    purpose** — the registry asserts that sameness deliberately, because giving Mars its own would
+    read as the obvious fix and produce a raster the tiler cannot cut. Its ground sphere is the IAU
+    2015 sphere the source DEM declares, giving a ratio of 0.532 and a z-factor 1.878× Earth's.
+  - **Its exaggeration and its ceiling are provisional and neither is a decision**, held so the type
+    is satisfied and the path exists, exactly as the browser registry's Mars accent is. 10× is
+    arithmetic to be judged on the sphere; z6 is the cheapest lookable thing rather than the
+    eventual ceiling. A run is harmless meanwhile: there is no Mars heightfield, so the first warp
+    fails loudly rather than producing a plausible wrong pyramid.
+  - **One word names a body in both registries**, and a scan holds them together, because neither
+    language can import the other and a divergence is a pyramid written under one name and requested
+    under another — a 404 at the edge, long after the run that produced it.
 - **The body goes in the PATH, not in the freshness recipe.** Every tile stage is gated on a recipe
   sidecar whose *contents* are its dependency, so a body field inside those recipes would invalidate
   Earth's correct output the moment a second body existed, for no pixel change at all. Separate

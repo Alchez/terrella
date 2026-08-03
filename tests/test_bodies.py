@@ -18,6 +18,7 @@ call site rather than a silent inheritance of Earth's value by a planet nobody c
 
 import dataclasses
 import math
+import re
 from pathlib import Path
 
 import pytest
@@ -38,11 +39,17 @@ def test_an_unknown_body_raises_and_names_the_ones_that_exist() -> None:
     A default here is the whole failure mode the registry exists to prevent: a Mars run that
     silently borrows Earth's radius produces output that is wrong everywhere and looks right.
     """
+    # A CASE VARIANT OF A REAL BODY, chosen once Mars was registered and the old "mars" stopped
+    # being unknown. It is the realistic miss rather than an invented one — the registry is
+    # lowercase because the name is a path segment and a URL slug — and it can never quietly become
+    # valid the way a plausible planet name could.
     with pytest.raises(KeyError) as caught:
-        bodies.get("mars")
+        bodies.get("Mars")
     # The message has to carry the known names, because the first thing anyone does on hitting this
-    # is guess the spelling.
-    assert "earth" in str(caught.value)
+    # is guess the spelling. Every registered body, not a hardcoded pair: a planet missing from the
+    # error is one the reader concludes does not exist.
+    for known in bodies.BODIES:
+        assert known in str(caught.value)
 
 
 def test_no_field_carries_a_default_so_a_new_one_must_be_decided_per_body() -> None:
@@ -167,8 +174,7 @@ def test_another_body_nests_under_its_own_name() -> None:
     `composite_params.json` at its own path, so the params file is already body-specific and adding
     a body key inside it would only invalidate Earth's correct output.
     """
-    other = dataclasses.replace(bodies.EARTH, name="mars", path_prefix="mars")
-    assert bodies.work_dir(other, "planet_tiles") == paths.DATA / "work/mars/planet_tiles"
+    assert bodies.work_dir(bodies.MARS, "planet_tiles") == paths.DATA / "work/mars/planet_tiles"
 
 
 def test_no_two_bodies_share_a_path_prefix() -> None:
@@ -195,8 +201,7 @@ def test_earth_keeps_the_served_cap_urls_the_frontend_already_fetches() -> None:
 
 
 def test_a_second_body_publishes_under_its_own_segment() -> None:
-    other = dataclasses.replace(bodies.EARTH, name="mars", path_prefix="mars")
-    assert bodies.public_dir(other, "caps") == paths.ROOT / "web/public/caps/mars"
+    assert bodies.public_dir(bodies.MARS, "caps") == paths.ROOT / "web/public/caps/mars"
 
 
 def test_served_assets_follow_the_checkout_not_the_data_store() -> None:
@@ -279,6 +284,64 @@ def test_ground_metres_per_pixel_composes_from_the_two_fields() -> None:
     earth_ground = (bodies.EARTH.map_units_per_pixel
                     * bodies.ground_metres_per_map_unit(bodies.EARTH))
     assert earth_ground == bodies.EARTH.map_units_per_pixel
+
+
+# --- Mars ----------------------------------------------------------------------------------------
+
+
+def test_mars_is_registered_and_reachable_by_name() -> None:
+    assert bodies.get("mars") is bodies.MARS
+
+
+def test_mars_projects_on_earths_spheres_and_that_is_deliberate() -> None:
+    """The assertion that stops someone "fixing" the registry into something that cannot be tiled.
+
+    Reading `MARS.mercator_radius_m == 6378137.0` next to a planet whose radius is 3,396,190 m looks
+    exactly like a copy-paste slip, and correcting it is the natural next edit. It would be wrong:
+    PROJ refuses to build an operation between two celestial bodies, and `gdal raster tile`
+    reprojects into WebMercatorQuad, so a Mars-radius Mercator raster cannot be cut into tiles at
+    all — measured, `gdalwarp -t_srs EPSG:3857` from IAU_2015:49900 exits 1 rather than warping.
+
+    So the sameness is a decision and this is where it is written down. Without it the "fix" passes
+    every gate and fails at the tiler, on a run that has already spent an hour warping.
+    """
+    assert bodies.MARS.mercator_radius_m == bodies.EARTH.mercator_radius_m
+    assert bodies.MARS.aeqd_radius_m == bodies.EARTH.aeqd_radius_m
+
+
+def test_mars_is_the_first_body_whose_ground_sphere_is_not_its_grid() -> None:
+    """The one geometry field that actually differs, and the arithmetic the ceiling table rests on.
+
+    Pinned against the published figures rather than restating the division, so the registry and the
+    standing brief cannot drift: 651 m/px at z6 is what the brief's ceiling table says, and it comes
+    out of these two fields multiplied. The z-factor ratio is the same fact inverted — a hillshade on
+    Mars needs 1.878x Earth's z for the same physical exaggeration.
+    """
+    assert bodies.MARS.ground_radius_m != bodies.MARS.mercator_radius_m
+    ratio = bodies.ground_metres_per_map_unit(bodies.MARS)
+    assert ratio == pytest.approx(0.532474, abs=1e-6)
+    assert 1.0 / ratio == pytest.approx(1.878, abs=1e-3)
+    ground = bodies.MARS.map_units_per_pixel * ratio
+    assert ground == pytest.approx(651.2, abs=0.1)
+
+
+def test_the_two_registries_agree_on_how_a_body_is_spelled() -> None:
+    """The pipeline names a body and the browser names the same body; one word, or they are two.
+
+    The slug is a path segment, an archive key, a tile-URL segment and a route, so a divergence is
+    not cosmetic — it is a pyramid written under one name and requested under another, which fails
+    as a 404 at the edge long after the run that produced it. Neither side can import the other, so
+    the only thing that can hold them together is a scan, in the shape `test_palette.py` already
+    uses for the colours the browser cannot import.
+    """
+    web = (paths.ROOT / "web/src/lib/bodies.ts").read_text(encoding="utf-8")
+    match = re.search(r"export type BodySlug = ([^;]+);", web)
+    assert match, "web/src/lib/bodies.ts no longer declares a BodySlug union — the guard is blind"
+    slugs = set(re.findall(r'"([^"]+)"', match.group(1)))
+    assert slugs == set(bodies.BODIES), (
+        f"the pipeline knows {sorted(bodies.BODIES)} and the browser knows {sorted(slugs)} — "
+        "a body present in one and absent from the other publishes tiles nothing will request"
+    )
 
 
 def test_the_cap_module_no_longer_carries_its_own_sphere_radius() -> None:

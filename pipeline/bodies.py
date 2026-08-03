@@ -138,9 +138,52 @@ EARTH = Body(
 )
 
 
+MARS = Body(
+    name="mars",
+    # BOTH PROJECTION SPHERES ARE EARTH'S, ON PURPOSE, AND NEITHER IS A COPY-PASTE SLIP. The
+    # tempting "fix" is to put Mars's own radius here; it would be wrong, and wrong in a way that
+    # surfaces months later. PROJ refuses to build an operation between two celestial bodies, and
+    # `gdal raster tile` reprojects into WebMercatorQuad — i.e. EPSG:3857 — so a Mars-radius
+    # Mercator raster cannot be cut into tiles at all. Measured, not assumed: `gdalwarp -t_srs
+    # EPSG:3857` from IAU_2015:49900 exits 1 with "Source and target ellipsoid do not belong to the
+    # same celestial body (Earth vs Mars)". Mars therefore rides Earth's grid, its heightfield
+    # enters with its CRS DECLARED as EPSG:4326 — an identity on angles, only the sphere label
+    # changes — and `ground_radius_m` below is what converts back. `tests/test_bodies.py` asserts
+    # this sameness deliberately, so the "fix" fails at the gate rather than at the tiler.
+    mercator_radius_m=6378137.0,
+    aeqd_radius_m=6371000.0,
+    # The IAU 2015 Mars sphere, which is also what the source DEM's own CRS declares — so our
+    # ground metres agree with the grid the data was published on. It is the equatorial radius used
+    # as a sphere, NOT the 3389500 m mean; the two differ by 0.2%, and the ceiling table in MARS.md
+    # is built on this one. The ratio against the grid sphere is 0.532474, so a hillshade z-factor
+    # comes out 1.878x Earth's for the same physical exaggeration.
+    ground_radius_m=3396190.0,
+    # Exactly 2*pi*6378137 / (512 * 2**6). Stored rather than derived for the reason the field
+    # states, and pinned against `tile_max_zoom` relationally — so moving the ceiling without moving
+    # this is a red test rather than a pyramid cut at a zoom its raster was not built for.
+    map_units_per_pixel=1222.99245256282,
+    # PROVISIONAL, AND NOT A DECISION — the same status as the web registry's Mars accent, and it
+    # gets replaced the same way. The arithmetic: MapLibre's globe shader draws every body on one
+    # Earth-sized sphere and displaces in metres, so only metres matter, and Mars's ~30 km range is
+    # ~1.5x Earth's ~20 km — hence 15 / 1.5 ~ 10 to read the way Earth reads at 15x. That is a
+    # starting point to be judged on the sphere, which is how Earth's own 15x was settled. Note it
+    # points the OPPOSITE way from the other ratio people reach for: on its own sphere Mars is
+    # already ~2.8x more dramatic than Earth and would want LESS.
+    exaggeration=10.0,
+    # PROVISIONAL, for the cheapest lookable thing rather than for the eventual ceiling — a z6
+    # pyramid is ~2.8 GB of master against z7's ~11 GB, and its only job is to exist on the sphere.
+    # The honest ceiling is probably z7: the blended DEM is HRSC over only 44% of the planet and
+    # MOLA upsampled beneath the rest, so z8 buys four times the disk for a 2.8x upsample over most
+    # of it. Ratified by looking, never from the table.
+    tile_max_zoom=6,
+    # Nests, where Earth's is empty. A second body pays no relocation cost, so it starts correct.
+    path_prefix="mars",
+)
+
+
 #: Every body the pipeline knows. Keyed by `Body.name`, which a test pins so one planet cannot
 #: acquire two spellings.
-BODIES: dict[str, Body] = {EARTH.name: EARTH}
+BODIES: dict[str, Body] = {EARTH.name: EARTH, MARS.name: MARS}
 
 
 def get(name: str) -> Body:

@@ -1650,8 +1650,13 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label='the registry radius is "corrected" to the spherical mean, tilting every latitude',
         path='pipeline/bodies.py',
-        needle='    mercator_radius_m=6378137.0,',
-        replacement='    mercator_radius_m=6371000.0,',
+        # ANCHORED ON EARTH'S OWN COMMENT, because the bare field line stopped being unique the
+        # moment Mars joined the registry carrying the SAME number on purpose. The freshness gate
+        # caught that within a second of Mars landing, which is the whole reason it exists.
+        needle=("    # Web Mercator's sphere. Duplicated today in render/hillshade.py and "
+                "render/snow.py.\n    mercator_radius_m=6378137.0,"),
+        replacement=("    # Web Mercator's sphere. Duplicated today in render/hillshade.py and "
+                     "render/snow.py.\n    mercator_radius_m=6371000.0,"),
         guard='test_earth_carries_web_mercator_s_defining_sphere',
     ),
     # The plausible edit: 6371000 IS a real earth radius, just not the projection's one. Nothing
@@ -1727,6 +1732,59 @@ SABOTAGES: list[Sabotage] = [
         replacement='    path_prefix: str = ""\n',
         guard='test_no_field_carries_a_default_so_a_new_one_must_be_decided_per_body',
     ),
+    # --- The second body ---------------------------------------------------------------------------
+    # Mars publishes no pyramid yet, so none of these can be caught by looking at a rendered planet.
+    # Each one leaves a registry that imports, type-checks and reads perfectly sensibly.
+    Sabotage(
+        suite='python',
+        label="Mars is given its own sphere to project on, which cannot be tiled at all",
+        path='pipeline/bodies.py',
+        # Mars's two projection radii are ADJACENT; Earth's are separated by a comment, so this pair
+        # is unique without needing one.
+        needle='    mercator_radius_m=6378137.0,\n    aeqd_radius_m=6371000.0,',
+        replacement='    mercator_radius_m=3396190.0,\n    aeqd_radius_m=3396190.0,',
+        guard='test_mars_projects_on_earths_spheres_and_that_is_deliberate',
+    ),
+    # THE MOST TEMPTING EDIT IN THE REGISTRY, and the reason that guard is written as a deliberate
+    # sameness rather than left implicit: a planet whose radius is 3,396,190 m carrying Earth's
+    # 6,378,137 reads as a copy-paste slip, and correcting it is the obvious next commit. PROJ then
+    # refuses to reproject between two celestial bodies and `gdal raster tile` cannot cut the raster
+    # — but nothing says so until a run has already spent an hour warping.
+    Sabotage(
+        suite='python',
+        label="Mars's ground sphere is set to the grid's, silently flattening its exaggeration",
+        path='pipeline/bodies.py',
+        needle='    ground_radius_m=3396190.0,',
+        replacement='    ground_radius_m=6378137.0,',
+        guard='test_mars_is_the_first_body_whose_ground_sphere_is_not_its_grid',
+    ),
+    # The inverse of the case above and far quieter: the registry now says a Mars map unit is a Mars
+    # ground metre, the ratio comes out 1.0, and every hillshade is drawn at 0.53x the exaggeration
+    # it was meant to have. Nothing raises, and the planet renders.
+    Sabotage(
+        suite='python',
+        label='the Mars ceiling moves without its grid resolution, cutting at a zoom it was not built for',
+        path='pipeline/bodies.py',
+        needle='    tile_max_zoom=6,',
+        replacement='    tile_max_zoom=7,',
+        guard='test_every_body_s_grid_resolution_agrees_with_its_own_tile_ceiling',
+    ),
+    # THE CASE THE RELATIONAL PIN WAS WAITING FOR. It shipped with the previous commit and had no
+    # mutation of its own, because on Earth alone any single-site edit trips the bridge to Z8_RES
+    # instead — the guard only becomes reachable at a body with no module constant to be bridged to,
+    # which is exactly what Mars is. Moving the ceiling is the FIRST thing the look loop does.
+    Sabotage(
+        suite='python',
+        label='the browser forgets a body the pipeline still publishes for',
+        path='web/src/lib/bodies.ts',
+        needle='export type BodySlug = "earth" | "mars";',
+        replacement='export type BodySlug = "earth";',
+        guard='test_the_two_registries_agree_on_how_a_body_is_spelled',
+    ),
+    # Two registries, no import between them: the pipeline writes a pyramid under one name and the
+    # browser requests it under another, which surfaces as a 404 at the edge long after the run that
+    # produced it. Mutating the WEB file against a PYTHON guard on purpose — the drift is the gap
+    # between the two languages, so a case that stayed inside one of them would not be testing it.
     # --- The look seam ------------------------------------------------------------------------------
     # The ramps' kind-dispatch used to be transcribed in four functions; it is now one resolver over a
     # frozen Look. That is a refactor whose contract is "nothing changes", so its guard is a byte
@@ -1843,8 +1901,12 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label='the AEQD sphere is collapsed onto the Mercator one, moving the cap off its parallel',
         path='pipeline/bodies.py',
-        needle='    aeqd_radius_m=6371000.0,',
-        replacement='    aeqd_radius_m=6378137.0,',
+        # Earth's copy, disambiguated from Mars's by the comment above it — see the note on the
+        # Mercator case for why the bare line is no longer unique.
+        needle=("    # The caps' AEQD sphere. NOT the Mercator one above, and not MapLibre's globe "
+                "radius.\n    aeqd_radius_m=6371000.0,"),
+        replacement=("    # The caps' AEQD sphere. NOT the Mercator one above, and not MapLibre's "
+                     "globe radius.\n    aeqd_radius_m=6378137.0,"),
         guard='test_a_body_carries_two_distinct_radii_and_they_are_not_interchangeable',
     ),
     # --- Where a cap reads and writes ----------------------------------------------------------
