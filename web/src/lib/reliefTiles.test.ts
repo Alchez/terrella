@@ -5,7 +5,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
-  RELIEF_BASE_MAX_ZOOM,
   RELIEF_MAX_ZOOM,
   TILE_CONTENT_TYPE,
   TILE_EXTENSION,
@@ -93,21 +92,11 @@ describe("describeTileTypeMismatch", () => {
   });
 });
 
-describe("the pinned base source — a floor that is a map, not a colour", () => {
+// The two source SPECS moved to reliefSources.ts, where they can be asserted as objects rather than
+// as page text — see reliefSources.test.ts. What has to stay a source scan is the one thing that is
+// genuinely a property of the page: the order the style draws them in.
+describe("the pinned base source in the page's style", () => {
   const globe = readFileSync(new URL("../pages/earth.astro", import.meta.url), "utf8");
-
-  it("caps the base source at z0, because that is what makes it unmissable", () => {
-    // The guarantee is arithmetic, not luck: a raster source's covering set is clamped to its own
-    // maxzoom, so at 0 there is exactly ONE tile, ideal at every camera, therefore never absent
-    // after first load. At z1 the set is still camera-dependent and a first visit to a cold
-    // quadrant paints nothing — measured on production, so this constant is load-bearing.
-    expect(RELIEF_BASE_MAX_ZOOM).toBe(0);
-    const source = globe.match(/const reliefBaseSource[\s\S]*?\n  \};/)?.[0];
-    expect(source, "the base source must exist").toBeTruthy();
-    expect(source).toContain("maxzoom: RELIEF_BASE_MAX_ZOOM");
-    // A second attribution would render CREDITS twice in the control.
-    expect(source).not.toContain("attribution");
-  });
 
   it("draws the base UNDER relief and OVER the background, or it is pointless", () => {
     // Above relief it would hide the real tiles; below the background it would never be seen.

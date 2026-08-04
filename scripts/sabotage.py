@@ -373,11 +373,27 @@ SABOTAGES: list[Sabotage] = [
     # --- the z0 relief base pin (2026-07-29) ---------------------------------------------------------
     Sabotage(
         suite='web',
+        # Re-anchored when both source specs left the page for a module that a test can import. The
+        # mutation is the same one and it got MORE plausible in the move: the body's ceiling is now
+        # two lines above, so writing it here reads as removing an inconsistency.
         label='base source uncapped — maxzoom follows relief, losing the one-tile guarantee',
-        path='web/src/pages/earth.astro',
+        path='web/src/lib/reliefSources.ts',
         needle='    maxzoom: RELIEF_BASE_MAX_ZOOM,',
-        replacement='    maxzoom: RELIEF_MAX_ZOOM,',
-        guard='caps the base source at z0, because that is what makes it unmissable',
+        replacement='    maxzoom: archive.maxZoom,',
+        guard='caps the base source at z0 for every body, because that is what makes it unmissable',
+    ),
+    Sabotage(
+        suite='web',
+        # The defect this whole split exists to make impossible. Earth's pyramid is cut to z8 and
+        # Mars's to z6, so Earth's numbers written out here — which is what the page held until the
+        # registry became the source of truth — make a Mars globe request two levels that were never
+        # cut. Nothing errors: the address is refused without a storage read, so the tiles simply
+        # never arrive and the globe looks slow rather than wrong.
+        label='the relief source takes Earth\'s zoom range instead of the body\'s',
+        path='web/src/lib/reliefSources.ts',
+        needle='    minzoom: archive.minZoom,\n    maxzoom: archive.maxZoom,',
+        replacement='    minzoom: 0,\n    maxzoom: 8,',
+        guard='takes each body\'s own zoom range from the registry, never Earth\'s constants',
     ),
     Sabotage(
         suite='web',
@@ -385,7 +401,7 @@ SABOTAGES: list[Sabotage] = [
         path='web/src/lib/reliefTiles.ts',
         needle='export const RELIEF_BASE_MAX_ZOOM = 0;',
         replacement='export const RELIEF_BASE_MAX_ZOOM = 1;',
-        guard='caps the base source at z0, because that is what makes it unmissable',
+        guard='caps the base source at z0 for every body, because that is what makes it unmissable',
     ),
     Sabotage(
         suite='web',
@@ -406,10 +422,13 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='base source grows a second attribution, doubling the credit',
-        path='web/src/pages/earth.astro',
-        needle='    maxzoom: RELIEF_BASE_MAX_ZOOM,\n    tileSize: 256,\n  };',
-        replacement='    maxzoom: RELIEF_BASE_MAX_ZOOM,\n    tileSize: 256,\n    attribution: CREDITS,\n  };',
-        guard='caps the base source at z0, because that is what makes it unmissable',
+        path='web/src/lib/reliefSources.ts',
+        needle='    maxzoom: RELIEF_BASE_MAX_ZOOM,\n    tileSize: DECLARED_TILE_SIZE,\n  };',
+        replacement=(
+            '    maxzoom: RELIEF_BASE_MAX_ZOOM,\n    tileSize: DECLARED_TILE_SIZE,\n'
+            '    attribution: "one archive, credited twice",\n  };'
+        ),
+        guard='carries no attribution, so one archive does not credit itself twice',
     ),
     # --- the terrain-retirement flag (2026-07-29) ----------------------------------------------------
     Sabotage(

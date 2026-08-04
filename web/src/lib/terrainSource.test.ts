@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
+import { DECLARED_TILE_SIZE } from "./reliefSources";
 import { PUBLISHED } from "./tileAddress";
 import {
   DEFAULT_TERRAIN_EXAGGERATION,
@@ -245,8 +246,11 @@ describe("the contract", () => {
     // 512 / 256 / 128, Chrome, DPR control passed) — rttSize halves as tile count doubles.
     expect(TERRAIN_TILE_SIZE).toBe(128);
     expect(TERRAIN_TILE_SIZE).toBeLessThan(512); // the asset is 512; this is a misdeclaration
-    const relief = readFileSync(new URL("../pages/earth.astro", import.meta.url), "utf8");
-    expect(relief).toContain("tileSize: 256");
+    // Relief's half of the comparison, read from the constant it is now declared in rather than
+    // scanned out of the page — the two misdeclarations are a relation, and a relation is worth
+    // asserting as one.
+    expect(DECLARED_TILE_SIZE).toBe(256);
+    expect(TERRAIN_TILE_SIZE).toBeLessThan(DECLARED_TILE_SIZE);
   });
 
   it("now matches the colour pyramid's depth, because the declaration made depth spendable", () => {

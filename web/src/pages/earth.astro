@@ -474,13 +474,12 @@ const PROMOTE_STYLESHEET = "this.media='all'";
     FilterSpecification,
     LineLayerSpecification,
     Point,
-    RasterSourceSpecification,
   } from "maplibre-gl";
   // NOT `import "maplibre-gl/dist/maplibre-gl.css"` — that is what made it render-blocking. The
   // stylesheet is linked non-blocking from this page's frontmatter; see the note beside that link.
   import { manifest, type Country } from "../lib/manifest";
   import { BORDERS_BASE, HERO_BASE, TILE_BASE, tileUrlTemplate } from "../lib/assetBase";
-  import { RELIEF_BASE_MAX_ZOOM, RELIEF_MAX_ZOOM, RELIEF_MIN_ZOOM } from "../lib/reliefTiles";
+  import { reliefBaseTilesSource, reliefTilesSource } from "../lib/reliefSources";
   // The ONE static exemption for the instrument, and it is fifteen lines: the entry buffer has to be
   // raised ahead of `new maplibregl.Map`, which no dynamic import can promise. Everything else that
   // reads those entries lives in lib/perf/ and loads only under `?perf` — see that module's header
@@ -700,16 +699,6 @@ const PROMOTE_STYLESHEET = "this.media='all'";
     console.log(`[tiles] maxParallelImageRequests = ${maxParallelImageRequests}`);
   }
 
-  // The relief pyramid lives in ONE multi-GB PMTiles archive, and the browser never touches it.
-  // It asks a tile endpoint for z/x/y and gets a single tile back; the archive is opened and
-  // ranged server-side (dev: the middleware in astro.config.ts, prod: a Worker over R2). The
-  // earlier pmtiles:// path did that ranging in the browser, which cannot survive the move to
-  // a CDN — Workers Caching strips Range and would fetch the whole archive per tile.
-  // Dropping it also drops the pmtiles client from the bundle entirely.
-  //
-  // minzoom/maxzoom used to come free from the archive header, which the pmtiles client read
-  // before the first tile. Stating them here costs that one round trip back, and they are
-  // asserted against the archive by the dev middleware on startup.
   // Which planet this page draws, resolved ONCE at module scope so a missing or unknown
   // `data-body` fails here — before a map exists — rather than somewhere inside init where it would
   // read as a rendering problem.
@@ -724,29 +713,14 @@ const PROMOTE_STYLESHEET = "this.media='all'";
   const terrainTileUrlTemplate = tileUrlTemplate(body.slug, "terrain");
   const countriesTileUrlTemplate = tileUrlTemplate(body.slug, "countries");
 
-  const reliefSource: RasterSourceSpecification = {
-    type: "raster",
-    tiles: [reliefTileUrlTemplate],
-    minzoom: RELIEF_MIN_ZOOM,
-    maxzoom: RELIEF_MAX_ZOOM,
-    tileSize: 256, // 512px assets served @2x for crisp high-DPI shading
-    attribution: CREDITS,
-  };
-
+  // Both relief sources draw the one archive this body publishes, and both take their zoom range
+  // from the registry rather than from a constant — see reliefSources.ts, which is where the
+  // per-body reasoning and its tests live.
+  const reliefSource = reliefTilesSource(body.slug, reliefTileUrlTemplate, CREDITS);
   // The same archive capped at z0, drawn UNDER `relief` as a floor that is a map rather than a
-  // colour. `maxzoom: 0` is the whole point: the covering set is then a single tile at every
-  // camera, so it is always ideal, always in `_inViewTiles`, and cannot be missing after first
-  // load. A z1 pin (4 tiles, 273 KB) does not have that property — its covering set is still
-  // camera-dependent, so a first visit to a cold quadrant paints nothing (measured).
-  //
-  // No `attribution`: `relief` already carries CREDITS and MapLibre would render it twice.
-  const reliefBaseSource: RasterSourceSpecification = {
-    type: "raster",
-    tiles: [reliefTileUrlTemplate],
-    minzoom: RELIEF_MIN_ZOOM,
-    maxzoom: RELIEF_BASE_MAX_ZOOM,
-    tileSize: 256,
-  };
+  // colour: one tile at every camera, so it is always ideal, always in `_inViewTiles`, and cannot
+  // be missing after first load.
+  const reliefBaseSource = reliefBaseTilesSource(body.slug, reliefTileUrlTemplate);
 
   // Vertical field of view — MapLibre's 36.87° default reads like a low-orbit fisheye:
   // shapes smear into the limb at overview and lean away near the frame edges zoomed in.

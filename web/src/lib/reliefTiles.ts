@@ -14,26 +14,24 @@
 export const TILE_EXTENSION = "webp";
 export const TILE_CONTENT_TYPE = "image/webp";
 
-/** Zoom range of EARTH's packaged pyramid, kept so the browser can request its first tile without
- *  a round trip to learn it.
+/** Zoom range of EARTH's packaged pyramid.
  *
  *  NOT THE GENERAL ANSWER, AND THE SECOND BODY IS WHY. The per-planet answer lives in
  *  `PUBLISHED[body].relief` in tileAddress.ts — Earth is cut to z8 and Mars to z6, because a
- *  ceiling follows each body's own source data. What is left here is Earth's pair, still read by
- *  the legacy path below (untokened URLs are Earth's by definition) and by the values Earth's own
- *  registry entry is built from. The dev server checks every archive's header against the
- *  registry, which is what stops the copy drifting. */
+ *  ceiling follows each body's own source data. Two callers are left, and both are asking an
+ *  Earth-only question: the legacy path below, where an untokened URL is Earth's by definition, and
+ *  Earth's own registry entry, which these are the values of. Nothing that has a body in hand reads
+ *  them — a source spec asks `archiveFor`, and both servers check each archive's own header against
+ *  the registry, which is what stops that copy drifting. */
 export const RELIEF_MIN_ZOOM = 0;
 export const RELIEF_MAX_ZOOM = 8;
 
-/** Max zoom of the pinned base source that floors the globe (`relief-base` in earth.astro).
+/** Max zoom of the pinned base source that floors the globe.
  *
- *  It must be **0**, and that is a guarantee rather than a preference. A raster source's covering
- *  set is clamped to its own maxzoom, so at 0 there is exactly one tile — the same tile at every
- *  camera, therefore always ideal, therefore always resident once fetched. Any higher value leaves
- *  the set camera-dependent: measured on production, a pinned z1 (4 tiles, 273 KB) still paints a
- *  blank frame on the first visit to a cold quadrant, and z2 likewise. Raising this trades a
- *  guarantee for sharpness, which is the opposite of what the layer is for. */
+ *  It must be **0**, and that is a guarantee rather than a preference — the arithmetic behind it is
+ *  in reliefSources.ts, beside the source this is the ceiling of. It lives here rather than there
+ *  because it is a fact about the relief pyramid and not about MapLibre, and because it is the one
+ *  number in that spec which is deliberately NOT the body's. */
 export const RELIEF_BASE_MAX_ZOOM = 0;
 
 /** One tile address. */
