@@ -402,6 +402,32 @@ describe("syncCapRung", () => {
     expect(gl.uploads).toEqual([1024, 8192]);
   });
 
+  it("still uploads when the engine has no createImageBitmap and the Image path takes over", async () => {
+    // The documented fallback for engines that reject off-thread decode — slower, never wrong. It
+    // had no coverage at all: every other test here stubs `createImageBitmap` to SUCCEED, so the
+    // whole catch branch, its listener wiring included, only ever ran on machines we do not own.
+    const gl = fakeGl();
+    stubImageLoading(gl);
+    vi.stubGlobal("createImageBitmap", () => Promise.reject(new Error("no ImageBitmap here")));
+    // A write-only `src` that announces itself asynchronously, which is what a real Image does —
+    // dispatching synchronously would let a handler attached after the assignment still see it.
+    vi.stubGlobal(
+      "Image",
+      class extends EventTarget {
+        width = 0;
+        height = 0;
+        set src(url: string) {
+          this.width = Number(/_(\d+)\.webp$/.exec(url)?.[1] ?? 0);
+          this.height = this.width;
+          queueMicrotask(() => this.dispatchEvent(new Event("load")));
+        }
+      },
+    );
+
+    await syncCapRung(makeLayer(gl), OPTS, fakeMap(110));
+    expect(gl.uploads).toEqual([1024]);
+  });
+
   it("jumps straight to the needed rung instead of walking the ladder", async () => {
     // Walking 1024 -> 2048 -> 4096 -> 8192 would be three extra decodes and uploads on the main
     // thread, which is the cost this design exists to avoid.
@@ -500,7 +526,10 @@ function fakeMapWithStyle(extentPx: number, gl: unknown) {
      *  cannot carry a custom layer. Map-level listeners are untouched. */
     loseContext: () => layers.clear(),
     fireMoveEnd: async () => {
-      for (const handler of [...(listeners.get("moveend") ?? [])]) handler();
+      // Snapshot first: a moveend handler here adds and removes cap layers, and one that
+      // unsubscribes mid-run would delete out of the Set being iterated.
+      const snapshot = [...(listeners.get("moveend") ?? [])];
+      for (const handler of snapshot) handler();
       await Promise.resolve();
       await new Promise((resolve) => setTimeout(resolve, 0));
     },

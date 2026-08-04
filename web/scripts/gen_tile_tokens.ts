@@ -136,10 +136,17 @@ for (const [body, layers] of Object.entries(committed)) {
       (computed[body] ??= {})[layer] = recorded;
       continue;
     }
+    // Sequential ON PURPOSE, and the rule is right that this is usually a mistake. `tokenFor`
+    // streams an entire PMTiles archive through SHA-256 — relief alone is gigabytes — so awaiting
+    // one body/layer at a time is what keeps a single heavy read in flight. Running them
+    // concurrently would put several GB-scale sequential reads on the same device to finish no
+    // sooner, which is the pipeline's one-heavy-job-at-a-time rule stated in TypeScript.
+    /* oxlint-disable no-await-in-loop */
     const facts: ArchiveFacts = {
       token: await tokenFor(archive),
       indexLeaves: await indexLeavesIn(archive),
     };
+    /* oxlint-enable no-await-in-loop */
     (computed[body] ??= {})[layer] = facts;
     if (recorded.token !== facts.token) {
       drifted.push(`${body}/${layer}: committed ${recorded.token}, archive hashes to ${facts.token}`);

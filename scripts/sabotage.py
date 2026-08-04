@@ -471,6 +471,17 @@ SABOTAGES: list[Sabotage] = [
     ),
     Sabotage(
         suite='web',
+        # The fallback only runs where `createImageBitmap` rejects, which is no machine we own, so
+        # for its whole life the branch was covered by nothing. It is also the shape a tidy-up
+        # reverses without a thought — the assignment form is two lines shorter and looks equivalent.
+        label='the cap Image fallback goes back to assigning onload',
+        path='web/src/lib/polarCaps.ts',
+        needle='      image.addEventListener("load", () => resolve(image), { once: true });',
+        replacement='      image.onload = () => resolve(image);',
+        guard='still uploads when the engine has no createImageBitmap and the Image path takes over',
+    ),
+    Sabotage(
+        suite='web',
         label='the collapsed view grows past a phone corner',
         path='web/src/lib/perf/perfOverlay.ts',
         needle='    `${tasks} · z${snapshot.zoom.toFixed(2)}`,\n  ];',

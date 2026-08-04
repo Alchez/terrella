@@ -121,13 +121,13 @@ const openedArchives = new Map<string, Promise<PMTiles>>();
  *  that must NOT be shared — each pyramid has its own zoom range and its own encoding rule, and a
  *  check that accepted either would accept the wrong archive under the wrong route. */
 function openArchive(
-  archivePath: string,
+  archivePathname: string,
   validateHeader: (header: { minZoom: number; maxZoom: number; tileType: number }) => void,
 ): Promise<PMTiles> {
-  const already = openedArchives.get(archivePath);
+  const already = openedArchives.get(archivePathname);
   if (already) return already;
   const archive = (async () => {
-    const handle = await fs.promises.open(archivePath, 'r');
+    const handle = await fs.promises.open(archivePathname, 'r');
     // Stand-in for an HTTP ETag: mtime+size changes whenever the archive is re-packed. PMTiles
     // caches directory entries, and a directory entry is a byte OFFSET — offsets into a
     // different archive are meaningless, so re-packing while the dev server holds warm
@@ -140,7 +140,7 @@ function openArchive(
       return `${stats.mtimeMs}-${stats.size}`;
     };
     const source: Source = {
-      getKey: () => archivePath,
+      getKey: () => archivePathname,
       async getBytes(offset, length, _signal, etag): Promise<RangeResponse> {
         const current = await archiveVersion();
         if (etag !== undefined && etag !== current) throw new EtagMismatch();
@@ -159,10 +159,10 @@ function openArchive(
     validateHeader(await opened.getHeader());
     return opened;
   })().catch((error: unknown) => {
-    openedArchives.delete(archivePath);
+    openedArchives.delete(archivePathname);
     throw error;
   });
-  openedArchives.set(archivePath, archive);
+  openedArchives.set(archivePathname, archive);
   return archive;
 }
 

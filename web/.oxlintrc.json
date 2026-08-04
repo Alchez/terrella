@@ -35,10 +35,6 @@
     // of judgement calls, held back so a 58-line rewrite never lands in the same diff as a decision.
     "unicorn/no-array-sort": "off", // 27 sites, plus one no-array-reverse — one mechanical sweep
     "unicorn/no-array-reverse": "off",
-    "unicorn/consistent-function-scoping": "off", // 30 hoists out of test bodies
-    "no-shadow": "off", // 2, both real: a local shadowing a function used in the same module
-    "no-await-in-loop": "off", // 2, deliberate sequencing over multi-GB archives
-    "unicorn/no-useless-spread": "off", // 2, both a deliberate snapshot before iterating
-    "unicorn/prefer-add-event-listener": "off" // 2, on a freshly constructed Image
+    "unicorn/consistent-function-scoping": "off" // 30 hoists out of test bodies
   }
 }

@@ -553,8 +553,16 @@ async function loadCapImage(
     // needs to catch — would be recorded as taking no time at all.
     return await new Promise<HTMLImageElement>((resolve, reject) => {
       const image = new Image();
-      image.onload = () => resolve(image);
-      image.onerror = () => reject(new Error(`Image decode failed: ${url}`));
+      // `addEventListener` over `onload =` even though this Image is local and nothing else can
+      // assign to it: the assignment form is only safe while that stays true, and the day this
+      // element is hoisted or shared, a second handler silently replaces the first with nothing
+      // reporting it. `once` because a settled promise ignores the second call anyway.
+      image.addEventListener("load", () => resolve(image), { once: true });
+      image.addEventListener(
+        "error",
+        () => reject(new Error(`Image decode failed: ${url}`)),
+        { once: true },
+      );
       image.src = url; // browser cache makes this a re-decode, not a re-download
     });
   } finally {

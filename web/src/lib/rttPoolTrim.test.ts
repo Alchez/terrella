@@ -41,7 +41,11 @@ function fakeMap(options: { pool?: RttObject[] | undefined; moving?: boolean; ti
       listeners.get(event)?.delete(listener);
     },
     emit(event: string) {
-      for (const listener of [...(listeners.get(event) ?? [])]) listener();
+      // A snapshot, not a convenience: a listener is allowed to call `off` on itself or a sibling
+      // while it runs, and deleting from the live Set mid-iteration silently skips whoever came
+      // after. Naming the copy is what says so — the spread reads as removable otherwise.
+      const snapshot = [...(listeners.get(event) ?? [])];
+      for (const listener of snapshot) listener();
     },
     listenerCount: (event: string) => listeners.get(event)?.size ?? 0,
     attachmentSets,

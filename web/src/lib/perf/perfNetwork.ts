@@ -274,7 +274,7 @@ export function tileTrafficLine(traffic: TileTraffic): PerfLine {
   // the network under the tile base, and a total that quietly omitted a pyramid would understate
   // exactly the number this panel is read for.
   const wire = traffic.relief.wireBytes + traffic.terrain.wireBytes + traffic.countries.wireBytes;
-  const median =
+  const medianText =
     traffic.medianNetworkDurationMs === null
       ? "med —"
       : `med ${Math.round(traffic.medianNetworkDurationMs)} ms`;
@@ -299,6 +299,6 @@ export function tileTrafficLine(traffic: TileTraffic): PerfLine {
     group: "network",
     text:
       `${slice("relief", traffic.relief)} · ${slice("terrain", traffic.terrain)} · ` +
-      `${(wire / (1024 * 1024)).toFixed(1)} MB wire · ${median}${opaque}${unaddressed}${truncated}`,
+      `${(wire / (1024 * 1024)).toFixed(1)} MB wire · ${medianText}${opaque}${unaddressed}${truncated}`,
   };
 }
