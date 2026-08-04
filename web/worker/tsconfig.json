@@ -16,11 +16,16 @@
   // the latter — measured, it makes `caches.default` disappear, and that is the Cloudflare
   // property this Worker's whole cache path is built on.
   //
+  // `target`/`lib` are NOT part of that strictness and must not be lowered to add some: they match
+  // the site's program deliberately, because the same shared modules are compiled by both, and a
+  // level behind it rejects syntax the site accepts — in a file the Worker only reaches by import,
+  // so nothing here would name the cause.
+  //
   // `include` seeds the program; tsc follows imports from there, so the shared modules the Worker
   // reaches through index.ts are checked without being listed.
   "compilerOptions": {
-    "target": "ES2022",
-    "lib": ["ES2022"],
+    "target": "ESNext",
+    "lib": ["ESNext"],
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "types": ["@cloudflare/workers-types"],
