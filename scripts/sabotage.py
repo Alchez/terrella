@@ -136,6 +136,11 @@ MUTABLE_ROOTS = (
     # Same principle as the two test files above: the import scan IS the guard, so the
     # only way to prove it still sees anything is to narrow it and watch something fail.
     "tests/test_fetch.py",
+    # The fourth on that principle, and the sharpest: the cross-language parity guard has to PARSE
+    # `web/src/lib/bodies.ts` to compare it, so its brace counter is both guard and subject. A
+    # counter that stops counting still returns blocks, still finds a body, and reads the wrong
+    # planet's answer — a failure with no error and no output to inspect.
+    "tests/test_bodies.py",
 )
 
 # Set for the duration of one case, so the backup THIS run is holding does not trip the leftover
@@ -2632,6 +2637,55 @@ SABOTAGES: list[Sabotage] = [
         needle='  body,\n} = Astro.props;',
         replacement='  body = "earth",\n} = Astro.props;',
         guard='takes the body as a required prop with no default',
+    ),
+    # --- What a body declares it SHIPS -----------------------------------------------------------
+    # Three booleans naming subsystems built for Earth. Each type-checks at either value and each is
+    # invisible when wrong: the symptom is a subsystem that quietly never runs, or one that runs
+    # against nothing. The plausible mutation is always the same — a body "completed" to match the
+    # reference one, which is how a second planet inherits an answer nobody gave.
+    Sabotage(
+        suite='python',
+        # Deliberately a PYTHON case over a web file: the pipeline decides whether ~14 GB per pole
+        # gets rendered, so the browser flag is only ever the second half of that fact. Flipping it
+        # here makes the globe fetch a caps.json for a body whose caps were never rendered, and the
+        # 404 lands in a `.catch` that logs and moves on.
+        label="Mars claims polar caps the pipeline never renders",
+        path='web/src/lib/bodies.ts',
+        needle='    rendersPolarCaps: false,',
+        replacement='    rendersPolarCaps: true,',
+        guard='test_the_two_registries_agree_on_which_bodies_render_polar_caps',
+    ),
+    Sabotage(
+        suite='python',
+        # The guard on the guard. Its scan must decide ENCLOSURE, not match a text span: every
+        # descriptor nests an `accent` object, so a counter that stops counting ends each body's
+        # block at the wrong brace and reads the wrong planet's answer — or, as here, no answer.
+        label="the descriptor scan stops counting braces, so a nested object ends the block",
+        path='tests/test_bodies.py',
+        needle='        if character == "{":\n            depth += 1',
+        replacement='        if character == "{":\n            pass',
+        guard='test_the_two_registries_agree_on_which_bodies_render_polar_caps',
+    ),
+    Sabotage(
+        suite='web',
+        # Heroes with no countries pyramid is a panel with no route into it: on the globe the only
+        # way one opens is a map click hit-tested against the countries MVT.
+        label='Mars claims heroes, which nothing on its globe could ever open',
+        path='web/src/lib/bodies.ts',
+        needle='    hasHeroes: false,',
+        replacement='    hasHeroes: true,',
+        guard='gives heroes only to a body that publishes a countries pyramid',
+    ),
+    Sabotage(
+        suite='web',
+        # Borders have no coherence partner, so nothing structural can refuse this one. What catches
+        # it is the flag having both answers somewhere in the record — which is the check that stops
+        # a per-body switch quietly becoming a constant.
+        label='Mars claims political borders, and the flag stops varying at all',
+        path='web/src/lib/bodies.ts',
+        needle='    hasBorders: false,',
+        replacement='    hasBorders: true,',
+        guard='holds both answers to every flag, so none of them is a constant in disguise',
     ),
     # --- The route is the body's slug ------------------------------------------------------------
     # `/earth/` is a body route now, not a page name that happens to be there. The guard that admits

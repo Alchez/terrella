@@ -378,6 +378,66 @@ def test_the_two_registries_agree_on_how_a_body_is_spelled() -> None:
     )
 
 
+def _browser_descriptor_blocks() -> dict[str, str]:
+    """Split `web/src/lib/bodies.ts`'s BODIES record into one source block per body.
+
+    BRACE-COUNTED RATHER THAN SPAN-MATCHED, and that is the whole reason this helper exists. A
+    regex that runs from a body's key to the next `}` cannot tell which braces enclose the value it
+    captured — nest one object literal inside a descriptor (`accent` already is one) and the span
+    ends early or late, silently, and the guard above it starts comparing the wrong planet's
+    answer. Counting decides enclosure; matching text only guesses at it.
+    """
+    source = (paths.ROOT / "web/src/lib/bodies.ts").read_text(encoding="utf-8")
+    opening = re.search(r"export const BODIES\b[^=]*=\s*\{", source)
+    assert opening, "web/src/lib/bodies.ts no longer declares a BODIES record — the guard is blind"
+
+    blocks: dict[str, str] = {}
+    index, depth = opening.end(), 1
+    key_at_top: str | None = None
+    start = 0
+    while index < len(source) and depth > 0:
+        character = source[index]
+        if depth == 1 and key_at_top is None:
+            key = re.match(r"\s*(\w+)\s*:\s*\{", source[index:])
+            if key:
+                key_at_top, index, depth, start = key.group(1), index + key.end(), 2, index + key.end()
+                continue
+        if character == "{":
+            depth += 1
+        elif character == "}":
+            depth -= 1
+            if depth == 1 and key_at_top is not None:
+                blocks[key_at_top] = source[start:index]
+                key_at_top = None
+        index += 1
+    return blocks
+
+
+def test_the_two_registries_agree_on_which_bodies_render_polar_caps() -> None:
+    """One fact, two languages, and each half decides something the other cannot see.
+
+    The pipeline's `renders_polar_caps` decides whether to spend ~14 GB per pole rendering the two
+    AEQD discs; the browser's `rendersPolarCaps` decides whether to fetch them. A disagreement is
+    silent in both directions — a globe carrying polar holes it has textures for, or one asking for
+    a `caps.json` nobody wrote and swallowing the 404 in a `.catch`.
+
+    Non-vacuous by construction: Earth renders caps and Mars does not, so this compares two real
+    values rather than confirming a constant.
+    """
+    blocks = _browser_descriptor_blocks()
+    assert set(blocks) == set(bodies.BODIES), (
+        f"the pipeline knows {sorted(bodies.BODIES)} and the browser's BODIES record holds "
+        f"{sorted(blocks)} — the scan is reading a different set of planets than it is judging"
+    )
+    for name, block in blocks.items():
+        declared = re.search(r"\brendersPolarCaps:\s*(true|false)\b", block)
+        assert declared, f"the browser descriptor for {name} declares no rendersPolarCaps"
+        assert (declared.group(1) == "true") is bodies.BODIES[name].renders_polar_caps, (
+            f"{name}: the pipeline says renders_polar_caps="
+            f"{bodies.BODIES[name].renders_polar_caps} and the browser says {declared.group(1)}"
+        )
+
+
 def test_the_cap_module_no_longer_carries_its_own_sphere_radius() -> None:
     """Anti-regrowth, same shape as the render package's scan."""
     from pipeline.tile import cap_render

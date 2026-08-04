@@ -31,8 +31,10 @@ export function resolveAssetBase(configured: string | undefined, fallback: strin
 /** Hero renders and their per-country variants: `${HERO_BASE}${slug}-${longEdge}.webp`. */
 export const HERO_BASE = resolveAssetBase(import.meta.env.PUBLIC_HERO_BASE, "/heroes/");
 
-/** Natural Earth GeoJSON: boundary_lines.geojson (border overlay) and countries.geojson
- *  (hit-testing and per-island markers). */
+/** Natural Earth GeoJSON. The browser fetches ONE file from here — `boundary_lines.geojson`, the
+ *  white border overlay. `countries.geojson` sits in the same store at 9.2 MB and is no longer
+ *  fetched by anything: hit-testing and the highlight moved to the countries MVT pyramid, and it
+ *  survives as the input that pyramid is cut from. */
 export const BORDERS_BASE = resolveAssetBase(import.meta.env.PUBLIC_BORDERS_BASE, "/borders/");
 
 /** Root of the relief tile endpoint — a tile server, not a directory listing. */

@@ -402,14 +402,15 @@ which is why it never blocked anything.
     bathymetry-dominant seamount fields (Maldives especially). So an atoll hero is on-aesthetic; the
     *only* real blocker is the antimeridian split.
   - **The render pipeline is single-frame end-to-end** — one slug → one bbox → one `frame.json` →
-    one ortho render → one hero (`country_config.py:100-102` unpacks exactly one `[W,S,E,N]`;
-    `scene_build.py` one camera/one render; there is no `montage()` anywhere in the tree, so a
-    multi-frame hero has no existing machinery to extend).
+    one ortho render → one hero (every `west, south, east, north =` unpack in
+    `pipeline/frame/country_config.py` takes exactly one `[W,S,E,N]`; `scene_build.py` one
+    camera/one render; there is no `montage()` anywhere in the tree, so a multi-frame hero has no
+    existing machinery to extend).
   - **The frontend already degrades gracefully for a hero-less country** — `rendered:false`/`sizes:[]`
-    is a first-class manifest state (`gen_manifest.py:97-98`, `lib/manifest.ts`), and both the
-    gallery card (`index.astro:110-115`) and detail page (`[slug].astro:57-61`) render a placeholder.
-    It is dead code today because Kiribati is dropped at the manifest step (`gen_manifest.py:82-83`
-    `continue`s on `resolve()==None`).
+    is a first-class manifest state (`gen_manifest.py`'s `rendered=bool(sizes)`, `lib/manifest.ts`),
+    and both the gallery card and the detail page branch on `country.rendered` to render a
+    placeholder. It is dead code today because Kiribati is dropped at the manifest step —
+    `gen_manifest.py`'s `main()` `continue`s on `resolve() is None`.
 
 ### Viable option A — composited twin-panel hero (keeps Kiribati as one country)
 
@@ -417,7 +418,8 @@ which is why it never blocked anything.
   normal non-crossing frame rendering like Maldives/Marshall. Preserves country integrity (one
   sovereign nation = one gallery card) — the reason it beats sub-heroes (below).
 - **Effort: HIGH.** The single-frame pipeline has no seam for it — needs new code at ~every stage:
-  a `panels=[...]` config key + list validation (`country_config.py:67,100-102`); per-panel
+  a `panels=[...]` config key + list validation (`country_config.py`'s `COUNTRY_KEYS` and its
+  `[W,S,E,N]` unpacks); per-panel
   work/render subdirs through `stage_commands` (each panel is a *different* AEA projection with its
   own `frame.json`/heightfield/masks); **a brand-new compositor stage** (the keystone — nothing
   composites two RGBA renders today); a batch loop over panels; and per-panel border/overlay mapping
@@ -429,12 +431,13 @@ which is why it never blocked anything.
 - Kiribati appears as a placeholder card + gazetteer + detail page, no relief hero — honest about a
   permanent deferral. Keeps it as one entry.
 - **Effort: LOW, and entirely in the data/manifest layer** (presentation already exists): (1) emit an
-  `rendered:false` manifest entry for antimeridian-deferred countries instead of dropping them
-  (`gen_manifest.py:82-83`); (2) author a `bbox` — Kiribati has `status`/`notes` but no `frame`, and
-  the gazetteer + globe fly-to read `country.bbox`; (3) guard the globe's `openPanel()`
-  (`earth.astro:685`) which unconditionally requests `…-${sizes[0]}.webp` → a broken
-  `kiribati-undefined.webp` for an unrendered entry; (4) optional distinct "deferred" copy — today's
-  only placeholder string is "still rendering," which misrepresents a permanent state.
+  `rendered:false` manifest entry for antimeridian-deferred countries instead of dropping them —
+  `gen_manifest.py`'s `main()` skips them with `if r is None: continue`; (2) author a `bbox` —
+  Kiribati has `status`/`notes` but no `frame`, and the gazetteer + globe fly-to read `country.bbox`;
+  (3) guard the globe's `openPanel()` in `earth.astro`, which sets `heroImg.src` from
+  `country.sizes[0]` unconditionally → a broken `kiribati-undefined.webp` for an unrendered entry;
+  (4) optional distinct "deferred" copy — today's only placeholder string is "still rendering,"
+  which misrepresents a permanent state.
 
 ### Ruled out (do not re-litigate)
 
@@ -543,7 +546,7 @@ conclusion below, which rests only on there being no value between 2 and 4.
 - **Trigger:** the capability probe looks like it protects weak devices. Measured against the spec and
   the code, it barely does. Deferred rather than fixed — the question is a product one (*is `full` the
   right default for these visitors?*), and nobody has reported a bad experience.
-- **`capability.ts:119` is `lowMemory = deviceMemory < 4`** — but **`navigator.deviceMemory` is
+- **`capability.ts` then read `lowMemory = deviceMemory < 4`** — but **`navigator.deviceMemory` is
   spec-quantised to powers of two** (0.25 / 0.5 / 1 / 2 / 4 / 8, clamped at both ends). So `< 4`
   **cannot** mean "under 4 GB". It means **2 GB or less**. There is no 3.
 - **It is Chromium-only.** Absent → `Infinity` → never `lowMemory`, so **every Safari and Firefox
