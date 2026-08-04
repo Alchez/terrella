@@ -27,7 +27,10 @@ intersects a land cell is on disk, and fail loudly (naming the cell + missing ke
 
 Output: per-cell tiled GTiffs with overviews under data/work/planet/chunks/<cell>/, then
 `gdalbuildvrt` three planet VRTs over them (heightfield / oceanmask / watermask) for the
-tiler. Idempotent: a cell whose heightfield exists is skipped; delete to redo.
+tiler, and finally the seam declaration naming which of the three were actually built
+(`pipeline/planet_seam.py` — written last, so its presence means this stage finished).
+Idempotent: a cell whose heightfield exists is skipped; delete to redo. Re-running
+`--build-vrts` alone is free — a VRT is replaced only when its XML changes.
 
 Memory budget: fuse_heightfield holds ~1-1.5 GB per process; --workers W costs ~W*1.5 GB
 against MemAvailable. Default 12 (~14 GB) suits this 16-core / 18-GiB-free box -- CPU-bound
@@ -48,13 +51,19 @@ from pathlib import Path
 
 import rasterio
 
+from pipeline import bodies, planet_seam
 from pipeline.acquire.download_glo30 import DATA_DIR, TILE_LIST, in_extent, parse_tile_name
 
 RES_ARCSEC = 10
 CELL_DEG = 10
 TAG = "10s"  # must equal fuse_heightfield's f"{RES_ARCSEC:g}s"
-PLANET_DIR = DATA_DIR.parent.parent / "work/planet"  # data/work/planet
-CHUNKS_DIR = PLANET_DIR / "chunks"
+#: EARTH BY CONSTRUCTION, AND DELIBERATELY WITHOUT A `--body`. This driver fuses Copernicus tiles
+#: against GEBCO over a Natural-Earth-indexed land list; every input it reads describes one planet,
+#: so parameterising it would produce a flag whose only legal value is `earth`. A second body enters
+#: the same seam through its own producer (`planet_seam`), which is what makes them interchangeable
+#: downstream. Resolved through the registry rather than spelled out so the seam has ONE path home.
+EARTH_PLANET_DIR = planet_seam.planet_dir(bodies.EARTH)
+CHUNKS_DIR = EARTH_PLANET_DIR / "chunks"
 DEFAULT_WORKERS = 12
 GIB_PER_WORKER = 1.5  # fuse_heightfield peak RSS incl. GDAL cache, rounded up
 
@@ -134,8 +143,8 @@ def enforce_land_guard(outdir: Path) -> bool:
         "100% ocean. The DEM/WBM mosaics are almost certainly stale (a VRT enumerates its "
         "sources at build time) — run pipeline/fuse/build_mosaics.sh, then re-run the "
         "sweep. Outputs were deleted so this cell retries.\n")
-    for layer in ("heightfield", "oceanmask", "watermask"):
-        (outdir / f"{layer}_{TAG}.tif").unlink(missing_ok=True)
+    for raster in planet_seam.PLANET_RASTERS:
+        (outdir / f"{raster}_{TAG}.tif").unlink(missing_ok=True)
     return False
 
 
@@ -160,17 +169,57 @@ def fuse_cell(name: str, bounds, expect_land: bool) -> tuple[str, str]:
     return name, "ok"
 
 
+def build_vrt_if_changed(vrt: Path, sources: list[Path]) -> bool:
+    """(Re)build `vrt` over `sources`, replacing it only when the XML actually differs.
+
+    NOT AN OPTIMISATION — it is what makes this function safe to re-run at all. Every 3857 warp
+    downstream is gated on the VRT's mtime (`is_stale`), so an unconditional `-overwrite` restages
+    the entire 46 GB planet: a full re-warp, an 8:28 hillshade, a 53.8 min composite and a 3:44 cut,
+    to reproduce pixels that were already correct. Rebuilding the VRTs is the natural thing to do
+    after touching this module, so the cost sat one command away from anyone who tried.
+
+    Byte-identity is what makes the comparison meaningful, and it was measured rather than assumed:
+    rebuilding all three of Earth's planet VRTs from the same 648 chunks, into the same directory,
+    reproduced the live files' SHA-256 exactly (GDAL 3.12.2). The temp target must share that
+    directory — `gdalbuildvrt` writes source paths RELATIVE to the VRT, so building elsewhere and
+    moving the result changes every one of them.
+
+    Returns True when the file on disk changed, so a caller can report it.
+    """
+    scratch = vrt.with_suffix(".vrt.new")
+    subprocess.run(["gdalbuildvrt", "-overwrite", str(scratch),
+                    *[str(path) for path in sources]], check=True)
+    if vrt.exists() and vrt.read_bytes() == scratch.read_bytes():
+        scratch.unlink()
+        return False
+    scratch.replace(vrt)
+    return True
+
+
 def build_vrts():
-    """Index the per-cell outputs into three planet-wide VRTs for the tiler."""
-    for layer in ("heightfield", "oceanmask", "watermask"):
-        sources = sorted(CHUNKS_DIR.glob(f"*/{layer}_{TAG}.tif"))
+    """Index the per-cell outputs into planet-wide VRTs, then declare what was built.
+
+    THE DECLARATION IS WRITTEN LAST, and it is the reason this function ends where it does. Its
+    presence is this stage's completion stamp, and its contents are what every consumer reads to
+    learn whether Earth has an ocean mask at all — a question that cannot be answered by looking for
+    the file, because a missing raster and an unfinished fusion are the same absence. See
+    `pipeline/planet_seam.py`.
+
+    The `continue` below is why the declaration carries content rather than just existing: this
+    function has always been able to emit fewer than three rasters, and until now nothing recorded
+    which.
+    """
+    built = []
+    for raster in planet_seam.PLANET_RASTERS:
+        sources = sorted(CHUNKS_DIR.glob(f"*/{raster}_{TAG}.tif"))
         if not sources:
-            print(f"no {layer} chunks yet — skipping {layer} VRT", flush=True)
+            print(f"no {raster} chunks yet — skipping {raster} VRT", flush=True)
             continue
-        vrt = PLANET_DIR / f"planet_{layer}.vrt"
-        subprocess.run(["gdalbuildvrt", "-overwrite", str(vrt),
-                        *[str(path) for path in sources]], check=True)
-        print(f"{vrt.name}: {len(sources)} chunks", flush=True)
+        vrt = planet_seam.vrt_path(bodies.EARTH, raster)
+        changed = build_vrt_if_changed(vrt, sources)
+        built.append(raster)
+        print(f"{vrt.name}: {len(sources)} chunks{'' if changed else ' (unchanged)'}", flush=True)
+    print(f"declared {planet_seam.declare(bodies.EARTH, built)}", flush=True)
 
 
 def main() -> int:

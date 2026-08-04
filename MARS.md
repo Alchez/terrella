@@ -223,9 +223,29 @@ Easy to conflate, and conflating them yields ~5× where the answer is ~10×.
 Each with its "or else", because a seam without a failure mode is a preference.
 
 - **The fuse tier disappears — the blend IS the heightfield.** Mars enters the pipeline at the seam
-  the planet fuse currently emits into: heightfield, ocean mask, water mask.
+  the planet fuse currently emits into, and it emits a heightfield and nothing else.
   - Or else: mirroring Copernicus's tiling, void-filling and bathymetry fusion for a single
     pre-fused download is inventing work that has no input.
+- **The planet stage DECLARES what it produced, in a file it writes last, and no consumer looks for
+  the rasters themselves.** Earth's declaration names all three — heightfield, ocean mask, water
+  mask; Mars's names one. Its presence is the stage's completion stamp; its contents are the body
+  fact.
+  - Or else, in two separate ways that a missing file cannot tell apart. **Absence is not a
+    statement:** a missing ocean mask reads identically whether the planet has no sea or the
+    producer died two rasters in, and the second must never be shaded. **Absence is also invisible
+    to freshness:** an unbuilt raster scores nothing at all in an mtime comparison, so it stops
+    being a dependency at the same moment it stops being an input — and the composite painted with
+    the old one reads fresh forever. That is precisely the loop the sea question below runs.
+  - **Mars is given no ocean or water mask at all, not an empty one**, and that is the decision the
+    seam exists to make possible. A raster of zeros on disk cannot be told apart from one produced
+    by measuring Mars's oceans and finding none; it would be the only body fact in the project
+    written as a fabricated dataset. The all-land selectors are built in memory from the
+    declaration, at the two places that read them, and are proven to paint exactly what a measured
+    all-land mask paints.
+  - So **a sea at a chosen contour is a producer change plus a registry line**, not a swap of one
+    fake raster for a real one — which is what makes the sea question answerable by rendering rather
+    than by arguing. The two masks are gated separately for the same reason: a shoreline contour
+    gives Mars an ocean mask while it still has no inland water.
 - **The Earth-only layers are declared per body, and both render paths obey.** Snow persistence,
   glaciers, sea ice, lake depth and the baked coastline are named on the body; the tile composite and
   the polar caps each ask it before they ask the disk, and each records the layers it is missing so

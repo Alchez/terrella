@@ -16,8 +16,12 @@ from typing import Any, cast
 
 import pytest
 
-from pipeline import bodies
+from pipeline import bodies, planet_seam
 from pipeline.tile import cap_ladder, cap_render, shade
+
+#: A planet whose seam emitted all three rasters — what Earth declares, and the only
+#: shape these tests care about unless they say otherwise.
+WHOLE_PLANET = planet_seam.KNOWN_RASTERS
 
 #: The knob the predecessor swept, and the one whose stale ladder proved the restore has to be
 #: mechanical: it ended on 0.0 long after the shipped value moved to 0.75.
@@ -118,12 +122,12 @@ class TestASweepCannotLeaveTheShippedValueSwapped:
         reads the module constants, so a leaked swap makes the sidecar describe the swept look —
         which is how damp-0.0 pixels came to sit under a recipe the freshness gate called current."""
         grid = cap_render.north_grid(bodies.EARTH)
-        shipped_recipe = cap_render.cap_recipe(grid)
+        shipped_recipe = cap_render.cap_recipe(grid, WHOLE_PLANET)
         with cap_ladder.swapped(SWEPT_KNOB, 0.0):
-            assert cap_render.cap_recipe(grid) != shipped_recipe, (
+            assert cap_render.cap_recipe(grid, WHOLE_PLANET) != shipped_recipe, (
                 "sweeping this knob must move the recipe, or the sidecar could never have lied"
             )
-        assert cap_render.cap_recipe(grid) == shipped_recipe
+        assert cap_render.cap_recipe(grid, WHOLE_PLANET) == shipped_recipe
 
     def test_an_unknown_axis_is_refused_rather_than_silently_added(self):
         """`KNOBS` is a plain dict at runtime, so a typo'd axis would otherwise CREATE a key —

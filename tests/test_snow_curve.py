@@ -13,10 +13,14 @@ import pytest
 
 from conftest import hillshade_for_light
 
-from pipeline import bodies
+from pipeline import bodies, planet_seam
 from pipeline.render import palette
 from pipeline.tile import shade
 from pipeline.tile import shade_planet
+
+#: A planet whose seam emitted all three rasters — what Earth declares, and the only
+#: shape these tests care about unless they say otherwise.
+WHOLE_PLANET = planet_seam.KNOWN_RASTERS
 
 CURVES = ["linear", "gamma4", "gamma8", "knee"]
 
@@ -126,14 +130,14 @@ class TestFreshness:
     exists to prevent."""
 
     def test_snow_curve_is_recorded_in_composite_params(self):
-        params = json.loads(shade_planet.composite_params({}, bodies.EARTH))
+        params = json.loads(shade_planet.composite_params({}, bodies.EARTH, WHOLE_PLANET))
         assert params["knobs"]["snow_curve"] == "gamma8"
 
     def test_changing_it_changes_the_params(self):
         """Companion: proves the assertion above is load-bearing rather than reading a constant."""
-        before = shade_planet.composite_params({}, bodies.EARTH)
+        before = shade_planet.composite_params({}, bodies.EARTH, WHOLE_PLANET)
         shade.KNOBS["snow_curve"] = "linear"
-        assert shade_planet.composite_params({}, bodies.EARTH) != before
+        assert shade_planet.composite_params({}, bodies.EARTH, WHOLE_PLANET) != before
 
     def test_snow_curve_is_NOT_hillshade_only(self):
         """It is consumed by composite(), not by the hillshade -- so it must NOT be filtered out.

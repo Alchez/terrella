@@ -45,7 +45,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, cast
 
-from pipeline import bodies
+from pipeline import bodies, planet_seam
 from pipeline.tile import cap_render, shade
 
 os.environ.setdefault("GDAL_CACHEMAX", "512")
@@ -150,13 +150,17 @@ def render_rung(body: bodies.Body, axis: str, value: float) -> list[Path]:
     """
     out = ladder_dir(body, axis)
     out.mkdir(parents=True, exist_ok=True)
+    # The seam's own answer, not an assumed full planet: a ladder run on a body with no masks must
+    # paint the same all-land cap the production pass would, or the rung being judged is not the
+    # picture that ships.
+    rasters = planet_seam.declared(body)
     archived: list[Path] = []
     with swapped(axis, value):
         for grid, render in ((cap_render.north_grid(body), cap_render.render_cap_north),
                              (cap_render.south_grid(body), cap_render.render_cap_south)):
             rung_grid = grid_for_rung(grid, axis, value)
             started = time.monotonic()
-            asset = render(rung_grid)
+            asset = render(rung_grid, rasters)
             seconds = time.monotonic() - started
             copy = out / f"cap_{grid.name}_{axis}_{value:g}{asset.suffix}"
             shutil.copy2(asset, copy)
@@ -177,11 +181,12 @@ def restore_live_caps(body: bodies.Body) -> None:
     The sidecars are stamped AFTER that render, so the recipe on disk describes the pixels beside it,
     and the next production pass skips a ~14 GB composite instead of repeating it.
     """
+    rasters = planet_seam.declared(body)
     for grid, render in ((cap_render.north_grid(body), cap_render.render_cap_north),
                          (cap_render.south_grid(body), cap_render.render_cap_south)):
-        render(grid)
+        render(grid, rasters)
         sidecar = cap_render.cap_work_dir(body) / f"cap_{grid.name}_params.json"
-        sidecar.write_text(cap_render.cap_recipe(grid))
+        sidecar.write_text(cap_render.cap_recipe(grid, rasters))
     served = cap_render.caps_public_dir(body)
     served.mkdir(parents=True, exist_ok=True)
     (served / "caps.json").write_text(cap_render.caps_manifest(body) + "\n")

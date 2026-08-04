@@ -25,10 +25,14 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from pipeline import bodies, mercator, paths
+from pipeline import bodies, mercator, paths, planet_seam
 from pipeline.compose import countries_pmtiles
 from pipeline.render import hillshade, palette, snow
 from pipeline.tile import shade_planet
+
+#: A planet whose seam emitted all three rasters — what Earth declares, and the only
+#: shape these tests care about unless they say otherwise.
+WHOLE_PLANET = planet_seam.KNOWN_RASTERS
 
 
 def test_earth_is_registered_and_reachable_by_name() -> None:
@@ -462,8 +466,8 @@ def test_the_cap_recipe_records_the_body_s_own_exaggeration() -> None:
 
     flatter = dataclasses.replace(bodies.EARTH, exaggeration=3.0)
 
-    earth = json.loads(cap_render.cap_recipe(cap_render.north_grid(bodies.EARTH)))
-    other = json.loads(cap_render.cap_recipe(cap_render.north_grid(flatter)))
+    earth = json.loads(cap_render.cap_recipe(cap_render.north_grid(bodies.EARTH), WHOLE_PLANET))
+    other = json.loads(cap_render.cap_recipe(cap_render.north_grid(flatter), WHOLE_PLANET))
 
     assert earth["light"]["exag"] == bodies.EARTH.exaggeration
     assert other["light"]["exag"] == 3.0
@@ -675,12 +679,12 @@ def test_the_composite_recipe_records_only_the_layers_that_are_off() -> None:
     the old composite, painted with that layer, looking perfectly fresh. Earth has every layer, so
     its list is empty and nothing is written: the live 46 GB composite cannot restage.
     """
-    earth = json.loads(shade_planet.composite_params({None: None}, bodies.EARTH))
+    earth = json.loads(shade_planet.composite_params({None: None}, bodies.EARTH, WHOLE_PLANET))
     assert "layers_off" not in earth, (
         "Earth's composite recipe grew a key for a body that omits nothing — the live sidecar on "
         "disk does not have it, so the whole pyramid just went stale for no pixel change"
     )
-    mars = json.loads(shade_planet.composite_params({None: None}, bodies.MARS))
+    mars = json.loads(shade_planet.composite_params({None: None}, bodies.MARS, WHOLE_PLANET))
     # THE COMPOSITE'S OWN VOCABULARY, not the whole one. `coastline` is a cap-only layer, and
     # recording it here would make a decision about a polar texture restage the 46 GB planet.
     assert mars["layers_off"] == sorted(bodies.COMPOSITE_LAYERS)

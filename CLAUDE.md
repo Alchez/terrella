@@ -49,6 +49,7 @@ probe; degrade at runtime if frame rate tanks; honour `Save-Data`, `prefers-redu
 - **Tiles are 512px**, declared to MapLibre as `tileSize: 256`, which centres the scheme on DPR 2. → FUTURE § raster tile resolution vs device pixel ratio
 - **Delivery encoding is a policy, not one constant** — masters stay lossless, delivery does not. → ART § Delivery encoding · § The srcset ladder
 - **Every writer records its recipe beside its output**, because existence cannot see a settings change.
+- **A producer declares what it emitted; no consumer infers it from what is on disk.** A missing raster cannot distinguish "this body has none" from "the producer crashed", and an absent path scores nothing in an mtime comparison — so switching an input off leaves the output that used it looking fresh. `pipeline/planet_seam.py`.
 - Baked NW-ish lighting globally (cartographic convention); no per-region sun position.
 
 ## Serving & deployment

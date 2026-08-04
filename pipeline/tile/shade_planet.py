@@ -52,7 +52,7 @@ import rasterio
 from rasterio.enums import Resampling
 from rasterio.windows import Window
 
-from pipeline import bodies, paths
+from pipeline import bodies, paths, planet_seam
 from pipeline.raster_io import GTIFF_CREATE, band_window
 from pipeline.render import cast_shadow, hillshade, lake_depth, palette, seaice, snow
 from pipeline.render import sky_view
@@ -258,7 +258,8 @@ def hs_params(body: bodies.Body) -> str:
     return json.dumps(params, sort_keys=True, indent=2)
 
 
-def composite_params(variants, body: bodies.Body, window_rows=WINDOW_ROWS) -> str:
+def composite_params(variants, body: bodies.Body, rasters: frozenset[str],
+                     window_rows=WINDOW_ROWS) -> str:
     """The composite's tunables, recorded as planet_rgb's dependency.
 
     KNOBS and the palette colours never reach a file of their own, so without this a knob or
@@ -285,9 +286,21 @@ def composite_params(variants, body: bodies.Body, window_rows=WINDOW_ROWS) -> st
     #
     # COMPOSITE_LAYERS, not the whole vocabulary: the caps read a coastline and this stage does not,
     # so enumerating every layer here would make a cap-only decision restage the planet.
-    absent = bodies.layers_off(body, bodies.COMPOSITE_LAYERS)
-    layers = {"layers_off": absent} if absent else {}
-    return json.dumps({**layers, "knobs": knobs, "water_rgb": palette.WATER_RGB,
+    #
+    # `rasters_off` is the same idiom one tier up, and it tracks the OTHER direction of the same
+    # trap. When a mask APPEARS, `warp_inputs` builds it and `composite_deps` sees a new mtime, so
+    # the composite restages on its own. When one goes AWAY, nothing moves at all: the old
+    # `ocean_3857.tif` is still sitting on disk from the last run, and the composite painted with it
+    # reads perfectly fresh. That is exactly the loop Phase 2 runs on Mars — a shoreline contour,
+    # then a different one, then none — so the transition that has no mtime behind it needs a record.
+    absent_layers = bodies.layers_off(body, bodies.COMPOSITE_LAYERS)
+    absent_rasters = planet_seam.rasters_off(rasters)
+    missing: dict[str, list[str]] = {}
+    if absent_layers:
+        missing["layers_off"] = absent_layers
+    if absent_rasters:
+        missing["rasters_off"] = absent_rasters
+    return json.dumps({**missing, "knobs": knobs, "water_rgb": palette.WATER_RGB,
                        "composite_window_rows": window_rows,
                        # The occlusion resolution reached NO freshness record at all --
                        # it was a module constant (`SVF_LONG_EDGE`, now OCCLUSION_TARGET_M_PER_PX)
@@ -391,11 +404,17 @@ def layer_is_buildable(body: bodies.Body, layer: str, source: Path, consequence:
     return True
 
 
-def warp_inputs(work: Path, planet: Path, body: bodies.Body):
-    """Warp height + ocean/water masks to the shared WMQ-aligned 3857 grid (skip if fresh).
+def warp_inputs(work: Path, planet: Path, body: bodies.Body, rasters: frozenset[str]):
+    """Warp height + whichever masks this planet HAS to the shared WMQ-aligned 3857 grid.
 
     Each warp depends on the chunk DIRECTORY, not just its VRT -- re-fusing a cell leaves the
     VRT untouched, so the directory walk is the only thing that sees the change.
+
+    `rasters` is the planet stage's own declaration of what it emitted (`planet_seam`), and it is
+    passed in rather than read off the disk here for the reason the layer gates already follow: a
+    mask's presence and a body's answer are different questions, and the file system can only answer
+    the first. The two masks are gated SEPARATELY because the known next case needs it — a Mars that
+    gains a sea at a chosen contour has an ocean mask and still no inland water.
     """
     chunks = planet / "chunks"
     height = work / "height_3857.tif"
@@ -418,7 +437,12 @@ def warp_inputs(work: Path, planet: Path, body: bodies.Body):
     # The reference grid every raster below is warped onto. warp_needs_rebuild re-warps a target when
     # its source moved OR when this grid grew under it (the Antarctica re-fuse; see grid_matches).
     grid = (grid_width, grid_height, grid_bounds)
-    for name, src in (("ocean", "planet_oceanmask.vrt"), ("water", "planet_watermask.vrt")):
+    for name, raster in (("ocean", "oceanmask"), ("water", "watermask")):
+        if raster not in rasters:
+            print(f"{body.name}'s planet stage emitted no {raster} -> {name}_3857 skipped "
+                  f"(the composite reads None and treats every pixel as land)", flush=True)
+            continue
+        src = f"planet_{raster}.vrt"
         out = work / f"{name}_3857.tif"
         if warp_needs_rebuild(out, grid, planet / src, chunks):
             print(f"warp {name} -> 3857 ...", flush=True)
@@ -576,6 +600,12 @@ class _WindowInputs:
     The fields are the untransformed slices (`ocean_raw`, not `ocean != 0`); the cheap numpy
     that derives masks/alpha from them runs on the worker, which is where optimisation #5 wants
     the CPU. `depth_raw`/`glacier_raw`/`sea_ice_raw` are None when that optional input was never built.
+
+    `ocean_raw`/`watercode` are None on a planet whose seam emitted no masks, and that is a
+    DIFFERENT kind of None from the four above: theirs says an Earth dataset was not downloaded,
+    this one says the planet has no sea. `_compute_shared` turns it into an all-False selector,
+    which is the true answer rather than a stand-in — no pixel is ocean, none is inland water, and
+    every pixel is land.
     """
 
     win: Window
@@ -583,8 +613,8 @@ class _WindowInputs:
     win_top: float
     win_bottom: float
     height_win: np.ndarray
-    ocean_raw: np.ndarray
-    watercode: np.ndarray
+    ocean_raw: "np.ndarray | None"
+    watercode: "np.ndarray | None"
     hs_raw: np.ndarray
     depth_raw: np.ndarray | None
     persistence_raw: np.ndarray | None
@@ -622,14 +652,24 @@ def _compute_shared(inputs: _WindowInputs) -> _WindowShared:
     Runs on a worker thread in the threaded path; numpy releases the GIL, which is the whole
     basis of optimisation #5.
     """
-    ocean_win = inputs.ocean_raw != 0
+    # ALL-FALSE, NOT A SYNTHESISED RASTER, and the difference is the whole of Gap A. A planet with
+    # no sea could have been given an all-zero ocean mask on disk, and nothing downstream would have
+    # needed a line changed — but that file is indistinguishable from one produced by measuring the
+    # planet's oceans and finding none, and it would be the only body fact in this project expressed
+    # as a fabricated dataset. Built here instead, from the seam's declaration, it is a computation
+    # with a stated premise. `shade.composite` needs no branch either way: its eight selectors are
+    # boolean, and all-False means land everywhere, which is the answer.
+    shape = inputs.height_win.shape
+    ocean_win = inputs.ocean_raw != 0 if inputs.ocean_raw is not None else np.zeros(shape, bool)
     watercode = inputs.watercode
-    water_win = lake_depth.inland_water(watercode)
+    water_win = (lake_depth.inland_water(watercode) if watercode is not None
+                 else np.zeros(shape, bool))
     hs_win = inputs.hs_raw.astype(float)
     # Lake depth, zeroed off class 2 so rivers stay flat and the (class 1) Caspian keeps GEBCO's
-    # measured bathymetry instead of GLOBathy's cone.
+    # measured bathymetry instead of GLOBathy's cone. The watercode cannot be None while depth is
+    # not: `planet_seam` refuses a body that declares the lake-depth layer with no watermask.
     depth_win = (lake_depth.lakes_only(inputs.depth_raw, watercode)
-                 if inputs.depth_raw is not None else None)
+                 if inputs.depth_raw is not None and watercode is not None else None)
     # unpack_persistence runs the float64 unpack per window (as the old per-window path did), so
     # snow_alpha sees bit-identical input. Glacier is optional (persistence-only when RGI absent).
     if inputs.persistence_raw is not None:
@@ -695,7 +735,7 @@ def _compute_window_rgb(inputs: _WindowInputs) -> tuple[Window, np.ndarray]:
 
 
 def composite_planet(work: Path, hs, compute_occlusion: Callable[[], np.ndarray],
-                     body: bodies.Body, variants=None,
+                     body: bodies.Body, rasters: frozenset[str], variants=None,
                      window_rows=WINDOW_ROWS, max_windows=None, max_workers=1, row_start=0):
     """Composite the whole planet window-by-window into seamless RGB GeoTIFF(s).
 
@@ -727,7 +767,7 @@ def composite_planet(work: Path, hs, compute_occlusion: Callable[[], np.ndarray]
         variants = {None: None}
     outs = {name: work / f"planet_rgb{f'_{name}' if name else ''}.tif" for name in variants}
     params = write_if_changed(work / "composite_params.json",
-                              composite_params(variants, body, window_rows))
+                              composite_params(variants, body, rasters, window_rows))
     deps = composite_deps(work, hs, params)
     # One shared params file is sound because every variant is composited in a single pass:
     # the guard rebuilds all of them or none.
@@ -763,8 +803,11 @@ def composite_planet(work: Path, hs, compute_occlusion: Callable[[], np.ndarray]
             win_top=transform.f + row0 * transform.e,
             win_bottom=transform.f + row1 * transform.e,
             height_win=read1_window(work / "height_3857.tif", win),
-            ocean_raw=read1_window(ocean_p, win),
-            watercode=read1_window(water_p, win),
+            # Gated on the SEAM'S DECLARATION, never on `ocean_p.exists()`. A declared mask that is
+            # missing from disk must crash here — the planet said it has one — where an existence
+            # check would quietly composite a sea-less Earth after a half-finished warp.
+            ocean_raw=read1_window(ocean_p, win) if "oceanmask" in rasters else None,
+            watercode=read1_window(water_p, win) if "watermask" in rasters else None,
             hs_raw=read1_window(hs, win),
             depth_raw=read1_window(depth_p, win) if depth_p.exists() else None,
             # The fourth of four, and the one that was not guarded. Its three siblings have read
@@ -1056,12 +1099,17 @@ def main():
     work = resolve_out(args)
     work.mkdir(parents=True, exist_ok=True)
 
-    height = warp_inputs(work, bodies.work_dir(body, "planet"), body)
+    # Read ONCE, at the top, and threaded down. The planet stage declares what it emitted and this
+    # raises if it never finished, so a half-built planet stops here rather than being shaded into a
+    # plausible-looking pyramid. Threading it (rather than each stage reading the file) keeps
+    # `_compute_shared` a pure function of its arguments, which is what lets it run on workers.
+    rasters = planet_seam.declared(body)
+    height = warp_inputs(work, planet_seam.planet_dir(body), body, rasters)
     hs = build_hillshade(work, height, body)
     # Passed unevaluated: composite_planet runs it only if the composite is actually stale.
     # Production composite is threaded at COMPOSITE_ROWS/N_WORKERS (optimisation #5); the snow
     # persistence stays banded at WINDOW_ROWS (256), sliced 128 rows at a time.
-    planet_tif = composite_planet(work, hs, lambda: global_occlusion(height, body), body,
+    planet_tif = composite_planet(work, hs, lambda: global_occlusion(height, body), body, rasters,
                                   window_rows=COMPOSITE_ROWS, max_workers=N_WORKERS)[None]
     if args.tiles:
         build_tiles(planet_tif, work, body)

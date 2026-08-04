@@ -19,8 +19,12 @@ import numpy as np
 import pytest
 from conftest import hillshade_for_light
 
-from pipeline import bodies
+from pipeline import bodies, planet_seam
 from pipeline.tile import shade
+
+#: A planet whose seam emitted all three rasters — what Earth declares, and the only
+#: shape these tests care about unless they say otherwise.
+WHOLE_PLANET = planet_seam.KNOWN_RASTERS
 
 
 @pytest.fixture(autouse=True)
@@ -128,7 +132,7 @@ class TestFreshness:
 
         from pipeline.tile.shade_planet import composite_params
 
-        assert "ice_relief_damp" in json.loads(composite_params({}, bodies.EARTH))["knobs"]
+        assert "ice_relief_damp" in json.loads(composite_params({}, bodies.EARTH, WHOLE_PLANET))["knobs"]
 
     def test_it_is_not_hillshade_only(self):
         """Consumed by composite(), so a re-tune must restage the composite, and — through

@@ -7,9 +7,13 @@ shade_planet.composite_params (one recipe home) plus source-mtime comparison.
 import json
 import os
 
-from pipeline import bodies
+from pipeline import bodies, planet_seam
 from pipeline.tile import cap_render
 from pipeline.tile.shade import KNOBS
+
+#: A planet whose seam emitted all three rasters — what Earth declares, and the only
+#: shape these tests care about unless they say otherwise.
+WHOLE_PLANET = planet_seam.KNOWN_RASTERS
 
 ANCIENT = (1_000_000, 1_000_000)
 FUTURE = (4_000_000_000, 4_000_000_000)
@@ -88,11 +92,11 @@ class TestCapIsFresh:
 class TestCapRecipe:
     def test_a_composite_knob_change_restages_the_caps(self):
         """THE regression this guard exists for: ambient_knee shipped and no cap noticed."""
-        before = cap_render.cap_recipe(EARTH_NORTH)
+        before = cap_render.cap_recipe(EARTH_NORTH, WHOLE_PLANET)
         saved = KNOBS["ambient_knee"]
         KNOBS["ambient_knee"] = saved + 0.05
         try:
-            assert cap_render.cap_recipe(EARTH_NORTH) != before
+            assert cap_render.cap_recipe(EARTH_NORTH, WHOLE_PLANET) != before
         finally:
             KNOBS["ambient_knee"] = saved
 
@@ -100,29 +104,29 @@ class TestCapRecipe:
         """composite_params filters fill_strength as hillshade-stage (hs_params tracks it for the
         tiles), but the caps consume it directly in _shade — the one knob that would slip through
         the shared recipe if not listed explicitly."""
-        before = cap_render.cap_recipe(EARTH_SOUTH)
+        before = cap_render.cap_recipe(EARTH_SOUTH, WHOLE_PLANET)
         saved = KNOBS["fill_strength"]
         KNOBS["fill_strength"] = saved + 0.05
         try:
-            assert cap_render.cap_recipe(EARTH_SOUTH) != before
+            assert cap_render.cap_recipe(EARTH_SOUTH, WHOLE_PLANET) != before
         finally:
             KNOBS["fill_strength"] = saved
 
     def test_the_two_caps_have_distinct_recipes(self):
         """Grid geometry (edge_lat, taper, ice overrides) rides in the recipe, so the poles never
         share a sidecar."""
-        assert cap_render.cap_recipe(EARTH_NORTH) != cap_render.cap_recipe(EARTH_SOUTH)
+        assert cap_render.cap_recipe(EARTH_NORTH, WHOLE_PLANET) != cap_render.cap_recipe(EARTH_SOUTH, WHOLE_PLANET)
 
 
 class TestCapSources:
     def test_north_reads_the_snow_dataset_and_the_coastline(self):
-        sources = cap_render.cap_sources(EARTH_NORTH)
+        sources = cap_render.cap_sources(EARTH_NORTH, WHOLE_PLANET)
         assert any("snow" in str(source).lower() or str(cap_render.snow.SP_NC) in str(source)
                    for source in sources)
         assert cap_render.COAST_SHP in sources
 
     def test_south_forced_snow_needs_no_dataset_and_bakes_no_coastline(self):
-        sources = cap_render.cap_sources(EARTH_SOUTH)
+        sources = cap_render.cap_sources(EARTH_SOUTH, WHOLE_PLANET)
         assert not any(str(cap_render.snow.SP_NC) in str(source) for source in sources)
         assert cap_render.COAST_SHP not in sources
 
@@ -138,11 +142,11 @@ class TestTheRecipeTracksTheBodyNarrowly:
     """
 
     def test_the_projection_radius_is_recorded(self):
-        recipe = json.loads(cap_render.cap_recipe(EARTH_NORTH))
+        recipe = json.loads(cap_render.cap_recipe(EARTH_NORTH, WHOLE_PLANET))
         assert recipe["grid"]["aeqd_radius_m"] == bodies.EARTH.aeqd_radius_m
 
     def test_the_whole_body_is_not_inlined(self):
-        recipe = json.loads(cap_render.cap_recipe(EARTH_NORTH))
+        recipe = json.loads(cap_render.cap_recipe(EARTH_NORTH, WHOLE_PLANET))
         assert "body" not in recipe["grid"], (
             "the Body object is inlined in the cap recipe — a change to any of its fields, including "
             "ones that cannot move a cap pixel, would restage both caps"
@@ -155,5 +159,5 @@ class TestTheRecipeTracksTheBodyNarrowly:
     def test_both_recipes_agree_on_how_a_grid_is_serialised(self):
         """They were briefly patched separately, which is how a fix lands in one and not the other."""
         elev = json.loads(cap_render.cap_elev_recipe(EARTH_NORTH))
-        full = json.loads(cap_render.cap_recipe(EARTH_NORTH))
+        full = json.loads(cap_render.cap_recipe(EARTH_NORTH, WHOLE_PLANET))
         assert elev["grid"] == full["grid"]

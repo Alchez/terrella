@@ -51,7 +51,7 @@ import rasterio
 from pyproj import Transformer
 from scipy.ndimage import binary_dilation
 
-from pipeline import bodies, paths
+from pipeline import bodies, paths, planet_seam
 from pipeline.render import hillshade, lake_depth, seaice, snow
 from pipeline.tile import shade, terrain_rgb
 from pipeline.tile.shade import KNOBS
@@ -178,17 +178,6 @@ def bakes_coastline(grid: CapGrid) -> bool:
                               "the cap ships with no land/sea line")
 
 
-def planet_work_dir(body: bodies.Body) -> Path:
-    """The fused planet rasters this body's caps warp from — heightfield, ocean mask, water mask.
-
-    Resolved per call rather than read out of `shade_planet`'s module scope, which is where it used
-    to come from. Reaching into another module for a path is the coupling that made this fragile:
-    that global is gone now the shade pass resolves its own, and a cap that silently sourced another
-    body's fused heightfield would render a clean Arctic and label it Mars.
-    """
-    return bodies.work_dir(body, "planet")
-
-
 def cap_work_dir(body: bodies.Body) -> Path:
     """This body's cap intermediates: the AEQD warps, the render TIFs, the freshness sidecars.
 
@@ -292,7 +281,7 @@ def write_cap_elevation(grid: CapGrid) -> Path:
         raise ValueError(f"CAP_ELEV_PX {CAP_ELEV_PX} must divide CAP_PX {CAP_PX}")
     warp = cap_height_warp(grid)
     if not warp.exists():
-        _warp(grid, planet_work_dir(grid.body) / "planet_heightfield.vrt", warp,
+        _warp(grid, planet_seam.vrt_path(grid.body, "heightfield"), warp,
               "bilinear", "Float32")
     with rasterio.open(warp) as dataset:
         raw = dataset.read(1)
@@ -341,7 +330,7 @@ def grid_recipe_fields(grid: CapGrid) -> dict:
     return fields
 
 
-def cap_recipe(grid: CapGrid) -> str:
+def cap_recipe(grid: CapGrid, rasters: frozenset[str]) -> str:
     """Everything a cap's pixels depend on besides the source rasters, serialised for the
     freshness sidecar. Reuses shade_planet.composite_params — ONE recipe home — so any look change
     that restages the tile composite also restages the caps: exactly the coupling whose absence let
@@ -377,7 +366,7 @@ def cap_recipe(grid: CapGrid) -> str:
                        "coast_rgb": list(COAST_RGB),
                        "asset": {"format": "webp", "quality": CAP_WEBP_QUALITY,
                                  "rungs": list(CAP_RUNGS)},
-                       "composite": json.loads(composite_params({}, grid.body))},
+                       "composite": json.loads(composite_params({}, grid.body, rasters))},
                       sort_keys=True, indent=2)
 
 
@@ -417,7 +406,7 @@ def caps_manifest(body: bodies.Body) -> str:
     }, sort_keys=True, indent=2)
 
 
-def cap_sources(grid: CapGrid) -> list[Path]:
+def cap_sources(grid: CapGrid, rasters: frozenset[str]) -> list[Path]:
     """The source files whose change must re-render this cap — composite_deps' sibling. Constants
     ride in cap_recipe; these are the mtime dependencies.
 
@@ -427,9 +416,8 @@ def cap_sources(grid: CapGrid) -> list[Path]:
     body's caps to the mtime of a file whose contents can never reach a pixel of them. The layer's
     own absence is tracked in `cap_recipe` instead, where turning it off restages exactly once.
     """
-    planet = planet_work_dir(grid.body)
-    sources = [planet / "planet_heightfield.vrt", planet / "planet_oceanmask.vrt",
-               planet / "planet_watermask.vrt"]
+    sources = [planet_seam.vrt_path(grid.body, raster)
+               for raster in planet_seam.PLANET_RASTERS if raster in rasters]
     if "sea_ice" in grid.body.surface_layers:
         sources.append(Path(seaice.SEAICE_SRC))
     if grid.name == "north" and "snow" in grid.body.surface_layers:
@@ -586,7 +574,50 @@ def _cap_sea_ice(grid: CapGrid, consequence: str) -> "np.ndarray | None":
                             ice_lo=grid.ice_lo, ice_max_alpha=grid.ice_max_alpha)
 
 
-def render_cap_north(grid: CapGrid) -> Path:
+def _announce(grid: CapGrid, raster: str, consequence: str) -> None:
+    """Say what was skipped AND what follows from it, the way the layer gates do.
+
+    Both masks announce separately even though one body switches both off together: a pass that goes
+    quiet about a skipped input is a pass whose output cannot be read back, and the case where they
+    diverge is the next one — a sea at a chosen contour, with no inland water behind it.
+    """
+    print(f"{grid.body.name}'s planet stage emitted no {raster} -> {grid.name} cap: {consequence}",
+          flush=True)
+
+
+def _cap_masks(grid: CapGrid, rasters: frozenset[str],
+               shape: tuple[int, int]) -> tuple[np.ndarray, np.ndarray]:
+    """This cap's land/sea and inland-water selectors, warped when the planet has them.
+
+    ALL-FALSE RATHER THAN AN ALL-ZERO RASTER ON DISK, which is the decision the whole planet seam
+    turns on. A sea-less body could have been handed a synthesised mask and nothing here would have
+    changed; but a file of zeros cannot be told apart from one produced by measuring the planet's
+    oceans and finding none, and it would be the only body fact in this project written as a
+    fabricated dataset. Derived here from the seam's declaration, it is arithmetic with a premise.
+
+    Gated per raster, not as a pair: Phase 2's chosen shoreline contour gives Mars an ocean mask
+    while it still has no inland water, and that combination must not need a code change.
+
+    `shade.composite` takes both as plain boolean selectors, so all-False means every pixel takes
+    the land ramp — which is the answer, not a degraded stand-in for one.
+    """
+    if "oceanmask" in rasters:
+        ocean = _warp(grid, planet_seam.vrt_path(grid.body, "oceanmask"),
+                      cap_warp(grid, "ocean"), "near", "Byte") != 0
+    else:
+        _announce(grid, "oceanmask", "every pixel takes the land ramp")
+        ocean = np.zeros(shape, dtype=bool)
+    if "watermask" in rasters:
+        water = lake_depth.inland_water(
+            _warp(grid, planet_seam.vrt_path(grid.body, "watermask"),
+                  cap_warp(grid, "water"), "near", "Byte"))
+    else:
+        _announce(grid, "watermask", "no lake or river is drawn")
+        water = np.zeros(shape, dtype=bool)
+    return ocean, water
+
+
+def render_cap_north(grid: CapGrid, rasters: frozenset[str]) -> Path:
     """North cap from the fused planet VRTs + snow persistence + sea ice.
 
     The two cryosphere layers are gated on the BODY, not on their files: both sources are single
@@ -594,15 +625,12 @@ def render_cap_north(grid: CapGrid) -> Path:
     painted an Arctic onto whatever was rendered. Off, the cap is bare relief and bathymetry, which
     is a complete picture rather than a degraded one.
     """
-    planet = planet_work_dir(grid.body)
     cap_work_dir(grid.body).mkdir(parents=True, exist_ok=True)
-    height = _warp(grid, planet / "planet_heightfield.vrt", cap_height_warp(grid), "bilinear", "Float32")
-    ocean_raw = _warp(grid, planet / "planet_oceanmask.vrt", cap_warp(grid, "ocean"), "near", "Byte")
-    watercode = _warp(grid, planet / "planet_watermask.vrt", cap_warp(grid, "water"), "near", "Byte")
+    height = _warp(grid, planet_seam.vrt_path(grid.body, "heightfield"), cap_height_warp(grid),
+                   "bilinear", "Float32")
 
     heights = np.where(height < -1e4, 0.0, height).astype(np.float32)  # DEM nodata -> flat, as hillshade does
-    ocean = ocean_raw != 0
-    water = lake_depth.inland_water(watercode)
+    ocean, water = _cap_masks(grid, rasters, heights.shape)
     longitude, _lat = _lonlat_grid(grid)
     hillshade_dn = _shade(grid, heights, longitude)
 
@@ -623,7 +651,7 @@ def render_cap_north(grid: CapGrid) -> Path:
     return _write_cap(grid, heights, ocean, water, snow_a, ice_a, hillshade_dn)
 
 
-def render_cap_south(grid: CapGrid) -> Path:
+def render_cap_south(grid: CapGrid, rasters: frozenset[str]) -> Path:
     """South (Antarctica) cap from the fused planet VRTs + the SH half of the sea-ice climatology.
 
     Re-sourced from GEBCO-direct when the Antarctica fill pushed the planet VRTs
@@ -637,15 +665,12 @@ def render_cap_south(grid: CapGrid) -> Path:
     `body_declares_layer`. Left ungated on a body with no sea, it whitens every piece of land below
     60 degrees south -- a polar ice cap invented out of arithmetic.
     """
-    planet = planet_work_dir(grid.body)
     cap_work_dir(grid.body).mkdir(parents=True, exist_ok=True)
-    height = _warp(grid, planet / "planet_heightfield.vrt", cap_height_warp(grid), "bilinear", "Float32")
-    ocean_raw = _warp(grid, planet / "planet_oceanmask.vrt", cap_warp(grid, "ocean"), "near", "Byte")
-    watercode = _warp(grid, planet / "planet_watermask.vrt", cap_warp(grid, "water"), "near", "Byte")
+    height = _warp(grid, planet_seam.vrt_path(grid.body, "heightfield"), cap_height_warp(grid),
+                   "bilinear", "Float32")
 
     heights = np.where(height < -1e4, 0.0, height).astype(np.float32)  # DEM nodata -> flat, as hillshade does
-    ocean = ocean_raw != 0
-    water = lake_depth.inland_water(watercode)
+    ocean, water = _cap_masks(grid, rasters, heights.shape)
     longitude, latitude = _lonlat_grid(grid)
     hillshade_dn = _shade(grid, heights, longitude)
 
@@ -681,6 +706,10 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> int:
     args = build_parser().parse_args()
     body = bodies.get(args.body)  # raises on an unknown name; never falls back to Earth
+    # Read once and threaded, exactly as the shade pass does it. This raises when the planet stage
+    # never finished, so a cap can never be rendered from half a fusion — which used to be
+    # indistinguishable from a planet that genuinely has no masks.
+    rasters = planet_seam.declared(body)
 
     for wanted, grid, render in ((not args.south, north_grid(body), render_cap_north),
                                  (not args.north, south_grid(body), render_cap_south)):
@@ -688,13 +717,13 @@ def main() -> int:
             continue
         work = cap_work_dir(grid.body)
         if not args.elev_only:
-            recipe = cap_recipe(grid)
+            recipe = cap_recipe(grid, rasters)
             sidecar = work / f"cap_{grid.name}_params.json"
             if not args.force and cap_is_fresh(recipe, cap_assets(grid), sidecar,
-                                               cap_sources(grid)):
+                                               cap_sources(grid, rasters)):
                 print(f"cap {grid.name} fresh -> skip", flush=True)
             else:
-                print(f"wrote {render(grid)}", flush=True)
+                print(f"wrote {render(grid, rasters)}", flush=True)
                 sidecar.write_text(recipe)  # AFTER the render, so a crash leaves the cap stale
 
         # Gated separately, and NOT behind the colour stage's `continue`: the displacement texture
@@ -704,7 +733,7 @@ def main() -> int:
         elev_sidecar = work / f"cap_{grid.name}_elev_params.json"
         if not args.force and cap_is_fresh(
                 elev_recipe, [cap_elev_asset(grid)], elev_sidecar,
-                [planet_work_dir(grid.body) / "planet_heightfield.vrt"]):
+                [planet_seam.vrt_path(grid.body, "heightfield")]):
             print(f"cap {grid.name} elevation fresh -> skip", flush=True)
         else:
             print(f"wrote {write_cap_elevation(grid)}", flush=True)

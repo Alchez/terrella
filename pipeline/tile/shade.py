@@ -168,9 +168,9 @@ def reproject_cell(name: str, merc_dir: Path):
     with rasterio.open(height) as dataset:
         te = [repr(value) for value in dataset.bounds]
         ts = [str(dataset.width), str(dataset.height)]
-    for layer in ("oceanmask", "watermask"):
+    for raster in ("oceanmask", "watermask"):
         run(["gdalwarp", "-overwrite", "-q", "-t_srs", MERCATOR, "-te", *te, "-ts", *ts,
-             "-r", "near", chunk / f"{layer}_10s.tif", merc_dir / f"{name}_{layer}.tif"])
+             "-r", "near", chunk / f"{raster}_10s.tif", merc_dir / f"{name}_{raster}.tif"])
 
 
 def build_vrt(vrt_path, sources):

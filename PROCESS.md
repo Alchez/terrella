@@ -67,7 +67,8 @@ All stage numbers below are at the **131072² grid** (the full Mercator square) 
 
 | # | Stage | First run | Re-run (fresh) | Output | Guard |
 |---|---|---|---|---|---|
-| 0 | `fuse/fuse_planet.py` — 648 cells @ 10″, 12 workers *(separate command; run `build_mosaics.sh` first after any tile download — a stale mosaic fuses new land as ocean)* | **~15 min** (43 s/dense cell; the 108 polar cells ~2 min total — GLO-30 thins toward the pole) | skip | `work/planet/chunks/` (648 cells) + 3 VRTs, 14 GB | per-cell exists() |
+| 0 | `fuse/fuse_planet.py` — 648 cells @ 10″, 12 workers *(separate command; run `build_mosaics.sh` first after any tile download — a stale mosaic fuses new land as ocean)* | **~15 min** (43 s/dense cell; the 108 polar cells ~2 min total — GLO-30 thins toward the pole) | skip | `work/planet/chunks/` (648 cells) + 3 VRTs + the seam declaration, 14 GB | per-cell exists() |
+| 0b | `--build-vrts` alone — re-index the chunks and re-declare | **~20 s** (opens all 648 chunks per raster) | same, and **replaces nothing**: the XML is byte-deterministic, so an unchanged planet keeps its VRT mtimes and stages 1–8 stay fresh | 3 VRTs + `planet_rasters.json` | content compare |
 | 1 | warp height → 3857 | **6:49** | ~0 s | `height_3857.tif` 44 GB | `is_stale` |
 | 2 | warp ocean + water masks → 3857 | **~3:30** (1:45 + 1:47) | ~0 s | 69 MB | `warp_needs_rebuild` |
 | 3 | warp GLOBathy lake depth → 3857 | **1:01:44** (nodata-masker-bound, 102% CPU; no lakes south of −60°, the cost lives in the 50–70°N belt) | ~0 s | `lakedepth_3857.tif` 310 MB | `warp_needs_rebuild` |

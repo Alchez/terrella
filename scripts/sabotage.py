@@ -107,6 +107,12 @@ MUTABLE_ROOTS = (
     # by any pipeline run, it has no output to inspect, and by the time it would have mattered the
     # wrong edition is already on disk. Mutation is the only proof available that it still fires.
     "pipeline/acquire",
+    # Joined with the planet seam, the one contract two different tiers write and two more read. Its
+    # whole job is to keep three situations apart — no mask, no producer, a crashed producer — and
+    # every way of collapsing them leaves a module that imports and answers. There is no output to
+    # inspect either: the failure is a planet that shades from half a fusion and reports DONE.
+    "pipeline/planet_seam.py",
+    "pipeline/fuse",
 )
 
 # Set for the duration of one case, so the backup THIS run is holding does not trip the leftover
@@ -1985,8 +1991,8 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label="Earth's composite recipe records an empty layers-off list, restaging the pyramid",
         path='pipeline/tile/shade_planet.py',
-        needle='    layers = {"layers_off": absent} if absent else {}',
-        replacement='    layers = {"layers_off": absent}',
+        needle='    if absent_layers:\n        missing["layers_off"] = absent_layers',
+        replacement='    missing["layers_off"] = absent_layers',
         guard='test_the_composite_recipe_records_only_the_layers_that_are_off',
     ),
     Sabotage(
@@ -2061,8 +2067,8 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label='the composite recipe enumerates every layer, so a cap-only decision restages 46 GB',
         path='pipeline/tile/shade_planet.py',
-        needle='    absent = bodies.layers_off(body, bodies.COMPOSITE_LAYERS)',
-        replacement='    absent = bodies.layers_off(body, bodies.SURFACE_LAYERS)',
+        needle='    absent_layers = bodies.layers_off(body, bodies.COMPOSITE_LAYERS)',
+        replacement='    absent_layers = bodies.layers_off(body, bodies.SURFACE_LAYERS)',
         guard='test_the_composite_recipe_records_only_the_layers_that_are_off',
     ),
     # Over-tracking is exactly as silent as under-tracking, and this is its direction: the tile
@@ -2130,6 +2136,115 @@ SABOTAGES: list[Sabotage] = [
         needle='    if args.check:\n        return 0',
         replacement='    if False:\n        return 0',
         guard='test_check_stops_after_the_preflight',
+    ),
+    # --- The planet seam ----------------------------------------------------------------------------
+    # Every mutation below leaves a module that imports, type-checks, and answers every question it is
+    # asked. What they change is which of THREE situations collapse into one answer: "this planet has
+    # no ocean mask", "the producer never ran", and "the producer died partway". A pipeline that cannot
+    # tell those apart shades a half-built planet and reports success, so the guards are the only place
+    # the distinction is enforced.
+    Sabotage(
+        suite='python',
+        label='a body whose producer never ran reads as a planet with no masks',
+        path='pipeline/planet_seam.py',
+        needle='    if not path.exists():\n        raise FileNotFoundError(',
+        replacement='    if not path.exists():\n        return frozenset()\n    if False:\n        raise FileNotFoundError(',
+        guard='test_a_body_that_never_ran_raises_rather_than_reading_as_a_planet_with_no_masks',
+    ),
+    Sabotage(
+        suite='python',
+        label='the declaration is trusted to name rasters nobody checked onto disk',
+        path='pipeline/planet_seam.py',
+        needle='    if absent:\n        raise FileNotFoundError(',
+        replacement='    if False:\n        raise FileNotFoundError(',
+        guard='test_declaring_a_raster_that_is_not_on_disk_is_refused',
+    ),
+    Sabotage(
+        suite='python',
+        label='coherence is checked only where it is written, never where it is read',
+        path='pipeline/planet_seam.py',
+        needle='    _require_coherent(body, rasters)\n    return rasters',
+        replacement='    return rasters',
+        guard='test_coherence_is_rechecked_on_READ_not_only_on_write',
+    ),
+    # The tidy that motivates it: the write side already checks, so the read side looks redundant. It
+    # is not — the registry can gain a layer long after the declaration was written.
+    Sabotage(
+        suite='python',
+        label='only lake depth is coupled to its mask, so sea ice can be on and paint nothing',
+        path='pipeline/planet_seam.py',
+        needle='LAYER_REQUIRES_RASTER: dict[str, str] = {"lake_depth": "watermask", "sea_ice": "oceanmask"}',
+        replacement='LAYER_REQUIRES_RASTER: dict[str, str] = {"lake_depth": "watermask"}',
+        guard='test_sea_ice_without_an_ocean_mask_is_refused',
+    ),
+    Sabotage(
+        suite='python',
+        label='the freshness record names the rasters that are ON, which puts a key in Earth\'s recipe',
+        path='pipeline/planet_seam.py',
+        needle='    return sorted(KNOWN_RASTERS - rasters)',
+        replacement='    return sorted(rasters)',
+        guard='test_a_full_planet_records_nothing',
+    ),
+    Sabotage(
+        suite='python',
+        label='rebuilding the VRTs always replaces them, restaging the whole 46 GB planet',
+        path='pipeline/fuse/fuse_planet.py',
+        needle='    if vrt.exists() and vrt.read_bytes() == scratch.read_bytes():',
+        replacement='    if False:',
+        guard='test_an_unchanged_source_set_leaves_the_file_untouched',
+    ),
+    Sabotage(
+        suite='python',
+        label='the scratch VRT is built outside the directory, so its relative paths never match',
+        path='pipeline/fuse/fuse_planet.py',
+        needle='    scratch = vrt.with_suffix(".vrt.new")',
+        replacement='    scratch = vrt.parent.parent / (vrt.name + ".new")',
+        guard='test_an_unchanged_source_set_leaves_the_file_untouched',
+    ),
+    # The consumer side of the same seam. Each of these leaves a pass that runs to completion and
+    # produces a whole planet; what changes is whether that planet's sea was declared or assumed.
+    Sabotage(
+        suite='python',
+        label='the composite records the missing rasters unconditionally, restaging Earth',
+        path='pipeline/tile/shade_planet.py',
+        needle='    if absent_rasters:\n        missing["rasters_off"] = absent_rasters',
+        replacement='    missing["rasters_off"] = absent_rasters',
+        guard='test_a_whole_planet_records_nothing',
+    ),
+    Sabotage(
+        suite='python',
+        label='the mask warps run for every planet, so a sea-less body gets Earth\'s coastlines',
+        path='pipeline/tile/shade_planet.py',
+        needle='        if raster not in rasters:',
+        replacement='        if False:',
+        guard='test_an_undeclared_mask_never_reaches_gdalwarp',
+    ),
+    Sabotage(
+        suite='python',
+        label='the composite reads the masks if the FILE is there, not if the planet declared one',
+        path='pipeline/tile/shade_planet.py',
+        needle='            ocean_raw=read1_window(ocean_p, win) if "oceanmask" in rasters else None,',
+        replacement='            ocean_raw=read1_window(ocean_p, win) if ocean_p.exists() else None,',
+        guard='test_the_masks_are_never_opened',
+    ),
+    # The one that reads as a tidy: every other optional input in that struct is gated on `.exists()`,
+    # so matching them looks like consistency. It is the opposite — those four ask "did we download
+    # Earth's data", and this one asks "does this planet have a sea".
+    Sabotage(
+        suite='python',
+        label='the cap warps its masks whatever the planet emitted',
+        path='pipeline/tile/cap_render.py',
+        needle='    if "oceanmask" in rasters:',
+        replacement='    if True:',
+        guard='test_an_undeclared_mask_is_never_warped',
+    ),
+    Sabotage(
+        suite='python',
+        label='the cap depends on mask VRTs a body never built, so it can never read fresh',
+        path='pipeline/tile/cap_render.py',
+        needle='               for raster in planet_seam.PLANET_RASTERS if raster in rasters]',
+        replacement='               for raster in planet_seam.PLANET_RASTERS]',
+        guard='test_cap_sources_drops_a_mask_the_planet_never_emitted',
     ),
     # --- The look seam ------------------------------------------------------------------------------
     # The ramps' kind-dispatch used to be transcribed in four functions; it is now one resolver over a
@@ -2271,7 +2386,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='python',
         label="a second body's caps source Earth's fused planet rasters",
-        path='pipeline/tile/cap_render.py',
+        path='pipeline/planet_seam.py',
         needle='    return bodies.work_dir(body, "planet")',
         replacement='    return bodies.work_dir(bodies.EARTH, "planet")',
         guard='test_a_second_body_cannot_land_its_caps_on_earths',

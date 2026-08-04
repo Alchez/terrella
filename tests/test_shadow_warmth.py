@@ -18,10 +18,14 @@ import numpy as np
 import pytest
 from conftest import hillshade_for_light
 
-from pipeline import bodies
+from pipeline import bodies, planet_seam
 from pipeline.render import palette
 from pipeline.tile import shade
 from pipeline.tile.shade import SHADOW_TINT, shadow_tint
+
+#: A planet whose seam emitted all three rasters — what Earth declares, and the only
+#: shape these tests care about unless they say otherwise.
+WHOLE_PLANET = planet_seam.KNOWN_RASTERS
 
 LUMINANCE = np.array([0.2126, 0.7152, 0.0722], dtype=np.float32)
 
@@ -130,7 +134,7 @@ class TestFreshness:
 
         from pipeline.tile.shade_planet import composite_params
 
-        assert "shadow_warmth" in json.loads(composite_params({}, bodies.EARTH))["knobs"]
+        assert "shadow_warmth" in json.loads(composite_params({}, bodies.EARTH, WHOLE_PLANET))["knobs"]
 
     def test_it_is_not_hillshade_only(self):
         """It is consumed by composite(), so a re-tune must restage the composite (~19.6 min),

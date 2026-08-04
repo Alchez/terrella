@@ -27,9 +27,13 @@ from rasterio.transform import from_bounds
 
 from pathlib import Path
 
-from pipeline import bodies, paths
+from pipeline import bodies, paths, planet_seam
 from pipeline.render import seaice, snow
 from pipeline.tile import cap_render, shade_planet, terrain_rgb
+
+#: A planet whose seam emitted all three rasters — what Earth declares, and the only
+#: shape these tests care about unless they say otherwise.
+WHOLE_PLANET = planet_seam.KNOWN_RASTERS
 
 #: Earth's two cap grids. The module no longer exposes them as constants — see `north_grid` — so a
 #: test that means "the shipped north cap" has to name the body it is talking about, which is the
@@ -129,7 +133,7 @@ class TestTheGridsAreBuiltPerBody:
     def test_earths_grids_are_field_for_field_what_they_shipped(self, subtests):
         for name, grid in (("north", EARTH_NORTH), ("south", EARTH_SOUTH)):
             with subtests.test(name):
-                assert json.loads(cap_render.cap_recipe(grid))["grid"] == SHIPPED_GRIDS[name]
+                assert json.loads(cap_render.cap_recipe(grid, WHOLE_PLANET))["grid"] == SHIPPED_GRIDS[name]
 
     def test_a_factory_carries_the_body_it_was_given_all_the_way_through(self, subtests):
         """A factory that pinned Earth would be invisible everywhere it mattered: the cap would
@@ -146,7 +150,7 @@ class TestTheGridsAreBuiltPerBody:
                 assert f"+a={OTHER_BODY.aeqd_radius_m}" in grid.aeqd
                 assert (cap_render.cap_asset(grid, 8192).parent
                         == paths.ROOT / "web/public/caps/other")
-                assert (json.loads(cap_render.cap_recipe(grid))["grid"]["aeqd_radius_m"]
+                assert (json.loads(cap_render.cap_recipe(grid, WHOLE_PLANET))["grid"]["aeqd_radius_m"]
                         == OTHER_BODY.aeqd_radius_m)
 
     def test_the_served_url_matches_where_the_texture_is_actually_written(self, subtests):
@@ -226,7 +230,7 @@ class TestCapPathsFollowTheBody:
                     == paths.DATA / "work/cap/capS_seaice.tif")
         with subtests.test("fused planet source"):
             assert (paths.DATA / "work/planet/planet_heightfield.vrt"
-                    in cap_render.cap_sources(EARTH_NORTH))
+                    in cap_render.cap_sources(EARTH_NORTH, WHOLE_PLANET))
 
     def test_a_second_body_cannot_land_its_caps_on_earths(self, subtests):
         """The failure this forbids is silent and destructive in one direction only: a Mars cap
@@ -249,7 +253,7 @@ class TestCapPathsFollowTheBody:
                     == paths.DATA / "work/mars/cap/capN_height.tif")
         with subtests.test("fused planet source"):
             assert (paths.DATA / "work/mars/planet/planet_heightfield.vrt"
-                    in cap_render.cap_sources(grid))
+                    in cap_render.cap_sources(grid, WHOLE_PLANET))
 
 
 class TestCapsManifest:
@@ -280,17 +284,17 @@ class TestRecipeCoversTheAsset:
     def test_webp_quality_rides_in_the_recipe(self, monkeypatch):
         """The encoder setting changes the shipped pixels, so it must restage the cap —
         the same freshness rule that caught the stale caps."""
-        before = cap_render.cap_recipe(EARTH_NORTH)
+        before = cap_render.cap_recipe(EARTH_NORTH, WHOLE_PLANET)
         assert '"webp"' in before
         monkeypatch.setattr(cap_render, "CAP_WEBP_QUALITY", 101)
-        assert cap_render.cap_recipe(EARTH_NORTH) != before
+        assert cap_render.cap_recipe(EARTH_NORTH, WHOLE_PLANET) != before
 
     def test_rung_set_rides_in_the_recipe(self, monkeypatch):
         """Adding a rung changes the shipped ASSET SET, so it must restage — otherwise the new
         rung's file would never be written and the manifest would advertise a 404."""
-        before = cap_render.cap_recipe(EARTH_NORTH)
+        before = cap_render.cap_recipe(EARTH_NORTH, WHOLE_PLANET)
         monkeypatch.setattr(cap_render, "CAP_RUNGS", (2048, cap_render.CAP_PX))
-        assert cap_render.cap_recipe(EARTH_NORTH) != before
+        assert cap_render.cap_recipe(EARTH_NORTH, WHOLE_PLANET) != before
 
 
 # --- The elevation texture ----------------------------------------------------------------
@@ -541,7 +545,7 @@ LAYERLESS_BODY = dataclasses.replace(bodies.EARTH, name="layerless", path_prefix
                                      surface_layers=frozenset())
 
 
-def _drive_cap(monkeypatch, tmp_path, body, pole, missing=()):
+def _drive_cap(monkeypatch, tmp_path, body, pole, missing=(), rasters=None):
     """Run one REAL cap renderer with its two GDAL edges recorded rather than executed.
 
     `_warp` and `_write_cap` are the boundaries of the code under test — one shells out to gdalwarp,
@@ -557,6 +561,10 @@ def _drive_cap(monkeypatch, tmp_path, body, pole, missing=()):
 
     `missing` names sources to point at a path that does NOT exist, so the disk half of the gate can
     be exercised on a body that does declare the layer — body-first is not body-only.
+
+    `rasters` is the planet seam's declaration, defaulting to a whole planet because most of these
+    tests vary the SURFACE LAYERS and want the masks held fixed. The mask-less case has its own
+    class below, where it is the subject rather than the background.
 
     The coastline is deliberately not exercised here: it is baked inside `_write_cap`, which this
     replaces. `TestTheCoastlineIsABodyFact` drives that gate directly.
@@ -589,7 +597,8 @@ def _drive_cap(monkeypatch, tmp_path, body, pole, missing=()):
 
     factory, render = ((cap_render.north_grid, cap_render.render_cap_north) if pole == "north"
                        else (cap_render.south_grid, cap_render.render_cap_south))
-    render(dataclasses.replace(factory(body), px=8))
+    render(dataclasses.replace(factory(body), px=8),
+           WHOLE_PLANET if rasters is None else rasters)
     return sorted(warped), painted
 
 
@@ -683,7 +692,7 @@ class TestTheCoastlineIsABodyFact:
         """Deriving `coast_opacity` from the body would record the same fact twice — as a 0.0 in the
         grid block and as an entry in `layers_off` — which is the copy-drift the registry removes."""
         assert cap_render.north_grid(LAYERLESS_BODY).coast_opacity == 0.55
-        recipe = json.loads(cap_render.cap_recipe(cap_render.north_grid(LAYERLESS_BODY)))
+        recipe = json.loads(cap_render.cap_recipe(cap_render.north_grid(LAYERLESS_BODY), WHOLE_PLANET))
         assert recipe["grid"]["coast_opacity"] == 0.55
         assert "coastline" in recipe["layers_off"]
 
@@ -696,8 +705,8 @@ class TestCapSourcesFollowTheLayers:
         for pole, factory in (("north", cap_render.north_grid),
                               ("south", cap_render.south_grid)):
             with subtests.test(pole):
-                earth = cap_render.cap_sources(factory(bodies.EARTH))
-                bare = cap_render.cap_sources(factory(LAYERLESS_BODY))
+                earth = cap_render.cap_sources(factory(bodies.EARTH), WHOLE_PLANET)
+                bare = cap_render.cap_sources(factory(LAYERLESS_BODY), WHOLE_PLANET)
                 assert Path(seaice.SEAICE_SRC) in earth
                 assert not any(source.name == Path(seaice.SEAICE_SRC).name for source in bare)
                 assert len(bare) == 3  # heightfield, oceanmask, watermask — the body's own relief
@@ -751,10 +760,10 @@ class TestTheCapIsShadedInGroundMetres:
         """Unconditionally, unlike the Mercator one: no body's cap ratio is the identity, so a
         conditional would never fire and would only read as though it might. Untracked, a body
         change would leave a cap falsely fresh at another planet's relief."""
-        recipe = json.loads(cap_render.cap_recipe(EARTH_NORTH))
+        recipe = json.loads(cap_render.cap_recipe(EARTH_NORTH, WHOLE_PLANET))
         assert recipe["light"]["ground_scale"] == bodies.ground_metres_per_aeqd_unit(bodies.EARTH)
         smaller = dataclasses.replace(bodies.EARTH, name="smaller", ground_radius_m=3396190.0)
-        other = cap_render.cap_recipe(dataclasses.replace(EARTH_NORTH, body=smaller))
+        other = cap_render.cap_recipe(dataclasses.replace(EARTH_NORTH, body=smaller), WHOLE_PLANET)
         assert json.loads(other)["light"]["ground_scale"] != recipe["light"]["ground_scale"]
 
     def test_the_elevation_texture_is_not_dragged_through_the_ground_scale(self):
@@ -767,13 +776,13 @@ class TestTheCapIsShadedInGroundMetres:
 
 class TestTheCapRecipeRecordsWhatIsOff:
     def test_earth_records_no_layers_off_so_its_caps_keep_their_recipe_shape(self):
-        assert "layers_off" not in json.loads(cap_render.cap_recipe(EARTH_NORTH))
-        assert "layers_off" not in json.loads(cap_render.cap_recipe(EARTH_SOUTH))
+        assert "layers_off" not in json.loads(cap_render.cap_recipe(EARTH_NORTH, WHOLE_PLANET))
+        assert "layers_off" not in json.loads(cap_render.cap_recipe(EARTH_SOUTH, WHOLE_PLANET))
 
     def test_a_bare_body_records_exactly_the_cap_layers_it_lacks(self):
         """The cap vocabulary, not the whole one: `lake_depth` and `glaciers` never reach a cap, so
         recording them would restage a 14 GB render on a decision it cannot contain."""
-        recipe = json.loads(cap_render.cap_recipe(cap_render.north_grid(LAYERLESS_BODY)))
+        recipe = json.loads(cap_render.cap_recipe(cap_render.north_grid(LAYERLESS_BODY), WHOLE_PLANET))
         assert recipe["layers_off"] == ["coastline", "sea_ice", "snow"]
 
     def test_turning_a_layer_off_restages_although_its_source_stops_being_a_dependency(self):
@@ -784,6 +793,67 @@ class TestTheCapRecipeRecordsWhatIsOff:
         without = cap_render.north_grid(
             dataclasses.replace(bodies.EARTH, name="noice",
                                 surface_layers=bodies.EARTH.surface_layers - {"sea_ice"}))
-        assert Path(seaice.SEAICE_SRC) in cap_render.cap_sources(with_ice)
-        assert Path(seaice.SEAICE_SRC) not in cap_render.cap_sources(without)
-        assert cap_render.cap_recipe(with_ice) != cap_render.cap_recipe(without)
+        assert Path(seaice.SEAICE_SRC) in cap_render.cap_sources(with_ice, WHOLE_PLANET)
+        assert Path(seaice.SEAICE_SRC) not in cap_render.cap_sources(without, WHOLE_PLANET)
+        assert cap_render.cap_recipe(with_ice, WHOLE_PLANET) != cap_render.cap_recipe(without, WHOLE_PLANET)
+
+
+class TestTheCapPassAsksTheSeamBeforeTheDisk:
+    """The planet-seam gate on the cap path — the mask half of what the layer gates do for snow.
+
+    Same failure shape, one tier up: `planet_oceanmask.vrt` is a path under a body's own directory,
+    so its absence really can mean "this planet has no sea" — but it can equally mean the fusion
+    died two rasters in, and a cap rendered from that is a clean, confident, half-built pole.
+    """
+
+    HEIGHTFIELD_ONLY = frozenset({"heightfield"})
+
+    def test_an_undeclared_mask_is_never_warped(self, monkeypatch, tmp_path, subtests):
+        for pole in ("north", "south"):
+            with subtests.test(pole):
+                warped, _painted = _drive_cap(monkeypatch, tmp_path, LAYERLESS_BODY, pole,
+                                              rasters=self.HEIGHTFIELD_ONLY)
+                assert "ocean" not in warped and "water" not in warped
+                assert "height" in warped, "the cap must still warp the heightfield"
+
+    def test_a_declared_mask_is_warped(self, monkeypatch, tmp_path, subtests):
+        """The mirror arm, without which the test above passes against a cap that warps nothing."""
+        for pole in ("north", "south"):
+            with subtests.test(pole):
+                warped, _painted = _drive_cap(monkeypatch, tmp_path, LAYERLESS_BODY, pole)
+                assert "ocean" in warped and "water" in warped
+
+    def test_the_forced_antarctic_patch_sees_a_planet_of_pure_land(self, monkeypatch, tmp_path):
+        """A body with no sea AND a snow layer is the composed case: `land = ~(ocean | water)` is
+        everything, so the patch whitens the whole disc. That is the honest consequence of the two
+        declarations, and it is pinned so nobody re-derives it as a bug in the mask gate."""
+        snowy = dataclasses.replace(bodies.EARTH, name="snowy", path_prefix="snowy",
+                                    surface_layers=frozenset({"snow"}))
+        _warped, painted = _drive_cap(monkeypatch, tmp_path, snowy, "south",
+                                      rasters=self.HEIGHTFIELD_ONLY)
+        assert painted["snow_a"].all()
+
+    def test_cap_sources_drops_a_mask_the_planet_never_emitted(self, subtests):
+        """`cap_is_fresh` requires every source to EXIST, so a listed raster that was never built
+        pins the cap to a file whose contents can never reach a pixel of it."""
+        for name, factory in (("north", cap_render.north_grid), ("south", cap_render.south_grid)):
+            with subtests.test(name):
+                grid = factory(LAYERLESS_BODY)
+                bare = cap_render.cap_sources(grid, self.HEIGHTFIELD_ONLY)
+                assert [path.name for path in bare] == ["planet_heightfield.vrt"]
+                assert (cap_render.cap_sources(grid, WHOLE_PLANET)
+                        == [cap_render.planet_seam.vrt_path(LAYERLESS_BODY, raster)
+                            for raster in cap_render.planet_seam.PLANET_RASTERS])
+
+    def test_the_cap_recipe_records_the_rasters_that_are_off(self, subtests):
+        with subtests.test("earth records nothing"):
+            assert "rasters_off" not in json.loads(
+                cap_render.cap_recipe(EARTH_NORTH, WHOLE_PLANET))["composite"]
+        with subtests.test("a maskless planet records both"):
+            recipe = json.loads(cap_render.cap_recipe(
+                cap_render.north_grid(LAYERLESS_BODY), self.HEIGHTFIELD_ONLY))
+            assert recipe["composite"]["rasters_off"] == ["oceanmask", "watermask"]
+        with subtests.test("so switching one off restages the cap"):
+            grid = cap_render.north_grid(LAYERLESS_BODY)
+            assert (cap_render.cap_recipe(grid, WHOLE_PLANET)
+                    != cap_render.cap_recipe(grid, self.HEIGHTFIELD_ONLY))

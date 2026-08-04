@@ -16,8 +16,12 @@ import rasterio
 from rasterio.transform import from_bounds
 
 from pipeline.render import palette, seaice
-from pipeline import bodies
+from pipeline import bodies, planet_seam
 from pipeline.tile import cap_render, shade_planet
+
+#: A planet whose seam emitted all three rasters — what Earth declares, and the only
+#: shape these tests care about unless they say otherwise.
+WHOLE_PLANET = planet_seam.KNOWN_RASTERS
 
 
 def _age(path, seconds):
@@ -207,36 +211,36 @@ class TestWriteIfChanged:
 class TestCompositeParams:
     def test_water_rgb_change_is_recorded(self, monkeypatch):
         """WATER_RGB reaches no file of its own; the sidecar is what tracks it."""
-        before = shade_planet.composite_params({None: None}, bodies.EARTH)
+        before = shade_planet.composite_params({None: None}, bodies.EARTH, WHOLE_PLANET)
         monkeypatch.setattr(palette, "WATER_RGB", (1, 2, 3))
-        assert shade_planet.composite_params({None: None}, bodies.EARTH) != before
+        assert shade_planet.composite_params({None: None}, bodies.EARTH, WHOLE_PLANET) != before
 
     def test_cap_rgb_change_is_recorded(self, monkeypatch):
         """CAP_RGB (the polar-cap fill) reaches no file of its own; the 'cap' sidecar entry is what
         tracks it. Without this, a cap recolour would leave a stale planet_rgb looking fresh -- the
         recompose that switched the cap to pale sea-ice relied on exactly this restage."""
-        before = shade_planet.composite_params({None: None}, bodies.EARTH)
+        before = shade_planet.composite_params({None: None}, bodies.EARTH, WHOLE_PLANET)
         monkeypatch.setattr(shade_planet, "CAP_RGB", (1, 2, 3))
-        assert shade_planet.composite_params({None: None}, bodies.EARTH) != before
+        assert shade_planet.composite_params({None: None}, bodies.EARTH, WHOLE_PLANET) != before
 
     def test_none_variant_key_survives_json(self):
         """The production path keys variants by None, which JSON cannot use as a key."""
-        assert "null" in shade_planet.composite_params({None: None}, bodies.EARTH)
+        assert "null" in shade_planet.composite_params({None: None}, bodies.EARTH, WHOLE_PLANET)
 
     def test_lake_ramp_change_is_recorded(self, monkeypatch):
         """LAKE_STOPS reaches no file of its own either. Without this, re-tuning the lake
         ramp would leave a stale planet_rgb looking fresh -- the same silent drift that hit
         WATER_RGB, which is what started the whole inland-water thread."""
-        before = shade_planet.composite_params({None: None}, bodies.EARTH)
+        before = shade_planet.composite_params({None: None}, bodies.EARTH, WHOLE_PLANET)
         monkeypatch.setattr(palette, "LAKE_STOPS",
                             [(0.0, (0.0, 0.0, 0.0)), (1.0, (1.0, 1.0, 1.0))])
-        assert shade_planet.composite_params({None: None}, bodies.EARTH) != before
+        assert shade_planet.composite_params({None: None}, bodies.EARTH, WHOLE_PLANET) != before
 
     def test_lake_curve_change_is_recorded(self, monkeypatch):
         """lake_curve rides in KNOBS, so it is already covered -- pin that it stays so."""
-        before = shade_planet.composite_params({None: None}, bodies.EARTH)
+        before = shade_planet.composite_params({None: None}, bodies.EARTH, WHOLE_PLANET)
         monkeypatch.setitem(shade_planet.KNOBS, "lake_curve", "sqrt")
-        assert shade_planet.composite_params({None: None}, bodies.EARTH) != before
+        assert shade_planet.composite_params({None: None}, bodies.EARTH, WHOLE_PLANET) != before
 
     def test_fill_strength_is_NOT_recorded_here(self, monkeypatch):
         """The deliberate exception, and the only one. `fill_strength` rides in KNOBS (beside
@@ -244,17 +248,17 @@ class TestCompositeParams:
         planet_rgb through composite_deps' dependency on `hs`. Recording it here too would restage
         a 53.8 min composite + 3:44 tile cut for byte-identical pixels merely because the knob
         exists at strength 0. Caught when the fill port first landed it in KNOBS."""
-        before = shade_planet.composite_params({None: None}, bodies.EARTH)
+        before = shade_planet.composite_params({None: None}, bodies.EARTH, WHOLE_PLANET)
         monkeypatch.setitem(shade_planet.KNOBS, "fill_strength", 0.15)
-        assert shade_planet.composite_params({None: None}, bodies.EARTH) == before
+        assert shade_planet.composite_params({None: None}, bodies.EARTH, WHOLE_PLANET) == before
 
     def test_the_exclusion_is_narrow(self, monkeypatch):
         """Companion: the filter must drop `fill_strength` and nothing else. `alt` is the one that
         would be wrongly caught by a lazy 'hillshade knobs' rule -- composite reads it too
         (`flat = 255*sin(alt)`), so a change to it MUST still be recorded here."""
-        before = shade_planet.composite_params({None: None}, bodies.EARTH)
+        before = shade_planet.composite_params({None: None}, bodies.EARTH, WHOLE_PLANET)
         monkeypatch.setitem(shade_planet.KNOBS, "alt", 46.0)
-        assert shade_planet.composite_params({None: None}, bodies.EARTH) != before
+        assert shade_planet.composite_params({None: None}, bodies.EARTH, WHOLE_PLANET) != before
 
     def test_a_land_ramp_retune_changes_the_params(self, monkeypatch):
         """The trap opened by deleting color-relief. LAND_STOPS/SEA_STOPS used to
@@ -262,58 +266,58 @@ class TestCompositeParams:
         stages. With those gone, if the stops did not move in here, a ramp re-tune would leave
         planet_rgb looking fresh and the pass would skip the composite -- silently rendering the
         planet with the OLD palette. This is the same class as WATER_RGB drifting untracked."""
-        before = shade_planet.composite_params({None: None}, bodies.EARTH)
+        before = shade_planet.composite_params({None: None}, bodies.EARTH, WHOLE_PLANET)
         monkeypatch.setattr(palette, "LAND_STOPS",
                             [(0.0, (0.1, 0.1, 0.1)), (1.0, (0.9, 0.9, 0.9))])
-        assert shade_planet.composite_params({None: None}, bodies.EARTH) != before
+        assert shade_planet.composite_params({None: None}, bodies.EARTH, WHOLE_PLANET) != before
 
     def test_a_sea_ramp_retune_changes_the_params(self, monkeypatch):
-        before = shade_planet.composite_params({None: None}, bodies.EARTH)
+        before = shade_planet.composite_params({None: None}, bodies.EARTH, WHOLE_PLANET)
         monkeypatch.setattr(palette, "SEA_STOPS",
                             [(0.0, (0.2, 0.3, 0.4)), (1.0, (0.0, 0.1, 0.2))])
-        assert shade_planet.composite_params({None: None}, bodies.EARTH) != before
+        assert shade_planet.composite_params({None: None}, bodies.EARTH, WHOLE_PLANET) != before
 
     def test_a_sea_ice_alpha_retune_changes_the_params(self, monkeypatch):
         """ICE_LO/ICE_BAND run at composite time inside seaice.ice_alpha, so like the snow ramp
         they must ride in composite_params -- else a re-tune leaves a stale planet_rgb looking
         fresh (the untracked-input trap that let snow's RAMP_* slip)."""
-        before = shade_planet.composite_params({None: None}, bodies.EARTH)
+        before = shade_planet.composite_params({None: None}, bodies.EARTH, WHOLE_PLANET)
         monkeypatch.setattr(seaice, "ICE_LO", seaice.ICE_LO + 0.1)
-        assert shade_planet.composite_params({None: None}, bodies.EARTH) != before
+        assert shade_planet.composite_params({None: None}, bodies.EARTH, WHOLE_PLANET) != before
 
     def test_the_toned_sh_sea_ice_is_recorded(self, monkeypatch):
         """SH_ICE_LO/SH_ICE_MAX_ALPHA tone the Antarctic pack at composite time (southern windows),
         so like the ICE_LO globals they must ride here -- else a re-tune leaves a stale planet_rgb
         looking fresh (the untracked-input trap that let snow's RAMP_* slip)."""
-        before = shade_planet.composite_params({None: None}, bodies.EARTH)
+        before = shade_planet.composite_params({None: None}, bodies.EARTH, WHOLE_PLANET)
         monkeypatch.setattr(seaice, "SH_ICE_LO", seaice.SH_ICE_LO + 0.05)
-        assert shade_planet.composite_params({None: None}, bodies.EARTH) != before
+        assert shade_planet.composite_params({None: None}, bodies.EARTH, WHOLE_PLANET) != before
 
     def test_a_sea_ice_colour_change_is_recorded(self, monkeypatch):
         """ICE_RGB/ICE_SHADOW_RGB are the sea-ice white (a notch cooler than snow); a change must
         restage the composite, the same way the snow and water colours are tracked."""
-        before = shade_planet.composite_params({None: None}, bodies.EARTH)
+        before = shade_planet.composite_params({None: None}, bodies.EARTH, WHOLE_PLANET)
         monkeypatch.setattr(palette, "ICE_RGB", (200, 220, 235))
-        assert shade_planet.composite_params({None: None}, bodies.EARTH) != before
+        assert shade_planet.composite_params({None: None}, bodies.EARTH, WHOLE_PLANET) != before
 
     def test_the_lut_step_is_tracked(self, monkeypatch):
         """LUT_STEP_M sets how finely the ramp is sampled -- a real colour input now."""
-        before = shade_planet.composite_params({None: None}, bodies.EARTH)
+        before = shade_planet.composite_params({None: None}, bodies.EARTH, WHOLE_PLANET)
         monkeypatch.setattr(palette, "LUT_STEP_M", 25.0)
-        assert shade_planet.composite_params({None: None}, bodies.EARTH) != before
+        assert shade_planet.composite_params({None: None}, bodies.EARTH, WHOLE_PLANET) != before
 
     def test_composite_window_rows_is_recorded(self):
         """The composite window height slices the SVF per window, so it perturbs the output
         (the 256->128 A/B). It must be tracked, or switching the production window
         height leaves a stale planet_rgb looking fresh -- the WATER_RGB trap again."""
-        assert (shade_planet.composite_params({None: None}, bodies.EARTH, window_rows=256)
-                != shade_planet.composite_params({None: None}, bodies.EARTH, window_rows=128))
+        assert (shade_planet.composite_params({None: None}, bodies.EARTH, WHOLE_PLANET, window_rows=256)
+                != shade_planet.composite_params({None: None}, bodies.EARTH, WHOLE_PLANET, window_rows=128))
 
     def test_composite_window_rows_defaults_to_the_snow_band(self):
         """The default is WINDOW_ROWS so callers that don't pass it (tests, the region path)
         record the same height the serial default composites at."""
-        assert (shade_planet.composite_params({None: None}, bodies.EARTH)
-                == shade_planet.composite_params({None: None}, bodies.EARTH, window_rows=shade_planet.WINDOW_ROWS))
+        assert (shade_planet.composite_params({None: None}, bodies.EARTH, WHOLE_PLANET)
+                == shade_planet.composite_params({None: None}, bodies.EARTH, WHOLE_PLANET, window_rows=shade_planet.WINDOW_ROWS))
 
 
 class TestCompositeDeps:
@@ -416,7 +420,7 @@ class TestRerunEconomics:
         # A completed pass, layered oldest-first: raw inputs (1000s) -> derived rasters
         # (500s) -> planet_rgb (100s). Anything else and the guard is right to cry stale.
         params = shade_planet.write_if_changed(
-            tmp_path / "composite_params.json", shade_planet.composite_params({None: None}, bodies.EARTH))
+            tmp_path / "composite_params.json", shade_planet.composite_params({None: None}, bodies.EARTH, WHOLE_PLANET))
         deps = shade_planet.composite_deps(tmp_path, tmp_path / "hs_3857.tif", params)
         height = _built(tmp_path, "height_3857.tif")
         planet_rgb = _built(tmp_path, "planet_rgb.tif")
@@ -436,7 +440,7 @@ class TestRerunEconomics:
         # Now re-tune the lake ramp and re-write the params exactly as a rerun would.
         monkeypatch.setattr(palette, "LAKE_STOPS",
                             [(0.0, (0.1, 0.2, 0.3)), (1.0, (0.4, 0.5, 0.6))])
-        shade_planet.write_if_changed(params, shade_planet.composite_params({None: None}, bodies.EARTH))
+        shade_planet.write_if_changed(params, shade_planet.composite_params({None: None}, bodies.EARTH, WHOLE_PLANET))
 
         assert shade_planet.is_stale(planet_rgb, *deps) is True, "ramp change must recomposite"
         assert shade_planet.is_stale(height, heightfield_vrt, chunks) is False, \
@@ -644,3 +648,79 @@ class TestTheBodyIsRequired:
             other = dataclasses.replace(bodies.EARTH, name="other", path_prefix="other")
             command = shade_planet.cap_pass_command(other)
             assert command[command.index("--body") + 1] == "other"
+
+
+class TestTheWarpPassAsksTheSeamBeforeTheDisk:
+    """`warp_inputs`, driven for real with gdalwarp captured at the boundary.
+
+    Recording the COMMANDS is the assertion. A mask that this planet never emitted must not reach
+    `gdalwarp` at all — and a test that only inspected the resulting files would pass a version
+    which warped Earth's masks onto another body's grid and then ignored them.
+    """
+
+    BARE = dataclasses.replace(bodies.EARTH, name="bare", path_prefix="bare",
+                               surface_layers=frozenset())
+
+    def _drive(self, tmp_path, monkeypatch, rasters):
+        work, planet = tmp_path / "work", tmp_path / "planet"
+        work.mkdir()
+        planet.mkdir()
+        height = _raster(work / "height_3857.tif", 10, 10, GRID[2])
+        shade_planet.mark_done(height)
+        for raster in planet_seam.PLANET_RASTERS:
+            source = planet / f"planet_{raster}.vrt"
+            source.write_text("vrt")
+            _age(source, 500)  # older than the height marker -> nothing is stale
+        commands: list[list[str]] = []
+        monkeypatch.setattr(shade_planet, "_run", lambda cmd: commands.append([str(p) for p in cmd]))
+        shade_planet.warp_inputs(work, planet, self.BARE, rasters)
+        return commands
+
+    def test_an_undeclared_mask_never_reaches_gdalwarp(self, tmp_path, monkeypatch):
+        commands = self._drive(tmp_path, monkeypatch, frozenset({"heightfield"}))
+        assert commands == [], "a planet that emitted only a heightfield warped something else"
+
+    def test_a_declared_mask_is_warped_even_though_the_target_never_existed(
+            self, tmp_path, monkeypatch):
+        """The mirror arm. Without it the test above passes against a `warp_inputs` that warps
+        nothing at all, which is the shape a broken gate would take."""
+        commands = self._drive(tmp_path, monkeypatch, planet_seam.KNOWN_RASTERS)
+        warped = {command[-1].rsplit("/", 1)[-1] for command in commands}
+        assert warped == {"ocean_3857.tif", "water_3857.tif"}
+
+    def test_the_two_masks_are_gated_separately(self, tmp_path, monkeypatch):
+        """Not a pair: Phase 2's chosen shoreline contour gives a body an ocean mask while it still
+        has no inland water, and that combination must not need a code change."""
+        commands = self._drive(tmp_path, monkeypatch, frozenset({"heightfield", "oceanmask"}))
+        warped = {command[-1].rsplit("/", 1)[-1] for command in commands}
+        assert warped == {"ocean_3857.tif"}
+
+
+class TestTheCompositeRecipeRecordsTheRastersThatAreOff:
+    def test_a_whole_planet_records_nothing(self):
+        """Earth's live 2672-byte sidecar has never carried this key, and adding one would restage a
+        53.8 min composite and a 3:44 cut to reproduce pixels that are already correct."""
+        assert "rasters_off" not in json.loads(
+            shade_planet.composite_params({None: None}, bodies.EARTH, WHOLE_PLANET))
+
+    def test_a_planet_with_no_masks_records_both(self):
+        recorded = json.loads(shade_planet.composite_params(
+            {None: None}, bodies.MARS, frozenset({"heightfield"})))
+        assert recorded["rasters_off"] == ["oceanmask", "watermask"]
+
+    def test_switching_a_mask_OFF_restages_where_no_mtime_could(self):
+        """THE reason this key exists. Turning a mask ON is already covered — the warp builds a
+        raster `composite_deps` lists, and its mtime moves. Turning one OFF moves nothing at all:
+        the old warp is still on disk and the sea-painted composite reads fresh forever."""
+        with_sea = shade_planet.composite_params({None: None}, bodies.MARS, WHOLE_PLANET)
+        without = shade_planet.composite_params({None: None}, bodies.MARS,
+                                                frozenset({"heightfield"}))
+        assert with_sea != without
+
+    def test_it_is_recorded_separately_from_the_surface_layers(self):
+        """Two vocabularies, two keys. A raster is what the planet stage emitted; a layer is what
+        the render paints over it, and collapsing them would tie a cap-only decision to the tiles."""
+        recorded = json.loads(shade_planet.composite_params(
+            {None: None}, bodies.MARS, frozenset({"heightfield"})))
+        assert recorded["layers_off"] == sorted(bodies.COMPOSITE_LAYERS)
+        assert recorded["rasters_off"] == ["oceanmask", "watermask"]
