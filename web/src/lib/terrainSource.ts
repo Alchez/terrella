@@ -75,7 +75,15 @@ export const TERRAIN_MIN_ZOOM = 0;
  *  the DEM wants z8 and gets it at pitch 0 — the mesh refines and the data refines with it. Pitch
  *  takes it back: MapLibre's globe LOD heuristic drops the covering a level, so a pitched z8 view
  *  reads z7 (see terrainZoomsFor). The payoff view is therefore one level shallower than the flag
- *  suggests, which is worth knowing before anyone cuts a z9 that could never load. */
+ *  suggests, which is worth knowing before anyone cuts a z9 that could never load.
+ *
+ *  EARTH'S ANSWER, like its relief sibling. The per-planet one is `PUBLISHED[body].terrain`; this is
+ *  the value Earth's own registry entry is built from, and the number the legacy untokened path —
+ *  Earth's by definition — is checked against.
+ *
+ *  The globe's DEM source still reads it, deferred on the same evidence the countries ceiling
+ *  records: Earth is the only body publishing a DEM, so a registry-reading version could not be
+ *  made to fail. Threading the archive is what makes it checkable before a second body has one. */
 export const TERRAIN_MAX_ZOOM = 8;
 
 /** Built from the prefix and the extension rather than spelled out, so the path we ASK for and

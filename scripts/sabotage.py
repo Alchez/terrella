@@ -221,8 +221,11 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label='delete a closing */ so a doc comment swallows an export',
         path='web/src/lib/terrainSource.ts',
-        needle=' *  suggests, which is worth knowing before anyone cuts a z9 that could never load. */',
-        replacement=' *  suggests, which is worth knowing before anyone cuts a z9 that could never load.',
+        # Re-anchored: this block gained a closing paragraph, so the `*/` moved off the line the
+        # needle named. The case is about the LAST line of the comment above an export, which is a
+        # position rather than a sentence — so it re-anchors whenever that block is edited.
+        needle=' *  made to fail. Threading the archive is what makes it checkable before a second body has one. */',
+        replacement=' *  made to fail. Threading the archive is what makes it checkable before a second body has one.',
         guard='test_no_block_comment_swallows_a_declaration',
     ),
     Sabotage(
