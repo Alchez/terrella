@@ -43,6 +43,13 @@ having its CRS DECLARED as EPSG:4326 — an identity on the angles, since the gr
 degrees on an unflattened sphere and only the body label changes. That relabel is only honest while
 the source really is a sphere: on an ellipsoid the same declaration would silently shift latitudes.
 
+THE URL IS A FRONT DOOR, NOT THE ORIGIN, and both halves of that cost a failed run to learn. It is
+served through Cloudflare, which 302s to an S3 bucket (`asc-pds-services`, us-west-2) and refuses
+the default Python user agent with a 403 before the redirect is ever followed — hence `pipeline
+.fetch`, and hence a 403 here means the agent, not a rotted URL. The S3 leg advertises
+`Accept-Ranges`, so a resumable fetch is possible if this transfer ever proves unreliable; it is not
+built, because nothing has yet measured a need for it.
+
 Output (data/raw/mars/):
   Mars_HRSC_MOLA_BlendDEM_Global_200mp_v2.tif    the blend, exactly as published
 
@@ -64,13 +71,12 @@ Usage:
 
 import argparse
 import sys
-import urllib.request
 from pathlib import Path
 
 import pyproj
 import rasterio
 
-from pipeline import bodies, paths
+from pipeline import bodies, fetch, paths
 from pipeline.acquire.download_glo30 import download_one
 
 DATA_DIR = paths.DATA / "raw/mars"
@@ -107,8 +113,7 @@ def preflight(url: str = BLEND_URL) -> None:
     only check that can run BEFORE the download, which is precisely when a drifted edition is
     cheapest to discover.
     """
-    request = urllib.request.Request(url, method="HEAD")
-    with urllib.request.urlopen(request, timeout=60) as response:
+    with fetch.open_url(url, method="HEAD", timeout=60) as response:
         served_bytes = int(response.headers.get("Content-Length", -1))
         served_date = response.headers.get("Last-Modified", "")
     for field, served, expected in (("size", served_bytes, EXPECTED_BYTES),

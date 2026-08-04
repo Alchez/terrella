@@ -37,10 +37,9 @@ import argparse
 import hashlib
 import json
 import sys
-import urllib.request
 from pathlib import Path
 
-from pipeline import paths
+from pipeline import fetch, paths
 from pipeline.acquire.download_glo30 import download_one
 
 DATA_DIR = paths.DATA / "raw/globathy"
@@ -77,7 +76,7 @@ def preflight(entry: dict) -> None:
     contract broke -- abort rather than download a silently different edition.
     """
     url = API.format(article=entry["article"])
-    with urllib.request.urlopen(url, timeout=60) as response:
+    with fetch.open_url(url, timeout=60) as response:
         article = json.load(response)
     served = {item["name"]: item for item in article.get("files", [])}
     if entry["name"] not in served:
@@ -94,7 +93,7 @@ def preflight(entry: dict) -> None:
                  f"no-attribution assumption in ATTRIBUTIONS.md no longer holds")
 
 
-def fetch(entry: dict, verify_existing: bool) -> str:
+def fetch_archive(entry: dict, verify_existing: bool) -> str:
     """Download one archive if absent; md5-check whatever is new (or --verify)."""
     dest = DATA_DIR / entry["name"]
     gigabytes = entry["size"] / 1e9
@@ -135,7 +134,7 @@ def main() -> int:
 
     failures = []
     for entry in wanted:
-        status = fetch(entry, args.verify)
+        status = fetch_archive(entry, args.verify)
         if status.startswith("failed"):
             failures.append(f"{entry['name']}  {status}")
 

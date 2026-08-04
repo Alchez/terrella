@@ -106,6 +106,11 @@ MUTABLE_ROOTS = (
     # by any pipeline run, it has no output to inspect, and by the time it would have mattered the
     # wrong edition is already on disk. Mutation is the only proof available that it still fires.
     "pipeline/acquire",
+    # Joined with the HTTP identity, whose failure mode is the least visible in the package: every
+    # acquisition test mocks the network, so a missing header is invisible to the suite, and every
+    # host WITHOUT bot protection serves us anyway, so it is invisible to a run. It surfaced as a
+    # 403 on a 10.6 GiB download and could only have surfaced that way.
+    "pipeline/fetch.py",
     # Joined with the planet seam, the one contract two different tiers write and two more read. Its
     # whole job is to keep three situations apart — no mask, no producer, a crashed producer — and
     # every way of collapsing them leaves a module that imports and answers. There is no output to
@@ -128,6 +133,9 @@ MUTABLE_ROOTS = (
     # three times, then reporting sixteen correct constants as offenders because CI checks out
     # under a directory named `work` — and neither direction is visible from this machine.
     "tests/test_paths.py",
+    # Same principle as the two test files above: the import scan IS the guard, so the
+    # only way to prove it still sees anything is to narrow it and watch something fail.
+    "tests/test_fetch.py",
 )
 
 # Set for the duration of one case, so the backup THIS run is holding does not trip the leftover
@@ -2165,6 +2173,61 @@ SABOTAGES: list[Sabotage] = [
         needle='    if args.check:\n        return 0',
         replacement='    if False:\n        return 0',
         guard='test_check_stops_after_the_preflight',
+    ),
+    # --- The HTTP identity --------------------------------------------------------------------------
+    # These are the hardest mutations in the file to catch by any other means. Every acquisition test
+    # mocks the network, so the suite cannot see a missing header; every host without bot protection
+    # serves an anonymous client happily, so a real run cannot see it either. The defect they encode
+    # shipped in ten call sites and was found by a download returning 403.
+    Sabotage(
+        suite='python',
+        label='the request goes out anonymous, which is what every bot-protection edge refuses',
+        path='pipeline/fetch.py',
+        needle='    return urllib.request.Request(url, method=method, headers={"User-Agent": USER_AGENT})',
+        replacement='    return urllib.request.Request(url, method=method)',
+        guard='test_build_request_carries_the_pipeline_user_agent',
+    ),
+    Sabotage(
+        suite='python',
+        # Not a stylistic mutation: `preflight` HEADs the Mars mosaic precisely so the edition can be
+        # checked WITHOUT moving 10.6 GiB. Silently downgrading it to GET makes the free check the
+        # expensive one, and it still passes every assertion about what the headers said.
+        label='the method is dropped, so every HEAD becomes a GET that pulls the body',
+        path='pipeline/fetch.py',
+        needle='    return urllib.request.Request(url, method=method, headers={"User-Agent": USER_AGENT})',
+        replacement='    return urllib.request.Request(url, headers={"User-Agent": USER_AGENT})',
+        guard='test_build_request_passes_the_method_through',
+    ),
+    Sabotage(
+        suite='python',
+        # The tidy-looking version of this change: a default that "matches what the callers pass".
+        # It matches them today and silently covers the one that forgets tomorrow, and a stalled host
+        # then hangs a stage forever rather than failing it.
+        label='the timeout gains a default, so the next call site can omit it without noticing',
+        path='pipeline/fetch.py',
+        needle='def open_url(url: str, *, method: str = "GET", timeout: float) -> Any:',
+        replacement='def open_url(url: str, *, method: str = "GET", timeout: float = 60) -> Any:',
+        guard='test_open_url_requires_a_timeout_and_will_not_take_it_positionally',
+    ),
+    Sabotage(
+        suite='python',
+        # The exact blindness the guard was written against, reintroduced one level up: the scan that
+        # replaced a hand-grep for `urlopen` must not itself become a scan for one import spelling.
+        label='the import scan sees only `import urllib.request`, never the `from` form',
+        path='tests/test_fetch.py',
+        needle='        elif isinstance(node, ast.ImportFrom) and node.module == "urllib.request":\n            return True\n',
+        replacement='',
+        guard='test_the_scan_would_catch_a_module_that_went_around_fetch',
+    ),
+    Sabotage(
+        suite='python',
+        # Where the defect actually lived. A scan that skips the acquisition package is a scan that
+        # reports clean forever while every module that talks to a server does as it likes.
+        label='the import scan skips the acquire package, which is where every fetcher is',
+        path='tests/test_fetch.py',
+        needle='        if source != FETCH_MODULE and "__pycache__" not in source.parts',
+        replacement='        if source != FETCH_MODULE and "__pycache__" not in source.parts\n        and "acquire" not in source.parts',
+        guard='test_the_scan_reaches_the_whole_package_rather_than_a_handful_of_files',
     ),
     # --- The planet seam ----------------------------------------------------------------------------
     # Every mutation below leaves a module that imports, type-checks, and answers every question it is

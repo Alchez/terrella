@@ -36,12 +36,11 @@ import shutil
 import sys
 import urllib.error
 import urllib.parse
-import urllib.request
 from pathlib import Path
 
 import rasterio
 
-from pipeline import paths
+from pipeline import fetch, paths
 from pipeline.frame.country_config import country_work_dir
 
 #: The CHECKOUT, read for one thing only: the gitignored `.env` holding the API key. The clips this
@@ -103,7 +102,7 @@ def resolve_frame(slug: str) -> tuple:
     return tuple(resolved["frame"])
 
 
-def fetch(dataset: str, frame: tuple, out: Path, key: str) -> None:
+def download_clip(dataset: str, frame: tuple, out: Path, key: str) -> None:
     """Download the clip to out (crash-safe via a .tmp sibling)."""
     west, south, east, north = frame
     query = urllib.parse.urlencode(dict(
@@ -112,7 +111,7 @@ def fetch(dataset: str, frame: tuple, out: Path, key: str) -> None:
     tmp = out.with_name(out.name + ".tmp")
     try:
         # key is in the URL — never log it
-        with urllib.request.urlopen(f"{API}?{query}", timeout=600) as resp, \
+        with fetch.open_url(f"{API}?{query}", timeout=600) as resp, \
              open(tmp, "wb") as out_file:
             shutil.copyfileobj(resp, out_file)
     except urllib.error.HTTPError as ex:
@@ -167,7 +166,7 @@ def main() -> int:
 
     fr = " ".join(f"{value:g}" for value in frame)
     print(f"{args.dataset} over [{fr}]  ({area:,.0f} km^2, cap {cap:,})", flush=True)
-    fetch(args.dataset, frame, out, load_api_key())
+    download_clip(args.dataset, frame, out, load_api_key())
     print(f"wrote {out}", flush=True)
 
     print("\nvalues (reference vs our fusion, if present):")

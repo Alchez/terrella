@@ -13,10 +13,11 @@ the Web-Mercator latitude range. Idempotent at every step (download, unzip, merg
 
 import json
 import subprocess
-import urllib.request
+import sys
 import zipfile
 
-from pipeline import paths
+from pipeline import fetch, paths
+from pipeline.acquire.download_glo30 import download_one
 
 CKAN = "https://ihp-wins.unesco.org/api/3/action/package_search?q=Randolph+Glacier+Inventory+7.0&rows=5"
 DATASET = "randolph-glacier-inventory-rgi-7-0-glacier-product"
@@ -25,7 +26,7 @@ GPKG = OUT / "rgi7_g_3857.gpkg"
 
 
 def resource_urls():
-    with urllib.request.urlopen(CKAN, timeout=60) as response:
+    with fetch.open_url(CKAN, timeout=60) as response:
         data = json.load(response)
     pkg = next(p for p in data["result"]["results"] if p["name"] == DATASET)
     urls = [r["url"] for r in pkg["resources"] if (r.get("format") or "").upper() == "SHP"]
@@ -42,7 +43,14 @@ def main():
         zip_path = OUT / name
         if not zip_path.exists():
             print(f"downloading {name} ...", flush=True)
-            urllib.request.urlretrieve(url, zip_path)
+            # `download_one` rather than a direct fetch, and not only for the User-Agent: it
+            # streams to `.part` and renames atomically, where the `urlretrieve` this replaced
+            # wrote straight to the final name. An interrupted download therefore looked exactly
+            # like a finished one to the `exists()` check above, and the truncation surfaced later
+            # as a corrupt zip — one stage away from the thing that actually went wrong.
+            status = download_one(url, zip_path)
+            if status.startswith("failed"):
+                sys.exit(f"{name}: {status}")
         unzip_dir = OUT / zip_path.stem
         if not unzip_dir.exists():
             with zipfile.ZipFile(zip_path) as zf:

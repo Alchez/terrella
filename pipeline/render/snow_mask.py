@@ -35,7 +35,6 @@ import shutil
 import subprocess
 import sys
 import urllib.error
-import urllib.request
 from pathlib import Path
 from typing import Any
 
@@ -43,7 +42,7 @@ import numpy as np
 import rasterio
 from rasterio.warp import transform_bounds
 
-from pipeline import paths
+from pipeline import fetch, paths
 
 BUCKET_URL = "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map"
 DATA_DIR = paths.DATA / "raw/worldcover"
@@ -79,7 +78,7 @@ def download_one(url: str, dest: Path) -> str:
         return "skipped"
     part = dest.with_suffix(".part")
     try:
-        with urllib.request.urlopen(url, timeout=120) as resp:
+        with fetch.open_url(url, timeout=120) as resp:
             expected = int(resp.headers.get("Content-Length", -1))
             with open(part, "wb") as out:
                 shutil.copyfileobj(resp, out)

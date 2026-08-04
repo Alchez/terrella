@@ -29,11 +29,10 @@ import json
 import os
 import shutil
 import sys
-import urllib.request
 from datetime import UTC, datetime
 from pathlib import Path
 
-from pipeline import paths
+from pipeline import fetch, paths
 
 BUCKET_URL = "https://copernicus-dem-30m.s3.amazonaws.com"
 DATA_DIR = paths.DATA / "raw/glo30"
@@ -94,9 +93,8 @@ def bucket_preflight():
     sample = [held[0], held[len(held) // 2], held[-1]] if held else []
     for path in dict.fromkeys(sample):
         name = path.stem
-        req = urllib.request.Request(f"{BUCKET_URL}/{name}/{name}.tif",
-                                     method="HEAD")
-        with urllib.request.urlopen(req, timeout=30) as resp:
+        with fetch.open_url(f"{BUCKET_URL}/{name}/{name}.tif",
+                            method="HEAD", timeout=30) as resp:
             etag = resp.headers["ETag"].strip('"')
         local = hashlib.md5(path.read_bytes()).hexdigest()
         if local != etag:
@@ -124,7 +122,7 @@ def download_one(url: str, dest: Path) -> str:
         return "skipped"
     part = dest.with_suffix(".part")
     try:
-        with urllib.request.urlopen(url, timeout=60) as resp:
+        with fetch.open_url(url, timeout=60) as resp:
             expected = int(resp.headers.get("Content-Length", -1))
             with open(part, "wb") as out:
                 shutil.copyfileobj(resp, out)
