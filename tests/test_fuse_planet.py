@@ -71,60 +71,6 @@ def _cell(chunks_dir, name, rasters):
     return outdir
 
 
-class TestBuildVrtIfChanged:
-    """Rebuilding the planet VRTs must be free when nothing moved.
-
-    NOT AN OPTIMISATION. Every 3857 warp downstream is gated on the VRT's mtime, so an
-    unconditional `-overwrite` restages the whole 46 GB planet — a full re-warp, an 8:28 hillshade,
-    a 53.8 min composite and a 3:44 cut — to reproduce pixels that were already correct. Anyone who
-    edits this module and re-runs `--build-vrts` to check their work pays that.
-    """
-
-    def test_an_unchanged_source_set_leaves_the_file_untouched(self, tmp_path):
-        """Backdated on purpose: a rewrite would stamp `now`, so an unmoved mtime is proof the file
-        was never replaced — regardless of the filesystem's timestamp granularity."""
-        chunks = tmp_path / "chunks"
-        _cell(chunks, "e000_n00", ["heightfield"])
-        vrt = tmp_path / "planet_heightfield.vrt"
-        sources = sorted(chunks.glob("*/heightfield_10s.tif"))
-        assert fuse_planet.build_vrt_if_changed(vrt, sources) is True
-        os.utime(vrt, (0, 0))
-        before = vrt.read_bytes()
-        assert fuse_planet.build_vrt_if_changed(vrt, sources) is False
-        assert vrt.stat().st_mtime == 0
-        assert vrt.read_bytes() == before
-
-    def test_a_changed_source_set_replaces_the_file(self, tmp_path):
-        chunks = tmp_path / "chunks"
-        _cell(chunks, "e000_n00", ["heightfield"])
-        vrt = tmp_path / "planet_heightfield.vrt"
-        fuse_planet.build_vrt_if_changed(vrt, sorted(chunks.glob("*/heightfield_10s.tif")))
-        os.utime(vrt, (0, 0))
-        _cell(chunks, "e010_n00", ["heightfield"])
-        assert fuse_planet.build_vrt_if_changed(
-            vrt, sorted(chunks.glob("*/heightfield_10s.tif"))) is True
-        assert vrt.stat().st_mtime > 0
-
-    def test_the_scratch_target_never_survives(self, tmp_path):
-        """A leftover `.vrt.new` beside the real one is a second, unreferenced index of the planet."""
-        chunks = tmp_path / "chunks"
-        _cell(chunks, "e000_n00", ["heightfield"])
-        vrt = tmp_path / "planet_heightfield.vrt"
-        sources = sorted(chunks.glob("*/heightfield_10s.tif"))
-        fuse_planet.build_vrt_if_changed(vrt, sources)
-        fuse_planet.build_vrt_if_changed(vrt, sources)
-        assert list(tmp_path.glob("*.new")) == []
-
-    def test_the_scratch_target_shares_the_vrts_directory(self, tmp_path):
-        """`gdalbuildvrt` writes source paths RELATIVE to the VRT, so building elsewhere and moving
-        the result would rewrite every one of them and never compare equal."""
-        chunks = tmp_path / "chunks"
-        _cell(chunks, "e000_n00", ["heightfield"])
-        vrt = tmp_path / "planet_heightfield.vrt"
-        fuse_planet.build_vrt_if_changed(vrt, sorted(chunks.glob("*/heightfield_10s.tif")))
-        assert 'relativeToVRT="1"' in vrt.read_text()
-
-
 class TestBuildVrtsDeclaresWhatItBuilt:
     @pytest.fixture
     def store(self, tmp_path, monkeypatch):

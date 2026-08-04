@@ -35,7 +35,7 @@ believing `layers_off` and this set are the same switch.
 """
 
 import json
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from pathlib import Path
 
 from pipeline import bodies
@@ -65,6 +65,19 @@ DECLARATION_NAME = "planet_rasters.json"
 #: a pixel. Both are incoherent rather than merely empty, so both are refused here where the two
 #: facts first meet, rather than surfacing as a `TypeError` deep in a worker thread.
 LAYER_REQUIRES_RASTER: dict[str, str] = {"lake_depth": "watermask", "sea_ice": "oceanmask"}
+
+#: How to produce each body's planet rasters, keyed by body name — quoted verbatim when a consumer
+#: finds no declaration.
+#:
+#: An error that says what is missing and not how to fix it costs the reader a search through two
+#: tiers, and the answer differs per body precisely because the producers do: Earth fuses 648 cells
+#: from Copernicus and GEBCO, Mars relabels one published file. `tests/test_planet_seam.py` pins
+#: every registered body to an entry here, so adding a third planet cannot leave its error message
+#: pointing at Earth's command.
+PRODUCER_COMMANDS: dict[str, str] = {
+    "earth": "python3 -m pipeline.fuse.fuse_planet --build-vrts",
+    "mars": "python3 -m pipeline.fuse.relabel_mars",
+}
 
 
 def planet_dir(body: bodies.Body) -> Path:
@@ -111,6 +124,40 @@ def _require_coherent(body: bodies.Body, rasters: frozenset[str]) -> None:
                 f"surface_layers are")
 
 
+def write_vrt_if_changed(vrt: Path, build: Callable[[Path], None]) -> bool:
+    """Have `build` write `vrt`, and replace the file on disk only when the XML actually differs.
+
+    NOT AN OPTIMISATION — it is what makes a producer safe to re-run at all. Every 3857 warp
+    downstream is gated on the VRT's mtime, so an unconditional overwrite restages the whole planet:
+    on Earth that is a 44 GB re-warp, an 8:28 hillshade, a 53.8 min composite and a 3:44 cut, to
+    reproduce pixels that were already correct. Re-indexing is the natural thing to do after touching
+    a producer, so that cost sat one command away from anyone who tried.
+
+    Byte-identity is what makes the comparison mean anything, and it was measured rather than
+    assumed: rebuilding all three of Earth's planet VRTs from the same 648 chunks, into the same
+    directory, reproduced the live files' SHA-256 exactly (GDAL 3.12.2).
+
+    THE SCRATCH TARGET SHARES THE VRT'S DIRECTORY, and that is load-bearing rather than tidy: GDAL
+    writes source paths RELATIVE to the VRT, so building somewhere else and moving the result
+    rewrites every one of them and the comparison can never come out equal.
+
+    SHARED BY BOTH PRODUCERS. Earth's builds a 648-source mosaic index with `gdalbuildvrt`; Mars's
+    relabels one file's CRS with `gdal_translate`. The tool differs, the hazard does not, and a
+    ten-line routine with a subtle directory constraint is exactly the shape that drifts when it is
+    written out twice.
+
+    Returns True when the file on disk changed, so a caller can report it.
+    """
+    scratch = vrt.with_suffix(".vrt.new")
+    vrt.parent.mkdir(parents=True, exist_ok=True)
+    build(scratch)
+    if vrt.exists() and vrt.read_bytes() == scratch.read_bytes():
+        scratch.unlink()
+        return False
+    scratch.replace(vrt)
+    return True
+
+
 def declare(body: bodies.Body, rasters: Iterable[str]) -> Path:
     """Record what this body's planet stage emitted. CALL LAST, after every raster is on disk.
 
@@ -149,8 +196,8 @@ def declared(body: bodies.Body) -> frozenset[str]:
         raise FileNotFoundError(
             f"{path} is missing: {body.name}'s planet stage has not finished. This file is written "
             f"last, so its absence means the producer never ran or died partway — the rasters "
-            f"beside it, if any, cannot be trusted. Run this body's planet producer "
-            f"(`python -m pipeline.fuse.fuse_planet --build-vrts` for Earth) and try again")
+            f"beside it, if any, cannot be trusted. Run this body's planet producer — "
+            f"{PRODUCER_COMMANDS.get(body.name, 'this body has no producer registered')}")
     rasters = frozenset(json.loads(path.read_text())["rasters"])
     for raster in sorted(rasters):
         _require_known(raster)

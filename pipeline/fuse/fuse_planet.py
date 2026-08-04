@@ -169,31 +169,8 @@ def fuse_cell(name: str, bounds, expect_land: bool) -> tuple[str, str]:
     return name, "ok"
 
 
-def build_vrt_if_changed(vrt: Path, sources: list[Path]) -> bool:
-    """(Re)build `vrt` over `sources`, replacing it only when the XML actually differs.
-
-    NOT AN OPTIMISATION — it is what makes this function safe to re-run at all. Every 3857 warp
-    downstream is gated on the VRT's mtime (`is_stale`), so an unconditional `-overwrite` restages
-    the entire 46 GB planet: a full re-warp, an 8:28 hillshade, a 53.8 min composite and a 3:44 cut,
-    to reproduce pixels that were already correct. Rebuilding the VRTs is the natural thing to do
-    after touching this module, so the cost sat one command away from anyone who tried.
-
-    Byte-identity is what makes the comparison meaningful, and it was measured rather than assumed:
-    rebuilding all three of Earth's planet VRTs from the same 648 chunks, into the same directory,
-    reproduced the live files' SHA-256 exactly (GDAL 3.12.2). The temp target must share that
-    directory — `gdalbuildvrt` writes source paths RELATIVE to the VRT, so building elsewhere and
-    moving the result changes every one of them.
-
-    Returns True when the file on disk changed, so a caller can report it.
-    """
-    scratch = vrt.with_suffix(".vrt.new")
-    subprocess.run(["gdalbuildvrt", "-overwrite", str(scratch),
-                    *[str(path) for path in sources]], check=True)
-    if vrt.exists() and vrt.read_bytes() == scratch.read_bytes():
-        scratch.unlink()
-        return False
-    scratch.replace(vrt)
-    return True
+def _run(command: list[str]) -> None:
+    subprocess.run(command, check=True)
 
 
 def build_vrts():
@@ -216,7 +193,8 @@ def build_vrts():
             print(f"no {raster} chunks yet — skipping {raster} VRT", flush=True)
             continue
         vrt = planet_seam.vrt_path(bodies.EARTH, raster)
-        changed = build_vrt_if_changed(vrt, sources)
+        changed = planet_seam.write_vrt_if_changed(vrt, lambda target, sources=sources: _run(
+            ["gdalbuildvrt", "-overwrite", str(target), *[str(path) for path in sources]]))
         built.append(raster)
         print(f"{vrt.name}: {len(sources)} chunks{'' if changed else ' (unchanged)'}", flush=True)
     print(f"declared {planet_seam.declare(bodies.EARTH, built)}", flush=True)

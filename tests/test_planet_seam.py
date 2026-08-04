@@ -15,8 +15,14 @@ same moment it stops being an input, and the composite painted with it reads fre
 
 import dataclasses
 import json
+import os
+import pathlib
+import subprocess
 
+import numpy as np
 import pytest
+import rasterio
+from rasterio.transform import from_bounds
 
 from pipeline import bodies, paths, planet_seam
 
@@ -65,8 +71,21 @@ class TestTheDeclarationIsTheAnswer:
             planet_seam.declared(_body("neverran"))
 
     def test_the_missing_declaration_names_the_command_that_writes_it(self, store) -> None:
+        """Per body, because the producers genuinely differ — Earth fuses 648 cells, Mars relabels
+        one file — so a shared message would send half its readers to the wrong tier."""
+        earth = dataclasses.replace(bodies.EARTH, path_prefix="neverran")
         with pytest.raises(FileNotFoundError, match="fuse_planet --build-vrts"):
-            planet_seam.declared(_body("neverran"))
+            planet_seam.declared(earth)
+        mars = dataclasses.replace(bodies.MARS, path_prefix="neverran-either")
+        with pytest.raises(FileNotFoundError, match="relabel_mars"):
+            planet_seam.declared(mars)
+
+    def test_every_registered_body_has_a_producer_command(self, subtests) -> None:
+        """A third planet must not inherit Earth's command by omission — the same reasoning that
+        forbids defaults on `Body` fields, applied to the sentence a stuck reader will act on."""
+        for name in sorted(bodies.BODIES):
+            with subtests.test(name):
+                assert name in planet_seam.PRODUCER_COMMANDS
 
     def test_a_full_planet_round_trips(self, store) -> None:
         body = _body("full", bodies.EARTH.surface_layers)
@@ -166,3 +185,97 @@ class TestRastersOff:
         a raster that appears gets warped and the composite's dependency list sees it. The OFF
         direction is the silent one — the stale warp stays on disk and nothing moves."""
         assert "heightfield" not in planet_seam.rasters_off(frozenset({"heightfield"}))
+
+
+def _cell(chunks_dir, name):
+    """One fused cell: a real 1x1 GTiff that `gdalbuildvrt` can actually index."""
+    outdir = chunks_dir / name
+    outdir.mkdir(parents=True, exist_ok=True)
+    transform = from_bounds(0.0, 0.0, 10.0, 10.0, 1, 1)  # pyright: ignore[reportCallIssue] — rasterio untyped
+    with rasterio.open(outdir / "heightfield_10s.tif", "w", driver="GTiff", width=1, height=1,
+                       count=1, dtype="uint8", crs="EPSG:4326", transform=transform) as dataset:
+        dataset.write(np.zeros((1, 1), dtype="uint8"), 1)
+    return outdir
+
+
+def _gdalbuildvrt(sources):
+    """The build callback Earth's producer passes — a real `gdalbuildvrt`, not a stub. The whole
+    claim under test is that GDAL's own output is reproducible, so stubbing it would test nothing."""
+    def build(target):
+        subprocess.run(["gdalbuildvrt", "-overwrite", str(target), *map(str, sources)],
+                       check=True, capture_output=True)
+    return build
+
+
+class TestWriteVrtIfChanged:
+    """Re-indexing a planet must be free when nothing moved.
+
+    NOT AN OPTIMISATION. Every 3857 warp downstream is gated on the VRT's mtime, so an unconditional
+    overwrite restages the whole 46 GB planet — a 44 GB re-warp, an 8:28 hillshade, a 53.8 min
+    composite and a 3:44 cut — to reproduce pixels that were already correct. Re-indexing is the
+    natural thing to do after touching a producer, so that cost sat one command away.
+    """
+
+    def test_an_unchanged_source_set_leaves_the_file_untouched(self, tmp_path):
+        """Backdated on purpose: a rewrite would stamp `now`, so an unmoved mtime is proof the file
+        was never replaced — whatever the filesystem's timestamp granularity."""
+        _cell(tmp_path / "chunks", "e000_n00")
+        vrt = tmp_path / "planet_heightfield.vrt"
+        build = _gdalbuildvrt(sorted((tmp_path / "chunks").glob("*/heightfield_10s.tif")))
+        assert planet_seam.write_vrt_if_changed(vrt, build) is True
+        os.utime(vrt, (0, 0))
+        before = vrt.read_bytes()
+        assert planet_seam.write_vrt_if_changed(vrt, build) is False
+        assert vrt.stat().st_mtime == 0
+        assert vrt.read_bytes() == before
+
+    def test_a_changed_source_set_replaces_the_file(self, tmp_path):
+        chunks = tmp_path / "chunks"
+        _cell(chunks, "e000_n00")
+        vrt = tmp_path / "planet_heightfield.vrt"
+        planet_seam.write_vrt_if_changed(
+            vrt, _gdalbuildvrt(sorted(chunks.glob("*/heightfield_10s.tif"))))
+        os.utime(vrt, (0, 0))
+        _cell(chunks, "e010_n00")
+        assert planet_seam.write_vrt_if_changed(
+            vrt, _gdalbuildvrt(sorted(chunks.glob("*/heightfield_10s.tif")))) is True
+        assert vrt.stat().st_mtime > 0
+
+    def test_the_scratch_target_never_survives(self, tmp_path):
+        """A leftover `.vrt.new` beside the real one is a second, unreferenced index of the planet."""
+        _cell(tmp_path / "chunks", "e000_n00")
+        vrt = tmp_path / "planet_heightfield.vrt"
+        build = _gdalbuildvrt(sorted((tmp_path / "chunks").glob("*/heightfield_10s.tif")))
+        planet_seam.write_vrt_if_changed(vrt, build)
+        planet_seam.write_vrt_if_changed(vrt, build)
+        assert list(tmp_path.glob("*.new")) == []
+
+    def test_the_scratch_target_shares_the_vrts_directory(self, tmp_path):
+        """The build callback records the path it is handed, which is the only way to see where the
+        scratch file was actually written."""
+        seen: list[pathlib.Path] = []
+        vrt = tmp_path / "nested" / "planet_heightfield.vrt"
+        _cell(tmp_path / "chunks", "e000_n00")
+        sources = sorted((tmp_path / "chunks").glob("*/heightfield_10s.tif"))
+
+        def build(target):
+            seen.append(target)
+            _gdalbuildvrt(sources)(target)
+
+        planet_seam.write_vrt_if_changed(vrt, build)
+        assert seen[0].parent == vrt.parent
+
+    def test_a_vrt_built_in_another_directory_would_never_compare_equal(self, tmp_path):
+        """WHY that constraint exists, demonstrated rather than asserted. GDAL writes source paths
+        RELATIVE to the VRT, so the same sources indexed from two directories produce different
+        bytes — and a scratch file built anywhere else would fail the content comparison on every
+        run, replacing the file each time and restaging the planet behind it."""
+        planet = tmp_path / "planet"
+        _cell(planet / "chunks", "e000_n00")
+        sources = sorted((planet / "chunks").glob("*/heightfield_10s.tif"))
+        beside, elsewhere = planet / "index.vrt", tmp_path / "index.vrt"
+        for target in (beside, elsewhere):
+            _gdalbuildvrt(sources)(target)
+        assert beside.read_bytes() != elsewhere.read_bytes()
+        assert 'relativeToVRT="1"' in beside.read_text(), (
+            "the production layout keeps chunks under the VRT, which is what makes paths relative")

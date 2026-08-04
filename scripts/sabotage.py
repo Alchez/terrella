@@ -2188,7 +2188,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='python',
         label='rebuilding the VRTs always replaces them, restaging the whole 46 GB planet',
-        path='pipeline/fuse/fuse_planet.py',
+        path='pipeline/planet_seam.py',
         needle='    if vrt.exists() and vrt.read_bytes() == scratch.read_bytes():',
         replacement='    if False:',
         guard='test_an_unchanged_source_set_leaves_the_file_untouched',
@@ -2196,7 +2196,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='python',
         label='the scratch VRT is built outside the directory, so its relative paths never match',
-        path='pipeline/fuse/fuse_planet.py',
+        path='pipeline/planet_seam.py',
         needle='    scratch = vrt.with_suffix(".vrt.new")',
         replacement='    scratch = vrt.parent.parent / (vrt.name + ".new")',
         guard='test_an_unchanged_source_set_leaves_the_file_untouched',
@@ -2245,6 +2245,43 @@ SABOTAGES: list[Sabotage] = [
         needle='               for raster in planet_seam.PLANET_RASTERS if raster in rasters]',
         replacement='               for raster in planet_seam.PLANET_RASTERS]',
         guard='test_cap_sources_drops_a_mask_the_planet_never_emitted',
+    ),
+    # The tidy that unifies the two dependency lists. It looks like removing an inconsistency; it is
+    # making the composite's list exact, which is the direction that can under-track silently.
+    Sabotage(
+        suite='python',
+        label='the composite dependency list drops the masks to match cap_sources',
+        path='pipeline/tile/shade_planet.py',
+        needle='    return (work / "height_3857.tif", hs, work / "ocean_3857.tif", work / "water_3857.tif",',
+        replacement='    return (work / "height_3857.tif", hs,',
+        guard='test_the_composite_names_the_masks_whatever_the_planet_declared',
+    ),
+    # --- Mars's planet producer ------------------------------------------------------------------
+    # The relabel is metadata only, so every mutation here produces a Mars that projects perfectly,
+    # tiles cleanly, and is somewhere it does not belong — or one that quietly acquires an ocean.
+    Sabotage(
+        suite='python',
+        label='the relabel REPROJECTS instead of assigning, which PROJ refuses across bodies',
+        path='pipeline/fuse/relabel_mars.py',
+        needle='        subprocess.run(["gdal_translate", "-q", "-of", "VRT", "-a_srs", "EPSG:4326",',
+        replacement='        subprocess.run(["gdal_translate", "-q", "-of", "VRT", "-a_ullr", "-180", "90", "180", "-89",',
+        guard='test_not_one_angle_moves',
+    ),
+    Sabotage(
+        suite='python',
+        label='the published grid is verified AFTER the VRT is written, so a shifted source lands first',
+        path='pipeline/fuse/relabel_mars.py',
+        needle='    download_mars_dem.assert_grid(blend)\n    relabel(blend)',
+        replacement='    relabel(blend)\n    download_mars_dem.assert_grid(blend)',
+        guard='test_the_published_grid_is_verified_before_the_vrt_is_written',
+    ),
+    Sabotage(
+        suite='python',
+        label='Mars declares masks it never produced, which is how a fabricated ocean gets in',
+        path='pipeline/fuse/relabel_mars.py',
+        needle="    print(f\"declared {planet_seam.declare(bodies.MARS, ['heightfield'])}\", flush=True)",
+        replacement='    print(f"declared {planet_seam.declare(bodies.MARS, planet_seam.PLANET_RASTERS)}", flush=True)',
+        guard='test_it_declares_a_heightfield_and_nothing_else',
     ),
     # --- The look seam ------------------------------------------------------------------------------
     # The ramps' kind-dispatch used to be transcribed in four functions; it is now one resolver over a

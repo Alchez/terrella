@@ -60,6 +60,19 @@ work below is legible as *remaining*.
   - **One word names a body in both registries**, and a scan holds them together, because neither
     language can import the other and a divergence is a pyramid written under one name and requested
     under another — a 404 at the edge, long after the run that produced it.
+- **Both of Mars's entry stages exist and neither has run**, because both wait on the one download.
+  - `pipeline/acquire/download_mars_dem.py` fetches the blend and refuses anything but the pinned
+    edition: the server's size *and* its Last-Modified stamp before the transfer, then the grid's
+    width, height, dtype, nodata and **sphere** afterwards. USGS republishes mosaics in place under
+    the same filename, so a same-name file with a different date is a different planet's worth of
+    pixels arriving under our recipe.
+  - `pipeline/fuse/relabel_mars.py` publishes that file as Mars's planet heightfield by **declaring**
+    its CRS to be EPSG:4326 — an identity on the angles, and a VRT, so nothing is resampled and no
+    copy of 10.6 GiB is made. It re-runs the grid check first, because the relabel is only honest
+    while the source really is a sphere in degrees: on an ellipsoid the same declaration would
+    silently shift every latitude, and nothing downstream could see it.
+  - It emits a heightfield and **declares that it emitted nothing else**, which is the whole of what
+    Mars needs from the fuse tier.
 - **The body goes in the PATH, not in the freshness recipe.** Every tile stage is gated on a recipe
   sidecar whose *contents* are its dependency, so a body field inside those recipes would invalidate
   Earth's correct output the moment a second body existed, for no pixel change at all. Separate

@@ -360,6 +360,15 @@ def composite_deps(work, hs, params) -> tuple:
     composite — painted with that layer — looking perfectly fresh against a dependency list that can
     no longer see it. The mtimes here track a layer that is ON; the recipe is what tracks one going
     OFF.
+
+    SO THIS LIST IS DELIBERATELY OVER-INCLUSIVE, AND ITS SIBLING `cap_render.cap_sources` IS
+    DELIBERATELY EXACT. That reads like an inconsistency and is not: the two feed different
+    predicates. `is_stale` merely takes the newest mtime, so naming an input this planet does not
+    have costs nothing. `cap_is_fresh` requires every source to EXIST, so naming one there pins the
+    cap to a file that will never appear and leaves it permanently stale. Unifying them would mean
+    making this one exact, which trades a harmless imprecision for the chance to under-track — and
+    under-tracking is the direction that is silent. `test_the_two_freshness_predicates_disagree_on_a
+    _missing_input` is the executable form of this paragraph; read it before changing either.
     """
     return (work / "height_3857.tif", hs, work / "ocean_3857.tif", work / "water_3857.tif",
             work / "lakedepth_3857.tif", work / "snow_persistence_3857.tif",

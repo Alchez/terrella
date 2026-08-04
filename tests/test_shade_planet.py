@@ -10,6 +10,8 @@ import json
 import os
 import time
 
+from pathlib import Path
+
 import numpy as np
 import pytest
 import rasterio
@@ -78,6 +80,11 @@ def _raster(path, width, height, bounds):
 
 # (width, height, bounds) reference grid the warp targets below are checked against.
 GRID = (10, 10, (0.0, 0.0, 100.0, 100.0))
+
+
+def _written(path, text):
+    path.write_text(text)
+    return path
 
 
 class TestIsStale:
@@ -724,3 +731,34 @@ class TestTheCompositeRecipeRecordsTheRastersThatAreOff:
             {None: None}, bodies.MARS, frozenset({"heightfield"})))
         assert recorded["layers_off"] == sorted(bodies.COMPOSITE_LAYERS)
         assert recorded["rasters_off"] == ["oceanmask", "watermask"]
+
+
+class TestWhyTheTwoDependencyListsDisagree:
+    """`composite_deps` names inputs this body may not have; `cap_sources` names only what it opens.
+
+    THE EXECUTABLE FORM OF THE REASON, because the asymmetry reads as an oversight and the obvious
+    tidy — making the composite's list exact too — trades a harmless imprecision for a chance to
+    UNDER-track, which is the silent direction. The two lists feed different predicates, and the
+    tests below are the difference rather than a description of it.
+    """
+
+    def test_the_two_freshness_predicates_disagree_on_a_missing_input(self, tmp_path):
+        """`is_stale` shrugs at a path that is not there; `cap_is_fresh` refuses outright. That is
+        the whole reason one list can over-name its inputs and the other cannot."""
+        output = _raster(tmp_path / "planet_rgb.tif", 10, 10, GRID[2])
+        shade_planet.mark_done(output)
+        _age(output, 100)
+        _age(shade_planet.done_marker(output), 100)
+        never_built = tmp_path / "seaice_3857.tif"
+        assert shade_planet.is_stale(output, never_built) is False, (
+            "is_stale must tolerate an input this planet never built")
+        assert cap_render.cap_is_fresh(
+            "recipe", [output], _written(tmp_path / "sidecar.json", "recipe"),
+            [never_built]) is False, "cap_is_fresh must refuse a source that does not exist"
+
+    def test_the_composite_names_the_masks_whatever_the_planet_declared(self):
+        """Pinned so the tidy fails loudly. The gate that matters is at the READ boundary — a mask
+        this planet never declared is never opened — and `rasters_off` is what makes switching one
+        off restage. This list is only ever asked "what is the newest of these"."""
+        deps = shade_planet.composite_deps(Path("/w"), Path("/w/hs.tif"), Path("/w/params.json"))
+        assert {"ocean_3857.tif", "water_3857.tif"} <= {path.name for path in deps}
