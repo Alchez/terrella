@@ -26,14 +26,14 @@ ABOUT_PAGE = REPO_ROOT / "web/src/pages/about.astro"
 REQUIRED_STRINGS: list[tuple[str, str]] = [
     (
         "Copernicus WorldDEM-30 Art. 6(b) notice",
-        "produced using Copernicus WorldDEM-30 © DLR e.V. 2010-2014 and © Airbus Defence and "
-        "Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA; all "
-        "rights reserved",
+        ("produced using Copernicus WorldDEM-30 © DLR e.V. 2010-2014 and © Airbus Defence and "
+         "Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA; all "
+         "rights reserved"),
     ),
     (
         "Copernicus WorldDEM-30 Art. 6(c) liability sentence",
-        "The organisations in charge of the Copernicus programme by law or by delegation do not "
-        "incur any liability for any use of the Copernicus WorldDEM-30",
+        ("The organisations in charge of the Copernicus programme by law or by delegation do not "
+         "incur any liability for any use of the Copernicus WorldDEM-30"),
     ),
     (
         "ESA WorldCover CC-BY notice",

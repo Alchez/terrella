@@ -90,12 +90,7 @@ ignore = [
     # that keeps one country's failure from killing a 203-country batch, and the rule it silences
     # comes back two commits later with nothing to say so.
     "RUF100",
-    "BLE001",   # blind `except Exception` — 2 sites, both need a judgement call
     "EXE001",   # shebang present, execute bit absent — 49 files, a sweep of its own
-    "ISC004",   # implicit concat inside a collection literal, i.e. the missing-comma bug
-    "PLW1510",  # `subprocess.run` with no explicit `check` — 12 sites, all deliberate
-    "RUF012",   # mutable class attribute not annotated ClassVar
-    "SIM115",   # `open()` outside a context manager
     "C402",     # unnecessary generator passed to dict()
     "RUF007",   # manual successive-pair zip where itertools.pairwise says it
     "RUF046",   # cast to int that the expression already guarantees

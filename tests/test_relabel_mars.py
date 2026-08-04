@@ -159,4 +159,5 @@ class TestTheGridIsCheckedBeforeAnythingIsWritten:
 def test_gdal_translate_is_available():
     """The producer shells out, so a missing tool must fail here rather than as a confusing
     `check=True` traceback mid-run."""
-    assert subprocess.run(["gdal_translate", "--version"], capture_output=True).returncode == 0
+    assert subprocess.run(["gdal_translate", "--version"],
+                          capture_output=True, check=False).returncode == 0

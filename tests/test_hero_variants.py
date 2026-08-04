@@ -16,6 +16,7 @@ import subprocess
 import sys
 from pathlib import Path
 from types import SimpleNamespace
+from typing import ClassVar
 
 import pytest
 
@@ -273,7 +274,7 @@ class TestLadderServesTheLayout:
     # _load_bearing` asserts each one would FAIL without the exemption, so the day a gap is closed
     # this list fails loudly rather than quietly covering nothing — the failure mode of every
     # skip-list ever written.
-    MOBILE_EXEMPT_LADDERS = {
+    MOBILE_EXEMPT_LADDERS: ClassVar[dict[str, str]] = {
         "border": (
             "gen_borders tops out at 1920, so a portrait border jumps straight to the country's "
             "native rung — a lossless PNG at ~3x the width the panel draws. It is off the cold "

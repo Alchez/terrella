@@ -9,6 +9,7 @@ vertically mirrored planet, so the flip and the byte-fidelity both get pinned.
 
 import sqlite3
 import sys
+from typing import ClassVar
 
 import pytest
 
@@ -147,7 +148,8 @@ def make_pyramid(root, tiles, suffix=".png"):
 
 
 class TestPackDirectory:
-    TILES = {(0, 0, 0): b"z0-root", (1, 0, 0): b"z1-nw", (1, 1, 1): b"z1-se"}
+    TILES: ClassVar[dict[tuple[int, int, int], bytes]] = {
+        (0, 0, 0): b"z0-root", (1, 0, 0): b"z1-nw", (1, 1, 1): b"z1-se"}
 
     def test_blobs_land_flipped_and_byte_identical(self, tmp_path):
         make_pyramid(tmp_path / "tiles", self.TILES)
@@ -212,7 +214,8 @@ class TestEncodingIsReadOffTheDirectory:
     of one fact. A reader trusts that metadata to pick a decoder, so a pyramid cut as WebP under a
     `"png"` label is not a cosmetic error — it is an archive nothing can display.
     """
-    TILES = {(0, 0, 0): b"z0-root", (1, 0, 0): b"z1-nw", (1, 1, 1): b"z1-se"}
+    TILES: ClassVar[dict[tuple[int, int, int], bytes]] = {
+        (0, 0, 0): b"z0-root", (1, 0, 0): b"z1-nw", (1, 1, 1): b"z1-se"}
 
     def _format_of(self, tmp_path):
         out = tmp_path / "planet.mbtiles"

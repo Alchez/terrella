@@ -69,8 +69,8 @@ class Comparison:
         return int(self.histogram[self.tolerance + 1:].sum())
 
     def report(self) -> str:
-        lines = [f"compared {self.pixels_compared:,} of {self.pixels_total:,} px "
-                 f"({self.pixels_compared / self.pixels_total * 100:.1f}% coverage)"]
+        lines = [(f"compared {self.pixels_compared:,} of {self.pixels_total:,} px "
+                  f"({self.pixels_compared / self.pixels_total * 100:.1f}% coverage)")]
         if self.pixels_compared < self.pixels_total:
             lines.append("  !! PARTIAL SCAN -- this is a sample, not a proof")
         lines.append("")

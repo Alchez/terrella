@@ -95,7 +95,7 @@ def download_one(url: str, dest: Path) -> str:
         if exc.code == 404:
             return "absent"
         return f"failed: {exc}"
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 — one tile's failure must not kill the pool
         part.unlink(missing_ok=True)
         return f"failed: {exc}"
 

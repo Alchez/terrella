@@ -108,47 +108,51 @@ def main() -> int:
         return 1
     print(f"sampling {cgroup}", file=sys.stderr, flush=True)
 
-    out = open(args.out, "w", buffering=1)
-    started = time.time()
-    empty_rounds = 0
-    while True:
-        now = time.time()
-        try:
-            pids = [int(p) for p in cgroup.joinpath("cgroup.procs").read_text().split()]
-        except OSError:
-            break  # scope torn down -> pass finished
+    # The handle is held for the whole pass, so `with` is doing real work rather than satisfying a
+    # style: this sampler wraps a 30+ minute planet run, and the two `break`s below were the only
+    # paths that reached the old `close()`. Anything raised inside the loop left the file open,
+    # which on a watchdog process is exactly when someone goes looking for what it recorded.
+    with open(args.out, "w", buffering=1) as out:
+        started = time.time()
+        empty_rounds = 0
+        while True:
+            now = time.time()
+            try:
+                pids = [int(p) for p in cgroup.joinpath("cgroup.procs").read_text().split()]
+            except OSError:
+                break  # scope torn down -> pass finished
 
-        if not pids:
-            empty_rounds += 1
-            if empty_rounds > 5:
-                break
-        else:
-            empty_rounds = 0
+            if not pids:
+                empty_rounds += 1
+                if empty_rounds > 5:
+                    break
+            else:
+                empty_rounds = 0
 
-        procs = [sample for sample in (proc_sample(pid) for pid in pids) if sample]
-        record = {
-            "t": round(now - started, 2),
-            "cg_mem_mb": read_int(cgroup / "memory.current") / 1048576,
-            "cg_peak_mb": read_int(cgroup / "memory.peak") / 1048576,
-            "mem_avail_mb": 0,
-            "swap_used_mb": 0,
-            "procs": procs,
-        }
-        try:
-            meminfo = Path("/proc/meminfo").read_text()
-            info = {}
-            for line in meminfo.splitlines():
-                key, _, rest = line.partition(":")
-                info[key] = int(rest.split()[0])
-            record["mem_avail_mb"] = info.get("MemAvailable", 0) / 1024
-            record["swap_used_mb"] = (info.get("SwapTotal", 0) - info.get("SwapFree", 0)) / 1024
-        except (OSError, ValueError, IndexError):
-            pass
+            procs = [sample for sample in (proc_sample(pid) for pid in pids) if sample]
+            record = {
+                "t": round(now - started, 2),
+                "cg_mem_mb": read_int(cgroup / "memory.current") / 1048576,
+                "cg_peak_mb": read_int(cgroup / "memory.peak") / 1048576,
+                "mem_avail_mb": 0,
+                "swap_used_mb": 0,
+                "procs": procs,
+            }
+            try:
+                meminfo = Path("/proc/meminfo").read_text()
+                info = {}
+                for line in meminfo.splitlines():
+                    key, _, rest = line.partition(":")
+                    info[key] = int(rest.split()[0])
+                record["mem_avail_mb"] = info.get("MemAvailable", 0) / 1024
+                record["swap_used_mb"] = (info.get("SwapTotal", 0)
+                                          - info.get("SwapFree", 0)) / 1024
+            except (OSError, ValueError, IndexError):
+                pass
 
-        out.write(json.dumps(record) + "\n")
-        time.sleep(max(0.0, args.interval - (time.time() - now)))
+            out.write(json.dumps(record) + "\n")
+            time.sleep(max(0.0, args.interval - (time.time() - now)))
 
-    out.close()
     print("sampler done", file=sys.stderr, flush=True)
     return 0
 

@@ -13,7 +13,7 @@ between them they catch a mistyped constant:
 
 import math
 import urllib.request
-from typing import Any
+from typing import Any, ClassVar
 
 import numpy as np
 import pytest
@@ -98,7 +98,8 @@ class TestThePreflightRefusesADriftedEdition:
 
     def _serve(self, monkeypatch, *, size, modified):
         class FakeResponse:
-            headers = {"Content-Length": str(size), "Last-Modified": modified}
+            headers: ClassVar[dict[str, str]] = {
+                "Content-Length": str(size), "Last-Modified": modified}
 
             def __enter__(self):
                 return self

@@ -162,7 +162,7 @@ def fuse_cell(name: str, bounds, expect_land: bool) -> tuple[str, str]:
            "--bounds", *map(str, bounds), "--res-arcsec", str(RES_ARCSEC),
            "--outdir", str(outdir), "--coverage-warn"]
     result = subprocess.run(cmd, env={**os.environ, **FUSE_ENV},
-                            capture_output=True, text=True)
+                            capture_output=True, text=True, check=False)
     if result.returncode != 0:
         outdir.mkdir(parents=True, exist_ok=True)
         (outdir / "error.log").write_text(result.stdout + "\n" + result.stderr)

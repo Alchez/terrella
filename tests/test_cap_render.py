@@ -371,7 +371,10 @@ def _tiny_cap(monkeypatch, tmp_path, cap_px: int, elev_px: int) -> cap_render.Ca
 def _gdal_can_write_webp() -> bool:
     if shutil.which("gdalinfo") is None:
         return False
-    registry = subprocess.run(["gdalinfo", "--formats"], capture_output=True, text=True).stdout
+    # check=False: this is a CAPABILITY probe, so a non-zero exit is an answer ("no WEBP") rather
+    # than an error — raising here would turn a missing format into a collection-time crash.
+    registry = subprocess.run(["gdalinfo", "--formats"],
+                              capture_output=True, text=True, check=False).stdout
     entry = re.search(r"^\s*WEBP\s+-raster-\s+\(([a-zA-Z+]*)\)", registry, re.MULTILINE)
     return bool(entry and "w" in entry.group(1))
 

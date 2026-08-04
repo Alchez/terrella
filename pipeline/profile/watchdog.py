@@ -104,9 +104,9 @@ def last_sample(samples: Path):
 def summarise(sample) -> str:
     if not sample:
         return "  (no sample yet)"
-    out = [f"  t={sample['t']:.0f}s  cgroup {sample['cg_mem_mb']:.0f} MB "
-           f"(peak {sample['cg_peak_mb']:.0f})  avail {sample['mem_avail_mb']:.0f} MB  "
-           f"swap {sample['swap_used_mb']:.0f} MB"]
+    out = [(f"  t={sample['t']:.0f}s  cgroup {sample['cg_mem_mb']:.0f} MB "
+            f"(peak {sample['cg_peak_mb']:.0f})  avail {sample['mem_avail_mb']:.0f} MB  "
+            f"swap {sample['swap_used_mb']:.0f} MB")]
     for proc in sample["procs"]:
         if proc["comm"] in ("perf",):
             continue

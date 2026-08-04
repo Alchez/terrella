@@ -135,7 +135,7 @@ def download_one(url: str, dest: Path) -> str:
             return f"failed: size mismatch ({actual} of {expected} bytes)"
         os.replace(part, dest)
         return "ok"
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 — one tile's failure must not kill the pool
         part.unlink(missing_ok=True)
         return f"failed: {exc}"
 

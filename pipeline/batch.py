@@ -88,7 +88,7 @@ def detect_cgroup_cap() -> bool:
         return False
     probe = ("systemd-run --user --scope -q -p MemoryMax=256M "
              "-p MemorySwapMax=0 -- true")
-    return subprocess.run(probe, shell=True, capture_output=True).returncode == 0
+    return subprocess.run(probe, shell=True, capture_output=True, check=False).returncode == 0
 
 
 def wait_for_mem(floor_gib: float) -> bool:
@@ -119,7 +119,7 @@ def bootstrap() -> None:
     for cmd in ("bash pipeline/acquire/download_naturalearth.sh",
                 "python -m pipeline.acquire.download_gebco"):
         print(f"[bootstrap] {cmd}", flush=True)
-        if subprocess.run(cmd, shell=True, cwd=ROOT, env=ENV).returncode != 0:
+        if subprocess.run(cmd, shell=True, cwd=ROOT, env=ENV, check=False).returncode != 0:
             sys.exit(f"bootstrap failed: {cmd} — cannot proceed without it")
 
 
@@ -176,7 +176,7 @@ def run_country(slug, resolved, through, force, dry, cap_gib, use_cap, floor,
                   flush=True)
         else:
             rc = subprocess.run(prefix + run_cmd, shell=True, cwd=ROOT,
-                                env=ENV).returncode
+                                env=ENV, check=False).returncode
             if rc != 0:
                 kind = "oom" if rc in (137, -9) else "error"
                 if raw_tmp:
@@ -194,7 +194,7 @@ def run_country(slug, resolved, through, force, dry, cap_gib, use_cap, floor,
                 f"python -m pipeline.render.sky_view --render-dir {country_render_dir(slug)}"
                 f" --hero {raw} --out {final}"
                 f" --strength {resolved['sky_view_strength']}", shell=True,
-                cwd=ROOT, env=ENV).returncode
+                cwd=ROOT, env=ENV, check=False).returncode
             if sv != 0:
                 log_failure(slug, idx, "sky_view", sv, "error")
                 return f"FAIL@{idx} (sky_view)"

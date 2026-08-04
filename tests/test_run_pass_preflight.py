@@ -37,6 +37,7 @@ def run_preflight(meminfo: Path, *args: str, **env_overrides: str):
         capture_output=True, text=True,
         env={"PATH": "/usr/bin:/bin", "MEMINFO": str(meminfo), "PREFLIGHT_ONLY": "1",
              **env_overrides},
+        check=False,  # a refusing preflight is what most of these tests are asserting about
     )
 
 

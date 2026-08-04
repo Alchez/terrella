@@ -2694,8 +2694,8 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label='a ladder is exempted from the mobile contract without actually having a gap',
         path='tests/test_hero_variants.py',
-        needle='    MOBILE_EXEMPT_LADDERS = {\n        "border": (',
-        replacement='    MOBILE_EXEMPT_LADDERS = {\n        "hero": ("no reason at all"),\n        "border": (',
+        needle='ClassVar[dict[str, str]] = {\n        "border": (',
+        replacement='ClassVar[dict[str, str]] = {\n        "hero": ("no reason at all"),\n        "border": (',
         guard='test_every_exemption_is_load_bearing',
     ),
     # --- the cap ladder: a sweep must not leave a shipped constant swapped -----------------------
@@ -3137,6 +3137,7 @@ def run_suite(name: str, in_flight: str | None = None) -> tuple[bool, str]:
         text=True,
         timeout=900,
         env=environment,
+        check=False,  # a RED suite is the expected outcome here — raising would invert the harness
     )
     return result.returncode == 0, result.stdout + result.stderr
 

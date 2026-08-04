@@ -70,7 +70,7 @@ class TestTheAcquirerWritesWhereThisModuleReads:
         for name in naturalearth.LAYERS:
             (store / "raw/naturalearth" / name).mkdir(parents=True)
         result = subprocess.run(["bash", str(ACQUIRER)], capture_output=True, text=True,
-                                env={**os.environ, "MAPS_DATA": str(store)})
+                                env={**os.environ, "MAPS_DATA": str(store)}, check=False)
         assert result.returncode == 0, result.stderr
         assert f"done: {store / 'raw/naturalearth'} " in result.stdout
         assert result.stdout.count("skip ") == len(naturalearth.LAYERS), (
@@ -83,7 +83,11 @@ class TestTheAcquirerWritesWhereThisModuleReads:
         for name in naturalearth.LAYERS:
             (store / "raw/naturalearth" / name).mkdir(parents=True)
         result = subprocess.run(["bash", str(ACQUIRER)], capture_output=True, text=True,
-                                env={**os.environ, "MAPS_DATA": str(store)})
+                                env={**os.environ, "MAPS_DATA": str(store)}, check=False)
+        # Asserted rather than parsed straight through: without this a failing acquirer writes no
+        # `done:` line, `written` becomes whatever the last line happened to be, and the comparison
+        # below fails as a mismatch between two paths instead of saying the script did not run.
+        assert result.returncode == 0, result.stderr
         written = result.stdout.strip().rsplit("\n", 1)[-1].removeprefix("done: ").split(" (")[0]
         # A subprocess because the constant binds at import; reloading in-process would be a lie.
         reader = subprocess.run(
