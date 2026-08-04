@@ -52,8 +52,12 @@ import shapefile
 from rasterio.warp import transform_bounds
 
 from pipeline import bodies, naturalearth, paths
-from pipeline.acquire.download_glo30 import (TILE_LIST, in_extent,
-                                             parse_tile_name, tile_files)
+from pipeline.acquire.download_glo30 import (
+    TILE_LIST,
+    in_extent,
+    parse_tile_name,
+    tile_files,
+)
 from pipeline.frame.frame_country import pad_frame
 from pipeline.fuse.fuse_heightfield import GEBCO
 from pipeline.render.render_prep import aea_crs
@@ -140,7 +144,7 @@ def load_config() -> dict:
         if (status := tbl.get("status")) not in (None, "antimeridian"):
             bad.append(f"{where}: unknown status {status!r}")
         if (fusion := tbl.get("fusion")) not in (None, *FUSION_RES):
-            bad.append(f"{where}: fusion must be one of {sorted(FUSION_RES)}")
+            bad.append(f"{where}: fusion must be one of {sorted(FUSION_RES)}, not {fusion!r}")
         if (sv := tbl.get("sky_view_strength")) is not None \
                 and not _valid_strength(sv):
             bad.append(f"{where}: sky_view_strength must be a number in [0, 1]")

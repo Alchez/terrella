@@ -24,7 +24,6 @@ gracefully to today's flat tint wherever they disagree with the WBM.
 """
 
 import subprocess
-from pathlib import Path
 
 import numpy as np
 import rasterio

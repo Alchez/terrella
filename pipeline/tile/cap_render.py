@@ -51,12 +51,19 @@ import rasterio
 from pyproj import Transformer
 from scipy.ndimage import binary_dilation
 
-from pipeline import bodies, naturalearth, paths, planet_seam
+from pipeline import bodies, naturalearth, planet_seam
 from pipeline.render import hillshade, lake_depth, seaice, snow
 from pipeline.tile import shade, terrain_rgb
 from pipeline.tile.shade import KNOBS
-from pipeline.tile.shade_planet import (ALT, AZ, CAP_NORTH, CAP_SOUTH, body_declares_layer,
-                                        composite_params, layer_is_buildable)
+from pipeline.tile.shade_planet import (
+    ALT,
+    AZ,
+    CAP_NORTH,
+    CAP_SOUTH,
+    body_declares_layer,
+    composite_params,
+    layer_is_buildable,
+)
 
 CAP_PX = 8192          # square texture side (south is a bigger disc -> coarser per px). 8192 chosen
                        # by eye (crop A/B + /earth): visibly crisper coast/pack/sastrugi

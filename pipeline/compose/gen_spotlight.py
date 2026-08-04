@@ -55,7 +55,12 @@ from rasterio.enums import Resampling
 from rasterio.errors import NotGeoreferencedWarning
 from rasterio.transform import from_origin
 from rasterio.warp import reproject
-from scipy.ndimage import binary_fill_holes, distance_transform_edt, gaussian_filter, label
+from scipy.ndimage import (
+    binary_fill_holes,
+    distance_transform_edt,
+    gaussian_filter,
+    label,
+)
 
 from pipeline import naturalearth, paths
 from pipeline.compose.overlay_borders import render_mapping
@@ -74,7 +79,14 @@ PLANE_WIDTH_UNITS = 2.0
 # the top layer than for the one underneath it. This used to be a copied tuple kept honest by a
 # test — which worked for a fixed ladder, but the portrait fill rung is computed per hero from its
 # aspect, and there is no way to copy a function and stay in step. One definition, no drift.
-from pipeline.compose.hero_variants import TARGETS, rungs_for  # noqa: E402  (re-exported)
+#
+# `TARGETS` IS RE-EXPORTED and F401 cannot see that, which is why the suppression is here rather
+# than left to be rediscovered. Nothing in this module reads the name; `test_hero_variants.py`
+# reaches it as `gen_spotlight.TARGETS`, through the module object, to pin this ladder against the
+# hero's and to enumerate all three ladders the pipeline produces. An attribute read is invisible
+# to an unused-import check, so the automatic fix deletes the name and takes the guard with it.
+from pipeline.compose.hero_variants import TARGETS, rungs_for  # noqa: E402, F401
+
 # Unchanged at q88 by the quality pass, and provably so: build_overlay sets
 # overlay_alpha to 0 across the subject, so these pixels only ever cover the dimmed surroundings.
 WEBP_QUALITY = 88

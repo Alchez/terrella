@@ -9,7 +9,6 @@ import dataclasses
 import json
 import os
 import time
-
 from pathlib import Path
 
 import numpy as np
@@ -17,8 +16,8 @@ import pytest
 import rasterio
 from rasterio.transform import from_bounds
 
-from pipeline.render import palette, seaice
 from pipeline import bodies, planet_seam
+from pipeline.render import palette, seaice
 from pipeline.tile import cap_render, shade_planet
 
 #: A planet whose seam emitted all three rasters — what Earth declares, and the only

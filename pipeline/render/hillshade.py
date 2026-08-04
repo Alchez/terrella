@@ -32,7 +32,6 @@ from pipeline import mercator
 from pipeline.raster_io import GTIFF_CREATE, band_window, row_bands
 from pipeline.render import cast_shadow
 
-
 # The hero's fill sun, ported to the tiles (scene_build.FILL_ROTATION (30, 0, 135) -> 60 deg up
 # from the SE; FILL_ANGLE 10; use_shadow off). "Shadowless" used to reproduce for free, because a
 # hillshade has no cast shadows at all; since `cast_shadow` landed it is upheld deliberately --

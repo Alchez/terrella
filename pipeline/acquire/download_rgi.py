@@ -16,7 +16,6 @@ import json
 import subprocess
 import urllib.request
 import zipfile
-from pathlib import Path
 
 from pipeline import paths
 

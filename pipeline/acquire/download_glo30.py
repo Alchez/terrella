@@ -31,7 +31,7 @@ import os
 import shutil
 import sys
 import urllib.request
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from pipeline import paths
@@ -78,7 +78,7 @@ def preflight_cached_age_hours() -> float | None:
         checked = datetime.fromisoformat(stamp["checked_utc"])
     except (OSError, ValueError, KeyError, TypeError):
         return None
-    age_hours = (datetime.now(timezone.utc) - checked).total_seconds() / 3600.0
+    age_hours = (datetime.now(UTC) - checked).total_seconds() / 3600.0
     if not 0.0 <= age_hours < PREFLIGHT_TTL_HOURS:
         return None
     return age_hours
@@ -110,7 +110,7 @@ def bucket_preflight():
         # replace): the stamp's existence must mean a completed pass.
         stamp_tmp = preflight_stamp_path().with_suffix(".json.tmp")
         stamp_tmp.write_text(json.dumps({
-            "checked_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "checked_utc": datetime.now(UTC).isoformat(timespec="seconds"),
             "tiles": [path.stem for path in dict.fromkeys(sample)],
         }, indent=1) + "\n")
         os.replace(stamp_tmp, preflight_stamp_path())

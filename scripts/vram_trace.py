@@ -16,8 +16,8 @@ a crash, and only a number that grows under a stable pid is a genuine steady-sta
 import subprocess
 import sys
 import time
-import xml.etree.ElementTree as ElementTree
 from dataclasses import dataclass
+from xml.etree import ElementTree
 
 SAMPLE_INTERVAL_SECONDS = 1.0
 CLOCK_TICKS_PER_SECOND = 100.0

@@ -5,7 +5,6 @@ the tileList preflight checks tiles on DISK, and the in-cell gap check defines l
 same stale WBM mosaic. The fused ocean mask is the one input that cannot go stale.
 """
 
-import os
 
 import numpy as np
 import pytest

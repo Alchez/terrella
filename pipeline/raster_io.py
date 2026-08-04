@@ -7,7 +7,8 @@ ignore for rasterio's untyped Window (fuse/render_prep had it, four new sites
 didn't). One fix, one home; tests/test_raster_io.py pins the adoption.
 """
 
-from typing import Any, Iterator
+from collections.abc import Iterator
+from typing import Any
 
 from rasterio.windows import Window
 

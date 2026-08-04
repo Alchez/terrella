@@ -90,8 +90,12 @@ def main() -> int:
 
     sys.path.insert(0, str(args.repo))  # repo root: country_config uses pipeline.* imports
     from pipeline import naturalearth  # noqa: E402
-    from pipeline.frame.country_config import (build_scope, load_config,  # noqa: E402
-                                               load_ne_rows, resolve)
+    from pipeline.frame.country_config import (  # noqa: E402
+        build_scope,
+        load_config,
+        load_ne_rows,
+        resolve,
+    )
 
     variants_dir = args.repo / "blender/renders/variants"
     cfg = load_config()

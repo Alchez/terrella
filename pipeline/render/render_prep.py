@@ -46,7 +46,6 @@ import os
 from pathlib import Path
 from typing import Any
 
-import numpy as np
 import rasterio
 from rasterio.crs import CRS
 from rasterio.enums import Resampling

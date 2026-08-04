@@ -9,7 +9,6 @@ are seasonally snow-covered over huge areas, and a fixed cutoff floods them. Val
 stress regions;
 """
 
-import math
 import subprocess
 from pathlib import Path
 from typing import Any

@@ -52,7 +52,12 @@ from pathlib import Path
 import rasterio
 
 from pipeline import bodies, planet_seam
-from pipeline.acquire.download_glo30 import DATA_DIR, TILE_LIST, in_extent, parse_tile_name
+from pipeline.acquire.download_glo30 import (
+    DATA_DIR,
+    TILE_LIST,
+    in_extent,
+    parse_tile_name,
+)
 
 RES_ARCSEC = 10
 CELL_DEG = 10

@@ -26,7 +26,6 @@ Usage: python3 download_gebco.py
 import concurrent.futures as cf
 import subprocess
 import sys
-from pathlib import Path
 
 import rasterio
 

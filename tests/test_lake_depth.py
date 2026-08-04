@@ -20,7 +20,6 @@ from typing import Any, cast
 
 import numpy as np
 import pytest
-
 from conftest import hillshade_for_light
 
 from pipeline.render import lake_depth, palette

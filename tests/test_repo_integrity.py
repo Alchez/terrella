@@ -188,7 +188,7 @@ def test_block_comments_are_closed(path: Path) -> None:
 # which the end-of-file check above CANNOT see, because the next comment's terminator closes the
 # wound and the file still parses. Found by mutation-testing this file against the real corruption.
 SWALLOWED = re.compile(
-    r"^\s*(?:export|import|function|class|interface|enum)\s|^(?:const|let|var|type)\s", re.M)
+    r"^\s*(?:export|import|function|class|interface|enum)\s|^(?:const|let|var|type)\s", re.MULTILINE)
 
 
 @pytest.mark.parametrize("path", DECLARATION_FILES, ids=ids(DECLARATION_FILES))

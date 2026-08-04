@@ -18,14 +18,13 @@ import json
 import re
 import shutil
 import subprocess
+from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pytest
 import rasterio
 from rasterio.transform import from_bounds
-
-from pathlib import Path
 
 from pipeline import bodies, paths, planet_seam
 from pipeline.render import seaice, snow

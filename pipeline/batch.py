@@ -42,14 +42,20 @@ import shutil
 import subprocess
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from pipeline import paths
-from pipeline.frame.country_config import (build_scope, country_render_dir,
-                                           country_work_dir, load_config,
-                                           load_ne_rows, preflight_gebco,
-                                           resolve, stage_commands)
+from pipeline.frame.country_config import (
+    build_scope,
+    country_render_dir,
+    country_work_dir,
+    load_config,
+    load_ne_rows,
+    preflight_gebco,
+    resolve,
+    stage_commands,
+)
 
 #: The CHECKOUT, and the working directory every stage subprocess is run from — so the
 #: checkout-relative paths in those commands (`pipeline/…`, `blender/…`) resolve. Data paths do NOT
@@ -101,7 +107,7 @@ def wait_for_mem(floor_gib: float) -> bool:
 
 def log_failure(slug, stage_index, cmd, returncode, kind) -> None:
     FAIL_LOG.parent.mkdir(parents=True, exist_ok=True)
-    ts = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    ts = datetime.now(UTC).isoformat(timespec="seconds")
     with open(FAIL_LOG, "a") as log_file:
         log_file.write(json.dumps(dict(
             ts=ts, slug=slug, stage_index=stage_index,

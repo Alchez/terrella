@@ -34,10 +34,10 @@ from typing import Any
 
 import numpy as np
 import rasterio
+from rasterio.enums import Resampling
 from rasterio.transform import from_origin
 from rasterio.vrt import WarpedVRT
 from rasterio.windows import Window
-from rasterio.enums import Resampling
 
 from pipeline import paths
 

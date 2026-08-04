@@ -32,7 +32,6 @@ from pathlib import Path
 
 from pipeline import paths
 
-
 #: The optional layers a body may declare, and the whole vocabulary `Body.surface_layers` may use.
 #:
 #: Each names something the render paints OVER the heightfield, and each comes from a dataset that

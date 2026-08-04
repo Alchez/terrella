@@ -22,15 +22,27 @@ import json
 from pathlib import Path
 
 import cairo
-
 import pyproj  # noqa: E402
+
 from pipeline import naturalearth, paths  # noqa: E402
-from pipeline.frame.country_config import (build_scope, country_render_dir,  # noqa: E402
-                                           country_work_dir, load_config, load_ne_rows)
-from pipeline.compose.overlay_borders import (DASHED_CLASSES, DISPUTED_STYLE,  # noqa: E402
-                             LAND_STYLE, MARITIME_STYLE, SOLID_CLASSES,
-                             frame_bbox_lonlat, read_lines, render_mapping,
-                             stroke)
+from pipeline.compose.overlay_borders import (  # noqa: E402
+    DASHED_CLASSES,
+    DISPUTED_STYLE,
+    LAND_STYLE,
+    MARITIME_STYLE,
+    SOLID_CLASSES,
+    frame_bbox_lonlat,
+    read_lines,
+    render_mapping,
+    stroke,
+)
+from pipeline.frame.country_config import (  # noqa: E402
+    build_scope,
+    country_render_dir,
+    country_work_dir,
+    load_config,
+    load_ne_rows,
+)
 
 # The rendered layers live in the CHECKOUT beside the heroes they overlay; the per-country inputs
 # they read live in the DATA store, reached through `country_work_dir`. Two roots, two seams.

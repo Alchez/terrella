@@ -52,10 +52,17 @@ import rasterio
 from rasterio.enums import Resampling
 from rasterio.windows import Window
 
-from pipeline import bodies, paths, planet_seam
+from pipeline import bodies, planet_seam
 from pipeline.raster_io import GTIFF_CREATE, band_window
-from pipeline.render import cast_shadow, hillshade, lake_depth, palette, seaice, snow
-from pipeline.render import sky_view
+from pipeline.render import (
+    cast_shadow,
+    hillshade,
+    lake_depth,
+    palette,
+    seaice,
+    sky_view,
+    snow,
+)
 from pipeline.render.sky_view import normalised_occlusion, occlusion_shape
 from pipeline.tile import shade
 from pipeline.tile.shade import KNOBS

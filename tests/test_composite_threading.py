@@ -18,9 +18,8 @@ multi-variant paths never even construct a thread pool.
 import dataclasses
 import math
 import shutil
-from typing import Any, cast
-
 from pathlib import Path
+from typing import Any, cast
 
 import numpy as np
 import pytest
@@ -30,8 +29,7 @@ from rasterio.transform import from_bounds
 
 from pipeline import bodies, planet_seam
 from pipeline.render import snow
-from pipeline.tile import shade
-from pipeline.tile import shade_planet
+from pipeline.tile import shade, shade_planet
 from pipeline.verify import compare_rasters
 
 #: A planet whose seam emitted all three rasters — Earth's shape, and the one the

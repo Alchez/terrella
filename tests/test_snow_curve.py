@@ -10,13 +10,11 @@ from typing import Any, cast
 
 import numpy as np
 import pytest
-
 from conftest import hillshade_for_light
 
 from pipeline import bodies, planet_seam
 from pipeline.render import palette
-from pipeline.tile import shade
-from pipeline.tile import shade_planet
+from pipeline.tile import shade, shade_planet
 
 #: A planet whose seam emitted all three rasters — what Earth declares, and the only
 #: shape these tests care about unless they say otherwise.

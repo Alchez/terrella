@@ -27,8 +27,12 @@ import sys
 from pathlib import Path
 
 from pipeline import paths
-from pipeline.acquire.download_glo30 import (TILE_LIST, WORKERS, download_one,
-                                             fetch_tile_list)
+from pipeline.acquire.download_glo30 import (
+    TILE_LIST,
+    WORKERS,
+    download_one,
+    fetch_tile_list,
+)
 
 OT_ENDPOINT = "https://opentopography.s3.sdsc.edu"
 OT_PREFIX = "raster/COP30/COP30_hh"          # keyless public COG mirror, DGED 2023_1

@@ -11,7 +11,7 @@ without stamping, and an absent/expired/malformed/future-dated stamp re-verifies
 import hashlib
 import json
 import urllib.request
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -67,7 +67,7 @@ def refuse_network(monkeypatch) -> None:
 
 
 def write_stamp(store: Path, age_hours: float) -> None:
-    checked = datetime.now(timezone.utc) - timedelta(hours=age_hours)
+    checked = datetime.now(UTC) - timedelta(hours=age_hours)
     (store / "preflight_ok.json").write_text(json.dumps(
         {"checked_utc": checked.isoformat(timespec="seconds"), "tiles": []}))
 
@@ -75,7 +75,7 @@ def write_stamp(store: Path, age_hours: float) -> None:
 def stamp_age_seconds(store: Path) -> float:
     stamp = json.loads((store / "preflight_ok.json").read_text())
     checked = datetime.fromisoformat(stamp["checked_utc"])
-    return (datetime.now(timezone.utc) - checked).total_seconds()
+    return (datetime.now(UTC) - checked).total_seconds()
 
 
 class TestStampWriting:

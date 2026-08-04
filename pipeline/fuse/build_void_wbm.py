@@ -37,8 +37,13 @@ import numpy as np
 import rasterio
 
 from pipeline import paths
-from pipeline.render.snow_mask import (BUCKET_URL, DATA_DIR as WC_DIR, WORKERS,
-                                       download_one, tiles_for_bounds)
+from pipeline.render.snow_mask import (
+    BUCKET_URL,
+    WORKERS,
+    download_one,
+    tiles_for_bounds,
+)
+from pipeline.render.snow_mask import DATA_DIR as WC_DIR
 
 VOID_DIR = paths.DATA / "raw/cop30_void"
 WATER_CLASS = 80   # ESA WorldCover "permanent water bodies"

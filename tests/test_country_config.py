@@ -13,7 +13,6 @@ import pytest
 from pipeline import paths
 from pipeline.frame import country_config as cc
 
-
 # ---- pure helpers -----------------------------------------------------------
 
 def test_slugify_strips_nonalphanumeric_and_lowercases():
