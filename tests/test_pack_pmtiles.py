@@ -8,10 +8,13 @@ vertically mirrored planet, so the flip and the byte-fidelity both get pinned.
 """
 
 import sqlite3
+import sys
 
 import pytest
 
-from pipeline.tile.pack_pmtiles import pack_directory, tms_row
+from pipeline import bodies, paths
+from pipeline.tile import pack_pmtiles
+from pipeline.tile.pack_pmtiles import default_out, default_tiles, pack_directory, tms_row
 
 
 class TestTmsRow:
@@ -25,6 +28,109 @@ class TestTmsRow:
     def test_flip_is_an_involution(self):
         for zoom, row in ((3, 5), (8, 100), (5, 0)):
             assert tms_row(zoom, tms_row(zoom, row)) == row
+
+
+class TestTheBodyChoosesTheTree:
+    """Where a pack reads and writes is the BODY's question, and it had no way to ask it.
+
+    Both defaults used to be literals joined onto the checkout, so a pack was Earth-only twice over:
+    it could not address a second planet's pyramid, and it bypassed the `MAPS_DATA` seam that every
+    other stage of the tile chain honours. The two defects share one fix, because `bodies.work_dir`
+    answers both at once.
+    """
+
+    def test_earths_defaults_are_exactly_where_the_shipped_pyramid_already_lives(self, subtests):
+        """The characterisation half: Earth's paths must not move by one byte.
+
+        A pyramid is cut, packed and converted at these paths and the archive on R2 came from them.
+        A default that resolved anywhere else would not fail — it would pack an empty tree, or pack
+        nothing and report success against a directory nobody is writing.
+        """
+        with subtests.test("tiles"):
+            assert default_tiles(bodies.EARTH) == paths.DATA / "work/planet_tiles/tiles"
+        with subtests.test("out"):
+            assert default_out(bodies.EARTH) == paths.DATA / "work/planet_tiles/planet.mbtiles"
+
+    def test_mars_nests_under_its_own_prefix(self, subtests):
+        """The generalisation is unverified until a non-default body runs through it: Earth's
+        prefix is empty, so Earth passes whether or not the body is consulted at all."""
+        with subtests.test("tiles"):
+            assert default_tiles(bodies.MARS) == paths.DATA / "work/mars/planet_tiles/tiles"
+        with subtests.test("out"):
+            assert default_out(bodies.MARS) == paths.DATA / "work/mars/planet_tiles/planet.mbtiles"
+
+    def test_the_defaults_follow_a_relocated_store(self, monkeypatch, tmp_path):
+        """The seam this closes, asserted rather than assumed. Read at CALL time, not bound at
+        import, which is what lets a test move the store at all — the module constants these
+        replaced could only ever name the checkout they were imported from."""
+        monkeypatch.setattr(paths, "DATA", tmp_path / "elsewhere")
+        assert default_tiles(bodies.EARTH) == tmp_path / "elsewhere/work/planet_tiles/tiles"
+        assert default_out(bodies.MARS) == tmp_path / "elsewhere/work/mars/planet_tiles/planet.mbtiles"
+
+    def test_the_body_is_required_with_no_default(self, monkeypatch):
+        """No fallback to Earth. Packing the wrong planet's directory is not a loud failure: it
+        finds tiles, packs them, and writes a complete archive under the other body's name."""
+        monkeypatch.setattr(sys, "argv", ["pack_pmtiles"])
+        with pytest.raises(SystemExit):
+            pack_pmtiles.main()
+
+    def test_an_unknown_body_raises_through_the_registry(self, monkeypatch):
+        """The registry owns the error, so the message names the bodies that do exist."""
+        monkeypatch.setattr(sys, "argv", ["pack_pmtiles", "--body", "Mars"])  # a real body, miscased
+        with pytest.raises(KeyError, match="unknown body"):
+            pack_pmtiles.main()
+
+    def test_the_body_selects_the_paths_main_actually_packs(self, monkeypatch):
+        """The helpers above could both be right while `main` still called neither."""
+        packed: list[tuple] = []
+        monkeypatch.setattr(pack_pmtiles, "pack_directory",
+                            lambda tiles, out, name: packed.append((tiles, out, name)))
+        monkeypatch.setattr(sys, "argv", ["pack_pmtiles", "--body", "mars"])
+        pack_pmtiles.main()
+        assert packed[0][0] == default_tiles(bodies.MARS)
+        assert packed[0][1] == default_out(bodies.MARS)
+
+    def test_an_explicit_path_still_wins(self, monkeypatch, tmp_path):
+        """`--tiles`/`--out` are how the terrain pyramid is packed from a sibling directory, so the
+        body chooses the DEFAULT and never overrides what an operator said."""
+        packed: list[tuple] = []
+        monkeypatch.setattr(pack_pmtiles, "pack_directory",
+                            lambda tiles, out, name: packed.append((tiles, out, name)))
+        monkeypatch.setattr(sys, "argv", ["pack_pmtiles", "--body", "earth",
+                                          "--tiles", str(tmp_path / "bathy/tiles"),
+                                          "--out", str(tmp_path / "terrain.mbtiles")])
+        pack_pmtiles.main()
+        assert packed[0][0] == tmp_path / "bathy/tiles"
+        assert packed[0][1] == tmp_path / "terrain.mbtiles"
+
+
+class TestTheArchiveNameIsNotTheBodys:
+    """`--name` must NOT become body-derived, and this is where that decision is kept.
+
+    It reads `{site}-{layer}` already — the terrain pyramid packs as `terrella-terrain` from the
+    same code — so the body is carried by the PATH, exactly as every recipe sidecar carries it.
+    Deriving it here would be actively expensive: the name lands in the MBTiles metadata,
+    `pmtiles convert` copies it into the archive header, and the header is inside the SHA-256 that
+    becomes the tile token in the URL. A cosmetic tidy would therefore change every tile URL the
+    site serves and orphan every warm browser cache.
+    """
+
+    def _default_name_for(self, monkeypatch, body: str) -> str:
+        packed: list[tuple] = []
+        monkeypatch.setattr(pack_pmtiles, "pack_directory",
+                            lambda tiles, out, name: packed.append((tiles, out, name)))
+        monkeypatch.setattr(sys, "argv", ["pack_pmtiles", "--body", body])
+        pack_pmtiles.main()
+        return packed[0][2]
+
+    def test_the_default_name_does_not_vary_with_the_body(self, monkeypatch):
+        assert self._default_name_for(monkeypatch, "earth") == \
+               self._default_name_for(monkeypatch, "mars")
+
+    def test_the_default_name_is_the_one_the_shipped_archive_carries(self, monkeypatch):
+        """Pinned to the literal, because "unchanged across bodies" is also satisfied by changing
+        it for both — and that ships the same broken URLs."""
+        assert self._default_name_for(monkeypatch, "earth") == "terrella-relief"
 
 
 def make_pyramid(root, tiles, suffix=".png"):

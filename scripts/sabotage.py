@@ -2908,6 +2908,59 @@ SABOTAGES: list[Sabotage] = [
         replacement='      "indexLeaves": 0',
         guard='holds a real leaf count for every one, which the Worker\'s cache is sized from',
     ),
+    # --- the packer learns which planet it is packing --------------------------------------------
+    # This stage is the last one before an archive exists, and it has no output a reader can check:
+    # a wrong-tree pack produces a complete, valid MBTiles that only announces itself when a globe
+    # draws the other planet. Every case below is a way of making the body decorative.
+    Sabotage(
+        suite='python',
+        label='the packer takes a body and then ignores it, packing every planet from one tree',
+        path='pipeline/tile/pack_pmtiles.py',
+        needle='    return bodies.work_dir(body, "planet_tiles") / "tiles"',
+        replacement='    return bodies.work_dir(bodies.EARTH, "planet_tiles") / "tiles"',
+        guard='test_mars_nests_under_its_own_prefix',
+    ),
+    # The quieter half of the pair: reading the right pyramid and writing the archive into Earth's
+    # tree. It packs the correct tiles, so every count and every checksum inside the file is right.
+    Sabotage(
+        suite='python',
+        label='a second planet writes its archive beside Earth\'s',
+        path='pipeline/tile/pack_pmtiles.py',
+        needle='    return bodies.work_dir(body, "planet_tiles") / "planet.mbtiles"',
+        replacement='    return bodies.work_dir(bodies.EARTH, "planet_tiles") / "planet.mbtiles"',
+        guard='test_mars_nests_under_its_own_prefix',
+    ),
+    # The default nobody would notice, because on this box it is right. Earth is the only body whose
+    # prefix is empty, so an Earth fallback is invisible until the run that needed the other one.
+    Sabotage(
+        suite='python',
+        label='the packer\'s body acquires a default and a Mars run silently packs Earth',
+        path='pipeline/tile/pack_pmtiles.py',
+        needle='    parser.add_argument("--body", required=True,',
+        replacement='    parser.add_argument("--body", default="earth",',
+        guard='test_the_body_is_required_with_no_default',
+    ),
+    # The tidy that looks like the parameterisation finishing and is the one change here that costs
+    # real money: the name reaches the archive header, the header is inside the SHA that becomes the
+    # tile token, and the token is in every served URL.
+    Sabotage(
+        suite='python',
+        label='the archive name is derived from the body, changing every tile URL the site serves',
+        path='pipeline/tile/pack_pmtiles.py',
+        needle='    pack_directory(tiles, out, name=args.name)',
+        replacement='    pack_directory(tiles, out, name=f"terrella-{body.name}-relief")',
+        guard='test_the_default_name_does_not_vary_with_the_body',
+    ),
+    # `default_tiles` and `default_out` could both be exactly right while `main` called neither —
+    # which is what the module did before it had a body at all.
+    Sabotage(
+        suite='python',
+        label='the resolved defaults are computed and then not used',
+        path='pipeline/tile/pack_pmtiles.py',
+        needle='    tiles = args.tiles if args.tiles is not None else default_tiles(body)',
+        replacement='    tiles = args.tiles if args.tiles is not None else default_tiles(bodies.EARTH)',
+        guard='test_the_body_selects_the_paths_main_actually_packs',
+    ),
 ]
 
 
