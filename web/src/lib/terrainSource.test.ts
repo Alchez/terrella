@@ -137,7 +137,7 @@ describe("the archive replaced four flags, and the answers outlive them", () => 
     // Keyed on CODE, never on the flag spelling — the first draft searched for the literal
     // "?quant" and went red against a comment in earth.astro explaining what had been retired. A
     // guard that cannot tell an identifier from prose punishes documenting the decision.
-    const globe = readFileSync(new URL("../pages/earth.astro", import.meta.url), "utf8");
+    const globe = readFileSync(new URL("../components/Globe.astro", import.meta.url), "utf8");
     const retiredCalls = [
       "parseTerrainVariant",
       "parseTerrainQuantisation",
@@ -162,7 +162,7 @@ describe("the archive replaced four flags, and the answers outlive them", () => 
     // The spike served /terrain/<build>/{z}/{x}/{y} off loose tiles from location.origin. Both
     // halves of that are retired: the build segment, and the same-origin assumption that would
     // send production's DEM requests at the site Worker instead of the tile Worker.
-    const globe = readFileSync(new URL("../pages/earth.astro", import.meta.url), "utf8");
+    const globe = readFileSync(new URL("../components/Globe.astro", import.meta.url), "utf8");
     expect(globe).toContain('tileUrlTemplate(body.slug, "terrain")');
     expect(globe, "the DEM base must follow the tile hostname").not.toContain(
       "location.origin}/terrain",
@@ -414,7 +414,7 @@ describe("?skirt=auto|none — which seam artifact you get", () => {
     // Not settable on a live map: getTerrainMesh caches per tile and _buildSkirts runs at build
     // time, so anything that toggles this after construction is reaching into _meshCache. If this
     // ever moves to a post-construction call it will look like it works and change nothing.
-    const globe = readFileSync(new URL("../pages/earth.astro", import.meta.url), "utf8");
+    const globe = readFileSync(new URL("../components/Globe.astro", import.meta.url), "utf8");
     expect(globe).toContain("terrainSkirtLength: terrainSkirtMode");
     const constructorAt = globe.indexOf("new maplibregl.Map({");
     expect(constructorAt).toBeGreaterThan(-1);
@@ -428,7 +428,7 @@ describe("the pyramid depth the source is allowed to reach", () => {
     // that the two could disagree: a deep directory declared 6 silently never requests the levels
     // it paid to build, and a shallow one declared 8 404s every tile past z6. With one archive
     // there is one number, which is the structural version of that guarantee.
-    const globe = readFileSync(new URL("../pages/earth.astro", import.meta.url), "utf8");
+    const globe = readFileSync(new URL("../components/Globe.astro", import.meta.url), "utf8");
     const source = globe.slice(globe.indexOf("type: \"raster-dem\""));
     expect(source.slice(0, 400)).toContain("maxzoom: TERRAIN_MAX_ZOOM");
     expect(TERRAIN_MAX_ZOOM).toBe(8);
@@ -461,7 +461,7 @@ describe("the pyramid depth the source is allowed to reach", () => {
     // desired zoom from defaultCalculateTileZoom(9.314, 3), which subtracts a pitch term and a
     // tile-count penalty. So the PITCHED view — the one terrain exists to make worth looking at —
     // systematically gets less elevation detail than the flat-on view.
-    const globe = readFileSync(new URL("../pages/earth.astro", import.meta.url), "utf8");
+    const globe = readFileSync(new URL("../components/Globe.astro", import.meta.url), "utf8");
     expect(globe).toContain("maxZoom: 8");
     // 128's nominal exceeds what the camera cap alone would allow, which is why it is the arm
     // whose delivered depth depends on the heuristic rather than on the declaration.
@@ -475,7 +475,7 @@ describe("the pyramid depth the source is allowed to reach", () => {
     for (const depth of [6, 8]) {
       expect(terrainZoomsFor(8, 512, depth).demZoom).toBe(6);
     }
-    const globe = readFileSync(new URL("../pages/earth.astro", import.meta.url), "utf8");
+    const globe = readFileSync(new URL("../components/Globe.astro", import.meta.url), "utf8");
     expect(globe).toContain("maxZoom: 8");
   });
 });
@@ -580,7 +580,7 @@ describe("source guard — the pipeline is the source of truth for the numbers",
     // than counted together: exactly one `setTerrain({...})` may exist, while `setTerrain(null)`
     // is the one form that cleans up after itself and is what the degradation ladder's
     // `disable-terrain` rung pulls.
-    const globe = readFileSync(new URL("../pages/earth.astro", import.meta.url), "utf8");
+    const globe = readFileSync(new URL("../components/Globe.astro", import.meta.url), "utf8");
     const establishing = globe.match(/map\.setTerrain\(\s*\{/g) ?? [];
     const removing = globe.match(/map\.setTerrain\(\s*null\s*\)/g) ?? [];
     expect(establishing, "exactly one setTerrain({...}) — every extra call leaks").toHaveLength(1);
@@ -603,7 +603,7 @@ describe("source guard — the pipeline is the source of truth for the numbers",
     //
     // Asserted against the rung's OWN BRANCH rather than the whole file, so a release that gets
     // moved somewhere it never executes fails here instead of passing on a substring.
-    const globe = readFileSync(new URL("../pages/earth.astro", import.meta.url), "utf8");
+    const globe = readFileSync(new URL("../components/Globe.astro", import.meta.url), "utf8");
     const rung = globe.match(/action === "disable-terrain"[\s\S]*?\n\s*\} else \{/)?.[0];
     expect(rung, "the disable-terrain branch must exist").toBeTruthy();
     expect(rung, "the rung must drop the terrain").toMatch(/setTerrain\(\s*null\s*\)/);
@@ -627,7 +627,7 @@ describe("source guard — the pipeline is the source of truth for the numbers",
     // of them selectable. `terrainEncoding()` is now correct to call bare — its default IS the
     // shipping step — which is the exact opposite of what this test asserted before, and the
     // reason it is rewritten rather than retargeted.
-    const globe = readFileSync(new URL("../pages/earth.astro", import.meta.url), "utf8");
+    const globe = readFileSync(new URL("../components/Globe.astro", import.meta.url), "utf8");
     const source = globe.slice(globe.indexOf('type: "raster-dem"'), globe.indexOf('type: "raster-dem"') + 400);
     expect(source).toContain("tiles: [terrainTileUrlTemplate]");
     expect(source).toContain("maxzoom: TERRAIN_MAX_ZOOM");
@@ -772,7 +772,7 @@ describe("the deploy preflight must refuse a globe production cannot serve", () 
     // The state assertion this replaces was armed on purpose while nothing served terrain, and
     // was written to flip here. It flips by becoming its own inverse: the same three files, now
     // asserted to agree rather than to disagree.
-    const globe = readFileSync(new URL("../pages/earth.astro", import.meta.url), "utf8");
+    const globe = readFileSync(new URL("../components/Globe.astro", import.meta.url), "utf8");
     const worker = readFileSync(new URL("../../worker/index.ts", import.meta.url), "utf8");
 
     // Matched on the FACT, not on one spelling of it. This regex used to require the literal

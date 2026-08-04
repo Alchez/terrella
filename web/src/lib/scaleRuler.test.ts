@@ -6,7 +6,7 @@ import {
   rulerSamplePoints,
   RULER_WIDTH_PX,
 } from "./scaleRuler";
-import globeSource from "../pages/earth.astro?raw";
+import globeSource from "../components/Globe.astro?raw";
 
 /**
  * The body of a named function in earth.astro, matched by BRACES rather than by a text span.

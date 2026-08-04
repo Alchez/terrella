@@ -108,15 +108,16 @@ web/
 │   ├── gen_manifest.py    # reads the variant store → src/data/countries.json
 │   └── check_deploy_sync.ts   # deploy preflight: R2 objects vs the manifest
 ├── src/
-│   ├── pages/             # index (gallery) · [slug] (country) · globe · about
-│   ├── layouts/ components/ styles/
+│   ├── pages/             # index (gallery) · [slug] (country) · earth · mars · about
+│   ├── components/        # Globe.astro is the globe itself; a body's page only wraps it
+│   ├── layouts/ styles/
 │   ├── lib/               # the tested logic — see below
 │   └── data/              # countries.json (generated; gitignored)
 └── worker/                # the tile Worker: one z/x/y out of the PMTiles archive in R2
 ```
 
 `src/lib/` is where anything worth testing lives, each module paired with a `.test.ts`:
-`reliefTiles` (the tile request contract, imported by *both* servers), `assetBase` (dev vs
+`tileAddress` (the tile request contract, imported by *both* servers), `assetBase` (dev vs
 production origins), `capability` + `fpsDegradation` (the tier probe and runtime downgrade),
 `hoverTracking` (hover resolution, including re-resolving when the globe moves under a parked
 pointer), `countryHighlight`, `polarCaps` (rung choice by projected on-screen size),

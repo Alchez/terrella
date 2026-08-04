@@ -527,7 +527,7 @@ describe("canary — the MapLibre surface this module depends on", () => {
 });
 
 describe("earth.astro wires the diagnostics rather than re-stating them", () => {
-  const globe = readFileSync(new URL("../pages/earth.astro", import.meta.url), "utf8");
+  const globe = readFileSync(new URL("../components/Globe.astro", import.meta.url), "utf8");
 
   const restoredHandler = globe
     .match(/map\.on\("webglcontextrestored"[\s\S]*?\n  \}\);/)?.[0];
@@ -820,7 +820,7 @@ describe("the snapshot names its library and what the camera needed", () => {
 });
 
 describe("earth.astro feeds the snapshot the version and the covering count", () => {
-  const globe = readFileSync(new URL("../pages/earth.astro", import.meta.url), "utf8");
+  const globe = readFileSync(new URL("../components/Globe.astro", import.meta.url), "utf8");
   const reader = globe.match(/const readGlState = [\s\S]*?\n    \}\);/)?.[0];
 
   it("passes MapLibre's own getVersion, not a hard-coded string", () => {

@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from "vitest";
-import globeSource from "../pages/earth.astro?raw";
+import globeSource from "../components/Globe.astro?raw";
 import globalCss from "../styles/global.css?raw";
 import globeStyles from "../styles/globe.css?raw";
 import maplibreCss from "maplibre-gl/dist/maplibre-gl.css?raw";

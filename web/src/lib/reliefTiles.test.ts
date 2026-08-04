@@ -96,7 +96,7 @@ describe("describeTileTypeMismatch", () => {
 // as page text — see reliefSources.test.ts. What has to stay a source scan is the one thing that is
 // genuinely a property of the page: the order the style draws them in.
 describe("the pinned base source in the page's style", () => {
-  const globe = readFileSync(new URL("../pages/earth.astro", import.meta.url), "utf8");
+  const globe = readFileSync(new URL("../components/Globe.astro", import.meta.url), "utf8");
 
   it("draws the base UNDER relief and OVER the background, or it is pointless", () => {
     // Above relief it would hide the real tiles; below the background it would never be seen.

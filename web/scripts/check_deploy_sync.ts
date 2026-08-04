@@ -165,7 +165,25 @@ function checkEveryPublishedArchiveIsUploaded(endpoint: string): void {
  * which only matters while terrain rides a tier.
  */
 function checkTerrainIsRoutable(): void {
-  const globe = readFileSync(`${WEB_ROOT}src/pages/earth.astro`, "utf8");
+  const globe = readFileSync(`${WEB_ROOT}src/components/Globe.astro`, "utf8");
+  // THE `return` BELOW IS AN EARLY EXIT ON A GREP, so this check is only as alive as the file it
+  // reads. Point it at the wrong source — as an extraction very nearly did, the globe's script
+  // having left `pages/earth.astro` for this component — and the regex finds nothing, the function
+  // returns "nothing to check", and a deploy that 404s every DEM tile sails through reporting
+  // clean. So the subject is asserted before the question is asked.
+  if (!globe.includes("resolveTerrainExaggeration(")) {
+    fail(
+      "the deploy preflight cannot find the globe's terrain wiring.",
+      "",
+      "  This check reads src/components/Globe.astro and greps it for",
+      "  `resolveTerrainExaggeration(`. That call is absent, so it has nothing to judge and",
+      "  would otherwise pass by finding nothing — which is indistinguishable from terrain being",
+      "  safely off.",
+      "",
+      "  If the globe's script moved again, point this check at its new home. If terrain was",
+      "  removed outright, delete this check rather than leaving it looking at a ghost.",
+    );
+  }
   const ridesOnTier = /resolveTerrainExaggeration\([\s\S]{0,80}?currentTier\(\)\s*===\s*"full"/.test(
     globe,
   );

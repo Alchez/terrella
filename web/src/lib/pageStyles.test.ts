@@ -79,17 +79,21 @@ describe("the pressed quiet toggle is a bare glyph, not a filled button", () => 
 });
 
 describe("the globe's stylesheets stay split the way the cascade needs", () => {
-  const globeAstro = readFileSync(`${WEB_ROOT}src/pages/earth.astro`, "utf8");
+  // The component, not the page: markup and scoped style moved together into `Globe.astro`, and
+  // they had to. Astro stamps ONE `data-astro-cid-…` on both halves of a component, so a scoped
+  // block left behind in the page would compile against a cid nothing renders — every selector
+  // matching nothing, with no error and no visual tell until someone looks at the globe.
+  const globeAstro = readFileSync(`${WEB_ROOT}src/components/Globe.astro`, "utf8");
 
-  it("keeps the SCOPED block in the page, where Astro can stamp it", () => {
+  it("keeps the SCOPED block beside its markup, where Astro can stamp both", () => {
     // This is the constraint that decided the split. Astro rewrites a scoped selector with a
     // `[data-astro-cid-…]` attribute at build time, worth one class of specificity. The identical
     // rules in a `.css` file compile WITHOUT it, so every one of them drops a level and starts
     // losing to things it currently beats — silently, and only in the build, since the rules
     // themselves are unchanged. There is no error and no visual tell until something overlaps.
     const scoped = globeAstro.match(/<style>([\s\S]*?)<\/style>/);
-    expect(scoped, "earth.astro must still carry its scoped <style> block").not.toBeNull();
-    expect(scoped![1], "the scoped block must still hold the page's own elements").toContain(
+    expect(scoped, "Globe.astro must still carry its scoped <style> block").not.toBeNull();
+    expect(scoped![1], "the scoped block must still hold the globe's own elements").toContain(
       ".starfield",
     );
     // Anchored to a tag at the start of a line: the phrase also appears in prose explaining why
@@ -101,18 +105,18 @@ describe("the globe's stylesheets stay split the way the cascade needs", () => {
     ).not.toMatch(/^<style is:global>/m);
   });
 
-  it("imports the global stylesheet, or the page ships with none of it", () => {
-    // The file is only reachable because the page asks for it. Drop the import and every MapLibre
+  it("imports the global stylesheet, or the globe ships with none of it", () => {
+    // The file is only reachable because the component asks for it. Drop the import and every MapLibre
     // widget reverts to stock white boxes — while every test that reads `styles/globe.css`
     // directly goes on passing, because the rules still exist. Nothing else would notice.
     expect(globeAstro).toContain('import "../styles/globe.css"');
   });
 
-  it("keeps the page's own elements out of the shared stylesheet", () => {
+  it("keeps the globe's own scoped elements out of the shared stylesheet", () => {
     // The half that cannot move must not be moved piecemeal either. A scoped rule relocated into
     // the shared file would lose its cid and its specificity level with it.
     for (const scopedOnly of [".starfield", ".hero-panel", ".globe-lost"]) {
-      expect(globe, `${scopedOnly} belongs to the page's scoped block`).not.toContain(scopedOnly);
+      expect(globe, `${scopedOnly} belongs to the globe's scoped block`).not.toContain(scopedOnly);
     }
   });
 });

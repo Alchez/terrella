@@ -867,7 +867,7 @@ describe("the cap's draw call", () => {
 });
 
 describe("the context-loss recovery contract", () => {
-  const globe = readFileSync(new URL("../pages/earth.astro", import.meta.url), "utf8");
+  const globe = readFileSync(new URL("../components/Globe.astro", import.meta.url), "utf8");
 
   it("earth.astro installs the caps from style.load, not from a one-shot load", () => {
     const boundToStyleLoad = /map\.on\(\s*["']style\.load["']\s*,\s*addCaps\s*\)/.test(globe);

@@ -282,7 +282,7 @@ describe("coalescing to one resolve per frame", () => {
 
 describe("the staleness contract", () => {
   it("earth.astro re-resolves the hover on moveend", () => {
-    const source = readFileSync(new URL("../pages/earth.astro", import.meta.url), "utf8");
+    const source = readFileSync(new URL("../components/Globe.astro", import.meta.url), "utf8");
     const boundToMoveEnd = /map\.on\(\s*["']moveend["'][\s\S]{0,200}?viewChanged/.test(source);
     expect(
       boundToMoveEnd,

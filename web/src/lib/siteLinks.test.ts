@@ -3,8 +3,17 @@ import { readFileSync } from "node:fs";
 import { REPO_URL } from "./siteLinks";
 
 const page = (name: string) => readFileSync(new URL(`../pages/${name}`, import.meta.url), "utf8");
-/** The globe's global stylesheet, which its page imports — the rules that reach MapLibre's widgets. */
+/** The globe is a COMPONENT, not a page: `pages/earth.astro` is the `<Base>` wrapper around it,
+ *  and everything asserted below — the credit control, the chrome row, the repo link — is here. */
+const globe = readFileSync(new URL("../components/Globe.astro", import.meta.url), "utf8");
+/** The globe's global stylesheet, which it imports — the rules that reach MapLibre's widgets. */
 const globeStyles = readFileSync(new URL("../styles/globe.css", import.meta.url), "utf8");
+
+/** The two views that carry a link back to the repository, each named by the file that draws it. */
+const LINKED_VIEWS: [string, string][] = [
+  ["index.astro", page("index.astro")],
+  ["Globe.astro", globe],
+];
 
 describe("the repository link", () => {
   it("is an absolute https URL, since it is rendered into an href verbatim", () => {
@@ -14,26 +23,36 @@ describe("the repository link", () => {
   });
 
   it("reaches both views the user asked for", () => {
-    for (const name of ["index.astro", "earth.astro"]) {
-      expect(page(name)).toContain('from "../lib/siteLinks"');
-      expect(page(name)).toContain("REPO_URL");
+    // Named by the SOURCE that draws each view rather than by its route: the globe's link moved
+    // into the component with the rest of its chrome, and `pages/earth.astro` is now a wrapper
+    // that would satisfy neither assertion and pass the absence one below for free.
+    for (const [view, source] of LINKED_VIEWS) {
+      expect(source, `${view} no longer imports the constant`).toContain('from "../lib/siteLinks"');
+      expect(source, `${view} no longer uses it`).toContain("REPO_URL");
     }
   });
 
   it("is never inlined as a literal, which is the drift this constant exists to stop", () => {
     // A renamed repo or moved org would 404 silently — nothing in a build can see it.
-    for (const name of ["index.astro", "earth.astro", "about.astro", "[slug].astro"]) {
-      expect(page(name)).not.toContain("github.com/Alchez");
+    const everywhere: [string, string][] = [
+      ...LINKED_VIEWS,
+      ["about.astro", page("about.astro")],
+      ["[slug].astro", page("[slug].astro")],
+      ["earth.astro", page("earth.astro")],
+    ];
+    for (const [view, source] of everywhere) {
+      expect(source, `${view} inlines the URL`).not.toContain("github.com/Alchez");
     }
   });
 
   it("opens externally without handing the opener over", () => {
     // target=_blank without rel=noopener gives the new tab window.opener on older engines.
-    for (const name of ["index.astro", "earth.astro"]) {
-      const source = page(name);
+    for (const [view, source] of LINKED_VIEWS) {
       const blankLinks = source.match(/target="_blank"/g) ?? [];
       const guarded = source.match(/rel="noopener noreferrer"/g) ?? [];
-      expect(guarded.length).toBeGreaterThanOrEqual(blankLinks.length);
+      expect(guarded.length, `${view} has an unguarded _blank link`).toBeGreaterThanOrEqual(
+        blankLinks.length,
+      );
     }
   });
 });
@@ -41,7 +60,6 @@ describe("the repository link", () => {
 // The on-map credit, which is the one link on the site carrying a licence obligation rather than
 // a convenience. It is folded into the centred view bar, but it is still MapLibre's own control.
 describe("the on-map credit", () => {
-  const globe = page("earth.astro");
 
   it("stays a real AttributionControl, so a new source's credit still appears by itself", () => {
     // Hand-rolled markup would look identical today and silently omit the credit of whichever
@@ -111,7 +129,6 @@ describe("the on-map credit", () => {
 
 /** The CREDITS expression as written in earth.astro, spanning however many lines it takes. */
 function creditsMarkup(): string {
-  const globe = page("earth.astro");
   const match = globe.match(/const CREDITS =([\s\S]*?);\n/);
   if (!match) throw new Error("earth.astro no longer declares a CREDITS constant");
   return match[1];

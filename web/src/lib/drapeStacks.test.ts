@@ -77,7 +77,7 @@ describe("the globe's own layer order", () => {
   it("matches what earth.astro actually adds last", () => {
     // The array above is a MODEL of the page. Pin it to the page, or it becomes a description of
     // a layer order that used to exist — the exact rot this module was written after finding.
-    const globe = readFileSync(new URL("../pages/earth.astro", import.meta.url), "utf8");
+    const globe = readFileSync(new URL("../components/Globe.astro", import.meta.url), "utf8");
     const hitAt = globe.indexOf("addCountryHitTargets();");
     const highlightAt = globe.indexOf("addCountryHighlight();");
     const countriesAt = globe.indexOf("addCountryTiles();");

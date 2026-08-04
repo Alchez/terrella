@@ -1,0 +1,40 @@
+---
+// MapLibre's own stylesheet, linked so that it does not block first paint.
+//
+// ITS OWN COMPONENT BECAUSE OF WHERE IT HAS TO GO. It belongs in `<head>`, which means being
+// written as a direct child of `<Base>` carrying `slot="head"` — a `slot` attribute inside a nested
+// component's template is only an attribute. So each body page forwards it in one line:
+//
+//     <Fragment slot="head"><MapStylesheet /></Fragment>
+//
+// which beats two copies of the reasoning below.
+
+// `?url` gives the emitted asset's href WITHOUT injecting the stylesheet, which is the whole point:
+// a bare `import "maplibre-gl/dist/maplibre-gl.css"` in the globe's client script made Vite hoist
+// it into a render-blocking <link>, so **70 KB of widget CSS gated first paint** on a page where no
+// widget exists until the 265 KB globe chunk has downloaded and run. Measured: FCP 1,264 -> 629 ms.
+//
+// Imported from the package, never copied into public/ — the version is pinned and guarded
+// (vendoredPatches.test.ts), and a hand-copied stylesheet is the copy that silently stops matching.
+import maplibreStylesheet from "maplibre-gl/dist/maplibre-gl.css?url";
+
+// The onload body lives here as a STRING rather than inline on the element. Written inline, Astro
+// type-checks the attribute as an expression and reports `ts(6133): 'media' is declared but its
+// value is never read` — a hint about a variable that does not exist, on code the browser runs and
+// the checker cannot model. `astro check` is held at zero, so a spurious hint costs the same as a
+// real one: it trains the next reader to skim the output.
+const PROMOTE_STYLESHEET = "this.media='all'";
+---
+
+{/* Non-blocking by `media="print"`: it matches no screen, so the parser does not wait on it, and
+    the onload swap promotes it the moment it lands. Safe against the cascade because every one of
+    our 26 overrides either beats the vendor rule on specificity or targets a different element —
+    verified by reading computed styles off both orderings, not by argument.
+
+    The <noscript> twin is not decoration. `onload` is an inline handler, so with JS off the sheet
+    would stay `media="print"` forever and the controls would render unstyled. The globe needs JS
+    anyway, but "needs JS" and "renders wrong without it" are different failures. */}
+<link rel="stylesheet" href={maplibreStylesheet} media="print" onload={PROMOTE_STYLESHEET} />
+<noscript>
+  <link rel="stylesheet" href={maplibreStylesheet} />
+</noscript>

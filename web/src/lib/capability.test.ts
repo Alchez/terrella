@@ -346,7 +346,7 @@ describe("Base.astro view bar", () => {
     // for the copy — a tooltip left describing only the idle spin would have been undersold with
     // nothing to catch it. Now: if terrain rides on the tier the tooltip must say so, and if it
     // ever stops riding on the tier the claim must come back out.
-    const globe = readFileSync(new URL("../pages/earth.astro", import.meta.url), "utf8");
+    const globe = readFileSync(new URL("../components/Globe.astro", import.meta.url), "utf8");
     // Keyed on the fact rather than on one spelling — the twin of this detector is in
     // terrainSource.test.ts, and both went red together when `currentTier()` was hoisted to a
     // `bootTier` const, which is the drift signal working rather than a defect.
@@ -590,7 +590,7 @@ describe("canRunGlobe — one floor, exported so nothing re-derives it", () => {
 });
 
 describe("the scripted-diagnosis seam is gated by the module boundary", () => {
-  const globe = readFileSync(new URL("../pages/earth.astro", import.meta.url), "utf8");
+  const globe = readFileSync(new URL("../components/Globe.astro", import.meta.url), "utf8");
   const overlay = readFileSync(new URL("./perf/perfOverlay.ts", import.meta.url), "utf8");
 
   it("lives in the lazily-imported instrument, so an ordinary visit cannot reach it", () => {
@@ -616,7 +616,7 @@ describe("the scripted-diagnosis seam is gated by the module boundary", () => {
 
 describe("probeSignals is a GPU allocation, and callers must treat it as one", () => {
   const capability = readFileSync(new URL("./capability.ts", import.meta.url), "utf8");
-  const globe = readFileSync(new URL("../pages/earth.astro", import.meta.url), "utf8");
+  const globe = readFileSync(new URL("../components/Globe.astro", import.meta.url), "utf8");
 
   it("releases the context it creates, not just the canvas", () => {
     // A live WebGL context is a GPU resource held until GC. Browsers force-lose the OLDEST live

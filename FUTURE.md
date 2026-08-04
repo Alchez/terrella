@@ -434,7 +434,7 @@ which is why it never blocked anything.
   `rendered:false` manifest entry for antimeridian-deferred countries instead of dropping them —
   `gen_manifest.py`'s `main()` skips them with `if r is None: continue`; (2) author a `bbox` —
   Kiribati has `status`/`notes` but no `frame`, and the gazetteer + globe fly-to read `country.bbox`;
-  (3) guard the globe's `openPanel()` in `earth.astro`, which sets `heroImg.src` from
+  (3) guard the globe's `openPanel()` in `Globe.astro`, which sets `heroImg.src` from
   `country.sizes[0]` unconditionally → a broken `kiribati-undefined.webp` for an unrendered entry;
   (4) optional distinct "deferred" copy — today's only placeholder string is "still rendering,"
   which misrepresents a permanent state.
@@ -555,7 +555,7 @@ conclusion below, which rests only on there being no value between 2 and 4.
   i.e. the mobile score is measured on a device the ladder treats as healthy.
 - **A second, independent gap:** `Base.astro`'s pre-paint guard gates `/earth/` on `webgl2()` alone,
   while `decideTier`'s `capable()` also requires `!softwareGpu`. A software-rasterizer visitor who
-  deep-links `/earth/` is therefore never bounced to the gallery, and `earth.astro` reads
+  deep-links `/earth/` is therefore never bounced to the gallery, and `Globe.astro` reads
   `currentTier()` only to decide whether to spin — so they get a full globe on SwiftShader.
 - **If reopened, decide these separately:** the memory threshold is a *tuning* question (2 GB is a very
   low bar; `<= 4` would catch mid-range Android), the Safari/Firefox blindness is a *coverage* question
@@ -727,7 +727,7 @@ conclusion below, which rests only on there being no value between 2 and 4.
   - an **object** sets `params.data`, and `Actor.sendAsync` then calls `serialize(message.data)`,
     which **recursively rebuilds every array and object**, before `postMessage` structured-clones
     that rebuilt copy. Two full deep walks of the geometry, on the main thread.
-- **We pass objects for all three country sources** (`earth.astro`, `addCountries`) while
+- **We pass objects for all three country sources** (`Globe.astro`, `addCountries`) while
   `boundary_lines.geojson` in the same file is passed as a **URL**. The asymmetry inside one file
   is the defect; the geometry is only the multiplier.
 - **Measured** (Node 24 / V8, warm, ×3 — same engine as Chrome, different host, so a proxy):

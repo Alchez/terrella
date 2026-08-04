@@ -93,7 +93,7 @@ describe("featureStateTargets — the hover flag reaches both painted layers", (
   it("the hover painter derives its targets rather than naming source ids", () => {
     // The unit tests above cannot see the call site, and the call site is where this went wrong.
     // A literal `source:` inside a setFeatureState call is that mistake, in the only shape it takes.
-    const globe = readFileSync(new URL("../pages/earth.astro", import.meta.url), "utf8");
+    const globe = readFileSync(new URL("../components/Globe.astro", import.meta.url), "utf8");
     const calls = globe.match(/setFeatureState\([^)]*\)/g) ?? [];
     expect(calls.length, "earth.astro must still paint the hover highlight").toBeGreaterThan(0);
     for (const call of calls) {

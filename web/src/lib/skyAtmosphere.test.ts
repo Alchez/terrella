@@ -297,7 +297,7 @@ describe("atmosphereNeedsRebuild", () => {
 });
 
 describe("earth.astro wires the ramp rather than re-stating it", () => {
-  const globe = readFileSync(new URL("../pages/earth.astro", import.meta.url), "utf8");
+  const globe = readFileSync(new URL("../components/Globe.astro", import.meta.url), "utf8");
 
   it("builds every sky from the module's spec — the page never states one itself", () => {
     // Was "exactly once" until the pitch term landed, and the count was never the point: the

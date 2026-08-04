@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import "../styles/global.css";
 import globalCss from "../styles/global.css?raw";
 import baseLayout from "../layouts/Base.astro?raw";
-import globePage from "../pages/earth.astro?raw";
+import globePage from "../components/Globe.astro?raw";
 import { BODIES, bodyFor, type BodySlug } from "./bodies";
 // Its own module now, because `bodies.ts` is compiled by the tile Worker (via tileAddress.ts) and
 // a `document` reference there fails that program. Tested from here anyway: the split is a runtime
