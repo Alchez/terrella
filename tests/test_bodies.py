@@ -413,6 +413,50 @@ def _browser_descriptor_blocks() -> dict[str, str]:
     return blocks
 
 
+def test_the_two_registries_hold_one_radius_for_a_body_that_is_really_a_sphere() -> None:
+    """Where the two `ground_radius_m` fields agree, and the one place they must not.
+
+    Both sides turn an angle or a map unit into a ground length, and both name the field after the
+    body's own sphere — but they are calibrated for different consumers, so a reader who spots the
+    mismatch and "fixes" it silently moves one of them. This states which way each goes.
+
+    THE PIPELINE'S IS EQUATORIAL, because its consumer works in EPSG:3857 map units and those units
+    are defined on a sphere of 6378137 m. Earth's ratio there is exactly 1.0 by construction of the
+    projection, which is the property `ground_metres_per_mercator_unit` is built on.
+
+    THE BROWSER'S IS THE MEAN RADIUS, because its consumer turns an ANGLE into an arc — and because
+    6371008.8 is the sphere MapLibre draws the globe on, so the scale ruler measures the geometry it
+    is sitting on top of.
+
+    MARS SETTLES THE SHAPE OF THE RULE: its DEM is published on a true sphere with flattening 0, so
+    equatorial, mean and polar are one number and both registries carry it. The disagreement belongs
+    to Earth alone, and only because Earth is not a sphere.
+    """
+    blocks = _browser_descriptor_blocks()
+    assert set(blocks) == set(bodies.BODIES), (
+        f"the pipeline knows {sorted(bodies.BODIES)} and the browser's BODIES record holds "
+        f"{sorted(blocks)} — the scan is reading a different set of planets than it is judging"
+    )
+    declared: dict[str, float] = {}
+    for name, block in blocks.items():
+        found = re.search(r"\bgroundRadiusM:\s*([0-9_.]+)\b", block)
+        assert found, f"the browser descriptor for {name} declares no groundRadiusM"
+        declared[name] = float(found.group(1).replace("_", ""))
+
+    assert declared["mars"] == bodies.BODIES["mars"].ground_radius_m, (
+        f"Mars is a sphere in both registries, so one number serves both: the pipeline says "
+        f"{bodies.BODIES['mars'].ground_radius_m} and the browser says {declared['mars']}"
+    )
+    assert declared["earth"] != bodies.BODIES["earth"].ground_radius_m, (
+        "Earth's two radii are deliberately different — equatorial for Mercator map units, mean for "
+        "an arc — so making them equal moves one consumer's answer. See this test's docstring."
+    )
+    # The size of the deliberate gap, so "different" cannot be satisfied by a typo. 0.11%: the same
+    # figure the cap pass met when it adopted its own conversion.
+    ratio = bodies.BODIES["earth"].ground_radius_m / declared["earth"]
+    assert 1.001 < ratio < 1.0012, f"Earth's two radii differ by {ratio:.6f}, which is not the ellipsoid"
+
+
 def test_the_two_registries_agree_on_which_bodies_render_polar_caps() -> None:
     """One fact, two languages, and each half decides something the other cannot see.
 

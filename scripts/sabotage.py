@@ -2847,6 +2847,63 @@ SABOTAGES: list[Sabotage] = [
         replacement="        if True:\n            found.extend(path.rglob(",
         guard='test_a_backup_beside_a_single_file_root_is_found',
     ),
+    # --- A ground metre is worth what the body says -----------------------------------------------
+    # The ruler is the only readout on the page that claims to be MEASURED. Every mutation here
+    # leaves it rendering a plausible number at every zoom, which is the whole reason the original
+    # defect survived a body registry, a required `--body` and two rounds of parameterisation.
+    Sabotage(
+        suite='web',
+        # The radius argument stops being used and the arc is Earth's again — the state this commit
+        # left. Earth notices nothing; Mars reads 1.876x long.
+        label='the arc is scaled by a fixed radius, so every planet reports Earth distances',
+        path='web/src/lib/scaleRuler.ts',
+        needle='  return groundRadiusM * Math.acos(Math.min(cosineOfArc, 1));',
+        replacement='  return 6371008.8 * Math.acos(Math.min(cosineOfArc, 1));',
+        guard='reports a second body\'s distances on that body, through the same live camera',
+    ),
+    Sabotage(
+        suite='web',
+        # The clamp goes, which is invisible until two samples land on one point: `Math.acos` of a
+        # cosine a hair above 1 is NaN, and the formatter renders NaN as the em-dash it keeps for
+        # "not a distance". A parked globe would blank its own ruler.
+        label='the cosine clamp goes, and a stationary camera blanks the ruler',
+        path='web/src/lib/scaleRuler.ts',
+        needle='  return groundRadiusM * Math.acos(Math.min(cosineOfArc, 1));',
+        replacement='  return groundRadiusM * Math.acos(cosineOfArc);',
+        guard='survives two samples landing on the same point, where the cosine can exceed 1',
+    ),
+    Sabotage(
+        suite='web',
+        # Earth's radius is "corrected" to the equatorial figure the pipeline carries. Every label
+        # is unchanged at two significant figures, and the ruler quietly stops measuring the sphere
+        # MapLibre draws.
+        label='Earth takes the pipeline\'s equatorial radius, and the ruler leaves the geometry',
+        path='web/src/lib/bodies.ts',
+        needle='    groundRadiusM: 6371008.8,',
+        replacement='    groundRadiusM: 6378137.0,',
+        guard='measures Earth on the sphere MapLibre draws Earth on',
+    ),
+    Sabotage(
+        suite='python',
+        # The second body's radius drifts to the OTHER Mars figure — 3,389,500 m is the IAU mean,
+        # and it is 0.2% out from the sphere this DEM is actually published on.
+        label='a body\'s radius drifts to a different published figure for the same planet',
+        path='web/src/lib/bodies.ts',
+        needle='    groundRadiusM: 3396190,',
+        replacement='    groundRadiusM: 3389500,',
+        guard='test_the_two_registries_hold_one_radius_for_a_body_that_is_really_a_sphere',
+    ),
+    Sabotage(
+        suite='web',
+        # The page stops passing its own body and hands the ruler Earth's radius directly. The
+        # module stays correct and every call site is what decides — which is why the argument is
+        # required rather than defaulted, and why this case reads the PAGE.
+        label='the page hands the ruler a literal radius instead of the body it is drawing',
+        path='web/src/components/Globe.astro',
+        needle='        body.groundRadiusM,',
+        replacement='        6371008.8,',
+        guard='takes the radius from the body it is drawing, not from a number',
+    ),
     # --- Which body's pages the routing sends you to ----------------------------------------------
     # Every case below is the code as it was written for one globe, restored. None of them changes
     # anything a visitor to Earth would see, because on Earth the literal and the registry agree —

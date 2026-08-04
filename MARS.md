@@ -143,15 +143,17 @@ work below is legible as *remaining*.
     Mercator one, because the two projections are defined on different spheres.
 - **The tile base is per-body**: a URL is built from the body's slug and its layer, with the body a
   required argument, so nothing derives a tile address without naming a planet.
-- **The scale ruler is NOT body-agnostic, and its injection seam is why that was missed.**
-  `rulerGroundDistance` takes a `locate` function, which looks parameterised — but `locate` returns
-  a MapLibre `LngLat`, and the distance comes from `LngLat.distanceTo`, whose radius is a module
-  constant in the shipped bundle (`earthRadius = 6371008.8`). The seam injects *where the points
-  are*, never *what a metre is worth*.
-  - So on a second body the ruler reads ~1.878× too long: plausible at every zoom, wrong at all of
-    them, and the one readout on the page that claims to be measured rather than drawn.
-  - Fixing it means computing the great-circle distance ourselves against `Body`'s ground radius,
-    not passing a different `locate`. Web-side, and not urgent while Mars publishes no globe.
+- **The scale ruler measures on the body's own sphere**, and how it came not to is the lesson worth
+  keeping. `rulerGroundDistance` took a `locate` function, which reads as parameterised — but
+  `locate` returned a MapLibre `LngLat`, and the distance came from `LngLat.distanceTo`, whose
+  radius is a constant in the shipped bundle. The seam injected *where the points are*, never *what
+  a metre is worth*, so a second body's ruler read 1.876× long: plausible at every zoom, wrong at
+  all of them, and the one readout on the page claiming to be measured rather than drawn.
+  - The locator now returns coordinates and the arc is computed here, against a required
+    `groundRadiusM` with no default — so a body that names no radius is a compile error, not a
+    plausible reading.
+  - Earth's readings are unchanged **by identity, not by tolerance**: the same formula and the same
+    constant MapLibre uses, proven against the library itself over a table of live camera positions.
 - **The tile Worker's directory cache is sized by summing every published archive**, across bodies,
   rather than by a hand tally — because two planets asked for alternately is precisely the traffic
   an undersized LRU handles worst, and an evicted directory costs a gunzip rather than a fetch, so
@@ -302,8 +304,9 @@ Each with its "or else", because a seam without a failure mode is a preference.
   - Both render paths convert through it now, but **not through the same ratio**, because they are
     projected on different spheres. The caps' azimuthal-equidistant disc divides by 6,371,000 m, so
     its Mars ratio is 0.5331 and its **Earth ratio is 1.0011, not 1.0** — the one place adopting the
-    conversion moved Earth's own pixels rather than none. What still does not convert at all is the
-    **scale ruler** in the browser.
+    conversion moved Earth's own pixels rather than none. The browser's **scale ruler** is a third
+    ratio for the same reason: it converts an angle rather than a map unit, so it divides by the
+    body's mean radius and Earth's factor there is exactly 1.
   - That AEQD sphere is as forced as the Mercator one, and separately measured: PROJ refuses
     EPSG:3857 to `+proj=aeqd +a=3396190` with the same celestial-body objection, from a bare proj4
     string that names no body at all.

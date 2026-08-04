@@ -45,6 +45,31 @@ export interface BodyDescriptor {
    *  bounces a visitor into a 404 with nothing on screen to say what happened, and only on the
    *  devices that cannot run a globe — which are not the ones we develop on. */
   liteRoute: string;
+  /** The sphere this body's ground distances are measured on, in metres.
+   *
+   *  WHAT IT IS FOR. Every reading the site gives in metres starts as an ANGLE — two lng/lat pairs
+   *  the projection handed back — and an angle becomes a length only against a radius. There is
+   *  exactly one such reading today, the scale ruler, and it used to take that radius from MapLibre:
+   *  `LngLat.distanceTo` multiplies by a hardcoded 6371008.8 inside the shipped bundle. So the
+   *  ruler reported Earth's distances on every planet, and on Mars that is 1.876x long — at every
+   *  zoom, in a plausible-looking font, with nothing to compare it against.
+   *
+   *  THE SEAM LOOKED PARAMETERISED AND WAS NOT, which is why this field had to exist rather than
+   *  being derivable. `rulerGroundDistance` already took its locator injected, so it read as
+   *  body-agnostic; what it injected was WHERE THE POINTS ARE, never what a metre is worth, and the
+   *  metre was pinned one layer down inside a dependency.
+   *
+   *  EARTH'S VALUE IS THE MEAN RADIUS, AND IT DELIBERATELY DISAGREES WITH `pipeline/bodies.py`,
+   *  which carries 6378137 in a field of nearly this name. The two convert different things. The
+   *  pipeline turns Mercator MAP UNITS into ground metres, and those units are defined on the
+   *  projection's 6378137 sphere, so Earth's ratio there is exactly 1.0 by construction. This turns
+   *  an ANGLE into an arc, where the mean radius is the right sphere — and it is also the sphere
+   *  MapLibre draws the globe on, so the ruler and the geometry it is measuring agree.
+   *
+   *  The disagreement is Earth's alone, and only because Earth is the one body here that is not a
+   *  sphere: Mars's DEM is published on a true sphere of 3,396,190 m with flattening 0, so its
+   *  equatorial, mean and polar radii are one number and both registries carry it. */
+  groundRadiusM: number;
   /** The chrome accent, per colour scheme.
    *
    *  DERIVED FROM THE MAP, NOT CHOSEN BESIDE IT. Earth's is the hero ramp's deep-sea teal, which is
@@ -109,6 +134,10 @@ export const BODIES: Record<BodySlug, BodyDescriptor> = {
     // to be `/`, not the body that defines it. Reading that coincidence as the rule is what put
     // `location.replace("/")` in the pre-paint guard for every planet alike.
     liteRoute: "/",
+    // The IUGG mean radius, which is the number the readout has always used — it is MapLibre's own
+    // `GLOBE_RADIUS`, in the shader that draws the sphere and in `LngLat.distanceTo` alike. Holding
+    // it explicitly changes no reading and moves the constant somewhere a second body can differ.
+    groundRadiusM: 6371008.8,
     accent: { light: "#3a6e7d", dark: "#7cb8b8" },
     // IMPORTED, never re-typed. `palette.ts` restates the pipeline's own ramp stops and is pinned
     // against them by tests/test_palette.py; a hex copied to here instead would be a third copy
@@ -143,6 +172,11 @@ export const BODIES: Record<BodySlug, BodyDescriptor> = {
     // Earth's `/`, which would answer "this device cannot run the Mars globe" by showing a visitor
     // a different planet.
     liteRoute: "/mars/lite/",
+    // The IAU 2015 sphere the blended MOLA/HRSC DEM declares in its own CRS, and the same number
+    // `pipeline/bodies.py` carries — unlike Earth's above, because this one really is a sphere.
+    // `pipeline/acquire/download_mars_dem.py` refuses a source that says anything else, so the two
+    // registries and the data agree or the download stops.
+    groundRadiusM: 3396190,
     accent: { light: "#8c4a32", dark: "#d08b6a" },
     spaceFloor: "#6b3a2a",
     // Matches `pipeline/bodies.py`'s `MARS.renders_polar_caps`, which is what actually decides it:

@@ -920,8 +920,16 @@ import { REPO_URL } from "../lib/siteLinks";
   // writes really are near-free.
   function updateRuler(): void {
     const container = map.getContainer();
+    // The body's own sphere, not the map's. Every projection here is Earth-sphered for every planet
+    // — MapLibre draws the globe at a hardcoded 6371008.8 — so the transform hands back an ANGLE
+    // that is correct for any body, and the radius is the one thing that has to change with it.
     ruler.setDistance(
-      rulerGroundDistance(locateOnDatum, container.clientWidth, container.clientHeight),
+      rulerGroundDistance(
+        locateOnDatum,
+        body.groundRadiusM,
+        container.clientWidth,
+        container.clientHeight,
+      ),
     );
   }
   map.on("move", updateRuler);

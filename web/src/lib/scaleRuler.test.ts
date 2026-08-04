@@ -7,6 +7,7 @@ import {
   RULER_WIDTH_PX,
 } from "./scaleRuler";
 import globeSource from "../components/Globe.astro?raw";
+import { BODIES } from "./bodies";
 
 /**
  * The body of a named function in earth.astro, matched by BRACES rather than by a text span.
@@ -29,20 +30,73 @@ function functionBody(source: string, signature: string): string {
   throw new Error(`unbalanced braces after \`${signature}\``);
 }
 
+/** A locator that answers with fixed coordinates and records what it was asked for. */
+function fixedLocator(coordinates: { lng: number; lat: number }[]) {
+  const asked: [number, number][] = [];
+  let call = 0;
+  return {
+    asked,
+    locate: (point: [number, number]) => {
+      asked.push(point);
+      const answer = coordinates[Math.min(call, coordinates.length - 1)];
+      call += 1;
+      return answer!;
+    },
+  };
+}
+
 describe("rulerGroundDistance", () => {
   it("measures between the two sample points and asks the locator for nothing else", () => {
-    const asked: [number, number][] = [];
-    const distance = rulerGroundDistance(
-      (point) => {
-        asked.push(point);
-        return { distanceTo: () => 4_800 };
-      },
-      1000,
-      600,
+    const locator = fixedLocator([
+      { lng: 0, lat: 0 },
+      { lng: 0, lat: 0 },
+    ]);
+    rulerGroundDistance(locator.locate, 6_371_008.8, 1000, 600);
+    expect(locator.asked).toEqual(rulerSamplePoints(1000, 600));
+    expect(locator.asked).toHaveLength(2);
+  });
+
+  it("turns the angle between them into an arc on the radius it was handed", () => {
+    // One degree of longitude at the equator is exactly one degree of arc, so the expected answer
+    // is the definition of a radian rather than a number copied from the implementation.
+    const locator = fixedLocator([
+      { lng: 0, lat: 0 },
+      { lng: 1, lat: 0 },
+    ]);
+    expect(rulerGroundDistance(locator.locate, 1, 1000, 600)).toBeCloseTo(Math.PI / 180, 12);
+  });
+
+  it("scales with the body, which is the defect this argument exists for", () => {
+    // THE FAILURE THIS REPLACES. The distance used to come from the locator's own point type, and
+    // MapLibre's multiplies by a hardcoded 6371008.8 — so every planet reported Earth's distances.
+    // Same angle, two bodies: the readings must differ by exactly the ratio of the radii.
+    const separated = () =>
+      fixedLocator([
+        { lng: 10, lat: 45 },
+        { lng: 11, lat: 45 },
+      ]).locate;
+    const onEarth = rulerGroundDistance(separated(), BODIES.earth.groundRadiusM, 1000, 600);
+    const onMars = rulerGroundDistance(separated(), BODIES.mars.groundRadiusM, 1000, 600);
+    expect(onMars / onEarth).toBeCloseTo(
+      BODIES.mars.groundRadiusM / BODIES.earth.groundRadiusM,
+      12,
     );
-    expect(distance).toBe(4_800);
-    expect(asked).toEqual(rulerSamplePoints(1000, 600));
-    expect(asked).toHaveLength(2);
+    // Stated as a magnitude too, because a ratio test passes just as happily when both are zero.
+    expect(onEarth).toBeGreaterThan(onMars);
+    expect(onEarth / onMars).toBeCloseTo(1.8759, 3);
+  });
+
+  it("survives two samples landing on the same point, where the cosine can exceed 1", () => {
+    // THE LATITUDE IS MEASURED, NOT PICKED, and the first version of this test was vacuous for
+    // exactly that reason: at a latitude I chose for looking plausible, `sin² + cos²` happens to
+    // land at or below 1, so removing the clamp changed nothing and the harness reported MISSED.
+    //
+    // Swept at 2,000,000 latitudes, the sum exceeds 1 by one ulp at ~1% of them, spread across
+    // every band rather than bunched at the poles. There `Math.acos` returns NaN, which the
+    // formatter renders as the em-dash it keeps for "not a distance" — so the ruler would blank
+    // itself rather than read zero.
+    const locator = fixedLocator([{ lng: 12, lat: -59.98536 }]);
+    expect(rulerGroundDistance(locator.locate, 6_371_008.8, 1000, 600)).toBe(0);
   });
 });
 
@@ -98,6 +152,21 @@ describe("the ruler's measurement never resolves against terrain", () => {
     expect(rulerBody()).not.toContain("unproject");
     expect(rulerBody()).toContain("rulerGroundDistance");
     expect(globeSource).toContain('from "../lib/scaleRuler"');
+  });
+
+  it("takes the radius from the body it is drawing, not from a number", () => {
+    // The module is correct for any radius, so the call site is what decides which planet the
+    // readout is about — and a literal here is indistinguishable from a correct page on Earth. Only
+    // source can see it: the reading it produces is right for the one body anyone tests against.
+    const body = rulerBody();
+    expect(body).toContain("body.groundRadiusM");
+    // A digit in this call is a radius that came from somewhere other than the registry. Matched
+    // inside `rulerGroundDistance(...)` alone, so the `clientWidth`/`clientHeight` arguments and
+    // any future numeric span are not what trips it.
+    const call = body.slice(body.indexOf("rulerGroundDistance("));
+    expect(call.slice(0, call.indexOf(")")), "a numeric literal reached the radius").not.toMatch(
+      /\d/,
+    );
   });
 
   it("canary — MapLibre still exposes the terrain-free conversion we reach for", () => {
