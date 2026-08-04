@@ -16,6 +16,7 @@ time — reloading modules in-process would leak state between tests.
 
 import os
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -55,6 +56,14 @@ BPY_ONLY = ("pipeline.render.scene_build", "pipeline.render.scene_dump")
 # Import every pipeline module with the store moved elsewhere, and report any module-level path that
 # stayed behind. Deliberately NOT a text search: it reads the resolved value, so it is blind to how
 # the path was spelled and cannot be evaded by a spelling nobody has thought of yet.
+#
+# IT READS ONLY THE SEGMENTS THE REPO CHOSE, which is the whole of `below`. An absolute path also
+# carries the segments the MACHINE chose, and those are not ours to reason about: GitHub checks out
+# to /home/runner/work/<repo>/<repo>, so a predicate over `value.parts` matched the runner's own
+# `work` directory and reported all sixteen checkout-resident constants — `config/`, `web/public`,
+# `blender/renders`, `paths.ROOT` itself — as data paths that had stayed behind. Every one of them
+# was correct code. Taking the path relative to the checkout first asks the same question of the
+# same values while leaving the machine's naming out of the answer.
 STORE_PROBE = f"""
 import importlib, pkgutil
 from pathlib import Path
@@ -65,8 +74,11 @@ for module in pkgutil.walk_packages([str(paths.ROOT / "pipeline")], "pipeline.")
         continue
     loaded = importlib.import_module(module.name)
     for attribute, value in vars(loaded).items():
-        if (isinstance(value, Path) and {{"raw", "work"}} & set(value.parts)
-                and not value.is_relative_to(paths.DATA)):
+        if not isinstance(value, Path) or value.is_relative_to(paths.DATA):
+            continue
+        below = (value.relative_to(paths.ROOT).parts
+                 if value.is_relative_to(paths.ROOT) else value.parts)
+        if {{"raw", "work"}} & set(below):
             offenders.append(f"{{module.name}}.{{attribute}} = {{value}}")
 print("\\n".join(sorted(set(offenders))))
 """
@@ -84,15 +96,20 @@ def tracked_files() -> list[Path]:
     return [Path(name) for name in listing.stdout.split("\0") if name]
 
 
-def run_probe(code: str, env_overrides: dict[str, str]) -> str:
-    """Run `python -c code` from the repo root with a controlled environment."""
+def run_probe(code: str, env_overrides: dict[str, str], cwd: Path = REPO_ROOT) -> str:
+    """Run `python -c code` from a checkout with a controlled environment.
+
+    `cwd` is what puts `pipeline` on the path, so it also decides what `paths.ROOT` resolves to —
+    which is how one test below can ask the probe the same question from a differently-named
+    checkout without moving this one.
+    """
     env = {key: value for key, value in os.environ.items() if not key.startswith("MAPS_")}
     env.update(env_overrides)
     result = subprocess.run(
         [sys.executable, "-c", code],
         capture_output=True,
         text=True,
-        cwd=REPO_ROOT,
+        cwd=cwd,
         env=env,
         check=True,
     )
@@ -256,6 +273,14 @@ class TestTheStoreIsWhereTheStoreIs:
     RESOLVED values — which makes it blind to spelling by construction and therefore incapable of
     being blind to a spelling. What it cannot see is a path built inside a function; that half is a
     source scan, because there is no import-time value to look at.
+
+    THEN IT WAS BLIND A FOURTH TIME, and in the opposite direction — a false POSITIVE rather than a
+    false negative. Reading the absolute path's segments meant reading the machine's naming as well
+    as the repo's, and CI checks out under a directory literally named `work`, so every one of the
+    sixteen checkout-resident constants was reported as a data path left behind. Nothing in the code
+    was wrong; the instrument was measuring the runner. The lesson generalises past this predicate:
+    an environment-sensitive guard fails where it has never been run, so the reproduction has to
+    BE that environment rather than resemble it.
     """
 
     def test_no_module_path_stays_behind_when_the_store_moves(self, tmp_path):
@@ -278,6 +303,46 @@ class TestTheStoreIsWhereTheStoreIs:
         )
         found = run_probe(planted, {"MAPS_DATA": str(tmp_path / "elsewhere")})
         assert "pipeline.bodies._PLANTED" in found
+
+    def test_the_probe_reads_the_repos_own_segments_and_not_the_machines(self, tmp_path):
+        """The same question asked from a checkout whose own path carries a `work` directory.
+
+        THIS IS THE CI CONDITION RATHER THAN AN ANALOGY: GitHub Actions checks out to
+        `/home/runner/work/<repo>/<repo>`. A predicate over the absolute path's parts matched that
+        `work` and named all sixteen checkout-resident constants, every one of them correct code,
+        on a branch that was green on the machine it was written on.
+
+        THE CHECKOUT IS COPIED RATHER THAN SYMLINKED because `paths.ROOT` resolves, so a link would
+        land back on this checkout and the reproduction would quietly be testing nothing.
+
+        The control is inline rather than a sibling test because it is specific to THIS copy: an
+        empty assertion list is the pass condition, and a `copytree` that produced a tree the probe
+        could not import would return exactly that. Planting an offender proves the probe reached
+        the copy — the reported path has to be the copy's, not this checkout's.
+        """
+        checkout = tmp_path / "work" / "checkout"
+        shutil.copytree(REPO_ROOT / "pipeline", checkout / "pipeline",
+                        ignore=shutil.ignore_patterns("__pycache__"))
+        store = {"MAPS_DATA": str(tmp_path / "elsewhere")}
+
+        offenders = run_probe(STORE_PROBE, store, cwd=checkout)
+        assert not offenders, (
+            f"the probe reports offenders only because the checkout sits under a directory named "
+            f"`work`:\n{offenders}\n— take the path relative to paths.ROOT first, so that only the "
+            "segments this repository chose can decide the answer"
+        )
+
+        planted = STORE_PROBE.replace(
+            "offenders = []",
+            'import pipeline.bodies\n'
+            'pipeline.bodies._PLANTED = paths.ROOT / "data/work/planted"\n'
+            "offenders = []",
+        )
+        found = run_probe(planted, store, cwd=checkout)
+        assert f"{checkout}/data/work/planted" in found, (
+            f"the probe did not import the copied checkout, so the assertion above passed on an "
+            f"empty tree rather than a clean one (saw: {found})"
+        )
 
     def test_no_data_path_is_built_by_joining_onto_a_checkout_root(self):
         """The half the probe structurally cannot see: a path assembled INSIDE a function.
@@ -321,11 +386,26 @@ class TestTheStoreIsWhereTheStoreIs:
 
     def test_the_probe_reaches_every_module_it_should(self, tmp_path):
         """The other half of the control: proof the walk covers the tree, not just that it can
-        report. A probe narrowed to one package would pass both tests above forever."""
+        report. A probe narrowed to one package would pass both tests above forever.
+
+        It swaps the predicate out BY TEXT, so every edit to the predicate lands here — which is
+        why the excerpt is asserted before it is used. Without that, a substitution that missed
+        would leave the probe reporting nothing at all and this test would fail claiming the walk
+        no longer reaches `cap_render`, which is a true statement about the wrong thing.
+        """
+        predicate = (
+            "if not isinstance(value, Path) or value.is_relative_to(paths.DATA):\n"
+            "            continue\n"
+            "        below = (value.relative_to(paths.ROOT).parts\n"
+            "                 if value.is_relative_to(paths.ROOT) else value.parts)\n"
+            '        if {"raw", "work"} & set(below):'
+        )
+        assert predicate in STORE_PROBE, (
+            "the probe's predicate has changed and this control still holds the old text, so the "
+            "substitution below would silently do nothing — copy the new predicate in here"
+        )
         listing = STORE_PROBE.replace(
-            'if (isinstance(value, Path) and {"raw", "work"} & set(value.parts)\n'
-            "                and not value.is_relative_to(paths.DATA)):",
-            "if attribute == '__name__':",
+            predicate, "if attribute == '__name__':",
         ).replace('f"{module.name}.{attribute} = {value}"', "module.name")
         reached = set(run_probe(listing, {"MAPS_DATA": str(tmp_path / "elsewhere")}).split("\n"))
         for module in ("pipeline.tile.cap_render", "pipeline.compose.gen_spotlight",

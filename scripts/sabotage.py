@@ -123,6 +123,12 @@ MUTABLE_ROOTS = (
     # checker and the import probe — the only proof that anything watches it is breaking it.
     "pipeline/frame",
     "pipeline/batch.py",
+    # A second single test file, on `tests/test_hero_variants.py`'s principle. The store probe's
+    # PREDICATE lives in the test module, so the predicate is both guard and subject, and there is
+    # nowhere else to break it. It has now been wrong in both directions — blind to a spelling
+    # three times, then reporting sixteen correct constants as offenders because CI checks out
+    # under a directory named `work` — and neither direction is visible from this machine.
+    "tests/test_paths.py",
 )
 
 # Set for the duration of one case, so the backup THIS run is holding does not trip the leftover
@@ -2985,6 +2991,23 @@ SABOTAGES: list[Sabotage] = [
         needle='DIR = paths.DATA / "raw/naturalearth"',
         replacement='DIR = paths.ROOT / "data/raw/naturalearth"',
         guard='test_no_module_path_stays_behind_when_the_store_moves',
+    ),
+    # The probe itself, reverted to reading the ABSOLUTE path's segments. That version answers a
+    # question about the machine as well as the repo, and CI's checkout sits two levels under a
+    # directory the runner names `work` — so it reported all sixteen checkout-resident constants,
+    # `config/` and `web/public` and `blender/renders` among them, as data paths left behind.
+    #
+    # THE CASE IS ONLY REACHABLE FROM A DIFFERENTLY-NAMED CHECKOUT, which is the whole difficulty:
+    # the mutation is invisible from this one, so `test_no_module_path_stays_behind_when_the_store
+    # _moves` stays green through it and only the test that builds its own `work/` checkout fires.
+    Sabotage(
+        suite='python',
+        label='the store probe reads the machine\'s path segments as well as the repo\'s',
+        path='tests/test_paths.py',
+        needle=('        below = (value.relative_to(paths.ROOT).parts\n'
+                '                 if value.is_relative_to(paths.ROOT) else value.parts)'),
+        replacement='        below = value.parts',
+        guard='test_the_probe_reads_the_repos_own_segments_and_not_the_machines',
     ),
     # The other half of the same seam, in the other language. The writer moving alone is worse than
     # neither moving: the acquirer fills one tree and seven readers look in the other.
