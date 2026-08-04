@@ -14,9 +14,15 @@
 export const TILE_EXTENSION = "webp";
 export const TILE_CONTENT_TYPE = "image/webp";
 
-/** Zoom range of the packaged pyramid. The source of truth is the PMTiles header; these are a
- *  copy, so that the browser can request its first tile without a round trip to learn them.
- *  assertZoomRange() below is what stops the copy drifting. */
+/** Zoom range of EARTH's packaged pyramid, kept so the browser can request its first tile without
+ *  a round trip to learn it.
+ *
+ *  NOT THE GENERAL ANSWER, AND THE SECOND BODY IS WHY. The per-planet answer lives in
+ *  `PUBLISHED[body].relief` in tileAddress.ts — Earth is cut to z8 and Mars to z6, because a
+ *  ceiling follows each body's own source data. What is left here is Earth's pair, still read by
+ *  the legacy path below (untokened URLs are Earth's by definition) and by the values Earth's own
+ *  registry entry is built from. The dev server checks every archive's header against the
+ *  registry, which is what stops the copy drifting. */
 export const RELIEF_MIN_ZOOM = 0;
 export const RELIEF_MAX_ZOOM = 8;
 
@@ -78,15 +84,3 @@ export function describeTileTypeMismatch(archiveExtension: string): string | nul
   );
 }
 
-/** Fail loudly when the archive stops matching the constants above. Called by the tile server
- *  once, against the header it has already read — the whole point of duplicating the zooms
- *  into the client is that nothing in the browser can notice they went stale. */
-export function assertZoomRange(archiveMinZoom: number, archiveMaxZoom: number): void {
-  if (archiveMinZoom !== RELIEF_MIN_ZOOM || archiveMaxZoom !== RELIEF_MAX_ZOOM) {
-    throw new Error(
-      `PMTiles archive covers z${archiveMinZoom}-z${archiveMaxZoom}, but the globe requests ` +
-        `z${RELIEF_MIN_ZOOM}-z${RELIEF_MAX_ZOOM}. Update RELIEF_MIN_ZOOM/RELIEF_MAX_ZOOM in ` +
-        `src/lib/reliefTiles.ts to match the re-cut pyramid.`,
-    );
-  }
-}

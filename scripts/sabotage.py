@@ -2993,6 +2993,21 @@ SABOTAGES: list[Sabotage] = [
     # reports nothing at all — which is exactly how the hand tally got terrain's leaf count wrong.
     Sabotage(
         suite='web',
+        # The one check that replaced three per-layer `assert*ZoomRange` functions. Half of it is
+        # easy to lose: a re-cut that moves only the FLOOR is the rarest case and the one a reader
+        # trims when tidying the condition, and nothing downstream notices — the server just opens
+        # an archive whose first level is not the one the registry promised.
+        label='the archive header check stops comparing the zoom FLOOR',
+        path='web/src/lib/tileAddress.ts',
+        needle=(
+            '  if (header.minZoom === published.minZoom && header.maxZoom === published.maxZoom)'
+            ' return null;'
+        ),
+        replacement='  if (header.maxZoom === published.maxZoom) return null;',
+        guard='catches drift in BOTH directions, because neither shows up as an error',
+    ),
+    Sabotage(
+        suite='web',
         # Re-anchored when Mars started publishing. The old case made Mars's `null` into Earth's
         # archive; there is no `null` to mutate now, and the live failure moved with it. What is
         # left is the tidy-looking one: Mars's ceiling written as the module constants that sit

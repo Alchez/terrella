@@ -1,14 +1,11 @@
 import { describe, it, expect } from "vitest";
 import {
   COUNTRIES_CONTENT_TYPE,
-  COUNTRIES_MAX_ZOOM,
-  COUNTRIES_MIN_ZOOM,
   COUNTRIES_PATH_PREFIX,
   COUNTRIES_TILE_EXTENSION,
   COUNTRY_FILL_LAYER,
   COUNTRY_HIT_LAYER,
   COUNTRY_OUTLINE_LAYER,
-  assertCountriesZoomRange,
   describeCountriesTileTypeMismatch,
   parseCountriesTilePath,
 } from "./countryTiles";
@@ -66,19 +63,6 @@ describe("describeCountriesTileTypeMismatch", () => {
     // tileTypeExt returns "" for an unknown type, and an empty string interpolated into the
     // message reads as the archive storing nothing rather than something unrecognised.
     expect(describeCountriesTileTypeMismatch("")).toContain("cannot name");
-  });
-});
-
-describe("assertCountriesZoomRange", () => {
-  it("passes when the archive matches the constants", () => {
-    expect(() => assertCountriesZoomRange(COUNTRIES_MIN_ZOOM, COUNTRIES_MAX_ZOOM)).not.toThrow();
-  });
-
-  it("throws on drift in either direction, naming the file to fix", () => {
-    // A shallower archive is invisible on THIS pyramid in a way it is not on relief: the sparse
-    // route answers 204 for a missing tile, so an archive that stops early looks like ocean.
-    expect(() => assertCountriesZoomRange(0, 6)).toThrow(/countryTiles\.ts/);
-    expect(() => assertCountriesZoomRange(1, 8)).toThrow(/countryTiles\.ts/);
   });
 });
 

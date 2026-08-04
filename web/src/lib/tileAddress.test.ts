@@ -7,6 +7,7 @@ import {
   TILE_PATH_SEGMENTS,
   TOKEN_LENGTH,
   archiveFor,
+  describeArchiveHeaderMismatch,
   parseTileAddress,
   resolveTileRequest,
   tilePathTemplate,
@@ -183,6 +184,57 @@ describe("the registry", () => {
     // Publishing nothing is not the same as not existing. The slug has to resolve for the route,
     // the accent tokens and the dev server's work-tree prefix.
     expect(Object.keys(PUBLISHED)).toContain("mars");
+  });
+});
+
+describe("describeArchiveHeaderMismatch", () => {
+  // This one check replaced three `assert*ZoomRange` functions, one per layer module, each of
+  // which compared an archive against ITS OWN module constants. That shape could not survive a
+  // second body: Earth's relief is cut to z8 and Mars's to z6, so a per-layer constant is Earth's
+  // answer to a per-planet question. These cases are the three it inherited, plus the one that
+  // could not be written before — a correct archive for a body with a different ceiling.
+
+  it("passes an archive that covers exactly what the registry advertises", () => {
+    for (const [body, layers] of Object.entries(PUBLISHED)) {
+      for (const [layer, archive] of Object.entries(layers)) {
+        if (!archive) continue;
+        const header = { minZoom: archive.minZoom, maxZoom: archive.maxZoom };
+        expect(
+          describeArchiveHeaderMismatch(body as keyof typeof PUBLISHED, layer as LayerId, header),
+          `${body}/${layer}`,
+        ).toBeNull();
+      }
+    }
+  });
+
+  it("accepts Mars at its own ceiling and refuses it at Earth's, which is the whole point", () => {
+    expect(describeArchiveHeaderMismatch("mars", "relief", { minZoom: 0, maxZoom: 6 })).toBeNull();
+    expect(describeArchiveHeaderMismatch("mars", "relief", { minZoom: 0, maxZoom: 8 }))
+      .toMatch(/covers z0-z8/);
+  });
+
+  it("catches drift in BOTH directions, because neither shows up as an error", () => {
+    // Shallower: tiles past the depth stop arriving and the globe keeps drawing what it has.
+    expect(describeArchiveHeaderMismatch("earth", "relief", { minZoom: 0, maxZoom: 6 }))
+      .toMatch(/PUBLISHED\.earth\.relief/);
+    // Deeper: the extra levels are simply never requested.
+    expect(describeArchiveHeaderMismatch("earth", "relief", { minZoom: 0, maxZoom: 10 }))
+      .toMatch(/PUBLISHED\.earth\.relief/);
+    // And a min that moved, which nothing else in the chain would notice.
+    expect(describeArchiveHeaderMismatch("earth", "countries", { minZoom: 1, maxZoom: 8 }))
+      .toMatch(/PUBLISHED\.earth\.countries/);
+  });
+
+  it("names the file to edit, so the message is actionable without reading this test", () => {
+    const message = describeArchiveHeaderMismatch("earth", "terrain", { minZoom: 0, maxZoom: 6 });
+    expect(message).toMatch(/src\/lib\/tileAddress\.ts/);
+  });
+
+  it("throws rather than passing for a layer the body does not publish", () => {
+    // Inherited from `archiveFor`, and worth pinning here: silently returning null would let a
+    // server open an archive for a cut that is not supposed to exist.
+    expect(() => describeArchiveHeaderMismatch("mars", "terrain", { minZoom: 0, maxZoom: 8 }))
+      .toThrow(/publishes no/);
   });
 });
 

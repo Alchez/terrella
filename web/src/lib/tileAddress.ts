@@ -267,6 +267,36 @@ export function parseTileAddress(pathname: string): TileAddress | null {
   return { body, layer, token, z, x, y };
 }
 
+/** Describe a disagreement between what an archive's own header says it covers and what the
+ *  registry advertises, or null when they agree.
+ *
+ *  HERE RATHER THAN AT THE CALL SITE, because the call site is `astro.config.ts` and nothing
+ *  imports a config. This replaced three `assert*ZoomRange` functions that lived in the three layer
+ *  modules for exactly that reason — they were testable and a check buried in the config is not.
+ *  Returning a string rather than throwing matches `describeTileTypeMismatch` next door, and lets
+ *  each server pick its own severity: the dev server throws, the Worker logs and 404s.
+ *
+ *  IT ASKS THE REGISTRY, NOT A MODULE CONSTANT. Earth's relief is cut to z8 and Mars's to z6,
+ *  because a ceiling follows each body's own source data — so `RELIEF_MIN_ZOOM` and its two
+ *  siblings are Earth's answer to a per-planet question, and checking Mars against them refuses a
+ *  correct pyramid. */
+export function describeArchiveHeaderMismatch(
+  body: BodySlug,
+  layer: LayerId,
+  header: { minZoom: number; maxZoom: number },
+): string | null {
+  const published = archiveFor(body, layer);
+  if (header.minZoom === published.minZoom && header.maxZoom === published.maxZoom) return null;
+  return (
+    `PMTiles archive for ${body}/${layer} covers z${header.minZoom}-z${header.maxZoom}, but ` +
+    `PUBLISHED.${body}.${layer} in src/lib/tileAddress.ts says z${published.minZoom}-` +
+    `z${published.maxZoom}. Update the registry to match the re-cut pyramid, or re-cut it. ` +
+    `A disagreement is silent either way: a shallower archive stops sharpening (204 on the sparse ` +
+    `countries pyramid, which is indistinguishable from ocean), and a deeper one is never asked ` +
+    `for, which looks exactly like the extra levels having no effect.`
+  );
+}
+
 /** Look one body's cut of a layer up, or throw.
  *
  *  NO FALLBACK, for the reason both registries give: a caller that quietly borrowed Earth's archive

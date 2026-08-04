@@ -562,11 +562,11 @@ export default {
 
       const header = await archive.getHeader();
 
-      // The globe hardcodes the zoom range so it can request z0 without a round trip first
-      // (RELIEF_MIN_ZOOM/RELIEF_MAX_ZOOM). Here the archive is the authority, and disagreement
-      // is a 404 plus a log line — NOT the throw assertZoomRange() raises in the dev server.
-      // A dev server should refuse to start on drift; a live tile server should serve what it
-      // has and make the drift visible, rather than 500 every tile in the world.
+      // The site ships the zoom range in its registry so it can request z0 without a round trip
+      // first (`PUBLISHED[body][layer]`). Here the archive is the authority, and disagreement is a
+      // 404 plus a log line — NOT the throw the dev server's own header check raises against that
+      // same registry. A dev server should refuse to start on drift; a live tile server should
+      // serve what it has and make the drift visible, rather than 500 every tile in the world.
       if (tile.z < header.minZoom || tile.z > header.maxZoom) {
         console.warn(
           `z${tile.z} requested but ${archiveKey} covers z${header.minZoom}-z${header.maxZoom} — ` +

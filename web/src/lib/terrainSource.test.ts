@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { PUBLISHED } from "./tileAddress";
 import {
-  assertTerrainZoomRange,
   DEFAULT_TERRAIN_EXAGGERATION,
   DEFAULT_TERRAIN_RAMP_FLOOR,
   defaultTerrainRamp,
@@ -18,7 +17,6 @@ import {
   resolveTerrainExaggeration,
   TERRAIN_CONTENT_TYPE,
   TERRAIN_MAX_ZOOM,
-  TERRAIN_MIN_ZOOM,
   TERRAIN_OFF,
   TERRAIN_PATH_PREFIX,
   TERRAIN_QUANTISATION_M,
@@ -221,9 +219,7 @@ describe("the path contract — the layer segment is the only discriminator left
     expect(parseTerrainTilePath("/terrain/bathy_s8_webp/8/189/107.webp")).toBeNull();
   });
 
-  it("names the two archive checks after their own constants, so a drift message is actionable", () => {
-    expect(() => assertTerrainZoomRange(0, 6)).toThrow(/TERRAIN_MIN_ZOOM\/TERRAIN_MAX_ZOOM/);
-    expect(() => assertTerrainZoomRange(TERRAIN_MIN_ZOOM, TERRAIN_MAX_ZOOM)).not.toThrow();
+  it("names the encoding check after its own constant, so a drift message is actionable", () => {
     expect(describeTerrainTileTypeMismatch(`.${TERRAIN_TILE_EXTENSION}`)).toBeNull();
     expect(describeTerrainTileTypeMismatch(".png")).toMatch(/LOSSLESS/);
   });

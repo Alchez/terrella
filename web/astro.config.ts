@@ -13,7 +13,12 @@ import {
   describeRetiredStoreVars,
   resolveDataRoot,
 } from './src/lib/devStores';
-import { archiveFor, LAYERS, resolveTileRequest, type LayerId } from './src/lib/tileAddress';
+import {
+  describeArchiveHeaderMismatch,
+  LAYERS,
+  resolveTileRequest,
+  type LayerId,
+} from './src/lib/tileAddress';
 import type { BodySlug } from './src/lib/bodies';
 import { describeTileTypeMismatch } from './src/lib/reliefTiles';
 import { describeTerrainTileTypeMismatch } from './src/lib/terrainSource';
@@ -175,26 +180,14 @@ const VALIDATE_TILE_TYPE: Record<LayerId, (extension: string) => string | null> 
 /** Header checks for one body's cut of one layer, THROWING where the Worker logs and 404s.
  *
  *  The asymmetry is deliberate and long-standing: a dev server should refuse to start on drift, a
- *  live one should serve what it has and make the drift visible rather than 500 the world.
- *
- *  THE ZOOM RANGE COMES FROM THE REGISTRY, NOT FROM A MODULE CONSTANT, and the second body is what
- *  made the difference observable. `RELIEF_MIN_ZOOM`/`RELIEF_MAX_ZOOM` and their two siblings are
- *  Earth's answer to a question that is per-planet: Earth's relief is cut to z8 and Mars's to z6,
- *  because each body's ceiling follows its own source data. Checking a Mars archive against Earth's
- *  constants refuses a correct pyramid; checking it against nothing lets a mis-cut one through. The
- *  registry is the only place that knows which pair to expect. */
+ *  live one should serve what it has and make the drift visible rather than 500 the world. Both
+ *  descriptions come from `lib/`, so the checks stay testable — a config is imported by nothing. */
 function headerCheckFor(body: BodySlug, layer: LayerId) {
   return (header: { minZoom: number; maxZoom: number; tileType: number }): void => {
-    const published = archiveFor(body, layer);
-    if (header.minZoom !== published.minZoom || header.maxZoom !== published.maxZoom) {
-      throw new Error(
-        `PMTiles archive for ${body}/${layer} covers z${header.minZoom}-z${header.maxZoom}, but ` +
-          `PUBLISHED.${body}.${layer} in src/lib/tileAddress.ts says z${published.minZoom}-` +
-          `z${published.maxZoom}. Update the registry to match the re-cut pyramid, or re-cut it.`,
-      );
-    }
-    const mismatch = VALIDATE_TILE_TYPE[layer](tileTypeExt(header.tileType));
-    if (mismatch) throw new Error(mismatch);
+    const zoomMismatch = describeArchiveHeaderMismatch(body, layer, header);
+    if (zoomMismatch) throw new Error(zoomMismatch);
+    const typeMismatch = VALIDATE_TILE_TYPE[layer](tileTypeExt(header.tileType));
+    if (typeMismatch) throw new Error(typeMismatch);
   };
 }
 

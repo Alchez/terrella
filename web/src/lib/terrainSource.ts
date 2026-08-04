@@ -119,22 +119,6 @@ export function describeTerrainTileTypeMismatch(archiveExtension: string): strin
   );
 }
 
-/** Fail loudly when the terrain archive stops matching the constants above.
- *
- *  The failure this catches is silent in BOTH directions and neither shows up as an error: an
- *  archive shallower than TERRAIN_MAX_ZOOM 404s every tile past its depth while the globe still
- *  renders flat there, and a deeper one is simply never requested — which looks exactly like the
- *  extra levels having no visual effect. */
-export function assertTerrainZoomRange(archiveMinZoom: number, archiveMaxZoom: number): void {
-  if (archiveMinZoom !== TERRAIN_MIN_ZOOM || archiveMaxZoom !== TERRAIN_MAX_ZOOM) {
-    throw new Error(
-      `Terrain archive covers z${archiveMinZoom}-z${archiveMaxZoom}, but the globe requests ` +
-        `z${TERRAIN_MIN_ZOOM}-z${TERRAIN_MAX_ZOOM}. Update TERRAIN_MIN_ZOOM/TERRAIN_MAX_ZOOM in ` +
-        `src/lib/terrainSource.ts to match the re-cut pyramid.`,
-    );
-  }
-}
-
 /** DECLARED tile size, and deliberately a quarter of the asset's true 512 px — the same trick the
  *  relief source plays for a different reason (it declares 256 to land 512 px assets @2x at DPR 2;
  *  this declares 128 so a render tile covers a quarter of the ground, making the fixed 128-quad

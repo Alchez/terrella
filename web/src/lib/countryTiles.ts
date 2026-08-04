@@ -90,17 +90,3 @@ export function describeCountriesTileTypeMismatch(archiveExtension: string): str
   );
 }
 
-/** Fail loudly when the country archive stops matching the constants above.
- *
- *  Silent in both directions like its siblings, with one extra wrinkle: because this pyramid is
- *  sparse, a shallower archive does not 404 visibly the way relief does — the route answers 204
- *  for a missing tile, so an archive that stops at z6 looks exactly like ocean from z7 up. */
-export function assertCountriesZoomRange(archiveMinZoom: number, archiveMaxZoom: number): void {
-  if (archiveMinZoom !== COUNTRIES_MIN_ZOOM || archiveMaxZoom !== COUNTRIES_MAX_ZOOM) {
-    throw new Error(
-      `Countries archive covers z${archiveMinZoom}-z${archiveMaxZoom}, but the globe requests ` +
-        `z${COUNTRIES_MIN_ZOOM}-z${COUNTRIES_MAX_ZOOM}. Update COUNTRIES_MIN_ZOOM/` +
-        `COUNTRIES_MAX_ZOOM in src/lib/countryTiles.ts to match the re-cut pyramid.`,
-    );
-  }
-}

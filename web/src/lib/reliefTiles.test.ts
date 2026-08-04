@@ -7,10 +7,8 @@ import { describe, expect, it } from "vitest";
 import {
   RELIEF_BASE_MAX_ZOOM,
   RELIEF_MAX_ZOOM,
-  RELIEF_MIN_ZOOM,
   TILE_CONTENT_TYPE,
   TILE_EXTENSION,
-  assertZoomRange,
   describeTileTypeMismatch,
   parseTilePath,
 } from "./reliefTiles";
@@ -67,16 +65,6 @@ describe("parseTilePath", () => {
     expect(parseTilePath("/3/4/3.png")).toBeNull();
     expect(parseTilePath("/3/4/3.jpg")).toBeNull();
     expect(parseTilePath("/3/4/3")).toBeNull();
-  });
-});
-
-describe("assertZoomRange", () => {
-  it("passes when the archive matches the range the globe requests", () => {
-    expect(() => assertZoomRange(RELIEF_MIN_ZOOM, RELIEF_MAX_ZOOM)).not.toThrow();
-  });
-
-  it("names the file to edit when a re-cut pyramid changes the range", () => {
-    expect(() => assertZoomRange(0, 10)).toThrow(/reliefTiles\.ts/);
   });
 });
 
