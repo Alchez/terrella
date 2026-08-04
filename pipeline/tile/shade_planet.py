@@ -1084,6 +1084,17 @@ def resolve_body(args: argparse.Namespace) -> bodies.Body:
     return bodies.get(args.body)
 
 
+def runs_cap_pass(body: bodies.Body) -> bool:
+    """Whether a shade pass for this body ends by rendering polar caps.
+
+    A named predicate rather than the field read inline, so the DECISION is testable without
+    spawning a subprocess. Inline, the only way to prove the pass respects the registry is to run it
+    and watch what it shells out to — which needs a composited planet on disk, so in practice it
+    would be proven by nothing.
+    """
+    return body.renders_polar_caps
+
+
 def cap_pass_command(body: bodies.Body) -> list[str]:
     """The command that renders this body's polar caps at the tail of a shade pass.
 
@@ -1136,8 +1147,16 @@ def main():
     # itself (cap_is_fresh), so a fresh pass pays only the ~2 s import here. Subprocess, not
     # import: cap_render imports FROM this module, and the caps' pyproj/scipy stack stays out
     # of the tile pass.
-    print("polar caps ...", flush=True)
-    subprocess.run(cap_pass_command(body), check=True)
+    if runs_cap_pass(body):
+        print("polar caps ...", flush=True)
+        subprocess.run(cap_pass_command(body), check=True)
+    else:
+        # SAID OUT LOUD, because the alternative is a pass that silently does less than the last one
+        # did. The cap pass would otherwise run and SUCCEED here — it needs only the heightfield once
+        # a body declares no surface layers — spending ~14 GB per pole to publish discs shaded by
+        # ramps this body has not ratified.
+        print(f"polar caps: {body.name} publishes none — skipped "
+              f"(the globe carries a hole above the Mercator limit)", flush=True)
     print("DONE", flush=True)
 
 

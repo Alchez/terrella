@@ -1781,9 +1781,41 @@ SABOTAGES: list[Sabotage] = [
         # `Body`, and the needle still matched exactly once, so the table's own freshness gate stayed
         # green. `test_the_defaulted_field_case_still_names_the_last_field_of_body` is what makes the
         # next append a red test instead of a silently hollow case.
-        needle='    surface_layers: frozenset[str]\n',
-        replacement='    surface_layers: frozenset[str] = frozenset()\n',
+        needle='    renders_polar_caps: bool\n',
+        replacement='    renders_polar_caps: bool = True\n',
         guard='test_no_field_carries_a_default_so_a_new_one_must_be_decided_per_body',
+    ),
+    # --- Polar caps as a per-body decision ----------------------------------------------------------
+    # The dangerous property of all three: a body publishing no caps would RENDER them perfectly well.
+    # Declaring no surface layers leaves the cap needing only the heightfield, so there is no missing
+    # file to stop it and no error to read — just ~14 GB a pole spent shipping a look nobody ratified.
+    Sabotage(
+        suite='python',
+        label='the shade pass shells out to the cap render for every body again',
+        path='pipeline/tile/shade_planet.py',
+        needle='    return body.renders_polar_caps\n',
+        replacement='    return True\n',
+        guard='test_the_shade_pass_skips_the_cap_subprocess_for_a_body_that_publishes_none',
+    ),
+    Sabotage(
+        suite='python',
+        # The tidy-looking version: an operator running the module directly "obviously" wants a
+        # render, so the second gate reads as belt-and-braces. It is the only gate on that path.
+        label='cap_render trusts its caller and drops its own body check',
+        path='pipeline/tile/cap_render.py',
+        needle='    if not body.renders_polar_caps:\n',
+        replacement='    if False:\n',
+        guard='test_a_body_publishing_no_caps_is_refused_by_the_cap_pass_itself',
+    ),
+    Sabotage(
+        suite='python',
+        # Not cosmetic: the refusal names the field an operator must change to turn caps ON. Without
+        # it the message says a body publishes no caps and gives no way to disagree with that.
+        label='the cap refusal stops naming the field that would enable them',
+        path='pipeline/tile/cap_render.py',
+        needle='                 f"renders_polar_caps on the body in pipeline/bodies.py once they are ratified.")',
+        replacement='                 f"the body in pipeline/bodies.py once they are ratified.")',
+        guard='test_a_body_publishing_no_caps_is_refused_by_the_cap_pass_itself',
     ),
     # --- The second body ---------------------------------------------------------------------------
     # Mars publishes no pyramid yet, so none of these can be caught by looking at a rendered planet.

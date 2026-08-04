@@ -173,6 +173,26 @@ class Body:
     #: the snow layer, so a body without that layer has nothing to patch. On a body with no sea it
     #: would instead whiten every piece of land below 60 degrees south.
     surface_layers: frozenset[str]
+    #: Whether this body PUBLISHES rendered polar-cap textures.
+    #:
+    #: NOT A STATEMENT ABOUT THE PLANET'S CRYOSPHERE, and the name says `renders` for exactly that
+    #: reason: Mars has real polar ice caps, and `False` here would be a plain factual error read
+    #: that way. What it describes is the AEQD disc that repairs Web Mercator, which dies at ~85
+    #: degrees and leaves a hole at each pole that the tiles cannot fill.
+    #:
+    #: SO `False` COSTS A VISIBLE HOLE, and that is the trade rather than a free saving. It is the
+    #: right answer only while a body's ramps are unratified, because a cap is shaded by the same
+    #: `shade.composite` as the tiles: rendering one publishes a look decision. Measured on Mars,
+    #: the cap pass runs happily today off the heightfield alone — one source, nothing missing, no
+    #: refusal — so without this field a first tile run quietly spends ~14 GB per pole to ship two
+    #: discs in a palette nobody has agreed to.
+    #:
+    #: A body fact rather than a look constant because the two consumers are in different processes:
+    #: the shade pass decides whether to invoke the cap pass at all, and the cap pass must give the
+    #: same answer when an operator runs it directly. Absence on disk cannot carry that — it cannot
+    #: tell "this body publishes none" from "the render died", which is the distinction
+    #: `planet_seam` exists to preserve one tier up.
+    renders_polar_caps: bool
 
 
 EARTH = Body(
@@ -199,6 +219,9 @@ EARTH = Body(
     # All of them, written out rather than spelled `SURFACE_LAYERS`: Earth is the reference body, and
     # "whatever the vocabulary happens to contain" is how it would inherit the next layer unexamined.
     surface_layers=frozenset({"lake_depth", "snow", "glaciers", "sea_ice", "coastline"}),
+    # The reference body, and the caps are a signature feature rather than a detail: both poles
+    # ship a full rung ladder, feathered into the tiles at the seam.
+    renders_polar_caps=True,
 )
 
 
@@ -255,6 +278,11 @@ MARS = Body(
     # its own cryosphere. We have no product for any of it, and the physics is not Earth's, so the
     # honest answer today is none. That is a Phase-2 question to re-ask with Mars on screen.
     surface_layers=frozenset(),
+    # OFF FOR PHASE 1, and it is a look decision rather than a capability one. A Mars cap would
+    # render today from the heightfield alone, and would be shaded by the same ramps as the
+    # tiles — which are still Earth's and still unratified for this planet. The price is a hole
+    # at each pole on the globe until the look is settled and this flips.
+    renders_polar_caps=False,
 )
 
 

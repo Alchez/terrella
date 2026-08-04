@@ -41,6 +41,7 @@ Usage: GDAL_CACHEMAX=512 uv run python -m pipeline.tile.cap_render --body earth
 import argparse
 import json
 import subprocess
+import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -713,6 +714,15 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> int:
     args = build_parser().parse_args()
     body = bodies.get(args.body)  # raises on an unknown name; never falls back to Earth
+    # THE BODY BEFORE ANYTHING ELSE, and a refusal rather than a quiet exit 0. The shade pass already
+    # declines to invoke this for such a body, so reaching here means an operator asked directly —
+    # and the honest answer to "render Mars's caps" is that this body publishes none, not a pair of
+    # discs in a palette it has never been given. Same rule the layer gates follow: ask the body, then
+    # the disk, because the disk cannot tell "publishes none" from "the render died".
+    if not body.renders_polar_caps:
+        sys.exit(f"{body.name} publishes no polar caps — nothing to render. Its relief would shade "
+                 f"from the same ramps as the tiles, so turning this on is a look decision: set "
+                 f"renders_polar_caps on the body in pipeline/bodies.py once they are ratified.")
     # Read once and threaded, exactly as the shade pass does it. This raises when the planet stage
     # never finished, so a cap can never be rendered from half a fusion — which used to be
     # indistinguishable from a planet that genuinely has no masks.

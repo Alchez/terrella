@@ -8,8 +8,10 @@ silently stale because the old guard only asked whether the output existed.
 import dataclasses
 import json
 import os
+import sys
 import time
 from pathlib import Path
+from unittest import mock
 
 import numpy as np
 import pytest
@@ -654,6 +656,40 @@ class TestTheBodyIsRequired:
             other = dataclasses.replace(bodies.EARTH, name="other", path_prefix="other")
             command = shade_planet.cap_pass_command(other)
             assert command[command.index("--body") + 1] == "other"
+
+    def test_a_body_publishing_no_caps_is_refused_by_the_cap_pass_itself(self, capsys):
+        """The SECOND gate, and it is not redundant with the shade pass declining to invoke this.
+
+        Reaching `cap_render.main` means an operator ran it directly, and the answer has to be the
+        same one. It matters because the render would otherwise SUCCEED: a body declaring no surface
+        layers needs only the heightfield, so there is no missing file to stop it — it would spend
+        ~14 GB a pole to publish discs shaded by ramps that body has never been given.
+
+        Asserted through the real entry point with the real parser, because the refusal has to
+        happen before anything reads a raster, and only running `main` proves the order.
+        """
+        no_caps = next((bodies.get(name) for name in sorted(bodies.BODIES)
+                        if not bodies.get(name).renders_polar_caps), None)
+        assert no_caps is not None, (
+            "no body in the registry publishes zero caps, so this guard is watching nothing — "
+            "delete it, or the body that motivated it has silently been turned back on"
+        )
+        with mock.patch.object(sys, "argv", ["cap_render", "--body", no_caps.name]), \
+                pytest.raises(SystemExit) as refusal:
+            cap_render.main()
+        message = str(refusal.value)
+        assert no_caps.name in message and "renders_polar_caps" in message, message
+
+    def test_the_shade_pass_skips_the_cap_subprocess_for_a_body_that_publishes_none(self):
+        """The FIRST gate, asserted on the branch rather than on the flag.
+
+        A test reading `body.renders_polar_caps` back would pass against a shade pass that consulted
+        it and then shelled out anyway. What must be true is that no cap subprocess is spawned, so
+        the assertion is on the decision the pass makes with the field.
+        """
+        for name in sorted(bodies.BODIES):
+            body = bodies.get(name)
+            assert shade_planet.runs_cap_pass(body) is body.renders_polar_caps
 
 
 class TestTheWarpPassAsksTheSeamBeforeTheDisk:
