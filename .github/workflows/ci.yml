@@ -102,6 +102,15 @@ jobs:
       - name: Type-check (astro check + the tile Worker)
         run: pnpm check
 
+      # The web half of the static gate, and the counterpart to `ruff` in the job above: the two
+      # type-checkers ask whether the types line up, oxlint asks whether the code says what it
+      # means. No path argument — it walks from web/ and follows .gitignore, so it reaches all 95
+      # sources including the eight .astro pages and the Worker, which `astro check` excludes.
+      # Placed after the type-check for the same reason ruff sits after pyright, and before the
+      # ~100 MB browser download because it takes milliseconds.
+      - name: Lint (oxlint)
+        run: pnpm lint
+
       # The vitest `browser` project launches a real chromium; `pnpm install` fetches the
       # playwright NPM package but never its browser binaries, so without this the project
       # cannot start and the run reports `28 passed (30)` with an unhandled launch error.

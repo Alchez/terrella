@@ -1,0 +1,44 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+
+  // The web side's answer to ruff: a linter beside the two type-checkers, asking whether the code
+  // says what it means rather than whether the types line up. It stays at ZERO, with no
+  // "pre-existing finding" allowance, exactly as `astro check` and `pyright` do.
+  //
+  // No path argument in the script either — oxlint walks from here and follows .gitignore, so
+  // `dist/`, `node_modules/` and the dev asset stores are out without being named. It reaches all
+  // 95 sources: `src/`, `scripts/`, `worker/`, the eight `.astro` pages, and the two configs.
+  "plugins": ["typescript", "unicorn", "oxc"],
+
+  // THREE CATEGORIES, chosen deliberately, and the two left out are left out on evidence:
+  // `pedantic` and `style` are taste, and `restriction` forbids language features this repo uses.
+  // `correctness` is code that is outright wrong, `suspicious` is code most likely wrong, and
+  // `perf` is the one that finds accidental quadratics in a page that has to hold 60 fps.
+  "categories": {
+    "correctness": "error",
+    "suspicious": "error",
+    "perf": "error"
+  },
+
+  "rules": {
+    // OFF PERMANENTLY, not staged. All 16 sites read MapLibre's own internals — `_maxTileCacheSize`,
+    // `_tiles`, `_rttObjectRecyclePool` — through the documented-as-undocumented seam the cache
+    // budget and the RTT pool trim are built on. The leading underscore is THEIR spelling; the rule
+    // asks us to rename a property we do not own, which would simply be wrong.
+    "no-underscore-dangle": "off",
+
+    // STAGED, and this list is a shrinking to-do kept in the config, because the config is the only
+    // place that cannot drift from what is enforced. Each entry names its commit; when the list is
+    // empty, `--report-unused-disable-directives` goes on and the staging mechanism goes away.
+    //
+    // Nothing here is disabled on merit — these are the two bulk mechanical sweeps and the handful
+    // of judgement calls, held back so a 58-line rewrite never lands in the same diff as a decision.
+    "unicorn/no-array-sort": "off", // 27 sites, plus one no-array-reverse — one mechanical sweep
+    "unicorn/no-array-reverse": "off",
+    "unicorn/consistent-function-scoping": "off", // 30 hoists out of test bodies
+    "no-shadow": "off", // 2, both real: a local shadowing a function used in the same module
+    "no-await-in-loop": "off", // 2, deliberate sequencing over multi-GB archives
+    "unicorn/no-useless-spread": "off", // 2, both a deliberate snapshot before iterating
+    "unicorn/prefer-add-event-listener": "off" // 2, on a freshly constructed Image
+  }
+}

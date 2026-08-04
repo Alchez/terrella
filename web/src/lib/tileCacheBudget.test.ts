@@ -489,7 +489,7 @@ describe("earth.astro wires the instrument rather than re-stating it", () => {
     // passing on a file-wide substring.
     expect(globe).toMatch(/map\.on\("resize", applyCacheCap\)/);
     const styleLoad = globe
-      .match(/map\.on\("style\.load\", \(\) => \{[\s\S]*?\n    \}\);/g)
+      .match(/map\.on\("style\.load", \(\) => \{[\s\S]*?\n    \}\);/g)
       ?.find((block) => block.includes("addSource(TERRAIN_SOURCE"));
     expect(styleLoad, "terrain must be added on style.load").toBeTruthy();
     expect(styleLoad).toContain("applyCacheCap()");
@@ -640,7 +640,7 @@ describe("terrainCoveringTileCount — MapLibre's own answer, not our restatemen
   }
 
   it("asks at the FILL size, not the declared one — reading the declared size here would reproduce the bug", () => {
-    const { calls, map } = spyMap(new Array(52).fill(null));
+    const { calls, map } = spyMap(Array.from({ length: 52 }, () => null));
     expect(terrainCoveringTileCount(map, 128, 0, 8)).toBe(52);
     expect(calls[0].tileSize).toBe(256); // 128 * 2**deltaZoom
     expect(calls[0]).toMatchObject({ minzoom: 0, maxzoom: 8, roundZoom: false });
@@ -657,7 +657,7 @@ describe("terrainCoveringTileCount — MapLibre's own answer, not our restatemen
     // formula gives 330. That gap is why the byte budget it fed had no defensible upper bound.
     expect(viewDependentCacheSlots(2560, 1265, 256)).toBe(330);
     expect(viewDependentCacheSlots(2560, 1265, 128)).toBe(1155);
-    const { map } = spyMap(new Array(52).fill(null));
+    const { map } = spyMap(Array.from({ length: 52 }, () => null));
     expect(terrainCoveringTileCount(map, 128, 0, 8)).toBe(52);
   });
 
