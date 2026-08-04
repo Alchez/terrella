@@ -43,11 +43,15 @@ from pathlib import Path
 import rasterio
 from rasterio.errors import NotGeoreferencedWarning
 
+from pipeline import paths
+
 warnings.filterwarnings("ignore", category=NotGeoreferencedWarning)  # PNGs
 
-ROOT = Path(__file__).resolve().parents[2]
-HEROES = ROOT / "blender/renders/heroes"
-VARIANTS = ROOT / "blender/renders/variants"
+# Checkout-rooted on purpose: hero products live in the repo tree, not in the relocatable data
+# store. Taken from `paths` rather than re-derived, so this module cannot grow its own idea of where
+# the root is — which is how three of its siblings acquired a data path that ignored `MAPS_DATA`.
+HEROES = paths.ROOT / "blender/renders/heroes"
+VARIANTS = paths.ROOT / "blender/renders/variants"
 RECIPE = VARIANTS / "hero_variants_recipe.json"
 
 # The srcset ladder, chosen against MEASURED layout rather than viewport guesses: the gallery is

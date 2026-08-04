@@ -28,10 +28,15 @@ def variant_sizes(variants_dir: Path, slug: str) -> list[int]:
     return sorted(set(sizes))
 
 
-def continent_by_admin(repo: Path) -> dict:
-    """ADMIN -> CONTINENT from the Natural Earth countries shapefile."""
+def continent_by_admin(shp: Path) -> dict:
+    """ADMIN -> CONTINENT from the Natural Earth countries shapefile.
+
+    Takes the shapefile rather than deriving it, because `--repo` is the CHECKOUT and Natural Earth
+    lives in the DATA store — two roots that are equal by default and diverge the moment `MAPS_DATA`
+    is set. The caller has the pipeline on its path by then and asks the pipeline where its own
+    vectors are.
+    """
     import shapefile
-    shp = repo / "data/raw/naturalearth/ne_10m_admin_0_countries/ne_10m_admin_0_countries.shp"
     reader = shapefile.Reader(str(shp))
     out = {}
     for record in reader.iterRecords():
@@ -84,6 +89,7 @@ def main() -> int:
     args = ap.parse_args()
 
     sys.path.insert(0, str(args.repo))  # repo root: country_config uses pipeline.* imports
+    from pipeline import naturalearth  # noqa: E402
     from pipeline.frame.country_config import (build_scope, load_config,  # noqa: E402
                                                load_ne_rows, resolve)
 
@@ -91,7 +97,7 @@ def main() -> int:
     cfg = load_config()
     _sf, rows = load_ne_rows()
     scope = build_scope(cfg, rows)
-    continents = continent_by_admin(args.repo)
+    continents = continent_by_admin(naturalearth.layer("ne_10m_admin_0_countries"))
 
     countries = []
     for slug in sorted(scope):

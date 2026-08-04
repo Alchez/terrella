@@ -57,16 +57,17 @@ from rasterio.transform import from_origin
 from rasterio.warp import reproject
 from scipy.ndimage import binary_fill_holes, distance_transform_edt, gaussian_filter, label
 
+from pipeline import naturalearth, paths
 from pipeline.compose.overlay_borders import render_mapping
 
 warnings.filterwarnings("ignore", category=NotGeoreferencedWarning)  # hero PNGs
 
-ROOT = Path(__file__).resolve().parents[2]
-HEROES = ROOT / "blender/renders/heroes"
-VARIANTS = ROOT / "blender/renders/variants"
-NE_COUNTRIES = (ROOT / "data/raw/naturalearth/ne_10m_admin_0_countries"
-                / "ne_10m_admin_0_countries.shp")
-WORK = ROOT / "data/work"
+# Both roots, as in `gen_borders`: the shapefile and the per-country work tree move with
+# `MAPS_DATA`, the rendered layers stay in the checkout beside the heroes they dim.
+HEROES = paths.ROOT / "blender/renders/heroes"
+VARIANTS = paths.ROOT / "blender/renders/variants"
+NE_COUNTRIES = naturalearth.layer("ne_10m_admin_0_countries")
+WORK = paths.DATA / "work"
 PLANE_WIDTH_UNITS = 2.0
 # The ladder is IMPORTED, not restated. The gallery layers this overlay directly on the hero and
 # gives both the same `sizes`, so a rung the overlay lacks makes the browser pull a larger file for

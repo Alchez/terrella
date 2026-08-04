@@ -29,13 +29,12 @@ import subprocess
 import sys
 from pathlib import Path
 
-from pipeline import paths
+from pipeline import bodies, naturalearth
 
-ROOT = paths.ROOT
-NE = ROOT / "data/raw/naturalearth"
-OUT_DIR = ROOT / "data/work/borders"
+#: Earth's, and named through the registry for the same reason `borders_geojson` does it.
+OUT_DIR = bodies.work_dir(bodies.EARTH, "borders")
 
-SRC = NE / "ne_10m_admin_0_countries" / "ne_10m_admin_0_countries.shp"
+SRC = naturalearth.layer("ne_10m_admin_0_countries")
 OUT = OUT_DIR / "countries.geojson"
 
 # Douglas-Peucker tolerance in degrees. 0.002 deg ~= 220 m ~= 0.7 px at z8 on

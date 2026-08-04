@@ -51,10 +51,15 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from pipeline import paths
+from pipeline import bodies, paths
 
+#: The CHECKOUT, not the data store, and it is read for exactly one thing: the frontend constant
+#: this module's max zoom is pinned against. Kept because `web/src/` follows the repo wherever the
+#: data store goes — the two roots are different seams.
 ROOT = paths.ROOT
-BORDERS = paths.DATA / "work/borders"
+#: What `borders_geojson` and `countries_geojson` write — the same directory, named the same way,
+#: so a writer and its reader cannot drift apart by one editing its own copy of the path.
+BORDERS = bodies.work_dir(bodies.EARTH, "borders")
 OUT_DIR = paths.DATA / "work/planet_countries"
 
 SRC = BORDERS / "countries.geojson"

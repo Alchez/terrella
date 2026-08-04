@@ -77,6 +77,7 @@ probe; degrade at runtime if frame rate tanks; honour `Save-Data`, `prefers-redu
 - **`uv run pyright` stays at 0 and `pytest` stays green** — there is no "pre-existing error" allowance. rasterio call sites take a targeted `# pyright: ignore[reportCallIssue]`; GDAL creation-option dicts are `dict[str, Any]`.
 - **Docs in this repo state current truth, not history** — if a row and reality disagree, the row is the bug. Dated decisions live in a decision archive kept outside the repo.
 - **A learning goes where it will be met:** a fact about one function into that function's docstring, a general work heuristic into the agent's memory. One claim, one home; if it must appear twice, make one copy executable so drift fails loudly.
+- **A dataset a second module reaches for gets a module.** `paths.py` owns machine roots and `bodies.work_dir` owns per-body stages; nothing owns a *shared* dataset, so the second reader copies the first and every copy stays correct — Natural Earth reached eight spellings that way before `pipeline/naturalearth.py`. The duplicate resolves identically on any one machine, so only a scan can see it.
 - **A superseded path is deleted the same day**, or moved out of the production package — prose calling it "retired" does not disarm a runnable entry point. Exception: under gitignored `data/`, where deletion is permanent.
 - Never commit rendered assets or DEM data — code and config only.
 - Plan first (Plan Mode) before any multi-file or architectural task.

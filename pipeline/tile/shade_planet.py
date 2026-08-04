@@ -60,7 +60,6 @@ from pipeline.render.sky_view import normalised_occlusion, occlusion_shape
 from pipeline.tile import shade
 from pipeline.tile.shade import KNOBS
 
-ROOT = paths.ROOT
 # The grid resolution used to live here as a module constant named for the one zoom Earth cuts to.
 # It is `Body.map_units_per_pixel` now, because a planet with a different ceiling needs a different
 # pixel and a module constant cannot have one — and because a constant with no field to be bridged
@@ -1057,8 +1056,10 @@ def build_parser() -> argparse.ArgumentParser:
     # pyramid, and the cost of discovering that late is a planet. Naming it costs one word.
     ap.add_argument("--body", required=True,
                     help=f"which planet this pass is for ({', '.join(sorted(bodies.BODIES))})")
-    # Optional override. Left unset it follows the body, which also honours the MAPS_DATA seam that
-    # the old `ROOT / "data/..."` default bypassed; set, it is how a look A/B is pointed elsewhere.
+    # Optional override. Left unset it follows the body, which also honours the MAPS_DATA seam its
+    # checkout-rooted default used to bypass; set, it is how a look A/B is pointed elsewhere. The
+    # old spelling is described rather than quoted — `tests/test_paths.py` scans for it, and a
+    # comment reproducing it re-creates the needle the scan exists to find.
     ap.add_argument("--out", type=Path, default=None)
     ap.add_argument("--tiles", action="store_true",
                     help="also cut tiles from the mosaic, z0 to the body's own ceiling")

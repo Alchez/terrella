@@ -32,8 +32,10 @@ Usage:
       --render blender/renders/india_hero_8k_v3_water.png \
       --heightfield data/work/india/render/heightfield_aea.tif \
       --mask data/work/india/render/oceanmask_aea.tif \
-      --ne-dir data/raw/naturalearth \
       --outdir data/work/india/render/overlay
+
+`--ne-dir` defaults to the store's own vector directory and is only worth naming when pointing at
+a different Natural Earth release.
 """
 
 import argparse
@@ -46,6 +48,8 @@ import numpy as np
 import pyproj
 import rasterio
 import shapefile
+
+from pipeline import naturalearth
 
 PLANE_WIDTH_UNITS = 2.0
 
@@ -286,7 +290,8 @@ def main():
     ap.add_argument("--render", type=Path, required=True)
     ap.add_argument("--heightfield", type=Path, required=True)
     ap.add_argument("--mask", type=Path)
-    ap.add_argument("--ne-dir", type=Path, required=True)
+    ap.add_argument("--ne-dir", type=Path, default=naturalearth.DIR,
+                    help="a different Natural Earth release; defaults to the store's own")
     ap.add_argument("--outdir", type=Path, required=True)
     args = ap.parse_args()
     if args.mode == "oracle" and not args.mask:
@@ -305,8 +310,12 @@ def main():
     overlay = cairo.ImageSurface(cairo.FORMAT_ARGB32, width, height)
     octx = cairo.Context(overlay)
 
-    def ne(name):
-        return args.ne_dir / name / f"{name}.shp"
+    def ne(name: str) -> Path:
+        """This entry point takes its directory from the command line, so the ROOT is the caller's
+        and only the naming RULE is shared. Both travel through `naturalearth.layer`, which also
+        refuses a layer the acquirer never fetches — the failure this used to defer to a
+        missing-file error several frames later."""
+        return naturalearth.layer(name, directory=args.ne_dir)
 
     if args.mode == "oracle":
         count = stroke(octx, fwd, to_px,

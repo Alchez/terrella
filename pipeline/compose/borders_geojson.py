@@ -21,11 +21,11 @@ import subprocess
 import sys
 from pathlib import Path
 
-from pipeline import paths
+from pipeline import bodies, naturalearth
 
-ROOT = paths.ROOT
-NE = ROOT / "data/raw/naturalearth"
-OUT_DIR = ROOT / "data/work/borders"
+#: Vectors are Earth's alone for now, so the body is named rather than threaded — but named through
+#: the registry, so the day Mars gains borders they nest instead of overwriting these.
+OUT_DIR = bodies.work_dir(bodies.EARTH, "borders")
 
 # Land classes the hero style renders (compose/overlay_borders.py); the rest is
 # cartographic scaffolding we drop.
@@ -34,7 +34,7 @@ LAND_DROP = ("Overlay limit", "Lease limit", "Unrecognized")
 LAYERS = [
     {
         "name": "boundary_lines.geojson",
-        "src": NE / "ne_10m_admin_0_boundary_lines_land" / "ne_10m_admin_0_boundary_lines_land.shp",
+        "src": naturalearth.layer("ne_10m_admin_0_boundary_lines_land"),
         "where": "FEATURECLA NOT IN ('" + "', '".join(LAND_DROP) + "')",
     },
 ]

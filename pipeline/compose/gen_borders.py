@@ -23,9 +23,8 @@ from pathlib import Path
 
 import cairo
 
-ROOT = Path(__file__).resolve().parents[2]
-
 import pyproj  # noqa: E402
+from pipeline import naturalearth, paths  # noqa: E402
 from pipeline.frame.country_config import (build_scope, load_config,  # noqa: E402
                                            load_ne_rows)
 from pipeline.compose.overlay_borders import (DASHED_CLASSES, DISPUTED_STYLE,  # noqa: E402
@@ -33,10 +32,12 @@ from pipeline.compose.overlay_borders import (DASHED_CLASSES, DISPUTED_STYLE,  #
                              frame_bbox_lonlat, read_lines, render_mapping,
                              stroke)
 
-NE = ROOT / "data/raw/naturalearth"
-BORDERS = ROOT / "blender/renders/borders"
-VARIANTS = ROOT / "blender/renders/variants"
-WORK = ROOT / "data/work"
+# The two roots are not the same seam, and this module needs both. Per-country work lives in the
+# DATA store, which `MAPS_DATA` relocates; the rendered layers live in the CHECKOUT beside the
+# heroes they overlay, which it does not.
+WORK = paths.DATA / "work"
+BORDERS = paths.ROOT / "blender/renders/borders"
+VARIANTS = paths.ROOT / "blender/renders/variants"
 # The globe's hero panel is the only surface that overlays this layer, and it declares a 420 px
 # slot — so the rungs that matter are 420 px at DPR 1/2/3. 1920 alone left that panel pulling an
 # 85 kB border PNG on top of a 48 kB hero, i.e. the border became the heavier half of the card
@@ -46,8 +47,6 @@ WORK = ROOT / "data/work"
 TARGETS = (640, 960, 1280, 1920)   # each country's native long edge added too
 
 
-def ne(name: str) -> Path:
-    return NE / name / f"{name}.shp"
 
 
 def find_render_dir(slug: str) -> Path | None:
@@ -67,11 +66,11 @@ def draw_layer(rdir: Path):
     fwd = pyproj.Transformer.from_crs("EPSG:4326", crs, always_xy=True)
     bbox = frame_bbox_lonlat(bounds, crs)
 
-    land = list(read_lines(ne("ne_10m_admin_0_boundary_lines_land"), bbox))
+    land = list(read_lines(naturalearth.layer("ne_10m_admin_0_boundary_lines_land"), bbox))
     solid = [(record, parts) for record, parts in land if record.as_dict()["FEATURECLA"] in SOLID_CLASSES]
     dashed = [(record, parts) for record, parts in land if record.as_dict()["FEATURECLA"] in DASHED_CLASSES]
     maritime = list(read_lines(
-        ne("ne_10m_admin_0_boundary_lines_maritime_indicator"), bbox))
+        naturalearth.layer("ne_10m_admin_0_boundary_lines_maritime_indicator"), bbox))
 
     surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, width, height)
     ctx = cairo.Context(surface)

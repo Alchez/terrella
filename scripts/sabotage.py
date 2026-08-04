@@ -113,6 +113,11 @@ MUTABLE_ROOTS = (
     # inspect either: the failure is a planet that shades from half a fusion and reports DONE.
     "pipeline/planet_seam.py",
     "pipeline/fuse",
+    # Joined with the one home for Natural Earth, and for a reason particular to this seam: every
+    # way of breaking it is invisible on a developer box, where `MAPS_DATA` is unset and the two
+    # roots resolve to the same directory. Its guards therefore never fire during ordinary work,
+    # and a guard that never fires is one nobody can tell apart from a guard that cannot.
+    "pipeline/naturalearth.py",
 )
 
 # Set for the duration of one case, so the backup THIS run is holding does not trip the leftover
@@ -1887,8 +1892,11 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label='a dormant Earth exaggeration reappears at module scope in the cap renderer',
         path='pipeline/tile/cap_render.py',
-        needle='ROOT = paths.ROOT',
-        replacement='ROOT = paths.ROOT\nEXAG = 15.0',
+        # Re-anchored when `ROOT = paths.ROOT` was deleted here: `COAST_SHP` was its only reader and
+        # it moved to `paths.DATA`. Any module-scope constant line serves — what the mutation needs
+        # is a place to define one, not this particular neighbour.
+        needle='COAST_RGB = (96, 122, 142)  # muted steel-blue',
+        replacement='COAST_RGB = (96, 122, 142)  # muted steel-blue\nEXAG = 15.0',
         guard='test_neither_shading_module_carries_its_own_exaggeration',
     ),
     # Unused, so every behavioural guard above stays green and the diff reads as a tidy local. This
@@ -2960,6 +2968,78 @@ SABOTAGES: list[Sabotage] = [
         needle='    tiles = args.tiles if args.tiles is not None else default_tiles(body)',
         replacement='    tiles = args.tiles if args.tiles is not None else default_tiles(bodies.EARTH)',
         guard='test_the_body_selects_the_paths_main_actually_packs',
+    ),
+    # --- the shared-dataset seam ------------------------------------------------------------
+    # Everything here is invisible on a developer box, because `MAPS_DATA` is unset and the two
+    # roots resolve to the same directory. That is precisely how eight spellings of one path
+    # accumulated: every one of them was right, on this machine, every time anyone looked.
+    Sabotage(
+        suite='python',
+        label='the vectors go back to being read out of the checkout',
+        path='pipeline/naturalearth.py',
+        needle='DIR = paths.DATA / "raw/naturalearth"',
+        replacement='DIR = paths.ROOT / "data/raw/naturalearth"',
+        guard='test_no_module_path_stays_behind_when_the_store_moves',
+    ),
+    # The other half of the same seam, in the other language. The writer moving alone is worse than
+    # neither moving: the acquirer fills one tree and seven readers look in the other.
+    Sabotage(
+        suite='python',
+        label='the acquirer writes into the checkout while every reader looks in the store',
+        path='pipeline/acquire/download_naturalearth.sh',
+        needle='DATA="${MAPS_DATA:-$(cd "$(dirname "$0")/../.." && pwd)/data}"',
+        replacement='DATA="$(cd "$(dirname "$0")/../.." && pwd)/data"',
+        guard='test_maps_data_moves_the_acquirers_destination',
+    ),
+    # Natural Earth repeats each layer name as its directory AND its stem. Dropping one half is the
+    # single likeliest typo in this module, and it fails as a missing file, which reads like a
+    # download that never completed rather than like a path that was assembled wrong.
+    Sabotage(
+        suite='python',
+        label='the layer join loses the directory level',
+        path='pipeline/naturalearth.py',
+        needle='    return (DIR if directory is None else directory) / name / f"{name}.shp"',
+        replacement='    return (DIR if directory is None else directory) / f"{name}.shp"',
+        guard='test_the_name_appears_as_both_directory_and_stem',
+    ),
+    # The tidy that looks like a redundant check being removed. Without it a typo resolves to a
+    # plausible path and the error arrives frames later, from shapefile, about a missing file.
+    Sabotage(
+        suite='python',
+        label='the layer vocabulary stops being checked, so a typo becomes a missing file',
+        path='pipeline/naturalearth.py',
+        needle='    if name not in LAYERS:',
+        replacement='    if False:',
+        guard='test_an_unknown_layer_names_the_ones_that_exist',
+    ),
+    # The vocabulary is spelled in two languages that cannot import each other, so the only thing
+    # holding them together is the parity test — and a list nobody can mutate proves nothing.
+    Sabotage(
+        suite='python',
+        label='a layer the acquirer fetches drops out of the Python vocabulary',
+        path='pipeline/naturalearth.py',
+        needle='    "ne_10m_rivers_lake_centerlines",',
+        replacement='',
+        guard='test_every_downloaded_layer_is_addressable',
+    ),
+    # The three modules around `work/borders` are a write-write-read chain. A literal in any one of
+    # them resolves identically today, so nothing behavioural can see it — only the scan can.
+    Sabotage(
+        suite='python',
+        label='the borders reader spells its own path again, and the chain can now drift',
+        path='pipeline/compose/countries_pmtiles.py',
+        needle='BORDERS = bodies.work_dir(bodies.EARTH, "borders")',
+        replacement='BORDERS = paths.DATA / "work/borders"',
+        guard='test_the_borders_work_dir_is_spelled_once',
+    ),
+    # A reader re-deriving the shapefile longhand: the exact shape that reached five call sites.
+    Sabotage(
+        suite='python',
+        label='a reader hand-writes the layer path again instead of asking for it',
+        path='pipeline/tile/cap_render.py',
+        needle='COAST_SHP = naturalearth.layer("ne_10m_coastline")',
+        replacement='COAST_SHP = naturalearth.DIR / "ne_10m_coastline/ne_10m_coastline.shp"',
+        guard='test_the_layer_name_is_never_doubled_by_hand',
     ),
 ]
 

@@ -51,14 +51,13 @@ import rasterio
 from pyproj import Transformer
 from scipy.ndimage import binary_dilation
 
-from pipeline import bodies, paths, planet_seam
+from pipeline import bodies, naturalearth, paths, planet_seam
 from pipeline.render import hillshade, lake_depth, seaice, snow
 from pipeline.tile import shade, terrain_rgb
 from pipeline.tile.shade import KNOBS
 from pipeline.tile.shade_planet import (ALT, AZ, CAP_NORTH, CAP_SOUTH, body_declares_layer,
                                         composite_params, layer_is_buildable)
 
-ROOT = paths.ROOT
 CAP_PX = 8192          # square texture side (south is a bigger disc -> coarser per px). 8192 chosen
                        # by eye (crop A/B + /earth): visibly crisper coast/pack/sastrugi
                        # at deep pole zoom; 3.2+2.1 MB WebP
@@ -151,7 +150,7 @@ def south_grid(body: bodies.Body) -> CapGrid:
 # where MapLibre's Mercator vector borders can't reach the pole. It must be DARK, not the globe's
 # white coast line: a white line vanishes between white snow and white ice. A muted steel-blue reads
 # delicately on both whites without going harsh. Line strength/width are per-cap (CapGrid).
-COAST_SHP = ROOT / "data/raw/naturalearth/ne_10m_coastline/ne_10m_coastline.shp"
+COAST_SHP = naturalearth.layer("ne_10m_coastline")
 COAST_RGB = (96, 122, 142)  # muted steel-blue
 
 
@@ -185,8 +184,10 @@ def cap_work_dir(body: bodies.Body) -> Path:
     their own contents, so a `body` key inside `cap_<name>_params.json` would restage a render that
     peaks ~14.3 GB to emit byte-identical pixels. Two bodies at two paths are two files already.
 
-    Also picks up the `MAPS_DATA` seam that the old `ROOT / "data/work/cap"` literal bypassed — a
-    relocated data store used to write its caps back into the checkout.
+    Also picks up the `MAPS_DATA` seam that the checkout-rooted literal it replaced bypassed — a
+    relocated data store used to write its caps back into the checkout. The old spelling is
+    DESCRIBED and not quoted, because it is exactly what `tests/test_paths.py` scans for and a
+    comment reproducing it re-creates the needle the scan exists to find.
     """
     return bodies.work_dir(body, "cap")
 

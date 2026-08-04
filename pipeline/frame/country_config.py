@@ -51,10 +51,10 @@ import rasterio
 import shapefile
 from rasterio.warp import transform_bounds
 
-from pipeline import paths
+from pipeline import naturalearth, paths
 from pipeline.acquire.download_glo30 import (TILE_LIST, in_extent,
                                              parse_tile_name, tile_files)
-from pipeline.frame.frame_country import NE_DIR, pad_frame
+from pipeline.frame.frame_country import pad_frame
 from pipeline.fuse.fuse_heightfield import GEBCO
 from pipeline.render.render_prep import aea_crs
 
@@ -137,7 +137,7 @@ def load_ne_rows():
     The Reader is returned too and kept open: geometry (polygon parts for
     the far-flung check) is re-read lazily by index, so --country never
     pays for parsing the whole world's rings."""
-    shp = NE_DIR / "ne_10m_admin_0_countries/ne_10m_admin_0_countries.shp"
+    shp = naturalearth.layer("ne_10m_admin_0_countries")
     if not shp.exists():
         sys.exit(f"{shp} not found — run pipeline/acquire/download_naturalearth.sh")
     sf = shapefile.Reader(str(shp))
