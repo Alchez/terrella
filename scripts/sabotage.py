@@ -58,6 +58,7 @@ import re
 import shutil
 import subprocess
 import sys
+from collections.abc import Sequence
 from pathlib import Path
 from typing import NamedTuple
 
@@ -2831,6 +2832,21 @@ SABOTAGES: list[Sabotage] = [
         replacement='',
         guard='test_a_quote_inside_a_regex_literal_does_not_swallow_the_rest_of_the_file',
     ),
+    Sabotage(
+        suite='python',
+        # The harness's own blind spot, restored: four MUTABLE_ROOTS are single FILES, and
+        # `rglob` on a file matches nothing. `--restore` then reports a sabotaged tree clean,
+        # which is how a mutation survives into a commit. Found by a killed run, not by a check.
+        #
+        # Two lines, with the newline written as an ESCAPE, for the reason the cases above give:
+        # a needle quoting one line of this file matches twice, once at the real site and once
+        # inside the literal here.
+        label='the backup finder goes back to globbing file roots, and reports a dirty tree clean',
+        path='scripts/sabotage.py',
+        needle="        if path.is_dir():\n            found.extend(path.rglob(",
+        replacement="        if True:\n            found.extend(path.rglob(",
+        guard='test_a_backup_beside_a_single_file_root_is_found',
+    ),
     # --- Which body's pages the routing sends you to ----------------------------------------------
     # Every case below is the code as it was written for one globe, restored. None of them changes
     # anything a visitor to Earth would see, because on Earth the literal and the registry agree —
@@ -3567,11 +3583,35 @@ def failing_tests(name: str, output: str) -> list[str]:
     return seen
 
 
-def leftover_backups() -> list[Path]:
-    """Backups a killed run left behind — the working tree is still sabotaged."""
+def leftover_backups(
+    roots: Sequence[str] = MUTABLE_ROOTS, base: Path | None = None
+) -> list[Path]:
+    """Backups a killed run left behind — the working tree is still sabotaged.
+
+    A MUTABLE ROOT MAY BE A SINGLE FILE, and `rglob` on a file matches nothing at all. Four of the
+    roots are files, so for years this reported "the tree is clean" over a tree that was not: a run
+    killed mid-case on `pipeline/bodies.py` left the mutation in place, `--restore` said there was
+    nothing to restore, and the next run refused to start because the baseline it found was red —
+    the one outcome that made it visible, and only by luck. The failure it risks is the one this
+    project has already had once: a commit taken over a mutated file.
+
+    Measured before fixing: 4 file roots, 0 of them reachable by the old glob.
+
+    `roots` and `base` are arguments so a test can hand it a tree that is not this one. Reading them
+    off the module would make the file-root case untestable without planting a backup in the real
+    repo — which every other check here would then fire on, so the guard for this would have to be
+    disarmed to run at all.
+    """
+    base = REPO_ROOT if base is None else base
     found: list[Path] = []
-    for root in MUTABLE_ROOTS:
-        found.extend((REPO_ROOT / root).rglob(f"*{BACKUP_SUFFIX}"))
+    for root in roots:
+        path = base / root
+        if path.is_dir():
+            found.extend(path.rglob(f"*{BACKUP_SUFFIX}"))
+        else:
+            beside = path.with_name(path.name + BACKUP_SUFFIX)
+            if beside.exists():
+                found.append(beside)
     return sorted(found)
 
 
