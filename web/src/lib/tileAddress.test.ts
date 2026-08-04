@@ -152,17 +152,31 @@ describe("the registry", () => {
   });
 
   it("refuses to hand back a cut a body does not publish", () => {
-    // No longer a hypothetical cast: Mars is a real body in the registry that publishes nothing.
-    expect(() => archiveFor("mars", "relief")).toThrow(/publishes no/);
+    // Not a hypothetical cast, and no longer a whole-body statement: Mars publishes relief and does
+    // not publish terrain, so this asks the per-LAYER question, which is the one that outlives the
+    // second body's first pyramid.
+    expect(() => archiveFor("mars", "terrain")).toThrow(/publishes no/);
+    expect(() => archiveFor("mars", "relief")).not.toThrow();
   });
 
-  it("refuses a Mars tile address outright, rather than serving Earth's pyramid", () => {
-    // The failure this prevents does not 404 and does not look broken: Earth relief served at a
+  it("refuses an unpublished Mars layer outright, rather than serving Earth's pyramid", () => {
+    // The failure this prevents does not 404 and does not look broken: Earth terrain served at a
     // Mars address is a complete, plausible, wrong planet. `null` in PUBLISHED is what makes the
     // parser reject it — before any storage is touched, so a probe costs no range read.
-    const marsAddress = `mars/relief/${archiveFor("earth", "relief").token}/5/17/11.webp`;
-    expect(parseTileAddress(marsAddress)).toBeNull();
-    expect(resolveTileRequest(marsAddress)).toBeNull();
+    const unpublished = `mars/terrain/${archiveFor("earth", "terrain").token}/5/17/11.png`;
+    expect(parseTileAddress(unpublished)).toBeNull();
+    expect(resolveTileRequest(unpublished)).toBeNull();
+  });
+
+  it("bounds a Mars relief address by MARS's ceiling, not Earth's", () => {
+    // The reason the zoom range is a registry field rather than a module constant. Earth is cut to
+    // z8 and Mars to z6; checked against Earth's constants a legitimate Mars pyramid answers two
+    // zoom levels it does not contain, and a range read would look for tiles that were never cut.
+    const token = archiveFor("mars", "relief").token;
+    expect(parseTileAddress(`mars/relief/${token}/6/32/32.webp`)).not.toBeNull();
+    expect(parseTileAddress(`mars/relief/${token}/7/64/64.webp`)).toBeNull();
+    expect(parseTileAddress(`earth/relief/${archiveFor("earth", "relief").token}/7/64/64.webp`))
+      .not.toBeNull();
   });
 
   it("still lets Mars be a body, which is what a page and a work tree need", () => {
@@ -197,12 +211,18 @@ describe("the committed archive facts", () => {
   });
 
   it("holds a real leaf count for every one, which the Worker's cache is sized from", () => {
-    // Zero is the shape a placeholder takes here, and it is also a plausible-looking number — a
-    // cache sized from zeros would be all headroom and would thrash on the first interleaved
-    // request. Every PMTiles archive big enough to need leaves has at least one.
+    // ZERO IS A REAL ANSWER, AND MARS IS WHY THIS NO LONGER DEMANDS ONE. A PMTiles root directory
+    // spills to leaf directories only when it outgrows what fits in the header's root slot; Mars's
+    // z0-6 cut is 5,461 tiles whose whole index is 13 KB, so it has no leaves at all and its
+    // directory is resident from the first prefetch. Requiring `> 0` here was Earth's scale written
+    // as a rule, and it refused a correct archive.
+    //
+    // The placeholder this test was reaching for is caught next door, by the token check: a
+    // forgotten `--write` leaves BOTH fields at their placeholder, and `00000000` is a shape no
+    // real hash takes, where `0` is a shape a real leaf count does.
     for (const [body, layers] of Object.entries(committed)) {
       for (const [layer, facts] of Object.entries(layers)) {
-        expect(facts.indexLeaves, `${body}/${layer}`).toBeGreaterThan(0);
+        expect(facts.indexLeaves, `${body}/${layer}`).toBeGreaterThanOrEqual(0);
         expect(Number.isInteger(facts.indexLeaves), `${body}/${layer}`).toBe(true);
       }
     }

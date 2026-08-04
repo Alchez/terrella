@@ -79,6 +79,37 @@ All stage numbers below are at the **131072² grid** (the full Mercator square) 
 | 7 | `build_tiles` — `gdal raster tile` z0–8, WebP q95 | **4:19** | **skip** | `tiles/` **3.1 GB**, 87,381 tiles | `tiles.done` + `tile_params.json` |
 | T | `tile/terrain_rgb.py` — terrain-RGB encode + cut **z0–8**, 8 m, lossless WebP *(separate lane: reads `height_3857.tif` directly, never the composite, and is not part of the shade pass)* | **41:00** for the shipping z0–8 pyramid, including building `elev_z7`. A z0–6 variant is **~4 min** once the chain exists. | **skip** | `work/planet_terrain/bathy_s8_webp/tiles/` **2.63 GB**, 87,381 tiles | `tiles.done` + `terrain_params.json`; chain on `elev_z*.done` |
 
+### The same pass on Mars — measured, at the 32768² z6 grid
+
+`python -m pipeline.tile.shade_planet --body mars --tiles`, cold, **4:41 end to end** — against ~52
+minutes for the equivalent Earth stages, plus the hour and a half of optional-layer warps Mars never
+pays. One sixteenth the pixels, and a body that declares no surface layers and no polar caps.
+
+| Stage | Earth z8 | Mars z6 | Note |
+|---|---|---|---|
+| warp height → 3857 | 6:49 | **2:12** | read-bound on the 10.6 GiB source, not pixel-bound |
+| warp masks + lake + snow + glaciers + ice | 1:35:31 | **0:00** | declared, not skipped by absence — every gate prints its reason |
+| `render/hillshade.py` | 16:20 | **0:58** | at Mars's own 10× and its own sphere |
+| `global_occlusion` | 3:23 | **0:15** | |
+| `composite_planet` | 21:37 | **0:46** | 256 windows, 5.57 win/s, threaded ×4 |
+| `build_tiles` z0–6 | 4:19 | **0:30** | 5,461 tiles, 352 MB |
+| `cap_render` | 1:36 | **0:00** | `renders_polar_caps=False`; the globe carries a hole above the Mercator limit |
+| pack + convert | 0:16 | **~1 s** | `planet.pmtiles` **356 MB**, 5,334 unique of 5,461 |
+
+**READ THE ANONYMOUS HIGH-WATER MARK, NOT THE CGROUP'S `memory.peak`.** The two differ by more than
+a factor of two on this pass and the rows above are quoted in the first. Mars's scope reported
+`memory.peak` **8.30 GiB**, of which **4.29 GiB was reclaimable page cache** — the source read and
+the outputs written, charged to the cgroup and droppable under pressure. Summed per-process `VmHWM`
+was **4.01 GiB**, the composite worker holding **2.90 GiB** of it. A cap sized off the cgroup number
+is sized off file traffic; a cap sized off `VmHWM` is sized off what cannot be reclaimed.
+
+**`pipeline/profile/run_pass.sh` caps every run at 16 G, and that is Earth's number.** Its own
+comment gives the reason: the pass ends by rendering polar caps, which peak near 14 GB. A body with
+`renders_polar_caps=False` never reaches that stage, so the cap is unbacked rather than protective —
+and on a box with less than 16 GiB available the harness's preflight correctly refuses to start. The
+Mars pass above ran under a hand-rolled 12 G scope reusing the harness's own `stamp.py` and
+`sample_tree.py`. The cap wants deriving from the body.
+
 Why the numbers are what they are (current-state explanations, not history):
 
 - **The composite is DRAM-bandwidth-bound, not I/O-bound**: full-width windows make every

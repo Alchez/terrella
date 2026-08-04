@@ -2993,20 +2993,16 @@ SABOTAGES: list[Sabotage] = [
     # reports nothing at all — which is exactly how the hand tally got terrain's leaf count wrong.
     Sabotage(
         suite='web',
-        label='Mars quietly publishes Earth\'s relief pyramid',
+        # Re-anchored when Mars started publishing. The old case made Mars's `null` into Earth's
+        # archive; there is no `null` to mutate now, and the live failure moved with it. What is
+        # left is the tidy-looking one: Mars's ceiling written as the module constants that sit
+        # three lines above it in the same file. It compiles, it reads as removing a magic number,
+        # and it makes a z7 and z8 Mars address parse against a pyramid cut to z6.
+        label='Mars relief takes Earth\'s zoom ceiling instead of its own',
         path='web/src/lib/tileAddress.ts',
-        needle='  mars: {\n    relief: null,',
-        replacement=(
-            '  mars: {\n'
-            '    relief: {\n'
-            '      objectKey: "planet-v2.pmtiles",\n'
-            '      token: TOKENS.earth.relief.token,\n'
-            '      indexLeaves: TOKENS.earth.relief.indexLeaves,\n'
-            '      minZoom: RELIEF_MIN_ZOOM,\n'
-            '      maxZoom: RELIEF_MAX_ZOOM,\n'
-            '    },'
-        ),
-        guard='refuses a Mars tile address outright, rather than serving Earth\'s pyramid',
+        needle='      minZoom: 0,\n      maxZoom: 6,',
+        replacement='      minZoom: RELIEF_MIN_ZOOM,\n      maxZoom: RELIEF_MAX_ZOOM,',
+        guard='bounds a Mars relief address by MARS\'s ceiling, not Earth\'s',
     ),
     Sabotage(
         suite='web',

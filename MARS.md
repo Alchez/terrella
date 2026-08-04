@@ -170,8 +170,21 @@ whole project.
   - This is the single most consequential fact in this document, and it argues against a deep cut.
 - **MOLA MEGDR, 463 m/px, global, is the honest floor** — one instrument, one resolution, no seams.
 - **No provenance mask ships with the blend.** Which pixels are HRSC and which are upsampled MOLA is
-  not published as a layer. HRSC DTM footprints *are* published, so one is constructible, and
-  building it is the only way to answer whether the boundary reads as banding.
+  not published as a layer. HRSC DTM footprints *are* published, so one is constructible.
+- **THE BOUNDARY READS AS BANDING, AND NO MASK WAS NEEDED TO SEE IT.** The first z6 pyramid answers
+  it directly: the northern plains carry rectangular patches of visibly rougher terrain with hard
+  straight edges, which are HRSC DTM footprints against the MOLA background.
+  - It is **not** an elevation seam — the 5 km feather handles the level. It is a *roughness*
+    discontinuity, and hillshade plus sky-view amplify precisely the high-frequency detail that
+    distinguishes a 463 m instrument from a stereo DTM.
+  - So it **argues for a low ceiling rather than against one**. Going deeper sharpens the HRSC
+    patches while the 56% beneath becomes a wider upsample: the contrast grows with the cut.
+  - A constructed provenance mask is now a *treatment* tool — knowing which pixels to low-pass — and
+    no longer a diagnostic. The diagnosis is done.
+- **The heightfield holds no holes, and this is a census rather than a sample.** All 1,073,741,824
+  pixels of the warped z6 grid read: **zero nodata**, against a declared `-32768`. Earlier sampling
+  covered 1.9% of rows and could only ever be evidence, since a hole smaller than the decimation is
+  invisible to it. Valid range **−8,511 m to +21,166 m**.
 - **Paleobathymetry does not exist.** There is no measured sea floor, because there is no sea.
   - What exists is a set of *contested shoreline contours*. Published mappings of the Arabia Level
     disagree by up to **2.2 km** in mean elevation and roughly **500 km** laterally.
@@ -219,6 +232,8 @@ Easy to conflate, and conflating them yields ~5× where the answer is ~10×.
 - **On its own sphere, Mars needs LESS exaggeration than Earth.** Its relief range is about
   **0.87%** of its radius against Earth's **0.31%** — roughly 2.8× more dramatic before any
   exaggeration.
+  - That figure is now measured off our own grid rather than carried from a source: the full census
+    of the warped heightfield gives a **29,677 m** span on the 3,396,190 m sphere, i.e. **0.874%**.
 - **On MapLibre's globe, Mars needs MORE.** The globe shader draws every body on the same
   Earth-sized sphere and displaces in metres, so only the metres matter — and Mars's ~30 km range is
   about **1.5×** Earth's ~20 km.
@@ -338,12 +353,16 @@ Restated as standalone facts, because the reason each was learned matters more t
 
 One small commit at a time, each green and each shippable alone. No commit may leave Earth broken.
 
-- **The cheapest lookable thing.** A z6 Mars pyramid — about 2.8 GB of master, 0.2 GB packed.
+- **The cheapest lookable thing — RUN, and it was cheaper than the estimate.** The z6 pyramid is
+  **3.1 GB of master and 340 MB packed**, cut in **4:41** end to end. The estimate said 2.8 GB and
+  0.2 GB; the master is bigger because it is Float32 and the archive because Mars, having no flat
+  sea, dedupes to 5,334 unique tiles of 5,461 where Earth sheds about 5%.
   - Dev store layout, then the Worker's Mars archive routes with the cache recount, then the
     registry entry and its acquisition recipe, then the `/mars/` route and its Lite page.
   - Then the pipeline run, whose committed artifact is the recipe sidecar, not the pixels.
   - No sea, no vectors, a first-guess ramp. Its only job is to exist on the sphere.
-  - Build the provenance mask here and look at the HRSC/MOLA boundary on the globe.
+  - **What it proved beyond the pixels:** every surface-layer gate fires and says why, the cap gate
+    declines out loud, and the nodata and provenance questions are both answered above.
 - **The look loop, still at z6.** Each candidate look is one commit to the registry.
   - Palette from scratch; exaggeration judged rather than computed.
   - The sea question decided by rendering all three options — none, one contour, the family — rather
@@ -378,11 +397,15 @@ Triaged by when each must be answered, because most of them cannot be answered e
 - **Before any download.** The blended DEM itself, and one gazetteer shapefile to settle whether its
   geometry is points or polygons. Both are public domain and neither adds an obligation — the
   licensing is settled, so this is a decision about disk and time, not about terms.
-- **At the end of the first pyramid.** Does the HRSC/MOLA boundary read as texture banding? Answered
-  by the provenance mask on a real z6 pyramid, not by argument.
 - **During the look loop**, all decided on the sphere.
   - Terrella's look applied to Mars, or a Mars look of its own? This is the deepest question here;
     everything downstream keys off it.
+  - **The first pyramid states this one as a number.** Earth's land ramp is keyed 0–8,848 m and Mars
+    spans −8,511 to +21,166, so the gradient does its work over **about 30% of the range** and the
+    two ends clamp flat. Measured by reading the heightfield and the composite at the same points:
+    the northern lowlands, Hellas at −6,044 m and the Valles floor all take one sand, separated only
+    by hillshade, while Tharsis at +5,858 m and the Olympus summit at +19,964 m take one white. The
+    salmon that makes it read as Mars lives only in the middle band, which is the southern highlands.
   - Does Mars draw a sea — none, one chosen contour, or the family of candidate shorelines?
   - Exaggeration: the ~10× above is arithmetic and needs judging.
   - Does THEMIS night IR belong in the look, as a second physical field over relief?

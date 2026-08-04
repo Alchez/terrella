@@ -191,17 +191,26 @@ export const PUBLISHED: Record<BodySlug, Record<LayerId, PublishedArchive | null
       maxZoom: COUNTRIES_MAX_ZOOM,
     },
   },
-  // MARS PUBLISHES NOTHING YET, and three explicit nulls are the point rather than an omission —
-  // the record forces this body to answer for every layer, so nothing can be forgotten into
-  // existence later. Every consequence of `null` is already the one wanted: `parseTileAddress`
-  // refuses a Mars tile URL without touching storage, `archiveFor` throws rather than borrowing
-  // Earth's pyramid, and the deploy preflight enumerates no Mars object to demand from R2.
+  // MARS PUBLISHES RELIEF AND NOTHING ELSE, and the two remaining nulls are answers rather than
+  // omissions — the record forces this body to answer for every layer, so nothing can be forgotten
+  // into existence later. `parseTileAddress` refuses a Mars terrain or countries URL without
+  // touching storage, and `archiveFor` throws rather than borrowing Earth's pyramid.
   //
-  // That last one is load-bearing in the other direction too: naming a Mars key here BEFORE the
-  // archive is uploaded would block every deploy, since the preflight refuses on any published
-  // object the bucket does not hold. The entry and the upload land together or not at all.
+  // NAMING A KEY HERE COMMITS TO AN UPLOAD. The deploy preflight refuses on any published object the
+  // bucket does not hold, so this entry and the R2 upload land together or not at all.
   mars: {
-    relief: null,
+    relief: {
+      objectKey: "mars/relief-v1.pmtiles",
+      token: TOKENS.mars.relief.token,
+      indexLeaves: TOKENS.mars.relief.indexLeaves,
+      // NOT `RELIEF_MIN_ZOOM`/`RELIEF_MAX_ZOOM`, which are Earth's answer to a per-planet question —
+      // Earth is cut to z8 and Mars to z6, for reasons that are about each body's data rather than
+      // about the scheme. These restate `pipeline/bodies.py`'s `MARS.tile_max_zoom`, and the copy is
+      // held honest by the dev server, which reads the archive's own header and throws when it
+      // disagrees with the numbers here.
+      minZoom: 0,
+      maxZoom: 6,
+    },
     terrain: null,
     countries: null,
   },

@@ -13,13 +13,11 @@ import {
   describeRetiredStoreVars,
   resolveDataRoot,
 } from './src/lib/devStores';
-import { LAYERS, resolveTileRequest, type LayerId } from './src/lib/tileAddress';
-import { assertZoomRange, describeTileTypeMismatch } from './src/lib/reliefTiles';
-import { assertTerrainZoomRange, describeTerrainTileTypeMismatch } from './src/lib/terrainSource';
-import {
-  assertCountriesZoomRange,
-  describeCountriesTileTypeMismatch,
-} from './src/lib/countryTiles';
+import { archiveFor, LAYERS, resolveTileRequest, type LayerId } from './src/lib/tileAddress';
+import type { BodySlug } from './src/lib/bodies';
+import { describeTileTypeMismatch } from './src/lib/reliefTiles';
+import { describeTerrainTileTypeMismatch } from './src/lib/terrainSource';
+import { describeCountriesTileTypeMismatch } from './src/lib/countryTiles';
 
 // Asset store locations. DEV-ONLY: the dev server serves /heroes, /borders and /tiles
 // out of these external directories (R2 does it in production; the
@@ -166,36 +164,39 @@ function openArchive(
   return archive;
 }
 
-/** Per-layer header checks, THROWING where the Worker logs and 404s.
- *
- *  The asymmetry is deliberate and long-standing: a dev server should refuse to start on drift,
- *  a live one should serve what it has and make the drift visible rather than 500 the world.
- *
- *  Each still checks the zoom range against its own module's constants rather than against the
- *  registry's per-body ones. That is right until there IS a second body — at which point the
- *  module constants become Earth's answer to a per-planet question, and this table is replaced by
- *  a check against `PUBLISHED[body][layer]`. Writing that check now would mean shipping a branch
- *  no test could reach. */
-const VALIDATE_HEADER: Record<
-  LayerId,
-  (header: { minZoom: number; maxZoom: number; tileType: number }) => void
-> = {
-  relief: (header) => {
-    assertZoomRange(header.minZoom, header.maxZoom);
-    const mismatch = describeTileTypeMismatch(tileTypeExt(header.tileType));
-    if (mismatch) throw new Error(mismatch);
-  },
-  terrain: (header) => {
-    assertTerrainZoomRange(header.minZoom, header.maxZoom);
-    const mismatch = describeTerrainTileTypeMismatch(tileTypeExt(header.tileType));
-    if (mismatch) throw new Error(mismatch);
-  },
-  countries: (header) => {
-    assertCountriesZoomRange(header.minZoom, header.maxZoom);
-    const mismatch = describeCountriesTileTypeMismatch(tileTypeExt(header.tileType));
-    if (mismatch) throw new Error(mismatch);
-  },
+/** Per-layer tile-ENCODING checks. Which encoding an archive stores is a property of the layer's
+ *  contract, not of the planet: every body's relief is WebP and every body's countries are MVT. */
+const VALIDATE_TILE_TYPE: Record<LayerId, (extension: string) => string | null> = {
+  relief: describeTileTypeMismatch,
+  terrain: describeTerrainTileTypeMismatch,
+  countries: describeCountriesTileTypeMismatch,
 };
+
+/** Header checks for one body's cut of one layer, THROWING where the Worker logs and 404s.
+ *
+ *  The asymmetry is deliberate and long-standing: a dev server should refuse to start on drift, a
+ *  live one should serve what it has and make the drift visible rather than 500 the world.
+ *
+ *  THE ZOOM RANGE COMES FROM THE REGISTRY, NOT FROM A MODULE CONSTANT, and the second body is what
+ *  made the difference observable. `RELIEF_MIN_ZOOM`/`RELIEF_MAX_ZOOM` and their two siblings are
+ *  Earth's answer to a question that is per-planet: Earth's relief is cut to z8 and Mars's to z6,
+ *  because each body's ceiling follows its own source data. Checking a Mars archive against Earth's
+ *  constants refuses a correct pyramid; checking it against nothing lets a mis-cut one through. The
+ *  registry is the only place that knows which pair to expect. */
+function headerCheckFor(body: BodySlug, layer: LayerId) {
+  return (header: { minZoom: number; maxZoom: number; tileType: number }): void => {
+    const published = archiveFor(body, layer);
+    if (header.minZoom !== published.minZoom || header.maxZoom !== published.maxZoom) {
+      throw new Error(
+        `PMTiles archive for ${body}/${layer} covers z${header.minZoom}-z${header.maxZoom}, but ` +
+          `PUBLISHED.${body}.${layer} in src/lib/tileAddress.ts says z${published.minZoom}-` +
+          `z${published.maxZoom}. Update the registry to match the re-cut pyramid, or re-cut it.`,
+      );
+    }
+    const mismatch = VALIDATE_TILE_TYPE[layer](tileTypeExt(header.tileType));
+    if (mismatch) throw new Error(mismatch);
+  };
+}
 
 // Dev-only: answer /tiles/{z}/{x}/{y}.webp, /tiles/terrain/{z}/{x}/{y}.webp and
 // /tiles/countries/{z}/{x}/{y}.mvt out of the three packaged PMTiles archives, each found under
@@ -239,7 +240,10 @@ function tilesDevServer(): Plugin {
         }
         void (async () => {
           try {
-            const archive = await openArchive(archivePathname, VALIDATE_HEADER[tile.layer]);
+            const archive = await openArchive(
+              archivePathname,
+              headerCheckFor(tile.body, tile.layer),
+            );
             const entry = await archive.getZxy(tile.z, tile.x, tile.y);
             if (!entry) {
               // What a miss MEANS is a property of the archive, so the status comes off the

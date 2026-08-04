@@ -17,6 +17,16 @@ import { TERRAIN_CONTENT_TYPE } from "../src/lib/terrainSource";
 import { COUNTRIES_CONTENT_TYPE } from "../src/lib/countryTiles";
 import { PUBLISHED, archiveFor, tilePathTemplate } from "../src/lib/tileAddress";
 
+/** What one body's published archives cost the Worker's directory cache: a header entry, a root
+ *  entry, and one per leaf directory. Restated here rather than imported because the point of the
+ *  tests below is to check the Worker's own arithmetic against an independent statement of it. */
+const directoryCacheCostOf = (
+  layers: Record<string, { indexLeaves: number } | null>,
+): number =>
+  Object.values(layers)
+    .filter((archive) => archive !== null)
+    .reduce((total, archive) => total + 2 + archive.indexLeaves, 0);
+
 const INDEX_ETAG = "etag-of-the-shipped-cut";
 
 /** Stands in for R2. Records every call so a test can assert a read did NOT happen — the whole
@@ -334,14 +344,15 @@ describe("per-archive isolate state", () => {
   });
 
   it("grows when a body publishes a pyramid, which is what makes it self-maintaining", () => {
-    // The property worth having, stated as a property. Mars carries three nulls today; the day one
-    // of them becomes an archive, this number moves without anyone editing it.
-    const marsPublishes = Object.values(PUBLISHED.mars).some((archive) => archive !== null);
-    expect(marsPublishes, "Mars publishes nothing yet — see PUBLISHED in tileAddress.ts").toBe(false);
-    const earthOnly = Object.values(PUBLISHED.earth)
-      .filter((archive) => archive !== null)
-      .reduce((total, archive) => total + 2 + archive.indexLeaves, 0);
-    expect(directoryCacheEntries()).toBeGreaterThan(earthOnly);
+    // The property worth having, stated as a property — and now OBSERVED rather than anticipated.
+    // This test used to assert Mars published nothing and that the number exceeded Earth's own need;
+    // both halves passed while the mechanism was untested, because one body is the case a sum over
+    // bodies cannot distinguish from a constant. Mars's relief pyramid entered the registry and this
+    // number moved by Mars's own cost, with nobody editing the Worker.
+    const marsCost = directoryCacheCostOf(PUBLISHED.mars);
+    expect(marsCost, "Mars publishes nothing — see PUBLISHED in tileAddress.ts").toBeGreaterThan(0);
+    expect(directoryCacheEntries() - directoryCacheCostOf(PUBLISHED.earth))
+      .toBeGreaterThanOrEqual(marsCost);
   });
 });
 
