@@ -1966,7 +1966,7 @@ SABOTAGES: list[Sabotage] = [
         path='pipeline/tile/shade_planet.py',
         needle='    if layer not in body.surface_layers:',
         replacement='    if layer not in body.surface_layers and not source.exists():',
-        guard='test_a_layer_is_refused_for_a_body_that_does_not_declare_it_even_though_earths_file_is_there',
+        guard='test_a_layer_is_refused_for_a_body_that_does_not_declare_it_even_though_the_source_is_there',
     ),
     # THE ORIGINAL BUG, as the tidy-looking refactor that reintroduces it: two branches that both
     # print and both return False, collapsed into one condition. It reads as a simplification and it

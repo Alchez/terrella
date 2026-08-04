@@ -6,6 +6,9 @@ shade_planet.composite_params (one recipe home) plus source-mtime comparison.
 
 import json
 import os
+from pathlib import Path
+
+import pytest
 
 from pipeline import bodies, planet_seam
 from pipeline.tile import cap_render
@@ -119,16 +122,34 @@ class TestCapRecipe:
 
 
 class TestCapSources:
-    def test_north_reads_the_snow_dataset_and_the_coastline(self):
+    """Both of these run through `bakes_coastline`, whose third question is the disk — so the
+    coastline has to be present for either assertion to be about the subject.
+
+    IT IS A FILE THESE TESTS WRITE, not the real Natural Earth shapefile, and the reason is that
+    reading the real one made both claims depend on whether this machine holds the download. The
+    north's assertion failed on a checkout with no data store, which is the honest half. The
+    south's PASSED there, which is the dangerous one: a missing file and a zero opacity produce
+    the same empty answer, so the test could not tell its own subject from an absent input.
+    """
+
+    @pytest.fixture
+    def coastline(self, monkeypatch, tmp_path) -> Path:
+        """A present coastline, so the disk question answers yes and the look and body decide."""
+        shapefile = tmp_path / "ne_10m_coastline.shp"
+        shapefile.write_text("only its existence is read")
+        monkeypatch.setattr(cap_render, "COAST_SHP", shapefile)
+        return shapefile
+
+    def test_north_reads_the_snow_dataset_and_the_coastline(self, coastline):
         sources = cap_render.cap_sources(EARTH_NORTH, WHOLE_PLANET)
         assert any("snow" in str(source).lower() or str(cap_render.snow.SP_NC) in str(source)
                    for source in sources)
-        assert cap_render.COAST_SHP in sources
+        assert coastline in sources
 
-    def test_south_forced_snow_needs_no_dataset_and_bakes_no_coastline(self):
+    def test_south_forced_snow_needs_no_dataset_and_bakes_no_coastline(self, coastline):
         sources = cap_render.cap_sources(EARTH_SOUTH, WHOLE_PLANET)
         assert not any(str(cap_render.snow.SP_NC) in str(source) for source in sources)
-        assert cap_render.COAST_SHP not in sources
+        assert coastline not in sources
 
 
 class TestTheRecipeTracksTheBodyNarrowly:

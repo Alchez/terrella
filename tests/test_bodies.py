@@ -647,8 +647,8 @@ def test_earth_has_every_surface_layer_and_the_second_body_has_none() -> None:
     assert bodies.MARS.surface_layers == frozenset()
 
 
-def test_a_layer_is_refused_for_a_body_that_does_not_declare_it_even_though_earths_file_is_there(
-        capsys) -> None:
+def test_a_layer_is_refused_for_a_body_that_does_not_declare_it_even_though_the_source_is_there(
+        capsys, tmp_path) -> None:
     """THE BUG THIS PHASE EXISTS TO CLOSE, stated as an executable claim.
 
     Every source behind these layers is a module constant at one global path, so `.exists()` asks
@@ -657,17 +657,23 @@ def test_a_layer_is_refused_for_a_body_that_does_not_declare_it_even_though_eart
     Mars's grid at the same latitudes and composite it: snow in the north, none in the south, no
     error raised, and a planet that looks entirely reasonable.
 
-    So this asserts the refusal WHILE the file is present. A test that deleted the source first
+    So this asserts the refusal WHILE THE SOURCE IS PRESENT. A test that deleted the source first
     would pass against the broken gate too, which is the whole trap.
-    """
-    from pipeline.render import snow
 
-    assert snow.SP_NC.exists(), (
-        "this test is vacuous without Earth's snow source on disk — it exists to prove the body is "
-        "asked BEFORE the filesystem, and with the file absent both orders refuse"
-    )
-    assert shade_planet.layer_is_buildable(bodies.EARTH, "snow", snow.SP_NC, "no snow") is True
-    assert shade_planet.layer_is_buildable(bodies.MARS, "snow", snow.SP_NC, "no snow") is False
+    THE SOURCE IS A FILE THIS TEST WRITES, deliberately, rather than the real `snow.SP_NC`. Reading
+    the constant tied the claim to whether this particular machine happens to hold a multi-gigabyte
+    NSIDC download, and the assertion that kept the test honest is exactly what fired on a checkout
+    with no data store. The claim is about the ORDER OF TWO QUESTIONS, so any file that exists
+    proves it and which file is incidental — building one here makes the test true everywhere
+    instead of true on one box. The mutation guarded by this test has the same shape: it only makes
+    the subject wrong while a source exists, so an absent store would score it caught while the
+    guard never ran.
+    """
+    present = tmp_path / "persistence.nc"
+    present.write_text("only its existence is read")
+
+    assert shade_planet.layer_is_buildable(bodies.EARTH, "snow", present, "no snow") is True
+    assert shade_planet.layer_is_buildable(bodies.MARS, "snow", present, "no snow") is False
     assert "mars declares no snow layer" in capsys.readouterr().out
 
 
