@@ -120,7 +120,7 @@ describe("canary — MapLibre still drapes exactly these types", () => {
     const types = [...(declaration?.[1] ?? "").matchAll(/"?([a-z-]+)"?\s*:/g)].map(
       (match) => match[1],
     );
-    expect(types.sort()).toEqual([...DRAPED_LAYER_TYPES].sort());
+    expect(types.toSorted()).toEqual([...DRAPED_LAYER_TYPES].toSorted());
   });
 
   it("still allocates one RTT object per tile per stack", () => {

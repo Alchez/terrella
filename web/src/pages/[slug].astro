@@ -192,6 +192,20 @@ const nativeSpotlight = country.hasSpotlight
   // In-place zoom for the detail hero: wheel / double-click / pinch to zoom, drag to
   // pan. The full-resolution variant is swapped in lazily the first time you zoom, so
   // the page stays light on load. The relief and its spotlight overlay pan/zoom together.
+  // Swap a layer's background only once the new image is decoded — swapping to a
+  // not-yet-loaded URL flashes the (dark) figure background through the transparent
+  // gap. The display variant stays visible until the native one is ready.
+  const swapWhenReady = (layer: HTMLElement, url: string) => {
+    const preload = new Image();
+    preload.src = url;
+    preload
+      .decode()
+      .catch(() => {})
+      .finally(() => {
+        layer.style.backgroundImage = `url(${url})`;
+      });
+  };
+
   const heroFigure = document.querySelector(".hero-zoom");
   if (heroFigure instanceof HTMLElement) {
     const heroLayer = heroFigure.querySelector(".zoom-hero") as HTMLElement;
@@ -232,19 +246,6 @@ const nativeSpotlight = country.hasSpotlight
       resetButton.hidden = !isZoomed;
     };
 
-    // Swap a layer's background only once the new image is decoded — swapping to a
-    // not-yet-loaded URL flashes the (dark) figure background through the transparent
-    // gap. The display variant stays visible until the native one is ready.
-    const swapWhenReady = (layer: HTMLElement, url: string) => {
-      const preload = new Image();
-      preload.src = url;
-      preload
-        .decode()
-        .catch(() => {})
-        .finally(() => {
-          layer.style.backgroundImage = `url(${url})`;
-        });
-    };
 
     // Upgrade to the native full-resolution variant the first time we zoom.
     const loadNativeVariant = () => {

@@ -293,6 +293,16 @@ export function startsCollapsed(viewportCssWidth: number): boolean {
   return viewportCssWidth < NARROW_VIEWPORT_PX;
 }
 
+/** A duration, or the em dash that means "no reading" — never a fabricated 0.
+ *
+ *  Module-level because the collapsed view and the summary must round and dash IDENTICALLY: the
+ *  collapsed line is the same measurement the expanded panel shows, and two copies of this rule
+ *  could drift into reporting the same snapshot two ways. It was in fact written out twice. */
+const ms = (value: number | null) => (value === null ? "—" : `${Math.round(value)} ms`);
+
+/** A whole-second duration, for spans long enough that milliseconds are noise. */
+const seconds = (value: number) => `${(value / 1000).toFixed(0)}s`;
+
 /**
  * The two lines worth showing when the panel is collapsed.
  *
@@ -301,7 +311,6 @@ export function startsCollapsed(viewportCssWidth: number): boolean {
  * of what is on screen, so nothing is lost by collapsing.
  */
 export function perfCollapsedLines(snapshot: PerfSnapshot): string[] {
-  const ms = (value: number | null) => (value === null ? "—" : `${Math.round(value)} ms`);
   const rate = snapshot.fps === null ? "fps —" : `fps ${snapshot.fps}`;
   const tasks = snapshot.longTaskApiAvailable
     ? `blocked ${ms(snapshot.longTaskTotalMs)} in ${snapshot.longTaskCount}`
@@ -321,7 +330,6 @@ export function perfCollapsedLines(snapshot: PerfSnapshot): string[] {
  * filing it under one would be false precision.
  */
 export function perfSummaryLines(snapshot: PerfSnapshot): PerfLine[] {
-  const ms = (value: number | null) => (value === null ? "—" : `${Math.round(value)} ms`);
   const lines: PerfLine[] = [
     { group: "cpu", text: `boot ${ms(snapshot.bootMs)}` },
     {
@@ -347,7 +355,6 @@ export function perfSummaryLines(snapshot: PerfSnapshot): PerfLine[] {
   // panel's own font gives 53 characters on a 412 px phone, and the combined form ran to 61 and
   // wrapped. Wrapping costs the same height as a second line while making both halves harder to
   // scan, so this spends the row deliberately — and only when there is a retained rate to explain.
-  const seconds = (value: number) => `${(value / 1000).toFixed(0)}s`;
   const rate = snapshot.fps === null ? "fps — (idle)" : `fps ${snapshot.fps}`;
   lines.push({
     group: "feel",

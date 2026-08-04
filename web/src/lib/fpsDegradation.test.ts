@@ -8,6 +8,22 @@ import {
   nextDegradationAction,
 } from "./fpsDegradation";
 
+/** A decision from the shipping defaults, with the terrain rung fixed per describe.
+ *
+ *  A factory rather than two near-identical helpers: the two blocks below differ only in whether
+ *  terrain is on, and the four fields they share are the shipping config — a second copy of them
+ *  could drift and quietly change what the other block is testing. */
+const degradationWith =
+  (terrainEnabled: boolean) =>
+  (overrides: Partial<Parameters<typeof nextDegradationAction>[0]>) =>
+    nextDegradationAction({
+      spinning: false,
+      pixelRatioLowered: false,
+      devicePixelRatio: 2,
+      terrainEnabled,
+      ...overrides,
+    });
+
 describe("isSustainedSlow", () => {
   it("stays quiet below the minimum sample count, however slow the frames", () => {
     const tooFewSlowFrames = Array(MINIMUM_SAMPLE_COUNT - 1).fill(50);
@@ -36,14 +52,7 @@ describe("nextDegradationAction", () => {
   // Every existing case now has to say whether terrain is on. Default it OFF here, because that
   // is the shipping state today (terrain is still behind ?terrain=N) and it keeps these five
   // tests about the levers they were written for.
-  const state = (overrides: Partial<Parameters<typeof nextDegradationAction>[0]>) =>
-    nextDegradationAction({
-      spinning: false,
-      pixelRatioLowered: false,
-      devicePixelRatio: 2,
-      terrainEnabled: false,
-      ...overrides,
-    });
+  const state = degradationWith(false);
 
   it("retires the spin first — the cheapest lever", () => {
     expect(state({ spinning: true })).toBe("retire-spin");
@@ -67,14 +76,7 @@ describe("nextDegradationAction", () => {
 });
 
 describe("the terrain rung, and why it is last", () => {
-  const state = (overrides: Partial<Parameters<typeof nextDegradationAction>[0]>) =>
-    nextDegradationAction({
-      spinning: false,
-      pixelRatioLowered: false,
-      devicePixelRatio: 2,
-      terrainEnabled: true,
-      ...overrides,
-    });
+  const state = degradationWith(true);
 
   it("LOWERS THE PIXEL RATIO BEFORE DISABLING TERRAIN, which is not the intuitive order", () => {
     // The load-bearing test in this file. Terrain sounds like the heaviest lever, so the obvious

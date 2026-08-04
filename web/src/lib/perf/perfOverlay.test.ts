@@ -50,6 +50,44 @@ const evenFrames = (count: number, stepMs: number, now: number) =>
 const summaryTexts = (snapshot: PerfSnapshot) =>
   perfSummaryLines(snapshot).map((line) => line.text);
 
+/** The two fetch outcomes the exporter distinguishes: it reads `ok` and nothing else. */
+const ok = () => Promise.resolve({ ok: true } as Response);
+const notFound = () => Promise.resolve({ ok: false } as Response);
+
+/** A PerformanceObserver stub that only declares which entry types it supports — the single
+ *  field the longtask feature-check reads. */
+const withEntryTypes = (types: string[]) =>
+  ({ supportedEntryTypes: types }) as unknown as typeof PerformanceObserver;
+
+/** Replay a script of frame events through the tracker and return where it ended up. */
+const replay = (script: ReadonlyArray<number | "idle">) => {
+  let tracker = newFrameTracker();
+  for (const event of script) {
+    tracker = event === "idle" ? onIdle(tracker) : onRender(tracker, event);
+  }
+  return { peakMs: tracker.peakMs, slowCount: tracker.slowCount };
+};
+
+/** The same replay, but reporting the peak after EVERY event rather than only at the end —
+ *  which is what makes a reset visible instead of averaged away. */
+const step = (script: ReadonlyArray<number | "idle">) => {
+  let tracker = newFrameTracker();
+  return script.map((event) => {
+    tracker = event === "idle" ? onIdle(tracker) : onRender(tracker, event);
+    return tracker.peakMs;
+  });
+};
+
+/** A zeroed tally — every field explicit, so a field added upstream fails here rather than
+ *  arriving as undefined and reading as a zero. */
+const newTally = (): LongTaskTally => ({
+  longTaskCount: 0,
+  longTaskTotalMs: 0,
+  longTaskMaxMs: 0,
+  longTaskIntervals: [],
+  longTaskIntervalsDropped: 0,
+});
+
 describe("perfSummaryLines", () => {
   it("renders pending timings as em-dashes and rounds real ones", () => {
     const lines = summaryTexts(BASE);
@@ -146,9 +184,6 @@ describe("startsCollapsed", () => {
 });
 
 describe("exportPerfReport", () => {
-  const ok = () => Promise.resolve({ ok: true } as Response);
-  const notFound = () => Promise.resolve({ ok: false } as Response);
-
   it("posts the report as pretty JSON to the dev endpoint", async () => {
     let seenPath: string | undefined;
     let seenBody: string | undefined;
@@ -206,9 +241,6 @@ describe("exportPerfReport", () => {
 });
 
 describe("longTaskApiSupported", () => {
-  const withEntryTypes = (types: string[]) =>
-    ({ supportedEntryTypes: types }) as unknown as typeof PerformanceObserver;
-
   it("accepts a browser that lists longtask", () => {
     expect(longTaskApiSupported(withEntryTypes(["mark", "measure", "longtask"]))).toBe(true);
   });
@@ -376,23 +408,6 @@ describe("frameInterval", () => {
 });
 
 describe("the frame tracker across a page's life", () => {
-  /** Replay a script of events through the tracker and return the peak after each one. */
-  const replay = (script: ReadonlyArray<number | "idle">) => {
-    let tracker = newFrameTracker();
-    for (const event of script) {
-      tracker = event === "idle" ? onIdle(tracker) : onRender(tracker, event);
-    }
-    return { peakMs: tracker.peakMs, slowCount: tracker.slowCount };
-  };
-
-  const step = (script: ReadonlyArray<number | "idle">) => {
-    let tracker = newFrameTracker();
-    return script.map((event) => {
-      tracker = event === "idle" ? onIdle(tracker) : onRender(tracker, event);
-      return tracker.peakMs;
-    });
-  };
-
   it("clears the load-time peak at the first idle, and only the first", () => {
     // Frames at 0/200/216 — a 200 ms load frame — then the map settles. The 200 must go, or it
     // sets a floor no later gesture can beat and the readout is stuck for the whole session.
@@ -463,14 +478,6 @@ describe("frameRate", () => {
 });
 
 describe("recordLongTask", () => {
-  const newTally = (): LongTaskTally => ({
-    longTaskCount: 0,
-    longTaskTotalMs: 0,
-    longTaskMaxMs: 0,
-    longTaskIntervals: [],
-    longTaskIntervalsDropped: 0,
-  });
-
   it("retains the WINDOW, not just the totals — the intervals cannot be recovered later", () => {
     // Long tasks reach a PerformanceObserver and are never added to the performance timeline, so
     // `getEntriesByType("longtask")` returns nothing. Retained here or lost for good.

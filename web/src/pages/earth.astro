@@ -697,7 +697,6 @@ const PROMOTE_STYLESHEET = "this.media='all'";
     maplibregl.setMaxParallelImageRequests(maxParallelImageRequests);
   }
   if (urlFlags.has("perf")) {
-    // eslint-disable-next-line no-console
     console.log(`[tiles] maxParallelImageRequests = ${maxParallelImageRequests}`);
   }
 
@@ -1259,7 +1258,6 @@ const PROMOTE_STYLESHEET = "this.media='all'";
       map.triggerRepaint();
     });
 
-    // eslint-disable-next-line no-console
     console.log(
       ramp.kind === "off"
         ? `[terrain] ${declaredTileSize}px declared, ${terrainExaggeration}x constant ` +
@@ -1406,7 +1404,7 @@ const PROMOTE_STYLESHEET = "this.media='all'";
                 canvas.clientWidth > 0 ? canvas.width / canvas.clientWidth : map.getPixelRatio(),
               viewportCssWidth: canvas.clientWidth,
               viewportCssHeight: canvas.clientHeight,
-              flags: [...urlFlags.keys()].sort(),
+              flags: [...urlFlags.keys()].toSorted(),
               panelExpanded: panel.expanded,
             },
             timing,

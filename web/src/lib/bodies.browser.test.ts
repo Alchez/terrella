@@ -87,7 +87,7 @@ describe("the accent comes from the body descriptor", () => {
     // The other direction. A block left behind by a removed body would be dead CSS that still
     // matched, so a stale `data-body` on a cached page would keep painting a planet that is gone.
     const styled = [...globalCss.matchAll(/:root\[data-body="([^"]+)"\]/g)].map((m) => m[1]);
-    expect([...new Set(styled)].sort()).toEqual(Object.keys(BODIES).sort());
+    expect([...new Set(styled)].toSorted()).toEqual(Object.keys(BODIES).toSorted());
   });
 });
 

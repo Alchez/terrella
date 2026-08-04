@@ -72,7 +72,7 @@ describe("pickRung", () => {
   });
 
   it("does not depend on the manifest's rung order", () => {
-    const shuffled = [...RUNGS("north")].reverse();
+    const shuffled = [...RUNGS("north")].toReversed();
     expect(pickRung(shuffled, MOBILE_CAP_BUDGET_PX).px).toBe(4096);
     expect(pickRung(shuffled, Infinity).px).toBe(8192);
   });
@@ -373,6 +373,37 @@ function stubImageLoading(gl: FakeGl, hold?: Promise<void>) {
   });
 }
 
+/** A cap layer carrying an elevation texture as well as a colour one. */
+function elevLayer(gl: unknown): CapLayer {
+  return {
+    id: "polar-cap-north", type: "custom", render: () => undefined,
+    gl: gl as WebGL2RenderingContext,
+    elevTexture: {} as WebGLTexture,
+    elevLoaded: false,
+  };
+}
+
+/** A GL context that RECORDS the draw calls made against it, rather than only absorbing them —
+ *  the blend mode and the uniforms are the thing under test, and neither shows in a return value. */
+function recordingGl() {
+  const calls = { blend: null as null | number[], draw: null as null | number[], uniforms: {} as Record<string, number> };
+  const constants = { TEXTURE_2D: 1, ARRAY_BUFFER: 2, ELEMENT_ARRAY_BUFFER: 3, FLOAT: 4, BLEND: 5,
+    ONE: 6, ONE_MINUS_SRC_ALPHA: 7, ZERO: 8, TRIANGLES: 9, UNSIGNED_INT: 10, UNSIGNED_SHORT: 11,
+    TEXTURE0: 12, TEXTURE1: 13 };
+  return {
+    calls, ...constants,
+    useProgram: () => undefined, uniformMatrix4fv: () => undefined, uniform4f: () => undefined,
+    activeTexture: () => undefined, bindTexture: () => undefined, bindBuffer: () => undefined,
+    enableVertexAttribArray: () => undefined, vertexAttribPointer: () => undefined,
+    disableVertexAttribArray: () => undefined, isEnabled: () => true, enable: () => undefined,
+    disable: () => undefined, uniform1i: () => undefined,
+    uniform1f: (location: unknown, value: number) => { calls.uniforms[String(location)] = value; },
+    blendFunc: (src: number, dst: number) => { calls.blend = [src, dst, src, dst]; },
+    blendFuncSeparate: (sc: number, dc: number, sa: number, da: number) => { calls.blend = [sc, dc, sa, da]; },
+    drawElements: (mode: number, count: number, type: number) => { calls.draw = [mode, count, type]; },
+  };
+}
+
 function makeLayer(gl: unknown): CapLayer {
   return {
     id: "polar-cap-north",
@@ -468,8 +499,10 @@ describe("syncCapRung", () => {
   it("starts only one fetch while a rung is in flight", async () => {
     // A fast zoom fires many moveends; without the guard each would start its own 5 MB download.
     const gl = fakeGl();
-    let release = () => undefined as void;
-    const hold = new Promise<void>((resolve) => { release = () => resolve(); });
+    // `withResolvers` rather than a `let` placeholder reassigned inside an executor: the promise
+    // and the handle that settles it come out together, so there is no moment where `release` is
+    // a no-op that a mis-ordered line could call.
+    const { promise: hold, resolve: release } = Promise.withResolvers<void>();
     stubImageLoading(gl, hold);
     const layer = makeLayer(gl);
 
@@ -719,14 +752,6 @@ describe("vertexSrc", () => {
 });
 
 describe("loadCapElevation", () => {
-  function elevLayer(gl: unknown): CapLayer {
-    return {
-      id: "polar-cap-north", type: "custom", render: () => undefined,
-      gl: gl as WebGL2RenderingContext,
-      elevTexture: {} as WebGLTexture,
-      elevLoaded: false,
-    };
-  }
 
   it("fetches the manifest's texture and samples it NEAREST, never filtered or mipmapped", async () => {
     // THE LOAD-BEARING ASSERTION IN THIS FILE. These texels are not colour: elevation is
@@ -799,24 +824,6 @@ describe("compositedAlpha", () => {
 
 describe("the cap's draw call", () => {
   /** Enough GL to run the real `render`, recording the decisions worth asserting. */
-  function recordingGl() {
-    const calls = { blend: null as null | number[], draw: null as null | number[], uniforms: {} as Record<string, number> };
-    const constants = { TEXTURE_2D: 1, ARRAY_BUFFER: 2, ELEMENT_ARRAY_BUFFER: 3, FLOAT: 4, BLEND: 5,
-      ONE: 6, ONE_MINUS_SRC_ALPHA: 7, ZERO: 8, TRIANGLES: 9, UNSIGNED_INT: 10, UNSIGNED_SHORT: 11,
-      TEXTURE0: 12, TEXTURE1: 13 };
-    return {
-      calls, ...constants,
-      useProgram: () => undefined, uniformMatrix4fv: () => undefined, uniform4f: () => undefined,
-      activeTexture: () => undefined, bindTexture: () => undefined, bindBuffer: () => undefined,
-      enableVertexAttribArray: () => undefined, vertexAttribPointer: () => undefined,
-      disableVertexAttribArray: () => undefined, isEnabled: () => true, enable: () => undefined,
-      disable: () => undefined, uniform1i: () => undefined,
-      uniform1f: (location: unknown, value: number) => { calls.uniforms[String(location)] = value; },
-      blendFunc: (src: number, dst: number) => { calls.blend = [src, dst, src, dst]; },
-      blendFuncSeparate: (sc: number, dc: number, sa: number, da: number) => { calls.blend = [sc, dc, sa, da]; },
-      drawElements: (mode: number, count: number, type: number) => { calls.draw = [mode, count, type]; },
-    };
-  }
 
   const args = { defaultProjectionData: { projectionTransition: 1, mainMatrix: new Float32Array(16),
     clippingPlane: [0, 0, 1, 0] } };

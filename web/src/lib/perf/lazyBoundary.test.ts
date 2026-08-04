@@ -25,7 +25,7 @@ const PERF_DIR = new URL("./", import.meta.url);
 const instrumentModules = readdirSync(PERF_DIR)
   .filter((name) => name.endsWith(".ts") && !name.endsWith(".test.ts"))
   .map((name) => name.replace(/\.ts$/, ""))
-  .sort();
+  .toSorted();
 
 const pageSources = readdirSync(PAGES)
   .filter((name) => name.endsWith(".astro"))

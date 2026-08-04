@@ -38,6 +38,11 @@ const cached = (path: string, encodedBytes: number): TimedResource => ({
   duration: 2,
 });
 
+/** One tile URL in the shipped grammar, built from the registry rather than typed out — so a
+ *  change to the address shape reaches these tests instead of leaving them asserting an old one. */
+const addressed = (layer: "relief" | "terrain" | "countries") =>
+  tilePathTemplate("earth", layer).replace("{z}", "5").replace("{x}", "22").replace("{y}", "13");
+
 describe("wire bytes, measured against how production actually reports them", () => {
   it("subtracts the mandated header allowance, so a byte count means payload", () => {
     // Production, verbatim: a 48,214-byte tile reports transferSize 48,514.
@@ -118,8 +123,6 @@ describe("summariseTileTraffic", () => {
     // `"terrain/"`, so `earth/terrain/<token>/5/22/13.webp` — the shape the page ships today —
     // counted as RELIEF. Both numbers stay plausible, on the one panel whose job is telling those
     // two apart, which is why nothing about the reading would have looked wrong.
-    const addressed = (layer: "relief" | "terrain" | "countries") =>
-      tilePathTemplate("earth", layer).replace("{z}", "5").replace("{x}", "22").replace("{y}", "13");
     const traffic = summariseTileTraffic(
       [fetched(addressed("relief"), 40_000), fetched(addressed("terrain"), 10_000),
        fetched(addressed("countries"), 2_000)],

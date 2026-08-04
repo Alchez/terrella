@@ -18,6 +18,10 @@ function fakeObject(size: number, log: string[], name: string): RttObject {
   return { size, texture: { destroy: () => log.push(name) } };
 }
 
+/** An RTT object whose destruction is not recorded — for counting, where the log is not read.
+ *  `fakeObject` above is the same thing with a name and a log; these tests only need the size. */
+const object = (): RttObject => ({ size: 512, texture: { destroy: () => {} } });
+
 function pool(count: number, size = 512, log: string[] = []): RttObject[] {
   return Array.from({ length: count }, (_, index) => fakeObject(size, log, `obj${index}`));
 }
@@ -144,7 +148,6 @@ describe("reading MapLibre's private state", () => {
   });
 
   it("counts objects held by tiles, which are NOT trimmable", () => {
-    const object = (): RttObject => ({ size: 512, texture: { destroy: () => {} } });
     const map = fakeMap({
       pool: [],
       tiles: { a: { rttObjects: [object(), object(), object()] }, b: { rttObjects: [object(), undefined] } },
@@ -233,7 +236,6 @@ describe("attachRttPoolTrim", () => {
   });
 
   it("reports a census whose peak survives the trim that reduced it", () => {
-    const object = (): RttObject => ({ size: 512, texture: { destroy: () => {} } });
     const map = fakeMap({ pool: pool(10), tiles: { a: { rttObjects: [object(), object()] } } });
     const scheduler = fakeScheduler();
     const handle = attachRttPoolTrim(map, { bound: 4, scheduler });

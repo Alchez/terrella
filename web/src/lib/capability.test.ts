@@ -166,6 +166,14 @@ const guardSource = (() => {
   return guard;
 })();
 
+/** A Storage-shaped view over a plain Map, for handing the inline guard a localStorage it can
+ *  read and write without a DOM. Only the three members that guard actually calls. */
+const storage = (backing: Map<string, string>) => ({
+  getItem: (key: string) => backing.get(key) ?? null,
+  setItem: (key: string, value: string) => void backing.set(key, value),
+  removeItem: (key: string) => void backing.delete(key),
+});
+
 interface GuardVisit {
   path: string;
   quality?: string;
@@ -198,12 +206,6 @@ function visit({
   const session = new Map<string, string>(steered ? [["rg:steered", "1"]] : []);
   const local = new Map<string, string>(quality ? [["rg:quality", quality]] : []);
   const redirects: string[] = [];
-
-  const storage = (backing: Map<string, string>) => ({
-    getItem: (key: string) => backing.get(key) ?? null,
-    setItem: (key: string, value: string) => void backing.set(key, value),
-    removeItem: (key: string) => void backing.delete(key),
-  });
 
   new Function(
     "location",

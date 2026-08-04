@@ -135,7 +135,7 @@ describe("the registry", () => {
   });
 
   it("publishes a cut for every body the site can draw", () => {
-    expect(Object.keys(PUBLISHED).sort()).toEqual(Object.keys(BODIES).sort());
+    expect(Object.keys(PUBLISHED).toSorted()).toEqual(Object.keys(BODIES).toSorted());
   });
 
   it("never puts two raster pyramids in one archive", () => {
@@ -182,7 +182,7 @@ describe("the committed archive facts", () => {
     const listed = Object.entries(committed).flatMap(([body, layers]) =>
       Object.keys(layers).map((layer) => `${body}/${layer}`),
     );
-    expect(listed.sort()).toEqual(published.sort());
+    expect(listed.toSorted()).toEqual(published.toSorted());
   });
 
   it("holds a real hash for every one, never the placeholder", () => {

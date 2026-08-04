@@ -70,6 +70,12 @@ function healthyMap(overrides: Partial<MapLike> = {}): MapLike {
   };
 }
 
+/** A cap layer mid-upgrade: 4096 on the GPU, 8192 in flight, elevation not yet loaded. The one
+ *  state where every field of the reported summary is distinguishable from every other. */
+const midUpgradeLayer = () => ({
+  implementation: { loadedRungPx: 4096, rungLoading: 8192, elevLoaded: false },
+});
+
 describe("capTextureBytes — the one VRAM term we allocate ourselves", () => {
   it("prices an 8192 cap at 341.3 MiB — RGBA WITH the mip chain the upload allocates", () => {
     // The number this replaces was 256 MiB, and the old test asserted "no mipmaps" in its own name.
@@ -138,10 +144,7 @@ describe("capLayerStates", () => {
   it("reads the in-flight rung and the elevation flag, not just what is already on the GPU", () => {
     // The distinction the panel exists for: a cap SETTLED at 4096 and a cap CLIMBING to 8192 look
     // identical on screen, and only the second is still spending main thread.
-    const getLayer = () => ({
-      implementation: { loadedRungPx: 4096, rungLoading: 8192, elevLoaded: false },
-    });
-    expect(capLayerStates(healthyMap({ getLayer }))[0]).toEqual({
+    expect(capLayerStates(healthyMap({ getLayer: midUpgradeLayer }))[0]).toEqual({
       layerId: "polar-cap-north",
       loadedRungPx: 4096,
       rungLoading: 8192,

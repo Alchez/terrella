@@ -93,7 +93,7 @@ export type CapsManifest = Record<CapPole, CapManifestEntry>;
  *  to download the full 8192 texture and then canvas-downscale it to its budget, paying for
  *  every byte and every decoded pixel it threw away. Pure, so the tier rule is unit-testable. */
 export function pickRung(rungs: CapRung[], budgetPx: number): CapRung {
-  const ascending = [...rungs].sort((a, b) => a.px - b.px);
+  const ascending = [...rungs].toSorted((a, b) => a.px - b.px);
   const withinBudget = ascending.filter((rung) => rung.px <= budgetPx);
   return withinBudget.length ? withinBudget[withinBudget.length - 1] : ascending[0];
 }
@@ -504,7 +504,6 @@ function uploadCapTexture(gl: WebGL2RenderingContext, image: ImageBitmap | HTMLI
     canvas.height = target;
     canvas.getContext("2d")!.drawImage(image, 0, 0, target, target);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, canvas);
-    // eslint-disable-next-line no-console
     console.log(
       `[caps] texture ${image.width} downscaled to ${target} ` +
         `(MAX_TEXTURE_SIZE ${maxSize}, device budget ${budget})`,
@@ -623,7 +622,6 @@ export async function syncCapRung(
     if ("close" in bitmap) bitmap.close(); // release the decode — the GPU has its copy
     layer.loadedRungPx = rung.px; // only on success, so a failure can be retried by the next move
     map.triggerRepaint();
-    // eslint-disable-next-line no-console
     console.log(`[caps] ${opts.layerId} texture loaded`, size, "x", size,
       `(demand ${Math.round(demandPx)} px)`);
   } catch (err: unknown) {
@@ -678,7 +676,6 @@ export async function loadCapElevation(
     if ("close" in bitmap) bitmap.close();
     layer.elevLoaded = true;
     map.triggerRepaint();
-    // eslint-disable-next-line no-console
     console.log(`[caps] ${opts.layerId} elevation loaded`, size, "x", size,
       `(${opts.elevStep} m/level)`);
   } catch (err: unknown) {
@@ -767,7 +764,6 @@ export function addPolarCap(map: MaplibreMap, opts: CapOptions): void {
       this.elevLoaded = false;
       void syncCapRung(this, opts, map); // the initial fetch IS the first upgrade, from 0
       void loadCapElevation(this, opts, map);
-      // eslint-disable-next-line no-console
       console.log(`[caps] ${opts.layerId} added; mesh`, this.indexCount! / 3, "triangles");
     },
 

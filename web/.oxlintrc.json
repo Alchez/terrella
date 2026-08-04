@@ -8,6 +8,14 @@
   // No path argument in the script either — oxlint walks from here and follows .gitignore, so
   // `dist/`, `node_modules/` and the dev asset stores are out without being named. It reaches all
   // 95 sources: `src/`, `scripts/`, `worker/`, the eight `.astro` pages, and the two configs.
+  //
+  // `pnpm lint` also passes `--report-unused-disable-directives-severity=error`, which is a FLAG
+  // and has no home in this file. It makes a suppression that no longer suppresses anything a red
+  // gate, so a fix that removes the finding cannot leave the comment claiming it is still needed.
+  // Turned on only once the staged list below emptied: while a rule is off, every suppression of
+  // it reads as dead, and the audit would have demanded the deletion of directives that were
+  // about to matter again. On first run it found six `eslint-disable-next-line no-console`
+  // comments — ESLint has never been installed in this repo, so all six suppressed nothing.
   "plugins": ["typescript", "unicorn", "oxc"],
 
   // THREE CATEGORIES, chosen deliberately, and the two left out are left out on evidence:
@@ -25,16 +33,12 @@
     // `_tiles`, `_rttObjectRecyclePool` — through the documented-as-undocumented seam the cache
     // budget and the RTT pool trim are built on. The leading underscore is THEIR spelling; the rule
     // asks us to rename a property we do not own, which would simply be wrong.
-    "no-underscore-dangle": "off",
+    "no-underscore-dangle": "off"
 
-    // STAGED, and this list is a shrinking to-do kept in the config, because the config is the only
-    // place that cannot drift from what is enforced. Each entry names its commit; when the list is
-    // empty, `--report-unused-disable-directives` goes on and the staging mechanism goes away.
-    //
-    // Nothing here is disabled on merit — these are the two bulk mechanical sweeps and the handful
-    // of judgement calls, held back so a 58-line rewrite never lands in the same diff as a decision.
-    "unicorn/no-array-sort": "off", // 27 sites, plus one no-array-reverse — one mechanical sweep
-    "unicorn/no-array-reverse": "off",
-    "unicorn/consistent-function-scoping": "off" // 30 hoists out of test bodies
+    // THE STAGED LIST IS EMPTY, which is the point at which this file stops being a to-do. Every
+    // one of the three categories now runs with exactly one rule turned off, on the merit stated
+    // above — nothing is held back waiting for a commit. A new finding is a red gate, not an entry
+    // here; the staging mechanism existed so a 58-line mechanical rewrite never landed in the same
+    // diff as a judgement call, and both have landed.
   }
 }

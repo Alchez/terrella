@@ -68,6 +68,12 @@ const {
           // this guard had already let the globe render. Reading both renderer strings covers
           // Chrome (truth in the debug extension, RENDERER masked) and Firefox (extension
           // deprecated, RENDERER unmasked).
+          //
+          // It stays INSIDE the guard rather than being hoisted: "the outer scope" here is the
+          // page, and this whole script is `is:inline` precisely so it runs before any bundle
+          // exists to hoist into. Moving it out would either put it in a module that loads too
+          // late to bounce anyone, or widen this inline block's footprint on every page.
+          // oxlint-disable-next-line unicorn/consistent-function-scoping
           function capable() {
             try {
               var gl = document.createElement("canvas").getContext("webgl2");

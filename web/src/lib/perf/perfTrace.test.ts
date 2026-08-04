@@ -16,6 +16,14 @@ const span = (name: string, startTime: number, duration: number): SpanEntry => (
 });
 const interval = (startMs: number, endMs: number): Interval => ({ startMs, endMs });
 
+/** A Performance stub that answers `getEntriesByType("measure")` and nothing else — the only
+ *  member the span reader touches, so anything more would be inventing a contract. */
+const withMeasures = (measures: SpanEntry[]) =>
+  ({
+    getEntriesByType: (type: string) =>
+      type === "measure" ? (measures as unknown as PerformanceEntry[]) : [],
+  }) as unknown as Partial<Performance>;
+
 describe("mergeIntervals", () => {
   it("unions overlapping, nested and touching intervals", () => {
     expect(mergeIntervals([interval(0, 10), interval(5, 15)])).toEqual([interval(0, 15)]);
@@ -117,11 +125,6 @@ describe("summariseSpans", () => {
 });
 
 describe("collectSpans", () => {
-  const withMeasures = (measures: SpanEntry[]) =>
-    ({
-      getEntriesByType: (type: string) =>
-        type === "measure" ? (measures as unknown as PerformanceEntry[]) : [],
-    }) as unknown as Partial<Performance>;
 
   it("returns only the named spans", () => {
     const api = withMeasures([span("caps:decode", 0, 5), span("something:else", 0, 5)]);

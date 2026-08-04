@@ -215,8 +215,8 @@ function main(): void {
   const advertised = advertisedObjects(manifest);
   const present = listBucket(endpoint);
 
-  const missing = [...advertised].filter((key) => !present.has(key)).sort();
-  const dead = [...present].filter((key) => !advertised.has(key) && !key.endsWith("/")).sort();
+  const missing = [...advertised].filter((key) => !present.has(key)).toSorted();
+  const dead = [...present].filter((key) => !advertised.has(key) && !key.endsWith("/")).toSorted();
 
   if (dead.length) {
     // Not fatal — stale bytes cost storage, not correctness. Loud anyway, because the usual

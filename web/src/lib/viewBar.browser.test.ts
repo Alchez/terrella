@@ -155,7 +155,7 @@ function mountBar(flags: BarFlags) {
         .filter((child) => getComputedStyle(child).display !== "none")
         .map((child) => child.getBoundingClientRect());
       const tolerance = Math.min(...boxes.map((box) => box.height)) / 2;
-      const centres = boxes.map((box) => box.y + box.height / 2).sort((a, b) => a - b);
+      const centres = boxes.map((box) => box.y + box.height / 2).toSorted((a, b) => a - b);
       const rows: number[] = [];
       for (const centre of centres) {
         if (rows.length === 0 || centre - rows[rows.length - 1] > tolerance) rows.push(centre);

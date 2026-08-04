@@ -33,6 +33,13 @@ import {
 } from "./terrainSource";
 import { parseTilePath } from "./reliefTiles";
 
+/** The shipping ramp sampled at one zoom: base 15x, full-strength through z4.
+ *
+ *  Module-level because two tests below sample the SAME curve — one for monotonicity, one for the
+ *  constant per-level factor — and a second copy of these arguments could drift into describing a
+ *  different curve while both tests still passed. */
+const at = (zoom: number) => rampedExaggeration(15, zoom, 4);
+
 const flags = (search: string) => new URLSearchParams(search);
 
 describe("the encoding matches what the pipeline writes", () => {
@@ -272,7 +279,6 @@ describe("the zoom ramp", () => {
   });
 
   it("decays monotonically in between, with no step at either join", () => {
-    const at = (zoom: number) => rampedExaggeration(15, zoom, 4);
     const samples = [3, 3.5, 4, 4.5, 5, 5.5, 6, 6.5, 7, 7.5, 8].map(at);
     for (let index = 1; index < samples.length; index += 1) {
       expect(samples[index]).toBeLessThan(samples[index - 1]);
@@ -290,7 +296,6 @@ describe("the zoom ramp", () => {
   });
 
   it("keeps a constant per-level factor, which is the property that makes it scale-free", () => {
-    const at = (zoom: number) => rampedExaggeration(15, zoom, 4);
     const first = at(5) / at(4);
     for (const zoom of [5, 6, 7]) {
       expect(at(zoom + 1) / at(zoom)).toBeCloseTo(first, 10);

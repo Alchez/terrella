@@ -50,6 +50,25 @@ function subject(length?: number) {
   return { inner, source };
 }
 
+/** Just the z/x/y of an address, so two routes can be compared on where they point without
+ *  their archive keys — which are exactly what must differ. */
+const coordinates = ({ z, x, y }: { z: number; x: number; y: number }) => ({ z, x, y });
+
+/** A cache that always answers, with the Content-Type a stored tile carries. */
+function hittingCache(): FakeCache {
+  return {
+    match: vi.fn(async () => new Response("tile-bytes", { headers: { "Content-Type": "image/webp" } })),
+    put: vi.fn(async () => undefined),
+  };
+}
+
+/** The same always-hitting cache with a bare body — for the CORS tests, where the headers under
+ *  test are the ones the Worker adds, not the ones the cache stored. */
+const hit = () => ({
+  match: vi.fn(async () => new Response("tile-bytes")),
+  put: vi.fn(async () => undefined),
+});
+
 describe("PrefetchedIndexSource", () => {
   it("serves the header read from memory — no R2 call at all", async () => {
     const { inner, source } = subject();
@@ -178,7 +197,6 @@ describe("resolveRoute", () => {
   it("resolves the SAME tile address to two different archives, which is the whole risk", () => {
     const relief = resolveRoute("/6/47/26.webp");
     const terrain = resolveRoute("/terrain/6/47/26.webp");
-    const coordinates = ({ z, x, y }: { z: number; x: number; y: number }) => ({ z, x, y });
     expect(coordinates(relief!.address)).toEqual(coordinates(terrain!.address));
     expect(relief?.archiveKey).not.toBe(terrain?.archiveKey);
   });
@@ -548,13 +566,6 @@ describe("fetch — a cached body must not carry the first requester's CORS deci
 
   /** A cache that hits with a body carrying no CORS headers of its own — which is exactly what
    *  `store` writes, and the point is that the hit still comes back correctly labelled. */
-  function hittingCache(): FakeCache {
-    return {
-      match: vi.fn(async () => new Response("tile-bytes", { headers: { "Content-Type": "image/webp" } })),
-      put: vi.fn(async () => undefined),
-    };
-  }
-
   it("gives two different origins two different answers off the SAME cached body", async () => {
     const env = { ALLOWED_ORIGIN: "https://terrella.example" };
     const allowed = callFetch("https://tiles.example/5/1/2.webp", {
@@ -602,11 +613,6 @@ describe("fetch — a cached body must not carry the first requester's CORS deci
 });
 
 describe("fetch — the cross-origin allowlist", () => {
-  const hit = () => ({
-    match: vi.fn(async () => new Response("tile-bytes")),
-    put: vi.fn(async () => undefined),
-  });
-
   it('honours a wildcard ALLOWED_ORIGIN for an origin it has never seen', async () => {
     const { response } = callFetch("https://tiles.example/5/1/2.webp", {
       origin: "https://anywhere.example",

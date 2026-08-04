@@ -129,7 +129,7 @@ const emptySlice = (): TrafficSlice => ({ count: 0, wireBytes: 0, fromBrowserCac
 /** Median, or null for an empty list. Even-length takes the mean of the middle pair. */
 export function median(values: readonly number[]): number | null {
   if (values.length === 0) return null;
-  const sorted = [...values].sort((first, second) => first - second);
+  const sorted = [...values].toSorted((first, second) => first - second);
   const middle = Math.floor(sorted.length / 2);
   return sorted.length % 2 === 1 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
 }
@@ -264,12 +264,14 @@ export function cameraFillLine(fill: CameraFill): PerfLine | null {
   return { group: "feel", text: `fill ${seconds}s · ${fill.last.tilesFetched} tiles` };
 }
 
+/** One pyramid's share of the traffic line: requests, and how many the browser already had. */
+const slice = (label: string, part: TrafficSlice) => {
+  const cached = part.fromBrowserCache > 0 ? ` (${part.fromBrowserCache} cached)` : "";
+  return `${label} ${part.count}${cached}`;
+};
+
 /** The panel line. Bytes as whole MiB via the shared formatter's rules, not a second policy. */
 export function tileTrafficLine(traffic: TileTraffic): PerfLine {
-  const slice = (label: string, part: TrafficSlice) => {
-    const cached = part.fromBrowserCache > 0 ? ` (${part.fromBrowserCache} cached)` : "";
-    return `${label} ${part.count}${cached}`;
-  };
   // EVERY layer's bytes, including the ones with no label below: "MB wire" means bytes that crossed
   // the network under the tile base, and a total that quietly omitted a pyramid would understate
   // exactly the number this panel is read for.
