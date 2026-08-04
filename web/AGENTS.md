@@ -25,4 +25,4 @@ pnpm dev --background
 ## Norms no test can state
 
 - **`src/lib/perf/` is a lazy boundary.** No page may statically value-import from it, so a visitor without `?perf` never downloads the instrument. An import there that fails `lazyBoundary.test.ts` means the rule is working, not broken.
-- **A guard is not finished until a sabotage case proves it can fail.** `uv run scripts/sabotage.py` breaks each guard's subject in turn and requires the *named* test to catch it — `--list` prints the table. Add your case when you add a guard → [README.md](README.md) § Proving a guard is not vacuous.
+- **A guard is not finished until a sabotage case proves it can fail.** This is **mutation testing**, hand-authored: `uv run scripts/sabotage.py` breaks each guard's subject in turn and requires the *named* test to catch it — a surviving mutant is a vacuous guard. `--list` prints the table. Add your case when you add a guard → [README.md](README.md) § Proving a guard is not vacuous.

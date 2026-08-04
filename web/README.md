@@ -180,10 +180,16 @@ Run from `web/`:
 several here would not have: a regex anchored `^import` never matched Astro's indented imports, and a
 duplicate assertion in `capability.test.ts` was vacuous its whole life. Both passed happily.
 
-**`uv run scripts/sabotage.py`** (from the repo root) settles it. Each case breaks one string in one
-source file, runs the suite, and restores the file — and it names the test that must catch it, so "the
-suite went red" is not accepted as proof. A full pass runs the whole suite once per case, so budget
-roughly that: `--list` prints the current table and runs nothing.
+The technique is [mutation testing](https://en.wikipedia.org/wiki/Mutation_testing), hand-authored
+one case per guard rather than machine-generated. Coverage tells you a line executed; this tells you
+something checked it. It finds **vacuous guards, never missing ones** — a behaviour with no test has
+no case here, because cases are written from the guard's side.
+
+**`uv run scripts/sabotage.py`** (from the repo root) runs it. Each case breaks one string in one
+source file, runs the suite, and restores the file whatever happens — and it names the test that must
+catch it, so "the suite went red" is not accepted as proof. Cost is inherently *cases × suite
+runtime*, since running the suite is the measurement, so a full pass is a before-merge activity and
+`--filter` is the everyday one. `--list` prints the current table and runs nothing.
 
 Most cases drive `pnpm test`. The rest drive `pytest`, and they are the ones worth knowing about: they
 sabotage the guards that keep the *documentation and the table itself* honest — an unclosed code fence,
