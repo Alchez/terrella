@@ -6,8 +6,11 @@ countries with NO external data (Natural Earth, GLO-30, GEBCO). The invariants
 here are the ones the pipeline's 'fail loudly' contract depends on: bad config
 aborts, and every resolved frame stays inside the world.
 """
+from pathlib import Path
+
 import pytest
 
+from pipeline import paths
 from pipeline.frame import country_config as cc
 
 
@@ -239,3 +242,71 @@ def test_main_part_fraction_flags_a_far_flung_speck():
     shape = _FakeShape(points=points, parts=[0, 4])
     row = {"idx": 0, "bbox": (0.0, 0.0, 50.01, 30.01)}
     assert cc.main_part_fraction(_FakeReader(shape), row) < cc.FAR_FLUNG_FRACTION
+
+
+# ---- the stage list: where it points, which nothing checked until now -------
+
+class TestTheStageListPointsAtTheStore:
+    """`stage_commands` builds a shell pipeline, and where it points had NO test at all.
+
+    THE FAILURE THIS EXISTS TO CATCH IS INVISIBLE TO THE SOURCE SCANS. These paths were relative
+    strings — `data/work/<slug>` — handed to `subprocess` with `cwd` set to the checkout, so they
+    carried no join operator for a scan to match and no import-time value for a probe to read. They
+    were simply resolved against the wrong root at run time.
+
+    And the result was not a crash. Stage 3 read its mosaics through `MAPS_DATA` while writing its
+    output beside the source tree: one command, two roots, and a store that was half real.
+    """
+
+    def _resolved(self, slug="nepal"):
+        resolved = cc.resolve(slug, _rows()[0], _cfg())
+        # `resolve` returns None for an antimeridian country, which has no representative frame.
+        # Asserted rather than ignored: without it every test below would silently exercise None.
+        assert resolved is not None
+        return resolved
+
+    def _commands(self):
+        return cc.stage_commands(self._resolved())
+
+    def test_every_work_path_is_absolute_and_in_the_store(self, subtests):
+        store = str(cc.country_work_dir("nepal"))
+        for command in self._commands():
+            for token in command.split():
+                if "/work/" in token or token.endswith("/render"):
+                    with subtests.test(token=token):
+                        assert token.startswith(store), (
+                            f"{token} is not under this country's work dir — a relative path here "
+                            "resolves against the process cwd, which is the checkout")
+
+    def test_it_follows_a_relocated_store(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(paths, "DATA", tmp_path / "elsewhere")
+        joined = " ".join(self._commands())
+        assert str(tmp_path / "elsewhere") in joined
+        assert "--outdir data/work" not in joined, "a relative work path survived the move"
+
+    def test_checkout_paths_stay_relative(self):
+        """Not everything should become absolute. `pipeline/…` and `blender/…` are CHECKOUT paths,
+        the runner sets cwd to the checkout, and rewriting them would bake one machine's layout
+        into a printed command list that is also documentation."""
+        joined = " ".join(self._commands())
+        assert "bash pipeline/fuse/build_mosaics.sh" in joined
+        assert "--out blender/nepal_hero.blend" in joined
+
+    def test_the_render_dir_is_the_one_the_pin_is_written_into(self):
+        """`do_emit_pin` writes `frame.json` where `render_prep` was told to build. Two spellings
+        of that directory is a pin landing in a tree the render never reads."""
+        prep = next(command for command in self._commands() if "render_prep" in command)
+        outdir = prep.split("--outdir ", 1)[1].split()[0]
+        assert cc.country_render_dir("nepal") == Path(outdir)
+
+    def test_the_fusion_writes_where_the_prep_reads(self):
+        """The other end of the same handoff, and the pairing the two `--outdir` flags make easy to
+        get backwards: `fuse_heightfield` fills the work dir, `render_prep` reads out of it."""
+        fuse = next(command for command in self._commands() if "fuse_heightfield" in command)
+        assert fuse.split("--outdir ", 1)[1].split()[0] == str(cc.country_work_dir("nepal"))
+
+    def test_the_stage_list_is_not_empty(self):
+        """The control: every assertion above passes vacuously over an empty command list."""
+        commands = self._commands()
+        assert len(commands) >= 6
+        assert any("fuse_heightfield" in command for command in commands)

@@ -59,6 +59,7 @@ from scipy.ndimage import binary_fill_holes, distance_transform_edt, gaussian_fi
 
 from pipeline import naturalearth, paths
 from pipeline.compose.overlay_borders import render_mapping
+from pipeline.frame.country_config import country_render_dir
 
 warnings.filterwarnings("ignore", category=NotGeoreferencedWarning)  # hero PNGs
 
@@ -67,7 +68,6 @@ warnings.filterwarnings("ignore", category=NotGeoreferencedWarning)  # hero PNGs
 HEROES = paths.ROOT / "blender/renders/heroes"
 VARIANTS = paths.ROOT / "blender/renders/variants"
 NE_COUNTRIES = naturalearth.layer("ne_10m_admin_0_countries")
-WORK = paths.DATA / "work"
 PLANE_WIDTH_UNITS = 2.0
 # The ladder is IMPORTED, not restated. The gallery layers this overlay directly on the hero and
 # gives both the same `sizes`, so a rung the overlay lacks makes the browser pull a larger file for
@@ -212,7 +212,7 @@ def load_parts(shp_path, bbox, want_slug, exclude=False):
 
 def render_one(slug, dim, desat, force, outline_div=OUTLINE_DIV_DEFAULT, halo=HALO_ALPHA_DEFAULT):
     hero_path = HEROES / f"{slug}.png"
-    render_dir = WORK / slug / "render"
+    render_dir = country_render_dir(slug)
     ocean_path = render_dir / "oceanmask_aea.tif"
     heightfield_path = render_dir / "heightfield_aea.tif"
     if not hero_path.exists() or not ocean_path.exists() or not heightfield_path.exists():

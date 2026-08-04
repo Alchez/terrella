@@ -42,7 +42,12 @@ from pathlib import Path
 
 import rasterio
 
-ROOT = Path(__file__).resolve().parent.parent
+from pipeline import paths
+from pipeline.frame.country_config import country_work_dir
+
+#: The CHECKOUT, read for one thing only: the gitignored `.env` holding the API key. The clips this
+#: writes are DATA and come from `country_work_dir`, which follows `MAPS_DATA`.
+ROOT = paths.ROOT
 API = "https://portal.opentopography.org/API/globaldem"
 
 # The 17 global rasters the API serves; the commented ones are the useful oracles.
@@ -147,7 +152,7 @@ def main() -> int:
     args = ap.parse_args()
 
     frame = resolve_frame(args.country) if args.country else tuple(args.bounds)
-    out = args.out or (ROOT / f"data/work/{args.country}/oracle/{args.dataset}.tif")
+    out = args.out or (country_work_dir(args.country) / "oracle" / f"{args.dataset}.tif")
     if args.bounds is not None and args.out is None:
         ap.error("--bounds needs --out")
 
@@ -169,7 +174,7 @@ def main() -> int:
     print("\nvalues (reference vs our fusion, if present):")
     summarize(out, f"oracle {args.dataset}")
     if args.country:
-        for hf in sorted((ROOT / f"data/work/{args.country}").glob("heightfield_*.tif")):
+        for hf in sorted(country_work_dir(args.country).glob("heightfield_*.tif")):
             summarize(hf, f"fusion {hf.stem.split('_')[-1]}")
     return 0
 

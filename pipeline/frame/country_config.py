@@ -51,17 +51,44 @@ import rasterio
 import shapefile
 from rasterio.warp import transform_bounds
 
-from pipeline import naturalearth, paths
+from pipeline import bodies, naturalearth, paths
 from pipeline.acquire.download_glo30 import (TILE_LIST, in_extent,
                                              parse_tile_name, tile_files)
 from pipeline.frame.frame_country import pad_frame
 from pipeline.fuse.fuse_heightfield import GEBCO
 from pipeline.render.render_prep import aea_crs
 
-ROOT = Path(__file__).resolve().parents[2]
+#: The CHECKOUT. Both paths below are TRACKED config, so they follow the repo and not the data
+#: store — the one place in this module where `paths.ROOT` is the right root.
+ROOT = paths.ROOT
 CONFIG_PATH = ROOT / "config/countries.toml"
 PIN_DIR = ROOT / "config/frames"
 BLENDER = paths.BLENDER
+
+
+def country_work_dir(slug: str) -> Path:
+    """Everything the hero pipeline builds for one country, in the data store.
+
+    THE HOME FOR A CONCEPT THAT HAD NINE SPELLINGS across five modules — the stage list that
+    prints the pipeline, the runner that executes it, the pruner that reclaims it, the oracle that
+    validates it, and the two overlay passes that read its render dir. Every one of them was
+    correct, because each resolved to the same directory on a machine with `MAPS_DATA` unset; the
+    duplication is invisible until it isn't.
+
+    Routed through `bodies.work_dir` rather than composed here, so a country's tree sits under the
+    same root as every other per-body stage and nests automatically if a second body ever grows
+    regions of its own. Earth's prefix is empty, so today this is exactly `<store>/work/<slug>`.
+    """
+    return bodies.work_dir(bodies.EARTH, slug)
+
+
+def country_render_dir(slug: str) -> Path:
+    """The warp/render subdirectory `render_prep` fills and the hero stages read.
+
+    Named because it is the argument five commands pass to each other — the point where a typo
+    stops being a wrong path and starts being a stage silently reading an empty directory.
+    """
+    return country_work_dir(slug) / "render"
 
 DEFAULT_KEYS = {"pad_pct", "hero_long_edge", "warp_long_edge", "fusion",
                 "sky_view_strength", "resolution_floor_m"}
@@ -302,8 +329,13 @@ def stage_commands(resolved: dict) -> list[str]:
     """The exact pipeline for one resolved country, in run order."""
     fr = fmt_frame(resolved["frame"])
     tag = f"{FUSION_RES[resolved['fusion']]}s"
-    work = f"data/work/{resolved['slug']}"
-    rd = f"{work}/render"
+    # ABSOLUTE, from the store. These strings are handed to `subprocess` with `cwd` set to the
+    # checkout, so a relative `data/work/…` resolved against the checkout no matter where the store
+    # actually was — which put stage 3 in the incoherent position of READING its mosaics through
+    # `MAPS_DATA` and WRITING its output beside the source tree. The checkout-relative paths further
+    # down (`pipeline/…`, `blender/…`) stay relative on purpose: those really are checkout paths.
+    work = country_work_dir(resolved["slug"])
+    rd = country_render_dir(resolved["slug"])
     prep = (f"python -m pipeline.render.render_prep --heightfield {work}/heightfield_{tag}.tif"
             f" --mask {work}/oceanmask_{tag}.tif"
             f" --watermask {work}/watermask_{tag}.tif"
@@ -392,7 +424,7 @@ def print_country(sf, scope, cfg, slug: str, emit_pin: bool) -> int:
 
 
 def do_emit_pin(slug: str, resolved: dict):
-    dest = ROOT / f"data/work/{slug}/render/frame.json"
+    dest = country_render_dir(slug) / "frame.json"
     if not resolved["pin"]:
         sys.exit(f"no committed pin at {PIN_DIR / f'{slug}.json'}")
     if dest.exists():

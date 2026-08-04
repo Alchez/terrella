@@ -118,6 +118,11 @@ MUTABLE_ROOTS = (
     # roots resolve to the same directory. Its guards therefore never fire during ordinary work,
     # and a guard that never fires is one nobody can tell apart from a guard that cannot.
     "pipeline/naturalearth.py",
+    # Joined with the hero pipeline's paths. This is the one tier whose stages talk to each other in
+    # SHELL STRINGS rather than in Python values, so its wiring is invisible to both the type
+    # checker and the import probe — the only proof that anything watches it is breaking it.
+    "pipeline/frame",
+    "pipeline/batch.py",
 )
 
 # Set for the duration of one case, so the backup THIS run is holding does not trip the leftover
@@ -3040,6 +3045,58 @@ SABOTAGES: list[Sabotage] = [
         needle='COAST_SHP = naturalearth.layer("ne_10m_coastline")',
         replacement='COAST_SHP = naturalearth.DIR / "ne_10m_coastline/ne_10m_coastline.shp"',
         guard='test_the_layer_name_is_never_doubled_by_hand',
+    ),
+    # --- the hero pipeline's own paths ------------------------------------------------------
+    # The shape here is the one no scan can see: a RELATIVE data path in a command string, resolved
+    # against whatever directory the runner happens to be in. There is no join operator to match and
+    # no import-time value to read — only running it tells you where it went.
+    Sabotage(
+        suite='python',
+        label='the stage list goes back to relative work paths, resolved against the runner\'s cwd',
+        path='pipeline/frame/country_config.py',
+        needle='    work = country_work_dir(resolved["slug"])',
+        replacement='    work = f"data/work/{resolved[\'slug\']}"',
+        guard='test_every_work_path_is_absolute_and_in_the_store',
+    ),
+    # The half that made this dangerous rather than merely wrong: the fusion stage READ through the
+    # store and WROTE beside the source tree, in one command, with no error either way.
+    Sabotage(
+        suite='python',
+        label='the render dir drifts from the work dir the fusion was told to fill',
+        path='pipeline/frame/country_config.py',
+        needle='    return country_work_dir(slug) / "render"',
+        replacement='    return paths.ROOT / "data/work" / slug / "render"',
+        guard='test_it_follows_a_relocated_store',
+    ),
+    # A pin written into a tree the render never reads. Both sides exist, both look right, and the
+    # frame the hero is built from is simply the older one.
+    Sabotage(
+        suite='python',
+        label='the emitted pin lands in a different tree from the render dir',
+        path='pipeline/frame/country_config.py',
+        needle='    dest = country_render_dir(slug) / "frame.json"',
+        replacement='    dest = ROOT / "data/work" / slug / "render" / "frame.json"',
+        guard='test_no_data_path_is_built_by_joining_onto_a_checkout_root',
+    ),
+    # The reclaim path. Pointed at the checkout with the store elsewhere, `--clean` deletes nothing
+    # and reports success, which is how a near-global sweep runs the disk out.
+    Sabotage(
+        suite='python',
+        label='the pruner reclaims a country from the checkout instead of the store',
+        path='pipeline/batch.py',
+        needle='    work = country_work_dir(slug)',
+        replacement='    work = ROOT / f"data/work/{slug}"',
+        guard='test_no_data_path_is_built_by_joining_onto_a_checkout_root',
+    ),
+    # The scan's own reach, asserted where it is cheapest to break: shell is a separate pattern from
+    # the Python one, so a case that only ever mutates .py leaves half the guard unproven.
+    Sabotage(
+        suite='python',
+        label='a shell acquirer joins the checkout root straight into data/',
+        path='pipeline/acquire/download_naturalearth.sh',
+        needle='DEST="$DATA/raw/naturalearth"',
+        replacement='DEST="$(cd "$(dirname "$0")/../.." && pwd)/data/raw/naturalearth"',
+        guard='test_no_data_path_is_built_by_joining_onto_a_checkout_root',
     ),
 ]
 

@@ -25,17 +25,15 @@ import cairo
 
 import pyproj  # noqa: E402
 from pipeline import naturalearth, paths  # noqa: E402
-from pipeline.frame.country_config import (build_scope, load_config,  # noqa: E402
-                                           load_ne_rows)
+from pipeline.frame.country_config import (build_scope, country_render_dir,  # noqa: E402
+                                           country_work_dir, load_config, load_ne_rows)
 from pipeline.compose.overlay_borders import (DASHED_CLASSES, DISPUTED_STYLE,  # noqa: E402
                              LAND_STYLE, MARITIME_STYLE, SOLID_CLASSES,
                              frame_bbox_lonlat, read_lines, render_mapping,
                              stroke)
 
-# The two roots are not the same seam, and this module needs both. Per-country work lives in the
-# DATA store, which `MAPS_DATA` relocates; the rendered layers live in the CHECKOUT beside the
-# heroes they overlay, which it does not.
-WORK = paths.DATA / "work"
+# The rendered layers live in the CHECKOUT beside the heroes they overlay; the per-country inputs
+# they read live in the DATA store, reached through `country_work_dir`. Two roots, two seams.
 BORDERS = paths.ROOT / "blender/renders/borders"
 VARIANTS = paths.ROOT / "blender/renders/variants"
 # The globe's hero panel is the only surface that overlays this layer, and it declares a 420 px
@@ -51,7 +49,8 @@ TARGETS = (640, 960, 1280, 1920)   # each country's native long edge added too
 
 def find_render_dir(slug: str) -> Path | None:
     """work/<slug>/render, else the first render* dir with the prep outputs."""
-    cand = [WORK / slug / "render", *sorted((WORK / slug).glob("render*"))]
+    work = country_work_dir(slug)
+    cand = [country_render_dir(slug), *sorted(work.glob("render*"))]
     for candidate in cand:
         if (candidate / "frame.json").exists() and (candidate / "heightfield_aea.tif").exists():
             return candidate

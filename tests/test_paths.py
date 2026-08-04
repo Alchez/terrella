@@ -15,6 +15,7 @@ time — reloading modules in-process would leak state between tests.
 """
 
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -36,6 +37,13 @@ CODE_SUFFIXES = {".py", ".sh", ".ts", ".astro", ".toml", ".yml", ".yaml", ".json
 # This file necessarily contains the pattern it searches for.
 LITERAL_ALLOWED = {
     Path("tests/test_paths.py"),
+}
+
+# The mutation table holds broken spellings on purpose — a case that reintroduces a checkout-rooted
+# data path has to write one out to be a case at all. Exempt from the join scan below only; it is
+# still subject to the home-directory scans, where it has no such excuse.
+JOIN_ALLOWED = LITERAL_ALLOWED | {
+    Path("scripts/sabotage.py"),
 }
 
 # Modules that cannot be imported by anything but Blender's own interpreter. Named individually
@@ -270,6 +278,46 @@ class TestTheStoreIsWhereTheStoreIs:
         )
         found = run_probe(planted, {"MAPS_DATA": str(tmp_path / "elsewhere")})
         assert "pipeline.bodies._PLANTED" in found
+
+    def test_no_data_path_is_built_by_joining_onto_a_checkout_root(self):
+        """The half the probe structurally cannot see: a path assembled INSIDE a function.
+
+        There is no import-time value to read, so this one is a text scan after all — but a narrow
+        one, aimed at a single shape rather than at machine-specificity in general. Anything joined
+        onto a `data/`-prefixed literal is deriving the store from whatever root is to its left, and
+        the roots to its left are checkouts.
+
+        THE SCAN CATCHES PROSE THAT QUOTES THE SHAPE, and that is deliberate rather than a false
+        positive: two comments in this repo described a deleted checkout-rooted default by
+        reproducing it verbatim, which re-creates the needle a future scan has to sort through.
+        Describe the old spelling, do not quote it.
+        """
+        joined = re.compile(r'/\s*(?:[rf]{1,2})?["\']data/')
+        shell = re.compile(r"\)\s*/data/")  # a $(cd … pwd) checkout root, then straight into data/
+        offenders: list[str] = []
+        for relative in tracked_files():
+            if relative.suffix not in CODE_SUFFIXES or relative in JOIN_ALLOWED:
+                continue
+            source_file = REPO_ROOT / relative
+            if not source_file.exists():
+                continue
+            pattern = shell if relative.suffix == ".sh" else joined
+            for number, line in enumerate(source_file.read_text().splitlines(), 1):
+                if pattern.search(line):
+                    offenders.append(f"{relative}:{number}")
+        assert not offenders, (
+            f"data paths joined onto a checkout root: {offenders} — derive them from "
+            "pipeline.paths.DATA (or a helper that does), so MAPS_DATA relocates them"
+        )
+
+    def test_the_join_scan_can_see_a_violation(self):
+        """The control: the pattern must match the shape it forbids, written out here on purpose."""
+        joined = re.compile(r'/\s*(?:[rf]{1,2})?["\']data/')
+        assert joined.search('WORK = ROOT / "data/work"')
+        assert joined.search('out = ROOT / f"data/work/{slug}/render"')
+        assert joined.search("shp = repo / 'data/raw/naturalearth'")
+        assert not joined.search('DATA = paths.DATA / "work/borders"')  # the correct spelling
+        assert not joined.search("  fuse_heightfield.py --outdir data/work/india")  # prose
 
     def test_the_probe_reaches_every_module_it_should(self, tmp_path):
         """The other half of the control: proof the walk covers the tree, not just that it can

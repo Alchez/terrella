@@ -45,11 +45,16 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from pipeline.frame.country_config import (build_scope, load_config,
+from pipeline import paths
+from pipeline.frame.country_config import (build_scope, country_render_dir,
+                                           country_work_dir, load_config,
                                            load_ne_rows, preflight_gebco,
                                            resolve, stage_commands)
 
-ROOT = Path(__file__).resolve().parent.parent
+#: The CHECKOUT, and the working directory every stage subprocess is run from — so the
+#: checkout-relative paths in those commands (`pipeline/…`, `blender/…`) resolve. Data paths do NOT
+#: hang off it; they come from `country_work_dir`, which follows the store.
+ROOT = paths.ROOT
 # Stage commands say "python …" assuming a venv-active shell; put this runner's
 # own interpreter dir first on PATH so the subprocesses use the venv, not system.
 ENV = {**os.environ,
@@ -117,7 +122,7 @@ def prune_intermediates(slug: str) -> None:
     fused rasters, warp dir, and scene file. The hero PNG and the shared raw
     GLO-30/GEBCO tiles are kept. Used by --clean to keep a full sweep within
     disk (a near-global run accretes ~500 GB of tiles + fusions otherwise)."""
-    work = ROOT / f"data/work/{slug}"
+    work = country_work_dir(slug)
     if work.exists():
         shutil.rmtree(work)
     (ROOT / f"blender/{slug}_hero.blend").unlink(missing_ok=True)
@@ -129,7 +134,7 @@ def run_country(slug, resolved, through, force, dry, cap_gib, use_cap, floor,
     """Run one country's stages; return a short outcome string."""
     do_clean = clean and through == "render" and not dry
     target = (ROOT / f"blender/renders/heroes/{slug}.png" if through == "render"
-              else ROOT / f"data/work/{slug}/render/lakedepth_aea.tif")
+              else country_render_dir(slug) / "lakedepth_aea.tif")
     if target.exists() and not force:
         if do_clean:
             prune_intermediates(slug)
@@ -180,7 +185,7 @@ def run_country(slug, resolved, through, force, dry, cap_gib, use_cap, floor,
             # writes the shaded hero as a SEPARATE file (atomic, internal .tmp), so
             # the raw stays pristine and post-look tweaks never re-render.
             sv = subprocess.run(
-                f"python -m pipeline.render.sky_view --render-dir data/work/{slug}/render"
+                f"python -m pipeline.render.sky_view --render-dir {country_render_dir(slug)}"
                 f" --hero {raw} --out {final}"
                 f" --strength {resolved['sky_view_strength']}", shell=True,
                 cwd=ROOT, env=ENV).returncode
