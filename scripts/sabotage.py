@@ -1175,13 +1175,13 @@ SABOTAGES: list[Sabotage] = [
         label='country-hit moves back above the highlight layers, costing a third drape stack',
         path='web/src/components/Globe.astro',
         needle=(
-            '      addCountryHighlight(); // hover outline on top of everything, so the edge stays crisp\n'
+            '      if (subsystems.countries) addCountryHighlight(); // hover outline, on top so the edge is crisp\n'
         ),
         replacement=(
-            '      addCountryHitTargets();\n'
-            '      addCountryHighlight(); // hover outline on top of everything, so the edge stays crisp\n'
+            '      if (subsystems.countries) addCountryHitTargets();\n'
+            '      if (subsystems.countries) addCountryHighlight(); // hover outline, on top so the edge is crisp\n'
         ),
-        guard='matches what earth.astro actually adds last',
+        guard='matches what the globe actually adds last',
     ),
     Sabotage(
         suite='web',
@@ -1644,8 +1644,8 @@ SABOTAGES: list[Sabotage] = [
         suite='web',
         label='the globe gains a second toggle, spending the row it had left at 320px',
         path='web/src/pages/earth.astro',
-        needle='  borders={true}',
-        replacement='  borders={true}\n  spotlight={true}',
+        needle='  borders={body.hasBorders}',
+        replacement='  borders={body.hasBorders}\n  spotlight={true}',
         guard='fits on one row at 320px on the globe',
     ),
     # The label direction: nothing about the markup changes shape, one word just gets longer. This is
@@ -2742,6 +2742,74 @@ SABOTAGES: list[Sabotage] = [
         needle='    hasBorders: false,',
         replacement='    hasBorders: true,',
         guard='holds both answers to every flag, so none of them is a constant in disguise',
+    ),
+    # --- What a body's globe actually draws -------------------------------------------------------
+    # The three flags above answer nothing until something reads them. These cases cover the module
+    # that does, plus the two sites in the page where a gate can quietly go missing. The whole point
+    # of the module is that "show me only the raster" and "this planet only HAS a raster" stopped
+    # being two conditions maintained apart.
+    Sabotage(
+        suite='web',
+        # The registry stops being consulted and only the flags decide, so every body draws Earth's
+        # caps — a cap in another planet's palette, silently, since a texture that renders is a
+        # texture that looks deliberate.
+        label='the caps forget to ask the body, and every planet gets a polar texture',
+        path='web/src/lib/globeSubsystems.ts',
+        needle='    polarCaps: descriptor.rendersPolarCaps && !bare && !flags.has("nocaps"),',
+        replacement='    polarCaps: !bare && !flags.has("nocaps"),',
+        guard='gives a relief-only body its raster and nothing else',
+    ),
+    Sabotage(
+        suite='web',
+        # The tidy that reads as a simplification: a field that is `true` for the only body anyone
+        # has looked at becomes `true`. It survives every Earth test by construction.
+        label='terrain is declared for every body, including the ones with no DEM pyramid',
+        path='web/src/lib/globeSubsystems.ts',
+        needle='    terrain: published.terrain !== null,',
+        replacement='    terrain: true,',
+        guard='never advertises a pyramid the body does not publish, whatever the URL says',
+    ),
+    Sabotage(
+        suite='web',
+        # One flag stops taking one thing away. Nothing about Earth's default globe changes, and the
+        # only reader who notices is someone using ?bare to isolate the raster — i.e. someone already
+        # hunting something else.
+        label='?bare stops stripping the borders overlay, so the isolation is partial',
+        path='web/src/lib/globeSubsystems.ts',
+        needle='    borders: descriptor.hasBorders && !bare,',
+        replacement='    borders: descriptor.hasBorders,',
+        guard='takes away from Earth exactly what Mars never had',
+    ),
+    Sabotage(
+        suite='web',
+        # THE DEFECT THE COMMIT EXISTS FOR, restored. Building an address for an unpublished layer
+        # throws, and this runs at module scope — so the globe is blank before a map is constructed.
+        # Earth notices nothing, because Earth publishes all three.
+        label='a tile address is built for a layer the body does not publish, and the globe dies',
+        path='web/src/lib/globeSubsystems.ts',
+        needle='    terrain: drawn.terrain ? tileUrlTemplate(body, "terrain") : null,',
+        replacement='    terrain: tileUrlTemplate(body, "terrain"),',
+        guard='resolves for a body that publishes only relief, instead of throwing at page load',
+    ),
+    Sabotage(
+        suite='web',
+        # A gate deleted in the page rather than in the module. This is the shape a source scan is
+        # the only available guard for: the gates live in a client script nothing can import.
+        label='the hero panel opens for a body with no heroes rendered',
+        path='web/src/components/Globe.astro',
+        needle='    if (subsystems.heroes) openPanel(country);',
+        replacement='    openPanel(country);',
+        guard='is READ by the globe for every answer it gives, so none of them is decoration',
+    ),
+    Sabotage(
+        suite='web',
+        # The regression back to two readers. Caps would go on working for Earth and would be asked
+        # for on a body that publishes none — a `caps.json` 404 the console swallows.
+        label='the page reads the caps flag itself again instead of asking the registry',
+        path='web/src/components/Globe.astro',
+        needle='  if (subsystems.polarCaps) {',
+        replacement='  if (!urlFlags.has("nocaps")) {',
+        guard='is the only thing reading the flags it owns, so one place decides',
     ),
     # --- The route is the body's slug ------------------------------------------------------------
     # `/earth/` is a body route now, not a page name that happens to be there. The guard that admits

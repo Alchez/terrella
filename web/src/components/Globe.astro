@@ -448,7 +448,7 @@ import { REPO_URL } from "../lib/siteLinks";
   // NOT `import "maplibre-gl/dist/maplibre-gl.css"` — that is what made it render-blocking. The
   // stylesheet is linked non-blocking from this page's frontmatter; see the note beside that link.
   import { manifest, type Country } from "../lib/manifest";
-  import { BORDERS_BASE, HERO_BASE, TILE_BASE, tileUrlTemplate } from "../lib/assetBase";
+  import { BORDERS_BASE, HERO_BASE, TILE_BASE } from "../lib/assetBase";
   import { reliefBaseTilesSource, reliefTilesSource } from "../lib/reliefSources";
   // The ONE static exemption for the instrument, and it is fifteen lines: the entry buffer has to be
   // raised ahead of `new maplibregl.Map`, which no dynamic import can promise. Everything else that
@@ -521,6 +521,7 @@ import { REPO_URL } from "../lib/siteLinks";
     snapshotHasContent,
   } from "../lib/glDiagnostics";
   import { currentBody } from "../lib/currentBody";
+  import { globeSubsystems, globeTileAddresses } from "../lib/globeSubsystems";
   // Ids and poles only — the cap MESH and its textures stay behind the dynamic import below.
   // glDiagnostics already pulls these two statically, so this adds nothing to the bundle.
   import { CAP_POLES, capLayerId, deviceClass } from "../lib/polarCaps";
@@ -602,6 +603,11 @@ import { REPO_URL } from "../lib/siteLinks";
   // isolation): ?bare strips every non-tile layer (caps, countries, borders, highlight) to
   // expose the raster baseline, ?perf mounts the on-screen long-task overlay (phones have no
   // devtools console).
+  //
+  // ?bare and ?nocaps are not read HERE any more. They are two of the inputs to `globeSubsystems`,
+  // beside the registry's answer for this body, because "show me only the raster" and "this planet
+  // only has a raster" are the same globe and were two code paths for as long as they were two
+  // conditions.
   const urlFlags = new URLSearchParams(location.search);
 
   // Raised HERE, not in the ?perf block further down, and that is the whole point: the default
@@ -632,7 +638,6 @@ import { REPO_URL } from "../lib/siteLinks";
     );
   }
   const terrainSkirtMode = parsedSkirt ?? TERRAIN_SKIRT_DEFAULT;
-  const bareDiagnostic = urlFlags.has("bare");
 
   // MapLibre's parallel image-request cap, applied BEFORE the Map is constructed because the
   // style starts requesting tiles the moment it loads. An unconstrained visitor now gets 32
@@ -674,14 +679,31 @@ import { REPO_URL } from "../lib/siteLinks";
   // read as a rendering problem.
   const body = currentBody();
 
-  // The three tile addresses this page draws from, built HERE rather than read as module constants
-  // — the template needs a body, and there is no such thing as a bodyless tile URL. Resolved
-  // eagerly for the same reason `body` is: an archive this planet does not publish throws now,
-  // beside the declaration that names it, instead of inside a `style.load` handler where a missing
-  // pyramid reads as slow loading.
-  const reliefTileUrlTemplate = tileUrlTemplate(body.slug, "relief");
-  const terrainTileUrlTemplate = tileUrlTemplate(body.slug, "terrain");
-  const countriesTileUrlTemplate = tileUrlTemplate(body.slug, "countries");
+  // What this globe draws beyond the relief raster. Resolved ONCE, from the registry and then the
+  // flags, and every gate below reads this record instead of spelling its own condition — see
+  // globeSubsystems.ts for why that is a module rather than five inline `&&`s.
+  const subsystems = globeSubsystems(body.slug, urlFlags);
+
+  // The tile addresses this page draws from, built HERE rather than read as module constants — the
+  // template needs a body, and there is no such thing as a bodyless tile URL. Relief stays eager
+  // for the same reason `body` is: it is the one archive every globe must have, so a missing one
+  // throws beside the declaration that names it rather than inside a `style.load` handler where it
+  // would read as slow loading.
+  //
+  // THE OTHER TWO ARE CONDITIONAL, and that is the live defect this commit closes. `tileUrlTemplate`
+  // THROWS for a layer the body does not publish, and these run at module scope — so on a body that
+  // publishes only relief, this file threw before a map existed and the globe was a blank page with
+  // one console line. "This planet has no DEM" is a fact about the planet, not an error, so the
+  // registry is asked first and never gets the chance to become one.
+  //
+  // `null` rather than an empty string, because the type-checker is doing the search: every site
+  // that assumed an address is now a compile error, which is how the gates further down were FOUND
+  // rather than remembered.
+  const {
+    relief: reliefTileUrlTemplate,
+    terrain: terrainTileUrlTemplate,
+    countries: countriesTileUrlTemplate,
+  } = globeTileAddresses(body.slug, subsystems);
 
   // Both relief sources draw the one archive this body publishes, and both take their zoom range
   // from the registry rather than from a constant — see reliefSources.ts, which is where the
@@ -1005,8 +1027,21 @@ import { REPO_URL } from "../lib/siteLinks";
   // remove ONLY the geometry.
   // `bootTier`, not a fresh `currentTier()`: that would be a second `probeSignals()` and four more
   // WebGL contexts for an answer that cannot have changed within one page load.
-  const terrainExaggeration = resolveTerrainExaggeration(urlFlags, bootTier === "full");
+  // A body with no DEM pyramid has no terrain to switch on, at any tier and by any flag — so the
+  // registry is consulted before the URL is even parsed. Refused OUT LOUD rather than silently:
+  // `?terrain=2` on such a body is a reasonable thing for someone to try, and a flag that does
+  // nothing without saying so is how an hour goes into wondering which of five things broke.
+  const terrainExaggeration = subsystems.terrain
+    ? resolveTerrainExaggeration(urlFlags, bootTier === "full")
+    : null;
+  if (!subsystems.terrain && urlFlags.has("terrain")) {
+    console.warn(
+      `[terrain] ignoring ?terrain=${urlFlags.get("terrain")} — ${body.slug} publishes no ` +
+        `terrain pyramid, so there is no elevation to displace with. Running flat.`,
+    );
+  }
   if (
+    subsystems.terrain &&
     terrainExaggeration === null &&
     urlFlags.has("terrain") &&
     urlFlags.get("terrain")?.trim() !== TERRAIN_OFF
@@ -1016,7 +1051,12 @@ import { REPO_URL } from "../lib/siteLinks";
         `(0, ${MAX_TERRAIN_EXAGGERATION}] or "${TERRAIN_OFF}". Running flat.`,
     );
   }
-  if (terrainExaggeration !== null) {
+  // BOTH conditions, and the second is not redundant with the first. `terrainExaggeration` is
+  // already null for a body with no pyramid, so this block is unreachable there either way — but
+  // that reachability is an argument a reader has to reconstruct, and the type-checker cannot
+  // reconstruct it at all. Naming the address here makes the requirement local: this block needs an
+  // exaggeration AND somewhere to fetch elevation from, and it says so.
+  if (terrainExaggeration !== null && terrainTileUrlTemplate !== null) {
     // ?demsize is the axis-B arm: 512 is the honest declaration, 128 a deliberate misdeclaration
     // that quarters the ground a render tile covers and so quarters the mesh facet. It is the
     // last of the DEM A/B flags, and the only one that survived the archive: a wrong value here
@@ -1227,7 +1267,7 @@ import { REPO_URL } from "../lib/siteLinks";
   // as a black disc over the pole — present, wrong, and silent. Re-adding once the map reads
   // healthy is the only ordering that holds, so the re-add is driven from there.
   let reassertPolarCaps: () => void = () => {};
-  if (!urlFlags.has("nocaps") && !bareDiagnostic) {
+  if (subsystems.polarCaps) {
     const addCaps = () =>
       void import("../lib/polarCaps")
         .then((mod) => mod.addPolarCaps(map))
@@ -1708,6 +1748,14 @@ import { REPO_URL } from "../lib/siteLinks";
    *  The per-island hit points are cut into the archive rather than derived here at runtime, which
    *  is why there is no geometry walk left on this path at all. */
   function addCountryTiles() {
+    // The precondition stated where it is required, rather than left to the caller's gate. The
+    // caller does gate it — but that reachability is an argument a reader reconstructs, and the
+    // type-checker cannot reconstruct it across a closure at all. Unreachable by construction and
+    // worth writing anyway: it is what a future second caller meets instead of a `null` reaching
+    // MapLibre, which accepts it and then requests `/null/{z}/{x}/{y}` forever.
+    if (countriesTileUrlTemplate === null) {
+      throw new Error(`${body.slug} publishes no countries pyramid — nothing to add`);
+    }
     map.addSource(COUNTRIES_SOURCE, countryTilesSource(countriesTileUrlTemplate));
     // Invisible except on hover; a warm silhouette wash so the whole landmass lights up.
     map.addLayer(fillLayer(inScopeFilter, VECTOR_BINDING.fill));
@@ -1911,7 +1959,11 @@ import { REPO_URL } from "../lib/siteLinks";
     if (!country) return;
     setSpinning(false); // a deliberate pick retires the idle spin
     flyToCountry(country);
-    openPanel(country);
+    // The FLY is not gated and the PANEL is, which is the split that matters once a body has
+    // vectors without heroes — Mars's geologic units are exactly that. Framing a clicked region is
+    // what the vectors are for; the panel needs a rendered hero to put in it, and without one it
+    // opens on `undefined`, asking for a `<slug>-undefined.webp` that 404s behind a spinner.
+    if (subsystems.heroes) openPanel(country);
   });
 
   // Pitch the sky was last built for. Tracked because `setSky` restarts a 300 ms transition, so
@@ -1950,7 +2002,12 @@ import { REPO_URL } from "../lib/siteLinks";
   // tiles for the loading window. Degrades gracefully by construction: a click before they land
   // finds no country. Borders toggled on in that gap land above where the highlight will sit — the
   // highlight layers append later and still end up on top, the intended order.
-  if (!bareDiagnostic) {
+  // ONE RUN FOR TWO SUBSYSTEMS, gated per call rather than split in two, because the ORDER is what
+  // this block exists to hold and a second ordered run would be indistinguishable from the order
+  // having changed. Borders are their own GeoJSON download rather than part of the countries
+  // pyramid, so a body could have one without the other; that is why each call asks its own
+  // question instead of all four riding a single condition.
+  if (subsystems.countries || subsystems.borders) {
     map.once("idle", () => {
       // Spans the whole construction run, not each call: MapLibre does the work when the source
       // and layers are added, and splitting it four ways would price the caller rather than the
@@ -1960,12 +2017,12 @@ import { REPO_URL } from "../lib/siteLinks";
       // source by position, so a second ordered run would be indistinguishable from the order
       // having changed.
       const endLayers = beginSpan("countries:layers");
-      addCountryTiles(); // vector source + fill layer, under the borders so lines stay on top
-      if (bordersOn()) addBorders(); // opted-in only — the default globe skips the download
-      addCountryHighlight(); // hover outline on top of everything, so the edge stays crisp
+      if (subsystems.countries) addCountryTiles(); // source + fill, under the borders
+      if (subsystems.borders && bordersOn()) addBorders(); // opted-in only — default globe skips it
+      if (subsystems.countries) addCountryHighlight(); // hover outline, on top so the edge is crisp
       // LAST, always. Everything above is drapeable (fill, line); this circle is not, so putting
       // it here ends the drape run rather than splitting it. See addCountryHitTargets.
-      addCountryHitTargets();
+      if (subsystems.countries) addCountryHitTargets();
       endLayers();
     });
   }

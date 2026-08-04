@@ -162,11 +162,24 @@ describe("the archive replaced four flags, and the answers outlive them", () => 
     // The spike served /terrain/<build>/{z}/{x}/{y} off loose tiles from location.origin. Both
     // halves of that are retired: the build segment, and the same-origin assumption that would
     // send production's DEM requests at the site Worker instead of the tile Worker.
+    //
+    // TWO FILES, because the address builder moved out of the page and only ONE of these two
+    // assertions noticed. The positive one failed the moment its subject left — that is what a
+    // `toContain` does. The negative one would have gone on passing forever against a file that no
+    // longer builds a DEM address at all, which is the same silent narrowing the globe extraction
+    // taught: absence is a legitimate answer to `not.toContain`, so it cannot report being aimed at
+    // the wrong file. It is asserted over BOTH, since either could regrow a same-origin URL.
     const globe = readFileSync(new URL("../components/Globe.astro", import.meta.url), "utf8");
-    expect(globe).toContain('tileUrlTemplate(body.slug, "terrain")');
-    expect(globe, "the DEM base must follow the tile hostname").not.toContain(
-      "location.origin}/terrain",
-    );
+    const addresses = readFileSync(new URL("./globeSubsystems.ts", import.meta.url), "utf8");
+    expect(addresses).toContain('tileUrlTemplate(body, "terrain")');
+    for (const [name, source] of [
+      ["globeSubsystems.ts", addresses],
+      ["Globe.astro", globe],
+    ] as const) {
+      expect(source, `${name}: the DEM base must follow the tile hostname`).not.toContain(
+        "location.origin}/terrain",
+      );
+    }
   });
 });
 

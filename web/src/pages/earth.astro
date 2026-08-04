@@ -4,13 +4,26 @@
 import Base from "../layouts/Base.astro";
 import Globe from "../components/Globe.astro";
 import MapStylesheet from "../components/MapStylesheet.astro";
+import { BODIES } from "../lib/bodies";
+
+// The chrome this route wears, taken from the registry rather than written as literals.
+//
+// `borders` is the registry's, because the button is the ONLY way to reach the overlay: a body with
+// no boundary data and a borders button has a control that toggles nothing and reports nothing.
+// `Globe.astro` reads the same field to decide whether to mount the layers, so the control and the
+// thing it controls cannot disagree.
+//
+// `quality` is deliberately NOT the registry's. That toggle is a property of being a globe page
+// rather than of the planet — `rg:quality` is one key across bodies, because a device's tier
+// follows the visitor between them.
+const body = BODIES.earth;
 ---
 
 <Base
   title="Terrella — Globe"
   description="An interactive globe of ray-traced relief, every country."
-  body="earth"
-  borders={true}
+  body={body.slug}
+  borders={body.hasBorders}
   quality={true}
 >
   {/* A `Fragment` rather than the `<link>` itself: `slot` reaches `Base` only from a direct child

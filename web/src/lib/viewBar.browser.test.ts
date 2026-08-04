@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { page } from "vitest/browser";
 
 import "../styles/global.css";
+import { BODIES, type BodySlug } from "./bodies";
 import baseLayout from "../layouts/Base.astro?raw";
 import galleryPage from "../pages/index.astro?raw";
 import globePage from "../pages/earth.astro?raw";
@@ -54,17 +55,51 @@ const MIN_SLACK_PX = 16;
  */
 type BarFlags = { borders: boolean; spotlight: boolean; quality: boolean };
 
-function barFlags(source: string): BarFlags {
+/**
+ * Resolve one flag EXPRESSION to the value the page ships with.
+ *
+ * A page may write the answer (`{true}`) or take it from the body registry (`{body.hasBorders}`),
+ * and this has to understand both — but the important half is what it does with a THIRD spelling.
+ * The version that only knew `{true}` reported anything else as `false`, i.e. as a control group
+ * the site does not ship, and a group that is not measured cannot fail to fit. So an unrecognised
+ * expression is an ERROR here, not an absence: this guard's whole claim is that it measures the
+ * configurations the site actually ships, and quietly measuring fewer is how that claim goes hollow.
+ */
+function resolveFlag(pageName: string, flag: string, expression: string, source: string): boolean {
+  if (expression === "true") return true;
+  if (expression === "false") return false;
+  const field = /^body\.(\w+)$/.exec(expression)?.[1];
+  if (field !== undefined) {
+    // The page names its body once, in frontmatter, and passes `body.slug` to the layout — so the
+    // slug is read from the same declaration the flag is read from rather than from the attribute.
+    const slug = /\bBODIES\.(\w+)\b/.exec(source)?.[1];
+    const descriptor = slug === undefined ? undefined : BODIES[slug as BodySlug];
+    const value = descriptor?.[field as keyof typeof descriptor];
+    if (typeof value !== "boolean") {
+      throw new Error(`${pageName}: ${flag}={${expression}} does not resolve to a boolean in BODIES`);
+    }
+    return value;
+  }
+  throw new Error(
+    `${pageName}: cannot resolve ${flag}={${expression}}. Teach resolveFlag about it — reading ` +
+      `it as "off" would drop a shipped control group out of the measurement without failing.`,
+  );
+}
+
+function barFlags(source: string, pageName: string): BarFlags {
   const attrs = source.match(/<Base\b([^>]*)>/)?.[1];
   if (attrs === undefined) throw new Error("page no longer opens with a recognisable <Base …> tag");
-  const on = (flag: string) => new RegExp(`\\b${flag}=\\{true\\}`).test(attrs);
+  const on = (flag: string) => {
+    const written = new RegExp(`\\b${flag}=\\{([^}]*)\\}`).exec(attrs)?.[1];
+    return written === undefined ? false : resolveFlag(pageName, flag, written.trim(), source);
+  };
   return { borders: on("borders"), spotlight: on("spotlight"), quality: on("quality") };
 }
 
 /** Pages that render a bar at all. `about` and `[slug]` pass no flags and get none. */
 const PAGE_BARS: { label: string; flags: BarFlags }[] = [
-  { label: "gallery", flags: barFlags(galleryPage) },
-  { label: "globe", flags: barFlags(globePage) },
+  { label: "gallery", flags: barFlags(galleryPage, "index.astro") },
+  { label: "globe", flags: barFlags(globePage, "earth.astro") },
 ];
 
 /** Titles for `it.each`; strings because a sabotage guard has to be able to find one in source. */
