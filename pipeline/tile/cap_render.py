@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Render the polar caps: sea ice + snow over real bathymetry, on AEQD grids reaching the pole.
 
 Web-Mercator tiles die at ~85N (1/cos-phi sends the pole to infinity), so each pole is a

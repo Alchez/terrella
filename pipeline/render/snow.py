@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Tile snow layer: NSIDC-0791 snow persistence -> latitude-ramped soft alpha.
 
 Replaces the WorldCover class-70 permanent-ice mask (permanent ice only -> bare mid/high-latitude

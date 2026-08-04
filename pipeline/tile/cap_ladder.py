@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Sweep ONE cap parameter across a ladder of values and archive each rung, for judging by eye.
 
 The polar caps are the one surface with no cheap preview. A region can be re-composited from cached

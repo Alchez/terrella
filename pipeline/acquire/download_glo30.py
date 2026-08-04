@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Download Copernicus GLO-30 elevation tiles for one lat/lon extent.
 
 For every 1x1 degree land tile intersecting --extent (per the bucket's

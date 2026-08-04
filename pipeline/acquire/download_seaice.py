@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Download OSI SAF sea-ice concentration and build a frequency-of-occurrence climatology.
 
 The sea half of the polar look: a static, timeless "how often is this sea-water frozen"
@@ -237,9 +236,8 @@ def main() -> int:
                         help="rebuild the climatology even if the output exists")
     args = parser.parse_args()
 
-    if not args.build_only:
-        if download_all() != 0:
-            return 1
+    if not args.build_only and download_all() != 0:
+        return 1
     if not args.download_only:
         if FINAL.exists() and not args.force:
             print(f"{FINAL} exists -- pass --force to rebuild", flush=True)

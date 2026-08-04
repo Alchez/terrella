@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Tile sea-ice layer: OSI SAF ice-frequency climatology -> soft white alpha over the sea.
 
 The sea-side mirror of pipeline/render/snow.py. Where snow drapes persistent white over LAND by a

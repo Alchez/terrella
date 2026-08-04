@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Watch the instrumented pass and EXIT when something worth reporting happens.
 
 The harness re-invokes Claude when a background task exits, so "exit on event" is how a

@@ -11,6 +11,7 @@ off, it moves hue WITHOUT moving brightness (which is what stops it re-creating 
 wash), and it leaves sea and snow alone.
 """
 
+import itertools
 import math
 from typing import Any, cast
 
@@ -104,7 +105,7 @@ class TestItMovesHueNotBrightness:
         shade.KNOBS["shadow_warmth"] = 1.0
         ratios = [composite_at(value)[0] / composite_at(value)[2]
                   for value in (0.95, 0.85, 0.75, 0.65, 0.56)]
-        assert all(later > earlier for earlier, later in zip(ratios, ratios[1:])), ratios
+        assert all(later > earlier for earlier, later in itertools.pairwise(ratios)), ratios
 
 
 class TestItLeavesTheOtherSurfacesAlone:

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Threading the planet composite (optimisation #5): the threaded pass must be byte-identical
 to the serial one, and only the single-variant production path may thread.
 

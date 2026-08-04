@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Batch-generate standalone transparent border layers + gallery variants.
 
 The gallery's border toggle overlays a per-country transparent PNG of the
@@ -22,10 +21,10 @@ import json
 from pathlib import Path
 
 import cairo
-import pyproj  # noqa: E402
+import pyproj
 
-from pipeline import naturalearth, paths  # noqa: E402
-from pipeline.compose.overlay_borders import (  # noqa: E402
+from pipeline import naturalearth, paths
+from pipeline.compose.overlay_borders import (
     DASHED_CLASSES,
     DISPUTED_STYLE,
     LAND_STYLE,
@@ -36,7 +35,7 @@ from pipeline.compose.overlay_borders import (  # noqa: E402
     render_mapping,
     stroke,
 )
-from pipeline.frame.country_config import (  # noqa: E402
+from pipeline.frame.country_config import (
     build_scope,
     country_render_dir,
     country_work_dir,

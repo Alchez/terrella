@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Generate the Tier-1 gallery manifest (src/data/countries.json).
 
 Bridges the render pipeline to the frontend: it reads the in-scope country list
@@ -89,8 +88,8 @@ def main() -> int:
     args = ap.parse_args()
 
     sys.path.insert(0, str(args.repo))  # repo root: country_config uses pipeline.* imports
-    from pipeline import naturalearth  # noqa: E402
-    from pipeline.frame.country_config import (  # noqa: E402
+    from pipeline import naturalearth
+    from pipeline.frame.country_config import (
         build_scope,
         load_config,
         load_ne_rows,

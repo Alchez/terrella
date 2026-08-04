@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Shade planet chunks into one seamless Web Mercator RGB raster, ready to tile.
 
 Reproject each chunk's height + masks

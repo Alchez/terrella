@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Pull an OpenTopography Global DEM clip as an independent fusion oracle.
 
 Our heightfield is GLO-30 land fused with GEBCO bathymetry (fuse_heightfield.py).
@@ -94,7 +93,7 @@ def resolve_frame(slug: str) -> tuple:
     """The exact frame the pipeline fuses for this country (via country_config)."""
     import pipeline.frame.country_config as cc
     cfg = cc.load_config()
-    sf, rows = cc.load_ne_rows()
+    _sf, rows = cc.load_ne_rows()
     scope = cc.build_scope(cfg, rows)
     if slug not in scope:
         sys.exit(f"no country with slug {slug!r} in scope (see country_config --all)")

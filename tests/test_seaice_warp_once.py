@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Warp-once sea ice: the whole-grid warp must equal the per-window warp, plus the pure alpha.
 
 The exact sea-side mirror of test_snow_warp_once.py. The composite reads a window slice out of a

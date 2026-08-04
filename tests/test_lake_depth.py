@@ -16,6 +16,7 @@ very lines the bug was in, so it passed on a broken scene), each guard here also
 companion proving it FAILS on a known-bad input.
 """
 
+import itertools
 from typing import Any, cast
 
 import numpy as np
@@ -52,7 +53,7 @@ class TestLakeRamp:
         luminance = [0.299 * red + 0.587 * green + 0.114 * blue
                      for red, green, blue in palette.lake_lut()]
         assert all(later <= earlier + 1e-9
-                   for earlier, later in zip(luminance, luminance[1:]))
+                   for earlier, later in itertools.pairwise(luminance))
 
     def test_srgb8_to_linear_roundtrips(self):
         """LAKE_STOPS[0] is derived through this, so a bug here silently shifts the shore."""
@@ -84,7 +85,7 @@ class TestLakePosition:
     def test_position_is_monotonic(self, curve):
         depths = np.array([0.0, 5.0, 11.2, 50.0, 230.0, 1642.0], "float32")
         position = shade.lake_position(depths, curve)
-        assert all(later >= earlier for earlier, later in zip(position, position[1:]))
+        assert all(later >= earlier for earlier, later in itertools.pairwise(position))
 
     def test_log1p_spreads_shallow_lakes_where_sqrt_does_not(self):
         """The measured reason log1p won: the median lake is 11.2 m, and sqrt parks it in

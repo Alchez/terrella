@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Download the GLOBathy lake-bathymetry dataset (Khazaei 2022, CC0).
 
 The general answer to lake depth: every lake except the Caspian and the Great Lakes fuses

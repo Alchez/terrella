@@ -104,17 +104,15 @@ class TestASweepCannotLeaveTheShippedValueSwapped:
         the freshness sidecar, described a look nobody chose."""
         knobs = cast(dict[str, Any], shade.KNOBS)
         shipped = knobs[SWEPT_KNOB]
-        with pytest.raises(RuntimeError):
-            with cap_ladder.swapped(SWEPT_KNOB, 0.0):
-                raise RuntimeError("gdalwarp died mid-rung")
+        with pytest.raises(RuntimeError), cap_ladder.swapped(SWEPT_KNOB, 0.0):
+            raise RuntimeError("gdalwarp died mid-rung")
         assert knobs[SWEPT_KNOB] == shipped
 
     def test_the_encoder_quality_is_restored_the_same_way(self):
         shipped = cap_render.CAP_WEBP_QUALITY
-        with pytest.raises(RuntimeError):
-            with cap_ladder.swapped("quality", 60):
-                assert cap_render.CAP_WEBP_QUALITY == 60
-                raise RuntimeError("interrupted")
+        with pytest.raises(RuntimeError), cap_ladder.swapped("quality", 60):
+            assert cap_render.CAP_WEBP_QUALITY == 60
+            raise RuntimeError("interrupted")
         assert cap_render.CAP_WEBP_QUALITY == shipped
 
     def test_the_recipe_the_sidecar_records_returns_to_the_shipped_one(self):
@@ -133,9 +131,9 @@ class TestASweepCannotLeaveTheShippedValueSwapped:
         """`KNOBS` is a plain dict at runtime, so a typo'd axis would otherwise CREATE a key —
         sweeping a knob the composite never reads and reporting a clean run over identical pixels."""
         knobs = cast(dict[str, Any], shade.KNOBS)
-        with pytest.raises(KeyError, match="unknown axis"):
-            with cap_ladder.swapped("ice_releif_damp", 0.5):  # codespell:ignore
-                pass
+        with (pytest.raises(KeyError, match="unknown axis"),
+              cap_ladder.swapped("ice_releif_damp", 0.5)):  # codespell:ignore
+            pass
         assert "ice_releif_damp" not in knobs  # codespell:ignore
 
 

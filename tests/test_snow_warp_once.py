@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Warp-once snow (optimisation #4): the whole-grid warp must equal the per-window warp.
 
 The composite loop today forks `gdalwarp`/`gdal_rasterize` per window into fixed-path temps

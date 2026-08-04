@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Simplify the Natural Earth admin-0 country POLYGONS -> one WGS84 GeoJSON
 shared by ALL of the globe's country layers: the click-to-fly hit fill, the
 hover wash, and the hover outline that strokes these very rings as the visible

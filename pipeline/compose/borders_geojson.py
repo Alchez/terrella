@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Convert the Natural Earth admin-0 land boundary LINES -> one WGS84 GeoJSON for
 the globe's vector border overlay (solid international + dashed disputed/LoC, split
 downstream by FEATURECLA).

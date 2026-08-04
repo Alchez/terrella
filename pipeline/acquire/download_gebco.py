@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Download the global GEBCO_2026 bathymetry grid and build its mosaic VRT.
 
 The one-time global bootstrap for the sea half of the heightfield (the land

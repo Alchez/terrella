@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Post-render sky-view-factor shading: add topographic depth to a finished hero.
 
 The Cycles render lights terrain with one sun, so subtle relief (drainage,
@@ -89,7 +88,7 @@ def horizon_svf(heights: np.ndarray, m_per_px: float, n_dir: int = 16,
         dy, dx = np.sin(az), np.cos(az)
         mh = np.full_like(heights, -1e9)
         for distance_px in range(1, max_px):
-            zi = np.roll(np.roll(heights, -int(round(dy * distance_px)), 0), -int(round(dx * distance_px)), 1)
+            zi = np.roll(np.roll(heights, -round(dy * distance_px), 0), -round(dx * distance_px), 1)
             np.maximum(mh, (zi - heights) / (distance_px * m_per_px), out=mh)
         acc += 1.0 - np.sin(np.arctan(np.clip(mh, 0, None)))
     return acc / n_dir

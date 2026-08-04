@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Cut the country polygons into a VECTOR tile pyramid (PMTiles), so the globe addresses
 country geometry by z/x/y instead of handing MapLibre a 9.4 MB parsed object.
 

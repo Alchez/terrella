@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Batch runner: drive the whole pipeline across every in-scope country.
 
 Reuses country_config's resolver (scope, frames, per-country stage commands)

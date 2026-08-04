@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Tile lake-depth layer: GLOBathy modelled depth -> a per-pixel depth field in metres.
 
 Sits beside snow.py by design. Lake depth is a TINT-ONLY rendering input, never terrain: at

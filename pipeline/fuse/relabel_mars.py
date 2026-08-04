@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Publish the MOLA/HRSC blend as Mars's planet heightfield — a CRS relabel, and nothing else.
 
 THE FUSE TIER'S COUNTERPART FOR A BODY THAT NEEDS NO FUSION. `fuse_planet` turns ~26,000 Copernicus

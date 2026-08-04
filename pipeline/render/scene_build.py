@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Build the hero-render Blender scene from code (Phase 1 keystone).
 
 Reconstructs the hand-built Phase 0 scene — plane + adaptive-subdivision

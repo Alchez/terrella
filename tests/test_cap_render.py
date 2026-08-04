@@ -68,7 +68,7 @@ class TestLonlatGrid:
         is exactly 90° − degrees(rho / R). Sample centre and edge pixels of a 9-px grid."""
         grid_9px = cap_render.CapGrid(lat_0=90.0, edge_lat=78.0, px=9, name="tiny", az_sign=-1.0,
                                    body=bodies.EARTH)
-        longitude, latitude = cap_render._lonlat_grid(grid_9px)
+        _longitude, latitude = cap_render._lonlat_grid(grid_9px)
         cell = 2 * grid_9px.edge_m / 9
         for row, col in ((4, 4), (4, 8), (0, 4), (8, 8)):
             x = -grid_9px.edge_m + (col + 0.5) * cell

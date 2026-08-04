@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Shade the whole (non-Antarctic) planet into ONE seamless Web-Mercator RGB raster.
 
 Supersedes the 194-strip `tile_planet.py`, whose seam-avoidance hacks (a single global
@@ -793,7 +792,7 @@ def composite_planet(work: Path, hs, compute_occlusion: Callable[[], np.ndarray]
     occ = compute_occlusion()
     with rasterio.open(work / "height_3857.tif") as h:
         width, height, transform = h.width, h.height, h.transform
-    small_h, small_w = occ.shape
+    small_h, _small_w = occ.shape
     # dict[str, Any]: GDAL creation options are a heterogeneous bag, and `**profile` otherwise
     # hands rasterio.open's bool-typed `sharing`/`thread_safe` an inferred `str | int`.
     profile: dict[str, Any] = dict(
@@ -812,7 +811,7 @@ def composite_planet(work: Path, hs, compute_occlusion: Callable[[], np.ndarray]
         win = band_window(width, row0, row1)
         # sky-view occlusion slice for this window (smooth -> nearest rows are fine)
         sr0 = int(row0 / height * small_h)
-        sr1 = max(sr0 + 1, int(round(row1 / height * small_h)))
+        sr1 = max(sr0 + 1, round(row1 / height * small_h))
         return _WindowInputs(
             win=win, win_h=row1 - row0,
             win_top=transform.f + row0 * transform.e,

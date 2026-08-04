@@ -10,6 +10,7 @@ at the equator — so nobody re-coarsens the file for size without meeting the
 display requirement head-on.
 """
 
+import itertools
 from pathlib import Path
 
 from pipeline import bodies
@@ -36,7 +37,7 @@ class TestOgrCommand:
         """Subtests over one built command: the regression that matters is an edited flag list,
         which drops more than one pair at a time."""
         command = countries_geojson.ogr_command(Path("src.shp"), Path("out.tmp"))
-        adjacent_pairs = set(zip(command, command[1:]))
+        adjacent_pairs = set(itertools.pairwise(command))
         with subtests.test("simplify"):
             assert ("-simplify", str(countries_geojson.SIMPLIFY_DEG)) in adjacent_pairs
         with subtests.test("select ADMIN — the frontend join key"):

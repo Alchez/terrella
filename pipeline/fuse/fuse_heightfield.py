@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Fuse GLO-30 land elevation with GEBCO bathymetry into one heightfield.
 
 Recipe:

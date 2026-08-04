@@ -157,8 +157,8 @@ class TestPackDirectory:
         count = pack_directory(tmp_path / "tiles", out, name="test")
         assert count == 3
         with sqlite3.connect(out) as db:
-            rows = dict(((z, x, y), bytes(blob)) for z, x, y, blob in db.execute(
-                "SELECT zoom_level, tile_column, tile_row, tile_data FROM tiles"))
+            rows = {(z, x, y): bytes(blob) for z, x, y, blob in db.execute(
+                "SELECT zoom_level, tile_column, tile_row, tile_data FROM tiles")}
         assert rows[(0, 0, 0)] == b"z0-root"
         assert rows[(1, 0, 1)] == b"z1-nw"       # XYZ y=0 -> TMS row 1
         assert rows[(1, 1, 0)] == b"z1-se"       # XYZ y=1 -> TMS row 0

@@ -76,28 +76,6 @@ ignore = [
     # them keyword-argument form rather than an empty `dict()`. The literal rewrite is a wash at
     # best and reads worse wherever the keys line up as identifiers.
     "C408",
-
-    # --- STAGED, NOT ACCEPTED ---------------------------------------------------------------
-    # Everything below is a finding this repo intends to fix, held here only so that the gate can
-    # land green and the fixes can arrive in reviewable groups instead of one 189-line sweep. A
-    # line leaves this block when its rule reads zero, and the block itself is the to-do list —
-    # kept in the config rather than in a comment somewhere, because this is the only place that
-    # cannot drift away from what is actually enforced. When it is empty, delete it.
-    # RUF100 IS CLEARED LAST, AND THAT ORDER IS LOAD-BEARING. Whether a `# noqa` is "unused" is a
-    # function of which rules are enabled, so while this block has entries in it RUF100 reports
-    # every suppression of a staged rule as dead — and its fix DELETES them. Left on, the first
-    # `--fix` of this migration would have removed the live `# noqa: BLE001` in gen_spotlight.py
-    # that keeps one country's failure from killing a 203-country batch, and the rule it silences
-    # comes back two commits later with nothing to say so.
-    "RUF100",
-    "EXE001",   # shebang present, execute bit absent — 49 files, a sweep of its own
-    "C402",     # unnecessary generator passed to dict()
-    "RUF007",   # manual successive-pair zip where itertools.pairwise says it
-    "RUF046",   # cast to int that the expression already guarantees
-    "RUF059",   # unpacked variable never read
-    "SIM102",   # collapsible nested if
-    "SIM117",   # nested with statements
-    "UP031",    # printf-style formatting
 ]
 
 # Tests cover the pure geometry/config resolution layer (framing math, config

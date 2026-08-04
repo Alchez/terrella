@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Snow/ice mask stage for the hero shader.
 
 Produces snowmask_aea.png (0/255) on an existing render dir's grid from

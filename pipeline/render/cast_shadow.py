@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Directional cast shadows — the one term a hillshade structurally cannot produce.
 
 `gdaldem hillshade` (and our `hillshade.py`) is a purely LOCAL operator: it sees one pixel's
@@ -99,8 +98,8 @@ def shadow_mask(heights: np.ndarray, zfactor: float | np.ndarray, m_per_px: floa
     # horizon at exactly 0 degrees, which is indistinguishable from a sun at the horizon.
     steepest = np.full(exaggerated.shape, -np.inf, dtype=np.float32)
     for distance in range(1, reach_px + 1):
-        row_offset = int(round(row_step * distance))
-        column_offset = int(round(column_step * distance))
+        row_offset = round(row_step * distance)
+        column_offset = round(column_step * distance)
         upsun = padded[reach_px + row_offset:reach_px + row_offset + rows]
         if column_offset:
             # np.roll(a, s)[i] == a[i - s], so the shift is negated to sample TOWARD the sun.

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Sample every process in the pass's cgroup once a second: RSS, peak RSS, CPU, threads, disk I/O.
 
 Why a sampler at all, when perf is already recording? They answer disjoint questions. perf says

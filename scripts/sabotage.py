@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Mutation harness — break each guard's subject and confirm the guard fails.
 
 A guard that passes whether or not its subject is present is decoration, and this repo has shipped

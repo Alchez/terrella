@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Fetch RGI 7.0 'G' glacier shapefiles (GTN-G regions) from the open UNESCO IHP-WINS mirror
 and merge them into one EPSG:3857 GeoPackage for rasterizing into the tile snow layer.
 

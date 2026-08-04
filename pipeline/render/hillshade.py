@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Custom hillshade with a per-row (latitude-varying) z-factor for Web Mercator grids.
 
 `gdaldem hillshade` takes a single scalar z-factor. A Web-Mercator planet needs the

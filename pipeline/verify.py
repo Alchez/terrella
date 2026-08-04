@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Raster comparison that cannot quietly lie to you.
 
 This module exists because of a measured pattern, not a hunch. Across two days, SEVEN

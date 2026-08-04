@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Measure composite()'s peak RSS on ONE production-shaped planet window.
 
 The planet composite is the stage that has actually OOM-killed this box: windows are the full

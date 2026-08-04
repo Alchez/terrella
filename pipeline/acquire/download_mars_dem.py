@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Download the MOLA/HRSC blended global DEM — the whole of Mars's elevation input.
 
 ONE FILE, AND THAT IS THE POINT. Earth's heightfield is assembled from ~26,000 Copernicus tiles,

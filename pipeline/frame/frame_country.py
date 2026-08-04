@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Compute a country's render frame from its Natural Earth bounding box.
 
 The frame is the lon/lat window every downstream stage shares: the fusion

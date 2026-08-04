@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Pack the XYZ tile pyramid into an MBTiles file — the bridge to `pmtiles convert`.
 
 The vendored go-pmtiles CLI reads only MBTiles (its GDAL driver counterpart is

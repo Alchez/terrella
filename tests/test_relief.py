@@ -7,6 +7,7 @@ slopes toward the poles. Scaling the vertical exaggeration by 1/cos(lat) restore
 hero's physical exaggeration at every latitude.
 """
 
+import itertools
 import math
 
 import pytest
@@ -29,7 +30,7 @@ class TestMercatorZFactor:
     def test_increases_with_latitude(self):
         zs = [relief.mercator_zfactor(lat, 15.0) for lat in (0, 20, 40, 60, 80)]
         assert zs == sorted(zs)
-        assert all(later > earlier for earlier, later in zip(zs, zs[1:]))
+        assert all(later > earlier for earlier, later in itertools.pairwise(zs))
 
     def test_matches_closed_form(self):
         for lat in (12.3, 25.0, 47.5, 71.0):

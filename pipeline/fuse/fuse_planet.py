@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Fuse the whole planet into a 10-arcsecond heightfield, one 10-degree cell at a time.
 
 Phase 2, step 1: the seamless global land+bathymetry heightfield the tile pyramid is

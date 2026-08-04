@@ -19,6 +19,7 @@ for land at 0/6000 m and 85B9B7/3A6E7D for sea at 0/-6000 m; `test_palette.py` g
 against drift off those values.
 """
 
+import itertools
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -90,7 +91,7 @@ def lin2srgb(c: float) -> float:
 def ramp_color(pos: float, stops: list[Stop]) -> RGB:
     """EASE-interpolated linear RGB at pos in [0, 1] (clamped)."""
     pos = min(1.0, max(0.0, pos))
-    for (p0, c0), (p1, c1) in zip(stops, stops[1:]):
+    for (p0, c0), (p1, c1) in itertools.pairwise(stops):
         if pos <= p1:
             t = 0.0 if p1 == p0 else (pos - p0) / (p1 - p0)
             blend = smoothstep(min(1.0, max(0.0, t)))

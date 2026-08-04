@@ -11,6 +11,8 @@ cannot know that. A LUT turns O(log 241) + interpolate into one divide and a gat
 Equivalence bar, stated before running: <=1 DN, because both sides end in uint8.
 """
 
+import itertools
+
 import numpy as np
 import pytest
 
@@ -89,7 +91,7 @@ class TestShapeAndOrder:
         depths = np.arange(0, -6001, -100, dtype="float32")
         colors = palette.lut_lookup(lut, "sea", depths)
         luminance = 0.299 * colors[0] + 0.587 * colors[1] + 0.114 * colors[2]
-        assert all(later <= earlier + 1e-9 for earlier, later in zip(luminance, luminance[1:]))
+        assert all(later <= earlier + 1e-9 for earlier, later in itertools.pairwise(luminance))
 
 
 class TestInterpolationBetweenRows:
@@ -101,7 +103,7 @@ class TestInterpolationBetweenRows:
         lut = palette.relief_lut(kind)
         rows = palette.color_relief_rows(kind, step=25.0)
         worst = 0
-        for (e0, c0), (e1, c1) in zip(rows, rows[1:]):
+        for (e0, c0), (e1, c1) in itertools.pairwise(rows):
             midpoint = (e0 + e1) / 2.0
             gdaldem_style = np.array([(a + b) / 2.0 for a, b in zip(c0, c1)])
             ours = palette.lut_lookup(lut, kind, np.array([midpoint]))[:, 0].astype(float)

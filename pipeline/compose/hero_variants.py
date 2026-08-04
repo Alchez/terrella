@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Responsive WebP variants of the hero renders for the Tier-1 gallery srcset.
 
 Each 8K hero PNG (~50 MB, RGBA) is far too heavy to serve directly. This emits

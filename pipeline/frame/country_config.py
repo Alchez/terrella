@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Resolve config/countries.toml into per-country pipeline parameters.
 
 The config is the committed source of truth for scope (which Natural Earth
@@ -39,6 +38,7 @@ Usage:
 import argparse
 import difflib
 import filecmp
+import itertools
 import math
 import re
 import shutil
@@ -226,7 +226,7 @@ def resolve(slug: str, row: dict, cfg: dict) -> dict | None:
     defaults, tbl = cfg["defaults"], cfg.get("countries", {}).get(slug, {})
     if tbl.get("status") == "antimeridian":
         return None
-    west, south, east, north = row["bbox"]
+    west, _south, east, _north = row["bbox"]
     # A frame override is authoritative, so a raw bbox that spans 180 (the
     # country has parts on both sides) is fine — the override frame does not.
     if "frame" not in tbl and west <= -179.99 and east >= 179.99:
@@ -277,7 +277,7 @@ def main_part_fraction(sf, row) -> float:
     pts = np.asarray(shape.points)
     starts = list(shape.parts) + [len(pts)]
     best_area, best_bb = -1.0, (0.0, 0.0, 0.0, 0.0)
-    for start, end in zip(starts, starts[1:]):
+    for start, end in itertools.pairwise(starts):
         x_coords, y_coords = pts[start:end, 0], pts[start:end, 1]
         area = 0.5 * abs(np.sum(
             x_coords * np.roll(y_coords, -1) - np.roll(x_coords, -1) * y_coords))

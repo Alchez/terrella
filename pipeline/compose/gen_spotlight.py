@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Per-country subject-spotlight overlay for the hero gallery (toggle asset).
 
 Parallel to gen_borders.py: emits a standalone transparent overlay that, laid

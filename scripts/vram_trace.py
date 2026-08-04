@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Trace per-process GPU memory once a second, so a VRAM climb can be told from a crash-respawn.
 
 `nvidia-smi --query-compute-apps` lists CUDA/OpenCL clients only. A browser is a *graphics*

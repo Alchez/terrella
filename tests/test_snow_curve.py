@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """`snow_curve` — the snow ramp's legibility dial, and the proof that promoting it tracks freshness.
 
 Over full snow `base_rgb` is multiplied by (1 - alpha) = 0, so `snow_t` is the ONLY channel relief

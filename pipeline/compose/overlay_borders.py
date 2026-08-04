@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Overlay Natural Earth vectors on a rendered hero image.
 
 Modes:
@@ -305,7 +304,7 @@ def main():
     to_px, m_per_px, crs, bounds = render_mapping(args.heightfield, width, height)
     fwd = pyproj.Transformer.from_crs("EPSG:4326", crs, always_xy=True)
     bbox = frame_bbox_lonlat(bounds, crs)
-    print(f"frame lon/lat bbox (padded): {['%.1f' % value for value in bbox]}", flush=True)
+    print(f"frame lon/lat bbox (padded): {[f'{value:.1f}' for value in bbox]}", flush=True)
 
     overlay = cairo.ImageSurface(cairo.FORMAT_ARGB32, width, height)
     octx = cairo.Context(overlay)

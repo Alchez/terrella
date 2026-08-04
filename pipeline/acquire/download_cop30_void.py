@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Fetch the GLO-30 DEM tiles that OpenTopography holds but AWS GLO-30 Public withholds.
 
 The AWS "GLO-30 Public" bucket (download_glo30.py's source) omits ~two dozen tiles over

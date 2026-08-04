@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Synthesise a water-body mask for the void DEM tiles from ESA WorldCover.
 
 download_cop30_void.py fetches the withheld GLO-30 DEM tiles from OpenTopography, but
