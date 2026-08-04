@@ -168,6 +168,32 @@ describe("a body's slug is its route", () => {
     }
   });
 
+  it("gives every body's lite route a page to land on", () => {
+    // THE OTHER HALF OF THE SLUG-IS-A-ROUTE RULE, and the half whose failure nobody would report.
+    // The pre-paint guard redirects here BEFORE the page paints, and only for a visitor whose
+    // device cannot run a globe — so a typo in `liteRoute` is a 404 on exactly the hardware we do
+    // not develop on, reached with nothing on screen to say what happened.
+    //
+    // Recursive, unlike its sibling above: this route may be nested (`/mars/lite/`), and a
+    // non-recursive glob would report the page missing rather than find it.
+    const pages = Object.keys(import.meta.glob("../pages/**/*.astro"));
+    // Prove the glob resolves before trusting an absence — the two routes below are looked UP in
+    // this list, so an empty list would fail loudly, but a list missing only nested pages would
+    // fail confusingly. Naming one file per depth says which.
+    expect(pages.some((path) => path.endsWith("/pages/index.astro"))).toBe(true);
+    expect(pages.some((path) => path.endsWith("/pages/mars/lite.astro"))).toBe(true);
+
+    for (const [slug, descriptor] of Object.entries(BODIES)) {
+      // `/` is `index.astro`; `/mars/lite/` is `mars/lite.astro`. Astro routes by filename, so the
+      // route and the path are the same fact and this is the comparison that holds them together.
+      const trimmed = descriptor.liteRoute.replace(/^\/|\/$/g, "");
+      const expected = `../pages/${trimmed === "" ? "index" : trimmed}.astro`;
+      expect(pages, `${slug}'s liteRoute ${descriptor.liteRoute} needs ${expected}`).toContain(
+        expected,
+      );
+    }
+  });
+
   it("has no page left at the route the globe used to live at", () => {
     // The rename was a move, not a copy. A leftover `globe.astro` would go on building and serving
     // a second, diverging globe at the old URL — reachable, stale, and invisible to every test that

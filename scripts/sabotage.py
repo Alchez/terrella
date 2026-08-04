@@ -91,6 +91,11 @@ MUTABLE_ROOTS = (
     # carries an exemption list, and a skip-list nobody can mutate is a skip-list nobody can prove
     # is still doing anything — which is the failure mode it exists to prevent.
     "tests/test_hero_variants.py",
+    # The bulk-edit guard, which is a PARSER and therefore both guard and subject. Its checks read
+    # every tracked text file, so it is the one place where a wrong answer is spread across the whole
+    # repo and blamed on whichever file happens to expose it — the reason it earns mutation coverage
+    # is that its failures name the wrong line by construction.
+    "tests/test_repo_integrity.py",
     # Joined for the body registry. Its whole safety story is a set of bridge tests holding the
     # duplicated constants (`EARTH_RADIUS` twice, `EXAGGERATION` once) to the registry's copy until
     # each original is deleted — and a bridge nobody can mutate is a bridge nobody can prove is
@@ -2653,8 +2658,8 @@ SABOTAGES: list[Sabotage] = [
         suite='web',
         label='the layout stops writing data-body, so every page loads with no accent at all',
         path='web/src/layouts/Base.astro',
-        needle='<html lang="en" class="no-js" data-body={body}>',
-        replacement='<html lang="en" class="no-js">',
+        needle='<html\n  lang="en"\n  class="no-js"\n  data-body={body}\n  data-globe-route={routes.globe}\n  data-lite-route={routes.lite}\n>',
+        replacement='<html\n  lang="en"\n  class="no-js"\n  data-globe-route={routes.globe}\n  data-lite-route={routes.lite}\n>',
         guard='renders data-body on <html>, server-side and unconditionally',
     ),
     # The attribute goes on the wrong element. `:root` IS <html>, so this compiles, renders, and
@@ -2663,8 +2668,8 @@ SABOTAGES: list[Sabotage] = [
         suite='web',
         label='data-body lands on <body>, where the token block cannot see it',
         path='web/src/layouts/Base.astro',
-        needle='<html lang="en" class="no-js" data-body={body}>',
-        replacement='<html lang="en" class="no-js">\n  <body data-body={body}>',
+        needle='<html\n  lang="en"\n  class="no-js"\n  data-body={body}\n  data-globe-route={routes.globe}\n  data-lite-route={routes.lite}\n>',
+        replacement='<html\n  lang="en"\n  class="no-js"\n  data-globe-route={routes.globe}\n  data-lite-route={routes.lite}\n>\n  <body data-body={body}>',
         guard='renders data-body on <html>, server-side and unconditionally',
     ),
     # A bare fallback creeps back in. Earth looks perfect and the attribute becomes decorative, so
@@ -2814,27 +2819,109 @@ SABOTAGES: list[Sabotage] = [
         replacement='  if (!urlFlags.has("nocaps")) {',
         guard='is the only thing reading the flags it owns, so one place decides',
     ),
-    # --- The route is the body's slug ------------------------------------------------------------
-    # `/earth/` is a body route now, not a page name that happens to be there. The guard that admits
-    # a capable visitor cannot import the registry (it runs before the bundle), so the route is
-    # spelled in both places and only a test can hold them together.
     Sabotage(
-        suite='web',
-        label='the pre-paint guard sends capable visitors to a route that no longer exists',
-        path='web/src/layouts/Base.astro',
-        needle='          location.replace("/earth/");',
-        replacement='          location.replace("/globe/");',
-        guard='steers a capable first-time visitor from the gallery to the globe',
+        suite='python',
+        # The parser goes back to letting a bad guess outlive its line. A quote character inside a
+        # regex literal then runs until the next one anywhere in the file, so every `/*` in between
+        # is invisible — and the check reports an unclosed comment against whichever innocent line it
+        # could finally see. The repo stays green until some unrelated file grows an apostrophe.
+        label='a phantom string outlives its line, and the comment check blames the wrong file',
+        path='tests/test_repo_integrity.py',
+        needle="""            if quote in ('"', "'"):\n                quote = None\n""",
+        replacement='',
+        guard='test_a_quote_inside_a_regex_literal_does_not_swallow_the_rest_of_the_file',
     ),
-    # The other half of the same guard: it stops recognising that it is already on a globe route, so
-    # a visitor who lands there is bounced or re-steered rather than left alone.
+    # --- Which body's pages the routing sends you to ----------------------------------------------
+    # Every case below is the code as it was written for one globe, restored. None of them changes
+    # anything a visitor to Earth would see, because on Earth the literal and the registry agree —
+    # which is exactly why the wrong version survived until a second body had a page.
     Sabotage(
         suite='web',
-        label='the guard stops recognising the globe route it is standing on',
+        # The bounce goes back to Earth's gallery, so a device that cannot draw Mars is answered by
+        # being shown a different planet, before paint, with nothing on screen to say so.
+        label='a visitor bounced off a globe lands on Earth, whichever body they were looking at',
         path='web/src/layouts/Base.astro',
-        needle='          var atGlobe = path === "/earth" || path === "/earth/";',
-        replacement='          var atGlobe = path === "/globe" || path === "/globe/";',
-        guard='marks the session steered when the globe is reached by deep link',
+        needle='            if (quality === "lite" || !capable()) location.replace(liteRoute);',
+        replacement='            if (quality === "lite" || !capable()) location.replace("/");',
+        guard="bounces a Lite visitor off Mars's globe to MARS's fallback, not Earth's",
+    ),
+    Sabotage(
+        suite='web',
+        # And the steer, which is the same defect pointing the other way: a capable visitor on any
+        # body's lite page is carried to Earth's globe.
+        label='the auto-steer carries every body to Earth',
+        path='web/src/layouts/Base.astro',
+        needle='          location.replace(globeRoute);',
+        replacement='          location.replace("/earth/");',
+        guard="steers a capable visitor from Mars's fallback onto Mars's globe",
+    ),
+    Sabotage(
+        suite='web',
+        # The tidy that looks like removing a pointless normalisation. Astro serves both spellings,
+        # so the guard would simply stop firing for anyone who arrived by the other one — and the
+        # site's own links all use the spelling that keeps working.
+        label='the guard compares paths exactly, so the other trailing-slash spelling is unguarded',
+        path='web/src/layouts/Base.astro',
+        needle=r'            return String(a).replace(/\/+$/, "") === String(b).replace(/\/+$/, "");',
+        replacement='            return String(a) === String(b);',
+        guard="reads both trailing-slash spellings of a body's globe",
+    ),
+    Sabotage(
+        suite='web',
+        # The view bar half. Nothing can import this script, so its only guard is a scan — and the
+        # mutation is the code that shipped: Globe and Full on Mars navigating to Earth.
+        label="the tier picker's buttons navigate to Earth from every body",
+        path='web/src/layouts/Base.astro',
+        needle='        const target = choice === "lite" ? routes.lite : routes.globe;',
+        replacement='        const target = choice === "lite" ? "/" : "/earth/";',
+        guard="takes both tier destinations from the body's own routes",
+    ),
+    Sabotage(
+        suite='web',
+        # The stamp goes missing. This is the silent one: the guard is wrapped in try/catch so it can
+        # never break a page, so a missing attribute takes every branch of it out of service without
+        # a console line anywhere.
+        label='the layout stops stamping the fallback route the pre-paint guard reads',
+        path='web/src/layouts/Base.astro',
+        needle='  data-lite-route={routes.lite}\n',
+        replacement='',
+        guard='puts the body and both of its routes on that element',
+    ),
+    Sabotage(
+        suite='web',
+        # The derivation that justifies not storing a globe route at all becomes a literal. Earth is
+        # unchanged by construction, and every other body's globe address is now Earth's.
+        label="a body's globe route stops being derived from its own slug",
+        path='web/src/lib/bodyRoutes.ts',
+        needle='  return { globe: `/${slug}/`, lite: BODIES[slug].liteRoute };',
+        replacement='  return { globe: "/earth/", lite: BODIES[slug].liteRoute };',
+        guard="puts every body's globe at its own slug",
+    ),
+    Sabotage(
+        suite='web',
+        # The registry edit that reads as reuse rather than as a decision: Mars falls back to the
+        # page Earth falls back to. It is one string, and it undoes the whole commit. Named against
+        # the ANTI-VACUITY assertion rather than the one below, because sharing a fallback is not
+        # landing on another body's globe — it is the two bodies ceasing to have separate answers,
+        # which is the property that check exists to state. The harness is what settled which: the
+        # first version of this case named the wrong guard and was reported WRONG rather than caught.
+        label='a second body borrows the first body\'s fallback page',
+        path='web/src/lib/bodies.ts',
+        needle='    liteRoute: "/mars/lite/",',
+        replacement='    liteRoute: "/",',
+        guard='has the bodies actually disagree, on both routes',
+    ),
+    Sabotage(
+        suite='web',
+        # The other shortcut on the same line, and the one the check below is really for: rather
+        # than write a page, point the fallback at the globe that already exists. It answers "your
+        # device cannot draw Mars" by drawing Earth — on hardware that, by construction, cannot draw
+        # either, so the visitor gets bounced twice and lands where they started.
+        label='a body with no lite page points its fallback at another body\'s globe',
+        path='web/src/lib/bodies.ts',
+        needle='    liteRoute: "/mars/lite/",',
+        replacement='    liteRoute: "/earth/",',
+        guard='never sends a visitor off this body when they cannot run its globe',
     ),
     # --- The globe's two stylesheets -------------------------------------------------------------
     # The global rules are a file so a second body's page can import the same one; the SCOPED block

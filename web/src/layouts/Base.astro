@@ -2,6 +2,7 @@
 import "../styles/global.css";
 import { Font } from "astro:assets";
 import type { BodySlug } from "../lib/bodies";
+import { bodyRoutes } from "../lib/bodyRoutes";
 
 interface Props {
   title?: string;
@@ -25,13 +26,28 @@ const {
   quality = false,
   body,
 } = Astro.props;
+
+// The two pages this body has. Stamped onto the root element below because the pre-paint guard
+// needs them and cannot import — see bodyRoutes.ts. This is the single point where the registry
+// becomes the DOM, so the guard reads facts rather than restating them, and a third planet
+// changes no script.
+const routes = bodyRoutes(body);
 ---
 
 <!doctype html>
 {/* `data-body` selects this page's token block in global.css. Server-rendered onto the element the
     tokens are declared on, so the accent is correct in the first painted frame — a class flipped by
-    script would repaint the chrome after paint, which is the CLS this site has already paid for. */}
-<html lang="en" class="no-js" data-body={body}>
+    script would repaint the chrome after paint, which is the CLS this site has already paid for.
+
+    The two routes ride the same element for a different reason: they are the pre-paint guard's only
+    input, and an attribute is the one channel that is already parsed before any script runs. */}
+<html
+  lang="en"
+  class="no-js"
+  data-body={body}
+  data-globe-route={routes.globe}
+  data-lite-route={routes.lite}
+>
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -41,21 +57,42 @@ const {
     <script is:inline>
       document.documentElement.classList.replace("no-js", "js");
     </script>
-    {/* Pre-paint tier guard: runs synchronously BEFORE the gallery paints, so a
-        capable visitor is redirected to /earth with no flash of gallery, and an
-        incapable/Lite visitor who deep-links /earth bounces straight back. This
-        is the minimal gallery-vs-globe boundary of src/lib/capability.ts
-        decideTier() — it can't import (it must run before the bundle), so it is
-        deliberately kept tiny and mirrors only that boundary: the same WebGL2 +
-        software-rasterizer floor `capable()` applies. The nuanced globe-vs-full
-        decision (memory, network, reduced-motion) still runs in the page module. */}
+    {/* Pre-paint tier guard: runs synchronously BEFORE the page paints, so a
+        capable visitor is redirected to this body's globe with no flash of the
+        page they landed on, and an incapable/Lite visitor who deep-links that
+        globe bounces straight back. This is the minimal gallery-vs-globe
+        boundary of src/lib/capability.ts decideTier() — it can't import (it must
+        run before the bundle), so it is deliberately kept tiny and mirrors only
+        that boundary: the same WebGL2 + software-rasterizer floor `capable()`
+        applies. The nuanced globe-vs-full decision (memory, network,
+        reduced-motion) still runs in the page module.
+
+        WHICH globe and which fallback are read off the root element rather than
+        written here. The literals used to be `/earth`, which was right while
+        there was one globe and silently wrong the moment there were two: on
+        another body's globe every branch below is skipped, so a Lite visitor is
+        left sitting on a map their device cannot draw. */}
     <script is:inline>
       (function () {
         try {
           var quality = localStorage.getItem("rg:quality") || "auto";
+          var root = document.documentElement;
+          var globeRoute = root.getAttribute("data-globe-route");
+          var liteRoute = root.getAttribute("data-lite-route");
+          // The rule `bodyRoutes.ts` states as `isSamePath`, copied because there is nothing to
+          // import from yet. Both spellings really arrive — Astro's default `trailingSlash: ignore`
+          // serves `/earth` and `/earth/` alike — and capability.test.ts runs this guard and that
+          // function over the same table and requires them to agree.
+          //
+          // Suppressed for the reason `capable()` below is: "the outer scope" the rule wants is a
+          // bundle that does not exist at this point in the page.
+          // oxlint-disable-next-line unicorn/consistent-function-scoping
+          function samePath(a, b) {
+            return String(a).replace(/\/+$/, "") === String(b).replace(/\/+$/, "");
+          }
           var path = location.pathname;
-          var atEntry = path === "/";
-          var atGlobe = path === "/earth" || path === "/earth/";
+          var atEntry = samePath(path, liteRoute);
+          var atGlobe = samePath(path, globeRoute);
           if (!atEntry && !atGlobe) return;
 
           // MUST mirror capability.ts `capable()` — WebGL2 present AND not a software
@@ -96,8 +133,8 @@ const {
               matchMedia("(prefers-reduced-data: reduce)").matches);
 
           if (atGlobe) {
-            // Can't run the globe here, or the user forced Lite → back to gallery.
-            if (quality === "lite" || !capable()) location.replace("/");
+            // Can't run the globe here, or the user forced Lite → back to this body's own fallback.
+            if (quality === "lite" || !capable()) location.replace(liteRoute);
             // Reaching the globe by ANY route counts as steered — not just by the auto-steer
             // below. The flag means "this session has seen the globe", so a later visit to /
             // is a deliberate choice (the ← Gallery link) and must not be bounced straight
@@ -106,13 +143,13 @@ const {
             else sessionStorage.setItem("rg:steered", "1");
             return;
           }
-          // atEntry: steer capable visitors onto the globe, pessimistically.
-          if (quality === "lite") return; // user forced the gallery
+          // atEntry: steer capable visitors onto THIS body's globe, pessimistically.
+          if (quality === "lite") return; // user forced the lite view
           if (sessionStorage.getItem("rg:steered")) return; // steer once per session
           if (!capable()) return; // no globe floor — same test capability.ts applies
           if (quality === "auto" && saveData) return; // respect data-saver on auto
           sessionStorage.setItem("rg:steered", "1");
-          location.replace("/earth/");
+          location.replace(globeRoute);
         } catch (e) {
           /* never let the guard break the page */
         }
@@ -249,11 +286,17 @@ const {
   // probe guess". A pick persists via setQuality and navigates to that tier's
   // canonical page; the head guard + globe module enforce it from there.
   import { setQuality, currentGlobeTier, type Quality } from "../lib/capability";
+  import { currentBody } from "../lib/currentBody";
+  import { bodyRoutes, isSamePath } from "../lib/bodyRoutes";
 
   const control = document.querySelector<HTMLElement>(".quality-fab");
   if (control) {
     const buttons = Array.from(control.querySelectorAll<HTMLButtonElement>("button"));
-    const onGlobe = location.pathname === "/earth" || location.pathname === "/earth/";
+    // THIS body's two pages, not Earth's. This script is a module and can import, so it asks the
+    // registry directly where the pre-paint guard above has to read the same answer off an
+    // attribute — the asymmetry is forced by `is:inline`, not chosen.
+    const routes = bodyRoutes(currentBody().slug);
+    const onGlobe = isSamePath(location.pathname, routes.globe);
     // `currentGlobeTier`, and only reached when `onGlobe`: it cannot return `gallery` for a soft
     // signal, which is what makes the collapse below lossless rather than merely tidy. The plain
     // `currentTier()` CAN, and this line used to fold that into "globe" silently — so a probe
@@ -274,8 +317,12 @@ const {
         // is already permitted by rg:quality alone, and every arrival at / with quality "lite"
         // returns early from the head guard. Clearing it only re-armed the auto-steer, which
         // then hijacked the next ← Gallery click.
-        const target = choice === "lite" ? "/" : "/earth/";
-        if (location.pathname === target) location.reload();
+        // Both destinations belong to the body whose page this is, so Globe and Full can no longer
+        // navigate a Mars visitor to Earth. `isSamePath` rather than `===` for the same reason the
+        // guard uses it: reached by the other trailing-slash spelling, this used to `assign` the
+        // page it was already on — a real navigation where a reload was meant.
+        const target = choice === "lite" ? routes.lite : routes.globe;
+        if (isSamePath(location.pathname, target)) location.reload();
         else location.assign(target);
       });
     }

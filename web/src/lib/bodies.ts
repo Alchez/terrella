@@ -31,6 +31,20 @@ export interface BodyDescriptor {
    *  names this body's directories, its archive keys and its route; two spellings would be two
    *  bodies to everything downstream. */
   slug: BodySlug;
+  /** Where a visitor goes who cannot, or will not, run this body's globe.
+   *
+   *  READ THROUGH `bodyRoutes()` RATHER THAN DIRECTLY — that module answers both of a body's routes
+   *  in one call, and it is the globe half that explains why only this half is stored: a body's
+   *  globe lives at its own slug, which `bodies.browser.test.ts` already enforces, so storing it
+   *  here would be the same fact in a second place. This one is not derivable from anything. Earth's
+   *  is the gallery at `/`, which existed long before there was a second body to have one; Mars has
+   *  no gallery to point at, so it points at a page written for the purpose.
+   *
+   *  The "or else" is invisible by construction: this route is a destination for a redirect the
+   *  pre-paint guard fires BEFORE the page paints, so pointing it at a path with no page behind it
+   *  bounces a visitor into a 404 with nothing on screen to say what happened, and only on the
+   *  devices that cannot run a globe — which are not the ones we develop on. */
+  liteRoute: string;
   /** The chrome accent, per colour scheme.
    *
    *  DERIVED FROM THE MAP, NOT CHOSEN BESIDE IT. Earth's is the hero ramp's deep-sea teal, which is
@@ -91,6 +105,10 @@ export interface BodyDescriptor {
 export const BODIES: Record<BodySlug, BodyDescriptor> = {
   earth: {
     slug: "earth",
+    // The gallery, which is the site's front page — so Earth is the body whose lite route happens
+    // to be `/`, not the body that defines it. Reading that coincidence as the rule is what put
+    // `location.replace("/")` in the pre-paint guard for every planet alike.
+    liteRoute: "/",
     accent: { light: "#3a6e7d", dark: "#7cb8b8" },
     // IMPORTED, never re-typed. `palette.ts` restates the pipeline's own ramp stops and is pinned
     // against them by tests/test_palette.py; a hex copied to here instead would be a third copy
@@ -120,6 +138,11 @@ export const BODIES: Record<BodySlug, BodyDescriptor> = {
   // got to it yet".
   mars: {
     slug: "mars",
+    // A page written for the purpose, because the thing Earth points at does not exist here: a
+    // gallery is a wall of hero renders, and Mars has none. Deliberately its own route rather than
+    // Earth's `/`, which would answer "this device cannot run the Mars globe" by showing a visitor
+    // a different planet.
+    liteRoute: "/mars/lite/",
     accent: { light: "#8c4a32", dark: "#d08b6a" },
     spaceFloor: "#6b3a2a",
     // Matches `pipeline/bodies.py`'s `MARS.renders_polar_caps`, which is what actually decides it:

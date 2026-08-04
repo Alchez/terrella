@@ -140,6 +140,19 @@ def block_comment_spans(source: str) -> tuple[list[tuple[int, str]], int | None]
         if char == "\n":
             line += 1
             in_line = False
+            # A `"` or `'` string cannot contain a raw newline in JS/TS, so arriving here still
+            # "inside" one means the opening quote was never a string at all. In practice it is a
+            # quote character inside a REGEX literal — `/data-body="([^"]+)"/` opens, closes and
+            # opens again — which this parser deliberately does not model, because telling a regex
+            # from a division needs the grammar.
+            #
+            # DROPPING THE BAD GUESS HERE IS WHAT KEEPS IT LOCAL. Left standing, the phantom quote
+            # runs until some later line happens to contain the same character, and every `/*` in
+            # between is invisible — so the parser reports an unclosed comment at a line whose only
+            # crime is being the first `/*` it could finally see. That is how this was found: a new
+            # test title with an apostrophe in it was blamed for a regex ninety lines above.
+            if quote in ('"', "'"):
+                quote = None
         elif in_line:
             pass
         elif in_block:
@@ -166,6 +179,26 @@ def block_comment_spans(source: str) -> tuple[list[tuple[int, str]], int | None]
             quote = char
         index += 1
     return spans, opened_at
+
+
+def test_a_quote_inside_a_regex_literal_does_not_swallow_the_rest_of_the_file() -> None:
+    """The parser's own blind spot, bounded to the line that has it.
+
+    It does not model regex literals, and it cannot cheaply: telling `/x/` from a division needs the
+    grammar. So a regex holding quote characters — `/data-body="([^"]+)"/` opens one, closes it and
+    opens another — leaves the scanner believing a string is open. What matters is not that the
+    guess is wrong but that it EXPIRES: a `"` string cannot span a line in JS, so the newline ends
+    it.
+
+    Left standing instead, the phantom runs to whatever line next contains that character, every
+    `/*` in between reads as ordinary text, and the first one it can finally see is reported as an
+    unclosed comment. The blame lands on a line that is perfectly correct — which is exactly what
+    happened, ninety lines downstream, to a test title whose only fault was an apostrophe.
+    """
+    source = 'const styled = /:root\\[data-body="([^"]+)"\\]/g;\nconst path = "a/*b";\n'
+    spans, opened_at = block_comment_spans(source)
+    assert opened_at is None
+    assert spans == []
 
 
 @pytest.mark.parametrize("path", BLOCK_COMMENT_FILES, ids=ids(BLOCK_COMMENT_FILES))

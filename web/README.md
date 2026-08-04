@@ -108,7 +108,7 @@ web/
 │   ├── gen_manifest.py    # reads the variant store → src/data/countries.json
 │   └── check_deploy_sync.ts   # deploy preflight: R2 objects vs the manifest
 ├── src/
-│   ├── pages/             # index (gallery) · [slug] (country) · earth · mars · about
+│   ├── pages/             # index (gallery) · [slug] (country) · earth · mars · mars/lite · about
 │   ├── components/        # Globe.astro is the globe itself; a body's page only wraps it
 │   ├── layouts/ styles/
 │   ├── lib/               # the tested logic — see below
@@ -212,8 +212,9 @@ second, rather than as a shrug minutes into a run nobody is watching.
 ### Running a Lighthouse pass
 
 **The GL flag chooses which tier you measure**, so it is the experiment rather than boilerplate.
-`Base.astro`'s pre-paint guard bounces `/earth/` back to `/` whenever the renderer string names a
-software rasterizer — which makes SwiftShader the Tier-1 recipe and hardware ANGLE the Tier-3 one.
+`Base.astro`'s pre-paint guard bounces a body's globe back to that body's lite page whenever the
+renderer string names a software rasterizer — for Earth that pair is `/earth/` and `/`, which makes
+SwiftShader the Tier-1 recipe and hardware ANGLE the Tier-3 one.
 
 ```sh
 # The globe. Hardware ANGLE, or the guard sends you to the gallery.
@@ -229,8 +230,8 @@ npx lighthouse https://terrella.alchez.dev/ \
 
 These will otherwise waste a run:
 
-- **Always check `finalDisplayedUrl` against `requestedUrl`.** The guard steers both ways — `/` to
-  `/earth/` for a capable visitor, `/earth/` to `/` for everyone else — and a steered run is a
+- **Always check `finalDisplayedUrl` against `requestedUrl`.** The guard steers both ways within a
+  body — `/` to `/earth/` for a capable visitor, `/earth/` to `/` for everyone else — and a steered run is a
   clean, green, entirely valid report about the wrong document. It is the only check that catches a
   recipe the site has outgrown, which is how the SwiftShader flags above stopped measuring the globe.
 - **Headless Chrome reaches for SwiftShader on its own.** Dropping the GL flags entirely does not
