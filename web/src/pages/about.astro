@@ -2,94 +2,124 @@
 import Base from "../layouts/Base.astro";
 import Masthead from "../components/Masthead.astro";
 
-const sources = [
+// Credits are grouped by BODY, not merged into one list, and that is a claim rather than a layout
+// choice: the two planets are made of different data under different terms, and a single list would
+// invite a reader to assume the Copernicus notice covers both. The output licence does not split —
+// one CC BY-SA 4.0 for every image on the site — but the INPUT obligations very much do. The
+// group is also what a guard can check — `aboutCredits.test.ts` requires one per registered body,
+// because `/mars/` shipped a globe while this page still credited only Earth.
+const dataSources = [
   {
-    name: "Copernicus DEM GLO-30",
-    href: "https://dataspace.copernicus.eu/explore-data/data-collections/copernicus-contributing-missions/collections-description/COP-DEM",
-    role: "Land elevation",
-    license: "Copernicus",
-    // Verbatim, not paraphrased: Article 6(b) of the WorldDEM-30 licence requires this exact
-    // notice for adapted data. ATTRIBUTIONS.md is the source of truth and a test guards the pair.
-    attribution:
-      "produced using Copernicus WorldDEM-30 © DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved",
+    body: "Earth",
+    blurb: "Eight datasets fused into one heightfield, then shaded.",
+    sources: [
+      {
+        name: "Copernicus DEM GLO-30",
+        href: "https://dataspace.copernicus.eu/explore-data/data-collections/copernicus-contributing-missions/collections-description/COP-DEM",
+        role: "Land elevation",
+        license: "Copernicus",
+        // Verbatim, not paraphrased: Article 6(b) of the WorldDEM-30 licence requires this exact
+        // notice for adapted data. ATTRIBUTIONS.md is the source of truth and a test guards the pair.
+        attribution:
+          "produced using Copernicus WorldDEM-30 © DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved",
+      },
+      {
+        name: "GEBCO 2026 Grid",
+        href: "https://www.gebco.net",
+        role: "Bathymetry",
+        license: "Public domain",
+        attribution: "Reproduced from the GEBCO_2026 Grid, GEBCO Compilation Group (2026).",
+      },
+      {
+        name: "GLOBathy",
+        href: "https://springernature.figshare.com/collections/GLOBathy_the_Global_Lakes_Bathymetry_Dataset/5243309",
+        role: "Lake depth",
+        license: "CC0",
+        attribution:
+          "GLOBathy global lakes bathymetry (Khazaei et al., Sci Data 9:36, 2022). Public-domain dedication (CC0); depth is modelled — see the Lake depth note below.",
+      },
+      {
+        name: "ESA WorldCover 2021",
+        href: "https://esa-worldcover.org",
+        role: "Snow / ice mask",
+        license: "CC-BY 4.0",
+        attribution:
+          "© ESA WorldCover project 2021 / Contains modified Copernicus Sentinel data (2021), processed by the ESA WorldCover consortium.",
+      },
+      {
+        name: "NSIDC-0791 Snow Persistence",
+        href: "https://nsidc.org/data/nsidc-0791",
+        role: "Snow persistence",
+        license: "Public domain",
+        attribution:
+          "MODIS snow-persistence climatology (water years 2001–2023), NASA NSIDC DAAC dataset NSIDC-0791.",
+      },
+      {
+        name: "RGI 7.0 Glaciers",
+        href: "https://nsidc.org/data/nsidc-0770/versions/7",
+        role: "Glaciers",
+        license: "CC-BY 4.0",
+        attribution:
+          "Randolph Glacier Inventory 7.0 (RGI Consortium, 2023), NSIDC-0770 v7. Antarctic region 19 excluded.",
+      },
+      {
+        name: "OSI SAF Sea Ice (OSI-450-a)",
+        href: "https://osi-saf.eumetsat.int/products/osi-450-a",
+        role: "Sea ice",
+        license: "CC-BY 4.0",
+        attribution:
+          "EUMETSAT Ocean and Sea Ice SAF — Global Sea Ice Concentration Climate Data Record (OSI-450-a), reduced to a 1991–2020 frequency climatology. Copyright EUMETSAT.",
+      },
+      {
+        name: "Natural Earth",
+        href: "https://www.naturalearthdata.com",
+        role: "Borders & coastlines",
+        license: "Public domain",
+        attribution: "naturalearthdata.com.",
+      },
+    ],
   },
   {
-    name: "GEBCO 2026 Grid",
-    href: "https://www.gebco.net",
-    role: "Bathymetry",
-    license: "Public domain",
-    attribution:
-      "Reproduced from the GEBCO_2026 Grid, GEBCO Compilation Group (2026).",
-  },
-  {
-    name: "GLOBathy",
-    href: "https://springernature.figshare.com/collections/GLOBathy_the_Global_Lakes_Bathymetry_Dataset/5243309",
-    role: "Lake depth",
-    license: "CC0",
-    attribution:
-      "GLOBathy global lakes bathymetry (Khazaei et al., Sci Data 9:36, 2022). Public-domain dedication (CC0); depth is modelled — see the Lake depth note below.",
-  },
-  {
-    name: "ESA WorldCover 2021",
-    href: "https://esa-worldcover.org",
-    role: "Snow / ice mask",
-    license: "CC-BY 4.0",
-    attribution:
-      "© ESA WorldCover project 2021 / Contains modified Copernicus Sentinel data (2021), processed by the ESA WorldCover consortium.",
-  },
-  {
-    name: "NSIDC-0791 Snow Persistence",
-    href: "https://nsidc.org/data/nsidc-0791",
-    role: "Snow persistence",
-    license: "Public domain",
-    attribution:
-      "MODIS snow-persistence climatology (water years 2001–2023), NASA NSIDC DAAC dataset NSIDC-0791.",
-  },
-  {
-    name: "RGI 7.0 Glaciers",
-    href: "https://nsidc.org/data/nsidc-0770/versions/7",
-    role: "Glaciers",
-    license: "CC-BY 4.0",
-    attribution:
-      "Randolph Glacier Inventory 7.0 (RGI Consortium, 2023), NSIDC-0770 v7. Antarctic region 19 excluded.",
-  },
-  {
-    name: "OSI SAF Sea Ice (OSI-450-a)",
-    href: "https://osi-saf.eumetsat.int/products/osi-450-a",
-    role: "Sea ice",
-    license: "CC-BY 4.0",
-    attribution:
-      "EUMETSAT Ocean and Sea Ice SAF — Global Sea Ice Concentration Climate Data Record (OSI-450-a), reduced to a 1991–2020 frequency climatology. Copyright EUMETSAT.",
-  },
-  {
-    name: "Natural Earth",
-    href: "https://www.naturalearthdata.com",
-    role: "Borders & coastlines",
-    license: "Public domain",
-    attribution: "naturalearthdata.com.",
+    body: "Mars",
+    blurb: "One download. No sea, no snow, no borders — the relief is the whole picture.",
+    sources: [
+      {
+        name: "MOLA / HRSC Blended DEM",
+        href: "https://astrogeology.usgs.gov/search/map/mars_mgs_mola_mex_hrsc_blended_dem_global_200m",
+        role: "Surface elevation",
+        // THE PUBLISHER'S OWN WORDS, not our reading of them. USGS states the blend's inputs as
+        // "MOLA (CC0) and HRSC (CC BY-SA 3.0 IGO)" and its use constraint as "Please cite authors".
+        // Quoting that is the one badge here that needs no interpretation from us. The share-alike
+        // half is why the whole site's output licence is BY-SA: whether that label binds is a legal
+        // question nobody here can close, so the strict reading is taken and complies either way.
+        license: "MOLA CC0 · HRSC CC BY-SA 3.0 IGO",
+        attribution:
+          "Fergason, R. L, Hare, T. M., & Laura, J. (2018). HRSC and MOLA Blended Digital Elevation Model at 200m v2. Astrogeology PDS Annex, U.S. Geological Survey. MOLA flew on NASA's Mars Global Surveyor and HRSC on ESA's Mars Express; HRSC covers 44% of the planet, MOLA the rest.",
+      },
+    ],
   },
 ];
 
 const steps = [
   {
     title: "Fusion",
-    body: "Copernicus GLO-30 land elevation is fused with GEBCO bathymetry into one seamless heightfield — the sea floor is part of the picture, so shelves and trenches read as terrain.",
+    text: "Copernicus GLO-30 land elevation is fused with GEBCO bathymetry into one seamless heightfield — the sea floor is part of the picture, so shelves and trenches read as terrain.",
   },
   {
     title: "Render",
-    body: "The heightfield drives displacement in Blender's Cycles renderer, lit by a low sun for long relief shadows and coloured by elevation- and depth-keyed ramps.",
+    text: "The heightfield drives displacement in Blender's Cycles renderer, lit by a low sun for long relief shadows and coloured by elevation- and depth-keyed ramps.",
   },
   {
     title: "Borders",
-    body: "Natural Earth boundaries composite on top as crisp vector lines — never baked into the terrain, so they stay sharp and toggle on demand.",
+    text: "Natural Earth boundaries composite on top as crisp vector lines — never baked into the terrain, so they stay sharp and toggle on demand.",
   },
   {
     title: "Snow",
-    body: "A permanent snow / ice mask from ESA WorldCover whitens glaciers and ice caps.",
+    text: "A permanent snow / ice mask from ESA WorldCover whitens glaciers and ice caps.",
   },
   {
     title: "Sea ice",
-    body: "At the poles, translucent white sea ice floats over the real ocean-floor relief — soft where the ice is seasonal, solid over the permanent pack. It's a 1991–2020 average of how often each stretch of sea freezes, not a live snapshot.",
+    text: "At the poles, translucent white sea ice floats over the real ocean-floor relief — soft where the ice is seasonal, solid over the permanent pack. It's a 1991–2020 average of how often each stretch of sea freezes, not a live snapshot.",
   },
 ];
 
@@ -110,11 +140,11 @@ const tools = [
 ];
 
 // Built as one string: Astro collapses the whitespace around multi-line <a> tags, which twice
-// glued a link to the word before it ("is CC BY-NC 4.0" → "isCC BY-NC 4.0").
+// glued a link to the word before it ("is CC BY-SA 4.0" → "isCC BY-SA 4.0").
 const licenceHtml = [
-  '<strong>Imagery</strong> is <a href="https://creativecommons.org/licenses/by-nc/4.0/"',
-  ' target="_blank" rel="noopener noreferrer">CC BY-NC 4.0</a> — personal and educational use',
-  ' with attribution, commercial use reserved. <strong>Code</strong> is',
+  '<strong>Imagery</strong> is <a href="https://creativecommons.org/licenses/by-sa/4.0/"',
+  ' target="_blank" rel="noopener noreferrer">CC BY-SA 4.0</a> — use it for anything, credit',
+  ' Terrella, and share what you make from it under the same license. <strong>Code</strong> is',
   ' <a href="https://opensource.org/license/mit" target="_blank"',
   ' rel="noopener noreferrer">MIT</a>.',
 ].join("");
@@ -144,7 +174,7 @@ const licenceHtml = [
             <li>
               <span class="num">{index + 1}</span>
               <h3>{step.title}</h3>
-              <p>{step.body}</p>
+              <p>{step.text}</p>
             </li>
           ))
         }
@@ -153,22 +183,30 @@ const licenceHtml = [
 
     <section class="block">
       <h2 class="eyebrow">Data &amp; licenses</h2>
-      <div class="sources">
-        {
-          sources.map((source) => (
-            <article class="source">
-              <h3>
-                <a href={source.href} target="_blank" rel="noopener noreferrer">
-                  {source.name}
-                </a>
-              </h3>
-              <p class="role">{source.role}</p>
-              <p class="lic">{source.license}</p>
-              <p class="attr">{source.attribution}</p>
-            </article>
-          ))
-        }
-      </div>
+      {
+        dataSources.map((group) => (
+          <div class="body-group">
+            <h3 class="body-head">
+              {group.body}
+              <span class="body-blurb">{group.blurb}</span>
+            </h3>
+            <div class="sources">
+              {group.sources.map((source) => (
+                <article class="source">
+                  <h4>
+                    <a href={source.href} target="_blank" rel="noopener noreferrer">
+                      {source.name}
+                    </a>
+                  </h4>
+                  <p class="role">{source.role}</p>
+                  <p class="lic">{source.license}</p>
+                  <p class="attr">{source.attribution}</p>
+                </article>
+              ))}
+            </div>
+          </div>
+        ))
+      }
       <p class="legal">
         The organisations in charge of the Copernicus programme by law or by delegation do not incur
         any liability for any use of the Copernicus WorldDEM-30. Terrella is an independent project;
@@ -302,10 +340,37 @@ const licenceHtml = [
     color: var(--muted);
   }
 
-  /* Data — one card per source: name (linked), role, license badge, attribution */
+  /* Data — grouped by body, then one card per source: name (linked), role, license, attribution.
+     The group heading carries its own one-line blurb, so the two planets read as two accounts
+     rather than one list that happens to be sorted. */
+  .body-group + .body-group {
+    margin-top: clamp(1.6rem, 3.5vw, 2.4rem);
+  }
+  .body-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.2rem 0.7rem;
+    font-family: var(--serif);
+    font-size: 1.15rem;
+    font-weight: 600;
+    margin: 0 0 0.7rem;
+  }
+  .body-blurb {
+    font-family: var(--sans);
+    font-size: 0.82rem;
+    font-weight: 400;
+    color: var(--muted);
+  }
   .sources {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    /* `auto-fill`, NOT `auto-fit`, and the difference only shows itself on a small group. auto-fit
+       COLLAPSES the tracks an item does not occupy, so Mars's single source stretched to 1420 px
+       beside Earth's 269 px cards — a card five times wider than its neighbours reads as a
+       different kind of object, and its citation ran to one unreadable line. auto-fill keeps the
+       empty tracks, so a lone card is the same width as every other. Measured identical for Earth
+       either way: with 8 cards in 5 tracks no track is empty, so the two keywords agree. */
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
     gap: clamp(0.8rem, 1.5vw, 1.2rem);
   }
   .source {
@@ -318,17 +383,17 @@ const licenceHtml = [
     border: 1px solid var(--line);
     border-radius: 12px;
   }
-  .source h3 {
+  .source h4 {
     font-family: var(--serif);
     font-size: 1.02rem;
     font-weight: 600;
     margin: 0;
   }
-  .source h3 a {
+  .source h4 a {
     color: inherit;
     text-decoration: none;
   }
-  .source h3 a:hover {
+  .source h4 a:hover {
     color: var(--accent);
   }
   .source .role {

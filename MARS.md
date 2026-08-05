@@ -33,6 +33,17 @@
   re-run, and the warm asset cache would not carry.
 - **No z9 or z10, for either body.** Same disk wall Earth is parked behind, and on Mars the source
   cannot honestly fill it.
+- **One output licence for both bodies: CC BY-SA 4.0.** The blend's publisher labels its HRSC half
+  CC BY-SA 3.0 IGO, and share-alike cannot flow into the CC BY-NC the renders used to carry — so the
+  strict reading is assumed and Earth is matched to Mars rather than split from it. It complies
+  whichever way the label is read, which is why it needs no legal determination to act on.
+  - Irrevocable, and that is the whole cost: nothing published under it can be narrowed later.
+  - **The alternative was to change the source rather than the licence, and it was declined.** MOLA
+    MEGDR is CC0 at 463 m/px against a z6 cut of 651 m/px, so the swap costs nothing visible today.
+    But it bites from z7 (326 m/px) up, where MEGDR is upsampled and the blend is not, and at z8 it
+    is a 2.8x upsample. Keeping the option of a finer cut is worth more than the permissive terms.
+  - Both readings of the label, the evidence for each, and the clause that permits a 3.0 IGO input
+    to become a 4.0 output all live in `ATTRIBUTIONS.md`.
 
 ## What the pipeline already does
 
@@ -425,22 +436,25 @@ Triaged by when each must be answered, because most of them cannot be answered e
 - **Before the cut.** z7 or z8, ratified on the sphere rather than chosen from the table.
 - **Before vectors.** The unit of subdivision, if there is a gallery at all: geologic units, MC
   quadrangles, a curated landform list, or nothing.
-- **Any time.** What goes on the Mars Lite page, and whether the imagery licence splits per body.
-  - The licence question is genuinely open in one direction only: Creative Commons licences are
-    irrevocable, so a freely-licensed Mars cannot later be pulled back to a more restrictive one.
-  - Mars is the easier case — public-domain sources impose no notices where Copernicus imposes
-    three. The real cost is clarity: the About page's single licence line becomes wrong and would
-    have to state the split.
+- **Any time.** What goes on the Mars Lite page.
 
 ## Sources
 
-**No Mars source below imposes a notice obligation.** Checked against the primary statements, not
-assumed from the agency name — every credit here is a courtesy, where Copernicus imposes three
-verbatim notices on the Earth build.
+**The blend's terms are not legally settled, and an earlier reading here was too confident.** This
+section once said no Mars source imposes any obligation. The USGS product page for the blend states
+its own access constraints as *"MOLA (CC0) and HRSC (CC BY-SA 3.0 IGO)"* and its use constraints as
+*"Please cite authors"* — read verbatim off the publisher's metadata for the exact file this project
+downloads. **The response is settled even though the question is not**: the site's renders are
+CC BY-SA 4.0, which complies whichever way that label is read. Both readings and the evidence for
+each are in `ATTRIBUTIONS.md`; what must not be re-derived is a conclusion that the archive route
+imposes nothing.
 
 - **The blend is a USGS product, not an ESA one**, even though it contains HRSC data: it is
-  published through the USGS Astrogeology PDS Annex as a US government work. A citation is
-  *requested* — Fergason, Hare & Laura (2018) — not required.
+  published through the USGS Astrogeology PDS Annex as a US government work. That is what made the
+  earlier reading plausible — but the publisher labelling its own inputs is a different statement
+  from the agency it belongs to, and it is the labelling that has to be answered.
+- **The citation is requested by the publisher**, not merely academic courtesy: Fergason, Hare &
+  Laura (2018), which the About page now carries in full.
 - **ESA's Planetary Science Archive is registered as public domain**, and ESA's own acknowledgement
   page asks rather than requires: it *suggests* wording crediting the instrument's Principal
   Investigators and the archive. HRSC products are additionally mirrored by the NASA PDS
@@ -448,11 +462,11 @@ verbatim notices on the Earth build.
 - **The one genuine trap is ESA's published imagery, which is a different thing from its archive.**
   ESA releases its HRSC *pictures* — the colour perspective views — under CC BY-SA 3.0 IGO, and that
   licence names "images, videos or other ESA works" while saying nothing about science archives.
-  - Share-alike is the problem, not attribution. This site's renders are CC BY-NC 4.0, and **BY-SA
-    input cannot flow into an NC output**. The permitted direction is the other one: individual
-    renders may additionally be released as free-culture at the author's discretion.
-  - So the rule is simply: take HRSC from the archive, never from the picture gallery. Nothing about
-    the planned work needs the gallery.
+  - Share-alike was the problem, not attribution — it is what ruled out the CC BY-NC the renders
+    used to carry, and the reason they are CC BY-SA 4.0 now.
+  - One rule survives the change: take HRSC from the archive, never from the picture gallery.
+    Nothing about the planned work needs the gallery, and the gallery's terms are ESA's own rather
+    than the ones already accounted for here.
 
 | dataset | what it is | where |
 | --- | --- | --- |

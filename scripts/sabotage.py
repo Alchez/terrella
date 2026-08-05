@@ -142,6 +142,14 @@ MUTABLE_ROOTS = (
     # Same principle as the two test files above: the import scan IS the guard, so the
     # only way to prove it still sees anything is to narrow it and watch something fail.
     "tests/test_fetch.py",
+    # Joined with the output licence, which is stated in four files and was checked in none. Two
+    # roots, for two different reasons. `LICENSE` because it is a mutation TARGET no other root
+    # reaches — it has no extension, sits outside every package, and is the copy a reader treats as
+    # authoritative. `tests/test_attributions.py` because its sweep is guard and subject both: the
+    # suffix set decides which files are read at all, so narrowing it silences the check from the
+    # inside while every assertion still passes.
+    "LICENSE",
+    "tests/test_attributions.py",
     # The fourth on that principle, and the sharpest: the cross-language parity guard has to PARSE
     # `web/src/lib/bodies.ts` to compare it, so its brace counter is both guard and subject. A
     # counter that stops counting still returns blocks, still finds a body, and reads the wrong
@@ -3004,6 +3012,67 @@ SABOTAGES: list[Sabotage] = [
         needle='const body = BODIES.mars;',
         replacement='const body = BODIES.earth;',
         guard='dresses every page a body owns in that body, and not in the one next door',
+    ),
+    Sabotage(
+        suite='web',
+        # The copy-paste slip the per-body split exists to prevent, and the one that reads as a
+        # tidy: Mars's source is filed under Earth's heading. Nothing is lost from the page — the
+        # card still renders, the citation is still there — but the reader is now told that the
+        # planet's data sits under the group whose terms are Copernicus's, which is the exact
+        # inference the two groups exist to stop.
+        label="a body's data sources are filed under the planet next door",
+        path='web/src/pages/about.astro',
+        needle='    body: "Mars",',
+        replacement='    body: "Earth",',
+        guard='gives every registered body a group of its own',
+    ),
+    Sabotage(
+        suite='python',
+        # The licence change reaches the three files a reader browses and misses the one nobody
+        # opens. LICENSE has no extension, sorts away from the docs, and is the copy a court would
+        # read first — so it is exactly the copy a sweep-by-eye skips.
+        label='the LICENSE file keeps the superseded output licence after the other three move',
+        path='LICENSE',
+        needle='under CC BY-SA 4.0; see ATTRIBUTIONS.md',
+        replacement='under CC BY-NC 4.0; see ATTRIBUTIONS.md',
+        guard='test_every_site_states_the_output_license',
+    ),
+    Sabotage(
+        suite='python',
+        # A live link to the withdrawn licence, left behind on the page that grants the rights. It
+        # renders, it resolves, and it reads as deliberate — the visitor is simply told the wrong
+        # terms. Prose naming the old licence is allowed on purpose, so only the URL can catch it.
+        label='the About page still LINKS the superseded licence beside the current name',
+        path='web/src/pages/about.astro',
+        needle="          <p set:html={licenceHtml} />\n",
+        replacement=(
+            "          <p set:html={licenceHtml} />\n"
+            '          <p><a href="https://creativecommons.org/licenses/by-nc/4.0/">terms</a></p>\n'
+        ),
+        guard='test_no_tracked_file_links_the_superseded_output_license',
+    ),
+    Sabotage(
+        suite='python',
+        # The tidy that guts the sweep: .astro looks like markup rather than a place a licence is
+        # declared, so dropping it reads as narrowing the scan to documents. It takes the About
+        # page — the only page that states the licence to a visitor — out of scope, and only the
+        # anti-vacuity NAMING that file rather than counting files can tell.
+        label='the licence sweep stops reading the file type the About page is written in',
+        path='tests/test_attributions.py',
+        needle='LICENSE_BEARING_SUFFIXES = {".md", ".py", ".ts", ".astro", ".html"}',
+        replacement='LICENSE_BEARING_SUFFIXES = {".md", ".py", ".ts", ".html"}',
+        guard='test_no_tracked_file_links_the_superseded_output_license',
+    ),
+    Sabotage(
+        suite='python',
+        # The requested citation drops off the user-facing page while staying in the source of
+        # truth — the exact drift `test_attributions.py` was written for, now covering a string
+        # the publisher asks for in its Use Constraints rather than one a licence compels.
+        label="the Mars blend's requested citation is trimmed off the About page",
+        path='web/src/pages/about.astro',
+        needle='Fergason, R. L, Hare, T. M., & Laura, J. (2018). HRSC and MOLA Blended Digital Elevation Model at 200m v2. Astrogeology PDS Annex, U.S. Geological Survey. ',
+        replacement='',
+        guard='test_about_page_carries_the_required_string',
     ),
     Sabotage(
         suite='web',

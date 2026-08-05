@@ -19,13 +19,20 @@ the whole planet actually carries.
   also the argument against a z8 Mars pyramid: z8 would buy four times the disk for a 2.8x upsample
   over most of the planet.
 
-LICENCE: none to satisfy. The blend is published through the USGS Astrogeology PDS Annex as a US
-government work, and a citation (Fergason, Hare & Laura, 2018) is REQUESTED rather than required —
-verified against the primary statement, not assumed from the agency name. It contains ESA HRSC data,
-but ESA's Planetary Science Archive is registered public domain and asks rather than requires. The
-one real trap is a different product: ESA's published HRSC *pictures* are CC BY-SA 3.0 IGO, and
-share-alike input cannot flow into this site's CC BY-NC renders. Take HRSC from the archive, never
-from the picture gallery. Nothing here needs the gallery.
+LICENCE: read the product page's own CONSTRAINT FIELDS, never the publisher's organisational status.
+This block once said "none to satisfy", reasoning that a USGS Astrogeology PDS Annex product is a US
+government work. That is true and it is not the answer: the page states Access Constraints of "MOLA
+(CC0) and HRSC (CC BY-SA 3.0 IGO)" and Use Constraints of "Please cite authors" — the publisher
+labelling its own inputs, about this exact file, one page load away the whole time. Whether the
+share-alike half binds is a legal question; the site answers it by licensing its renders CC BY-SA
+4.0, which complies either way. Note where this had to be caught: the obligation attaches to what is
+PUBLISHED, so fetching and rendering succeed regardless and no pipeline gate can ever see it. The
+constraint-field read belongs here, at acquisition, not months later when a page needs a credit.
+ATTRIBUTIONS.md carries both readings and the citation the use constraint asks for.
+
+A separate trap, unchanged: ESA's published HRSC *pictures* — the colour perspective views — are a
+different product under ESA's own terms. Take HRSC from the archive, never from the picture gallery.
+Nothing here needs the gallery.
 
 WHAT WAS MEASURED, rather than read off a landing page (every number below is pinned in code):
   106694 x 53347 px, Int16, nodata -32768, 11,384,463,908 bytes on the wire. It is UNCOMPRESSED and
