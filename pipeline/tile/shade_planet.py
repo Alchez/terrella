@@ -103,6 +103,18 @@ N_WORKERS = 4              # composite worker threads. The knee: numpy is DRAM-b
 # now that Antarctica is fused into the pyramid: the flat fill covers only the last
 # smeared Mercator sliver past -84, not real Antarctica (which is shaded down to the -85.06 grid edge).
 # It was -59.5 while the pyramid stopped at -60 and the AEQD cap supplied everything south of it.
+#
+# ON A BODY THAT RENDERS CAPS THIS FILL IS DEAD PIXELS, AND THAT IS THE POINT OF IT. polarCaps.ts
+# feathers with `smoothstep(FEATHER_LO 81, feather_hi)` where `feather_hi` IS CAP_NORTH, so the cap
+# is fully opaque from exactly this latitude poleward and nothing under it is ever seen. The fill
+# exists because the raster must hold SOMETHING between here and the 85.05 grid edge, and a smeared
+# Mercator sliver is uglier than a flat plug in the one case the plug shows.
+#
+# It shows on a body with `renders_polar_caps = False` — Mars today — where it is the whole pole,
+# and MapLibre extends the top tile row over the projection's hole as well. So the colour below is
+# EARTH'S ANSWER TO A QUESTION MARS HAS NOT BEEN ASKED, visible only for as long as Mars publishes
+# no caps. Giving it a per-body value would be pricing a colour that goes back to being invisible
+# the moment a ratified Mars look lets its caps render.
 CAP_NORTH, CAP_SOUTH = 84.0, -84.0
 CAP_RGB = (216, 226, 233)   # pale sea-ice fill for the poles (web-mercator has no data past ~85 deg)
 INFLIGHT_BUFFER = 2        # windows read AHEAD of the workers (optimisation #5): the main thread

@@ -103,12 +103,15 @@ the outputs written, charged to the cgroup and droppable under pressure. Summed 
 was **4.01 GiB**, the composite worker holding **2.90 GiB** of it. A cap sized off the cgroup number
 is sized off file traffic; a cap sized off `VmHWM` is sized off what cannot be reclaimed.
 
-**`pipeline/profile/run_pass.sh` caps every run at 16 G, and that is Earth's number.** Its own
-comment gives the reason: the pass ends by rendering polar caps, which peak near 14 GB. A body with
-`renders_polar_caps=False` never reaches that stage, so the cap is unbacked rather than protective —
-and on a box with less than 16 GiB available the harness's preflight correctly refuses to start. The
-Mars pass above ran under a hand-rolled 12 G scope reusing the harness's own `stamp.py` and
-`sample_tree.py`. The cap wants deriving from the body.
+**`pipeline/profile/run_pass.sh` sizes its cgroup cap from the body: Earth 16 G, Mars 12 G.**
+`pipeline/profile/pass_cap.py` derives it from `renders_polar_caps` and holds both measurements. 16 G
+is Earth's number because the pass ends by invoking `cap_render` as a subprocess that inherits the
+scope's cgroup and peaks near 14 GB; a body that renders no caps never reaches that stage, so on it
+16 G is unbacked rather than protective — and the harness's own `MemAvailable` preflight then refuses
+to start a pass the box could comfortably have run. On this box with a browser open that is not
+hypothetical: available memory sits near 15 GiB, which backs everything Mars needs and nothing Earth
+does. The resolver reads `--body` through the pass's own argument parser, so an omitted body is now
+refused at the wrapper instead of after a cgroup scope has already been opened.
 
 Why the numbers are what they are (current-state explanations, not history):
 

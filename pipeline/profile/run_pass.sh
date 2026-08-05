@@ -20,24 +20,21 @@
 #   4. the cgroup    -> memory.peak for the whole scope, and the 12 G cap that kills the job not
 #                       the box (proven today: a 4-cell region render hit it and died alone).
 #
-# Shade cap 16 G, raised from 12 G. The composite is NOT why: it still peaks at
-# 10.55 GiB (opt #5, 128/N4; the serial composite was 6.24 GiB) and COMPOSITE_ROWS=128
-# is a hardcoded constant, not a function of this cap, so raising the cap does not let the
-# composite grow -- N stays 4 because 256/N3 and N=6 OOM on their own arithmetic. The cap moved
-# because the pass ENDS by rendering the polar caps (shade_planet invokes cap_render as a
-# subprocess, which inherits this scope's cgroup) and the caps peak at ~14 GB -- so a 12 G pass
-# completed every tile stage and then died at the very last one. Known cost of the raise: 12 G was
-# also an accidental tripwire on composite footprint, and a regression there now goes unnoticed
-# until 16 G.
+# THE CAP IS THE BODY'S AND THIS SCRIPT DOES NOT KNOW IT -- pipeline/profile/pass_cap.py derives
+# it from the registry, and holds the whole argument plus the measurements behind both numbers.
+# The short version: 16 G is Earth's, because the pass ENDS by invoking cap_render as a subprocess
+# that inherits this scope's cgroup and peaks near 14 GB; a body rendering no caps never reaches
+# that stage, so on it the 16 G is unbacked rather than protective and the preflight below then
+# refuses a pass the box could have run. The composite is NOT why either number is what it is: it
+# peaks at 10.55 GiB and COMPOSITE_ROWS=128 is a hardcoded constant, not a function of this cap, so
+# a larger cap cannot let it grow.
 #
-# Tiling cap 16 G, and it is NOT the same calculation. The composite is skipped when planet_rgb is
-# fresh, so the peak stage becomes `gdal raster tile`, which spawns -j ALL_CPUS workers that EACH
-# inherit GDAL_CACHEMAX -- 16 x 512 MB of block cache alone, before any tile buffers. Tiling's real
-# peak has never been measured, so the cap is sized off that per-worker cache math with headroom;
-# 16 G still kills the job and not the box (29 G total, ~20 G available). A worker killed mid-write
-# still leaves a TRUNCATED png, but build_tiles no longer resumes over a partial staging dir -- it
-# removes it and cuts clean, so a bad tile can no longer survive into the pyramid.
-# GDAL_CACHEMAX=512 per shade_planet.py's own launch note.
+# What this script still owns is GDAL_CACHEMAX=512 (per shade_planet.py's own launch note), which
+# is the term that makes the tiling stage the peak when planet_rgb is fresh: `gdal raster tile`
+# spawns -j ALL_CPUS workers that EACH inherit it -- 16 x 512 MB of block cache before any tile
+# buffers. That arithmetic is why Earth's tiling run wants the same 16 G its caps do. A worker
+# killed mid-write still leaves a TRUNCATED png, but build_tiles no longer resumes over a partial
+# staging dir -- it removes it and cuts clean, so a bad tile can no longer survive into the pyramid.
 set -uo pipefail
 
 # Roots derive from this script's own location, never a hardcoded home path: the harness has to
@@ -51,13 +48,19 @@ cd "$ROOT" || exit 1
 
 if [[ " $* " == *" --tiles "* ]]; then
     RUN_LABEL=tiles
-    MEMORY_CAP=16G
 else
     RUN_LABEL=pass
-    MEMORY_CAP=16G
 fi
 PROF=$DATA/work/_profile_$RUN_LABEL   # output: data, gitignored
 UNIT=terrella-$RUN_LABEL
+
+# Ask the registry, through the pass's OWN argument parser, rather than reading --body here: this
+# argv is forwarded to that module verbatim seconds later, so a second spelling of the grammar is
+# a second thing to keep in step. It also makes this wrapper honour the contract its header states
+# -- until now a run that omitted --body cleared the preflight, opened a cgroup scope, and only
+# then died inside Python. argparse writes its own message to stderr, so nothing is restated here.
+MEMORY_CAP_GIB=$("$VENV" -m pipeline.profile.pass_cap "$@") || exit 1
+MEMORY_CAP=${MEMORY_CAP_GIB}G
 
 # --- memory preflight -------------------------------------------------------------------------
 # A cgroup cap kills the job instead of the box -- but only if the box can actually BACK the cap.

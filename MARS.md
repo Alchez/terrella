@@ -436,23 +436,28 @@ Triaged by when each must be answered, because most of them cannot be answered e
     faithful to Earth's tuning is invisible at every zoom the globe reaches. The open half is
     whether a wisp reads better than none once the ramp is ratified, which is three colours in one
     registry row.
-  - **A pale band sits above 84° at both poles, it is in the TILES, and it is not the sky.** Removing
-    Mars's sky entirely left it unchanged, which is how it was caught: the earlier reading here — that
-    the sky colour filled the polar hole — was wrong on both halves. What a visitor sees at the pole
-    is `#d8e2e8`, uniform, running from the Mercator limit at 85.051° down to about 84.05°, and
-    MapLibre extends that band over the hole itself.
-    - Measured in the shipped archives, not inferred: 120 of 512 rows in the z3 top tile, the whole
-      z6 top tile, and the same colour at Mars's south edge.
-    - **Earth's tiles carry the identical band and its polar caps have been covering it**, which is
-      why nothing has ever reported it. A body that renders no caps is what made it visible.
-    - Not a stale artefact and not an ungated Earth layer: Mars's own `composite_params.json` already
-      records `layers_off` for all four cryosphere layers and `rasters_off` for both masks, so a
-      re-pass at the same recipe reproduces it.
-    - Not the ramp clamping either — the heightfield there is real data (−4,650 to −3,170 m, no
-      nodata), and the land ramp renders that elevation as `#e9d9c0`, a warm cream.
-    - So the producing step is not yet identified, and finding it is the work. It belongs with the
-      look loop because the answer is either a composite fix or a decision to let the caps question
-      re-open for Mars.
+  - **Mars's poles wear Earth's sea ice, and it is a LOOK constant with no body behind it —
+    `CAP_RGB`.** The composite flat-fills everything above `CAP_NORTH` 84° and below `CAP_SOUTH`
+    −84° with `(216, 226, 233)`, described in its own comment as "pale sea-ice fill", because Web
+    Mercator carries no data past ~85° and the 84–85° band is smeared. That fill is the BASE the
+    azimuthal cap textures are drawn over; Earth's caps hide it completely, and a body that renders
+    none leaves it bare.
+    - Found by deleting Mars's sky and watching the band not move — the earlier reading here, that
+      the sky colour filled the polar hole, was wrong on both halves.
+    - Measured in the shipped archives: uniform from the Mercator limit down to 84°, 120 of 512 rows
+      in the z3 top tile, the whole z6 top tile, both poles. `#d8e2e8` on screen against the
+      constant's `#d8e2e9` is WebP q95, one DN of blue.
+    - **On a body that renders caps the fill is DEAD PIXELS.** The browser feathers with
+      `smoothstep(81, feather_hi)` where `feather_hi` is `CAP_NORTH` itself, so the cap is fully
+      opaque from 84° poleward and nothing beneath it is ever seen. The plug exists only because the
+      raster must hold something between 84° and the 85.05° grid edge, and a smeared Mercator sliver
+      is uglier than a flat colour in the one case the flat colour shows.
+    - **So the answer is not a per-body `CAP_RGB`.** It is that Mars renders no caps, and the stated
+      reason for that — a cap would wear the same unratified ramps as the tiles — expires the moment
+      the look is ratified. Caps for Mars hide the plug exactly as Earth's do.
+    - Until then it is Earth's answer to a question Mars has not been asked, and the honest interim
+      choice is between leaving it, and dropping the plug for a capless body so the smeared band
+      shows real terrain instead. Both are decided by looking.
   - Exaggeration: the ~10× above is arithmetic and needs judging.
   - Does THEMIS night IR belong in the look, as a second physical field over relief?
 - **After a look is ratified.**

@@ -160,6 +160,12 @@ MUTABLE_ROOTS = (
     # counter that stops counting still returns blocks, still finds a body, and reads the wrong
     # planet's answer — a failure with no error and no output to inspect.
     "tests/test_bodies.py",
+    # Joined when the pass's memory cap stopped being one number. The harness is a SHELL SCRIPT, so
+    # neither pyright nor ruff reads it, and every way of reverting it leaves a script that runs and
+    # prints a plausible preflight line — the cap is simply the wrong planet's. Its two failure
+    # directions are also both expensive and neither is a crash at the edit: too high refuses a pass
+    # the box could have run, too low OOM-kills hours in.
+    "pipeline/profile",
 )
 
 # Set for the duration of one case, so the backup THIS run is holding does not trip the leftover
@@ -3839,6 +3845,48 @@ SABOTAGES: list[Sabotage] = [
         needle='  if (atmosphere === null) return "sky none · this body declares no atmosphere";\n',
         replacement='',
         guard='says so in the read-out rather than going quiet',
+    ),
+    # --- the pass's memory cap becomes the body's --------------------------------------------------
+    # Every case here restores "one cap for every planet" while the harness still starts, still caps,
+    # and still prints a preflight line. The damage is asymmetric and that is why they are worth
+    # having: too HIGH refuses a pass the box could have run, which is loud but wastes an afternoon
+    # of look iteration; too LOW OOM-kills hours in, after every finished stage has been paid for.
+    Sabotage(
+        suite='python',
+        label='the shell resolves the cap and then ignores it for a constant',
+        path='pipeline/profile/run_pass.sh',
+        needle='MEMORY_CAP=${MEMORY_CAP_GIB}G',
+        replacement='MEMORY_CAP=16G',
+        guard='test_the_cgroup_argument_carries_the_bodys_cap_not_a_constant',
+    ),
+    Sabotage(
+        suite='python',
+        label='the resolver stops reading the body and answers Earth for every planet',
+        path='pipeline/profile/pass_cap.py',
+        needle='    return CAP_RENDERING_GIB if body.renders_polar_caps else STANDING_GIB',
+        replacement='    return CAP_RENDERING_GIB',
+        guard='test_mars_gets_the_standing_cap',
+    ),
+    # The tidiest-looking of the four: two constants that agree are one constant, and collapsing them
+    # leaves a resolver that still branches, still reads the body, and still answers.
+    Sabotage(
+        suite='python',
+        label='the standing cap creeps up to match Earth so the split is a no-op',
+        path='pipeline/profile/pass_cap.py',
+        needle='STANDING_GIB = 12',
+        replacement='STANDING_GIB = 16',
+        guard='test_the_two_numbers_actually_differ',
+    ),
+    # `set -u` does NOT catch this: a failed command substitution assigns the EMPTY STRING rather
+    # than leaving the name unset, so the cap becomes `G`, the arithmetic compares against zero, and
+    # a run with no body sails through the preflight into a cgroup scope.
+    Sabotage(
+        suite='python',
+        label="the resolver's refusal goes unchecked, so a bad argv reaches the scope",
+        path='pipeline/profile/run_pass.sh',
+        needle='pipeline.profile.pass_cap "$@") || exit 1',
+        replacement='pipeline.profile.pass_cap "$@")',
+        guard='test_an_omitted_body_is_refused_before_the_scope_opens',
     ),
 ]
 
