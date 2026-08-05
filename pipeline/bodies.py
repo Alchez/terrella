@@ -251,14 +251,20 @@ MARS = Body(
     # states, and pinned against `tile_max_zoom` relationally — so moving the ceiling without moving
     # this is a red test rather than a pyramid cut at a zoom its raster was not built for.
     map_units_per_pixel=1222.99245256282,
-    # PROVISIONAL, AND NOT A DECISION — the same status as the web registry's Mars accent, and it
-    # gets replaced the same way. The arithmetic: MapLibre's globe shader draws every body on one
-    # Earth-sized sphere and displaces in metres, so only metres matter, and Mars's ~30 km range is
-    # ~1.5x Earth's ~20 km — hence 15 / 1.5 ~ 10 to read the way Earth reads at 15x. That is a
-    # starting point to be judged on the sphere, which is how Earth's own 15x was settled. Note it
-    # points the OPPOSITE way from the other ratio people reach for: on its own sphere Mars is
-    # already ~2.8x more dramatic than Earth and would want LESS.
-    exaggeration=10.0,
+    # JUDGED ON THE SPHERE, which is how Earth's own 15x was settled and the only way this number
+    # was ever going to be. The arithmetic that opened at 10x is kept because it is worth knowing it
+    # was wrong: MapLibre's globe shader draws every body on one Earth-sized sphere and displaces in
+    # metres, so only metres matter, and Mars's ~30 km range is ~1.5x Earth's ~20 km — hence
+    # 15 / 1.5 ~ 10. Looking at 10x and 20x side by side at the same camera settled it at 20x.
+    #
+    # THE SATURATION WORRY WAS MEASURED AND DOES NOT APPLY HERE, and it is recorded because it is
+    # the reason not to fear the next step up. Earth is already saturated at 15x, so more steepness
+    # there buys less than the number suggests. Mars at 20x is not: on the real hillshade raster,
+    # 0.00% of pixels sit at DN 0 or DN 255 and the tonal spread is 48.05 against Earth's 45.59.
+    # The term that saturates is the gradient PER PIXEL, and Mars's z6 grid is 651 m/px against
+    # Earth's z8 at 306 — half the sampling rate is half the slope. So there is headroom above 20x,
+    # and a deeper cut would eat it, which is a thing to re-measure at z7 rather than to assume.
+    exaggeration=20.0,
     # PROVISIONAL, for the cheapest lookable thing rather than for the eventual ceiling — a z6
     # pyramid is ~2.8 GB of master against z7's ~11 GB, and its only job is to exist on the sphere.
     # The honest ceiling is probably z7: the blended DEM is HRSC over only 44% of the planet and
