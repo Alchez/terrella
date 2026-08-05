@@ -43,14 +43,22 @@ def _composite(look: palette.Look, ocean: np.ndarray) -> np.ndarray:
     )
 
 
+#: Mars's look with a sea ramp bolted on: the SAME land ramp, differing from `MARS_LOOK` in exactly
+#: one field. The comparison used to be Mars against Earth, which worked only while the two shared a
+#: land `Surface` and stopped meaning anything the moment Mars took its own domain — it would have
+#: been comparing two ramps and calling the difference "the sea". Varying one field is the claim.
+MARS_LOOK_WITH_A_SEA = palette.Look(land=palette.MARS_LOOK.land, sea=palette.EARTH_LOOK.sea)
+
+
 class TestABodyThatDrawsNoSea:
     def test_a_body_with_no_sea_ramp_composites_from_land_alone(self):
         """Skipping the sea changes nothing, which is what makes it a statement rather than a
-        shortcut. Mars's look differs from Earth's only in having no sea ramp, and its planet seam
-        declares no oceanmask — so with an all-False mask the two must agree to the byte."""
+        shortcut. With an all-False mask, a look carrying a sea ramp and the same look without one
+        must agree to the byte — the sea is absent from the OUTPUT because no pixel selects it,
+        not because anything downstream is behaving differently."""
         dry = np.zeros(SHAPE, dtype=bool)
         assert np.array_equal(_composite(palette.MARS_LOOK, dry),
-                              _composite(palette.EARTH_LOOK, dry))
+                              _composite(MARS_LOOK_WITH_A_SEA, dry))
 
     def test_the_sea_ramp_reaches_the_pixel_when_there_is_an_ocean(self):
         """ANTI-VACUITY for the test above, and it is not optional.
@@ -61,8 +69,8 @@ class TestABodyThatDrawsNoSea:
         So: prove the mask moves the pixels before proving that it does not.
         """
         wet = np.ones(SHAPE, dtype=bool)
-        assert not np.array_equal(_composite(palette.EARTH_LOOK, wet),
-                                  _composite(palette.EARTH_LOOK, np.zeros(SHAPE, dtype=bool)))
+        assert not np.array_equal(_composite(MARS_LOOK_WITH_A_SEA, wet),
+                                  _composite(MARS_LOOK_WITH_A_SEA, np.zeros(SHAPE, dtype=bool)))
 
     def test_a_no_sea_look_refuses_an_ocean_mask_with_pixels_set(self):
         """The look and the planet seam disagreeing about the planet is loud, not silent.

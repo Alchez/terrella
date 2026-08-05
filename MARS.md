@@ -423,12 +423,20 @@ Triaged by when each must be answered, because most of them cannot be answered e
 - **During the look loop**, all decided on the sphere.
   - Terrella's look applied to Mars, or a Mars look of its own? This is the deepest question here;
     everything downstream keys off it.
-  - **The first pyramid states this one as a number.** Earth's land ramp is keyed 0–8,848 m and Mars
-    spans −8,511 to +21,166, so the gradient does its work over **about 30% of the range** and the
-    two ends clamp flat. Measured by reading the heightfield and the composite at the same points:
-    the northern lowlands, Hellas at −6,044 m and the Valles floor all take one sand, separated only
-    by hillshade, while Tharsis at +5,858 m and the Olympus summit at +19,964 m take one white. The
-    salmon that makes it read as Mars lives only in the middle band, which is the southern highlands.
+  - **ANSWERED — the ramp's DOMAIN is Mars's own, −6,000 to +6,100 m.** A `Surface` used to hinge on
+    0 m at one end, which is right on Earth, where 0 is the shoreline and a real boundary. Mars's
+    0 m is the areoid: an equipotential reference with no expression on the ground, sitting at the
+    MEDIAN of the planet's elevations. Hinging there put **51.6% of the surface below the ramp
+    entirely**, clamped to one colour, with only 0–4,000 m getting any gradient at all.
+    - The ends are p1 and p99, measured area-weighted on the sphere over the shipped heightfield:
+      p1 −5,990 · p50 −260 · p99 +6,098, against a true range of −7,882 to +21,014 m.
+    - The extremes were rejected on the same measurement: only **1.1%** of Mars is above +6,000 m,
+      so keying the ceiling to Olympus Mons spends most of the ramp on almost nothing — and Olympus
+      still reads, because it reads through the hillshade, which no ramp touches.
+    - `Surface` carries `origin_m` beside `extreme_m` now, and Earth reduces to its old expressions
+      exactly rather than approximately, so its shipped pyramid cannot restage over this.
+    - **The COLOURS are still Earth's and still unratified** — that is the question above, and it is
+      the one this unblocks: the stops now spread over a domain that gives them something to do.
   - Does Mars draw a sea — none, one chosen contour, or the family of candidate shorelines?
   - **Does Mars want any air at all?** The registry now carries the three atmosphere colours per
     body and Mars answers `null`: no sky pass, no glow at the limb, no aerial perspective over the

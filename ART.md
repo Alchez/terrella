@@ -55,7 +55,7 @@ Cost: hero sweep **~10–13 h** + tile restage **~29 min** + caps auto-restage *
 
 | Lever | Value | Section |
 |---|---|---|
-| `LAND_STOPS` (+ `LAND_MAX_M`) | 6 stops, 0–6000 m | § Land color ramp |
+| `LAND_STOPS` (+ `LAND_MAX_M`) | 6 stops; Earth's domain 0–6000 m, but the ENDS are the body's — a `Surface` carries `origin_m` and `extreme_m`, and only Earth's origin is the datum | § Land color ramp |
 | `SEA_STOPS` (+ `SEA_MIN_M`) | 6 shelf-weighted stops, 0…−6000 m | § Sea color ramp |
 | `LAKE_STOPS` (+ `LAKE_MAX_M`) | 3 stops; stop 0 == `WATER_RGB`, far end 1642 m (Baikal) | § Inland water |
 | `WATER_RGB` | `8EC6C4` — pinned relationally: sea surface +7% | § Inland water |

@@ -275,6 +275,24 @@ def hs_params(body: bodies.Body) -> str:
     return json.dumps(params, sort_keys=True, indent=2)
 
 
+def _ramp_origin(kind: str, ramp: palette.Surface) -> dict[str, float]:
+    """`{kind}_origin_m`, recorded ONLY when the ramp does not start at the datum.
+
+    The conditional-record idiom, for the fourth time in this module (`fill`, `shadow`,
+    `ground_scale`) and for the identical reason. Earth's two ramps both hinge on 0 m, so an
+    unconditional record would add a key to a 2,672-byte sidecar that has been stable across the
+    whole shipped pyramid — restaging a 46 GB planet, a 21:37 composite and a 4:19 cut to reproduce
+    byte-identical output, and reporting the LIVE pyramid stale on the way.
+
+    Conditional is not the same as untracked, which is the trap this idiom always has to answer.
+    The origin cannot move WITHIN a body without changing this dict, because the only two states
+    are absent (0 m) and present (some other number) — and a body moving off the datum flips it
+    from absent to present, which is a change. What it deliberately cannot do is distinguish two
+    bodies, and it does not have to: sidecars are per-body files.
+    """
+    return {} if ramp.origin_m == 0.0 else {f"{kind}_origin_m": ramp.origin_m}
+
+
 def composite_params(variants, body: bodies.Body, rasters: frozenset[str],
                      window_rows=WINDOW_ROWS) -> str:
     """The composite's tunables, recorded as planet_rgb's dependency.
@@ -324,7 +342,8 @@ def composite_params(variants, body: bodies.Body, rasters: frozenset[str],
     # recipe that no edit could ever move, which reads as tracked while tracking nothing.
     sea_recipe: dict[str, Any] = (
         {} if look.sea is None
-        else {"sea_stops": look.sea.stops, "sea_min_m": look.sea.extreme_m}
+        else {"sea_stops": look.sea.stops, "sea_min_m": look.sea.extreme_m,
+              **_ramp_origin("sea", look.sea)}
     )
     return json.dumps({**missing, **sea_recipe,
                        "knobs": knobs, "water_rgb": palette.WATER_RGB,
@@ -347,6 +366,7 @@ def composite_params(variants, body: bodies.Body, rasters: frozenset[str],
                        # re-tune would have left the Mars composite reading fresh.
                        "land_stops": look.land.stops,
                        "land_max_m": look.land.extreme_m,
+                       **_ramp_origin("land", look.land),
                        "lut_step_m": palette.LUT_STEP_M,
                        "snow_rgb": palette.SNOW_RGB,
                        "snow_shadow_rgb": palette.SNOW_SHADOW_RGB,

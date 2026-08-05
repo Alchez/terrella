@@ -2602,11 +2602,66 @@ SABOTAGES: list[Sabotage] = [
     # the right length, the right dtype and the right shape, and wrong at every index.
     Sabotage(
         suite='python',
+        # Re-anchored when the ramp gained an origin: the offset used to be `min(0.0, extreme_m)`
+        # and is now `Surface.lowest_m`. The mutation is the same defect and now reaches further —
+        # it breaks Earth's sea AND every land ramp that starts below its body's datum.
         label='the sea LUT loses its abyss offset, so every depth reads the wrong colour',
         path='pipeline/render/palette.py',
-        needle='    base = min(0.0, ramp.extreme_m)\n    colors = ',
-        replacement='    base = 0.0\n    colors = ',
+        needle='    colors = [_srgb8(ramp_color((ramp.lowest_m + index * step',
+        replacement='    colors = [_srgb8(ramp_color((0.0 + index * step',
         guard='test_relief_lut_bytes_are_unchanged',
+    ),
+    # --- The ramp runs between two ends, and neither of them is assumed ------------------------------
+    # Every case here puts the datum back at one end of the ramp. All five are invisible on Earth BY
+    # CONSTRUCTION — both its ramps hinge on 0 m, so the mutated and correct expressions agree to the
+    # byte — and each is wrong only on a body whose ramp starts somewhere else. That is the reason
+    # they exist rather than a caveat: this is the shape that stayed green for as long as there was
+    # one planet, and the second planet is the entire oracle.
+    Sabotage(
+        suite='python',
+        label='the ramp hinges on the datum again, so a body below it loses half its colours',
+        path='pipeline/render/palette.py',
+        needle='        return min(self.origin_m, self.extreme_m)',
+        replacement='        return min(0.0, self.extreme_m)',
+        guard='test_mars_land_spans_its_own_measured_elevations',
+    ),
+    # The conditional record, in both directions. Over-recording is the tidy-looking one — it reads
+    # as "just always track it" and silently restages a 46 GB planet to emit identical pixels.
+    Sabotage(
+        suite='python',
+        label='the ramp origin is recorded unconditionally, restaging Earth for no pixel change',
+        path='pipeline/tile/shade_planet.py',
+        needle='    return {} if ramp.origin_m == 0.0 else {f"{kind}_origin_m": ramp.origin_m}',
+        replacement='    return {f"{kind}_origin_m": ramp.origin_m}',
+        guard='test_earths_ramps_add_no_key_because_both_hinge_on_the_datum',
+    ),
+    Sabotage(
+        suite='python',
+        label='the ramp origin reaches no freshness record, so a re-tune leaves a stale composite',
+        path='pipeline/tile/shade_planet.py',
+        needle='    return {} if ramp.origin_m == 0.0 else {f"{kind}_origin_m": ramp.origin_m}\n',
+        replacement='    return {}\n',
+        guard='test_a_ramp_off_the_datum_is_recorded',
+    ),
+    # The one with no symptom at all: a zero-width ramp divides by zero, nan survives `rint`, and the
+    # cast to int32 picks an arbitrary index. One wrong colour, no exception, every gate green.
+    Sabotage(
+        suite='python',
+        label='a zero-width ramp is admitted, so a planet renders from an arbitrary LUT index',
+        path='pipeline/render/palette.py',
+        needle='        if self.origin_m == self.extreme_m:',
+        replacement='        if False:',
+        guard='test_a_zero_width_ramp_is_refused_at_declaration',
+    ),
+    # The third copy of the assumption, in the module a type checker cannot connect to the other two.
+    # Its own guard could not see this until it stopped comparing against a literal zero.
+    Sabotage(
+        suite='python',
+        label="the hero rig restates the datum instead of reading the ramp's own origin",
+        path='pipeline/render/scene_build.py',
+        needle='LAND_RANGE = (_HERO_LOOK.land.origin_m, _HERO_LOOK.land.extreme_m)',
+        replacement='LAND_RANGE = (0.0, _HERO_LOOK.land.extreme_m)',
+        guard='test_the_origin_is_READ_and_not_coincidentally_zero',
     ),
     # --- Where a body's intermediates live -----------------------------------------------------------
     # The body is carried by the PATH, deliberately not by the freshness recipes: adding a body key to

@@ -216,6 +216,49 @@ class TestWriteIfChanged:
         assert path.read_text() == "{}"
 
 
+class TestTheRampOriginIsTracked:
+    """The origin is recorded CONDITIONALLY, and both halves of that need proving separately.
+
+    Conditional records are how this module keeps Earth's shipped pyramid from restaging over a
+    field it does not use, and every one of them buys that with a risk: a key that is absent when
+    it should be present is an untracked input, which is the exact silent-stale failure this whole
+    sidecar exists to prevent. So: absent for a ramp on the datum, present the moment one is not.
+
+    Split into the RULE and the WIRING, and neither half patches anything. The rule is a pure
+    function over a synthetic ramp; the wiring is the two real bodies, which between them already
+    supply both branches — Earth on the datum, Mars off it. A second body is what made this
+    testable without substituting one.
+    """
+
+    def test_earths_ramps_add_no_key_because_both_hinge_on_the_datum(self):
+        recipe = json.loads(shade_planet.composite_params({None: None}, bodies.EARTH, WHOLE_PLANET))
+        assert [key for key in recipe if key.endswith("_origin_m")] == []
+
+    def test_a_ramp_off_the_datum_is_recorded(self):
+        """Mars is the real instance; without it this rule would be unfalsifiable, since every
+        Earth ramp starts at 0 and no Earth edit could ever move one."""
+        recipe = json.loads(shade_planet.composite_params(
+            {None: None}, bodies.MARS, planet_seam.declared(bodies.MARS)))
+        assert recipe["land_origin_m"] == palette.MARS_LOOK.land.origin_m
+        assert recipe["land_origin_m"] != 0.0
+
+    @pytest.mark.parametrize("origin,expected", [
+        (-6000.0, {"land_origin_m": -6000.0}),   # off the datum -> tracked
+        (0.0, {}),                               # on it -> absent, so Earth's sidecar cannot move
+        (250.0, {"land_origin_m": 250.0}),       # a positive origin is off the datum too
+    ])
+    def test_the_rule_itself_over_a_synthetic_ramp(self, origin, expected):
+        """`_ramp_origin` is a pure function of a `Surface`, so the rule is tested by CALLING it.
+
+        This deliberately replaces a pair of tests that patched `LOOK_BY_BODY` to swing a body's
+        look. Those covered the same rule and paid for it: a patch proves the code did what the
+        patch said, and this repo has already had two composite_params tests go quietly vacuous
+        because what they patched stopped being what the recipe read. Nothing is substituted here.
+        """
+        ramp = palette.Surface(stops=palette.LAND_STOPS, origin_m=origin, extreme_m=6100.0)
+        assert shade_planet._ramp_origin("land", ramp) == expected
+
+
 class TestCompositeParams:
     def test_water_rgb_change_is_recorded(self, monkeypatch):
         """WATER_RGB reaches no file of its own; the sidecar is what tracks it."""

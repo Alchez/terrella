@@ -269,17 +269,60 @@ class TestTheLookRegistry:
         assert palette.look_for("mars") is palette.MARS_LOOK
         assert palette.MARS_LOOK is not palette.EARTH_LOOK
 
-    def test_mars_borrows_earths_land_ramp_and_declares_no_sea(self):
+    def test_mars_borrows_earths_land_COLOURS_on_its_own_domain(self):
         """The placeholder pinned, so replacing it in Phase 2 is a deliberate act.
 
-        Mars's land ramp is Earth's — SHARED, not copied, so a re-tune of Earth's drags Mars with
-        it and the borrowing cannot silently stop being true. Its sea is None, which is a fact
-        rather than a placeholder: the planet seam declares no oceanmask, so no pixel could select
-        a sea ramp however carefully one were written.
+        THE SHARING IS OF THE STOPS, NOT OF THE SURFACE, and the distinction is the whole content
+        of this test. Mars used to share Earth's entire `Surface`, which made the borrowing
+        unmissable — but it needs its own domain, because hinging the ramp on 0 m is an Earth fact
+        and Mars's 0 m is its median elevation. So the object splits and the STOPS LIST does not:
+        `is` on the list is what keeps "a re-tune of Earth's ramp drags Mars along" true, and a
+        copy here would end that promise while every colour still looked identical on the day.
+
+        Its sea is None, which is a fact rather than a placeholder: the planet seam declares no
+        oceanmask, so no pixel could select a sea ramp however carefully one were written.
         """
-        assert palette.MARS_LOOK.land is palette.EARTH_LOOK.land
+        assert palette.MARS_LOOK.land.stops is palette.EARTH_LOOK.land.stops
+        assert palette.MARS_LOOK.land is not palette.EARTH_LOOK.land
         assert palette.MARS_LOOK.sea is None
         assert palette.EARTH_LOOK.sea is not None
+
+    def test_a_zero_width_ramp_is_refused_at_declaration(self):
+        """The one failure in this class with no visible symptom at all.
+
+        `span_m` of 0 divides by zero, numpy hands back nan, `np.rint(nan)` is nan, and the cast to
+        int32 makes it an arbitrary index — a planet rendered in one wrong colour with no exception
+        anywhere and every gate green. Refusing where the ramp is DECLARED is the only cheap place;
+        by the time a pixel is being looked up there is no ramp left to name.
+        """
+        with pytest.raises(ValueError, match="two distinct ends"):
+            palette.Surface(stops=palette.LAND_STOPS, origin_m=1000.0, extreme_m=1000.0)
+
+    def test_a_ramp_that_runs_downward_keeps_its_direction(self):
+        """A SYNTHETIC ramp whose ends are neither body's, because a parameterisation is unverified
+        until something non-default runs through the real entry point — and both real looks happen
+        to put position 0.0 at the shallower end, which would hide a `lowest_m` that just returned
+        `origin_m`.
+        """
+        downward = palette.Surface(stops=palette.SEA_STOPS, origin_m=-200.0, extreme_m=-3500.0)
+        assert downward.span_m == -3300.0
+        assert downward.lowest_m == -3500.0
+        upward = palette.Surface(stops=palette.LAND_STOPS, origin_m=-200.0, extreme_m=3500.0)
+        assert upward.span_m == 3700.0
+        assert upward.lowest_m == -200.0
+
+    def test_mars_land_spans_its_own_measured_elevations(self):
+        """The domain is p1/p99 of Mars's own heightfield, area-weighted on the sphere.
+
+        Asserted as an ORDERING against Earth rather than as two literals restated from the module:
+        what must stay true is that Mars starts below the datum and Earth does not, which is the
+        defect this domain exists to fix. Pinning the numbers here would only pin the transcription.
+        """
+        mars, earth = palette.MARS_LOOK.land, palette.EARTH_LOOK.land
+        assert mars.origin_m < 0 < mars.extreme_m
+        assert earth.origin_m == 0.0
+        assert mars.span_m > earth.span_m
+        assert mars.lowest_m == mars.origin_m
 
     def test_a_look_with_no_sea_refuses_to_resolve_one(self):
         """Absence is answered by raising, never by handing back the absence itself.
@@ -289,7 +332,7 @@ class TestTheLookRegistry:
         """
         with pytest.raises(ValueError, match="draws no sea"):
             palette.surface("sea", look=palette.MARS_LOOK)
-        assert palette.surface("land", look=palette.MARS_LOOK) is palette.EARTH_LOOK.land
+        assert palette.surface("land", look=palette.MARS_LOOK) is palette.MARS_LOOK.land
 
 
 #: The authored ramp values. They are Earth's, they are assembled into `EARTH_LOOK`, and outside

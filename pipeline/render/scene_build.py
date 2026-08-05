@@ -77,8 +77,12 @@ _HERO_LOOK = palette.EARTH_LOOK
 _HERO_SEA = _HERO_LOOK.sea
 assert _HERO_SEA is not None, "Earth's look must carry a sea ramp; the hero rig builds one"
 
-LAND_RANGE = (0.0, _HERO_LOOK.land.extreme_m)   # meters -> ramp position 0..1
-SEA_RANGE = (_HERO_SEA.extreme_m, 0.0)          # meters -> ramp position 1..0 (reversed To)
+# Both ends come off the Surface now. They used to read `extreme_m` and RESTATE the 0.0, which was
+# the same Earth-is-the-datum assumption the ramp itself carried until `origin_m` — a third copy,
+# in the one module a type checker was never going to connect to the other two. It is Earth-only
+# today so nothing was wrong; it would have gone wrong silently on the first body with heroes.
+LAND_RANGE = (_HERO_LOOK.land.origin_m, _HERO_LOOK.land.extreme_m)  # meters -> ramp position 0..1
+SEA_RANGE = (_HERO_SEA.extreme_m, _HERO_SEA.origin_m)   # meters -> ramp position 1..0 (reversed To)
 LAND_STOPS = _rgba(_HERO_LOOK.land.stops)
 SEA_STOPS = _rgba(_HERO_SEA.stops)       # the tile ramp: shelf-weighted stops to -6000 m
 LAKE_STOPS = _rgba(palette.LAKE_STOPS)   # depth-position ramp; stop 0 IS the water tint
