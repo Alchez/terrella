@@ -10,7 +10,7 @@ import globeSource from "../components/Globe.astro?raw";
 import { BODIES } from "./bodies";
 
 /**
- * The body of a named function in earth.astro, matched by BRACES rather than by a text span.
+ * The body of a named function in Globe.astro, matched by BRACES rather than by a text span.
  *
  * A span matcher cannot tell what encloses a statement — it happily reports a line that has been
  * moved out of the block it was guarding. Counting braces is the only reading that answers
@@ -18,7 +18,7 @@ import { BODIES } from "./bodies";
  */
 function functionBody(source: string, signature: string): string {
   const start = source.indexOf(signature);
-  expect(start, `earth.astro no longer contains \`${signature}\``).toBeGreaterThan(-1);
+  expect(start, `Globe.astro no longer contains \`${signature}\``).toBeGreaterThan(-1);
   let depth = 0;
   for (let index = start + signature.length - 1; index < source.length; index += 1) {
     if (source[index] === "{") depth += 1;

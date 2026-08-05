@@ -152,6 +152,32 @@ describe("the globe's space-floor is the body's colour, not a constant", () => {
   });
 });
 
+/**
+ * Which body a page passes to `<Base>`, resolved from either spelling the site uses.
+ *
+ * A page may name the body outright (`body="mars"`) or take it from the descriptor it already
+ * holds (`body={body.slug}`), and both are read here. A THIRD spelling is an ERROR rather than an
+ * absence, for the reason the view bar's flag parser records: a miss and a genuine mismatch would
+ * otherwise be the same value, and this guard's whole claim is that it read what the page ships.
+ */
+function resolveBodyProp(route: string, source: string): string {
+  const attrs = /<Base\b([^>]*)>/.exec(source)?.[1];
+  if (attrs === undefined) throw new Error(`${route} no longer opens with a <Base …> tag`);
+  const literal = /\bbody="([^"]*)"/.exec(attrs)?.[1];
+  if (literal !== undefined) return literal;
+  const expression = /\bbody=\{([^}]*)\}/.exec(attrs)?.[1]?.trim();
+  // The page names its body once in frontmatter and passes `.slug` down, so the answer is read
+  // from the declaration rather than from the attribute — which is the half a rename would break.
+  if (expression === "body.slug") {
+    const named = /\bconst body = BODIES\.(\w+)\b/.exec(source)?.[1];
+    if (named !== undefined) return named;
+  }
+  throw new Error(
+    `${route}: cannot resolve body={${expression}}. Teach this guard about it — an unread ` +
+      `expression would let a page dress itself in the wrong planet with nothing reporting it.`,
+  );
+}
+
 describe("a body's slug is its route", () => {
   it("gives every body in the registry a page at its own slug", () => {
     // THE ACCEPTANCE CRITERION FOR THIS WHOLE DESCRIPTOR: adding a planet should be a registry
@@ -191,6 +217,39 @@ describe("a body's slug is its route", () => {
       expect(pages, `${slug}'s liteRoute ${descriptor.liteRoute} needs ${expected}`).toContain(
         expected,
       );
+    }
+  });
+
+  it("dresses every page a body owns in that body, and not in the one next door", () => {
+    // A SECOND GLOBE IS WHAT MAKES THIS REACHABLE. `mars.astro` is `earth.astro` with two words
+    // changed, and the way to get it wrong is to change one of them: a page served at `/mars/` that
+    // passes Earth's descriptor draws Mars's relief in Earth's teal, sends its Lite button to the
+    // gallery, and steers a WebGL2-less visitor onto a planet they never asked for. Nothing else
+    // compares a page's ROUTE to the body it dresses itself in, so all of that ships green.
+    //
+    // "Owns" is the route, not the subject. `[slug].astro` is a country page and passes
+    // `body="earth"` because a country is Earth's; what is checked here is the narrower claim that
+    // a page reachable UNDER a body's own path agrees with the body whose path it is.
+    const sources = import.meta.glob("../pages/**/*.astro", {
+      query: "?raw",
+      import: "default",
+      eager: true,
+    }) as Record<string, string>;
+    const owned = Object.entries(sources).flatMap(([path, source]) => {
+      const route = path.replace("../pages/", "");
+      const slug = Object.keys(BODIES).find(
+        (candidate) => route === `${candidate}.astro` || route.startsWith(`${candidate}/`),
+      );
+      return slug === undefined ? [] : [{ route, source, slug }];
+    });
+    // Both depths, because a body owns a page at its own name AND everything nested beneath it, and
+    // a non-recursive glob would quietly check only the first kind.
+    const routes = owned.map((entry) => entry.route);
+    expect(routes, "the sweep missed a body's top-level page").toContain("earth.astro");
+    expect(routes, "the sweep missed a body's nested page").toContain("mars/lite.astro");
+
+    for (const { route, source, slug } of owned) {
+      expect(resolveBodyProp(route, source), `${route} is ${slug}'s route`).toBe(slug);
     }
   });
 

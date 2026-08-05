@@ -678,6 +678,29 @@ SABOTAGES: list[Sabotage] = [
     ),
     Sabotage(
         suite='web',
+        # THE SECOND GLOBE PAGE, which is the whole reason this guard sweeps instead of reading one
+        # file. `slot` reaches the layout's head only from a direct child of the component call, so
+        # a page that omits this line links MapLibre's sheet nowhere and every widget on that
+        # planet renders unstyled — while Earth, the page the guard used to read, stays perfect.
+        label="Mars's globe stops forwarding MapLibre's stylesheet into the head",
+        path='web/src/pages/mars.astro',
+        needle='  <Fragment slot="head"><MapStylesheet /></Fragment>\n',
+        replacement='',
+        guard='puts it in the head, where the preload scanner finds it during the first parse',
+    ),
+    Sabotage(
+        suite='web',
+        # And the narrowing itself, restored: the sweep is pointed back at the one page it read
+        # before there were two. Every remaining globe page passes for free, which is exactly what
+        # the old version did — so this is caught by the anti-vacuity check or by nothing.
+        label='the globe-page sweep is narrowed back to Earth, and the rest pass by not being read',
+        path='web/src/lib/criticalCss.test.ts',
+        needle='const globePages = pages.filter((page) => /<Globe\\s*\\/>/.test(page.text));',
+        replacement='const globePages = pages.filter((page) => page.name === "earth.astro");',
+        guard='knows which pages draw a globe, in both directions',
+    ),
+    Sabotage(
+        suite='web',
         # Deferring MapLibre's sheet buys nothing while OUR 12 KB one still blocks — and at Vite's
         # default 4 KB inline limit, 'auto' leaves it linked. This is the half that carries the win.
         label="the page's own stylesheet goes back to a blocking request",
@@ -1655,7 +1678,7 @@ SABOTAGES: list[Sabotage] = [
         path='web/src/pages/earth.astro',
         needle='  borders={body.hasBorders}',
         replacement='  borders={body.hasBorders}\n  spotlight={true}',
-        guard='fits on one row at 320px on the globe',
+        guard='fits on one row at 320px, on every bar the site ships',
     ),
     # The label direction: nothing about the markup changes shape, one word just gets longer. This is
     # the mutation a reviewer waves through.
@@ -1665,7 +1688,7 @@ SABOTAGES: list[Sabotage] = [
         path='web/src/layouts/Base.astro',
         needle='              Borders',
         replacement='              Country borders',
-        guard='fits on one row at 320px on the globe',
+        guard='fits on one row at 320px, on every bar the site ships',
     ),
     # The tighter phone padding is what buys the fit; reverting it to the desktop values is the kind
     # of tidy-up that looks like removing a redundant override.
@@ -1683,7 +1706,7 @@ SABOTAGES: list[Sabotage] = [
         path='web/src/styles/global.css',
         needle='  justify-content: center;\n  gap: 0.2rem;\n}',
         replacement='  justify-content: center;\n  gap: 1.2rem;\n}',
-        guard='fits on one row at 320px on the globe',
+        guard='fits on one row at 320px, on every bar the site ships',
     ),
     # --- The globe fixture ------------------------------------------------------------------------
     # The fixture is the first thing here that instantiates a real map, so everything later built on
@@ -2969,6 +2992,40 @@ SABOTAGES: list[Sabotage] = [
         needle='  return { globe: `/${slug}/`, lite: BODIES[slug].liteRoute };',
         replacement='  return { globe: "/earth/", lite: BODIES[slug].liteRoute };',
         guard="puts every body's globe at its own slug",
+    ),
+    Sabotage(
+        suite='web',
+        # THE MISTAKE THE SECOND GLOBE PAGE MAKES POSSIBLE, and it is one word. `mars.astro` is
+        # `earth.astro` with the descriptor changed; leave the descriptor and the page still builds,
+        # still routes at /mars/, still draws Mars's relief — in Earth's accent, with a Lite button
+        # aimed at Earth's gallery and a pre-paint guard that steers an incapable visitor there.
+        label="a body's page keeps the descriptor of the page it was copied from",
+        path='web/src/pages/mars.astro',
+        needle='const body = BODIES.mars;',
+        replacement='const body = BODIES.earth;',
+        guard='dresses every page a body owns in that body, and not in the one next door',
+    ),
+    Sabotage(
+        suite='web',
+        # The repo URL inlined on a page that did not exist when the no-literals rule was written.
+        # That rule read a hand-written list of four names, so a fifth page was outside it — and a
+        # page nobody checks cannot fail. Caught only because the list became a walk.
+        label='a new page inlines the repository URL the shared constant exists to own',
+        path='web/src/pages/mars.astro',
+        needle='  <Globe />\n',
+        replacement='  <Globe />\n  <a href="https://github.com/Alchez/terrella">source</a>\n',
+        guard='is never inlined as a literal, which is the drift this constant exists to stop',
+    ),
+    Sabotage(
+        suite='web',
+        # A per-country flag collapsed to one arm, which is the tidy reading of an expression the
+        # parser cannot resolve statically. `[slug].astro` then turns nothing on, drops out of the
+        # measured set entirely, and 203 rendered documents ship a bar nothing has ever sized.
+        label='a bar flag that varies per country is read as simply off',
+        path='web/src/lib/viewBar.browser.test.ts',
+        needle='    return "varies";',
+        replacement='    return false;',
+        guard='is measuring the shipped markup and stylesheet, not an empty string',
     ),
     Sabotage(
         suite='web',

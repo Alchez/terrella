@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 
 /**
  * The globe's first paint must not wait on MapLibre's widget stylesheet.
@@ -23,15 +23,26 @@ import { readFileSync } from "node:fs";
  * for something ~700 ms away from needing it. Reverting the import costs FCP 629 → 1,264 ms.
  */
 const WEB_ROOT = new URL("../../", import.meta.url).pathname;
-// THE SUBJECT IS SPLIT ACROSS THREE FILES, and each half is checked against the one that can break
-// it. The `<link>` and its promoter live in `MapStylesheet.astro`; the client script that must
-// never side-effect-import the sheet is `Globe.astro`; and reaching `<head>` at all depends on the
-// PAGE forwarding that component into `Base`'s named slot, because a `slot` attribute means nothing
-// except on a direct child of a component invocation.
+// THE SUBJECT IS SPLIT ACROSS THREE KINDS OF FILE, and each half is checked against the one that
+// can break it. The `<link>` and its promoter live in `MapStylesheet.astro`; the client script that
+// must never side-effect-import the sheet is `Globe.astro`; and reaching `<head>` at all depends on
+// EVERY PAGE that draws a globe forwarding that component into `Base`'s named slot, because a
+// `slot` attribute means nothing except on a direct child of a component invocation.
 const mapStylesheet = readFileSync(`${WEB_ROOT}src/components/MapStylesheet.astro`, "utf8");
 const globe = readFileSync(`${WEB_ROOT}src/components/Globe.astro`, "utf8");
-const earthPage = readFileSync(`${WEB_ROOT}src/pages/earth.astro`, "utf8");
 const astroConfig = readFileSync(`${WEB_ROOT}astro.config.ts`, "utf8");
+
+// EVERY PAGE THAT DRAWS THE GLOBE, found rather than named. This guard read `pages/earth.astro`
+// while Earth was the only globe, and the day Mars got one the rule went on being checked in one
+// place and unchecked in the other — a Mars globe missing the forward would link MapLibre's sheet
+// nowhere and render every widget unstyled, with the whole suite green. The subject is not a file,
+// it is a PROPERTY: a page that renders `<Globe />` needs the sheet, and one that does not, does
+// not. So the sweep asks each page which it is.
+const PAGES_ROOT = new URL("../pages/", import.meta.url);
+const pages = readdirSync(PAGES_ROOT, { recursive: true })
+  .filter((name): name is string => typeof name === "string" && name.endsWith(".astro"))
+  .map((name) => ({ name, text: readFileSync(new URL(name, PAGES_ROOT), "utf8") }));
+const globePages = pages.filter((page) => /<Globe\s*\/>/.test(page.text));
 
 // AND `MapStylesheet.astro` IS READ AS THREE THINGS, because a whole-file scan of this component is
 // satisfied by its own explanation. Both `media="print"` and `<noscript>` appear in the comment that
@@ -91,12 +102,33 @@ describe("MapLibre's stylesheet must not block the globe's first paint", () => {
     expect(mapStylesheetMarkup).toMatch(/<noscript>/);
   });
 
+  it("knows which pages draw a globe, in both directions", () => {
+    // The loop below is worth exactly this much. A walk that stopped recursing, or a filter that
+    // matched nothing, would report every globe page compliant by having none to check — and a
+    // filter that matched EVERYTHING would demand the forward from the gallery, which needs no
+    // stylesheet. Both directions are asserted, and one nested page proves the walk reached depth
+    // two without being a globe itself.
+    const names = pages.map((page) => page.name);
+    expect(names, "the sweep did not recurse into pages/mars/").toContain("mars/lite.astro");
+    const drawing = globePages.map((page) => page.name);
+    // BOTH globes named, and that is the assertion this guard turns on. A count, or Earth alone,
+    // stays true for a sweep narrowed back to the one page it used to read — which is the exact
+    // regression, and the one that would otherwise look like a pass.
+    expect(drawing, "the sweep no longer finds Earth's globe").toContain("earth.astro");
+    expect(drawing, "the sweep no longer finds Mars's globe").toContain("mars.astro");
+    expect(drawing, "a page with no <Globe /> was counted as one").not.toContain("index.astro");
+  });
+
   it("puts it in the head, where the preload scanner finds it during the first parse", () => {
     // The one line that cannot live in the component. Written inside `MapStylesheet.astro`,
     // `slot="head"` is an ordinary attribute on an ordinary element and the sheet renders in the
     // BODY — still found by the scanner, still working, and silently no longer where the layout
-    // documented it. So the guard is on the page that forwards it.
-    expect(earthPage).toMatch(/<Fragment slot="head">\s*<MapStylesheet\s*\/>\s*<\/Fragment>/);
+    // documented it. So the guard is on every page that forwards it.
+    for (const { name, text } of globePages) {
+      expect(text, `${name} draws a globe but never forwards the stylesheet`).toMatch(
+        /<Fragment slot="head">\s*<MapStylesheet\s*\/>\s*<\/Fragment>/,
+      );
+    }
     // Matched against the TEMPLATE half only. The frontmatter above it documents this very rule, so
     // a whole-file search fails on the explanation rather than on a regression — the same trap the
     // scoped-style guard next door records having fallen into.

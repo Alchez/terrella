@@ -1,8 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { REPO_URL } from "./siteLinks";
 
-const page = (name: string) => readFileSync(new URL(`../pages/${name}`, import.meta.url), "utf8");
+const PAGES_ROOT = new URL("../pages/", import.meta.url);
+const page = (name: string) => readFileSync(new URL(name, PAGES_ROOT), "utf8");
+/** Every page, walked rather than listed — see the no-literals rule below for why that matters. */
+const ALL_PAGES: [string, string][] = readdirSync(PAGES_ROOT, { recursive: true })
+  .filter((name): name is string => typeof name === "string" && name.endsWith(".astro"))
+  .map((name) => [name, page(name)]);
 /** The globe is a COMPONENT, not a page: `pages/earth.astro` is the `<Base>` wrapper around it,
  *  and everything asserted below — the credit control, the chrome row, the repo link — is here. */
 const globe = readFileSync(new URL("../components/Globe.astro", import.meta.url), "utf8");
@@ -34,12 +39,14 @@ describe("the repository link", () => {
 
   it("is never inlined as a literal, which is the drift this constant exists to stop", () => {
     // A renamed repo or moved org would 404 silently — nothing in a build can see it.
-    const everywhere: [string, string][] = [
-      ...LINKED_VIEWS,
-      ["about.astro", page("about.astro")],
-      ["[slug].astro", page("[slug].astro")],
-      ["earth.astro", page("earth.astro")],
-    ];
+    //
+    // WALKED, NOT LISTED. This was four names, and a name list stops covering the site the moment
+    // the site grows a page — which it does per body, and a body's globe is exactly where someone
+    // pastes a repo URL. A page nobody checks cannot fail this, so the list going stale and the
+    // rule being obeyed produce the same green.
+    expect(ALL_PAGES.map(([name]) => name), "the walk did not recurse").toContain("mars/lite.astro");
+    expect(ALL_PAGES.length, "the walk found no pages").toBeGreaterThan(0);
+    const everywhere: [string, string][] = [...LINKED_VIEWS, ...ALL_PAGES];
     for (const [view, source] of everywhere) {
       expect(source, `${view} inlines the URL`).not.toContain("github.com/Alchez");
     }

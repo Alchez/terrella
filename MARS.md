@@ -88,10 +88,12 @@ work below is legible as *remaining*.
 - **The web side has the same registry**, keyed by a `data-body` attribute on `<html>` that the
   layout must declare. There is no bare fallback: a page that omits it has no accent at all, loudly,
   rather than quietly wearing Earth's.
-  - **Mars is already in it**, with a route, accent tokens and a work-tree prefix — and publishes no
-    pyramid. Its chrome colours are placeholders held to satisfy the type, not choices; they are
-    downstream of a palette nobody has ratified, and replacing them with imports from a Mars ramp is
-    the first thing a decided look changes.
+  - **Mars is already in it**, with a route, accent tokens and a work-tree prefix, and it publishes
+    a relief pyramid — so `/mars/` draws the same globe `/earth/` does, from one shared component
+    rather than a second copy of it. Everything Mars does not publish is refused from the registry,
+    so a body page turns nothing off by hand. Its chrome colours are placeholders held to satisfy
+    the type, not choices; they are downstream of a palette nobody has ratified, and replacing them
+    with imports from a Mars ramp is the first thing a decided look changes.
 - **Every tile URL names its body**, in a fixed six-segment grammar — body, layer, a content token
   for the cut, then `z/x/y` and an extension. Adding a planet, a layer or a re-cut adds a *word*,
   never a shape, which is what makes two archives unable to share an address by construction.
@@ -410,6 +412,10 @@ Triaged by when each must be answered, because most of them cannot be answered e
     by hillshade, while Tharsis at +5,858 m and the Olympus summit at +19,964 m take one white. The
     salmon that makes it read as Mars lives only in the middle band, which is the southern highlands.
   - Does Mars draw a sea — none, one chosen contour, or the family of candidate shorelines?
+  - **The sky is Earth's, and Mars is already wearing it.** The globe's three atmosphere colours are
+    module constants with no descriptor field behind them, so unlike the accent and the space floor
+    they are inherited rather than declared provisional. The pale blue-grey is what haloes Mars's
+    limb and what fills the hole the projection leaves at each pole, where no cap is drawn.
   - Exaggeration: the ~10× above is arithmetic and needs judging.
   - Does THEMIS night IR belong in the look, as a second physical field over relief?
 - **After a look is ratified.**

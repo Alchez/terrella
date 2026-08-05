@@ -834,7 +834,7 @@ describe("probeSignals is a GPU allocation, and callers must treat it as one", (
     // the least stable part of a declaration.
     const compose = globe.match(/const composeReport = \([\s\S]*?\n {8}\};/)?.[0];
     expect(compose, "the report composer must exist").toBeTruthy();
-    // A RUNAWAY DETECTOR, not a size budget — earth.astro is ~100 KB, so anything that escaped the
+    // A RUNAWAY DETECTOR, not a size budget — Globe.astro is ~100 KB, so anything that escaped the
     // composer overshoots this by an order of magnitude. Bumped once, when the report gained
     // `probedTier`; bump it again for a legitimate growth rather than trimming the composer to fit.
     expect(compose!.length, "matched a runaway span, not the composer").toBeLessThan(4000);

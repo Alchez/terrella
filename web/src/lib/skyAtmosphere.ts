@@ -23,7 +23,14 @@ import type { SkySpecification } from "maplibre-gl";
 /** Committed sky colours. Browser-only aesthetic constants — deliberately NOT in palette.ts,
  *  whose contract is "colours the PIPELINE owns, restated for the browser", each one pinned by a
  *  Python test that recomputes it from palette.py. Nothing here has a pipeline counterpart to be
- *  pinned against, so filing them there would put unguarded values under a guarded banner. */
+ *  pinned against, so filing them there would put unguarded values under a guarded banner.
+ *
+ *  THESE THREE ARE EARTH'S, AND EVERY BODY CURRENTLY WEARS THEM. Unlike the accent and the space
+ *  floor, which the registry holds per body and marks as provisional where they are, the sky has no
+ *  descriptor field — so a second planet inherits this one silently rather than declaring it. It is
+ *  visible on Mars at a glance: `#dfe7ea` is what fills the hole the projection leaves at each pole,
+ *  and it is what haloes the limb. Left as one sky on purpose until a Mars look is ratified, since
+ *  picking a second one is a decision to make against the sphere rather than against a hex. */
 const SKY_COLOR = "#8fb8d6";
 const HORIZON_COLOR = "#cbd8dd";
 const FOG_COLOR = "#dfe7ea";

@@ -43,6 +43,22 @@ import { REPO_URL } from "../lib/siteLinks";
   </a>
 </nav>
 
+{/* THE NEXT TWO ELEMENTS SHIP TO EVERY BODY, INCLUDING ONES THAT CAN NEVER OPEN THEM, AND THAT IS
+     A DECISION RATHER THAN AN OVERSIGHT. `globeSubsystems` gates the SCRIPT — a body with no
+     countries pyramid never wires the hover or the click — so on Mars these are inert hidden nodes.
+     Gating the markup as well needs this component to take a body PROP, since `currentBody()` is a
+     runtime read of `data-body` and the frontmatter cannot see it.
+
+     MEASURED BEFORE DECIDING, because the case for it was always "bytes": 1,009 of HTML, chip 201
+     and panel 808. The 2,757 bytes of matching CSS CANNOT follow them out — Astro collects a
+     component's scoped styles from the import graph, so a runtime conditional never drops a rule —
+     and both pages share one client chunk, so gating the script saves nothing either. Against that,
+     `panel`, `heroImg` and `figure` are module-scope reads that throw on null, so the gate drags
+     `openPanel`, `closePanel`, the Escape handler and the click handler behind it.
+
+     They are provably inert rather than merely unused: `countryAt` returns null without the layers,
+     and both ship `hidden` plus `aria-hidden`, so assistive technology never reaches them. */}
+
 {/* Names whatever the pointer is on, so the gold hover outline stops being anonymous.
      Desktop-only by nature rather than by omission: touch has no hover state to leave
      unnamed, and a tap already opens the card below, which names the country outright. */}

@@ -97,7 +97,7 @@ describe("defaultMaxParallelImageRequests", () => {
 describe("the call site installs the resolved cap", () => {
   // `?maxreq` must still beat the default in BOTH directions — a measurement run that asked for 8
   // and silently got 32 would be the same failure the parser's rejections exist to prevent, one
-  // layer up. Unit tests cannot see earth.astro, so this reads it.
+  // layer up. Unit tests cannot see Globe.astro, so this reads it.
   const globe = readFileSync(new URL("../components/Globe.astro", import.meta.url), "utf8");
 
   it("prefers the ?maxreq override over the resolved default", () => {
