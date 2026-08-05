@@ -712,7 +712,7 @@ class TestTheBodyIsRequired:
             command = shade_planet.cap_pass_command(other)
             assert command[command.index("--body") + 1] == "other"
 
-    def test_a_body_publishing_no_caps_is_refused_by_the_cap_pass_itself(self, capsys):
+    def test_a_body_publishing_no_caps_is_refused_by_the_cap_pass_itself(self, monkeypatch):
         """The SECOND gate, and it is not redundant with the shade pass declining to invoke this.
 
         Reaching `cap_render.main` means an operator ran it directly, and the answer has to be the
@@ -722,18 +722,21 @@ class TestTheBodyIsRequired:
 
         Asserted through the real entry point with the real parser, because the refusal has to
         happen before anything reads a raster, and only running `main` proves the order.
+
+        THE CAPLESS BODY IS SYNTHETIC AND HAS TO BE. It used to be found by scanning the registry,
+        which held one while Mars's ramps were unratified; ratifying them turned Mars's caps on and
+        took the last negative instance with it. A guard that sources its negative instance from a
+        live field is a guard that quietly stops testing anything when that field flips. It goes
+        INTO the registry for the call, because `main` resolves a name off argv.
         """
-        no_caps = next((bodies.get(name) for name in sorted(bodies.BODIES)
-                        if not bodies.get(name).renders_polar_caps), None)
-        assert no_caps is not None, (
-            "no body in the registry publishes zero caps, so this guard is watching nothing — "
-            "delete it, or the body that motivated it has silently been turned back on"
-        )
-        with mock.patch.object(sys, "argv", ["cap_render", "--body", no_caps.name]), \
+        capless = dataclasses.replace(bodies.EARTH, name="capless", path_prefix="capless",
+                                      renders_polar_caps=False)
+        monkeypatch.setitem(bodies.BODIES, capless.name, capless)
+        with mock.patch.object(sys, "argv", ["cap_render", "--body", capless.name]), \
                 pytest.raises(SystemExit) as refusal:
             cap_render.main()
         message = str(refusal.value)
-        assert no_caps.name in message and "renders_polar_caps" in message, message
+        assert capless.name in message and "renders_polar_caps" in message, message
 
     def test_the_shade_pass_skips_the_cap_subprocess_for_a_body_that_publishes_none(self):
         """The FIRST gate, asserted on the branch rather than on the flag.
@@ -741,9 +744,13 @@ class TestTheBodyIsRequired:
         A test reading `body.renders_polar_caps` back would pass against a shade pass that consulted
         it and then shelled out anyway. What must be true is that no cap subprocess is spawned, so
         the assertion is on the decision the pass makes with the field.
+
+        The synthetic body is what keeps the loop from being one-sided: every registered planet
+        renders caps now, so the registry alone would only ever exercise the True arm and a
+        `runs_cap_pass` hardcoded to True would pass.
         """
-        for name in sorted(bodies.BODIES):
-            body = bodies.get(name)
+        capless = dataclasses.replace(bodies.EARTH, name="capless", renders_polar_caps=False)
+        for body in [bodies.get(name) for name in sorted(bodies.BODIES)] + [capless]:
             assert shade_planet.runs_cap_pass(body) is body.renders_polar_caps
 
 

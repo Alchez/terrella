@@ -1,5 +1,5 @@
-// The descriptor's three Earth-only flags, and the two things that can actually be checked about
-// them here.
+// The descriptor's Earth-only flags, and the two things that can actually be checked about them
+// here.
 //
 // A boolean in a registry is the cheapest thing in the codebase to get wrong: it type-checks at any
 // value, every gate stays green, and the only symptom is a subsystem that quietly never runs — or
@@ -15,6 +15,11 @@
 //     bodies publish relief so no registry state could falsify it. An unfalsifiable guard is the
 //     species scripts/sabotage.py exists to hunt; the reasoning lives in the field's docstring
 //     until a body arrives that could break it.
+//   * `rendersPolarCaps` is also NOT in EARTH_ONLY_FLAGS below, for the same reason arriving from
+//     the other direction: the cap is a Web Mercator repair rather than an ice layer, so it is what
+//     every body wants and Mars's False was only ever "its ramps are unratified". Ratified, both
+//     bodies answer true and the flag stops being Earth-only — the list holds the flags that still
+//     divide the registry, and is worth nothing the moment it holds one that cannot.
 //
 // `bodies.browser.test.ts` covers what needs a renderer: accent tokens, `data-body`, and the
 // slug-is-a-route binding. Nothing here needs a DOM.
@@ -24,7 +29,7 @@ import { BODIES, type BodySlug } from "./bodies";
 import { PUBLISHED } from "./tileAddress";
 
 const SLUGS = Object.keys(BODIES) as BodySlug[];
-const EARTH_ONLY_FLAGS = ["rendersPolarCaps", "hasBorders", "hasHeroes"] as const;
+const EARTH_ONLY_FLAGS = ["hasBorders", "hasHeroes"] as const;
 
 describe("what a body declares it ships", () => {
   it("holds both answers to every flag, so none of them is a constant in disguise", () => {

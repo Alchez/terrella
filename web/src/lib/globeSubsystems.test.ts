@@ -43,25 +43,35 @@ describe("what a body's globe draws", () => {
     // Both of the above would pass on a function that ignored its argument and returned a constant,
     // if the registry happened to answer the same way for every planet. It does not, and this is
     // what fails on the day someone adds a third body by copying Earth's row.
+    //
+    // `polarCaps` is not in the list, and the omission is the point rather than an oversight: a cap
+    // is a Web Mercator repair, so it is what every body wants once its ramps are ratified. Asking
+    // the registry to keep disagreeing about it would be asking a planet to keep a hole at its pole
+    // to satisfy a test. What still gates it per visit is `?bare` and `?nocaps`, below.
     const answers = ALL_BODIES.map((body) => globeSubsystems(body, NO_FLAGS));
-    for (const subsystem of ["polarCaps", "terrain", "countries", "borders", "heroes"] as const) {
+    for (const subsystem of ["terrain", "countries", "borders", "heroes"] as const) {
       const given = new Set(answers.map((answer) => answer[subsystem]));
       expect(given, `every body answers the same for ${subsystem}`).toEqual(new Set([true, false]));
     }
   });
 });
 
-describe("?bare and a body that publishes only relief are one code path", () => {
-  it("takes away from Earth exactly what Mars never had", () => {
-    // The thesis, executable. Compared on the OVERLAYS only: `?bare` isolates the raster baseline
-    // from what is drawn over it, and terrain is the raster in three dimensions rather than a thing
-    // on top of it — so `?bare&terrain=2` stays a combination worth asking for.
-    const bareEarth = globeSubsystems("earth", new URLSearchParams("bare"));
-    const plainMars = globeSubsystems("mars", NO_FLAGS);
-    for (const overlay of OVERLAYS) {
-      expect(bareEarth[overlay], `?bare Earth vs plain Mars disagree on ${overlay}`).toBe(
-        plainMars[overlay],
-      );
+describe("?bare strips a globe to the raster baseline, on every body", () => {
+  it("strips every body down to the same floor, whatever that body publishes", () => {
+    // The thesis, executable. It used to be spelled as `?bare` Earth == plain Mars, which read well
+    // while Mars published nothing but relief and quietly stopped being an assertion the moment it
+    // published anything — the two sides met at "all false" because Mars had nothing to take away.
+    // Stated as the floor itself it survives a body acquiring subsystems, and Mars acquiring caps is
+    // what makes the `?bare` path do real work on a second planet for the first time.
+    //
+    // Compared on the OVERLAYS only: `?bare` isolates the raster baseline from what is drawn over
+    // it, and terrain is the raster in three dimensions rather than a thing on top of it — so
+    // `?bare&terrain=2` stays a combination worth asking for.
+    for (const body of ALL_BODIES) {
+      const bare = globeSubsystems(body, new URLSearchParams("bare"));
+      for (const overlay of OVERLAYS) {
+        expect(bare[overlay], `?bare ${body} still draws ${overlay}`).toBe(false);
+      }
     }
   });
 

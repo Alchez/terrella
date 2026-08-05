@@ -17,6 +17,7 @@ launching a multi-hour pass. The abort branch is the point: a guard that has nev
 fire is indistinguishable from one that passed.
 """
 
+import dataclasses
 import subprocess
 from pathlib import Path
 
@@ -27,6 +28,16 @@ from pipeline.profile import pass_cap
 
 SCRIPT = Path(__file__).resolve().parents[1] / "pipeline" / "profile" / "run_pass.sh"
 GIB_IN_KIB = 1024 * 1024
+
+#: A body that renders no polar caps — the resolver's OTHER branch, and synthetic on purpose.
+#:
+#: The registry used to supply one: Mars rendered no caps while its ramps were unratified, and every
+#: test below took its negative instance from that row. Ratifying the ramps turned the caps on and
+#: took the branch away with them, which is the failure mode worth naming — a guard whose only
+#: negative instance is a live registry field stops testing anything the day that field changes, and
+#: says nothing while it happens. Built off Earth so every unrelated field is a real planet's.
+CAPLESS = dataclasses.replace(bodies.EARTH, name="capless", path_prefix="capless",
+                              renders_polar_caps=False)
 
 
 def write_meminfo(path: Path, available_kib: int) -> Path:
@@ -158,11 +169,18 @@ class TestTheCapComesFromTheBody:
 
 
 class TestTheCapResolver:
+    """Both branches, one from the registry and one from `CAPLESS`.
+
+    The pair is what makes the resolver falsifiable: a version that ignored its argument and returned
+    a constant satisfies either test alone, and fails the moment two bodies disagreeing on the one
+    field it reads are asked in the same suite.
+    """
+
     def test_earth_gets_the_cap_render_headroom(self):
         assert pass_cap.pass_memory_cap_gib(bodies.EARTH) == pass_cap.CAP_RENDERING_GIB
 
-    def test_mars_gets_the_standing_cap(self):
-        assert pass_cap.pass_memory_cap_gib(bodies.MARS) == pass_cap.STANDING_GIB
+    def test_a_capless_body_gets_the_standing_cap(self):
+        assert pass_cap.pass_memory_cap_gib(CAPLESS) == pass_cap.STANDING_GIB
 
     def test_the_two_numbers_actually_differ(self):
         """Anti-vacuity: both assertions above pass if the constants collapse to one value, and so
@@ -178,14 +196,14 @@ class TestTheCapResolver:
     def test_every_registered_body_resolves(self, slug):
         assert pass_cap.pass_memory_cap_gib(bodies.get(slug)) > 0
 
-    def test_both_answers_are_reachable_from_the_registry(self):
-        """The resolver is only falsifiable while some registered body takes each branch. With one
-        planet answering, a resolver that ignored its argument would satisfy everything above."""
-        caps = {pass_cap.pass_memory_cap_gib(body) for body in bodies.BODIES.values()}
-        assert caps == {pass_cap.CAP_RENDERING_GIB, pass_cap.STANDING_GIB}
-
-    def test_the_argv_path_reads_the_body_through_the_passs_own_parser(self):
+    def test_the_argv_path_reads_the_body_through_the_passs_own_parser(self, monkeypatch):
         """`--out` is accepted here only because the pass accepts it; a parser private to this
-        module would have to grow every flag separately, which is the drift sharing one avoids."""
-        assert pass_cap.cap_for_argv(["--body", "mars", "--tiles", "--out", "/tmp/x"]) == 12
+        module would have to grow every flag separately, which is the drift sharing one avoids.
+
+        `CAPLESS` is put in the registry rather than passed as an object because THIS path takes a
+        name: `cap_for_argv` parses argv and resolves through `bodies.get`, so a capless body only
+        reaches the resolver if the registry can answer for it.
+        """
+        monkeypatch.setitem(bodies.BODIES, CAPLESS.name, CAPLESS)
+        assert pass_cap.cap_for_argv(["--body", "capless", "--tiles", "--out", "/x"]) == 12
         assert pass_cap.cap_for_argv(["--body", "earth"]) == 16

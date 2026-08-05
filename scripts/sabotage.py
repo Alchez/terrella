@@ -3017,7 +3017,7 @@ SABOTAGES: list[Sabotage] = [
         path='web/src/lib/globeSubsystems.ts',
         needle='    borders: descriptor.hasBorders && !bare,',
         replacement='    borders: descriptor.hasBorders,',
-        guard='takes away from Earth exactly what Mars never had',
+        guard='strips every body down to the same floor, whatever that body publishes',
     ),
     Sabotage(
         suite='web',
@@ -4006,7 +4006,7 @@ SABOTAGES: list[Sabotage] = [
         path='pipeline/profile/pass_cap.py',
         needle='    return CAP_RENDERING_GIB if body.renders_polar_caps else STANDING_GIB',
         replacement='    return CAP_RENDERING_GIB',
-        guard='test_mars_gets_the_standing_cap',
+        guard='test_a_capless_body_gets_the_standing_cap',
     ),
     # The tidiest-looking of the four: two constants that agree are one constant, and collapsing them
     # leaves a resolver that still branches, still reads the body, and still answers.
