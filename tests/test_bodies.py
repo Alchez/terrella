@@ -465,8 +465,11 @@ def test_the_two_registries_agree_on_which_bodies_render_polar_caps() -> None:
     silent in both directions — a globe carrying polar holes it has textures for, or one asking for
     a `caps.json` nobody wrote and swallowing the 404 in a `.catch`.
 
-    Non-vacuous by construction: Earth renders caps and Mars does not, so this compares two real
-    values rather than confirming a constant.
+    WHAT THIS NO LONGER PROVES, since both bodies answer `true`: that the scan reads the right
+    planet's block. A scanner that returned Earth's descriptor for every name would pass here now.
+    That claim moved to the sibling below, and belongs there rather than here — `path_prefix`'s two
+    answers differ in KIND, Earth's empty and Mars's its own name, so a scan reading the wrong body
+    fails on Earth alone and can never be satisfied by a registry that happens to agree with itself.
     """
     blocks = _browser_descriptor_blocks()
     assert set(blocks) == set(bodies.BODIES), (

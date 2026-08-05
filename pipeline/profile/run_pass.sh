@@ -22,6 +22,8 @@
 #
 # THE CAP IS THE BODY'S AND THIS SCRIPT DOES NOT KNOW IT -- pipeline/profile/pass_cap.py derives
 # it from the registry, and holds the whole argument plus the measurements behind both numbers.
+# MEMORY_CAP_OVERRIDE_GIB substitutes the number afterwards and says so on stdout when it does; the
+# registry is still asked either way, and the branch itself carries why that ordering matters.
 # The short version: 16 G is Earth's, because the pass ENDS by invoking cap_render as a subprocess
 # that inherits this scope's cgroup and peaks near 14 GB; a body rendering no caps never reaches
 # that stage, so on it the 16 G is unbacked rather than protective and the preflight below then
@@ -60,6 +62,31 @@ UNIT=terrella-$RUN_LABEL
 # -- until now a run that omitted --body cleared the preflight, opened a cgroup scope, and only
 # then died inside Python. argparse writes its own message to stderr, so nothing is restated here.
 MEMORY_CAP_GIB=$("$VENV" -m pipeline.profile.pass_cap "$@") || exit 1
+
+# A DELIBERATE OVERRIDE, READ AFTER THE RESOLVER AND NEVER INSTEAD OF IT, which is the whole design
+# of this branch. Written `${MEMORY_CAP_OVERRIDE_GIB:-$(...)}` it would let an exported variable skip
+# the resolver entirely, and with it the --body check the line above exists to enforce; written here
+# the registry is always asked, the body is always named, and only the NUMBER is substituted.
+#
+# It exists because the alternative is an untestable wiring. Both bodies render caps now, so the
+# resolver answers 16 for every planet in the registry and no real invocation can tell "the shell
+# used the number it was given" from "the shell holds a 16" -- a distinction sabotage.py has a case
+# for. A synthetic body cannot help: pass_cap runs in a SUBPROCESS, so a monkeypatched registry
+# never reaches it. This makes the number a controllable input, which is what a wiring test needs.
+#
+# ANNOUNCED, BECAUSE A SILENT ONE WOULD BE THE THING pass_cap's "NO FALLBACK" NOTE REFUSES. A pass
+# capped at an arbitrary number that nothing names is exactly the failure that module is written to
+# prevent; a pass capped at a number it prints is an operator decision, like ALLOW_LOW_MEMORY.
+if [[ -n "${MEMORY_CAP_OVERRIDE_GIB:-}" ]]; then
+    # Validated rather than trusted: a non-numeric value makes the comparison below evaluate it as
+    # 0, so every box would clear every cap and the preflight would silently stop being a check.
+    if [[ ! "$MEMORY_CAP_OVERRIDE_GIB" =~ ^[0-9]+$ ]]; then
+        echo "ABORT: MEMORY_CAP_OVERRIDE_GIB=$MEMORY_CAP_OVERRIDE_GIB is not a whole number of GiB." >&2
+        exit 1
+    fi
+    echo "memory cap overridden: ${MEMORY_CAP_OVERRIDE_GIB} G instead of this body's ${MEMORY_CAP_GIB} G"
+    MEMORY_CAP_GIB=$MEMORY_CAP_OVERRIDE_GIB
+fi
 MEMORY_CAP=${MEMORY_CAP_GIB}G
 
 # --- memory preflight -------------------------------------------------------------------------

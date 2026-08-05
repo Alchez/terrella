@@ -482,12 +482,11 @@ Triaged by when each must be answered, because most of them cannot be answered e
       opaque from 84° poleward and nothing beneath it is ever seen. The plug exists only because the
       raster must hold something between 84° and the 85.05° grid edge, and a smeared Mercator sliver
       is uglier than a flat colour in the one case the flat colour shows.
-    - **So the answer is not a per-body `CAP_RGB`.** It is that Mars renders no caps, and the stated
-      reason for that — a cap would wear the same unratified ramps as the tiles — expires the moment
-      the look is ratified. Caps for Mars hide the plug exactly as Earth's do.
-    - Until then it is Earth's answer to a question Mars has not been asked, and the honest interim
-      choice is between leaving it, and dropping the plug for a capless body so the smeared band
-      shows real terrain instead. Both are decided by looking.
+    - **So the answer was never a per-body `CAP_RGB`.** It was that Mars rendered no caps, and the
+      stated reason — a cap wears the same ramps as the tiles, so rendering one publishes a look
+      decision — expired when the look was ratified. Mars's caps now hide the plug exactly as
+      Earth's do, and they are relief rather than ice: Mars declares no surface layers, so the two
+      discs shade from the same ramps as the tiles. Anyone expecting white is expecting a layer.
   - Exaggeration: the ~10× above is arithmetic and needs judging.
   - Does THEMIS night IR belong in the look, as a second physical field over relief?
 - **After a look is ratified.**

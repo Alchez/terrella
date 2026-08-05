@@ -110,11 +110,11 @@ N_WORKERS = 4              # composite worker threads. The knee: numpy is DRAM-b
 # exists because the raster must hold SOMETHING between here and the 85.05 grid edge, and a smeared
 # Mercator sliver is uglier than a flat plug in the one case the plug shows.
 #
-# It shows on a body with `renders_polar_caps = False` — Mars today — where it is the whole pole,
-# and MapLibre extends the top tile row over the projection's hole as well. So the colour below is
-# EARTH'S ANSWER TO A QUESTION MARS HAS NOT BEEN ASKED, visible only for as long as Mars publishes
-# no caps. Giving it a per-body value would be pricing a colour that goes back to being invisible
-# the moment a ratified Mars look lets its caps render.
+# It shows on a body with `renders_polar_caps = False`, where it becomes the whole pole — MapLibre
+# extends the top tile row over the projection's hole as well, so a flat disc replaces the ice cap.
+# NO REGISTERED BODY IS IN THAT STATE, which is why this stays one constant rather than a per-body
+# field: Mars was the only capless body and its caps went on with its ramps. Pricing a colour per
+# planet would be pricing pixels that are covered on every planet that exists.
 CAP_NORTH, CAP_SOUTH = 84.0, -84.0
 CAP_RGB = (216, 226, 233)   # pale sea-ice fill for the poles (web-mercator has no data past ~85 deg)
 INFLIGHT_BUFFER = 2        # windows read AHEAD of the workers (optimisation #5): the main thread

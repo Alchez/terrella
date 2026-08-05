@@ -29,9 +29,13 @@ describe("what a body's globe draws", () => {
     } satisfies GlobeSubsystems);
   });
 
-  it("gives a relief-only body its raster and nothing else", () => {
+  it("gives a body with no vectors its raster and its caps, and nothing else", () => {
+    // The caps are not an exception to "nothing else" — they are the projection's repair rather
+    // than a layer over it. Web Mercator carries no data past ~85°, so a globe without them draws
+    // `shade_planet.CAP_RGB` at both poles: a flat pale disc, tested on Earth and rejected. What
+    // Mars still declines is everything that needs a second dataset — terrain, vectors, heroes.
     expect(globeSubsystems("mars", NO_FLAGS)).toEqual({
-      polarCaps: false,
+      polarCaps: true,
       terrain: false,
       countries: false,
       borders: false,

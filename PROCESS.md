@@ -83,7 +83,12 @@ All stage numbers below are at the **131072² grid** (the full Mercator square) 
 
 `python -m pipeline.tile.shade_planet --body mars --tiles`, cold, **4:41 end to end** — against ~52
 minutes for the equivalent Earth stages, plus the hour and a half of optional-layer warps Mars never
-pays. One sixteenth the pixels, and a body that declares no surface layers and no polar caps.
+pays. One sixteenth the pixels, and a body that declares no surface layers.
+
+**The 4:41 predates Mars's caps and does not include them** — it was measured while
+`renders_polar_caps` was `False`, and the cap stage runs outside the `--tiles` branch, so it now
+fires on every pass. The row below carries what the caps cost, measured separately; a cold
+end-to-end Mars figure covering both has not been taken.
 
 | Stage | Earth z8 | Mars z6 | Note |
 |---|---|---|---|
@@ -93,7 +98,7 @@ pays. One sixteenth the pixels, and a body that declares no surface layers and n
 | `global_occlusion` | 3:23 | **0:15** | |
 | `composite_planet` | 21:37 | **0:46** | 256 windows, 5.57 win/s, threaded ×4 |
 | `build_tiles` z0–6 | 4:19 | **0:30** | 5,461 tiles, 352 MB |
-| `cap_render` | 1:36 | **0:00** | `renders_polar_caps=False`; the globe carries a hole above the Mercator limit |
+| `cap_render` | 1:36 | **~1:15** | Both discs, from the heightfield alone. Bounded by artifact mtimes from the first cap output to `caps.json`, on a run whose elevation rungs were already fresh — not from the cold pass the rest of this column comes from |
 | pack + convert | 0:16 | **~1 s** | `planet.pmtiles` **356 MB**, 5,334 unique of 5,461 |
 
 **READ THE ANONYMOUS HIGH-WATER MARK, NOT THE CGROUP'S `memory.peak`.** The two differ by more than
@@ -103,20 +108,26 @@ the outputs written, charged to the cgroup and droppable under pressure. Summed 
 was **4.01 GiB**, the composite worker holding **2.90 GiB** of it. A cap sized off the cgroup number
 is sized off file traffic; a cap sized off `VmHWM` is sized off what cannot be reclaimed.
 
-**`pipeline/profile/run_pass.sh` sizes its cgroup cap from the body: Earth 16 G, Mars 12 G.**
+**`pipeline/profile/run_pass.sh` sizes its cgroup cap from the body, and both bodies now want 16 G.**
 `pipeline/profile/pass_cap.py` derives it from `renders_polar_caps` and holds both measurements. 16 G
-is Earth's number because the pass ends by invoking `cap_render` as a subprocess that inherits the
-scope's cgroup and peaks near 14 GB; a body that renders no caps never reaches that stage, so on it
-16 G is unbacked rather than protective — and the harness's own `MemAvailable` preflight then refuses
-to start a pass the box could comfortably have run. On this box with a browser open that is not
-hypothetical: available memory sits near 15 GiB, which backs everything Mars needs and nothing Earth
-does. The resolver reads `--body` through the pass's own argument parser, so an omitted body is now
+is the cap-rendering number because the pass ends by invoking `cap_render` as a subprocess that
+inherits the scope's cgroup and peaks near 14 GB; a body that renders no caps never reaches that
+stage, so on it 16 G is unbacked rather than protective and the harness's own `MemAvailable`
+preflight would refuse a pass the box could comfortably have run. Mars answered 12 G until its ramps
+were ratified and its caps went on — the standing 12 G branch is live code with no body currently
+taking it. The resolver reads `--body` through the pass's own argument parser, so an omitted body is
 refused at the wrapper instead of after a cgroup scope has already been opened.
+
+**`MEMORY_CAP_OVERRIDE_GIB` substitutes the number afterwards**, and prints that it did. It is read
+*after* the resolver, never instead of it, so `--body` stays enforced; a non-numeric value aborts,
+because bash would otherwise evaluate it as 0 and every box would clear every cap. It exists because
+with no body on the 12 G branch nothing else can show that the shell uses the number it is handed
+rather than a constant — `pass_cap` runs in a subprocess, so no test fixture can reach its registry.
 
 ### The look loop on Mars — WARM iteration costs, which are what a look session actually pays
 
 The 4:41 above is a cold pass and the wrong number to plan a look session with. Measured on repeated
-z6 passes, warm, at 20× under the derived 12 G cap:
+z6 passes, warm, at 20×, under the 12 G cap Mars had at the time:
 
 | Change | What restages | Wall clock |
 |---|---|---|
@@ -124,6 +135,12 @@ z6 passes, warm, at 20× under the derived 12 G cap:
 | a ramp, judged on the globe (`--tiles`) | the above + the tile cut | **1:36** |
 | the exaggeration (`Body.exaggeration`) | the above **plus** the hillshade | **2:14** |
 | neither — a re-pack alone | nothing upstream | **~4 s** |
+
+**Every row above is now ~1:15 longer, and the floor is 16 G.** The cap stage runs OUTSIDE the
+`--tiles` branch, so turning Mars's caps on put it in the composite-only loop too — the cheapest
+iteration is no longer ~1:03. Not skippable by a flag, deliberately: skipping the caps while the
+tiles moved is what produced the −6.7 DN cap-vs-tile seam drift, and the look is ratified, so the
+loop is now rare enough to pay for correctness.
 
 **Drop `--tiles` while iterating and take the frames off `planet_rgb.tif` directly.** Measured over five
 consecutive z6 candidates: 62–64 s each against 1:35 with the cut. Nothing about the colour is decided

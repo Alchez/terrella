@@ -261,17 +261,21 @@ export const BODIES: Record<BodySlug, BodyDescriptor> = {
     // ~0.6% of Earth's, so an atmosphere faithful to Earth's tuning is invisible at every zoom the
     // globe reaches; the honest rendering of that is no sky pass rather than a token haze. It
     // replaces something that was never declared at all — Earth's pale blue-grey haloing this
-    // planet's limb and filling the hole at each pole, which is what a globe with no cap and
-    // another body's air looks like.
+    // planet's limb. NOT the pale band at each pole, which reads as the same colour and is not:
+    // deleting the sky outright left that band untouched, because it is `shade_planet.CAP_RGB`
+    // baked into the tiles rather than air showing through.
     //
     // Reversible in one line if the look loop decides a wisp reads better, which is the point of
     // the field being nullable rather than the sky being skipped by a flag somewhere.
     atmosphere: null,
-    // Matches `pipeline/bodies.py`'s `MARS.renders_polar_caps`, which is what actually decides it:
-    // a cap's colours come from the same unratified ramps as the tiles, so a Mars cap today would
-    // wear Earth's palette. The globe therefore shows a hole above ~85° at each pole, which is the
-    // honest cost of a look that has not been decided.
-    rendersPolarCaps: false,
+    // Matches `pipeline/bodies.py`'s `MARS.renders_polar_caps`, which is what actually decides it —
+    // this side only says whether to FETCH what that side wrote. Held false while the ramps were
+    // unratified; on now that they are.
+    //
+    // It buys a projection repair, not ice. Mars declares no surface layers, so the two discs are
+    // the same bare relief as the tiles; what they replace is `shade_planet.CAP_RGB`, the flat pale
+    // plug above 84° that MapLibre stretched across the pole.
+    rendersPolarCaps: true,
     // Mars has no nations. Whatever eventually divides this planet on screen — the geologic units
     // of SIM 3292 are the candidate — is a different product from a political boundary line, so it
     // will arrive as its own layer rather than by flipping this.

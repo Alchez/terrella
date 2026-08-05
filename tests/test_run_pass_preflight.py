@@ -120,35 +120,73 @@ class TestBothRunLabelsAreGuarded:
         assert f"the {label} run is capped at 16 G" in result.stderr
 
 
-class TestTheCapComesFromTheBody:
+class TestTheCapReachesTheCgroup:
     """The WIRING, driven through the real script rather than asserted about `pass_cap` alone.
 
     A unit test on the resolver cannot see the failure this closes: the shell used to hold the
     number itself, so a correct resolver that nothing called would leave every pass at Earth's 16 G
     and every assertion in the class below would still pass.
+
+    THE SECOND NUMBER COMES FROM `MEMORY_CAP_OVERRIDE_GIB` RATHER THAN FROM A SECOND BODY, and that
+    is forced rather than chosen. `pass_cap` runs in a SUBPROCESS, so `CAPLESS` cannot reach it and
+    a registry monkeypatch is invisible here; once both registered bodies rendered caps, the
+    resolver answered 16 for every planet and no invocation could distinguish "the shell used the
+    number it was handed" from "the shell holds a 16". The override makes the number an input, which
+    is what these tests need and what the registry can no longer supply.
     """
 
-    def test_a_capless_body_runs_on_a_box_that_refuses_earth(self, tmp_path):
+    def test_a_lower_cap_runs_on_a_box_that_refuses_earths(self, tmp_path):
         """The whole point, at the one memory figure where the two answers disagree.
 
-        14 GiB backs Mars's 12 G and not Earth's 16 G, so one fixture shows both that the cap moved
+        14 GiB backs a 12 G cap and not Earth's 16 G, so one fixture shows both that the cap moved
         and that it did not simply go slack — a guard weakened for everyone would admit both arms,
         and this asserts it admits exactly one.
         """
         meminfo = write_meminfo(tmp_path / "meminfo", 14 * GIB_IN_KIB)
-        mars = run_preflight(meminfo, "--body", "mars", "--tiles")
-        earth = run_preflight(meminfo, "--body", "earth", "--tiles")
-        assert mars.returncode == 0, mars.stderr
-        assert "14.0 GiB available >= 12 G cap" in mars.stdout
-        assert earth.returncode == 1
-        assert "capped at 16 G" in earth.stderr
+        lowered = run_preflight(meminfo, "--body", "earth", "--tiles",
+                                MEMORY_CAP_OVERRIDE_GIB="12")
+        standing = run_preflight(meminfo, "--body", "earth", "--tiles")
+        assert lowered.returncode == 0, lowered.stderr
+        assert "14.0 GiB available >= 12 G cap" in lowered.stdout
+        assert standing.returncode == 1
+        assert "capped at 16 G" in standing.stderr
 
-    def test_the_cgroup_argument_carries_the_bodys_cap_not_a_constant(self, tmp_path):
+    def test_the_cgroup_argument_carries_the_resolved_cap_not_a_constant(self, tmp_path):
         """The refusal message and `MemoryMax` read the same shell variable, so pinning the message
         pins what the scope would have been given. Checked on the refusing branch because that is
         the only place the number is printed without launching a real pass."""
         meminfo = write_meminfo(tmp_path / "meminfo", 1 * GIB_IN_KIB)
-        assert "capped at 12 G" in run_preflight(meminfo, "--body", "mars").stderr
+        refusal = run_preflight(meminfo, "--body", "earth", MEMORY_CAP_OVERRIDE_GIB="12")
+        assert "capped at 12 G" in refusal.stderr
+
+    def test_the_override_is_announced_rather_than_silent(self, tmp_path):
+        """A cap nobody named is the failure `pass_cap`'s own note refuses, so the branch that can
+        produce one has to say it did. The body's own number is printed beside it, because "12 G"
+        alone cannot tell a reader whether the override changed anything."""
+        meminfo = write_meminfo(tmp_path / "meminfo", 20 * GIB_IN_KIB)
+        result = run_preflight(meminfo, "--body", "earth", MEMORY_CAP_OVERRIDE_GIB="12")
+        assert "memory cap overridden: 12 G instead of this body's 16 G" in result.stdout
+
+    def test_the_resolver_still_runs_when_the_override_is_set(self, tmp_path):
+        """The ordering, asserted rather than trusted. Read as `${OVERRIDE:-$(pass_cap ...)}` the
+        override would skip the resolver, and with it the `--body` contract the wrapper enforces —
+        so an operator with the variable exported would quietly get a pass that never named a body.
+        """
+        meminfo = write_meminfo(tmp_path / "meminfo", 20 * GIB_IN_KIB)
+        result = run_preflight(meminfo, "--tiles", MEMORY_CAP_OVERRIDE_GIB="12")
+        assert result.returncode != 0
+        assert "--body" in result.stderr
+        assert "memory preflight" not in result.stdout
+
+    def test_a_nonsense_override_aborts_rather_than_evaluating_to_zero(self, tmp_path):
+        """Bash reads a non-numeric value as 0 in the comparison below, so an unvalidated override
+        does not fail — it makes every box clear every cap, and the preflight stops being a check
+        while still printing that it passed."""
+        meminfo = write_meminfo(tmp_path / "meminfo", 1 * GIB_IN_KIB)
+        result = run_preflight(meminfo, "--body", "earth", MEMORY_CAP_OVERRIDE_GIB="12G")
+        assert result.returncode == 1
+        assert "not a whole number of GiB" in result.stderr
+        assert "memory preflight" not in result.stdout
 
     def test_an_omitted_body_is_refused_before_the_scope_opens(self, tmp_path):
         """It was refused inside Python before, after a cgroup scope had already been opened. The

@@ -2941,13 +2941,17 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='python',
         # Deliberately a PYTHON case over a web file: the pipeline decides whether ~14 GB per pole
-        # gets rendered, so the browser flag is only ever the second half of that fact. Flipping it
-        # here makes the globe fetch a caps.json for a body whose caps were never rendered, and the
-        # 404 lands in a `.catch` that logs and moves on.
-        label="Mars claims polar caps the pipeline never renders",
+        # gets rendered, so the browser flag is only ever the second half of that fact. Dropping it
+        # here leaves both discs rendered, uploaded and never fetched — and the pole does not go
+        # blank, it keeps `shade_planet.CAP_RGB`, the flat pale plug the textures exist to cover.
+        # No 404, no console line, just a colour that reads as a decision.
+        #
+        # The needle carries the line BELOW it because both bodies answer `true` now; `hasBorders`
+        # is the nearest fact that will not be rewritten by anything touching caps.
+        label="Mars stops fetching the polar caps the pipeline renders",
         path='web/src/lib/bodies.ts',
-        needle='    rendersPolarCaps: false,',
-        replacement='    rendersPolarCaps: true,',
+        needle='    rendersPolarCaps: true,\n    // Mars has no nations.',
+        replacement='    rendersPolarCaps: false,\n    // Mars has no nations.',
         guard='test_the_two_registries_agree_on_which_bodies_render_polar_caps',
     ),
     Sabotage(
@@ -2989,14 +2993,19 @@ SABOTAGES: list[Sabotage] = [
     # being two conditions maintained apart.
     Sabotage(
         suite='web',
-        # The registry stops being consulted and only the flags decide, so every body draws Earth's
-        # caps — a cap in another planet's palette, silently, since a texture that renders is a
-        # texture that looks deliberate.
-        label='the caps forget to ask the body, and every planet gets a polar texture',
+        # THIS USED TO DROP `descriptor.rendersPolarCaps` — the registry stops being consulted and
+        # only the flags decide. That mutation is no longer falsifiable and the case is re-aimed
+        # rather than deleted, because the reason is worth meeting here: every registered body
+        # renders caps now, so a version that never asks the registry returns the same answer as one
+        # that does, on every planet, for every flag combination. Nothing can witness it. It becomes
+        # catchable again the day a body declares no caps, and the case to restore is this comment.
+        #
+        # `?bare` is what still gates the field, so that is what this now mutates.
+        label='?bare stops stripping the polar caps, so the raster baseline keeps an overlay',
         path='web/src/lib/globeSubsystems.ts',
         needle='    polarCaps: descriptor.rendersPolarCaps && !bare && !flags.has("nocaps"),',
-        replacement='    polarCaps: !bare && !flags.has("nocaps"),',
-        guard='gives a relief-only body its raster and nothing else',
+        replacement='    polarCaps: descriptor.rendersPolarCaps && !flags.has("nocaps"),',
+        guard='strips every body down to the same floor, whatever that body publishes',
     ),
     Sabotage(
         suite='web',
@@ -3998,7 +4007,44 @@ SABOTAGES: list[Sabotage] = [
         path='pipeline/profile/run_pass.sh',
         needle='MEMORY_CAP=${MEMORY_CAP_GIB}G',
         replacement='MEMORY_CAP=16G',
-        guard='test_the_cgroup_argument_carries_the_bodys_cap_not_a_constant',
+        guard='test_the_cgroup_argument_carries_the_resolved_cap_not_a_constant',
+    ),
+    # --- The cap override, which exists so the three cases around it stay catchable ---------------
+    # Both registered bodies render caps, so the resolver answers 16 for every planet and the case
+    # above has no second number to be wrong about. MEMORY_CAP_OVERRIDE_GIB supplies one — and being
+    # a seam that can weaken a guard, it gets its own cases rather than being trusted.
+    Sabotage(
+        suite='python',
+        # The tidy that reads as dead code: a variable assigned and then assigned again. It leaves
+        # every pass at the body's number, which is CORRECT today — and silently un-tests the wiring.
+        label='the cap override is read, announced, and then dropped',
+        path='pipeline/profile/run_pass.sh',
+        needle='    MEMORY_CAP_GIB=$MEMORY_CAP_OVERRIDE_GIB\n',
+        replacement='    :\n',
+        guard='test_a_lower_cap_runs_on_a_box_that_refuses_earths',
+    ),
+    Sabotage(
+        suite='python',
+        # The idiomatic spelling, and the wrong one: `${OVERRIDE:-$(resolver)}` skips the resolver
+        # when the variable is set, and with it the --body contract this wrapper enforces before a
+        # cgroup scope is opened. An operator with the variable exported gets an unnamed planet.
+        label='the cap override short-circuits the resolver, taking --body enforcement with it',
+        path='pipeline/profile/run_pass.sh',
+        needle='MEMORY_CAP_GIB=$("$VENV" -m pipeline.profile.pass_cap "$@") || exit 1',
+        replacement='MEMORY_CAP_GIB=${MEMORY_CAP_OVERRIDE_GIB:-'
+                    '$("$VENV" -m pipeline.profile.pass_cap "$@")} || exit 1',
+        guard='test_the_resolver_still_runs_when_the_override_is_set',
+    ),
+    Sabotage(
+        suite='python',
+        # Validation that looks like belt-and-braces and is not: bash evaluates a non-numeric value
+        # as 0 in the comparison, so every box clears every cap and the preflight prints that it
+        # passed while having checked nothing.
+        label='the cap override stops being validated, so a typo disables the preflight',
+        path='pipeline/profile/run_pass.sh',
+        needle='    if [[ ! "$MEMORY_CAP_OVERRIDE_GIB" =~ ^[0-9]+$ ]]; then',
+        replacement='    if false; then',
+        guard='test_a_nonsense_override_aborts_rather_than_evaluating_to_zero',
     ),
     Sabotage(
         suite='python',

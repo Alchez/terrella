@@ -293,11 +293,18 @@ MARS = Body(
     # its own cryosphere. We have no product for any of it, and the physics is not Earth's, so the
     # honest answer today is none. That is a Phase-2 question to re-ask with Mars on screen.
     surface_layers=frozenset(),
-    # OFF FOR PHASE 1, and it is a look decision rather than a capability one. A Mars cap would
-    # render today from the heightfield alone, and would be shaded by the same ramps as the
-    # tiles — which are still Earth's and still unratified for this planet. The price is a hole
-    # at each pole on the globe until the look is settled and this flips.
-    renders_polar_caps=False,
+    # ON, AND WHAT IT BUYS IS A PROJECTION REPAIR RATHER THAN ICE. Mars declares no surface layers,
+    # so these two discs are the same bare relief as the tiles in the same ramps — the cap exists
+    # because Web Mercator carries no data past ~85 degrees and brutally smears the band below it,
+    # not because there is snow to paint. Anyone expecting white is expecting `surface_layers`.
+    #
+    # Held False while the ramps were unratified, since a cap is shaded by the same
+    # `shade.composite` as the tiles and rendering one publishes a look decision. That reason
+    # expired when the M2a ramp was judged on the sphere; what the False cost in the meantime was
+    # not a hole but something worse — `shade_planet.CAP_RGB`, the flat pale plug the cap textures
+    # exist to be drawn over, which MapLibre stretched across the pole and which was tested on
+    # Earth's globe and rejected.
+    renders_polar_caps=True,
 )
 
 
