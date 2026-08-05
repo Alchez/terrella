@@ -144,8 +144,7 @@ def _the_synthetic_bodies_have_looks(monkeypatch):
     Earth's ramp by omission renders a complete, plausible pyramid in another planet's colours.
 
     The lookup deliberately lives inside `composite_params` rather than being threaded in beside
-    the body. A `look` parameter sitting next to a `body` parameter would make "Mars's recipe with
-    Earth's ramp" a sentence the type checker accepts, and the body already determines the answer.
+    the body; `palette.look_for` carries the reasoning, since that is where a reader meets it.
 
     Scoped to this module's tests rather than registered at import, so the real registry stays
     exactly the two planets `test_palette.py` holds it to.

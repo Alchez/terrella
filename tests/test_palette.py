@@ -13,6 +13,7 @@ Changing one means re-rendering every hero. See ART.md for the look decisions be
 """
 
 import hashlib
+import re
 from pathlib import Path
 
 import pytest
@@ -289,3 +290,58 @@ class TestTheLookRegistry:
         with pytest.raises(ValueError, match="draws no sea"):
             palette.surface("sea", look=palette.MARS_LOOK)
         assert palette.surface("land", look=palette.MARS_LOOK) is palette.EARTH_LOOK.land
+
+
+#: The authored ramp values. They are Earth's, they are assembled into `EARTH_LOOK`, and outside
+#: `palette.py` nothing may read them by name.
+RAMP_GLOBALS = ("LAND_STOPS", "SEA_STOPS", "LAND_MAX_M", "SEA_MIN_M")
+
+#: A read of palette's own globals, qualified or imported. NOT a bare name: `scene_build` defines
+#: module constants of its own called `LAND_STOPS`/`SEA_STOPS` — built FROM the look — and those
+#: are the seam working rather than bypassing it.
+def _bypass_pattern(name: str) -> str:
+    return rf"palette\s+import\s+[^\n]*\b{name}\b|palette\.{name}\b"
+
+
+def test_no_module_reaches_around_the_look_to_the_ramp_globals():
+    """The anti-regrowth scan, and it is the guard that would have caught this seam's own defect.
+
+    `Look`, `EARTH_LOOK` and `surface(look=...)` existed for a while before anything used them: the
+    tile recipe and the hero rig both read `palette.LAND_STOPS` and friends directly, so every
+    body's freshness record carried Earth's ramp and no type checker could say so. **A bypass is
+    not a call site.** Removing `surface`'s default named eight LUT helpers and neither module that
+    actually drew a planet — those came out of grep, and only a source scan can keep them out.
+
+    Nothing else can see a regrowth. A module reading these globals renders Earth perfectly, passes
+    every gate, and is wrong only on a planet nobody has looked at yet.
+    """
+    positive_control = "value = palette.LAND_STOPS[0]"
+    assert re.search(_bypass_pattern("LAND_STOPS"), positive_control), (
+        "the bypass pattern no longer matches a qualified read — the scan below cannot bite"
+    )
+
+    palette_source = Path(palette.__file__).resolve()
+    scanned: set[str] = set()
+    offenders: dict[str, list[str]] = {}
+    for path in sorted((REPO_ROOT / "pipeline").rglob("*.py")):
+        if path.resolve() == palette_source:
+            continue
+        name = str(path.relative_to(REPO_ROOT))
+        scanned.add(name)
+        source = path.read_text(encoding="utf-8")
+        found = [g for g in RAMP_GLOBALS if re.search(_bypass_pattern(g), source)]
+        if found:
+            offenders[name] = found
+
+    # Anti-vacuity that NAMES the two modules which actually held the defect, rather than counting
+    # files. A count survives a walk narrowed to one package; these two do not.
+    must_scan = {"pipeline/tile/shade_planet.py", "pipeline/render/scene_build.py"}
+    assert must_scan <= scanned, (
+        f"the sweep never reached {sorted(must_scan - scanned)} — the two modules that carried "
+        "this exact bug. Whatever it is scanning now, it is not the shading path."
+    )
+    assert not offenders, (
+        f"these modules reach around the look to Earth's ramp globals: {offenders}. Resolve the "
+        "body's ramp with `palette.look_for(body.name)` and read `look.land` / `look.sea` — the "
+        "globals are the values EARTH'S look is assembled from, not the ramp any planet draws with."
+    )

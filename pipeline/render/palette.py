@@ -214,6 +214,15 @@ def look_for(body: str) -> Look:
     render a complete, plausible, internally consistent pyramid in another planet's colours, and
     every gate in the pipeline would pass — the same failure shape `bodies.get` refuses for
     geometry, where the wrong sphere is plausible everywhere and true nowhere.
+
+    CALLED WHERE THE BODY IS KNOWN, NEVER THREADED IN BESIDE IT, and that is a decision rather than
+    an omission. The planet seam's rule is the opposite — its rasters are passed as required
+    parameters and never looked up — because a raster set is a RUNTIME declaration that varies per
+    run and cannot be derived from the body. A look can be, and there is exactly one right answer.
+    So a `look` parameter sitting next to a `body` parameter would add nothing but a way for the
+    two to disagree: `composite_params(body=MARS, look=EARTH_LOOK)` is a sentence the type checker
+    accepts and no reviewer would notice. The cost is that a synthetic body in a test needs a look
+    registered, exactly as it needs a radius, and `tests/test_cap_render.py` pays it in a fixture.
     """
     try:
         return LOOK_BY_BODY[body]

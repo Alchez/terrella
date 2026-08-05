@@ -142,6 +142,11 @@ MUTABLE_ROOTS = (
     # Same principle as the two test files above: the import scan IS the guard, so the
     # only way to prove it still sees anything is to narrow it and watch something fail.
     "tests/test_fetch.py",
+    # Joined with the look seam, on the principle the test files above share: the ramp-bypass sweep
+    # IS the guard, so the only way to prove it still reads the shading path is to narrow its walk
+    # and watch something fail. Narrowing is also the realistic mistake — the scan sits in a
+    # palette test, and scoping it to the render package reads as tidying rather than gutting.
+    "tests/test_palette.py",
     # Joined with the output licence, which is stated in four files and was checked in none. Two
     # roots, for two different reasons. `LICENSE` because it is a mutation TARGET no other root
     # reaches — it has no extension, sits outside every package, and is the copy a reader treats as
@@ -2564,6 +2569,17 @@ SABOTAGES: list[Sabotage] = [
         needle='        return LOOK_BY_BODY[body]',
         replacement='        return LOOK_BY_BODY.get(body, EARTH_LOOK)',
         guard='test_an_unregistered_body_gets_no_look_at_all',
+    ),
+    Sabotage(
+        suite='python',
+        # The anti-regrowth sweep narrowed to the package that happens to hold the palette, which
+        # is the tidy it invites -- "ramps are a render concern". It drops `pipeline/tile/`, where
+        # BOTH of the modules that actually carried this bug live, and the scan goes on passing.
+        label='the ramp-bypass sweep stops reading the package the shading path lives in',
+        path='tests/test_palette.py',
+        needle='for path in sorted((REPO_ROOT / "pipeline").rglob("*.py")):',
+        replacement='for path in sorted((REPO_ROOT / "pipeline/render").rglob("*.py")):',
+        guard='test_no_module_reaches_around_the_look_to_the_ramp_globals',
     ),
     Sabotage(
         suite='python',
