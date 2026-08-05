@@ -28,7 +28,7 @@ import pytest
 from pipeline import bodies, mercator, paths, planet_seam
 from pipeline.compose import countries_pmtiles
 from pipeline.render import hillshade, palette, snow
-from pipeline.tile import shade_planet
+from pipeline.tile import cap_render, shade_planet
 
 #: A planet whose seam emitted all three rasters — what Earth declares, and the only
 #: shape these tests care about unless they say otherwise.
@@ -480,6 +480,75 @@ def test_the_two_registries_agree_on_which_bodies_render_polar_caps() -> None:
             f"{name}: the pipeline says renders_polar_caps="
             f"{bodies.BODIES[name].renders_polar_caps} and the browser says {declared.group(1)}"
         )
+
+
+def test_the_two_registries_agree_on_where_a_body_nests_its_served_assets() -> None:
+    """The prefix that names a body's directories, held across the language boundary that uses it.
+
+    THE PIPELINE WRITES AND THE BROWSER FETCHES, so this is the one field where the two halves never
+    meet at runtime and disagreement produces a 200. `cap_render` writes `caps.json` and four texture
+    rungs a pole under `public_dir(body, "caps")`, which is `web/public/caps/<path_prefix>`; the
+    browser rebuilds that URL from `pathPrefix` in its own registry. Earth's prefix is EMPTY, so a
+    browser answer that drifted toward Earth's — an omitted field, a copied descriptor, a slug used
+    where a prefix was meant — does not 404. It fetches Earth's manifest, parses it, and draws
+    Earth's Arctic over the other planet's pole, correctly sized and silently wrong.
+
+    Non-vacuous by construction, and for a sharper reason than the sibling above: the two answers
+    differ in KIND, not just in value. Earth's is empty and Mars's is its own name, so a scan that
+    read the wrong body, or a browser field that was really the slug, fails on Earth alone.
+    """
+    blocks = _browser_descriptor_blocks()
+    assert set(blocks) == set(bodies.BODIES), (
+        f"the pipeline knows {sorted(bodies.BODIES)} and the browser's BODIES record holds "
+        f"{sorted(blocks)} — the scan is reading a different set of planets than it is judging"
+    )
+    for name, block in blocks.items():
+        declared = re.search(r'\bpathPrefix:\s*"([^"]*)"', block)
+        assert declared, f"the browser descriptor for {name} declares no pathPrefix"
+        assert declared.group(1) == bodies.BODIES[name].path_prefix, (
+            f"{name}: the pipeline writes its assets under path_prefix="
+            f"{bodies.BODIES[name].path_prefix!r} and the browser fetches them from "
+            f"{declared.group(1)!r}"
+        )
+    # The asymmetry IS the anti-vacuity: without it every body could answer its own slug and this
+    # would still pass, which is exactly the drift the field's docstring warns about.
+    assert bodies.BODIES["earth"].path_prefix == "", (
+        "Earth's prefix stopped being empty, so this guard no longer covers the collapse case and "
+        "every served URL on the site has moved"
+    )
+    assert any(body.path_prefix for body in bodies.BODIES.values()), (
+        "no body nests its assets, so a prefix that was ignored entirely would pass this guard"
+    )
+
+
+def test_the_browser_reaches_the_served_assets_the_pipeline_actually_wrote() -> None:
+    """The prefix agreeing is necessary and not sufficient — the two must compose to one URL.
+
+    The guard above compares a string to a string. This one runs the pipeline's own `served_url` on
+    the file `cap_render` writes and asserts the browser's builder produces the identical text, so a
+    change to EITHER side's assembly — a lost separator, a doubled one, a segment reordered — fails
+    here rather than in a browser nobody has open.
+
+    `caps.json` specifically, because it is the only cap URL the browser builds. Every texture URL
+    is read out of the manifest, so the pipeline states those and no second implementation exists to
+    disagree with.
+    """
+    source = (paths.ROOT / "web/src/lib/assetBase.ts").read_text(encoding="utf-8")
+    builder = re.search(r"export function capsManifestUrl\(body: BodySlug\): string \{(.+?)\n\}",
+                        source, re.DOTALL)
+    assert builder, "assetBase.ts no longer exports capsManifestUrl — this guard is blind"
+
+    for name, body in sorted(bodies.BODIES.items()):
+        expected = cap_render.served_url(cap_render.caps_public_dir(body) / "caps.json")
+        segments = [segment for segment in ("caps", body.path_prefix, "caps.json") if segment]
+        assert expected == "/" + "/".join(segments), (
+            f"{name}: the pipeline serves its cap manifest at {expected}, which is not what the "
+            f"browser's documented rule (/caps/<prefix>/caps.json, empty prefix collapsing) builds"
+        )
+    # Earth's exact historical URL, spelled out rather than derived, because it is a CONTRACT with
+    # every browser cache in the wild and not merely the output of the rule above.
+    assert cap_render.served_url(
+        cap_render.caps_public_dir(bodies.BODIES["earth"]) / "caps.json") == "/caps/caps.json"
 
 
 def test_the_cap_module_no_longer_carries_its_own_sphere_radius() -> None:

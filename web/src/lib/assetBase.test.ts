@@ -5,8 +5,11 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { TILE_BASE, resolveAssetBase, tileUrlTemplate } from "./assetBase";
+import { TILE_BASE, capsManifestUrl, resolveAssetBase, tileUrlTemplate } from "./assetBase";
+import { BODIES, type BodySlug } from "./bodies";
 import { LAYERS, archiveFor, tilePathTemplate } from "./tileAddress";
+
+const SLUGS = Object.keys(BODIES) as BodySlug[];
 
 /** web/ — this file is web/src/lib/assetBase.test.ts. */
 const WEB_ROOT = fileURLToPath(new URL("../../", import.meta.url));
@@ -84,6 +87,36 @@ describe("tileUrlTemplate", () => {
     const source = readFileSync(`${WEB_ROOT}src/lib/assetBase.ts`, "utf8");
     const bases = [...source.matchAll(/import\.meta\.env\.(PUBLIC_\w+)/g)].map((m) => m[1]);
     expect(bases).toEqual(["PUBLIC_HERO_BASE", "PUBLIC_BORDERS_BASE", "PUBLIC_TILE_BASE"]);
+  });
+});
+
+describe("capsManifestUrl", () => {
+  it("keeps Earth's URL byte-for-byte the one every warm browser cache already holds", () => {
+    // Spelled out rather than derived from the rule. `/caps/caps.json` has been fetched by this
+    // site since before there was a second body, and the empty prefix exists precisely so adding
+    // one did not move it. Asserting the rule instead would let the rule change and call it green.
+    expect(capsManifestUrl("earth")).toBe("/caps/caps.json");
+  });
+
+  it("nests a second body one level in, where its pipeline actually wrote the file", () => {
+    expect(capsManifestUrl("mars")).toBe("/caps/mars/caps.json");
+  });
+
+  it("gives every body a DIFFERENT manifest, which is the failure worth catching", () => {
+    // The bug this replaces was a literal `/caps/caps.json` inside addPolarCaps. Note what it was
+    // NOT: a 404. Earth's prefix is empty, so any body whose address collapsed toward Earth's gets
+    // Earth's manifest with a 200, parses it, and draws Greenland and Arctic sea ice over another
+    // planet's pole — correctly sized, correctly feathered, and silent. So a builder that ignored
+    // its argument would satisfy both assertions above and still be the original defect.
+    const urls = SLUGS.map(capsManifestUrl);
+    expect(new Set(urls).size).toBe(urls.length);
+  });
+
+  it("does not ride a PUBLIC_ base, because the caps ship inside the build", () => {
+    // The three pyramids move to object storage on deploy; ~17 MB of WebP does not. Were this to
+    // acquire a base, an unsupplied one would fall back to same-origin and look fine in dev while
+    // production served a capless globe — the exact shape the deploy-variable test above guards.
+    for (const slug of SLUGS) expect(capsManifestUrl(slug).startsWith("/caps/")).toBe(true);
   });
 });
 

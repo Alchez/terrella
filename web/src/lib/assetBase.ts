@@ -16,7 +16,7 @@
 // never range-request the archive itself: edge caching strips the Range header and asks the origin
 // for the whole multi-GB body, once per tile.
 
-import type { BodySlug } from "./bodies";
+import { BODIES, type BodySlug } from "./bodies";
 import { type LayerId, tilePathTemplate } from "./tileAddress";
 
 /** Normalise a configured base to a directory prefix that can be concatenated safely.
@@ -60,4 +60,29 @@ export const TILE_BASE = resolveAssetBase(import.meta.env.PUBLIC_TILE_BASE, "/ti
  *  The one thing this module adds is the base, which is the only env-shaped part of a tile URL. */
 export function tileUrlTemplate(body: BodySlug, layer: LayerId): string {
   return `${TILE_BASE}${tilePathTemplate(body, layer)}`;
+}
+
+/** Where one body's polar-cap contract is fetched from — `caps.json`, the file the pipeline writes
+ *  last beside the textures it describes.
+ *
+ *  NO BASE, AND THAT IS THE ONE THING THIS SHARES WITH NOTHING ABOVE. The three pyramids move to
+ *  object storage on deploy because they are too big to ship; the caps are ~17 MB of WebP that ride
+ *  inside the build and stay same-origin, which is why the module note lists them with the HTML and
+ *  the CSS rather than with the stores. So this is a path, not a base plus a path.
+ *
+ *  ONLY THE MANIFEST IS ADDRESSED HERE. Every texture URL — four rungs a pole, plus the elevation
+ *  texture — comes out of the manifest itself, already absolute, because the producer that wrote
+ *  those files is the only thing that can say where it put them. Building a texture URL here would
+ *  be this module guessing at a layout the pipeline owns.
+ *
+ *  THE BODY IS REQUIRED FOR THE REASON `tileUrlTemplate` STATES, only worse. A tile URL built for
+ *  the wrong body 404s eventually; this one SUCCEEDS. Earth's prefix is empty, so a caller that lost
+ *  the body — or a descriptor that answered `""` — resolves to `/caps/caps.json`, which exists,
+ *  parses, and names Earth's Arctic textures. The globe then draws sea ice and Greenland over
+ *  another planet's pole, at the right size, in the right place, feathered correctly into the
+ *  tiles. There is no error anywhere in that sequence. */
+export function capsManifestUrl(body: BodySlug): string {
+  // Filtered so an empty prefix COLLAPSES rather than doubling the separator, which is the same
+  // thing `Path / ""` does on the pipeline side and the reason Earth's URL is unchanged.
+  return `/${["caps", BODIES[body].pathPrefix, "caps.json"].filter(Boolean).join("/")}`;
 }

@@ -4,7 +4,7 @@
 // reaching ±90° with no hole.
 //
 // The pipeline is the single author of every value it renders into the textures: this layer
-// FETCHES /caps/caps.json (edge_lat, the ±84 feather ceiling = shade_planet's Mercator plug
+// FETCHES this body's caps.json (edge_lat, the ±84 feather ceiling = shade_planet's Mercator plug
 // boundary, texture URLs) instead of hand-copying them as literals — the copy-drift species that
 // bit the hero/tile colour constants four times. Only frontend aesthetics stay here (FEATHER_LO,
 // mesh extent, tessellation).
@@ -20,6 +20,8 @@
 
 import type { CustomLayerInterface, CustomRenderMethodInput, Map as MaplibreMap } from "maplibre-gl";
 
+import { capsManifestUrl } from "./assetBase";
+import type { BodySlug } from "./bodies";
 import { smallestRungAtLeast } from "./rungs";
 // `perfSpans`, NOT anything in `lib/perf/`: a static import from there would place the whole
 // instrument directory in the main chunk, which is how 268 lines once shipped to every visitor.
@@ -856,6 +858,17 @@ export function addPolarCap(map: MaplibreMap, opts: CapOptions): void {
 /** Fetch the pipeline's caps.json contract and register both polar caps on the loaded map.
  *  A missing/invalid manifest logs and leaves the globe capless — never breaks the page.
  *
+ *  THE BODY IS A REQUIRED ARGUMENT AND THE MANIFEST URL IS DERIVED FROM IT. It used to be the
+ *  literal `/caps/caps.json`, which was correct while one planet had caps and is the worst kind of
+ *  wrong the moment a second one does: Earth's path prefix is empty, so that literal is not a URL
+ *  that fails for another body — it is Earth's manifest, served with a 200, naming Earth's Arctic
+ *  textures. The globe would draw sea ice and Greenland over another planet's pole and log nothing.
+ *  `capsManifestUrl` reads the prefix off the registry, which `tests/test_bodies.py` holds against
+ *  the pipeline that writes the files.
+ *
+ *  The textures are NOT re-addressed here. Every rung URL and the elevation URL come out of the
+ *  manifest already absolute, which is what keeps this module ignorant of the served layout.
+ *
  *  **THIS FUNCTION IS ALSO THE WEBGL CONTEXT-LOSS RECOVERY PATH — do not move its call site.**
  *  MapLibre recovers a lost context by re-applying a *serialized* style snapshot, and a `custom`
  *  layer has no serialized form. The library says so itself, by name, on every loss:
@@ -875,14 +888,17 @@ export function addPolarCap(map: MaplibreMap, opts: CapOptions): void {
  *  stores' 1-week cache class and reading `entry.rungs` as undefined. The failure is silent
  *  by design (capless globe, one console error), which is exactly why it must not be
  *  reachable. Cost is one conditional GET of ~500 bytes on an already-warm H2 connection. */
-export async function addPolarCaps(map: MaplibreMap): Promise<void> {
+export async function addPolarCaps(map: MaplibreMap, body: BodySlug): Promise<void> {
   let manifest: CapsManifest;
+  const manifestUrl = capsManifestUrl(body);
   try {
-    const response = await fetch("/caps/caps.json", { cache: "no-cache" });
+    const response = await fetch(manifestUrl, { cache: "no-cache" });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     manifest = (await response.json()) as CapsManifest;
   } catch (err) {
-    console.error("[caps] manifest fetch failed — globe renders capless", err);
+    // The URL is in the message because the interesting failure is not "the fetch broke" but "the
+    // fetch went to the wrong planet's manifest", and those two are indistinguishable without it.
+    console.error(`[caps] manifest fetch failed (${manifestUrl}) — globe renders capless`, err);
     return;
   }
   for (const options of capOptionsFrom(manifest, capTextureBudget(isMobileClassDevice()))) {

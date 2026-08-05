@@ -540,6 +540,53 @@ SABOTAGES: list[Sabotage] = [
         replacement='      image.onload = () => resolve(image);',
         guard='still uploads when the engine has no createImageBitmap and the Image path takes over',
     ),
+    # --- a body fetches its OWN polar-cap manifest, and Earth's URL is not the universal one ---
+    Sabotage(
+        suite='web',
+        # The literal this restores is not a typo — it is what shipped, correctly, for as long as
+        # one planet had caps. It is also the tidy a reader makes when a derived URL looks like
+        # ceremony around a constant. What makes it the worst case in this file is that it does not
+        # 404: Earth's prefix is empty, so the wrong body gets a 200, a valid manifest, and Earth's
+        # Arctic textures drawn over its pole at the right size.
+        label='the cap manifest goes back to the literal that is really Earth-only',
+        path='web/src/lib/polarCaps.ts',
+        needle='const response = await fetch(manifestUrl, { cache: "no-cache" });',
+        replacement='const response = await fetch("/caps/caps.json", { cache: "no-cache" });',
+        guard="fetches Mars's manifest for Mars, not the one Earth has always used",
+    ),
+    Sabotage(
+        suite='web',
+        # The prefix and the slug are the same word on every body that nests, so `slug` reads as
+        # the obvious simplification — and it is wrong on exactly one body, the one whose prefix is
+        # deliberately empty. Every Mars URL keeps working; every Earth URL moves.
+        label='the served prefix is replaced by the slug it happens to equal',
+        path='web/src/lib/assetBase.ts',
+        needle='["caps", BODIES[body].pathPrefix, "caps.json"]',
+        replacement='["caps", body, "caps.json"]',
+        guard="keeps Earth's URL byte-for-byte the one every warm browser cache already holds",
+    ),
+    Sabotage(
+        suite='web',
+        # Reverses the collapse, which is the half a reader trims when the filter looks redundant.
+        # Only Earth can see it: `/caps//caps.json` is a path no server was told to write.
+        label='the empty prefix stops collapsing and doubles the separator',
+        path='web/src/lib/assetBase.ts',
+        needle='.filter(Boolean).join("/")}`;',
+        replacement='.join("/")}`;',
+        guard="keeps Earth's URL byte-for-byte the one every warm browser cache already holds",
+    ),
+    Sabotage(
+        suite='python',
+        # The cross-language half, and a PYTHON case over a web file for the reason the cap-flag
+        # case above gives: the pipeline is what WRITES the files, so the browser's prefix is only
+        # ever the second half of that fact. A drift here cannot be seen by any type, any linter, or
+        # any page that only ever loads Earth.
+        label="a body's served prefix drifts to Earth's empty one",
+        path='web/src/lib/bodies.ts',
+        needle='    pathPrefix: "mars",',
+        replacement='    pathPrefix: "",',
+        guard='test_the_two_registries_agree_on_where_a_body_nests_its_served_assets',
+    ),
     Sabotage(
         suite='web',
         label='the collapsed view grows past a phone corner',

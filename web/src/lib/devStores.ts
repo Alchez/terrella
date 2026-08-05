@@ -27,7 +27,7 @@
 
 import path from "node:path";
 
-import type { BodySlug } from "./bodies";
+import { BODIES, type BodySlug } from "./bodies";
 import type { LayerId } from "./tileAddress";
 
 /** One archive's place in the pipeline's work tree, and the stage that puts it there. */
@@ -66,27 +66,6 @@ const ARCHIVES: Record<LayerId, ArchiveLocation> = {
   },
 };
 
-/** Directory segment a body's outputs nest under, restating `Body.path_prefix` in
- *  `pipeline/bodies.py`.
- *
- *  Earth's is empty there and empty here, for the reason that module gives: its work tree already
- *  holds ~100 GB at the un-prefixed paths, and moving it would make every stage read as missing and
- *  re-derive a whole planet to produce identical pixels. A body that nests pays no such cost.
- *
- *  THE COPY IS SELF-CHECKING, WHICH IS WHY NO TEST PINS IT. A prefix that disagrees with the
- *  pipeline names a directory the pipeline never wrote, so the first tile request 500s with the
- *  path it looked at. Drift here cannot be silent and cannot reach a served pixel — unlike a copied
- *  colour or radius, which renders. `Record<BodySlug, string>` is what forces a new body to answer. */
-const WORK_PREFIX: Record<BodySlug, string> = {
-  earth: "",
-  // One level in, which is what `pipeline/bodies.py` already says a nesting body does. Answered
-  // here before the pipeline has a Mars entry of its own — that entry needs an exaggeration and a
-  // zoom ceiling, and both are questions this project decides by looking at the sphere rather than
-  // by picking a number. The prefix is not one of those: it is a directory name, and the record
-  // demands an answer for every body whether or not any archive exists yet.
-  mars: "mars",
-};
-
 /** Store variables the dev server no longer reads. Kept by name so a checkout that still sets one
  *  is told, rather than left wondering why editing it changes nothing. */
 const RETIRED_STORE_VARS = ["PMTILES_STORE", "TERRAIN_PMTILES_STORE", "COUNTRIES_PMTILES_STORE"];
@@ -110,9 +89,18 @@ export function resolveDataRoot(
 /** Absolute path to one body's archive of `layer`, under an already-resolved data root.
  *
  *  Mirrors `bodies.work_dir(body, stage) / file`. The empty prefix collapses, which is what keeps
- *  Earth's archives exactly where they have always been. */
+ *  Earth's archives exactly where they have always been.
+ *
+ *  THE PREFIX COMES FROM THE BROWSER REGISTRY, not from a second table here, and the merge is what
+ *  the pipeline field itself asks for: `Body.path_prefix` says it names BOTH the work tree and the
+ *  served assets, "because a body that nested its intermediates one way and its published files
+ *  another is two conventions to remember". Two records here would have been the third and fourth
+ *  copies of one directory name. This module used to argue the copy needed no test because drift
+ *  names a directory nothing wrote and the request 500s — true of disk, and false of the served
+ *  side, which resolves to Earth's assets and succeeds. The tested home wins for both. */
 export function archivePath(dataRoot: string, body: BodySlug, layer: LayerId): string {
-  return path.join(dataRoot, "work", WORK_PREFIX[body], ARCHIVES[layer].stage, ARCHIVES[layer].file);
+  return path.join(dataRoot, "work", BODIES[body].pathPrefix,
+                   ARCHIVES[layer].stage, ARCHIVES[layer].file);
 }
 
 /** What an archive is called, for the messages that name one. */

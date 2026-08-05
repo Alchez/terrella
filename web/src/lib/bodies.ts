@@ -75,6 +75,23 @@ export interface BodyDescriptor {
    *  bounces a visitor into a 404 with nothing on screen to say what happened, and only on the
    *  devices that cannot run a globe — which are not the ones we develop on. */
   liteRoute: string;
+  /** Directory segment this body's SERVED assets nest under, mirroring `pipeline/bodies.py`'s
+   *  `Body.path_prefix` — which is the authority, and which a test in `tests/test_bodies.py` holds
+   *  this against. Earth's is empty and collapses, keeping `/caps/caps.json` the exact URL it has
+   *  always been; a second body nests one level in.
+   *
+   *  NOT DERIVABLE FROM THE SLUG, which is the trap. Mars's prefix and slug are the same word, so
+   *  `slug` looks like it would do — and then Earth, whose prefix is deliberately empty against a
+   *  slug of `earth`, is the one body it is wrong for. The asymmetry is a measured decision on the
+   *  pipeline side (its un-prefixed work tree already holds ~100 GB), not something to tidy away.
+   *
+   *  THE "OR ELSE" IS A 200, NOT A 404, and that is why this is a registry field with a test rather
+   *  than a copy beside its consumer. `devStores.ts` restates the same pipeline field for the dev
+   *  server's disk paths and argues it needs no test because drift there names a directory nothing
+   *  wrote, so the first request 500s with the path it looked at. Served assets invert that: a body
+   *  that resolved its prefix to Earth's empty string fetches Earth's `caps.json`, gets it, and
+   *  draws Earth's Arctic Ocean over another planet's pole. Successful, plausible, and silent. */
+  pathPrefix: string;
   /** The sphere this body's ground distances are measured on, in metres.
    *
    *  WHAT IT IS FOR. Every reading the site gives in metres starts as an ANGLE — two lng/lat pairs
@@ -181,6 +198,10 @@ export const BODIES: Record<BodySlug, BodyDescriptor> = {
     // to be `/`, not the body that defines it. Reading that coincidence as the rule is what put
     // `location.replace("/")` in the pre-paint guard for every planet alike.
     liteRoute: "/",
+    // Empty, and it is the empty one that carries the history: `/caps/caps.json` and
+    // `/caps/cap_north_8192.webp` are URLs the frontend has fetched since before there was a second
+    // body, and the pipeline keeps them by giving Earth no segment at all.
+    pathPrefix: "",
     // The IUGG mean radius, which is the number the readout has always used — it is MapLibre's own
     // `GLOBE_RADIUS`, in the shader that draws the sphere and in `LngLat.distanceTo` alike. Holding
     // it explicitly changes no reading and moves the constant somewhere a second body can differ.
@@ -225,6 +246,10 @@ export const BODIES: Record<BodySlug, BodyDescriptor> = {
     // Earth's `/`, which would answer "this device cannot run the Mars globe" by showing a visitor
     // a different planet.
     liteRoute: "/mars/lite/",
+    // One level in, so every served asset of this body sits under `/caps/mars/…` and can never be
+    // reached by a URL built for Earth. The pipeline writes them there already — this is the half
+    // that has to agree, and the reason it is stated rather than derived from `slug` above.
+    pathPrefix: "mars",
     // The IAU 2015 sphere the blended MOLA/HRSC DEM declares in its own CRS, and the same number
     // `pipeline/bodies.py` carries — unlike Earth's above, because this one really is a sphere.
     // `pipeline/acquire/download_mars_dem.py` refuses a source that says anything else, so the two

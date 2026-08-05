@@ -11,6 +11,7 @@ import {
   RINGS,
   SECTORS,
   addPolarCap,
+  addPolarCaps,
   buildMesh,
   canvasBackingRatio,
   capDisplacementScale,
@@ -34,6 +35,19 @@ import {
   type CapsManifest,
 } from "./polarCaps";
 import { TERRAIN_QUANTISATION_M, terrainEncoding } from "./terrainSource";
+import { BODIES, type BodySlug } from "./bodies";
+
+const SLUGS = Object.keys(BODIES) as BodySlug[];
+
+/** A `fetch` that answers one manifest, or 404s when handed null. At module scope beside the other
+ *  fixtures, which is where this file already keeps them. */
+function stubFetch(body: object | null) {
+  return vi.fn(async () => ({
+    ok: body !== null,
+    status: body === null ? 404 : 200,
+    json: async () => body,
+  })) as unknown as typeof fetch;
+}
 
 // The shipped ladder (cap_render.CAP_RUNGS), so the fixture cannot drift from production.
 const RUNGS = (pole: string) => [
@@ -893,5 +907,65 @@ describe("the context-loss recovery contract", () => {
     // there is the black-disc one.
     expect(reassert).toContain("removeLayer");
     expect(reassert).toContain("addCaps()");
+  });
+});
+
+// Which manifest a globe asks for. This is the only thing `addPolarCaps` decides that nothing
+// downstream can correct, and until now nothing drove it: the whole suite was green with the URL
+// written as the literal `/caps/caps.json`, because Earth is the only body that had ever had caps.
+describe("addPolarCaps addresses the manifest by body", () => {
+  // A map whose every layer already exists, so `addPolarCap` no-ops on its first line. The claim
+  // under test is the fetch, and letting the real layer factory run would drag a WebGL context in
+  // to prove something `capOptionsFrom` and `addPolarCap` already have their own tests for.
+  const inertMap = { getLayer: () => ({}) } as unknown as MaplibreMap;
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("fetches Mars's manifest for Mars, not the one Earth has always used", async () => {
+    // THE REGRESSION, WRITTEN AS A TEST. The old literal is Earth's real, live URL — so a Mars
+    // globe reaching it gets 200 OK, a valid manifest, and Earth's Arctic textures over the
+    // Martian pole. Nothing in the fetch, the parse or the render reports a problem.
+    const fetcher = stubFetch(MANIFEST);
+    vi.stubGlobal("fetch", fetcher);
+    await addPolarCaps(inertMap, "mars");
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(fetcher).mock.calls[0]?.[0]).toBe("/caps/mars/caps.json");
+    expect(vi.mocked(fetcher).mock.calls[0]?.[0]).not.toBe("/caps/caps.json");
+  });
+
+  it("still fetches exactly /caps/caps.json for Earth", async () => {
+    const fetcher = stubFetch(MANIFEST);
+    vi.stubGlobal("fetch", fetcher);
+    await addPolarCaps(inertMap, "earth");
+    expect(vi.mocked(fetcher).mock.calls[0]?.[0]).toBe("/caps/caps.json");
+  });
+
+  it("revalidates rather than reading a cached manifest, on every body", async () => {
+    // `cache: "no-cache"` is load-bearing: the textures are content-addressed by size so a stale
+    // one is impossible, but a stale MANIFEST describes a world that no longer exists — which is
+    // how adding the rung list once broke the caps on a browser holding a week-old copy.
+    // One shared recorder for every body at once. The bodies do not have to be driven in sequence
+    // — nothing here reads a per-call stub back — and awaiting them one at a time would be a claim
+    // about ordering that this test is not making.
+    const fetcher = stubFetch(MANIFEST);
+    vi.stubGlobal("fetch", fetcher);
+    await Promise.all(SLUGS.map((slug) => addPolarCaps(inertMap, slug)));
+    expect(vi.mocked(fetcher).mock.calls).toHaveLength(SLUGS.length);
+    for (const call of vi.mocked(fetcher).mock.calls) {
+      expect(call[1]).toEqual({ cache: "no-cache" });
+    }
+  });
+
+  it("names the URL it failed on, so a wrong planet is distinguishable from a broken fetch", async () => {
+    // Both failures log one line and leave the globe capless. Without the URL in the message they
+    // are the same line, and the interesting one — "this asked for the wrong body" — is unreadable.
+    const errors: string[] = [];
+    const spy = vi.spyOn(console, "error").mockImplementation((...args) => {
+      errors.push(args.map(String).join(" "));
+    });
+    vi.stubGlobal("fetch", stubFetch(null));
+    await addPolarCaps(inertMap, "mars");
+    expect(errors.join("\n")).toContain("/caps/mars/caps.json");
+    spy.mockRestore();
   });
 });

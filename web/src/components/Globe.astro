@@ -1294,9 +1294,9 @@ import { REPO_URL } from "../lib/siteLinks";
   // Polar caps (default ON; /earth?nocaps disables): source-shaded AEQD caps drawn ABOVE the
   // Web-Mercator limit — north (Arctic sea ice + bathymetry) and south (Antarctica +
   // Southern-Ocean sea ice). The escape flag stays for layer-on/off artifact diagnosis — the
-  // polar ring was isolated by exactly that comparison. Config comes from the
-  // pipeline-emitted /caps/caps.json (fetched inside addPolarCaps); dynamic import keeps the
-  // globe bundle lean.
+  // polar ring was isolated by exactly that comparison. Config comes from this body's
+  // pipeline-emitted caps.json (addressed from the slug inside addPolarCaps); dynamic import keeps
+  // the globe bundle lean.
   //
   // The caps must be RE-ADDED after a context restore, and specifically not from `style.load`.
   // MapLibre says so itself on every loss ("Custom layer ... cannot be restored ... you will need
@@ -1309,7 +1309,7 @@ import { REPO_URL } from "../lib/siteLinks";
   if (subsystems.polarCaps) {
     const addCaps = () =>
       void import("../lib/polarCaps")
-        .then((mod) => mod.addPolarCaps(map))
+        .then((mod) => mod.addPolarCaps(map, body.slug))
         .catch((err) => console.error("[caps] failed", err));
     map.on("style.load", addCaps);
     reassertPolarCaps = () => {
