@@ -236,9 +236,17 @@ class TestTheRampOriginIsTracked:
 
     def test_a_ramp_off_the_datum_is_recorded(self):
         """Mars is the real instance; without it this rule would be unfalsifiable, since every
-        Earth ramp starts at 0 and no Earth edit could ever move one."""
+        Earth ramp starts at 0 and no Earth edit could ever move one.
+
+        THE RASTER SET IS STATED, NOT READ OFF THE DISK, and the difference is the whole reason this
+        went red in CI and green here. `planet_seam.declared` raises when a body's planet stage has
+        not run — correctly, that is its job — so calling it made a unit test about a COLOUR RAMP
+        depend on this machine having 3 GB of warped Mars sitting in `data/`. No raster influences
+        `land_origin_m`; it comes from the look. The literal is what `fuse/relabel_mars.py` declares,
+        and `tests/test_relabel_mars.py` is where that agreement is actually held.
+        """
         recipe = json.loads(shade_planet.composite_params(
-            {None: None}, bodies.MARS, planet_seam.declared(bodies.MARS)))
+            {None: None}, bodies.MARS, frozenset({"heightfield"})))
         assert recipe["land_origin_m"] == palette.MARS_LOOK.land.origin_m
         assert recipe["land_origin_m"] != 0.0
 
