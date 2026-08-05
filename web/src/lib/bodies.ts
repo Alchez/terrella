@@ -12,10 +12,16 @@
 // field looks complete. That is the same rule the Python registry states as "no field may carry a
 // default", enforced here by the type system instead of by a test.
 //
-// The accent is the only colour here today because it is the only one the CHROME uses. Colours the
-// map itself draws with live in `palette.ts`, which restates the pipeline's own ramp stops and is
-// pinned against them; a body's map palette will join this descriptor when the caller that needs it
-// does.
+// THE COLOURS HERE ARE THE ONES NOTHING ELSE CAN ANSWER — the chrome accent, what shows under a
+// missing tile, and the air the globe is seen through. The body's own RAMP is not among them: that
+// lives in `palette.ts`, which restates the pipeline's ramp stops and is pinned against them by a
+// Python test, and it will join this descriptor when the caller that needs it does.
+//
+// A COLOUR EARNS A FIELD BY BEING WRONG ON THE NEXT PLANET, not by being a colour. Every value
+// below is applied to a body's own pixels and has no derivation, so a second planet that did not
+// answer would wear Earth's — silently, and looking like a rendering bug rather than a missing
+// declaration. Constants that describe the RAMP rather than the body stay where they are measured;
+// `skyAtmosphere.ts` names that line for the atmosphere's own knobs.
 
 import { DEEP_SEA } from "./palette";
 
@@ -24,6 +30,30 @@ import { DEEP_SEA } from "./palette";
  *  codebase: the tile registry, the dev server's work-tree prefixes. That is the whole mechanism
  *  by which a second planet cannot be half-added. */
 export type BodySlug = "earth" | "mars";
+
+/** The air a body is seen through — the three colours MapLibre's globe atmosphere composites with.
+ *
+ *  NOT A HALO, WHICH IS WHY THESE ARE THE BODY'S AND NOT THE PAGE'S. MapLibre ray-marches the air
+ *  column from the camera and truncates the integral at the planet surface, so one uniform scales
+ *  BOTH the glow at the limb and full aerial perspective over the ground. These colours therefore
+ *  end up composited over this body's own pixels, at every zoom — which is exactly why a ramp
+ *  judged under another planet's air is judged against the wrong surround.
+ *
+ *  THE RAMP'S NUMBERS ARE DELIBERATELY NOT HERE. `skyAtmosphere.ts` holds the strength, its zoom
+ *  decay and its pitch term, every one of them picked off measured clipping damage on Earth's
+ *  tiles. Those describe how the ramp trades glow against a bleached frame across the camera; these
+ *  describe what the air LOOKS like. A second body that declares an atmosphere is the moment the
+ *  numbers get a real second instance to be measured against, and that measurement is made by
+ *  looking — so pre-empting it here would be inventing three numbers with nothing to check them. */
+export interface BodyAtmosphere {
+  /** Zenith colour, furthest from the surface. */
+  sky: string;
+  /** The band where the air meets the limb. */
+  horizon: string;
+  /** What aerial perspective lays over the ground — the one that reaches the map's own pixels, and
+   *  the one that fills the hole the Mercator projection leaves at a pole with no cap. */
+  fog: string;
+}
 
 /** One body's browser-side facts. Every field required — see the module note. */
 export interface BodyDescriptor {
@@ -85,6 +115,23 @@ export interface BodyDescriptor {
    *  under a missing Martian tile would read as data loss, which is exactly the impression this
    *  layer exists to prevent. */
   spaceFloor: string;
+  /** The air this body is seen through, or `null` for a body that declares none.
+   *
+   *  `null` IS A STATEMENT, NOT A GAP, and the distinction is the whole reason this field is
+   *  nullable rather than three optional colours. A body with no atmosphere gets no `setSky` at
+   *  all: no glow at the limb, no aerial perspective over the ground, the sphere read directly
+   *  against the starfield. That is a declaration about the planet, and it is falsifiable — Mars
+   *  answers `null` today and Earth does not, so the code path has both arms exercised.
+   *
+   *  MARS'S `null` IS THE PHYSICS, NOT A PLACEHOLDER. Its surface pressure is well under 1% of
+   *  Earth's, so a faithful blend against Earth's tuning rounds to nothing on screen; the honest
+   *  rendering of that is no atmosphere rather than a token one. If the look loop decides a wisp
+   *  reads better than none, it says so by writing three colours here — which is a one-line change
+   *  and a reload, not a refactor. That is what this field exists to make cheap.
+   *
+   *  The "or else" is what was true until this field existed: Earth's pale blue-grey haloed Mars's
+   *  limb and filled the hole at each pole, on every visit, with nothing anywhere declaring it. */
+  atmosphere: BodyAtmosphere | null;
   /** Whether this body publishes the two azimuthal-equidistant polar caps.
    *
    *  MIRRORS `pipeline/bodies.py`'s `renders_polar_caps`, and a test holds the two together —
@@ -143,6 +190,12 @@ export const BODIES: Record<BodySlug, BodyDescriptor> = {
     // against them by tests/test_palette.py; a hex copied to here instead would be a third copy
     // with nothing comparing it back to the sea it is meant to match.
     spaceFloor: DEEP_SEA,
+    // The three colours the globe has always been drawn under, moved here unchanged. Browser-only
+    // aesthetic values with no pipeline counterpart — deliberately NOT palette.ts, whose contract
+    // is "colours the PIPELINE owns, restated for the browser", each pinned by a Python test that
+    // recomputes it. Nothing here has such a source, so filing them there would put unguarded
+    // values under a guarded banner.
+    atmosphere: { sky: "#8fb8d6", horizon: "#cbd8dd", fog: "#dfe7ea" },
     // All three true, because Earth is the reference body and every one of these subsystems was
     // built against it. Written out rather than defaulted for the reason the Python registry
     // spells its layer set out: "whatever the reference body happens to have" is how the next
@@ -179,6 +232,16 @@ export const BODIES: Record<BodySlug, BodyDescriptor> = {
     groundRadiusM: 3396190,
     accent: { light: "#8c4a32", dark: "#d08b6a" },
     spaceFloor: "#6b3a2a",
+    // NONE, AND UNLIKE THE TWO COLOURS ABOVE THIS ONE IS A DECISION. Mars's surface pressure is
+    // ~0.6% of Earth's, so an atmosphere faithful to Earth's tuning is invisible at every zoom the
+    // globe reaches; the honest rendering of that is no sky pass rather than a token haze. It
+    // replaces something that was never declared at all — Earth's pale blue-grey haloing this
+    // planet's limb and filling the hole at each pole, which is what a globe with no cap and
+    // another body's air looks like.
+    //
+    // Reversible in one line if the look loop decides a wisp reads better, which is the point of
+    // the field being nullable rather than the sky being skipped by a flag somewhere.
+    atmosphere: null,
     // Matches `pipeline/bodies.py`'s `MARS.renders_polar_caps`, which is what actually decides it:
     // a cap's colours come from the same unratified ramps as the tiles, so a Mars cap today would
     // wear Earth's palette. The globe therefore shows a hole above ~85° at each pole, which is the

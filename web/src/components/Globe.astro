@@ -993,6 +993,21 @@ import { REPO_URL } from "../lib/siteLinks";
     );
   }
   const skyRamp = parsedSkyRamp ?? defaultAtmosphereRamp();
+  // WHETHER THERE IS AIR AT ALL IS THE BODY'S ANSWER, and it is read once here so every site below
+  // asks the same question. `null` means no `setSky` on this globe: no glow at the limb, no aerial
+  // perspective over the ground. Not a `globeSubsystems` flag, because a boolean there would be a
+  // second spelling of this `!== null` and the sky needs the colours anyway — the registry field is
+  // the gate, and the type of `skySpec` is what enforces it.
+  const bodyAtmosphere = body.atmosphere;
+  if (bodyAtmosphere === null && urlFlags.has("sky")) {
+    // A flag that silently does nothing is worse than one that refuses: `?sky=` is a measurement
+    // arm, and a sweep that believes it varied the atmosphere on a body that has none would read
+    // its identical captures as the ramp not mattering.
+    console.warn(
+      `[sky] ignoring ?sky=${urlFlags.get("sky")} — ${body.slug} declares no atmosphere, so ` +
+        `there is no ramp to sweep.`,
+    );
+  }
 
   let describeTerrain: (() => string) | null = null;
   // The DEM cache is the one cost that grows with SESSION TIME rather than with the camera, so no
@@ -1319,9 +1334,11 @@ import { REPO_URL } from "../lib/siteLinks";
     // callback, so a straight capture narrows to `null` at this line and then to `never` at the
     // call. Inside a function body the declared type survives, which is what makes this compile.
     const rttPoolText = (): string | null => (describeRttPool === null ? null : describeRttPool());
-    // The sky line is unconditional: the ramp runs on every visit, so a capture with no terrain
-    // still has to say which atmosphere arm produced it.
-    const skyLine = () => describeAtmosphereState(map.getZoom(), skyRamp, map.getPitch());
+    // The sky line is unconditional: a capture with no terrain still has to say which atmosphere
+    // arm produced it, and a body with no atmosphere has to say THAT rather than go quiet — an
+    // absent row reads as an older build, where "none" reads as a declaration.
+    const skyLine = () =>
+      describeAtmosphereState(bodyAtmosphere, map.getZoom(), skyRamp, map.getPitch());
 
     // PROBED ONCE, AND THAT IS A CORRECTNESS REQUIREMENT, NOT AN OPTIMISATION
     // -----------------------------------------------------------------------
@@ -1995,13 +2012,18 @@ import { REPO_URL } from "../lib/siteLinks";
   let skyPitch = 0;
 
   map.on("style.load", () => {
-    // A soft atmosphere so the sphere reads against the deep-sea background — and, past the
-    // overview, a much fainter one, because the same uniform that draws that glow also lays full
-    // aerial perspective over the ground. `atmosphere-blend` carries a zoom expression (the style
-    // spec's own advice for globe projection), so ZOOM is evaluated per frame by MapLibre and
-    // never needs a handler; see skyAtmosphere.ts for why a per-zoom setSky would lag instead.
+    // A soft atmosphere so the sphere reads against the starfield — and, past the overview, a much
+    // fainter one, because the same uniform that draws that glow also lays full aerial perspective
+    // over the ground. `atmosphere-blend` carries a zoom expression (the style spec's own advice
+    // for globe projection), so ZOOM is evaluated per frame by MapLibre and never needs a handler;
+    // see skyAtmosphere.ts for why a per-zoom setSky would lag instead.
+    //
+    // A body declaring no atmosphere never reaches setSky, so its style carries no `sky` at all and
+    // the sphere is drawn straight against the starfield. That is the whole implementation of "this
+    // planet has no air": there is no second code path and no zeroed-out sky to look through.
+    if (bodyAtmosphere === null) return;
     skyPitch = map.getPitch();
-    map.setSky(skySpec(skyRamp, skyPitch));
+    map.setSky(skySpec(bodyAtmosphere, skyRamp, skyPitch));
   });
 
   // PITCH, unlike zoom, has to be driven from here: MapLibre expressions can read `["zoom"]` and
@@ -2015,10 +2037,11 @@ import { REPO_URL } from "../lib/siteLinks";
   // shipped before this existed. That is the property the measurement demanded: the atmosphere's
   // contribution to an unpitched frame is exactly 0 DN, so there is nothing there to trade away.
   map.on("moveend", () => {
+    if (bodyAtmosphere === null) return;
     const pitch = map.getPitch();
     if (!atmosphereNeedsRebuild(skyPitch, pitch)) return;
     skyPitch = pitch;
-    map.setSky(skySpec(skyRamp, pitch));
+    map.setSky(skySpec(bodyAtmosphere, skyRamp, pitch));
   });
 
   // Country polygons (hover/click hit-testing, highlight, island markers) are interaction data,

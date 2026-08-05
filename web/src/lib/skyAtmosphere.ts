@@ -20,20 +20,16 @@
 
 import type { SkySpecification } from "maplibre-gl";
 
-/** Committed sky colours. Browser-only aesthetic constants — deliberately NOT in palette.ts,
- *  whose contract is "colours the PIPELINE owns, restated for the browser", each one pinned by a
- *  Python test that recomputes it from palette.py. Nothing here has a pipeline counterpart to be
- *  pinned against, so filing them there would put unguarded values under a guarded banner.
- *
- *  THESE THREE ARE EARTH'S, AND EVERY BODY CURRENTLY WEARS THEM. Unlike the accent and the space
- *  floor, which the registry holds per body and marks as provisional where they are, the sky has no
- *  descriptor field — so a second planet inherits this one silently rather than declaring it. It is
- *  visible on Mars at a glance: `#dfe7ea` is what fills the hole the projection leaves at each pole,
- *  and it is what haloes the limb. Left as one sky on purpose until a Mars look is ratified, since
- *  picking a second one is a decision to make against the sphere rather than against a hex. */
-const SKY_COLOR = "#8fb8d6";
-const HORIZON_COLOR = "#cbd8dd";
-const FOG_COLOR = "#dfe7ea";
+import type { BodyAtmosphere } from "./bodies";
+
+/** WHERE THE COLOURS WENT, AND WHY THE NUMBERS STAYED. The three hexes this file used to hold are
+ *  `BodyDescriptor.atmosphere` in `bodies.ts`, because they are the body's — they composite over
+ *  its own pixels, nothing derives them, and a second planet that did not answer wore Earth's
+ *  silently. Everything below is the RAMP: how much air the camera sees at a given zoom and pitch,
+ *  every value picked off measured clipping damage on Earth's tiles. Those are the ramp's tuning
+ *  rather than any planet's fact, and they are applied only to a body that declares an atmosphere
+ *  at all — so today they reach exactly the body they were measured on. The second body to declare
+ *  one is where they earn a per-body answer, decided by looking rather than by copying this file. */
 
 /** Atmosphere strength at and below ATMOSPHERE_RAMP_START_ZOOM. Chosen when the starfield landed
  *  and left alone since: against dark space it reads as a gentle earth-glow, which is the entire
@@ -251,21 +247,30 @@ export function atmosphereBlend(
 }
 
 /**
- * The whole `sky` spec, with the atmosphere ramped and every other property held.
+ * The whole `sky` spec: one body's air, with the ramp that scales it across the camera.
  *
- * Owned here rather than inline in earth.astro so the colours and the ramp that scales them sit
- * in one reviewable place — the module that defines a thing names it, as countryHighlight.ts owns
+ * Owned here rather than inline in the page so the ramp and the colours it scales meet in one
+ * reviewable place — the module that defines a thing names it, as countryHighlight.ts owns
  * COUNTRIES_SOURCE.
+ *
+ * `atmosphere` IS REQUIRED AND NOT NULLABLE, WHICH IS THE GATE. A body that declares none has no
+ * sky to specify, so the type system refuses to build one for it rather than leaving the caller a
+ * `null` to forget — a globe that quietly fell back to a default here would wear another planet's
+ * air, which is the exact failure this parameter exists to end.
  *
  * `fog-*` is carried unchanged and is inert on our map (globe projection skips terrain fog
  * outright); it is kept because it costs nothing and would be the correct configuration the day
  * a mercator view exists.
  */
-export function skySpec(ramp: AtmosphereRamp, pitchDeg: number = 0): SkySpecification {
+export function skySpec(
+  atmosphere: BodyAtmosphere,
+  ramp: AtmosphereRamp,
+  pitchDeg: number = 0,
+): SkySpecification {
   return {
-    "sky-color": SKY_COLOR,
-    "horizon-color": HORIZON_COLOR,
-    "fog-color": FOG_COLOR,
+    "sky-color": atmosphere.sky,
+    "horizon-color": atmosphere.horizon,
+    "fog-color": atmosphere.fog,
     "sky-horizon-blend": 0.5,
     "horizon-fog-blend": 0.5,
     "fog-ground-blend": 0.1,
@@ -297,12 +302,19 @@ export function atmosphereNeedsRebuild(
  * The ramp makes atmosphere strength a function of zoom, so a screenshot no longer says what
  * produced it — the same reasoning that put the terrain arm on screen. `map.getSky()` returns the
  * expression rather than the evaluated number, so the value here comes from the JS mirror.
+ *
+ * A BODY WITH NO ATMOSPHERE STILL GETS A LINE, and it says so rather than being omitted. A capture
+ * missing the sky row cannot be told apart from a capture taken before this row existed; one that
+ * reads "none" says the planet declared it, which is the difference between a decision and a bug.
+ * It also names what any `?sky=` in the URL did on that visit, which was nothing.
  */
 export function describeAtmosphereState(
+  atmosphere: BodyAtmosphere | null,
   zoom: number,
   ramp: AtmosphereRamp,
   pitchDeg: number = 0,
 ): string {
+  if (atmosphere === null) return "sky none · this body declares no atmosphere";
   if (ramp.kind === "off") {
     return `sky ${BASE_ATMOSPHERE_BLEND.toFixed(2)} · ramp off`;
   }

@@ -430,10 +430,29 @@ Triaged by when each must be answered, because most of them cannot be answered e
     by hillshade, while Tharsis at +5,858 m and the Olympus summit at +19,964 m take one white. The
     salmon that makes it read as Mars lives only in the middle band, which is the southern highlands.
   - Does Mars draw a sea — none, one chosen contour, or the family of candidate shorelines?
-  - **The sky is Earth's, and Mars is already wearing it.** The globe's three atmosphere colours are
-    module constants with no descriptor field behind them, so unlike the accent and the space floor
-    they are inherited rather than declared provisional. The pale blue-grey is what haloes Mars's
-    limb and what fills the hole the projection leaves at each pole, where no cap is drawn.
+  - **Does Mars want any air at all?** The registry now carries the three atmosphere colours per
+    body and Mars answers `null`: no sky pass, no glow at the limb, no aerial perspective over the
+    ground. That is the physics — Mars's surface pressure is under 1% of Earth's, so an atmosphere
+    faithful to Earth's tuning is invisible at every zoom the globe reaches. The open half is
+    whether a wisp reads better than none once the ramp is ratified, which is three colours in one
+    registry row.
+  - **A pale band sits above 84° at both poles, it is in the TILES, and it is not the sky.** Removing
+    Mars's sky entirely left it unchanged, which is how it was caught: the earlier reading here — that
+    the sky colour filled the polar hole — was wrong on both halves. What a visitor sees at the pole
+    is `#d8e2e8`, uniform, running from the Mercator limit at 85.051° down to about 84.05°, and
+    MapLibre extends that band over the hole itself.
+    - Measured in the shipped archives, not inferred: 120 of 512 rows in the z3 top tile, the whole
+      z6 top tile, and the same colour at Mars's south edge.
+    - **Earth's tiles carry the identical band and its polar caps have been covering it**, which is
+      why nothing has ever reported it. A body that renders no caps is what made it visible.
+    - Not a stale artefact and not an ungated Earth layer: Mars's own `composite_params.json` already
+      records `layers_off` for all four cryosphere layers and `rasters_off` for both masks, so a
+      re-pass at the same recipe reproduces it.
+    - Not the ramp clamping either — the heightfield there is real data (−4,650 to −3,170 m, no
+      nodata), and the land ramp renders that elevation as `#e9d9c0`, a warm cream.
+    - So the producing step is not yet identified, and finding it is the work. It belongs with the
+      look loop because the answer is either a composite fix or a decision to let the caps question
+      re-open for Mars.
   - Exaggeration: the ~10× above is arithmetic and needs judging.
   - Does THEMIS night IR belong in the look, as a second physical field over relief?
 - **After a look is ratified.**

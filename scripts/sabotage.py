@@ -3784,6 +3784,62 @@ SABOTAGES: list[Sabotage] = [
         replacement='DEST="$(cd "$(dirname "$0")/../.." && pwd)/data/raw/naturalearth"',
         guard='test_no_data_path_is_built_by_joining_onto_a_checkout_root',
     ),
+    # --- the globe's atmosphere becomes the body's -------------------------------------------------
+    # Every case here is a way the change reverts to "one sky for every planet" while the site still
+    # builds, renders and passes a type-check. That is the whole failure mode: it is only visible on
+    # the body nobody has loaded.
+    Sabotage(
+        suite='web',
+        label='Mars inherits an atmosphere instead of declaring none',
+        path='web/src/lib/bodies.ts',
+        needle='    atmosphere: null,\n    // Matches',
+        replacement='    atmosphere: { sky: "#8fb8d6", horizon: "#cbd8dd", fog: "#dfe7ea" },\n    // Matches',
+        guard='is a state the registry actually holds, in both arms',
+    ),
+    Sabotage(
+        suite='web',
+        label='the moveend rebuild drops its no-atmosphere gate',
+        path='web/src/components/Globe.astro',
+        needle='  map.on("moveend", () => {\n    if (bodyAtmosphere === null) return;\n',
+        replacement='  map.on("moveend", () => {\n',
+        guard='skips the sky entirely for a body that declares none, at every call site',
+    ),
+    Sabotage(
+        suite='web',
+        label='style.load sets a sky for a body that declares none',
+        path='web/src/components/Globe.astro',
+        needle='    if (bodyAtmosphere === null) return;\n    skyPitch = map.getPitch();',
+        replacement='    skyPitch = map.getPitch();',
+        guard='skips the sky entirely for a body that declares none, at every call site',
+    ),
+    # The regrowth shape, and the one the type checker cannot see: a module that never calls skySpec
+    # and simply states a hex of its own. Planted in a module with no business holding one.
+    Sabotage(
+        suite='web',
+        label='a third module grows its own copy of the sky colour',
+        path='web/src/lib/reliefSources.ts',
+        needle='import { archiveFor',
+        replacement='const SKY_COLOR = "#8fb8d6";\nimport { archiveFor',
+        guard="finds none of the body's atmosphere colours outside the registry",
+    ),
+    # The sweep's own reach. Narrowing it to the page repairs the instance and keeps the shape —
+    # which is exactly how the pipeline's ramp globals stayed reachable from two modules for months.
+    Sabotage(
+        suite='web',
+        label='the sky sweep stops recursing, so its subject silently empties',
+        path='web/src/lib/skyAtmosphere.test.ts',
+        needle='  const swept = readdirSync(SOURCE_ROOT, { recursive: true })',
+        replacement='  const swept = readdirSync(SOURCE_ROOT)',
+        guard='sweeps the files that could plausibly hold one, so the rule is not vacuous',
+    ),
+    Sabotage(
+        suite='web',
+        label='the read-out reports a ramp for a body that has no air',
+        path='web/src/lib/skyAtmosphere.ts',
+        needle='  if (atmosphere === null) return "sky none · this body declares no atmosphere";\n',
+        replacement='',
+        guard='says so in the read-out rather than going quiet',
+    ),
 ]
 
 
