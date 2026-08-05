@@ -2534,11 +2534,47 @@ SABOTAGES: list[Sabotage] = [
     # hit their stops, and still agree with gdaldem within 1 DN, which is all the property tests ask.
     Sabotage(
         suite='python',
-        label='the look resolver swaps land and sea, repainting the whole planet inside out',
+        # Re-anchored when the sea branch grew its no-sea refusal, so the two returns stopped being
+        # adjacent lines. The claim is unchanged: land resolves to the sea's ramp, and every
+        # continent is painted in the abyss's colours while the ramp stays monotonic.
+        label='the look resolver hands back the sea ramp when land was asked for',
         path='pipeline/render/palette.py',
-        needle='    if kind == "land":\n        return look.land\n    if kind == "sea":\n        return look.sea',
-        replacement='    if kind == "land":\n        return look.sea\n    if kind == "sea":\n        return look.land',
+        needle='    if kind == "land":\n        return look.land',
+        replacement='    if kind == "land":\n        return look.sea',
         guard='test_gdaldem_ramp_text_is_unchanged',
+    ),
+    Sabotage(
+        suite='python',
+        # The refusal deleted, which is the tidy it invites: `look.sea` is typed optional, so
+        # returning it directly looks like the simplification the type checker was asking for.
+        # What it actually does is hand `None` to a body with no sea and crash somewhere else --
+        # or, worse, reach a caller that treats the absence as a ramp.
+        label='the no-sea look stops refusing and returns its missing ramp instead',
+        path='pipeline/render/palette.py',
+        needle='        if look.sea is None:\n            raise ValueError(\n                "this look draws no sea',
+        replacement='        if False:\n            raise ValueError(\n                "this look draws no sea',
+        guard='test_a_look_with_no_sea_refuses_to_resolve_one',
+    ),
+    Sabotage(
+        suite='python',
+        # A body with no look inherits Earth's rather than raising -- the one-line "friendlier"
+        # change that turns a hard stop into a whole plausible pyramid in another planet's colours.
+        label='an unregistered body falls back to Earth\'s ramp instead of raising',
+        path='pipeline/render/palette.py',
+        needle='        return LOOK_BY_BODY[body]',
+        replacement='        return LOOK_BY_BODY.get(body, EARTH_LOOK)',
+        guard='test_an_unregistered_body_gets_no_look_at_all',
+    ),
+    Sabotage(
+        suite='python',
+        # The composite draws a sea for a planet that declares none. All-False ocean means the
+        # pixels are identical, so nothing on screen moves -- but the freshness recipe and the
+        # allocation both come back, and the look's `sea=None` stops meaning anything.
+        label='the composite paints a sea on a body whose look has none',
+        path='pipeline/tile/shade.py',
+        needle='    if look.sea is None:\n        # A body that draws no sea.',
+        replacement='    if False:\n        # A body that draws no sea.',
+        guard='test_a_body_with_no_sea_ramp_composites_from_land_alone',
     ),
     # The sea ramp's LUT starts at the abyss, not at 0 m. Dropping the offset leaves a table that is
     # the right length, the right dtype and the right shape, and wrong at every index.

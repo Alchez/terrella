@@ -32,6 +32,7 @@ import sys
 
 import numpy as np
 
+from pipeline.render import palette
 from pipeline.tile import shade
 
 WIDTH = 131072       # the planet grid's full width -- windows are always full-width
@@ -76,8 +77,11 @@ def main() -> int:
     after_inputs = peak_gib()
     print(f"  peak after allocating inputs : {after_inputs:6.2f} GiB", flush=True)
 
+    # Earth's, because the whole point is a PRODUCTION-shaped window: the measurement is only a
+    # lower bound on the real pass if it allocates what the real pass allocates, and a look with no
+    # sea ramp skips one full-window LUT lookup.
     rgb = shade.composite(heights, ocean, water, snow_alpha, hillshade, occlusion,
-                          SVF_SHAPE, shape, depth=depth)
+                          SVF_SHAPE, shape, depth=depth, look=palette.EARTH_LOOK)
     peak = peak_gib()
     print(f"  PEAK through composite()     : {peak:6.2f} GiB", flush=True)
     print(f"  composite's own working set  : {peak - after_inputs:6.2f} GiB", flush=True)

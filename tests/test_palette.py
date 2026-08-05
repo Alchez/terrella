@@ -17,6 +17,7 @@ from pathlib import Path
 
 import pytest
 
+from pipeline import bodies
 from pipeline.render import palette
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -79,24 +80,24 @@ class TestRampColor:
 
 class TestColorRelief:
     def test_land_rows_span_zero_to_max(self):
-        rows = palette.color_relief_rows("land")
+        rows = palette.color_relief_rows("land", look=palette.EARTH_LOOK)
         assert rows[0][0] == 0.0
         assert rows[-1][0] == pytest.approx(palette.LAND_MAX_M)
 
     def test_sea_rows_span_min_to_zero(self):
-        rows = palette.color_relief_rows("sea")
+        rows = palette.color_relief_rows("sea", look=palette.EARTH_LOOK)
         assert rows[0][0] == pytest.approx(palette.SEA_MIN_M)
         assert rows[-1][0] == 0.0
 
     def test_elevations_are_monotonic(self):
         for kind in ("land", "sea"):
-            elevs = [elev for elev, _ in palette.color_relief_rows(kind)]
+            elevs = [elev for elev, _ in palette.color_relief_rows(kind, look=palette.EARTH_LOOK)]
             assert elevs == sorted(elevs)
 
     def test_color_relief_matches_locked_hero_hex(self):
         """Independent oracle: generated endpoints == the frozen hex transcribed in this file."""
-        land = palette.color_relief_rows("land")
-        sea = palette.color_relief_rows("sea")
+        land = palette.color_relief_rows("land", look=palette.EARTH_LOOK)
+        sea = palette.color_relief_rows("sea", look=palette.EARTH_LOOK)
         assert land[0][1] == LAND_COAST
         assert land[-1][1] == LAND_PEAK
         assert sea[-1][1] == SEA_SHALLOW   # shallowest is at elevation 0 (last sea row)
@@ -174,7 +175,7 @@ class TestSharedConstants:
 class TestWriteColorRelief:
     def test_writes_gdaldem_format_with_nodata(self, tmp_path):
         out = tmp_path / "ramp_land.txt"
-        palette.write_color_relief(out, "land")
+        palette.write_color_relief(out, "land", look=palette.EARTH_LOOK)
         lines = out.read_text().splitlines()
         assert lines[-1] == "nv 0 0 0"
         first = lines[0].split()
@@ -210,14 +211,14 @@ class TestTheLookIsByteStable:
         [("land", "c2137fc21d35aaf5"), ("sea", "3318a6ec1e793420")],
     )
     def test_gdaldem_ramp_text_is_unchanged(self, kind, expected):
-        assert self._digest(palette.color_relief_text(kind).encode()) == expected
+        assert self._digest(palette.color_relief_text(kind, look=palette.EARTH_LOOK).encode()) == expected
 
     @pytest.mark.parametrize(
         "kind,expected",
         [("land", "2981572a5c8865f4"), ("sea", "6839535a4a018129")],
     )
     def test_relief_lut_bytes_are_unchanged(self, kind, expected):
-        lut = palette.relief_lut(kind)
+        lut = palette.relief_lut(kind, look=palette.EARTH_LOOK)
         # Shape is part of the artefact: a (3, N) that quietly became (N, 3) would hash differently
         # but so would a genuinely different ramp, and only one of those is a transpose bug.
         assert lut.shape == (3, 6001)
@@ -226,3 +227,65 @@ class TestTheLookIsByteStable:
     def test_lake_lut_is_unchanged(self):
         flat = bytes(channel for colour in palette.lake_lut() for channel in colour)
         assert self._digest(flat) == "f5395a2466878b91"
+
+
+class TestTheLookRegistry:
+    """A second look exists, so the seam that was written for one is now load-bearing.
+
+    Every test here is unreachable while Earth is the only planet: with one look, resolving it is
+    the same operation as reading the globals, and a mutation that breaks the resolution still
+    produces Earth's ramp. The registry is what makes the wrong answer expressible, which is what
+    makes these guards able to fail.
+    """
+
+    def test_every_registered_body_has_a_look(self):
+        """The parity guard, and the reason the two registries are allowed to be separate.
+
+        `pipeline/bodies.py` opens by saying a body is "not a look", so colour lives here instead
+        of on the descriptor. The cost of that separation is that adding a planet now means two
+        edits, and forgetting the second is the failure that RENDERS rather than raises — a whole
+        pyramid in Earth's ramp, every gate green. Nothing but this test spans the two.
+        """
+        missing = sorted(set(bodies.BODIES) - set(palette.LOOK_BY_BODY))
+        assert not missing, (
+            f"registered bodies with no look: {missing}. Add an entry to palette.LOOK_BY_BODY — a "
+            "body that cannot resolve a look must not be able to reach the shading path at all."
+        )
+
+    def test_an_unregistered_body_gets_no_look_at_all(self):
+        """No fallback, for the reason `bodies.get` has none: the fallback renders.
+
+        A wrong ramp does not raise, does not warp, and does not look broken in a thumbnail. It
+        produces a planet that is internally consistent and belongs to somebody else.
+        """
+        with pytest.raises(KeyError, match="no look registered"):
+            palette.look_for("venus")
+
+    def test_earth_and_mars_resolve_to_different_looks(self):
+        """Anti-vacuity for everything above. Two names mapping to one object would pass every
+        other test in this class while proving nothing about the seam."""
+        assert palette.look_for("earth") is palette.EARTH_LOOK
+        assert palette.look_for("mars") is palette.MARS_LOOK
+        assert palette.MARS_LOOK is not palette.EARTH_LOOK
+
+    def test_mars_borrows_earths_land_ramp_and_declares_no_sea(self):
+        """The placeholder pinned, so replacing it in Phase 2 is a deliberate act.
+
+        Mars's land ramp is Earth's — SHARED, not copied, so a re-tune of Earth's drags Mars with
+        it and the borrowing cannot silently stop being true. Its sea is None, which is a fact
+        rather than a placeholder: the planet seam declares no oceanmask, so no pixel could select
+        a sea ramp however carefully one were written.
+        """
+        assert palette.MARS_LOOK.land is palette.EARTH_LOOK.land
+        assert palette.MARS_LOOK.sea is None
+        assert palette.EARTH_LOOK.sea is not None
+
+    def test_a_look_with_no_sea_refuses_to_resolve_one(self):
+        """Absence is answered by raising, never by handing back the absence itself.
+
+        Returning `None` would push the decision onto every caller and be wrong in whichever one
+        forgot — and `Surface | None` makes that the tidy the type checker appears to ask for.
+        """
+        with pytest.raises(ValueError, match="draws no sea"):
+            palette.surface("sea", look=palette.MARS_LOOK)
+        assert palette.surface("land", look=palette.MARS_LOOK) is palette.EARTH_LOOK.land

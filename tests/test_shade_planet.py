@@ -273,16 +273,28 @@ class TestCompositeParams:
         be tracked by ramp_{land,sea}.txt, whose only reason to exist was gating the gdaldem
         stages. With those gone, if the stops did not move in here, a ramp re-tune would leave
         planet_rgb looking fresh and the pass would skip the composite -- silently rendering the
-        planet with the OLD palette. This is the same class as WATER_RGB drifting untracked."""
+        planet with the OLD palette. This is the same class as WATER_RGB drifting untracked.
+
+        RE-TUNED THROUGH THE LOOK, NOT THE MODULE GLOBAL, and the difference is the point. The
+        recipe reads the ramp off the BODY'S look now, so `palette.LAND_STOPS` is no longer the
+        input — it is one of the values Earth's look happens to be assembled from. Patching it
+        passes through nothing, which is exactly the proxy-instead-of-entry-point mistake this
+        suite has paid for before. A source re-tune still restages: editing the constant rebuilds
+        `EARTH_LOOK` at import, which is what a real re-tune does."""
         before = shade_planet.composite_params({None: None}, bodies.EARTH, WHOLE_PLANET)
-        monkeypatch.setattr(palette, "LAND_STOPS",
-                            [(0.0, (0.1, 0.1, 0.1)), (1.0, (0.9, 0.9, 0.9))])
+        monkeypatch.setitem(palette.LOOK_BY_BODY, "earth", dataclasses.replace(
+            palette.EARTH_LOOK, land=dataclasses.replace(
+                palette.EARTH_LOOK.land,
+                stops=[(0.0, (0.1, 0.1, 0.1)), (1.0, (0.9, 0.9, 0.9))])))
         assert shade_planet.composite_params({None: None}, bodies.EARTH, WHOLE_PLANET) != before
 
     def test_a_sea_ramp_retune_changes_the_params(self, monkeypatch):
         before = shade_planet.composite_params({None: None}, bodies.EARTH, WHOLE_PLANET)
-        monkeypatch.setattr(palette, "SEA_STOPS",
-                            [(0.0, (0.2, 0.3, 0.4)), (1.0, (0.0, 0.1, 0.2))])
+        assert palette.EARTH_LOOK.sea is not None
+        monkeypatch.setitem(palette.LOOK_BY_BODY, "earth", dataclasses.replace(
+            palette.EARTH_LOOK, sea=dataclasses.replace(
+                palette.EARTH_LOOK.sea,
+                stops=[(0.0, (0.2, 0.3, 0.4)), (1.0, (0.0, 0.1, 0.2))])))
         assert shade_planet.composite_params({None: None}, bodies.EARTH, WHOLE_PLANET) != before
 
     def test_a_sea_ice_alpha_retune_changes_the_params(self, monkeypatch):
@@ -463,8 +475,8 @@ class TestPaletteTextRefactor:
         """color_relief_text was split out of write_color_relief; if it drifts, every
         ramp comparison silently re-colours the planet on every run."""
         path = tmp_path / f"ramp_{kind}.txt"
-        palette.write_color_relief(path, kind)
-        assert path.read_text() == palette.color_relief_text(kind)
+        palette.write_color_relief(path, kind, look=palette.EARTH_LOOK)
+        assert path.read_text() == palette.color_relief_text(kind, look=palette.EARTH_LOOK)
 
 
 class TestBuildTilesGuard:

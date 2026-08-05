@@ -325,11 +325,18 @@ Each with its "or else", because a seam without a failure mode is a preference.
     string that names no body at all.
   - Or else: mixing the two radii yields a latitude-varying wrong exaggeration that renders
     plausibly everywhere and is true nowhere — the failure mode with no symptom.
-- **The palette must be body-parameterised, not copied.** A second set of look constants is the same
-  drift that has already cost this project a full overnight re-render of every hero; the cure was
-  making the hero scene import the shared module, and a copy undoes it.
-  - The existing guards will actively refuse a second look until this lands — the palette's
-    relational pins treat a divergent constant as drift, by design.
+- **What is left of the palette work is the LOOK ITSELF, not the parameterisation.** The seam is
+  built: `palette.LOOK_BY_BODY` answers which ramps a body draws with, `look_for` refuses an
+  unregistered planet rather than falling back to Earth's, and the composite takes the resolved
+  look as a required argument so no ramp can be chosen by omission.
+  - Mars's entry deliberately borrows Earth's land ramp — shared, not copied, so the borrowing
+    cannot silently stop being true — and declares **no sea ramp at all**, which is a fact rather
+    than a placeholder while its planet seam declares no oceanmask.
+  - A second set of look constants would be the drift that has already cost this project a full
+    overnight re-render of every hero; the cure was making the hero scene import the shared module,
+    and a copy undoes it. Registering a look is what replaces copying.
+  - The palette's relational pins still treat a divergent constant as drift, by design, so they
+    will refuse a Mars ramp written as new module-level constants rather than as a `Look`.
 - **The tile Worker's directory cache must be recounted.** It is sized by counting the entries each
   shipped archive occupies, and the Worker records that arithmetic beside the constant. Mars adds up
   to three more archives, so the count is redone, not raised by feel.

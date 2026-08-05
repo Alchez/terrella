@@ -51,7 +51,7 @@ def composite_at(light_value, *, ocean=False, water=False, snow=0.0):
                            np.full(shape, ocean, dtype=bool), np.full(shape, water, dtype=bool),
                            np.full(shape, snow, dtype="float32"),
                            np.full(shape, hillshade_for_light(pre), dtype="float32"),
-                           np.zeros((1, 1), dtype="float32"), (1, 1), shape)[:, 0, 0].astype(float)
+                           np.zeros((1, 1), dtype="float32"), (1, 1), shape, look=palette.EARTH_LOOK)[:, 0, 0].astype(float)
 
 
 class TestOffIsExactlyToday:

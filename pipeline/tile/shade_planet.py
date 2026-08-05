@@ -305,7 +305,17 @@ def composite_params(variants, body: bodies.Body, rasters: frozenset[str],
         missing["layers_off"] = absent_layers
     if absent_rasters:
         missing["rasters_off"] = absent_rasters
-    return json.dumps({**missing, "knobs": knobs, "water_rgb": palette.WATER_RGB,
+    look = palette.look_for(body.name)
+    # The sea ramp is recorded only when the body draws one — the conditional-record idiom this
+    # function already uses for `layers_off` and `rasters_off`, and `hs_params` for `ground_scale`.
+    # A body with no sea has no sea values to track, and writing nulls would put entries in the
+    # recipe that no edit could ever move, which reads as tracked while tracking nothing.
+    sea_recipe: dict[str, Any] = (
+        {} if look.sea is None
+        else {"sea_stops": look.sea.stops, "sea_min_m": look.sea.extreme_m}
+    )
+    return json.dumps({**missing, **sea_recipe,
+                       "knobs": knobs, "water_rgb": palette.WATER_RGB,
                        "composite_window_rows": window_rows,
                        # The occlusion resolution reached NO freshness record at all --
                        # it was a module constant (`SVF_LONG_EDGE`, now OCCLUSION_TARGET_M_PER_PX)
@@ -319,8 +329,12 @@ def composite_params(variants, body: bodies.Body, rasters: frozenset[str],
                        # whole purpose was to gate the gdaldem stages. With those gone, nothing
                        # else would notice a ramp re-tune and planet_rgb would sit falsely fresh
                        # -- the exact failure this function exists to prevent.
-                       "land_stops": palette.LAND_STOPS, "sea_stops": palette.SEA_STOPS,
-                       "land_max_m": palette.LAND_MAX_M, "sea_min_m": palette.SEA_MIN_M,
+                       # Read off the BODY'S look, not the module globals. Those globals are
+                       # Earth's, so every planet's recipe used to record Earth's ramp — and this
+                       # dict is precisely what decides whether a look change restages. A Mars
+                       # re-tune would have left the Mars composite reading fresh.
+                       "land_stops": look.land.stops,
+                       "land_max_m": look.land.extreme_m,
                        "lut_step_m": palette.LUT_STEP_M,
                        "snow_rgb": palette.SNOW_RGB,
                        "snow_shadow_rgb": palette.SNOW_SHADOW_RGB,
@@ -735,7 +749,7 @@ def _compose(inputs: _WindowInputs, shared: _WindowShared) -> np.ndarray:
     rgb = shade.composite(inputs.height_win, shared.ocean_win, shared.water_win, shared.snow_a,
                           shared.hs_win, inputs.occ_win, inputs.occ_win.shape,
                           (inputs.win_h, inputs.height_win.shape[1]), depth=shared.depth_win,
-                          ice_a=shared.ice_a)
+                          ice_a=shared.ice_a, look=palette.look_for(inputs.body.name))
     if shared.cap.any():  # force the smeared polar edges to a flat deep-sea disc
         for band in range(3):
             rgb[band][shared.cap] = CAP_RGB[band]

@@ -27,7 +27,7 @@ import rasterio
 from rasterio.transform import from_bounds
 
 from pipeline import bodies, paths, planet_seam
-from pipeline.render import seaice, snow
+from pipeline.render import palette, seaice, snow
 from pipeline.tile import cap_render, shade_planet, terrain_rgb
 
 #: A planet whose seam emitted all three rasters — what Earth declares, and the only
@@ -126,6 +126,32 @@ SHIPPED_GRIDS = {
 #: from Earth's, so a factory that ignored its argument cannot pass by coincidence.
 OTHER_BODY = dataclasses.replace(bodies.EARTH, name="other", path_prefix="other",
                                  aeqd_radius_m=1234567.0)
+
+
+#: The synthetic bodies this file invents, each to prove one field threads somewhere. Not "mars",
+#: which is a real registered planet even where a test builds an Earth-shaped stand-in under that
+#: name — and which therefore correctly resolves the real Mars look.
+SYNTHETIC_BODY_NAMES = ("other", "layerless", "identity", "smaller", "noice", "snowy")
+
+
+@pytest.fixture(autouse=True)
+def _the_synthetic_bodies_have_looks(monkeypatch):
+    """A synthetic body needs a look, for the same reason it needs a name and a radius.
+
+    Every cap recipe embeds `composite_params`, which resolves the body's ramp — and `look_for`
+    refuses an unregistered body rather than falling back to Earth's, so without this the file
+    raises. That refusal is the guard working rather than an inconvenience: a planet inheriting
+    Earth's ramp by omission renders a complete, plausible pyramid in another planet's colours.
+
+    The lookup deliberately lives inside `composite_params` rather than being threaded in beside
+    the body. A `look` parameter sitting next to a `body` parameter would make "Mars's recipe with
+    Earth's ramp" a sentence the type checker accepts, and the body already determines the answer.
+
+    Scoped to this module's tests rather than registered at import, so the real registry stays
+    exactly the two planets `test_palette.py` holds it to.
+    """
+    for name in SYNTHETIC_BODY_NAMES:
+        monkeypatch.setitem(palette.LOOK_BY_BODY, name, palette.EARTH_LOOK)
 
 
 class TestTheGridsAreBuiltPerBody:

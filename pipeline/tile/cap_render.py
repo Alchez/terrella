@@ -52,7 +52,7 @@ from pyproj import Transformer
 from scipy.ndimage import binary_dilation
 
 from pipeline import bodies, naturalearth, planet_seam
-from pipeline.render import hillshade, lake_depth, seaice, snow
+from pipeline.render import hillshade, lake_depth, palette, seaice, snow
 from pipeline.tile import shade, terrain_rgb
 from pipeline.tile.shade import KNOBS
 from pipeline.tile.shade_planet import (
@@ -544,7 +544,8 @@ def _write_cap(grid: CapGrid, heights: np.ndarray, ocean: np.ndarray, water: np.
     sub-perceptibly and does not close the cap<->tile seam -- the seam is projection/DEM, not SVF)."""
     occ = np.zeros((grid.px, grid.px), dtype=np.float32)  # occ below threshold -> no SVF burn
     rgb = shade.composite(heights, ocean, water, snow_a, hillshade_dn, occ, occ.shape,
-                          (grid.px, grid.px), depth=None, ice_a=ice_a)
+                          (grid.px, grid.px), depth=None, ice_a=ice_a,
+                          look=palette.look_for(grid.body.name))
     _bake_coastline(grid, rgb)  # the land/sea line, so ice sheet reads distinct from sea ice at the pole
 
     tif = cap_work_dir(grid.body) / f"cap_{grid.name}.tif"

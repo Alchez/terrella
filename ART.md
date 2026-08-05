@@ -6,7 +6,8 @@
   bathymetry, data-driven snow.
 - The system of record is code: shared constants in `pipeline/render/palette.py`, hero-only
   constants in `pipeline/render/scene_build.py`, tile levers in `pipeline/tile/shade.py`
-  (`KNOBS`). Canonical renders: `blender/renders/heroes/<country>.png` (203 posters — 204 countries are in scope, Kiribati deferred).
+  (`KNOBS`). The ramp constants below are Earth's, and they are assembled into a named `Look` that
+  the shading path resolves **per body** — every lever's cost in this file is Earth's cost. Canonical renders: `blender/renders/heroes/<country>.png` (203 posters — 204 countries are in scope, Kiribati deferred).
 - The A/Bs and rationale behind every value live in HISTORY (cited by § heading); this file is
   the operational view.
 

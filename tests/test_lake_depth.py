@@ -197,7 +197,7 @@ class TestCompositeUsesDepth:
         snow_a = np.zeros(shape, dtype="float32")
         shade.KNOBS["lake_curve"] = curve
         return shade.composite(heights, ocean, water, snow_a, hs, occ, (1, 1), shape,
-                               depth=depth)
+                               depth=depth, look=palette.EARTH_LOOK)
 
     def test_deep_lake_renders_darker_than_a_shallow_one(self):
         """Absolute depth, not per-lake normalisation: a pond must NOT look like Baikal.

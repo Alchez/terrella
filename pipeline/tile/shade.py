@@ -342,8 +342,10 @@ def main():
     low = np.nan_to_num(np.where(low < -500, np.nan, low), nan=0.0)
     occ = normalised_occlusion(low, m_per_px)
 
+    # Earth's look for the same reason EXAG above is Earth's exaggeration: this path predicts the
+    # planet and takes --cells, and a Copernicus cell name is not a thing another planet has.
     rgb = composite(heights, ocean, water, snow_a, hs, occ, (sh, sw), (grid_h, grid_w),
-                    depth=depth)
+                    depth=depth, look=palette.EARTH_LOOK)
 
     out_tif = args.out / "region_rgb.tif"
     with rasterio.open(height_vrt) as src:
@@ -487,8 +489,12 @@ def snow_position(light, curve):
     raise ValueError(f"unknown snow_curve {curve!r} (linear | gamma4 | gamma8 | knee)")
 
 
-def composite(heights, ocean, water, snow_a, hs, occ, occ_shape, grid, depth=None, ice_a=None):
+def composite(heights, ocean, water, snow_a, hs, occ, occ_shape, grid, depth=None, ice_a=None,
+              *, look: palette.Look):
     """Composite one window of the planet/region from ELEVATION, not pre-coloured rasters.
+
+    `look` is the body's ramp pair and is REQUIRED — this is the one function that turns elevation
+    into colour, so a default here would be a whole planet's palette chosen by omission.
 
     `heights` is metres on the fused heightfield; the land and sea ramps are applied here via
     `palette.relief_lut`, which replaced two `gdaldem color-relief` passes.
@@ -507,8 +513,8 @@ def composite(heights, ocean, water, snow_a, hs, occ, occ_shape, grid, depth=Non
     # float32 throughout — the output is 8-bit, and on the full-width planet windows float64
     # doubled peak RAM (~18 GB) and OOM-killed the box. asarray is a no-op when already float32.
     heights = np.asarray(heights, dtype=np.float32)
-    land = palette.lut_lookup(palette.relief_lut("land"), "land", heights).astype(np.float32)
-    sea = palette.lut_lookup(palette.relief_lut("sea"), "sea", heights).astype(np.float32)
+    land = palette.lut_lookup(palette.relief_lut("land", look=look), "land", heights,
+                              look=look).astype(np.float32)
     hs = np.asarray(hs, dtype=np.float32)
     snow_a = np.asarray(snow_a, dtype=np.float32)
     occ = np.asarray(occ, dtype=np.float32)
@@ -517,9 +523,25 @@ def composite(heights, ocean, water, snow_a, hs, occ, occ_shape, grid, depth=Non
                    * np.array([1.0, 1.0 - 0.5 * KNOBS["warmth"], 1.0 - KNOBS["warmth"]],
                               dtype=np.float32).reshape(3, 1, 1),
                    0, 255)
-    sea_lum = 0.299 * sea[0] + 0.587 * sea[1] + 0.114 * sea[2]
-    sea = np.clip(sea_lum[None] + (sea - sea_lum[None]) * KNOBS["sea_saturation"], 0, 255)
-    color = np.where(ocean[None], sea, land)
+    if look.sea is None:
+        # A body that draws no sea. The caller's ocean mask comes from the planet seam's
+        # DECLARATION, so on such a body it is all-False and `np.where` would select the sea ramp
+        # nowhere — skipping it states that, where building a second ramp would mean inventing a
+        # colour no pixel is painted in. The check is not defensive: an ocean mask arriving with
+        # pixels set means the look and the declaration disagree about the planet, and every one of
+        # those pixels would silently render as land.
+        if bool(np.any(ocean)):
+            raise ValueError(
+                "look draws no sea but the ocean mask has pixels set — the body's planet seam "
+                "declares an oceanmask its look has no ramp for, so sea would render as land."
+            )
+        color = land
+    else:
+        sea = palette.lut_lookup(palette.relief_lut("sea", look=look), "sea", heights,
+                                 look=look).astype(np.float32)
+        sea_lum = 0.299 * sea[0] + 0.587 * sea[1] + 0.114 * sea[2]
+        sea = np.clip(sea_lum[None] + (sea - sea_lum[None]) * KNOBS["sea_saturation"], 0, 255)
+        color = np.where(ocean[None], sea, land)
     # Inland water: flat WATER_RGB by default. Where a lake carries GLOBathy depth, ramp it
     # instead -- on ABSOLUTE depth, never normalised per lake, since a per-lake normalisation
     # is the artificial gradient the prototype was rejected for (a pond would read

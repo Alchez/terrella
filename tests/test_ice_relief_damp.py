@@ -20,6 +20,7 @@ import pytest
 from conftest import hillshade_for_light
 
 from pipeline import bodies, planet_seam
+from pipeline.render import palette
 from pipeline.tile import shade
 
 #: A planet whose seam emitted all three rasters — what Earth declares, and the only
@@ -47,7 +48,7 @@ def composite_pixel(light_value, *, ocean=True, water=False, snow=0.0, ice=0.0,
                            np.full(shape, snow, dtype="float32"),
                            np.full(shape, hillshade_for_light(light_value), dtype="float32"),
                            np.zeros(shape, dtype="float32"), shape, shape,
-                           ice_a=np.full(shape, ice, dtype="float32"))[:, 0, 0].astype(float)
+                           ice_a=np.full(shape, ice, dtype="float32"), look=palette.EARTH_LOOK)[:, 0, 0].astype(float)
 
 
 def relief_spread(damp, ice):
