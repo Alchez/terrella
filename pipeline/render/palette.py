@@ -14,9 +14,13 @@ image. `color_relief_rows` densely samples each ramp and sRGB-encodes it into th
 `gdaldem color-relief` consumes. Land and sea are separate ramps chosen later by the
 ocean mask (not the elevation sign), which keeps the coastline crisp.
 
-The frozen endpoints
-for land at 0/6000 m and 85B9B7/3A6E7D for sea at 0/-6000 m; `test_palette.py` guards
-against drift off those values.
+EVERY RAMP CONSTANT HERE IS ONE BODY'S, and the module holds more than one body's. Earth's land
+runs 0/6000 m and its sea 85B9B7/3A6E7D over 0/-6000 m, both frozen and guarded against drift by
+`test_palette.py`. Mars answers `MARS_LAND_STOPS` over its own domain and shares no colour object
+with Earth, so a re-tune of one planet cannot reach the other — which is the whole reason the ramps
+are assembled into a named `Look` rather than read as globals. Nothing outside this module may read
+an authored ramp by name; a source scan enforces it, because a module that does renders Earth
+perfectly and is wrong only on the planet nobody has looked at.
 """
 
 import itertools
@@ -217,14 +221,48 @@ EARTH_LOOK = Look(
     sea=Surface(stops=SEA_STOPS, origin_m=0.0, extreme_m=SEA_MIN_M),
 )
 
-#: Mars. Everything here is provisional except the absence of a sea.
+#: Mars's land ramp, hand-authored against measurements of the planet's own colour.
 #:
-#: `land` IS EARTH'S RAMP, SHARED RATHER THAN COPIED, and it is a placeholder standing in the open.
-#: Mars has no ratified look: the ceiling it will be judged at is still z6, and choosing hypsometric
-#: colours for a planet from a table instead of from the sphere is the one move this project has
-#: repeatedly got wrong. Sharing rather than copying is what keeps the placeholder honest — a
-#: re-tune of Earth's ramp correctly drags Mars along, because Mars IS drawing Earth's ramp, and a
-#: copy would quietly stop saying so.
+#: A HYPSOMETRIC RAMP IS A FICTION ON MARS, AND THIS ONE KNOWS IT. Earth's ramp works because
+#: elevation predicts colour there, through climate and vegetation. Mars's albedo is set by
+#: WIND-BLOWN DUST, which does not care about height. Measured by joining the global Viking colour
+#: mosaic (`Mars_Viking_ClrMosaic_global_925m.tif`, USGS) to the shipped heightfield at 6.48 M
+#: co-registered lon/lat samples, area-weighted: across the elevations holding 64% of the surface
+#: (-3000..+3000 m) mean colour moves 7.1 luma against a within-place scatter of 17.9 — a ratio of
+#: 0.40. Widened to 92% of the surface it is 1.03. The named albedo features are off any such trend
+#: by more than the trend's whole range: Syrtis Major sits at +1,369 m and luma 41.5 where its
+#: elevation band averages 84.
+#:
+#: SO THESE COLOURS ARE CARTOGRAPHIC CONVENTION, NOT A PICTURE OF MARS, and the About page says so
+#: to visitors. What was taken from the measurement and what was not:
+#:   - HUE, taken in full. Channel ratios survive an uncalibrated tone curve where an absolute level
+#:     does not. The mosaic puts Mars at G/R 0.654; Earth's borrowed ramp was shipping 0.780.
+#:   - LEVEL, taken in part. The mosaic reads 2.07x darker than the borrowed ramp shipped, which
+#:     would put Mars at 0.45x Earth's shipped land. Most of that is the product's own tone curve
+#:     and an uncorrected atmospheric haze floor, not the planet: real land albedo is broadly
+#:     comparable between the two bodies (Earth's deserts 0.30-0.40 and forests 0.10-0.15 against
+#:     Mars's bright regions ~0.30 and dark ~0.10), so pinning Mars to the mosaic while Earth stays
+#:     stylised would make the two planets disagree about what a map is. This ships at 0.71x.
+#:   - SHAPE, deliberately refused. Mars is genuinely brightest at BOTH ends — Hellas is a dust trap
+#:     and Tharsis is dust-mantled — so a faithful ramp would give the deepest basin and the highest
+#:     summit the same colour, which is exactly the defect inherited from Earth's shoreline hinge.
+#:     Rising monotonically with elevation is what makes height readable at all.
+#:
+#: THE AUTHORED VALUES ARE NOT WHAT SHIPS. `shade.composite` resaturates by `saturation` 1.18, warms
+#: by `warmth` 0.06 and multiplies by a light term at ~1.025 on flat ground, so a stop picked to hit
+#: a hue target overshoots it. These were specified as the intended SHIPPED colour and inverted
+#: through that chain — a first pass authored directly by eye landed at B/R 0.35 against a 0.55
+#: intent. Anything re-tuning them should invert the same way rather than nudging the hex.
+MARS_LAND_STOPS: list[Stop] = [
+    (0.000, (0.187821, 0.078187, 0.045186)),  # -6000 m  deepest basin floor, ships #804d35
+    (0.150, (0.274677, 0.114435, 0.066626)),  # -4185 m  lowland plains
+    (0.350, (0.412543, 0.171441, 0.082283)),  # -1765 m  the northern lowlands' own tone
+    (0.550, (0.514918, 0.246201, 0.111932)),  #  +655 m  just above the areoid, the modal elevation
+    (0.780, (0.597202, 0.366253, 0.187821)),  # +3438 m  southern highlands
+    (1.000, (0.658375, 0.520996, 0.337164)),  # +6100 m  Tharsis and the volcanic summits
+]
+
+#: Mars. Everything here is decided except whether it ever draws a sea.
 #:
 #: `sea` is None, and that half is a FACT rather than a placeholder: `fuse/relabel_mars.py` declares
 #: a heightfield and no oceanmask, so no pixel can select a sea ramp however carefully one is
@@ -239,21 +277,15 @@ EARTH_LOOK = Look(
 #: the ramp on almost nothing — and Olympus still reads, because it reads through the HILLSHADE,
 #: which no ramp touches.
 #:
-#: THE NUMBERS SIT IN THE CONSTRUCTOR, not in named module constants, and the asymmetry with Earth's
-#: `LAND_MAX_M` / `SEA_MIN_M` above is deliberate rather than sloppy. Those two are a BRIDGE: five
-#: tests compare the assembled `Surface` against the authored value, and `RAMP_GLOBALS` guards that
-#: nothing outside this module reads them by name. A Mars pair would have had no such job — read
-#: once, on the line below, by nothing else — so it would be two names for one number, which is the
+#: THE DOMAIN NUMBERS SIT IN THE CONSTRUCTOR, not in named module constants, and the asymmetry with
+#: `MARS_LAND_STOPS` above is the naming rule working rather than an inconsistency in it. That list
+#: has two readers besides the constructor — `RAMP_GLOBALS` and the tests that compare the assembled
+#: `Surface` against it — exactly as `LAND_STOPS` does. These two numbers have none: read once, on
+#: the line below, by nothing else. A name for them would be two names for one number, which is the
 #: drift this file exists to refuse. The dataclass IS the representation; a constant earns its own
 #: name only when something other than the constructor needs it.
-#:
-#: `stops` IS THE SAME LIST OBJECT `EARTH_LOOK.land` HOLDS, and that is the sharing above surviving
-#: one level down. Mars used to share the whole `Surface`, which made the borrowing unmissable; it
-#: needs its own domain now, so the object has to split — but splitting the STOPS too would quietly
-#: end the promise that a re-tune of Earth's ramp drags Mars along. Sharing the list keeps the
-#: placeholder exactly as honest as it was, at the only level where it was ever the point.
 MARS_LOOK = Look(
-    land=Surface(stops=EARTH_LOOK.land.stops, origin_m=-6000.0, extreme_m=6100.0),
+    land=Surface(stops=MARS_LAND_STOPS, origin_m=-6000.0, extreme_m=6100.0),
     sea=None,
 )
 

@@ -269,23 +269,50 @@ class TestTheLookRegistry:
         assert palette.look_for("mars") is palette.MARS_LOOK
         assert palette.MARS_LOOK is not palette.EARTH_LOOK
 
-    def test_mars_borrows_earths_land_COLOURS_on_its_own_domain(self):
-        """The placeholder pinned, so replacing it in Phase 2 is a deliberate act.
+    def test_mars_draws_its_own_colours_and_no_longer_borrows_earths(self):
+        """Mars's ramp is authored for Mars, and the two bodies share no colour object at all.
 
-        THE SHARING IS OF THE STOPS, NOT OF THE SURFACE, and the distinction is the whole content
-        of this test. Mars used to share Earth's entire `Surface`, which made the borrowing
-        unmissable — but it needs its own domain, because hinging the ramp on 0 m is an Earth fact
-        and Mars's 0 m is its median elevation. So the object splits and the STOPS LIST does not:
-        `is` on the list is what keeps "a re-tune of Earth's ramp drags Mars along" true, and a
-        copy here would end that promise while every colour still looked identical on the day.
+        THIS REPLACES A GUARD THAT PINNED THE OPPOSITE, which is the point. While Mars had no
+        ratified look it drew Earth's `stops` LIST — shared by identity, so a re-tune of Earth's
+        ramp provably dragged Mars along and the borrowing could not silently stop being true. That
+        promise has been kept and is now spent: Mars has its own colours, so what needs guarding
+        flips to the negative, and re-establishing the sharing must fail rather than pass quietly.
+
+        Identity is asserted in BOTH directions because the failure modes differ. Sharing the list
+        object again would make a re-tune of Earth's palette silently repaint Mars. Holding an equal
+        but separate list would mean someone had copied Earth's stops back in — the same wrong
+        planet, arrived at without an `is` to catch it — so the values are compared too.
 
         Its sea is None, which is a fact rather than a placeholder: the planet seam declares no
         oceanmask, so no pixel could select a sea ramp however carefully one were written.
         """
-        assert palette.MARS_LOOK.land.stops is palette.EARTH_LOOK.land.stops
+        assert palette.MARS_LOOK.land.stops is palette.MARS_LAND_STOPS
+        assert palette.MARS_LOOK.land.stops is not palette.EARTH_LOOK.land.stops
+        assert palette.MARS_LOOK.land.stops != palette.EARTH_LOOK.land.stops
         assert palette.MARS_LOOK.land is not palette.EARTH_LOOK.land
         assert palette.MARS_LOOK.sea is None
         assert palette.EARTH_LOOK.sea is not None
+
+    def test_mars_land_rises_monotonically_so_height_can_be_read(self):
+        """The one property that is a DECISION rather than a measurement, pinned as such.
+
+        Mars's real albedo is brightest at both ends — Hellas is a dust trap, Tharsis is
+        dust-mantled — so a ramp faithful to the planet would give the deepest basin and the highest
+        summit the same colour. That is precisely the defect Mars inherited from Earth's shoreline
+        hinge, where bright-at-zero means "beach" on a body that has one. Rising with elevation is
+        the cartographic convention chosen over the fidelity, and the About page discloses it.
+
+        Asserted on LUMINANCE rather than on any single channel: a ramp can rise in red while
+        falling in perceived brightness, and it is brightness the eye reads elevation from.
+        """
+        lumas = [0.2126 * r + 0.7152 * g + 0.0722 * b
+                 for _, (r, g, b) in palette.MARS_LAND_STOPS]
+        assert lumas == sorted(lumas), (
+            f"Mars's land ramp is not monotone in luminance: {[round(v, 4) for v in lumas]}. "
+            "Two elevations now share a brightness, which is the Hellas/Olympus collision the "
+            "authored ramp exists to remove."
+        )
+        assert len(set(lumas)) == len(lumas), "two stops share a luminance, so a band reads flat"
 
     def test_a_zero_width_ramp_is_refused_at_declaration(self):
         """The one failure in this class with no visible symptom at all.
@@ -335,9 +362,11 @@ class TestTheLookRegistry:
         assert palette.surface("land", look=palette.MARS_LOOK) is palette.MARS_LOOK.land
 
 
-#: The authored ramp values. They are Earth's, they are assembled into `EARTH_LOOK`, and outside
-#: `palette.py` nothing may read them by name.
-RAMP_GLOBALS = ("LAND_STOPS", "SEA_STOPS", "LAND_MAX_M", "SEA_MIN_M")
+#: The authored ramp values, assembled into a `Look`, which outside `palette.py` nothing may read
+#: by name. `MARS_LAND_STOPS` joins them on the day Mars stops borrowing Earth's colours: a second
+#: body's ramp is reachable by exactly the same bypass, and it is the one whose regrowth would be
+#: invisible, since a module reading it renders Earth correctly no matter what it does to Mars.
+RAMP_GLOBALS = ("LAND_STOPS", "SEA_STOPS", "LAND_MAX_M", "SEA_MIN_M", "MARS_LAND_STOPS")
 
 #: A read of palette's own globals, qualified or imported. NOT a bare name: `scene_build` defines
 #: module constants of its own called `LAND_STOPS`/`SEA_STOPS` — built FROM the look — and those

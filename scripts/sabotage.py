@@ -2611,6 +2611,45 @@ SABOTAGES: list[Sabotage] = [
         replacement='    colors = [_srgb8(ramp_color((0.0 + index * step',
         guard='test_relief_lut_bytes_are_unchanged',
     ),
+    # --- Mars draws its own colours, and the page says what they are not ------------------------------
+    # The borrowing was a PLACEHOLDER held in place by a guard asserting it, so the day it ended the
+    # guard had to invert. These three cover the ways it comes back or quietly stops being honest.
+    Sabotage(
+        suite='python',
+        # The tidy: two ramps in one module, one of them referenced through the other, and someone
+        # collapses the "duplication". Every Earth pixel is unchanged, every gate stays green, and
+        # Mars silently goes back to wearing a shoreline hinge on a planet with no shore.
+        label="Mars's ramp is pointed back at Earth's stops as a de-duplication",
+        path='pipeline/render/palette.py',
+        needle='    land=Surface(stops=MARS_LAND_STOPS, origin_m=-6000.0, extreme_m=6100.0),',
+        replacement='    land=Surface(stops=EARTH_LOOK.land.stops, origin_m=-6000.0, extreme_m=6100.0),',
+        guard='test_mars_draws_its_own_colours_and_no_longer_borrows_earths',
+    ),
+    Sabotage(
+        suite='python',
+        # A re-tune that darkens the top stop past its neighbour. It reads as a taste change and is
+        # a CORRECTNESS one: the ramp stops being readable as elevation, which is the single
+        # property chosen over fidelity to the planet. Nothing renders wrong; two heights just
+        # become one colour again, which is the defect the whole authored ramp exists to remove.
+        label="a re-tune leaves Mars's ramp brighter in the middle than at the top",
+        path='pipeline/render/palette.py',
+        needle='    (1.000, (0.658375, 0.520996, 0.337164)),',
+        replacement='    (1.000, (0.458375, 0.320996, 0.237164)),',
+        guard='test_mars_land_rises_monotonically_so_height_can_be_read',
+    ),
+    Sabotage(
+        suite='web',
+        # The disclosure goes vague. Nobody deletes it — it is softened during a copy pass, which is
+        # what happens to a caveat that names something specific. "Certain dark markings" commits to
+        # nothing a reader can check, where Syrtis Major tells them exactly what is missing and lets
+        # them go and look. The paragraph still reads as an honest limitation while disclosing none.
+        label='the Mars colour note stops naming the feature the ramp cannot show',
+        path='web/src/pages/about.astro',
+        needle='<strong>Syrtis Major</strong> and <strong>Acidalia</strong>',
+        replacement='certain dark markings',
+        guard='names a real albedo feature the map does not reproduce',
+    ),
+
     # --- The ramp runs between two ends, and neither of them is assumed ------------------------------
     # Every case here puts the datum back at one end of the ramp. All five are invisible on Earth BY
     # CONSTRUCTION — both its ramps hinge on 0 m, so the mutated and correct expressions agree to the

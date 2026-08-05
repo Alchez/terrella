@@ -421,8 +421,30 @@ Triaged by when each must be answered, because most of them cannot be answered e
   geometry is points or polygons. Both are public domain and neither adds an obligation — the
   licensing is settled, so this is a decision about disk and time, not about terms.
 - **During the look loop**, all decided on the sphere.
-  - Terrella's look applied to Mars, or a Mars look of its own? This is the deepest question here;
-    everything downstream keys off it.
+  - **ANSWERED — a Mars look of its own, and the answer came from measuring the planet's colour
+    rather than from taste.** Mars draws `MARS_LAND_STOPS`, authored for Mars and sharing no colour
+    object with Earth.
+    - **The premise for deriving the ramp from real colour was tested and FAILED, which is what made
+      the decision.** A global Viking colour mosaic was joined to the shipped heightfield at 6.48 M
+      co-registered samples: across the elevations holding **64%** of the surface (−3,000 to
+      +3,000 m) mean colour moves **7.1 luma** against a within-place scatter of **17.9** — a ratio
+      of 0.40. Widened to 92% of the surface it is 1.03. Mars's albedo is set by wind-blown dust,
+      which does not track height.
+    - The named features prove it individually: **Syrtis Major sits at +1,369 m and luma 41.5 where
+      its own elevation band averages 84** — off the trend by more than the trend's whole range.
+      Acidalia is low and dark, Hellas is the lowest place on the planet and bright.
+    - **So the ramp is cartographic convention and the About page says so to visitors**, naming the
+      markings it cannot show. That disclosure is guarded, because a paragraph with no test reads as
+      decoration and gets deleted during an unrelated edit.
+    - **HUE was taken in full, LEVEL in part, SHAPE refused.** Channel ratios survive an uncalibrated
+      tone curve, so the mosaic's G/R 0.654 against Earth's borrowed 0.780 is trustworthy. Its 2.07×
+      darker reading is not: real land albedo is broadly comparable between the bodies, so most of
+      that factor is the product's own tone curve plus an uncorrected atmospheric haze floor. Mars
+      ships at **0.71× Earth's land brightness**. Rising monotonically with elevation is the refused
+      part — faithful would mean Hellas and Olympus wearing the same colour, the exact defect
+      inherited from Earth's shoreline hinge.
+    - **The mosaic is evidence, not an input.** Nothing in the pipeline reads it; the ramp is
+      authored constants. It is recorded here and at the constant so the derivation is findable.
   - **ANSWERED — the ramp's DOMAIN is Mars's own, −6,000 to +6,100 m.** A `Surface` used to hinge on
     0 m at one end, which is right on Earth, where 0 is the shoreline and a real boundary. Mars's
     0 m is the areoid: an equipotential reference with no expression on the ground, sitting at the
@@ -435,8 +457,8 @@ Triaged by when each must be answered, because most of them cannot be answered e
       still reads, because it reads through the hillshade, which no ramp touches.
     - `Surface` carries `origin_m` beside `extreme_m` now, and Earth reduces to its old expressions
       exactly rather than approximately, so its shipped pyramid cannot restage over this.
-    - **The COLOURS are still Earth's and still unratified** — that is the question above, and it is
-      the one this unblocks: the stops now spread over a domain that gives them something to do.
+    - The domain is what unblocked the colours: it gave a set of stops something to do across 98%
+      of the surface, which is what made them judgeable on the sphere at all.
   - Does Mars draw a sea — none, one chosen contour, or the family of candidate shorelines?
   - **Does Mars want any air at all?** The registry now carries the three atmosphere colours per
     body and Mars answers `null`: no sky pass, no glow at the limb, no aerial perspective over the

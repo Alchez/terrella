@@ -6,8 +6,11 @@
   bathymetry, data-driven snow.
 - The system of record is code: shared constants in `pipeline/render/palette.py`, hero-only
   constants in `pipeline/render/scene_build.py`, tile levers in `pipeline/tile/shade.py`
-  (`KNOBS`). The ramp constants below are Earth's, and they are assembled into a named `Look` that
-  the shading path resolves **per body** — every lever's cost in this file is Earth's cost. Canonical renders: `blender/renders/heroes/<country>.png` (203 posters — 204 countries are in scope, Kiribati deferred).
+  (`KNOBS`). The ramp constants below are Earth's unless a row says otherwise, and they are
+  assembled into a named `Look` that the shading path resolves **per body** — every lever's cost in
+  this file is Earth's cost. `KNOBS` is the exception that is NOT per body: tone, saturation and the
+  highlight ceiling apply to every planet alike, which is a shared house style rather than an
+  oversight, but it means a body cannot soften its own highlights without that changing first. Canonical renders: `blender/renders/heroes/<country>.png` (203 posters — 204 countries are in scope, Kiribati deferred).
 - The A/Bs and rationale behind every value live in HISTORY (cited by § heading); this file is
   the operational view.
 
@@ -56,6 +59,7 @@ Cost: hero sweep **~10–13 h** + tile restage **~29 min** + caps auto-restage *
 | Lever | Value | Section |
 |---|---|---|
 | `LAND_STOPS` (+ `LAND_MAX_M`) | 6 stops; Earth's domain 0–6000 m, but the ENDS are the body's — a `Surface` carries `origin_m` and `extreme_m`, and only Earth's origin is the datum | § Land color ramp |
+| `MARS_LAND_STOPS` | 6 stops over −6000…+6100 m, sharing no colour object with Earth. Hue measured against a global Viking mosaic (G/R 0.654, vs the 0.780 Earth's ramp was shipping); level taken only in part, landing at **0.71× Earth's shipped land**, because the mosaic's 2.07× darker reading is mostly its own tone curve and an uncorrected haze floor. Monotone in luminance BY CHOICE — Mars is really brightest at both ends, so fidelity would put Hellas and Olympus in one colour | § Land color ramp |
 | `SEA_STOPS` (+ `SEA_MIN_M`) | 6 shelf-weighted stops, 0…−6000 m | § Sea color ramp |
 | `LAKE_STOPS` (+ `LAKE_MAX_M`) | 3 stops; stop 0 == `WATER_RGB`, far end 1642 m (Baikal) | § Inland water |
 | `WATER_RGB` | `8EC6C4` — pinned relationally: sea surface +7% | § Inland water |

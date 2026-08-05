@@ -113,6 +113,41 @@ hypothetical: available memory sits near 15 GiB, which backs everything Mars nee
 does. The resolver reads `--body` through the pass's own argument parser, so an omitted body is now
 refused at the wrapper instead of after a cgroup scope has already been opened.
 
+### The look loop on Mars — WARM iteration costs, which are what a look session actually pays
+
+The 4:41 above is a cold pass and the wrong number to plan a look session with. Measured on repeated
+z6 passes, warm, at 20× under the derived 12 G cap:
+
+| Change | What restages | Wall clock |
+|---|---|---|
+| a ramp (any `Look` field) | sky-view + composite + tile cut | **1:36** |
+| the exaggeration (`Body.exaggeration`) | the above **plus** the hillshade | **2:14** |
+| neither — a re-pack alone | nothing upstream | **~4 s** |
+
+- **A ramp change must not restage the hillshade, and does not**: the exaggeration is in `hs_params`
+  and the ramps are not, so a ramp-only pass skips straight to the sky-view. Watch for that skip —
+  a hillshade line appearing on a ramp-only change means a composite knob has leaked into
+  `hs_params`, which is a 46-minute mistake on Earth.
+- **The height warp never re-runs for either.** Both levers are downstream of it, so the 2:12 that
+  dominates a cold pass is paid once.
+
+**Three commands, not one — the archive is a separate chain from the pass.** Nothing in the pass
+touches `planet.pmtiles`, so a look change is invisible in the browser until all three have run:
+
+```
+pipeline/profile/run_pass.sh --body mars --tiles
+python -m pipeline.tile.pack_pmtiles --body mars          # → planet.mbtiles, the bridge
+tools/pmtiles convert …/planet.mbtiles …/planet.pmtiles   # → what the dev server reads
+```
+
+The dev server serves tiles `no-cache`, so a plain reload picks up a re-pack; **the committed tile
+token does NOT need regenerating to iterate**, because an address's token does not decide which
+archive it resolves to. The token is a cache key for the CDN, so it is a deploy concern only.
+
+**Archive size moves with the look, which is a deploy cost rather than a loop cost.** The same z6
+pyramid packs to 356 MB at 10× and 438–454 MB at 20×: more relief is more WebP entropy. It changes
+nothing about iterating locally and adds ~100 MB to every R2 upload once the archive lands.
+
 Why the numbers are what they are (current-state explanations, not history):
 
 - **The composite is DRAM-bandwidth-bound, not I/O-bound**: full-width windows make every
