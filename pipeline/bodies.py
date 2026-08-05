@@ -23,6 +23,15 @@ NO FIELD MAY CARRY A DEFAULT. A default would let a field added later be inherit
 every planet but the one it was written for — invisible in the diff that adds it. Without defaults,
 adding a field is a hard error at every construction until each body answers for it.
 
+WHICH IS ALSO WHY THIS IS A FLAT REGISTRY OF FROZEN DATACLASSES AND NOT A CLASS HIERARCHY, a
+question worth answering once rather than each time it is asked. Inheritance is the mechanism for
+acquiring an unexamined answer, so a `class Mars(Body)` would reintroduce exactly what the rule
+above exists to refuse. It would also have nothing to dispatch: no consumer anywhere branches on
+which body it holds — every one of them reads a FIELD (`body.exaggeration`, `body.ground_radius_m`,
+`"snow" in body.surface_layers`), so a subclass would carry no overridden behaviour and be a
+constructor call spelled longer. A body's facts are DATA, and a frozen dataclass is how Python
+states data.
+
     from pipeline import bodies
     body = bodies.get("earth")     # raises on an unknown name; never falls back
 """

@@ -120,9 +120,17 @@ z6 passes, warm, at 20× under the derived 12 G cap:
 
 | Change | What restages | Wall clock |
 |---|---|---|
-| a ramp (any `Look` field) | sky-view + composite + tile cut | **1:36** |
+| a ramp, **judged from the composite** (no `--tiles`) | sky-view + composite | **~1:03** |
+| a ramp, judged on the globe (`--tiles`) | the above + the tile cut | **1:36** |
 | the exaggeration (`Body.exaggeration`) | the above **plus** the hillshade | **2:14** |
 | neither — a re-pack alone | nothing upstream | **~4 s** |
+
+**Drop `--tiles` while iterating and take the frames off `planet_rgb.tif` directly.** Measured over five
+consecutive z6 candidates: 62–64 s each against 1:35 with the cut. Nothing about the colour is decided
+by the tiler, so cropping the composite with `gdal_translate -srcwin` shows the ratified pixels with no
+browser resampling, no globe projection and no atmosphere in the way — and it is the same raster the
+tiles are cut from, so it cannot disagree with them. Run `--tiles` once, at the end, on the variant
+that won.
 
 - **A ramp change must not restage the hillshade, and does not**: the exaggeration is in `hs_params`
   and the ramps are not, so a ramp-only pass skips straight to the sky-view. Watch for that skip —
