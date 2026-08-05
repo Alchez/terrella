@@ -63,15 +63,14 @@ work below is legible as *remaining*.
     purpose** — the registry asserts that sameness deliberately, because giving Mars its own would
     read as the obvious fix and produce a raster the tiler cannot cut. Its ground sphere is the IAU
     2015 sphere the source DEM declares, giving a ratio of 0.532 and a z-factor 1.878× Earth's.
-  - **Its exaggeration and its ceiling are provisional and neither is a decision**, held so the type
-    is satisfied and the path exists, exactly as the browser registry's Mars accent is. 10× is
-    arithmetic to be judged on the sphere; z6 is the cheapest lookable thing rather than the
-    eventual ceiling. A run is harmless meanwhile: there is no Mars heightfield, so the first warp
-    fails loudly rather than producing a plausible wrong pyramid.
+  - **Its exaggeration is 20×, ratified on the sphere**, which is twice what the arithmetic below
+    predicts — the derivation gives a starting point and the globe settled it. **Its ceiling is
+    still provisional**: z6 is the cheapest lookable thing rather than a judged answer, and it is
+    ratified the same way, by being served and looked at.
   - **One word names a body in both registries**, and a scan holds them together, because neither
     language can import the other and a divergence is a pyramid written under one name and requested
     under another — a 404 at the edge, long after the run that produced it.
-- **Both of Mars's entry stages exist and neither has run**, because both wait on the one download.
+- **Both of Mars's entry stages have run**, and their outputs are what the pyramid was cut from.
   - `pipeline/acquire/download_mars_dem.py` fetches the blend and refuses anything but the pinned
     edition: the server's size *and* its Last-Modified stamp before the transfer, then the grid's
     width, height, dtype, nodata and **sphere** afterwards. USGS republishes mosaics in place under
@@ -253,7 +252,13 @@ Easy to conflate, and conflating them yields ~5× where the answer is ~10×.
   Earth-sized sphere and displaces in metres, so only the metres matter — and Mars's ~30 km range is
   about **1.5×** Earth's ~20 km.
   - So to read the way Earth reads at 15×, Mars wants roughly **15 / 1.5 ≈ 10×**.
-- That ~10× is arithmetic, not a decision. It is a starting point to be judged on the sphere.
+- **The sphere answered 20×, not 10×, and the arithmetic is kept because the gap is the finding.**
+  Both ratios above are right and together they still predicted half the shipped value: 10× and 20×
+  were put side by side at one camera and 20× won. The term the derivation omits is **sampling
+  rate** — what saturates a hillshade is the gradient per pixel, and Mars's z6 grid is 651 m/px
+  against Earth's z8 at 306, so half the sampling rate is half the slope. `pipeline/bodies.py` holds
+  the measurement; the consequence for this file is that **the exaggeration is coupled to the cut
+  depth**, so z7 spends headroom that 20× is currently relying on and has to be re-judged with it.
 
 ### Heroes, if they happen
 
@@ -466,8 +471,8 @@ Triaged by when each must be answered, because most of them cannot be answered e
     faithful to Earth's tuning is invisible at every zoom the globe reaches. The open half is
     whether a wisp reads better than none once the ramp is ratified, which is three colours in one
     registry row.
-  - **Mars's poles wear Earth's sea ice, and it is a LOOK constant with no body behind it —
-    `CAP_RGB`.** The composite flat-fills everything above `CAP_NORTH` 84° and below `CAP_SOUTH`
+  - **ANSWERED — Mars renders its own caps, and what they replaced was never sea ice but a
+    projection plug.** The composite flat-fills everything above `CAP_NORTH` 84° and below `CAP_SOUTH`
     −84° with `(216, 226, 233)`, described in its own comment as "pale sea-ice fill", because Web
     Mercator carries no data past ~85° and the 84–85° band is smeared. That fill is the BASE the
     azimuthal cap textures are drawn over; Earth's caps hide it completely, and a body that renders
@@ -487,7 +492,6 @@ Triaged by when each must be answered, because most of them cannot be answered e
       decision — expired when the look was ratified. Mars's caps now hide the plug exactly as
       Earth's do, and they are relief rather than ice: Mars declares no surface layers, so the two
       discs shade from the same ramps as the tiles. Anyone expecting white is expecting a layer.
-  - Exaggeration: the ~10× above is arithmetic and needs judging.
   - Does THEMIS night IR belong in the look, as a second physical field over relief?
 - **After a look is ratified.**
   - The accent: derived from the Mars palette the way Earth's teal is derived from its hero ramp, or
