@@ -2258,10 +2258,10 @@ SABOTAGES: list[Sabotage] = [
     # here leaves a cap that renders cleanly, at plausible latitudes, describing another planet.
     Sabotage(
         suite='python',
-        label="the north cap asks the disk before the body, so Earth's snow reaches every planet",
+        label="the cap's ice asks the disk before the body, so Earth's snow reaches every planet",
         path='pipeline/tile/cap_render.py',
-        needle='    if layer_is_buildable(grid.body, "perennial_ice", Path(snow.SP_NC),\n                          "the north cap paints no ice"):',
-        replacement='    if Path(snow.SP_NC).exists():',
+        needle='    if not (body_declares_layer(grid.body, perennial_ice.LAYER, consequence)\n            and all(layer_is_buildable(grid.body, perennial_ice.LAYER, source, consequence)',
+        replacement='    if not (all(Path(source).exists()',
         guard='test_a_body_with_no_layers_opens_none_of_earths_files',
     ),
     Sabotage(
@@ -2277,13 +2277,51 @@ SABOTAGES: list[Sabotage] = [
     # body anyone builds.
     Sabotage(
         suite='python',
-        label="the south's forced Antarctic ice loses its gate and whitens a sea-less planet's pole",
+        label="the forced Antarctic ice loses its gate and whitens a sea-less planet's pole",
         path='pipeline/tile/cap_render.py',
-        needle='    if body_declares_layer(grid.body, "perennial_ice", "polar land stays on the relief ramp"):',
-        replacement='    if True:',
+        needle='        return np.zeros((grid.px, grid.px), dtype=np.float32)\n    inputs = perennial_ice.CapIceInputs(',
+        replacement='        pass\n    inputs = perennial_ice.CapIceInputs(',
         guard='test_the_forced_antarctic_patch_is_refused_for_a_body_with_no_ice_layer',
     ),
-    # The one rule with no file behind it, so nothing on disk could ever have switched it off.
+    # The one rule with no file behind it, so nothing on disk could ever have switched it off. Both
+    # poles run through the one gate above now, so these two cases mutate the same lines in the two
+    # directions that matter: the body question dropped, and the whole refusal dropped.
+    Sabotage(
+        suite='python',
+        label="a cap's sources come from Earth's producer rather than from the body's own",
+        path='pipeline/tile/cap_render.py',
+        needle='        sources.extend(perennial_ice.cap_ice(grid.body, grid.name).sources())',
+        replacement='        sources.extend(perennial_ice.CAP_ICE_BY_BODY[("earth", grid.name)].sources())',
+        guard='test_a_caps_sources_are_exactly_what_its_own_producer_declares',
+    ),
+    # Straight back to the shape this seam replaced, and it renders Earth perfectly: Earth's answer
+    # IS Earth's producer. It is wrong only on the planet nobody has built.
+    Sabotage(
+        suite='python',
+        label='an unregistered body inherits Earth ice instead of the registry refusing',
+        path='pipeline/render/perennial_ice.py',
+        needle='        return CAP_ICE_BY_BODY[(body.name, pole)]',
+        replacement='        return CAP_ICE_BY_BODY.get((body.name, pole), CAP_ICE_BY_BODY[("earth", pole)])',
+        guard='test_a_body_with_no_producer_raises_and_names_itself',
+    ),
+    Sabotage(
+        suite='python',
+        label='the pole leaves the key, so both caps of a body get one producer',
+        path='pipeline/render/perennial_ice.py',
+        needle='    ("earth", "south"): CapIce(sources=lambda: (), alpha=_earth_south),',
+        replacement='    ("earth", "south"): CapIce(sources=lambda: (Path(snow.SP_NC),), alpha=_earth_north),',
+        guard='test_earths_two_poles_get_DIFFERENT_producers',
+    ),
+    Sabotage(
+        suite='python',
+        label='a producer freezes its source list at import, so a moved data store never reaches it',
+        path='pipeline/render/perennial_ice.py',
+        needle='    ("earth", "north"): CapIce(sources=lambda: (Path(snow.SP_NC),), alpha=_earth_north),',
+        replacement='    ("earth", "north"): CapIce(sources=lambda frozen=(Path(snow.SP_NC),): frozen,\n                               alpha=_earth_north),',
+        guard='test_the_sources_are_read_at_CALL_time_so_a_redirect_reaches_them',
+    ),
+    # Still a callable, still typed, still correct on a box that never moves its store — the default
+    # argument is evaluated once at import, which is precisely the bug the suite caught here first.
     Sabotage(
         suite='python',
         label='the coastline gate keeps only its look half, burning Natural Earth onto any body',

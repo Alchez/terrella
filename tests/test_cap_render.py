@@ -27,7 +27,7 @@ import rasterio
 from rasterio.transform import from_bounds
 
 from pipeline import bodies, paths, planet_seam
-from pipeline.render import palette, seaice, snow
+from pipeline.render import palette, perennial_ice, seaice, snow
 from pipeline.tile import cap_render, shade_planet, terrain_rgb
 
 #: A planet whose seam emitted all three rasters — what Earth declares, and the only
@@ -151,6 +151,28 @@ def _the_synthetic_bodies_have_looks(monkeypatch):
     """
     for name in SYNTHETIC_BODY_NAMES:
         monkeypatch.setitem(palette.LOOK_BY_BODY, name, palette.EARTH_LOOK)
+
+
+@pytest.fixture(autouse=True)
+def _the_synthetic_bodies_have_ice_producers(monkeypatch):
+    """A synthetic body that DECLARES perennial ice needs a producer for it, and `cap_ice` refuses
+    an unregistered one rather than reaching for Earth's.
+
+    THE NAME LIST IS THE LOOK FIXTURE'S PLUS `mars`, and that asymmetry is the registries being
+    different in kind rather than an oversight. Every real body has a look, so the stand-in named
+    `mars` above correctly resolves the real planet's ramp and must stay out of that list. Not every
+    real body has ice: Mars declares no surface layers, so it registers no producer and never asks
+    for one — while an Earth-SHAPED stand-in wearing the name `mars` inherits Earth's layer set and
+    does ask. The stand-in is what needs the entry, not the planet.
+
+    Earth's own producers, because these bodies are Earth with one field replaced. What that buys is
+    a test that can vary the layer declaration, the disk and the seam independently while the
+    machinery painting the ice is the machinery that ships.
+    """
+    for name in (*SYNTHETIC_BODY_NAMES, "mars"):
+        for pole in ("north", "south"):
+            monkeypatch.setitem(perennial_ice.CAP_ICE_BY_BODY, (name, pole),
+                                perennial_ice.CAP_ICE_BY_BODY[("earth", pole)])
 
 
 class TestTheGridsAreBuiltPerBody:
@@ -737,6 +759,28 @@ class TestCapSourcesFollowTheLayers:
                 assert Path(seaice.SEAICE_SRC) in earth
                 assert not any(source.name == Path(seaice.SEAICE_SRC).name for source in bare)
                 assert len(bare) == 3  # heightfield, oceanmask, watermask — the body's own relief
+
+    def test_a_caps_sources_are_exactly_what_its_own_producer_declares(self, monkeypatch, subtests,
+                                                                       tmp_path):
+        """The two halves of the seam cannot drift: what a producer READS and what makes its cap
+        STALE are one declaration, asked of the body rather than of Earth.
+
+        A SECOND, GENUINELY DIFFERENT PRODUCER IS WHAT MAKES THIS FALSIFIABLE. Asked of Earth alone
+        the claim passes against a `cap_sources` that consults Earth's registry entry directly and
+        ignores the body — Earth's answer IS Earth's producer, at both poles, so the wrong lookup
+        returns the right list. The synthetic body below reads a file Earth never opens, at the pole
+        where Earth reads none, so only a body-derived lookup can produce it.
+        """
+        elsewhere = tmp_path / "another-worlds-ice.gpkg"
+        for pole, factory in (("north", cap_render.north_grid), ("south", cap_render.south_grid)):
+            monkeypatch.setitem(perennial_ice.CAP_ICE_BY_BODY, ("other", pole),
+                                perennial_ice.CapIce(sources=lambda: (elsewhere,),
+                                                     alpha=lambda inputs: np.zeros(())))
+            with subtests.test(pole):
+                other = dataclasses.replace(bodies.EARTH, name="other", path_prefix="other")
+                sources = cap_render.cap_sources(factory(other), WHOLE_PLANET)
+                assert elsewhere in sources
+                assert not any(source == Path(snow.SP_NC) for source in sources)
 
 
 class TestTheCapIsShadedInGroundMetres:

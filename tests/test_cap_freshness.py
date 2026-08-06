@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from pipeline import bodies, planet_seam
+from pipeline.render import perennial_ice
 from pipeline.tile import cap_render
 from pipeline.tile.shade import KNOBS
 
@@ -140,15 +141,20 @@ class TestCapSources:
         monkeypatch.setattr(cap_render, "COAST_SHP", shapefile)
         return shapefile
 
-    def test_north_reads_the_snow_dataset_and_the_coastline(self, coastline):
+    def test_north_reads_the_ice_producers_dataset_and_the_coastline(self, coastline):
+        """Named off the PRODUCER's own declaration rather than off a path this test spells out.
+        A literal here would pass while `cap_sources` listed a file the producer never opens, which
+        is the drift the producer-declares-its-inputs rule exists to make impossible."""
         sources = cap_render.cap_sources(EARTH_NORTH, WHOLE_PLANET)
-        assert any("snow" in str(source).lower() or str(cap_render.snow.SP_NC) in str(source)
-                   for source in sources)
+        declared = perennial_ice.cap_ice(bodies.EARTH, "north").sources()
+        assert declared, "the north producer reads a dataset — an empty tuple makes this vacuous"
+        assert all(source in sources for source in declared)
         assert coastline in sources
 
-    def test_south_forced_snow_needs_no_dataset_and_bakes_no_coastline(self, coastline):
+    def test_south_forced_ice_needs_no_dataset_and_bakes_no_coastline(self, coastline):
         sources = cap_render.cap_sources(EARTH_SOUTH, WHOLE_PLANET)
-        assert not any(str(cap_render.snow.SP_NC) in str(source) for source in sources)
+        assert perennial_ice.cap_ice(bodies.EARTH, "south").sources() == ()
+        assert not any(str(perennial_ice.snow.SP_NC) in str(source) for source in sources)
         assert coastline not in sources
 
 

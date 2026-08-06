@@ -52,7 +52,7 @@ from pyproj import Transformer
 from scipy.ndimage import binary_dilation
 
 from pipeline import bodies, naturalearth, planet_seam
-from pipeline.render import hillshade, lake_depth, palette, seaice, snow
+from pipeline.render import hillshade, lake_depth, palette, perennial_ice, seaice
 from pipeline.tile import shade, terrain_rgb
 from pipeline.tile.shade import KNOBS
 from pipeline.tile.shade_planet import (
@@ -428,8 +428,12 @@ def cap_sources(grid: CapGrid, rasters: frozenset[str]) -> list[Path]:
                for raster in planet_seam.PLANET_RASTERS if raster in rasters]
     if "sea_ice" in grid.body.surface_layers:
         sources.append(Path(seaice.SEAICE_SRC))
-    if grid.name == "north" and "perennial_ice" in grid.body.surface_layers:
-        sources.append(Path(snow.SP_NC))  # the south's ice is FORCED, not read from a dataset
+    if perennial_ice.LAYER in grid.body.surface_layers:
+        # ASKED OF THE PRODUCER, NOT SPELLED OUT HERE. This was `grid.name == "north"` plus Earth's
+        # NetCDF, which is two of Earth's facts written down as though they were the layer's: that
+        # only the north reads a file, and which file. Both are the producer's to state — Earth's
+        # south genuinely reads none, and a body grading its ice off its own rasters reads several.
+        sources.extend(perennial_ice.cap_ice(grid.body, grid.name).sources())
     if bakes_coastline(grid):
         sources.append(COAST_SHP)
     return sources
@@ -583,6 +587,36 @@ def _cap_sea_ice(grid: CapGrid, consequence: str) -> "np.ndarray | None":
                             ice_lo=grid.ice_lo, ice_max_alpha=grid.ice_max_alpha)
 
 
+def _cap_perennial_ice(grid: CapGrid, ocean: np.ndarray, water: np.ndarray,
+                       latitude: np.ndarray, consequence: str) -> np.ndarray:
+    """This cap's perennial-ice alpha, from the producer this body registered for this pole.
+
+    ONE HOME BECAUSE BOTH POLES ASK THE SAME QUESTION, exactly as `_cap_sea_ice` does — and here the
+    two answers are a NetCDF warp and a latitude rule, so writing the gate out twice is how a fix
+    reaches one pole and not the other.
+
+    THE DISK HALF ASKS THE PRODUCER FOR ITS SOURCES. It used to name `snow.SP_NC` at the north call
+    site, which is correct for exactly one body at exactly one pole: a second planet declaring this
+    layer would have been gated on whether EARTH's climatology had been downloaded, and then warped
+    it onto its own pole. `all(...)` over an empty tuple is True, which is what lets Earth's south —
+    latitude and land, no file — pass on the body's declaration alone, with no special case.
+
+    Zeros rather than None on the way out, unlike the sea-ice twin: `shade.composite` takes
+    `snow_a` as a required array and blends it, so an all-zero alpha is the arithmetic saying no
+    pixel is ice, where None would be a different function signature."""
+    if not (body_declares_layer(grid.body, perennial_ice.LAYER, consequence)
+            and all(layer_is_buildable(grid.body, perennial_ice.LAYER, source, consequence)
+                    for source in perennial_ice.cap_ice(grid.body, grid.name).sources())):
+        return np.zeros((grid.px, grid.px), dtype=np.float32)
+    inputs = perennial_ice.CapIceInputs(
+        land=~(ocean | water),  # the tile composite's land definition
+        latitude=latitude,
+        warp=lambda source, name, resampling, dtype, srcnodata=None: _warp(
+            grid, source, cap_warp(grid, name), resampling, dtype, srcnodata),
+    )
+    return perennial_ice.cap_ice(grid.body, grid.name).alpha(inputs)
+
+
 def _announce(grid: CapGrid, raster: str, consequence: str) -> None:
     """Say what was skipped AND what follows from it, the way the layer gates do.
 
@@ -627,53 +661,17 @@ def _cap_masks(grid: CapGrid, rasters: frozenset[str],
 
 
 def render_cap_north(grid: CapGrid, rasters: frozenset[str]) -> Path:
-    """North cap from the fused planet VRTs + snow persistence + sea ice.
+    """North cap from the fused planet VRTs + this body's north perennial ice + sea ice.
 
-    The two cryosphere layers are gated on the BODY, not on their files: both sources are single
-    global paths to Earth datasets, so an existence check passes for every planet and would have
+    The two cryosphere layers are gated on the BODY, not on their files: every source is a single
+    global path to an Earth dataset, so an existence check passes for every planet and would have
     painted an Arctic onto whatever was rendered. Off, the cap is bare relief and bathymetry, which
     is a complete picture rather than a degraded one.
-    """
-    cap_work_dir(grid.body).mkdir(parents=True, exist_ok=True)
-    height = _warp(grid, planet_seam.vrt_path(grid.body, "heightfield"), cap_height_warp(grid),
-                   "bilinear", "Float32")
 
-    heights = np.where(height < -1e4, 0.0, height).astype(np.float32)  # DEM nodata -> flat, as hillshade does
-    ocean, water = _cap_masks(grid, rasters, heights.shape)
-    longitude, _lat = _lonlat_grid(grid)
-    hillshade_dn = _shade(grid, heights, longitude)
-
-    # Snow alpha: the whole cap is >CAP_EDGE_LAT (78) > snow.RAMP_LAT_HI (63), so snow_alpha's
-    # latitude ramp is CONSTANT here -- reproduce it with the fixed high-latitude thresholds rather
-    # than snow_alpha, whose per-row latitude is Mercator-specific and wrong on an AEQD grid.
-    snow_a = np.zeros((grid.px, grid.px), dtype=np.float32)
-    if layer_is_buildable(grid.body, "perennial_ice", Path(snow.SP_NC),
-                          "the north cap paints no ice"):
-        sp_raw = _warp(grid, f'NETCDF:"{snow.SP_NC}":{snow.SP_VAR}', cap_warp(grid, "sp"),
-                       "bilinear", "Float32", srcnodata=snow.SP_FILL)
-        persistence = snow.unpack_persistence(sp_raw)
-        low = snow.RAMP_LOW_MAX
-        high = low + snow.RAMP_BAND
-        fraction = np.clip((persistence - low) / (high - low), 0.0, 1.0)
-        snow_a = fraction * fraction * (3.0 - 2.0 * fraction)  # float64, as before the N/S refactor
-
-    ice_a = _cap_sea_ice(grid, "the north cap paints no pack ice")
-    return _write_cap(grid, heights, ocean, water, snow_a, ice_a, hillshade_dn)
-
-
-def render_cap_south(grid: CapGrid, rasters: frozenset[str]) -> Path:
-    """South (Antarctica) cap from the fused planet VRTs + the SH half of the sea-ice climatology.
-
-    Re-sourced from GEBCO-direct when the Antarctica fill pushed the planet VRTs
-    to -90: the cap now shades the SAME fused heightfield and masks as the tiles, so the tone across
-    the -84 cap<->tile crossfade agrees by construction (the GEBCO cap measured ~2.5 DN darker than
-    the tiles it feathered into -- the visible interior ring). Snow is FORCED over Antarctic land
-    (no SH snow dataset, no RGI region 19), exactly as the tile composite does.
-
-    THAT FORCED PATCH IS THE ONE GATE WITH NO FILE BEHIND IT. It is latitude and land and nothing
-    else, so no missing dataset could ever switch it off; it rides the `snow` layer via
-    `body_declares_layer`. Left ungated on a body with no sea, it whitens every piece of land below
-    60 degrees south -- a polar ice cap invented out of arithmetic.
+    WHICH ice, and read from WHAT, is `perennial_ice.cap_ice(body, "north")`'s answer rather than
+    this function's. Earth's is NSIDC-0791 persistence; the north pole of another world is another
+    mechanism, not another path, and the two must not be spelled out here or the renderer grows a
+    body branch per planet.
     """
     cap_work_dir(grid.body).mkdir(parents=True, exist_ok=True)
     height = _warp(grid, planet_seam.vrt_path(grid.body, "heightfield"), cap_height_warp(grid),
@@ -684,10 +682,36 @@ def render_cap_south(grid: CapGrid, rasters: frozenset[str]) -> Path:
     longitude, latitude = _lonlat_grid(grid)
     hillshade_dn = _shade(grid, heights, longitude)
 
-    snow_a = np.zeros((grid.px, grid.px), dtype=np.float32)
-    if body_declares_layer(grid.body, "perennial_ice", "polar land stays on the relief ramp"):
-        land = ~(ocean | water)                            # the tile composite's land definition
-        snow_a = snow.antarctic_snow_mask(land, latitude)  # Antarctica = permanent ice -> forced white
+    snow_a = _cap_perennial_ice(grid, ocean, water, latitude, "the north cap paints no ice")
+    ice_a = _cap_sea_ice(grid, "the north cap paints no pack ice")
+    return _write_cap(grid, heights, ocean, water, snow_a, ice_a, hillshade_dn)
+
+
+def render_cap_south(grid: CapGrid, rasters: frozenset[str]) -> Path:
+    """South (Antarctica) cap from the fused planet VRTs + the SH half of the sea-ice climatology.
+
+    Re-sourced from GEBCO-direct when the Antarctica fill pushed the planet VRTs
+    to -90: the cap now shades the SAME fused heightfield and masks as the tiles, so the tone across
+    the -84 cap<->tile crossfade agrees by construction (the GEBCO cap measured ~2.5 DN darker than
+    the tiles it feathered into -- the visible interior ring). Earth's ice here is FORCED over
+    Antarctic land (no SH snow dataset, no RGI region 19), exactly as the tile composite does.
+
+    THAT FORCED PATCH IS THE ONE PRODUCER WITH NO FILE BEHIND IT, which is why a producer's
+    `sources` may honestly be empty. It is latitude and land and nothing else, so no missing dataset
+    could ever switch it off; it rides the `perennial_ice` layer via `body_declares_layer`. Left
+    ungated on a body with no sea, it whitens every piece of land below 60 degrees south -- a polar
+    ice cap invented out of arithmetic.
+    """
+    cap_work_dir(grid.body).mkdir(parents=True, exist_ok=True)
+    height = _warp(grid, planet_seam.vrt_path(grid.body, "heightfield"), cap_height_warp(grid),
+                   "bilinear", "Float32")
+
+    heights = np.where(height < -1e4, 0.0, height).astype(np.float32)  # DEM nodata -> flat, as hillshade does
+    ocean, water = _cap_masks(grid, rasters, heights.shape)
+    longitude, latitude = _lonlat_grid(grid)
+    hillshade_dn = _shade(grid, heights, longitude)
+
+    snow_a = _cap_perennial_ice(grid, ocean, water, latitude, "polar land stays on the relief ramp")
     ice_a = _cap_sea_ice(grid, "the south cap paints no pack ice")
     return _write_cap(grid, heights, ocean, water, snow_a, ice_a, hillshade_dn)
 
