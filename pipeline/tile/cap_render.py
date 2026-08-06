@@ -428,8 +428,8 @@ def cap_sources(grid: CapGrid, rasters: frozenset[str]) -> list[Path]:
                for raster in planet_seam.PLANET_RASTERS if raster in rasters]
     if "sea_ice" in grid.body.surface_layers:
         sources.append(Path(seaice.SEAICE_SRC))
-    if grid.name == "north" and "snow" in grid.body.surface_layers:
-        sources.append(Path(snow.SP_NC))  # the south's snow is FORCED, not read from a dataset
+    if grid.name == "north" and "perennial_ice" in grid.body.surface_layers:
+        sources.append(Path(snow.SP_NC))  # the south's ice is FORCED, not read from a dataset
     if bakes_coastline(grid):
         sources.append(COAST_SHP)
     return sources
@@ -647,7 +647,8 @@ def render_cap_north(grid: CapGrid, rasters: frozenset[str]) -> Path:
     # latitude ramp is CONSTANT here -- reproduce it with the fixed high-latitude thresholds rather
     # than snow_alpha, whose per-row latitude is Mercator-specific and wrong on an AEQD grid.
     snow_a = np.zeros((grid.px, grid.px), dtype=np.float32)
-    if layer_is_buildable(grid.body, "snow", Path(snow.SP_NC), "the north cap paints no snow"):
+    if layer_is_buildable(grid.body, "perennial_ice", Path(snow.SP_NC),
+                          "the north cap paints no ice"):
         sp_raw = _warp(grid, f'NETCDF:"{snow.SP_NC}":{snow.SP_VAR}', cap_warp(grid, "sp"),
                        "bilinear", "Float32", srcnodata=snow.SP_FILL)
         persistence = snow.unpack_persistence(sp_raw)
@@ -684,7 +685,7 @@ def render_cap_south(grid: CapGrid, rasters: frozenset[str]) -> Path:
     hillshade_dn = _shade(grid, heights, longitude)
 
     snow_a = np.zeros((grid.px, grid.px), dtype=np.float32)
-    if body_declares_layer(grid.body, "snow", "polar land stays on the relief ramp"):
+    if body_declares_layer(grid.body, "perennial_ice", "polar land stays on the relief ramp"):
         land = ~(ocean | water)                            # the tile composite's land definition
         snow_a = snow.antarctic_snow_mask(land, latitude)  # Antarctica = permanent ice -> forced white
     ice_a = _cap_sea_ice(grid, "the south cap paints no pack ice")

@@ -28,7 +28,7 @@ question worth answering once rather than each time it is asked. Inheritance is 
 acquiring an unexamined answer, so a `class Mars(Body)` would reintroduce exactly what the rule
 above exists to refuse. It would also have nothing to dispatch: no consumer anywhere branches on
 which body it holds — every one of them reads a FIELD (`body.exaggeration`, `body.ground_radius_m`,
-`"snow" in body.surface_layers`), so a subclass would carry no overridden behaviour and be a
+`"perennial_ice" in body.surface_layers`), so a subclass would carry no overridden behaviour and be a
 constructor call spelled longer. A body's facts are DATA, and a frozen dataclass is how Python
 states data.
 
@@ -53,14 +53,19 @@ from pipeline import paths
 #: north, none in the south, entirely plausible, entirely wrong, and nothing raises.
 #:
 #: NOT EVERY LAYER IS A RASTER, AND NO STAGE READS ALL OF THEM — hence the two subsets below.
-SURFACE_LAYERS = frozenset({"lake_depth", "snow", "glaciers", "sea_ice", "coastline"})
+#: NAMED FOR THE CLAIM, NOT FOR EARTH'S DATASET. `perennial_ice` was `snow`, which described the
+#: source (NSIDC-0791 persistence) rather than what the layer asserts — the white that is there all
+#: year. Earth's own south cap already stretched the old word past breaking, using it to paint
+#: Antarctica's permanent ice SHEET, and Mars's residual cap is CO2 and water ice rather than
+#: snowfall. A body-specific name is how a vocabulary grows one entry per planet for one concept.
+SURFACE_LAYERS = frozenset({"lake_depth", "perennial_ice", "glaciers", "sea_ice", "coastline"})
 
 #: The layers the Mercator tile composite reads.
 #:
 #: `coastline` is absent because the tiles never bake one: coasts and borders are a vector overlay
 #: the client draws, and only the caps — which reach past the latitude those vectors can be drawn at
 #: — burn the line into their own pixels.
-COMPOSITE_LAYERS = frozenset({"lake_depth", "snow", "glaciers", "sea_ice"})
+COMPOSITE_LAYERS = frozenset({"lake_depth", "perennial_ice", "glaciers", "sea_ice"})
 
 #: The layers the polar cap render reads.
 #:
@@ -73,7 +78,7 @@ COMPOSITE_LAYERS = frozenset({"lake_depth", "snow", "glaciers", "sea_ice"})
 #: 0.0 and is therefore silently not a dependency. Recording a layer a stage never reads inverts the
 #: trap instead of closing it: switching the coastline would restage a 46 GB tile composite that
 #: cannot contain one. Over-tracking and under-tracking are both silent, so this has to be exact.
-CAP_LAYERS = frozenset({"snow", "sea_ice", "coastline"})
+CAP_LAYERS = frozenset({"perennial_ice", "sea_ice", "coastline"})
 
 
 @dataclass(frozen=True)
@@ -227,7 +232,7 @@ EARTH = Body(
     path_prefix="",
     # All of them, written out rather than spelled `SURFACE_LAYERS`: Earth is the reference body, and
     # "whatever the vocabulary happens to contain" is how it would inherit the next layer unexamined.
-    surface_layers=frozenset({"lake_depth", "snow", "glaciers", "sea_ice", "coastline"}),
+    surface_layers=frozenset({"lake_depth", "perennial_ice", "glaciers", "sea_ice", "coastline"}),
     # The reference body, and the caps are a signature feature rather than a detail: both poles
     # ship a full rung ladder, feathered into the tiles at the seam.
     renders_polar_caps=True,

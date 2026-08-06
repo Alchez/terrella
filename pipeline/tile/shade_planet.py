@@ -540,8 +540,8 @@ def warp_inputs(work: Path, planet: Path, body: bodies.Body, rasters: frozenset[
     # the old per-window warp). Glacier is a 0/1 Byte mask; absent RGI leaves it unbuilt and the snow
     # is persistence-only, exactly as before.
     persistence_out = work / "snow_persistence_3857.tif"
-    if layer_is_buildable(body, "snow", snow.SP_NC,
-                          "no snow painted; the composite reads None and skips it") \
+    if layer_is_buildable(body, "perennial_ice", snow.SP_NC,
+                          "no ice painted; the composite reads None and skips it") \
             and warp_needs_rebuild(persistence_out, grid, snow.SP_NC):
         print("warp snow persistence -> 3857 (banded) ...", flush=True)
         persistence_out.unlink(missing_ok=True)
@@ -750,7 +750,7 @@ def _compute_shared(inputs: _WindowInputs) -> _WindowShared:
     # body without that layer has nothing to patch — and this is a latitude+land test with no
     # dataset behind it, so nothing else could ever turn it off. On a sea-less planet it whitens
     # every piece of land below 60 degrees south, which is most of one.
-    if "snow" in inputs.body.surface_layers:
+    if "perennial_ice" in inputs.body.surface_layers:
         snow_a = np.maximum(snow_a, snow.antarctic_snow_mask(land_win, latitude))
     # Sea-ice alpha: frequency -> smoothstep, the sea-side twin of snow_a (no latitude ramp needed).
     # Optional (None when the seaice source was never warped); shade.composite gates it on ocean. South

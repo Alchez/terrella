@@ -2216,9 +2216,9 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label='the Antarctic land-ice patch is applied to every body again',
         path='pipeline/tile/shade_planet.py',
-        needle='    if "snow" in inputs.body.surface_layers:',
+        needle='    if "perennial_ice" in inputs.body.surface_layers:',
         replacement='    if True:',
-        guard='test_a_body_without_the_snow_layer_composites_no_snow_at_all',
+        guard='test_a_body_without_the_perennial_ice_layer_composites_no_ice_at_all',
     ),
     # A latitude-and-land rule with no dataset behind it, so no file on disk could ever switch it
     # off. On a body with no sea every pixel below 60 south is land, and the southern third of the
@@ -2229,7 +2229,7 @@ SABOTAGES: list[Sabotage] = [
         path='pipeline/tile/shade_planet.py',
         needle='            persistence_raw=read1_window(persistence_p, win) if persistence_p.exists() else None,',
         replacement='            persistence_raw=read1_window(persistence_p, win),',
-        guard='test_a_body_with_no_snow_layer_composites_without_the_raster',
+        guard='test_a_body_with_no_perennial_ice_layer_composites_without_the_raster',
     ),
     # Caught only end-to-end: the guard lives in a closure inside `composite_planet`, and the
     # synthetic planet fixture WRITES a persistence raster, so every other test in the suite
@@ -2246,8 +2246,8 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label='Earth quietly loses a surface layer it has always composited',
         path='pipeline/bodies.py',
-        needle='    surface_layers=frozenset({"lake_depth", "snow", "glaciers", "sea_ice", "coastline"}),',
-        replacement='    surface_layers=frozenset({"lake_depth", "snow", "glaciers", "coastline"}),',
+        needle='    surface_layers=frozenset({"lake_depth", "perennial_ice", "glaciers", "sea_ice", "coastline"}),',
+        replacement='    surface_layers=frozenset({"lake_depth", "perennial_ice", "glaciers", "coastline"}),',
         guard='test_earth_has_every_surface_layer_and_the_second_body_has_none',
     ),
     # The under-declaring direction: Earth stops painting a product it has, which is a look change
@@ -2260,7 +2260,7 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label="the north cap asks the disk before the body, so Earth's snow reaches every planet",
         path='pipeline/tile/cap_render.py',
-        needle='    if layer_is_buildable(grid.body, "snow", Path(snow.SP_NC), "the north cap paints no snow"):',
+        needle='    if layer_is_buildable(grid.body, "perennial_ice", Path(snow.SP_NC),\n                          "the north cap paints no ice"):',
         replacement='    if Path(snow.SP_NC).exists():',
         guard='test_a_body_with_no_layers_opens_none_of_earths_files',
     ),
@@ -2279,9 +2279,9 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label="the south's forced Antarctic ice loses its gate and whitens a sea-less planet's pole",
         path='pipeline/tile/cap_render.py',
-        needle='    if body_declares_layer(grid.body, "snow", "polar land stays on the relief ramp"):',
+        needle='    if body_declares_layer(grid.body, "perennial_ice", "polar land stays on the relief ramp"):',
         replacement='    if True:',
-        guard='test_the_forced_antarctic_patch_is_refused_for_a_body_with_no_snow_layer',
+        guard='test_the_forced_antarctic_patch_is_refused_for_a_body_with_no_ice_layer',
     ),
     # The one rule with no file behind it, so nothing on disk could ever have switched it off.
     Sabotage(

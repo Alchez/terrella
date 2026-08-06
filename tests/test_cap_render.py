@@ -664,7 +664,7 @@ class TestTheCapPassAsksTheBodyBeforeTheDisk:
                 assert painted["ice_a"] is None
                 assert np.all(painted["snow_a"] == 0.0)
 
-    def test_the_forced_antarctic_patch_is_refused_for_a_body_with_no_snow_layer(
+    def test_the_forced_antarctic_patch_is_refused_for_a_body_with_no_ice_layer(
             self, tmp_path, monkeypatch):
         """The one rule with no file behind it, and therefore the one nothing on disk could ever
         switch off. It is pure latitude and land, so on a sea-less body it would whiten every scrap
@@ -810,7 +810,7 @@ class TestTheCapRecipeRecordsWhatIsOff:
         """The cap vocabulary, not the whole one: `lake_depth` and `glaciers` never reach a cap, so
         recording them would restage a 14 GB render on a decision it cannot contain."""
         recipe = json.loads(cap_render.cap_recipe(cap_render.north_grid(LAYERLESS_BODY), WHOLE_PLANET))
-        assert recipe["layers_off"] == ["coastline", "sea_ice", "snow"]
+        assert recipe["layers_off"] == ["coastline", "perennial_ice", "sea_ice"]
 
     def test_turning_a_layer_off_restages_although_its_source_stops_being_a_dependency(self):
         """The two halves have to move together. Switching a layer off REMOVES its file from
@@ -855,7 +855,7 @@ class TestTheCapPassAsksTheSeamBeforeTheDisk:
         everything, so the patch whitens the whole disc. That is the honest consequence of the two
         declarations, and it is pinned so nobody re-derives it as a bug in the mask gate."""
         snowy = dataclasses.replace(bodies.EARTH, name="snowy", path_prefix="snowy",
-                                    surface_layers=frozenset({"snow"}))
+                                    surface_layers=frozenset({"perennial_ice"}))
         _warped, painted = _drive_cap(monkeypatch, tmp_path, snowy, "south",
                                       rasters=self.HEIGHTFIELD_ONLY)
         assert painted["snow_a"].all()

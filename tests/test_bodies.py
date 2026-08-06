@@ -868,9 +868,9 @@ def test_a_layer_is_refused_for_a_body_that_does_not_declare_it_even_though_the_
     present = tmp_path / "persistence.nc"
     present.write_text("only its existence is read")
 
-    assert shade_planet.layer_is_buildable(bodies.EARTH, "snow", present, "no snow") is True
-    assert shade_planet.layer_is_buildable(bodies.MARS, "snow", present, "no snow") is False
-    assert "mars declares no snow layer" in capsys.readouterr().out
+    assert shade_planet.layer_is_buildable(bodies.EARTH, "perennial_ice", present, "no ice") is True
+    assert shade_planet.layer_is_buildable(bodies.MARS, "perennial_ice", present, "no ice") is False
+    assert "mars declares no perennial_ice layer" in capsys.readouterr().out
 
 
 def test_the_composite_recipe_records_only_the_layers_that_are_off() -> None:
@@ -918,7 +918,7 @@ def _southern_window(body: bodies.Body, persistence: "np.ndarray | None"):
         body=body)
 
 
-def test_a_body_without_the_snow_layer_composites_no_snow_at_all() -> None:
+def test_a_body_without_the_perennial_ice_layer_composites_no_ice_at_all() -> None:
     """Two independent Earth-only rules meet in this window, and both must be off.
 
     The dataset half: `persistence_raw` was the one read of four with no `.exists()` guard, so a
@@ -984,11 +984,12 @@ def test_layers_off_names_what_is_missing_and_stays_silent_when_nothing_is(subte
         with subtests.test(f"earth {name}"):
             assert bodies.layers_off(bodies.EARTH, vocabulary) == []
     with subtests.test("mars cap"):
-        assert bodies.layers_off(bodies.MARS, bodies.CAP_LAYERS) == ["coastline", "sea_ice", "snow"]
+        assert bodies.layers_off(bodies.MARS, bodies.CAP_LAYERS) == ["coastline", "perennial_ice",
+                                                                     "sea_ice"]
     with subtests.test("sorted"):
         # Sorted, so a frozenset's iteration order cannot make one body's recipe two recipes.
         partial = dataclasses.replace(bodies.EARTH, name="partial",
-                                      surface_layers=frozenset({"snow"}))
+                                      surface_layers=frozenset({"perennial_ice"}))
         assert bodies.layers_off(partial, bodies.SURFACE_LAYERS) == sorted(
             bodies.layers_off(partial, bodies.SURFACE_LAYERS))
 

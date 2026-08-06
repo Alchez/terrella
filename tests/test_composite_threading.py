@@ -176,7 +176,7 @@ def _forbidden(*args, **kwargs):
     raise AssertionError("ThreadPoolExecutor must not be constructed on this path")
 
 
-def test_a_body_with_no_snow_layer_composites_without_the_raster(planet):
+def test_a_body_with_no_perennial_ice_layer_composites_without_the_raster(planet):
     """The whole composite must survive a layer its body does not have — driven end to end, because
     the guard that was missing lives in `read_window`, which no unit test reaches.
 
