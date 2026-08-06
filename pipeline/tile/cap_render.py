@@ -386,7 +386,7 @@ def served_url(asset: Path) -> str:
     while a nesting body writes to `caps/<body>/` and would have had its whole texture set
     advertised one directory up — every rung a 404, discovered only by loading the globe.
     """
-    return "/" + asset.relative_to(bodies.PUBLIC_ROOT).as_posix()
+    return "/" + asset.relative_to(bodies.public_root()).as_posix()
 
 
 def caps_manifest(body: bodies.Body) -> str:

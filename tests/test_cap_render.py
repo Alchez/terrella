@@ -196,9 +196,9 @@ class TestTheGridsAreBuiltPerBody:
                 for name, grid in (("north", cap_render.north_grid(body)),
                                    ("south", cap_render.south_grid(body))):
                     for rung in manifest[name]["rungs"]:
-                        assert (bodies.PUBLIC_ROOT / rung["url"].lstrip("/")
+                        assert (bodies.public_root() / rung["url"].lstrip("/")
                                 == cap_render.cap_asset(grid, rung["px"]))
-                    assert (bodies.PUBLIC_ROOT / manifest[name]["elev_url"].lstrip("/")
+                    assert (bodies.public_root() / manifest[name]["elev_url"].lstrip("/")
                             == cap_render.cap_elev_asset(grid))
 
 

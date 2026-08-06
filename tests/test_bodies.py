@@ -248,6 +248,26 @@ def test_served_assets_follow_the_checkout_not_the_data_store() -> None:
     assert paths.DATA in bodies.work_dir(bodies.EARTH, "cap").parents
 
 
+def test_both_roots_follow_a_redirect_so_a_fixture_can_isolate_every_write(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Redirecting the two roots must move EVERY derived location, not just the data one.
+
+    `work_dir` reads `paths.DATA` at call time, so it always followed. `public_root` used to be a
+    module constant binding `paths.ROOT` at import, so it never did — and the asymmetry could not
+    surface as an error, because the served root's two readers went stale TOGETHER: `served_url`
+    takes a URL relative to the same stale root the asset was written under, so the arithmetic
+    agreed and every URL assertion passed. What it produced instead was test output written into the
+    real `web/public/`, which `web/.gitignore` covers and the next site build copies into `dist/`.
+
+    The neighbouring `test_served_assets_follow_the_checkout_not_the_data_store` cannot see this: it
+    asserts the served path sits under `paths.ROOT`, which is true of the stale root as well.
+    """
+    monkeypatch.setattr(paths, "ROOT", tmp_path / "checkout")
+    monkeypatch.setattr(paths, "DATA", tmp_path / "store")
+    assert bodies.public_dir(bodies.EARTH, "caps") == tmp_path / "checkout/web/public/caps"
+    assert bodies.work_dir(bodies.EARTH, "cap") == tmp_path / "store/work/cap"
+
+
 @pytest.mark.parametrize("stage", ["", "/absolute", "../escape"])
 def test_a_served_stage_name_cannot_escape_either(stage: str) -> None:
     with pytest.raises(ValueError):

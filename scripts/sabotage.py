@@ -2779,7 +2779,7 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label='served assets are resolved against the data store, so a relocated store publishes nothing',
         path='pipeline/bodies.py',
-        needle='    return PUBLIC_ROOT / stage / body.path_prefix',
+        needle='    return public_root() / stage / body.path_prefix',
         replacement='    return paths.DATA / "web/public" / stage / body.path_prefix',
         guard='test_served_assets_follow_the_checkout_not_the_data_store',
     ),
@@ -2789,9 +2789,22 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label='the caps prefix is applied above the stage, publishing a second body at the wrong URL',
         path='pipeline/bodies.py',
-        needle='    return PUBLIC_ROOT / stage / body.path_prefix',
-        replacement='    return PUBLIC_ROOT / body.path_prefix / stage',
+        needle='    return public_root() / stage / body.path_prefix',
+        replacement='    return public_root() / body.path_prefix / stage',
         guard='test_a_second_body_publishes_under_its_own_segment',
+    ),
+    # The served root stops asking `paths.ROOT` and re-derives the checkout itself — which is what a
+    # module constant did, and what any "remove the indirection" tidy would restore. It is invisible
+    # in an ordinary run, because on an unrelocated checkout the two answers are the same path; it
+    # bites only where a fixture redirects the root and therefore believes it is isolated, and its
+    # cost is test output written into web/public/, which the site build copies into dist/.
+    Sabotage(
+        suite='python',
+        label='the served root re-derives the checkout instead of following paths.ROOT',
+        path='pipeline/bodies.py',
+        needle='    return paths.ROOT / "web/public"',
+        replacement='    return Path(__file__).resolve().parents[1] / "web/public"',
+        guard='test_both_roots_follow_a_redirect_so_a_fixture_can_isolate_every_write',
     ),
     # --- The body is required --------------------------------------------------------------------
     # Both mutations restore a silent Earth assumption. Neither raises, neither changes a pixel today,
@@ -3442,7 +3455,7 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label="a cap's served URL is rebuilt from its basename, 404ing every body that nests",
         path='pipeline/tile/cap_render.py',
-        needle='    return "/" + asset.relative_to(bodies.PUBLIC_ROOT).as_posix()',
+        needle='    return "/" + asset.relative_to(bodies.public_root()).as_posix()',
         replacement='    return f"/caps/{asset.name}"',
         guard='test_the_served_url_matches_where_the_texture_is_actually_written',
     ),
