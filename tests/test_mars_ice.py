@@ -16,13 +16,17 @@ import pytest
 from scipy import ndimage
 
 from pipeline import vector_raster
-from pipeline.acquire import download_sim3292
+from pipeline.acquire import download_sim3292, extract_omega
 from pipeline.raster_io import row_bands
 from pipeline.render import mars_ice
 
-#: 400 m/px against a 10 km feather puts the feather at exactly 25 pixels, so the band arithmetic
+#: The producer's own fill, taken from the extractor rather than spelled again — a second literal
+#: here would keep passing after the extractor changed its mind about what "unmeasured" is.
+NODATA = extract_omega.NODATA
+
+#: 200 m/px against the 5 km feather puts the feather at exactly 25 pixels, so the band arithmetic
 #: below is checkable by hand rather than by re-deriving it in the assertion.
-SCALE_M = 400.0
+SCALE_M = 200.0   # ground metres per pixel; FEATHER_KM / this = FEATHER_PX exactly
 FEATHER_PX = 25
 
 
@@ -78,6 +82,53 @@ class TestTheExtentIsAsymmetricOnMeasurement:
             mars_ice.extent_for({"lApc": np.array([[True]])}, True)
 
 
+class TestTheAlphaIsOmegaBetweenTwoPinnedLevels:
+    def test_the_two_levels_map_to_zero_and_one(self):
+        ground, cap = mars_ice.ALPHA_LEVELS["north"]
+        alpha = mars_ice.albedo_alpha(np.array([[ground, cap]], dtype=np.float32),
+                                      (ground, cap), NODATA)
+        assert alpha[0, 0] == 0.0
+        assert alpha[0, 1] == 1.0
+
+    def test_it_clamps_outside_the_levels_rather_than_extrapolating(self):
+        """Albedo runs past both levels on the real disc — the cap median is a MEDIAN, so half the
+        cap is brighter than it, and unclamped those pixels would exceed alpha 1."""
+        ground, cap = mars_ice.ALPHA_LEVELS["south"]
+        alpha = mars_ice.albedo_alpha(np.array([[ground - 0.2, cap + 0.2]], dtype=np.float32),
+                                      (ground, cap), NODATA)
+        assert alpha.tolist() == [[0.0, 1.0]]
+
+    def test_it_eases_rather_than_ramping_linearly(self):
+        """Pins the curve: a linear normalise passes both tests above and looks different."""
+        ground, cap = 0.0, 1.0
+        quarter = mars_ice.albedo_alpha(np.array([[0.25]], dtype=np.float32), (ground, cap), NODATA)
+        assert quarter[0, 0] == pytest.approx(0.15625)   # smoothstep(0.25), not 0.25
+
+    def test_the_fill_is_zero_even_when_it_would_land_INSIDE_the_range(self):
+        """The reason the fill is compared on the RAW value. A fill inside the levels normalises to
+        an ordinary alpha, and no downstream range check could tell it from measured albedo."""
+        inside_fill = 0.35
+        ground, cap = mars_ice.ALPHA_LEVELS["north"]
+        assert ground < inside_fill < cap, "the fixture must actually sit inside the range"
+        alpha = mars_ice.albedo_alpha(np.array([[inside_fill]], dtype=np.float32),
+                                      (ground, cap), nodata=inside_fill)
+        assert alpha[0, 0] == 0.0
+
+    def test_the_alpha_is_float64_from_a_float32_raster(self):
+        """OMEGA lands as float32 and `snow.snow_alpha` returns float64; the composite blends
+        whichever body's answer it is handed, so a narrower dtype here shifts the other's blend."""
+        levels = mars_ice.ALPHA_LEVELS["north"]
+        assert mars_ice.albedo_alpha(np.zeros((2, 2), dtype=np.float32), levels, NODATA).dtype == \
+            np.float64
+
+    def test_both_poles_are_registered_and_they_differ(self):
+        """A shared pair would grade the south's brighter cap on the north's darker ground."""
+        assert set(mars_ice.ALPHA_LEVELS) == {"north", "south"}
+        assert mars_ice.ALPHA_LEVELS["north"] != mars_ice.ALPHA_LEVELS["south"]
+        for ground, cap in mars_ice.ALPHA_LEVELS.values():
+            assert 0.0 < ground < cap < 1.0
+
+
 class TestTheFeatherIsGroundDistanceAndNotPixels:
     def test_it_is_one_inside_and_zero_past_the_feather(self):
         mask = np.zeros((80, 4), dtype=bool)
@@ -98,8 +149,9 @@ class TestTheFeatherIsGroundDistanceAndNotPixels:
         assert alpha[49 + 12, 0] > 0.5 > alpha[49 + 13, 0]
 
     def test_a_coarser_pixel_makes_a_narrower_feather_in_pixels(self):
-        """The whole reason the scale is an argument: the same 10 ground kilometres reaches 24 lit
-        pixels at 400 m and 12 at 800, the spread Mercator puts across the band Mars shows ice in.
+        """The whole reason the scale is an argument: the same 5 ground kilometres reaches 24 lit
+        pixels at 200 m and 12 at 400. Mercator gives Mars's ice band 152 m/px down to 68, so a
+        feather counted in pixels would be more than twice as wide at one end as the other.
 
         24 and not 25 because the far end is half-open — a pixel exactly `feather_km` out is already
         zero, so the lit run past the mask is `ceil(feather_px) - 1` either way.
