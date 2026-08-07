@@ -400,7 +400,18 @@ def composite_deps(work, hs, params) -> tuple:
     the loop, so a re-warp (new NSIDC/RGI, or a re-fuse to a new grid) must restage it. `glacier`
     may be absent (RGI not downloaded) -- `newest_mtime` scores a missing path 0.0, so listing it
     unconditionally is safe. The ramp TUNABLES (`RAMP_*`) run at composite time inside `snow_alpha`,
-    so they ride in `composite_params`, NOT here -- this pair tracks the warp SOURCES only.
+    so they do not belong here either -- this pair tracks the warp SOURCES only.
+
+    AND THEY DO NOT RIDE IN `composite_params` EITHER, WHICH IS A LIVE HOLE, NOT A DESIGN. This
+    paragraph said they did. Read off the recipe rather than off this sentence, `composite_params`
+    carries the sea-ice knobs (`ice_lo`, `ice_band`, `ice_max_alpha`, `sh_ice_*`) and both ice
+    colours, and no `RAMP_*` at all -- nor `shade.KNEE_X`, `KNEE_SHARE` or `SHADOW_TINT`, which the
+    composite also reads. Eight look constants in total reach a pixel and reach no recipe, so
+    editing one changes every affected pixel on the planet and nothing restages: a constant edit
+    moves no warp mtime, which is the exact gap a recipe exists to close. Nothing has drifted
+    through it -- no value among the eight has changed since the shipped composite -- and the fix is
+    a paid decision rather than a tidy, because recording them restages Earth's 46 GB composite for
+    pixel-identical output. Do not repair this by editing the sentence.
 
     `seaice_3857.tif` joined, the sea-side twin of snow persistence: its warp SOURCE is
     tracked here, its ICE_LO/ICE_BAND alpha knobs in `composite_params`. Optional -- a missing path
