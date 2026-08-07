@@ -16,7 +16,7 @@ import dataclasses
 import numpy as np
 import pytest
 
-from pipeline import bodies, mercator
+from pipeline import bodies, layers, mercator
 from pipeline.render import perennial_ice, snow
 
 
@@ -90,7 +90,7 @@ class TestTheRegistryAndTheLayerDeclarationsAgree:
 
     def test_every_body_declaring_the_layer_has_a_producer_at_both_poles(self, subtests):
         declaring = [body for body in bodies.BODIES.values()
-                     if perennial_ice.LAYER in body.surface_layers]
+                     if layers.PERENNIAL_ICE.name in body.surface_layers]
         assert declaring, "no body declares perennial ice — this sweep would pass vacuously"
         for body in declaring:
             for pole in ("north", "south"):
@@ -99,7 +99,7 @@ class TestTheRegistryAndTheLayerDeclarationsAgree:
 
     def test_no_producer_is_registered_for_a_body_that_declares_no_such_layer(self, subtests):
         silent = [body for body in bodies.BODIES.values()
-                  if perennial_ice.LAYER not in body.surface_layers]
+                  if layers.PERENNIAL_ICE.name not in body.surface_layers]
         assert silent, "every body declares perennial ice — this sweep would pass vacuously"
         for body in silent:
             with subtests.test(body.name):

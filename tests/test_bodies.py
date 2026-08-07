@@ -933,10 +933,8 @@ def _southern_window(body: bodies.Body, persistence: "np.ndarray | None"):
         ocean_raw=np.zeros((rows, cols), dtype=np.uint8),   # all land
         watercode=np.zeros((rows, cols), dtype=np.uint8),   # no inland water
         hs_raw=np.full((rows, cols), 128, dtype=np.uint8),
-        depth_raw=None,
-        persistence_raw=persistence,
-        glacier_raw=None,
-        sea_ice_raw=None,
+        layer_raw={layer.name: persistence if layer is layers.PERENNIAL_ICE else None
+                   for layer in layers.WARPED_LAYERS},
         occ_win=zeros,
         body=body)
 
@@ -967,6 +965,43 @@ def test_earth_still_forces_its_antarctic_land_white() -> None:
         "Earth stopped forcing its Antarctic land white — NSIDC-0791 is northern-hemisphere-only "
         "and RGI excludes region 19, so without this patch the continent renders on the tan ramp"
     )
+
+
+def test_earths_antarctic_patch_survives_a_missing_persistence_raster() -> None:
+    """A producer runs because the BODY declared the layer, never because its raster is on disk.
+
+    Gating on the slice instead is the obvious tidy — it is right there in `layer_raw` — and it is
+    correct for every layer but this one, whose southern half is latitude-and-land arithmetic with
+    no file behind it. Under that tidy Earth's continent renders on the tan ramp the first time
+    NSIDC-0791 is not where it was, with nothing missing that anyone would notice.
+    """
+    shared = shade_planet._compute_shared(_southern_window(bodies.EARTH, None))
+    assert shared.snow_a.min() == 1.0, (
+        "Earth's Antarctic land went unforced with no persistence raster — the patch reads no "
+        "file, so no absent file should be able to switch it off"
+    )
+
+
+def test_every_built_layer_names_the_raster_the_composite_reads(subtests) -> None:
+    """Pinned against literals, because every consumer of these names now derives from this column.
+
+    A dropped `warped_basename` takes its layer out of the warp, out of the window reads and out of
+    `composite_deps` in one edit — so the layer stops being painted AND stops being a dependency the
+    composite must be newer than, which is a stale pyramid that reports itself fresh forever.
+    """
+    assert {layer.name: layer.warped_basename for layer in layers.WARPED_LAYERS} == {
+        "lake_depth": "lakedepth_3857.tif",
+        "perennial_ice": "snow_persistence_3857.tif",
+        "glaciers": "glacier_3857.tif",
+        "sea_ice": "seaice_3857.tif",
+    }
+    with subtests.test("every composite layer builds a raster today"):
+        assert {layer.name for layer in layers.WARPED_LAYERS} == layers.COMPOSITE_LAYERS, (
+            "the two agree today but are set independently — a composite layer answered by pure "
+            "arithmetic would carry no basename, so neither column may be derived from the other"
+        )
+    with subtests.test("the cap-only layer builds nothing"):
+        assert layers.COASTLINE.warped_basename is None
 
 
 def test_the_stage_vocabularies_together_cover_the_whole_one_and_nothing_else(subtests) -> None:

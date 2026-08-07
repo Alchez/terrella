@@ -45,12 +45,8 @@ from typing import Protocol
 
 import numpy as np
 
-from pipeline import bodies
+from pipeline import bodies, layers
 from pipeline.render import snow
-
-#: The layer these producers paint. Spelled once here so the registry and its callers cannot drift
-#: apart from `layers.SURFACE_LAYERS`, which is where the vocabulary itself is defined.
-LAYER = "perennial_ice"
 
 
 class WarpToCap(Protocol):
@@ -157,6 +153,7 @@ def cap_ice(body: bodies.Body, pole: str) -> CapIce:
         return CAP_ICE_BY_BODY[(body.name, pole)]
     except KeyError:
         raise KeyError(
-            f"{body.name} declares the {LAYER} layer but registers no {pole} cap producer; "
+            f"{body.name} declares the {layers.PERENNIAL_ICE.name} layer but registers no "
+            f"{pole} cap producer; "
             f"known: {sorted(CAP_ICE_BY_BODY)}"
         ) from None

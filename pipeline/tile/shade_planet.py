@@ -63,6 +63,7 @@ from pipeline.render import (
     cast_shadow,
     hillshade,
     lake_depth,
+    layer_producers,
     palette,
     seaice,
     sky_view,
@@ -351,21 +352,18 @@ def composite_deps(work, hs, params) -> tuple:
     ramps itself from elevation, so the height raster IS the colour input. The ramp constants ride
     in `params` (composite_params) rather than in ramp_*.txt, which no longer exists.
 
-    `snow_persistence_3857.tif` + `glacier_3857.tif` joined (optimisation #4): the
-    composite reads pre-warped snow slices per window instead of forking gdalwarp/gdal_rasterize in
-    the loop, so a re-warp (new NSIDC/RGI, or a re-fuse to a new grid) must restage it. `glacier`
-    may be absent (RGI not downloaded) -- `newest_mtime` scores a missing path 0.0, so listing it
+    THE BUILT LAYERS COME FROM `layers.WARPED_LAYERS`, so this list, the warp that fills it and the
+    per-window reads cannot disagree about the set or the order. Each is joined here because the
+    composite reads a pre-warped slice per window instead of forking gdalwarp/gdal_rasterize in the
+    loop (optimisation #4), so a re-warp -- new NSIDC/RGI, or a re-fuse to a new grid -- must restage
+    it. Any of them may be absent, and `newest_mtime` scores a missing path 0.0, so naming them all
     unconditionally is safe. The ramp TUNABLES (`RAMP_*`) run at composite time inside `snow_alpha`,
-    so they do not belong here either -- this pair tracks the warp SOURCES only.
+    so they do not belong here either -- this tracks the warp SOURCES only.
 
     THEY RIDE IN `composite_params` INSTEAD, and the split is the point: a warp source moves an
     mtime, a constant moves nothing at all. A look constant that reaches a pixel and reaches
     neither record leaves a stale composite reading fresh forever, so a new one goes into the
     recipe beside the layer that reads it — never into this list, which cannot see it.
-
-    `seaice_3857.tif` joined, the sea-side twin of snow persistence: its warp SOURCE is
-    tracked here, its ICE_LO/ICE_BAND alpha knobs in `composite_params`. Optional -- a missing path
-    scores `newest_mtime` 0.0, so listing it unconditionally is safe when the source isn't built.
 
     THAT SAFETY CUTS THE OTHER WAY AND IS WHY `composite_params` RECORDS THE ABSENT LAYERS. A path
     that scores 0.0 is not merely harmless, it is INVISIBLE: switching a layer off leaves the old
@@ -383,8 +381,24 @@ def composite_deps(work, hs, params) -> tuple:
     _missing_input` is the executable form of this paragraph; read it before changing either.
     """
     return (work / "height_3857.tif", hs, work / "ocean_3857.tif", work / "water_3857.tif",
-            work / "lakedepth_3857.tif", work / "snow_persistence_3857.tif",
-            work / "glacier_3857.tif", work / "seaice_3857.tif", params)
+            *(layer.warped_in(work) for layer in layers.WARPED_LAYERS), params)
+
+
+#: What the finished pixels lose when a layer is skipped at the WARP stage, by layer name.
+#:
+#: A CONSEQUENCE IS PER (LAYER, STAGE), which is why this is here and not a column on `Layer`:
+#: `cap_render` says something different about the same layers because it paints a different
+#: picture. Each states what the reader will see rather than what was missing, so a partial build
+#: can be read back off its own output.
+#:
+#: Keyed by name and looked up unconditionally, so a layer added to `WARPED_LAYERS` and forgotten
+#: here raises on the next pass of any body rather than being quietly skipped forever.
+WARP_CONSEQUENCE: dict[str, str] = {
+    layers.LAKE_DEPTH.name: "lakes stay flat; run pipeline.acquire.extract_globathy",
+    layers.PERENNIAL_ICE.name: "no ice painted; the composite reads None and skips it",
+    layers.GLACIERS.name: "persistence-only snow",
+    layers.SEA_ICE.name: "bathymetry bare at the poles",
+}
 
 
 def warp_inputs(work: Path, planet: Path, body: bodies.Body, rasters: frozenset[str]):
@@ -435,66 +449,31 @@ def warp_inputs(work: Path, planet: Path, body: bodies.Body, rasters: frozenset[
                   "-co", "BIGTIFF=YES", planet / src, out])
             mark_done(out)
 
-    # GLOBathy lake depth, warped ONCE here rather than per window: it is an 83k-source VRT,
-    # and a many-source VRT re-reads every source on each touch (the same reason the tiler
-    # materialises before cutting). Deliberately NOT in the loop above -- depth is continuous,
-    # so it needs bilinear/Float32, while `near`/Byte is right for the class codes and would
-    # quantise every lake to whole metres and hard-step its gradient.
-    # Its dependency is the VRT alone, unlike the chunk directory above: extract_globathy
-    # rebuilds the VRT whenever the raster set changes, so its mtime really does move.
-    depth_out = work / "lakedepth_3857.tif"
-    if layers.layer_is_buildable(body, layers.LAKE_DEPTH, lake_depth.LAKE_VRT,
-                          "lakes stay flat; run pipeline.acquire.extract_globathy") \
-            and warp_needs_rebuild(depth_out, grid, lake_depth.LAKE_VRT):
-        print("warp lake depth -> 3857 ...", flush=True)
-        depth_out.unlink(missing_ok=True)
-        _run(["gdalwarp", "-q", "-t_srs", "EPSG:3857", "-te", *bounds, "-ts", *size,
-              "-srcnodata", str(lake_depth.GLOBATHY_NODATA), "-dstnodata", "0",
-              "-r", "bilinear", "-ot", "Float32", "-co", "TILED=YES",
-              "-co", "COMPRESS=DEFLATE", "-co", "BIGTIFF=YES",
-              "-co", "NUM_THREADS=ALL_CPUS", lake_depth.LAKE_VRT, depth_out])
-        mark_done(depth_out)
-
-    # Snow persistence + RGI glaciers, warped ONCE here rather than per window (optimisation #4).
-    # The old composite loop forked gdalwarp + gdal_rasterize for every window (~728 subprocesses)
-    # into two fixed-path temps -- the shared paths that blocked threading the composite. Same
-    # precedent as lakedepth above. Persistence stores the RAW PACKED Float32 (snow.warp_persistence_
-    # raster's docstring: the composite unpacks per window in float64, so a slice is bit-identical to
-    # the old per-window warp). Glacier is a 0/1 Byte mask; absent RGI leaves it unbuilt and the snow
-    # is persistence-only, exactly as before.
-    persistence_out = work / "snow_persistence_3857.tif"
-    if layers.layer_is_buildable(body, layers.PERENNIAL_ICE, snow.SP_NC,
-                          "no ice painted; the composite reads None and skips it") \
-            and warp_needs_rebuild(persistence_out, grid, snow.SP_NC):
-        print("warp snow persistence -> 3857 (banded) ...", flush=True)
-        persistence_out.unlink(missing_ok=True)
-        # band_rows == the composite window height, aligned to it: each band is exactly the
-        # per-window warp it replaces, so the mosaic is byte-identical to the old per-window path.
-        # A single whole-grid warp would DECIMATE this coarse source (snow.warp_persistence_raster).
-        snow.warp_persistence_raster(grid_bounds, grid_width, grid_height, persistence_out,
-                                     band_rows=WINDOW_ROWS)
-        mark_done(persistence_out)
-
-    glacier_out = work / "glacier_3857.tif"
-    if layers.layer_is_buildable(body, layers.GLACIERS, snow.RGI_GPKG, "persistence-only snow") \
-            and warp_needs_rebuild(glacier_out, grid, snow.RGI_GPKG):
-        print("rasterize RGI glaciers -> 3857 ...", flush=True)
-        snow.rasterize_glaciers_raster(grid_bounds, grid_width, grid_height, glacier_out)
-        mark_done(glacier_out)
-
-    # Sea-ice frequency climatology, warped ONCE here like snow persistence (same banded warp: a
-    # single whole-grid warp of the coarse 0.1deg source would decimate the ice edge). Optional,
-    # like glacier/depth -- an absent source just skips it and the composite paints no ice, leaving
-    # the bathymetry bare at the poles.
-    seaice_out = work / "seaice_3857.tif"
-    if layers.layer_is_buildable(body, layers.SEA_ICE, seaice.SEAICE_SRC,
-                          "bathymetry bare at the poles") \
-            and warp_needs_rebuild(seaice_out, grid, seaice.SEAICE_SRC):
-        print("warp sea-ice frequency -> 3857 (banded) ...", flush=True)
-        seaice_out.unlink(missing_ok=True)
-        seaice.warp_seaice_raster(grid_bounds, grid_width, grid_height, seaice_out,
-                                  band_rows=WINDOW_ROWS)
-        mark_done(seaice_out)
+    # Every optional surface layer, warped ONCE here rather than per window (optimisation #4). The
+    # old composite loop forked gdalwarp + gdal_rasterize for every window (~728 subprocesses) into
+    # fixed-path temps -- the shared paths that blocked threading the composite. Deliberately NOT in
+    # the mask loop above: those are class codes wanting `near`/Byte, and every one of these is a
+    # continuous or vector source with its own resampling.
+    for layer in layers.WARPED_LAYERS:
+        consequence = WARP_CONSEQUENCE[layer.name]
+        out = layer.warped_in(work)
+        # THE BODY IS ASKED FIRST AND THE PRODUCER SECOND, and the order is what makes the disk
+        # question honest: `producer.sources()` are that body's files, where the constants they
+        # replaced were Earth's at a fixed global path on every planet alike.
+        if not layers.body_declares_layer(body, layer, consequence):
+            continue
+        producer = layer_producers.producer_for(body, layer)
+        sources = producer.sources()
+        if not all(layers.layer_is_buildable(body, layer, source, consequence)
+                   for source in sources):
+            continue
+        # `warp_needs_rebuild` re-warps when a source moved OR when the grid grew under the target;
+        # the sources are the producer's because they are what it will actually read.
+        if warp_needs_rebuild(out, grid, *sources):
+            producer.build(layer_producers.LayerBuild(
+                bounds=grid_bounds, width=grid_width, height=grid_height, out=out,
+                band_rows=WINDOW_ROWS))
+            mark_done(out)
     return height
 
 
@@ -582,10 +561,10 @@ class _WindowInputs:
     read lives here and the pure-numpy compute (`_compute_shared`/`_compose`) takes this bundle.
     The fields are the untransformed slices (`ocean_raw`, not `ocean != 0`); the cheap numpy
     that derives masks/alpha from them runs on the worker, which is where optimisation #5 wants
-    the CPU. `depth_raw`/`glacier_raw`/`sea_ice_raw` are None when that optional input was never built.
+    the CPU.
 
     `ocean_raw`/`watercode` are None on a planet whose seam emitted no masks, and that is a
-    DIFFERENT kind of None from the four above: theirs says an Earth dataset was not downloaded,
+    DIFFERENT kind of None from a `layer_raw` entry's: that one says a dataset was not downloaded,
     this one says the planet has no sea. `_compute_shared` turns it into an all-False selector,
     which is the true answer rather than a stand-in — no pixel is ocean, none is inland water, and
     every pixel is land.
@@ -599,14 +578,15 @@ class _WindowInputs:
     ocean_raw: "np.ndarray | None"
     watercode: "np.ndarray | None"
     hs_raw: np.ndarray
-    depth_raw: np.ndarray | None
-    persistence_raw: np.ndarray | None
-    glacier_raw: np.ndarray | None
-    sea_ice_raw: np.ndarray | None
+    #: One slice per `layers.WARPED_LAYERS` row, keyed by layer name, None where that layer's
+    #: raster was never built. ONE DICT AND NOT A FIELD PER LAYER: the reads are gated identically,
+    #: so a field each is four chances for the fourth to be written without the guard — which is
+    #: exactly what happened to snow persistence before this was one expression.
+    layer_raw: dict[str, "np.ndarray | None"]
     occ_win: np.ndarray
-    #: Which planet this window belongs to. Present for ONE decision — whether the Antarctic
-    #: land-ice patch applies — and deliberately not for paths: this struct crosses onto worker
-    #: threads, and a stage that reads the filesystem there would leave `_compute_shared` impure.
+    #: Which planet this window belongs to, and therefore which producers `_compute_shared` asks
+    #: for its layers. Deliberately not carrying paths: this struct crosses onto worker threads,
+    #: and a stage that read the filesystem there would leave `_compute_shared` impure.
     body: bodies.Body
 
 
@@ -648,48 +628,35 @@ def _compute_shared(inputs: _WindowInputs) -> _WindowShared:
     water_win = (lake_depth.inland_water(watercode) if watercode is not None
                  else np.zeros(shape, bool))
     hs_win = inputs.hs_raw.astype(float)
-    # Lake depth, zeroed off class 2 so rivers stay flat and the (class 1) Caspian keeps GEBCO's
-    # measured bathymetry instead of GLOBathy's cone. The watercode cannot be None while depth is
-    # not: `planet_seam` refuses a body that declares the lake-depth layer with no watermask.
-    depth_win = (lake_depth.lakes_only(inputs.depth_raw, watercode)
-                 if inputs.depth_raw is not None and watercode is not None else None)
-    # unpack_persistence runs the float64 unpack per window (as the old per-window path did), so
-    # snow_alpha sees bit-identical input. Glacier is optional (persistence-only when RGI absent).
-    if inputs.persistence_raw is not None:
-        persistence_win = snow.unpack_persistence(inputs.persistence_raw)
-        snow_a = snow.snow_alpha(persistence_win, inputs.win_top, inputs.win_bottom)
-    else:
-        # float, not float32: this is what `snow_alpha` returns, and the maxima below promote to it
-        # anyway. Matching the dtype keeps the two branches feeding `composite` identical arrays.
-        snow_a = np.zeros(inputs.height_win.shape, dtype=float)
-    if inputs.glacier_raw is not None:
-        snow_a = np.maximum(snow_a, inputs.glacier_raw.astype(float))
-    latitude = snow.latitude_per_row(inputs.win_top, inputs.win_bottom, inputs.win_h)
-    # Force Antarctic land white: NSIDC-0791 is NH-only and RGI region 19 is excluded, so snow_a is 0
-    # over the continent and it would render on the tan LAND ramp. The same shared rule the south cap
-    # uses, so the two agree across the -84 seam (snow.antarctic_snow_mask).
     land_win = ~(ocean_win | water_win)
-    # ASKED OF THE BODY, not of the raster. The rule is a patch on the snow layer's own hole, so a
-    # body without that layer has nothing to patch — and this is a latitude+land test with no
-    # dataset behind it, so nothing else could ever turn it off. On a sea-less planet it whitens
-    # every piece of land below 60 degrees south, which is most of one.
-    if layers.PERENNIAL_ICE.name in inputs.body.surface_layers:
-        snow_a = np.maximum(snow_a, snow.antarctic_snow_mask(land_win, latitude))
-    # Sea-ice alpha: frequency -> smoothstep, the sea-side twin of snow_a (no latitude ramp needed).
-    # Optional (None when the seaice source was never warped); shade.composite gates it on ocean. South
-    # of the equator the SH pack is toned to the cap's fainter, pulled-in fringe (seaice.SH_ICE_*), else
-    # the full-strength Antarctic belt reads as a bright halo -- proven on the cap. No window straddles
-    # both hemispheres' ice, and the equator is ice-free, so the per-row split is exact.
-    if inputs.sea_ice_raw is not None:
-        frequency = seaice.unpack_seaice(inputs.sea_ice_raw)
-        ice_a = seaice.ice_alpha(frequency)
-        southern = latitude < 0.0
-        if southern.any():
-            toned = seaice.ice_alpha(frequency, ice_lo=seaice.SH_ICE_LO,
-                                     ice_max_alpha=seaice.SH_ICE_MAX_ALPHA)
-            ice_a = np.where(southern[:, None], toned, ice_a)
-    else:
-        ice_a = None
+    latitude = snow.latitude_per_row(inputs.win_top, inputs.win_bottom, inputs.win_h)
+    # ASKED OF THE BODY, never of the raster on disk. A producer runs because the planet DECLARED
+    # the layer, which is what lets Earth's perennial ice carry the forced Antarctic patch — a
+    # latitude-and-land rule with no file behind it, so no missing raster could ever switch it off.
+    # Reading the declaration off `layer_raw` instead would drop it the day NSIDC went absent.
+    contributions: dict[str, np.ndarray] = {}
+    for layer in layers.WARPED_LAYERS:
+        if layer.name not in inputs.body.surface_layers:
+            continue
+        value = layer_producers.producer_for(inputs.body, layer).contribution(
+            layer_producers.LayerWindow(
+                raw=inputs.layer_raw[layer.name], watercode=watercode, land=land_win,
+                latitude=latitude, top=inputs.win_top, bottom=inputs.win_bottom))
+        if value is not None:
+            contributions[layer.name] = value
+    depth_win = contributions.get(layers.LAKE_DEPTH.name)
+    # The white union, in the table's order. float64 base because that is what `snow_alpha` returns
+    # and what the maxima promote to; a float32 base would narrow every pixel `composite` blends.
+    # `np.maximum` reorders freely and every contribution is non-negative, so which layer lands
+    # first cannot move a bit.
+    snow_a = np.zeros(inputs.height_win.shape, dtype=float)
+    for layer in (layers.PERENNIAL_ICE, layers.GLACIERS):
+        contribution = contributions.get(layer.name)
+        if contribution is not None:
+            snow_a = np.maximum(snow_a, contribution)
+    # The sea-side twin, kept OUT of that union on purpose: `shade.composite` gates it on the ocean
+    # selector where snow_a paints land, and None there means the layer is absent rather than zero.
+    ice_a = contributions.get(layers.SEA_ICE.name)
     cap = (latitude > CAP_NORTH) | (latitude < CAP_SOUTH)
     return _WindowShared(ocean_win, water_win, hs_win, depth_win, snow_a, ice_a, cap)
 
@@ -769,10 +736,7 @@ def composite_planet(work: Path, hs, compute_occlusion: Callable[[], np.ndarray]
         crs="EPSG:3857", transform=transform, photometric="RGB", BIGTIFF="YES",
         num_threads="ALL_CPUS", **GTIFF_CREATE)
     ocean_p, water_p = work / "ocean_3857.tif", work / "water_3857.tif"
-    depth_p = work / "lakedepth_3857.tif"
-    persistence_p = work / "snow_persistence_3857.tif"
-    glacier_p = work / "glacier_3857.tif"
-    seaice_p = work / "seaice_3857.tif"
+    layer_paths = {layer.name: layer.warped_in(work) for layer in layers.WARPED_LAYERS}
 
     def read_window(row0: int) -> _WindowInputs:
         """Gather one window's raw reads + geometry — MAIN thread only (GDAL is not thread-safe)."""
@@ -792,13 +756,12 @@ def composite_planet(work: Path, hs, compute_occlusion: Callable[[], np.ndarray]
             ocean_raw=read1_window(ocean_p, win) if "oceanmask" in rasters else None,
             watercode=read1_window(water_p, win) if "watermask" in rasters else None,
             hs_raw=read1_window(hs, win),
-            depth_raw=read1_window(depth_p, win) if depth_p.exists() else None,
-            # The fourth of four, and the one that was not guarded. Its three siblings have read
-            # this way for a long time; snow did not, so a body whose snow layer is off crashed
-            # here on a raster that was never built.
-            persistence_raw=read1_window(persistence_p, win) if persistence_p.exists() else None,
-            glacier_raw=read1_window(glacier_p, win) if glacier_p.exists() else None,
-            sea_ice_raw=read1_window(seaice_p, win) if seaice_p.exists() else None,
+            # ONE EXPRESSION FOR EVERY BUILT LAYER, which is what retires a bug rather than
+            # guarding it: written a field each, three of the four had this check and snow
+            # persistence did not, so a body whose ice layer was off crashed on a raster nothing
+            # had built. Four separate reads is four chances to write the fourth without it.
+            layer_raw={name: read1_window(path, win) if path.exists() else None
+                       for name, path in layer_paths.items()},
             occ_win=occ[sr0:sr1],
             body=body)
 

@@ -2230,25 +2230,76 @@ SABOTAGES: list[Sabotage] = [
     # THE FIRST ATTEMPT AT THIS CASE WAS VACUOUS AND THE HARNESS SAID SO. It reordered the two
     # checks, which changes nothing: both still refuse, so the mutation reproduced no bug and the
     # guard correctly did not fire. A mutation has to make the subject WRONG, not merely different.
+    # WAS "the Antarctic patch applies to every body again", mutating a gate that no longer exists.
+    # Dropping the declaration question outright now RAISES out of `producer_for` instead of
+    # painting, so that bug has no silent form left. This is the one that survives: ask the disk
+    # rather than the body, which reads as the obvious tidy because the slice is right there, and is
+    # correct for every layer except the one whose southern half has no file behind it at all.
     Sabotage(
         suite='python',
-        label='the Antarctic land-ice patch is applied to every body again',
+        label='the producer is gated on its raster rather than on the body declaring the layer',
         path='pipeline/tile/shade_planet.py',
-        needle='    if layers.PERENNIAL_ICE.name in inputs.body.surface_layers:',
-        replacement='    if True:',
-        guard='test_a_body_without_the_perennial_ice_layer_composites_no_ice_at_all',
+        needle='        if layer.name not in inputs.body.surface_layers:\n            continue',
+        replacement='        if inputs.layer_raw[layer.name] is None:\n            continue',
+        guard='test_earths_antarctic_patch_survives_a_missing_persistence_raster',
     ),
-    # A latitude-and-land rule with no dataset behind it, so no file on disk could ever switch it
-    # off. On a body with no sea every pixel below 60 south is land, and the southern third of the
-    # planet renders solid white — while the raster layers all correctly sat out.
     Sabotage(
         suite='python',
-        label='the snow read loses the guard its three sibling layers have always had',
+        label='the built-layer reads lose the guard snow persistence once lacked',
         path='pipeline/tile/shade_planet.py',
-        needle='            persistence_raw=read1_window(persistence_p, win) if persistence_p.exists() else None,',
-        replacement='            persistence_raw=read1_window(persistence_p, win),',
+        needle=('            layer_raw={name: read1_window(path, win) if path.exists() else None\n'
+                '                       for name, path in layer_paths.items()},'),
+        replacement=('            layer_raw={name: read1_window(path, win)\n'
+                     '                       for name, path in layer_paths.items()},'),
         guard='test_a_body_with_no_perennial_ice_layer_composites_without_the_raster',
     ),
+    # One expression now, where it used to be four fields and only three of them guarded. The
+    # mutation can no longer single snow out — which is the point, and why the case reads as a
+    # whole-set check rather than as the specific regression it descends from.
+    # --- The composite tier's producers -------------------------------------------------------------
+    # Every source here is one global path to an Earth dataset that IS on this box, so each mutation
+    # below leaves a composite that renders cleanly, at plausible latitudes, describing another
+    # planet. The cap tier's twins of these sit above.
+    Sabotage(
+        suite='python',
+        label="the warp asks the disk before the body, so Earth's datasets reach every planet",
+        path='pipeline/tile/shade_planet.py',
+        needle=('        if not layers.body_declares_layer(body, layer, consequence):\n'
+                '            continue\n'
+                '        producer = layer_producers.producer_for(body, layer)'),
+        replacement='        producer = layer_producers.PRODUCER_BY_BODY_LAYER[("earth", layer.name)]',
+        guard='test_a_body_with_no_layers_opens_none_of_earths_files',
+    ),
+    Sabotage(
+        suite='python',
+        label='an unregistered body inherits Earth composite producers instead of the registry refusing',
+        path='pipeline/render/layer_producers.py',
+        needle='        return PRODUCER_BY_BODY_LAYER[(body.name, layer.name)]',
+        replacement=('        return PRODUCER_BY_BODY_LAYER.get(\n'
+                     '            (body.name, layer.name), PRODUCER_BY_BODY_LAYER[("earth", layer.name)])'),
+        guard='test_a_body_declaring_a_layer_it_cannot_produce_opens_none_of_earths_files',
+    ),
+    # Both render Earth perfectly, because Earth's answer IS Earth's producer. They are wrong only
+    # on the planet nobody has built, which is why neither has an output anyone could inspect.
+    Sabotage(
+        suite='python',
+        label='a producer freezes its composite sources at import, so a moved data store never reaches it',
+        path='pipeline/render/layer_producers.py',
+        needle='        sources=lambda: (snow.SP_NC,),',
+        replacement='        sources=lambda frozen=(snow.SP_NC,): frozen,',
+        guard='test_the_composite_sources_are_read_at_CALL_time_so_a_redirect_reaches_them',
+    ),
+    Sabotage(
+        suite='python',
+        label='a layer stops naming its built raster, so it silently leaves the composite entirely',
+        path='pipeline/layers.py',
+        needle='                      requires_raster=None, warped_basename="snow_persistence_3857.tif")',
+        replacement='                      requires_raster=None, warped_basename=None)',
+        guard='test_every_built_layer_names_the_raster_the_composite_reads',
+    ),
+    # The quietest of the set: dropping the basename takes the layer out of the warp, out of the
+    # window reads AND out of `composite_deps` at once, so Earth stops painting its ice and the
+    # composite reads fresh forever — the raster it lost is no longer a dependency to be newer than.
     # Caught only end-to-end: the guard lives in a closure inside `composite_planet`, and the
     # synthetic planet fixture WRITES a persistence raster, so every other test in the suite
     # exercises the present-file branch and passes with this reverted.
@@ -2604,8 +2655,8 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label='only lake depth is coupled to its mask, so sea ice can be on and paint nothing',
         path='pipeline/layers.py',
-        needle='SEA_ICE = Layer("sea_ice", in_composite=True, in_cap=True, requires_raster="oceanmask")',
-        replacement='SEA_ICE = Layer("sea_ice", in_composite=True, in_cap=True, requires_raster=None)',
+        needle='                requires_raster="oceanmask", warped_basename="seaice_3857.tif")',
+        replacement='                requires_raster=None, warped_basename="seaice_3857.tif")',
         guard='test_sea_ice_without_an_ocean_mask_is_refused',
     ),
     # The two below arrived with the layer table. Deriving the stage views from one table removed the
@@ -2615,16 +2666,16 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label='a layer is read by no stage at all, so declaring it builds nothing',
         path='pipeline/layers.py',
-        needle='COASTLINE = Layer("coastline", in_composite=False, in_cap=True, requires_raster=None)',
-        replacement='COASTLINE = Layer("coastline", in_composite=False, in_cap=False, requires_raster=None)',
+        needle='COASTLINE = Layer("coastline", in_composite=False, in_cap=True,',
+        replacement='COASTLINE = Layer("coastline", in_composite=False, in_cap=False,',
         guard='test_the_stage_vocabularies_together_cover_the_whole_one_and_nothing_else',
     ),
     Sabotage(
         suite='python',
         label='a layer requires a planet raster no producer can emit, and nothing spell-checks it',
         path='pipeline/layers.py',
-        needle='LAKE_DEPTH = Layer("lake_depth", in_composite=True, in_cap=False, requires_raster="watermask")',
-        replacement='LAKE_DEPTH = Layer("lake_depth", in_composite=True, in_cap=False, requires_raster="watermsk")',
+        needle='                   requires_raster="watermask", warped_basename="lakedepth_3857.tif")',
+        replacement='                   requires_raster="watermsk", warped_basename="lakedepth_3857.tif")',
         guard='test_every_required_raster_is_one_the_planet_seam_can_emit',
     ),
     Sabotage(

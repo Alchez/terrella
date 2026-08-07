@@ -51,6 +51,25 @@ class Layer:
     #: keeping that dependency one-way — so `tests/test_bodies.py` pins every one of them to
     #: `planet_seam.KNOWN_RASTERS`, a typo being otherwise silent in whichever direction it lands.
     requires_raster: str | None
+    #: The file this layer is built into inside the body's own work directory, or None for a layer
+    #: the composite never reads back from a raster. NOT `requires_raster` above, which names a
+    #: raster the PLANET SEAM emits at a different tier and on another body's behalf.
+    #:
+    #: A LAYER FACT RATHER THAN A PRODUCER FACT, which is what lets `shade_planet.composite_deps`
+    #: stay body-independent: it names every layer's raster whatever the planet declared, and its
+    #: sibling `cap_render.cap_sources` names only what it opens. Independent of `in_composite` too,
+    #: though the two agree on every row today — a composite layer answered by pure arithmetic would
+    #: carry None here, so deriving either column from the other loses that case silently.
+    warped_basename: str | None
+
+    def warped_in(self, work: Path) -> Path:
+        """This layer's built raster inside one body's work directory — the one place they join.
+
+        Only meaningful for a `WARPED_LAYERS` row, and the assertion is that filter restated where a
+        type checker can see it rather than a condition anything is expected to reach.
+        """
+        assert self.warped_basename is not None, f"{self.name} builds no raster"
+        return work / self.warped_basename
 
 
 #: Every layer the pipeline knows, and the whole vocabulary `Body.surface_layers` may draw from.
@@ -65,11 +84,19 @@ class Layer:
 #: year. Earth's own south cap already stretched the old word past breaking, using it for
 #: Antarctica's permanent ice SHEET, and Mars's residual cap is CO2 and water ice rather than
 #: snowfall. A body-specific name is how a vocabulary grows one entry per planet for one concept.
-LAKE_DEPTH = Layer("lake_depth", in_composite=True, in_cap=False, requires_raster="watermask")
-PERENNIAL_ICE = Layer("perennial_ice", in_composite=True, in_cap=True, requires_raster=None)
-GLACIERS = Layer("glaciers", in_composite=True, in_cap=False, requires_raster=None)
-SEA_ICE = Layer("sea_ice", in_composite=True, in_cap=True, requires_raster="oceanmask")
-COASTLINE = Layer("coastline", in_composite=False, in_cap=True, requires_raster=None)
+#:
+#: THE BASENAMES BELOW ARE SHIPPED AND MUST NOT BE TIDIED. Each is a dependency of the composite by
+#: mtime, so renaming one restages Earth's whole pyramid to reproduce the pixels already on disk.
+LAKE_DEPTH = Layer("lake_depth", in_composite=True, in_cap=False,
+                   requires_raster="watermask", warped_basename="lakedepth_3857.tif")
+PERENNIAL_ICE = Layer("perennial_ice", in_composite=True, in_cap=True,
+                      requires_raster=None, warped_basename="snow_persistence_3857.tif")
+GLACIERS = Layer("glaciers", in_composite=True, in_cap=False,
+                 requires_raster=None, warped_basename="glacier_3857.tif")
+SEA_ICE = Layer("sea_ice", in_composite=True, in_cap=True,
+                requires_raster="oceanmask", warped_basename="seaice_3857.tif")
+COASTLINE = Layer("coastline", in_composite=False, in_cap=True,
+                  requires_raster=None, warped_basename=None)
 
 LAYERS: tuple[Layer, ...] = (LAKE_DEPTH, PERENNIAL_ICE, GLACIERS, SEA_ICE, COASTLINE)
 
@@ -88,6 +115,15 @@ SURFACE_LAYERS = frozenset(layer.name for layer in LAYERS)
 #: glaciers (`depth=None`, persistence-only snow). Over- and under-tracking are both silent.
 COMPOSITE_LAYERS = frozenset(layer.name for layer in LAYERS if layer.in_composite)
 CAP_LAYERS = frozenset(layer.name for layer in LAYERS if layer.in_cap)
+
+#: The composite layers with a file behind them, as rows and IN `LAYERS` ORDER — the three places
+#: `shade_planet` handles a built layer walk this, so the warp, the dependency tuple and the window
+#: reads cannot disagree about the set or about its order.
+#:
+#: ORDER IS PART OF THE CONTRACT, not tidiness: `composite_deps` returns a tuple whose contents a
+#: test pins, and `LAYERS` is written in the order that tuple has always had.
+WARPED_LAYERS: tuple[Layer, ...] = tuple(
+    layer for layer in LAYERS if layer.in_composite and layer.warped_basename)
 
 #: Which planet raster each dependent layer needs, derived. Read by `planet_seam._require_coherent`.
 #:
