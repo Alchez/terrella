@@ -2396,6 +2396,38 @@ SABOTAGES: list[Sabotage] = [
         replacement='                 absent_on_404: bool = True) -> str:',
         guard='test_a_404_is_a_FAILURE_by_default',
     ),
+    # --- The composite recipe's per-body scope ---------------------------------------------------
+    # Recording every constant on every body is the natural spelling and produces a recipe that is
+    # strictly MORE complete — which is why nothing about the output looks wrong. The cost is
+    # invisible: one body's look re-tune restages another's composite for pixels that cannot move.
+    Sabotage(
+        suite='python',
+        label='the recipe records every constant on every body, so one body re-tunes another',
+        path='pipeline/tile/shade_planet.py',
+        needle='    return values if evaluated else {}',
+        replacement='    return values',
+        guard='test_moving_it_leaves_the_other_body_alone',
+    ),
+    # The other direction, and the trap every conditional record has to answer: a gate that is
+    # always shut reads as "correctly scoped" and tracks nothing at all.
+    Sabotage(
+        suite='python',
+        label='the gate is always shut, so a layer a body DOES paint reaches no recipe',
+        path='pipeline/tile/shade_planet.py',
+        needle='    return values if evaluated else {}',
+        replacement='    return {}',
+        guard='test_the_body_that_paints_it_records_it',
+    ),
+    # SHADOW_TINT multiplies shaded land on every body. Dropping it leaves a recipe that still
+    # looks thorough — it carries the warmth KNOB — while the vector itself moves nothing.
+    Sabotage(
+        suite='python',
+        label='the shadow tint vector leaves the recipe, so a hue edit ships without restaging',
+        path='pipeline/tile/shade_planet.py',
+        needle='                               {"shadow_tint": list(shade.SHADOW_TINT)}),',
+        replacement='                               {}),',
+        guard='test_it_is_recorded_while_the_warmth_knob_is_open',
+    ),
     # --- The SIM 3292 acquisition recipe -------------------------------------------------------
     # pygeoapi stamps every response with the request time, fixed-width ISO — so two fetches of
     # identical data have the SAME length and a DIFFERENT hash. Hashing the whole document instead

@@ -19,8 +19,8 @@ import rasterio
 from rasterio.transform import from_bounds
 
 from pipeline import bodies, planet_seam
-from pipeline.render import palette, seaice
-from pipeline.tile import cap_render, shade_planet
+from pipeline.render import palette, seaice, snow
+from pipeline.tile import cap_render, shade, shade_planet
 
 #: A planet whose seam emitted all three rasters — what Earth declares, and the only
 #: shape these tests care about unless they say otherwise.
@@ -810,8 +810,8 @@ class TestTheWarpPassAsksTheSeamBeforeTheDisk:
 
 class TestTheCompositeRecipeRecordsTheRastersThatAreOff:
     def test_a_whole_planet_records_nothing(self):
-        """Earth's live 2672-byte sidecar has never carried this key, and adding one would restage a
-        53.8 min composite and a 3:44 cut to reproduce pixels that are already correct."""
+        """Earth emits every raster, so its recipe carries no `rasters_off` — adding one would
+        restage the live composite and cut to reproduce pixels that are already correct."""
         assert "rasters_off" not in json.loads(
             shade_planet.composite_params({None: None}, bodies.EARTH, WHOLE_PLANET))
 
@@ -836,6 +836,141 @@ class TestTheCompositeRecipeRecordsTheRastersThatAreOff:
             {None: None}, bodies.MARS, frozenset({"heightfield"})))
         assert recorded["layers_off"] == sorted(bodies.COMPOSITE_LAYERS)
         assert recorded["rasters_off"] == ["oceanmask", "watermask"]
+
+
+#: Each layer-gated group in the composite recipe: the layer whose paint reads it, one key it
+#: contributes, and a constant behind that key with a value it does not already hold.
+LAYER_GATED = [
+    ("perennial_ice", "snow_rgb", palette, "SNOW_RGB", (1, 2, 3)),
+    ("perennial_ice", "snow_shadow_rgb", palette, "SNOW_SHADOW_RGB", (1, 2, 3)),
+    ("perennial_ice", "snow_ramp_band", snow, "RAMP_BAND", 0.99),
+    ("perennial_ice", "snow_ramp_lat_lo", snow, "RAMP_LAT_LO", 1.0),
+    ("perennial_ice", "snow_ramp_lat_hi", snow, "RAMP_LAT_HI", 89.0),
+    ("perennial_ice", "snow_ramp_low_min", snow, "RAMP_LOW_MIN", 0.01),
+    ("perennial_ice", "snow_ramp_low_max", snow, "RAMP_LOW_MAX", 0.99),
+    ("sea_ice", "ice_rgb", palette, "ICE_RGB", (1, 2, 3)),
+    ("sea_ice", "ice_shadow_rgb", palette, "ICE_SHADOW_RGB", (1, 2, 3)),
+    ("sea_ice", "ice_lo", seaice, "ICE_LO", 0.99),
+    ("sea_ice", "ice_band", seaice, "ICE_BAND", 0.99),
+    ("sea_ice", "ice_max_alpha", seaice, "ICE_MAX_ALPHA", 0.99),
+    ("sea_ice", "sh_ice_lo", seaice, "SH_ICE_LO", 0.99),
+    ("sea_ice", "sh_ice_max_alpha", seaice, "SH_ICE_MAX_ALPHA", 0.99),
+    ("lake_depth", "lake_max_m", palette, "LAKE_MAX_M", 99.0),
+    ("lake_depth", "lake_stops", palette, "LAKE_STOPS", []),
+]
+
+GATED_CASE = ("layer", "key", "module", "attr", "value")
+
+
+def _recipe(body, rasters=WHOLE_PLANET):
+    return json.loads(shade_planet.composite_params({None: None}, body, rasters))
+
+
+class TestABodyRecordsOnlyWhatItsOwnCompositeReads:
+    """One body's re-tune must not restage another's composite.
+
+    A recipe is compared whole, so a key a body cannot reach still restages it when that key's
+    value moves — `Body.surface_layers` decides what the paint evaluates, so it decides what the
+    record carries.
+    """
+
+    def test_the_table_is_not_vacuous(self):
+        """Anti-vacuity, and the contract every parametrised case below leans on."""
+        named = {layer for layer, *_ in LAYER_GATED}
+        assert named, "the gated-group table is empty — every case below would pass on nothing"
+        assert named <= bodies.COMPOSITE_LAYERS
+        assert named <= bodies.EARTH.surface_layers, "Earth must paint every layer named here"
+        assert not (named & bodies.MARS.surface_layers), "Mars must paint none of them"
+
+    @pytest.mark.parametrize(GATED_CASE, LAYER_GATED)
+    def test_the_body_that_paints_it_records_it(self, layer, key, module, attr, value):
+        assert key in _recipe(bodies.EARTH)
+
+    @pytest.mark.parametrize(GATED_CASE, LAYER_GATED)
+    def test_the_body_that_does_not_paint_it_omits_it(self, layer, key, module, attr, value):
+        assert key not in _recipe(bodies.MARS)
+
+    @pytest.mark.parametrize(GATED_CASE, LAYER_GATED)
+    def test_moving_it_restages_the_body_that_paints_it(self, layer, key, module, attr, value,
+                                                        monkeypatch):
+        """Conditional is not untracked: with the gate open every value behind it must still move
+        the recipe, or the gating has traded one silent freshness bug for another."""
+        before = shade_planet.composite_params({None: None}, bodies.EARTH, WHOLE_PLANET)
+        monkeypatch.setattr(module, attr, value)
+        assert shade_planet.composite_params({None: None}, bodies.EARTH, WHOLE_PLANET) != before
+
+    @pytest.mark.parametrize(GATED_CASE, LAYER_GATED)
+    def test_moving_it_leaves_the_other_body_alone(self, layer, key, module, attr, value,
+                                                   monkeypatch):
+        """THE POINT. Tuning Earth's sea ice used to restage Mars, which declares no `sea_ice`."""
+        before = shade_planet.composite_params({None: None}, bodies.MARS, WHOLE_PLANET)
+        monkeypatch.setattr(module, attr, value)
+        assert shade_planet.composite_params({None: None}, bodies.MARS, WHOLE_PLANET) == before
+
+
+class TestTheFlatWaterColourFollowsTheWatermask:
+    """Gated on a RASTER rather than a layer: inland water is filled with this colour, and the
+    mask is what selects the pixels it fills."""
+
+    def test_a_planet_with_a_watermask_records_it(self):
+        assert "water_rgb" in _recipe(bodies.EARTH)
+
+    def test_a_planet_without_one_does_not(self):
+        assert "water_rgb" not in _recipe(bodies.MARS, frozenset({"heightfield"}))
+
+    def test_moving_it_leaves_that_planet_alone(self, monkeypatch):
+        rasters = frozenset({"heightfield"})
+        before = shade_planet.composite_params({None: None}, bodies.MARS, rasters)
+        monkeypatch.setattr(palette, "WATER_RGB", (1, 2, 3))
+        assert shade_planet.composite_params({None: None}, bodies.MARS, rasters) == before
+
+
+class TestTheShadowTintRidesInTheRecipe:
+    """It multiplies shaded land on every body, so an edit reaching no recipe left the composite
+    falsely fresh — the untracked-constant trap, not a body-scoped one."""
+
+    def test_it_is_recorded_while_the_warmth_knob_is_open(self):
+        assert shade.KNOBS["shadow_warmth"] != 0.0
+        assert "shadow_tint" in _recipe(bodies.EARTH)
+        assert "shadow_tint" in _recipe(bodies.MARS)
+
+    def test_changing_it_restages(self, monkeypatch):
+        before = shade_planet.composite_params({None: None}, bodies.EARTH, WHOLE_PLANET)
+        monkeypatch.setattr(shade, "SHADOW_TINT", (1.0, 1.0, 1.0))
+        assert shade_planet.composite_params({None: None}, bodies.EARTH, WHOLE_PLANET) != before
+
+    def test_it_is_omitted_where_it_cannot_reach_a_pixel(self, monkeypatch):
+        """`shadow_tint` returns exactly 1.0 at warmth 0, bit-identical to not being called."""
+        monkeypatch.setitem(shade.KNOBS, "shadow_warmth", 0.0)
+        assert "shadow_tint" not in _recipe(bodies.EARTH)
+
+
+class TestTheKneeConstantsFollowTheCurveThatReadsThem:
+    """Gated on a KNOB value: they are one branch of `snow_position`, and the knob itself rides in
+    `knobs`, so selecting the branch is already a change."""
+
+    def test_the_production_curve_does_not_record_them(self):
+        assert shade.KNOBS["snow_curve"] != "knee"
+        assert "knee_x" not in _recipe(bodies.EARTH)
+
+    def test_selecting_the_branch_records_them(self, monkeypatch):
+        monkeypatch.setitem(shade.KNOBS, "snow_curve", "knee")
+        assert "knee_x" in _recipe(bodies.EARTH)
+
+    def test_a_body_that_paints_no_white_still_omits_them(self, monkeypatch):
+        """`snow_position` keys the snow and the sea-ice whites; a body with neither never uses
+        its output whatever the curve says."""
+        monkeypatch.setitem(shade.KNOBS, "snow_curve", "knee")
+        assert "knee_x" not in _recipe(bodies.MARS)
+
+    def test_moving_one_restages_only_under_that_branch(self, monkeypatch):
+        before = shade_planet.composite_params({None: None}, bodies.EARTH, WHOLE_PLANET)
+        monkeypatch.setattr(shade, "KNEE_X", 0.5)
+        assert shade_planet.composite_params({None: None}, bodies.EARTH, WHOLE_PLANET) == before
+        monkeypatch.setitem(shade.KNOBS, "snow_curve", "knee")
+        with_knee = shade_planet.composite_params({None: None}, bodies.EARTH, WHOLE_PLANET)
+        monkeypatch.setattr(shade, "KNEE_X", 0.6)
+        assert shade_planet.composite_params({None: None}, bodies.EARTH, WHOLE_PLANET) != with_knee
 
 
 class TestWhyTheTwoDependencyListsDisagree:

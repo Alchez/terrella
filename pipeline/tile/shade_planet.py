@@ -293,6 +293,20 @@ def _ramp_origin(kind: str, ramp: palette.Surface) -> dict[str, float]:
     return {} if ramp.origin_m == 0.0 else {f"{kind}_origin_m": ramp.origin_m}
 
 
+def _when(evaluated: bool, values: dict[str, Any]) -> dict[str, Any]:
+    """`values` when this body's composite evaluates them, `{}` when it cannot reach them.
+
+    A body records only what can move its own pixels, so one body's re-tune cannot restage
+    another's composite for output that could not have changed.
+
+    Conditional is not untracked, and every caller has to earn that. A gate is correct only when
+    the values behind it are unreachable while it is false, AND the gate itself rides in the
+    recipe, so that opening it is a change: `layers_off` and `rasters_off` carry the layer and
+    raster gates, `knobs` carries the knob gates.
+    """
+    return values if evaluated else {}
+
+
 def composite_params(variants, body: bodies.Body, rasters: frozenset[str],
                      window_rows=WINDOW_ROWS) -> str:
     """The composite's tunables, recorded as planet_rgb's dependency.
@@ -345,8 +359,12 @@ def composite_params(variants, body: bodies.Body, rasters: frozenset[str],
         else {"sea_stops": look.sea.stops, "sea_min_m": look.sea.extreme_m,
               **_ramp_origin("sea", look.sea)}
     )
+    layers = body.surface_layers
+    # `snow_position` keys BOTH the snow and the sea-ice whites, so its curve constants are live
+    # when either layer is painted.
+    keys_white = bool({"perennial_ice", "sea_ice"} & layers)
     return json.dumps({**missing, **sea_recipe,
-                       "knobs": knobs, "water_rgb": palette.WATER_RGB,
+                       "knobs": knobs,
                        "composite_window_rows": window_rows,
                        # The occlusion resolution reached NO freshness record at all --
                        # it was a module constant (`SVF_LONG_EDGE`, now OCCLUSION_TARGET_M_PER_PX)
@@ -368,21 +386,40 @@ def composite_params(variants, body: bodies.Body, rasters: frozenset[str],
                        "land_max_m": look.land.extreme_m,
                        **_ramp_origin("land", look.land),
                        "lut_step_m": palette.LUT_STEP_M,
-                       "snow_rgb": palette.SNOW_RGB,
-                       "snow_shadow_rgb": palette.SNOW_SHADOW_RGB,
-                       "ice_rgb": palette.ICE_RGB,
-                       "ice_shadow_rgb": palette.ICE_SHADOW_RGB,
-                       # sea-ice alpha knobs run at composite time inside seaice.ice_alpha, so they
-                       # ride here (not in composite_deps) -- the untracked-input trap that let snow's
-                       # RAMP_* constants slip freshness; do not repeat it.
-                       "ice_lo": seaice.ICE_LO, "ice_band": seaice.ICE_BAND,
-                       "ice_max_alpha": seaice.ICE_MAX_ALPHA,
-                       # The toned SH pack (seaice.SH_ICE_*) runs at composite time for southern
-                       # windows, so it rides here too -- the same untracked-input trap the globals
-                       # above avoid. A re-tune must restage the composite.
-                       "sh_ice_lo": seaice.SH_ICE_LO, "sh_ice_max_alpha": seaice.SH_ICE_MAX_ALPHA,
-                       "lake_stops": palette.LAKE_STOPS,
-                       "lake_max_m": palette.LAKE_MAX_M,
+                       # Inland water is filled flat with this colour, so it is live only where a
+                       # watermask exists to select it.
+                       **_when("watermask" in rasters, {"water_rgb": palette.WATER_RGB}),
+                       **_when("lake_depth" in layers,
+                               {"lake_stops": palette.LAKE_STOPS,
+                                "lake_max_m": palette.LAKE_MAX_M}),
+                       # snow.RAMP_* run at composite time inside `snow_alpha`, which a body
+                       # without the layer never calls, and the colours it would paint with go
+                       # with them. Reaching a pixel while reaching no recipe is the trap this
+                       # function exists to close — do not drop these back out.
+                       **_when("perennial_ice" in layers,
+                               {"snow_rgb": palette.SNOW_RGB,
+                                "snow_shadow_rgb": palette.SNOW_SHADOW_RGB,
+                                "snow_ramp_lat_lo": snow.RAMP_LAT_LO,
+                                "snow_ramp_lat_hi": snow.RAMP_LAT_HI,
+                                "snow_ramp_low_min": snow.RAMP_LOW_MIN,
+                                "snow_ramp_low_max": snow.RAMP_LOW_MAX,
+                                "snow_ramp_band": snow.RAMP_BAND}),
+                       # The alpha knobs run at composite time inside seaice.ice_alpha, the toned
+                       # SH pack with them, so they ride here rather than in composite_deps.
+                       **_when("sea_ice" in layers,
+                               {"ice_rgb": palette.ICE_RGB,
+                                "ice_shadow_rgb": palette.ICE_SHADOW_RGB,
+                                "ice_lo": seaice.ICE_LO, "ice_band": seaice.ICE_BAND,
+                                "ice_max_alpha": seaice.ICE_MAX_ALPHA,
+                                "sh_ice_lo": seaice.SH_ICE_LO,
+                                "sh_ice_max_alpha": seaice.SH_ICE_MAX_ALPHA}),
+                       # `shadow_tint` returns exactly 1.0 at warmth 0, bit-identical to not being
+                       # called, so the tint vector is live only above it.
+                       **_when(KNOBS["shadow_warmth"] != 0.0,
+                               {"shadow_tint": list(shade.SHADOW_TINT)}),
+                       # One branch of `snow_position`; the other curves never read them.
+                       **_when(KNOBS["snow_curve"] == "knee" and keys_white,
+                               {"knee_x": shade.KNEE_X, "knee_share": shade.KNEE_SHARE}),
                        "cap": [CAP_NORTH, CAP_SOUTH, list(CAP_RGB)],
                        "variants": {str(name): knobs for name, knobs in variants.items()}},
                       sort_keys=True, indent=2)
@@ -402,16 +439,10 @@ def composite_deps(work, hs, params) -> tuple:
     unconditionally is safe. The ramp TUNABLES (`RAMP_*`) run at composite time inside `snow_alpha`,
     so they do not belong here either -- this pair tracks the warp SOURCES only.
 
-    AND THEY DO NOT RIDE IN `composite_params` EITHER, WHICH IS A LIVE HOLE, NOT A DESIGN. This
-    paragraph said they did. Read off the recipe rather than off this sentence, `composite_params`
-    carries the sea-ice knobs (`ice_lo`, `ice_band`, `ice_max_alpha`, `sh_ice_*`) and both ice
-    colours, and no `RAMP_*` at all -- nor `shade.KNEE_X`, `KNEE_SHARE` or `SHADOW_TINT`, which the
-    composite also reads. Eight look constants in total reach a pixel and reach no recipe, so
-    editing one changes every affected pixel on the planet and nothing restages: a constant edit
-    moves no warp mtime, which is the exact gap a recipe exists to close. Nothing has drifted
-    through it -- no value among the eight has changed since the shipped composite -- and the fix is
-    a paid decision rather than a tidy, because recording them restages Earth's 46 GB composite for
-    pixel-identical output. Do not repair this by editing the sentence.
+    THEY RIDE IN `composite_params` INSTEAD, and the split is the point: a warp source moves an
+    mtime, a constant moves nothing at all. A look constant that reaches a pixel and reaches
+    neither record leaves a stale composite reading fresh forever, so a new one goes into the
+    recipe beside the layer that reads it — never into this list, which cannot see it.
 
     `seaice_3857.tif` joined, the sea-side twin of snow persistence: its warp SOURCE is
     tracked here, its ICE_LO/ICE_BAND alpha knobs in `composite_params`. Optional -- a missing path
