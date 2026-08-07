@@ -2294,6 +2294,42 @@ SABOTAGES: list[Sabotage] = [
         replacement='        sources=lambda frozen=(snow.SP_NC,): frozen,',
         guard='test_the_composite_sources_are_read_at_CALL_time_so_a_redirect_reaches_them',
     ),
+    # --- OMEGA: four silent ways to acquire or unpack the wrong albedo -------------------------
+    # None of these throws and none leaves a malformed file. Three produce a raster that still looks
+    # like an albedo map of Mars, and the fourth makes the identity check match nothing at all —
+    # which reads exactly like a product the archive does not carry.
+    Sabotage(
+        suite='python',
+        label='the md5 manifest is read as POSIX paths, so the identity check matches nothing',
+        path='pipeline/acquire/download_omega.py',
+        needle=r'digests[path.replace("\\", "/").rsplit("/", 1)[-1]] = digest.lower()',
+        replacement=r'digests[path.rsplit("/", 1)[-1]] = digest.lower()',
+        guard='test_backslash_paths_and_uppercase_hex_are_understood',
+    ),
+    Sabotage(
+        suite='python',
+        label='the sphere check accepts an ellipsoid, so the 4326 relabel shifts every latitude',
+        path='pipeline/acquire/download_omega.py',
+        needle='    if len(set(radii.values())) != 1 or None in radii.values():',
+        replacement='    if False:',
+        guard='test_an_ellipsoid_is_refused_because_the_relabel_would_shift_latitudes',
+    ),
+    Sabotage(
+        suite='python',
+        label='the two georeferencing derivations stop being compared, so a half-pixel shift passes',
+        path='pipeline/acquire/extract_omega.py',
+        needle='        if abs(float(stated) - derived) > 1e-6:',
+        replacement='        if abs(float(stated) - derived) > 1e9:',
+        guard='test_a_bounding_box_disagreeing_with_the_projection_offsets_is_refused',
+    ),
+    Sabotage(
+        suite='python',
+        label='the PDS fill is compared AFTER scaling, so unmeasured ground becomes plausible albedo',
+        path='pipeline/acquire/extract_omega.py',
+        needle='    albedo[raw == grid["missing"]] = NODATA',
+        replacement='    albedo[albedo == grid["missing"]] = NODATA',
+        guard='test_missing_counts_become_nodata_and_the_rest_scale',
+    ),
     # --- the vector->raster stage: four ways to draw nothing, or the wrong thing, in silence ------
     # Every one of these leaves both GDAL commands exiting 0 and a well-formed raster on disk. That
     # is the whole reason they are cases: there is no output to inspect and no error to read, and
