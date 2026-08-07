@@ -24,7 +24,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from pipeline import bodies, mercator, paths, planet_seam
+from pipeline import bodies, layers, mercator, paths, planet_seam
 from pipeline.compose import countries_pmtiles
 from pipeline.render import palette
 from pipeline.tile import cap_render, shade_planet
@@ -852,17 +852,17 @@ def test_every_body_names_only_surface_layers_the_pipeline_knows() -> None:
     nobody recognises, and the planet would render one product short with every gate green.
     """
     for body in bodies.BODIES.values():
-        unknown = body.surface_layers - bodies.SURFACE_LAYERS
+        unknown = body.surface_layers - layers.SURFACE_LAYERS
         assert not unknown, (
             f"{body.name} declares {sorted(unknown)}, which no stage builds — the vocabulary is "
-            f"{sorted(bodies.SURFACE_LAYERS)}, and an unrecognised name reads as a layer switched off"
+            f"{sorted(layers.SURFACE_LAYERS)}, and an unrecognised name reads as a layer switched off"
         )
 
 
 def test_earth_has_every_surface_layer_and_the_second_body_has_none() -> None:
     """Earth is the reference body, so its set is what "all of them" means. Mars's emptiness is the
     whole point of the field and is a statement about our DATA, not about the planet."""
-    assert bodies.EARTH.surface_layers == bodies.SURFACE_LAYERS
+    assert bodies.EARTH.surface_layers == layers.SURFACE_LAYERS
     assert bodies.MARS.surface_layers == frozenset()
 
 
@@ -891,8 +891,8 @@ def test_a_layer_is_refused_for_a_body_that_does_not_declare_it_even_though_the_
     present = tmp_path / "persistence.nc"
     present.write_text("only its existence is read")
 
-    assert shade_planet.layer_is_buildable(bodies.EARTH, "perennial_ice", present, "no ice") is True
-    assert shade_planet.layer_is_buildable(bodies.MARS, "perennial_ice", present, "no ice") is False
+    assert layers.layer_is_buildable(bodies.EARTH, layers.PERENNIAL_ICE, present, "no ice") is True
+    assert layers.layer_is_buildable(bodies.MARS, layers.PERENNIAL_ICE, present, "no ice") is False
     assert "mars declares no perennial_ice layer" in capsys.readouterr().out
 
 
@@ -912,7 +912,7 @@ def test_the_composite_recipe_records_only_the_layers_that_are_off() -> None:
     mars = json.loads(shade_planet.composite_params({None: None}, bodies.MARS, WHOLE_PLANET))
     # THE COMPOSITE'S OWN VOCABULARY, not the whole one. `coastline` is a cap-only layer, and
     # recording it here would make a decision about a polar texture restage the 46 GB planet.
-    assert mars["layers_off"] == sorted(bodies.COMPOSITE_LAYERS)
+    assert mars["layers_off"] == sorted(layers.COMPOSITE_LAYERS)
     assert "coastline" not in mars["layers_off"]
 
 
@@ -970,19 +970,42 @@ def test_earth_still_forces_its_antarctic_land_white() -> None:
 
 
 def test_the_stage_vocabularies_together_cover_the_whole_one_and_nothing_else(subtests) -> None:
-    """Every layer belongs to at least one stage, and no stage invents a name.
+    """Every layer is read by at least one stage.
 
-    A layer in `SURFACE_LAYERS` that no stage claims is one a body can declare and nothing will ever
-    build — the failure `test_every_body_names_only_surface_layers_the_pipeline_knows` closes, one
-    level up. A name in a stage vocabulary that is not in `SURFACE_LAYERS` is the mirror: it would
-    appear in that stage's `layers_off` for every body alike, including the ones that have it.
+    A layer no stage claims is one a body can declare and nothing will ever build — a switch wired
+    to nothing, which reads exactly like a working one. The mirror failure, a stage naming a layer
+    outside the vocabulary, is now structurally impossible: both stage views are derived from the
+    same table, so this half of the old test asserted a derivation against itself. What is left is
+    the half a table can still get wrong, which is a row that answers `False` to every stage.
     """
-    with subtests.test("cover"):
-        assert bodies.COMPOSITE_LAYERS | bodies.CAP_LAYERS == bodies.SURFACE_LAYERS
-    for name, vocabulary in (("composite", bodies.COMPOSITE_LAYERS), ("cap", bodies.CAP_LAYERS)):
-        with subtests.test(name):
-            assert vocabulary <= bodies.SURFACE_LAYERS
-            assert vocabulary
+    for layer in layers.LAYERS:
+        with subtests.test(layer.name):
+            assert layer.in_composite or layer.in_cap, (
+                f"{layer.name} is read by no stage — a body could declare it and nothing would "
+                f"ever build it, and `layers_off` would never mention it either"
+            )
+    with subtests.test("no stage is empty"):
+        assert layers.COMPOSITE_LAYERS and layers.CAP_LAYERS
+
+
+def test_every_required_raster_is_one_the_planet_seam_can_emit(subtests) -> None:
+    """`Layer.requires_raster` holds a NAME, so a typo must not read as "requires nothing".
+
+    The table deliberately does not import `planet_seam` — that module imports `bodies` beside it,
+    and the string keeps the dependency one-way. The cost of a string is that nothing at the
+    definition site can spell-check it, and the failure is silent in the direction that matters:
+    `_require_coherent` compares the misspelling against what a producer emitted, finds it absent,
+    and refuses every body that declares the layer — or, if the name collides with nothing anyone
+    declares, never fires at all. This is the check that makes the docstring's claim true.
+    """
+    for layer in layers.LAYERS:
+        if layer.requires_raster is None:
+            continue
+        with subtests.test(layer.name):
+            assert layer.requires_raster in planet_seam.KNOWN_RASTERS, (
+                f"{layer.name} requires {layer.requires_raster!r}, which no planet stage can emit; "
+                f"known rasters are {sorted(planet_seam.KNOWN_RASTERS)}"
+            )
 
 
 def test_the_stages_disagree_about_which_layers_they_read(subtests) -> None:
@@ -992,29 +1015,33 @@ def test_the_stages_disagree_about_which_layers_they_read(subtests) -> None:
     record `lake_depth` and `glaciers`, which they never read (`depth=None`, persistence-only snow),
     and the tile composite would record `coastline`, which it cannot contain — so a cap-only look
     decision would restage a 46 GB planet. Over- and under-tracking are both silent.
+
+    DERIVING THE TWO VIEWS FROM ONE TABLE DID NOT MAKE THIS REDUNDANT — it is what keeps the table
+    honest. A wrong `in_composite` / `in_cap` column is exactly as silent as two frozensets drifting
+    apart was, so these literals are the hand-written expectation the derivation is checked against.
     """
     with subtests.test("cap only"):
-        assert bodies.CAP_LAYERS - bodies.COMPOSITE_LAYERS == {"coastline"}
+        assert layers.CAP_LAYERS - layers.COMPOSITE_LAYERS == {"coastline"}
     with subtests.test("composite only"):
-        assert bodies.COMPOSITE_LAYERS - bodies.CAP_LAYERS == {"lake_depth", "glaciers"}
+        assert layers.COMPOSITE_LAYERS - layers.CAP_LAYERS == {"lake_depth", "glaciers"}
 
 
 def test_layers_off_names_what_is_missing_and_stays_silent_when_nothing_is(subtests) -> None:
     """Off, never on. Earth answers with an empty list at every stage, which is what lets the
     callers' conditional record write nothing and leave a live 46 GB composite and a 14 GB cap
     render byte-identical."""
-    for name, vocabulary in (("composite", bodies.COMPOSITE_LAYERS), ("cap", bodies.CAP_LAYERS)):
+    for name, vocabulary in (("composite", layers.COMPOSITE_LAYERS), ("cap", layers.CAP_LAYERS)):
         with subtests.test(f"earth {name}"):
-            assert bodies.layers_off(bodies.EARTH, vocabulary) == []
+            assert layers.layers_off(bodies.EARTH, vocabulary) == []
     with subtests.test("mars cap"):
-        assert bodies.layers_off(bodies.MARS, bodies.CAP_LAYERS) == ["coastline", "perennial_ice",
+        assert layers.layers_off(bodies.MARS, layers.CAP_LAYERS) == ["coastline", "perennial_ice",
                                                                      "sea_ice"]
     with subtests.test("sorted"):
         # Sorted, so a frozenset's iteration order cannot make one body's recipe two recipes.
         partial = dataclasses.replace(bodies.EARTH, name="partial",
                                       surface_layers=frozenset({"perennial_ice"}))
-        assert bodies.layers_off(partial, bodies.SURFACE_LAYERS) == sorted(
-            bodies.layers_off(partial, bodies.SURFACE_LAYERS))
+        assert layers.layers_off(partial, layers.SURFACE_LAYERS) == sorted(
+            layers.layers_off(partial, layers.SURFACE_LAYERS))
 
 
 def test_the_cap_ground_ratio_divides_by_the_cap_sphere_and_not_the_tile_grids() -> None:

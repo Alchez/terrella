@@ -51,7 +51,7 @@ import rasterio
 from pyproj import Transformer
 from scipy.ndimage import binary_dilation
 
-from pipeline import bodies, naturalearth, planet_seam
+from pipeline import bodies, layers, naturalearth, planet_seam
 from pipeline.render import hillshade, lake_depth, palette, perennial_ice, seaice
 from pipeline.tile import shade, terrain_rgb
 from pipeline.tile.shade import KNOBS
@@ -60,9 +60,7 @@ from pipeline.tile.shade_planet import (
     AZ,
     CAP_NORTH,
     CAP_SOUTH,
-    body_declares_layer,
     composite_params,
-    layer_is_buildable,
 )
 
 CAP_PX = 8192          # square texture side (south is a bigger disc -> coarser per px). 8192 chosen
@@ -190,8 +188,8 @@ def bakes_coastline(grid: CapGrid) -> bool:
     """
     if grid.coast_opacity <= 0.0:
         return False
-    return layer_is_buildable(grid.body, "coastline", COAST_SHP,
-                              "the cap ships with no land/sea line")
+    return layers.layer_is_buildable(grid.body, layers.COASTLINE, COAST_SHP,
+                                     "the cap ships with no land/sea line")
 
 
 def cap_work_dir(body: bodies.Body) -> Path:
@@ -371,9 +369,9 @@ def cap_recipe(grid: CapGrid, rasters: frozenset[str]) -> str:
     layer, so nothing is written and its recipe keeps the shape it has always had. It cannot be left
     to `cap_sources` mtimes, because turning a layer off REMOVES its source from that list — the
     dependency disappears along with the layer, and the cap would sit fresh wearing the old one."""
-    absent = bodies.layers_off(grid.body, bodies.CAP_LAYERS)
-    layers = {"layers_off": absent} if absent else {}
-    return json.dumps({**layers,
+    absent = layers.layers_off(grid.body, layers.CAP_LAYERS)
+    missing = {"layers_off": absent} if absent else {}
+    return json.dumps({**missing,
                        "grid": grid_recipe_fields(grid),
                        "light": {"az": AZ, "alt": ALT, "exag": grid.body.exaggeration,
                                  "ground_scale": bodies.ground_metres_per_aeqd_unit(grid.body),
@@ -435,9 +433,9 @@ def cap_sources(grid: CapGrid, rasters: frozenset[str]) -> list[Path]:
     """
     sources = [planet_seam.vrt_path(grid.body, raster)
                for raster in planet_seam.PLANET_RASTERS if raster in rasters]
-    if "sea_ice" in grid.body.surface_layers:
+    if layers.SEA_ICE.name in grid.body.surface_layers:
         sources.append(Path(seaice.SEAICE_SRC))
-    if perennial_ice.LAYER in grid.body.surface_layers:
+    if layers.PERENNIAL_ICE.name in grid.body.surface_layers:
         # ASKED OF THE PRODUCER, NOT SPELLED OUT HERE. This was `grid.name == "north"` plus Earth's
         # NetCDF, which is two of Earth's facts written down as though they were the layer's: that
         # only the north reads a file, and which file. Both are the producer's to state — Earth's
@@ -586,7 +584,8 @@ def _cap_sea_ice(grid: CapGrid, consequence: str) -> "np.ndarray | None":
     None rather than a zero array: `shade.composite` takes `ice_a=None` and skips the blend entirely,
     where zeros would run it and multiply the whole disc by nothing.
     """
-    if not layer_is_buildable(grid.body, "sea_ice", Path(seaice.SEAICE_SRC), consequence):
+    if not layers.layer_is_buildable(grid.body, layers.SEA_ICE, Path(seaice.SEAICE_SRC),
+                                     consequence):
         return None
     ice_raw = _warp(grid, seaice.SEAICE_SRC, cap_warp(grid, "seaice"),
                     "bilinear", "Float32", srcnodata=seaice.ICE_FILL)
@@ -613,8 +612,8 @@ def _cap_perennial_ice(grid: CapGrid, ocean: np.ndarray, water: np.ndarray,
     Zeros rather than None on the way out, unlike the sea-ice twin: `shade.composite` takes
     `snow_a` as a required array and blends it, so an all-zero alpha is the arithmetic saying no
     pixel is ice, where None would be a different function signature."""
-    if not (body_declares_layer(grid.body, perennial_ice.LAYER, consequence)
-            and all(layer_is_buildable(grid.body, perennial_ice.LAYER, source, consequence)
+    if not (layers.body_declares_layer(grid.body, layers.PERENNIAL_ICE, consequence)
+            and all(layers.layer_is_buildable(grid.body, layers.PERENNIAL_ICE, source, consequence)
                     for source in perennial_ice.cap_ice(grid.body, grid.name).sources())):
         return np.zeros((grid.px, grid.px), dtype=np.float32)
     inputs = perennial_ice.CapIceInputs(

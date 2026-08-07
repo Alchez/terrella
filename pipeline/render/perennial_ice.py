@@ -49,7 +49,7 @@ from pipeline import bodies
 from pipeline.render import snow
 
 #: The layer these producers paint. Spelled once here so the registry and its callers cannot drift
-#: apart from `bodies.SURFACE_LAYERS`, which is where the vocabulary itself is defined.
+#: apart from `layers.SURFACE_LAYERS`, which is where the vocabulary itself is defined.
 LAYER = "perennial_ice"
 
 

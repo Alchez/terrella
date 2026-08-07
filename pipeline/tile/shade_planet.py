@@ -50,7 +50,7 @@ import rasterio
 from rasterio.enums import Resampling
 from rasterio.windows import Window
 
-from pipeline import bodies, planet_seam
+from pipeline import bodies, layers, planet_seam
 from pipeline.freshness import (
     done_marker,
     is_stale,
@@ -252,8 +252,8 @@ def composite_params(variants, body: bodies.Body, rasters: frozenset[str],
     # turning a layer off on a body that had it correctly restages, which file mtimes cannot do —
     # `newest_mtime` scores an absent path 0.0, so an unbuilt raster is silently not a dependency.
     #
-    # COMPOSITE_LAYERS, not the whole vocabulary: the caps read a coastline and this stage does not,
-    # so enumerating every layer here would make a cap-only decision restage the planet.
+    # `layers.COMPOSITE_LAYERS`, not the whole vocabulary: the caps read a coastline and this stage
+    # does not, so enumerating every layer here would make a cap-only decision restage the planet.
     #
     # `rasters_off` is the same idiom one tier up, and it tracks the OTHER direction of the same
     # trap. When a mask APPEARS, `warp_inputs` builds it and `composite_deps` sees a new mtime, so
@@ -261,7 +261,7 @@ def composite_params(variants, body: bodies.Body, rasters: frozenset[str],
     # `ocean_3857.tif` is still sitting on disk from the last run, and the composite painted with it
     # reads perfectly fresh. That is exactly the loop Phase 2 runs on Mars — a shoreline contour,
     # then a different one, then none — so the transition that has no mtime behind it needs a record.
-    absent_layers = bodies.layers_off(body, bodies.COMPOSITE_LAYERS)
+    absent_layers = layers.layers_off(body, layers.COMPOSITE_LAYERS)
     absent_rasters = planet_seam.rasters_off(rasters)
     missing: dict[str, list[str]] = {}
     if absent_layers:
@@ -278,10 +278,10 @@ def composite_params(variants, body: bodies.Body, rasters: frozenset[str],
         else {"sea_stops": look.sea.stops, "sea_min_m": look.sea.extreme_m,
               **_ramp_origin("sea", look.sea)}
     )
-    layers = body.surface_layers
+    declared = body.surface_layers
     # `snow_position` keys BOTH the snow and the sea-ice whites, so its curve constants are live
     # when either layer is painted.
-    keys_white = bool({"perennial_ice", "sea_ice"} & layers)
+    keys_white = bool({layers.PERENNIAL_ICE.name, layers.SEA_ICE.name} & declared)
     return json.dumps({**missing, **sea_recipe,
                        "knobs": knobs,
                        "composite_window_rows": window_rows,
@@ -308,14 +308,14 @@ def composite_params(variants, body: bodies.Body, rasters: frozenset[str],
                        # Inland water is filled flat with this colour, so it is live only where a
                        # watermask exists to select it.
                        **_when("watermask" in rasters, {"water_rgb": palette.WATER_RGB}),
-                       **_when("lake_depth" in layers,
+                       **_when(layers.LAKE_DEPTH.name in declared,
                                {"lake_stops": palette.LAKE_STOPS,
                                 "lake_max_m": palette.LAKE_MAX_M}),
                        # snow.RAMP_* run at composite time inside `snow_alpha`, which a body
                        # without the layer never calls, and the colours it would paint with go
                        # with them. Reaching a pixel while reaching no recipe is the trap this
                        # function exists to close — do not drop these back out.
-                       **_when("perennial_ice" in layers,
+                       **_when(layers.PERENNIAL_ICE.name in declared,
                                {"snow_rgb": palette.SNOW_RGB,
                                 "snow_shadow_rgb": palette.SNOW_SHADOW_RGB,
                                 "snow_ramp_lat_lo": snow.RAMP_LAT_LO,
@@ -325,7 +325,7 @@ def composite_params(variants, body: bodies.Body, rasters: frozenset[str],
                                 "snow_ramp_band": snow.RAMP_BAND}),
                        # The alpha knobs run at composite time inside seaice.ice_alpha, the toned
                        # SH pack with them, so they ride here rather than in composite_deps.
-                       **_when("sea_ice" in layers,
+                       **_when(layers.SEA_ICE.name in declared,
                                {"ice_rgb": palette.ICE_RGB,
                                 "ice_shadow_rgb": palette.ICE_SHADOW_RGB,
                                 "ice_lo": seaice.ICE_LO, "ice_band": seaice.ICE_BAND,
@@ -387,44 +387,6 @@ def composite_deps(work, hs, params) -> tuple:
             work / "glacier_3857.tif", work / "seaice_3857.tif", params)
 
 
-def body_declares_layer(body: bodies.Body, layer: str, consequence: str) -> bool:
-    """Whether this body has `layer` at all — the body half of the gate, on its own.
-
-    SPLIT OUT BECAUSE ONE RULE HAS NO DATASET BEHIND IT. The forced Antarctic land-ice patch is pure
-    latitude-and-land arithmetic (`snow.antarctic_snow_mask`), so there is no file whose absence
-    could ever switch it off — on a sea-less body it would simply whiten every piece of land below
-    60 degrees south. It rides the `snow` layer, and this is what lets it ask that question with the
-    same words and the same printed consequence as the four layers that do read a file.
-    """
-    if layer not in body.surface_layers:
-        print(f"{body.name} declares no {layer} layer -> skipped ({consequence})", flush=True)
-        return False
-    return True
-
-
-def layer_is_buildable(body: bodies.Body, layer: str, source: Path, consequence: str) -> bool:
-    """Whether this body's `layer` can be warped — asked of the BODY first, then of the disk.
-
-    THE ORDER IS THE POINT, and it is structural here rather than a convention: the body half is a
-    separate function and this one calls it first. Each of these sources is a module constant at a
-    fixed global path, so `source.exists()` answers "have we downloaded Earth's data" for every
-    planet alike. Asking it first would let a second body pass the check on Earth's file and paint
-    Earth's cryosphere onto its own grid — at the same latitudes, so it renders as a perfectly
-    plausible planet.
-
-    Both branches print, and each states the consequence rather than only the cause: a skipped layer
-    is a look decision, and a pass that goes quiet about one is a pass whose output cannot be read
-    back. Returning False rather than raising keeps a partial build legal, which is what makes the
-    layers switchable at all.
-    """
-    if not body_declares_layer(body, layer, consequence):
-        return False
-    if not source.exists():
-        print(f"no {source.name} -> {layer} skipped ({consequence})", flush=True)
-        return False
-    return True
-
-
 def warp_inputs(work: Path, planet: Path, body: bodies.Body, rasters: frozenset[str]):
     """Warp height + whichever masks this planet HAS to the shared WMQ-aligned 3857 grid.
 
@@ -481,7 +443,7 @@ def warp_inputs(work: Path, planet: Path, body: bodies.Body, rasters: frozenset[
     # Its dependency is the VRT alone, unlike the chunk directory above: extract_globathy
     # rebuilds the VRT whenever the raster set changes, so its mtime really does move.
     depth_out = work / "lakedepth_3857.tif"
-    if layer_is_buildable(body, "lake_depth", lake_depth.LAKE_VRT,
+    if layers.layer_is_buildable(body, layers.LAKE_DEPTH, lake_depth.LAKE_VRT,
                           "lakes stay flat; run pipeline.acquire.extract_globathy") \
             and warp_needs_rebuild(depth_out, grid, lake_depth.LAKE_VRT):
         print("warp lake depth -> 3857 ...", flush=True)
@@ -501,7 +463,7 @@ def warp_inputs(work: Path, planet: Path, body: bodies.Body, rasters: frozenset[
     # the old per-window warp). Glacier is a 0/1 Byte mask; absent RGI leaves it unbuilt and the snow
     # is persistence-only, exactly as before.
     persistence_out = work / "snow_persistence_3857.tif"
-    if layer_is_buildable(body, "perennial_ice", snow.SP_NC,
+    if layers.layer_is_buildable(body, layers.PERENNIAL_ICE, snow.SP_NC,
                           "no ice painted; the composite reads None and skips it") \
             and warp_needs_rebuild(persistence_out, grid, snow.SP_NC):
         print("warp snow persistence -> 3857 (banded) ...", flush=True)
@@ -514,7 +476,7 @@ def warp_inputs(work: Path, planet: Path, body: bodies.Body, rasters: frozenset[
         mark_done(persistence_out)
 
     glacier_out = work / "glacier_3857.tif"
-    if layer_is_buildable(body, "glaciers", snow.RGI_GPKG, "persistence-only snow") \
+    if layers.layer_is_buildable(body, layers.GLACIERS, snow.RGI_GPKG, "persistence-only snow") \
             and warp_needs_rebuild(glacier_out, grid, snow.RGI_GPKG):
         print("rasterize RGI glaciers -> 3857 ...", flush=True)
         snow.rasterize_glaciers_raster(grid_bounds, grid_width, grid_height, glacier_out)
@@ -525,7 +487,7 @@ def warp_inputs(work: Path, planet: Path, body: bodies.Body, rasters: frozenset[
     # like glacier/depth -- an absent source just skips it and the composite paints no ice, leaving
     # the bathymetry bare at the poles.
     seaice_out = work / "seaice_3857.tif"
-    if layer_is_buildable(body, "sea_ice", seaice.SEAICE_SRC,
+    if layers.layer_is_buildable(body, layers.SEA_ICE, seaice.SEAICE_SRC,
                           "bathymetry bare at the poles") \
             and warp_needs_rebuild(seaice_out, grid, seaice.SEAICE_SRC):
         print("warp sea-ice frequency -> 3857 (banded) ...", flush=True)
@@ -711,7 +673,7 @@ def _compute_shared(inputs: _WindowInputs) -> _WindowShared:
     # body without that layer has nothing to patch — and this is a latitude+land test with no
     # dataset behind it, so nothing else could ever turn it off. On a sea-less planet it whitens
     # every piece of land below 60 degrees south, which is most of one.
-    if "perennial_ice" in inputs.body.surface_layers:
+    if layers.PERENNIAL_ICE.name in inputs.body.surface_layers:
         snow_a = np.maximum(snow_a, snow.antarctic_snow_mask(land_win, latitude))
     # Sea-ice alpha: frequency -> smoothstep, the sea-side twin of snow_a (no latitude ramp needed).
     # Optional (None when the seaice source was never warped); shade.composite gates it on ocean. South

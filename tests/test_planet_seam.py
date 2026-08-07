@@ -24,7 +24,7 @@ import pytest
 import rasterio
 from rasterio.transform import from_bounds
 
-from pipeline import bodies, paths, planet_seam
+from pipeline import bodies, layers, paths, planet_seam
 
 
 def _body(name: str, layers: frozenset[str] = frozenset()) -> bodies.Body:
@@ -59,7 +59,7 @@ class TestTheVocabulary:
     def test_the_raster_vocabulary_and_the_surface_layer_vocabulary_do_not_overlap(self) -> None:
         """Two vocabularies, two words. `layers_off` and `rasters_off` are different switches, and a
         name in both would let a reader believe one guard covers the other."""
-        assert not planet_seam.KNOWN_RASTERS & bodies.SURFACE_LAYERS
+        assert not planet_seam.KNOWN_RASTERS & layers.SURFACE_LAYERS
 
 
 class TestTheDeclarationIsTheAnswer:

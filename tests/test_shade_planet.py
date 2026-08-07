@@ -18,7 +18,7 @@ import pytest
 import rasterio
 from rasterio.transform import from_bounds
 
-from pipeline import bodies, freshness, planet_seam
+from pipeline import bodies, freshness, layers, planet_seam
 from pipeline.render import palette, seaice, snow
 from pipeline.tile import cap_render, shade, shade_planet
 
@@ -834,7 +834,7 @@ class TestTheCompositeRecipeRecordsTheRastersThatAreOff:
         the render paints over it, and collapsing them would tie a cap-only decision to the tiles."""
         recorded = json.loads(shade_planet.composite_params(
             {None: None}, bodies.MARS, frozenset({"heightfield"})))
-        assert recorded["layers_off"] == sorted(bodies.COMPOSITE_LAYERS)
+        assert recorded["layers_off"] == sorted(layers.COMPOSITE_LAYERS)
         assert recorded["rasters_off"] == ["oceanmask", "watermask"]
 
 
@@ -878,7 +878,7 @@ class TestABodyRecordsOnlyWhatItsOwnCompositeReads:
         """Anti-vacuity, and the contract every parametrised case below leans on."""
         named = {layer for layer, *_ in LAYER_GATED}
         assert named, "the gated-group table is empty — every case below would pass on nothing"
-        assert named <= bodies.COMPOSITE_LAYERS
+        assert named <= layers.COMPOSITE_LAYERS
         assert named <= bodies.EARTH.surface_layers, "Earth must paint every layer named here"
         assert not (named & bodies.MARS.surface_layers), "Mars must paint none of them"
 

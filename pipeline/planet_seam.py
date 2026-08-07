@@ -23,7 +23,7 @@ stage's completion stamp (the `.done` idiom one tier up, carrying content), and 
 body fact. A crashed producer writes none and every consumer refuses to run; a complete one is
 trusted about what it does not have.
 
-RASTERS, NEVER "LAYERS". `bodies.SURFACE_LAYERS` already owns that word for the optional things the
+RASTERS, NEVER "LAYERS". `layers.SURFACE_LAYERS` already owns that word for the optional things the
 render paints OVER the heightfield — snow, glaciers, sea ice, lake depth, the coastline. These three
 are the heightfield and the masks that classify it, produced by an entirely different tier and
 answering an entirely different question. One word for both concepts is how a reader ends up
@@ -38,7 +38,7 @@ import json
 from collections.abc import Callable, Iterable
 from pathlib import Path
 
-from pipeline import bodies
+from pipeline import bodies, layers
 
 #: The rasters a planet stage may emit, in the order a producer builds them.
 #:
@@ -54,17 +54,6 @@ KNOWN_RASTERS = frozenset(PLANET_RASTERS)
 
 #: The file the producer writes last, beside the rasters it names.
 DECLARATION_NAME = "planet_rasters.json"
-
-#: Surface layers that cannot be computed without one of the masks, and the mask each one needs.
-#:
-#: These are real data dependencies, not bookkeeping. `lake_depth` is zeroed off watermask class 2
-#: (`lake_depth.lakes_only`), so a body declaring that layer with no watermask has nothing to zero
-#: against and the composite would read `None` as a class code. `sea_ice` is gated on the ocean mask
-#: inside `shade.composite`, so ice on a body with no ocean mask is blended against an all-False
-#: selector and paints nothing at all — a layer that is switched on, costs a warp, and cannot reach
-#: a pixel. Both are incoherent rather than merely empty, so both are refused here where the two
-#: facts first meet, rather than surfacing as a `TypeError` deep in a worker thread.
-LAYER_REQUIRES_RASTER: dict[str, str] = {"lake_depth": "watermask", "sea_ice": "oceanmask"}
 
 #: How to produce each body's planet rasters, keyed by body name — quoted verbatim when a consumer
 #: finds no declaration.
@@ -115,11 +104,11 @@ def _require_coherent(body: bodies.Body, rasters: frozenset[str]) -> None:
         raise ValueError(
             f"{body.name}: a planet stage must emit a heightfield — it is the elevation every "
             f"later stage shades, and a planet without one is not a partial planet but no planet")
-    for layer, raster in sorted(LAYER_REQUIRES_RASTER.items()):
+    for layer, raster in sorted(layers.LAYER_REQUIRES_RASTER.items()):
         if layer in body.surface_layers and raster not in rasters:
             raise ValueError(
                 f"{body.name}: declares the {layer!r} surface layer but its planet stage emitted no "
-                f"{raster!r} — see planet_seam.LAYER_REQUIRES_RASTER for why that layer cannot be "
+                f"{raster!r} — see layers.LAYER_REQUIRES_RASTER for why that layer cannot be "
                 f"computed without it. Either the producer is incomplete or the body's "
                 f"surface_layers are")
 

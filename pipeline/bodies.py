@@ -7,6 +7,11 @@ WHAT A BODY IS. Not a look and not a dataset — the small set of facts that mak
 produce a different planet. Geometry (how big the sphere is), the vertical exaggeration its relief
 is drawn at, and how deep its pyramid is cut. Everything else about a planet is data.
 
+WHAT A BODY IS NOT, so the neighbours are findable: its colours are a `palette.Look`, its optional
+surface layers are a `layers.Layer` vocabulary (a body answers for them in `surface_layers`, but the
+vocabulary itself is a pipeline fact), and what its planet stage emitted is a `planet_seam`
+declaration.
+
 WHY A REGISTRY AND NOT CONSTANTS. A wrong sphere radius does not raise: it scales the per-row
 hillshade z-factor by latitude and produces relief that is plausible everywhere and true nowhere.
 Copied look constants have already cost this project one overnight re-render of every hero, so a
@@ -63,45 +68,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from pipeline import paths
-
-#: The optional layers a body may declare, and the whole vocabulary `Body.surface_layers` may use.
-#:
-#: Each names something the render paints OVER the heightfield, and each comes from a dataset that
-#: describes exactly one planet — Earth. That is why this is a body fact and not, as it looks, a
-#: question of whether a file happens to be on disk: every one of these sources is a module constant
-#: at a fixed global path (`snow.SP_NC`, `snow.RGI_GPKG`, `seaice.SEAICE_SRC`, `lake_depth.LAKE_VRT`,
-#: `cap_render.COAST_SHP`), shared by every body. So an `.exists()` check answers "did we download
-#: Earth's data", which is True on this machine for every planet — and a Mars run would warp Earth's
-#: northern-hemisphere snow onto Mars's grid at the same latitudes and composite it. Snow in the
-#: north, none in the south, entirely plausible, entirely wrong, and nothing raises.
-#:
-#: NOT EVERY LAYER IS A RASTER, AND NO STAGE READS ALL OF THEM — hence the two subsets below.
-#: NAMED FOR THE CLAIM, NOT FOR EARTH'S DATASET. `perennial_ice` was `snow`, which described the
-#: source (NSIDC-0791 persistence) rather than what the layer asserts — the white that is there all
-#: year. Earth's own south cap already stretched the old word past breaking, using it to paint
-#: Antarctica's permanent ice SHEET, and Mars's residual cap is CO2 and water ice rather than
-#: snowfall. A body-specific name is how a vocabulary grows one entry per planet for one concept.
-SURFACE_LAYERS = frozenset({"lake_depth", "perennial_ice", "glaciers", "sea_ice", "coastline"})
-
-#: The layers the Mercator tile composite reads.
-#:
-#: `coastline` is absent because the tiles never bake one: coasts and borders are a vector overlay
-#: the client draws, and only the caps — which reach past the latitude those vectors can be drawn at
-#: — burn the line into their own pixels.
-COMPOSITE_LAYERS = frozenset({"lake_depth", "perennial_ice", "glaciers", "sea_ice"})
-
-#: The layers the polar cap render reads.
-#:
-#: No `lake_depth` (the cap composites with `depth=None`) and no `glaciers` (the north's snow is
-#: persistence-only), so naming either here would claim a dependency the render does not have.
-#:
-#: WHY THE VOCABULARY IS SPLIT PER STAGE RATHER THAN SHARED, which is the whole reason these two
-#: constants exist: each stage records the layers it is MISSING in its own freshness recipe, so that
-#: turning one off restages it — something file mtimes cannot do, because an unbuilt raster scores
-#: 0.0 and is therefore silently not a dependency. Recording a layer a stage never reads inverts the
-#: trap instead of closing it: switching the coastline would restage a 46 GB tile composite that
-#: cannot contain one. Over-tracking and under-tracking are both silent, so this has to be exact.
-CAP_LAYERS = frozenset({"perennial_ice", "sea_ice", "coastline"})
 
 
 @dataclass(frozen=True)
@@ -169,18 +135,22 @@ class Body:
     #: a full composite and cut, ~26 minutes — to produce pixels identical to the ones sitting there.
     #: A second body pays no such cost, so it nests properly from the start.
     path_prefix: str
-    #: Which of `SURFACE_LAYERS` this body actually has, as a frozenset. Empty is a real answer.
+    #: Which of `layers.SURFACE_LAYERS` this body actually has, by name. Empty is a real answer.
     #:
-    #: Spelled out per body rather than defaulting to "all of them", so adding a fifth layer is a
+    #: NAMES AND NOT `Layer` OBJECTS, because this set is serialised: `layers.layers_off` turns it
+    #: into the `layers_off` list inside `composite_params.json`, and anything whose JSON differs
+    #: restages a 33-minute Earth composite for identical pixels.
+    #:
+    #: Spelled out per body rather than defaulting to "all of them", so adding a sixth layer is a
     #: decision for every planet including Earth. `tests/test_bodies.py` refuses a name outside the
     #: vocabulary — a typo would otherwise turn a layer off silently, which is the same failure this
     #: field exists to close.
     #:
-    #: THE ANTARCTIC LAND-ICE RULE RIDES WITH `snow`, and that is not a conflation. The rule exists
-    #: only because the snow dataset has a hole — NSIDC-0791 is northern-hemisphere-only and RGI
-    #: region 19 is excluded — so the continent would render on the tan LAND ramp. It is a patch on
-    #: the snow layer, so a body without that layer has nothing to patch. On a body with no sea it
-    #: would instead whiten every piece of land below 60 degrees south.
+    #: THE ANTARCTIC LAND-ICE RULE RIDES WITH `perennial_ice`, and that is not a conflation. The rule
+    #: exists only because the snow dataset has a hole — NSIDC-0791 is northern-hemisphere-only and
+    #: RGI region 19 is excluded — so the continent would render on the tan LAND ramp. It is a patch
+    #: on that layer, so a body without it has nothing to patch. On a body with no sea it would
+    #: instead whiten every piece of land below 60 degrees south.
     surface_layers: frozenset[str]
     #: Whether this body PUBLISHES rendered polar-cap textures.
     #:
@@ -361,22 +331,6 @@ def ground_metres_per_aeqd_unit(body: Body) -> float:
         ground_metres_per_pixel = (2 * grid.edge_m / grid.px) * ground_metres_per_aeqd_unit(body)
     """
     return body.ground_radius_m / body.aeqd_radius_m
-
-
-def layers_off(body: Body, vocabulary: frozenset[str]) -> list[str]:
-    """Which of `vocabulary` this body does NOT have, sorted — one stage's freshness record.
-
-    THE LAYERS THAT ARE OFF, NEVER THE ONES THAT ARE ON, and that asymmetry is load-bearing rather
-    than stylistic. Earth declares every layer, so its list is empty and the caller's conditional
-    record writes nothing at all, leaving a 46 GB composite and a 14 GB cap render byte-identical.
-    Recording the layers that are ON would put a list into Earth's recipe for the first time and
-    restage the planet to produce the pixels already sitting there.
-
-    `vocabulary` is the CALLER'S stage vocabulary — `COMPOSITE_LAYERS` or `CAP_LAYERS`, never
-    `SURFACE_LAYERS` — so that a stage records only what it actually reads. See `CAP_LAYERS` for why
-    a shared vocabulary here would trade one silent freshness bug for another.
-    """
-    return sorted(vocabulary - body.surface_layers)
 
 
 def _require_directory_name(stage: str) -> None:

@@ -103,6 +103,12 @@ MUTABLE_ROOTS = (
     # load-bearing. The look package as a whole, because the parameterisation touches all of it.
     "pipeline/bodies.py",
     "pipeline/render",
+    # Joined with the layer table, which took the body-half gate and the stage split out of the
+    # planet shader. Both of its guards are invisible while Earth is the only body that declares a
+    # layer: "ask the body before the disk" passes either way on a box holding Earth's files, and a
+    # wrong stage column just moves a key in a recipe nobody re-reads. Neither has an output to
+    # inspect, so mutation is the only proof they still fire.
+    "pipeline/layers.py",
     # Joined with the required `--body`. The planet entry points are where a silent Earth assumption
     # would be reintroduced, and it is invisible while Earth is the only body — so the guards against
     # it are worth exactly as much as the proof that they still fire.
@@ -2209,9 +2215,9 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='python',
         label='the layer gate asks the filesystem before it asks the body',
-        path='pipeline/tile/shade_planet.py',
-        needle='    if layer not in body.surface_layers:',
-        replacement='    if layer not in body.surface_layers and not source.exists():',
+        path='pipeline/layers.py',
+        needle='    if layer.name not in body.surface_layers:',
+        replacement='    if layer.name not in body.surface_layers and not source.exists():',
         guard='test_a_layer_is_refused_for_a_body_that_does_not_declare_it_even_though_the_source_is_there',
     ),
     # THE ORIGINAL BUG, as the tidy-looking refactor that reintroduces it: two branches that both
@@ -2228,7 +2234,7 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label='the Antarctic land-ice patch is applied to every body again',
         path='pipeline/tile/shade_planet.py',
-        needle='    if "perennial_ice" in inputs.body.surface_layers:',
+        needle='    if layers.PERENNIAL_ICE.name in inputs.body.surface_layers:',
         replacement='    if True:',
         guard='test_a_body_without_the_perennial_ice_layer_composites_no_ice_at_all',
     ),
@@ -2272,7 +2278,9 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label="the cap's ice asks the disk before the body, so Earth's snow reaches every planet",
         path='pipeline/tile/cap_render.py',
-        needle='    if not (body_declares_layer(grid.body, perennial_ice.LAYER, consequence)\n            and all(layer_is_buildable(grid.body, perennial_ice.LAYER, source, consequence)',
+        needle=('    if not (layers.body_declares_layer(grid.body, layers.PERENNIAL_ICE, consequence)\n'
+                '            and all(layers.layer_is_buildable(grid.body, layers.PERENNIAL_ICE, '
+                'source, consequence)'),
         replacement='    if not (all(Path(source).exists()',
         guard='test_a_body_with_no_layers_opens_none_of_earths_files',
     ),
@@ -2280,7 +2288,8 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label="the cap's sea ice asks the disk before the body, painting an Arctic on any planet",
         path='pipeline/tile/cap_render.py',
-        needle='    if not layer_is_buildable(grid.body, "sea_ice", Path(seaice.SEAICE_SRC), consequence):',
+        needle=('    if not layers.layer_is_buildable(grid.body, layers.SEA_ICE, '
+                'Path(seaice.SEAICE_SRC),\n                                     consequence):'),
         replacement='    if not Path(seaice.SEAICE_SRC).exists():',
         guard='test_a_body_with_no_layers_opens_none_of_earths_files',
     ),
@@ -2338,7 +2347,9 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label='the coastline gate keeps only its look half, burning Natural Earth onto any body',
         path='pipeline/tile/cap_render.py',
-        needle='    if grid.coast_opacity <= 0.0:\n        return False\n    return layer_is_buildable(grid.body, "coastline", COAST_SHP,\n                              "the cap ships with no land/sea line")',
+        needle=('    if grid.coast_opacity <= 0.0:\n        return False\n'
+                '    return layers.layer_is_buildable(grid.body, layers.COASTLINE, COAST_SHP,\n'
+                '                                     "the cap ships with no land/sea line")'),
         replacement='    return grid.coast_opacity > 0.0',
         guard='test_a_body_without_the_layer_declines_it_though_earths_file_is_right_there',
     ),
@@ -2346,7 +2357,8 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label='a cap depends on a climatology it never opens, so it can never read fresh',
         path='pipeline/tile/cap_render.py',
-        needle='    if "sea_ice" in grid.body.surface_layers:\n        sources.append(Path(seaice.SEAICE_SRC))',
+        needle=('    if layers.SEA_ICE.name in grid.body.surface_layers:\n'
+                '        sources.append(Path(seaice.SEAICE_SRC))'),
         replacement='    sources.append(Path(seaice.SEAICE_SRC))',
         guard='test_a_source_for_an_absent_layer_is_not_a_dependency',
     ),
@@ -2354,8 +2366,9 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label='the cap recipe stops recording which layers are off, so switching one restages nothing',
         path='pipeline/tile/cap_render.py',
-        needle='    absent = bodies.layers_off(grid.body, bodies.CAP_LAYERS)\n    layers = {"layers_off": absent} if absent else {}',
-        replacement='    layers = {}',
+        needle=('    absent = layers.layers_off(grid.body, layers.CAP_LAYERS)\n'
+                '    missing = {"layers_off": absent} if absent else {}'),
+        replacement='    missing = {}',
         guard='test_turning_a_layer_off_restages_although_its_source_stops_being_a_dependency',
     ),
     # Load-bearing rather than tidy: turning a layer off also REMOVES its file from cap_sources, so
@@ -2364,8 +2377,8 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label='the composite recipe enumerates every layer, so a cap-only decision restages 46 GB',
         path='pipeline/tile/shade_planet.py',
-        needle='    absent_layers = bodies.layers_off(body, bodies.COMPOSITE_LAYERS)',
-        replacement='    absent_layers = bodies.layers_off(body, bodies.SURFACE_LAYERS)',
+        needle='    absent_layers = layers.layers_off(body, layers.COMPOSITE_LAYERS)',
+        replacement='    absent_layers = layers.layers_off(body, layers.SURFACE_LAYERS)',
         guard='test_the_composite_recipe_records_only_the_layers_that_are_off',
     ),
     # Over-tracking is exactly as silent as under-tracking, and this is its direction: the tile
@@ -2590,10 +2603,29 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='python',
         label='only lake depth is coupled to its mask, so sea ice can be on and paint nothing',
-        path='pipeline/planet_seam.py',
-        needle='LAYER_REQUIRES_RASTER: dict[str, str] = {"lake_depth": "watermask", "sea_ice": "oceanmask"}',
-        replacement='LAYER_REQUIRES_RASTER: dict[str, str] = {"lake_depth": "watermask"}',
+        path='pipeline/layers.py',
+        needle='SEA_ICE = Layer("sea_ice", in_composite=True, in_cap=True, requires_raster="oceanmask")',
+        replacement='SEA_ICE = Layer("sea_ice", in_composite=True, in_cap=True, requires_raster=None)',
         guard='test_sea_ice_without_an_ocean_mask_is_refused',
+    ),
+    # The two below arrived with the layer table. Deriving the stage views from one table removed the
+    # old failure — a stage naming a layer the vocabulary does not have — and left a new one that
+    # looks like nothing: a row whose columns are all False, or a required raster spelled wrong.
+    Sabotage(
+        suite='python',
+        label='a layer is read by no stage at all, so declaring it builds nothing',
+        path='pipeline/layers.py',
+        needle='COASTLINE = Layer("coastline", in_composite=False, in_cap=True, requires_raster=None)',
+        replacement='COASTLINE = Layer("coastline", in_composite=False, in_cap=False, requires_raster=None)',
+        guard='test_the_stage_vocabularies_together_cover_the_whole_one_and_nothing_else',
+    ),
+    Sabotage(
+        suite='python',
+        label='a layer requires a planet raster no producer can emit, and nothing spell-checks it',
+        path='pipeline/layers.py',
+        needle='LAKE_DEPTH = Layer("lake_depth", in_composite=True, in_cap=False, requires_raster="watermask")',
+        replacement='LAKE_DEPTH = Layer("lake_depth", in_composite=True, in_cap=False, requires_raster="watermsk")',
+        guard='test_every_required_raster_is_one_the_planet_seam_can_emit',
     ),
     Sabotage(
         suite='python',
