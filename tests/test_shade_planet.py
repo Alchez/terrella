@@ -18,7 +18,7 @@ import pytest
 import rasterio
 from rasterio.transform import from_bounds
 
-from pipeline import bodies, planet_seam
+from pipeline import bodies, freshness, planet_seam
 from pipeline.render import palette, seaice, snow
 from pipeline.tile import cap_render, shade, shade_planet
 
@@ -41,7 +41,7 @@ def _at(path, seconds_ago):
     """
     stamp = time.time() - seconds_ago
     os.utime(path, (stamp, stamp))
-    marker = shade_planet.done_marker(path)
+    marker = freshness.done_marker(path)
     if marker.exists():
         os.utime(marker, (stamp, stamp))
 
@@ -50,9 +50,9 @@ def _built(tmp_path, name="height_3857.tif"):
     """An output that completed 100 s ago: the raster plus its .done marker."""
     out = tmp_path / name
     out.write_text("raster")
-    shade_planet.mark_done(out)
+    freshness.mark_done(out)
     _age(out, 100)
-    _age(shade_planet.done_marker(out), 100)
+    _age(freshness.done_marker(out), 100)
     return out
 
 
@@ -65,7 +65,7 @@ def _built_pyramid(tmp_path):
     live = tmp_path / "tiles"
     (live / "0" / "0").mkdir(parents=True)
     (live / "0" / "0" / "0.png").write_text("png")
-    shade_planet.mark_done(live)
+    freshness.mark_done(live)
     return live
 
 
@@ -90,28 +90,28 @@ def _written(path, text):
 
 class TestIsStale:
     def test_missing_output_is_stale(self, tmp_path):
-        assert shade_planet.is_stale(tmp_path / "nope.tif") is True
+        assert freshness.is_stale(tmp_path / "nope.tif") is True
 
     def test_completed_output_with_older_inputs_is_fresh(self, tmp_path):
         out = _built(tmp_path)
         source = tmp_path / "chunk.tif"
         source.write_text("x")
         _age(source, 500)
-        assert shade_planet.is_stale(out, source) is False
+        assert freshness.is_stale(out, source) is False
 
     def test_refused_cell_makes_the_warp_stale(self, tmp_path):
         """The Caspian case: an input rewritten after the output completed."""
         out = _built(tmp_path)
         source = tmp_path / "chunk.tif"
         source.write_text("re-fused")  # written now, i.e. after the output's marker
-        assert shade_planet.is_stale(out, source) is True
+        assert freshness.is_stale(out, source) is True
 
     def test_crashed_run_leaves_no_marker_and_stays_stale(self, tmp_path):
         """GDAL stamps its target at the START, so a half-written raster looks current.
         Only the .done marker distinguishes 'finished' from 'died mid-write'."""
         out = tmp_path / "height_3857.tif"
         out.write_text("half-written")
-        assert shade_planet.is_stale(out) is True
+        assert freshness.is_stale(out) is True
 
     def test_directory_input_sees_a_rewritten_child(self, tmp_path):
         """Depending on the chunk DIR, not its VRT, is the point: re-fusing a cell never
@@ -121,7 +121,7 @@ class TestIsStale:
         (chunks / "e050_n40").mkdir(parents=True)
         cell = chunks / "e050_n40" / "heightfield_10s.tif"
         cell.write_text("re-fused")
-        assert shade_planet.is_stale(out, chunks) is True
+        assert freshness.is_stale(out, chunks) is True
 
 
 class TestGridMatches:
@@ -131,26 +131,26 @@ class TestGridMatches:
 
     def test_same_grid_matches(self, tmp_path):
         out = _raster(tmp_path / "ocean_3857.tif", 10, 10, (0.0, 0.0, 100.0, 100.0))
-        assert shade_planet.grid_matches(out, *GRID) is True
+        assert freshness.grid_matches(out, *GRID) is True
 
     def test_fewer_rows_does_not_match(self, tmp_path):
         """The exact Antarctica case: the planet gained rows at the bottom, but this raster's source
         never changed, so it still sits at the old, shorter row count."""
         out = _raster(tmp_path / "lakedepth_3857.tif", 10, 9, (0.0, 10.0, 100.0, 100.0))
-        assert shade_planet.grid_matches(out, *GRID) is False
+        assert freshness.grid_matches(out, *GRID) is False
 
     def test_different_width_does_not_match(self, tmp_path):
         out = _raster(tmp_path / "water_3857.tif", 9, 10, (0.0, 0.0, 90.0, 100.0))
-        assert shade_planet.grid_matches(out, *GRID) is False
+        assert freshness.grid_matches(out, *GRID) is False
 
     def test_shifted_bounds_at_matching_dimensions_does_not_match(self, tmp_path):
         """Companion: same pixel count, shifted origin -- so the check cannot be dimensions alone.
         The 1 m tolerance sits far below a 305 m pixel, so a real grid shift always trips it."""
         out = _raster(tmp_path / "seaice_3857.tif", 10, 10, (5000.0, 5000.0, 105000.0, 105000.0))
-        assert shade_planet.grid_matches(out, *GRID) is False
+        assert freshness.grid_matches(out, *GRID) is False
 
     def test_missing_file_does_not_match(self, tmp_path):
-        assert shade_planet.grid_matches(tmp_path / "nope.tif", *GRID) is False
+        assert freshness.grid_matches(tmp_path / "nope.tif", *GRID) is False
 
 
 class TestWarpNeedsRebuild:
@@ -162,9 +162,9 @@ class TestWarpNeedsRebuild:
     def _target(self, tmp_path, name, width, height, bounds, age=100):
         """A completed warp target `age` s ago: the real raster plus its .done marker, both aged."""
         out = _raster(tmp_path / name, width, height, bounds)
-        shade_planet.mark_done(out)
+        freshness.mark_done(out)
         _age(out, age)
-        _age(shade_planet.done_marker(out), age)
+        _age(freshness.done_marker(out), age)
         return out
 
     def test_fresh_source_on_grid_skips(self, tmp_path):
@@ -172,7 +172,7 @@ class TestWarpNeedsRebuild:
         source = tmp_path / "planet_oceanmask.vrt"
         source.write_text("vrt")
         _age(source, 500)  # older than the output -> not stale
-        assert shade_planet.warp_needs_rebuild(out, GRID, source) is False
+        assert freshness.warp_needs_rebuild(out, GRID, source) is False
 
     def test_fresh_source_off_grid_rebuilds(self, tmp_path):
         """THE load-bearing case: the source is older than the output (is_stale is False), but the
@@ -181,8 +181,8 @@ class TestWarpNeedsRebuild:
         source = tmp_path / "lakedepth.vrt"
         source.write_text("vrt")
         _age(source, 500)
-        assert shade_planet.is_stale(out, source) is False, "the source alone must look fresh"
-        assert shade_planet.warp_needs_rebuild(out, GRID, source) is True
+        assert freshness.is_stale(out, source) is False, "the source alone must look fresh"
+        assert freshness.warp_needs_rebuild(out, GRID, source) is True
 
     def test_moved_source_on_grid_rebuilds(self, tmp_path):
         """The is_stale half still fires: a re-released source newer than the output rebuilds even
@@ -190,7 +190,7 @@ class TestWarpNeedsRebuild:
         out = self._target(tmp_path, "seaice_3857.tif", 10, 10, (0.0, 0.0, 100.0, 100.0))
         source = tmp_path / "seaice.nc"
         source.write_text("re-released")  # written now -> newer than the output's marker
-        assert shade_planet.warp_needs_rebuild(out, GRID, source) is True
+        assert freshness.warp_needs_rebuild(out, GRID, source) is True
 
 
 class TestWriteIfChanged:
@@ -200,7 +200,7 @@ class TestWriteIfChanged:
         path.write_text("0.00 133 185 183\n")
         _age(path, 500)
         before = path.stat().st_mtime
-        shade_planet.write_if_changed(path, "0.00 133 185 183\n")
+        freshness.write_if_changed(path, "0.00 133 185 183\n")
         assert path.stat().st_mtime == before
 
     def test_changed_content_moves_mtime(self, tmp_path):
@@ -208,11 +208,11 @@ class TestWriteIfChanged:
         path.write_text("0.00 133 185 183\n")
         _age(path, 500)
         before = path.stat().st_mtime
-        shade_planet.write_if_changed(path, "0.00 142 198 196\n")
+        freshness.write_if_changed(path, "0.00 142 198 196\n")
         assert path.stat().st_mtime > before
 
     def test_absent_file_is_written(self, tmp_path):
-        path = shade_planet.write_if_changed(tmp_path / "new.json", "{}")
+        path = freshness.write_if_changed(tmp_path / "new.json", "{}")
         assert path.read_text() == "{}"
 
 
@@ -422,9 +422,9 @@ class TestCompositeDeps:
         for path in deps:
             path.write_text("x")
             _age(path, 500)
-        assert shade_planet.is_stale(planet_rgb, *deps) is False
+        assert freshness.is_stale(planet_rgb, *deps) is False
         (tmp_path / "snow_persistence_3857.tif").write_text("re-warped")  # now newer
-        assert shade_planet.is_stale(planet_rgb, *deps) is True
+        assert freshness.is_stale(planet_rgb, *deps) is True
 
     def test_a_rewarped_seaice_raster_makes_planet_rgb_stale(self, tmp_path):
         """The sea-side twin: re-warping the ice-frequency climatology (new OSI SAF release, or a
@@ -434,9 +434,9 @@ class TestCompositeDeps:
         for path in deps:
             path.write_text("x")
             _age(path, 500)
-        assert shade_planet.is_stale(planet_rgb, *deps) is False
+        assert freshness.is_stale(planet_rgb, *deps) is False
         (tmp_path / "seaice_3857.tif").write_text("re-warped")  # now newer
-        assert shade_planet.is_stale(planet_rgb, *deps) is True
+        assert freshness.is_stale(planet_rgb, *deps) is True
 
     def test_snow_warps_are_NOT_hillshade_inputs(self, tmp_path):
         """Snow is consumed by composite(), not the hillshade -- so its warp rasters belong in
@@ -454,9 +454,9 @@ class TestCompositeDeps:
         for path in deps:  # everything older than the output -> fresh
             path.write_text("x")
             _age(path, 500)
-        assert shade_planet.is_stale(planet_rgb, *deps) is False
+        assert freshness.is_stale(planet_rgb, *deps) is False
         (tmp_path / "lakedepth_3857.tif").write_text("re-extracted")  # now newer
-        assert shade_planet.is_stale(planet_rgb, *deps) is True
+        assert freshness.is_stale(planet_rgb, *deps) is True
 
     def test_a_rebuilt_hillshade_makes_planet_rgb_stale(self, tmp_path):
         """What makes it SAFE to keep `fill_strength` out of composite_params: a fill change
@@ -468,9 +468,9 @@ class TestCompositeDeps:
         for path in deps:
             path.write_text("x")
             _age(path, 500)
-        assert shade_planet.is_stale(planet_rgb, *deps) is False
+        assert freshness.is_stale(planet_rgb, *deps) is False
         (tmp_path / "hs_3857.tif").write_text("re-shaded with the fill sun")  # now newer
-        assert shade_planet.is_stale(planet_rgb, *deps) is True
+        assert freshness.is_stale(planet_rgb, *deps) is True
 
 
 class TestRerunEconomics:
@@ -490,7 +490,7 @@ class TestRerunEconomics:
 
         # A completed pass, layered oldest-first: raw inputs (1000s) -> derived rasters
         # (500s) -> planet_rgb (100s). Anything else and the guard is right to cry stale.
-        params = shade_planet.write_if_changed(
+        params = freshness.write_if_changed(
             tmp_path / "composite_params.json", shade_planet.composite_params({None: None}, bodies.EARTH, WHOLE_PLANET))
         deps = shade_planet.composite_deps(tmp_path, tmp_path / "hs_3857.tif", params)
         height = _built(tmp_path, "height_3857.tif")
@@ -506,17 +506,17 @@ class TestRerunEconomics:
                 _at(path, 500)
         _at(height, 500)
         _at(planet_rgb, 100)
-        assert shade_planet.is_stale(planet_rgb, *deps) is False, "unchanged rerun must skip"
+        assert freshness.is_stale(planet_rgb, *deps) is False, "unchanged rerun must skip"
 
         # Now re-tune the lake ramp and re-write the params exactly as a rerun would.
         monkeypatch.setattr(palette, "LAKE_STOPS",
                             [(0.0, (0.1, 0.2, 0.3)), (1.0, (0.4, 0.5, 0.6))])
-        shade_planet.write_if_changed(params, shade_planet.composite_params({None: None}, bodies.EARTH, WHOLE_PLANET))
+        freshness.write_if_changed(params, shade_planet.composite_params({None: None}, bodies.EARTH, WHOLE_PLANET))
 
-        assert shade_planet.is_stale(planet_rgb, *deps) is True, "ramp change must recomposite"
-        assert shade_planet.is_stale(height, heightfield_vrt, chunks) is False, \
+        assert freshness.is_stale(planet_rgb, *deps) is True, "ramp change must recomposite"
+        assert freshness.is_stale(height, heightfield_vrt, chunks) is False, \
             "a ramp change must NOT trigger the 31 GB height re-warp"
-        assert shade_planet.is_stale(tmp_path / "lakedepth_3857.tif", lake_vrt) is False, \
+        assert freshness.is_stale(tmp_path / "lakedepth_3857.tif", lake_vrt) is False, \
             "a ramp change must NOT re-warp the 83k-source GLOBathy VRT"
 
 
@@ -563,7 +563,7 @@ class TestBuildTilesGuard:
         planet = _built(tmp_path, "planet_rgb.tif")
         live = tmp_path / "tiles"
         live.mkdir()
-        shade_planet.mark_done(live)
+        freshness.mark_done(live)
         assert shade_planet.tiles_are_fresh(planet, tmp_path) is False
 
     def test_stale_when_composite_never_stamped(self, tmp_path):
@@ -658,10 +658,10 @@ class TestTileRecipe:
         """build_tiles rewrites the recipe on every run, so an unchanged one must not move its
         mtime — otherwise every --tiles invocation would restage the pyramid."""
         params = shade_planet.tile_params_path(tmp_path)
-        shade_planet.write_if_changed(params, shade_planet.tile_params(bodies.EARTH))
+        freshness.write_if_changed(params, shade_planet.tile_params(bodies.EARTH))
         _age(params, 500)
         before = params.stat().st_mtime
-        shade_planet.write_if_changed(params, shade_planet.tile_params(bodies.EARTH))
+        freshness.write_if_changed(params, shade_planet.tile_params(bodies.EARTH))
         assert params.stat().st_mtime == before
 
 
@@ -778,7 +778,7 @@ class TestTheWarpPassAsksTheSeamBeforeTheDisk:
         work.mkdir()
         planet.mkdir()
         height = _raster(work / "height_3857.tif", 10, 10, GRID[2])
-        shade_planet.mark_done(height)
+        freshness.mark_done(height)
         for raster in planet_seam.PLANET_RASTERS:
             source = planet / f"planet_{raster}.vrt"
             source.write_text("vrt")
@@ -986,11 +986,11 @@ class TestWhyTheTwoDependencyListsDisagree:
         """`is_stale` shrugs at a path that is not there; `cap_is_fresh` refuses outright. That is
         the whole reason one list can over-name its inputs and the other cannot."""
         output = _raster(tmp_path / "planet_rgb.tif", 10, 10, GRID[2])
-        shade_planet.mark_done(output)
+        freshness.mark_done(output)
         _age(output, 100)
-        _age(shade_planet.done_marker(output), 100)
+        _age(freshness.done_marker(output), 100)
         never_built = tmp_path / "seaice_3857.tif"
-        assert shade_planet.is_stale(output, never_built) is False, (
+        assert freshness.is_stale(output, never_built) is False, (
             "is_stale must tolerate an input this planet never built")
         assert cap_render.cap_is_fresh(
             "recipe", [output], _written(tmp_path / "sidecar.json", "recipe"),

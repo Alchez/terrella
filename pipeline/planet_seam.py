@@ -12,7 +12,7 @@ Downstream stages need to know whether this body HAS an ocean mask, and the temp
   * ABSENCE IS NOT A STATEMENT. A missing mask cannot distinguish "this planet has no sea" from
     "the producer died two rasters in". The first is a fact to composite against; the second is a
     half-built planet that must never be shaded, and they look identical on disk.
-  * ABSENCE IS ALSO INVISIBLE TO FRESHNESS. `shade_planet.newest_mtime` scores a missing path 0.0,
+  * ABSENCE IS ALSO INVISIBLE TO FRESHNESS. `freshness.newest_mtime` scores a missing path 0.0,
     so a raster that goes away stops being a dependency at the same moment it stops being an input.
     Turning a sea OFF therefore leaves the old sea-painted composite looking perfectly fresh —
     which is exactly the loop Phase 2 runs when it tries a shoreline contour, then another, then

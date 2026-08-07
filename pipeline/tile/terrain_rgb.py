@@ -54,13 +54,13 @@ import numpy as np
 import rasterio
 
 from pipeline import paths
-from pipeline.raster_io import GTIFF_CREATE, band_window, row_bands
-from pipeline.tile.shade_planet import (
+from pipeline.freshness import (
     done_marker,
     is_stale,
     mark_done,
     write_if_changed,
 )
+from pipeline.raster_io import GTIFF_CREATE, band_window, row_bands
 
 #: Native grid of `height_3857.tif` — 512 px x 2^8, i.e. the colour pyramid's z8.
 MASTER_ZOOM = 8
