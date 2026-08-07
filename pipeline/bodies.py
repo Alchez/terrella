@@ -7,17 +7,11 @@ WHAT A BODY IS. Not a look and not a dataset — the small set of facts that mak
 produce a different planet. Geometry (how big the sphere is), the vertical exaggeration its relief
 is drawn at, and how deep its pyramid is cut. Everything else about a planet is data.
 
-WHY THIS EXISTS BEFORE THERE IS A SECOND BODY. Every one of these values is currently a module-level
-constant sized for Earth, and two of them are already written out twice with nothing relating them
-(`EARTH_RADIUS` in `render/hillshade.py` and `render/snow.py`). Adding a planet turns each into a
-cross-body bug of the worst kind: the wrong sphere radius does not raise, it scales the per-row
-hillshade z-factor by latitude and produces a relief that is plausible everywhere and true nowhere.
-
-THE VALUES HERE ARE STILL DUPLICATED ELSEWHERE, ON PURPOSE AND UNDER GUARD. This module is a pure
-addition — nothing reads it yet — so every constant it states also still lives at its original call
-site. `tests/test_bodies.py` pins each pair, so the interim cannot drift, and each bridge assertion
-dies with the copy it holds. Copied look constants have already cost this project one overnight
-re-render of every hero; the only safe copy is one a test refuses to let diverge.
+WHY A REGISTRY AND NOT CONSTANTS. A wrong sphere radius does not raise: it scales the per-row
+hillshade z-factor by latitude and produces relief that is plausible everywhere and true nowhere.
+Copied look constants have already cost this project one overnight re-render of every hero, so a
+value that still has a second home is pinned to this module by a bridge test in
+`tests/test_bodies.py`, and each bridge dies with the copy it holds.
 
 NO FIELD MAY CARRY A DEFAULT. A default would let a field added later be inherited unexamined by
 every planet but the one it was written for — invisible in the diff that adds it. Without defaults,
@@ -30,7 +24,8 @@ above exists to refuse. It would also have nothing to dispatch: no consumer anyw
 which body it holds — every one of them reads a FIELD (`body.exaggeration`, `body.ground_radius_m`,
 `"perennial_ice" in body.surface_layers`), so a subclass would carry no overridden behaviour and be a
 constructor call spelled longer. A body's facts are DATA, and a frozen dataclass is how Python
-states data.
+states data. THIS ARGUMENT IS ABOUT BODIES AND DOES NOT CARRY TO PRODUCERS — those are behaviour and
+they do dispatch, which is why `render/perennial_ice.py` is a registry of functions instead.
 
     from pipeline import bodies
     body = bodies.get("earth")     # raises on an unknown name; never falls back
@@ -211,7 +206,9 @@ class Body:
 
 EARTH = Body(
     name="earth",
-    # Web Mercator's sphere. Duplicated today in render/hillshade.py and render/snow.py.
+    # Web Mercator's sphere. `mercator.WEB_MERCATOR_RADIUS_M` is the projection's own statement of
+    # the same number and is bridged to this field; the two agreeing is a coincidence with its own
+    # test, not one value read twice.
     mercator_radius_m=6378137.0,
     # The caps' AEQD sphere. NOT the Mercator one above, and not MapLibre's globe radius.
     aeqd_radius_m=6371000.0,

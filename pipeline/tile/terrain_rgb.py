@@ -53,7 +53,7 @@ from pathlib import Path
 import numpy as np
 import rasterio
 
-from pipeline import paths
+from pipeline import mercator, paths
 from pipeline.freshness import (
     done_marker,
     is_stale,
@@ -102,10 +102,6 @@ TILE_FORMATS = {
 FEATHER_LAT_LO = 78.0
 FEATHER_LAT_HI = 85.0
 
-#: Web Mercator's sphere radius — the same constant the projection itself is defined on.
-MERCATOR_RADIUS = 6378137.0
-
-
 def _run(cmd) -> None:
     subprocess.run([str(part) for part in cmd], check=True)
 
@@ -123,7 +119,7 @@ def row_latitudes(row0: int, row1: int, height: int, north: float, south: float)
     """
     rows = np.arange(row0, row1, dtype=np.float64) + 0.5
     y = north - rows * (north - south) / height
-    return np.degrees(np.arctan(np.sinh(y / MERCATOR_RADIUS)))
+    return mercator.latitude_at(y, mercator.WEB_MERCATOR_RADIUS_M)
 
 
 def feather_factor(latitudes: np.ndarray) -> np.ndarray:

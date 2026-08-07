@@ -1,21 +1,20 @@
 """The body registry: one home for what differs between one planet and the next.
 
-WHY A REGISTRY AT ALL. Everything that makes a globe a globe is currently a module-level constant
-sized for Earth, and several of them are already duplicated — `EARTH_RADIUS = 6378137.0` is written
-out twice, in `render/hillshade.py` and `render/snow.py`, with no test relating them. A second body
-turns every one of those into a silent cross-body bug: the wrong radius does not crash, it produces
-a latitude-varying wrong exaggeration that renders perfectly plausibly.
+WHY A REGISTRY AT ALL. A wrong sphere radius does not crash: it produces a latitude-varying wrong
+exaggeration that renders perfectly plausibly, so a second body turns any duplicated constant into a
+silent cross-body bug.
 
 THE BRIDGE TESTS ARE THE POINT OF THIS FILE, and they are temporary by design. The registry states
-each value and the tests below hold every existing copy to it, so the interim duplication cannot
-drift. As each copy is deleted in a later commit its bridge test becomes a statement about the one
-remaining home. Copied look constants have already cost this project a full overnight re-render of
-203 heroes; a guarded copy is the only kind worth having.
+each value and the tests below hold every remaining copy to it, so the duplication cannot drift; as
+each copy is deleted its bridge becomes a statement about the one remaining home. Copied look
+constants have already cost this project a full overnight re-render of the heroes; a guarded copy is
+the only kind worth having.
 
 NO FIELD MAY CARRY A DEFAULT. That is what makes adding a field to `Body` a hard error at every
 call site rather than a silent inheritance of Earth's value by a planet nobody checked.
 """
 
+import ast
 import dataclasses
 import json
 import math
@@ -27,7 +26,7 @@ import pytest
 
 from pipeline import bodies, mercator, paths, planet_seam
 from pipeline.compose import countries_pmtiles
-from pipeline.render import hillshade, palette, snow
+from pipeline.render import palette
 from pipeline.tile import cap_render, shade_planet
 
 #: A planet whose seam emitted all three rasters — what Earth declares, and the only
@@ -88,20 +87,44 @@ def test_the_registry_key_is_the_body_s_own_name() -> None:
 # Each of these dies with the copy it pins. Until then it is what makes the duplication safe.
 
 
-def test_the_render_package_no_longer_carries_its_own_earth_radius() -> None:
+#: The only two modules allowed to spell Web Mercator's sphere. `mercator.py` states what the
+#: projection is DEFINED on; `bodies.py` states it as a planet's own fact. Every other module gets
+#: it from one of them.
+RADIUS_OWNERS = {"pipeline/mercator.py", "pipeline/bodies.py"}
+
+
+def test_no_module_regrows_web_mercators_sphere() -> None:
     """The bridge that pinned the two copies is GONE because the copies are.
 
     Replaced by an anti-regrowth scan rather than deleted outright, in the shape `test_paths.py`
     already uses for filesystem roots: the failure worth catching now is not divergence between two
-    literals but the reappearance of a second literal at all. A source scan is the only thing that
-    can see that, because a regrown constant type-checks, tests green, and reads as a tidy local.
+    literals but the reappearance of a second literal at all. A regrown constant type-checks, tests
+    green, and reads as a tidy local, so a scan is the only thing that can see it.
+
+    SWEEPS THE PACKAGE RATHER THAN A LIST OF MODULES, which is the correction this test needed.
+    Naming `hillshade` and `snow` described where the constant had been found, not where it could
+    appear — and `tile/terrain_rgb.py` then carried an unguarded copy for as long as it existed,
+    along with its own transcription of the inverse projection written in a different algebraic
+    form. A hand-written list of nouns cannot see the next noun; the closed question is which
+    modules are ALLOWED to hold it.
+
+    Parsed rather than grepped, so prose naming the number is prose: `mercator.py`'s own docstring
+    cites it, and `bodies.py`'s field notes discuss it, neither of which is a second home.
     """
-    for module in (hillshade, snow):
-        source = Path(module.__file__).read_text(encoding="utf-8")  # pyright: ignore[reportArgumentType]
-        assert "6378137" not in source, (
-            f"{Path(module.__file__).name} has regrown a hard-coded sphere radius — "  # pyright: ignore[reportArgumentType]
-            "it belongs to the body, and the conversion lives in pipeline/mercator.py"
-        )
+    offenders = {}
+    for path in sorted((paths.ROOT / "pipeline").rglob("*.py")):
+        relative = str(path.relative_to(paths.ROOT))
+        if relative in RADIUS_OWNERS:
+            continue
+        found = [node.lineno for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
+                 if isinstance(node, ast.Constant) and node.value == 6378137.0]
+        if found:
+            offenders[relative] = found
+    assert not offenders, (
+        f"these modules have regrown Web Mercator's sphere radius: {offenders}. Import "
+        "`mercator.WEB_MERCATOR_RADIUS_M` for a grid question, or read the body's own field for a "
+        "ground one — a second literal is how the two silently drift apart."
+    )
 
 
 def test_earth_carries_web_mercator_s_defining_sphere() -> None:

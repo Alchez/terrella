@@ -1876,10 +1876,10 @@ SABOTAGES: list[Sabotage] = [
         # ANCHORED ON EARTH'S OWN COMMENT, because the bare field line stopped being unique the
         # moment Mars joined the registry carrying the SAME number on purpose. The freshness gate
         # caught that within a second of Mars landing, which is the whole reason it exists.
-        needle=("    # Web Mercator's sphere. Duplicated today in render/hillshade.py and "
-                "render/snow.py.\n    mercator_radius_m=6378137.0,"),
-        replacement=("    # Web Mercator's sphere. Duplicated today in render/hillshade.py and "
-                     "render/snow.py.\n    mercator_radius_m=6371000.0,"),
+        needle=("    # test, not one value read twice.\n"
+                "    mercator_radius_m=6378137.0,"),
+        replacement=("    # test, not one value read twice.\n"
+                     "    mercator_radius_m=6371000.0,"),
         guard='test_earth_carries_web_mercator_s_defining_sphere',
     ),
     # The plausible edit: 6371000 IS a real earth radius, just not the projection's one. Nothing
@@ -1891,7 +1891,19 @@ SABOTAGES: list[Sabotage] = [
         path='pipeline/render/snow.py',
         needle='    return mercator.latitude_at(merc_y, mercator.WEB_MERCATOR_RADIUS_M)',
         replacement='    return mercator.latitude_at(merc_y, 6378137.0)',
-        guard='test_the_render_package_no_longer_carries_its_own_earth_radius',
+        guard='test_no_module_regrows_web_mercators_sphere',
+    ),
+    # THE SAME REGROWTH IN A PACKAGE THE OLD GUARD COULD NOT SEE. That guard named `hillshade` and
+    # `snow`, which described where the constant had been found rather than where it could appear —
+    # and `terrain_rgb` really did carry an unguarded copy, plus its own `arctan(sinh(y/R))` form of
+    # the same Gudermannian. This case is what proves the sweep replaced a list of nouns.
+    Sabotage(
+        suite='python',
+        label='a tile module regrows the sphere radius the render package was guarded against',
+        path='pipeline/tile/terrain_rgb.py',
+        needle='    return mercator.latitude_at(y, mercator.WEB_MERCATOR_RADIUS_M)',
+        replacement='    return np.degrees(np.arctan(np.sinh(y / 6378137.0)))',
+        guard='test_no_module_regrows_web_mercators_sphere',
     ),
     # Identical output today, which is exactly why nothing else would notice: the module has quietly
     # stopped asking the projection module and gone back to knowing the answer. The needle moved off
