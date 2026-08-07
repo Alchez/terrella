@@ -108,7 +108,7 @@ class CapIce:
 def _earth_north(inputs: CapIceInputs) -> np.ndarray:
     """NSIDC-0791 snow persistence, smoothstepped — Earth's Arctic land ice and perennial snow.
 
-    The whole cap is north of `CAP_EDGE_LAT` (78) and therefore of `snow.RAMP_LAT_HI` (63), so
+    The whole cap is north of `cap_render.CAP_EDGE_LAT` and therefore of `snow.RAMP_LAT_HI`, so
     `snow_alpha`'s latitude ramp is CONSTANT across every pixel of it. Reproduced here with the
     fixed high-latitude thresholds rather than by calling `snow_alpha`, whose per-row latitude is
     Mercator-specific and would be wrong on an AEQD grid.

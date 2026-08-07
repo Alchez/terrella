@@ -59,11 +59,11 @@ const RUNGS = (pole: string) => [
 
 const MANIFEST: CapsManifest = {
   north: {
-    rungs: RUNGS("north"), edge_lat: 78, feather_hi: 84,
+    rungs: RUNGS("north"), edge_lat: 80, feather_hi: 84,
     elev_url: "/caps/cap_north_elev.webp", elev_step: TERRAIN_QUANTISATION_M,
   },
   south: {
-    rungs: RUNGS("south"), edge_lat: -78, feather_hi: -84,
+    rungs: RUNGS("south"), edge_lat: -80, feather_hi: -84,
     elev_url: "/caps/cap_south_elev.webp", elev_step: TERRAIN_QUANTISATION_M,
   },
 };
@@ -100,9 +100,9 @@ describe("capOptionsFrom", () => {
     // which does not exist yet when the options are built.
     expect(north.rungs).toEqual(RUNGS("north"));
     expect(north.poleLat).toBe(90);
-    expect(north.texEdgeLat).toBe(78);
+    expect(north.texEdgeLat).toBe(80);
     expect(south.poleLat).toBe(-90);
-    expect(south.texEdgeLat).toBe(-78);
+    expect(south.texEdgeLat).toBe(-80);
     expect(south.latBottom).toBeLessThan(0);
   });
 

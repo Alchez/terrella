@@ -114,6 +114,27 @@ grep HISTORY before re-arguing anything an entry says was already decided.
 - **Adjacent, same sweep:** the tier picker's `radiogroup` a11y defect is already parked here. If
   either is ever picked up, do both — one accessibility pass, one round of judgement.
 
+## The polar caps are a texture because MapLibre allows nothing else, and the ceiling is WebP's (analysed 2026-08-07)
+
+- **State at analysis:** each pole ships one AEQD texture with a four-rung ladder (1024/2048/4096/8192)
+  picked from the cap's measured on-screen size. It is not a tile pyramid, and the reason has been
+  assumed rather than recorded.
+- **GDAL is not the constraint.** `gdal raster tile --tiling-scheme` offers `APSTILE` and
+  `LINZAntarticaMapTilegrid` alongside `WebMercatorQuad` — both polar stereographic, both able to
+  cut a real pyramid over a pole.
+- **MapLibre is.** Its raster and vector sources are Web Mercator only; `scheme` chooses `xyz` vs
+  `tms` and that is the whole vocabulary. Consuming a polar pyramid means a custom loader, LOD
+  selector and stitcher — most of what the custom cap layer already does, with 8 files instead of
+  thousands.
+- **The texture ceiling is 16,383 px, and it is a file-format limit, not a taste one.** WebP cannot
+  encode a larger side at all; GPU `MAX_TEXTURE_SIZE` is typically 16,384 on desktop and the mobile
+  budget already clamps to 4096. So the largest cap that could ever ship is 2× today's linear size.
+- **What that would buy, measured against each body's own source:** Mars nothing — its cap already
+  interpolates its 200 m/px blend. Earth's south cap is the one real gap, sitting several times
+  coarser than the land DEM beneath it and than the tiles it feathers into at the seam.
+- **Verdict: parked, and the gap is Earth's, not Mars's.** Revisit only if MapLibre gains a
+  TileMatrixSet source, or if Antarctic detail is judged short on the sphere — never from the number.
+
 ## MapLibre's WebGPU backend — irrelevant to our memory problem, and NOT the no-op we recorded (analysed 2026-07-29)
 
 Prompted by the graphics-modernization roadmap. Read it against the DEM-cache work rather than in

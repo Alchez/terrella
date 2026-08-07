@@ -10,7 +10,7 @@ list), so no cap constant is hand-copied into TypeScript (see caps_manifest).
 
 Both poles share the projection/warp/coastline machinery but source their inputs differently:
   - NORTH: the fused planet VRTs (height/ocean/water) + NSIDC-0791 snow persistence + OSI SAF sea
-    ice. The whole cap is >78N, so snow_alpha's Mercator latitude ramp is CONSTANT here (reproduced
+    ice. The whole cap is >80N, so snow_alpha's Mercator latitude ramp is CONSTANT here (reproduced
     with fixed high-latitude thresholds). Inland water via lake_depth.inland_water (NEVER
     watercode.astype(bool) -- that caught class-1 ocean and flat-filled the Arctic sea, the
     disc-glow bug).
@@ -19,7 +19,7 @@ Both poles share the projection/warp/coastline machinery but source their inputs
     an interior ring). Ocean -> bathymetry depth ramp + the SH half of the same sea-ice climatology.
     Snow is FORCED over Antarctic land, not read from a dataset (NSIDC-0791 is NH-only, RGI region
     19 is excluded), via snow.antarctic_snow_mask (shared with the tile composite). Since the
-    pyramid carries Antarctica itself, the cap mirrors the north exactly (edge_lat -78, feathered
+    pyramid carries Antarctica itself, the cap mirrors the north exactly (edge_lat -80, feathered
     81..84 over interior ice) and only covers the last smeared Mercator sliver.
 
 Two cap-specific twists vs the Mercator tiles:
@@ -79,6 +79,15 @@ CAP_RUNGS = (1024, 2048, 4096, CAP_PX)  # shipped texture sizes, ascending; the 
                        # cap's PROJECTED on-screen size: the untouched default camera paints the cap
                        # at 110 CSS px, so the 8192 was a 74x linear oversupply for every visitor who
                        # never zooms to a pole. Measured both caps: 162 KB / 570 KB / 1.7 MB / 5.1 MB.
+CAP_EDGE_LAT = 80.0    # inscribed-circle latitude of the texture disc, north; the south mirrors it.
+                       # EQUALS polarCaps.ts's MESH_EDGE_LAT and must stay >= it: the mesh spans this
+                       # latitude to the pole and samples nothing outside the disc, so the two move
+                       # together. The visible band opens at that file's FEATHER_LO 81 and is fully
+                       # opaque from shade_planet.CAP_NORTH 84, so the whole ladder is
+                       # |edge_lat| <= MESH_EDGE_LAT <= FEATHER_LO < |feather_hi| -- asserted in
+                       # polarCaps.test.ts against the served caps.json rather than restated here.
+                       # DO NOT raise CAP_PX chasing a finer cap: Mars's disc already oversamples its
+                       # 200 m source, and RINGS (polarCaps.ts) makes the MESH the limit, not this.
 CAP_WEBP_QUALITY = 85  # gdal_translate WEBP quality — hero_variants' proven setting; rides in
                        # cap_recipe because the encoder changes the shipped pixels
 CAP_ELEV_PX = 512      # elevation texture side; see cap_elev_asset for why there is only one size.
@@ -131,7 +140,8 @@ def north_grid(body: bodies.Body) -> CapGrid:
     two: a module-level grid pins `body` at import, so every caller downstream inherits Earth by
     construction and no amount of argument-passing anywhere else can undo it.
     """
-    return CapGrid(lat_0=90.0, edge_lat=78.0, px=CAP_PX, name="north", az_sign=-1.0, body=body)
+    return CapGrid(lat_0=90.0, edge_lat=CAP_EDGE_LAT, px=CAP_PX, name="north", az_sign=-1.0,
+                   body=body)
 
 
 def south_grid(body: bodies.Body) -> CapGrid:
@@ -149,8 +159,8 @@ def south_grid(body: bodies.Body) -> CapGrid:
     entry in the recipe's `layers_off` -- which is the copy-drift this registry exists to remove.
     A second body's look constants are a Phase-2 question, decided with its cap on screen.
     """
-    return CapGrid(lat_0=-90.0, edge_lat=-78.0, px=CAP_PX, name="south", az_sign=1.0, body=body,
-                   coast_opacity=0.0, coast_dilate=0,
+    return CapGrid(lat_0=-90.0, edge_lat=-CAP_EDGE_LAT, px=CAP_PX, name="south", az_sign=1.0,
+                   body=body, coast_opacity=0.0, coast_dilate=0,
                    ice_lo=seaice.SH_ICE_LO, ice_max_alpha=seaice.SH_ICE_MAX_ALPHA)
 
 # The coastline baked into the cap texture -- the land/sea line separating land snow from sea ice

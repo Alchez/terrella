@@ -3484,9 +3484,23 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label='the north grid factory pins Earth, so every body inherits Earth by construction',
         path='pipeline/tile/cap_render.py',
-        needle='    return CapGrid(lat_0=90.0, edge_lat=78.0, px=CAP_PX, name="north", az_sign=-1.0, body=body)',
-        replacement='    return CapGrid(lat_0=90.0, edge_lat=78.0, px=CAP_PX, name="north", az_sign=-1.0,\n                   body=bodies.EARTH)',
+        # The body argument alone, never the latitudes beside it — the north factory is the only
+        # `body=body)` that closes its own call, and edge_lat has moved once already.
+        needle='                   body=body)',
+        replacement='                   body=bodies.EARTH)',
         guard='test_a_factory_carries_the_body_it_was_given_all_the_way_through',
+    ),
+    # The mesh spans MESH_EDGE_LAT to the pole and samples the texture by the linear AEQD law, so a
+    # mesh reaching further equatorward than the disc reads outside the texture and the cap's rim
+    # takes whatever the clamp returns. Two of the four latitudes never reach caps.json, so the
+    # manifest cannot pin this ordering and only a source-to-source guard can.
+    Sabotage(
+        suite='python',
+        label='the cap mesh reaches further equatorward than the texture disc it samples',
+        path='web/src/lib/polarCaps.ts',
+        needle='export const MESH_EDGE_LAT = 80;',
+        replacement='export const MESH_EDGE_LAT = 79;',
+        guard='test_the_cap_latitude_ladder_holds',
     ),
     # The URL is rebuilt from the basename, which is what it used to be. Correct for Earth, whose
     # segment is empty; every nesting body advertises its whole texture set one directory up.

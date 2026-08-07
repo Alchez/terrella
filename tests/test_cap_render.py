@@ -1,10 +1,13 @@
 """cap_render's pure layer: grid geometry, the rotated-azimuth shade, and the caps.json
 contract the web layer consumes.
 
-The contract tests are the load-bearing ones: `edge_lat` (±78) and the feather ceiling
-(±84 = shade_planet's Mercator plug boundary) were hand-duplicated as literals in
+The contract tests are the load-bearing ones: `edge_lat` and the feather ceiling
+(= shade_planet's Mercator plug boundary) were hand-duplicated as literals in
 polarCaps.ts — the same copy-drift species as the hero/tile colour constants. caps.json
 makes the pipeline the single author; these tests pin what it publishes.
+
+`test_the_cap_latitude_ladder_holds` pins the one relationship caps.json cannot carry, because
+two of its four latitudes are frontend aesthetics that never reach the manifest.
 
 The elevation texture (TestCapElevationTexture, below) is guarded harder than the colour, and
 for a different reason: a wrong colour pixel is visible and a wrong METRE is not. The cap
@@ -57,9 +60,42 @@ class TestCapGridGeometry:
     def test_edge_m_is_linear_in_colatitude(self):
         """AEQD from the pole: radius = R * colatitude(rad) — the linear law the
         frontend's UV mapping assumes."""
-        expected = bodies.EARTH.aeqd_radius_m * np.radians(90.0 - 78.0)
+        expected = bodies.EARTH.aeqd_radius_m * np.radians(90.0 - cap_render.CAP_EDGE_LAT)
         assert EARTH_NORTH.edge_m == pytest.approx(expected)
-        assert EARTH_SOUTH.edge_m == pytest.approx(expected)  # |−78| — same disc
+        assert EARTH_SOUTH.edge_m == pytest.approx(expected)  # the mirrored disc, same radius
+
+    def test_the_cap_latitude_ladder_holds(self, subtests):
+        """Four latitudes decide where a cap is drawn, and they live in three files and two
+        languages. Only two of them reach caps.json, so nothing else can pin the ordering.
+
+        Read as NUMBERS out of the TypeScript rather than matched as literal declarations: the
+        invariant is the ordering, not the spelling, and a guard that asserts more than its
+        invariant fails on edits that move no pixel.
+
+        `|edge_lat| <= MESH_EDGE_LAT` is the load-bearing one — the mesh spans MESH_EDGE_LAT to
+        the pole and samples the texture by the linear AEQD law above, so a mesh reaching further
+        equatorward than the disc reads outside the texture and the cap's rim goes to whatever
+        the clamp returns.
+        """
+        source = (paths.ROOT / "web/src/lib/polarCaps.ts").read_text()
+        found = {
+            name: float(match.group(1))
+            for name in ("MESH_EDGE_LAT", "FEATHER_LO")
+            if (match := re.search(rf"^export const {name} = (-?[\d.]+);", source, re.MULTILINE))
+        }
+        assert set(found) == {"MESH_EDGE_LAT", "FEATHER_LO"}, (
+            f"polarCaps.ts must export both as plain number literals; parsed {found}"
+        )
+
+        with subtests.test("both grids sit at the shared edge latitude"):
+            assert abs(EARTH_NORTH.edge_lat) == cap_render.CAP_EDGE_LAT
+            assert abs(EARTH_SOUTH.edge_lat) == cap_render.CAP_EDGE_LAT
+        with subtests.test("the mesh never reaches outside the texture disc"):
+            assert cap_render.CAP_EDGE_LAT <= found["MESH_EDGE_LAT"]
+        with subtests.test("the visible feather opens inside the mesh"):
+            assert found["MESH_EDGE_LAT"] <= found["FEATHER_LO"]
+        with subtests.test("the feather closes below the plug boundary"):
+            assert found["FEATHER_LO"] < abs(shade_planet.CAP_NORTH)
 
 
 class TestLonlatGrid:
@@ -113,10 +149,10 @@ class TestShade:
 #: once, in full, rather than trusting eight separate assertions to stay complete.
 SHIPPED_GRIDS = {
     "north": {"aeqd_radius_m": 6371000.0, "az_sign": -1.0, "coast_dilate": 1,
-              "coast_opacity": 0.55, "edge_lat": 78.0, "ice_lo": None, "ice_max_alpha": None,
+              "coast_opacity": 0.55, "edge_lat": 80.0, "ice_lo": None, "ice_max_alpha": None,
               "lat_0": 90.0, "name": "north", "px": 8192},
     "south": {"aeqd_radius_m": 6371000.0, "az_sign": 1.0, "coast_dilate": 0,
-              "coast_opacity": 0.0, "edge_lat": -78.0, "ice_lo": 0.62, "ice_max_alpha": 0.55,
+              "coast_opacity": 0.0, "edge_lat": -80.0, "ice_lo": 0.62, "ice_max_alpha": 0.55,
               "lat_0": -90.0, "name": "south", "px": 8192},
 }
 

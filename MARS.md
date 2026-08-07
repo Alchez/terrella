@@ -238,6 +238,14 @@ whole project.
   times the disk to deliver a 2.8× upsample of MOLA over most of the planet.
   - Not a decision. A resolution ceiling has never been judgeable from a number here — it has to
     exist, be served, and be looked at on the sphere, which is how Earth's was settled.
+- **The polar caps do not sit on this ladder at all, and Mars's already outruns its own source.**
+  The cap is one AEQD texture per pole at a fixed pixel count, so its ground resolution follows the
+  body's radius rather than any zoom: **144.6 m/px on Mars against 271.5 on Earth**, from the same
+  constant meeting a smaller planet.
+  - Against the 200 m/px blend that feeds it, Mars's cap is already **interpolating**. A larger
+    texture buys nothing here, and the frontend's mesh — not the texture — is the standing limit.
+  - The comparison that matters is at the **seam**, not the equator. Mercator pixels shrink by
+    cos(lat), so at 78° a z6 tile carries ~135 m/px and the cap is the coarser artifact of the two.
 
 ### Exaggeration: two ratios that point opposite ways
 
