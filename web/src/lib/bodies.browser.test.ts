@@ -36,12 +36,8 @@ afterEach(() => {
   else root.setAttribute("data-body", originalBody);
 });
 
-/** A hex compared as a COLOUR rather than as a spelling.
- *
- *  The two files disagree on case and each is right locally: `palette.ts` is uppercase because the
- *  Python pin that recomputes it formats `%02X`, and `global.css` is lowercase throughout. CSS hex
- *  is case-insensitive, so asserting the spelling would fail on a change that moves no pixel while
- *  catching nothing a case-folded compare misses — every real drift is a different colour. */
+/** Compare hex as a COLOUR, not a spelling: `palette.ts` is uppercase (its Python pin formats
+ *  `%02X`), `global.css` is lowercase. CSS hex is case-insensitive, so case is not the invariant. */
 function asColour(hex: string): string {
   return hex.trim().toLowerCase();
 }

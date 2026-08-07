@@ -34,7 +34,7 @@
    file and then checks what the browser actually computes from it. A copied colour with nothing
    comparing it back is how WATER_RGB drifted 15% off the sea it was supposed to match. */
 :root[data-body="earth"] {
-  --accent: #3a6e7d; /* SEA_STOPS[5], the trench floor — the sea ramp's dark extreme */
+  --accent: #3a6e7d; /* SEA_STOPS[5], the trench floor */
 }
 @media (prefers-color-scheme: dark) {
   :root[data-body="earth"] {
@@ -42,15 +42,14 @@
   }
 }
 
-/* Mars, both values now from its own ramp — see the note beside its descriptor in lib/bodies.ts.
-   The same roles Earth's play: the ramp's dark extreme on a light ground, its light extreme on a
-   dark one. */
+/* Mars: eye-ratified, not ramp-derived. lib/bodies.ts holds the measurement that reverted a
+   derivation from ramp stops — don't retry it. */
 :root[data-body="mars"] {
-  --accent: #784f3c; /* MARS_LAND_STOPS[0], the -6000 m basin floor */
+  --accent: #8c4a32;
 }
 @media (prefers-color-scheme: dark) {
   :root[data-body="mars"] {
-    --accent: #d4bf9d; /* MARS_LAND_STOPS[5], Tharsis and the volcanic summits */
+    --accent: #d08b6a;
   }
 }
 

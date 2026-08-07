@@ -162,11 +162,9 @@ class TestSharedConstants:
 
         # name in the TS file -> the ramp stop it encodes
         derived = {
-            "DEEP_SEA": palette.SEA_STOPS[4][1],           # -3800 m abyssal plain
-            "TRENCH_FLOOR": palette.SEA_STOPS[5][1],       # -6000 m, Earth's light accent
-            "MARS_BASIN_FLOOR": palette.MARS_LAND_STOPS[0][1],   # -6000 m, Mars's light accent
+            "DEEP_SEA": palette.SEA_STOPS[4][1],                 # -3800 m, Earth's space-floor
+            "TRENCH_FLOOR": palette.SEA_STOPS[5][1],             # -6000 m, Earth's light accent
             "MARS_MODAL_GROUND": palette.MARS_LAND_STOPS[3][1],  #  +655 m, Mars's space-floor
-            "MARS_SUMMITS": palette.MARS_LAND_STOPS[5][1],       # +6100 m, Mars's dark accent
         }
         for name, linear in derived.items():
             red, green, blue = palette._srgb8(linear)
