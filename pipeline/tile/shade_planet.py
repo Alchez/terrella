@@ -1022,9 +1022,7 @@ def build_tiles(planet_tif: Path, out: Path, body: bodies.Body):
     empty and the cut re-ran in full every time. The completion stamp is `tiles.done`, touched only
     after the swap.
 
-    The recipe is written BEFORE the freshness question is asked, so changing the cut is what
-    triggers its own re-cut; `write_if_changed` means an unchanged recipe never moves an mtime and
-    never restages a pyramid that is still correct.
+    Recipe-gated in the usual order — see `freshness.write_if_changed`.
 
     EVERY CUT IS A CLEAN FULL CUT: the staging dir is removed first and `--resume` is not passed
     (see `_tile_cmd`). GDAL writes each tile in place, so a worker killed mid-write leaves a

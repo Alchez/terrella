@@ -13,6 +13,34 @@ Copied look constants have already cost this project one overnight re-render of 
 value that still has a second home is pinned to this module by a bridge test in
 `tests/test_bodies.py`, and each bridge dies with the copy it holds.
 
+EVERY PROJECTION HERE IS EARTH-SPHERED, WHATEVER PLANET THE ELEVATIONS DESCRIBE. Stated once
+because it is the shape of three fields below and of `fuse/relabel_mars.py`, not a fact about any
+one of them. PROJ refuses to build an operation between two celestial bodies, and `gdal raster
+tile` reprojects into WebMercatorQuad — EPSG:3857 — so a Mars-radius Mercator raster cannot be cut
+into tiles at all without disabling that guard globally. Measured twice, because the obvious
+objection is that a hand-written proj4 string names no body and might slip past: `gdalwarp -t_srs
+EPSG:3857` from IAU_2015:49900 exits 1 with "Source and target ellipsoid do not belong to the same
+celestial body (Earth vs Mars)", and so does a warp to an AEQD spelled `+a=3396190 +b=3396190`,
+with no EPSG code anywhere — while the identical warp to `+a=6371000` succeeds. A non-Earth
+heightfield therefore enters by having its CRS DECLARED as EPSG:4326, an identity on angles where
+only the sphere label changes.
+
+WHICH IS WHY THERE ARE THREE RADII. Each does the one job a radius does — turn an angle into a
+length — and they are separate because that job is asked in three coordinate systems. Two name
+projections and are Earth's for every body by the rule above; the third names the planet, and is
+the single fact that converts map units back into ground metres:
+
+    mercator_radius_m   the tile grid's sphere     | forced to Earth's, every body
+    aeqd_radius_m       the polar caps' sphere     |
+    ground_radius_m     the planet itself            what a ground metre is actually worth
+
+EARTH HIDES THE DISTINCTION, which is why nothing noticed it until a second body: EPSG:3857 is
+defined on a sphere of 6378137 m, which is also Earth's own equatorial radius, so
+`mercator_radius_m` had been answering two questions with one number. Earth's Mercator ground ratio
+is therefore exactly 1.0 by construction of the projection rather than by rounding, while its cap
+ratio is 1.0011202 — which is why the two conversions at the foot of this module are separate
+functions and must never be collapsed into one `ground_metres_per_map_unit`.
+
 NO FIELD MAY CARRY A DEFAULT. A default would let a field added later be inherited unexamined by
 every planet but the one it was written for — invisible in the diff that adds it. Without defaults,
 adding a field is a hard error at every construction until each body answers for it.
@@ -86,51 +114,23 @@ class Body:
 
     #: Registry key and path segment. Lowercase, no spaces — it names directories and archive keys.
     name: str
-    #: Sphere radius used for Web-Mercator ground-metre arithmetic, in metres.
+    #: The tile grid's sphere, in metres — one of the three the module note sets out.
     #:
-    #: This is the projection's sphere, NOT the body's mean or equatorial radius, and the two are
-    #: different questions. Consumers use it to turn a Mercator y back into a latitude and to size
-    #: the per-row hillshade z-factor, both of which must agree with whatever radius the raster was
-    #: warped with. Mixing two radii yields a latitude-varying error that renders plausibly.
+    #: Consumers turn a Mercator y back into a latitude with it and size the per-row hillshade
+    #: z-factor from it, both of which must agree with the radius the raster was actually warped
+    #: with. Mixing two of the three yields a latitude-varying error that renders plausibly.
     mercator_radius_m: float
-    #: Sphere radius for the polar caps' azimuthal-equidistant projection, in metres.
+    #: The polar caps' azimuthal-equidistant sphere, in metres — NOT the Mercator radius above.
     #:
-    #: A SECOND RADIUS, AND DELIBERATELY NOT THE FIRST. Three are in play on Earth: Web Mercator's
-    #: 6378137 (the tile grid), this AEQD sphere at 6371000, and MapLibre's own globe radius of
-    #: 6371008.8 on the frontend. The last two sit 8.8 m apart, and that gap is load-bearing — the
-    #: cap texture is projected on one and blended against tiles drawn on another, so collapsing
-    #: them puts the polar seam exactly that far out. One `radius_m` field would invite the collapse.
-    #:
-    #: A SECOND UNIT CONVENTION, THEREFORE A SECOND GROUND RATIO. Like the Mercator sphere above,
-    #: this one is forced to Earth's for every body — measured, and the interesting half is that a
-    #: bare proj4 string does not escape the check: `gdalwarp` from EPSG:3857 to an AEQD written
-    #: `+a=3396190 +b=3396190` is refused with "do not belong to the same celestial body (Mars vs
-    #: Earth)", with no EPSG code anywhere, while the identical warp to `+a=6371000` succeeds. So a
-    #: cap's map units are Earth metres too, and turning them into ground metres needs
-    #: `ground_metres_per_aeqd_unit` — NOT `ground_metres_per_mercator_unit`, which divides by a
-    #: different sphere. Earth's cap ratio is 1.0011202 rather than 1.0, so unlike the Mercator one
-    #: it could not be adopted for free; what made it affordable is that both cap sidecars were
-    #: already stale against this very field, so the render it costs was owed either way.
+    #: THE 8.8 m BETWEEN THIS AND THE FRONTEND IS LOAD-BEARING, which is the one thing about this
+    #: field the module note does not cover. MapLibre's globe radius is 6371008.8; the cap texture
+    #: is projected on this sphere and blended against tiles drawn on another, so collapsing any
+    #: two of the three puts the polar seam exactly that far out. One `radius_m` field would invite
+    #: the collapse, and nothing downstream would report it as anything but a seam.
     aeqd_radius_m: float
-    #: Radius of the body ITSELF, in metres — what a ground metre is worth on this planet.
-    #:
-    #: A THIRD RADIUS, AND THE ONLY ONE THAT IS PHYSICS. The two above name projections; this one
-    #: names the sphere. They are separate because a radius does exactly one job here — turning an
-    #: angle into a length — and that job is asked in three different coordinate systems.
-    #:
-    #: EARTH HIDES THE DISTINCTION, which is why nothing noticed it until a second body: EPSG:3857
-    #: is defined on a sphere of 6378137 m, which is also Earth's own equatorial radius, so
-    #: `mercator_radius_m` has been answering two questions with one number. Earth's ratio below is
-    #: therefore exactly 1.0 by construction of the projection, not by luck or by rounding.
-    #:
-    #: WHY A BODY DOES NOT SIMPLY PROJECT ONTO ITS OWN SPHERE, which would make this field
-    #: redundant: PROJ refuses to build an operation between two celestial bodies ("Source and
-    #: target ellipsoid do not belong to the same celestial body"), and `gdal raster tile` reprojects
-    #: into WebMercatorQuad, i.e. EPSG:3857. So a Mars-radius Mercator raster cannot be cut into
-    #: tiles at all without disabling that guard globally. Every projection in this pipeline is
-    #: therefore Earth-sphered for every body, a non-Earth heightfield enters by having its CRS
-    #: DECLARED as EPSG:4326 (an identity on angles; only the sphere label changes), and this field
-    #: is the single fact that converts the resulting map units back into real ground metres.
+    #: The body's own sphere, in metres — what a ground metre is worth on this planet, and the only
+    #: one of the three that is physics rather than a projection. See the module note for why the
+    #: other two are Earth's and this one is what converts their map units back.
     ground_radius_m: float
     #: Size of one pixel of the EPSG:3857 raster the pyramid is cut from, in MAP UNITS.
     #:
@@ -212,9 +212,9 @@ EARTH = Body(
     mercator_radius_m=6378137.0,
     # The caps' AEQD sphere. NOT the Mercator one above, and not MapLibre's globe radius.
     aeqd_radius_m=6371000.0,
-    # Earth's own sphere — the SAME number as its Mercator grid, because EPSG:3857 is defined on
-    # Earth's equatorial radius. That identity is what makes Earth's ground ratio exactly 1.0 and
-    # every existing pixel byte-identical; it is not a copy of the field above.
+    # The SAME number as its Mercator grid, and NOT a copy of the field above: EPSG:3857 is defined
+    # on Earth's equatorial radius, which is what makes Earth's ground ratio exactly 1.0 and every
+    # existing pixel byte-identical through each call site that adopts the conversion.
     ground_radius_m=6378137.0,
     # The ONE home now: the shade pass reads this, and a test scans it for a regrown literal. The
     # number is what the live 46 GB raster was actually warped at, and it is a rounded value — the
@@ -238,19 +238,13 @@ EARTH = Body(
 
 MARS = Body(
     name="mars",
-    # BOTH PROJECTION SPHERES ARE EARTH'S, ON PURPOSE, AND NEITHER IS A COPY-PASTE SLIP. The
-    # tempting "fix" is to put Mars's own radius here; it would be wrong, and wrong in a way that
-    # surfaces months later. PROJ refuses to build an operation between two celestial bodies, and
-    # `gdal raster tile` reprojects into WebMercatorQuad — i.e. EPSG:3857 — so a Mars-radius
-    # Mercator raster cannot be cut into tiles at all. Measured, not assumed: `gdalwarp -t_srs
-    # EPSG:3857` from IAU_2015:49900 exits 1 with "Source and target ellipsoid do not belong to the
-    # same celestial body (Earth vs Mars)". Mars therefore rides Earth's grid, its heightfield
-    # enters with its CRS DECLARED as EPSG:4326 — an identity on angles, only the sphere label
-    # changes — and `ground_radius_m` below is what converts back. `tests/test_bodies.py` asserts
-    # this sameness deliberately, so the "fix" fails at the gate rather than at the tiler.
+    # BOTH PROJECTION SPHERES ARE EARTH'S, ON PURPOSE, AND NEITHER IS A COPY-PASTE SLIP — the module
+    # note holds the PROJ constraint that forces it and the two warps that measured it. The tempting
+    # "fix" is Mars's own radius here; `tests/test_bodies.py` asserts this sameness so that fix fails
+    # at the gate rather than months later at the tiler.
     mercator_radius_m=6378137.0,
-    # The same constraint, separately measured, because the obvious objection is that a hand-written
-    # proj4 string names no celestial body: it does not escape the check either. See the field note.
+    # The same constraint, separately measured against a hand-written proj4 string naming no
+    # celestial body — which does not escape the check either. See the module note.
     aeqd_radius_m=6371000.0,
     # The IAU 2015 Mars sphere, which is also what the source DEM's own CRS declares — so our
     # ground metres agree with the grid the data was published on. It is the equatorial radius used
@@ -284,12 +278,9 @@ MARS = Body(
     tile_max_zoom=6,
     # Nests, where Earth's is empty. A second body pays no relocation cost, so it starts correct.
     path_prefix="mars",
-    # NONE OF THEM, and this is the field's whole reason for existing. Every source behind these
-    # layers is an Earth dataset at a fixed global path that IS present on the build box, so the
-    # `.exists()` guards that make them "optional" all answer yes for Mars. Left unstated, a Mars
-    # pass would warp Earth's snow, glaciers, sea ice and lake bathymetry onto Mars's grid at the
-    # same latitudes and paint them — no error, no missing file, and a plausible planet. The
-    # coastline is the same failure in vector form: Natural Earth's line burnt into a Martian cap.
+    # NONE OF THEM, which is the case the vocabulary above was written for: every source behind it
+    # is an Earth dataset present on this box, so left unstated a Mars pass would paint Earth's
+    # snow, glaciers, sea ice, lakes and coastline onto Mars at the same latitudes and raise nothing.
     #
     # Empty is a statement about our DATA, not about Mars: it has polar ice, seasonal CO2 frost and
     # its own cryosphere. We have no product for any of it, and the physics is not Earth's, so the
@@ -300,12 +291,10 @@ MARS = Body(
     # because Web Mercator carries no data past ~85 degrees and brutally smears the band below it,
     # not because there is snow to paint. Anyone expecting white is expecting `surface_layers`.
     #
-    # Held False while the ramps were unratified, since a cap is shaded by the same
-    # `shade.composite` as the tiles and rendering one publishes a look decision. That reason
-    # expired when the M2a ramp was judged on the sphere; what the False cost in the meantime was
-    # not a hole but something worse — `shade_planet.CAP_RGB`, the flat pale plug the cap textures
-    # exist to be drawn over, which MapLibre stretched across the pole and which was tested on
-    # Earth's globe and rejected.
+    # Held False until the M2a ramp was ratified, per the field note. What the False cost meanwhile
+    # was not a hole but something worse — `shade_planet.CAP_RGB`, the flat pale plug the cap
+    # textures exist to be drawn over, which MapLibre stretched across the pole and which was tested
+    # on Earth's globe and rejected. Do not reach for False again as a cheap way to skip a render.
     renders_polar_caps=True,
 )
 
@@ -333,23 +322,18 @@ def get(name: str) -> Body:
 def ground_metres_per_mercator_unit(body: Body) -> float:
     """How many real ground metres one map unit of this body's Mercator raster is worth.
 
-    NAMED FOR ITS PROJECTION, because "map unit" cannot answer the question on its own. This
-    pipeline projects into two systems — the Mercator tile grid and the caps' AEQD disc — and each
-    is defined on its own sphere, so each has its own conversion. An unqualified name here would
-    read as the general one and be adopted by the cap path, which needs `aeqd_radius_m` in the
-    denominator and gets a different number (1.00112 for Earth, not 1.0). One name per concept.
+    NAMED FOR ITS PROJECTION, and there is a second function below named for the other one. An
+    unqualified `ground_metres_per_map_unit` would read as the general answer and be adopted by the
+    cap path, which divides by a different sphere and gets a different number. One name per concept.
 
-    THE WHOLE OF WHAT A NON-EARTH BODY COSTS, in one number. Every projection in this pipeline is
-    Earth-sphered (see `ground_radius_m` for the PROJ constraint that forces it), so a raster's map
-    units are Earth metres whatever planet the elevations came from. Anything that mixes the two —
-    a hillshade dividing a rise in body metres by a run in map units, a horizon search, a shadow
-    length — must pass through here or it computes a slope that is plausible at every latitude and
-    correct at none. That is the failure this module exists to prevent, and it does not raise.
+    THE WHOLE OF WHAT A NON-EARTH BODY COSTS, in one number: because every projection here is
+    Earth-sphered (module note), a raster's map units are Earth metres whatever planet the
+    elevations came from. Anything that mixes the two — a hillshade dividing a rise in body metres
+    by a run in map units, a horizon search, a shadow length — must pass through here or it computes
+    a slope that is plausible at every latitude and correct at none. It does not raise.
 
-    Returns EXACTLY 1.0 for Earth, and not by rounding: EPSG:3857's defining sphere is Earth's own
-    equatorial radius, so the division is a number by itself. Earth's pixels are therefore
-    byte-identical through every call site that adopts this, which is what lets it be adopted one
-    stage at a time.
+    Earth's is exactly 1.0, so every call site that adopts this keeps its pixels byte-identical —
+    which is what let it be adopted one stage at a time.
 
     Composes so the units cancel where it is read:
 
@@ -361,15 +345,9 @@ def ground_metres_per_mercator_unit(body: Body) -> float:
 def ground_metres_per_aeqd_unit(body: Body) -> float:
     """How many real ground metres one map unit of this body's polar-cap AEQD grid is worth.
 
-    THE CAP'S OWN CONVERSION, and deliberately not the Mercator one above. Both answer "what is a map
-    unit worth", and they answer differently because they divide by different spheres: a cap disc is
-    projected on `aeqd_radius_m` and the tile grid on `mercator_radius_m`. A single
-    `ground_metres_per_map_unit` would have been adopted here by name and been wrong by the ratio
-    between those two spheres, at every pixel, in the one output where nothing would show it.
-
-    EARTH'S IS NOT 1.0, WHICH IS THE WHOLE DIFFERENCE FROM THE MERCATOR CASE. It is 1.0011202,
-    because Earth's Mercator sphere doubles as its `ground_radius_m` and its AEQD sphere does not. So
-    adopting this moved Earth's cap pixels, where adopting the Mercator one moved none.
+    THE CAP'S OWN CONVERSION, deliberately not the Mercator one above — see that function for why
+    the two are named apart. Earth's is 1.0011202 rather than 1.0, so adopting this MOVED Earth's cap
+    pixels where adopting the Mercator one moved none.
 
     EXACT FOR A BODY PUBLISHED ON A SPHERE, PARTIAL FOR EARTH — worth stating, because the residual
     is larger than the correction. Measured with `pyproj.Geod` on WGS84: the true meridian arc from
@@ -429,9 +407,8 @@ def work_dir(body: Body, stage: str) -> Path:
     own directory makes every one of those sidecars body-specific for free, because they are
     different files. The identity is carried by location, which costs nothing.
 
-    `stage` is a DIRECTORY NAME, never a path expression. A caller that assembled one by
-    concatenation could otherwise walk out of this body's tree and land in another's — the single
-    place a mistake here stops being wrong and starts being unrecoverable.
+    `stage` is a DIRECTORY NAME, never a path expression — enforced by `_require_directory_name`,
+    which holds the reason.
     """
     _require_directory_name(stage)
     # An empty prefix collapses, which is what keeps Earth on its historical layout.
@@ -446,13 +423,11 @@ def public_root() -> Path:
     instead would be right for Earth, whose segment is empty, and quietly advertise a 404 for every
     body that nests.
 
-    A FUNCTION, NOT A CONSTANT, AND THE DIFFERENCE IS NOT STYLE. As a module constant this bound
-    `paths.ROOT` at import, while `work_dir` reads `paths.DATA` at call time — so redirecting both
-    roots isolated the working tree and silently left the served tree pointing at the real checkout.
-    The failure could not surface as an error: both readers here went stale together, so
-    `served_url`'s `relative_to` still matched and every URL assertion still passed. What it did
-    instead was write test output into `web/public/`, which `web/.gitignore` covers and the next
-    `astro build` copies into `dist/`.
+    A FUNCTION, NOT A CONSTANT, per `paths` — and this module is where that rule was paid for. As a
+    constant it bound `paths.ROOT` at import while `work_dir` read `paths.DATA` at call time, so
+    redirecting both roots isolated the working tree and left the served tree pointing at the real
+    checkout, writing test output into `web/public/` for the next `astro build` to copy into
+    `dist/`.
     """
     return paths.ROOT / "web/public"
 

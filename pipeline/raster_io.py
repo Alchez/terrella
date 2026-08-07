@@ -1,10 +1,10 @@
 """Single home for the raster conventions every windowed writer shares.
 
-one call site and been missed at its siblings four separate times — float32 +
-windowed reads (composite had it, hillshade didn't), warp-once (lakedepth had
-it, snow didn't), NUM_THREADS (warps had it, writers didn't), and the pyright
-ignore for rasterio's untyped Window (fuse/render_prep had it, four new sites
-didn't). One fix, one home; tests/test_raster_io.py pins the adoption.
+The same fix has landed at one call site and been missed at its siblings four separate times —
+float32 + windowed reads (composite had it, hillshade didn't), warp-once (lakedepth had it, snow
+didn't), NUM_THREADS (warps had it, writers didn't), and the pyright ignore for rasterio's untyped
+Window (fuse/render_prep had it, four new sites didn't). One fix, one home; tests/test_raster_io.py
+pins the adoption.
 """
 
 from collections.abc import Iterator

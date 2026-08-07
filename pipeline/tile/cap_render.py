@@ -351,17 +351,16 @@ def grid_recipe_fields(grid: CapGrid) -> dict:
 def cap_recipe(grid: CapGrid, rasters: frozenset[str]) -> str:
     """Everything a cap's pixels depend on besides the source rasters, serialised for the
     freshness sidecar. Reuses shade_planet.composite_params — ONE recipe home — so any look change
-    that restages the tile composite also restages the caps: exactly the coupling whose absence let
-    once let both caps sit stale against the tiles they feather into, the north −6.7 DN
-    adrift. `fill_strength` is listed explicitly because
-    composite_params filters it out as hillshade-stage — for the tiles it rides in hs_params.json,
-    but the caps have no hillshade sidecar, so it must ride here.
+    that restages the tile composite also restages the caps: exactly the coupling whose absence once
+    let both caps sit stale against the tiles they feather into, the north −6.7 DN adrift.
+    `fill_strength` is listed explicitly because composite_params filters it out as hillshade-stage —
+    for the tiles it rides in hs_params.json, but the caps have no hillshade sidecar, so it must
+    ride here.
 
     `ground_scale` is recorded UNCONDITIONALLY, where `hs_params` records the Mercator one only when
     it is not 1.0. Not an inconsistency: that idiom exists to keep a body whose value IS the identity
-    byte-identical, and no body's cap ratio is the identity — Earth's is 1.0011202, because its
-    Mercator sphere doubles as its ground radius and its AEQD sphere does not. A conditional here
-    would therefore never fire and would only read as though it might.
+    byte-identical, and no body's cap ratio is the identity (`bodies.ground_metres_per_aeqd_unit`
+    holds why), so a conditional here would never fire and would only read as though it might.
 
     It sits in the light block rather than in `grid_recipe_fields` deliberately. That helper is
     shared with `cap_elev_recipe`, and the elevation texture encodes true metres with no slope in it

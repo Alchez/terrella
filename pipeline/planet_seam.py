@@ -209,9 +209,7 @@ def rasters_off(rasters: frozenset[str]) -> list[str]:
     """Which of the vocabulary this planet stage did NOT emit, sorted — one stage's freshness record.
 
     THE ONES THAT ARE OFF, NEVER THE ONES THAT ARE ON, exactly as `bodies.layers_off` does it and
-    for the same measured reason: Earth emits all three, so its list is empty, the caller's
-    conditional record writes nothing, and a 46 GB composite that is already correct stays
-    byte-identical. Recording the ones that are ON would put a list into Earth's recipe for the
-    first time and restage the planet to reproduce the pixels already sitting there.
+    for the same measured reason, which that function holds. Earth emits all three, so its list is
+    empty and nothing enters its recipe.
     """
     return sorted(KNOWN_RASTERS - rasters)

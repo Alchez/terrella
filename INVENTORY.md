@@ -138,7 +138,7 @@ Dev–prod differences that matter:
 
 ## The freshness guard (why no manual `rm` list is ever needed)
 
-- `shade_planet.py` guards every stage on **freshness** (`is_stale`), not existence: a stage
+- Every stage is guarded on **freshness** (`pipeline/freshness.py`), not existence: a stage
   re-runs if its output is missing, was never stamped `.done`, or is older than any input —
   including the chunk **directory** (a VRT's mtime does not move when its chunks are re-fused)
   and the materialised param files. An exists()-only guard cannot tell *built* from *still

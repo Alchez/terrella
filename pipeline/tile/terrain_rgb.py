@@ -2,8 +2,7 @@
 
 Sibling of `shade_planet.py`, and deliberately NOT part of it: that module cuts *colour*, this
 one cuts *elevation*. They share one input (`height_3857.tif`), one tiling scheme, and the
-stage-freshness primitives imported below — `cap_render.py` already treats `shade_planet` as
-their one home, so a third spelling of `is_stale` would be the thing to avoid, not the import.
+stage-freshness primitives, which live in `pipeline/freshness.py` and belong to neither stage.
 Nothing about the LOOK crosses over. MapLibre consumes this as a second `raster-dem` source with
 its own `maxzoom`, so the two pyramids need not be the same depth.
 
@@ -32,11 +31,11 @@ FRESHNESS
 ---------
 Two guards, because this stage has two kinds of output and they fail differently.
 
-The elevation chain is stamped with `.done` markers rather than tested with `exists()`. That is
-not tidiness: rasterio creates its target at the START of a write, so the BigTIFF crash of
-2026-07-28 left a full-sized, freshly-stamped, half-written `elev_z8.tif` on disk — and an
-existence test would have built the entire pyramid on top of it, silently, since a truncated
-float32 raster reads as a very flat planet rather than as an error.
+The elevation chain is stamped with `.done` markers rather than tested with `exists()`, per
+`freshness.is_stale`. This stage is where that rule was paid for: a BigTIFF crash left a
+full-sized, freshly-stamped, half-written `elev_z8.tif` on disk, and an existence test would have
+built the entire pyramid on top of it, silently, since a truncated float32 raster reads as a very
+flat planet rather than as an error.
 
 The pyramid itself is cut into a staging dir and swapped, and keyed on the master's marker plus
 `terrain_params.json`. The recipe is the load-bearing half: the variant DIRECTORY name carries
@@ -303,9 +302,8 @@ def build(out: Path, max_zoom: int, step: float, sea_clamp: bool, feather: bool,
     identical whatever codec the tiles are written in, so re-cutting a built variant into another
     lossless format costs one encode pass, not another descent from the master.
 
-    Guarded per the module header's FRESHNESS section: the recipe is written BEFORE freshness is
-    asked, so changing a setting is what triggers its own re-cut, while `write_if_changed` means an
-    unchanged recipe never moves an mtime and never restages a pyramid that is still correct.
+    Recipe-gated in the usual order — see `freshness.write_if_changed`, and the module header's
+    FRESHNESS section for what each of this stage's two guards catches.
 
     EVERY CUT IS A CLEAN FULL CUT into `tiles_new`, swapped over `tiles` only on success, with one
     generation of rollback at `tiles_old`. GDAL writes each tile in place, so a run killed mid-cut

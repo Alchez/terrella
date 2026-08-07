@@ -108,8 +108,7 @@ EXPECTED_NODATA = -32768.0
 
 
 def blend_path() -> Path:
-    """Where the blend lives once fetched. A function, not a constant, so `MAPS_DATA` is read at
-    call time — a relocated data store must move this too, and a module-level join freezes it."""
+    """Where the blend lives once fetched. A function, not a constant, per `paths`."""
     return DATA_DIR / BLEND_NAME
 
 

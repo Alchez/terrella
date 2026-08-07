@@ -2019,10 +2019,10 @@ SABOTAGES: list[Sabotage] = [
         # Adjacency is not a property of the code; it is a property of nobody having explained it yet.
         # Only the AEQD radius moves, which makes this the HALF-fix: the guard asserts both spheres,
         # so a case that changed both would pass even against a test that had lost one assertion.
-        needle=('    # proj4 string names no celestial body: it does not escape the check either. '
-                'See the field note.\n    aeqd_radius_m=6371000.0,'),
-        replacement=('    # proj4 string names no celestial body: it does not escape the check either. '
-                     'See the field note.\n    aeqd_radius_m=3396190.0,'),
+        needle=('    # celestial body — which does not escape the check either. See the module '
+                'note.\n    aeqd_radius_m=6371000.0,'),
+        replacement=('    # celestial body — which does not escape the check either. See the module '
+                     'note.\n    aeqd_radius_m=3396190.0,'),
         guard='test_mars_projects_on_earths_spheres_and_that_is_deliberate',
     ),
     # THE MOST TEMPTING EDIT IN THE REGISTRY, and the reason that guard is written as a deliberate

@@ -121,8 +121,7 @@ REQUIRED_PROPERTIES = frozenset({"unit", "unitdesc", "spharea_km"})
 def unit_path(unit: str) -> Path:
     """Where one unit's GeoJSON lives once fetched.
 
-    A function rather than a constant so `MAPS_DATA` is read at CALL time — a relocated data store
-    must move this too, and a module-level join freezes it at import.
+    A function rather than a constant, per `paths`.
     """
     return DATA_DIR / f"{unit.lower()}_sim3292.json"
 

@@ -1,16 +1,14 @@
 """Is this output still correct? Three separate questions, each with its own oracle.
 
-  COMPLETED    a `.done` marker beside the output, never the output's own mtime. GDAL creates its
-               target at the START of a run, so a crashed pass leaves a full-sized, freshly
-               stamped, half-written raster that an mtime test would accept as current.
-  NEWER THAN   `newest_mtime` over the SOURCES, recursing into directories, because a VRT's own
-               mtime does not move when the chunks it points at are re-fused.
-  SAME SHAPE   `grid_matches`, for warp targets only, because a re-fuse can grow the planet under
-               a raster whose own source never moved.
+  COMPLETED    `is_stale`, reading a `.done` marker rather than the output's own mtime
+  NEWER THAN   `newest_mtime` over the sources, recursing into directories
+  SAME SHAPE   `grid_matches`, for warp targets only
 
-`write_if_changed` is here because it is what lets a VALUE be a source. Tunables live in Python,
-whose mtime moves on any `git checkout`; materialised into a sidecar, their mtime moves if and only
-if a value actually changed, and the sidecar can then stand in as an input to `is_stale`.
+Each names a failure the other two cannot see, and each function carries the case for its own — the
+point of listing them together is that they are separate questions, not one. They compose:
+`warp_needs_rebuild` is the second and third at once. `write_if_changed` is here because it is what
+lets a VALUE be a source at all, so a tunable can be an input to `is_stale` without every
+`git checkout` restaging the planet.
 
 These are general and belong to no stage. They lived in `tile/shade_planet.py`, which two sibling
 stages already imported them from — do not fold them back into a stage.
@@ -103,6 +101,11 @@ def write_if_changed(path: Path, text: str) -> Path:
     file stand in as a dependency for `is_stale`. Tunables like KNOBS and the ramp colours
     live in source, whose mtime moves on any `git checkout` and would force a full planet
     rebuild; materialised here, their mtime moves if and only if a VALUE actually changed.
+
+    THE ORDER EVERY STAGE WITH A RECIPE FOLLOWS: write the recipe, THEN ask the freshness question.
+    That is what makes changing a setting trigger its own restage, and it is only safe because of
+    the paragraph above — an unchanged recipe never moves an mtime, so writing first cannot restage
+    an output that is still correct. A stage that asked first would answer against the old recipe.
     """
     if not path.exists() or path.read_text() != text:
         path.write_text(text)
