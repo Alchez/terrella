@@ -2385,6 +2385,29 @@ SABOTAGES: list[Sabotage] = [
         replacement='',
         guard='test_the_ground_scale_rides_in_the_recipe_that_gates_the_render',
     ),
+    # --- The SIM 3292 acquisition recipe -------------------------------------------------------
+    # pygeoapi stamps every response with the request time, fixed-width ISO — so two fetches of
+    # identical data have the SAME length and a DIFFERENT hash. Hashing the whole document instead
+    # of `features` is the natural spelling, imports and type-checks fine, and makes the acquirer
+    # re-download on every run forever while a size check agrees nothing is wrong.
+    Sabotage(
+        suite='python',
+        label='the geometry digest covers the whole response, so a timeStamp re-acquires forever',
+        path='pipeline/acquire/download_sim3292.py',
+        needle='    canonical = json.dumps(document["features"], sort_keys=True, separators=(",", ":"))',
+        replacement='    canonical = json.dumps(document, sort_keys=True, separators=(",", ":"))',
+        guard='test_a_stamp_only_change_reads_as_FRESH_on_disk',
+    ),
+    # A truncated page is the one failure the response itself cannot report: pygeoapi returns no
+    # `numberMatched`, so fewer features reads as a smaller ice cap rather than as a short read.
+    Sabotage(
+        suite='python',
+        label='the unit contract stops counting features, so a truncated page passes as a smaller map',
+        path='pipeline/acquire/download_sim3292.py',
+        needle='    if len(features) != expected_count:',
+        replacement='    if False:',
+        guard='test_a_truncated_page_is_refused',
+    ),
     # --- The Mars acquisition recipe ----------------------------------------------------------------
     # Nothing here can be caught by looking at output: the file is not on disk, and every one of these
     # mutations leaves a module that imports, type-checks and reads perfectly sensibly.
