@@ -23,7 +23,13 @@
 // declaration. Constants that describe the RAMP rather than the body stay where they are measured;
 // `skyAtmosphere.ts` names that line for the atmosphere's own knobs.
 
-import { DEEP_SEA } from "./palette";
+import {
+  DEEP_SEA,
+  MARS_BASIN_FLOOR,
+  MARS_MODAL_GROUND,
+  MARS_SUMMITS,
+  TRENCH_FLOOR,
+} from "./palette";
 
 /** Every body the site knows how to draw. Widening this union is what makes the compiler ask the
  *  record below for a full descriptor — and the same of every other `Record<BodySlug, …>` in the
@@ -206,10 +212,14 @@ export const BODIES: Record<BodySlug, BodyDescriptor> = {
     // `GLOBE_RADIUS`, in the shader that draws the sphere and in `LngLat.distanceTo` alike. Holding
     // it explicitly changes no reading and moves the constant somewhere a second body can differ.
     groundRadiusM: 6371008.8,
-    accent: { light: "#3a6e7d", dark: "#7cb8b8" },
-    // IMPORTED, never re-typed. `palette.ts` restates the pipeline's own ramp stops and is pinned
-    // against them by tests/test_palette.py; a hex copied to here instead would be a third copy
-    // with nothing comparing it back to the sea it is meant to match.
+    // IMPORTED, never re-typed — the light half is the sea ramp's dark extreme, and the dark half
+    // is NOT a ramp stop. `#7cb8b8` sits near `SEA_STOPS[0]` (#85b9b7) and was picked by eye over
+    // it, so it is a chrome value with no map source and the comment says so rather than implying a
+    // derivation that would fail the moment anyone looked for it.
+    accent: { light: TRENCH_FLOOR, dark: "#7cb8b8" },
+    // `palette.ts` restates the pipeline's own ramp stops and is pinned against them by
+    // tests/test_palette.py; a hex copied to here instead would be a third copy with nothing
+    // comparing it back to the sea it is meant to match.
     spaceFloor: DEEP_SEA,
     // The three colours the globe has always been drawn under, moved here unchanged. Browser-only
     // aesthetic values with no pipeline counterpart — deliberately NOT palette.ts, whose contract
@@ -225,20 +235,21 @@ export const BODIES: Record<BodySlug, BodyDescriptor> = {
     hasBorders: true,
     hasHeroes: true,
   },
-  // MARS: BOTH COLOURS ARE PROVISIONAL AND NEITHER IS A DECISION.
+  // MARS'S THREE COLOURS NOW COME FROM ITS OWN RAMP, which is what retired the provisional marker
+  // that stood here. They were hand-typed when Mars had no ramp at all, to hold the shape of an
+  // answer so the type system stayed satisfied and the route could exist — and a hand-typed hex
+  // that survives into production is the copied-look-constant failure that has already cost this
+  // project an overnight re-render of every hero. The look loop answered the ramp on the sphere,
+  // so each of these is now an import with a Python test recomputing it from the stop it encodes.
   //
-  // Earth's accent is not a choice — it is the hero ramp's deep-sea teal, imported, which is why
-  // the chrome reads as part of the map rather than as a shell around it. Mars has no ramp yet: its
-  // palette is the deepest open question about the second body, and it gets answered by rendering
-  // candidate looks on the sphere, not by picking a hex in a registry. These two hold the shape of
-  // the answer so the type system stays satisfied and the route can exist; they are the FIRST thing
-  // to replace once a look is ratified, and they must become imports from the Mars palette exactly
-  // as Earth's are — a hand-typed hex that survives into production is the copied-look-constant
-  // failure that has already cost this project an overnight re-render of every hero.
+  // THE ROLES ARE EARTH'S, THE STOPS ARE MARS'S. An accent on a light ground is the ramp's dark
+  // extreme and on a dark ground its light extreme; the space-floor is whatever tone the body
+  // mostly is, so a missing tile reads as more of this planet rather than as a hole. Mars is the
+  // more derived of the two bodies here, because its light extreme worked as a dark-scheme accent
+  // where Earth's did not — see `MARS_SUMMITS`.
   //
-  // THE THREE BOOLEANS ARE DECISIONS, NOT PLACEHOLDERS, and they differ from the colours above in
-  // exactly that. Each says what Mars ships today, and each has a reason that is not "we have not
-  // got to it yet".
+  // THE THREE BOOLEANS ARE DECISIONS TOO, and were before the colours caught up. Each says what
+  // Mars ships today, and each has a reason that is not "we have not got to it yet".
   mars: {
     slug: "mars",
     // A page written for the purpose, because the thing Earth points at does not exist here: a
@@ -255,8 +266,8 @@ export const BODIES: Record<BodySlug, BodyDescriptor> = {
     // `pipeline/acquire/download_mars_dem.py` refuses a source that says anything else, so the two
     // registries and the data agree or the download stops.
     groundRadiusM: 3396190,
-    accent: { light: "#8c4a32", dark: "#d08b6a" },
-    spaceFloor: "#6b3a2a",
+    accent: { light: MARS_BASIN_FLOOR, dark: MARS_SUMMITS },
+    spaceFloor: MARS_MODAL_GROUND,
     // NONE, AND UNLIKE THE TWO COLOURS ABOVE THIS ONE IS A DECISION. Mars's surface pressure is
     // ~0.6% of Earth's, so an atmosphere faithful to Earth's tuning is invisible at every zoom the
     // globe reaches; the honest rendering of that is no sky pass rather than a token haze. It

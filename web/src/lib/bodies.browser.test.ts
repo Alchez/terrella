@@ -36,6 +36,16 @@ afterEach(() => {
   else root.setAttribute("data-body", originalBody);
 });
 
+/** A hex compared as a COLOUR rather than as a spelling.
+ *
+ *  The two files disagree on case and each is right locally: `palette.ts` is uppercase because the
+ *  Python pin that recomputes it formats `%02X`, and `global.css` is lowercase throughout. CSS hex
+ *  is case-insensitive, so asserting the spelling would fail on a change that moves no pixel while
+ *  catching nothing a case-folded compare misses — every real drift is a different colour. */
+function asColour(hex: string): string {
+  return hex.trim().toLowerCase();
+}
+
 function accentOf(slug: string | null): string {
   if (slug === null) root.removeAttribute("data-body");
   else root.setAttribute("data-body", slug);
@@ -59,7 +69,9 @@ describe("the accent comes from the body descriptor", () => {
     // The load-bearing assertion: the cascade, not the file. `getComputedStyle` on the element the
     // token is declared on is what every `var(--accent)` in the sheet resolves against.
     for (const slug of Object.keys(BODIES) as BodySlug[]) {
-      expect(accentOf(slug), `computed --accent for ${slug}`).toBe(BODIES[slug].accent.light);
+      expect(asColour(accentOf(slug)), `computed --accent for ${slug}`).toBe(
+        asColour(BODIES[slug].accent.light),
+      );
     }
   });
 
@@ -76,9 +88,9 @@ describe("the accent comes from the body descriptor", () => {
     // `prefers-color-scheme` cannot be flipped from inside the page, so the dark value is the one
     // claim here that only a source scan can reach — stated as such rather than implied.
     for (const slug of Object.keys(BODIES) as BodySlug[]) {
-      expect(declaredAccents(slug), `global.css declarations for ${slug}`).toEqual([
-        BODIES[slug].accent.light,
-        BODIES[slug].accent.dark,
+      expect(declaredAccents(slug).map(asColour), `global.css declarations for ${slug}`).toEqual([
+        asColour(BODIES[slug].accent.light),
+        asColour(BODIES[slug].accent.dark),
       ]);
     }
   });

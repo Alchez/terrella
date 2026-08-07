@@ -34,7 +34,7 @@
    file and then checks what the browser actually computes from it. A copied colour with nothing
    comparing it back is how WATER_RGB drifted 15% off the sea it was supposed to match. */
 :root[data-body="earth"] {
-  --accent: #3a6e7d; /* deep-sea teal, from the hero ramp */
+  --accent: #3a6e7d; /* SEA_STOPS[5], the trench floor — the sea ramp's dark extreme */
 }
 @media (prefers-color-scheme: dark) {
   :root[data-body="earth"] {
@@ -42,15 +42,15 @@
   }
 }
 
-/* Mars. PROVISIONAL, both values — see the note beside its descriptor in lib/bodies.ts. Earth's
-   accent is imported from the hero ramp and is therefore not a choice; Mars has no ramp yet, so
-   these are placeholders holding the shape of an answer the look loop gives. */
+/* Mars, both values now from its own ramp — see the note beside its descriptor in lib/bodies.ts.
+   The same roles Earth's play: the ramp's dark extreme on a light ground, its light extreme on a
+   dark one. */
 :root[data-body="mars"] {
-  --accent: #8c4a32;
+  --accent: #784f3c; /* MARS_LAND_STOPS[0], the -6000 m basin floor */
 }
 @media (prefers-color-scheme: dark) {
   :root[data-body="mars"] {
-    --accent: #d08b6a;
+    --accent: #d4bf9d; /* MARS_LAND_STOPS[5], Tharsis and the volcanic summits */
   }
 }
 

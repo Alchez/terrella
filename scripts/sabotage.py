@@ -2970,8 +2970,11 @@ SABOTAGES: list[Sabotage] = [
         suite='web',
         label="the stylesheet's accent drifts from the descriptor that is supposed to own it",
         path='web/src/styles/global.css',
-        needle='  --accent: #3a6e7d; /* deep-sea teal, from the hero ramp */',
-        replacement='  --accent: #3a6f7d; /* deep-sea teal, from the hero ramp */',
+        # The DECLARATION alone, never the comment beside it: this needle broke once because the
+        # prose was rewritten while the colour never moved, which is a mutation table failing for a
+        # reason that has nothing to do with the guard it exists to falsify.
+        needle='  --accent: #3a6e7d;',
+        replacement='  --accent: #3a6f7d;',
         guard="computes the descriptor's colour for every body the site knows",
     ),
     # The prop gains a default, which is what makes `astro check` stop asking. The page that forgets
