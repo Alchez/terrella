@@ -423,8 +423,9 @@ Listed so they are not re-proposed as if new.
 Triaged by when each must be answered, because most of them cannot be answered early.
 
 - **Before any download.** The blended DEM itself, and one gazetteer shapefile to settle whether its
-  geometry is points or polygons. Both are public domain and neither adds an obligation — the
-  licensing is settled, so this is a decision about disk and time, not about terms.
+  geometry is points or polygons. The gazetteer is public domain; the blend is not unencumbered —
+  its publisher requests a citation and labels its HRSC input CC BY-SA 3.0 IGO (§ Sources). Neither
+  blocks the download, so this is a decision about disk and time.
 - **During the look loop**, all decided on the sphere.
   - **ANSWERED — a Mars look of its own, and the answer came from measuring the planet's colour
     rather than from taste.** Mars draws `MARS_LAND_STOPS`, authored for Mars and sharing no colour
@@ -456,7 +457,9 @@ Triaged by when each must be answered, because most of them cannot be answered e
     MEDIAN of the planet's elevations. Hinging there put **51.6% of the surface below the ramp
     entirely**, clamped to one colour, with only 0–4,000 m getting any gradient at all.
     - The ends are p1 and p99, measured area-weighted on the sphere over the shipped heightfield:
-      p1 −5,990 · p50 −260 · p99 +6,098, against a true range of −7,882 to +21,014 m.
+      p1 −5,990 · p50 −260 · p99 +6,098, against the full range of −8,511 to +21,166 m (§ The
+      data). That range is the census, never this sample's own extremes: a percentile measurement
+      reads a million points and cannot see the pixel holding the minimum.
     - The extremes were rejected on the same measurement: only **1.1%** of Mars is above +6,000 m,
       so keying the ceiling to Olympus Mons spends most of the ramp on almost nothing — and Olympus
       still reads, because it reads through the hillshade, which no ramp touches.
@@ -519,13 +522,19 @@ imposes nothing.
   from the agency it belongs to, and it is the labelling that has to be answered.
 - **The citation is requested by the publisher**, not merely academic courtesy: Fergason, Hare &
   Laura (2018), which the About page now carries in full.
-- **ESA's Planetary Science Archive is registered as public domain**, and ESA's own acknowledgement
-  page asks rather than requires: it *suggests* wording crediting the instrument's Principal
-  Investigators and the archive. HRSC products are additionally mirrored by the NASA PDS
-  Geosciences Node under an ESA–NASA cooperative agreement, which states no terms at all.
+- **ESA's Planetary Science Archive states no licence, which is not the same as public domain.** Its
+  open-access page says only that the data are free to download and use, and asks that the
+  instrument's Principal Investigators and the archive be acknowledged in publications — a courtesy
+  request, with no grant of redistribution or adaptation behind it. Asking for the **PI** is ESA
+  declining sole ownership, which matches its Creative Commons release covering only content it owns
+  outright. HRSC products are additionally mirrored by the NASA PDS Geosciences Node, which states no
+  terms either; PDS dedicates *NASA-led* mission data to CC0, so a mirror adds no licence.
+  - **So a PSA product is usable only where it carries its own terms**, and the archive's silence
+    can never be read as the grant. Verify at the product, never at the agency.
 - **The one genuine trap is ESA's published imagery, which is a different thing from its archive.**
   ESA releases its HRSC *pictures* — the colour perspective views — under CC BY-SA 3.0 IGO, and that
-  licence names "images, videos or other ESA works" while saying nothing about science archives.
+  licence opens *"Where expressly stated"*: it is a label a product must carry, never a blanket over
+  ESA's works, and it says nothing about science archives.
   - Share-alike was the problem, not attribution — it is what ruled out the CC BY-NC the renders
     used to carry, and the reason they are CC BY-SA 4.0 now.
   - One rule survives the change: take HRSC from the archive, never from the picture gallery.
