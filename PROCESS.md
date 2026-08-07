@@ -88,7 +88,8 @@ pays. One sixteenth the pixels, and a body that declares no surface layers.
 **The 4:41 predates Mars's caps and does not include them** — it was measured while
 `renders_polar_caps` was `False`, and the cap stage runs outside the `--tiles` branch, so it now
 fires on every pass. The row below carries what the caps cost, measured separately; a cold
-end-to-end Mars figure covering both has not been taken.
+end-to-end Mars figure covering both has not been taken. A WARM one has: with the warps and the
+hillshade already fresh, SVF + composite + cut + both caps runs **3:00**.
 
 | Stage | Earth z8 | Mars z6 | Note |
 |---|---|---|---|
@@ -101,12 +102,32 @@ end-to-end Mars figure covering both has not been taken.
 | `cap_render` | 1:36 | **~1:15** | Both discs, from the heightfield alone. Bounded by artifact mtimes from the first cap output to `caps.json`, on a run whose elevation rungs were already fresh — not from the cold pass the rest of this column comes from |
 | pack + convert | 0:16 | **~1 s** | `planet.pmtiles` **356 MB**, 5,334 unique of 5,461 |
 
-**READ THE ANONYMOUS HIGH-WATER MARK, NOT THE CGROUP'S `memory.peak`.** The two differ by more than
-a factor of two on this pass and the rows above are quoted in the first. Mars's scope reported
-`memory.peak` **8.30 GiB**, of which **4.29 GiB was reclaimable page cache** — the source read and
-the outputs written, charged to the cgroup and droppable under pressure. Summed per-process `VmHWM`
-was **4.01 GiB**, the composite worker holding **2.90 GiB** of it. A cap sized off the cgroup number
-is sized off file traffic; a cap sized off `VmHWM` is sized off what cannot be reclaimed.
+**THREE MEMORY NUMBERS, AND ONLY ONE ANSWERS "DID IT FIT".** The cgroup's `memory.peak` is charged
+for reclaimable page cache — the source read and the outputs written — so it overstates what the box
+must actually hold. Summed per-process `VmHWM` overstates in the opposite direction and worse: it
+adds LIFETIME high-water marks across children that never coexisted, and this pass forks gdalwarp,
+gdal_translate, the tile workers and `cap_render` in sequence. **A Mars tiles pass sums to 19.03 GiB
+of `VmHWM` under a 16 G cap that never fired**, which is proof the sum is not a simultaneity measure
+and cannot size a cap. Size it off the **peak instantaneous summed RSS**.
+
+On that same pass the three read **14.73 GiB** cgroup peak · **19.03 GiB** summed `VmHWM` ·
+**8.85 GiB** peak live RSS, the last reached in the cap stage — so on Mars the caps, not the
+composite, are what the cap has to back. An earlier Mars figure of 4.01 GiB is superseded twice
+over: it was taken before Mars rendered caps at all, and by the summing method above.
+
+**EARTH, PER STAGE, PEAK LIVE RSS** — composite **12.56 GiB** · tile cut z0–8 **3.74 GiB** ·
+`cap_render` **14.41 GiB**, with the cgroup peak pinned at the 16 G cap throughout (page cache,
+reclaimed under the limit, never a kill). **The caps alone are what the cap has to back, on both
+bodies**, and two older claims fall out: the composite does not peak at 10.55 GiB, and the tiling
+stage does not approach 16 G. `GDAL_CACHEMAX=512` across `-j ALL_CPUS` workers is an upper bound
+that never fills — measured at 3.74 GiB across the whole cut, 537 samples, making it the LIGHTEST
+of the three stages rather than the reason for the cap.
+
+**The 21:37 composite was taken on a quiet box.** A recipe-only restage measured **26:40** for the
+same stage while a desktop session held ~6.5 GB of swap — while the cut (4:29 against 4:19) and the
+caps (1:42 against 1:36) both matched. So the long DRAM-bandwidth-bound stage is the one that pays
+for contention, and every stage figure in this file assumes the box is otherwise idle. The cause is
+not isolated; a quiet-box rerun would settle it.
 
 **`pipeline/profile/run_pass.sh` sizes its cgroup cap from the body, and both bodies now want 16 G.**
 `pipeline/profile/pass_cap.py` derives it from `renders_polar_caps` and holds both measurements. 16 G

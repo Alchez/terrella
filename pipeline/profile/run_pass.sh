@@ -24,19 +24,19 @@
 # it from the registry, and holds the whole argument plus the measurements behind both numbers.
 # MEMORY_CAP_OVERRIDE_GIB substitutes the number afterwards and says so on stdout when it does; the
 # registry is still asked either way, and the branch itself carries why that ordering matters.
-# The short version: 16 G is Earth's, because the pass ENDS by invoking cap_render as a subprocess
-# that inherits this scope's cgroup and peaks near 14 GB; a body rendering no caps never reaches
-# that stage, so on it the 16 G is unbacked rather than protective and the preflight below then
-# refuses a pass the box could have run. The composite is NOT why either number is what it is: it
-# peaks at 10.55 GiB and COMPOSITE_ROWS=128 is a hardcoded constant, not a function of this cap, so
-# a larger cap cannot let it grow.
+# The short version: 16 G is the CAP-RENDERING number, because the pass ENDS by invoking cap_render
+# as a subprocess that inherits this scope's cgroup; a body rendering no caps never reaches that
+# stage, so on it the 16 G is unbacked rather than protective and the preflight below then refuses
+# a pass the box could have run. The composite is NOT why either number is what it is, and
+# COMPOSITE_ROWS=128 is a hardcoded constant rather than a function of this cap, so a larger cap
+# cannot let it grow. The per-stage peaks are measured in PROCESS.md, not restated here.
 #
 # What this script still owns is GDAL_CACHEMAX=512 (per shade_planet.py's own launch note), which
-# is the term that makes the tiling stage the peak when planet_rgb is fresh: `gdal raster tile`
-# spawns -j ALL_CPUS workers that EACH inherit it -- 16 x 512 MB of block cache before any tile
-# buffers. That arithmetic is why Earth's tiling run wants the same 16 G its caps do. A worker
-# killed mid-write still leaves a TRUNCATED png, but build_tiles no longer resumes over a partial
-# staging dir -- it removes it and cuts clean, so a bad tile can no longer survive into the pyramid.
+# `gdal raster tile` multiplies: it spawns -j ALL_CPUS workers that EACH inherit it. That product is
+# an UPPER BOUND the cut never reaches -- the block cache fills lazily, and measured the cut is the
+# lightest stage of the pass, so it is not what sizes this cap. A worker killed mid-write still
+# leaves a TRUNCATED png, but build_tiles no longer resumes over a partial staging dir -- it removes
+# it and cuts clean, so a bad tile can no longer survive into the pyramid.
 set -uo pipefail
 
 # Roots derive from this script's own location, never a hardcoded home path: the harness has to
