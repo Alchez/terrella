@@ -27,12 +27,12 @@ import concurrent.futures as cf
 import hashlib
 import json
 import os
-import shutil
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
 from pipeline import fetch, paths
+from pipeline.fetch import download_one
 
 BUCKET_URL = "https://copernicus-dem-30m.s3.amazonaws.com"
 DATA_DIR = paths.DATA / "raw/glo30"
@@ -114,27 +114,6 @@ def bucket_preflight():
     print(f"bucket preflight: {len(set(sample))} held tiles match their ETags"
           if sample else "bucket preflight: no held tiles yet — nothing to check",
           flush=True)
-
-
-def download_one(url: str, dest: Path) -> str:
-    """Download url to dest. Returns 'ok', 'skipped', or 'failed: <reason>'."""
-    if dest.exists():
-        return "skipped"
-    part = dest.with_suffix(".part")
-    try:
-        with fetch.open_url(url, timeout=60) as resp:
-            expected = int(resp.headers.get("Content-Length", -1))
-            with open(part, "wb") as out:
-                shutil.copyfileobj(resp, out)
-        actual = part.stat().st_size
-        if expected != -1 and actual != expected:
-            part.unlink()
-            return f"failed: size mismatch ({actual} of {expected} bytes)"
-        os.replace(part, dest)
-        return "ok"
-    except Exception as exc:  # noqa: BLE001 — one tile's failure must not kill the pool
-        part.unlink(missing_ok=True)
-        return f"failed: {exc}"
 
 
 def tile_files(name: str) -> list[tuple[str, Path]]:

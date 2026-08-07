@@ -2385,6 +2385,17 @@ SABOTAGES: list[Sabotage] = [
         replacement='',
         guard='test_the_ground_scale_rides_in_the_recipe_that_gates_the_render',
     ),
+    # --- The shared atomic download ------------------------------------------------------------
+    # Eight of ten callers test `status.startswith("failed")`. Defaulting the 404 branch ON turns a
+    # missing file into a silent success for all of them, and nothing downstream raises.
+    Sabotage(
+        suite='python',
+        label='the atomic download calls a 404 absent by default, so a missing file reads as success',
+        path='pipeline/fetch.py',
+        needle='                 absent_on_404: bool = False) -> str:',
+        replacement='                 absent_on_404: bool = True) -> str:',
+        guard='test_a_404_is_a_FAILURE_by_default',
+    ),
     # --- The SIM 3292 acquisition recipe -------------------------------------------------------
     # pygeoapi stamps every response with the request time, fixed-width ISO — so two fetches of
     # identical data have the SAME length and a DIFFERENT hash. Hashing the whole document instead

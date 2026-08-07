@@ -190,6 +190,10 @@ class TestTheRecipeDownloadsNothingByAccident:
 
     def test_the_atomic_download_is_imported_rather_than_restated(self):
         """One home for "stream to .part, size-check, atomically rename". Restating it is how a
-        half-written 10 GiB file acquires a final name on one code path and not the other."""
-        from pipeline.acquire import download_glo30
-        assert mars_dem.download_one is download_glo30.download_one
+        half-written 10 GiB file acquires a final name on one code path and not the other.
+
+        Names `fetch` rather than `download_glo30`, which is where the rule used to live. Both
+        spellings passed while it moved — an identity assertion is satisfied by any two names for
+        one object, so it went on holding through a module that had stopped being the home."""
+        from pipeline import fetch
+        assert mars_dem.download_one is fetch.download_one

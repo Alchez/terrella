@@ -17,7 +17,7 @@ import sys
 import zipfile
 
 from pipeline import fetch, paths
-from pipeline.acquire.download_glo30 import download_one
+from pipeline.fetch import download_one
 
 CKAN = "https://ihp-wins.unesco.org/api/3/action/package_search?q=Randolph+Glacier+Inventory+7.0&rows=5"
 DATASET = "randolph-glacier-inventory-rgi-7-0-glacier-product"

@@ -17,6 +17,7 @@ come through the same door.
 
 import ast
 import inspect
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -163,3 +164,84 @@ def test_open_url_hands_urlopen_the_identified_request(monkeypatch: pytest.Monke
         "url": "https://example.invalid/thing",
         "timeout": 7,
     }
+
+
+class _Response:
+    """A canned response: a length header and a body."""
+
+    def __init__(self, body: bytes, length: int | None = None):
+        self.body = body
+        self.headers = {"Content-Length": str(len(body) if length is None else length)}
+
+    def read(self, size: int = -1) -> bytes:
+        chunk, self.body = self.body, b""
+        return chunk
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        return None
+
+
+def _serving(monkeypatch: pytest.MonkeyPatch, outcome):
+    """Point `open_url` at a canned response or a raised error."""
+    def opener(url, *, method="GET", timeout):
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+    monkeypatch.setattr(fetch, "open_url", opener)
+
+
+def _http_error(code: int) -> urllib.error.HTTPError:
+    # `hdrs=None` is what urllib itself allows and what a real error carries here; the stub's
+    # annotation says Message, so the ignore is at the call rather than a fabricated header set.
+    return urllib.error.HTTPError("https://example.invalid/x", code, "no",
+                                  hdrs=None,  # pyright: ignore[reportArgumentType]
+                                  fp=None)
+
+
+class TestDownloadOne:
+    """The atomic-write rule. The default-off 404 branch is the assertion that matters."""
+
+    def test_a_404_is_a_FAILURE_by_default(self, tmp_path: Path, monkeypatch):
+        """Eight of ten callers test `startswith("failed")`; 'absent' by default would make a
+        missing file a silent success. Do not flip this default."""
+        _serving(monkeypatch, _http_error(404))
+        assert fetch.download_one("https://example.invalid/x",
+                                  tmp_path / "out.bin").startswith("failed")
+
+    def test_a_404_is_absent_only_when_the_caller_asks(self, tmp_path: Path, monkeypatch):
+        """The opt-in half, for the two WorldCover callers whose ocean cells 404."""
+        _serving(monkeypatch, _http_error(404))
+        assert fetch.download_one("https://example.invalid/x", tmp_path / "out.bin",
+                                  absent_on_404=True) == "absent"
+
+    def test_a_non_404_error_stays_a_failure_even_when_absent_is_asked_for(self, tmp_path: Path,
+                                                                          monkeypatch):
+        """One code on purpose: a 503 is a retry, not an empty ocean."""
+        _serving(monkeypatch, _http_error(503))
+        assert fetch.download_one("https://example.invalid/x", tmp_path / "out.bin",
+                                  absent_on_404=True).startswith("failed")
+
+    def test_an_existing_file_is_skipped_rather_than_refetched(self, tmp_path: Path, monkeypatch):
+        """A file under its final name is complete by construction."""
+        dest = tmp_path / "out.bin"
+        dest.write_bytes(b"already here")
+        _serving(monkeypatch, AssertionError("must not reach the network"))
+        assert fetch.download_one("https://example.invalid/x", dest) == "skipped"
+
+    def test_a_short_read_fails_and_leaves_no_part_behind(self, tmp_path: Path, monkeypatch):
+        """A truncated transfer must never acquire the final name."""
+        _serving(monkeypatch, _Response(b"short", length=999))
+        dest = tmp_path / "out.bin"
+        assert fetch.download_one("https://example.invalid/x", dest).startswith("failed")
+        assert not dest.exists()
+        assert list(tmp_path.glob("*.part")) == []
+
+    def test_a_complete_read_lands_atomically(self, tmp_path: Path, monkeypatch):
+        _serving(monkeypatch, _Response(b"payload"))
+        dest = tmp_path / "out.bin"
+        assert fetch.download_one("https://example.invalid/x", dest) == "ok"
+        assert dest.read_bytes() == b"payload"
+        assert list(tmp_path.glob("*.part")) == []

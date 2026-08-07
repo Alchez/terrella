@@ -24,7 +24,11 @@ cannot honour. When the repository is public, the URL belongs here, in this cons
 else.
 """
 
+import os
+import shutil
+import urllib.error
 import urllib.request
+from pathlib import Path
 from typing import Any
 
 #: Sent on every request this pipeline makes. Any descriptive value clears the default-agent block
@@ -50,3 +54,38 @@ def open_url(url: str, *, method: str = "GET", timeout: float) -> Any:
     required means the next one cannot quietly not.
     """
     return urllib.request.urlopen(build_request(url, method=method), timeout=timeout)
+
+
+def download_one(url: str, dest: Path, *, timeout: float = 60,
+                 absent_on_404: bool = False) -> str:
+    """Stream `url` to `dest` atomically. Returns 'ok', 'skipped', 'absent' or 'failed: <reason>'.
+
+    The one home for "stream to .part, size-check against Content-Length, atomically rename", so a
+    file under its final name is always complete and `exists()` is a valid resume.
+
+    `absent_on_404` MUST STAY DEFAULT-OFF. Eight of its ten callers test
+    `status.startswith("failed")`, so returning 'absent' to one of them turns a missing file into a
+    silent success; only the two WorldCover callers, whose ocean cells legitimately 404, pass True.
+    """
+    if dest.exists():
+        return "skipped"
+    part = dest.with_suffix(".part")
+    try:
+        with open_url(url, timeout=timeout) as response:
+            expected = int(response.headers.get("Content-Length", -1))
+            with open(part, "wb") as sink:
+                shutil.copyfileobj(response, sink)
+        actual = part.stat().st_size
+        if expected != -1 and actual != expected:
+            part.unlink()
+            return f"failed: size mismatch ({actual} of {expected} bytes)"
+        os.replace(part, dest)
+        return "ok"
+    except urllib.error.HTTPError as exc:
+        part.unlink(missing_ok=True)
+        if absent_on_404 and exc.code == 404:
+            return "absent"
+        return f"failed: {exc}"
+    except Exception as exc:  # noqa: BLE001 — one tile's failure must not kill the pool
+        part.unlink(missing_ok=True)
+        return f"failed: {exc}"

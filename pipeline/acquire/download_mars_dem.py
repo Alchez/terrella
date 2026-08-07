@@ -61,7 +61,7 @@ Output (data/raw/mars/):
   Mars_HRSC_MOLA_BlendDEM_Global_200mp_v2.tif    the blend, exactly as published
 
 Idempotency: the file streams to a `.part` name, is size-checked against Content-Length and only
-then atomically renamed (`download_glo30.download_one`, one home for that rule), so a file under its
+then atomically renamed (`fetch.download_one`, one home for that rule), so a file under its
 final name is always complete and a re-run skips it.
 
 Edition oracle: `preflight` HEADs the URL and refuses to download unless the size AND the
@@ -84,7 +84,7 @@ import pyproj
 import rasterio
 
 from pipeline import bodies, fetch, paths
-from pipeline.acquire.download_glo30 import download_one
+from pipeline.fetch import download_one
 
 DATA_DIR = paths.DATA / "raw/mars"
 

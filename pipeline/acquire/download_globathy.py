@@ -23,7 +23,7 @@ Edition oracle: figshare's /versions/1 endpoint is immutable, so the pin is the 
 API URL (the self-pinning download_gebco.py model) cross-checked against the size + md5
 baked in below. If figshare ever serves different bytes under v1, preflight aborts loudly
 rather than silently swapping the dataset underneath us. Downloads reuse
-download_glo30.download_one (.part -> Content-Length check -> atomic rename), so a file
+fetch.download_one (.part -> Content-Length check -> atomic rename), so a file
 under its final name is always complete and re-runs skip it; md5 is verified on fresh
 downloads only, so an idempotent re-run stays instant instead of re-hashing 16.7 GB.
 
@@ -40,7 +40,7 @@ import sys
 from pathlib import Path
 
 from pipeline import fetch, paths
-from pipeline.acquire.download_glo30 import download_one
+from pipeline.fetch import download_one
 
 DATA_DIR = paths.DATA / "raw/globathy"
 API = "https://api.figshare.com/v2/articles/{article}/versions/1"
