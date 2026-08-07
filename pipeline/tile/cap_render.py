@@ -51,7 +51,7 @@ import rasterio
 from pyproj import Transformer
 from scipy.ndimage import binary_dilation
 
-from pipeline import bodies, layers, naturalearth, planet_seam
+from pipeline import bodies, layers, naturalearth, planet_seam, vector_raster
 from pipeline.render import hillshade, lake_depth, palette, perennial_ice, seaice
 from pipeline.tile import shade, terrain_rgb
 from pipeline.tile.shade import KNOBS
@@ -526,19 +526,20 @@ def _bake_coastline(grid: CapGrid, rgb: np.ndarray) -> None:
     """Blend the coastline as a subtle dark line over the cap RGB, in place. No-op when the cap opts
     out (`coast_opacity <= 0`, e.g. the south, where white ice on teal ocean self-separates).
 
-    ne_10m_coastline is 4326, so reproject to AEQD (gdal_rasterize does not reproject) before burning
-    it onto the cap grid; a small dilation makes it a ~3 px line rather than a 1 px thread at 4096.
+    The reproject-then-burn is `vector_raster.burn_onto_grid`, whose module note holds why those are
+    one act; a small dilation makes it a ~3 px line rather than a 1 px thread at 4096.
     """
     if not bakes_coastline(grid):
         return
     edge = grid.edge_m
     work = cap_work_dir(grid.body)
-    coast_aeqd = work / f"cap_{grid.name}_coast_aeqd.gpkg"
-    coast_tif = work / f"cap_{grid.name}_coast.tif"
-    _run(["ogr2ogr", "-overwrite", "-t_srs", grid.aeqd, str(coast_aeqd), str(COAST_SHP)])
-    _run(["gdal_rasterize", "-q", "-burn", "1", "-init", "0", "-ot", "Byte",
-          "-te", str(-edge), str(-edge), str(edge), str(edge),
-          "-ts", str(grid.px), str(grid.px), str(coast_aeqd), str(coast_tif)])
+    coast_tif = vector_raster.burn_onto_grid(
+        COAST_SHP, grid.aeqd, (-edge, -edge, edge, edge), grid.px, grid.px,
+        projected=work / f"cap_{grid.name}_coast_aeqd.gpkg",
+        out=work / f"cap_{grid.name}_coast.tif",
+        # A cap that bakes the line has already passed `bakes_coastline`, so the body declares the
+        # layer and the shapefile is there. An empty burn past that gate is the projection.
+        must_draw=f"{grid.body.name}'s {grid.name} cap coastline")
     with rasterio.open(coast_tif) as dataset:
         line = dataset.read(1) != 0
     if grid.coast_dilate:

@@ -109,6 +109,11 @@ MUTABLE_ROOTS = (
     # wrong stage column just moves a key in a recipe nobody re-reads. Neither has an output to
     # inspect, so mutation is the only proof they still fire.
     "pipeline/layers.py",
+    # Joined with the reproject-then-burn owner, whose whole subject is a GDAL command that succeeds
+    # while producing nothing. Earth's one caller draws a coastline that is obviously there, so every
+    # guard over it passes on this box whether it fires or not; the body it protects is the one that
+    # burns a mapped unit, and that body has no output to inspect yet.
+    "pipeline/vector_raster.py",
     # Joined with the required `--body`. The planet entry points are where a silent Earth assumption
     # would be reintroduced, and it is invisible while Earth is the only body — so the guards against
     # it are worth exactly as much as the proof that they still fire.
@@ -2288,6 +2293,42 @@ SABOTAGES: list[Sabotage] = [
         needle='        sources=lambda: (snow.SP_NC,),',
         replacement='        sources=lambda frozen=(snow.SP_NC,): frozen,',
         guard='test_the_composite_sources_are_read_at_CALL_time_so_a_redirect_reaches_them',
+    ),
+    # --- the vector->raster stage: four ways to draw nothing, or the wrong thing, in silence ------
+    # Every one of these leaves both GDAL commands exiting 0 and a well-formed raster on disk. That
+    # is the whole reason they are cases: there is no output to inspect and no error to read, and
+    # three of the four are invisible on Earth, which never burns a mapped unit at all.
+    Sabotage(
+        suite='python',
+        label='the vector is LABELLED with the target CRS instead of reprojected into it',
+        path='pipeline/vector_raster.py',
+        needle='    return ["ogr2ogr", "-overwrite", "-t_srs", target_srs, str(out), str(source)]',
+        replacement='    return ["ogr2ogr", "-overwrite", "-a_srs", target_srs, str(out), str(source)]',
+        guard='test_the_reprojection_uses_t_srs_and_never_a_srs',
+    ),
+    Sabotage(
+        suite='python',
+        label='the empty-burn guard stops firing, so a missed projection reads as a body with no ice',
+        path='pipeline/vector_raster.py',
+        needle='    if must_draw is not None and drew_nothing(out):',
+        replacement='    if False and must_draw is not None and drew_nothing(out):',
+        guard='test_the_guard_refuses_an_empty_burn_and_names_the_subject',
+    ),
+    Sabotage(
+        suite='python',
+        label='the feather pad becomes a constant, so every band seam is quietly wrong',
+        path='pipeline/render/mars_ice.py',
+        needle='    pad = int(np.ceil(feather_m / float(scale.min()))) + 1',
+        replacement='    pad = 3',
+        guard='test_banding_does_not_change_the_alpha_at_all',
+    ),
+    Sabotage(
+        suite='python',
+        label="Apu is drawn in the south too, whitening two thirds of that disc on no evidence",
+        path='pipeline/render/mars_ice.py',
+        needle='SOUTH_UNITS: tuple[str, ...] = ("lApc",)',
+        replacement='SOUTH_UNITS: tuple[str, ...] = ("lApc", "Apu")',
+        guard='test_apu_is_northern_only',
     ),
     Sabotage(
         suite='python',
