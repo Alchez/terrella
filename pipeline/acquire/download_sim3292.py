@@ -2,9 +2,8 @@
 
 WHAT THIS IS AND IS NOT. The white on Mars's poles is two fields from two sources: an extent (where
 white is drawn at all) and an alpha (how white each pixel inside it is). This module acquires the
-extent. The alpha would come from OMEGA, whose licence is undocumented rather than permitted, and
-nothing here depends on it — the two are independent, which is why one being blocked does not block
-the other.
+extent. The alpha comes from elsewhere and nothing here depends on which source that is — the two
+are independent, which is what let the alpha's source be replaced outright without touching this.
 
 WHY A MAPPED SOURCE RATHER THAN A MEASURED ONE, since Earth's ice comes from a measured field.
 NSIDC-0791 is a *classification* — how many years out of N a pixel was snow — so on Earth the extent
@@ -25,7 +24,8 @@ states `Access_Constraints: None`, `Use_Constraints: please cite authors.`, `Dis
 None`, `Fees: None`. The citation the use constraint asks for is the metadata's own
 `Data_Set_Credit`, reproduced in ATTRIBUTIONS.md and pinned by `tests/test_attributions.py` -- not
 composed by us, so there is no guessed string anywhere in the chain. This composes with the site's
-CC BY-SA 4.0 without an argument, which is the whole reason this source outranks OMEGA.
+CC BY-SA 4.0 without an argument, which is the whole reason this source was reachable when the
+first choice of alpha source turned out to be CC BY-NC and therefore unusable.
 
 WHICH DISTRIBUTION, AND WHY NOT THE PUBLISHED ZIP. The same geometry ships two ways. The
 Publications Warehouse offers `sim3292_database.zip` at 808,910,442 bytes, and its shapefile is
@@ -87,7 +87,7 @@ COLLECTION = "mars/sim3292_global_geologic_map/units"
 QUERY_LIMIT = 200
 
 #: The units this pipeline draws, and what each one is. `Apu` is in the NORTH extent only, on
-#: measurement rather than symmetry: OMEGA puts it +0.13 to +0.16 over ordinary ground at matched
+#: measurement rather than symmetry: the albedo puts it +0.13 to +0.16 over ordinary ground at matched
 #: latitude in the north and within ±0.04 in the south, where it covers 68.7% of the disc — so
 #: painting it there would whiten two-thirds of the view on no evidence. That decision belongs to
 #: the consumer; this module acquires both and takes no view.

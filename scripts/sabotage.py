@@ -2294,42 +2294,6 @@ SABOTAGES: list[Sabotage] = [
         replacement='        sources=lambda frozen=(snow.SP_NC,): frozen,',
         guard='test_the_composite_sources_are_read_at_CALL_time_so_a_redirect_reaches_them',
     ),
-    # --- OMEGA: four silent ways to acquire or unpack the wrong albedo -------------------------
-    # None of these throws and none leaves a malformed file. Three produce a raster that still looks
-    # like an albedo map of Mars, and the fourth makes the identity check match nothing at all —
-    # which reads exactly like a product the archive does not carry.
-    Sabotage(
-        suite='python',
-        label='the md5 manifest is read as POSIX paths, so the identity check matches nothing',
-        path='pipeline/acquire/download_omega.py',
-        needle=r'digests[path.replace("\\", "/").rsplit("/", 1)[-1]] = digest.lower()',
-        replacement=r'digests[path.rsplit("/", 1)[-1]] = digest.lower()',
-        guard='test_backslash_paths_and_uppercase_hex_are_understood',
-    ),
-    Sabotage(
-        suite='python',
-        label='the sphere check accepts an ellipsoid, so the 4326 relabel shifts every latitude',
-        path='pipeline/acquire/download_omega.py',
-        needle='    if len(set(radii.values())) != 1 or None in radii.values():',
-        replacement='    if False:',
-        guard='test_an_ellipsoid_is_refused_because_the_relabel_would_shift_latitudes',
-    ),
-    Sabotage(
-        suite='python',
-        label='the two georeferencing derivations stop being compared, so a half-pixel shift passes',
-        path='pipeline/acquire/extract_omega.py',
-        needle='        if abs(float(stated) - derived) > 1e-6:',
-        replacement='        if abs(float(stated) - derived) > 1e9:',
-        guard='test_a_bounding_box_disagreeing_with_the_projection_offsets_is_refused',
-    ),
-    Sabotage(
-        suite='python',
-        label='the PDS fill is compared AFTER scaling, so unmeasured ground becomes plausible albedo',
-        path='pipeline/acquire/extract_omega.py',
-        needle='    albedo[raw == grid["missing"]] = NODATA',
-        replacement='    albedo[albedo == grid["missing"]] = NODATA',
-        guard='test_missing_counts_become_nodata_and_the_rest_scale',
-    ),
     # --- the vector->raster stage: four ways to draw nothing, or the wrong thing, in silence ------
     # Every one of these leaves both GDAL commands exiting 0 and a well-formed raster on disk. That
     # is the whole reason they are cases: there is no output to inspect and no error to read, and
@@ -2365,6 +2329,56 @@ SABOTAGES: list[Sabotage] = [
         needle='SOUTH_UNITS: tuple[str, ...] = ("lApc",)',
         replacement='SOUTH_UNITS: tuple[str, ...] = ("lApc", "Apu")',
         guard='test_apu_is_northern_only',
+    ),
+    # Rec. 601 is the OTHER luma every codebase carries, it sums to one as well, and it grades every
+    # pixel against levels measured through Rec. 709. Nothing about the result looks wrong.
+    Sabotage(
+        suite='python',
+        label='the luma moves to Rec. 601, re-grading Mars against levels measured in Rec. 709',
+        path='pipeline/render/mars_ice.py',
+        needle='LUMA_WEIGHTS: tuple[float, float, float] = (0.2126, 0.7152, 0.0722)',
+        replacement='LUMA_WEIGHTS: tuple[float, float, float] = (0.299, 0.587, 0.114)',
+        guard='test_it_is_rec_709_and_the_weights_are_a_partition_of_one',
+    ),
+    # --- The Viking brightness stage --------------------------------------------------------------
+    # Every one of these leaves a module that imports, type-checks and builds a correct-looking
+    # raster; what they break is the gate that decides whether to build it again.
+    Sabotage(
+        suite='python',
+        label='the brightness recipe stops recording its weights, so a re-graded field reads fresh',
+        path='pipeline/render/viking_luma.py',
+        needle='        "luma_weights": list(mars_ice.LUMA_WEIGHTS),\n',
+        replacement='',
+        guard='test_changed_weights_are_STALE',
+    ),
+    Sabotage(
+        suite='python',
+        label='the recipe drops the source edition, so a republished mosaic never restages',
+        path='pipeline/render/viking_luma.py',
+        needle='        "source_md5": download_viking_mosaic.EXPECTED_MD5,\n',
+        replacement='',
+        guard='test_a_republished_source_edition_is_STALE',
+    ),
+    # The natural simplification, and it inverts the gate: `valid_fraction` is produced BY the build,
+    # so comparing it asks the stage to predict its own result and rebuilds 215 MB on every run.
+    Sabotage(
+        suite='python',
+        label='freshness compares the measured share too, so the stage rebuilds forever',
+        path='pipeline/render/viking_luma.py',
+        needle='    return {key: value for key, value in recorded.items() if key != "valid_fraction"} == \\\n        {key: value for key, value in expected.items() if key != "valid_fraction"}',
+        replacement='    return recorded == expected',
+        guard='test_a_different_measured_share_is_STILL_fresh',
+    ),
+    # An integer luma is the natural spelling for an 8-bit source and it destroys the dark end: a
+    # pixel of (1, 0, 0) rounds to 0, which is the nodata fill, so the darkest measured ground
+    # arrives at the grader as never measured.
+    Sabotage(
+        suite='python',
+        label='the luma rounds to integers, turning the darkest measured ground into nodata',
+        path='pipeline/render/mars_ice.py',
+        needle='    return (stack * weights).sum(axis=0)',
+        replacement='    return np.rint((stack * weights).sum(axis=0))',
+        guard='test_the_dimmest_measurable_pixel_survives_as_measured',
     ),
     Sabotage(
         suite='python',
@@ -2640,6 +2654,52 @@ SABOTAGES: list[Sabotage] = [
         needle='    if args.check:\n        return 0',
         replacement='    if False:\n        return 0',
         guard='test_check_stops_after_the_preflight',
+    ),
+    # --- The Viking mosaic acquisition recipe -------------------------------------------------------
+    # This product is UNCOMPRESSED on a fixed grid, so a re-render that keeps the grid lands on the
+    # same byte count whatever the pixels say. That makes the size pin nearly uninformative and the
+    # publisher's own md5 the only check that can see one — the reverse of the Mars DEM next door,
+    # where the size and the date are all there is to pin.
+    Sabotage(
+        suite='python',
+        label='the preflight drops the publisher digest, so a re-render at the same size passes',
+        path='pipeline/acquire/download_viking_mosaic.py',
+        needle='        ("md5", published_md5(), EXPECTED_MD5),\n',
+        replacement='',
+        guard='test_a_rerender_that_keeps_the_size_and_the_date_is_still_caught',
+    ),
+    # A checksum sidecar is fetched by URL, so a rotted path is the failure that looks like drift:
+    # without the name check the digest of some OTHER product is compared to ours and the message
+    # blames a republished mosaic.
+    Sabotage(
+        suite='python',
+        label='the checksum sidecar is trusted without checking which product it names',
+        path='pipeline/acquire/download_viking_mosaic.py',
+        needle='    if len(fields) != 2 or fields[1] != MOSAIC_NAME:',
+        replacement='    if len(fields) != 2:',
+        guard='test_a_checksum_sidecar_describing_another_product_aborts_saying_so',
+    ),
+    # NOT INVENTED — the product's own two detached PDS labels declare `PolarRadius = 3376200`, so
+    # deleting this check is what a careful reader of the labels would do. The GeoTIFF declares a
+    # sphere, and only the sphere makes the EPSG:4326 relabel an identity on the angles.
+    Sabotage(
+        suite='python',
+        label='the flattening check goes, so an ellipsoidal edition shifts every latitude in silence',
+        path='pipeline/acquire/download_viking_mosaic.py',
+        needle='        if semi_minor is None or abs(semi_minor - semi_major) > 1.0:',
+        replacement='        if False:',
+        guard='test_an_ellipsoidal_edition_is_refused_and_the_message_names_the_labels',
+    ),
+    # The plausible upgrade, and the reason the module argues against itself in its own docstring:
+    # the MDIM 2.1 colour mosaic is five times finer, sits one key away in the same directory, and is
+    # high-pass filtered to REMOVE the regional albedo this source exists to supply.
+    Sabotage(
+        suite='python',
+        label='the mosaic is upgraded to MDIM 2.1, whose albedo was filtered out by construction',
+        path='pipeline/acquire/download_viking_mosaic.py',
+        needle='MOSAIC_NAME = "Mars_Viking_ClrMosaic_global_925m.tif"',
+        replacement='MOSAIC_NAME = "Mars_Viking_MDIM21_ClrMosaic_global_232m.tif"',
+        guard='test_the_product_taken_is_the_925_metre_colour_mosaic_and_not_a_finer_one',
     ),
     # --- The HTTP identity --------------------------------------------------------------------------
     # These are the hardest mutations in the file to catch by any other means. Every acquisition test

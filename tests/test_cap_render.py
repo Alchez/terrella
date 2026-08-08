@@ -29,8 +29,8 @@ import pytest
 import rasterio
 from rasterio.transform import from_bounds
 
-from pipeline import bodies, paths, planet_seam
-from pipeline.render import palette, perennial_ice, seaice, snow
+from pipeline import bodies, layers, paths, planet_seam
+from pipeline.render import layer_producers, palette, perennial_ice, seaice, snow
 from pipeline.tile import cap_render, shade_planet, terrain_rgb
 
 #: A planet whose seam emitted all three rasters — what Earth declares, and the only
@@ -209,6 +209,27 @@ def _the_synthetic_bodies_have_ice_producers(monkeypatch):
         for pole in ("north", "south"):
             monkeypatch.setitem(perennial_ice.CAP_ICE_BY_BODY, (name, pole),
                                 perennial_ice.CAP_ICE_BY_BODY[("earth", pole)])
+
+
+@pytest.fixture(autouse=True)
+def _the_synthetic_bodies_have_composite_producers(monkeypatch):
+    """The third registry that refuses an unregistered body, and it reaches here through the recipe.
+
+    Every cap recipe embeds `composite_params`, which now asks each DECLARED composite layer's own
+    producer what constants it reads — so a synthetic body cloned from Earth declares Earth's four
+    layers under a name no producer answers to, and `producer_for` raises exactly as `look_for` and
+    `cap_ice` do above. Registering here rather than loosening that lookup keeps the refusal, which
+    is the property the cap tier depends on: a body inheriting Earth's producer by omission grades
+    another planet's ice by NSIDC's packing convention and reports nothing.
+
+    Poles do not appear because this registry is keyed `(body, layer)` where the cap's is
+    `(body, pole)` — the two tiers key differently, and that difference is the reason there are two.
+    """
+    for name in (*SYNTHETIC_BODY_NAMES, "mars"):
+        for layer in layers.LAYERS:
+            if layer.in_composite:
+                monkeypatch.setitem(layer_producers.PRODUCER_BY_BODY_LAYER, (name, layer.name),
+                                    layer_producers.PRODUCER_BY_BODY_LAYER[("earth", layer.name)])
 
 
 class TestTheGridsAreBuiltPerBody:

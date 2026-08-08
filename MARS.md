@@ -215,10 +215,35 @@ whole project.
     gallery.
 - **Other renderable layers, all openly licensed.**
   - THEMIS day IR and night IR at 100 m/px, global; night IR covers 60°N–60°S.
-  - Viking MDIM 2.1 colorized, 232 m/px.
+  - Viking MDIM 2.1 colorized, 232 m/px — **relief imagery, not an albedo field.** Its base is
+    high-pass-filtered at ~50 km to remove regional albedo and emphasise topography, and its colour
+    is the 925 m Viking mosaic warped on top. It buys registration and spends the signal ice grades
+    on, so it is the wrong product to reach for whenever brightness is the quantity wanted.
   - The CTX global mosaic at 5 m/px — **imagery, not a DEM**. Over 99.5% coverage, about 10 TB.
   - MOLA polar grids at 512 px/degree (~112 m/px), plus an HRSC south polar DTM at 50 m.
   - Digitised paleoshoreline vectors, and MGS crustal magnetism.
+- **Fields measured and rejected for grading polar ice, recorded so the search is not re-run.**
+  - **SWIM subsurface ice consistency** maps 60°S–60°N at ~3 km/px over depths of 0–1 m, 1–5 m and
+    >5 m. It ends ~978 km equatorward of where the northern ice extent begins, so the overlap with
+    anything painted is zero, and it answers what is buried rather than what is bright.
+  - **Odyssey GRS/MONS water-equivalent hydrogen** resolves ~520 km per element, ~290 km
+    pixon-reconstructed, against a 144.7 m/px cap — some 2,000 cap pixels per element, with the
+    whole southern extent 1.25 elements across. It senses the upper metre, the north saturates at
+    100%, and its own authors exclude poleward of 75°S as unreliable beneath a CO2 cap.
+  - **CRISM mosaics are the finest calibrated albedo field Mars has, and they stop short of the
+    ice.** MRDR and VRDR v4 are 327 ppd — ~181 m/px, normalised across overlapping strips against
+    clear-atmosphere reference data, public domain — covering ±67.5°, which is 92.4% of the sphere
+    by area and none of the polar extents.
+    - The tiling reserves POLAR STEREOGRAPHIC for 87.5–90° and those tiles were never populated:
+      1,964 in the scheme against 1,764 delivered, the 200 missing being exactly the polar ones.
+    - **65–90° polar stereographic is the Mars Chart convention, not CRISM's.** MC-01 and MC-30 are
+      the 65–90° charts USGS renders that way; CRISM borrows the chart names for its directories and
+      switches projection at 87.5°. Reading the chart convention onto CRISM predicts polar coverage
+      the tiling never claimed.
+    - Polar data exists only as ~5,300 unmosaicked MTRDR scenes at ~1.1 GB per I/F cube, so building
+      a field from them is a multi-terabyte season-selection and cross-scene photometry problem.
+  - The shared shape, and the reason to check coverage before resolution: **a field can be global
+    and still answer a different question** than how bright this ground is.
 
 ## The zoom ceiling
 
@@ -240,7 +265,7 @@ whole project.
     exist, be served, and be looked at on the sphere, which is how Earth's was settled.
 - **The polar caps do not sit on this ladder at all, and Mars's already outruns its own source.**
   The cap is one AEQD texture per pole at a fixed pixel count, so its ground resolution follows the
-  body's radius rather than any zoom: **144.6 m/px on Mars against 271.5 on Earth**, from the same
+  body's radius rather than any zoom: **144.7 m/px on Mars against 271.8 on Earth**, from the same
   constant meeting a smaller planet.
   - Against the 200 m/px blend that feeds it, Mars's cap is already **interpolating**. A larger
     texture buys nothing here, and the frontend's mesh — not the texture — is the standing limit.
@@ -558,5 +583,6 @@ imposes nothing.
 | SIM 3292 | 1:20M geologic map, polygon units | USGS Publications Warehouse |
 | USGS/IAU gazetteer | planetary nomenclature | USGS Astrogeology |
 | THEMIS day/night IR | 100 m/px global infrared | ASU / USGS Astrogeology |
-| Viking MDIM 2.1 | 232 m/px colorized global mosaic | USGS Astrogeology |
+| Viking colour mosaic | 925 m/px global mosaic built *for* albedo; grades the polar ice | USGS Astrogeology |
+| Viking MDIM 2.1 | 232 m/px colorized mosaic — finer, but its regional albedo is filtered out | USGS Astrogeology |
 | CTX global mosaic | 5 m/px imagery, ~10 TB | Caltech Murray Lab |

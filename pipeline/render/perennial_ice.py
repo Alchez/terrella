@@ -62,15 +62,33 @@ class WarpToCap(Protocol):
                  srcnodata: "float | None" = None) -> np.ndarray: ...
 
 
+class BurnToCap(Protocol):
+    """Land one vector source on the calling cap's AEQD grid and hand back a boolean mask.
+
+    THE TWIN OF `WarpToCap` AND INJECTED FOR ITS REASON, not for symmetry: the grid belongs to
+    `cap_render`, and a producer reaching back for it would close the import cycle that docstring
+    describes. `cap_render._bake_coastline` already burns vectors onto this exact grid, so what this
+    exposes is a capability the module has rather than one being invented for a body.
+
+    A SEPARATE PROTOCOL FROM THE WARP BECAUSE THE TRAP IS DIFFERENT. `vector_raster` exists because
+    `gdal_rasterize` does not reproject and, handed a mismatched CRS, burns nothing while exiting 0
+    and writing a well-formed raster. `must_draw` is the caller's claim that an empty result is
+    breakage; it has no default here for the reason `mars_ice.burn_unit` records — on a cap it
+    depends on the disc's edge latitude against that unit's own reach.
+    """
+
+    def __call__(self, source: Path, name: str, must_draw: "str | None") -> np.ndarray: ...
+
+
 @dataclass(frozen=True)
 class CapIceInputs:
     """Everything a cap ice producer is allowed to see.
 
-    `land` and `latitude` are passed to every producer whether or not it reads them, and that is
-    deliberate: a struct whose fields depend on which producer is registered would have to be built
-    differently per body, which puts a body branch back in the renderer this seam exists to remove.
-    Both are cheap — the renderer computes the lon/lat grid for the light azimuth regardless, and
-    the masks for the composite.
+    Every field is passed to every producer whether or not it reads them, and that is deliberate: a
+    struct whose fields depend on which producer is registered would have to be built differently per
+    body, which puts a body branch back in the renderer this seam exists to remove. All are cheap —
+    the renderer computes the lon/lat grid for the light azimuth regardless, and the masks for the
+    composite.
     """
 
     #: `~(ocean | water)` on the cap grid — the tile composite's definition of land, so the two
@@ -80,6 +98,12 @@ class CapIceInputs:
     #: no rows of constant latitude, so the Mercator path's 1-D form is wrong here.
     latitude: np.ndarray
     warp: WarpToCap
+    burn: BurnToCap
+    #: GROUND metres per pixel, never AEQD map metres. The two differ by `ground_metres_per_aeqd_unit`
+    #: — 0.533 on Mars — and a producer converting a ground distance into pixels with the map figure
+    #: draws it at roughly half the width its own constant claims. That has already happened once,
+    #: which is why this is supplied rather than left for each producer to derive.
+    ground_metres_per_px: float
 
 
 @dataclass(frozen=True)
@@ -132,6 +156,12 @@ def _earth_south(inputs: CapIceInputs) -> np.ndarray:
 
 #: Every producer that ships, by (body slug, pole). Earth's two entries are the seam's two real
 #: instances — a NetCDF warp and a latitude rule, sharing nothing but their signature.
+#:
+#: MARS IS ABSENT ON PURPOSE AND ITS ABSENCE IS ORDERING, NOT DOUBT. Its extent, feather and alpha
+#: levels are built and tested in `mars_ice`; what it lacks is a source with an owner, the Viking
+#: mosaic being hand-placed. A producer cannot declare a path nothing acquired — the rule that made
+#: OMEGA's acquirer precede this registry, and the reason the OMEGA entries that stood here are gone
+#: rather than repointed.
 CAP_ICE_BY_BODY: dict[tuple[str, str], CapIce] = {
     ("earth", "north"): CapIce(sources=lambda: (Path(snow.SP_NC),), alpha=_earth_north),
     ("earth", "south"): CapIce(sources=lambda: (), alpha=_earth_south),

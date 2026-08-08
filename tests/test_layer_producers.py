@@ -240,7 +240,8 @@ class TestTheWarpGateAsksTheBodyFirst:
                 layer_producers.LayerProducer(
                     sources=lambda source=source: (source,),
                     build=lambda request, name=layer.name: built.append(name),
-                    contribution=lambda window: None))
+                    contribution=lambda window: None,
+                    recipe=dict))
         shade_planet.warp_inputs(work, planet, body, frozenset())
         return built
 
@@ -284,7 +285,8 @@ class TestTheWarpGateAsksTheBodyFirst:
                 layer_producers.LayerProducer(
                     sources=lambda source=source: (source,),
                     build=lambda request, name=layer.name: built.append(name),
-                    contribution=lambda window: None))
+                    contribution=lambda window: None,
+                    recipe=dict))
         shade_planet.warp_inputs(work, planet, bodies.EARTH, frozenset())
         assert layers.PERENNIAL_ICE.name not in built
         assert layers.SEA_ICE.name in built, "the other layers must be unaffected"

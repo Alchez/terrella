@@ -34,6 +34,7 @@ put GDAL back where rasterio is not thread-safe.
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
@@ -102,6 +103,20 @@ class LayerProducer:
     #: This layer's number for one window, or None when it has nothing to add. Returning None rather
     #: than zeros keeps a layer that contributes nothing out of the union entirely.
     contribution: Callable[[LayerWindow], "np.ndarray | None"]
+    #: The constants THIS producer's own arithmetic reads, for the composite's freshness recipe.
+    #:
+    #: A tunable reaching a pixel and reaching no recipe leaves a stale composite looking fresh; one
+    #: recorded by a body that cannot evaluate it restages that body for output it could not have
+    #: changed. Both are silent, and a single gate cannot separate them once two bodies paint the
+    #: same layer by different arithmetic — the gate asks whether the body paints ice, which is
+    #: right, and the values behind it answered for Earth, which stopped being right. So the code
+    #: that READS a constant is the code that declares it.
+    #:
+    #: THE COMPOSITOR'S OWN CONSTANTS ARE NOT HERE and must not be moved here. `shade.composite`
+    #: paints whatever alpha it is handed with `palette.SNOW_RGB`, and grades lake depth with
+    #: `palette.LAKE_*`, on every body alike; those are live per LAYER rather than per producer, so
+    #: `composite_params` keeps them and gates them on the layer that makes them reachable.
+    recipe: Callable[[], dict[str, Any]]
 
 
 def _build_lake_depth(request: LayerBuild) -> None:
@@ -198,6 +213,47 @@ def _earth_sea_ice(window: LayerWindow) -> "np.ndarray | None":
     return ice_alpha
 
 
+def _no_tunables() -> dict[str, Any]:
+    """A producer whose arithmetic has no constants of its own.
+
+    Empty is a statement and not an omission, on `CapIce.sources`' rule. Lake depth is a warp and
+    the glacier mask a rasterize: both land a source on the grid and hand the number through
+    unmodified, so there is nothing here to re-tune. What paints them — the lake ramp, the whites —
+    belongs to the compositor. A producer that grows a constant declares it here, and the bodies
+    that read it restage; that is the field working, not a change of policy.
+    """
+    return {}
+
+
+def _earth_perennial_ice_recipe() -> dict[str, Any]:
+    """`snow_alpha`'s latitude ramp — what `_earth_perennial_ice` grades NSIDC persistence with.
+
+    NOT the whites. `palette.SNOW_RGB` is read by `shade.composite`, which paints whatever alpha the
+    union hands it, so it is live on any body that feeds white into that union and belongs to the
+    compositor's block rather than to this producer. The split is the difference between computing
+    an alpha and painting with one, and it is what lets a second body grade ice its own way while
+    both share one white.
+    """
+    return {"snow_ramp_lat_lo": snow.RAMP_LAT_LO,
+            "snow_ramp_lat_hi": snow.RAMP_LAT_HI,
+            "snow_ramp_low_min": snow.RAMP_LOW_MIN,
+            "snow_ramp_low_max": snow.RAMP_LOW_MAX,
+            "snow_ramp_band": snow.RAMP_BAND}
+
+
+def _earth_sea_ice_recipe() -> dict[str, Any]:
+    """`ice_alpha`'s frequency ramp, in both hemispheres' tunings — what `_earth_sea_ice` reads.
+
+    The southern pair is here rather than under a hemisphere gate because one producer evaluates
+    both: `_earth_sea_ice` calls `ice_alpha` twice and selects per row, so a window that straddles
+    no southern ice still ran on a body whose producer can reach them.
+    """
+    return {"ice_lo": seaice.ICE_LO, "ice_band": seaice.ICE_BAND,
+            "ice_max_alpha": seaice.ICE_MAX_ALPHA,
+            "sh_ice_lo": seaice.SH_ICE_LO,
+            "sh_ice_max_alpha": seaice.SH_ICE_MAX_ALPHA}
+
+
 #: Every composite-tier producer that ships, by (body slug, layer name).
 #:
 #: Four entries and four MECHANISMS — a banded NetCDF warp, a vector rasterize, a banded GeoTIFF
@@ -206,16 +262,17 @@ def _earth_sea_ice(window: LayerWindow) -> "np.ndarray | None":
 PRODUCER_BY_BODY_LAYER: dict[tuple[str, str], LayerProducer] = {
     ("earth", layers.LAKE_DEPTH.name): LayerProducer(
         sources=lambda: (lake_depth.LAKE_VRT,),
-        build=_build_lake_depth, contribution=_earth_lake_depth),
+        build=_build_lake_depth, contribution=_earth_lake_depth, recipe=_no_tunables),
     ("earth", layers.PERENNIAL_ICE.name): LayerProducer(
         sources=lambda: (snow.SP_NC,),
-        build=_build_persistence, contribution=_earth_perennial_ice),
+        build=_build_persistence, contribution=_earth_perennial_ice,
+        recipe=_earth_perennial_ice_recipe),
     ("earth", layers.GLACIERS.name): LayerProducer(
         sources=lambda: (snow.RGI_GPKG,),
-        build=_build_glaciers, contribution=_earth_glaciers),
+        build=_build_glaciers, contribution=_earth_glaciers, recipe=_no_tunables),
     ("earth", layers.SEA_ICE.name): LayerProducer(
         sources=lambda: (seaice.SEAICE_SRC,),
-        build=_build_sea_ice, contribution=_earth_sea_ice),
+        build=_build_sea_ice, contribution=_earth_sea_ice, recipe=_earth_sea_ice_recipe),
 }
 
 

@@ -480,6 +480,38 @@ def _warp(grid: CapGrid, src, out: Path, resampling: str, dtype: str, srcnodata=
         return dataset.read(1)
 
 
+def cap_ground_metres_per_px(grid: CapGrid) -> float:
+    """Ground metres one cap pixel spans — NOT the AEQD map metres `edge_m` is measured in.
+
+    THE TWO DIFFER BY A FACTOR OF TWO ON MARS and by a thousandth on Earth, which is exactly what
+    made getting it wrong survive review: every projection here is Earth-sphered, so a cap map-metre
+    is `ground_metres_per_aeqd_unit` ground metres — 0.533 for Mars. A ground distance converted to
+    pixels with the map figure draws at half the width its own constant claims, and the prototype
+    this replaces did precisely that with the ice feather.
+
+    Public because it is the number a producer must be handed rather than derive, and because the
+    guard on it has to be able to name it.
+    """
+    return (2.0 * grid.edge_m / grid.px) * bodies.ground_metres_per_aeqd_unit(grid.body)
+
+
+def _burn(grid: CapGrid, source: Path, name: str, must_draw: "str | None") -> np.ndarray:
+    """Rasterize one vector source onto this cap's AEQD grid; return it as a boolean mask.
+
+    The reproject-then-burn is `vector_raster.burn_onto_grid`, whose module note holds why those are
+    one act. Same shape as `_bake_coastline`'s call, which is the reason this is an exposure of an
+    existing capability rather than a new one.
+    """
+    edge = grid.edge_m
+    work = cap_work_dir(grid.body)
+    burnt = vector_raster.burn_onto_grid(
+        source, grid.aeqd, (-edge, -edge, edge, edge), grid.px, grid.px,
+        projected=work / f"cap_{grid.name}_{name}_aeqd.gpkg",
+        out=work / f"cap_{grid.name}_{name}.tif", must_draw=must_draw)
+    with rasterio.open(burnt) as dataset:
+        return dataset.read(1) != 0
+
+
 def _lonlat_grid(grid: CapGrid) -> tuple[np.ndarray, np.ndarray]:
     """True (longitude, latitude) in degrees at each AEQD pixel centre, via an exact AEQD->4326
     transform. row 0 is the +y (pole-up) top of the image. lon drives the per-pixel light azimuth;
@@ -622,6 +654,8 @@ def _cap_perennial_ice(grid: CapGrid, ocean: np.ndarray, water: np.ndarray,
         latitude=latitude,
         warp=lambda source, name, resampling, dtype, srcnodata=None: _warp(
             grid, source, cap_warp(grid, name), resampling, dtype, srcnodata),
+        burn=lambda source, name, must_draw: _burn(grid, source, name, must_draw),
+        ground_metres_per_px=cap_ground_metres_per_px(grid),
     )
     return perennial_ice.cap_ice(grid.body, grid.name).alpha(inputs)
 

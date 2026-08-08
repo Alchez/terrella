@@ -18,6 +18,7 @@ import pytest
 
 from pipeline import bodies, layers, mercator
 from pipeline.render import perennial_ice, snow
+from pipeline.tile import cap_render
 
 
 class TestTheRegistryRefusesRatherThanFallingBack:
@@ -124,7 +125,8 @@ class TestEarthsProducersComputeWhatTheyComputedInline:
         inputs = perennial_ice.CapIceInputs(
             land=np.ones((4, 4), dtype=bool),
             latitude=np.full((4, 4), 82.0, dtype=np.float32),
-            warp=_fixed_warp(log, packed))
+            warp=_fixed_warp(log, packed), burn=_refusing_burn,
+            ground_metres_per_px=EARTH_CAP_GROUND_M_PER_PX)
         alpha = perennial_ice.cap_ice(bodies.EARTH, "north").alpha(inputs)
 
         top, bottom = (float(mercator.northing_at(lat, mercator.WEB_MERCATOR_RADIUS_M))
@@ -156,7 +158,25 @@ def ice_inputs() -> perennial_ice.CapIceInputs:
     land[0, 0] = False
     latitude = np.array([[-58.0] * 4, [-62.0] * 4, [-70.0] * 4, [-89.0] * 4], dtype=np.float32)
     return perennial_ice.CapIceInputs(land=land, latitude=latitude,
-                                      warp=_recording_warp([], (4, 4)))
+                                      warp=_recording_warp([], (4, 4)), burn=_refusing_burn,
+                                      ground_metres_per_px=EARTH_CAP_GROUND_M_PER_PX)
+
+
+#: Earth's real cap scale, so a producer that started reading it would be handed a truthful number
+#: rather than a placeholder that makes a units bug look like a fixture artifact.
+EARTH_CAP_GROUND_M_PER_PX = cap_render.cap_ground_metres_per_px(cap_render.north_grid(bodies.EARTH))
+
+
+def _refusing_burn(source, name, must_draw) -> np.ndarray:
+    """A `BurnToCap` that fails if it is ever called.
+
+    THE ABSENCE IS THE ASSERTION. Earth's two producers read a NetCDF and a latitude rule; neither
+    rasterizes a vector, and neither should start. Passing a working burn here would let one acquire
+    a vector dependency that no test could see, which is the same silence `_fixed_warp` exists to
+    break on the warp side.
+    """
+    raise AssertionError(
+        f"Earth's cap ice must not rasterize a vector, but {name} asked to burn {source}")
 
 
 def _fixed_warp(log: list[str], packed: np.ndarray):

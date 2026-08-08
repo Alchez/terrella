@@ -16,13 +16,15 @@ import pytest
 from scipy import ndimage
 
 from pipeline import vector_raster
-from pipeline.acquire import download_sim3292, extract_omega
+from pipeline.acquire import download_sim3292
 from pipeline.raster_io import row_bands
 from pipeline.render import mars_ice
 
-#: The producer's own fill, taken from the extractor rather than spelled again — a second literal
-#: here would keep passing after the extractor changed its mind about what "unmeasured" is.
-NODATA = extract_omega.NODATA
+#: A fill value for the alpha tests. LOCAL AND ARBITRARY ON PURPOSE, where it once came from the
+#: extractor: the graded field is now an 8-bit colour mosaic whose invalidity is every channel at
+#: zero rather than one distinguished number, so there is no producer constant left to borrow. What
+#: `albedo_alpha` still owes is that whatever it is told is unmeasured becomes exactly zero.
+NODATA = -9999.0
 
 #: 200 m/px against the 5 km feather puts the feather at exactly 25 pixels, so the band arithmetic
 #: below is checkable by hand rather than by re-deriving it in the assertion.
@@ -82,13 +84,23 @@ class TestTheExtentIsAsymmetricOnMeasurement:
             mars_ice.extent_for({"lApc": np.array([[True]])}, True)
 
 
-class TestTheAlphaIsOmegaBetweenTwoPinnedLevels:
+class TestTheAlphaIsTheFieldBetweenTwoPinnedLevels:
     def test_the_two_levels_map_to_zero_and_one(self):
+        """THE TWO ENDS ARE NOT EQUALLY EXACT AND ONLY ONE OF THEM CAN BE. The low end is exact
+        because the CLAMP produces it: every literal here rounds slightly low in float32, so the
+        ground level lands fractionally negative and clips to a true 0.0. The high end is reached by
+        ARITHMETIC, so it carries the float32 error of the raster it came from.
+
+        Exact equality passed here for years and was a coincidence of magnitude, not a property: on
+        0..1 reflectance that error was 3e-9 and `smoothstep(1-e) ~ 1 - 3e**2` fell below float64's
+        resolution, while on 0..255 luma the same relative error is 12x larger and 3e**2 does not.
+        Asserting bit-equality again would re-pin the constants' size rather than the ramp's ends.
+        """
         ground, cap = mars_ice.ALPHA_LEVELS["north"]
         alpha = mars_ice.albedo_alpha(np.array([[ground, cap]], dtype=np.float32),
                                       (ground, cap), NODATA)
         assert alpha[0, 0] == 0.0
-        assert alpha[0, 1] == 1.0
+        assert alpha[0, 1] == pytest.approx(1.0, abs=1e-9)
 
     def test_it_clamps_outside_the_levels_rather_than_extrapolating(self):
         """Albedo runs past both levels on the real disc — the cap median is a MEDIAN, so half the
@@ -107,7 +119,7 @@ class TestTheAlphaIsOmegaBetweenTwoPinnedLevels:
     def test_the_fill_is_zero_even_when_it_would_land_INSIDE_the_range(self):
         """The reason the fill is compared on the RAW value. A fill inside the levels normalises to
         an ordinary alpha, and no downstream range check could tell it from measured albedo."""
-        inside_fill = 0.35
+        inside_fill = 120.0
         ground, cap = mars_ice.ALPHA_LEVELS["north"]
         assert ground < inside_fill < cap, "the fixture must actually sit inside the range"
         alpha = mars_ice.albedo_alpha(np.array([[inside_fill]], dtype=np.float32),
@@ -115,8 +127,8 @@ class TestTheAlphaIsOmegaBetweenTwoPinnedLevels:
         assert alpha[0, 0] == 0.0
 
     def test_the_alpha_is_float64_from_a_float32_raster(self):
-        """OMEGA lands as float32 and `snow.snow_alpha` returns float64; the composite blends
-        whichever body's answer it is handed, so a narrower dtype here shifts the other's blend."""
+        """The graded field lands as float32 and `snow.snow_alpha` returns float64; the composite
+        blends whichever body's answer it is handed, so a narrower dtype here shifts the other's."""
         levels = mars_ice.ALPHA_LEVELS["north"]
         assert mars_ice.albedo_alpha(np.zeros((2, 2), dtype=np.float32), levels, NODATA).dtype == \
             np.float64
@@ -126,7 +138,65 @@ class TestTheAlphaIsOmegaBetweenTwoPinnedLevels:
         assert set(mars_ice.ALPHA_LEVELS) == {"north", "south"}
         assert mars_ice.ALPHA_LEVELS["north"] != mars_ice.ALPHA_LEVELS["south"]
         for ground, cap in mars_ice.ALPHA_LEVELS.values():
-            assert 0.0 < ground < cap < 1.0
+            assert 0.0 < ground < cap <= 255.0
+
+    def test_the_levels_sit_in_the_eight_bit_luma_domain_and_not_a_reflectance_one(self):
+        """THE BOUND ABOVE IS THE POINT, not a formality. These graded OMEGA reflectance on 0..1
+        until the licence closed that source, and levels from one field silently grade a different
+        one to alpha 0 everywhere — a bare cap with no exception raised anywhere. A pair that would
+        pass as reflectance is the failure this refuses."""
+        for ground, cap in mars_ice.ALPHA_LEVELS.values():
+            assert cap > 1.0, "a cap level at or below 1.0 is a reflectance pair, not luma"
+
+
+class TestTheLumaIsTheQuantityTheLevelsAreStatedIn:
+    def test_it_is_rec_709_and_the_weights_are_a_partition_of_one(self):
+        """Pins the standard rather than the arithmetic. Rec. 601 (0.299/0.587/0.114) is the
+        plausible substitution — it is the other luma every codebase carries, it sums to one too,
+        and swapping it re-grades every pixel against levels measured through these three."""
+        assert mars_ice.LUMA_WEIGHTS == (0.2126, 0.7152, 0.0722)
+        assert sum(mars_ice.LUMA_WEIGHTS) == pytest.approx(1.0, abs=1e-12)
+
+    def test_it_matches_the_weighted_sum_taken_by_hand(self):
+        red, green, blue = 200.0, 100.0, 50.0
+        stack = np.array([[[red]], [[green]], [[blue]]], dtype=np.float32)
+        weight_r, weight_g, weight_b = mars_ice.LUMA_WEIGHTS
+        assert mars_ice.luma(stack)[0, 0] == pytest.approx(
+            weight_r * red + weight_g * green + weight_b * blue)
+
+    def test_zero_luma_means_every_channel_was_zero_and_nothing_else(self):
+        """THE PROPERTY THE SCALAR SENTINEL RESTS ON. Viking's nodata is all three bands at zero,
+        which no single value can express — so `albedo_alpha` may keep a scalar fill only while luma
+        vanishes exactly there and nowhere else. Positive weights over non-negative channels is what
+        makes that true, and a weight of 0 on any channel would quietly break it."""
+        absent = np.zeros((3, 1, 1), dtype=np.float32)
+        assert mars_ice.luma(absent)[0, 0] == 0.0
+        for channel in range(3):
+            single = np.zeros((3, 1, 1), dtype=np.float32)
+            single[channel] = 1.0
+            assert mars_ice.luma(single)[0, 0] > 0.0, (
+                f"a pixel measured only in band {channel + 1} reads as NOT MEASURED, so the "
+                f"darkest real ground would be dropped from the grading")
+
+    def test_the_dimmest_measurable_pixel_survives_as_measured(self):
+        """The case an integer round destroys. (1, 0, 0) has luma 0.2126, which rounds to 0 — and 0
+        is the fill, so that pixel would arrive at the grader as absent rather than as the darkest
+        ground there is. float64 out is what keeps it, and this is why."""
+        dimmest = np.array([[[1.0]], [[0.0]], [[0.0]]], dtype=np.float32)
+        value = mars_ice.luma(dimmest)[0, 0]
+        assert value == pytest.approx(0.2126)
+        assert round(value) == 0, "the fixture must be a pixel an integer round would zero"
+        alpha = mars_ice.albedo_alpha(np.array([[value]]), mars_ice.ALPHA_LEVELS["north"], 0.0)
+        assert alpha[0, 0] == 0.0  # graded as dark ground, not masked as absent
+
+    def test_the_measuring_script_and_the_render_cannot_use_different_weights(self):
+        """`ALPHA_LEVELS` is meaningless apart from the weights it was measured through, and the
+        instrument that measured it lives outside the package under gitignored `data/`. This asserts
+        the constant is importable as the one owner, so that script has something to import rather
+        than a fourth copy to keep in step."""
+        assert isinstance(mars_ice.LUMA_WEIGHTS, tuple)
+        assert len(mars_ice.LUMA_WEIGHTS) == 3
+        assert all(weight > 0.0 for weight in mars_ice.LUMA_WEIGHTS)
 
 
 class TestTheFeatherIsGroundDistanceAndNotPixels:

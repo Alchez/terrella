@@ -65,7 +65,6 @@ from pipeline.render import (
     lake_depth,
     layer_producers,
     palette,
-    seaice,
     sky_view,
     snow,
 )
@@ -283,7 +282,21 @@ def composite_params(variants, body: bodies.Body, rasters: frozenset[str],
     # `snow_position` keys BOTH the snow and the sea-ice whites, so its curve constants are live
     # when either layer is painted.
     keys_white = bool({layers.PERENNIAL_ICE.name, layers.SEA_ICE.name} & declared)
-    return json.dumps({**missing, **sea_recipe,
+    # WHAT EACH DECLARED LAYER'S OWN PRODUCER READS, asked of the producer rather than spelled out
+    # here — `LayerProducer.recipe` carries the argument. This function gates on whether a body
+    # paints a layer, which stays right for every body; what it cannot know is HOW that body grades
+    # it, and a second planet painting the same layer by different arithmetic is exactly where a
+    # gate holding one body's constants starts recording the wrong ones. Merging keeps the answer
+    # beside the code that computes it and keeps a body's name out of this stage entirely.
+    #
+    # Order-free by construction: `sort_keys` below normalises the output, so where a key enters
+    # this dict cannot move a byte of a live sidecar. `layers.LAYERS` all the same, for its stated
+    # contract rather than `declared`'s arbitrary set iteration order.
+    produced: dict[str, Any] = {}
+    for layer in layers.LAYERS:
+        if layer.in_composite and layer.name in declared:
+            produced.update(layer_producers.producer_for(body, layer).recipe())
+    return json.dumps({**missing, **sea_recipe, **produced,
                        "knobs": knobs,
                        "composite_window_rows": window_rows,
                        # The occlusion resolution reached NO freshness record at all --
@@ -312,27 +325,19 @@ def composite_params(variants, body: bodies.Body, rasters: frozenset[str],
                        **_when(layers.LAKE_DEPTH.name in declared,
                                {"lake_stops": palette.LAKE_STOPS,
                                 "lake_max_m": palette.LAKE_MAX_M}),
-                       # snow.RAMP_* run at composite time inside `snow_alpha`, which a body
-                       # without the layer never calls, and the colours it would paint with go
-                       # with them. Reaching a pixel while reaching no recipe is the trap this
-                       # function exists to close — do not drop these back out.
+                       # The white `shade.composite` paints the union with, whatever produced that
+                       # union: one white family for every body's perennial ice, so this is live
+                       # wherever the layer is declared and is NOT the producer's to declare. The
+                       # arithmetic that grades the alpha is — see `produced` above.
                        **_when(layers.PERENNIAL_ICE.name in declared,
                                {"snow_rgb": palette.SNOW_RGB,
-                                "snow_shadow_rgb": palette.SNOW_SHADOW_RGB,
-                                "snow_ramp_lat_lo": snow.RAMP_LAT_LO,
-                                "snow_ramp_lat_hi": snow.RAMP_LAT_HI,
-                                "snow_ramp_low_min": snow.RAMP_LOW_MIN,
-                                "snow_ramp_low_max": snow.RAMP_LOW_MAX,
-                                "snow_ramp_band": snow.RAMP_BAND}),
-                       # The alpha knobs run at composite time inside seaice.ice_alpha, the toned
-                       # SH pack with them, so they ride here rather than in composite_deps.
+                                "snow_shadow_rgb": palette.SNOW_SHADOW_RGB}),
+                       # The sea-ice pair, on the same split: `shade.composite` blends with these,
+                       # `seaice.ice_alpha`'s ramp decides how much, and that ramp rides with the
+                       # producer that calls it.
                        **_when(layers.SEA_ICE.name in declared,
                                {"ice_rgb": palette.ICE_RGB,
-                                "ice_shadow_rgb": palette.ICE_SHADOW_RGB,
-                                "ice_lo": seaice.ICE_LO, "ice_band": seaice.ICE_BAND,
-                                "ice_max_alpha": seaice.ICE_MAX_ALPHA,
-                                "sh_ice_lo": seaice.SH_ICE_LO,
-                                "sh_ice_max_alpha": seaice.SH_ICE_MAX_ALPHA}),
+                                "ice_shadow_rgb": palette.ICE_SHADOW_RGB}),
                        # `shadow_tint` returns exactly 1.0 at warmth 0, bit-identical to not being
                        # called, so the tint vector is live only above it.
                        **_when(KNOBS["shadow_warmth"] != 0.0,

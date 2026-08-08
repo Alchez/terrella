@@ -3,8 +3,9 @@ between that and bare ground is softened.
 
 TWO FIELDS AND THEY COME FROM DIFFERENT PLACES. The extent says where white is drawn at all and comes
 from a geologic map (`acquire/download_sim3292.py` holds why). The alpha says how white, and comes
-from OMEGA albedo (`acquire/extract_omega.py`). Keeping them separate is what lets the map limit the
-CLAIM while the albedo supplies the VARIATION — the arm that let albedo do both was judged and
+from the Viking colour mosaic's luma (`ALPHA_LEVELS`). Keeping them separate is what lets the map
+limit the CLAIM while the albedo supplies the VARIATION — the arm that let albedo do both was judged
+and
 rejected, roughly 45% of its ice falling outside the mapped unit and reading as seasonal frost caught
 in a 6.5-year average.
 
@@ -15,14 +16,17 @@ which would be 40% short, so the published figure independently supports includi
 north. South `lApc` is 103,642 km² against a south polar residual cap of about 87,000.
 
 THE EXTENT IS ASYMMETRIC ON MEASUREMENT, NOT ON SYMMETRY. `lApc` is ice at both poles. `Apu` joins it
-in the NORTH only, because OMEGA puts northern `Apu` +0.13 to +0.16 above ordinary ground at matched
-latitude — 55-80% of the way from bare ground to the residual cap — while southern `Apu` sits within
+in the NORTH only, because the albedo puts northern `Apu` +0.13 to +0.16 above ordinary ground at
+matched latitude — 55-80% of the way from bare ground to the residual cap — while southern `Apu` is
+within
 ±0.04 of ordinary ground and covers 68.7% of that disc. Painting it south would whiten two thirds of
-the view on no evidence. So a body's hemisphere is a real input here and not a tidy-up.
+the view on no evidence. So a body's hemisphere is a real input here and not a tidy-up. Viking
+reproduces that split independently at +4.47 scatters against OMEGA's +4.30, so the asymmetry does
+not rest on the source that has since been withdrawn.
 
 AND THE GEOLOGY SAYS THE SAME THING INDEPENDENTLY, which is why the asymmetry is not a fudge: the
 southern `Apu` polygon is 1,495,810 km², the south polar LAYERED DEPOSITS, a dusty stack rather than
-a residual ice cap — so a unit OMEGA finds indistinguishable from ordinary ground is one the
+a residual ice cap — so a unit the albedo finds indistinguishable from ordinary ground is one the
 stratigraphy also says is not surface ice. Two lines of evidence, neither derived from the other.
 
 THE FEATHER IS DRAWN AND MUST NEVER BE DESCRIBED AS OBSERVED. The published linework was drawn while
@@ -75,17 +79,47 @@ SOUTH_UNITS: tuple[str, ...] = ("lApc",)
 #: deliberately does not paint, and the module note above holds why the two are different quantities.
 FEATHER_KM = 5.0
 
-#: OMEGA albedo mapping to alpha 0 and 1, per pole: the median of ground that is neither mapped unit,
-#: and the median of the residual cap.
+#: Viking colour LUMA mapping to alpha 0 and 1, per pole: the median of ground that is neither mapped
+#: unit, and the median of `lApc`. 8-bit Rec. 709 luma, so these live on 0..255 and not on 0..1.
+#:
+#: `lApc` ALONE SETS THE CAP LEVEL AT BOTH POLES, including the north where the extent also takes
+#: `Apu`; and GROUND EXCLUDES BOTH UNITS AT BOTH POLES, including the south where `Apu` is not ice.
+#: Neither is `extent` or `~extent`, and reading them as such moves the look.
 #:
 #: PINNED, NEVER RECOMPUTED, AND THAT IS CORRECTNESS RATHER THAN TIDINESS. The two tiers grade the
 #: same ice over different pixel sets — an AEQD disc and a Mercator strip — so percentiles taken per
 #: grid would disagree, and the cap and the tiles crossfade across 80-84 degrees where a disagreement
-#: is visible as a step. Measured once, on the cap grids, by the arm that was ratified.
+#: is visible as a step. That grid-dependence is measured, not feared: moving the cap edge 78 -> 80
+#: moved the north's cap level 11.4% while leaving the south's at 0.03 DN.
+#:
+#: MEASURED OVER `viking_luma`'s SHIPPED RASTER, not over a band built to answer the question. That
+#: distinction moved the north by 0.07 DN and is the rule demonstrating itself once more: the
+#: prototype's two polar bands were anchored at their own latitudes with square degree pixels, while
+#: the shipped grid covers the sphere exactly at the publisher's pixel count, so their rows drift
+#: sub-pixel apart with distance from the north pole. The look does not move — `lApc` mean alpha is
+#: 0.813 north and 0.756 south either way — but the levels must describe the field that renders.
+#:
+#: Re-measure with `_ice_ab/scripts/viking_levels.py`, which is the only reproducible owner of these
+#: four numbers, and re-measure whenever the FIELD or the CAP GRID moves — both of which is what
+#: retired the OMEGA pair that stood here. Its `--compare` mode is what refuses a drift between the
+#: field the levels were taken from and the field the renderer reads.
 ALPHA_LEVELS: dict[str, tuple[float, float]] = {
-    "north": (0.1880, 0.4533),
-    "south": (0.2930, 0.6501),
+    "north": (60.99, 205.58),
+    "south": (97.39, 174.01),
 }
+
+#: Rec. 709 luma weights — the QUANTITY the four numbers above are stated in.
+#:
+#: THEY LIVE HERE BECAUSE THE COUPLING IS TO THE LEVELS, not because luma needs a home. A field
+#: graded with different weights from the ones the levels were measured through is a different
+#: quantity wearing the same units, and `albedo_alpha` says in as many words that nothing can check
+#: that pairing. `_ice_ab/scripts/viking_levels.py` re-measures the levels through `luma` below for
+#: exactly this reason: the measuring instrument and the render must not be able to drift apart.
+#:
+#: The other Rec. 709 luma in this repo — `compose/gen_spotlight.py` and two tests — are independent
+#: uses of a standard scalarisation, and are deliberately NOT routed through here. Nothing breaks if
+#: one of them moves to Rec. 601; this one cannot move without re-measuring `ALPHA_LEVELS`.
+LUMA_WEIGHTS: tuple[float, float, float] = (0.2126, 0.7152, 0.0722)
 
 
 def _smoothstep(fraction: np.ndarray) -> np.ndarray:
@@ -96,22 +130,51 @@ def _smoothstep(fraction: np.ndarray) -> np.ndarray:
     seventh caller. float64 out, matching `snow.snow_alpha` — the composite blends whichever body's
     answer it is handed, and a narrower dtype from one of them shifts the other's blend sub-DN.
     """
-    # The cast is load-bearing and not defensive: OMEGA lands as float32, and float32 in would give
-    # float32 out under numpy's promotion rules, silently breaking the dtype this promises.
+    # The cast is load-bearing and not defensive: the graded field lands as float32, and float32 in
+    # would give float32 out under numpy's promotion rules, silently breaking the dtype this promises.
     clipped = np.clip(np.asarray(fraction, dtype=float), 0.0, 1.0)
     return clipped * clipped * (3.0 - 2.0 * clipped)
 
 
+def luma(rgb: np.ndarray) -> np.ndarray:
+    """Rec. 709 luma of a `(3, ...)` RGB stack, as float64 — the field the ice is graded on.
+
+    ZERO IS EXACT INVALIDITY, AND THAT IS A PROPERTY OF THE WEIGHTS RATHER THAN A CONVENTION. Every
+    weight is positive and every channel is non-negative, so the sum vanishes only where all three
+    channels do — which is precisely Viking's nodata, declared 0 on each band and meaning absent only
+    when they agree. That property is what lets `albedo_alpha` keep a scalar sentinel against an RGB
+    source: the three bands collapse to one BEFORE anything is graded, and the sentinel survives the
+    collapse instead of having to be carried beside it.
+
+    FLOAT64 OUT, AND THE DTYPE IS THE WHOLE POINT AT THE DARK END. A pixel of (1, 0, 0) has luma
+    0.2126, which any integer round would flatten to 0 and hand to the grader as "not measured".
+    Rounding here would therefore turn the darkest measured ground into nodata, in the one hemisphere
+    whose ground level is the lower of the two.
+    """
+    stack = np.asarray(rgb, dtype=float)
+    weights = np.asarray(LUMA_WEIGHTS, dtype=float).reshape(-1, *([1] * (stack.ndim - 1)))
+    return (stack * weights).sum(axis=0)
+
+
 def albedo_alpha(albedo: np.ndarray, levels: tuple[float, float], nodata: float) -> np.ndarray:
-    """How icy each pixel is, from OMEGA albedo normalised between this pole's two pinned levels.
+    """How icy each pixel is, from the graded field normalised between this pole's two pinned levels.
 
     `levels` is `(ground, cap)` from `ALPHA_LEVELS`, passed rather than looked up so the caller names
     the pole once and this stays a pure function of its arguments.
 
-    UNMEASURED PIXELS BECOME ZERO AND ARE COMPARED BEFORE SCALING. OMEGA's fill is a large negative
-    number; normalised it becomes an ordinary out-of-range float that the clamp would quietly turn
-    into 0.0 anyway — but only by arithmetic accident, and a fill that ever landed inside the range
-    would paint as ice. Masking on the raw value makes it a decision.
+    THE FIELD AND THE LEVELS MUST BE THE SAME QUANTITY and nothing here can check that. Levels from
+    one field applied to another normalise to zero everywhere, which renders a bare cap and raises
+    nothing — so the pairing is the caller's obligation. `ALPHA_LEVELS` is 8-bit luma.
+
+    UNMEASURED PIXELS BECOME ZERO AND ARE COMPARED BEFORE SCALING. A sentinel fill normalised becomes
+    an ordinary out-of-range float that the clamp would quietly turn into 0.0 anyway — but only by
+    arithmetic accident, and a fill that ever landed inside the range would paint as ice. Masking on
+    the raw value makes it a decision.
+
+    A SCALAR SENTINEL FITS THE RGB SOURCE ONLY BECAUSE `luma` COLLAPSES IT FIRST. Viking's invalidity
+    is every channel at zero rather than one distinguished value, which no scalar could express — but
+    Rec. 709 weights are all positive over non-negative channels, so luma is zero exactly where the
+    three bands are. Pass this the luma and 0.0, never a single colour band and a guessed fill.
 
     This is the ratified arm's arithmetic (`_ice_ab/scripts/ice_ab_hybrid.py`), which is the authority
     for the look. It differs there in two ways that are both intended: the levels were recomputed per
