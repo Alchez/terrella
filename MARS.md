@@ -111,8 +111,9 @@ work below is legible as *remaining*.
     one wanted: a tile URL for it is refused before any storage is touched, a lookup throws rather
     than borrowing Earth's pyramid, and the deploy preflight demands no object for it.
   - The preflight *enumerates* that registry, so an archive is checked for the day it is published.
-- **Which surface layers a body has is a body fact, not a question about the filesystem.** Snow
-  persistence, glaciers, sea ice and lake depth are declared per planet; Mars declares none.
+- **Which surface layers a body has is a body fact, not a question about the filesystem.** Perennial
+  ice, glaciers, sea ice and lake depth are declared per planet; Earth declares all four and Mars
+  declares perennial ice alone.
   - **The `.exists()` guards that made three of them "optional" could never have worked.** Every one
     of those sources is a module constant at a single global path, so the check asks "have we
     downloaded Earth's data" — true on the build box for every body alike. A Mars pass would have
@@ -126,9 +127,9 @@ work below is legible as *remaining*.
   - Earth declares all four, so its composite recipe is unchanged and its 46 GB of output cannot
     restage. A body that omits a layer records the omission, because an unbuilt raster is *silently*
     not a dependency: a missing path scores zero in the mtime comparison.
-  - **Empty is a statement about our data, not about Mars.** It has polar ice and seasonal CO₂
-    frost; we have no product for any of it and the physics is not Earth's. A Phase-2 question, to
-    re-ask with Mars on screen.
+  - **What Mars leaves undeclared is a statement about our data, not about Mars.** Its perennial ice
+    is declared and graded off the Viking mosaic; its seasonal CO₂ frost has no product here at all,
+    and the other three describe a cryosphere Mars does not have.
 - **The tile shading converts map units to ground metres through the body's own sphere.** Every
   raster here is EPSG:3857 whatever planet the elevations describe, so a slope is a rise in body
   metres over a run in map units — and on Mars a map unit is worth 0.53 of a ground metre, making
@@ -327,14 +328,14 @@ Each with its "or else", because a seam without a failure mode is a preference.
     fake raster for a real one — which is what makes the sea question answerable by rendering rather
     than by arguing. The two masks are gated separately for the same reason: a shoreline contour
     gives Mars an ocean mask while it still has no inland water.
-- **The Earth-only layers are declared per body, and both render paths obey.** Snow persistence,
+- **The optional surface layers are declared per body, and both render paths obey.** Perennial ice,
   glaciers, sea ice, lake depth and the baked coastline are named on the body; the tile composite and
   the polar caps each ask it before they ask the disk, and each records the layers it is missing so
   that switching one restages the output it changes.
-  - Or else: every one of them is a dataset with no Martian analogue sitting at one global path that
-    is present on the build box, so a file-presence check answers *"did we download Earth's data"*
-    for every planet alike — and a Mars pass would paint Earth's cryosphere onto Mars's grid at the
-    same latitudes, with no error and no missing file.
+  - Or else: each is an Earth dataset sitting at one global path that is present on the build box, so
+    a file-presence check answers *"did we download Earth's data"* for every planet alike — and a
+    Mars pass would paint Earth's cryosphere onto Mars's grid at the same latitudes, with no error
+    and no missing file. A body declaring the same layer answers with its own producer, never a path.
   - The forced Antarctic ice patch rides the snow layer rather than a file, because there is no
     dataset behind it: it is latitude and land, so on a sea-less body it whitens everything below 60
     degrees south. Nothing on disk could ever have switched it off.
@@ -526,8 +527,8 @@ Triaged by when each must be answered, because most of them cannot be answered e
     - **So the answer was never a per-body `CAP_RGB`.** It was that Mars rendered no caps, and the
       stated reason — a cap wears the same ramps as the tiles, so rendering one publishes a look
       decision — expired when the look was ratified. Mars's caps now hide the plug exactly as
-      Earth's do, and they are relief rather than ice: Mars declares no surface layers, so the two
-      discs shade from the same ramps as the tiles. Anyone expecting white is expecting a layer.
+      Earth's do, and they carry both relief and ice: the two discs shade from the same ramps as the
+      tiles, with the perennial-ice layer painted over them in each pole's own white.
   - Does THEMIS night IR belong in the look, as a second physical field over relief?
 - **After a look is ratified.**
   - The accent: derived from the Mars palette the way Earth's teal is derived from its hero ramp, or

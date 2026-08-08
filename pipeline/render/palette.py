@@ -80,9 +80,11 @@ SNOW_SHADOW_RGB: RGB8 = (176, 199, 219)  # B0C7DB — shaded snow (cool blue-whi
 # 255 — so its green is lifted to buy the luminance back, which is the choice that was ratified by
 # eye rather than derived.
 #
-# The derivation is checkable: it reproduces Earth's own shipped pair exactly from Earth's ratio and
-# luminance, which is what makes it trustworthy on a pair nobody had seen. It does not yet have a
-# tracked reproducer, so re-measuring means re-deriving — the standing oracle is owed.
+# The derivation is checkable and `scripts/measure_mars_ice_white.py` is the check: it reproduces
+# Earth's own shipped pair exactly from Earth's ratio and luminance before it will report anything,
+# which is what makes it trustworthy on a pair nobody had seen. Its `--compare` mode re-measures the
+# ice and refuses a white that has stopped describing it — re-run it after any change to the alpha
+# levels or to the cap grid, both of which have moved once already.
 MARS_ICE_WHITE: dict[str, tuple[RGB8, RGB8]] = {   # pole -> (sunlit, shadowed)
     "north": ((243, 239, 231), (198, 195, 188)),   # F3EFE7 / C6C3BC
     "south": ((255, 239, 198), (207, 196, 160)),   # FFEFC6 / CFC4A0
