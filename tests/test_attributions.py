@@ -98,6 +98,18 @@ REQUIRED_STRINGS: list[tuple[str, str]] = [
         ("Fergason, R. L, Hare, T. M., & Laura, J. (2018). HRSC and MOLA Blended Digital "
          "Elevation Model at 200m v2. Astrogeology PDS Annex, U.S. Geological Survey."),
     ),
+    # ADMITTED ON THE SAME RULE AS THE BLEND ABOVE, and the rule is what keeps this list honest:
+    # `Use_Constraints: please cite authors.` is the publisher asking in its own terms field. The
+    # Viking mosaic, acquired in the same arc and credited beside this one, is deliberately ABSENT —
+    # its fields read public domain and no use constraint, so listing it would assert an obligation
+    # the publisher does not make.
+    (
+        "SIM 3292 requested citation",
+        ("K.L. Tanaka, J.A. Skinner, Jr., J.M. Dohm, R.P. Irwin, III, E.J. Kolb, C.M. Fortezzo, "
+         "Thomas Platz, G.G. Michael, and T.M. Hare, 2014, Geologic Map of Mars, Scale "
+         "1:20,000,000, U.S. Geological Survey Scientific Investigations Map SIM 3292, "
+         "http://pubs.usgs.gov/sim/3292"),
+    ),
 ]
 
 

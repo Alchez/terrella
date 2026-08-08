@@ -81,7 +81,8 @@ const dataSources = [
   },
   {
     body: "Mars",
-    blurb: "One download. No sea, no snow, no borders — the relief is the whole picture.",
+    blurb:
+      "The relief, where the permanent ice sits, and how bright it is. No sea, no borders.",
     sources: [
       {
         name: "MOLA / HRSC Blended DEM",
@@ -95,6 +96,31 @@ const dataSources = [
         license: "MOLA CC0 · HRSC CC BY-SA 3.0 IGO",
         attribution:
           "Fergason, R. L, Hare, T. M., & Laura, J. (2018). HRSC and MOLA Blended Digital Elevation Model at 200m v2. Astrogeology PDS Annex, U.S. Geological Survey. MOLA flew on NASA's Mars Global Surveyor and HRSC on ESA's Mars Express; HRSC covers 44% of the planet, MOLA the rest.",
+      },
+      {
+        name: "Geologic Map of Mars (SIM 3292)",
+        href: "https://pubs.usgs.gov/sim/3292/",
+        role: "Where the permanent polar ice is",
+        // THE ONE MARS SOURCE WITH A STATED OBLIGATION, and it is an exact-string one: the product's
+        // own metadata reads `Use_Constraints: please cite authors.`, so the citation below is
+        // quoted from its FGDC `Data_Set_Credit` field rather than composed here. Guarded by
+        // `REQUIRED_STRINGS`, which exists because the last licence with an exact-string obligation
+        // was the one being paraphrased.
+        license: "Public domain · cite authors",
+        attribution:
+          "K.L. Tanaka, J.A. Skinner, Jr., J.M. Dohm, R.P. Irwin, III, E.J. Kolb, C.M. Fortezzo, Thomas Platz, G.G. Michael, and T.M. Hare, 2014, Geologic Map of Mars, Scale 1:20,000,000, U.S. Geological Survey Scientific Investigations Map SIM 3292, http://pubs.usgs.gov/sim/3292",
+      },
+      {
+        name: "Viking colour mosaic",
+        href: "https://astrogeology.usgs.gov/search/map/mars_viking_colorized_global_mosaic_925m",
+        role: "How bright each part of the ice is, and the planet's hue",
+        // CREDITED BY COURTESY, NOT BY OBLIGATION, and the distinction is the publisher's own: its
+        // constraint fields read `Access Constraints: public domain`, `Use Constraints: None`. That
+        // is why this is absent from `REQUIRED_STRINGS` while SIM 3292 above is in it — putting it
+        // there would assert an obligation the publisher does not state.
+        license: "Public domain",
+        attribution:
+          "U.S. Geological Survey Astrogeology Science Center, Viking Global Color Mosaic 925m. Built for albedo rather than for relief, which is why the ice grades against it.",
       },
     ],
   },
@@ -281,6 +307,25 @@ const licenceHtml = [
           </p>
         </div>
       </section>
+
+      <section class="note-block">
+        <h2 class="eyebrow">The white at the poles</h2>
+        <div class="note">
+          <p>
+            Mars's polar frost advances and retreats with the seasons, so this
+            <strong>isn't any single moment</strong>. It marks the ice that stays all year:
+            where the USGS geologic map of Mars places the permanent cap, shaded by how
+            bright the Viking orbiters photographed each part of it. The two caps are
+            different colours because the ice is — the northern one sits close to neutral,
+            the southern is noticeably creamier, and that difference survives measuring each
+            against its own surroundings.
+          </p>
+          <p>
+            Earth's white works the same way: snow that <strong>persists</strong> and sea ice
+            that is <strong>typical</strong>, not one day's weather.
+          </p>
+        </div>
+      </section>
     </div>
 
     <section class="block">
@@ -387,12 +432,13 @@ const licenceHtml = [
   }
   .sources {
     display: grid;
-    /* `auto-fill`, NOT `auto-fit`, and the difference only shows itself on a small group. auto-fit
-       COLLAPSES the tracks an item does not occupy, so Mars's single source stretched to 1420 px
-       beside Earth's 269 px cards — a card five times wider than its neighbours reads as a
-       different kind of object, and its citation ran to one unreadable line. auto-fill keeps the
-       empty tracks, so a lone card is the same width as every other. Measured identical for Earth
-       either way: with 8 cards in 5 tracks no track is empty, so the two keywords agree. */
+    /* `auto-fill`, NOT `auto-fit`, and the difference only shows itself when a body has fewer
+       sources than the row has tracks. auto-fit COLLAPSES the tracks nothing occupies, so a short
+       group stretches its cards several times wider than a full group's beside it — a card that
+       wide reads as a different kind of object, and its citation runs to one unreadable line.
+       auto-fill keeps the empty tracks, so a card is the same width whatever group it is in.
+       The two keywords are identical wherever no track is empty, which is why this looks like a
+       free simplification on whichever body currently has the most sources. It is not. */
     grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
     gap: clamp(0.8rem, 1.5vw, 1.2rem);
   }
