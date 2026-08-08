@@ -353,6 +353,55 @@ SABOTAGES: list[Sabotage] = [
                     '        paint=lambda _window: ((9, 9, 9), (1, 1, 1)),',
         guard='test_earths_two_union_layers_declare_the_SAME_white',
     ),
+    # --- The interpolated pole: corrections that look fine in every artifact -------------------------
+    # Each of these still renders a cap that opens, feathers and ships. The failure is either an edit
+    # to ground the altimeter DID measure, or a correction quietly not applied — neither of which
+    # announces itself in a WebP.
+    Sabotage(
+        suite='python',
+        label='Earth is smoothed too, as though every pole had a data gap',
+        path='pipeline/tile/cap_render.py',
+        needle='    smooth = POLE_SMOOTH_BY_BODY.get(grid.body.name)\n    if smooth is None:\n'
+               '        return heights',
+        replacement='    smooth = POLE_SMOOTH_BY_BODY.get(grid.body.name,\n'
+                    '                                     PoleSmooth(87.1, 30.0, 4.0, 40.0))',
+        guard='test_a_body_whose_altimeter_reached_its_pole_is_left_alone',
+    ),
+    Sabotage(
+        suite='python',
+        label='the boundary is pinned to the disc instead of to the parallel',
+        path='pipeline/tile/cap_render.py',
+        needle='    knee_px = (90.0 - smooth.interpolated_lat) / (90.0 - abs(grid.edge_lat)) '
+               '* (grid.px / 2.0)',
+        replacement='    knee_px = 0.29 * (grid.px / 2.0)',
+        guard='test_the_boundary_follows_the_edge_latitude',
+    ),
+    Sabotage(
+        suite='python',
+        label='the correction runs everywhere rather than only over the gap',
+        path='pipeline/tile/cap_render.py',
+        needle='    t = np.clip((knee_px + taper_px / 2.0 - radius) / taper_px, 0.0, 1.0)',
+        replacement='    t = np.ones_like(radius)',
+        guard='test_nothing_beyond_the_boundary_is_touched',
+    ),
+    Sabotage(
+        suite='python',
+        label='the smoothing stops reaching the freshness recipe',
+        path='pipeline/tile/cap_render.py',
+        needle='        fields["pole_smooth"] = asdict(smooth)',
+        replacement='        pass',
+        guard='test_only_a_body_with_a_gap_records_one',
+    ),
+    Sabotage(
+        suite='python',
+        label='the elevation texture re-spells the nodata rule and skips the correction',
+        path='pipeline/tile/cap_render.py',
+        needle='    heights = cap_heights(grid, raw)\n\n    factor = CAP_PX // CAP_ELEV_PX',
+        replacement='    heights = np.where(raw < -1e4, 0.0, raw).astype(np.float32)\n\n'
+                    '    factor = CAP_PX // CAP_ELEV_PX',
+        guard='test_the_nodata_convention_has_exactly_one_owner',
+    ),
+
     # --- Mars's ice registration: the guards with no output to inspect -------------------------------
     # None of these five has an artifact a reader could check. Mars's ice is a band of a few degrees
     # at one pole, and every one of these mutations leaves a raster that opens, a recipe that parses

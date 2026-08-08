@@ -49,7 +49,12 @@ from typing import Any
 import numpy as np
 import rasterio
 from pyproj import Transformer
-from scipy.ndimage import binary_dilation
+from scipy.ndimage import (
+    binary_dilation,
+    gaussian_filter,
+    map_coordinates,
+    uniform_filter1d,
+)
 
 from pipeline import bodies, layers, naturalearth, planet_seam, vector_raster
 from pipeline.render import hillshade, lake_depth, palette, perennial_ice, seaice
@@ -301,9 +306,7 @@ def write_cap_elevation(grid: CapGrid) -> Path:
               "bilinear", "Float32")
     with rasterio.open(warp) as dataset:
         raw = dataset.read(1)
-    # The same nodata convention the composite applies before shading, so the elevation texture and
-    # the cap's own hillshade describe one surface rather than two.
-    heights = np.where(raw < -1e4, 0.0, raw).astype(np.float32)
+    heights = cap_heights(grid, raw)
 
     factor = CAP_PX // CAP_ELEV_PX
     metres = heights.reshape(CAP_ELEV_PX, factor, CAP_ELEV_PX, factor).mean(axis=(1, 3),
@@ -343,7 +346,122 @@ def grid_recipe_fields(grid: CapGrid) -> dict:
     """
     fields = {key: value for key, value in asdict(grid).items() if key != "body"}
     fields["aeqd_radius_m"] = grid.body.aeqd_radius_m
+    smooth = POLE_SMOOTH_BY_BODY.get(grid.body.name)
+    # CONDITIONAL, on the `layers_off` idiom: a body whose altimetry reached its poles records
+    # nothing and keeps the recipe it has always had. It belongs HERE rather than in the light block
+    # — unlike `ground_scale`, this changes the heightfield itself, so the elevation texture reads it
+    # too and must restage with it. `cap_heights` is the one place that applies it, for that reason.
+    if smooth is not None:
+        fields["pole_smooth"] = asdict(smooth)
     return fields
+
+
+@dataclass(frozen=True)
+class PoleSmooth:
+    """How far a body's altimetry failed to reach its own pole, and how hard to smooth inside that.
+
+    NOT A CARTOGRAPHIC PREFERENCE — `interpolated_lat` is an orbit. Read the module note.
+    """
+
+    interpolated_lat: float
+    angle_degrees: float
+    isotropic_km: float
+    taper_km: float
+
+
+#: MARS ONLY, and it is a fact about one spacecraft rather than about poles in general.
+#:
+#: MGS flew at 92.9 degrees inclination, so MOLA's nadir tracks reached no higher than 87.1. Measured
+#: in the MOLA team's own COUNTS_PER_BIN raster, which interpolates nothing: inside that circle
+#: **96.5% of bins hold no observation at all**, against 63.7% outside. Every pixel the blend shows
+#: there is a spline's opinion about the space between a few off-nadir tracks, and at 20x
+#: exaggeration it rendered as a starburst of ridges radiating from the pole.
+#:
+#: The strength is not "as much as looked good". Smoothing lands the polar interior's directional
+#: anisotropy on **0.83**, which is the value undisturbed terrain shows further out on this same
+#: cap — so the interior stops being distinguishable from real ground rather than merely looking
+#: calmer. `scripts/` has no reproducer for this one; the measurement lives in HISTORY.
+#:
+#: A body absent from here is smoothed not at all and records nothing in its recipe. Earth belongs
+#: absent: its poles are not reconstructed from an altimeter that missed them.
+POLE_SMOOTH_BY_BODY: dict[str, PoleSmooth] = {
+    "mars": PoleSmooth(interpolated_lat=87.1, angle_degrees=30.0, isotropic_km=4.0,
+                       taper_km=40.0),
+}
+
+
+def cap_heights(grid: CapGrid, raw: np.ndarray) -> np.ndarray:
+    """The warped heightfield as every cap consumer must see it: nodata flattened, pole smoothed.
+
+    ONE OWNER FOR BOTH CONSUMERS. The composite shades this and the elevation texture encodes it,
+    and they are required to describe ONE surface — a starburst suppressed in the shading but left
+    in the displacement mesh is the same defect wearing a different hat.
+    """
+    heights = np.where(raw < -1e4, 0.0, raw).astype(np.float32)
+    return smooth_interpolated_pole(grid, heights)
+
+
+def _pole_weight(grid: CapGrid, smooth: PoleSmooth, scale: float) -> "tuple[np.ndarray, float]":
+    """(strength per pixel, knee radius in px) — full inside the gap, zero outside it.
+
+    The knee comes from the grid's OWN geometry rather than a radius constant: an azimuthal
+    equidistant cap is linear in colatitude, so the interpolated boundary sits at a fixed fraction of
+    the disc and follows `edge_lat` automatically if it ever moves again.
+
+    A PLATEAU, NOT A CONE. Ramping from the pole outward puts almost no strength at the boundary,
+    which is exactly where the artifact is strongest — measured, after building that version first.
+    """
+    knee_px = (90.0 - smooth.interpolated_lat) / (90.0 - abs(grid.edge_lat)) * (grid.px / 2.0)
+    taper_px = smooth.taper_km * 1000.0 / scale
+    centre = (grid.px - 1) / 2.0
+    axis = np.arange(grid.px, dtype=np.float32) - centre
+    radius = np.hypot(axis[:, None], axis[None, :])
+    t = np.clip((knee_px + taper_px / 2.0 - radius) / taper_px, 0.0, 1.0)
+    return (t * t * (3.0 - 2.0 * t)).astype(np.float32), knee_px
+
+
+def smooth_interpolated_pole(grid: CapGrid, heights: np.ndarray) -> np.ndarray:
+    """Replace the interpolator's invented detail with the shape the data actually supports.
+
+    SMOOTHED BY A CONSTANT ANGLE, because the artifact is radial: a spoke holds its angular width
+    while its arc width GROWS with radius, so a filter of fixed arc length kills it near the pole and
+    misses it further out. That was measured too — a constant-arc version left a visible ring.
+
+    The isotropic pass afterwards is what takes the residual the angular pass cannot reach, since a
+    boxcar in angle leaves structure aligned with its own window.
+    """
+    smooth = POLE_SMOOTH_BY_BODY.get(grid.body.name)
+    if smooth is None:
+        return heights
+
+    scale = cap_ground_metres_per_px(grid)
+    weight, knee_px = _pole_weight(grid, smooth, scale)
+    outer = knee_px * 1.6  # cover the taper's outer half, which reaches past the knee
+    centre = (grid.px - 1) / 2.0
+
+    radii = np.arange(1.0, outer + 2.0, 1.0)
+    n_theta = max(64, round(2.0 * np.pi * outer))
+    theta = np.linspace(0.0, 2.0 * np.pi, n_theta, endpoint=False)
+    rings = map_coordinates(
+        heights, [centre - np.outer(radii, np.cos(theta)), centre + np.outer(radii, np.sin(theta))],
+        order=1, mode="nearest")
+    window = max(3, round(smooth.angle_degrees / 360.0 * n_theta))
+    rings = uniform_filter1d(rings, window, axis=1, mode="wrap")
+
+    axis = np.arange(grid.px, dtype=np.float32) - centre
+    row, column = axis[:, None] * np.ones_like(axis)[None, :], np.ones_like(axis)[:, None] * axis
+    radius = np.hypot(row, column)
+    inside = radius <= outer
+    angle = np.mod(np.arctan2(column[inside], -row[inside]), 2.0 * np.pi)
+    flat = map_coordinates(
+        rings, [np.clip(radius[inside] - radii[0], 0.0, len(radii) - 1.0),
+                angle / (2.0 * np.pi) * n_theta], order=1, mode="wrap")
+
+    angular = heights.copy()
+    angular[inside] = flat
+    blended = heights * (1.0 - weight) + angular * weight
+    isotropic = gaussian_filter(blended, smooth.isotropic_km * 1000.0 / scale)
+    return (blended * (1.0 - weight) + isotropic * weight).astype(np.float32)
 
 
 def cap_recipe(grid: CapGrid, rasters: frozenset[str]) -> str:
@@ -725,7 +843,7 @@ def render_cap_north(grid: CapGrid, rasters: frozenset[str]) -> Path:
     height = _warp(grid, planet_seam.vrt_path(grid.body, "heightfield"), cap_height_warp(grid),
                    "bilinear", "Float32")
 
-    heights = np.where(height < -1e4, 0.0, height).astype(np.float32)  # DEM nodata -> flat, as hillshade does
+    heights = cap_heights(grid, height)
     ocean, water = _cap_masks(grid, rasters, heights.shape)
     longitude, latitude = _lonlat_grid(grid)
     hillshade_dn = _shade(grid, heights, longitude)
@@ -754,7 +872,7 @@ def render_cap_south(grid: CapGrid, rasters: frozenset[str]) -> Path:
     height = _warp(grid, planet_seam.vrt_path(grid.body, "heightfield"), cap_height_warp(grid),
                    "bilinear", "Float32")
 
-    heights = np.where(height < -1e4, 0.0, height).astype(np.float32)  # DEM nodata -> flat, as hillshade does
+    heights = cap_heights(grid, height)
     ocean, water = _cap_masks(grid, rasters, heights.shape)
     longitude, latitude = _lonlat_grid(grid)
     hillshade_dn = _shade(grid, heights, longitude)

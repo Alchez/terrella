@@ -986,3 +986,84 @@ class TestTheCapPassAsksTheSeamBeforeTheDisk:
             grid = cap_render.north_grid(LAYERLESS_BODY)
             assert (cap_render.cap_recipe(grid, WHOLE_PLANET)
                     != cap_render.cap_recipe(grid, self.HEIGHTFIELD_ONLY))
+
+
+class TestThePoleIsSmoothedWhereTheAltimeterNeverReached:
+    """MGS's orbit stopped at 87.1 degrees, so inside that circle Mars's heightfield is a spline's
+    opinion rather than a measurement, and rendering its detail draws an artifact. These guard the
+    correction's SHAPE — where it applies, where it must not, and that it is one surface."""
+
+    def _grid(self, body, edge_lat: float = 80.0, px: int = 512):
+        return cap_render.CapGrid(lat_0=90.0, edge_lat=edge_lat, px=px, name="north",
+                                  az_sign=-1.0, body=body)
+
+    def _spokes(self, px: int, cycles: int = 24) -> np.ndarray:
+        """A pure radial-spoke field: constant along every radius, sinusoidal around the pole.
+
+        BUILT, NOT BORROWED. The live Martian cap would work, but a test that reads it passes for
+        whatever reason the data happens to supply; this field is the artifact's exact shape and
+        nothing else, so a filter that leaves it standing has no way to look correct.
+        """
+        centre = (px - 1) / 2.0
+        rows, columns = np.mgrid[0:px, 0:px].astype(np.float32)
+        angle = np.arctan2(columns - centre, -(rows - centre))
+        return (100.0 * np.sin(cycles * angle)).astype(np.float32)
+
+    def _radius(self, px: int) -> np.ndarray:
+        centre = (px - 1) / 2.0
+        axis = np.arange(px, dtype=np.float32) - centre
+        return np.hypot(axis[:, None], axis[None, :])
+
+    def test_a_body_whose_altimeter_reached_its_pole_is_left_alone(self):
+        """Earth's absence from the registry is the whole of its configuration, and it must be an
+        identity rather than a smoothing of strength zero — those differ in float."""
+        field = self._spokes(256)
+        out = cap_render.smooth_interpolated_pole(self._grid(bodies.EARTH, px=256), field)
+        assert np.array_equal(out, field)
+
+    def test_mars_loses_the_spokes_inside_the_boundary(self):
+        field = self._spokes(512)
+        grid = self._grid(bodies.MARS)
+        out = cap_render.smooth_interpolated_pole(grid, field)
+        knee = (90.0 - 87.1) / 10.0 * (512 / 2.0)
+        core = self._radius(512) < knee * 0.6
+        assert field[core].std() > 50.0, "the fixture must contain spokes to remove"
+        assert out[core].std() < 5.0, f"spokes survived: std {out[core].std():.1f}"
+
+    def test_nothing_beyond_the_boundary_is_touched(self):
+        """The correction is licensed by absent data. Where the altimeter DID reach, an edit has no
+        justification at all, so this is bit-identity rather than a tolerance."""
+        field = self._spokes(512)
+        grid = self._grid(bodies.MARS)
+        out = cap_render.smooth_interpolated_pole(grid, field)
+        knee = (90.0 - 87.1) / 10.0 * (512 / 2.0)
+        taper_px = 40_000.0 / cap_render.cap_ground_metres_per_px(grid)
+        far = self._radius(512) > knee + taper_px
+        assert np.array_equal(out[far], field[far])
+
+    def test_the_boundary_follows_the_edge_latitude(self):
+        """The knee is derived from the disc's own span, not from a pixel count, so a cap that
+        re-spans keeps correcting the same PARALLEL. `edge_lat` has already moved once."""
+        radii = {}
+        for edge_lat in (80.0, 85.0):
+            grid = self._grid(bodies.MARS, edge_lat=edge_lat)
+            out = cap_render.smooth_interpolated_pole(grid, self._spokes(512))
+            moved = self._radius(512)[out != self._spokes(512)]
+            radii[edge_lat] = moved.max()
+        assert radii[85.0] == pytest.approx(2.0 * radii[80.0], rel=0.15), (
+            f"halving the disc's span should double the corrected radius: {radii}")
+
+    def test_only_a_body_with_a_gap_records_one(self):
+        """Earth records nothing, so its four cap sidecars keep the shape they have always had and
+        no Earth artifact restages for a correction it does not receive."""
+        assert "pole_smooth" not in cap_render.grid_recipe_fields(self._grid(bodies.EARTH))
+        assert "pole_smooth" in cap_render.grid_recipe_fields(self._grid(bodies.MARS))
+
+    def test_the_nodata_convention_has_exactly_one_owner(self):
+        """`cap_heights` is where the warp becomes render-ready, and both the composite and the
+        elevation texture must go through it — a pole smoothed in the shading but left in the
+        displacement mesh is the same defect in another surface."""
+        source = (Path(__file__).resolve().parents[1] / "pipeline" / "tile"
+                  / "cap_render.py").read_text(encoding="utf-8")
+        assert source.count("-1e4") == 1, (
+            "the nodata flattening was respelled; route the new caller through cap_heights instead")

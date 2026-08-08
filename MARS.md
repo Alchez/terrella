@@ -184,6 +184,15 @@ whole project.
     blend's own resolution.
   - This is the single most consequential fact in this document, and it argues against a deep cut.
 - **MOLA MEGDR, 463 m/px, global, is the honest floor** — one instrument, one resolution, no seams.
+- **INSIDE 87.1° OF EITHER POLE THERE IS ESSENTIALLY NO DATA, and no product fixes it.**
+  - MGS flew at 92.9° inclination, so MOLA's nadir tracks reached no further; HRSC reaches neither
+    pole at all, which leaves the blend 100% MOLA there and 100% interpolation.
+  - Measured in the MOLA team's own `COUNTS_PER_BIN` raster: **96.5% of bins inside 87.1° hold no
+    observation**, 99% above 87.75°, against 63.7% empty outside.
+  - **Do NOT reach for the MOLA Polar MEGDRs to fill it.** They are binned *nadir* observations —
+    that counts raster *is* one of them — so they supply a hole rather than terrain.
+  - The caps therefore smooth that disc deliberately rather than draw the interpolator's starburst;
+    `cap_render.POLE_SMOOTH_BY_BODY` holds the constants and the About page tells visitors why.
 - **No provenance mask ships with the blend.** Which pixels are HRSC and which are upsampled MOLA is
   not published as a layer. HRSC DTM footprints *are* published, so one is constructible.
 - **THE BOUNDARY READS AS BANDING, AND NO MASK WAS NEEDED TO SEE IT.** The first z6 pyramid answers
