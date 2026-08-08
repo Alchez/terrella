@@ -296,6 +296,18 @@ SABOTAGES: list[Sabotage] = [
         replacement='// See ' + 'HISTORY' + ' \u00a7 something.\n// The tile base is the one',
         guard='test_no_reference_to_a_file_a_clone_will_not_have',
     ),
+    # The scratch-directory half of the same guard, and it needs its own case because it is a
+    # separate alternation with a separate way of being wrong: the pattern requires a TRAILING SLASH
+    # so a bare directory name can still be passed as an argument, and a needle without one would
+    # pass while the real citation form went uncaught.
+    Sabotage(
+        suite='python',
+        label='cite a prototype script from the module whose constants it owns',
+        path='pipeline/render/mars_ice.py',
+        needle='FEATHER_KM = 5.0',
+        replacement='#: Reproduced by ' + '_ice_ab' + '/scripts/feather.py\nFEATHER_KM = 5.0',
+        guard='test_no_reference_to_a_file_a_clone_will_not_have',
+    ),
     # --- span attribution: the three ways it could quietly start lying -------------------------------
     # All three mutations leave a report that still RENDERS and still reads plausible, which is the
     # only reason they are worth a case: a broken attribution does not throw, it just blames the

@@ -16,8 +16,8 @@ budgets tens of GB for a pyramid, the disk is the cheaper thing to spend.
 THE CHAIN IS THE ONE THE LEVELS WERE MEASURED THROUGH, and that is a constraint rather than a
 preference. `ALPHA_LEVELS` is four percentiles of this exact field; a render that resampled the
 mosaic differently would grade against levels taken from a different set of numbers.
-`_ice_ab/scripts/viking_levels.py` re-measures them through whatever this produces, which is what
-makes the equality checkable rather than asserted.
+`scripts/measure_viking_levels.py --compare` re-measures them through whatever this produces, which
+is what makes the equality checkable rather than asserted.
 
   THE METRES-TO-DEGREES STEP IS A WARP, NOT A RELABEL, and it looks like a relabel until measured.
   SimpleCylindrical is a linear function of latitude and longitude, so the conversion is a rescale

@@ -1,7 +1,7 @@
 """The Viking brightness stage's recipe and freshness, checked without building a 215 MB raster.
 
 WHAT IS TESTABLE WITHOUT THE PASS. The build itself is a GDAL warp and a streamed collapse, and its
-correctness is established by an oracle that cannot live in a suite: `_ice_ab/scripts/viking_levels
+correctness is established by an oracle that cannot live in a suite: `scripts/measure_viking_levels
 .py --compare` re-measures `ALPHA_LEVELS` over the shipped raster and refuses a disagreement. What
 belongs here is everything around that — which facts reach the recipe, and which of them may not.
 

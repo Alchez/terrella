@@ -96,6 +96,21 @@ CITATION_EXEMPT = {
 }
 CITATION_FILES = [path for path in FILES if path.name not in CITATION_EXEMPT]
 
+# The investigation directories under gitignored `data/` — prototypes, scouts, and their notes.
+# A clone has none of them, so citing a file inside one is the same unfollowable pointer as citing
+# a working document, and it reached committed code six times before this line existed.
+#
+# NAMED RATHER THAN PATTERNED, WHICH IS MEASURED AND NOT PREFERENCE. The obvious generalisation —
+# "a path segment under `data/` beginning with an underscore" — fires 32 times on this repo, on
+# `node_modules/`, `_astro/`, `_tiles/planet.pmtiles` and `ne_10m_coastline/`: the underscore prefix
+# marks GENERATED OUTPUT here far more often than it marks scratch, and those references are all
+# legitimate. A guard that cries wolf gets ignored and then deleted, as the module note records.
+#
+# The trailing slash is load-bearing: it distinguishes a path being CITED from the same bare name
+# being passed as a directory-name argument, which `scripts/measure_viking_levels.py` legitimately
+# does.
+SCRATCH_DIRS = r"_ice_ab/|_ice_levels/|_ice_scout/|_viking_scout/|_crism_scout/"
+
 CHECK_GROUPS = {
     "BLOCK_COMMENT_FILES": BLOCK_COMMENT_FILES,
     "DECLARATION_FILES": DECLARATION_FILES,
@@ -273,15 +288,23 @@ def test_code_fences_are_balanced(path: Path) -> None:
 
 @pytest.mark.parametrize("path", CITATION_FILES, ids=ids(CITATION_FILES))
 def test_no_reference_to_a_file_a_clone_will_not_have(path: Path) -> None:
-    """Tracked files must not cite the working documents, which are deliberately not shipped.
+    """Tracked files must not cite the working documents or the scratch dirs, none of which ship.
 
     A pointer a reader cannot follow is worse than no pointer: it asserts that an explanation
     exists somewhere reachable. The exemptions live in CITATION_EXEMPT above; none of them ships
     an unfollowable pointer to a reader, they only describe one.
+
+    THE SCRATCH HALF HAS A SHARPER FAILURE THAN THE DOCUMENTS HALF. A working document is merely
+    absent from a clone; a prototype script can also STOP RUNNING while the sentence pointing at it
+    stays fluent. Two of the six that triggered this rule imported a module deleted with OMEGA, so
+    they were dead for their own author and read as reachable anyway. Where such a script owns
+    something shipped code depends on, the fix is to track it — `scripts/measure_viking_levels.py`
+    is that promotion — and not to reword the pointer.
     """
     source = path.read_text(encoding="utf-8")
     unreachable = re.findall(
-        r"HISTORY\.md|HISTORY §|HISTORY 20\d\d|PLAN\.md|PLAN §|see PLAN|claude-personal", source
+        r"HISTORY\.md|HISTORY §|HISTORY 20\d\d|PLAN\.md|PLAN §|see PLAN|claude-personal"
+        rf"|{SCRATCH_DIRS}", source
     )
     assert not unreachable, (
         f"{path.name} cites {sorted(set(unreachable))}, which no clone will have. "

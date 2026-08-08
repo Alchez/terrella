@@ -39,7 +39,8 @@ THE ICE EDGE HAS SINCE BEEN MEASURED AND THAT IS A DIFFERENT QUANTITY — do not
 into `FEATHER_KM`. OMEGA against signed distance to the south's mapped contact puts real ice fading
 over about 12 ground km outside it, and the north has no albedo edge at all across 130 km. That
 validates the EXTENT; the feather still anti-aliases a drawn boundary, so its anchor is the linework
-and not the ice. `data/work/mars/_ice_ab/scripts/ice_edge_profile.py` reproduces the profile.
+and not the ice. The profile is not re-runnable — it was taken against OMEGA, which this project no
+longer acquires — so treat the two figures above as the record rather than looking for the script.
 
 THE FEATHER IS THE ONE THING THAT CANNOT BE COMPUTED PER WINDOW. A distance transform is non-local:
 a pixel's distance to the nearest ice can be owned by a pixel outside whatever slice is in hand, and
@@ -99,10 +100,10 @@ FEATHER_KM = 5.0
 #: sub-pixel apart with distance from the north pole. The look does not move — `lApc` mean alpha is
 #: 0.813 north and 0.756 south either way — but the levels must describe the field that renders.
 #:
-#: Re-measure with `_ice_ab/scripts/viking_levels.py`, which is the only reproducible owner of these
-#: four numbers, and re-measure whenever the FIELD or the CAP GRID moves — both of which is what
-#: retired the OMEGA pair that stood here. Its `--compare` mode is what refuses a drift between the
-#: field the levels were taken from and the field the renderer reads.
+#: Re-measure with `scripts/measure_viking_levels.py`, which is the only reproducer of these four
+#: numbers, whenever the FIELD or the CAP GRID moves — both of which is what retired the OMEGA pair
+#: that stood here. Its `--compare` mode is what refuses a drift between the field the levels were
+#: taken from and the field the renderer reads.
 ALPHA_LEVELS: dict[str, tuple[float, float]] = {
     "north": (60.99, 205.58),
     "south": (97.39, 174.01),
@@ -113,7 +114,7 @@ ALPHA_LEVELS: dict[str, tuple[float, float]] = {
 #: THEY LIVE HERE BECAUSE THE COUPLING IS TO THE LEVELS, not because luma needs a home. A field
 #: graded with different weights from the ones the levels were measured through is a different
 #: quantity wearing the same units, and `albedo_alpha` says in as many words that nothing can check
-#: that pairing. `_ice_ab/scripts/viking_levels.py` re-measures the levels through `luma` below for
+#: that pairing. `scripts/measure_viking_levels.py` re-measures the levels through `luma` below for
 #: exactly this reason: the measuring instrument and the render must not be able to drift apart.
 #:
 #: The other Rec. 709 luma in this repo — `compose/gen_spotlight.py` and two tests — are independent
@@ -176,9 +177,11 @@ def albedo_alpha(albedo: np.ndarray, levels: tuple[float, float], nodata: float)
     Rec. 709 weights are all positive over non-negative channels, so luma is zero exactly where the
     three bands are. Pass this the luma and 0.0, never a single colour band and a guessed fill.
 
-    This is the ratified arm's arithmetic (`_ice_ab/scripts/ice_ab_hybrid.py`), which is the authority
-    for the look. It differs there in two ways that are both intended: the levels were recomputed per
-    run and are pinned here, and its alpha was float32 where this is float64.
+    THIS IS THE OWNER OF THE RATIFIED ARITHMETIC, and the shape is what was ratified rather than any
+    of its inputs: a field normalised between two levels and eased. The prototype it came from
+    recomputed those levels per run and graded OMEGA reflectance in float32; both changed under it —
+    pinned levels, Viking luma, float64 — without the look moving, which is what the pinning note on
+    `ALPHA_LEVELS` records.
     """
     ground, cap = levels
     alpha = _smoothstep((albedo - ground) / (cap - ground))
