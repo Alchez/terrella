@@ -308,6 +308,51 @@ SABOTAGES: list[Sabotage] = [
         replacement='#: Reproduced by ' + '_ice_ab' + '/scripts/feather.py\nFEATHER_KM = 5.0',
         guard='test_no_reference_to_a_file_a_clone_will_not_have',
     ),
+    # --- The ice white becomes the layer's own ------------------------------------------------------
+    # Every one of these leaves a cap that opens, a recipe that parses and a pass that exits 0. Two
+    # of them are only wrong on a planet nobody looks at, and one is only wrong in a branch no
+    # shipping body reaches — which is precisely why they are mutations rather than review comments.
+    Sabotage(
+        suite='python',
+        label="the union stops following the winner, so one layer's colour paints another's pixels",
+        path='pipeline/tile/shade_planet.py',
+        needle='    wins = (incoming_alpha > current_alpha)[None]',
+        replacement='    wins = np.ones(incoming_alpha.shape, dtype=bool)[None]',
+        guard='test_the_layer_with_the_HIGHER_alpha_supplies_each_pixels_colour',
+    ),
+    Sabotage(
+        suite='python',
+        label='Mars paints both poles in its northern white, losing the measurement entirely',
+        path='pipeline/render/layer_producers.py',
+        needle='    northern = np.asarray(window.latitude) >= 0.0',
+        replacement='    northern = np.ones(np.asarray(window.latitude).shape, dtype=bool)',
+        guard='test_mars_paints_its_two_poles_in_DIFFERENT_whites',
+    ),
+    Sabotage(
+        suite='python',
+        label="a body's whites paint pixels and reach no recipe, so a re-tune looks fresh",
+        path='pipeline/render/layer_producers.py',
+        needle='def _mars_ice_recipe() -> dict[str, Any]:\n',
+        replacement='def _mars_ice_recipe() -> dict[str, Any]:\n    return {}\n',
+        guard='test_every_declared_white_reaches_that_bodys_recipe',
+    ),
+    Sabotage(
+        suite='python',
+        label='the cap and the tiles disagree about one ice colour across the crossfade',
+        path='pipeline/render/perennial_ice.py',
+        needle='                              paint=lambda: palette.MARS_ICE_WHITE["north"]),',
+        replacement='                              paint=lambda: palette.MARS_ICE_WHITE["south"]),',
+        guard='test_each_body_paints_one_pole_the_same_in_both_tiers',
+    ),
+    Sabotage(
+        suite='python',
+        label="Earth's two union layers declare different whites, so one wins by table order",
+        path='pipeline/render/layer_producers.py',
+        needle='        build=_build_glaciers, contribution=_earth_glaciers, paint=_earth_white,',
+        replacement='        build=_build_glaciers, contribution=_earth_glaciers,\n'
+                    '        paint=lambda _window: ((9, 9, 9), (1, 1, 1)),',
+        guard='test_earths_two_union_layers_declare_the_SAME_white',
+    ),
     # --- Mars's ice registration: the guards with no output to inspect -------------------------------
     # None of these five has an artifact a reader could check. Mars's ice is a band of a few degrees
     # at one pole, and every one of these mutations leaves a raster that opens, a recipe that parses
