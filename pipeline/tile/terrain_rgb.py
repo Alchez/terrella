@@ -2,8 +2,7 @@
 
 Sibling of `shade_planet.py`, and deliberately NOT part of it: that module cuts *colour*, this
 one cuts *elevation*. They share one input (`height_3857.tif`), one tiling scheme, and the
-stage-freshness primitives imported below — `cap_render.py` already treats `shade_planet` as
-their one home, so a third spelling of `is_stale` would be the thing to avoid, not the import.
+stage-freshness primitives, which live in `pipeline/freshness.py` and belong to neither stage.
 Nothing about the LOOK crosses over. MapLibre consumes this as a second `raster-dem` source with
 its own `maxzoom`, so the two pyramids need not be the same depth.
 
@@ -12,7 +11,7 @@ THE ONE TRAP THIS MODULE EXISTS TO AVOID
 Elevation packed into RGB is not an image. The value is `R*256 + G - 32768`, so the green byte
 WRAPS every 256 metres — and interpolating across a wrap invents a 256 m cliff. That makes every
 smooth resampler wrong on this data: `average`, `cubic`, `bilinear`, `lanczos` all mix bytes.
-`shade_planet.TILE_CUT` uses `cubic` for both the cut and its overviews, which is correct for
+`shade_planet.tile_cut` uses `cubic` for both the cut and its overviews, which is correct for
 colour and catastrophic here.
 
 So the pyramid is built **per zoom, from elevation downsampled in elevation space**, and each
@@ -32,11 +31,11 @@ FRESHNESS
 ---------
 Two guards, because this stage has two kinds of output and they fail differently.
 
-The elevation chain is stamped with `.done` markers rather than tested with `exists()`. That is
-not tidiness: rasterio creates its target at the START of a write, so the BigTIFF crash of
-2026-07-28 left a full-sized, freshly-stamped, half-written `elev_z8.tif` on disk — and an
-existence test would have built the entire pyramid on top of it, silently, since a truncated
-float32 raster reads as a very flat planet rather than as an error.
+The elevation chain is stamped with `.done` markers rather than tested with `exists()`, per
+`freshness.is_stale`. This stage is where that rule was paid for: a BigTIFF crash left a
+full-sized, freshly-stamped, half-written `elev_z8.tif` on disk, and an existence test would have
+built the entire pyramid on top of it, silently, since a truncated float32 raster reads as a very
+flat planet rather than as an error.
 
 The pyramid itself is cut into a staging dir and swapped, and keyed on the master's marker plus
 `terrain_params.json`. The recipe is the load-bearing half: the variant DIRECTORY name carries
@@ -46,7 +45,6 @@ invisible to every guard and to anyone reading the store.
 
 import argparse
 import json
-import math
 import shutil
 import subprocess
 from pathlib import Path
@@ -54,11 +52,14 @@ from pathlib import Path
 import numpy as np
 import rasterio
 
-from pipeline import paths
+from pipeline import mercator, paths
+from pipeline.freshness import (
+    done_marker,
+    is_stale,
+    mark_done,
+    write_if_changed,
+)
 from pipeline.raster_io import GTIFF_CREATE, band_window, row_bands
-from pipeline.tile.shade_planet import done_marker, is_stale, mark_done, write_if_changed
-
-ROOT = paths.ROOT
 
 #: Native grid of `height_3857.tif` — 512 px x 2^8, i.e. the colour pyramid's z8.
 MASTER_ZOOM = 8
@@ -100,10 +101,6 @@ TILE_FORMATS = {
 FEATHER_LAT_LO = 78.0
 FEATHER_LAT_HI = 85.0
 
-#: Web Mercator's sphere radius — the same constant the projection itself is defined on.
-MERCATOR_RADIUS = 6378137.0
-
-
 def _run(cmd) -> None:
     subprocess.run([str(part) for part in cmd], check=True)
 
@@ -121,7 +118,7 @@ def row_latitudes(row0: int, row1: int, height: int, north: float, south: float)
     """
     rows = np.arange(row0, row1, dtype=np.float64) + 0.5
     y = north - rows * (north - south) / height
-    return np.degrees(np.arctan(np.sinh(y / MERCATOR_RADIUS)))
+    return mercator.latitude_at(y, mercator.WEB_MERCATOR_RADIUS_M)
 
 
 def feather_factor(latitudes: np.ndarray) -> np.ndarray:
@@ -305,9 +302,8 @@ def build(out: Path, max_zoom: int, step: float, sea_clamp: bool, feather: bool,
     identical whatever codec the tiles are written in, so re-cutting a built variant into another
     lossless format costs one encode pass, not another descent from the master.
 
-    Guarded per the module header's FRESHNESS section: the recipe is written BEFORE freshness is
-    asked, so changing a setting is what triggers its own re-cut, while `write_if_changed` means an
-    unchanged recipe never moves an mtime and never restages a pyramid that is still correct.
+    Recipe-gated in the usual order — see `freshness.write_if_changed`, and the module header's
+    FRESHNESS section for what each of this stage's two guards catches.
 
     EVERY CUT IS A CLEAN FULL CUT into `tiles_new`, swapped over `tiles` only on success, with one
     generation of rollback at `tiles_old`. GDAL writes each tile in place, so a run killed mid-cut

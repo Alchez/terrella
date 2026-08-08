@@ -47,7 +47,44 @@ class TestRampsAreThePalettes:
         assert scene_build.LAKE_STOPS == rgba_stops(palette.LAKE_STOPS)
 
     def test_ranges(self, scene_build):
-        assert scene_build.SEA_RANGE == (palette.SEA_MIN_M, 0.0)
+        """BOTH ends read off the Surface, which is what this used to be unable to see.
+
+        It compared against a literal `0.0`, so the rig restating that literal — the third copy of
+        the datum-is-zero assumption, in the one module a type checker cannot connect to the other
+        two — was indistinguishable from the rig reading the ramp. Sourcing both ends here means a
+        re-hardcoded zero fails on the first body whose ramp does not start at one.
+        """
+        earth = palette.EARTH_LOOK
+        assert earth.sea is not None
+        assert scene_build.SEA_RANGE == (earth.sea.extreme_m, earth.sea.origin_m)
+        assert scene_build.LAND_RANGE == (earth.land.origin_m, earth.land.extreme_m)
+        # The bridge to the authored constants stays, one level up: those are what `RAMP_GLOBALS`
+        # guards, and losing it would let the assembled look drift from the values it was written
+        # from while this test happily compared the look against itself.
+        assert (earth.sea.extreme_m, earth.land.extreme_m) == (palette.SEA_MIN_M, palette.LAND_MAX_M)
+
+    def test_the_origin_is_READ_and_not_coincidentally_zero(self, scene_build, monkeypatch):
+        """The test above cannot fail on a re-hardcoded `0.0`, and pretending otherwise is worse
+        than not guarding it.
+
+        Earth's ramps both start at 0 m, so `origin_m` and the literal are the same value and no
+        assertion over Earth can tell a read from a restatement. Heroes are Earth-only, so there is
+        no second body to supply the difference either — the way out is to supply one that does not
+        exist in production: patch the look, re-import, and watch the rig follow. Restored by a
+        second reload, because the module-scoped fixture hands the same object to every test here.
+        """
+        moved = palette.Look(
+            land=palette.Surface(stops=palette.EARTH_LOOK.land.stops,
+                                 origin_m=-1234.0, extreme_m=palette.LAND_MAX_M),
+            sea=palette.EARTH_LOOK.sea,
+        )
+        monkeypatch.setattr(palette, "EARTH_LOOK", moved)
+        try:
+            reloaded = importlib.reload(scene_build)
+            assert reloaded.LAND_RANGE == (-1234.0, palette.LAND_MAX_M)
+        finally:
+            monkeypatch.undo()
+            importlib.reload(scene_build)
         assert scene_build.LAND_RANGE == (0.0, palette.LAND_MAX_M)
 
 

@@ -14,6 +14,6 @@
  *  silently wrong the moment 640/960/1280 were added below it. A floor states the
  *  requirement instead of relying on the ladder's shape. */
 export function smallestRungAtLeast(sizes: number[], minimumPx: number): number {
-  const ascending = [...sizes].sort((first, second) => first - second);
+  const ascending = [...sizes].toSorted((first, second) => first - second);
   return ascending.find((size) => size >= minimumPx) ?? ascending[ascending.length - 1];
 }

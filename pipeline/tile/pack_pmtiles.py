@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Pack the XYZ tile pyramid into an MBTiles file — the bridge to `pmtiles convert`.
 
 The vendored go-pmtiles CLI reads only MBTiles (its GDAL driver counterpart is
@@ -17,8 +16,7 @@ while `gdal raster tile --convention=xyz` wrote XYZ rows (origin top-left) —
 `tms_row` is the single home of that conversion, pinned by tests either way
 (a silent flip error would serve a vertically mirrored planet).
 
-Usage: python -m pipeline.tile.pack_pmtiles \
-           [--tiles data/work/planet_tiles/tiles] [--out data/work/planet_tiles/planet.mbtiles]
+Usage: python -m pipeline.tile.pack_pmtiles --body earth [--tiles DIR] [--out FILE] [--name NAME]
 """
 import argparse
 import os
@@ -27,16 +25,34 @@ import sys
 import time
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_TILES = ROOT / "data/work/planet_tiles/tiles"
-DEFAULT_OUT = ROOT / "data/work/planet_tiles/planet.mbtiles"
-# The pyramid's geographic extent since the Antarctica fill: the full
-# Web-Mercator square. Metadata only — pmtiles carries it through to the archive header.
+from pipeline import bodies
+
+#: The pyramid's geographic extent: the full Web-Mercator square, since the Antarctica fill. Shared
+#: by every body rather than derived from one, and that is not an oversight — PROJ refuses to
+#: project a Mars-radius sphere into EPSG:3857 at all, so every planet is cut on this same grid and
+#: the square is a fact about the PROJECTION, not about the planet in it. Metadata only; pmtiles
+#: carries it through to the archive header.
 BOUNDS = "-180.0,-85.0511,180.0,85.0511"
 INSERT_BATCH = 2048
 # File suffix -> the MBTiles `format` string for it. Also the filter that decides what counts as a
 # tile at all, so a stray sidecar in a leaf directory cannot be packed as image data.
 TILE_SUFFIXES = {".png": "png", ".webp": "webp", ".jpg": "jpg"}
+
+
+def default_tiles(body: bodies.Body) -> Path:
+    """The cut pyramid this body's pack reads, unless an operator names another.
+
+    Derived at CALL time from `bodies.work_dir`, which is the one home for "where does this body's
+    stage live" — so a relocated `MAPS_DATA` moves the pack along with the cut that filled it. The
+    literal this replaced was joined onto the checkout, which made a relocated store pack from a
+    directory nothing had written: not an error, just an empty tree or a stale one.
+    """
+    return bodies.work_dir(body, "planet_tiles") / "tiles"
+
+
+def default_out(body: bodies.Body) -> Path:
+    """Where this body's MBTiles bridge is written. Beside its own pyramid, never beside another's."""
+    return bodies.work_dir(body, "planet_tiles") / "planet.mbtiles"
 
 
 def tms_row(zoom: int, xyz_row: int) -> int:
@@ -113,11 +129,26 @@ def pack_directory(tiles_dir: Path, out_mbtiles: Path, name: str) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=(__doc__ or "").split("\n")[0])
-    parser.add_argument("--tiles", type=Path, default=DEFAULT_TILES)
-    parser.add_argument("--out", type=Path, default=DEFAULT_OUT)
+    # REQUIRED, WITH NO DEFAULT, on the same argument the rest of the tile chain makes: packing the
+    # wrong planet's directory is not a loud failure. It finds tiles, packs them, and writes a
+    # complete, valid archive under the other body's name — discovered only when a globe draws Earth.
+    parser.add_argument("--body", required=True,
+                        help=f"which planet's pyramid to pack "
+                             f"({', '.join(sorted(bodies.BODIES))})")
+    parser.add_argument("--tiles", type=Path, default=None,
+                        help="override the pyramid directory (this is how the terrain pyramid, "
+                             "which is a sibling of the relief one, is packed)")
+    parser.add_argument("--out", type=Path, default=None,
+                        help="override the MBTiles path")
+    # NOT body-derived, deliberately — see `TestTheArchiveNameIsNotTheBodys`. It reads
+    # {site}-{layer}, the body rides in the path, and this string reaches the archive header, which
+    # is inside the SHA that becomes the tile token in every served URL.
     parser.add_argument("--name", default="terrella-relief")
     args = parser.parse_args()
-    pack_directory(args.tiles, args.out, name=args.name)
+    body = bodies.get(args.body)
+    tiles = args.tiles if args.tiles is not None else default_tiles(body)
+    out = args.out if args.out is not None else default_out(body)
+    pack_directory(tiles, out, name=args.name)
     return 0
 
 

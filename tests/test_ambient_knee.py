@@ -15,8 +15,13 @@ import math
 import numpy as np
 import pytest
 
+from pipeline import bodies, planet_seam
 from pipeline.tile import shade
 from pipeline.tile.shade import apply_ambient_floor
+
+#: A planet whose seam emitted all three rasters — what Earth declares, and the only
+#: shape these tests care about unless they say otherwise.
+WHOLE_PLANET = planet_seam.KNOWN_RASTERS
 
 AMBIENT, HI = 0.50, 1.12
 
@@ -85,7 +90,7 @@ class TestFreshnessRecordsTheOcclusionResolution:
         from pipeline.render.sky_view import OCCLUSION_TARGET_M_PER_PX
         from pipeline.tile.shade_planet import composite_params
 
-        recorded = json.loads(composite_params({}))
+        recorded = json.loads(composite_params({}, bodies.EARTH, WHOLE_PLANET))
         assert recorded["occlusion_target_m_per_px"] == OCCLUSION_TARGET_M_PER_PX
 
     def test_the_knee_reaches_the_composite_record(self):
@@ -94,7 +99,7 @@ class TestFreshnessRecordsTheOcclusionResolution:
 
         from pipeline.tile.shade_planet import composite_params
 
-        assert "ambient_knee" in json.loads(composite_params({}))["knobs"]
+        assert "ambient_knee" in json.loads(composite_params({}, bodies.EARTH, WHOLE_PLANET))["knobs"]
 
 
 class TestTheTestOracleInvertsTheFloor:

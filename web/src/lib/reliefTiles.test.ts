@@ -5,13 +5,9 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
-  RELIEF_BASE_MAX_ZOOM,
   RELIEF_MAX_ZOOM,
-  RELIEF_MIN_ZOOM,
   TILE_CONTENT_TYPE,
   TILE_EXTENSION,
-  TILE_PATH_TEMPLATE,
-  assertZoomRange,
   describeTileTypeMismatch,
   parseTilePath,
 } from "./reliefTiles";
@@ -25,12 +21,13 @@ describe("the tile encoding", () => {
   it("declares the archive's encoding, and declares it once", () => {
     expect(TILE_EXTENSION).toBe("webp");
     expect(TILE_CONTENT_TYPE).toBe("image/webp");
-    expect(TILE_PATH_TEMPLATE).toBe("{z}/{x}/{y}.webp");
   });
 
-  it("keeps the template, the content type and the parser on the same format", () => {
+  it("keeps the content type and the parser on the same format", () => {
+    // The template that used to be pinned here has moved to tileAddress.ts, which composes this
+    // extension into `{body}/{layer}/{token}/{z}/{x}/{y}.webp` and is pinned there. What is left in
+    // this module is the encoding itself and the parser that must follow it.
     expect(TILE_CONTENT_TYPE).toBe(`image/${TILE_EXTENSION}`);
-    expect(TILE_PATH_TEMPLATE.endsWith(`.${TILE_EXTENSION}`)).toBe(true);
     expect(parseTilePath(tile("/3/4/3"))).not.toBeNull();
   });
 });
@@ -70,16 +67,6 @@ describe("parseTilePath", () => {
   });
 });
 
-describe("assertZoomRange", () => {
-  it("passes when the archive matches the range the globe requests", () => {
-    expect(() => assertZoomRange(RELIEF_MIN_ZOOM, RELIEF_MAX_ZOOM)).not.toThrow();
-  });
-
-  it("names the file to edit when a re-cut pyramid changes the range", () => {
-    expect(() => assertZoomRange(0, 10)).toThrow(/reliefTiles\.ts/);
-  });
-});
-
 describe("describeTileTypeMismatch", () => {
   it("returns null when the archive stores what the globe asks for", () => {
     expect(describeTileTypeMismatch(`.${TILE_EXTENSION}`)).toBeNull();
@@ -105,21 +92,11 @@ describe("describeTileTypeMismatch", () => {
   });
 });
 
-describe("the pinned base source — a floor that is a map, not a colour", () => {
-  const globe = readFileSync(new URL("../pages/earth.astro", import.meta.url), "utf8");
-
-  it("caps the base source at z0, because that is what makes it unmissable", () => {
-    // The guarantee is arithmetic, not luck: a raster source's covering set is clamped to its own
-    // maxzoom, so at 0 there is exactly ONE tile, ideal at every camera, therefore never absent
-    // after first load. At z1 the set is still camera-dependent and a first visit to a cold
-    // quadrant paints nothing — measured on production, so this constant is load-bearing.
-    expect(RELIEF_BASE_MAX_ZOOM).toBe(0);
-    const source = globe.match(/const reliefBaseSource[\s\S]*?\n  \};/)?.[0];
-    expect(source, "the base source must exist").toBeTruthy();
-    expect(source).toContain("maxzoom: RELIEF_BASE_MAX_ZOOM");
-    // A second attribution would render CREDITS twice in the control.
-    expect(source).not.toContain("attribution");
-  });
+// The two source SPECS moved to reliefSources.ts, where they can be asserted as objects rather than
+// as page text — see reliefSources.test.ts. What has to stay a source scan is the one thing that is
+// genuinely a property of the page: the order the style draws them in.
+describe("the pinned base source in the page's style", () => {
+  const globe = readFileSync(new URL("../components/Globe.astro", import.meta.url), "utf8");
 
   it("draws the base UNDER relief and OVER the background, or it is pointless", () => {
     // Above relief it would hide the real tiles; below the background it would never be seen.

@@ -45,15 +45,22 @@ export const COUNTRIES_CONTENT_TYPE = "application/x-protobuf";
  *  codec is exactly the thing a re-cut is allowed to change. */
 export const COUNTRIES_PATH_PREFIX = "countries";
 
-export const COUNTRIES_PATH_TEMPLATE =
-  `${COUNTRIES_PATH_PREFIX}/{z}/{x}/{y}.${COUNTRIES_TILE_EXTENSION}`;
-
 export const COUNTRIES_MIN_ZOOM = 0;
 
-/** Matches the relief pyramid's ceiling, and not by coincidence: the hover outline is judged
- *  against the raster coastline at z8, so the vector detail has to reach where the raster does.
- *  MapLibre overzooms past this by re-using z8 tiles, which is correct — beyond z8 there is no
- *  more relief detail to disagree with. */
+/** Matches EARTH's relief ceiling, and not by coincidence: the hover outline is judged against the
+ *  raster coastline at z8, so the vector detail has to reach where the raster does. MapLibre
+ *  overzooms past this by re-using z8 tiles, which is correct — beyond z8 there is no more relief
+ *  detail to disagree with.
+ *
+ *  EARTH'S, THOUGH THE COUPLING IT DESCRIBES IS EVERY BODY'S. The per-planet answer is
+ *  `PUBLISHED[body].countries` in tileAddress.ts, and Mars's relief stops at z6 — so "matches the
+ *  relief ceiling" resolves to a different number per planet, while this constant cannot.
+ *
+ *  It is still what `countryTilesSource` reads, and that is a deferral rather than an oversight:
+ *  Earth is the only body publishing vectors, so a version taking its zooms from the registry would
+ *  produce byte-identical output forever and a test for it could not fail. The way in is to thread
+ *  the ARCHIVE into that function instead of a body slug — then a test can hand it a range that is
+ *  nobody's, and the guard bites without waiting for a second vector pyramid to exist. */
 export const COUNTRIES_MAX_ZOOM = 8;
 
 const COUNTRIES_PATH_PATTERN = new RegExp(
@@ -93,17 +100,3 @@ export function describeCountriesTileTypeMismatch(archiveExtension: string): str
   );
 }
 
-/** Fail loudly when the country archive stops matching the constants above.
- *
- *  Silent in both directions like its siblings, with one extra wrinkle: because this pyramid is
- *  sparse, a shallower archive does not 404 visibly the way relief does — the route answers 204
- *  for a missing tile, so an archive that stops at z6 looks exactly like ocean from z7 up. */
-export function assertCountriesZoomRange(archiveMinZoom: number, archiveMaxZoom: number): void {
-  if (archiveMinZoom !== COUNTRIES_MIN_ZOOM || archiveMaxZoom !== COUNTRIES_MAX_ZOOM) {
-    throw new Error(
-      `Countries archive covers z${archiveMinZoom}-z${archiveMaxZoom}, but the globe requests ` +
-        `z${COUNTRIES_MIN_ZOOM}-z${COUNTRIES_MAX_ZOOM}. Update COUNTRIES_MIN_ZOOM/` +
-        `COUNTRIES_MAX_ZOOM in src/lib/countryTiles.ts to match the re-cut pyramid.`,
-    );
-  }
-}

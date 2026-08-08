@@ -26,6 +26,7 @@ dev = [
     "pyright>=1.1.411",
     "pytest>=9.1.1",
     "pytest-cov>=7.1.0",
+    "ruff>=0.16.1",
 ]
 
 # Same engine as Pylance, so `uv run pyright` reproduces the IDE's findings.
@@ -45,6 +46,37 @@ include = ["pipeline", "tests", "scripts"]
 venvPath = "."
 venv = ".venv"
 typeCheckingMode = "standard"
+
+# The second static gate, beside pyright and asking a different question: pyright asks whether the
+# types line up, ruff asks whether the code says what it means. Both stay at ZERO — there is no
+# "pre-existing finding" allowance here any more than there is for the type checker.
+#
+# NO `select`, deliberately. This takes ruff's own default rule set rather than a hand-written list
+# of families, because the default is a CURATED SUBSET and not a union: bare `E` is 5,034 findings
+# in this repo (line length alone), `PL` is 235, and a hand-written list would have to be
+# re-derived at every upgrade to stay equal to it. The bargain is that `uv lock --upgrade` is where
+# new rules arrive and where the gate can go red on an otherwise unrelated change — the same
+# bargain already struck with pyright's `standard` mode, and a linter that never learns anything
+# new is not worth running.
+#
+# `target-version` is inferred from `requires-python` above, so ruff targets 3.12 and cannot
+# propose syntax that Blender's bundled 3.13 lacks. That is load-bearing rather than incidental:
+# palette.py and the two bpy scripts are shared with an interpreter this venv never runs, and
+# `scripts/check_blender_drift.sh` is the only other thing that looks.
+[tool.ruff.lint]
+# E402 is NOT in the default set, and it is turned on here because the repo had already asked for
+# it: seven `# noqa: E402` directives were written against it. Six of them suppress nothing — they
+# are leftovers from a refactor that moved the imports to the top, and RUF100 is what says so. The
+# seventh, in gen_spotlight.py, is a real mid-file import with a paragraph explaining itself.
+# Enabling the rule costs zero findings and is what keeps that one comment honest.
+extend-select = ["E402"]
+
+ignore = [
+    # `dict(driver="GTiff", width=…)` — 40 sites, nearly all GDAL creation profiles, every one of
+    # them keyword-argument form rather than an empty `dict()`. The literal rewrite is a wash at
+    # best and reads worse wherever the keys line up as identifiers.
+    "C408",
+]
 
 # Tests cover the pure geometry/config resolution layer (framing math, config
 # validation, scope + frame resolution) — the deterministic core where a silent

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Snow/ice mask stage for the hero shader.
 
 Produces snowmask_aea.png (0/255) on an existing render dir's grid from
@@ -32,11 +31,8 @@ import argparse
 import concurrent.futures as cf
 import json
 import os
-import shutil
 import subprocess
 import sys
-import urllib.error
-import urllib.request
 from pathlib import Path
 from typing import Any
 
@@ -45,6 +41,7 @@ import rasterio
 from rasterio.warp import transform_bounds
 
 from pipeline import paths
+from pipeline.fetch import download_one
 
 BUCKET_URL = "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map"
 DATA_DIR = paths.DATA / "raw/worldcover"
@@ -71,33 +68,6 @@ def tiles_for_bounds(west, south, east, north) -> list[str]:
                          math.ceil(east / TILE_DEG) * TILE_DEG, TILE_DEG):
             names.append(tile_name(lat, lon))
     return names
-
-
-def download_one(url: str, dest: Path) -> str:
-    """download_glo30.py convention: .part + size check + atomic rename.
-    404 -> 'absent': the bucket has no tile for all-ocean cells."""
-    if dest.exists():
-        return "skipped"
-    part = dest.with_suffix(".part")
-    try:
-        with urllib.request.urlopen(url, timeout=120) as resp:
-            expected = int(resp.headers.get("Content-Length", -1))
-            with open(part, "wb") as out:
-                shutil.copyfileobj(resp, out)
-        actual = part.stat().st_size
-        if expected != -1 and actual != expected:
-            part.unlink()
-            return f"failed: size mismatch ({actual} of {expected} bytes)"
-        os.replace(part, dest)
-        return "ok"
-    except urllib.error.HTTPError as exc:
-        part.unlink(missing_ok=True)
-        if exc.code == 404:
-            return "absent"
-        return f"failed: {exc}"
-    except Exception as exc:
-        part.unlink(missing_ok=True)
-        return f"failed: {exc}"
 
 
 def main():
@@ -149,8 +119,8 @@ def main():
     counts = {"ok": 0, "skipped": 0, "absent": 0}
     failures = []
     with cf.ThreadPoolExecutor(WORKERS) as pool:
-        futures = {pool.submit(download_one, f"{BUCKET_URL}/{name}",
-                               DATA_DIR / name): name for name in names}
+        futures = {pool.submit(download_one, f"{BUCKET_URL}/{name}", DATA_DIR / name,
+                               timeout=120, absent_on_404=True): name for name in names}
         for index, fut in enumerate(cf.as_completed(futures), 1):
             status = fut.result()
             if status.startswith("failed"):

@@ -1,0 +1,2254 @@
+---
+// The globe itself: every pixel of it, and everything that moves.
+//
+// EXTRACTED FROM `pages/earth.astro` SO A SECOND BODY DRAWS THE SAME GLOBE, rather than a copy of
+// it. What is left in a page is the `<Base>` wrapper and its props — which planet, which chrome —
+// and this component is all the rest. The alternative was one `[body].astro` dynamic route,
+// rejected because it breaks the guard binding a registry slug to a page of that name, and leaves
+// the Lite stub nowhere to live.
+//
+// ONE THING COULD NOT COME WITH IT: the MapLibre stylesheet `<link>`. A `slot` attribute means
+// something only on a direct child of a component invocation, so `slot="head"` written in here
+// would render as a literal attribute in the body instead of reaching `Base`'s head slot. It lives
+// in `MapStylesheet.astro`, which each body page forwards into that slot.
+//
+// THE SCOPED `<style>` CAME ACROSS WITH ITS MARKUP, and it had to. Astro scopes by stamping one
+// `data-astro-cid-...` attribute on both halves, so leaving either behind leaves selectors that
+// match nothing — the globe renders unstyled and every gate stays green.
+import "../styles/globe.css";
+import { REPO_URL } from "../lib/siteLinks";
+---
+
+{/* Static space backdrop: a sparse starfield painted behind the transparent
+     map, so it shows only in the space around the sphere (zoomed out). */}
+<canvas id="starfield" class="starfield" aria-hidden="true"></canvas>
+<div id="globe" class="globe" role="application" aria-label="Interactive relief globe"></div>
+{/* Top-left chrome: the way back, and the source. One fixed row rather than two fixed
+     elements, so neither pill has to know the other's width to sit beside it. */}
+<nav class="globe-chrome" aria-label="Site">
+  <a class="globe-home" href="/">← Gallery</a>
+  <a
+    class="globe-source"
+    href={REPO_URL}
+    target="_blank"
+    rel="noopener noreferrer"
+    aria-label="Source on GitHub"
+    title="Source on GitHub"
+  >
+    <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+      <path
+        d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.012 8.012 0 0 0 16 8c0-4.42-3.58-8-8-8z"
+      ></path>
+    </svg>
+  </a>
+</nav>
+
+{/* THE NEXT TWO ELEMENTS SHIP TO EVERY BODY, INCLUDING ONES THAT CAN NEVER OPEN THEM, AND THAT IS
+     A DECISION RATHER THAN AN OVERSIGHT. `globeSubsystems` gates the SCRIPT — a body with no
+     countries pyramid never wires the hover or the click — so on Mars these are inert hidden nodes.
+     Gating the markup as well needs this component to take a body PROP, since `currentBody()` is a
+     runtime read of `data-body` and the frontmatter cannot see it.
+
+     MEASURED BEFORE DECIDING, because the case for it was always "bytes": 1,009 of HTML, chip 201
+     and panel 808. The 2,757 bytes of matching CSS CANNOT follow them out — Astro collects a
+     component's scoped styles from the import graph, so a runtime conditional never drops a rule —
+     and both pages share one client chunk, so gating the script saves nothing either. Against that,
+     `panel`, `heroImg` and `figure` are module-scope reads that throw on null, so the gate drags
+     `openPanel`, `closePanel`, the Escape handler and the click handler behind it.
+
+     They are provably inert rather than merely unused: `countryAt` returns null without the layers,
+     and both ship `hidden` plus `aria-hidden`, so assistive technology never reaches them. */}
+
+{/* Names whatever the pointer is on, so the gold hover outline stops being anonymous.
+     Desktop-only by nature rather than by omission: touch has no hover state to leave
+     unnamed, and a tap already opens the card below, which names the country outright. */}
+<p id="country-chip" class="country-chip" hidden aria-hidden="true">
+  <span class="cc-dot"></span><span class="cc-name"></span>
+</p>
+
+{/* Country detail: populated + revealed on click, framed by fitBounds so the
+     flown-to country sits clear of this card. */}
+<aside id="hero-panel" class="hero-panel" hidden aria-hidden="true" aria-label="Country detail">
+  <button id="hero-close" class="hp-close" type="button" aria-label="Close">×</button>
+  <figure class="hp-figure">
+    <img class="hp-hero" alt="" decoding="async" />
+    <img class="hp-border" alt="" aria-hidden="true" />
+  </figure>
+  <div class="hp-body">
+    <p class="hp-eyebrow"></p>
+    <h2 class="hp-name"></h2>
+    <p class="hp-note">
+      A ray-traced relief render — softer shadows and heightened terrain than the
+      globe's live tiles.
+    </p>
+    <a class="hp-link" href="/">Open full-size render →</a>
+  </div>
+</aside>
+
+{/* Shown only when the GPU context is lost AND the browser never gives it back. MapLibre
+     recovers by itself in the ordinary case, so announcing the loss immediately would tell
+     people to reload a map that is about to heal a moment later. */}
+<p id="gl-lost" class="globe-lost" hidden role="alert">
+  The globe lost access to the graphics card and could not recover.
+  Reload the page, or <a href="/">browse the gallery</a> instead.
+</p>
+
+<noscript>
+  <p class="globe-noscript">
+    The interactive globe needs JavaScript. <a href="/">Browse the gallery instead.</a>
+  </p>
+</noscript>
+
+<style>
+  /* The globe is the page: a fixed, full-viewport map canvas. */
+  :global(html),
+  :global(body) {
+    height: 100%;
+    overflow: hidden;
+  }
+  /* The starfield sits behind the map; the map paints transparent in space so
+     the stars read through only where the sphere and its atmosphere don't. */
+  .starfield {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    display: block;
+    /* Very dark desaturated navy — space, not pure black. THE ONLY COPY OF THIS VALUE: it has to
+       live in CSS so the backdrop is painted before the script that draws the stars has run, and
+       paintStarfield reads it back off this custom property rather than restating it. A second
+       hex in the script would be free to drift silently, which is the trap palette.ts and
+       HIGHLIGHT_GOLD both exist to avoid. Not a palette.ts constant: that file is colours the
+       PIPELINE owns, each pinned against palette._srgb8, and this one has no pipeline source. */
+    --space: #0e1519;
+    background: var(--space);
+  }
+  .globe {
+    position: fixed;
+    inset: 0;
+    z-index: 1;
+  }
+  /* The top-left row holds the position; the pills inside it just sit in order, so adding a
+     third would need no arithmetic. */
+  .globe-chrome {
+    position: fixed;
+    top: 1.2rem;
+    left: 1.2rem;
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    /* ONE LINE BOX FOR THE WHOLE ROW — it is what makes the pills agree. A 0.9rem word carries a
+       21.6 px line box where a 1.05rem icon carries 16.8, so without this the text pill stands
+       41.2 px against the icon pills' 36.4. Pinning the line box to the icon's height makes every
+       pill `ink + padding + border` over the same ink, matching by construction rather than by
+       three padding values tuned against each other. */
+    --chrome-ink: 1.05rem;
+    line-height: var(--chrome-ink);
+  }
+  /* Floating chrome over the map: translucent `--bg-2` wash, backdrop blur, hairline `--line`
+     border. Stated here rather than cited from a sibling — this used to say "matching the
+     .borders-fab token treatment", and `.borders-fab` has since been removed, leaving a rule
+     whose stated reason pointed at nothing. */
+  .globe-home,
+  .globe-source {
+    display: inline-flex;
+    align-items: center;
+    background: color-mix(in srgb, var(--bg-2) 92%, transparent);
+    -webkit-backdrop-filter: blur(6px);
+    backdrop-filter: blur(6px);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    box-shadow: var(--shadow);
+    color: var(--text);
+    text-decoration: none;
+  }
+  .globe-home {
+    padding: 0.55rem 0.95rem;
+    font-size: 0.9rem;
+  }
+  /* Icon-only, so the pair stays narrow enough for a phone's top row beside MapLibre's
+     control stack; square padding keeps it a circle rather than a stubby pill. */
+  .globe-source {
+    padding: 0.55rem;
+  }
+  .globe-source svg {
+    display: block;
+    width: var(--chrome-ink);
+    height: var(--chrome-ink);
+    fill: currentColor;
+  }
+  .globe-home:hover,
+  .globe-source:hover {
+    color: var(--accent);
+  }
+
+  /* The hovered-country name. Top-centre is the only free band on the page: .globe-chrome holds
+     the top left, MapLibre's navigation/globe/fullscreen stack the top right, the scale bar and
+     attribution the bottom left, .view-bar the bottom centre. Same pill treatment as .globe-home so
+     it reads as one family of floating chrome — the gold dot is what marks it as the LABEL for the
+     gold outline rather than as another control. */
+  .country-chip {
+    position: fixed;
+    top: 1.2rem;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 20;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin: 0;
+    padding: 0.5rem 1rem;
+    max-width: min(24rem, calc(100vw - 2.4rem));
+    background: color-mix(in srgb, var(--bg-2) 92%, transparent);
+    -webkit-backdrop-filter: blur(6px);
+    backdrop-filter: blur(6px);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    box-shadow: var(--shadow);
+    font-family: var(--serif);
+    font-size: 1.05rem;
+    color: var(--text);
+    white-space: nowrap;
+    /* Load-bearing, not tidiness: the chip sits over the canvas, so without this the pointer
+       reaching it would fire the map's `mouseout`, hide the chip, land back on the canvas and
+       show it again — a flicker loop, worst exactly where you hover the top of the sphere. */
+    pointer-events: none;
+  }
+  .cc-dot {
+    flex: none;
+    width: 0.4rem;
+    height: 0.4rem;
+    border-radius: 50%;
+    /* Colour is set from HIGHLIGHT_GOLD in the module below — one constant, so the dot cannot
+       drift away from the outline it is tying itself to. */
+  }
+  .cc-name {
+    min-width: 0; /* lets the flex item shrink far enough for the ellipsis to engage */
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  /* `hidden` would otherwise lose to the display value above — same trap as .globe-lost. */
+  .country-chip[hidden] {
+    display: none;
+  }
+  /* Phones have no hover state to leave anonymous, and a tap opens the detail card that names the
+     country anyway. Without this the synthetic mouse events a tap emits would flash the chip for an
+     instant under the arriving card. Touchscreen laptops report `hover: hover` and keep it. */
+  @media (hover: none) {
+    .country-chip {
+      display: none;
+    }
+  }
+  /* THE OVERLAP WITH `.globe-chrome` BELOW ~695 px IS NOT A DEFECT — measured, then deliberately
+     left alone. This chip is centred on the viewport while the chrome is anchored top-left, so on a
+     narrow hover-capable window a long name does sit on top of "← Gallery": at 640 px it clips the
+     GitHub mark, and at 412 px it buries both. Pinning it visible and photographing it makes that
+     look damning, which is exactly the mistake to avoid here — the state does not persist. The chip
+     is `pointer-events: none` and its visibility is a pure function of `hoverTracker.current()`
+     (three call sites, all of them), and `map.on("mouseout")` clears the tracker the moment the
+     pointer leaves the canvas. So moving toward the chrome hides the chip on the way, and there is
+     no reachable state where it covers something the user is trying to use. A width breakpoint that
+     suppressed it would cost the feature on every window under ~848 px to fix an appearance that
+     dissolves as soon as anyone acts on it. */
+  .globe-noscript {
+    position: fixed;
+    inset: auto 1.2rem 1.2rem;
+    z-index: 20;
+    margin: 0;
+    padding: 1rem 1.2rem;
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    color: var(--muted);
+  }
+  /* Centred rather than docked to an edge like the noscript notice: the bottom rail already
+     carries the attribution, the scale bar and the quality toggle, and a full-width bar down
+     there overlapped all three. Centre is also simply where a dead map should say so. */
+  .globe-lost {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    /* Above the ?perf panel (40), which is the only thing on the page that outranks it and the one
+       thing that must not. Reported from a phone: the globe was dead, this notice HAD unhidden, and
+       the expanded diagnostic panel was covering it — a debugging aid hiding the alert that says
+       debugging is over. The panel grew to 60vh in the same change that made it readable at all. */
+    z-index: 50;
+    margin: 0;
+    padding: 1rem 1.3rem;
+    max-width: min(28rem, calc(100vw - 2.4rem));
+    text-align: center;
+    line-height: 1.5;
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    color: var(--muted);
+  }
+  /* `hidden` would otherwise lose to the display value implied above. */
+  .globe-lost[hidden] {
+    display: none;
+  }
+
+  /* Country detail card — a floating panel, not a full-screen takeover, so the
+     globe stays live behind it. Same token treatment as .globe-home. */
+  .hero-panel {
+    position: fixed;
+    top: 1.2rem;
+    right: 1.2rem;
+    z-index: 30;
+    width: min(420px, calc(100vw - 2.4rem));
+    max-height: calc(100vh - 2.4rem);
+    overflow: auto;
+    display: flex;
+    flex-direction: column;
+    background: color-mix(in srgb, var(--bg-2) 94%, transparent);
+    -webkit-backdrop-filter: blur(8px);
+    backdrop-filter: blur(8px);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    box-shadow: var(--shadow);
+  }
+  .hero-panel[hidden] {
+    display: none;
+  }
+  .hp-close {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.5rem;
+    z-index: 1;
+    width: 2rem;
+    height: 2rem;
+    display: grid;
+    place-items: center;
+    padding: 0;
+    font-size: 1.3rem;
+    line-height: 1;
+    color: var(--text);
+    background: color-mix(in srgb, var(--bg-2) 80%, transparent);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    cursor: pointer;
+  }
+  .hp-close:hover {
+    color: var(--accent);
+  }
+  .hp-figure {
+    position: relative;
+    margin: 0;
+    border-radius: 14px 14px 0 0;
+    overflow: hidden;
+    background: var(--bg);
+  }
+  .hp-figure img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  /* display:block only on the hero — a shared `.hp-figure img` rule would outrank
+     `.hp-border`'s display:none and force the border overlay on regardless of the toggle. */
+  .hp-hero {
+    display: block;
+  }
+  .hp-border {
+    position: absolute;
+    inset: 0;
+    display: none;
+  }
+  :global(body.borders-on) .hp-border {
+    display: block;
+  }
+  .hp-body {
+    padding: 0.9rem 1.1rem 1.1rem;
+  }
+  .hp-eyebrow {
+    margin: 0 0 0.15rem;
+    font-size: 0.75rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .hp-name {
+    margin: 0 0 0.4rem;
+    font-family: var(--serif);
+    font-size: 1.4rem;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .hp-note {
+    margin: 0 0 0.85rem;
+    font-size: 0.82rem;
+    line-height: 1.4;
+    color: var(--muted);
+  }
+  .hp-link {
+    font-size: 0.9rem;
+    color: var(--accent);
+    text-decoration: none;
+  }
+  .hp-link:hover {
+    text-decoration: underline;
+  }
+</style>
+
+<script>
+  // --- Starfield backdrop -----------------------------------------------------
+  // A static field of faint stars on a dark navy ground, painted once (and on
+  // resize) to a full-viewport canvas behind the transparent map. Static by
+  // design: no twinkle, so it's inherently calm and reduced-motion-safe. Only
+  // visible in the space around the globe when zoomed out — the sphere covers it
+  // otherwise, so no zoom-conditional logic is needed.
+  const starCanvas = document.getElementById("starfield") as HTMLCanvasElement;
+  const drawingContext = starCanvas.getContext("2d");
+  const STAR_TINT = "230, 235, 240"; // pale, faintly cool white
+
+  function paintStarfield() {
+    if (!drawingContext) return;
+    const pixelRatio = window.devicePixelRatio || 1;
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+    // Back the canvas with device pixels for crisp sub-pixel stars on hi-DPI screens.
+    starCanvas.width = Math.round(viewportWidth * pixelRatio);
+    starCanvas.height = Math.round(viewportHeight * pixelRatio);
+    starCanvas.style.width = viewportWidth + "px";
+    starCanvas.style.height = viewportHeight + "px";
+    drawingContext.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+
+    // Read from the stylesheet rather than restated here — see the `--space` declaration. Setting
+    // `.width` above cleared the bitmap to transparent, so if the property ever goes missing this
+    // skips the fill and the element's own CSS background shows through at exactly the same
+    // colour. That is the right fallback: a missing token degrades to the same pixels, where an
+    // empty fillStyle would silently keep whatever was painted last.
+    const spaceColor = getComputedStyle(starCanvas).getPropertyValue("--space").trim();
+    if (spaceColor) {
+      drawingContext.fillStyle = spaceColor;
+      drawingContext.fillRect(0, 0, viewportWidth, viewportHeight);
+    }
+
+    // Sparse: roughly one star per 5200 CSS px² (~700 on a 2560×1440 screen).
+    const starCount = Math.round((viewportWidth * viewportHeight) / 5200);
+    for (let starIndex = 0; starIndex < starCount; starIndex += 1) {
+      const positionX = Math.random() * viewportWidth;
+      const positionY = Math.random() * viewportHeight;
+      const radius = 0.4 + Math.random() * 0.9;
+      const brightness = 0.16 + Math.random() * 0.5;
+      drawingContext.beginPath();
+      drawingContext.arc(positionX, positionY, radius, 0, Math.PI * 2);
+      drawingContext.fillStyle = `rgba(${STAR_TINT}, ${brightness.toFixed(3)})`;
+      drawingContext.fill();
+    }
+  }
+
+  paintStarfield();
+  // Repaint on resize (debounced) so the field stays crisp and full-bleed.
+  let resizeTimer = 0;
+  window.addEventListener("resize", () => {
+    window.clearTimeout(resizeTimer);
+    resizeTimer = window.setTimeout(paintStarfield, 150);
+  });
+</script>
+
+<script>
+  import * as maplibregl from "maplibre-gl";
+  // v6 ships its worker as a SEPARATE ESM file it resolves at runtime via import.meta.url.
+  // Bundled into this chunk that path becomes /_astro/maplibre-gl-worker.mjs and 404s, so tiles
+  // never parse. Vite's ?worker&url bundles the worker (inlining its ./maplibre-gl-shared.mjs
+  // dep) into one self-contained emitted asset and returns its hashed URL; setWorkerUrl (below,
+  // before prewarm) points maplibre at it. Self-contained so it loads under module OR classic.
+  import maplibreWorkerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
+  import type {
+    ExpressionSpecification,
+    FilterSpecification,
+    LineLayerSpecification,
+    Point,
+  } from "maplibre-gl";
+  // NOT `import "maplibre-gl/dist/maplibre-gl.css"` — that is what made it render-blocking. The
+  // stylesheet is linked non-blocking from this page's frontmatter; see the note beside that link.
+  import { manifest, type Country } from "../lib/manifest";
+  import { BORDERS_BASE, HERO_BASE, TILE_BASE } from "../lib/assetBase";
+  import { reliefBaseTilesSource, reliefTilesSource } from "../lib/reliefSources";
+  // The ONE static exemption for the instrument, and it is fifteen lines: the entry buffer has to be
+  // raised ahead of `new maplibregl.Map`, which no dynamic import can promise. Everything else that
+  // reads those entries lives in lib/perf/ and loads only under `?perf` — see that module's header
+  // for why splitting the import site was not enough, and lib/perf/lazyBoundary.test.ts for the rule.
+  import {
+    RESOURCE_TIMING_BUFFER_SIZE,
+    raiseResourceTimingBuffer,
+  } from "../lib/resourceTimingBuffer";
+  // Same split, same reason: the span call sites are ordinary always-shipped code, so the runtime
+  // half lives outside lib/perf/ while the analysis stays behind the lazy boundary.
+  import { TRACED_SPANS, beginSpan, enablePerfTrace } from "../lib/perfSpans";
+  import type { CameraFill } from "../lib/perf/perfNetwork";
+  import {
+    MAX_TERRAIN_EXAGGERATION,
+    TERRAIN_MAX_ZOOM,
+    TERRAIN_MIN_ZOOM,
+    TERRAIN_RAMP_END_ZOOM,
+    TERRAIN_RAMP_START_ZOOM,
+    TERRAIN_SKIRT_DEFAULT,
+    TERRAIN_SKIRT_MODES,
+    TERRAIN_SOURCE,
+    TERRAIN_TILE_SIZE,
+    TERRAIN_TILE_SIZES,
+    defaultTerrainRamp,
+    describeTerrainState,
+    resolveTerrainExaggeration,
+    TERRAIN_OFF,
+    parseTerrainRamp,
+    parseTerrainSkirt,
+    parseTerrainTileSize,
+    rampedExaggeration,
+    terrainEncoding,
+  } from "../lib/terrainSource";
+  import {
+    atmosphereNeedsRebuild,
+    defaultAtmosphereRamp,
+    describeAtmosphereState,
+    parseAtmosphereRamp,
+    skySpec,
+  } from "../lib/skyAtmosphere";
+  import { attachRttPoolTrim, rttPoolLine } from "../lib/rttPoolTrim";
+  import {
+    applyDemCacheCap,
+    demCacheCapFault,
+    describeDemCacheState,
+    parseDemCacheSetting,
+    resolveDemCacheSlots,
+    terrainCoveringTileCount,
+  } from "../lib/tileCacheBudget";
+  import {
+    MAPLIBRE_DEFAULT_MAX_PARALLEL_IMAGE_REQUESTS,
+    MAX_PARALLEL_IMAGE_REQUESTS_CEILING,
+    defaultMaxParallelImageRequests,
+    parseMaxParallelImageRequests,
+  } from "../lib/tileConcurrency";
+  import {
+    GL_RECOVERY_CEILING_MS,
+    GL_RECOVERY_POLL_MS,
+    GL_RECOVERY_VERIFY_MS,
+    GL_RESTORE_GRACE_MS,
+    type GlLossSnapshot,
+    chargeLoss,
+    describeGiveUp,
+    describeLoss,
+    formatGpuInitFailure,
+    recoveryVerdict,
+    restoreFault,
+    snapshotGlLoss,
+    snapshotHasContent,
+  } from "../lib/glDiagnostics";
+  import { currentBody } from "../lib/currentBody";
+  import { globeSubsystems, globeTileAddresses } from "../lib/globeSubsystems";
+  // Ids and poles only — the cap MESH and its textures stay behind the dynamic import below.
+  // glDiagnostics already pulls these two statically, so this adds nothing to the bundle.
+  import { CAP_POLES, capLayerId, deviceClass } from "../lib/polarCaps";
+  import { decideGlobeTier, decideTier, getQuality, probeSignals } from "../lib/capability";
+  import {
+    COUNTRIES_SOURCE,
+    HIGHLIGHT_GOLD,
+    VECTOR_BINDING,
+    countryTilesSource,
+    featureStateTargets,
+    fillLayer,
+    highlightLayers,
+    hitLayer,
+  } from "../lib/countryHighlight";
+  import { createHoverTracker } from "../lib/hoverTracking";
+  import { createRailToggle, joinRailGroup } from "../lib/railControls";
+  import { createQuietMode } from "../lib/quietMode";
+  import { createScaleRuler, rulerGroundDistance } from "../lib/scaleRuler";
+  import {
+    DEGRADED_PIXEL_RATIO,
+    MAXIMUM_SAMPLE_COUNT,
+    isSustainedSlow,
+    nextDegradationAction,
+  } from "../lib/fpsDegradation";
+  import type { PerfEventStamps, PerfSnapshot } from "../lib/perf/perfOverlay";
+  // Type-only, so the perf report module stays out of every non-?perf bundle — the values come
+  // from the dynamic import beside the overlay's.
+  import type { LadderPosition } from "../lib/perf/perfSnapshot";
+
+  // `Country` (imported from ../lib/manifest) is the shape of the objects the
+  // click/hover/panel handlers pass around.
+
+  // Data baked into the relief raster (MapLibre requires attribution). The map carries a POINTER,
+  // not the notice, and that was already true when this line named seven sources: Copernicus
+  // GLO-30's licence (Art. 6b) demands an EXACT string we have never shown on the map, and that
+  // notice — with the Art. 6c liability sentence and the no-endorsement statement — lives on
+  // /about beside the per-source licences. Reducing it therefore changes how findable the
+  // credits are, not whether we comply. GEBCO/Natural Earth/NSIDC are public domain and GLOBathy
+  // is CC0; RGI 7.0 and OSI SAF are CC-BY, which a link to the notice satisfies.
+  //
+  // An ⓘ rather than the words, which is the trade this makes explicitly: an unlabelled glyph is
+  // less discoverable than "Data sources" was, and it buys the pill 66 px. `title` + `aria-label`
+  // carry the name for pointer and screen reader alike, and the icon is the same one every map
+  // library uses for exactly this, so the affordance is conventional even where the word is gone.
+  //
+  // The markup passes through MapLibre's DOM.sanitize (DOMParser as text/html, <script> dropped,
+  // javascript:/data: attributes stripped). Verified the SVG survives that round trip intact —
+  // including `viewBox`, whose casing only survives because the HTML parser adjusts foreign-content
+  // attributes. No `data:` URI here, which sanitize WOULD strip from an href or src.
+  //
+  // Width is load-bearing, not cosmetic: the credit is a SEGMENT OF THE VIEW BAR, so it sets when
+  // that pill wraps. Measured: this renders 28 px against the text's 94 px. Re-measure the wrap
+  // point if it grows — a wrapped bar eats the clearance the scale bar's lift is built on (see the
+  // media query in the is:global block).
+  //
+  // The glyph is MapLibre's own info path, lifted from the `.maplibregl-ctrl-attrib-button`
+  // background-image in maplibre-gl.css (BSD-3-Clause, already a dependency) so that the icon we
+  // draw and the one the library would have drawn are the same shape — the difference being that
+  // ours takes `currentColor` and theirs is a baked black raster that is invisible on this theme.
+  // viewBox is 4 4 12 12, NOT MapLibre's own 0 0 20 20. Their glyph is a circle centred (10,10)
+  // with r=6, so it spans x and y 4→16 and leaves 40% of that box as dead margin — at a shared
+  // `width` it renders ~60% the size of .globe-source's octicon, which fills its box. Cropping to
+  // the ink makes the two icons the same size at the same CSS width instead of only nominally so.
+  const CREDITS =
+    '<a href="/about/" title="Data sources" aria-label="Data sources">' +
+    '<svg viewBox="4 4 12 12" fill-rule="evenodd" aria-hidden="true" focusable="false">' +
+    '<path d="M4 10a6 6 0 1 0 12 0 6 6 0 1 0-12 0m5-3a1 1 0 1 0 2 0 1 1 0 1 0-2 0m0 3a1 1 0 1 1 2 0v3a1 1 0 1 1-2 0"/>' +
+    "</svg></a>";
+
+  // Spin up MapLibre's shared worker pool now — it's otherwise created lazily at Map
+  // construction, so the workers start while the modules below load.
+  // v6: point maplibre at the Vite-emitted worker URL (see the ?worker&url import above) before
+  // the pool spins up — otherwise it derives /_astro/maplibre-gl-worker.mjs from import.meta.url
+  // and 404s. Idempotent and must precede prewarm()/Map construction.
+  maplibregl.setWorkerUrl(maplibreWorkerUrl);
+  maplibregl.prewarm();
+
+  // One parse for every URL flag — diagnostics in the ?nocaps tradition (layer-on/off
+  // isolation): ?bare strips every non-tile layer (caps, countries, borders, highlight) to
+  // expose the raster baseline, ?perf mounts the on-screen long-task overlay (phones have no
+  // devtools console).
+  //
+  // ?bare and ?nocaps are not read HERE any more. They are two of the inputs to `globeSubsystems`,
+  // beside the registry's answer for this body, because "show me only the raster" and "this planet
+  // only has a raster" are the same globe and were two code paths for as long as they were two
+  // conditions.
+  const urlFlags = new URLSearchParams(location.search);
+
+  // Raised HERE, not in the ?perf block further down, and that is the whole point: the default
+  // buffer is 250 entries, one fresh viewport at Full already costs 97 tile requests, and entries
+  // dropped before the instrument mounts are gone for good. There is no API to read the limit back
+  // or to learn that an entry was discarded, so a late raise would leave the totals a silent floor.
+  // Gated on the flag so an ordinary visit keeps the browser's default.
+  const resourceTimingBufferSize = urlFlags.has("perf")
+    ? raiseResourceTimingBuffer(performance, RESOURCE_TIMING_BUFFER_SIZE)
+    : null;
+  // Armed HERE, synchronously, for the same ordering reason the buffer is raised here: the polar
+  // caps load from `style.load`, which can fire before a dynamically imported module has resolved,
+  // so arming any later would silently drop the very cap spans this exists to capture. The return
+  // value is kept because a browser without User Timing arms nothing, and an empty span list from
+  // an instrument that never ran must not read as "no work happened".
+  const perfTraceArmed = urlFlags.has("perf") ? enablePerfTrace(performance) : false;
+  // Resolved once: TILE_BASE is relative on the dev server and absolute in production, while
+  // Resource Timing entry names are always absolute.
+  const absoluteTileBase = new URL(TILE_BASE, location.href).href;
+
+  // Read before the Map is constructed: terrainSkirtLength is a constructor option, because the
+  // skirt is baked into the cached terrain mesh rather than applied per frame.
+  const parsedSkirt = parseTerrainSkirt(urlFlags);
+  if (parsedSkirt === null) {
+    console.warn(
+      `[terrain] ignoring ?skirt=${urlFlags.get("skirt")} — want one of ` +
+        `${TERRAIN_SKIRT_MODES.join("|")}. Using "${TERRAIN_SKIRT_DEFAULT}".`,
+    );
+  }
+  const terrainSkirtMode = parsedSkirt ?? TERRAIN_SKIRT_DEFAULT;
+
+  // MapLibre's parallel image-request cap, applied BEFORE the Map is constructed because the
+  // style starts requesting tiles the moment it loads. An unconstrained visitor now gets 32
+  // instead of the library's 16 — measured, see tileConcurrency.ts for the ladder and for why the
+  // gate is the network SIGNALS rather than the resolved tier.
+  //
+  // The probe is hoisted here rather than called again: `currentTier()` re-runs `probeSignals()`
+  // on every call and each run creates WebGL contexts, so this snapshot is taken once and reused
+  // by the terrain gate below. Cost measured live at ~2.1 ms per context.
+  const bootSignals = probeSignals();
+  // `decideGlobeTier`, because this module only ever runs on the globe page: a `gallery` verdict
+  // from a soft signal here contradicts the pre-paint guard that already admitted us.
+  const bootTier = decideGlobeTier(bootSignals, getQuality());
+  const requestedMaxParallelImageRequests = parseMaxParallelImageRequests(urlFlags);
+  if (requestedMaxParallelImageRequests === null && urlFlags.has("maxreq")) {
+    // Refused loudly rather than falling back silently — a run that believes it measured 8 while
+    // running at the default is worse than no run at all.
+    console.warn(
+      `[tiles] ignoring ?maxreq=${urlFlags.get("maxreq")} — want an integer 1..` +
+        `${MAX_PARALLEL_IMAGE_REQUESTS_CEILING}. Running at the resolved default.`,
+    );
+  }
+  const maxParallelImageRequests =
+    requestedMaxParallelImageRequests ??
+    defaultMaxParallelImageRequests({
+      saveData: bootSignals.saveData,
+      slowNetwork: bootSignals.slowNetwork,
+      mobileClass: deviceClass().mobileClass,
+    });
+  if (maxParallelImageRequests !== MAPLIBRE_DEFAULT_MAX_PARALLEL_IMAGE_REQUESTS) {
+    maplibregl.setMaxParallelImageRequests(maxParallelImageRequests);
+  }
+  if (urlFlags.has("perf")) {
+    console.log(`[tiles] maxParallelImageRequests = ${maxParallelImageRequests}`);
+  }
+
+  // Which planet this page draws, resolved ONCE at module scope so a missing or unknown
+  // `data-body` fails here — before a map exists — rather than somewhere inside init where it would
+  // read as a rendering problem.
+  const body = currentBody();
+
+  // What this globe draws beyond the relief raster. Resolved ONCE, from the registry and then the
+  // flags, and every gate below reads this record instead of spelling its own condition — see
+  // globeSubsystems.ts for why that is a module rather than five inline `&&`s.
+  const subsystems = globeSubsystems(body.slug, urlFlags);
+
+  // The tile addresses this page draws from, built HERE rather than read as module constants — the
+  // template needs a body, and there is no such thing as a bodyless tile URL. Relief stays eager
+  // for the same reason `body` is: it is the one archive every globe must have, so a missing one
+  // throws beside the declaration that names it rather than inside a `style.load` handler where it
+  // would read as slow loading.
+  //
+  // THE OTHER TWO ARE CONDITIONAL, and that is the live defect this commit closes. `tileUrlTemplate`
+  // THROWS for a layer the body does not publish, and these run at module scope — so on a body that
+  // publishes only relief, this file threw before a map existed and the globe was a blank page with
+  // one console line. "This planet has no DEM" is a fact about the planet, not an error, so the
+  // registry is asked first and never gets the chance to become one.
+  //
+  // `null` rather than an empty string, because the type-checker is doing the search: every site
+  // that assumed an address is now a compile error, which is how the gates further down were FOUND
+  // rather than remembered.
+  const {
+    relief: reliefTileUrlTemplate,
+    terrain: terrainTileUrlTemplate,
+    countries: countriesTileUrlTemplate,
+  } = globeTileAddresses(body.slug, subsystems);
+
+  // Both relief sources draw the one archive this body publishes, and both take their zoom range
+  // from the registry rather than from a constant — see reliefSources.ts, which is where the
+  // per-body reasoning and its tests live.
+  const reliefSource = reliefTilesSource(body.slug, reliefTileUrlTemplate, CREDITS);
+  // The same archive capped at z0, drawn UNDER `relief` as a floor that is a map rather than a
+  // colour: one tile at every camera, so it is always ideal, always in `_inViewTiles`, and cannot
+  // be missing after first load.
+  const reliefBaseSource = reliefBaseTilesSource(body.slug, reliefTileUrlTemplate);
+
+  // Vertical field of view — MapLibre's 36.87° default reads like a low-orbit fisheye:
+  // shapes smear into the limb at overview and lean away near the frame edges zoomed in.
+  // Lower flattens the projection toward the heroes' orthographic camera. A/B'd live at
+  // 36.87/25/15/5: country views are near-flat by 15, and 5 is effectively orthographic.
+  // 15 keeps a whisper of roundness at overview; retune within the tested 5–15 band.
+  const VERTICAL_FIELD_OF_VIEW_DEG = 15;
+
+  const map = new maplibregl.Map({
+    container: "globe",
+    style: {
+      version: 8,
+      // Globe projection is declared in the style (v5 stable) — the proven
+      // planet_tiles/index.html viewer does the same with our exact tiles.
+      projection: { type: "globe" },
+      sources: { relief: reliefSource, "relief-base": reliefBaseSource },
+      layers: [
+        // The sphere's floor, in two parts. A raster layer paints ONLY where it holds a tile, and
+        // the canvas clears transparent so the starfield behind it shows through — so any tile
+        // MapLibre cannot cover reads as outer space, mid-ocean holes included. On globe
+        // projection this clips to the sphere, leaving space around the limb.
+        //
+        // WHY IT CANNOT ALWAYS COVER — corrected here, having finally been measured. This used to
+        // say the low-zoom ancestors "were evicted from the LRU". They are not evicted.
+        // `_updateRetainedTiles` substitutes only out of `_inViewTiles` (`getTile` ->
+        // `getTileByID` -> `_inViewTiles.getTileById`); the LRU is reachable solely through
+        // `_addTile`, and the parent walk's one call to it is gated on `parentWasRequested`,
+        // which is false for a tile constructed this frame. So while an ideal tile is pending its
+        // ancestor sits in the cache WITH DATA and cannot be used — measured on production, a pan
+        // at settled zoom retained zero substitutes and painted one flat colour. Zoom-in only
+        // looks better because the parent is still in `_inViewTiles` from the previous camera.
+        // Raising `maxTileCacheZoomLevels` does nothing here (tried at 20: still zero
+        // substitutes); it sizes a cache the retain path cannot read. Cold tiles take 1.2-1.7 s
+        // from R2, so the gap is long enough to see.
+        { id: "space-floor", type: "background", paint: { "background-color": body.spaceFloor } },
+        // ...which is why the layer under the map is a colour and this one is the map. One tile,
+        // 71 KB, one request. It cannot make the fill faster; it makes a gap the right COLOUR —
+        // sandy over land instead of abyssal teal over land, which is what made a slow fill read
+        // as missing data rather than as sharpening. Beneath `relief`, so real tiles cover it the
+        // moment they land.
+        {
+          id: "relief-base",
+          type: "raster",
+          source: "relief-base",
+          paint: { "raster-fade-duration": 0 },
+        },
+        { id: "relief", type: "raster", source: "relief", paint: { "raster-fade-duration": 0 } },
+      ],
+    },
+    center: [20, 25],
+    zoom: 1.6,
+    minZoom: 0.4,
+    maxZoom: 8, // never reach the z12 globe→mercator auto-switch
+    // ?skirt=none drops the vertical curtains MapLibre hangs off every terrain tile edge, trading
+    // them for hairline gaps at cross-zoom boundaries. Constructor-only: the skirt is baked into
+    // the cached mesh, so this cannot be toggled on a live map. Diagnostic — terrain seams are a
+    // MapLibre limitation neither setting removes.
+    terrainSkirtLength: terrainSkirtMode,
+    dragRotate: true,
+    // Camera in the URL fragment (#map=zoom/lat/lng/…): views become shareable links and
+    // reload restores the position — a present fragment overrides center/zoom above. Our
+    // feature flags (?bare, ?nocaps, ?perf) live in the search string, so no collision.
+    hash: "map",
+    // The pyramid is immutable by design — never re-request tiles on HTTP expiry.
+    refreshExpiredTiles: false,
+    attributionControl: false, // re-added below with our own options, then folded into .view-bar
+    // MSAA on the default framebuffer: the globe silhouette is a geometry edge
+    // against the transparent starfield, so without multisampling the sphere's
+    // limb steps pixel-by-pixel. v6 nests the WebGL context flags here (was a
+    // top-level `antialias` in v5). Context-creation flag — cannot be toggled
+    // live, so the FPS watchdog can only mitigate via pixelRatio, not disable it.
+    canvasContextAttributes: { antialias: true },
+  });
+  map.setVerticalFieldOfView(VERTICAL_FIELD_OF_VIEW_DEG);
+
+  // Event stamps for the ?perf overlay, recorded HERE rather than in the overlay module:
+  // the overlay arrives via dynamic import and loses the race on fast (prod-built) pages —
+  // map "load" can fire before the module mounts, and once the spin starts the map never
+  // idles again, so a late `once("load")`/`once("idle")` would render em-dashes forever.
+  // Two always-on listeners cost nothing; the overlay reads this live object when mounted.
+  const perfEventStamps: PerfEventStamps = { mapLoadMs: null, firstIdleMs: null };
+  map.once("load", () => {
+    perfEventStamps.mapLoadMs = performance.now();
+  });
+  map.once("idle", () => {
+    perfEventStamps.firstIdleMs = performance.now();
+  });
+
+  // THE CAMERA RAIL. Two groups by design: zoom + compass + spin (where you are looking FROM),
+  // then fullscreen + the quiet toggle (the frame around it). Spin and quiet are appended into
+  // these two groups further down, beside the state each one drives — see railControls.ts for why
+  // they are plain widgets rather than IControls.
+  map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-right");
+  // Fullscreen the PAGE, not the map container: the floating UI (gallery link, detail
+  // card, toggle stack) are siblings of #globe and would vanish if only it went fullscreen.
+  map.addControl(new maplibregl.FullscreenControl({ container: document.body }), "top-right");
+  //
+  // DO NOT ADD GlobeControl. Flat Mercator drops two signature features silently: `polarCaps.ts`
+  // returns early from render() while `defaultProjectionData.projectionTransition < 1` ("on the
+  // flat Mercator map there is no pole to draw"), and the sky/atmosphere is globe-only for the
+  // same reason. A projection toggle is only offerable once both degrade honestly. The projection
+  // is declared in the STYLE (`projection: { type: "globe" }`), so no control is needed to hold
+  // the globe.
+
+  // NO ScaleControl. It sizes its element to a round distance and rewrites that inline width on
+  // every camera change, which is invisible in a page corner and a twitching span once the ruler
+  // rests against a centred pill. Ours fixes the span and lets the number move — see scaleRuler.ts.
+
+  // ?perf only: a handle on the live map, because nothing else reaches one. MapLibre keeps no
+  // back-reference from any DOM node to its Map, the page script's `map` is a module-local const,
+  // and the numbers that have driven the last three investigations — `terrain.tileManager
+  // ._renderableTilesKeys`, `painter._rttObjectRecyclePool`, `painter.renderToTexture._stacks` —
+  // are private state on objects only the map can reach. Every one of those sessions ended up
+  // adding this line temporarily; making it permanent and flag-gated is the honest version.
+  //
+  // Gated rather than unconditional so production ships no writable global that can pin the map
+  // (and everything it owns, including GL resources) alive after teardown. Costs one property
+  // assignment when the flag is present and does not exist otherwise.
+  if (urlFlags.has("perf")) {
+    window.__map = map;
+  }
+
+  // The credit stays a real AttributionControl rather than hand-rolled markup, so that any source
+  // which ever declares `attribution` is still picked up automatically by _updateAttributions —
+  // the compliance safety net survives even though the visible string is ours.
+  //
+  // `compact: false` is what makes it liveable inside the view bar, and it is a stronger option
+  // than it looks: _updateCompact never adds `maplibregl-compact` when the option is explicitly
+  // false, at ANY width. So the container is a permanently-open <details>; its ⓘ <summary> stays
+  // display:none (MapLibre's own stylesheet shows it only for `.maplibregl-compact`), the inner
+  // text stays visible, and _updateCompactMinimize's drag handler is a no-op. That DELETES the
+  // ⓘ's baked-black-SVG problem rather than working around it, and with it the MutationObserver
+  // that used to race MapLibre to force the collapse back down on phones.
+  map.addControl(new maplibregl.AttributionControl({ compact: false }), "bottom-left");
+
+  // Fold the credit into the TOP-LEFT chrome row, beside ← Gallery and the source link: a link to
+  // /about is a way OFF the globe, which is what that row holds, where the view bar holds what the
+  // globe SHOWS. addControl runs onAdd synchronously, so the container already exists and can be
+  // moved before the first paint. MapLibre only ever rewrites `.maplibregl-ctrl-attrib-inner` and
+  // removes the container via parentNode, so both keep working from its new home.
+  //
+  // THE MOVE ADDS THE CLASS THAT STYLES IT rather than relying on `.globe-chrome` as an ancestor
+  // in the selector. An ancestor prefix stops matching silently the next time anything re-parents
+  // this element, and a block that fails to find its targets then leaves the credit in MapLibre's
+  // own readable stock box instead of a half-styled one — failing visible beats failing invisible
+  // for something carrying a licence obligation.
+  const viewBar = document.querySelector(".view-bar");
+  const chromeRow = document.querySelector(".globe-chrome");
+  const attributionEl = document.querySelector<HTMLElement>(".maplibregl-ctrl-attrib");
+  if (chromeRow && attributionEl) {
+    attributionEl.classList.add("chrome-credit");
+    chromeRow.append(attributionEl);
+  }
+
+  // The scale is the view bar's TOP EDGE — a fixed ruler dimensioning the pill it rests on.
+  // Positioned `absolute` inside the bar, so a readout can never widen the pill it annotates, and
+  // prepended so reading order is scale → controls. Docking it to a page corner instead costs a
+  // clearance constant against a centred bar whose width moves with the viewport; there is nothing
+  // to keep clear of when it rides the bar itself.
+  const ruler = createScaleRuler();
+  viewBar?.prepend(ruler.element);
+
+  // THE MEASUREMENT IS THE EXPENSIVE HALF, not the DOM writes — this comment used to say the
+  // opposite. `map.unproject` resolves a screen point against the DRAPED surface, which means
+  // rendering tile coordinates offscreen and reading them back SYNCHRONOUSLY: two GPU stalls per
+  // move event, at frame rate. Measured on production at 1.9 readPixels per frame and 9.8% of the
+  // main thread, against 0.00 per frame with this listener detached.
+  //
+  // `transform.screenPointToLocation` answers on the DATUM for no GPU work, which is the right
+  // question for a scale bar anyway — it dimensions the map, not the mountain in front of it.
+  //
+  // IT IS `map.painter.transform`, NOT `map.transform` — checked against the live object, because
+  // the first version of this reached for `map.transform` on the strength of a `get transform()` in
+  // the .d.ts that turns out to belong to an internal TransformProvider. That property is undefined
+  // at runtime, the fallback below fired, and the readback was still there: 1.89 per frame, fix
+  // measuring as no fix at all. A type declaration is not a runtime surface.
+  //
+  // A deliberate reach past the public API, the same trade rttPoolTrim.ts makes and for the same
+  // reason: the public route costs a GPU readback per call. A canary in scaleRuler.test.ts fails
+  // loudly if the symbol moves, and the check below degrades to the slow-but-CORRECT call rather
+  // than throwing inside every move event — which is exactly what it did when I got it wrong.
+  // READ THE TRANSFORM PER CALL. MapLibre REPLACES `painter.transform` after this script runs, so a
+  // reference captured once keeps answering from the camera it was captured at. That shipped: the
+  // ruler sat at its z4 reading at every zoom — a plausible number, never updating, throwing
+  // nothing, and with the readback correctly gone, so every metric said the fix had worked.
+  // Caught only by reading the LABEL after a zoom. A per-call property lookup is free next to the
+  // GPU stall this exists to avoid.
+  let warnedAboutFallback = false;
+  function locateOnDatum([x, y]: [number, number]): maplibregl.LngLat {
+    const transform = (map.painter as unknown as { transform?: Record<string, unknown> } | undefined)
+      ?.transform;
+    if (typeof transform?.screenPointToLocation !== "function") {
+      if (!warnedAboutFallback) {
+        warnedAboutFallback = true;
+        console.warn("[ruler] painter.transform.screenPointToLocation is gone — measuring slowly");
+      }
+      return map.unproject([x, y]);
+    }
+    const locate = transform.screenPointToLocation as (p: maplibregl.Point) => maplibregl.LngLat;
+    return locate.call(transform, new maplibregl.Point(x, y));
+  }
+
+  // `move`, not `moveend` — the reading has to be true while you are dragging, which is when
+  // anyone actually looks at it. setDistance is a no-op when the label has not changed, so the DOM
+  // writes really are near-free.
+  function updateRuler(): void {
+    const container = map.getContainer();
+    // The body's own sphere, not the map's. Every projection here is Earth-sphered for every planet
+    // — MapLibre draws the globe at a hardcoded 6371008.8 — so the transform hands back an ANGLE
+    // that is correct for any body, and the radius is the one thing that has to change with it.
+    ruler.setDistance(
+      rulerGroundDistance(
+        locateOnDatum,
+        body.groundRadiusM,
+        container.clientWidth,
+        container.clientHeight,
+      ),
+    );
+  }
+  map.on("move", updateRuler);
+  updateRuler();
+
+  // Quiet mode — the chrome put away so the render is the whole frame. Its button joins the
+  // rail's SECOND group, beside fullscreen: both frame the view rather than move the camera, and
+  // that hairline gap is the only thing on the page stating the difference.
+  //
+  // Wired through a hoisted `reflectQuiet` rather than two consts referring to each other: the
+  // mode announces changes the button must mirror, and the button asks the mode to change, which
+  // is a cycle no declaration order can satisfy on its own.
+  const quiet = createQuietMode({ onChange: reflectQuiet });
+  const quietToggle = createRailToggle({
+    className: "rg-ctrl-quiet",
+    label: "Hide controls",
+    pressedLabel: "Show controls",
+    onToggle: () => quiet.toggle(),
+  });
+  function reflectQuiet(next: boolean): void {
+    quietToggle.setPressed(next);
+  }
+  joinRailGroup(map.getContainer(), ".maplibregl-ctrl-fullscreen", quietToggle.button);
+
+  // Terrain (?terrain=N, off by default) — the Tier-3 displacement layer, behind a flag while it
+  // is judged. MapLibre's globe DOES displace: _projection_globe.vertex.glsl's projectTileFor3D
+  // scales the sphere vector by (1 + elevation/GLOBE_RADIUS), and terrain.vertex.glsl calls it.
+  // Its one documented globe gap is recalculateZoomAndCenter (camera-follows-terrain), which a
+  // camera capped at maxZoom 8 never needs.
+  //
+  // N is the exaggeration, and it is load-bearing rather than cosmetic: displacement is
+  // elevation*N/6371008.8 of the radius, so Everest at 1x is ~0.35 px at the default camera and
+  // invisible. ?dem=clamp|bathy picks between the two sea treatments built for the A/B.
+  // Set only when terrain is enabled; the ?perf overlay appends it so a phone screenshot records
+  // which arm and which live exaggeration produced the frame.
+  // Atmosphere strength, ramped by zoom (?sky=off|<floor> sweeps it). MapLibre's globe
+  // atmosphere is aerial perspective, not just a halo — it hazes the ground too — and it earns
+  // its keep only where there are off-globe pixels to glow into. Parsed here, beside the other
+  // flags, because both the ?perf read-out and the style.load handler below need it.
+  const parsedSkyRamp = parseAtmosphereRamp(urlFlags);
+  if (parsedSkyRamp === null) {
+    console.warn(
+      `[sky] ignoring ?sky=${urlFlags.get("sky")} — want "off" or a number in [0, 1]. ` +
+        `Using the default ramp.`,
+    );
+  }
+  const skyRamp = parsedSkyRamp ?? defaultAtmosphereRamp();
+  // WHETHER THERE IS AIR AT ALL IS THE BODY'S ANSWER, and it is read once here so every site below
+  // asks the same question. `null` means no `setSky` on this globe: no glow at the limb, no aerial
+  // perspective over the ground. Not a `globeSubsystems` flag, because a boolean there would be a
+  // second spelling of this `!== null` and the sky needs the colours anyway — the registry field is
+  // the gate, and the type of `skySpec` is what enforces it.
+  const bodyAtmosphere = body.atmosphere;
+  if (bodyAtmosphere === null && urlFlags.has("sky")) {
+    // A flag that silently does nothing is worse than one that refuses: `?sky=` is a measurement
+    // arm, and a sweep that believes it varied the atmosphere on a body that has none would read
+    // its identical captures as the ramp not mattering.
+    console.warn(
+      `[sky] ignoring ?sky=${urlFlags.get("sky")} — ${body.slug} declares no atmosphere, so ` +
+        `there is no ramp to sweep.`,
+    );
+  }
+
+  let describeTerrain: (() => string) | null = null;
+  // The DEM cache is the one cost that grows with SESSION TIME rather than with the camera, so no
+  // per-view measurement can see it — which is exactly why development never did. Reading it needs
+  // MapLibre's own structures (all present in its public .d.ts, underscore prefixes and all);
+  // summariseDemCache returns null rather than 0 if any of them move.
+  let describeDemCache: (() => string[]) | null = null;
+  // The same reading as a FAULT rather than a sentence — the structured export needs to answer
+  // "is anything actually wrong" without string-matching a human-readable line. Null both when
+  // there is no terrain (nothing to bound) and when the bound is holding; the report distinguishes
+  // those by the terrain flag it already carries.
+  let demCacheFault: (() => string | null) | null = null;
+  // The RTT pool census, for the same reason the DEM cache has one and a stronger one besides:
+  // once the trim stops the crash, the renderable-tile overdraw that CAUSES it becomes invisible.
+  // `held` is the working set MapLibre genuinely needs; `pooled` is retained slack; `peak` is the
+  // number that indicts the tile count, and it is the one to watch after the symptom is muted.
+  let describeRttPool: (() => string) | null = null;
+  // Tiles this camera needs, from MapLibre's own coveringTiles. Declared out here because the GL
+  // loss snapshot wants it too and `?terrain=off` never enters the block below — in which case
+  // there is no terrain source and null is the honest answer, not zero.
+  let coveringTileCount: () => number | null = () => null;
+  // Re-apply the DEM bound. Needed because a WebGL context restore silently drops it: MapLibre
+  // rebuilds the style from line 22446 of _contextRestored, which fires `style.load` BEFORE
+  // _setupPainter() has run, so the terrain tile manager the cap is written to does not exist yet —
+  // then setTerrain builds a fresh, uncapped one. Measured 4/4 forced losses: 381 slots -> 1155,
+  // i.e. straight back to the ~1.14 GiB ceiling the cap exists to remove (1155 x demSlotBytes(512)
+  // = 1,220,585,520 B; tileCacheBudget.ts derives the per-slot figure and is the one place that
+  // should state it), while the overlay still read "384 MB budget". Asserted from a healthy `idle`
+  // rather than from the restore event,
+  // because that event is not guaranteed to arrive at all (see the GL block below).
+  let reassertTerrainBound: () => void = () => {};
+  // Set by the FPS ladder's last rung, and the reason it cannot be inferred instead: after
+  // `setTerrain(null)` + `removeSource` there is no terrain tile manager, which is EXACTLY what a
+  // torn-down style looks like mid-context-restore. One of those is the intended end state and one
+  // is the fault the re-assertion exists to repair, and nothing on the map tells them apart —
+  // `map.getTerrain()` still returned a stale Terrain object on a style with zero sources
+  // (measured). So the ladder declares its own retirement rather than leaving the check to guess.
+  // Without this, every device that degrades logs `console.error` claiming the DEM cache is
+  // unbounded, at the one moment there is no DEM cache at all — seen live within ~50 s on a hard
+  // pan/zoom route.
+  //
+  // WHICH RUNG THIS IS DEPENDS ON THE DEVICE, and an earlier version of this comment asserted
+  // "the ladder's FIRST rung" flatly while the one beside the rung itself says "last". Both are
+  // half right. `nextDegradationAction` orders them retire-spin -> lower-pixel-ratio ->
+  // disable-terrain, but the middle rung is gated on `devicePixelRatio > DEGRADED_PIXEL_RATIO`
+  // (1). So on a DPR-1 desktop with the spin already off — reduced motion, or any tier below
+  // `full` — terrain-off is the FIRST action the ladder ever takes, and the ~50 s figure above
+  // was measured there. On a phone at DPR 3 it is the third and last.
+  let terrainRetired = false;
+  // Where the FPS ladder currently stands, assigned beside the ladder itself. Null until then,
+  // which is the honest reading during the page's first frames rather than a fabricated "unfired".
+  let ladderPosition: (() => LadderPosition) | null = null;
+  // TIER 3 LANDS HERE: terrain is what `full` finally buys beyond the idle spin. `?terrain=`
+  // still overrides in both directions — a number forces it on at any tier, `off` forces it flat
+  // without demoting the tier — so every A/B flag below stays usable and there is still a way to
+  // remove ONLY the geometry.
+  // `bootTier`, not a fresh `currentTier()`: that would be a second `probeSignals()` and four more
+  // WebGL contexts for an answer that cannot have changed within one page load.
+  // A body with no DEM pyramid has no terrain to switch on, at any tier and by any flag — so the
+  // registry is consulted before the URL is even parsed. Refused OUT LOUD rather than silently:
+  // `?terrain=2` on such a body is a reasonable thing for someone to try, and a flag that does
+  // nothing without saying so is how an hour goes into wondering which of five things broke.
+  const terrainExaggeration = subsystems.terrain
+    ? resolveTerrainExaggeration(urlFlags, bootTier === "full")
+    : null;
+  if (!subsystems.terrain && urlFlags.has("terrain")) {
+    console.warn(
+      `[terrain] ignoring ?terrain=${urlFlags.get("terrain")} — ${body.slug} publishes no ` +
+        `terrain pyramid, so there is no elevation to displace with. Running flat.`,
+    );
+  }
+  if (
+    subsystems.terrain &&
+    terrainExaggeration === null &&
+    urlFlags.has("terrain") &&
+    urlFlags.get("terrain")?.trim() !== TERRAIN_OFF
+  ) {
+    console.warn(
+      `[terrain] ignoring ?terrain=${urlFlags.get("terrain")} — want a number in ` +
+        `(0, ${MAX_TERRAIN_EXAGGERATION}] or "${TERRAIN_OFF}". Running flat.`,
+    );
+  }
+  // BOTH conditions, and the second is not redundant with the first. `terrainExaggeration` is
+  // already null for a body with no pyramid, so this block is unreachable there either way — but
+  // that reachability is an argument a reader has to reconstruct, and the type-checker cannot
+  // reconstruct it at all. Naming the address here makes the requirement local: this block needs an
+  // exaggeration AND somewhere to fetch elevation from, and it says so.
+  if (terrainExaggeration !== null && terrainTileUrlTemplate !== null) {
+    // ?demsize is the axis-B arm: 512 is the honest declaration, 128 a deliberate misdeclaration
+    // that quarters the ground a render tile covers and so quarters the mesh facet. It is the
+    // last of the DEM A/B flags, and the only one that survived the archive: a wrong value here
+    // cannot corrupt a decode, only change which zoom loads out of the one pyramid. The four that
+    // named a build directory (?dem, ?quant, ?demfmt, ?demdepth) retired with it — see the block
+    // in terrainSource.ts recording what each one settled.
+    const parsedTileSize = parseTerrainTileSize(urlFlags);
+    if (parsedTileSize === null) {
+      console.warn(
+        `[terrain] ignoring ?demsize=${urlFlags.get("demsize")} — want one of ` +
+          `${TERRAIN_TILE_SIZES.join("|")}. Using ${TERRAIN_TILE_SIZE}.`,
+      );
+    }
+    const declaredTileSize = parsedTileSize ?? TERRAIN_TILE_SIZE;
+    const parsedRamp = parseTerrainRamp(urlFlags);
+    if (parsedRamp === null) {
+      console.warn(
+        `[terrain] ignoring ?ramp=${urlFlags.get("ramp")} — want "off" or a number in ` +
+          `(0, ${MAX_TERRAIN_EXAGGERATION}]. Using the default ramp.`,
+      );
+    }
+    const ramp = parsedRamp ?? defaultTerrainRamp();
+    // The declared size replaces the build name here now that there is only one build. It is the
+    // remaining thing a capture cannot be read back from: exaggeration is on screen, but whether
+    // a frame meshed at 128 or 512 is invisible in the image and changes both facet size and
+    // which DEM level loaded.
+    describeTerrain = () =>
+      `${describeTerrainState(map.terrain?.exaggeration ?? null, terrainExaggeration, ramp)} · ` +
+      `${declaredTileSize}px`;
+    const parsedDemCache = parseDemCacheSetting(urlFlags);
+    if (parsedDemCache === null) {
+      console.warn(
+        `[terrain] ignoring ?demcache=${urlFlags.get("demcache")} — want "off" or a positive ` +
+          `integer slot count. Using the derived cap.`,
+      );
+    }
+    const demCacheSetting = parsedDemCache ?? { kind: "derived" as const };
+    // The covering count comes from MapLibre's own `coveringTiles`, so the overlay prices the cap
+    // against what this camera actually needs instead of against the rectangular estimate that set
+    // it. Recomputed per frame of the overlay because it is a function of the CAMERA, not the
+    // canvas — the whole reason a canvas-derived bound was the wrong shape.
+    describeDemCache = () =>
+      describeDemCacheState(
+        map.style?.tileManagers?.[TERRAIN_SOURCE],
+        demCacheSetting,
+        coveringTileCount(),
+      );
+    coveringTileCount = () =>
+      terrainCoveringTileCount(map, declaredTileSize, TERRAIN_MIN_ZOOM, TERRAIN_MAX_ZOOM);
+    const exaggerationFor = (zoom: number) =>
+      ramp.kind === "off"
+        ? terrainExaggeration
+        : rampedExaggeration(terrainExaggeration, zoom, ramp.floor);
+
+    // Bound the DEM cache to what the source is actually FILLED at. MapLibre sizes it from the
+    // declared tile size and fills it from twice that, so the shelves outrun the fill rate by a
+    // factor that costs ~1.14 GiB of decoded elevation on a desktop canvas — the arithmetic, the
+    // measured knee and the multiplier all live in tileCacheBudget.ts.
+    //
+    // Re-derived rather than fixed: the working set scales with the viewport, so a constant would
+    // throttle a large screen and overspend on a small one. MapLibre applies it as
+    // `Math.min(cap, its own size)`, so this can only ever shrink the cache.
+    let intendedCacheSlots: number | null = null;
+    // Reads the same live pair the re-assertion judges, so the export can never disagree with the
+    // console. Retired terrain has no cap to fault on, and must not report one.
+    demCacheFault = () =>
+      terrainRetired
+        ? null
+        : demCacheCapFault(map.style?.tileManagers?.[TERRAIN_SOURCE], intendedCacheSlots);
+    const applyCacheCap = () => {
+      if (terrainRetired) return; // nothing to bound, and the warning below would be a lie
+      const canvas = map.getCanvas();
+      intendedCacheSlots = resolveDemCacheSlots(
+        demCacheSetting,
+        canvas.clientWidth,
+        canvas.clientHeight,
+        declaredTileSize,
+      );
+      const tileManager = map.style?.tileManagers?.[TERRAIN_SOURCE];
+      if (applyDemCacheCap(tileManager, intendedCacheSlots)) return;
+      // Distinguish the two reasons this fails, because one is routine and one is news. A style
+      // torn down by WebGL context loss leaves tileManagers EMPTY, and reporting that as "internals
+      // moved" cried wolf five times during a real GPU incident while saying nothing true.
+      console.warn(
+        map.style?.tileManagers === undefined || tileManager === undefined
+          ? "[terrain] no terrain source to bound yet — style not built (or torn down)"
+          : "[terrain] could not bound the DEM cache — MapLibre internals moved",
+      );
+    };
+
+    // Verify the cap TOOK EFFECT rather than trusting the write. `_outOfViewCache.max` is the
+    // number MapLibre actually enforces, and it is only recomputed on render — so this reads back
+    // after a frame has run, not immediately. Both failure modes are silent otherwise: a write that
+    // does not stick, and a MapLibre that stops honouring the Math.min.
+    //
+    // REPAIRS before it reports. The check was written expecting the cap to fail only if MapLibre's
+    // internals moved — a thing you log and go and read about. A context restore drops the cap for
+    // an ordinary, recurring reason instead, and a report alone leaves the map running uncapped
+    // with a line in a console nobody has open. So: re-apply once, and only call it a fault if the
+    // re-application does not take. `capFaultReported` still bounds the log to one line per page.
+    let capFaultReported = false;
+    let capRepairAttempted = false;
+    reassertTerrainBound = () => {
+      if (terrainRetired) return; // the ladder took terrain away on purpose; there is no cap to hold
+      const fault = demCacheCapFault(map.style?.tileManagers?.[TERRAIN_SOURCE], intendedCacheSlots);
+      if (fault === null) {
+        // Healthy: arm the repair again, so a LATER loss gets its own attempt rather than being
+        // judged on this one's outcome.
+        capRepairAttempted = false;
+        return;
+      }
+      // The NEXT idle is the verification, never a read taken here. `_outOfViewCache.max` is only
+      // recomputed on render, so re-reading it immediately after the write reports the number
+      // MapLibre has not caught up to yet — which is exactly what a first build did: it repaired
+      // the cap correctly and then logged "not in force — asked 381, holding 1155" about its own
+      // successful repair. An oracle that cannot yet see the change cannot be the one that judges it.
+      if (!capRepairAttempted) {
+        capRepairAttempted = true;
+        applyCacheCap();
+        console.info(`[terrain] DEM cache cap was not in force (${fault}) — re-applied`);
+        return;
+      }
+      if (capFaultReported) return;
+      capFaultReported = true; // once per session; a per-frame version would bury the log
+      console.error(`[terrain] DEM cache cap is not in force after a re-apply — ${fault}`);
+    };
+    map.on("idle", reassertTerrainBound);
+
+    map.on("style.load", () => {
+      map.addSource(TERRAIN_SOURCE, {
+        type: "raster-dem",
+        tiles: [terrainTileUrlTemplate],
+        minzoom: TERRAIN_MIN_ZOOM,
+        maxzoom: TERRAIN_MAX_ZOOM,
+        tileSize: declaredTileSize,
+        ...terrainEncoding(),
+      });
+      // AFTER setTerrain, not before: setTerrain is what swaps the plain TileManager for the
+      // TerrainTileManager the cap has to land on, so capping first writes to an object MapLibre is
+      // about to replace. It happened to work on a first load only because the initial `resize`
+      // re-applied it moments later; on a context restore no resize follows and the cap stayed off.
+      map.setTerrain({ source: TERRAIN_SOURCE, exaggeration: exaggerationFor(map.getZoom()) });
+      applyCacheCap();
+      // AFTER setTerrain for the same reason applyCacheCap is: the pool lives on the painter, but
+      // there is nothing to trim until terrain exists to fill it, and `rttHeldBy` reads through
+      // `map.terrain`. Bounding it is OURS to do because MapLibre's `releaseRTT` has no cap and
+      // only `Painter.destroy()` — map removal or a lost context — ever empties the pool; see
+      // rttPoolTrim.ts. This cannot lower the PEAK (acquire allocates only when the pool is empty,
+      // so the peak is the working set by construction) — it returns the card after the peak.
+      // `?nortt` keeps the census and skips the trimming, so the A/B that justifies this module
+      // stays runnable against the shipped build rather than against a build we no longer have —
+      // the same reason `?nocaps` exists.
+      // MAX_SAFE_INTEGER rather than Infinity: `trimRttPool` requires an integer bound, and today
+      // the early return means it is never reached — but a disable that depends on an early return
+      // staying where it is would break silently if the guards were ever reordered.
+      const rttTrim = attachRttPoolTrim(
+        map,
+        urlFlags.has("nortt") ? { bound: Number.MAX_SAFE_INTEGER } : {},
+      );
+      describeRttPool = () => rttPoolLine(rttTrim.stats());
+    });
+
+    // A resize changes the viewport, and with it the working set the cap has to hold — going
+    // fullscreen on a laptop roughly doubles it. Cheap: the write is one field, and MapLibre
+    // re-reads it on the next render anyway.
+    map.on("resize", applyCacheCap);
+
+    // The ramp writes terrain.exaggeration and MUST NOT re-call setTerrain: ui/map.ts builds a
+    // fresh Terrain and RenderToTexture on every call and only reaches Terrain.destroy() on the
+    // removal path, so a per-zoom setTerrain leaks framebuffers and textures and discards the
+    // mesh and render-to-texture caches. Exaggeration is a per-frame uniform
+    // (render/terrain.ts -> u_terrain_exaggeration), so writing it costs nothing and invalidates
+    // nothing. Consequence to know: map.getTerrain() reports the spec handed to setTerrain, so it
+    // goes stale after the first ramp step — map.terrain.exaggeration is the live value.
+    //
+    // Bound once, outside style.load, so a style reload cannot stack duplicate handlers; it
+    // no-ops until terrain exists.
+    map.on("zoom", () => {
+      if (!map.terrain) return;
+      const next = exaggerationFor(map.getZoom());
+      if (Math.abs(next - map.terrain.exaggeration) < 0.001) return;
+      map.terrain.exaggeration = next;
+      map.triggerRepaint();
+    });
+
+    console.log(
+      ramp.kind === "off"
+        ? `[terrain] ${declaredTileSize}px declared, ${terrainExaggeration}x constant ` +
+          `(?ramp=off), z${TERRAIN_MIN_ZOOM}-${TERRAIN_MAX_ZOOM}`
+        : `[terrain] ${declaredTileSize}px declared, ${terrainExaggeration}x below ` +
+          `z${TERRAIN_RAMP_START_ZOOM}, ramping to ${ramp.floor}x at ` +
+          `z${TERRAIN_RAMP_END_ZOOM}, z${TERRAIN_MIN_ZOOM}-${TERRAIN_MAX_ZOOM}`,
+    );
+  }
+
+  // Polar caps (default ON; /earth?nocaps disables): source-shaded AEQD caps drawn ABOVE the
+  // Web-Mercator limit — north (Arctic sea ice + bathymetry) and south (Antarctica +
+  // Southern-Ocean sea ice). The escape flag stays for layer-on/off artifact diagnosis — the
+  // polar ring was isolated by exactly that comparison. Config comes from this body's
+  // pipeline-emitted caps.json (addressed from the slug inside addPolarCaps); dynamic import keeps
+  // the globe bundle lean.
+  //
+  // The caps must be RE-ADDED after a context restore, and specifically not from `style.load`.
+  // MapLibre says so itself on every loss ("Custom layer ... cannot be restored ... you will need
+  // to re-add it manually"), but the timing is the part that bites: _contextRestored calls
+  // setStyle() at line 22446 and _setupPainter() only at 22452, so a cap added from `style.load`
+  // binds its buffers and textures to the GL context from BEFORE the painter came back. It renders
+  // as a black disc over the pole — present, wrong, and silent. Re-adding once the map reads
+  // healthy is the only ordering that holds, so the re-add is driven from there.
+  let reassertPolarCaps: () => void = () => {};
+  if (subsystems.polarCaps) {
+    const addCaps = () =>
+      void import("../lib/polarCaps")
+        .then((mod) => mod.addPolarCaps(map, body.slug))
+        .catch((err) => console.error("[caps] failed", err));
+    map.on("style.load", addCaps);
+    reassertPolarCaps = () => {
+      // Drop whatever the restore left behind before re-adding: addLayer throws on a duplicate id,
+      // and the layer sitting there is the black-disc one, so keeping it is not an option either.
+      for (const pole of CAP_POLES) {
+        const layerId = capLayerId(pole);
+        if (map.getLayer(layerId)) map.removeLayer(layerId);
+      }
+      console.info("[caps] re-adding polar caps after a GPU context restore");
+      addCaps();
+    };
+  }
+
+  // Performance overlay (?perf): on-screen numbers for phone diagnosis; dynamic import so
+  // the normal path pays zero bundle cost.
+  if (urlFlags.has("perf")) {
+    const terrainLine = describeTerrain;
+    const demCache = describeDemCache;
+    const demFault = demCacheFault;
+    // Read through a closure rather than captured: the sole assignment is inside the terrain
+    // callback, so a straight capture narrows to `null` at this line and then to `never` at the
+    // call. Inside a function body the declared type survives, which is what makes this compile.
+    const rttPoolText = (): string | null => (describeRttPool === null ? null : describeRttPool());
+    // The sky line is unconditional: a capture with no terrain still has to say which atmosphere
+    // arm produced it, and a body with no atmosphere has to say THAT rather than go quiet — an
+    // absent row reads as an older build, where "none" reads as a declaration.
+    const skyLine = () =>
+      describeAtmosphereState(bodyAtmosphere, map.getZoom(), skyRamp, map.getPitch());
+
+    // PROBED ONCE, AND THAT IS A CORRECTNESS REQUIREMENT, NOT AN OPTIMISATION
+    // -----------------------------------------------------------------------
+    // `probeSignals()` CREATES a WebGL2 context (capability.ts), `detectPerformanceCaveat()`
+    // creates a second, and `currentTier()` calls `probeSignals()` again — four contexts per call.
+    // The first build of this report called it from `extraLines`, i.e. every 300 ms while the panel
+    // was EXPANDED. Measured live: **0 WebGL contexts per 3 s collapsed, 40 per 3 s expanded —
+    // 13.3 per second.** Browsers force-lose the oldest context past ~16 live, so the instrument
+    // was killing the map's own context within about a second of the panel being opened, and then
+    // faithfully reporting the resulting rebuilds as if the page had caused them. It produced five
+    // context losses per run on a phone and an entire false conclusion that terrain was at fault.
+    //
+    // The signals are static hardware facts, so caching them is free. The tier is NOT — the quality
+    // toggle writes localStorage mid-session — so it is recomputed from the cached signals plus the
+    // live preference, which is `currentTier()`'s own definition minus the re-probe.
+    const probedSignals = probeSignals();
+    const probedDeviceClass = deviceClass();
+
+    const tileEntryCount = () =>
+      performance
+        .getEntriesByType("resource")
+        .filter((entry) => entry.name.startsWith(absoluteTileBase)).length;
+
+    // ALL THREE load dynamically: a visitor without `?perf` must not download the instrument, and
+    // that has to mean the modules and not just the call sites — Rollup places a module wherever it
+    // is statically imported, so one static import of `perfNetwork` for its buffer raiser put the
+    // whole thing in the main chunk (+2,362 bytes for every visitor, gallery tier included). The
+    // raiser now lives in its own fifteen-line module outside lib/perf/. TYPES are still imported
+    // statically here, which costs nothing — they are erased at build.
+    void Promise.all([
+      import("../lib/perf/perfOverlay"),
+      import("../lib/perf/perfSnapshot"),
+      import("../lib/perf/perfNetwork"),
+      import("../lib/perf/perfTrace"),
+    ]).then(([overlay, perfSnapshot, perfNetwork, perfTrace]) => {
+        // The fill timer binds here rather than above, which costs the first gesture if someone
+        // drags inside the import window. Accepted deliberately: a `?perf` session is a deliberate
+        // one (load, settle, then move), and the alternative was keeping the state machine in the
+        // main bundle for every visitor to pay for.
+        let cameraFill: CameraFill = perfNetwork.newCameraFill();
+        map.on("movestart", () => {
+          cameraFill = perfNetwork.onCameraMoveStart(cameraFill, performance.now(), tileEntryCount());
+        });
+        map.on("idle", () => {
+          cameraFill = perfNetwork.onCameraIdle(cameraFill, performance.now(), tileEntryCount());
+        });
+        // Read fresh from the entry buffer rather than accumulated by a PerformanceObserver: the
+        // buffer IS the accumulator, and a second copy of it is a second thing that can disagree.
+        const readTraffic = () =>
+          perfNetwork.summariseTileTraffic(
+            // `getEntriesByType` is typed as the base entry; the "resource" list is always
+            // PerformanceResourceTiming, which structurally satisfies the module's own narrow input.
+            performance.getEntriesByType("resource") as PerformanceResourceTiming[],
+            TILE_BASE,
+            // TILE_BASE is relative on the dev server and absolute in production; entry names are
+            // always absolute, so the base has to be resolved against this page to match either.
+            location.href,
+            resourceTimingBufferSize ?? RESOURCE_TIMING_BUFFER_SIZE,
+          );
+        // ONE composer feeding both the panel and the export, so a screenshot and a saved snapshot
+        // can never disagree about the same moment. `timing` is handed in by the overlay — it owns
+        // the long-task and frame counters, and reaching into them from here would be a second copy
+        // of a live number.
+        // `sampleGlNow` is FALSE on the panel tick and true only on export, and that asymmetry is
+        // the whole point. A fresh reading walks the covering set and every tile manager; doing
+        // that 3.3 times a second to paint text is how the previous version of this instrument
+        // came to kill the map it was measuring. The panel shows the idle sample and its age; the
+        // export, being one user-initiated moment, can afford to be current.
+        const composeReport = (
+          timing: PerfSnapshot,
+          panel = { expanded: true },
+          { sampleGlNow = false } = {},
+        ) => {
+          const canvas = map.getCanvas();
+          return perfSnapshot.buildPerfReport({
+            nowMs: performance.now(),
+            origin: {
+              href: location.href,
+              // `import.meta.env.DEV` rather than a hostname check: the confusing case is the LAN
+              // dev server reached by IP from a phone, which is indistinguishable from a real host
+              // by URL. This is the build's own answer and cannot be wrong about which server it is.
+              devServer: import.meta.env.DEV,
+              userAgent: navigator.userAgent,
+              // The map's ratio, not the display's — the ladder can have lowered it.
+              devicePixelRatio: map.getPixelRatio(),
+              // ...and what the canvas actually got, which MapLibre may clamp below the request.
+              realisedPixelRatio:
+                canvas.clientWidth > 0 ? canvas.width / canvas.clientWidth : map.getPixelRatio(),
+              viewportCssWidth: canvas.clientWidth,
+              viewportCssHeight: canvas.clientHeight,
+              flags: [...urlFlags.keys()].toSorted(),
+              panelExpanded: panel.expanded,
+            },
+            timing,
+            // On export, a reading taken NOW, falling back to the last healthy idle sample when a
+            // fresh one comes back empty — which is what a teardown reads as, and the reason the
+            // `idle`-only rule existed in the first place. On the panel tick, the idle sample alone.
+            // Either way the report carries `glSampleAgeMs`, so which one this is, is readable:
+            // a 25.7 s age is how the first production phone run came to describe the calm before
+            // the panning rather than the panning itself.
+            gl: (sampleGlNow ? sampledGlState() : null) ?? lastHealthyGlState,
+            deviceClass: probedDeviceClass,
+            signals: probedSignals,
+            tier: decideGlobeTier(probedSignals, getQuality()),
+            // The UNCLAMPED verdict, which is the only place it survives now — see the field's
+            // docstring. Recomputed rather than reusing `bootTier` for the same reason that one
+            // is: the quality toggle writes localStorage mid-session.
+            probedTier: decideTier(probedSignals, getQuality()),
+            ladder: ladderPosition?.() ?? {
+              spinning: false,
+              pixelRatioLowered: false,
+              terrainRetired,
+              nextAction: null,
+            },
+            demCacheFault: demFault?.() ?? null,
+            restoreFault: restoreFault(map),
+            glLossCount,
+            lastGlLossMs,
+            traffic: readTraffic(),
+            fill: cameraFill,
+            // Read fresh at compose time, like `traffic` above: the entry buffer IS the
+            // accumulator, and a second copy is a second thing that can disagree with it.
+            traceSpans: perfTrace.collectSpans(TRACED_SPANS),
+            // Null where the API is absent, so the report says "unpriced" rather than pricing
+            // spans against an empty window list and calling every millisecond unattributed.
+            longTaskIntervals: timing.longTaskApiAvailable ? timing.longTaskIntervals : null,
+            traceArmed: perfTraceArmed,
+          });
+        };
+
+        overlay.mountPerfOverlay(map, {
+          eventStamps: perfEventStamps,
+          // These three lines are built by closures on this page, so there is no module to tag
+          // them and it happens here. `terrain` and `sky` state which ARM produced the reading —
+          // configuration, not cost — while the DEM cache is that arm's GPU-memory consequence.
+          extraLines: (timing) => [
+            ...(terrainLine && demCache
+              ? [
+                  { group: "config" as const, text: terrainLine() },
+                  // RAM, not VRAM: these price the JS heap DEMData pins, not texture bytes.
+                  ...demCache().map((text) => ({ group: "ram" as const, text })),
+                ]
+              : []),
+            // VRAM, and the largest term by far when terrain is on — one 512px RGBA target per
+            // renderable tile per layer stack, so pool length reads directly as MiB.
+            ...(rttPoolText() === null ? [] : [{ group: "gpu" as const, text: rttPoolText()! }]),
+            { group: "config" as const, text: skyLine() },
+            // Cheap on the tick, unlike a GL sample: this reads an array the browser already
+            // maintains and does no work against the map.
+            perfNetwork.tileTrafficLine(readTraffic()),
+            // Omitted entirely until a move has settled — a `fill —` row before the first gesture
+            // is a row the eye learns to skip, and this is the one worth reading.
+            ...(perfNetwork.cameraFillLine(cameraFill) === null ? [] : [perfNetwork.cameraFillLine(cameraFill)!]),
+            // `expanded: true` stated rather than defaulted: these lines are only ever rendered
+            // when the panel IS expanded (the collapsed view calls perfCollapsedLines instead), so
+            // the fact is knowable here and should not rest on a default happening to be right.
+            ...perfSnapshot.perfReportLines(composeReport(timing, { expanded: true })),
+          ],
+          buildReport: (timing, panel) => composeReport(timing, panel, { sampleGlNow: true }),
+        });
+      },
+    );
+  }
+
+  // --- GPU loss, recovery, and the state that led there ----------------------
+  // A lost WebGL context is usually survivable and MapLibre handles it unaided: it calls
+  // preventDefault (without which the browser would never offer the context back), snapshots the
+  // style, and rebuilds the painter on restore. Verified by forcing a loss through
+  // WEBGL_lose_context — the globe came back identical, polar caps included. So the message worth
+  // showing is NOT "the context was lost"; it is "the context was lost and never came back", which
+  // is the GPU-process-crash case where reloading is genuinely the only move. Announce the loss
+  // straight away and we would be telling people to reload a map that heals itself a second later.
+  //
+  // Both halves of that were disproved by forcing a loss and watching, rather than reasoning:
+  //
+  //  - WEBGL_lose_context does NOT only exercise the happy path. Depending on timing the browser
+  //    declines to hand the context back at all, and the map stays dead — isContextLost() still
+  //    true a minute later, after a second explicit restoreContext(). So the unrecoverable case
+  //    reproduces locally on demand, which is what makes the notice testable at all.
+  //  - Reading the state inside this handler reads NOTHING. MapLibre registers its own canvas
+  //    listener in the Map constructor, so the style is already torn down by the time ours runs:
+  //    the first version logged "no sources · caps none" on a map that had five sources and both
+  //    caps resident a tenth of a second earlier. The state is therefore sampled on `idle` while
+  //    the map is healthy, and the loss reports that sample, labelled with its age.
+  //
+  // Recovery is now CHECKED (restoreFault) rather than assumed, and the check outlives its own
+  // verdict so a late recovery takes the notice back down. All of it lives in glDiagnostics.ts.
+  const glLostNotice = document.getElementById("gl-lost");
+  let restoreWatchdog: number | undefined;
+  let recoveryPoll: number | undefined;
+
+  const readGlState = (phase: GlLossSnapshot["phase"], statusMessage: string | null) =>
+    snapshotGlLoss(map, {
+      phase,
+      msSinceLoad: performance.now(),
+      // The map's ratio, not the display's: the degradation ladder can have lowered it, and
+      // window.devicePixelRatio would keep reporting a number we stopped rendering at.
+      devicePixelRatio: map.getPixelRatio(),
+      statusMessage,
+      // Every canary in this repo pins a MapLibre internal, so a snapshot that does not name the
+      // version is one bump away from being unreadable.
+      libraryVersion: maplibregl.getVersion(),
+      coveringTiles: coveringTileCount(),
+    });
+
+  // One home for "take a routine reading, and refuse an empty one". An empty snapshot is what a
+  // teardown looks like: it must never overwrite a good reading, nor be reported as a state.
+  const sampledGlState = (): GlLossSnapshot | null => {
+    const snapshot = readGlState("sampled", null);
+    return snapshotHasContent(snapshot) ? snapshot : null;
+  };
+
+  // The last reading taken while the map was healthy. `idle` is the right cadence: it is the
+  // steady state, it costs a few object-key counts, and it cannot fire during a teardown.
+  let lastHealthyGlState: GlLossSnapshot | null = null;
+  map.on("idle", () => {
+    lastHealthyGlState = sampledGlState() ?? lastHealthyGlState;
+  });
+
+  // Losses still counting against the recovery budget. A page that keeps losing the context is not
+  // one to keep rebuilding: see recoveryVerdict for why this is keyed on RECURRENCE and not on the
+  // cause (measured: the platform reports no cause — statusMessage came back "", and neither
+  // getGraphicsResetStatus nor EXT_robustness exists here).
+  let chargedLosses: number[] = [];
+  // Losses since this page loaded, which `chargedLosses` deliberately cannot answer — it forgets
+  // anything older than the amnesty window, because its job is the recovery budget, not the
+  // history. A phone reported the globe "reloading every so often" inside a single page lifetime
+  // and nothing on the panel could say whether that was one rebuild or six.
+  let glLossCount = 0;
+  let lastGlLossMs: number | null = null;
+
+  /**
+   * Poll the map's STATE until it is usable again, then put back what the restore dropped.
+   *
+   * `verifyFrom` is when the map should be expected to be healthy — the deadline is measured from
+   * there, so a watch started at the moment of loss still allows the restore its full grace period
+   * before anything is called a failure.
+   *
+   * The re-assertions are the point. A restore does not simply rebuild what was there: it rebuilds
+   * the style at a moment when neither the terrain tile manager nor the painter exists yet, so the
+   * DEM bound lands on an object about to be replaced and the polar caps bind to the outgoing GL
+   * context. Both were measured, and both are silent — an uncapped cache and a black disc. Doing
+   * this here rather than on the restore event is deliberate: healthy is a state we can read, and
+   * the event is one we may never get.
+   */
+  const startRecoveryWatch = (verifyFrom: number) => {
+    window.clearInterval(recoveryPoll);
+    let faultReported = false;
+    const check = () => {
+      const sinceVerify = performance.now() - verifyFrom;
+      const fault = restoreFault(map);
+      if (fault === null) {
+        window.clearInterval(recoveryPoll);
+        glLostNotice?.setAttribute("hidden", "");
+        console.info(
+          faultReported
+            ? `[gl] the map recovered after all, ${(sinceVerify / 1000).toFixed(1)}s in — notice retracted`
+            : "[gl] the map rebuilt itself after the context came back — recovered",
+        );
+        reassertTerrainBound();
+        reassertPolarCaps();
+        return;
+      }
+      // Report once at the deadline, then KEEP WATCHING. A measured loss recovered at ~6s, past
+      // the deadline, and the first build left "could not recover" over a working globe — the same
+      // defect as a dead globe with no message, pointed the other way.
+      if (!faultReported && sinceVerify >= GL_RECOVERY_VERIFY_MS) {
+        faultReported = true;
+        glLostNotice?.removeAttribute("hidden");
+        console.error(`[gl] the context came back but the map did not — ${fault}`);
+        console.warn(describeLoss(readGlState("restored", null), lastHealthyGlState));
+      }
+      if (sinceVerify >= GL_RECOVERY_CEILING_MS) window.clearInterval(recoveryPoll);
+    };
+    recoveryPoll = window.setInterval(check, GL_RECOVERY_POLL_MS);
+    check();
+  };
+
+  map.on("webglcontextlost", (event) => {
+    window.clearTimeout(restoreWatchdog);
+    window.clearInterval(recoveryPoll);
+    const atLoss = readGlState("lost", event.originalEvent?.statusMessage ?? null);
+    console.warn(describeLoss(atLoss, lastHealthyGlState), lastHealthyGlState ?? atLoss);
+    glLossCount += 1;
+    lastGlLossMs = performance.now();
+    chargedLosses = chargeLoss(chargedLosses, performance.now());
+    if (recoveryVerdict(chargedLosses) === "give-up") {
+      console.error(describeGiveUp(chargedLosses));
+      glLostNotice?.removeAttribute("hidden");
+      return;
+    }
+    restoreWatchdog = window.setTimeout(
+      () => glLostNotice?.removeAttribute("hidden"),
+      GL_RESTORE_GRACE_MS,
+    );
+    // WATCH FROM THE LOSS, NOT FROM THE RESTORE. `webglcontextrestored` is not guaranteed to
+    // arrive: MapLibre's _contextRestored calls this.resize() at line 22454, which fires `move`,
+    // which reaches its own Hash plugin (we pass hash:"map") -> unproject -> the terrain depth pass
+    // -> useProgram on a style that is still mid-rebuild, and it THROWS — three lines before
+    // fire("webglcontextrestored") at 22457. Observed both ways on the same build, so anything
+    // hung off that event is a coin toss. Polling the STATE converges either way.
+    startRecoveryWatch(performance.now() + GL_RESTORE_GRACE_MS);
+  });
+
+  map.on("webglcontextrestored", () => {
+    // Kept bound, but only as a hint that tightens the deadline — never as the thing that decides
+    // recovery. Its ABSENCE is a known failure mode, so it cannot be load-bearing.
+    window.clearTimeout(restoreWatchdog);
+    startRecoveryWatch(performance.now());
+  });
+
+  // Tiles still in flight when you navigate away (e.g. clicking through to a hero)
+  // abort with a network error — expected teardown, not a real failure. Silence those
+  // once we're leaving the page, but still surface any genuine map error during use.
+  let navigatingAway = false;
+  window.addEventListener("pagehide", () => {
+    navigatingAway = true;
+  });
+  map.on("error", (event) => {
+    // MapLibre's own name for "a GPU context cannot be created at all", carrying the requested
+    // canvas attributes and the browser's webglcontextcreationerror statusMessage. Distinct from a
+    // context LOSS in the way that matters here: a loss is usually survivable and heals unaided,
+    // while this one never heals, because there is no context to get back. The grace period above
+    // exists to avoid crying wolf on a recoverable loss; this needs no grace, so it says so at
+    // once rather than spending four seconds inferring what MapLibre has already named.
+    if (event.error instanceof maplibregl.GPUInitializationError) {
+      window.clearTimeout(restoreWatchdog);
+      window.clearInterval(recoveryPoll);
+      console.error(formatGpuInitFailure(event.error), event.error.requestedAttributes);
+      glLostNotice?.removeAttribute("hidden");
+      return;
+    }
+    const message = event.error && event.error.message ? event.error.message : "";
+    if (navigatingAway && /AJAXError|NetworkError|Failed to fetch/i.test(message)) return;
+    console.error("[globe]", event.error);
+  });
+
+  // --- Country borders (Natural Earth vector lines) ---------------------------
+  // One GeoJSON source; solid international vs dashed disputed/LoC split by a
+  // layer filter on FEATURECLA. White "ink" over a dark "casing" so lines read on
+  // both pale land and deep sea — MapLibre has no line outline, so the casing is a
+  // wider, darker line drawn underneath. Shown/hidden via layer visibility, off
+  // the same localStorage key the gallery's border toggle uses.
+  const BORDER_KEY = "rg:borders";
+  const INTL = "International boundary (verify)";
+  const isSolid: FilterSpecification = ["==", ["get", "FEATURECLA"], INTL];
+  const isDashed: FilterSpecification = ["!=", ["get", "FEATURECLA"], INTL];
+  const inkWidth: ExpressionSpecification = ["interpolate", ["linear"], ["zoom"], 1, 0.6, 4, 1.0, 8, 1.7];
+  // Casing is a real dark halo (wider than the ink, so a dark rim always shows on
+  // both sides), softened with a touch of blur — this is what keeps the white line
+  // legible over pale highlands and snow, where white-on-white has no contrast.
+  const casingWidth: ExpressionSpecification = ["interpolate", ["linear"], ["zoom"], 1, 2.2, 4, 3.4, 8, 5.0];
+  const casingBlur: ExpressionSpecification = ["interpolate", ["linear"], ["zoom"], 1, 0.5, 8, 1.2];
+  const BORDER_LAYERS = ["b-casing-solid", "b-casing-dashed", "b-ink-solid", "b-ink-dashed"];
+  const bordersOn = () => localStorage.getItem(BORDER_KEY) === "1";
+
+  function addBorders() {
+    map.addSource("borders", {
+      type: "geojson",
+      data: BORDERS_BASE + "boundary_lines.geojson",
+      // Vector border detail is INDEPENDENT of the raster z8 ceiling. maxzoom:8
+      // stores the geometry undecimated at our top zoom; the earlier tolerance:1.2
+      // (3x the 0.375 default) over-simplified it, which the globe magnifies into a
+      // staircase. Back to the crisp default, with a wide buffer so lines don't drop
+      // out at tile seams when zoomed — that was the "intermittent" breakage.
+      maxzoom: 8,
+      tolerance: 0.375,
+      buffer: 256,
+      // No per-source credit. MapLibre concatenates every source's attribution with " | ", so a
+      // second string here made the on-map line CHANGE WIDTH depending on whether borders were
+      // toggled on (107 px vs 195 px) — and that line now shares a row with the centred
+      // .view-bar, which cannot be laid out against a width that moves. Natural Earth is public
+      // domain and requires no attribution at all; it is credited on /about with everything else,
+      // which is where CREDITS points.
+    });
+    const layout: LineLayerSpecification["layout"] = {
+      visibility: bordersOn() ? "visible" : "none",
+      "line-cap": "round",
+      "line-join": "round",
+    };
+    const casing = { "line-color": "#2b2118", "line-opacity": 0.85, "line-blur": casingBlur };
+    const ink = { "line-color": "#ffffff", "line-opacity": 0.95 };
+    // Borders load LAZILY (first toggle-on may arrive long after style.load), so the
+    // hover-highlight layers can already exist — anchor below them to keep the gold
+    // outline on top, matching the style.load ordering.
+    const beforeHighlight = map.getLayer("country-hl-casing") ? "country-hl-casing" : undefined;
+    // Casings first (drawn under), then the white ink on top.
+    map.addLayer({ id: "b-casing-solid", type: "line", source: "borders", filter: isSolid,
+      layout: { ...layout }, paint: { ...casing, "line-width": casingWidth } }, beforeHighlight);
+    map.addLayer({ id: "b-casing-dashed", type: "line", source: "borders", filter: isDashed,
+      layout: { ...layout }, paint: { ...casing, "line-width": casingWidth, "line-dasharray": [1.4, 1.0] } }, beforeHighlight);
+    map.addLayer({ id: "b-ink-solid", type: "line", source: "borders", filter: isSolid,
+      layout: { ...layout }, paint: { ...ink, "line-width": inkWidth } }, beforeHighlight);
+    map.addLayer({ id: "b-ink-dashed", type: "line", source: "borders", filter: isDashed,
+      layout: { ...layout }, paint: { ...ink, "line-width": inkWidth, "line-dasharray": [2.2, 1.6] } }, beforeHighlight);
+  }
+
+  function setBordersVisible(on: boolean) {
+    for (const id of BORDER_LAYERS) {
+      if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", on ? "visible" : "none");
+    }
+  }
+
+  // The view-bar toggle lives in the Base layout, which owns localStorage + the body
+  // class and broadcasts "rg:borders". We only drive the map layers — and the border
+  // source is added on the FIRST turn-on, so the default (off) globe never downloads
+  // border geometry at all.
+  document.addEventListener("rg:borders", (event) => {
+    const { on } = (event as CustomEvent<{ on: boolean }>).detail;
+    if (on && !map.getSource("borders")) {
+      addBorders(); // bordersOn() is already true here, so layers mount visible
+      return;
+    }
+    setBordersVisible(on);
+  });
+
+  // --- Click a country -> fly to it -> show its hero -------------------------
+  // The globe is raster, so an invisible fill of the Natural Earth country
+  // polygons is the click target. We filter it to our in-scope names (the join
+  // is free: manifest name === NE ADMIN), so only rendered countries are
+  // hoverable/clickable — everything else is a no-op. The fly-to frame is the
+  // authored hero bbox carried in the manifest, so it matches the hero's own
+  // framing (metropolitan France, CONUS, etc.).
+  const byName = new Map(manifest.countries.map((c) => [c.name, c]));
+  const inScope = manifest.countries.map((c) => c.name);
+  // Only in-scope (rendered) countries are interactive; reused by every country layer.
+  const inScopeFilter: FilterSpecification = ["in", ["get", "ADMIN"], ["literal", inScope]];
+
+  /** srcset w-descriptor is the real pixel WIDTH, not the long edge (portrait
+   * variants are narrower than their key) — mirrors the gallery detail page. */
+  const variantWidth = (longEdge: number, aspect: number) => Math.round(longEdge * Math.min(1, aspect));
+  const srcsetFor = (slug: string, sizes: number[], aspect: number, border = false) =>
+    sizes
+      .map((size) => {
+        const suffix = border ? `-border-${size}.png` : `-${size}.webp`;
+        return `${HERO_BASE}${slug}${suffix} ${variantWidth(size, aspect)}w`;
+      })
+      .join(", ");
+
+  /** ONE vector source carrying fill, outline and hit as three source-layers.
+   *
+   *  Nothing here touches geometry. MapLibre's worker fetches the tiles, parses them, and
+   *  tessellates them; the main thread does the two `add*` calls and stops. What this replaced
+   *  handed three parsed FeatureCollections to `addSource`, which `serialize()` deep-rebuilt and
+   *  `postMessage` then structured-cloned — two full walks of 413,141 vertices on the main thread,
+   *  and the session's worst long task at 358 ms. It now has nothing to run in.
+   *
+   *  The per-island hit points are cut into the archive rather than derived here at runtime, which
+   *  is why there is no geometry walk left on this path at all. */
+  function addCountryTiles() {
+    // The precondition stated where it is required, rather than left to the caller's gate. The
+    // caller does gate it — but that reachability is an argument a reader reconstructs, and the
+    // type-checker cannot reconstruct it across a closure at all. Unreachable by construction and
+    // worth writing anyway: it is what a future second caller meets instead of a `null` reaching
+    // MapLibre, which accepts it and then requests `/null/{z}/{x}/{y}` forever.
+    if (countriesTileUrlTemplate === null) {
+      throw new Error(`${body.slug} publishes no countries pyramid — nothing to add`);
+    }
+    map.addSource(COUNTRIES_SOURCE, countryTilesSource(countriesTileUrlTemplate));
+    // Invisible except on hover; a warm silhouette wash so the whole landmass lights up.
+    map.addLayer(fillLayer(inScopeFilter, VECTOR_BINDING.fill));
+  }
+
+  /**
+   * Fat, invisible per-island targets. The circle's own radius IS the hit tolerance (~12px at
+   * overview, wider zoomed in), so pointing anywhere near an atoll picks the country.
+   *
+   * ADDED LAST, AND THE POSITION IS THE POINT. MapLibre drapes only
+   * background/fill/line/raster/hillshade/color-relief onto the terrain mesh; any other type
+   * interrupts the run and starts a new render-to-texture stack, and the RTT pool holds one
+   * 1 MiB object per renderable terrain tile PER STACK. Sitting between `country-fill` and the
+   * border/highlight lines, this `circle` split one run into two and cost a third of the pool
+   * for a layer that draws nothing — `circle-opacity: 0`, no stroke. At the end it terminates
+   * the last run instead of splitting it: 3 stacks become 2, ~33% off the pool's peak, with no
+   * visual and no functional change.
+   *
+   * Free to move because layer order cannot reach the hit test: both `queryRenderedFeatures`
+   * calls in `countryAt` pass an explicit single-layer `layers` filter. An older comment here
+   * claimed it was "kept above the fill only for query order", which was never true.
+   *
+   * KEEP IT LAST. Anything appended after this goes back to paying for the third stack — see
+   * drapeStacks.ts, whose `drapeStackCount` is this rule as a function and whose canary fails if
+   * MapLibre ever starts draping `circle`.
+   */
+  function addCountryHitTargets() {
+    map.addLayer(hitLayer(inScopeFilter, VECTOR_BINDING.hit));
+  }
+
+  // The hovered country's outline — added ABOVE the borders so its edge stays crisp. A soft
+  // dark casing under a gold line: the boundary pops as one glowing silhouette, legible on
+  // sea, sand, and snow alike. Both layers stroke the LINE source (see highlightLayers).
+  function addCountryHighlight() {
+    for (const layer of highlightLayers(inScopeFilter, VECTOR_BINDING.outline)) map.addLayer(layer);
+  }
+
+  // Resolve which country the pointer is picking. Precise polygon fill first (so a
+  // large landmass is pickable anywhere you touch it), then fall back to the fat
+  // per-island hit circles for scattered/tiny geometry. Both carry ADMIN; the nearest
+  // circle wins the fallback. Guarded so it's a no-op before the layers load.
+  function countryAt(point: Point): string | null {
+    if (map.getLayer("country-fill")) {
+      const onLand = map.queryRenderedFeatures(point, { layers: ["country-fill"] });
+      const admin = onLand[0]?.properties?.ADMIN;
+      if (typeof admin === "string") return admin;
+    }
+    if (!map.getLayer("country-hit")) return null;
+    const nearby = map.queryRenderedFeatures(point, { layers: ["country-hit"] });
+    let best: string | null = null;
+    let bestDistance = Infinity;
+    for (const feature of nearby) {
+      const admin = feature.properties?.ADMIN;
+      if (typeof admin !== "string" || feature.geometry.type !== "Point") continue;
+      const [lon, lat] = feature.geometry.coordinates;
+      const projected = map.project([lon, lat]);
+      const distance = (projected.x - point.x) ** 2 + (projected.y - point.y) ** 2;
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        best = admin;
+      }
+    }
+    return best;
+  }
+
+  // --- The name chip ----------------------------------------------------------
+  // The gold outline says WHICH country; this says which country it IS. Kept a plain element
+  // rather than a MapLibre Popup so it costs no per-hover DOM churn and inherits the same token
+  // treatment as the rest of the globe's floating chrome.
+  const countryChip = document.getElementById("country-chip") as HTMLElement | null;
+  const countryChipName = countryChip?.querySelector(".cc-name") as HTMLElement | null;
+  const countryChipDot = countryChip?.querySelector(".cc-dot") as HTMLElement | null;
+  // The dot exists to tie the chip to the outline it names, so it takes its colour from the very
+  // constant those layers paint with. A CSS copy of the hex would be free to drift silently.
+  if (countryChipDot) countryChipDot.style.backgroundColor = HIGHLIGHT_GOLD;
+  // The detail card names its country large and, at around a 900px viewport, covers this chip's
+  // slot outright (it is 420px wide at z-index 30, the chip is centred at 20). Rather than let the
+  // two fight for the same pixels and have the chip lose invisibly, the card suppresses it.
+  let chipSuppressedByPanel = false;
+
+  function paintChip(admin: string | null) {
+    if (!countryChip || !countryChipName) return;
+    const visible = admin !== null && !chipSuppressedByPanel;
+    if (visible) countryChipName.textContent = admin;
+    countryChip.hidden = !visible;
+  }
+
+  // Hover highlight, keyed on the whole country (ADMIN) so every part lights together —
+  // pointing at one Maldives atoll outlines all of Maldives, exactly as hovering Java
+  // outlines all of Indonesia.
+  // Fill wash and gold boundary line share the ADMIN promoteId, so one id toggles both and the
+  // whole country lights as a unit. WHERE that id is written comes from the binding rather than
+  // from named source ids — see `featureStateTargets`, whose header records what naming them cost.
+  const highlightTargets = featureStateTargets(VECTOR_BINDING);
+  function paintHighlight(admin: string | null, previousAdmin: string | null) {
+    const setState = (id: string, hover: boolean) => {
+      for (const target of highlightTargets) map.setFeatureState({ ...target, id }, { hover });
+    };
+    if (previousAdmin !== null) setState(previousAdmin, false);
+    if (admin !== null) setState(admin, true);
+  }
+
+  // hoverTracking.ts owns WHICH country is hovered — including the part that is easy to get wrong,
+  // re-resolving when the globe moves under a parked pointer. Nothing here keeps a second copy of
+  // that state; the tracker hands over both the country being entered and the one being left.
+  const hoverTracker = createHoverTracker<Point>({
+    resolve: (point) => countryAt(point),
+    onChange: (admin, previousAdmin) => {
+      paintHighlight(admin, previousAdmin);
+      paintChip(admin);
+      // Driven from the resolved answer rather than from the mousemove handler, so one
+      // queryRenderedFeatures serves all three — and so the cursor stops going stale after a drag
+      // the same way the highlight used to.
+      map.getCanvas().style.cursor = admin ? "pointer" : "";
+    },
+  });
+
+  map.on("mousemove", (event) => hoverTracker.pointerMoved(event.point));
+  map.on("mouseout", () => hoverTracker.pointerLeft());
+  // A drag, a zoom, the country fly-to and every spin step all put different land under a pointer
+  // that never moved, and none of them emits a mousemove. Without this the outline, the cursor and
+  // the chip all keep describing the country that used to be there — unbounded after a drag. An
+  // anonymous outline could get away with that; a chip stating the wrong name out loud cannot.
+  map.on("moveend", () => hoverTracker.viewChanged());
+
+  // --- The detail card --------------------------------------------------------
+  const panel = document.getElementById("hero-panel") as HTMLElement;
+  const heroImg = panel.querySelector(".hp-hero") as HTMLImageElement;
+  const borderImg = panel.querySelector(".hp-border") as HTMLImageElement;
+  const figure = panel.querySelector(".hp-figure") as HTMLElement;
+
+  function openPanel(country: Country) {
+    panel.querySelector(".hp-eyebrow")!.textContent = country.continent || "";
+    panel.querySelector(".hp-name")!.textContent = country.name;
+    panel.querySelector(".hp-link")!.setAttribute("href", `/${country.slug}/`);
+    figure.style.aspectRatio = String(country.aspect);
+    // Card is ~420px wide; ask for a sensibly-sized variant (DPR handled by srcset).
+    const sizesAttr = "(max-width: 460px) 92vw, 420px";
+    heroImg.src = `${HERO_BASE}${country.slug}-${country.sizes[0]}.webp`;
+    heroImg.srcset = srcsetFor(country.slug, country.sizes, country.aspect);
+    heroImg.sizes = sizesAttr;
+    heroImg.alt = `Ray-traced relief map of ${country.name}`;
+    if (country.hasBorder && country.borderSizes.length) {
+      borderImg.src = `${HERO_BASE}${country.slug}-border-${country.borderSizes[0]}.png`;
+      borderImg.srcset = srcsetFor(country.slug, country.borderSizes, country.aspect, true);
+      borderImg.sizes = sizesAttr;
+      borderImg.style.removeProperty("display"); // let the body.borders-on rule decide
+    } else {
+      borderImg.removeAttribute("srcset");
+      borderImg.removeAttribute("src");
+      borderImg.style.display = "none";
+    }
+    panel.hidden = false;
+    panel.setAttribute("aria-hidden", "false");
+    chipSuppressedByPanel = true;
+    paintChip(null);
+  }
+
+  function closePanel() {
+    panel.hidden = true;
+    panel.setAttribute("aria-hidden", "true");
+    chipSuppressedByPanel = false;
+    // Two calls, because they do different jobs: the fly-to moved the globe while the card was
+    // open, so re-resolve first; then repaint unconditionally, because viewChanged() only fires
+    // onChange on a CHANGE and the pointer is usually still on the country the card was showing.
+    hoverTracker.viewChanged();
+    paintChip(hoverTracker.current());
+  }
+
+  document.getElementById("hero-close")?.addEventListener("click", closePanel);
+  // Escape peels ONE layer at a time, card first. The card is the most recent thing opened and
+  // the largest thing in the way, so it goes before quiet mode; the alternative order would
+  // restore the chrome while leaving a 420 px panel sitting on top of it. Quiet deliberately does
+  // NOT close the card by itself — the card is content you asked for, not chrome.
+  window.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    if (!panel.hidden) closePanel();
+    else quiet.exit();
+  });
+
+  function flyToCountry(country: Country) {
+    const [west, south, east, north] = country.bbox;
+    // Pad the side the card occupies so the country frames in the clear area.
+    const wide = window.innerWidth > 640;
+    map.fitBounds(
+      [[west, south], [east, north]],
+      {
+        padding: wide
+          ? { top: 60, bottom: 60, left: 60, right: 460 }
+          : { top: 60, bottom: 60, left: 30, right: 30 },
+        maxZoom: 6, // small countries shouldn't slam to the z8 ceiling
+        duration: 2200,
+        essential: true, // run even under prefers-reduced-motion
+      },
+    );
+  }
+
+  map.on("click", (event) => {
+    const admin = countryAt(event.point);
+    const country = admin ? byName.get(admin) : undefined;
+    if (!country) return;
+    setSpinning(false); // a deliberate pick retires the idle spin
+    flyToCountry(country);
+    // The FLY is not gated and the PANEL is, which is the split that matters once a body has
+    // vectors without heroes — Mars's geologic units are exactly that. Framing a clicked region is
+    // what the vectors are for; the panel needs a rendered hero to put in it, and without one it
+    // opens on `undefined`, asking for a `<slug>-undefined.webp` that 404s behind a spinner.
+    if (subsystems.heroes) openPanel(country);
+  });
+
+  // Pitch the sky was last built for. Tracked because `setSky` restarts a 300 ms transition, so
+  // rebuilding when nothing moved is not free — it re-runs the crossfade.
+  let skyPitch = 0;
+
+  map.on("style.load", () => {
+    // A soft atmosphere so the sphere reads against the starfield — and, past the overview, a much
+    // fainter one, because the same uniform that draws that glow also lays full aerial perspective
+    // over the ground. `atmosphere-blend` carries a zoom expression (the style spec's own advice
+    // for globe projection), so ZOOM is evaluated per frame by MapLibre and never needs a handler;
+    // see skyAtmosphere.ts for why a per-zoom setSky would lag instead.
+    //
+    // A body declaring no atmosphere never reaches setSky, so its style carries no `sky` at all and
+    // the sphere is drawn straight against the starfield. That is the whole implementation of "this
+    // planet has no air": there is no second code path and no zeroed-out sky to look through.
+    if (bodyAtmosphere === null) return;
+    skyPitch = map.getPitch();
+    map.setSky(skySpec(bodyAtmosphere, skyRamp, skyPitch));
+  });
+
+  // PITCH, unlike zoom, has to be driven from here: MapLibre expressions can read `["zoom"]` and
+  // nothing else about the camera, so there is no way to declare it. On `moveend` rather than on
+  // `pitch`, for the reason the cap rung uses `moveend` too — the check is cheap but the effect is
+  // not, and a camera mid-drag has no settled answer to give. At a settle the 300 ms transition
+  // reads as a crossfade rather than as the lag a per-step handler would have shown.
+  //
+  // Only fires above ATMOSPHERE_PITCH_RAMP_START_DEG, so every unpitched camera — including the
+  // default one every visitor lands on — never calls setSky at all and is bit-identical to what
+  // shipped before this existed. That is the property the measurement demanded: the atmosphere's
+  // contribution to an unpitched frame is exactly 0 DN, so there is nothing there to trade away.
+  map.on("moveend", () => {
+    if (bodyAtmosphere === null) return;
+    const pitch = map.getPitch();
+    if (!atmosphereNeedsRebuild(skyPitch, pitch)) return;
+    skyPitch = pitch;
+    map.setSky(skySpec(bodyAtmosphere, skyRamp, pitch));
+  });
+
+  // Country polygons (hover/click hit-testing, highlight, island markers) are interaction data,
+  // not first-paint content — deferred to the first idle so nothing about them competes with the
+  // tiles for the loading window. Degrades gracefully by construction: a click before they land
+  // finds no country. Borders toggled on in that gap land above where the highlight will sit — the
+  // highlight layers append later and still end up on top, the intended order.
+  // ONE RUN FOR TWO SUBSYSTEMS, gated per call rather than split in two, because the ORDER is what
+  // this block exists to hold and a second ordered run would be indistinguishable from the order
+  // having changed. Borders are their own GeoJSON download rather than part of the countries
+  // pyramid, so a body could have one without the other; that is why each call asks its own
+  // question instead of all four riding a single condition.
+  if (subsystems.countries || subsystems.borders) {
+    map.once("idle", () => {
+      // Spans the whole construction run, not each call: MapLibre does the work when the source
+      // and layers are added, and splitting it four ways would price the caller rather than the
+      // library. `addBorders` only KICKS OFF its download, so no fetch time is folded in here.
+      //
+      // ONE ORDERED RUN, and the order is the point — `drapeStacks.test.ts` reads it out of this
+      // source by position, so a second ordered run would be indistinguishable from the order
+      // having changed.
+      const endLayers = beginSpan("countries:layers");
+      if (subsystems.countries) addCountryTiles(); // source + fill, under the borders
+      if (subsystems.borders && bordersOn()) addBorders(); // opted-in only — default globe skips it
+      if (subsystems.countries) addCountryHighlight(); // hover outline, on top so the edge is crisp
+      // LAST, always. Everything above is drapeable (fill, line); this circle is not, so putting
+      // it here ends the drape run rather than splitting it. See addCountryHitTargets.
+      if (subsystems.countries) addCountryHitTargets();
+      endLayers();
+    });
+  }
+
+  // Idle rotation — a "living globe" at low zoom. Any interaction retires the spin (the Spin
+  // button drops to aria-pressed="false"); the toggle restarts it. Above z3 the fixed 2°/s sweep is too
+  // fast to follow, so spin() is a no-op there. Kept deliberately simple: a single spin
+  // easeTo driven off `moveend`, and interactions only flip the flag — no easeTo is ever
+  // called re-entrantly from the map's own animation events.
+  const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const DEGREES_PER_STEP = 2; // ~one 360° revolution every 3 minutes at 1s steps
+  const SPIN_MAX_ZOOM = 3; // above this the fixed sweep is too fast to follow — spin is an overview affordance
+  let spinning = bootTier === "full" && !reduceMotion;
+  // Applying the style's globe projection fires an instant camera jump at style.load
+  // (movestart+moveend ~1 ms apart, measured at 141 ms on ?bare) — and that moveend
+  // reaches the moveend→spin chain below, starting the spin mid-load despite the
+  // once("idle") deferral. Worse, once easing, the map never fires "idle" at all.
+  // spin() therefore no-ops until the first idle has actually been seen; an explicit
+  // user toggle overrides the wait (their intent beats our pacing).
+  let firstIdleSeen = false;
+
+  // Spin belongs in the rail's first group with zoom and compass: it is a CAMERA control — it
+  // changes where you are looking from. The greying below depends on that placement too: a greyed
+  // word among scene toggles reads as broken, while a greyed glyph among camera buttons reads as
+  // "not applicable at this zoom", which is what it means.
+  const spinToggle = createRailToggle({
+    className: "rg-ctrl-spin",
+    label: "Toggle globe auto-rotate",
+    pressed: spinning,
+    onToggle: setSpinning, // hoisted; the callback only ever fires on a click, long after setup
+  });
+  joinRailGroup(map.getContainer(), ".maplibregl-ctrl-zoom-in", spinToggle.button);
+
+  // Single writer for `spinning` so the toggle button always mirrors reality — user
+  // toggle, an interaction retiring it, a country pick, or the FPS watchdog.
+  function setSpinning(value: boolean) {
+    spinning = value;
+    spinToggle.setPressed(value);
+    if (value) {
+      firstIdleSeen = true; // user intent overrides the first-idle wait
+      spin(); // kick off now; spin() itself no-ops above SPIN_MAX_ZOOM
+    }
+  }
+
+  function spin() {
+    if (!firstIdleSeen || !spinning || map.getZoom() > SPIN_MAX_ZOOM) return;
+    const center = map.getCenter();
+    center.lng -= DEGREES_PER_STEP;
+    map.easeTo({ center, duration: 1000, easing: (progress) => progress });
+  }
+
+  // Spin is an overview affordance: above SPIN_MAX_ZOOM the fixed sweep is too fast to
+  // follow, so the control would silently do nothing there. Reflect that in the UI —
+  // grey + disable the toggle when zoomed in, re-enable on zoom-out (a tap restarts it).
+  // The replacement name says what would make it work again rather than just going quiet.
+  function syncSpinAvailability() {
+    spinToggle.setAvailable(map.getZoom() <= SPIN_MAX_ZOOM, "Zoom out to spin");
+  }
+  syncSpinAvailability();
+
+  // On pointer-down we retire the spin AND map.stop() the in-flight easeTo — otherwise a
+  // pan starting mid-animation fights the running spin (the visible "break") and its
+  // release registers as a click, firing the country fly-to. setSpinning(false) first, so
+  // the moveend that map.stop() emits finds spinning=false and does NOT restart the ease.
+  function haltSpin() {
+    setSpinning(false);
+    map.stop();
+  }
+  map.on("mousedown", haltSpin);
+  map.on("touchstart", haltSpin);
+  for (const gesture of ["dragstart", "rotatestart", "zoomstart", "pitchstart"] as const) {
+    map.on(gesture, () => setSpinning(false));
+  }
+  map.on("moveend", spin);
+  map.on("zoomend", syncSpinAvailability);
+  // Start the idle spin only after the FIRST full render settles ("idle"), not at "load":
+  // animating while tiles, caps, and country geometry are still landing forced a render per
+  // frame through the busiest seconds — visible as first-load jank on phones. A user toggle
+  // still starts it immediately (setSpinning calls spin() directly).
+  map.once("idle", () => {
+    firstIdleSeen = true;
+    spin();
+  });
+  map.on("load", syncSpinAvailability);
+
+  // --- Runtime FPS watchdog ---------------------------------------------------
+  // If the frame rate stays low WHILE the globe is actually doing work (spinning
+  // or being dragged), degrade in steps: retire the idle spin first, then drop
+  // the canvas to 1x pixel ratio — so a weak GPU still gets a usable globe.
+  // Frames are counted only while the map is moving: an idle on-demand render
+  // sitting at 0 fps is not "slow", just still. The ladder and thresholds live in
+  // fpsDegradation.ts (unit-tested); every action must earn its own fresh
+  // sustained-slow window, and the loop retires once the ladder is exhausted.
+  let frameDurationsMs: number[] = [];
+  let lastFrameTime = performance.now();
+  let pixelRatioLowered = false;
+  // Published for the ?perf report, which is declared ABOVE this block and would otherwise close
+  // over `spinning`/`pixelRatioLowered` before they are initialised. Assigning a reader here is the
+  // same shape `describeTerrain` and `reassertTerrainBound` already use, and it keeps the ladder's
+  // three flags readable in exactly one place rather than three.
+  ladderPosition = () => ({
+    spinning,
+    pixelRatioLowered,
+    terrainRetired,
+    nextAction: nextDegradationAction({
+      spinning,
+      pixelRatioLowered,
+      devicePixelRatio: map.getPixelRatio(),
+      terrainEnabled: map.getTerrain() !== null,
+    }),
+  });
+  function watchFps(now: number) {
+    const frameDelta = now - lastFrameTime;
+    lastFrameTime = now;
+    if (spinning || map.isMoving()) {
+      frameDurationsMs.push(frameDelta);
+      if (frameDurationsMs.length > MAXIMUM_SAMPLE_COUNT) frameDurationsMs.shift();
+      if (isSustainedSlow(frameDurationsMs)) {
+        const action = nextDegradationAction({
+          spinning,
+          pixelRatioLowered,
+          devicePixelRatio: map.getPixelRatio(),
+          terrainEnabled: map.getTerrain() !== null,
+        });
+        if (action === "retire-spin") {
+          setSpinning(false);
+          console.info("[globe] low frame rate — idle animation disabled");
+        } else if (action === "lower-pixel-ratio") {
+          pixelRatioLowered = true;
+          map.setPixelRatio(DEGRADED_PIXEL_RATIO);
+          console.info("[globe] low frame rate persists — rendering at 1x pixel ratio");
+        } else if (action === "disable-terrain") {
+          // Last in the ladder's ORDER, and last on purpose — lowering the pixel ratio above is
+          // what puts the device in the regime where dropping terrain actually pays
+          // (fpsDegradation.ts header). Not necessarily the last rung REACHED: the pixel-ratio
+          // rung is gated on DPR > 1, so a DPR-1 desktop with the spin already off arrives here
+          // first. See the note beside `terrainRetired`.
+          //
+          // Flagged BEFORE the teardown, not after: `idle` fires during it, and an idle that lands
+          // between setTerrain(null) and the flag would report the retirement as a broken cap.
+          terrainRetired = true;
+          map.setTerrain(null);
+          // ...and then release the source, because dropping the geometry does NOT return the
+          // memory. That reclaims the DEM cache's HEAP — the ceiling runs to ~1.24 GiB on a
+          // desktop canvas, so a rung that left it resident bought nothing on the one axis a
+          // struggling device actually needs. The arithmetic and its root cause live in
+          // tileCacheBudget.ts, which is also where the bound that keeps it from getting there
+          // is derived.
+          //
+          // removeSource -> TileManager.onRemove -> clearTiles reaches _outOfViewCache.reset(),
+          // whose eviction callback is the raster-dem unloadTile: it deletes tile.dem, destroys
+          // tile.fbo, and returns the texture to the painter's recycle pool. Nothing re-adds the
+          // source afterwards — the ladder is one-way and returns null once terrain is off.
+          //
+          // AND THAT LAST CLAUSE IS WHY THIS RUNG RECLAIMS ALMOST NO GPU MEMORY. "Returns the
+          // texture to the painter's recycle pool" is not a release: `Painter.releaseRTT` is a
+          // bare push onto an UNBOUNDED pool that only `Painter.destroy()` ever empties, so
+          // tearing terrain down FEEDS it. Measured 2026-07-30, twice: `disable-terrain` fired
+          // mid-tour and the GPU process still held 6,066 MiB with terrain gone from the style
+          // AND the sources — ~4 GB above the terrain-off plateau, owned by nothing left alive to
+          // release it. `setTerrain(null)` alone grew the pool 6,720 -> 6,933 objects across the
+          // call. So this rung is a fix for HEAP and for frame time, and must not be read as a
+          // fix for VRAM exhaustion — that is what rttPoolTrim.ts bounds, and it has to be
+          // attached before this rung runs to help at all.
+          //
+          // Guarded because a throw here escapes the rAF loop and silently retires the whole
+          // watchdog; getTerrain() being non-null implies the source exists, so this cannot fire,
+          // which is exactly why it costs nothing to keep.
+          if (map.getSource(TERRAIN_SOURCE)) map.removeSource(TERRAIN_SOURCE);
+          console.info("[globe] low frame rate persists — terrain displacement disabled");
+        } else {
+          return; // ladder exhausted — stop the loop, nothing left to measure for
+        }
+        frameDurationsMs = []; // the next stage must earn its own sustained-slow window
+      }
+    } else {
+      frameDurationsMs.length = 0; // reset when idle so stale frames don't accumulate
+    }
+    requestAnimationFrame(watchFps);
+  }
+  requestAnimationFrame(watchFps);
+</script>

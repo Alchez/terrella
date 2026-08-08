@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Threading the planet composite (optimisation #5): the threaded pass must be byte-identical
 to the serial one, and only the single-variant production path may thread.
 
@@ -15,8 +14,10 @@ NOTHING; varying `window_rows` legitimately may.
 Companion tests prove the guard can fail (a corrupted pixel is caught) and that the serial and
 multi-variant paths never even construct a thread pool.
 """
+import dataclasses
 import math
 import shutil
+from pathlib import Path
 from typing import Any, cast
 
 import numpy as np
@@ -25,12 +26,16 @@ import rasterio
 from rasterio.crs import CRS
 from rasterio.transform import from_bounds
 
+from pipeline import bodies, planet_seam
 from pipeline.render import snow
-from pipeline.tile import shade
-from pipeline.tile import shade_planet
+from pipeline.tile import shade, shade_planet
 from pipeline.verify import compare_rasters
 
-EARTH_RADIUS = 6378137.0
+#: A planet whose seam emitted all three rasters — Earth's shape, and the one the
+#: synthetic fixture below writes.
+WHOLE_PLANET = planet_seam.KNOWN_RASTERS
+# Read from the registry rather than restated — see the note in test_snow_warp_once.py.
+EARTH_RADIUS = bodies.EARTH.mercator_radius_m
 WIDTH, HEIGHT = 40, 64          # a few windows tall so the in-flight throttle actually fires
 WINDOW_ROWS = 8                 # -> 8 windows; > max_workers + INFLIGHT_BUFFER, so writes drain mid-loop
 N_WINDOWS = len(range(0, HEIGHT, WINDOW_ROWS))
@@ -70,8 +75,8 @@ def planet(tmp_path):
     work = tmp_path / "planet_tiles"
     work.mkdir()
     left, top = _merc(47.0, 6.0)
-    transform = from_bounds(left, top - HEIGHT * shade_planet.Z8_RES,
-                            left + WIDTH * shade_planet.Z8_RES, top, WIDTH, HEIGHT)
+    transform = from_bounds(left, top - HEIGHT * bodies.EARTH.map_units_per_pixel,
+                            left + WIDTH * bodies.EARTH.map_units_per_pixel, top, WIDTH, HEIGHT)
     rng = np.random.default_rng(0)
 
     height = rng.uniform(-3000.0, 5000.0, (HEIGHT, WIDTH))
@@ -101,7 +106,7 @@ def _run(work, max_workers, variants=None):
     """Composite the synthetic planet. `max_windows=N_WINDOWS` covers every window while bypassing
     the freshness early-return, so a second run re-composites instead of skipping as fresh."""
     return shade_planet.composite_planet(
-        work, work / "hs_3857.tif", _occ, variants=variants,
+        work, work / "hs_3857.tif", _occ, bodies.EARTH, WHOLE_PLANET, variants=variants,
         window_rows=WINDOW_ROWS, max_windows=N_WINDOWS, max_workers=max_workers)
 
 
@@ -169,3 +174,75 @@ def test_multivariant_stays_serial_even_with_workers(planet, monkeypatch):
 
 def _forbidden(*args, **kwargs):
     raise AssertionError("ThreadPoolExecutor must not be constructed on this path")
+
+
+def test_a_body_with_no_perennial_ice_layer_composites_without_the_raster(planet):
+    """The whole composite must survive a layer its body does not have — driven end to end, because
+    the guard that was missing lives in `read_window`, which no unit test reaches.
+
+    `snow_persistence_3857.tif` was the one read of four with no `.exists()` check, so a body whose
+    snow layer is off died here on a raster nothing ever built. Its three siblings have always read
+    `... if p.exists() else None`; this is snow joining them.
+
+    The fixture WRITES that raster, which is why deleting it is the whole setup: a test run against
+    the complete planet exercises only the present-file branch and would pass with the guard gone.
+
+    Only `surface_layers` is varied. That is the one field this path reads — `work` is passed
+    explicitly, so no path is derived from the body — and varying more would suggest otherwise.
+    """
+    (planet / "snow_persistence_3857.tif").unlink()
+    no_snow = dataclasses.replace(bodies.EARTH, surface_layers=frozenset())
+
+    out = shade_planet.composite_planet(
+        planet, planet / "hs_3857.tif", _occ, no_snow, WHOLE_PLANET,
+        window_rows=WINDOW_ROWS, max_windows=N_WINDOWS, max_workers=1)
+
+    with rasterio.open(out[None]) as dataset:
+        rgb = dataset.read()
+    assert rgb.shape[0] == 3 and rgb.any(), "the composite produced no pixels without a snow raster"
+
+
+class TestAPlanetWithNoMasks:
+    """A body whose seam emitted no ocean or water mask, composited through the REAL pass.
+
+    The claim under test is a semantic one, not a "does it crash" one: an undeclared mask must
+    produce exactly the picture a measured all-land mask would. That is what makes the all-False
+    array a computation rather than a stand-in — and it is why no zero raster is written to disk,
+    where nothing could ever tell it apart from a mask somebody actually derived.
+    """
+
+    def _rgb(self, work, body, rasters):
+        out = shade_planet.composite_planet(
+            work, work / "hs_3857.tif", _occ, body, rasters,
+            window_rows=WINDOW_ROWS, max_windows=N_WINDOWS, max_workers=1)
+        with rasterio.open(out[None]) as dataset:
+            return dataset.read()
+
+    def test_it_paints_exactly_what_an_all_land_mask_would(self, planet, tmp_path):
+        """The oracle is a second REAL run, not an assertion about colours: one planet declares its
+        masks and measures no water anywhere, the other declares none at all. Same pixels, or the
+        zeros are standing in for something rather than stating it."""
+        bare = dataclasses.replace(bodies.EARTH, surface_layers=frozenset())
+        with rasterio.open(planet / "ocean_3857.tif") as dataset:
+            profile = dataset.profile
+        for name in ("ocean_3857.tif", "water_3857.tif"):
+            with rasterio.open(planet / name, "w", **profile) as dataset:
+                dataset.write(np.zeros((HEIGHT, WIDTH), dtype="uint8"), 1)
+        measured = self._rgb(planet, bare, WHOLE_PLANET)
+        (planet / "planet_rgb.tif").unlink()
+        (planet / "ocean_3857.tif").unlink()
+        (planet / "water_3857.tif").unlink()
+        declared = self._rgb(planet, bare, frozenset({"heightfield"}))
+        assert np.array_equal(measured, declared)
+
+    def test_the_masks_are_never_opened(self, planet, monkeypatch):
+        """Gated on the DECLARATION, not on the file: the rasters are still sitting there from the
+        last run, and an existence check would read them straight back into a sea-less planet."""
+        bare = dataclasses.replace(bodies.EARTH, surface_layers=frozenset())
+        opened: list[str] = []
+        real_read = shade_planet.read1_window
+        monkeypatch.setattr(shade_planet, "read1_window",
+                            lambda path, win: (opened.append(Path(path).name), real_read(path, win))[1])
+        self._rgb(planet, bare, frozenset({"heightfield"}))
+        assert "ocean_3857.tif" not in opened and "water_3857.tif" not in opened
+        assert "height_3857.tif" in opened, "the read recorder must actually have been in the path"

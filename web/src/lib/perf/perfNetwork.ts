@@ -43,7 +43,7 @@
 // 300 is the header allowance the Resource Timing spec requires implementations to add, which is
 // why it is subtracted here rather than treated as payload.
 
-import { TERRAIN_PATH_PREFIX } from "../terrainSource";
+import { type LayerId, resolveTileRequest } from "../tileAddress";
 import type { PerfLine } from "./perfLines";
 
 /**
@@ -95,11 +95,27 @@ export interface TrafficSlice {
   fromBrowserCache: number;
 }
 
-export interface TileTraffic {
-  relief: TrafficSlice;
-  terrain: TrafficSlice;
+/** One slice per pyramid, and a `Record` over the layer union rather than named fields — so a
+ *  fourth pyramid is a compile error in the initialiser below instead of traffic that quietly
+ *  lands in whichever slice the classifier falls through to. The split used to be
+ *  `startsWith("terrain/") ? terrain : relief`, a two-way branch over three layers.
+ *
+ *  `countries` NORMALLY READS ZERO, and that is not the vector pyramid failing to load. Measured
+ *  on the live globe: 407 tile entries with the country pyramid fully resident (276 features,
+ *  France hit-testing), and not one of them an `.mvt` — every entry's `initiatorType` is `img`.
+ *  MapLibre fetches raster tiles as images on the main thread and vector tiles from its worker,
+ *  and a worker's fetches populate the WORKER's Resource Timing buffer, not the page's. The slice
+ *  exists because the classifier now answers the layer question honestly rather than folding an
+ *  unrecognised answer into relief; it is not evidence about vector traffic either way. */
+export interface TileTraffic extends Record<LayerId, TrafficSlice> {
   /** Requests whose size is unknowable, kept visible rather than folded into a zero. */
   opaqueCount: number;
+  /** Requests under the tile base that are not tile addresses at all.
+   *
+   *  Counted rather than dropped, for the reason `opaqueCount` exists: silently discarding an
+   *  entry makes a wrong total look like a small one. A non-zero reading here means something is
+   *  asking the tile server for a URL it will not serve. */
+  unaddressedCount: number;
   /** Median of `duration` over network-served tiles only — a cache hit's ~0 ms would otherwise
    *  drag the median toward zero and read as the network getting faster. */
   medianNetworkDurationMs: number | null;
@@ -113,7 +129,7 @@ const emptySlice = (): TrafficSlice => ({ count: 0, wireBytes: 0, fromBrowserCac
 /** Median, or null for an empty list. Even-length takes the mean of the middle pair. */
 export function median(values: readonly number[]): number | null {
   if (values.length === 0) return null;
-  const sorted = [...values].sort((first, second) => first - second);
+  const sorted = [...values].toSorted((first, second) => first - second);
   const middle = Math.floor(sorted.length / 2);
   return sorted.length % 2 === 1 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
 }
@@ -124,8 +140,12 @@ export function median(values: readonly number[]): number | null {
  * Pure. `tileBase` is passed in rather than imported so a test can describe any deployment, and so
  * the dev server's same-origin `/tiles/` and production's `tiles.` subdomain are the same code path.
  *
- * The relief/terrain split keys on the path prefix that already distinguishes them at the Worker —
- * both pyramids are WebP over z0-8, so nothing else in a tile URL tells them apart.
+ * THE SPLIT IS THE TILE SERVERS' OWN PARSER, not a string test against it. Nothing else in a tile
+ * URL tells relief from terrain — both are WebP over z0-8 on one grid — so the layer segment is the
+ * whole discriminator, and reading it with anything but `resolveTileRequest` is a second copy of the
+ * grammar that drifts silently. It already had: a `startsWith("terrain/")` test survived the move to
+ * `{body}/{layer}/{token}/…` untouched and would have counted EVERY terrain tile as relief, on a
+ * panel whose entire job is telling those two apart.
  */
 export function summariseTileTraffic(
   entries: readonly TimedResource[],
@@ -145,7 +165,9 @@ export function summariseTileTraffic(
   const traffic: TileTraffic = {
     relief: emptySlice(),
     terrain: emptySlice(),
+    countries: emptySlice(),
     opaqueCount: 0,
+    unaddressedCount: 0,
     medianNetworkDurationMs: null,
     bufferFull: entries.length >= bufferSize,
   };
@@ -156,7 +178,14 @@ export function summariseTileTraffic(
       continue;
     }
     const path = entry.name.slice(base.length);
-    const slice = path.startsWith(`${TERRAIN_PATH_PREFIX}/`) ? traffic.terrain : traffic.relief;
+    // Both grammars, because both are in flight: a page built before the address switch keeps
+    // asking the old shape until its tab is reloaded, and its bytes are as real as any other's.
+    const address = resolveTileRequest(path);
+    if (!address) {
+      traffic.unaddressedCount++;
+      continue;
+    }
+    const slice = traffic[address.layer];
     slice.count++;
     slice.wireBytes += wireBytes(entry);
     if (servedFromBrowserCache(entry)) slice.fromBrowserCache++;
@@ -235,27 +264,43 @@ export function cameraFillLine(fill: CameraFill): PerfLine | null {
   return { group: "feel", text: `fill ${seconds}s · ${fill.last.tilesFetched} tiles` };
 }
 
+/** One pyramid's share of the traffic line: requests, and how many the browser already had. */
+const slice = (label: string, part: TrafficSlice) => {
+  const cached = part.fromBrowserCache > 0 ? ` (${part.fromBrowserCache} cached)` : "";
+  return `${label} ${part.count}${cached}`;
+};
+
 /** The panel line. Bytes as whole MiB via the shared formatter's rules, not a second policy. */
 export function tileTrafficLine(traffic: TileTraffic): PerfLine {
-  const slice = (label: string, part: TrafficSlice) => {
-    const cached = part.fromBrowserCache > 0 ? ` (${part.fromBrowserCache} cached)` : "";
-    return `${label} ${part.count}${cached}`;
-  };
-  const wire = traffic.relief.wireBytes + traffic.terrain.wireBytes;
-  const median =
+  // EVERY layer's bytes, including the ones with no label below: "MB wire" means bytes that crossed
+  // the network under the tile base, and a total that quietly omitted a pyramid would understate
+  // exactly the number this panel is read for.
+  const wire = traffic.relief.wireBytes + traffic.terrain.wireBytes + traffic.countries.wireBytes;
+  const medianText =
     traffic.medianNetworkDurationMs === null
       ? "med —"
       : `med ${Math.round(traffic.medianNetworkDurationMs)} ms`;
-  // Both warnings are appended rather than replacing anything: a truncated buffer still has real
-  // numbers in it, and an opaque entry is a known unknown, not a reason to distrust the rest.
+  // Warnings are appended rather than replacing anything: a truncated buffer still has real numbers
+  // in it, and an opaque or unaddressed entry is a known unknown, not a reason to distrust the rest.
   const truncated = traffic.bufferFull ? " · BUFFER FULL, totals are a floor" : "";
   const opaque = traffic.opaqueCount > 0 ? ` · ${traffic.opaqueCount} opaque` : "";
+  // Silent until it fires, and when it fires it is a bug: something is asking the tile server for a
+  // URL neither grammar can parse, so the server will not serve it either.
+  const unaddressed =
+    traffic.unaddressedCount > 0 ? ` · ${traffic.unaddressedCount} unaddressed` : "";
   // No leading "tiles": the NETWORK heading says what these are, and the word cost one character
   // more than a 412 px phone has (54 against a measured 53-character budget).
+  //
+  // TWO LABELS FOR THREE SLICES. The line is already 49 of its 53 characters at typical values, so
+  // a third `· countries N` (14) would wrap on the phone the budget was measured against — and it
+  // would spend that width on a number measured to be zero on this page, since vector tiles are
+  // fetched from MapLibre's worker and never enter this buffer (see TileTraffic). Relief and
+  // terrain are the pair the panel exists to compare: same codec, same grid, so confusing them is
+  // the failure worth reading for. `traffic.countries` is there for any caller that wants it.
   return {
     group: "network",
     text:
       `${slice("relief", traffic.relief)} · ${slice("terrain", traffic.terrain)} · ` +
-      `${(wire / (1024 * 1024)).toFixed(1)} MB wire · ${median}${opaque}${truncated}`,
+      `${(wire / (1024 * 1024)).toFixed(1)} MB wire · ${medianText}${opaque}${unaddressed}${truncated}`,
   };
 }

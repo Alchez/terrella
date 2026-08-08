@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """`snow_curve` — the snow ramp's legibility dial, and the proof that promoting it tracks freshness.
 
 Over full snow `base_rgb` is multiplied by (1 - alpha) = 0, so `snow_t` is the ONLY channel relief
@@ -10,12 +9,15 @@ from typing import Any, cast
 
 import numpy as np
 import pytest
-
 from conftest import hillshade_for_light
 
+from pipeline import bodies, planet_seam
 from pipeline.render import palette
-from pipeline.tile import shade
-from pipeline.tile import shade_planet
+from pipeline.tile import shade, shade_planet
+
+#: A planet whose seam emitted all three rasters — what Earth declares, and the only
+#: shape these tests care about unless they say otherwise.
+WHOLE_PLANET = planet_seam.KNOWN_RASTERS
 
 CURVES = ["linear", "gamma4", "gamma8", "knee"]
 
@@ -125,14 +127,14 @@ class TestFreshness:
     exists to prevent."""
 
     def test_snow_curve_is_recorded_in_composite_params(self):
-        params = json.loads(shade_planet.composite_params({}))
+        params = json.loads(shade_planet.composite_params({}, bodies.EARTH, WHOLE_PLANET))
         assert params["knobs"]["snow_curve"] == "gamma8"
 
     def test_changing_it_changes_the_params(self):
         """Companion: proves the assertion above is load-bearing rather than reading a constant."""
-        before = shade_planet.composite_params({})
+        before = shade_planet.composite_params({}, bodies.EARTH, WHOLE_PLANET)
         shade.KNOBS["snow_curve"] = "linear"
-        assert shade_planet.composite_params({}) != before
+        assert shade_planet.composite_params({}, bodies.EARTH, WHOLE_PLANET) != before
 
     def test_snow_curve_is_NOT_hillshade_only(self):
         """It is consumed by composite(), not by the hillshade -- so it must NOT be filtered out.
@@ -142,7 +144,7 @@ class TestFreshness:
     def test_it_does_not_reach_the_hillshade_params(self):
         """The other half: a composite knob must not restage an 11:48 hillshade that cannot see
         it. hs_params carries the sun geometry and fill only."""
-        assert "snow_curve" not in json.dumps(shade_planet.hs_params())
+        assert "snow_curve" not in json.dumps(shade_planet.hs_params(bodies.EARTH))
 
 
 class TestCompositeHonoursTheKnob:
@@ -166,7 +168,7 @@ class TestCompositeHonoursTheKnob:
                                np.zeros(shape, dtype=bool), np.zeros(shape, dtype=bool),
                                np.ones(shape, dtype="float32"),
                                np.full(shape, hillshade_dn, dtype="float32"),
-                               np.zeros((1, 1), dtype="float32"), (1, 1), shape)
+                               np.zeros((1, 1), dtype="float32"), (1, 1), shape, look=palette.EARTH_LOOK)
 
     def test_the_knob_reaches_the_pixel(self):
         """Greenland's median light must render differently under linear than under the shipped

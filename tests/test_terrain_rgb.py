@@ -199,23 +199,23 @@ def test_encode_raster_matches_the_array_encoder(tmp_path):
 # --- The guard the module exists for ------------------------------------------------
 
 
-def test_cut_zoom_never_resamples_encoded_bytes(monkeypatch):
+def test_cut_zoom_never_resamples_encoded_bytes(monkeypatch, tmp_path):
     """Cubic/average/bilinear interpolate ACROSS the green byte's 256 m wrap and invent cliffs.
 
-    `shade_planet.TILE_CUT` uses cubic for both its cut and its overviews — correct for colour,
+    `shade_planet.tile_cut` uses cubic for both its cut and its overviews — correct for colour,
     catastrophic here — so the risk is a well-meaning port, not a typo. Every other test in this
     file passes with `--resampling=cubic`.
     """
     captured = []
     monkeypatch.setattr(terrain_rgb, "_run", lambda cmd: captured.append(cmd))
-    terrain_rgb.cut_zoom(terrain_rgb.ROOT / "nowhere.tif", terrain_rgb.ROOT / "staging", 5)
+    terrain_rgb.cut_zoom(tmp_path / "nowhere.tif", tmp_path / "staging", 5)
     command = " ".join(str(part) for part in captured[0])
     assert "--resampling=nearest" in command
     assert "--overview-resampling=nearest" in command
     assert "--min-zoom=5" in command and "--max-zoom=5" in command
 
 
-def test_webp_is_cut_losslessly_or_not_at_all(monkeypatch):
+def test_webp_is_cut_losslessly_or_not_at_all(monkeypatch, tmp_path):
     """WebP is here to entropy-code identical pixels, nothing more.
 
     Elevation is not an image: drop LOSSLESS and every tile still decodes, to wrong metres, with no
@@ -225,7 +225,7 @@ def test_webp_is_cut_losslessly_or_not_at_all(monkeypatch):
     """
     captured = []
     monkeypatch.setattr(terrain_rgb, "_run", lambda cmd: captured.append(cmd))
-    terrain_rgb.cut_zoom(terrain_rgb.ROOT / "nowhere.tif", terrain_rgb.ROOT / "staging", 5, "webp")
+    terrain_rgb.cut_zoom(tmp_path / "nowhere.tif", tmp_path / "staging", 5, "webp")
     command = " ".join(str(part) for part in captured[0])
     assert "--format=WEBP" in command
     assert "--co LOSSLESS=YES" in command

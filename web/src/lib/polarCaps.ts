@@ -4,7 +4,7 @@
 // reaching ±90° with no hole.
 //
 // The pipeline is the single author of every value it renders into the textures: this layer
-// FETCHES /caps/caps.json (edge_lat, the ±84 feather ceiling = shade_planet's Mercator plug
+// FETCHES this body's caps.json (edge_lat, the ±84 feather ceiling = shade_planet's Mercator plug
 // boundary, texture URLs) instead of hand-copying them as literals — the copy-drift species that
 // bit the hero/tile colour constants four times. Only frontend aesthetics stay here (FEATHER_LO,
 // mesh extent, tessellation).
@@ -20,6 +20,8 @@
 
 import type { CustomLayerInterface, CustomRenderMethodInput, Map as MaplibreMap } from "maplibre-gl";
 
+import { capsManifestUrl } from "./assetBase";
+import type { BodySlug } from "./bodies";
 import { smallestRungAtLeast } from "./rungs";
 // `perfSpans`, NOT anything in `lib/perf/`: a static import from there would place the whole
 // instrument directory in the main chunk, which is how 268 lines once shipped to every visitor.
@@ -44,8 +46,11 @@ export const RINGS = 160;
  *  These two together are what pushed the index buffer past 65,535 — see buildMesh. */
 export const SECTORS = 640;
 const RADIUS = 1.0004; // a hair above the globe surface (radius 1) so it paints over the tiles
-const FEATHER_LO = 81; // |lat| where the fade into the real tiles begins — frontend aesthetic
-const MESH_EDGE_LAT = 80; // mesh equatorward edge, just outside the visible feather zone
+export const FEATHER_LO = 81; // |lat| where the fade into the real tiles begins — frontend aesthetic
+export const MESH_EDGE_LAT = 80; // mesh equatorward edge, just outside the visible feather zone
+// Equals cap_render.CAP_EDGE_LAT, the texture disc's inscribed circle: the mesh samples nothing
+// outside the disc, so lowering MESH_EDGE_LAT below the served `edge_lat` reads past the texture.
+// `asserts the cap latitude ladder` in polarCaps.test.ts pins the whole chain against caps.json.
 
 /** MapLibre's own globe radius in metres, from its `_projection.vertex.glsl`:
  *  `#define GLOBE_RADIUS 6371008.8`, used as `spherePos * (1.0 + elevation / GLOBE_RADIUS)`.
@@ -93,7 +98,7 @@ export type CapsManifest = Record<CapPole, CapManifestEntry>;
  *  to download the full 8192 texture and then canvas-downscale it to its budget, paying for
  *  every byte and every decoded pixel it threw away. Pure, so the tier rule is unit-testable. */
 export function pickRung(rungs: CapRung[], budgetPx: number): CapRung {
-  const ascending = [...rungs].sort((a, b) => a.px - b.px);
+  const ascending = [...rungs].toSorted((a, b) => a.px - b.px);
   const withinBudget = ascending.filter((rung) => rung.px <= budgetPx);
   return withinBudget.length ? withinBudget[withinBudget.length - 1] : ascending[0];
 }
@@ -504,7 +509,6 @@ function uploadCapTexture(gl: WebGL2RenderingContext, image: ImageBitmap | HTMLI
     canvas.height = target;
     canvas.getContext("2d")!.drawImage(image, 0, 0, target, target);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, canvas);
-    // eslint-disable-next-line no-console
     console.log(
       `[caps] texture ${image.width} downscaled to ${target} ` +
         `(MAX_TEXTURE_SIZE ${maxSize}, device budget ${budget})`,
@@ -553,8 +557,16 @@ async function loadCapImage(
     // needs to catch — would be recorded as taking no time at all.
     return await new Promise<HTMLImageElement>((resolve, reject) => {
       const image = new Image();
-      image.onload = () => resolve(image);
-      image.onerror = () => reject(new Error(`Image decode failed: ${url}`));
+      // `addEventListener` over `onload =` even though this Image is local and nothing else can
+      // assign to it: the assignment form is only safe while that stays true, and the day this
+      // element is hoisted or shared, a second handler silently replaces the first with nothing
+      // reporting it. `once` because a settled promise ignores the second call anyway.
+      image.addEventListener("load", () => resolve(image), { once: true });
+      image.addEventListener(
+        "error",
+        () => reject(new Error(`Image decode failed: ${url}`)),
+        { once: true },
+      );
       image.src = url; // browser cache makes this a re-decode, not a re-download
     });
   } finally {
@@ -615,7 +627,6 @@ export async function syncCapRung(
     if ("close" in bitmap) bitmap.close(); // release the decode — the GPU has its copy
     layer.loadedRungPx = rung.px; // only on success, so a failure can be retried by the next move
     map.triggerRepaint();
-    // eslint-disable-next-line no-console
     console.log(`[caps] ${opts.layerId} texture loaded`, size, "x", size,
       `(demand ${Math.round(demandPx)} px)`);
   } catch (err: unknown) {
@@ -670,7 +681,6 @@ export async function loadCapElevation(
     if ("close" in bitmap) bitmap.close();
     layer.elevLoaded = true;
     map.triggerRepaint();
-    // eslint-disable-next-line no-console
     console.log(`[caps] ${opts.layerId} elevation loaded`, size, "x", size,
       `(${opts.elevStep} m/level)`);
   } catch (err: unknown) {
@@ -759,7 +769,6 @@ export function addPolarCap(map: MaplibreMap, opts: CapOptions): void {
       this.elevLoaded = false;
       void syncCapRung(this, opts, map); // the initial fetch IS the first upgrade, from 0
       void loadCapElevation(this, opts, map);
-      // eslint-disable-next-line no-console
       console.log(`[caps] ${opts.layerId} added; mesh`, this.indexCount! / 3, "triangles");
     },
 
@@ -852,6 +861,17 @@ export function addPolarCap(map: MaplibreMap, opts: CapOptions): void {
 /** Fetch the pipeline's caps.json contract and register both polar caps on the loaded map.
  *  A missing/invalid manifest logs and leaves the globe capless — never breaks the page.
  *
+ *  THE BODY IS A REQUIRED ARGUMENT AND THE MANIFEST URL IS DERIVED FROM IT. It used to be the
+ *  literal `/caps/caps.json`, which was correct while one planet had caps and is the worst kind of
+ *  wrong the moment a second one does: Earth's path prefix is empty, so that literal is not a URL
+ *  that fails for another body — it is Earth's manifest, served with a 200, naming Earth's Arctic
+ *  textures. The globe would draw sea ice and Greenland over another planet's pole and log nothing.
+ *  `capsManifestUrl` reads the prefix off the registry, which `tests/test_bodies.py` holds against
+ *  the pipeline that writes the files.
+ *
+ *  The textures are NOT re-addressed here. Every rung URL and the elevation URL come out of the
+ *  manifest already absolute, which is what keeps this module ignorant of the served layout.
+ *
  *  **THIS FUNCTION IS ALSO THE WEBGL CONTEXT-LOSS RECOVERY PATH — do not move its call site.**
  *  MapLibre recovers a lost context by re-applying a *serialized* style snapshot, and a `custom`
  *  layer has no serialized form. The library says so itself, by name, on every loss:
@@ -871,14 +891,17 @@ export function addPolarCap(map: MaplibreMap, opts: CapOptions): void {
  *  stores' 1-week cache class and reading `entry.rungs` as undefined. The failure is silent
  *  by design (capless globe, one console error), which is exactly why it must not be
  *  reachable. Cost is one conditional GET of ~500 bytes on an already-warm H2 connection. */
-export async function addPolarCaps(map: MaplibreMap): Promise<void> {
+export async function addPolarCaps(map: MaplibreMap, body: BodySlug): Promise<void> {
   let manifest: CapsManifest;
+  const manifestUrl = capsManifestUrl(body);
   try {
-    const response = await fetch("/caps/caps.json", { cache: "no-cache" });
+    const response = await fetch(manifestUrl, { cache: "no-cache" });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     manifest = (await response.json()) as CapsManifest;
   } catch (err) {
-    console.error("[caps] manifest fetch failed — globe renders capless", err);
+    // The URL is in the message because the interesting failure is not "the fetch broke" but "the
+    // fetch went to the wrong planet's manifest", and those two are indistinguishable without it.
+    console.error(`[caps] manifest fetch failed (${manifestUrl}) — globe renders capless`, err);
     return;
   }
   for (const options of capOptionsFrom(manifest, capTextureBudget(isMobileClassDevice()))) {

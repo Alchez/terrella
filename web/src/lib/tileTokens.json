@@ -1,0 +1,22 @@
+{
+  "earth": {
+    "relief": {
+      "token": "4d04db58",
+      "indexLeaves": 21
+    },
+    "terrain": {
+      "token": "a938c305",
+      "indexLeaves": 22
+    },
+    "countries": {
+      "token": "5b23f470",
+      "indexLeaves": 7
+    }
+  },
+  "mars": {
+    "relief": {
+      "token": "e29d76b3",
+      "indexLeaves": 0
+    }
+  }
+}

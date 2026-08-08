@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Download the global GEBCO_2026 bathymetry grid and build its mosaic VRT.
 
 The one-time global bootstrap for the sea half of the heightfield (the land
@@ -9,7 +8,7 @@ that VRT indexes and (re)builds it.
 The grid is GEBCO_2026 "ice surface elevation" (land + ice-sheet *surface*,
 not sub-ice bedrock) at 15 arc-seconds, distributed as 8 tiles of 90x90
 degrees that tile the globe. Files stream from CEDA over plain HTTPS,
-WORKERS at a time, reusing download_glo30.download_one: each streams to a
+WORKERS at a time, reusing fetch.download_one: each streams to a
 .part name, is size-checked against Content-Length, then atomically renamed,
 so a file under its final name is always complete and re-runs skip it. Unlike
 GLO-30's unversioned S3 bucket (which needs an ETag oracle), the edition here
@@ -26,12 +25,11 @@ Usage: python3 download_gebco.py
 import concurrent.futures as cf
 import subprocess
 import sys
-from pathlib import Path
 
 import rasterio
 
 from pipeline import paths
-from pipeline.acquire.download_glo30 import download_one
+from pipeline.fetch import download_one
 
 BASE_URL = ("https://dap.ceda.ac.uk/bodc/gebco/global/gebco_2026"
             "/ice_surface_elevation/geotiff")

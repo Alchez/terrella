@@ -52,6 +52,31 @@ function fakeTileManager(options: {
   };
 }
 
+/** A map that records every `coveringTiles` call and answers with a canned result. The recorded
+ *  OPTIONS are the point: the bug this file exists for was asking at the declared tile size
+ *  instead of the fill size, which is invisible in the return value and plain in the arguments. */
+function spyMap(returns: unknown) {
+  const calls: Array<Record<string, unknown>> = [];
+  return {
+    calls,
+    map: {
+      coveringTiles: (options: Record<string, unknown>) => {
+        calls.push(options);
+        if (typeof returns === "function") return (returns as () => unknown[])();
+        return returns as unknown[];
+      },
+    },
+  };
+}
+
+/** A tile manager whose WRITTEN cap and ENFORCED cap are set separately, so the two can be made
+ *  to disagree — which is the only way to see MapLibre silently ignoring the value we wrote. */
+const withCap = (written: number | null, enforced: number): TileManagerLike => ({
+  _maxTileCacheSize: written,
+  _outOfViewCache: { max: enforced, data: {} },
+  _inViewTiles: { getAllTiles: () => [] },
+});
+
 describe("demSlotBytes", () => {
   it("is the padded RGBA buffer MapLibre actually keeps, not the tile's nominal area", () => {
     // DEMData holds `new Uint32Array(data.data.buffer)` over an RGBAImage with 1px padding all
@@ -203,7 +228,7 @@ describe("the byte ceiling — regression for the cap that grew with the screen"
   it("is MONOTONIC in the right direction — a bigger screen never gets a bigger cache", () => {
     // The defect stated as a property. Growing the canvas may leave the cap flat, never raise it
     // past the budget, and this is the assertion the original code would have failed.
-    const byArea = [...CANVASES].sort((a, b) => a[1] * a[2] - b[1] * b[2]);
+    const byArea = [...CANVASES].toSorted((a, b) => a[1] * a[2] - b[1] * b[2]);
     const ceiling = slotsWithinByteBudget(TERRAIN_CACHE_BYTE_BUDGET, TERRAIN_ASSET_TILE_PX);
     for (const [, width, height] of byArea) {
       expect(shippedTerrainCacheSlots(width, height, 128)).toBeLessThanOrEqual(ceiling);
@@ -242,12 +267,6 @@ describe("the byte ceiling — regression for the cap that grew with the screen"
 });
 
 describe("demCacheCapFault — the cap is verified, not assumed", () => {
-  const withCap = (written: number | null, enforced: number): TileManagerLike => ({
-    _maxTileCacheSize: written,
-    _outOfViewCache: { max: enforced, data: {} },
-    _inViewTiles: { getAllTiles: () => [] },
-  });
-
   it("is silent when the write stuck and MapLibre is enforcing it", () => {
     expect(demCacheCapFault(withCap(360, 360), 360)).toBeNull();
   });
@@ -474,7 +493,7 @@ describe("describeDemCacheState", () => {
 });
 
 describe("earth.astro wires the instrument rather than re-stating it", () => {
-  const globe = readFileSync(new URL("../pages/earth.astro", import.meta.url), "utf8");
+  const globe = readFileSync(new URL("../components/Globe.astro", import.meta.url), "utf8");
 
   it("reads the terrain source's own tile manager, not some other source's", () => {
     // Getting the source id wrong here reports the RELIEF cache and reads as a reassuringly small
@@ -489,7 +508,7 @@ describe("earth.astro wires the instrument rather than re-stating it", () => {
     // passing on a file-wide substring.
     expect(globe).toMatch(/map\.on\("resize", applyCacheCap\)/);
     const styleLoad = globe
-      .match(/map\.on\("style\.load\", \(\) => \{[\s\S]*?\n    \}\);/g)
+      .match(/map\.on\("style\.load", \(\) => \{[\s\S]*?\n    \}\);/g)
       ?.find((block) => block.includes("addSource(TERRAIN_SOURCE"));
     expect(styleLoad, "terrain must be added on style.load").toBeTruthy();
     expect(styleLoad).toContain("applyCacheCap()");
@@ -625,22 +644,8 @@ describe("canary — the MapLibre internals this module corrects", () => {
 
 describe("terrainCoveringTileCount — MapLibre's own answer, not our restatement", () => {
   /** Records the options so the call itself can be asserted, not just its result. */
-  function spyMap(returns: unknown) {
-    const calls: Array<Record<string, unknown>> = [];
-    return {
-      calls,
-      map: {
-        coveringTiles: (options: Record<string, unknown>) => {
-          calls.push(options);
-          if (typeof returns === "function") return (returns as () => unknown[])();
-          return returns as unknown[];
-        },
-      },
-    };
-  }
-
   it("asks at the FILL size, not the declared one — reading the declared size here would reproduce the bug", () => {
-    const { calls, map } = spyMap(new Array(52).fill(null));
+    const { calls, map } = spyMap(Array.from({ length: 52 }, () => null));
     expect(terrainCoveringTileCount(map, 128, 0, 8)).toBe(52);
     expect(calls[0].tileSize).toBe(256); // 128 * 2**deltaZoom
     expect(calls[0]).toMatchObject({ minzoom: 0, maxzoom: 8, roundZoom: false });
@@ -657,7 +662,7 @@ describe("terrainCoveringTileCount — MapLibre's own answer, not our restatemen
     // formula gives 330. That gap is why the byte budget it fed had no defensible upper bound.
     expect(viewDependentCacheSlots(2560, 1265, 256)).toBe(330);
     expect(viewDependentCacheSlots(2560, 1265, 128)).toBe(1155);
-    const { map } = spyMap(new Array(52).fill(null));
+    const { map } = spyMap(Array.from({ length: 52 }, () => null));
     expect(terrainCoveringTileCount(map, 128, 0, 8)).toBe(52);
   });
 

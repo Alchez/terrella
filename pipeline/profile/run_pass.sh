@@ -20,24 +20,23 @@
 #   4. the cgroup    -> memory.peak for the whole scope, and the 12 G cap that kills the job not
 #                       the box (proven today: a 4-cell region render hit it and died alone).
 #
-# Shade cap 16 G, raised from 12 G. The composite is NOT why: it still peaks at
-# 10.55 GiB (opt #5, 128/N4; the serial composite was 6.24 GiB) and COMPOSITE_ROWS=128
-# is a hardcoded constant, not a function of this cap, so raising the cap does not let the
-# composite grow -- N stays 4 because 256/N3 and N=6 OOM on their own arithmetic. The cap moved
-# because the pass ENDS by rendering the polar caps (shade_planet invokes cap_render as a
-# subprocess, which inherits this scope's cgroup) and the caps peak at ~14 GB -- so a 12 G pass
-# completed every tile stage and then died at the very last one. Known cost of the raise: 12 G was
-# also an accidental tripwire on composite footprint, and a regression there now goes unnoticed
-# until 16 G.
+# THE CAP IS THE BODY'S AND THIS SCRIPT DOES NOT KNOW IT -- pipeline/profile/pass_cap.py derives
+# it from the registry, and holds the whole argument plus the measurements behind both numbers.
+# MEMORY_CAP_OVERRIDE_GIB substitutes the number afterwards and says so on stdout when it does; the
+# registry is still asked either way, and the branch itself carries why that ordering matters.
+# The short version: 16 G is the CAP-RENDERING number, because the pass ENDS by invoking cap_render
+# as a subprocess that inherits this scope's cgroup; a body rendering no caps never reaches that
+# stage, so on it the 16 G is unbacked rather than protective and the preflight below then refuses
+# a pass the box could have run. The composite is NOT why either number is what it is, and
+# COMPOSITE_ROWS=128 is a hardcoded constant rather than a function of this cap, so a larger cap
+# cannot let it grow. The per-stage peaks are measured in PROCESS.md, not restated here.
 #
-# Tiling cap 16 G, and it is NOT the same calculation. The composite is skipped when planet_rgb is
-# fresh, so the peak stage becomes `gdal raster tile`, which spawns -j ALL_CPUS workers that EACH
-# inherit GDAL_CACHEMAX -- 16 x 512 MB of block cache alone, before any tile buffers. Tiling's real
-# peak has never been measured, so the cap is sized off that per-worker cache math with headroom;
-# 16 G still kills the job and not the box (29 G total, ~20 G available). A worker killed mid-write
-# still leaves a TRUNCATED png, but build_tiles no longer resumes over a partial staging dir -- it
-# removes it and cuts clean, so a bad tile can no longer survive into the pyramid.
-# GDAL_CACHEMAX=512 per shade_planet.py's own launch note.
+# What this script still owns is GDAL_CACHEMAX=512 (per shade_planet.py's own launch note), which
+# `gdal raster tile` multiplies: it spawns -j ALL_CPUS workers that EACH inherit it. That product is
+# an UPPER BOUND the cut never reaches -- the block cache fills lazily, and measured the cut is the
+# lightest stage of the pass, so it is not what sizes this cap. A worker killed mid-write still
+# leaves a TRUNCATED png, but build_tiles no longer resumes over a partial staging dir -- it removes
+# it and cuts clean, so a bad tile can no longer survive into the pyramid.
 set -uo pipefail
 
 # Roots derive from this script's own location, never a hardcoded home path: the harness has to
@@ -51,13 +50,44 @@ cd "$ROOT" || exit 1
 
 if [[ " $* " == *" --tiles "* ]]; then
     RUN_LABEL=tiles
-    MEMORY_CAP=16G
 else
     RUN_LABEL=pass
-    MEMORY_CAP=16G
 fi
 PROF=$DATA/work/_profile_$RUN_LABEL   # output: data, gitignored
 UNIT=terrella-$RUN_LABEL
+
+# Ask the registry, through the pass's OWN argument parser, rather than reading --body here: this
+# argv is forwarded to that module verbatim seconds later, so a second spelling of the grammar is
+# a second thing to keep in step. It also makes this wrapper honour the contract its header states
+# -- until now a run that omitted --body cleared the preflight, opened a cgroup scope, and only
+# then died inside Python. argparse writes its own message to stderr, so nothing is restated here.
+MEMORY_CAP_GIB=$("$VENV" -m pipeline.profile.pass_cap "$@") || exit 1
+
+# A DELIBERATE OVERRIDE, READ AFTER THE RESOLVER AND NEVER INSTEAD OF IT, which is the whole design
+# of this branch. Written `${MEMORY_CAP_OVERRIDE_GIB:-$(...)}` it would let an exported variable skip
+# the resolver entirely, and with it the --body check the line above exists to enforce; written here
+# the registry is always asked, the body is always named, and only the NUMBER is substituted.
+#
+# It exists because the alternative is an untestable wiring. Both bodies render caps now, so the
+# resolver answers 16 for every planet in the registry and no real invocation can tell "the shell
+# used the number it was given" from "the shell holds a 16" -- a distinction sabotage.py has a case
+# for. A synthetic body cannot help: pass_cap runs in a SUBPROCESS, so a monkeypatched registry
+# never reaches it. This makes the number a controllable input, which is what a wiring test needs.
+#
+# ANNOUNCED, BECAUSE A SILENT ONE WOULD BE THE THING pass_cap's "NO FALLBACK" NOTE REFUSES. A pass
+# capped at an arbitrary number that nothing names is exactly the failure that module is written to
+# prevent; a pass capped at a number it prints is an operator decision, like ALLOW_LOW_MEMORY.
+if [[ -n "${MEMORY_CAP_OVERRIDE_GIB:-}" ]]; then
+    # Validated rather than trusted: a non-numeric value makes the comparison below evaluate it as
+    # 0, so every box would clear every cap and the preflight would silently stop being a check.
+    if [[ ! "$MEMORY_CAP_OVERRIDE_GIB" =~ ^[0-9]+$ ]]; then
+        echo "ABORT: MEMORY_CAP_OVERRIDE_GIB=$MEMORY_CAP_OVERRIDE_GIB is not a whole number of GiB." >&2
+        exit 1
+    fi
+    echo "memory cap overridden: ${MEMORY_CAP_OVERRIDE_GIB} G instead of this body's ${MEMORY_CAP_GIB} G"
+    MEMORY_CAP_GIB=$MEMORY_CAP_OVERRIDE_GIB
+fi
+MEMORY_CAP=${MEMORY_CAP_GIB}G
 
 # --- memory preflight -------------------------------------------------------------------------
 # A cgroup cap kills the job instead of the box -- but only if the box can actually BACK the cap.

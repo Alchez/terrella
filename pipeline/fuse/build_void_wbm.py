@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Synthesise a water-body mask for the void DEM tiles from ESA WorldCover.
 
 download_cop30_void.py fetches the withheld GLO-30 DEM tiles from OpenTopography, but
@@ -37,8 +36,13 @@ import numpy as np
 import rasterio
 
 from pipeline import paths
-from pipeline.render.snow_mask import (BUCKET_URL, DATA_DIR as WC_DIR, WORKERS,
-                                       download_one, tiles_for_bounds)
+from pipeline.fetch import download_one
+from pipeline.render.snow_mask import (
+    BUCKET_URL,
+    WORKERS,
+    tiles_for_bounds,
+)
+from pipeline.render.snow_mask import DATA_DIR as WC_DIR
 
 VOID_DIR = paths.DATA / "raw/cop30_void"
 WATER_CLASS = 80   # ESA WorldCover "permanent water bodies"
@@ -66,7 +70,8 @@ def ensure_worldcover(bounds) -> Path:
     counts = {"ok": 0, "skipped": 0, "absent": 0}
     failures = []
     with cf.ThreadPoolExecutor(WORKERS) as pool:
-        futs = {pool.submit(download_one, f"{BUCKET_URL}/{nm}", WC_DIR / nm): nm
+        futs = {pool.submit(download_one, f"{BUCKET_URL}/{nm}", WC_DIR / nm,
+                            timeout=120, absent_on_404=True): nm
                 for nm in names}
         for fut in cf.as_completed(futs):
             status = fut.result()

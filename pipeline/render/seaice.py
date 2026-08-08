@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Tile sea-ice layer: OSI SAF ice-frequency climatology -> soft white alpha over the sea.
 
 The sea-side mirror of pipeline/render/snow.py. Where snow drapes persistent white over LAND by a
@@ -80,12 +79,10 @@ def warp_seaice_raster(bounds, width, height, out_path, src=SEAICE_SRC, band_row
     (`warp_persistence_raster`): the composite unpacks per window in float64, so a window slice of this
     raster must be bit-identical to warping that window alone.
 
-    WHY BANDS: the source is COARSE (0.1 deg, ~11 km) relative to the fine Web-Mercator target
-    (~305 m). A single whole-grid gdalwarp decimates the source read (the pole-inflated average scale
-    picks a reduced resolution and applies it everywhere), smoothing the ice edge. A band whose
-    latitude span is small keeps the local scale honest, so with band_rows == the composite window
-    height each band IS the per-window warp it replaces -- byte-identical by construction. See the snow
-    analog for the full argument. band_rows=None (region/cap grids) is a single direct warp.
+    WHY BANDS: `snow.warp_persistence_raster` holds the argument and the measurement that settled it.
+    This source is coarser still -- 0.1 deg (~11 km) against the ~305 m target -- so a whole-grid warp
+    decimates it the same way and smooths the ice edge. band_rows=None (region/cap grids) is a single
+    direct warp.
     """
     left, bottom, right, top = bounds
     if band_rows is None or height <= band_rows:

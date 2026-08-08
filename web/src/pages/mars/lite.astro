@@ -1,0 +1,85 @@
+---
+// Mars's lite route — where a visitor goes who cannot, or will not, run the Mars globe.
+//
+// TEMPORARY BY DESIGN, AND THE REGISTRY IS WHAT MAKES IT CHEAP TO REPLACE. `BODIES.mars.liteRoute`
+// names this path; the pre-paint guard and the view bar's tier picker both read it from there, so
+// rewriting this page, or moving it, is this file plus one string. Nothing links here by hand.
+//
+// WHY IT EXISTS AT ALL, given Earth's lite route is the gallery. The tier ladder always has a
+// destination: a device with no WebGL2 is redirected off a globe before the page paints, and a
+// visitor can pick Lite in the view bar on purpose. Sending either of them to `/` would answer "this
+// device cannot draw Mars" by showing them Earth. What it cannot do is show hero renders instead,
+// because Mars has none — so it says so rather than pretending the gap is a design.
+import Base from "../../layouts/Base.astro";
+import Masthead from "../../components/Masthead.astro";
+import { bodyRoutes } from "../../lib/bodyRoutes";
+
+const routes = bodyRoutes("mars");
+---
+
+<Base
+  title="Mars — Terrella"
+  description="Mars without the globe, for devices that cannot draw one."
+  body="mars"
+  quality={true}
+>
+  <Masthead
+    heading="Mars"
+    eyebrow="Without the globe"
+    legend={false}
+    back="/"
+    backLabel="← Gallery"
+    maxWidth="min(1500px, 92vw)"
+  />
+
+  <main class="lite">
+    <p class="lede">This device is seeing Mars without the globe.</p>
+    <p>
+      The globe is a WebGL2 map of shaded relief, and you are here because either your browser
+      cannot run one or you chose Lite in the view controls. On Earth that choice lands you in a
+      gallery of ray-traced renders; Mars has no renders yet, so there is nothing to put here in
+      their place.
+    </p>
+    <p>
+      Both of those are open questions rather than oversights — a Mars look has not been decided,
+      and the renders come after it.
+    </p>
+    <p>
+      <a class="onward" href={routes.globe}>Go to Mars →</a>
+      <a class="onward" href="/earth/">Go to the Earth globe →</a>
+    </p>
+  </main>
+</Base>
+
+<style>
+  .lite {
+    max-width: min(1500px, 92vw);
+    margin: 0 auto;
+    padding: 0 clamp(1.1rem, 4vw, 2.5rem) 5rem;
+    color: var(--muted);
+    line-height: 1.65;
+  }
+  .lite p {
+    max-width: 62ch;
+  }
+  .lede {
+    color: var(--text);
+    font-size: 1.15rem;
+    font-weight: 600;
+    /* The one place the body's accent appears on this page, which makes a provisional colour
+       visible to anyone judging it. */
+    border-left: 3px solid var(--accent);
+    padding-left: 0.75rem;
+  }
+  .onward {
+    color: var(--accent);
+    font-weight: 600;
+    text-decoration: none;
+    margin-right: 1.5rem;
+    display: inline-block;
+  }
+  .onward:hover,
+  .onward:focus-visible {
+    text-decoration: underline;
+  }
+</style>

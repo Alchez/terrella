@@ -45,6 +45,13 @@ jobs:
       - name: Type-check (pyright)
         run: uv run pyright
 
+      # The other half of the static gate. No path argument and no `select`: the rule set is
+      # ruff's own default, configured in [tool.ruff.lint], and the scan follows .gitignore so the
+      # data store and the venv are out without being named. Placed after pyright because the two
+      # overlap least at the top — a type error is usually the more informative first failure.
+      - name: Lint (ruff)
+        run: uv run ruff check
+
       # The venv is Python 3.14, but palette.py + the two bpy scripts must stay importable
       # under Blender's bundled 3.13.9. This re-checks exactly those files at 3.13 so
       # 3.14-only syntax can't leak into a Blender-shared module. File list lives in the
@@ -88,8 +95,21 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Type-check (astro check)
+      # TWO PROGRAMS, and `pnpm check` runs both. `astro check` excludes worker/ on purpose —
+      # @cloudflare/workers-types redefines fetch/Response and breaks the site's program — so the
+      # Worker has its own tsconfig, and for a while nothing ran it. Nothing would have noticed
+      # either: wrangler's esbuild strips types without checking them, so a deploy ships regardless.
+      - name: Type-check (astro check + the tile Worker)
         run: pnpm check
+
+      # The web half of the static gate, and the counterpart to `ruff` in the job above: the two
+      # type-checkers ask whether the types line up, oxlint asks whether the code says what it
+      # means. No path argument — it walks from web/ and follows .gitignore, so it reaches all 95
+      # sources including the eight .astro pages and the Worker, which `astro check` excludes.
+      # Placed after the type-check for the same reason ruff sits after pyright, and before the
+      # ~100 MB browser download because it takes milliseconds.
+      - name: Lint (oxlint)
+        run: pnpm lint
 
       # The vitest `browser` project launches a real chromium; `pnpm install` fetches the
       # playwright NPM package but never its browser binaries, so without this the project

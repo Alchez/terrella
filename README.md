@@ -30,7 +30,7 @@ The frontend is a static Astro site, served from a CDN edge worker with the heav
 
 ## License
 
-Code is [MIT](LICENSE). The rendered imagery (hero renders, tiles, polar caps) is [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/) — free for educational, personal, and entertainment use with attribution; commercial use reserved. Underlying data carries its own licenses and required credits → [`ATTRIBUTIONS.md`](ATTRIBUTIONS.md).
+Code is [MIT](LICENSE). The rendered imagery (hero renders, tiles, polar caps) is [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) — free to use for any purpose with attribution, provided adaptations carry the same license. Underlying data carries its own licenses and required credits → [`ATTRIBUTIONS.md`](ATTRIBUTIONS.md).
 
 ## Read next
 

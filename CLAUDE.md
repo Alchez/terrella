@@ -43,12 +43,13 @@ probe; degrade at runtime if frame rate tanks; honour `Save-Data`, `prefers-redu
 
 - **Heroes:** headless Blender Cycles (bpy), RTX 4070 Super, OptiX backend + OpenImageDenoise — but **CPU denoise for 8K**, or render and denoise contend for the 12 GB VRAM and the driver throws an Xid 31 MMU fault.
 - One scene rig for every country: DEM displacement, low sun, two-ramp material (elevation-keyed land, depth-keyed sea), ortho camera framed from Natural Earth bounds.
-- **Vertical exaggeration 15×**, locked and shared by import (`palette.EXAGGERATION`) so hero and tile cannot drift.
+- **Vertical exaggeration belongs to the body** — 15× on Earth. The hero imports `palette.EXAGGERATION`, the tiles and caps read `Body.exaggeration`, and a test pins Earth's field equal to the constant; unpinned, the tiles drift away from the heroes they must match.
 - **Tiles approximate the Cycles look:** single-NW hillshade (multidirectional rejected) + sky-view factor from our own `sky_view.py` (WhiteboxTools dropped) + the same ramps, composited with GDAL.
 - **z0–8, and z8 is LOCKED.** z9/z10 are parked in FUTURE and blocked on disk — a planet re-fuse at ~2.5″, never a tiling flag.
 - **Tiles are 512px**, declared to MapLibre as `tileSize: 256`, which centres the scheme on DPR 2. → FUTURE § raster tile resolution vs device pixel ratio
 - **Delivery encoding is a policy, not one constant** — masters stay lossless, delivery does not. → ART § Delivery encoding · § The srcset ladder
 - **Every writer records its recipe beside its output**, because existence cannot see a settings change.
+- **A producer declares what it emitted; no consumer infers it from what is on disk.** A missing raster cannot distinguish "this body has none" from "the producer crashed", and an absent path scores nothing in an mtime comparison — so switching an input off leaves the output that used it looking fresh. `pipeline/planet_seam.py`.
 - Baked NW-ish lighting globally (cartographic convention); no per-region sun position.
 
 ## Serving & deployment
@@ -75,11 +76,14 @@ probe; degrade at runtime if frame rate tanks; honour `Save-Data`, `prefers-redu
 - Python for pipeline code; boring debuggable scripts over frameworks. (Upheld on measurement, not taste: numpy releases the GIL, so threads reach the same ceiling xarray/dask would.)
 - **`uv run pyright` stays at 0 and `pytest` stays green** — there is no "pre-existing error" allowance. rasterio call sites take a targeted `# pyright: ignore[reportCallIssue]`; GDAL creation-option dicts are `dict[str, Any]`.
 - **Docs in this repo state current truth, not history** — if a row and reality disagree, the row is the bug. Dated decisions live in a decision archive kept outside the repo.
-- **A learning goes where it will be met:** a fact about one function into that function's docstring, a general work heuristic into the agent's memory. One claim, one home; if it must appear twice, make one copy executable so drift fails loudly.
+- **A learning goes where it will be met:** a fact about one function into that function's docstring, a general work heuristic into the agent's memory.
+- **A second reader with no owner is the defect, and the KIND of thing is incidental** — a path, a procedure, a constant, a header, an explanation in a comment. With no home to import from, the second module copies, and *every copy is correct where it sits*: Natural Earth reached eight spellings of one path, all resolving identically on this machine, before `pipeline/naturalearth.py`; `download_one` reached two, and the copy drifted a timeout and a 404 branch, each exercised only by its own callers. **The trigger is "change one copy — what goes red?"** Nothing red means it needs an owner; where one owner is impossible — a latitude that must exist in Python and in TypeScript — make one copy executable so the drift fails loudly instead.
+- **For an EXPLANATION that trigger is inert — nothing ever goes red — so ask "if this concept changed, how many places would I edit?"** `bodies.py` re-established *why there are three radii* at each radius field and again in its module docstring, and every copy passed the comment rule below on its own: a per-comment test cannot see a cross-comment property, which is why the bloat was invisible from inside and obvious to a reader. A concept gets one block; the sites that need it get one line pointing at it. Measure with `scripts/prose_report.py` rather than by eye — but as an instrument you run, never a gate, since a dense constants file is legitimately dense.
+- **A comment explains its own subject and makes no claim that can rot behind its back.** The test: *could this sentence go false without anyone touching this function?* Counts, measurements taken elsewhere and system-wide properties all answer yes — they keep reading as specification long after they stop being true, which is how `composite_deps`' "eight look constants" and a test docstring's "53.8 min composite" each sent a decision the wrong way. Those belong in a test, in PROCESS.md, or nowhere; what stays is the concept, the context needed to read the code, and the anti-redo guard.
 - **A superseded path is deleted the same day**, or moved out of the production package — prose calling it "retired" does not disarm a runnable entry point. Exception: under gitignored `data/`, where deletion is permanent.
 - Never commit rendered assets or DEM data — code and config only.
 - Plan first (Plan Mode) before any multi-file or architectural task.
-- The other docs, so facts are looked up rather than re-guessed: **PROCESS.md** measured runtimes (the authority — read it before estimating), **INVENTORY.md** the storage map, **ART.md** the aesthetic decisions, **FUTURE.md** the v2 parking lot (check it before designing a "new" feature), **docs/*.mmd** the pipeline diagrams.
+- The other docs, so facts are looked up rather than re-guessed: **PROCESS.md** measured runtimes (the authority — read it before estimating), **INVENTORY.md** the storage map, **ART.md** the aesthetic decisions, **FUTURE.md** the v2 parking lot (check it before designing a "new" feature), **MARS.md** the standing brief for the second body (read it before touching a body seam), **docs/*.mmd** the pipeline diagrams.
 
 ## Skills context
 

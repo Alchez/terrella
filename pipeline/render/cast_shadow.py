@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Directional cast shadows — the one term a hillshade structurally cannot produce.
 
 `gdaldem hillshade` (and our `hillshade.py`) is a purely LOCAL operator: it sees one pixel's
@@ -55,11 +54,17 @@ def shadow_mask(heights: np.ndarray, zfactor: float | np.ndarray, m_per_px: floa
                 reach_px: int = 200) -> np.ndarray:
     """Occluded fraction of the sun's disc, 0.0 (fully lit) .. 1.0 (fully shadowed).
 
-    `heights` is metres on a north-up grid of `m_per_px` map units. `zfactor` is the vertical
-    exaggeration, scalar or a column vector of shape (rows, 1) for the per-latitude Mercator
-    correction (`relief.mercator_zfactor` = EXAG / cos(lat)) — the same value and the same shape
-    the hillshade uses, so the two terms exaggerate identically. They must agree: a shadow cast by
-    15x relief onto terrain shaded at some other exaggeration is visibly wrong.
+    `heights` is metres on a north-up grid of `m_per_px` MAP units, and `zfactor` is what converts
+    that mismatch away — it is the vertical exaggeration already divided by the map-unit-to-ground
+    ratio, scalar or a column vector of shape (rows, 1) carrying the per-latitude Mercator term.
+    Hand it exactly what the hillshade uses, because the two terms must exaggerate identically: a
+    shadow cast by 15x relief onto terrain shaded at some other exaggeration is visibly wrong.
+
+    THIS FUNCTION THEREFORE NEEDED NO CHANGE FOR A SECOND BODY, and that is worth stating rather
+    than leaving to be rediscovered. The tangent it accumulates is `zfactor * dh / (d * m_per_px)`,
+    so a body whose map units are not ground metres is corrected the moment its scale reaches the
+    z-factor — the same one number fixing the shading also fixes the shadows, and a second
+    correction applied here would double it.
 
     `reach_px` truncates the march. A shadow longer than this is silently cut short, so it is a
     real quality/cost lever and not a safety limit: cost is O(reach_px) full-array passes. At the
@@ -93,8 +98,8 @@ def shadow_mask(heights: np.ndarray, zfactor: float | np.ndarray, m_per_px: floa
     # horizon at exactly 0 degrees, which is indistinguishable from a sun at the horizon.
     steepest = np.full(exaggerated.shape, -np.inf, dtype=np.float32)
     for distance in range(1, reach_px + 1):
-        row_offset = int(round(row_step * distance))
-        column_offset = int(round(column_step * distance))
+        row_offset = round(row_step * distance)
+        column_offset = round(column_step * distance)
         upsun = padded[reach_px + row_offset:reach_px + row_offset + rows]
         if column_offset:
             # np.roll(a, s)[i] == a[i - s], so the shift is negated to sample TOWARD the sun.

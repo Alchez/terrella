@@ -34,6 +34,10 @@ from pipeline.render.hillshade import (
 
 CELLSIZE = 305.7483  # the z8 planet grid
 ALT, AZ = 46.0, 315.0
+# These are synthetic rasters, not a planet, so one map unit IS one ground metre and the shader's
+# `ground_scale` is the identity. Spelled at every call rather than defaulted, because the parameter
+# is required precisely so a body that is not Earth cannot inherit this value by omission.
+MAP_UNITS_ARE_GROUND_METRES = 1.0
 
 
 def synthetic_terrain(rows: int, cols: int, seed: int = 0) -> np.ndarray:
@@ -141,7 +145,7 @@ class TestWindowInvariance:
         if not src.exists():
             self._write_height(src)
         out = tmp_path / name
-        per_row_zfactor_hillshade(src, out, 15.0, ALT, AZ, window_rows=window_rows)
+        per_row_zfactor_hillshade(src, out, 15.0, ALT, AZ, window_rows=window_rows, ground_scale=MAP_UNITS_ARE_GROUND_METRES)
         with rasterio.open(out) as dataset:
             return dataset.read(1)
 
@@ -170,7 +174,7 @@ class TestWindowInvariance:
         for name, window_rows in (("g.tif", 256), ("h_out.tif", 97)):
             out = tmp_path / name
             per_row_zfactor_hillshade(src, out, 15.0, ALT, AZ, window_rows=window_rows,
-                                      fill_strength=0.15)
+                                      fill_strength=0.15, ground_scale=MAP_UNITS_ARE_GROUND_METRES)
             with rasterio.open(out) as dataset:
                 outs.append(dataset.read(1))
         assert np.array_equal(outs[0], outs[1])
@@ -182,7 +186,7 @@ class TestWindowInvariance:
         out = tmp_path / name
         per_row_zfactor_hillshade(src, out, 15.0, ALT, AZ, window_rows=window_rows,
                                   fill_strength=0.15, shadow_strength=strength,
-                                  shadow_reach_px=reach_px)
+                                  shadow_reach_px=reach_px, ground_scale=MAP_UNITS_ARE_GROUND_METRES)
         with rasterio.open(out) as dataset:
             return dataset.read(1)
 
@@ -206,7 +210,7 @@ class TestWindowInvariance:
         src = tmp_path / "h.tif"
         self._write_height(src)
         off = tmp_path / "m.tif"
-        per_row_zfactor_hillshade(src, off, 15.0, ALT, AZ, fill_strength=0.15)
+        per_row_zfactor_hillshade(src, off, 15.0, ALT, AZ, fill_strength=0.15, ground_scale=MAP_UNITS_ARE_GROUND_METRES)
         with rasterio.open(off) as dataset:
             baseline = dataset.read(1)
         assert np.array_equal(
@@ -261,7 +265,7 @@ class TestFullShadowLandsOnTheFillFloor:
         out = tmp_path / "wall_shaded.tif"
         # Sun from due west: the shadow falls east of the wall along a single row, no diagonal.
         per_row_zfactor_hillshade(src, out, 15.0, ALT, 270.0, fill_strength=self.FILL_STRENGTH,
-                                  shadow_strength=1.0, shadow_reach_px=300)
+                                  shadow_strength=1.0, shadow_reach_px=300, ground_scale=MAP_UNITS_ARE_GROUND_METRES)
         with rasterio.open(out) as dataset:
             shaded = dataset.read(1)
 
@@ -277,7 +281,7 @@ class TestFullShadowLandsOnTheFillFloor:
         src = tmp_path / "wall.tif"
         self._wall_raster(src)
         out = tmp_path / "wall_lit.tif"
-        per_row_zfactor_hillshade(src, out, 15.0, ALT, 270.0, fill_strength=self.FILL_STRENGTH)
+        per_row_zfactor_hillshade(src, out, 15.0, ALT, 270.0, fill_strength=self.FILL_STRENGTH, ground_scale=MAP_UNITS_ARE_GROUND_METRES)
         with rasterio.open(out) as dataset:
             lit = dataset.read(1)
         # Flat ground unshadowed holds the module's contract: 255*sin(alt).
@@ -330,7 +334,7 @@ class TestFillStrengthZeroChangesNothing:
         if not src.exists():
             self._write_height(src)
         out = tmp_path / name
-        per_row_zfactor_hillshade(src, out, 15.0, ALT, AZ, fill_strength=fill_strength)
+        per_row_zfactor_hillshade(src, out, 15.0, ALT, AZ, fill_strength=fill_strength, ground_scale=MAP_UNITS_ARE_GROUND_METRES)
         with rasterio.open(out) as dataset:
             return dataset.read(1)
 
@@ -385,3 +389,81 @@ class TestFillSunDoesItsJob:
         raw = (main + 2.0 * low) * fill_scale(2.0, ALT, 20.0)
         assert raw.max() > 255.0, "the check below would be vacuous without a real overflow"
         assert combine_fill(main, low, 2.0, ALT, fill_altitude=20.0).max() == 255.0
+
+
+class TestTheGroundScaleReachesTheSlope:
+    """A body whose map units are not ground metres must shade steeper, not merely record that it
+    should. `ground_scale` is a required argument precisely because nothing else in the system can
+    tell that it was forgotten — the output is a plausible hillshade either way.
+    """
+
+    MARS_LIKE = 0.532474  # ground metres per map unit for a body on ~53% of Earth's radius
+
+    #: Deliberately far below the production 15x. AT PRODUCTION EXAGGERATION THIS TEST'S ORACLE
+    #: INVERTS, which is worth recording because it read as a failure of the code: 15x on this
+    #: relief drives most of the raster into the 0/255 clamps, so shading it STEEPER moves pixels
+    #: into saturation and the spread FALLS — measured std 72.2 for the smaller body against
+    #: Earth's 75.8, exactly the direction that looks like the scale never arrived. Even 1.0 leaves
+    #: 4.8% clamped. Measured at 0.1: nothing clamps in either arm and the spread goes 11.59 ->
+    #: 21.13, a 1.82x rise against the 1.878x the small-angle limit predicts.
+    GENTLE_EXAGGERATION = 0.1
+
+    def _shade(self, tmp_path, name, ground_scale, exaggeration=GENTLE_EXAGGERATION):
+        src = tmp_path / "h.tif"
+        if not src.exists():
+            heights = synthetic_terrain(96, 128)
+            transform = rasterio.transform.from_origin(0.0, 5_000_000.0, CELLSIZE, CELLSIZE)
+            with rasterio.open(src, "w", driver="GTiff", height=96, width=128, count=1,
+                               dtype="float32", crs="EPSG:3857", transform=transform) as dataset:
+                dataset.write(heights.astype("float32"), 1)
+        out = tmp_path / name
+        per_row_zfactor_hillshade(src, out, exaggeration, ALT, AZ, ground_scale=ground_scale)
+        with rasterio.open(out) as dataset:
+            return dataset.read(1).astype(float)
+
+    @staticmethod
+    def _saturated_fraction(shaded: np.ndarray) -> float:
+        return float(np.mean((shaded <= 0.0) | (shaded >= 255.0)))
+
+    def test_the_identity_scale_is_what_the_unscaled_shader_always_did(self, tmp_path):
+        """The adoption guarantee: at 1.0 the term divides out, so every existing pixel is the one
+        that was there before. This is what let the scale reach production without a re-render."""
+        shaded = self._shade(tmp_path, "identity.tif", MAP_UNITS_ARE_GROUND_METRES)
+        expected = self._shade(tmp_path, "expected.tif", 1.0)
+        assert np.array_equal(shaded, expected)
+
+    def test_a_body_whose_map_units_overstate_distance_shades_steeper(self, tmp_path):
+        """The whole point. On a smaller planet the same grid covers less ground, so the terrain is
+        genuinely steeper than the raster's units imply and the shading must separate further from
+        flat. Compared as spread rather than mean, because a hillshade brightens on some faces and
+        darkens on others — a mean would cancel the very effect under test."""
+        earth = self._shade(tmp_path, "earth.tif", MAP_UNITS_ARE_GROUND_METRES)
+        smaller = self._shade(tmp_path, "smaller.tif", self.MARS_LIKE)
+        # The precondition, asserted rather than assumed: spread only tracks steepness while the
+        # shading has headroom, and a saturated pair would compare two clamps and invert.
+        for name, shaded in (("earth", earth), ("smaller", smaller)):
+            assert self._saturated_fraction(shaded) < 0.01, (
+                f"the {name} arm is {self._saturated_fraction(shaded):.1%} clamped, so spread has "
+                "stopped measuring steepness — lower GENTLE_EXAGGERATION or flatten the terrain"
+            )
+        # 1.5, not 1.05: in the unsaturated regime the hillshade is near-linear in slope, so the
+        # spread should rise by about 1/ground_scale = 1.878x. A threshold set just above zero
+        # would pass on a scale that reached the raster but arrived at the wrong magnitude.
+        assert smaller.std() > earth.std() * 1.5, (
+            f"a body at {self.MARS_LIKE} ground metres per map unit shaded no steeper than Earth "
+            f"(std {smaller.std():.2f} vs {earth.std():.2f}) — the scale is not reaching the slope"
+        )
+
+    def test_the_scale_divides_exactly_as_an_equal_exaggeration_change_would(self, tmp_path):
+        """Pins the DIRECTION and the magnitude against an independent lever, and this one holds at
+        any exaggeration because it is an identity rather than a trend. Dividing the z-factor by
+        0.532 must be indistinguishable from multiplying the exaggeration by 1/0.532 — both are the
+        same product — and getting the direction backwards is a 3.5x error that still renders
+        beautifully."""
+        scaled = self._shade(tmp_path, "scaled.tif", self.MARS_LIKE, exaggeration=15.0)
+        src = tmp_path / "h.tif"
+        out = tmp_path / "exaggerated.tif"
+        per_row_zfactor_hillshade(src, out, 15.0 / self.MARS_LIKE, ALT, AZ,
+                                  ground_scale=MAP_UNITS_ARE_GROUND_METRES)
+        with rasterio.open(out) as dataset:
+            assert np.array_equal(scaled, dataset.read(1).astype(float))

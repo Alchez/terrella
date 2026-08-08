@@ -20,7 +20,12 @@ set -euo pipefail
 
 TAG="v5.1.2"
 BASE="https://raw.githubusercontent.com/nvkelso/natural-earth-vector/$TAG"
-DEST="$(cd "$(dirname "$0")/../.." && pwd)/data/raw/naturalearth"
+# MAPS_DATA overrides the data root (tests, alternate checkouts); the default is the repo's data/.
+# Same idiom as build_mosaics.sh, and load-bearing rather than tidy: this script is the WRITER for
+# seven Python readers that all resolve the directory through pipeline/naturalearth.py. Left
+# checkout-rooted, a relocated store would have this write where nothing reads.
+DATA="${MAPS_DATA:-$(cd "$(dirname "$0")/../.." && pwd)/data}"
+DEST="$DATA/raw/naturalearth"
 
 LAYERS=(
   "10m_cultural/ne_10m_admin_0_boundary_lines_land"

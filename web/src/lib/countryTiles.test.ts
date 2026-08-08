@@ -1,14 +1,11 @@
 import { describe, it, expect } from "vitest";
 import {
   COUNTRIES_CONTENT_TYPE,
-  COUNTRIES_MAX_ZOOM,
-  COUNTRIES_MIN_ZOOM,
-  COUNTRIES_PATH_TEMPLATE,
+  COUNTRIES_PATH_PREFIX,
   COUNTRIES_TILE_EXTENSION,
   COUNTRY_FILL_LAYER,
   COUNTRY_HIT_LAYER,
   COUNTRY_OUTLINE_LAYER,
-  assertCountriesZoomRange,
   describeCountriesTileTypeMismatch,
   parseCountriesTilePath,
 } from "./countryTiles";
@@ -69,22 +66,14 @@ describe("describeCountriesTileTypeMismatch", () => {
   });
 });
 
-describe("assertCountriesZoomRange", () => {
-  it("passes when the archive matches the constants", () => {
-    expect(() => assertCountriesZoomRange(COUNTRIES_MIN_ZOOM, COUNTRIES_MAX_ZOOM)).not.toThrow();
-  });
-
-  it("throws on drift in either direction, naming the file to fix", () => {
-    // A shallower archive is invisible on THIS pyramid in a way it is not on relief: the sparse
-    // route answers 204 for a missing tile, so an archive that stops early looks like ocean.
-    expect(() => assertCountriesZoomRange(0, 6)).toThrow(/countryTiles\.ts/);
-    expect(() => assertCountriesZoomRange(1, 8)).toThrow(/countryTiles\.ts/);
-  });
-});
-
 describe("the archive contract the pipeline writes", () => {
-  it("addresses tiles under the prefix MapLibre will interpolate", () => {
-    expect(COUNTRIES_PATH_TEMPLATE).toBe("countries/{z}/{x}/{y}.mvt");
+  it("keeps the prefix its own parser reads, which is the legacy grammar's discriminator", () => {
+    // The prefix no longer appears in anything the browser ASKS for — tileAddress.ts builds those
+    // from `{body}/{layer}/…`, where `countries` is the layer segment. It survives here because
+    // `parseCountriesTilePath` is what still accepts the shape pages built before the switch are
+    // asking for, and it goes when that branch does.
+    expect(COUNTRIES_PATH_PREFIX).toBe("countries");
+    expect(parseCountriesTilePath(`${COUNTRIES_PATH_PREFIX}/3/4/3.mvt`)).toEqual({ z: 3, x: 4, y: 3 });
   });
 
   it("declares protobuf, not an image type", () => {

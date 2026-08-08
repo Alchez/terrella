@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Extract the GLOBathy rasters worth reading at z8 and build their mosaic VRT.
 
 GLOBathy ships 1,427,688 per-lake 1" GeoTIFFs in one 16.73 GB zip. At 306 m/px most are a
@@ -32,7 +31,6 @@ import re
 import subprocess
 import sys
 import zipfile
-from pathlib import Path
 
 from pipeline import paths
 

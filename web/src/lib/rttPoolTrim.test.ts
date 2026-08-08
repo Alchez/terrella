@@ -18,6 +18,10 @@ function fakeObject(size: number, log: string[], name: string): RttObject {
   return { size, texture: { destroy: () => log.push(name) } };
 }
 
+/** An RTT object whose destruction is not recorded — for counting, where the log is not read.
+ *  `fakeObject` above is the same thing with a name and a log; these tests only need the size. */
+const object = (): RttObject => ({ size: 512, texture: { destroy: () => {} } });
+
 function pool(count: number, size = 512, log: string[] = []): RttObject[] {
   return Array.from({ length: count }, (_, index) => fakeObject(size, log, `obj${index}`));
 }
@@ -41,7 +45,11 @@ function fakeMap(options: { pool?: RttObject[] | undefined; moving?: boolean; ti
       listeners.get(event)?.delete(listener);
     },
     emit(event: string) {
-      for (const listener of [...(listeners.get(event) ?? [])]) listener();
+      // A snapshot, not a convenience: a listener is allowed to call `off` on itself or a sibling
+      // while it runs, and deleting from the live Set mid-iteration silently skips whoever came
+      // after. Naming the copy is what says so — the spread reads as removable otherwise.
+      const snapshot = [...(listeners.get(event) ?? [])];
+      for (const listener of snapshot) listener();
     },
     listenerCount: (event: string) => listeners.get(event)?.size ?? 0,
     attachmentSets,
@@ -140,7 +148,6 @@ describe("reading MapLibre's private state", () => {
   });
 
   it("counts objects held by tiles, which are NOT trimmable", () => {
-    const object = (): RttObject => ({ size: 512, texture: { destroy: () => {} } });
     const map = fakeMap({
       pool: [],
       tiles: { a: { rttObjects: [object(), object(), object()] }, b: { rttObjects: [object(), undefined] } },
@@ -229,7 +236,6 @@ describe("attachRttPoolTrim", () => {
   });
 
   it("reports a census whose peak survives the trim that reduced it", () => {
-    const object = (): RttObject => ({ size: 512, texture: { destroy: () => {} } });
     const map = fakeMap({ pool: pool(10), tiles: { a: { rttObjects: [object(), object()] } } });
     const scheduler = fakeScheduler();
     const handle = attachRttPoolTrim(map, { bound: 4, scheduler });

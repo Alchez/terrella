@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Per-country subject-spotlight overlay for the hero gallery (toggle asset).
 
 Parallel to gen_borders.py: emits a standalone transparent overlay that, laid
@@ -55,25 +54,38 @@ from rasterio.enums import Resampling
 from rasterio.errors import NotGeoreferencedWarning
 from rasterio.transform import from_origin
 from rasterio.warp import reproject
-from scipy.ndimage import binary_fill_holes, distance_transform_edt, gaussian_filter, label
+from scipy.ndimage import (
+    binary_fill_holes,
+    distance_transform_edt,
+    gaussian_filter,
+    label,
+)
 
+from pipeline import naturalearth, paths
 from pipeline.compose.overlay_borders import render_mapping
+from pipeline.frame.country_config import country_render_dir
 
 warnings.filterwarnings("ignore", category=NotGeoreferencedWarning)  # hero PNGs
 
-ROOT = Path(__file__).resolve().parents[2]
-HEROES = ROOT / "blender/renders/heroes"
-VARIANTS = ROOT / "blender/renders/variants"
-NE_COUNTRIES = (ROOT / "data/raw/naturalearth/ne_10m_admin_0_countries"
-                / "ne_10m_admin_0_countries.shp")
-WORK = ROOT / "data/work"
+# Both roots, as in `gen_borders`: the shapefile and the per-country work tree move with
+# `MAPS_DATA`, the rendered layers stay in the checkout beside the heroes they dim.
+HEROES = paths.ROOT / "blender/renders/heroes"
+VARIANTS = paths.ROOT / "blender/renders/variants"
+NE_COUNTRIES = naturalearth.layer("ne_10m_admin_0_countries")
 PLANE_WIDTH_UNITS = 2.0
 # The ladder is IMPORTED, not restated. The gallery layers this overlay directly on the hero and
 # gives both the same `sizes`, so a rung the overlay lacks makes the browser pull a larger file for
 # the top layer than for the one underneath it. This used to be a copied tuple kept honest by a
 # test — which worked for a fixed ladder, but the portrait fill rung is computed per hero from its
 # aspect, and there is no way to copy a function and stay in step. One definition, no drift.
-from pipeline.compose.hero_variants import TARGETS, rungs_for  # noqa: E402  (re-exported)
+#
+# `TARGETS` IS RE-EXPORTED and F401 cannot see that, which is why the suppression is here rather
+# than left to be rediscovered. Nothing in this module reads the name; `test_hero_variants.py`
+# reaches it as `gen_spotlight.TARGETS`, through the module object, to pin this ladder against the
+# hero's and to enumerate all three ladders the pipeline produces. An attribute read is invisible
+# to an unused-import check, so the automatic fix deletes the name and takes the guard with it.
+from pipeline.compose.hero_variants import TARGETS, rungs_for  # noqa: E402, F401
+
 # Unchanged at q88 by the quality pass, and provably so: build_overlay sets
 # overlay_alpha to 0 across the subject, so these pixels only ever cover the dimmed surroundings.
 WEBP_QUALITY = 88
@@ -211,7 +223,7 @@ def load_parts(shp_path, bbox, want_slug, exclude=False):
 
 def render_one(slug, dim, desat, force, outline_div=OUTLINE_DIV_DEFAULT, halo=HALO_ALPHA_DEFAULT):
     hero_path = HEROES / f"{slug}.png"
-    render_dir = WORK / slug / "render"
+    render_dir = country_render_dir(slug)
     ocean_path = render_dir / "oceanmask_aea.tif"
     heightfield_path = render_dir / "heightfield_aea.tif"
     if not hero_path.exists() or not ocean_path.exists() or not heightfield_path.exists():

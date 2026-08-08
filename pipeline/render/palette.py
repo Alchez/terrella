@@ -14,11 +14,16 @@ image. `color_relief_rows` densely samples each ramp and sRGB-encodes it into th
 `gdaldem color-relief` consumes. Land and sea are separate ramps chosen later by the
 ocean mask (not the elevation sign), which keeps the coastline crisp.
 
-The frozen endpoints
-for land at 0/6000 m and 85B9B7/3A6E7D for sea at 0/-6000 m; `test_palette.py` guards
-against drift off those values.
+EVERY RAMP CONSTANT HERE IS ONE BODY'S, and the module holds more than one body's. Earth's land
+runs 0/6000 m and its sea 85B9B7/3A6E7D over 0/-6000 m, both frozen and guarded against drift by
+`test_palette.py`. Mars answers `MARS_LAND_STOPS` over its own domain and shares no colour object
+with Earth, so a re-tune of one planet cannot reach the other — which is the whole reason the ramps
+are assembled into a named `Look` rather than read as globals. Nothing outside this module may read
+an authored ramp by name; a source scan enforces it, because a module that does renders Earth
+perfectly and is wrong only on the planet nobody has looked at.
 """
 
+import itertools
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -68,9 +73,12 @@ LAKE_MAX_M = 1642.0  # Baikal — the deepest lake GLOBathy carries; the lake ra
 SUN_ALT_DEG = 45.0   # the shared sun altitude: tile KNOBS["alt"] and the hero SUN_ROTATION
 # X-tilt (90 - alt) both derive from this (the sea-sync — the cure for the 46/45
 # split). Azimuth stays per-side: both are NW by their own conventions (tile 315, hero -45).
-EXAGGERATION = 15.0  # the shared vertical exaggeration: hero displacement_scale
-# (render_prep.scene_numbers) and tile hillshade (shade_planet.EXAG) both derive from it
-# — the last surviving copy-pair, moved here at the freeze-lift.
+EXAGGERATION = 15.0  # the HERO's vertical exaggeration: render_prep.scene_numbers derives
+# displacement_scale from it, and the region preview shades at it. The tile and cap path reads
+# Body.exaggeration instead — relief is a different fraction of the radius on every planet, so it
+# cannot be one number — and tests/test_bodies.py holds Earth's field equal to this. Pinned rather
+# than shared: shared would be wrong for the second body, and unpinned would let the tiles drift
+# away from the heroes they must match.
 
 
 def smoothstep(t: float) -> float:
@@ -87,7 +95,7 @@ def lin2srgb(c: float) -> float:
 def ramp_color(pos: float, stops: list[Stop]) -> RGB:
     """EASE-interpolated linear RGB at pos in [0, 1] (clamped)."""
     pos = min(1.0, max(0.0, pos))
-    for (p0, c0), (p1, c1) in zip(stops, stops[1:]):
+    for (p0, c0), (p1, c1) in itertools.pairwise(stops):
         if pos <= p1:
             t = 0.0 if p1 == p0 else (pos - p0) / (p1 - p0)
             blend = smoothstep(min(1.0, max(0.0, t)))
@@ -132,16 +140,52 @@ LAKE_STOPS: list[Stop] = [
 
 @dataclass(frozen=True)
 class Surface:
-    """One ramp, and the elevation at which it reaches position 1.0.
+    """One ramp, and the two elevations it runs BETWEEN: `origin_m` at position 0.0, `extreme_m`
+    at position 1.0.
 
     `extreme_m` carries the DIRECTION in its sign, which is what lets land and sea share every
-    formula below instead of each carrying its own transcription: position is `elevation /
-    extreme_m`, so land runs 0 -> +6000 and sea runs 0 -> -6000 with no branch. The elevation a
-    ramp's first LUT index sits at is `min(0, extreme_m)`, which is 0 for land and the abyss for sea.
+    formula below instead of each carrying its own transcription: Earth's land runs 0 -> +6000 and
+    its sea runs 0 -> -6000 with no branch. Position is `(elevation - origin_m) /
+    (extreme_m - origin_m)`, and the elevation a ramp's first LUT index sits at is
+    `min(origin_m, extreme_m)` — the abyss for sea, the origin for land.
+
+    ORIGIN EXISTS BECAUSE ZERO WAS AN EARTH FACT WEARING A CONSTANT'S CLOTHES. This class used to
+    hardcode 0 as one end, in `min(0, extreme_m)` and in dividing by `extreme_m` alone, and on Earth
+    that is right for a reason: 0 m is the shoreline, a real boundary where the ramp genuinely
+    should hinge. On a body with no sea it is nothing of the kind. Mars's 0 m is the areoid — an
+    equipotential reference with no expression on the ground, sitting at the MEDIAN of the planet's
+    elevations — so hinging there put 51.6% of Mars below the ramp entirely, clamped to one colour.
+    A body that declares no sea should not have its ramp shaped as though it did.
+
+    `origin_m` HAS NO DEFAULT. A default of 0.0 would be correct at both of today's construction
+    sites and silently wrong at the first one that needed otherwise, which is the whole failure this
+    field exists to end; the type checker naming every site is worth more than the two words saved.
+    Earth reduces to the old expressions exactly rather than approximately — with `origin_m = 0.0`,
+    `(e - 0) / (x - 0)` IS `e / x` — so its ramps cannot move, by algebra and not only by test.
     """
 
     stops: list[Stop]
+    origin_m: float
     extreme_m: float
+
+    def __post_init__(self):
+        # A zero-width ramp divides by zero. numpy would hand back nan, `np.rint(nan)` is nan, and
+        # the cast to int32 makes it an arbitrary index — a planet rendered in one wrong colour with
+        # no exception anywhere. Loud here, where the ramp is declared, is the only cheap place.
+        if self.origin_m == self.extreme_m:
+            raise ValueError(
+                f"a ramp needs two distinct ends; got origin_m == extreme_m == {self.origin_m}"
+            )
+
+    @property
+    def span_m(self) -> float:
+        """Signed distance from position 0.0 to 1.0. Negative for a ramp that runs downward."""
+        return self.extreme_m - self.origin_m
+
+    @property
+    def lowest_m(self) -> float:
+        """The elevation at LUT index 0, which is the lower end whichever way the ramp runs."""
+        return min(self.origin_m, self.extreme_m)
 
 
 @dataclass(frozen=True)
@@ -156,22 +200,132 @@ class Look:
     entire reason this type exists: today every ramp is a module-level global, and a second planet
     with globals means either copied constants or mutation — and copied look constants have already
     cost this project one overnight re-render of all 203 heroes.
+
+    `sea` IS OPTIONAL, AND `None` IS A STATEMENT RATHER THAN A GAP. It says this planet draws no
+    sea. The alternative — a sea ramp written out for a body that declares no oceanmask, so no pixel
+    could ever select it — puts a colour nobody chose into the freshness recipe, where it is
+    indistinguishable from one that was deliberated over. That is the fabricated-fact trap the
+    planet seam already refuses one tier up, where an all-zero ocean raster would have been unable
+    to say whether a planet has no sea or its fusion died halfway. Same refusal, same reason.
     """
 
     land: Surface
-    sea: Surface
+    sea: Surface | None
 
 
 #: Terrella's look, assembled from the constants above rather than restating them — those remain
 #: the authored values, and every consumer still reads them directly. This is the seam a second
 #: look plugs into, not a second copy of the first.
 EARTH_LOOK = Look(
-    land=Surface(stops=LAND_STOPS, extreme_m=LAND_MAX_M),
-    sea=Surface(stops=SEA_STOPS, extreme_m=SEA_MIN_M),
+    land=Surface(stops=LAND_STOPS, origin_m=0.0, extreme_m=LAND_MAX_M),
+    sea=Surface(stops=SEA_STOPS, origin_m=0.0, extreme_m=SEA_MIN_M),
 )
 
+#: Mars's land ramp, hand-authored against measurements of the planet's own colour.
+#:
+#: A HYPSOMETRIC RAMP IS A FICTION ON MARS, AND THIS ONE KNOWS IT. Earth's ramp works because
+#: elevation predicts colour there, through climate and vegetation. Mars's albedo is set by
+#: WIND-BLOWN DUST, which does not care about height. Measured by joining the global Viking colour
+#: mosaic (`Mars_Viking_ClrMosaic_global_925m.tif`, USGS) to the shipped heightfield at 6.48 M
+#: co-registered lon/lat samples, area-weighted: across the elevations holding 64% of the surface
+#: (-3000..+3000 m) mean colour moves 7.1 luma against a within-place scatter of 17.9 — a ratio of
+#: 0.40. Widened to 92% of the surface it is 1.03. The named albedo features are off any such trend
+#: by more than the trend's whole range: Syrtis Major sits at +1,369 m and luma 41.5 where its
+#: elevation band averages 84.
+#:
+#: SO THESE COLOURS ARE CARTOGRAPHIC CONVENTION, NOT A PICTURE OF MARS, and the About page says so
+#: to visitors. What was taken from the measurement and what was not:
+#:   - HUE, taken in full. Channel ratios survive an uncalibrated tone curve where an absolute level
+#:     does not. The mosaic puts Mars at G/R 0.654; Earth's borrowed ramp was shipping 0.780.
+#:   - LEVEL, taken in part. The mosaic reads 2.07x darker than the borrowed ramp shipped, which
+#:     would put Mars at 0.45x Earth's shipped land. Most of that is the product's own tone curve
+#:     and an uncorrected atmospheric haze floor, not the planet: real land albedo is broadly
+#:     comparable between the two bodies (Earth's deserts 0.30-0.40 and forests 0.10-0.15 against
+#:     Mars's bright regions ~0.30 and dark ~0.10), so pinning Mars to the mosaic while Earth stays
+#:     stylised would make the two planets disagree about what a map is. This ships at 0.71x.
+#:   - SHAPE, deliberately refused. Mars is genuinely brightest at BOTH ends — Hellas is a dust trap
+#:     and Tharsis is dust-mantled — so a faithful ramp would give the deepest basin and the highest
+#:     summit the same colour, which is exactly the defect inherited from Earth's shoreline hinge.
+#:     Rising monotonically with elevation is what makes height readable at all.
+#:
+#: THE AUTHORED VALUES ARE NOT WHAT SHIPS. `shade.composite` resaturates by `saturation` 1.18, warms
+#: by `warmth` 0.06 and multiplies by a light term at ~1.025 on flat ground, so a stop picked to hit
+#: a hue target overshoots it. These were specified as the intended SHIPPED colour and inverted
+#: through that chain — a first pass authored directly by eye landed at B/R 0.35 against a 0.55
+#: intent. Anything re-tuning them should invert the same way rather than nudging the hex.
+MARS_LAND_STOPS: list[Stop] = [
+    (0.000, (0.187821, 0.078187, 0.045186)),  # -6000 m  deepest basin floor, ships #804d35
+    (0.150, (0.274677, 0.114435, 0.066626)),  # -4185 m  lowland plains
+    (0.350, (0.412543, 0.171441, 0.082283)),  # -1765 m  the northern lowlands' own tone
+    (0.550, (0.514918, 0.246201, 0.111932)),  #  +655 m  just above the areoid, the modal elevation
+    (0.780, (0.597202, 0.366253, 0.187821)),  # +3438 m  southern highlands
+    (1.000, (0.658375, 0.520996, 0.337164)),  # +6100 m  Tharsis and the volcanic summits
+]
 
-def surface(kind: str, look: Look = EARTH_LOOK) -> Surface:
+#: Mars. Everything here is decided except whether it ever draws a sea.
+#:
+#: `sea` is None, and that half is a FACT rather than a placeholder: `fuse/relabel_mars.py` declares
+#: a heightfield and no oceanmask, so no pixel can select a sea ramp however carefully one is
+#: written. Whether Mars ever draws a sea — none, one chosen shoreline contour, or the family of
+#: candidates — is a look decision made on the sphere, and this is the seam it lands on.
+#:
+#: THE DOMAIN IS MARS'S OWN AND IT IS DERIVED, NOT PREFERRED. Measured over the shipped heightfield,
+#: area-weighted on the sphere (cos(lat)-corrected, ~1.05M samples): p1 -5,990 m, p50 -260 m,
+#: p99 +6,098 m, true range -7,882 .. +21,014 m. The two below are p1 and p99 rounded, so the ramp
+#: does real work across 98% of the surface. The extremes were rejected on the same measurement:
+#: only 1.1% of Mars sits above +6,000 m, so keying the ceiling to Olympus Mons would spend most of
+#: the ramp on almost nothing — and Olympus still reads, because it reads through the HILLSHADE,
+#: which no ramp touches.
+#:
+#: THE DOMAIN NUMBERS SIT IN THE CONSTRUCTOR, not in named module constants, and the asymmetry with
+#: `MARS_LAND_STOPS` above is the naming rule working rather than an inconsistency in it. That list
+#: has two readers besides the constructor — `RAMP_GLOBALS` and the tests that compare the assembled
+#: `Surface` against it — exactly as `LAND_STOPS` does. These two numbers have none: read once, on
+#: the line below, by nothing else. A name for them would be two names for one number, which is the
+#: drift this file exists to refuse. The dataclass IS the representation; a constant earns its own
+#: name only when something other than the constructor needs it.
+MARS_LOOK = Look(
+    land=Surface(stops=MARS_LAND_STOPS, origin_m=-6000.0, extreme_m=6100.0),
+    sea=None,
+)
+
+#: The look each body draws with today.
+#:
+#: Keyed by SLUG rather than held as a `Body` field, because `pipeline/bodies.py` opens by saying
+#: what a body is — "Not a look and not a dataset" — and geometry and colour are separate axes on
+#: purpose. Welding a Look into the descriptor would also foreclose the parked idea of one planet
+#: carrying several looks. The cost of the separation is that two modules now know the set of
+#: planets, so `tests/test_palette.py` holds this dict to the body registry: a planet registered
+#: there with no entry here is the failure that renders rather than raises.
+LOOK_BY_BODY: dict[str, Look] = {"earth": EARTH_LOOK, "mars": MARS_LOOK}
+
+
+def look_for(body: str) -> Look:
+    """The look a body draws with. Raises on an unknown body and never falls back to Earth's.
+
+    The fallback is the whole point of raising. A body that quietly inherited Earth's ramp would
+    render a complete, plausible, internally consistent pyramid in another planet's colours, and
+    every gate in the pipeline would pass — the same failure shape `bodies.get` refuses for
+    geometry, where the wrong sphere is plausible everywhere and true nowhere.
+
+    CALLED WHERE THE BODY IS KNOWN, NEVER THREADED IN BESIDE IT, and that is a decision rather than
+    an omission. The planet seam's rule is the opposite — its rasters are passed as required
+    parameters and never looked up — because a raster set is a RUNTIME declaration that varies per
+    run and cannot be derived from the body. A look can be, and there is exactly one right answer.
+    So a `look` parameter sitting next to a `body` parameter would add nothing but a way for the
+    two to disagree: `composite_params(body=MARS, look=EARTH_LOOK)` is a sentence the type checker
+    accepts and no reviewer would notice. The cost is that a synthetic body in a test needs a look
+    registered, exactly as it needs a radius, and `tests/test_cap_render.py` pays it in a fixture.
+    """
+    try:
+        return LOOK_BY_BODY[body]
+    except KeyError:
+        raise KeyError(
+            f"no look registered for body {body!r}; known: {sorted(LOOK_BY_BODY)}"
+        ) from None
+
+
+def surface(kind: str, *, look: Look) -> Surface:
     """Resolve `'land'`/`'sea'` to its ramp.
 
     THE ONE PLACE THAT DISPATCH LIVES. It used to be transcribed in four functions —
@@ -179,12 +333,19 @@ def surface(kind: str, look: Look = EARTH_LOOK) -> Surface:
     re-deriving which stops and which range a kind meant. Four copies of one mapping is the shape
     of drift this file exists to prevent, and it was sitting inside the file itself.
 
-    `look` is defaulted only because nothing selects a look yet; the moment a second one exists it
-    becomes a required argument, for the reason the body registry states.
+    `look` IS KEYWORD-ONLY AND REQUIRED, and removing its default was the first move rather than the
+    last. With a default, adding `MARS_LOOK` would have left every call site below still drawing
+    Earth and nothing would have named one of them; without it, the type checker names all of them
+    at once. That is the same reason no field on `Body` may carry a default.
     """
     if kind == "land":
         return look.land
     if kind == "sea":
+        if look.sea is None:
+            raise ValueError(
+                "this look draws no sea, so there is no sea ramp to resolve. A body whose planet "
+                "seam declares an oceanmask needs one; a body that declares none never asks."
+            )
         return look.sea
     raise ValueError(f"kind must be 'land' or 'sea', got {kind!r}")
 
@@ -199,28 +360,31 @@ def lake_lut(size: int = 256) -> list[RGB8]:
     return [_srgb8(ramp_color(index / (size - 1), LAKE_STOPS)) for index in range(size)]
 
 
-def color_relief_rows(kind: str, step: float = 25.0) -> list[tuple[float, RGB8]]:
+def color_relief_rows(kind: str, *, look: Look, step: float = 25.0) -> list[tuple[float, RGB8]]:
     """(elevation, sRGB) rows for one surface, densely sampled so `gdaldem`'s linear
     interpolation between rows reproduces the EASE ramp.
 
-    'land' maps elevation 0..6000 m; 'sea' maps depth -6000..0 m (deepest first). Each
-    ramp only has to be correct on its own side — the ocean mask selects between them."""
-    ramp = surface(kind)
-    count = round(abs(ramp.extreme_m) / step)
-    # Land starts at 0 and climbs; sea starts at the abyss and rises to 0. One expression, because
-    # `extreme_m` carries the direction — see Surface.
-    base = min(0.0, ramp.extreme_m)
+    On Earth 'land' maps elevation 0..6000 m and 'sea' maps depth -6000..0 m (deepest first); on
+    another body the ends are that body's, and the ramp only has to be correct on its own side —
+    the ocean mask selects between them where there are two."""
+    ramp = surface(kind, look=look)
+    count = round(abs(ramp.span_m) / step)
+    # Earth's land starts at 0 and climbs; its sea starts at the abyss and rises to 0; Mars's land
+    # starts below the areoid. One expression, because the ramp carries both its ends — see Surface.
     rows = []
     for i in range(count + 1):
-        elev = base + i * step
-        rows.append((elev, _srgb8(ramp_color(elev / ramp.extreme_m, ramp.stops))))
+        elev = ramp.lowest_m + i * step
+        rows.append((elev, _srgb8(ramp_color((elev - ramp.origin_m) / ramp.span_m, ramp.stops))))
     return rows
 
 
-LUT_STEP_M = 1.0  # LUT resolution in metres. 6001 entries x 3 B = 18 KB per surface.
+# LUT resolution in metres. A surface costs `3 * (|span_m| / step + 1)` bytes, so the table is tens
+# of KB for any ramp a body could want and the step is chosen for fidelity alone -- no entry count
+# is quoted here, because a body-dependent one would be stale the day a second body disagreed.
+LUT_STEP_M = 1.0
 
 
-def relief_lut(kind: str, step: float = LUT_STEP_M) -> np.ndarray:
+def relief_lut(kind: str, *, look: Look, step: float = LUT_STEP_M) -> np.ndarray:
     """Elevation -> sRGB LUT for one surface, as a (3, N) uint8 array.
 
     This is what lets `gdaldem color-relief` be deleted rather than tuned. Measured:
@@ -235,37 +399,40 @@ def relief_lut(kind: str, step: float = LUT_STEP_M) -> np.ndarray:
     is strictly FINER than the 25 m rows gdaldem interpolates across, so it is if anything the
     more faithful rendering of the authored ramp -- and it is 18 KB.
     """
-    ramp = surface(kind)
-    count = round(abs(ramp.extreme_m) / step)
-    # index 0 is the extreme end for sea (deepest) and 0 m for land, matching color_relief_rows'
-    # ordering — both fall out of `min(0, extreme_m)` rather than being restated per kind.
-    base = min(0.0, ramp.extreme_m)
-    colors = [_srgb8(ramp_color((base + index * step) / ramp.extreme_m, ramp.stops))
+    ramp = surface(kind, look=look)
+    count = round(abs(ramp.span_m) / step)
+    # index 0 is the deepest end for sea and the origin for land, matching color_relief_rows'
+    # ordering — both fall out of `Surface.lowest_m` rather than being restated per kind.
+    colors = [_srgb8(ramp_color((ramp.lowest_m + index * step - ramp.origin_m) / ramp.span_m,
+                                ramp.stops))
               for index in range(count + 1)]
     return np.asarray(colors, dtype=np.uint8).T  # (3, N)
 
 
-def lut_index(kind: str, elevation, step: float = LUT_STEP_M) -> np.ndarray:
+def lut_index(kind: str, elevation, *, look: Look, step: float = LUT_STEP_M) -> np.ndarray:
     """Elevation -> clamped LUT index. The whole optimisation: a divide, not a search.
 
-    Clamping is load-bearing, not defensive: the planet height raster spans -10,728 m to
-    +7,281 m (measured), i.e. past BOTH ramp ends, and `gdaldem` clamps to its first/last row.
-    Land-classed pixels can also be negative (Dead Sea, -430 m) -- the ocean MASK picks the
-    ramp, never the sign -- so the land ramp must clamp those to its 0 m colour.
+    Clamping is load-bearing, not defensive: Earth's height raster spans -10,728 m to +7,281 m
+    (measured) and Mars's -7,882 m to +21,014 m, i.e. both run past BOTH of their ramp's ends, and
+    `gdaldem` clamps to its first/last row. Earth's land-classed pixels can also be negative (Dead
+    Sea, -430 m) -- the ocean MASK picks the ramp, never the sign -- so Earth's land ramp must clamp
+    those to its 0 m colour. On a body whose ramp starts below the datum there is nothing special
+    about a negative pixel at all, which is the point of `origin_m`.
     """
     elevation = np.asarray(elevation, dtype=np.float32)
-    ramp = surface(kind)
-    raw = (elevation - np.float32(min(0.0, ramp.extreme_m))) / np.float32(step)
-    limit = round(abs(ramp.extreme_m) / step)
+    ramp = surface(kind, look=look)
+    raw = (elevation - np.float32(ramp.lowest_m)) / np.float32(step)
+    limit = round(abs(ramp.span_m) / step)
     return np.clip(np.rint(raw), 0, limit).astype(np.int32)
 
 
-def lut_lookup(lut: np.ndarray, kind: str, elevation, step: float = LUT_STEP_M) -> np.ndarray:
+def lut_lookup(lut: np.ndarray, kind: str, elevation, *, look: Look,
+               step: float = LUT_STEP_M) -> np.ndarray:
     """(3, ...) uint8 colours for `elevation`, shaped like `elevation`."""
-    return lut[:, lut_index(kind, elevation, step)]
+    return lut[:, lut_index(kind, elevation, look=look, step=step)]
 
 
-def color_relief_text(kind: str, step: float = 25.0) -> str:
+def color_relief_text(kind: str, *, look: Look, step: float = 25.0) -> str:
     """The exact `gdaldem color-relief` file contents for one surface, incl. the `nv` row.
 
     Split out from `write_color_relief` so a caller can compare the ramp a run WOULD use
@@ -274,11 +441,11 @@ def color_relief_text(kind: str, step: float = 25.0) -> str:
     the ramp's mtime alone.
     """
     rows = [f"{elev:.2f} {red} {green} {blue}"
-            for elev, (red, green, blue) in color_relief_rows(kind, step)]
+            for elev, (red, green, blue) in color_relief_rows(kind, look=look, step=step)]
     return "\n".join(rows + ["nv 0 0 0", ""])
 
 
-def write_color_relief(path: Path, kind: str, step: float = 25.0) -> None:
+def write_color_relief(path: Path, kind: str, *, look: Look, step: float = 25.0) -> None:
     """Write a `gdaldem color-relief` file for one surface, with an `nv` nodata row."""
     with open(path, "w") as handle:
-        handle.write(color_relief_text(kind, step))
+        handle.write(color_relief_text(kind, look=look, step=step))

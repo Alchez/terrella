@@ -8,7 +8,7 @@ import { EAGER_CARD_COUNT, STAGED_PLACEHOLDER } from "../lib/lazyCards";
 
 // Rendered heroes first (so real imagery leads while the sweep fills in), then
 // everything else alphabetically.
-const countries = [...data.countries].sort(
+const countries = [...data.countries].toSorted(
   (first, second) =>
     Number(second.rendered) - Number(first.rendered) ||
     first.name.localeCompare(second.name),
@@ -43,7 +43,7 @@ const SIZES = "(max-width: 640px) 92vw, 440px";
 // --- Gazetteer index (the atlas's own find-by-name tool; pure links, works with
 // no JS, and the browser's native Cmd/Ctrl+F searches its text). The grid above
 // stays rendered-first; the index is always the full alphabetical listing.
-const alphabetical = [...data.countries].sort((first, second) =>
+const alphabetical = [...data.countries].toSorted((first, second) =>
   first.name.localeCompare(second.name),
 );
 

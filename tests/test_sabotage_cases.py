@@ -16,8 +16,6 @@ because only the harness runs the suites. And the harness returns the favour: it
 cases sabotage the assertions below, so this file is held to the same standard it imposes.
 """
 
-from __future__ import annotations
-
 import os
 import re
 from pathlib import Path
@@ -31,6 +29,7 @@ from scripts.sabotage import (
     SABOTAGES,
     SUITES,
     Sabotage,
+    leftover_backups,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -159,6 +158,34 @@ def test_guard_is_a_real_test_name(case: Sabotage) -> None:
     )
 
 
+def test_a_backup_beside_a_single_file_root_is_found(tmp_path: Path) -> None:
+    """Four MUTABLE_ROOTS are files, and `rglob` on a file matches nothing.
+
+    THE FAILURE WAS REAL AND IT REACHED THE TREE. A run killed mid-case on `pipeline/bodies.py` left
+    the mutation in place; `--restore` printed "no leftover backups — the tree is clean"; the check
+    below agreed, because it re-derived the same glob. What made it visible was the NEXT run
+    refusing to start over a red baseline — the one path that happened to look.
+
+    The consequence it risks is the one this project has already had: a commit taken over a mutated
+    file, whose feature was disabled in the committed blob.
+
+    Driven against a synthetic tree rather than the real one, because planting a backup here would
+    fire every other check in this file — so the guard for this could not otherwise run at all.
+    """
+    (tmp_path / "pkg").mkdir()
+    file_root = tmp_path / "pkg" / "mod.py"
+    file_root.write_text("x = 1\n", encoding="utf-8")
+    beside = tmp_path / "pkg" / f"mod.py{BACKUP_SUFFIX}"
+    beside.write_text("x = 0\n", encoding="utf-8")
+
+    assert leftover_backups(roots=("pkg/mod.py",), base=tmp_path) == [beside]
+    # And the directory case still works, so the fix did not trade one blind spot for another.
+    assert leftover_backups(roots=("pkg",), base=tmp_path) == [beside]
+    # A clean file root reports nothing, which is what stops the check above firing constantly.
+    beside.unlink()
+    assert leftover_backups(roots=("pkg/mod.py",), base=tmp_path) == []
+
+
 def test_no_sabotage_backups_are_left_in_the_tree() -> None:
     """A killed run leaves `*.sabotage-backup` beside a still-sabotaged source file.
 
@@ -171,10 +198,14 @@ def test_no_sabotage_backups_are_left_in_the_tree() -> None:
     """
     in_flight = os.environ.get(IN_FLIGHT_ENV)
     exempt = f"{in_flight}{BACKUP_SUFFIX}" if in_flight else None
+    # THROUGH THE HARNESS'S OWN FINDER, not a second copy of its glob. This test used to re-derive
+    # the search — `rglob` over every MUTABLE_ROOT — and inherited the identical blind spot: four of
+    # those roots are single FILES, and `rglob` on a file matches nothing. So a run killed on
+    # `pipeline/bodies.py` left the mutation in place, `--restore` reported the tree clean, and this
+    # check agreed with it. One parser, both readers, the way `block_comment_spans` is shared.
     leftovers = sorted(
         relative
-        for root in MUTABLE_ROOTS
-        for path in (REPO_ROOT / root).rglob(f"*{BACKUP_SUFFIX}")
+        for path in leftover_backups()
         if (relative := str(path.relative_to(REPO_ROOT))) != exempt
     )
     assert not leftovers, (

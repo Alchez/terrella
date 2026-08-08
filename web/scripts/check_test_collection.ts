@@ -75,7 +75,7 @@ function testFilesOnDisk(): string[] {
       found.push(relative);
     }
   }
-  return found.sort();
+  return found.toSorted();
 }
 
 /** What vitest's own resolver collects, from the real config. The measurement. */
@@ -151,7 +151,7 @@ if (doubled.length > 0) {
   );
 }
 
-const projects = [...new Set(collected.map((entry) => entry.projectName))].sort();
+const projects = [...new Set(collected.map((entry) => entry.projectName))].toSorted();
 console.log(
   `✓ test collection: ${onDisk.length} files, all collected exactly once, across ${projects.join(" + ")}`,
 );

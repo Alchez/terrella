@@ -69,7 +69,7 @@ export interface Interval {
 export function mergeIntervals(intervals: readonly Interval[]): Interval[] {
   const sorted = [...intervals]
     .filter((interval) => interval.endMs > interval.startMs)
-    .sort((left, right) => left.startMs - right.startMs);
+    .toSorted((left, right) => left.startMs - right.startMs);
   const merged: Interval[] = [];
   for (const interval of sorted) {
     const last = merged[merged.length - 1];
@@ -139,7 +139,7 @@ export function summariseSpans(
       });
     }
   }
-  const spans = [...byName.values()].sort((left, right) => right.totalMs - left.totalMs);
+  const spans = [...byName.values()].toSorted((left, right) => right.totalMs - left.totalMs);
 
   if (longTasks === null) {
     return { spans, attributedMs: 0, unattributedMs: null };

@@ -15,6 +15,7 @@ import {
   timingIsOpaque,
   wireBytes,
 } from "./perfNetwork";
+import { tilePathTemplate } from "../tileAddress";
 
 const BASE = "https://tiles.terrella.alchez.dev/";
 const PAGE = "https://terrella.alchez.dev/earth/?perf";
@@ -36,6 +37,11 @@ const cached = (path: string, encodedBytes: number): TimedResource => ({
   decodedBodySize: encodedBytes,
   duration: 2,
 });
+
+/** One tile URL in the shipped grammar, built from the registry rather than typed out — so a
+ *  change to the address shape reaches these tests instead of leaving them asserting an old one. */
+const addressed = (layer: "relief" | "terrain" | "countries") =>
+  tilePathTemplate("earth", layer).replace("{z}", "5").replace("{x}", "22").replace("{y}", "13");
 
 describe("wire bytes, measured against how production actually reports them", () => {
   it("subtracts the mandated header allowance, so a byte count means payload", () => {
@@ -101,11 +107,67 @@ describe("summariseTileTraffic", () => {
     expect(traffic.terrain.wireBytes).toBe(10_000);
   });
 
-  it("does not mistake a relief tile at zoom level named like the prefix", () => {
-    // A path must start with `terrain/`; a substring anywhere else must not reclassify it.
+  it("does not mistake a path merely CONTAINING a layer word for that layer", () => {
+    // `5/22/terrain.webp` is not a terrain tile and never was — but it is not a relief tile
+    // either, which is what the substring-era classifier called it. It is not a tile at all: the
+    // parser refuses it, both servers would 404 it, and it lands in `unaddressedCount` where a
+    // reader can see that something asked for a URL nobody serves.
     const traffic = summariseTileTraffic([fetched("5/22/terrain.webp", 100)], BASE, PAGE, 3000);
-    expect(traffic.relief.count).toBe(1);
     expect(traffic.terrain.count).toBe(0);
+    expect(traffic.relief.count).toBe(0);
+    expect(traffic.unaddressedCount).toBe(1);
+  });
+
+  it("reads the ADDRESSED grammar, which is what the browser now asks for", () => {
+    // THE REGRESSION THIS EXISTS FOR, and it was live: the classifier tested `startsWith`
+    // `"terrain/"`, so `earth/terrain/<token>/5/22/13.webp` — the shape the page ships today —
+    // counted as RELIEF. Both numbers stay plausible, on the one panel whose job is telling those
+    // two apart, which is why nothing about the reading would have looked wrong.
+    const traffic = summariseTileTraffic(
+      [fetched(addressed("relief"), 40_000), fetched(addressed("terrain"), 10_000),
+       fetched(addressed("countries"), 2_000)],
+      BASE,
+      PAGE,
+      3000,
+    );
+    expect(traffic.relief.count).toBe(1);
+    expect(traffic.terrain.count).toBe(1);
+    expect(traffic.countries.count).toBe(1);
+    expect(traffic.unaddressedCount).toBe(0);
+  });
+
+  it("keeps reading the LEGACY grammar, because both are in flight during a deploy", () => {
+    // A tab opened before the switch keeps asking the old shape until it is reloaded, and its
+    // bytes are as real as any other's. The site and the tile Worker deploy separately, so this
+    // is not a hypothetical window.
+    const traffic = summariseTileTraffic(
+      [fetched("5/22/13.webp", 40_000), fetched("terrain/5/22/13.webp", 10_000),
+       fetched("countries/5/22/13.mvt", 2_000)],
+      BASE,
+      PAGE,
+      3000,
+    );
+    expect(traffic.relief.count).toBe(1);
+    expect(traffic.terrain.count).toBe(1);
+    expect(traffic.countries.count).toBe(1);
+  });
+
+  it("gives a country tile its own slice, with its bytes in the total", () => {
+    // Same root cause as the terrain regression: anything not starting `terrain/` fell through to
+    // relief. Unlike terrain this one is not known to have fired — measured on the live globe, all
+    // 407 tile entries were `img`-initiated raster and not one was an `.mvt`, because MapLibre
+    // fetches vector tiles from its worker and a worker's timings never reach the page's buffer.
+    // So this pins the classifier's answer, not a bug it repaired.
+    const traffic = summariseTileTraffic(
+      [fetched("countries/5/22/13.mvt", 2 * 1024 * 1024)], BASE, PAGE, 3000,
+    );
+    expect(traffic.relief.count).toBe(0);
+    expect(traffic.countries.count).toBe(1);
+    // Sized so the total can actually SAY it: at a realistic 2 KB this would round to "0.0 MB"
+    // whether the bytes were counted or dropped, and a check that reads the same either way is
+    // not a check. The control below is the same line with nothing in it.
+    expect(tileTrafficLine(traffic).text).toContain("2.0 MB wire");
+    expect(tileTrafficLine(summariseTileTraffic([], BASE, PAGE, 3000)).text).toContain("0.0 MB wire");
   });
 
   it("ignores everything that is not a tile", () => {
@@ -190,7 +252,15 @@ describe("summariseTileTraffic", () => {
       "http://localhost:4321/earth/?perf",
       3000,
     );
+    // EVERY counter, not just relief. A path-only match admits the entry, and the slice that
+    // follows then cuts it at our base's length — leaving a stub that parses as no tile, so it
+    // would land in `unaddressedCount` and a relief-only assertion would pass while the foreign
+    // origin was being matched. "Not our tile" means it contributes to nothing.
     expect(traffic.relief.count).toBe(0);
+    expect(traffic.terrain.count).toBe(0);
+    expect(traffic.countries.count).toBe(0);
+    expect(traffic.unaddressedCount).toBe(0);
+    expect(traffic.opaqueCount).toBe(0);
   });
 
   it("says the totals are a floor once the buffer is full", () => {
@@ -307,7 +377,14 @@ describe("the Server-Timing HIT/MISS oracle is NOT used, and that is deliberate"
     // cached tile, which is most of them. Hence a guard rather than only a comment.
     const text = readFileSync(new URL("./perfNetwork.ts", import.meta.url), "utf8");
     // Only the code, not the header comment — which discusses `r2;dur` at length on purpose.
-    const code = text.slice(text.indexOf('import { TERRAIN_PATH_PREFIX'));
+    //
+    // Anchored on the first EXPORTED DECLARATION rather than on an import line. The previous
+    // anchor was `import { TERRAIN_PATH_PREFIX`, and this module's imports have since changed —
+    // an anchor that misses slices from index -1, silently scanning the header comment it exists
+    // to exclude and going red on the prose. Assert the anchor was found, for the same reason.
+    const codeStart = text.indexOf("export const TRANSFER_SIZE_HEADER_ALLOWANCE");
+    expect(codeStart, "the anchor this guard slices from must exist").toBeGreaterThan(0);
+    const code = text.slice(codeStart);
     for (const forbidden of ['name === "r2"', 'name: "r2"', "edgeHit", "cacheHit", "r2;dur"]) {
       expect(code, `${forbidden} would revive a falsified oracle`).not.toContain(forbidden);
     }

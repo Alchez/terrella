@@ -1,0 +1,34 @@
+---
+// Mars's route. The same globe Earth draws, for the body next door — what this file decides is
+// which planet it is and what chrome goes around it.
+//
+// IT REPLACED A HOLDING PAGE, and `PUBLISHED.mars.relief` is what made that honest: a z0–6 pyramid
+// exists, so there is something for a map to draw. Everything Mars does NOT publish is refused by
+// `globeSubsystems` from the registry rather than by a flag written here — no terrain, no country
+// vectors, no hero panel. The polar caps ARE drawn, and they are relief rather than ice: Mars
+// declares no surface layers, so the two discs shade from the same ramps as the tiles.
+//
+// The three props below are Earth's three and carry Earth's reasoning — `earth.astro` is where it
+// is written, and restating it here would be one claim in two places that can disagree. The only
+// one that resolves differently is `borders`, and it resolves from the registry, so this page can
+// state nothing about it even by accident.
+import Base from "../layouts/Base.astro";
+import Globe from "../components/Globe.astro";
+import MapStylesheet from "../components/MapStylesheet.astro";
+import { BODIES } from "../lib/bodies";
+
+const body = BODIES.mars;
+---
+
+<Base
+  title="Mars — Terrella"
+  description="An interactive globe of ray-traced Martian relief, from the blended MOLA and HRSC elevation model."
+  body={body.slug}
+  borders={body.hasBorders}
+  quality={true}
+>
+  {/* A `Fragment` rather than the `<link>` itself: `slot` reaches `Base` only from a direct child
+      written here, so this is the one line that cannot live inside the component it belongs to. */}
+  <Fragment slot="head"><MapStylesheet /></Fragment>
+  <Globe />
+</Base>

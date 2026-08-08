@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Warp-once sea ice: the whole-grid warp must equal the per-window warp, plus the pure alpha.
 
 The exact sea-side mirror of test_snow_warp_once.py. The composite reads a window slice out of a
@@ -15,12 +14,14 @@ import pytest
 import rasterio
 import rasterio.transform  # rasterio's __init__ pulls this in at runtime; name it for the checker
 
+from pipeline import bodies
 from pipeline.render import seaice
 
 # --- shared geometry: a small WMQ-aligned 3857 target over the Fram Strait marginal ice zone,
 # where the annual ice-frequency field has a real north-south gradient (needed by the can-fail test).
-EARTH_RADIUS = 6378137.0
-Z8_RES = 305.7483  # the z8 planet grid, matching shade_planet.Z8_RES
+# Read from the registry rather than restated — see the note in test_snow_warp_once.py.
+EARTH_RADIUS = bodies.EARTH.mercator_radius_m
+Z8_RES = bodies.EARTH.map_units_per_pixel
 
 
 def _merc(lat, lon):

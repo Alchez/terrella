@@ -1,10 +1,14 @@
 // The tile server: one tile per request, ranged out of a PMTiles archive in R2.
 //
-// THREE archives in one bucket behind one router — `{z}/{x}/{y}.webp` is the relief pyramid,
-// `terrain/{z}/{x}/{y}.webp` the elevation one, and `countries/{z}/{x}/{y}.mvt` the country
-// vector tiles. Everything below the router is archive-agnostic: the index prefetch, the
-// directory cache and the ETag chain all key on the archive key, so each new pyramid cost a route
-// and some per-key bookkeeping, not a second server.
+// THREE archives in one bucket behind one router. Addresses are `{body}/{layer}/{token}/{z}/{x}/{y}`
+// with the layer's extension — see src/lib/tileAddress.ts, which owns the grammar and which the dev
+// middleware routes through too. The pre-token shapes (`{z}/{x}/{y}.webp`, `terrain/…`,
+// `countries/….mvt`) are still served, because a visitor holding a page built before the switch
+// should not go blank while the site and this Worker deploy separately.
+//
+// Everything below the router is archive-agnostic: the index prefetch, the directory cache and the
+// ETag chain all key on the archive key, so each new pyramid cost a route and some per-key
+// bookkeeping, not a second server.
 //
 // The country pyramid differs from the other two in one way the router has to carry: it is
 // SPARSE. Relief and terrain hold every address from z0 to z8, so a miss there is a packaging
@@ -34,39 +38,19 @@ import {
   tileTypeExt,
 } from "pmtiles";
 import {
-  RELIEF_MAX_ZOOM,
-  RELIEF_MIN_ZOOM,
-  TILE_CONTENT_TYPE,
-  type TileCoordinate,
-  describeTileTypeMismatch,
-  parseTilePath,
-} from "../src/lib/reliefTiles";
-import {
-  TERRAIN_CONTENT_TYPE,
-  TERRAIN_MAX_ZOOM,
-  TERRAIN_MIN_ZOOM,
-  describeTerrainTileTypeMismatch,
-  parseTerrainTilePath,
-} from "../src/lib/terrainSource";
-import {
-  COUNTRIES_CONTENT_TYPE,
-  COUNTRIES_MAX_ZOOM,
-  COUNTRIES_MIN_ZOOM,
-  describeCountriesTileTypeMismatch,
-  parseCountriesTilePath,
-} from "../src/lib/countryTiles";
+  LAYERS,
+  PUBLISHED,
+  archiveFor,
+  resolveTileRequest,
+  type TileAddress,
+  type TileLayer,
+} from "../src/lib/tileAddress";
 
 interface Env {
-  /** R2 binding for the bucket holding ALL THREE archives (bucket `terrella-tiles`). One binding,
-   *  three keys: the archives differ by object, not by bucket, so a second binding would buy
-   *  nothing and add a second place for the bucket name to drift. */
+  /** R2 binding for the bucket holding EVERY archive (bucket `terrella-tiles`). One binding, one
+   *  key per published pyramid: they differ by object, not by bucket, so a second binding would buy
+   *  nothing and add a second place for the bucket name to drift — including for a second body. */
   ARCHIVE: R2Bucket;
-  /** Object key of the relief archive within that bucket. */
-  ARCHIVE_KEY?: string;
-  /** Object key of the terrain-RGB archive within that bucket. */
-  TERRAIN_ARCHIVE_KEY?: string;
-  /** Object key of the country vector-tile archive within that bucket. */
-  COUNTRIES_ARCHIVE_KEY?: string;
   /** Origin allowed to read tiles — the site's own hostname. MapLibre uploads tiles as WebGL
    *  textures, so a cross-origin tile without CORS taints the canvas and never draws. */
   ALLOWED_ORIGIN?: string;
@@ -74,35 +58,67 @@ interface Env {
   TILE_CACHE_CONTROL?: string;
 }
 
-const DEFAULT_ARCHIVE_KEY = "planet.pmtiles";
-const DEFAULT_TERRAIN_ARCHIVE_KEY = "terrain.pmtiles";
-const DEFAULT_COUNTRIES_ARCHIVE_KEY = "countries.pmtiles";
+// NO ARCHIVE KEYS IN `vars`, and no defaults here either. Both were answers to "which object is
+// this pyramid" that the registry now answers on its own, and both were worse answers: the deleted
+// constants named each pyramid's FIRST cut, including `planet.pmtiles`, removed from the bucket the
+// day its WebP replacement went live.
+//
+// The three `*_ARCHIVE_KEY` vars went with them, and the reason is stronger than tidiness — an
+// env-only archive swap CANNOT WORK any more. A tile URL carries the archive's content token, that
+// token is compiled into the SITE bundle from this same registry, and tiles ship immutable for a
+// year. Repointing a var without deploying the site would serve the new cut's bytes at the old
+// cut's URL to anyone whose browser already has it, for as long as their cache lives. The var
+// looked like an operational lever and had quietly become a way to ship a mixed pyramid.
 
 /** The pyramid is immutable for the life of a cut — the globe already sets
  *  `refreshExpiredTiles: false` on the same reasoning. A re-cut therefore requires purging the
  *  zone cache; that is the price of not paying revalidation on every tile forever. */
 const DEFAULT_CACHE_CONTROL = "public, max-age=31536000, immutable";
 
+/** What one archive can occupy in the directory cache: an entry for its header, an entry for its
+ *  root directory, and one per leaf directory.
+ *
+ *  Read off `ResolvedValueCache`, not inferred. `getHeader` writes TWO entries — the header under
+ *  `source.getKey()`, and the root directory under `${key}|${etag}|${offset}|${length}` — and
+ *  `getDirectory` writes one under that same compound key per leaf it resolves. The compound key is
+ *  also why one cache is safe for every archive: the pyramids namespace themselves and cannot serve
+ *  each other's directories. */
+const CACHE_ENTRIES_BEFORE_LEAVES = 2;
+
+/** Spare entries above the worst case. Not superstition: `prune()` evicts the single
+ *  least-recently-used entry each time the cache passes its limit, so a cache sized to EXACTLY the
+ *  worst case thrashes on the first interleaved request rather than degrading gently. */
+const DIRECTORY_CACHE_HEADROOM = 8;
+
+/** Entries the directory cache must hold for every published archive at once.
+ *
+ *  DERIVED, AND THAT IS THE POINT. This number was hand-tallied and re-tallied each time an archive
+ *  was added — 25 for one, 50 for two, 64 for three — and the last tally was wrong: it recorded
+ *  terrain at 21 leaves when the archive has 22. Nothing could have caught that by behaviour. An
+ *  evicted directory costs a gunzip and a deserialize, NOT an R2 read (`PrefetchedIndexSource`
+ *  already holds the bytes), so an undersized cache is a slightly slower Worker and no other
+ *  symptom at all. Summing what the registry publishes turns the next archive from something
+ *  someone must remember into something the code already knows.
+ *
+ *  Worst case across every BODY, not just the one being drawn, because that is exactly the traffic
+ *  a body switch produces: alternating requests against two planets' pyramids, which is the access
+ *  pattern an undersized LRU handles worst. */
+export function directoryCacheEntries(): number {
+  let entries = 0;
+  for (const layers of Object.values(PUBLISHED)) {
+    for (const archive of Object.values(layers)) {
+      if (archive) entries += CACHE_ENTRIES_BEFORE_LEAVES + archive.indexLeaves;
+    }
+  }
+  return entries + DIRECTORY_CACHE_HEADROOM;
+}
+
 /** Directory pages resolved by one request, reused by the next request this isolate serves.
  *  Without it every tile re-reads the root directory and a leaf from R2 before it can find its
  *  own bytes — three round trips per tile instead of one. Module scope is the point: the cache
- *  outlives the request.
- *
- *  Shared across all three archives, which is safe because the library keys entries by
- *  `source.getKey()` (the archive key) plus the ETag, offset and length — so the pyramids
- *  namespace themselves and cannot serve each other's directories.
- *
- *  SIZED BY COUNTING, EACH TIME AN ARCHIVE WAS ADDED, because being one entry short is invisible:
- *  an evicted directory costs a gunzip and a deserialize rather than an R2 read
- *  (PrefetchedIndexSource already holds the bytes), so it shows up as nothing but a slightly
- *  slower Worker. It was 25 for one archive, then 50 for two.
- *
- *  Each archive occupies `1 header + 1 root + N leaf` entries. Measured on the shipped cuts:
- *  relief **21** leaves, terrain **21**, countries **7** (it is 10 MB against 16 GB) — so
- *  23 + 23 + 9 = **55**, which 50 does not hold. Three archives at 50 would evict each other on
- *  every alternating request, which is precisely the regression the 25 → 50 raise fixed.
- *  64 leaves nine entries of headroom. */
-const DIRECTORY_CACHE = new ResolvedValueCache(64, undefined, nativeDecompress);
+ *  outlives the request. Per ISOLATE, though — it is heap, so it does not survive an eviction and
+ *  is not shared between data centres; the Cache API entry below is what covers that. */
+const DIRECTORY_CACHE = new ResolvedValueCache(directoryCacheEntries(), undefined, nativeDecompress);
 
 /** Archive keys whose tile-type disagreement has already been logged — latched so a mismatch
  *  says so once per isolate rather than once per tile, since a global mismatch shouted 40,000
@@ -422,70 +438,52 @@ function withCrossOriginHeaders(
 
 /** One resolved request: which tile, out of which archive, labelled and decoded how. */
 interface TileRoute {
-  tile: TileCoordinate;
+  /** Which tile, of which body's which layer, under whichever grammar asked. */
+  address: TileAddress;
   archiveKey: string;
-  contentType: string;
-  /** Names the constants a zoom disagreement should send someone to. */
-  zoomConstants: string;
-  describeTileTypeMismatch: (archiveExtension: string) => string | null;
-  /** What an absent tile MEANS for this archive: 404 where the pyramid is complete and a miss is
-   *  therefore a packaging fault, 204 where it is sparse and a miss is just ocean. Per-route
-   *  rather than a shared constant, because sharing it would either silence real faults on the
-   *  raster pyramids or emit tens of thousands of errors for correctly-absent country tiles. */
-  missingTileStatus: 404 | 204;
+  /** The layer's contract — content type, what a miss means, how a header mismatch reads. Held as
+   *  the registry entry rather than copied field by field, so this router cannot drift from the one
+   *  the dev middleware answers with. */
+  layer: TileLayer;
 }
 
+/** Latched per isolate: which layers have been asked for under the pre-token grammar.
+ *
+ *  The migration's only exit condition. The legacy branch can be deleted when production has served
+ *  no legacy request for a day, and there is no other way to learn that — a client asking the old
+ *  shape is served correctly and silently, which is exactly what makes it safe and exactly what
+ *  makes it invisible. */
+const seenLegacyGrammar = new Set<string>();
+
 /**
- * Decide which pyramid a path addresses, or null if it addresses neither.
+ * Decide which pyramid a path addresses, or null if it addresses none.
  *
- * THE PREFIX IS THE WHOLE DISCRIMINATOR AND IT HAS TO BE. Both archives are lossless WebP over
- * z0-8 on the same tiling scheme, so `/8/189/107.webp` is a valid address in both — there is
- * nothing else in a tile URL left to tell them apart. Serving the wrong one is not a visible
- * failure either: MapLibre would decode relief colour as terrarium elevation and displace the
- * globe by whatever those bytes happen to mean.
+ * THE LAYER SEGMENT IS THE WHOLE DISCRIMINATOR AND IT HAS TO BE. Both raster archives are WebP over
+ * z0-8 on the same tiling scheme, so `/8/189/107.webp` is a valid address in both — there is nothing
+ * else in a tile URL left to tell them apart. Serving the wrong one is not a visible failure either:
+ * MapLibre would decode relief colour as terrarium elevation and displace the globe by whatever
+ * those bytes happen to mean. One body out, the same holds between planets.
  *
- * No two parsers can match the same path, in any direction: `parseTilePath` requires the first
- * segment to be a zoom, and the other two require their own literal prefix. The country parser
- * additionally requires `.mvt`, but the PREFIX is what the router leans on — resting it on the
- * extension would make correctness depend on a codec choice, and the codec is exactly what a
- * re-cut is allowed to change.
+ * Exclusivity is now structural rather than argued: an addressed path names its body and its layer,
+ * so two archives cannot share one. The legacy shapes are still accepted, and cannot collide with an
+ * addressed path in either direction — they require a leading zoom or their own literal prefix, and
+ * an addressed path begins with a body slug.
  */
-export function resolveRoute(pathname: string, env: Env): TileRoute | null {
-  const relief = parseTilePath(pathname);
-  if (relief) {
-    return {
-      tile: relief,
-      archiveKey: env.ARCHIVE_KEY ?? DEFAULT_ARCHIVE_KEY,
-      contentType: TILE_CONTENT_TYPE,
-      zoomConstants: `RELIEF_MIN_ZOOM/RELIEF_MAX_ZOOM (z${RELIEF_MIN_ZOOM}-z${RELIEF_MAX_ZOOM}) in web/src/lib/reliefTiles.ts`,
-      describeTileTypeMismatch,
-      missingTileStatus: 404,
-    };
+export function resolveRoute(pathname: string): TileRoute | null {
+  const address = resolveTileRequest(pathname);
+  if (!address) return null;
+  if (address.token === null && !seenLegacyGrammar.has(address.layer)) {
+    seenLegacyGrammar.add(address.layer);
+    console.warn(
+      `${address.body}/${address.layer} was requested under the pre-token grammar (${pathname}) — ` +
+        "a client built before the addressed URLs shipped is still live",
+    );
   }
-  const terrain = parseTerrainTilePath(pathname);
-  if (terrain) {
-    return {
-      tile: terrain,
-      archiveKey: env.TERRAIN_ARCHIVE_KEY ?? DEFAULT_TERRAIN_ARCHIVE_KEY,
-      contentType: TERRAIN_CONTENT_TYPE,
-      zoomConstants: `TERRAIN_MIN_ZOOM/TERRAIN_MAX_ZOOM (z${TERRAIN_MIN_ZOOM}-z${TERRAIN_MAX_ZOOM}) in web/src/lib/terrainSource.ts`,
-      describeTileTypeMismatch: describeTerrainTileTypeMismatch,
-      missingTileStatus: 404,
-    };
-  }
-  const countries = parseCountriesTilePath(pathname);
-  if (countries) {
-    return {
-      tile: countries,
-      archiveKey: env.COUNTRIES_ARCHIVE_KEY ?? DEFAULT_COUNTRIES_ARCHIVE_KEY,
-      contentType: COUNTRIES_CONTENT_TYPE,
-      zoomConstants: `COUNTRIES_MIN_ZOOM/COUNTRIES_MAX_ZOOM (z${COUNTRIES_MIN_ZOOM}-z${COUNTRIES_MAX_ZOOM}) in web/src/lib/countryTiles.ts`,
-      describeTileTypeMismatch: describeCountriesTileTypeMismatch,
-      // The one sparse pyramid: most tiles on the planet hold no country at all.
-      missingTileStatus: 204,
-    };
-  }
-  return null;
+  return {
+    address,
+    archiveKey: archiveFor(address.body, address.layer).objectKey,
+    layer: LAYERS[address.layer],
+  };
 }
 
 export default {
@@ -508,11 +506,22 @@ export default {
     // means a future re-cut can ship under a NEW base URL instead of purging the cache — and
     // purge is zone-wide, so on a shared zone it would evict everything else on alchez.dev too.
     // Tolerating it now costs one regex; retrofitting it later costs a purge.
-    const route = resolveRoute(new URL(request.url).pathname.replace(/^\/v\d+\//, "/"), env);
+    // NO VERSION-PREFIX STRIP HERE. This line used to strip a leading version segment itself, which
+    // was a second copy of a rule the resolver already applies — to the legacy branch only,
+    // deliberately, because tolerating one in front of an ADDRESSED path would invent a second way
+    // to spell one tile. Stripping here applied it to both, so this Worker accepted
+    // `/v3/earth/relief/<token>/…` while the dev middleware 404'd it: the same dev-vs-prod split
+    // the addressed grammar was meant to close, surviving one line lower down.
+    //
+    // The rule and its guards now live beside `LEGACY_VERSION_PREFIX` in tileAddress.ts. Note this
+    // comment describes the deleted regex rather than quoting it: the quoted form CAPTURED the
+    // mutation case that used to target the code, so the harness went on dutifully mutating a
+    // sentence and reporting the guard as intact.
+    const route = resolveRoute(new URL(request.url).pathname);
     if (!route) {
       return respond(new Response("Not a tile path", { status: 404 }));
     }
-    const { tile, archiveKey } = route;
+    const { address: tile, archiveKey, layer } = route;
 
     const cache = caches.default;
     const cacheLookupStartedAt = Date.now();
@@ -553,15 +562,15 @@ export default {
 
       const header = await archive.getHeader();
 
-      // The globe hardcodes the zoom range so it can request z0 without a round trip first
-      // (RELIEF_MIN_ZOOM/RELIEF_MAX_ZOOM). Here the archive is the authority, and disagreement
-      // is a 404 plus a log line — NOT the throw assertZoomRange() raises in the dev server.
-      // A dev server should refuse to start on drift; a live tile server should serve what it
-      // has and make the drift visible, rather than 500 every tile in the world.
+      // The site ships the zoom range in its registry so it can request z0 without a round trip
+      // first (`PUBLISHED[body][layer]`). Here the archive is the authority, and disagreement is a
+      // 404 plus a log line — NOT the throw the dev server's own header check raises against that
+      // same registry. A dev server should refuse to start on drift; a live tile server should
+      // serve what it has and make the drift visible, rather than 500 every tile in the world.
       if (tile.z < header.minZoom || tile.z > header.maxZoom) {
         console.warn(
           `z${tile.z} requested but ${archiveKey} covers z${header.minZoom}-z${header.maxZoom} — ` +
-            `${route.zoomConstants} is stale`,
+            `${layer.zoomConstants} is stale`,
         );
         return store(null, 404);
       }
@@ -571,7 +580,7 @@ export default {
       // 404ing the planet over a mislabel would be a self-inflicted outage; the dev server's
       // throw is where this is meant to be caught, and this is the net under it.
       if (!warnedTileTypeMismatch.has(archiveKey)) {
-        const mismatch = route.describeTileTypeMismatch(tileTypeExt(header.tileType));
+        const mismatch = layer.describeTileTypeMismatch(tileTypeExt(header.tileType));
         if (mismatch) {
           warnedTileTypeMismatch.add(archiveKey);
           console.warn(`${archiveKey}: ${mismatch}`);
@@ -587,9 +596,9 @@ export default {
       // The COUNTRY pyramid is legitimately sparse — most of the planet is ocean and holds no
       // country — so the same 404 would be tens of thousands of errors for tiles that are
       // correctly absent, and would bury a real packaging fault in the noise it created.
-      if (!entry) return store(null, route.missingTileStatus);
+      if (!entry) return store(null, layer.missingTileStatus);
 
-      return store(entry.data, 200, route.contentType);
+      return store(entry.data, 200, layer.contentType);
     } catch (error) {
       if (error instanceof ArchiveNotFound) {
         console.error(`${archiveKey} missing from the bound bucket`);

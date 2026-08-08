@@ -27,7 +27,7 @@ describe("the group table", () => {
     // the order array — and a group absent from the order array is skipped by the render loop, so
     // its lines disappear from the panel without a heading, a gap, or an error to notice.
     const headingKeys = Object.keys(PERF_GROUP_HEADINGS) as PerfGroup[];
-    expect([...PERF_GROUP_ORDER].sort()).toEqual([...headingKeys].sort());
+    expect([...PERF_GROUP_ORDER].toSorted()).toEqual([...headingKeys].toSorted());
     expect(new Set(PERF_GROUP_ORDER).size).toBe(PERF_GROUP_ORDER.length);
   });
 

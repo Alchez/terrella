@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Tile lake-depth layer: GLOBathy modelled depth -> a per-pixel depth field in metres.
 
 Sits beside snow.py by design. Lake depth is a TINT-ONLY rendering input, never terrain: at
@@ -24,7 +23,6 @@ gracefully to today's flat tint wherever they disagree with the WBM.
 """
 
 import subprocess
-from pathlib import Path
 
 import numpy as np
 import rasterio
@@ -62,6 +60,25 @@ def warp_depth(bounds, width, height, out_path, vrt=LAKE_VRT):
     with rasterio.open(out_path) as dataset:
         depth = dataset.read(1).astype("float32")
     return np.where(np.isfinite(depth) & (depth > 0.0), depth, 0.0).astype("float32")
+
+
+def warp_depth_raster(bounds, width, height, out_path, vrt=LAKE_VRT):
+    """Warp GLOBathy onto a whole Web-Mercator grid, leaving the result on disk.
+
+    The planet-tier twin of `warp_depth` above, which hands the array back for the region path.
+    bounds = (left, bottom, right, top) in EPSG:3857. No `-s_srs`, unlike the NetCDF and GeoTIFF
+    warps beside it: the VRT carries its own. Tiled/DEFLATE/BIGTIFF because the target is a global
+    grid, which is the whole difference between the two.
+    """
+    left, bottom, right, top = bounds
+    _run(["gdalwarp", "-q", "-t_srs", "EPSG:3857",
+          "-te", repr(left), repr(bottom), repr(right), repr(top),
+          "-ts", str(width), str(height),
+          "-srcnodata", str(GLOBATHY_NODATA), "-dstnodata", "0",
+          "-r", "bilinear", "-ot", "Float32", "-co", "TILED=YES",
+          "-co", "COMPRESS=DEFLATE", "-co", "BIGTIFF=YES",
+          "-co", "NUM_THREADS=ALL_CPUS", vrt, out_path])
+    return out_path
 
 
 def lakes_only(depth, watercode):

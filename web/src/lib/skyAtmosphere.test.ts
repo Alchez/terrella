@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import {
   ATMOSPHERE_PITCH_RAMP_END_DEG,
   ATMOSPHERE_PITCH_RAMP_START_DEG,
@@ -18,8 +18,17 @@ import {
   rampedAtmosphereBlend,
   skySpec,
 } from "./skyAtmosphere";
+import { BODIES, type BodyAtmosphere } from "./bodies";
 
 const flags = (search: string) => new URLSearchParams(search);
+
+/** An atmosphere belonging to no body, so a spec built from it cannot have come from a constant.
+ *  Magenta on purpose: if one of these ever reaches a screenshot, it is unmistakable. */
+const SYNTHETIC_ATMOSPHERE: BodyAtmosphere = {
+  sky: "#ff00ff",
+  horizon: "#00ff00",
+  fog: "#ffff00",
+};
 
 /** MapLibre's own interpolation, transcribed from
  *  @maplibre/maplibre-gl-style-spec/src/expression/definitions/interpolate.ts so the ramp is
@@ -161,39 +170,84 @@ describe("?sky parsing refuses to guess", () => {
 });
 
 describe("the sky spec carries everything else unchanged", () => {
-  it("keeps the committed colours and blends", () => {
-    const spec = skySpec(defaultAtmosphereRamp());
-    expect(spec["sky-color"]).toBe("#8fb8d6");
-    expect(spec["horizon-color"]).toBe("#cbd8dd");
-    expect(spec["fog-color"]).toBe("#dfe7ea");
+  it("paints the colours it was HANDED, not a set of its own", () => {
+    // Driven with an atmosphere that is nobody's, deliberately. Earth's would pass by construction
+    // while the module still held its own hexes — the parameterisation is only demonstrated by a
+    // value that could not have come from inside this file.
+    const spec = skySpec(SYNTHETIC_ATMOSPHERE, defaultAtmosphereRamp());
+    expect(spec["sky-color"]).toBe(SYNTHETIC_ATMOSPHERE.sky);
+    expect(spec["horizon-color"]).toBe(SYNTHETIC_ATMOSPHERE.horizon);
+    expect(spec["fog-color"]).toBe(SYNTHETIC_ATMOSPHERE.fog);
+  });
+
+  it("keeps the committed blends, which are the ramp's and belong to no body", () => {
+    const spec = skySpec(SYNTHETIC_ATMOSPHERE, defaultAtmosphereRamp());
     expect(spec["sky-horizon-blend"]).toBe(0.5);
     expect(spec["horizon-fog-blend"]).toBe(0.5);
     expect(spec["fog-ground-blend"]).toBe(0.1);
   });
 
+  it("draws Earth exactly as the registry declares it, so the move changed no pixel", () => {
+    // The other half of the test above: the synthetic case proves the colours are threaded, this
+    // one proves the values that arrive on the live globe are still the ones that always did.
+    const earthAir = BODIES.earth.atmosphere;
+    expect(earthAir).not.toBeNull();
+    const spec = skySpec(earthAir!, defaultAtmosphereRamp());
+    expect(spec["sky-color"]).toBe("#8fb8d6");
+    expect(spec["horizon-color"]).toBe("#cbd8dd");
+    expect(spec["fog-color"]).toBe("#dfe7ea");
+  });
+
   it("puts the ramp on atmosphere-blend and nowhere else", () => {
-    expect(skySpec(defaultAtmosphereRamp())["atmosphere-blend"]).toEqual(
+    expect(skySpec(SYNTHETIC_ATMOSPHERE, defaultAtmosphereRamp())["atmosphere-blend"]).toEqual(
       atmosphereBlend(defaultAtmosphereRamp()),
     );
-    expect(skySpec({ kind: "off" })["atmosphere-blend"]).toBe(BASE_ATMOSPHERE_BLEND);
+    expect(skySpec(SYNTHETIC_ATMOSPHERE, { kind: "off" })["atmosphere-blend"]).toBe(
+      BASE_ATMOSPHERE_BLEND,
+    );
+  });
+});
+
+describe("a body may declare no atmosphere at all", () => {
+  it("is a state the registry actually holds, in both arms", () => {
+    // Non-vacuous by naming both: a nullable field every body fills is a nullable field nothing
+    // exercises, and one no body fills is a feature with no user.
+    expect(BODIES.earth.atmosphere).not.toBeNull();
+    expect(BODIES.mars.atmosphere).toBeNull();
+  });
+
+  it("says so in the read-out rather than going quiet", () => {
+    // An absent sky row cannot be told from a capture taken before the row existed.
+    expect(describeAtmosphereState(null, 1.6, defaultAtmosphereRamp())).toContain("none");
+    expect(describeAtmosphereState(null, 1.6, defaultAtmosphereRamp())).not.toContain("0.7");
+  });
+
+  it("reports none whatever the ramp and camera say, since neither is applied", () => {
+    for (const ramp of [defaultAtmosphereRamp(), { kind: "off" } as const]) {
+      for (const [zoom, pitch] of [[1.6, 0], [8, 60]] as const) {
+        expect(describeAtmosphereState(null, zoom, ramp, pitch)).toBe(
+          describeAtmosphereState(null, 1.6, defaultAtmosphereRamp()),
+        );
+      }
+    }
   });
 });
 
 describe("the perf read-out describes what is on screen", () => {
   it("reports the live value and the arm", () => {
-    expect(describeAtmosphereState(1.6, defaultAtmosphereRamp())).toBe("sky 0.70 · ramp 0.7→0.15");
-    expect(describeAtmosphereState(8, defaultAtmosphereRamp())).toBe("sky 0.15 · ramp 0.7→0.15");
+    expect(describeAtmosphereState(SYNTHETIC_ATMOSPHERE, 1.6, defaultAtmosphereRamp())).toBe("sky 0.70 · ramp 0.7→0.15");
+    expect(describeAtmosphereState(SYNTHETIC_ATMOSPHERE, 8, defaultAtmosphereRamp())).toBe("sky 0.15 · ramp 0.7→0.15");
   });
 
   it("names the control arm rather than reporting a ramp that is not running", () => {
-    expect(describeAtmosphereState(8, { kind: "off" })).toBe("sky 0.70 · ramp off");
-    expect(describeAtmosphereState(8, { kind: "off" }, 60)).toBe("sky 0.70 · ramp off");
+    expect(describeAtmosphereState(SYNTHETIC_ATMOSPHERE, 8, { kind: "off" })).toBe("sky 0.70 · ramp off");
+    expect(describeAtmosphereState(SYNTHETIC_ATMOSPHERE, 8, { kind: "off" }, 60)).toBe("sky 0.70 · ramp off");
   });
 
   it("names the pitch term only where it bites, so the line is not noise", () => {
     const ramp = defaultAtmosphereRamp();
-    expect(describeAtmosphereState(1.6, ramp, 30)).toBe("sky 0.70 · ramp 0.7→0.15");
-    expect(describeAtmosphereState(1.6, ramp, 60)).toBe(
+    expect(describeAtmosphereState(SYNTHETIC_ATMOSPHERE, 1.6, ramp, 30)).toBe("sky 0.70 · ramp 0.7→0.15");
+    expect(describeAtmosphereState(SYNTHETIC_ATMOSPHERE, 1.6, ramp, 60)).toBe(
       "sky 0.25 · ramp 0.7→0.15 · pitch 60°→0.25");
   });
 
@@ -201,7 +255,7 @@ describe("the perf read-out describes what is on screen", () => {
     const ramp = defaultAtmosphereRamp();
     const expression = atmosphereBlend(ramp);
     for (const zoom of [2, 3.5, 4.4, 5.2, 6, 7.5]) {
-      expect(describeAtmosphereState(zoom, ramp)).toBe(
+      expect(describeAtmosphereState(SYNTHETIC_ATMOSPHERE, zoom, ramp)).toBe(
         `sky ${evaluateExpression(expression, zoom).toFixed(2)} · ramp 0.7→0.15`,
       );
     }
@@ -296,16 +350,32 @@ describe("atmosphereNeedsRebuild", () => {
   });
 });
 
-describe("earth.astro wires the ramp rather than re-stating it", () => {
-  const globe = readFileSync(new URL("../pages/earth.astro", import.meta.url), "utf8");
+describe("Globe.astro wires the ramp rather than re-stating it", () => {
+  const globe = readFileSync(new URL("../components/Globe.astro", import.meta.url), "utf8");
 
-  it("builds every sky from the module's spec — the page never states one itself", () => {
+  it("builds every sky from the module's spec, out of the BODY's air", () => {
     // Was "exactly once" until the pitch term landed, and the count was never the point: the
-    // guard exists so earth.astro cannot grow its own sky literal. Asserting that EVERY call goes
+    // guard exists so the page cannot grow its own sky literal. Asserting that EVERY call goes
     // through skySpec says that directly, and survives a second legitimate call site.
+    //
+    // Naming the argument too, since `skySpec()` alone stopped being sufficient the moment the
+    // colours became per-body: a call passing a constant would still be "through skySpec" and
+    // would still paint every planet the same.
     const calls = globe.match(/map\.setSky\([^)]*/g) ?? [];
     expect(calls.length).toBeGreaterThan(0);
-    for (const call of calls) expect(call).toContain("skySpec(skyRamp");
+    for (const call of calls) expect(call).toContain("skySpec(bodyAtmosphere, skyRamp");
+  });
+
+  it("skips the sky entirely for a body that declares none, at every call site", () => {
+    // The gate is a `return`, not a fallback: a body with no air gets no `sky` in its style at all.
+    // Checked per site rather than file-wide, because one guarded call and one bare one is exactly
+    // what a later edit produces, and the bare one only misbehaves on the planet nobody loads.
+    const skyBlocks = globe.match(/map\.on\("(?:style\.load|moveend)",[\s\S]*?\n  \}\);/g) ?? [];
+    const settingSky = skyBlocks.filter((block) => block.includes("map.setSky("));
+    expect(settingSky.length, "both sky call sites must be found").toBe(2);
+    for (const block of settingSky) {
+      expect(block).toMatch(/if \(bodyAtmosphere === null\) return;/);
+    }
   });
 
   it("rebuilds the sky on moveend, gated, because pitch cannot be an expression", () => {
@@ -320,13 +390,6 @@ describe("earth.astro wires the ramp rather than re-stating it", () => {
     expect(handler).toMatch(/if \(!atmosphereNeedsRebuild\([^)]*\)\) return;/);
   });
 
-  it("keeps the sky colours out of the page, so there is one place they can drift from", () => {
-    // The values that used to live inline here. If any reappears, two files own the sky.
-    for (const colour of ["#8fb8d6", "#cbd8dd", "#dfe7ea"]) {
-      expect(globe).not.toContain(colour);
-    }
-  });
-
   it("drives the ramp declaratively, with no per-zoom setSky handler", () => {
     // Style.setSky re-runs the sky transitions on every call at a 300 ms default duration, so a
     // zoom handler would chase the camera a third of a second behind and restart before landing.
@@ -334,5 +397,85 @@ describe("earth.astro wires the ramp rather than re-stating it", () => {
     expect(zoomHandlers).toHaveLength(1); // terrain's exaggeration ramp, which has no expression
     const [, afterZoomHandler] = globe.split('map.on("zoom",');
     expect(afterZoomHandler.slice(0, 400)).not.toContain("setSky");
+  });
+});
+
+describe("no second module grows its own sky", () => {
+  // THE ANTI-REGROWTH SWEEP THIS MOVE OWES. The type checker enumerated every CALLER of `skySpec`
+  // when the colours became a parameter, which is what made the change safe — but a caller is not
+  // the failure mode. The failure mode is a module that never calls `skySpec` at all and paints
+  // `#8fb8d6` into a style of its own: Earth renders perfectly, and only the planet nobody has
+  // loaded is wrong. That is the same shape as the pipeline's ramp globals, which two modules read
+  // around the seam for months while every gate stayed green.
+  //
+  // Swept rather than enumerated, and over `src/` whole: naming `Globe.astro` would repair the one
+  // instance and keep the shape. `worker/` is outside it because a tile Worker cannot set a sky —
+  // it has no map, and no DOM to put one in.
+  const SOURCE_ROOT = new URL("../", import.meta.url);
+  const SWEPT_SUFFIXES = [".ts", ".astro", ".css"];
+  const EXEMPT = new Set([
+    // The declaration itself. A sweep that flagged the registry would be asking the fact not to
+    // exist anywhere.
+    "lib/bodies.ts",
+    // This file, and the exemption is structural rather than convenient: one test above pins the
+    // three hexes literally, because "the move changed no pixel" is a claim that can only be made
+    // against the values themselves. A guard and its subject in one file is the same arrangement
+    // the repo-integrity parser and the licence sweep both carry.
+    "lib/skyAtmosphere.test.ts",
+  ]);
+
+  const swept = readdirSync(SOURCE_ROOT, { recursive: true })
+    .filter((name): name is string => typeof name === "string")
+    .filter((name) => SWEPT_SUFFIXES.some((suffix) => name.endsWith(suffix)))
+    .filter((name) => !EXEMPT.has(name))
+    // A suffix does not make something a file. Vitest's browser mode writes `__screenshots__/`
+    // subdirectories named after the test file that produced them, so eleven DIRECTORIES under
+    // `src/lib/` end in `.ts` and reading one throws EISDIR. The sibling sweep in
+    // astroTemplates.test.ts never met this only because it looks for `.astro`.
+    .filter((name) => statSync(new URL(name, SOURCE_ROOT)).isFile())
+    .map((name) => ({ name, text: readFileSync(new URL(name, SOURCE_ROOT), "utf8") }));
+
+  const earthAir = BODIES.earth.atmosphere;
+
+  /** The rule itself, over any file list — so the control below runs the SAME matcher the sweep
+   *  runs, rather than a re-spelling of it that could agree while the real one is broken. */
+  const offendersIn = (files: { name: string; text: string }[]) =>
+    files.flatMap((file) =>
+      Object.entries(earthAir ?? {})
+        .filter(([, hex]) => file.text.includes(hex))
+        .map(([role, hex]) => `${file.name} states the ${role} colour ${hex}`),
+    );
+
+  it("sweeps the files that could plausibly hold one, so the rule is not vacuous", () => {
+    // Named rather than counted: a count survives a walk that stops recursing, and the three below
+    // are the three places a sky could actually be declared — the page that owns the map, the
+    // module that owns the ramp, and the stylesheet that owns the per-body tokens.
+    const found = swept.map((file) => file.name);
+    for (const required of [
+      "components/Globe.astro",
+      "lib/skyAtmosphere.ts",
+      "styles/global.css",
+    ]) {
+      expect(found, `the sweep missed ${required}`).toContain(required);
+    }
+  });
+
+  it("catches a planted copy, so a clean result means something", () => {
+    // The positive control, run through `offendersIn` rather than beside it. Without one, a matcher
+    // that had stopped matching would report an empty list and read as a codebase with no copies —
+    // the failure a source scan makes silently.
+    expect(earthAir).not.toBeNull();
+    const planted = offendersIn([
+      { name: "lib/somewhereElse.ts", text: `const SKY_COLOR = "${earthAir!.sky}";` },
+      { name: "components/Other.astro", text: `  --limb: ${earthAir!.horizon};` },
+    ]);
+    expect(planted).toHaveLength(2);
+    expect(planted[0]).toContain("sky");
+    expect(planted[1]).toContain("horizon");
+  });
+
+  it("finds none of the body's atmosphere colours outside the registry", () => {
+    expect(offendersIn(swept), "the sky is the registry's, and a second copy cannot be checked")
+      .toEqual([]);
   });
 });

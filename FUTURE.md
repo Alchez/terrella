@@ -114,6 +114,27 @@ grep HISTORY before re-arguing anything an entry says was already decided.
 - **Adjacent, same sweep:** the tier picker's `radiogroup` a11y defect is already parked here. If
   either is ever picked up, do both — one accessibility pass, one round of judgement.
 
+## The polar caps are a texture because MapLibre allows nothing else, and the ceiling is WebP's (analysed 2026-08-07)
+
+- **State at analysis:** each pole ships one AEQD texture with a four-rung ladder (1024/2048/4096/8192)
+  picked from the cap's measured on-screen size. It is not a tile pyramid, and the reason has been
+  assumed rather than recorded.
+- **GDAL is not the constraint.** `gdal raster tile --tiling-scheme` offers `APSTILE` and
+  `LINZAntarticaMapTilegrid` alongside `WebMercatorQuad` — both polar stereographic, both able to
+  cut a real pyramid over a pole.
+- **MapLibre is.** Its raster and vector sources are Web Mercator only; `scheme` chooses `xyz` vs
+  `tms` and that is the whole vocabulary. Consuming a polar pyramid means a custom loader, LOD
+  selector and stitcher — most of what the custom cap layer already does, with 8 files instead of
+  thousands.
+- **The texture ceiling is 16,383 px, and it is a file-format limit, not a taste one.** WebP cannot
+  encode a larger side at all; GPU `MAX_TEXTURE_SIZE` is typically 16,384 on desktop and the mobile
+  budget already clamps to 4096. So the largest cap that could ever ship is 2× today's linear size.
+- **What that would buy, measured against each body's own source:** Mars nothing — its cap already
+  interpolates its 200 m/px blend. Earth's south cap is the one real gap, sitting several times
+  coarser than the land DEM beneath it and than the tiles it feathers into at the seam.
+- **Verdict: parked, and the gap is Earth's, not Mars's.** Revisit only if MapLibre gains a
+  TileMatrixSet source, or if Antarctic detail is judged short on the sphere — never from the number.
+
 ## MapLibre's WebGPU backend — irrelevant to our memory problem, and NOT the no-op we recorded (analysed 2026-07-29)
 
 Prompted by the graphics-modernization roadmap. Read it against the DEM-cache work rather than in
@@ -402,14 +423,15 @@ which is why it never blocked anything.
     bathymetry-dominant seamount fields (Maldives especially). So an atoll hero is on-aesthetic; the
     *only* real blocker is the antimeridian split.
   - **The render pipeline is single-frame end-to-end** — one slug → one bbox → one `frame.json` →
-    one ortho render → one hero (`country_config.py:100-102` unpacks exactly one `[W,S,E,N]`;
-    `scene_build.py` one camera/one render; there is no `montage()` anywhere in the tree, so a
-    multi-frame hero has no existing machinery to extend).
+    one ortho render → one hero (every `west, south, east, north =` unpack in
+    `pipeline/frame/country_config.py` takes exactly one `[W,S,E,N]`; `scene_build.py` one
+    camera/one render; there is no `montage()` anywhere in the tree, so a multi-frame hero has no
+    existing machinery to extend).
   - **The frontend already degrades gracefully for a hero-less country** — `rendered:false`/`sizes:[]`
-    is a first-class manifest state (`gen_manifest.py:97-98`, `lib/manifest.ts`), and both the
-    gallery card (`index.astro:110-115`) and detail page (`[slug].astro:57-61`) render a placeholder.
-    It is dead code today because Kiribati is dropped at the manifest step (`gen_manifest.py:82-83`
-    `continue`s on `resolve()==None`).
+    is a first-class manifest state (`gen_manifest.py`'s `rendered=bool(sizes)`, `lib/manifest.ts`),
+    and both the gallery card and the detail page branch on `country.rendered` to render a
+    placeholder. It is dead code today because Kiribati is dropped at the manifest step —
+    `gen_manifest.py`'s `main()` `continue`s on `resolve() is None`.
 
 ### Viable option A — composited twin-panel hero (keeps Kiribati as one country)
 
@@ -417,7 +439,8 @@ which is why it never blocked anything.
   normal non-crossing frame rendering like Maldives/Marshall. Preserves country integrity (one
   sovereign nation = one gallery card) — the reason it beats sub-heroes (below).
 - **Effort: HIGH.** The single-frame pipeline has no seam for it — needs new code at ~every stage:
-  a `panels=[...]` config key + list validation (`country_config.py:67,100-102`); per-panel
+  a `panels=[...]` config key + list validation (`country_config.py`'s `COUNTRY_KEYS` and its
+  `[W,S,E,N]` unpacks); per-panel
   work/render subdirs through `stage_commands` (each panel is a *different* AEA projection with its
   own `frame.json`/heightfield/masks); **a brand-new compositor stage** (the keystone — nothing
   composites two RGBA renders today); a batch loop over panels; and per-panel border/overlay mapping
@@ -429,12 +452,13 @@ which is why it never blocked anything.
 - Kiribati appears as a placeholder card + gazetteer + detail page, no relief hero — honest about a
   permanent deferral. Keeps it as one entry.
 - **Effort: LOW, and entirely in the data/manifest layer** (presentation already exists): (1) emit an
-  `rendered:false` manifest entry for antimeridian-deferred countries instead of dropping them
-  (`gen_manifest.py:82-83`); (2) author a `bbox` — Kiribati has `status`/`notes` but no `frame`, and
-  the gazetteer + globe fly-to read `country.bbox`; (3) guard the globe's `openPanel()`
-  (`earth.astro:685`) which unconditionally requests `…-${sizes[0]}.webp` → a broken
-  `kiribati-undefined.webp` for an unrendered entry; (4) optional distinct "deferred" copy — today's
-  only placeholder string is "still rendering," which misrepresents a permanent state.
+  `rendered:false` manifest entry for antimeridian-deferred countries instead of dropping them —
+  `gen_manifest.py`'s `main()` skips them with `if r is None: continue`; (2) author a `bbox` —
+  Kiribati has `status`/`notes` but no `frame`, and the gazetteer + globe fly-to read `country.bbox`;
+  (3) guard the globe's `openPanel()` in `Globe.astro`, which sets `heroImg.src` from
+  `country.sizes[0]` unconditionally → a broken `kiribati-undefined.webp` for an unrendered entry;
+  (4) optional distinct "deferred" copy — today's only placeholder string is "still rendering,"
+  which misrepresents a permanent state.
 
 ### Ruled out (do not re-litigate)
 
@@ -543,7 +567,7 @@ conclusion below, which rests only on there being no value between 2 and 4.
 - **Trigger:** the capability probe looks like it protects weak devices. Measured against the spec and
   the code, it barely does. Deferred rather than fixed — the question is a product one (*is `full` the
   right default for these visitors?*), and nobody has reported a bad experience.
-- **`capability.ts:119` is `lowMemory = deviceMemory < 4`** — but **`navigator.deviceMemory` is
+- **`capability.ts` then read `lowMemory = deviceMemory < 4`** — but **`navigator.deviceMemory` is
   spec-quantised to powers of two** (0.25 / 0.5 / 1 / 2 / 4 / 8, clamped at both ends). So `< 4`
   **cannot** mean "under 4 GB". It means **2 GB or less**. There is no 3.
 - **It is Chromium-only.** Absent → `Infinity` → never `lowMemory`, so **every Safari and Firefox
@@ -552,7 +576,7 @@ conclusion below, which rests only on there being no value between 2 and 4.
   i.e. the mobile score is measured on a device the ladder treats as healthy.
 - **A second, independent gap:** `Base.astro`'s pre-paint guard gates `/earth/` on `webgl2()` alone,
   while `decideTier`'s `capable()` also requires `!softwareGpu`. A software-rasterizer visitor who
-  deep-links `/earth/` is therefore never bounced to the gallery, and `earth.astro` reads
+  deep-links `/earth/` is therefore never bounced to the gallery, and `Globe.astro` reads
   `currentTier()` only to decide whether to spin — so they get a full globe on SwiftShader.
 - **If reopened, decide these separately:** the memory threshold is a *tuning* question (2 GB is a very
   low bar; `<= 4` would catch mid-range Android), the Safari/Firefox blindness is a *coverage* question
@@ -724,7 +748,7 @@ conclusion below, which rests only on there being no value between 2 and 4.
   - an **object** sets `params.data`, and `Actor.sendAsync` then calls `serialize(message.data)`,
     which **recursively rebuilds every array and object**, before `postMessage` structured-clones
     that rebuilt copy. Two full deep walks of the geometry, on the main thread.
-- **We pass objects for all three country sources** (`earth.astro`, `addCountries`) while
+- **We pass objects for all three country sources** (`Globe.astro`, `addCountries`) while
   `boundary_lines.geojson` in the same file is passed as a **URL**. The asymmetry inside one file
   is the defect; the geometry is only the multiplier.
 - **Measured** (Node 24 / V8, warm, ×3 — same engine as Chrome, different host, so a proxy):

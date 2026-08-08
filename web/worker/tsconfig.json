@@ -2,11 +2,30 @@
   // Deliberately standalone rather than extending ../tsconfig.json. The Worker runtime is not
   // the browser: @cloudflare/workers-types redefines fetch, Response and friends, and letting
   // those types into the Astro project's program breaks `astro check`. So the site excludes
-  // this directory and the Worker gets its own program, sharing exactly one file with the
-  // site — src/lib/reliefTiles.ts, the request contract both runtimes implement.
+  // this directory and the Worker gets its own program.
+  //
+  // BECAUSE IT IS A SEPARATE PROGRAM, `astro check` DOES NOT SEE IT. That is why `pnpm check`
+  // runs both — this file's program had been failing for some time with nothing reporting it,
+  // since wrangler's esbuild strips types without checking them, so a deploy would have shipped
+  // regardless. Four errors, all in modules the site's looser program accepts.
+  //
+  // Two settings here are STRICTER than the site's and must stay that way, because this program
+  // is the only one that applies them to the shared modules: `noUncheckedIndexedAccess` (which is
+  // what caught the regex destructure in tileAddress.ts) and a `lib` with no DOM (which is what
+  // caught a `document` read reachable from the Worker's own imports). Do not add "DOM" to silence
+  // the latter — measured, it makes `caches.default` disappear, and that is the Cloudflare
+  // property this Worker's whole cache path is built on.
+  //
+  // `target`/`lib` are NOT part of that strictness and must not be lowered to add some: they match
+  // the site's program deliberately, because the same shared modules are compiled by both, and a
+  // level behind it rejects syntax the site accepts — in a file the Worker only reaches by import,
+  // so nothing here would name the cause.
+  //
+  // `include` seeds the program; tsc follows imports from there, so the shared modules the Worker
+  // reaches through index.ts are checked without being listed.
   "compilerOptions": {
-    "target": "ES2022",
-    "lib": ["ES2022"],
+    "target": "ESNext",
+    "lib": ["ESNext"],
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "types": ["@cloudflare/workers-types"],

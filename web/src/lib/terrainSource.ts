@@ -48,9 +48,6 @@ export const TERRAIN_CONTENT_TYPE = "image/webp";
  *  object keys — so this costs no new deploy variable and no second custom domain. */
 export const TERRAIN_PATH_PREFIX = "terrain";
 
-/** Path portion of a terrain tile URL, with MapLibre's placeholders. */
-export const TERRAIN_PATH_TEMPLATE = `${TERRAIN_PATH_PREFIX}/{z}/{x}/{y}.${TERRAIN_TILE_EXTENSION}`;
-
 export const TERRAIN_MIN_ZOOM = 0;
 
 /** Depth of the elevation pyramid, matching the colour pyramid's z8 — which is also the full extent
@@ -78,7 +75,15 @@ export const TERRAIN_MIN_ZOOM = 0;
  *  the DEM wants z8 and gets it at pitch 0 — the mesh refines and the data refines with it. Pitch
  *  takes it back: MapLibre's globe LOD heuristic drops the covering a level, so a pitched z8 view
  *  reads z7 (see terrainZoomsFor). The payoff view is therefore one level shallower than the flag
- *  suggests, which is worth knowing before anyone cuts a z9 that could never load. */
+ *  suggests, which is worth knowing before anyone cuts a z9 that could never load.
+ *
+ *  EARTH'S ANSWER, like its relief sibling. The per-planet one is `PUBLISHED[body].terrain`; this is
+ *  the value Earth's own registry entry is built from, and the number the legacy untokened path —
+ *  Earth's by definition — is checked against.
+ *
+ *  The globe's DEM source still reads it, deferred on the same evidence the countries ceiling
+ *  records: Earth is the only body publishing a DEM, so a registry-reading version could not be
+ *  made to fail. Threading the archive is what makes it checkable before a second body has one. */
 export const TERRAIN_MAX_ZOOM = 8;
 
 /** Built from the prefix and the extension rather than spelled out, so the path we ASK for and
@@ -120,22 +125,6 @@ export function describeTerrainTileTypeMismatch(archiveExtension: string): strin
     `match the re-cut pyramid (its source of truth is TERRAIN_TILE_EXTENSION in ` +
     `pipeline/tile/terrain_rgb.py). Elevation tiles must stay LOSSLESS.`
   );
-}
-
-/** Fail loudly when the terrain archive stops matching the constants above.
- *
- *  The failure this catches is silent in BOTH directions and neither shows up as an error: an
- *  archive shallower than TERRAIN_MAX_ZOOM 404s every tile past its depth while the globe still
- *  renders flat there, and a deeper one is simply never requested — which looks exactly like the
- *  extra levels having no visual effect. */
-export function assertTerrainZoomRange(archiveMinZoom: number, archiveMaxZoom: number): void {
-  if (archiveMinZoom !== TERRAIN_MIN_ZOOM || archiveMaxZoom !== TERRAIN_MAX_ZOOM) {
-    throw new Error(
-      `Terrain archive covers z${archiveMinZoom}-z${archiveMaxZoom}, but the globe requests ` +
-        `z${TERRAIN_MIN_ZOOM}-z${TERRAIN_MAX_ZOOM}. Update TERRAIN_MIN_ZOOM/TERRAIN_MAX_ZOOM in ` +
-        `src/lib/terrainSource.ts to match the re-cut pyramid.`,
-    );
-  }
 }
 
 /** DECLARED tile size, and deliberately a quarter of the asset's true 512 px — the same trick the

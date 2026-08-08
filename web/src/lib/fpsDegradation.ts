@@ -82,7 +82,7 @@ export type DegradationAction =
 /** True when a full window of frame durations has a slow median. */
 export function isSustainedSlow(frameDurationsMs: number[]): boolean {
   if (frameDurationsMs.length < MINIMUM_SAMPLE_COUNT) return false;
-  const sortedDurations = [...frameDurationsMs].sort(
+  const sortedDurations = [...frameDurationsMs].toSorted(
     (first, second) => first - second,
   );
   const medianMs = sortedDurations[sortedDurations.length >> 1];
