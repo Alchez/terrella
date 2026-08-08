@@ -41,13 +41,13 @@ by the body's slug, and refuses an unregistered body rather than falling back to
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 
 import numpy as np
 
 from pipeline import bodies, layers
 from pipeline.acquire import download_sim3292
-from pipeline.render import mars_ice, snow, viking_luma
+from pipeline.render import mars_ice, palette, snow, viking_luma
 
 
 class WarpToCap(Protocol):
@@ -124,6 +124,17 @@ class CapIce:
     #: a relocated store moves; a zero-argument callable keeps the read where it was.
     sources: Callable[[], tuple[Path, ...]]
     alpha: Callable[[CapIceInputs], np.ndarray]
+    #: The `(sunlit, shadowed)` white `shade.composite` paints this cap's alpha with.
+    #:
+    #: PER POLE FOR FREE HERE, because the pole is already half of this registry's key — where the
+    #: composite tier keys on the layer and has to vary its paint within a window. That asymmetry is
+    #: why the two tiers declare the same thing by different means, and both must land on the same
+    #: value at the same pole or the 80–84 crossfade changes colour across the seam.
+    #:
+    #: A CALLABLE FOR THE REASON `sources` IS ONE: a tuple literal in the registry freezes whatever
+    #: `palette` held at import, so a test that swings a body's white would be answered with the
+    #: value from before the swing.
+    paint: Callable[[], tuple[Any, Any]]
 
 
 def _earth_north(inputs: CapIceInputs) -> np.ndarray:
@@ -207,13 +218,25 @@ def _mars_cap_ice(inputs: CapIceInputs, pole: str) -> np.ndarray:
 #: reason for its absence: a producer cannot declare a path nothing acquired. `download_viking_mosaic`
 #: and `render/viking_luma` closed that, and the OMEGA entries that once stood here are gone rather
 #: than repointed because the licence blocks the source, not because the seam moved.
+def _earth_cap_white() -> tuple[Any, Any]:
+    """Earth's one white at both poles, and the same pair its composite-tier producers declare.
+
+    Read through `palette` rather than restated, so the cap and the tiles it feathers into cannot
+    disagree about the colour of the same ice sheet.
+    """
+    return palette.SNOW_RGB, palette.SNOW_SHADOW_RGB
+
+
 CAP_ICE_BY_BODY: dict[tuple[str, str], CapIce] = {
-    ("earth", "north"): CapIce(sources=lambda: (Path(snow.SP_NC),), alpha=_earth_north),
-    ("earth", "south"): CapIce(sources=lambda: (), alpha=_earth_south),
+    ("earth", "north"): CapIce(sources=lambda: (Path(snow.SP_NC),), alpha=_earth_north,
+                               paint=_earth_cap_white),
+    ("earth", "south"): CapIce(sources=lambda: (), alpha=_earth_south, paint=_earth_cap_white),
     ("mars", "north"): CapIce(sources=_mars_sources,
-                              alpha=lambda inputs: _mars_cap_ice(inputs, "north")),
+                              alpha=lambda inputs: _mars_cap_ice(inputs, "north"),
+                              paint=lambda: palette.MARS_ICE_WHITE["north"]),
     ("mars", "south"): CapIce(sources=_mars_sources,
-                              alpha=lambda inputs: _mars_cap_ice(inputs, "south")),
+                              alpha=lambda inputs: _mars_cap_ice(inputs, "south"),
+                              paint=lambda: palette.MARS_ICE_WHITE["south"]),
 }
 
 

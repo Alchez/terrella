@@ -58,8 +58,35 @@ WATER_RGB: RGB8 = (142, 198, 196)  # 8EC6C4 — flat inland lake/river teal: the
 # surface tone (85B9B7) lightened ~7%, so lakes stay in the sea's green-teal family but
 # read a touch calmer/lighter (the lake convention). Re-synced to the sea
 # rework, which had deepened the sea surface and left this stranded ~15% brighter.
+# EARTH'S ice white, and it is Earth's rather than the project's — a second body measured a
+# different one. `shade.composite` no longer reads these directly; the producer that computed the
+# alpha declares which white paints it, so a body's ice cannot inherit another body's colour by
+# omission. The hero rig still reads them, and the rig is Earth's by decision.
+#
+# The blue is not decoration: thick clean glacial ice absorbs red, so terrestrial snow really does
+# go blue in shadow. That is Earth physics and does not travel — see MARS_ICE_WHITE.
 SNOW_RGB: RGB8 = (232, 241, 246)         # E8F1F6 — sunlit snow (bright glacial white)
 SNOW_SHADOW_RGB: RGB8 = (176, 199, 219)  # B0C7DB — shaded snow (cool blue-white, not grey)
+
+# MARS, PER POLE, because the two deposits are measurably different colours: north 1.053 and south
+# 1.291 in red:violet against their own ground at 1.231 and 1.807. Normalising each cap by its own
+# surroundings leaves most of that gap standing, so the difference belongs to the ice rather than to
+# what surrounds it or to how it was imaged.
+#
+# RED AND BLUE ARE MEASURED; GREEN IS NOT AND CANNOT BE. The Viking mosaic's green band is a fixed
+# linear combination of its red and violet (R^2 0.9998), so only the red:violet ratio is evidence
+# and green is a stated design rule: hold Earth's luminance, and keep the pair on one locus. The
+# south could not hold both — sRGB cannot reach Earth's brightness at that warmth with red pinned at
+# 255 — so its green is lifted to buy the luminance back, which is the choice that was ratified by
+# eye rather than derived.
+#
+# The derivation is checkable: it reproduces Earth's own shipped pair exactly from Earth's ratio and
+# luminance, which is what makes it trustworthy on a pair nobody had seen. It does not yet have a
+# tracked reproducer, so re-measuring means re-deriving — the standing oracle is owed.
+MARS_ICE_WHITE: dict[str, tuple[RGB8, RGB8]] = {   # pole -> (sunlit, shadowed)
+    "north": ((243, 239, 231), (198, 195, 188)),   # F3EFE7 / C6C3BC
+    "south": ((255, 239, 198), (207, 196, 160)),   # FFEFC6 / CFC4A0
+}
 # Sea ice: the same light-keyed white family but a subtle notch COOLER and dimmer than land snow,
 # so the poles read floating-thin-ice vs thick-ice-sheet without a hard colour split (the coastline
 # and relief carry the rest). Physically honest: thin sea ice over dark ocean reads less bright than

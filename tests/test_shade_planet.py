@@ -1016,3 +1016,90 @@ class TestWhyTheTwoDependencyListsDisagree:
         off restage. This list is only ever asked "what is the newest of these"."""
         deps = shade_planet.composite_deps(Path("/w"), Path("/w/hs.tif"), Path("/w/params.json"))
         assert {"ocean_3857.tif", "water_3857.tif"} <= {path.name for path in deps}
+
+
+class TestTheUnionCarriesTheColourOfWhicheverLayerWins:
+    """`snow_a` is a `np.maximum` over several layers, so a union that carried one paint would
+    paint the loser's colour onto the winner's pixels.
+
+    EVERY CASE HERE IS BUILT, NEVER BORROWED. No shipping body reaches the merging branch — Earth's
+    two ice layers declare the identical white and Mars declares one layer — so a guard taking its
+    disagreeing pair out of the registry would test nothing and stay green while doing it.
+    """
+
+    WHITE = ((10, 20, 30), (1, 2, 3))
+    OTHER = ((200, 210, 220), (100, 110, 120))
+
+    def test_an_absent_incoming_paint_leaves_the_union_alone(self):
+        alpha = np.zeros((2, 2))
+        assert shade_planet._merge_paint(self.WHITE, alpha, None, alpha) == self.WHITE
+
+    def test_the_first_paint_seeds_the_union(self):
+        alpha = np.zeros((2, 2))
+        assert shade_planet._merge_paint(None, alpha, self.WHITE, alpha) == self.WHITE
+
+    def test_two_equal_paints_short_circuit_to_the_same_object(self):
+        """The only path a shipping body takes, and the reason merging costs nothing today: the
+        general branch materialises `(3, H, W)` per end, ~400 MB apiece on a planet window."""
+        alpha = np.zeros((2, 2))
+        merged = shade_planet._merge_paint(self.WHITE, alpha,
+                                           (self.WHITE[0], self.WHITE[1]), alpha)
+        assert merged is self.WHITE
+
+    def test_the_layer_with_the_HIGHER_alpha_supplies_each_pixels_colour(self):
+        current = np.array([[0.9, 0.1], [0.9, 0.1]])
+        incoming = np.array([[0.1, 0.9], [0.1, 0.9]])
+        merged = shade_planet._merge_paint(self.WHITE, current, self.OTHER, incoming)
+        assert merged is not None
+        lit = np.asarray(merged[0])
+        assert lit.shape == (3, 2, 2)
+        assert list(lit[:, 0, 0]) == [10.0, 20.0, 30.0], "current won this pixel"
+        assert list(lit[:, 0, 1]) == [200.0, 210.0, 220.0], "incoming won this pixel"
+        shadow = np.asarray(merged[1])
+        assert list(shadow[:, 0, 0]) == [1.0, 2.0, 3.0]
+        assert list(shadow[:, 0, 1]) == [100.0, 110.0, 120.0]
+
+    def test_a_tie_keeps_the_earlier_layers_colour(self):
+        """`np.maximum` cannot break a tie either, so the rule is stated rather than left to
+        whichever layer the table happens to list first changing meaning under a reorder."""
+        alpha = np.full((2, 2), 0.5)
+        merged = shade_planet._merge_paint(self.WHITE, alpha, self.OTHER, alpha)
+        assert merged is not None
+        assert list(np.asarray(merged[0])[:, 0, 0]) == [10.0, 20.0, 30.0]
+
+
+class TestNoPaintIsBitIdenticalToPaintingWithZeroAlpha:
+    """A body with no white-painting layer now SKIPS the blend where it used to run it against
+    zeros. The skip is only safe because the two are exactly equal in float32, so it is asserted
+    rather than reasoned about."""
+
+    def test_the_skipped_blend_equals_the_run_one(self):
+        shape = (4, 4)
+        common = dict(heights=np.full(shape, 1200.0, dtype="float32"),
+                      ocean=np.zeros(shape, dtype=bool), water=np.zeros(shape, dtype=bool),
+                      hs=np.full(shape, 180.0, dtype="float32"),
+                      occ=np.zeros((1, 1), dtype="float32"))
+        run = shade.composite(common["heights"], common["ocean"], common["water"],
+                              np.zeros(shape), common["hs"], common["occ"], (1, 1), shape,
+                              look=palette.EARTH_LOOK,
+                              snow_paint=(palette.SNOW_RGB, palette.SNOW_SHADOW_RGB),
+                              ice_paint=None)
+        skipped = shade.composite(common["heights"], common["ocean"], common["water"],
+                                  np.zeros(shape), common["hs"], common["occ"], (1, 1), shape,
+                                  look=palette.EARTH_LOOK, snow_paint=None, ice_paint=None)
+        assert run.tobytes() == skipped.tobytes()
+
+    def test_the_oracle_can_tell_them_apart_when_the_alpha_is_not_zero(self):
+        """The control: at a non-zero alpha the two paths MUST differ, or the equality above is
+        satisfied by an oracle that cannot see the blend at all."""
+        shape = (4, 4)
+        args = (np.full(shape, 1200.0, dtype="float32"), np.zeros(shape, dtype=bool),
+                np.zeros(shape, dtype=bool), np.full(shape, 0.8),
+                np.full(shape, 180.0, dtype="float32"), np.zeros((1, 1), dtype="float32"),
+                (1, 1), shape)
+        painted = shade.composite(*args, look=palette.EARTH_LOOK,
+                                  snow_paint=(palette.SNOW_RGB, palette.SNOW_SHADOW_RGB),
+                                  ice_paint=None)
+        skipped = shade.composite(*args, look=palette.EARTH_LOOK, snow_paint=None, ice_paint=None)
+        assert painted.tobytes() != skipped.tobytes()
+

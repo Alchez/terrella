@@ -694,8 +694,8 @@ def _drive_cap(monkeypatch, tmp_path, body, pole, missing=(), rasters=None):
 
     painted: dict[str, Any] = {}
 
-    def fake_write(grid, heights, ocean, water, snow_a, ice_a, hillshade_dn):
-        painted.update(snow_a=snow_a, ice_a=ice_a)
+    def fake_write(grid, heights, ocean, water, snow_a, ice_a, hillshade_dn, snow_paint):
+        painted.update(snow_a=snow_a, ice_a=ice_a, snow_paint=snow_paint)
         return tmp_path / f"cap_{grid.name}.webp"
 
     monkeypatch.setattr(cap_render, "_warp", fake_warp)
@@ -832,7 +832,8 @@ class TestCapSourcesFollowTheLayers:
         for pole, factory in (("north", cap_render.north_grid), ("south", cap_render.south_grid)):
             monkeypatch.setitem(perennial_ice.CAP_ICE_BY_BODY, ("other", pole),
                                 perennial_ice.CapIce(sources=lambda: (elsewhere,),
-                                                     alpha=lambda inputs: np.zeros(())))
+                                                     alpha=lambda inputs: np.zeros(()),
+                                                     paint=lambda: ((0, 0, 0), (0, 0, 0))))
             with subtests.test(pole):
                 other = dataclasses.replace(bodies.EARTH, name="other", path_prefix="other")
                 sources = cap_render.cap_sources(factory(other), WHOLE_PLANET)

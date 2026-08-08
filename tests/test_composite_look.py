@@ -40,6 +40,8 @@ def _composite(look: palette.Look, ocean: np.ndarray) -> np.ndarray:
         (1, 1),
         SHAPE,
         look=look,
+        snow_paint=(palette.SNOW_RGB, palette.SNOW_SHADOW_RGB),
+        ice_paint=None,
     )
 
 

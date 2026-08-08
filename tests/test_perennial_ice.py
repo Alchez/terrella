@@ -12,12 +12,13 @@ that declaration can drift apart.
 """
 
 import dataclasses
+from typing import ClassVar
 
 import numpy as np
 import pytest
 
 from pipeline import bodies, layers, mercator
-from pipeline.render import mars_ice, perennial_ice, snow
+from pipeline.render import layer_producers, mars_ice, perennial_ice, snow
 from pipeline.tile import cap_render
 
 
@@ -299,3 +300,60 @@ class TestMarsGradesTheFieldInsideTheMappedUnits:
             declared = perennial_ice.cap_ice(bodies.MARS, pole).sources()
             assert [path.name for path in declared] == [
                 "viking_luma_4326.tif", "lapc_sim3292.json", "apu_sim3292.json"]
+
+
+class TestTheTwoTiersAgreeOnTheColourOfTheSameIce:
+    """The cap and the tiles crossfade over 80-84 degrees, so a body whose two tiers resolved
+    different whites at one pole would change colour across that seam.
+
+    The tiers reach the answer by different means on purpose — the cap registry keys on the pole, the
+    composite registry keys on the layer and varies within a window — which is exactly why the
+    agreement has to be asserted rather than assumed from a shared constant.
+    """
+
+    #: 3857 metres well inside each pole's ice band, so the composite producer's per-row choice is
+    #: evaluated where ice is actually painted rather than at an arbitrary latitude.
+    BANDS: ClassVar[dict[str, tuple[float, float]]] = {
+        "north": (18_000_000.0, 17_000_000.0), "south": (-17_000_000.0, -18_000_000.0)}
+
+    def test_each_body_paints_one_pole_the_same_in_both_tiers(self, subtests):
+        checked = 0
+        for body in bodies.BODIES.values():
+            if layers.PERENNIAL_ICE.name not in body.surface_layers:
+                continue
+            for pole, (top, bottom) in self.BANDS.items():
+                cap_paint = perennial_ice.cap_ice(body, pole).paint()
+                latitude = snow.latitude_per_row(top, bottom, 4)
+                window = layer_producers.LayerWindow(
+                    raw=None, watercode=None, land=np.ones((4, 4), dtype=bool),
+                    latitude=latitude, top=top, bottom=bottom)
+                tile_paint = layer_producers.producer_for(
+                    body, layers.PERENNIAL_ICE).paint(window)
+                assert tile_paint is not None
+                with subtests.test(f"{body.name} {pole}"):
+                    for cap_end, tile_end in zip(cap_paint, tile_paint, strict=True):
+                        tile_rgb = np.asarray(tile_end, dtype=int).reshape(3, -1)
+                        assert (tile_rgb == np.asarray(cap_end, dtype=int).reshape(3, 1)).all(), (
+                            f"{body.name}'s {pole} cap and tiles disagree about the ice colour")
+                checked += 1
+        assert checked == 4, f"expected both poles of both bodies, checked {checked}"
+
+    def test_the_check_can_fail_when_a_tier_is_swung(self, monkeypatch):
+        """The control. Without it this class passes on any body whose two tiers happen to read one
+        constant, which is the shape that stays green after a seam is introduced."""
+        monkeypatch.setitem(perennial_ice.CAP_ICE_BY_BODY, ("mars", "north"),
+                            dataclasses.replace(perennial_ice.CAP_ICE_BY_BODY[("mars", "north")],
+                                                paint=lambda: ((0, 0, 0), (0, 0, 0))))
+        with pytest.raises(AssertionError, match="disagree about the ice colour"):
+            TestTheTwoTiersAgreeOnTheColourOfTheSameIce().test_each_body_paints_one_pole_the_same_in_both_tiers(
+                _NullSubtests())
+
+
+class _NullSubtests:
+    """`subtests.test` as a no-op context manager, so the control above sees the raw assertion
+    rather than the plugin's own swallowing of a subtest failure."""
+
+    def test(self, *_args, **_kwargs):
+        import contextlib
+        return contextlib.nullcontext()
+

@@ -582,14 +582,18 @@ def _bake_coastline(grid: CapGrid, rgb: np.ndarray) -> None:
 
 
 def _write_cap(grid: CapGrid, heights: np.ndarray, ocean: np.ndarray, water: np.ndarray,
-               snow_a: np.ndarray, ice_a: "np.ndarray | None", hillshade_dn: np.ndarray) -> Path:
+               snow_a: np.ndarray, ice_a: "np.ndarray | None", hillshade_dn: np.ndarray,
+               snow_paint: "tuple[Any, Any] | None") -> Path:
     """Shared composite + coastline bake + WebP write for either pole. SVF off, measured:
     the tiles' ocean SVF is thresholded out over flat seafloor, so a cap SVF pass changes the ocean
     sub-perceptibly and does not close the cap<->tile seam -- the seam is projection/DEM, not SVF)."""
     occ = np.zeros((grid.px, grid.px), dtype=np.float32)  # occ below threshold -> no SVF burn
+    # The sea-ice pair follows the alpha's own presence: `_cap_sea_ice` returns None where the body
+    # paints no pack, and one home answers both tiers for what that pack is painted in.
     rgb = shade.composite(heights, ocean, water, snow_a, hillshade_dn, occ, occ.shape,
                           (grid.px, grid.px), depth=None, ice_a=ice_a,
-                          look=palette.look_for(grid.body.name))
+                          look=palette.look_for(grid.body.name), snow_paint=snow_paint,
+                          ice_paint=None if ice_a is None else seaice.ice_white())
     _bake_coastline(grid, rgb)  # the land/sea line, so ice sheet reads distinct from sea ice at the pole
 
     tif = cap_work_dir(grid.body) / f"cap_{grid.name}.tif"
@@ -628,8 +632,8 @@ def _cap_sea_ice(grid: CapGrid, consequence: str) -> "np.ndarray | None":
                             ice_lo=grid.ice_lo, ice_max_alpha=grid.ice_max_alpha)
 
 
-def _cap_perennial_ice(grid: CapGrid, ocean: np.ndarray, water: np.ndarray,
-                       latitude: np.ndarray, consequence: str) -> np.ndarray:
+def _cap_perennial_ice(grid: CapGrid, ocean: np.ndarray, water: np.ndarray, latitude: np.ndarray,
+                       consequence: str) -> "tuple[np.ndarray, tuple[Any, Any] | None]":
     """This cap's perennial-ice alpha, from the producer this body registered for this pole.
 
     ONE HOME BECAUSE BOTH POLES ASK THE SAME QUESTION, exactly as `_cap_sea_ice` does — and here the
@@ -648,7 +652,7 @@ def _cap_perennial_ice(grid: CapGrid, ocean: np.ndarray, water: np.ndarray,
     if not (layers.body_declares_layer(grid.body, layers.PERENNIAL_ICE, consequence)
             and all(layers.layer_is_buildable(grid.body, layers.PERENNIAL_ICE, source, consequence)
                     for source in perennial_ice.cap_ice(grid.body, grid.name).sources())):
-        return np.zeros((grid.px, grid.px), dtype=np.float32)
+        return np.zeros((grid.px, grid.px), dtype=np.float32), None
     inputs = perennial_ice.CapIceInputs(
         land=~(ocean | water),  # the tile composite's land definition
         latitude=latitude,
@@ -657,7 +661,8 @@ def _cap_perennial_ice(grid: CapGrid, ocean: np.ndarray, water: np.ndarray,
         burn=lambda source, name, must_draw: _burn(grid, source, name, must_draw),
         ground_metres_per_px=cap_ground_metres_per_px(grid),
     )
-    return perennial_ice.cap_ice(grid.body, grid.name).alpha(inputs)
+    producer = perennial_ice.cap_ice(grid.body, grid.name)
+    return producer.alpha(inputs), producer.paint()
 
 
 def _announce(grid: CapGrid, raster: str, consequence: str) -> None:
@@ -725,9 +730,9 @@ def render_cap_north(grid: CapGrid, rasters: frozenset[str]) -> Path:
     longitude, latitude = _lonlat_grid(grid)
     hillshade_dn = _shade(grid, heights, longitude)
 
-    snow_a = _cap_perennial_ice(grid, ocean, water, latitude, "the north cap paints no ice")
+    snow_a, snow_paint = _cap_perennial_ice(grid, ocean, water, latitude, "the north cap paints no ice")
     ice_a = _cap_sea_ice(grid, "the north cap paints no pack ice")
-    return _write_cap(grid, heights, ocean, water, snow_a, ice_a, hillshade_dn)
+    return _write_cap(grid, heights, ocean, water, snow_a, ice_a, hillshade_dn, snow_paint)
 
 
 def render_cap_south(grid: CapGrid, rasters: frozenset[str]) -> Path:
@@ -754,9 +759,9 @@ def render_cap_south(grid: CapGrid, rasters: frozenset[str]) -> Path:
     longitude, latitude = _lonlat_grid(grid)
     hillshade_dn = _shade(grid, heights, longitude)
 
-    snow_a = _cap_perennial_ice(grid, ocean, water, latitude, "polar land stays on the relief ramp")
+    snow_a, snow_paint = _cap_perennial_ice(grid, ocean, water, latitude, "polar land stays on the relief ramp")
     ice_a = _cap_sea_ice(grid, "the south cap paints no pack ice")
-    return _write_cap(grid, heights, ocean, water, snow_a, ice_a, hillshade_dn)
+    return _write_cap(grid, heights, ocean, water, snow_a, ice_a, hillshade_dn, snow_paint)
 
 
 def build_parser() -> argparse.ArgumentParser:

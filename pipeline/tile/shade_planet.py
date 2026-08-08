@@ -325,19 +325,15 @@ def composite_params(variants, body: bodies.Body, rasters: frozenset[str],
                        **_when(layers.LAKE_DEPTH.name in declared,
                                {"lake_stops": palette.LAKE_STOPS,
                                 "lake_max_m": palette.LAKE_MAX_M}),
-                       # The white `shade.composite` paints the union with, whatever produced that
-                       # union: one white family for every body's perennial ice, so this is live
-                       # wherever the layer is declared and is NOT the producer's to declare. The
-                       # arithmetic that grades the alpha is — see `produced` above.
-                       **_when(layers.PERENNIAL_ICE.name in declared,
-                               {"snow_rgb": palette.SNOW_RGB,
-                                "snow_shadow_rgb": palette.SNOW_SHADOW_RGB}),
-                       # The sea-ice pair, on the same split: `shade.composite` blends with these,
-                       # `seaice.ice_alpha`'s ramp decides how much, and that ramp rides with the
-                       # producer that calls it.
-                       **_when(layers.SEA_ICE.name in declared,
-                               {"ice_rgb": palette.ICE_RGB,
-                                "ice_shadow_rgb": palette.ICE_SHADOW_RGB}),
+                       # BOTH WHITE PAIRS MOVED INTO `produced` ABOVE, where the producer that
+                       # paints with them declares them. This gate said "one white family for every
+                       # body's perennial ice", which held while Earth was the only body painting
+                       # any and fails twice over now: a second body arrived, and its two poles
+                       # measure as different colours from each other. A layer gate can only hold
+                       # one value per layer, so it had no way to be right for both.
+                       #
+                       # Earth's keys and values are unchanged — `produced` merges flat into this
+                       # dict and `sort_keys` normalises it — so this move restages nothing.
                        # `shadow_tint` returns exactly 1.0 at warmth 0, bit-identical to not being
                        # called, so the tint vector is live only above it.
                        **_when(KNOBS["shadow_warmth"] != 0.0,
@@ -623,7 +619,42 @@ class _WindowShared:
     depth_win: np.ndarray | None
     snow_a: np.ndarray
     ice_a: np.ndarray | None
+    #: The whites their producers declared for this window, or None where nothing paints one.
+    #: Variant-independent for the reason everything else here is: a sea knob cannot move them.
+    snow_paint: "tuple[Any, Any] | None"
+    ice_paint: "tuple[Any, Any] | None"
     cap: np.ndarray
+
+
+def _merge_paint(current: "tuple[Any, Any] | None", current_alpha: np.ndarray,
+                 incoming: "tuple[Any, Any] | None",
+                 incoming_alpha: np.ndarray) -> "tuple[Any, Any] | None":
+    """Fold one layer's white into the union's: the layer that WINS a pixel's alpha paints it.
+
+    The union is a `np.maximum` over several layers' alphas, so without this the first-registered
+    layer's colour would be painted over another layer's pixels — invisible on a body whose layers
+    agree and wrong on one whose layers do not.
+
+    EQUAL WHITES SHORT-CIRCUIT, and that is the only path any shipping body takes today: Earth's
+    perennial ice and glaciers both declare `palette.SNOW_RGB`, and Mars declares one ice layer with
+    nothing to merge against. The general branch below is therefore reached by NO live data, so its
+    guard has to construct two disagreeing paints rather than borrow a pair — a test that took its
+    negative case from the registry would go quiet the moment a body changed, not red.
+
+    The short circuit is also what keeps the cost at zero. Merging materialises `(3, H, W)` per end,
+    which on a planet window is ~400 MB apiece; agreeing whites never pay it.
+    """
+    if incoming is None:
+        return current
+    if current is None:
+        return incoming
+    if all(np.array_equal(np.asarray(old), np.asarray(new))
+           for old, new in zip(current, incoming, strict=True)):
+        return current
+    wins = (incoming_alpha > current_alpha)[None]
+    merged = tuple(np.where(wins, shade.paint_end(new), shade.paint_end(old))
+                   for old, new in zip(current, incoming, strict=True))
+    return merged[0], merged[1]
 
 
 def _compute_shared(inputs: _WindowInputs) -> _WindowShared:
@@ -654,30 +685,40 @@ def _compute_shared(inputs: _WindowInputs) -> _WindowShared:
     # latitude-and-land rule with no file behind it, so no missing raster could ever switch it off.
     # Reading the declaration off `layer_raw` instead would drop it the day NSIDC went absent.
     contributions: dict[str, np.ndarray] = {}
+    paints: dict[str, tuple[Any, Any]] = {}
     for layer in layers.WARPED_LAYERS:
         if layer.name not in inputs.body.surface_layers:
             continue
-        value = layer_producers.producer_for(inputs.body, layer).contribution(
-            layer_producers.LayerWindow(
-                raw=inputs.layer_raw[layer.name], watercode=watercode, land=land_win,
-                latitude=latitude, top=inputs.win_top, bottom=inputs.win_bottom))
+        producer = layer_producers.producer_for(inputs.body, layer)
+        window = layer_producers.LayerWindow(
+            raw=inputs.layer_raw[layer.name], watercode=watercode, land=land_win,
+            latitude=latitude, top=inputs.win_top, bottom=inputs.win_bottom)
+        value = producer.contribution(window)
         if value is not None:
             contributions[layer.name] = value
+            # Asked ONLY of a layer that contributed, so a producer that paints nothing this window
+            # never has to answer what colour it would have used.
+            paint = producer.paint(window)
+            if paint is not None:
+                paints[layer.name] = paint
     depth_win = contributions.get(layers.LAKE_DEPTH.name)
     # The white union, in the table's order. float64 base because that is what `snow_alpha` returns
     # and what the maxima promote to; a float32 base would narrow every pixel `composite` blends.
     # `np.maximum` reorders freely and every contribution is non-negative, so which layer lands
     # first cannot move a bit.
     snow_a = np.zeros(inputs.height_win.shape, dtype=float)
+    snow_paint = None
     for layer in (layers.PERENNIAL_ICE, layers.GLACIERS):
         contribution = contributions.get(layer.name)
         if contribution is not None:
+            snow_paint = _merge_paint(snow_paint, snow_a, paints.get(layer.name), contribution)
             snow_a = np.maximum(snow_a, contribution)
     # The sea-side twin, kept OUT of that union on purpose: `shade.composite` gates it on the ocean
     # selector where snow_a paints land, and None there means the layer is absent rather than zero.
     ice_a = contributions.get(layers.SEA_ICE.name)
     cap = (latitude > CAP_NORTH) | (latitude < CAP_SOUTH)
-    return _WindowShared(ocean_win, water_win, hs_win, depth_win, snow_a, ice_a, cap)
+    return _WindowShared(ocean_win, water_win, hs_win, depth_win, snow_a, ice_a,
+                         snow_paint, paints.get(layers.SEA_ICE.name), cap)
 
 
 def _compose(inputs: _WindowInputs, shared: _WindowShared) -> np.ndarray:
@@ -690,7 +731,8 @@ def _compose(inputs: _WindowInputs, shared: _WindowShared) -> np.ndarray:
     rgb = shade.composite(inputs.height_win, shared.ocean_win, shared.water_win, shared.snow_a,
                           shared.hs_win, inputs.occ_win, inputs.occ_win.shape,
                           (inputs.win_h, inputs.height_win.shape[1]), depth=shared.depth_win,
-                          ice_a=shared.ice_a, look=palette.look_for(inputs.body.name))
+                          ice_a=shared.ice_a, look=palette.look_for(inputs.body.name),
+                          snow_paint=shared.snow_paint, ice_paint=shared.ice_paint)
     if shared.cap.any():  # force the smeared polar edges to a flat deep-sea disc
         for band in range(3):
             rgb[band][shared.cap] = CAP_RGB[band]

@@ -40,7 +40,7 @@ import numpy as np
 
 from pipeline import bodies, layers
 from pipeline.acquire import download_sim3292
-from pipeline.render import lake_depth, mars_ice, seaice, snow, viking_luma
+from pipeline.render import lake_depth, mars_ice, palette, seaice, snow, viking_luma
 
 
 @dataclass(frozen=True)
@@ -104,6 +104,21 @@ class LayerProducer:
     #: This layer's number for one window, or None when it has nothing to add. Returning None rather
     #: than zeros keeps a layer that contributes nothing out of the union entirely.
     contribution: Callable[[LayerWindow], "np.ndarray | None"]
+    #: The `(sunlit, shadowed)` white `shade.composite` paints this producer's alpha with, or None
+    #: where the layer's number is not painted as a white at all (lake depth, which takes a ramp).
+    #:
+    #: Each end may be a bare RGB triple or an array shaped per row, so a producer whose material
+    #: changes across the window says so itself. Mars's does: its two poles measure as different
+    #: colours, 1.053 against 1.291 in red:violet, and one producer covers both hemispheres.
+    #:
+    #: WHY THIS IS THE PRODUCER'S AND NOT THE COMPOSITOR'S. It used to be a module global read
+    #: inside `shade.composite`, on the argument that one white serves every body's perennial ice.
+    #: That was true while Earth was the only body painting any, and it stopped being true twice
+    #: over — once when a second planet arrived and inherited Earth's white by omission, and again
+    #: when that planet turned out to need two of its own. A global read cannot show a reader that
+    #: either fact exists, which is the whole failure: the code that decided to paint a pixel is the
+    #: only code that knows what the pixel is made of.
+    paint: Callable[[LayerWindow], "tuple[Any, Any] | None"]
     #: The constants THIS producer's own arithmetic reads, for the composite's freshness recipe.
     #:
     #: A tunable reaching a pixel and reaching no recipe leaves a stale composite looking fresh; one
@@ -113,10 +128,16 @@ class LayerProducer:
     #: right, and the values behind it answered for Earth, which stopped being right. So the code
     #: that READS a constant is the code that declares it.
     #:
-    #: THE COMPOSITOR'S OWN CONSTANTS ARE NOT HERE and must not be moved here. `shade.composite`
-    #: paints whatever alpha it is handed with `palette.SNOW_RGB`, and grades lake depth with
-    #: `palette.LAKE_*`, on every body alike; those are live per LAYER rather than per producer, so
-    #: `composite_params` keeps them and gates them on the layer that makes them reachable.
+    #: THE WHITES USED TO BE EXCLUDED FROM HERE AND ARE NOW INCLUDED, deliberately. The rule was
+    #: that `shade.composite` paints any alpha with `palette.SNOW_RGB` on every body alike, so the
+    #: whites were live per LAYER and `composite_params` gated them on the layer. Mars measures two
+    #: whites of its own, one per pole, so "one white per layer" is simply false and the gate would
+    #: record Earth's values for a body that paints neither. What a producer PAINTS with is now as
+    #: much its own declaration as what it grades with — see `paint` above.
+    #:
+    #: Still not here: `palette.LAKE_*`. Lake depth really is one ramp on every body that has lakes,
+    #: it is not a white, and no second instance has contradicted it — so it stays in
+    #: `composite_params` until one does.
     recipe: Callable[[], dict[str, Any]]
     #: The constants `build` bakes INTO the raster, which is a different set from `recipe` above and
     #: cannot share its machinery.
@@ -246,20 +267,43 @@ def _no_tunables() -> dict[str, Any]:
     return {}
 
 
-def _earth_perennial_ice_recipe() -> dict[str, Any]:
-    """`snow_alpha`'s latitude ramp — what `_earth_perennial_ice` grades NSIDC persistence with.
+def _earth_white(_window: "LayerWindow | None" = None) -> tuple[Any, Any]:
+    """Earth's one ice white, shared by its perennial ice, its glaciers and its cap producers.
 
-    NOT the whites. `palette.SNOW_RGB` is read by `shade.composite`, which paints whatever alpha the
-    union hands it, so it is live on any body that feeds white into that union and belongs to the
-    compositor's block rather than to this producer. The split is the difference between computing
-    an alpha and painting with one, and it is what lets a second body grade ice its own way while
-    both share one white.
+    ONE HOME, DECLARED BY EACH READER RATHER THAN COPIED INTO IT. Earth's two composite-tier ice
+    layers feed a single union and must agree, and the caps must agree with both or the crossfade
+    changes colour across the seam. Reading `palette` from one function keeps that a fact rather
+    than a coincidence between four registry entries.
     """
+    return palette.SNOW_RGB, palette.SNOW_SHADOW_RGB
+
+
+def _earth_perennial_ice_recipe() -> dict[str, Any]:
+    """What `_earth_perennial_ice` reads: `snow_alpha`'s latitude ramp, and the white it paints in.
+
+    The white is here because this producer declares it — see `LayerProducer.paint`. Earth's
+    glacier producer records the identical pair from the identical home, and `produced` merges by
+    key, so the duplicate is one value seen twice rather than two values that can drift.
+    """
+    lit, shadow = _earth_white()
     return {"snow_ramp_lat_lo": snow.RAMP_LAT_LO,
             "snow_ramp_lat_hi": snow.RAMP_LAT_HI,
             "snow_ramp_low_min": snow.RAMP_LOW_MIN,
             "snow_ramp_low_max": snow.RAMP_LOW_MAX,
-            "snow_ramp_band": snow.RAMP_BAND}
+            "snow_ramp_band": snow.RAMP_BAND,
+            "snow_rgb": lit, "snow_shadow_rgb": shadow}
+
+
+def _earth_glaciers_recipe() -> dict[str, Any]:
+    """The glacier mask is pure transport, so the white is the whole of what this producer reads.
+
+    IT PAINTS WITHOUT GRADING, which is exactly the case the old layer gate got wrong: it recorded
+    the white under `perennial_ice`, so a body with glaciers and no perennial ice would have painted
+    a white it never recorded. No such body exists yet; the gate was still one declaration away from
+    being wrong, and asking the producer removes the question.
+    """
+    lit, shadow = _earth_white()
+    return {"snow_rgb": lit, "snow_shadow_rgb": shadow}
 
 
 def _earth_sea_ice_recipe() -> dict[str, Any]:
@@ -269,10 +313,12 @@ def _earth_sea_ice_recipe() -> dict[str, Any]:
     both: `_earth_sea_ice` calls `ice_alpha` twice and selects per row, so a window that straddles
     no southern ice still ran on a body whose producer can reach them.
     """
+    lit, shadow = seaice.ice_white()
     return {"ice_lo": seaice.ICE_LO, "ice_band": seaice.ICE_BAND,
             "ice_max_alpha": seaice.ICE_MAX_ALPHA,
             "sh_ice_lo": seaice.SH_ICE_LO,
-            "sh_ice_max_alpha": seaice.SH_ICE_MAX_ALPHA}
+            "sh_ice_max_alpha": seaice.SH_ICE_MAX_ALPHA,
+            "ice_rgb": lit, "ice_shadow_rgb": shadow}
 
 
 def _mars_ice_sources() -> tuple[Path, ...]:
@@ -314,6 +360,45 @@ def _mars_perennial_ice(window: LayerWindow) -> "np.ndarray | None":
     return np.asarray(window.raw, dtype=float)
 
 
+def _mars_ice_white(window: LayerWindow) -> tuple[Any, Any]:
+    """Mars's white, chosen PER ROW, because its two poles are not the same colour.
+
+    Measured off the Viking mosaic over each pole's own painted extent, weighted by the alpha this
+    producer hands over: red:violet 1.053 north against 1.291 south. Their own surrounding ground
+    reads 1.231 and 1.807, and normalising each cap by its own ground leaves most of the gap intact
+    — so the difference belongs to the ice, not to what surrounds it or to how it was imaged.
+
+    ONE PRODUCER SPANS BOTH HEMISPHERES HERE, unlike the cap tier where the pole is the registry
+    key, which is exactly why the paint has to be able to vary within a window rather than being one
+    constant per producer. Returned as `(3, H, 1)`, which the blend broadcasts for free.
+
+    The equator is a hemisphere boundary and never an ice boundary: Mars carries no ice within 76
+    degrees of it, so the row this splits on is one no alpha reaches.
+    """
+    northern = np.asarray(window.latitude) >= 0.0
+    def per_row(north: Any, south: Any) -> np.ndarray:
+        return np.where(northern[None, :, None],
+                        np.asarray(north, dtype=np.float32).reshape(3, 1, 1),
+                        np.asarray(south, dtype=np.float32).reshape(3, 1, 1))
+    return (per_row(palette.MARS_ICE_WHITE["north"][0], palette.MARS_ICE_WHITE["south"][0]),
+            per_row(palette.MARS_ICE_WHITE["north"][1], palette.MARS_ICE_WHITE["south"][1]))
+
+
+def _mars_ice_recipe() -> dict[str, Any]:
+    """Both whites, flat and per pole, so a re-tune of either one restages the composite.
+
+    FOUR KEYS RATHER THAN EARTH'S TWO, and the asymmetry is the point: a recipe records what its own
+    body evaluates, and Mars evaluates two pairs where Earth evaluates one. Recording Earth's shape
+    here would have to invent a single Martian white that no pixel is painted with.
+
+    Flat keys rather than a nested dict so a `git log -S "snow_rgb_south"` finds the value's history
+    the same way it finds Earth's.
+    """
+    return {f"snow_{end}_{pole}": list(value)
+            for pole, pair in sorted(palette.MARS_ICE_WHITE.items())
+            for end, value in (("rgb", pair[0]), ("shadow_rgb", pair[1]))}
+
+
 def _mars_ice_build_recipe() -> dict[str, Any]:
     """The two constants `_build_mars_ice` freezes into its raster.
 
@@ -335,27 +420,32 @@ def _mars_ice_build_recipe() -> dict[str, Any]:
 PRODUCER_BY_BODY_LAYER: dict[tuple[str, str], LayerProducer] = {
     ("earth", layers.LAKE_DEPTH.name): LayerProducer(
         sources=lambda: (lake_depth.LAKE_VRT,),
-        build=_build_lake_depth, contribution=_earth_lake_depth, recipe=_no_tunables,
-        build_recipe=_no_tunables),
+        # None, not a white: this producer's number is a DEPTH, graded by the lake ramp. The field
+        # existing and being answered "not applicable" is what keeps that visible.
+        build=_build_lake_depth, contribution=_earth_lake_depth, paint=lambda _window: None,
+        recipe=_no_tunables, build_recipe=_no_tunables),
     ("earth", layers.PERENNIAL_ICE.name): LayerProducer(
         sources=lambda: (snow.SP_NC,),
-        build=_build_persistence, contribution=_earth_perennial_ice,
+        build=_build_persistence, contribution=_earth_perennial_ice, paint=_earth_white,
         recipe=_earth_perennial_ice_recipe, build_recipe=_no_tunables),
     ("earth", layers.GLACIERS.name): LayerProducer(
         sources=lambda: (snow.RGI_GPKG,),
-        build=_build_glaciers, contribution=_earth_glaciers, recipe=_no_tunables,
-        build_recipe=_no_tunables),
+        build=_build_glaciers, contribution=_earth_glaciers, paint=_earth_white,
+        recipe=_earth_glaciers_recipe, build_recipe=_no_tunables),
     ("earth", layers.SEA_ICE.name): LayerProducer(
         sources=lambda: (seaice.SEAICE_SRC,),
-        build=_build_sea_ice, contribution=_earth_sea_ice, recipe=_earth_sea_ice_recipe,
-        build_recipe=_no_tunables),
+        # `seaice.ice_white`, not a literal: the cap tier reads that same function directly, so the
+        # sentence "sea ice is painted in this pair" has one home across both tiers.
+        build=_build_sea_ice, contribution=_earth_sea_ice,
+        paint=lambda _window: seaice.ice_white(),
+        recipe=_earth_sea_ice_recipe, build_recipe=_no_tunables),
     ("mars", layers.PERENNIAL_ICE.name): LayerProducer(
         sources=_mars_ice_sources,
-        build=_build_mars_ice, contribution=_mars_perennial_ice,
-        # EMPTY, and that is the split working rather than an oversight: `_mars_perennial_ice`
-        # reads no constant at all, so there is nothing for the composite to restage on. What this
-        # producer can re-tune is frozen into the raster, and `build_recipe` is what tracks it.
-        recipe=_no_tunables, build_recipe=_mars_ice_build_recipe),
+        build=_build_mars_ice, contribution=_mars_perennial_ice, paint=_mars_ice_white,
+        # NO LONGER EMPTY: this producer grades nothing per window, but it does declare what it is
+        # painted in, and those two whites are re-tunable. What it bakes into the raster is a
+        # different set again, which is what `build_recipe` tracks.
+        recipe=_mars_ice_recipe, build_recipe=_mars_ice_build_recipe),
 }
 
 
