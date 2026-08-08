@@ -46,7 +46,8 @@ from typing import Protocol
 import numpy as np
 
 from pipeline import bodies, layers
-from pipeline.render import snow
+from pipeline.acquire import download_sim3292
+from pipeline.render import mars_ice, snow, viking_luma
 
 
 class WarpToCap(Protocol):
@@ -154,17 +155,65 @@ def _earth_south(inputs: CapIceInputs) -> np.ndarray:
     return snow.antarctic_snow_mask(inputs.land, inputs.latitude)
 
 
+def _mars_sources() -> tuple[Path, ...]:
+    """The brightness field and both mapped units — every file either Mars pole opens.
+
+    ONE LIST FOR BOTH POLES because both poles burn both units; see `_mars_cap_ice`. Listing a unit
+    a pole never opens would be the failure `CapIce.sources` warns about in reverse — here the risk
+    is the other direction, and every path named is genuinely read.
+    """
+    return (viking_luma.luma_path(),
+            *(download_sim3292.unit_path(unit) for unit in mars_ice.NORTH_UNITS))
+
+
+def _mars_cap_ice(inputs: CapIceInputs, pole: str) -> np.ndarray:
+    """Viking luma graded between this pole's pinned levels, inside the mapped units, feathered.
+
+    ONE FUNCTION FOR BOTH POLES, where Earth needs two. Earth's poles differ in MECHANISM — a NetCDF
+    warp against a latitude rule — and Mars's differ only in which constants they read, which is the
+    case the registry's own note says a parameterisation is honest for.
+
+    THE LEVELS AND THE FIELD ARE ONE PAIRING AND NOTHING HERE CAN CHECK IT — `albedo_alpha` says so
+    in as many words. What makes it safe is that both come from the same two modules: the field is
+    `viking_luma`'s shipped raster, and `ALPHA_LEVELS` was measured over that raster and nothing
+    else. `scripts/measure_viking_levels.py --compare` is what refuses a drift between them.
+
+    BOTH UNITS ARE BURNT AT BOTH POLES, which looks wasteful at the south and is not optional:
+    `extent_for` is one function serving this tier and the composite's straddling windows, so its
+    `np.where` evaluates both hemispheres' unions and a missing mask raises. The south's `Apu` is
+    computed and then discarded by that `where`, which is the correct extent — southern `Apu` is
+    layered deposits, not surface ice, and it covers 72% of that disc.
+
+    THE FEATHER TAKES GROUND METRES, NEVER AEQD MAP METRES. `inputs.ground_metres_per_px` is
+    supplied for exactly this call; deriving it here from the grid is the bug that already shipped
+    once, drawing 5.33 km of Martian ground under a label saying 10.
+    """
+    field = inputs.warp(str(viking_luma.luma_path()), "viking_luma", "bilinear", "Float32",
+                        srcnodata=viking_luma.NODATA)
+    graded = mars_ice.albedo_alpha(field, mars_ice.ALPHA_LEVELS[pole], viking_luma.NODATA)
+    masks = {
+        unit: inputs.burn(download_sim3292.unit_path(unit), unit.lower(),
+                          f"{unit} must reach the {pole} cap disc")
+        for unit in mars_ice.NORTH_UNITS
+    }
+    extent = mars_ice.extent_for(masks, pole == "north")
+    return graded * mars_ice.feather_alpha(extent, inputs.ground_metres_per_px)
+
+
 #: Every producer that ships, by (body slug, pole). Earth's two entries are the seam's two real
 #: instances — a NetCDF warp and a latitude rule, sharing nothing but their signature.
 #:
-#: MARS IS ABSENT ON PURPOSE AND ITS ABSENCE IS ORDERING, NOT DOUBT. Its extent, feather and alpha
-#: levels are built and tested in `mars_ice`; what it lacks is a source with an owner, the Viking
-#: mosaic being hand-placed. A producer cannot declare a path nothing acquired — the rule that made
-#: OMEGA's acquirer precede this registry, and the reason the OMEGA entries that stood here are gone
-#: rather than repointed.
+#: MARS ARRIVED ONCE ITS FIELD HAD AN OWNER, which was the ordering this note used to record as the
+#: reason for its absence: a producer cannot declare a path nothing acquired. `download_viking_mosaic`
+#: and `render/viking_luma` closed that, and the OMEGA entries that once stood here are gone rather
+#: than repointed because the licence blocks the source, not because the seam moved.
 CAP_ICE_BY_BODY: dict[tuple[str, str], CapIce] = {
     ("earth", "north"): CapIce(sources=lambda: (Path(snow.SP_NC),), alpha=_earth_north),
     ("earth", "south"): CapIce(sources=lambda: (), alpha=_earth_south),
+    ("mars", "north"): CapIce(sources=_mars_sources,
+                              alpha=lambda inputs: _mars_cap_ice(inputs, "north")),
+    ("mars", "south"): CapIce(sources=_mars_sources,
+                              alpha=lambda inputs: _mars_cap_ice(inputs, "south")),
 }
 
 

@@ -14,7 +14,7 @@ import rasterio
 from rasterio.transform import from_bounds
 
 from pipeline import bodies, freshness, layers
-from pipeline.render import lake_depth, layer_producers, seaice, snow
+from pipeline.render import lake_depth, layer_producers, mars_ice, seaice, snow
 from pipeline.tile import shade_planet
 
 #: A window well south of the Antarctic patch's -60, so the rule that has no dataset behind it is
@@ -55,10 +55,17 @@ class TestTheRegistryAndTheLayerDeclarationsAgree:
                     assert (body.name, layer.name) not in layer_producers.PRODUCER_BY_BODY_LAYER
 
     def test_a_body_with_no_producer_raises_and_names_itself(self):
-        assert "perennial_ice" not in bodies.MARS.surface_layers, (
-            "this test needs a body the registry does NOT hold — pick another if Mars registers")
-        with pytest.raises(KeyError, match="mars declares the perennial_ice layer"):
-            layer_producers.producer_for(bodies.MARS, layers.PERENNIAL_ICE)
+        """A SYNTHETIC BODY, because both registered planets now hold a producer for this layer.
+
+        Mars supplied the negative instance until its ice landed, and the assertion that used to
+        guard that choice is exactly what fired — a guard reading its negative case out of a live
+        registry field goes quiet the day the field moves, so the case has to be built here.
+        """
+        stranger = dataclasses.replace(
+            bodies.EARTH, name="stranger", path_prefix="stranger",
+            surface_layers=frozenset({layers.PERENNIAL_ICE.name}))
+        with pytest.raises(KeyError, match="stranger declares the perennial_ice layer"):
+            layer_producers.producer_for(stranger, layers.PERENNIAL_ICE)
 
 
 class TestWhatAProducerDeclaresItReads:
@@ -241,7 +248,7 @@ class TestTheWarpGateAsksTheBodyFirst:
                     sources=lambda source=source: (source,),
                     build=lambda request, name=layer.name: built.append(name),
                     contribution=lambda window: None,
-                    recipe=dict))
+                    recipe=dict, build_recipe=dict))
         shade_planet.warp_inputs(work, planet, body, frozenset())
         return built
 
@@ -252,7 +259,17 @@ class TestTheWarpGateAsksTheBodyFirst:
             layer.name for layer in layers.WARPED_LAYERS]
 
     def test_a_body_with_no_layers_opens_none_of_earths_files(self, monkeypatch, tmp_path):
-        assert self._drive(monkeypatch, tmp_path, bodies.MARS) == []
+        """A SYNTHETIC body, because Mars now declares one and would drive its REAL producer here.
+
+        It kept passing after Mars's ice landed, and for a reason nobody chose: on this box the
+        Martian sources exist, so the gate let the real build through and the tiny synthetic grid
+        happened to yield no band. On a clone with no data store it would have passed by the sources
+        being absent instead. Two different accidents wearing one green tick — so the body under
+        test is built here, and the claim is about the DECLARATION again.
+        """
+        layerless = dataclasses.replace(bodies.EARTH, name="layerless", path_prefix="layerless",
+                                        surface_layers=frozenset())
+        assert self._drive(monkeypatch, tmp_path, layerless) == []
 
     def test_a_body_declaring_a_layer_it_cannot_produce_opens_none_of_earths_files(
             self, monkeypatch, tmp_path):
@@ -260,8 +277,9 @@ class TestTheWarpGateAsksTheBodyFirst:
         perfectly — Earth's answer IS Earth's producer — and is wrong only on the planet nobody has
         built yet, which is why nothing but this raise reports it."""
         claimant = dataclasses.replace(
-            bodies.MARS, surface_layers=frozenset({layers.PERENNIAL_ICE.name}))
-        with pytest.raises(KeyError, match="mars declares the perennial_ice layer"):
+            bodies.EARTH, name="stranger", path_prefix="stranger",
+            surface_layers=frozenset({layers.PERENNIAL_ICE.name}))
+        with pytest.raises(KeyError, match="stranger declares the perennial_ice layer"):
             self._drive(monkeypatch, tmp_path, claimant)
 
     def test_a_missing_dataset_still_skips_the_layer_for_a_body_that_declares_it(
@@ -286,7 +304,112 @@ class TestTheWarpGateAsksTheBodyFirst:
                     sources=lambda source=source: (source,),
                     build=lambda request, name=layer.name: built.append(name),
                     contribution=lambda window: None,
-                    recipe=dict))
+                    recipe=dict, build_recipe=dict))
         shade_planet.warp_inputs(work, planet, bodies.EARTH, frozenset())
         assert layers.PERENNIAL_ICE.name not in built
         assert layers.SEA_ICE.name in built, "the other layers must be unaffected"
+
+
+class TestABuildTimeConstantReachesTheFreshnessGate:
+    """The hole a `composite_deps` trace opened, closed and given a control.
+
+    `warp_needs_rebuild` is closed over PATHS, so no Python value can reach it. That never mattered
+    while every build was pure transport — Earth stores raw packed values and grades per window, and
+    a per-window constant restages through `composite_params` because the rerun re-reads it. Mars's
+    build grades BEFORE it writes, so its constants are frozen into the file, and recorded in
+    `composite_params` alone a re-tune would restage the whole composite and then repaint from the
+    unchanged raster: the same wrong pixels behind a restage that looks like it worked.
+    """
+
+    def _drive(self, monkeypatch, tmp_path, producer, body):
+        """One `warp_inputs` pass for a single layer, returning how many times it built."""
+        builds: list[str] = []
+        work, planet = tmp_path / "work", tmp_path / "planet"
+        work.mkdir(exist_ok=True)
+        (planet / "chunks").mkdir(parents=True, exist_ok=True)
+        (planet / "planet_heightfield.vrt").write_text("vrt")
+        _age(planet / "planet_heightfield.vrt", 500)
+        _age(planet / "chunks", 500)
+        freshness.mark_done(_height_raster(work / "height_3857.tif"))
+        for layer in layers.WARPED_LAYERS:
+            registered = (
+                # A REAL raster on the reference grid, not a stub: the gate also asks
+                # `grid_matches`, which opens the target — a text file makes the second pass raise
+                # rather than answer, and the control below would never run.
+                dataclasses.replace(producer, build=lambda request: (
+                    builds.append("built"), _height_raster(request.out))[0])
+                if layer is layers.PERENNIAL_ICE else
+                layer_producers.LayerProducer(
+                    sources=lambda: (), build=lambda request: None,
+                    contribution=lambda window: None, recipe=dict, build_recipe=dict))
+            monkeypatch.setitem(layer_producers.PRODUCER_BY_BODY_LAYER,
+                                (body.name, layer.name), registered)
+        shade_planet.warp_inputs(work, planet, body, frozenset())
+        return builds
+
+    def _producer(self, tmp_path, tunables):
+        source = tmp_path / "field.tif"
+        source.write_text("a field")
+        _age(source, 500)
+        return layer_producers.LayerProducer(
+            sources=lambda: (source,), build=lambda request: None,
+            contribution=lambda window: None, recipe=dict, build_recipe=lambda: dict(tunables))
+
+    def test_a_changed_build_constant_rebuilds_the_raster(self, monkeypatch, tmp_path):
+        """THE POINT. Nothing on disk moved — only a number the build bakes in."""
+        body = dataclasses.replace(bodies.EARTH, name="grader", path_prefix="grader",
+                                   surface_layers=frozenset({layers.PERENNIAL_ICE.name}))
+        assert self._drive(monkeypatch, tmp_path,
+                           self._producer(tmp_path, {"levels": 1.0}), body) == ["built"]
+        assert self._drive(monkeypatch, tmp_path,
+                           self._producer(tmp_path, {"levels": 2.0}), body) == ["built"], (
+            "a build-time constant moved and the raster stayed — the composite would restage and "
+            "repaint from a file graded through the old value")
+
+    def test_an_unchanged_build_constant_leaves_it_alone(self, monkeypatch, tmp_path):
+        """The control, and the half that makes the test above mean something: if this rebuilt too,
+        the first would pass on a gate that simply always rebuilds."""
+        body = dataclasses.replace(bodies.EARTH, name="grader", path_prefix="grader",
+                                   surface_layers=frozenset({layers.PERENNIAL_ICE.name}))
+        assert self._drive(monkeypatch, tmp_path,
+                           self._producer(tmp_path, {"levels": 1.0}), body) == ["built"]
+        assert self._drive(monkeypatch, tmp_path,
+                           self._producer(tmp_path, {"levels": 1.0}), body) == []
+
+    def test_an_empty_build_recipe_writes_no_sidecar_at_all(self, monkeypatch, tmp_path):
+        """WHY ADOPTING THIS RESTAGES NOTHING ON EARTH. Every Earth producer is pure transport, so
+        an empty dict must leave the source list exactly as it was — a file appearing beside the
+        raster would be a new dependency and would rebuild all four of Earth's layers once."""
+        body = dataclasses.replace(bodies.EARTH, name="plain", path_prefix="plain",
+                                   surface_layers=frozenset({layers.PERENNIAL_ICE.name}))
+        self._drive(monkeypatch, tmp_path, self._producer(tmp_path, {}), body)
+        work = tmp_path / "work"
+        assert not list(work.glob("*_build.json")), (
+            f"an empty build recipe still materialised {[p.name for p in work.glob('*_build.json')]}")
+
+    def test_every_earth_producer_declares_no_build_time_constant(self):
+        """The claim the paragraph above rests on, asserted rather than assumed — and it is what
+        turns a future Earth producer that grades at build time into a red test rather than a
+        silent stale raster."""
+        for (body_name, layer_name), producer in \
+                layer_producers.PRODUCER_BY_BODY_LAYER.items():
+            if body_name != "earth":
+                continue
+            assert producer.build_recipe() == {}, (
+                f"earth/{layer_name} grew a build-time constant; adopting it restages that layer "
+                f"once, which is correct but must be a decision rather than a surprise")
+
+    def test_mars_declares_the_two_constants_its_build_bakes_in(self):
+        """Named exactly, because the failure of an under-full list is silent: a constant that
+        reaches a pixel and reaches no recipe leaves a stale raster looking fresh forever."""
+        recorded = layer_producers.producer_for(bodies.MARS, layers.PERENNIAL_ICE).build_recipe()
+        assert recorded == {
+            "mars_feather_km": mars_ice.FEATHER_KM,
+            "mars_alpha_levels": {pole: list(levels)
+                                  for pole, levels in sorted(mars_ice.ALPHA_LEVELS.items())}}
+
+    def test_mars_grades_nothing_per_window_so_its_composite_recipe_is_empty(self):
+        """The other side of the split. Its `contribution` returns the slice unchanged, so there is
+        no constant for `composite_params` to carry — and putting the build's two there instead
+        would restage the composite without rebuilding the raster they are baked into."""
+        assert layer_producers.producer_for(bodies.MARS, layers.PERENNIAL_ICE).recipe() == {}

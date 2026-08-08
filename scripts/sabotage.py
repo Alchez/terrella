@@ -308,6 +308,62 @@ SABOTAGES: list[Sabotage] = [
         replacement='#: Reproduced by ' + '_ice_ab' + '/scripts/feather.py\nFEATHER_KM = 5.0',
         guard='test_no_reference_to_a_file_a_clone_will_not_have',
     ),
+    # --- Mars's ice registration: the guards with no output to inspect -------------------------------
+    # None of these five has an artifact a reader could check. Mars's ice is a band of a few degrees
+    # at one pole, and every one of these mutations leaves a raster that opens, a recipe that parses
+    # and a pass that exits 0 — which is exactly the shape mutation exists for.
+    Sabotage(
+        suite='python',
+        label='a build-time constant stops reaching the freshness gate',
+        path='pipeline/tile/shade_planet.py',
+        needle='        tunables = producer.build_recipe()',
+        replacement='        tunables = {}',
+        guard='test_a_changed_build_constant_rebuilds_the_raster',
+    ),
+    Sabotage(
+        suite='python',
+        label='the two poles are graded against each other\'s levels',
+        path='pipeline/render/mars_ice.py',
+        needle='                    albedo_alpha(field, ALPHA_LEVELS["north"], nodata),\n'
+               '                    albedo_alpha(field, ALPHA_LEVELS["south"], nodata))',
+        replacement='                    albedo_alpha(field, ALPHA_LEVELS["south"], nodata),\n'
+                    '                    albedo_alpha(field, ALPHA_LEVELS["north"], nodata))',
+        guard='test_each_pole_is_graded_against_its_own_levels',
+    ),
+    Sabotage(
+        suite='python',
+        label='a unit span stops being taken per hemisphere, so one band swallows the planet',
+        path='pipeline/render/mars_ice.py',
+        needle='              if (value >= 0.0) == northern]',
+        replacement='              if True]',
+        guard='test_a_span_is_taken_PER_HEMISPHERE',
+    ),
+    Sabotage(
+        suite='python',
+        label='the ice band loses its pad, clipping the feather at the band edge',
+        path='pipeline/render/mars_ice.py',
+        needle='        row0, row1 = max(0, min(rows) - pad_rows), min(height, max(rows) + pad_rows)',
+        replacement='        row0, row1 = max(0, min(rows)), min(height, max(rows))',
+        guard='test_the_pad_widens_the_band_on_both_sides',
+    ),
+    Sabotage(
+        suite='python',
+        label="Mars's cap grades both poles against the north's levels",
+        path='pipeline/render/perennial_ice.py',
+        needle='    graded = mars_ice.albedo_alpha(field, mars_ice.ALPHA_LEVELS[pole], '
+               'viking_luma.NODATA)',
+        replacement='    graded = mars_ice.albedo_alpha(field, mars_ice.ALPHA_LEVELS["north"], '
+                    'viking_luma.NODATA)',
+        guard='test_each_pole_grades_against_its_OWN_levels',
+    ),
+    Sabotage(
+        suite='python',
+        label='the alpha levels drop out of the build recipe, so a re-tune leaves a stale raster',
+        path='pipeline/render/layer_producers.py',
+        needle='            "mars_alpha_levels": {pole: list(levels)',
+        replacement='            "mars_alpha_levels_unread": {pole: list(levels)',
+        guard='test_mars_declares_the_two_constants_its_build_bakes_in',
+    ),
     # --- span attribution: the three ways it could quietly start lying -------------------------------
     # All three mutations leave a report that still RENDERS and still reads plausible, which is the
     # only reason they are worth a case: a broken attribution does not throw, it just blames the
@@ -2420,7 +2476,7 @@ SABOTAGES: list[Sabotage] = [
         path='pipeline/bodies.py',
         needle='    surface_layers=frozenset({"lake_depth", "perennial_ice", "glaciers", "sea_ice", "coastline"}),',
         replacement='    surface_layers=frozenset({"lake_depth", "perennial_ice", "glaciers", "coastline"}),',
-        guard='test_earth_has_every_surface_layer_and_the_second_body_has_none',
+        guard='test_earth_has_every_surface_layer_and_mars_declares_only_what_it_can_produce',
     ),
     # The under-declaring direction: Earth stops painting a product it has, which is a look change
     # nothing else asserts — the sea ice would simply not be there, and the pass would say so once

@@ -248,18 +248,18 @@ MARS = Body(
     tile_max_zoom=6,
     # Nests, where Earth's is empty. A second body pays no relocation cost, so it starts correct.
     path_prefix="mars",
-    # NONE OF THEM, which is the case the vocabulary above was written for: every source behind it
-    # is an Earth dataset present on this box, so left unstated a Mars pass would paint Earth's
-    # snow, glaciers, sea ice, lakes and coastline onto Mars at the same latitudes and raise nothing.
+    # ONE OF THEM, AND THE OTHER FOUR ARE REFUSED FOR THE REASON THE VOCABULARY WAS WRITTEN FOR:
+    # every source behind lakes, glaciers, sea ice and coastline is an Earth dataset present on this
+    # box, so left unstated a Mars pass would paint Earth's onto Mars at the same latitudes and raise
+    # nothing. Naming a layer here is a claim that a MARTIAN producer answers for it — Mars's ice
+    # grades Viking albedo inside units the USGS mapped, sharing only a name with Earth's snow.
     #
-    # Empty is a statement about our DATA, not about Mars: it has polar ice, seasonal CO2 frost and
-    # its own cryosphere. We have no product for any of it, and the physics is not Earth's, so the
-    # honest answer today is none. That is a Phase-2 question to re-ask with Mars on screen.
-    surface_layers=frozenset(),
-    # ON, AND WHAT IT BUYS IS A PROJECTION REPAIR RATHER THAN ICE. Mars declares no surface layers,
-    # so these two discs are the same bare relief as the tiles in the same ramps — the cap exists
-    # because Web Mercator carries no data past ~85 degrees and brutally smears the band below it,
-    # not because there is snow to paint. Anyone expecting white is expecting `surface_layers`.
+    # Each of the four still absent is a statement about our DATA rather than about Mars: it has
+    # seasonal CO2 frost and a cryosphere of its own that no product here describes.
+    surface_layers=frozenset({"perennial_ice"}),
+    # ON, AND IT PREDATES THE ICE BY SEVERAL COMMITS. What it buys first is a projection repair: Web
+    # Mercator carries no data past ~85 degrees and brutally smears the band below it, so these two
+    # discs would exist as bare relief in the same ramps even with nothing white to paint on them.
     #
     # Held False until the M2a ramp was ratified, per the field note. What the False cost meanwhile
     # was not a hole but something worse — `shade_planet.CAP_RGB`, the flat pale plug the cap

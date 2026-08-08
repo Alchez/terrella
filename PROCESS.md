@@ -145,6 +145,34 @@ because bash would otherwise evaluate it as 0 and every box would clear every ca
 with no body on the 12 G branch nothing else can show that the shell uses the number it is handed
 rather than a constant — `pass_cap` runs in a subprocess, so no test fixture can reach its registry.
 
+### Mars's ice band takes ONE direct warp, and here is the measurement that settled it
+
+`snow.warp_persistence_raster` and `seaice.warp_seaice_raster` warp in sub-bands because a
+whole-grid warp's pole-inflated average scale makes GDAL read the source decimated — no error, no
+symptom beyond structure quietly going missing, recorded there as Ruapehu falling 0.756 → 0.409.
+Mars's ice occupies a band of a few degrees rather than a planet, and a band's scale spread is about
+2.2× against the whole grid's 11×, so the question is whether it decimates too. Measured on the real
+32768² z6 grid over the 76–84° band, three arms:
+
+| arm | max \|diff\| vs the sub-banded reference | high-frequency energy |
+|---|---|---|
+| one direct warp | **0.0000 DN** (1 differing pixel of 145,555,456) | **+0.00%** |
+| source decimated 4× first — the CONTROL | 61.11 DN | **−53.2%** |
+
+**The metric is the deviation of the field from its own 3×3 mean, not mean error.** Decimation is a
+smoothing: it can leave the mean and the rms nearly untouched while erasing exactly the structure an
+ice edge is made of. The control is what makes the null result mean anything — a comparison that
+cannot see a known-decimated read cannot report a clean one.
+
+So `mars_ice._warp_band` is a single `gdalwarp` and must not grow banding: it would cost a
+subprocess per sub-band for output already shown identical, and would read as though the question
+were open.
+
+**Re-measure if Mars's `tile_max_zoom` or `render/viking_luma`'s grid moves**, since both change the
+scale ratio this rests on. The probe was scratch and is not shipped; rebuilding it is three warps of
+the same band — sub-banded at `WINDOW_ROWS`, direct, and direct from a 4×-downsampled source — and
+the two comparisons above.
+
 ### The look loop on Mars — WARM iteration costs, which are what a look session actually pays
 
 The 4:41 above is a cold pass and the wrong number to plan a look session with. Measured on repeated

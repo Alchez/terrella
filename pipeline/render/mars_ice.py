@@ -49,14 +49,20 @@ which is what rescues it — nothing past `FEATHER_KM` changes the answer — so
 wider than the feather is exact where the result is used, and only there.
 """
 
+import json
+import subprocess
 from collections.abc import Iterator
 from functools import reduce
 from pathlib import Path
+from typing import Any
 
 import numpy as np
+import rasterio
+import rasterio.transform
+from rasterio.windows import Window
 from scipy import ndimage
 
-from pipeline import vector_raster
+from pipeline import mercator, vector_raster
 from pipeline.acquire import download_sim3292
 from pipeline.raster_io import row_bands
 
@@ -280,3 +286,190 @@ def feather_alpha(mask: np.ndarray, ground_metres_per_px,
     """
     (_row0, _row1, alpha), = feather_alpha_bands(mask, ground_metres_per_px, feather_km)
     return alpha
+
+
+def graded_alpha(field: np.ndarray, northern, nodata: float) -> np.ndarray:
+    """The field graded between the pinned levels of whichever pole each row belongs to.
+
+    THE TWIN OF `extent_for` AND BROADCAST THE SAME WAY — a plain bool for a cap disc, a per-row
+    column for a Mercator strip that may straddle the equator. `np.where` evaluates both branches,
+    which is why this is cheap only on a slice: hand it a whole planet and it grades one twice.
+
+    The two poles are DIFFERENT QUANTITIES sharing a scale. A single pair of levels applied to both
+    would grade the south against the north's darker ground and paint its cap several tenths too
+    white, which is precisely the disagreement the pinning note on `ALPHA_LEVELS` exists to prevent.
+    """
+    return np.where(northern,
+                    albedo_alpha(field, ALPHA_LEVELS["north"], nodata),
+                    albedo_alpha(field, ALPHA_LEVELS["south"], nodata))
+
+
+def unit_latitude_span(unit: str, northern: bool) -> "tuple[float, float] | None":
+    """How far one unit's polygons reach in ONE hemisphere, in degrees, or None if it has none there.
+
+    PER HEMISPHERE, AND THAT IS THE WHOLE POINT OF THE ARGUMENT. `lApc` is mapped at BOTH poles, so
+    a single span over its features runs -90 to +90 and describes a planet rather than an extent —
+    which would quietly turn the banded build below back into the whole-grid one it exists to avoid.
+
+    READ FROM THE GEOMETRY, NEVER PINNED. The published reaches are recorded in this project's notes
+    and would serve as constants right up until the publisher revises a polygon, at which point a
+    hard-coded band clips real ice with nothing raising. The acquirer guarantees the file's edition;
+    the extent is then the file's own business.
+
+    The GeoJSON carries no `bbox`, so the coordinates are walked — a few MB of parse against a stage
+    measured in minutes.
+    """
+    def latitudes(node) -> "Iterator[float]":
+        # A position is [lon, lat, ...]; anything else is a nest of them. Testing the FIRST element
+        # for a scalar distinguishes the two without assuming a geometry type.
+        if node and isinstance(node[0], (int, float)):
+            yield float(node[1])
+            return
+        for child in node:
+            yield from latitudes(child)
+
+    document = json.loads(download_sim3292.unit_path(unit).read_text(encoding="utf-8"))
+    values = [value
+              for feature in document["features"]
+              for value in latitudes(feature["geometry"]["coordinates"])
+              if (value >= 0.0) == northern]
+    return (min(values), max(values)) if values else None
+
+
+def ice_bands(bounds: tuple[float, float, float, float], height: int,
+              pad_rows: int) -> list[tuple[int, int, bool]]:
+    """Each `(row0, row1, northern)` of a 3857 grid a mapped unit can reach. Empty if none can.
+
+    WHY THE BUILD IS BANDS AND NOT A PLANET. This layer is only ever painted where a unit reaches,
+    which on Mars is a few degrees at each pole; the rest of a 32768-row grid is ice-free by
+    construction. Deriving the rows from the units rather than from a latitude constant keeps that an
+    observation about the data instead of a number someone has to maintain.
+
+    ONE BAND PER HEMISPHERE, each carrying which one it is, because the levels and the unit union
+    both differ per pole and a single band spanning the equator could answer for neither.
+
+    `pad_rows` must cover the feather: a pixel outside every unit still takes alpha from one within
+    `FEATHER_KM` of it, so a band cut to the polygons alone would clip the feather at its own edge.
+    """
+    _left, bottom, _right, top = bounds
+    pixel = (top - bottom) / height
+    bands: list[tuple[int, int, bool]] = []
+    for northern, units in ((True, NORTH_UNITS), (False, SOUTH_UNITS)):
+        spans = [span for span in (unit_latitude_span(unit, northern) for unit in units) if span]
+        if not spans:
+            continue
+        rows = [round((top - float(mercator.northing_at(
+                    np.array([latitude]), mercator.WEB_MERCATOR_RADIUS_M)[0])) / pixel)
+                for span in spans for latitude in span]
+        row0, row1 = max(0, min(rows) - pad_rows), min(height, max(rows) + pad_rows)
+        if row1 > row0:
+            bands.append((row0, row1, northern))
+    return bands
+
+
+#: Rows graded at once. `graded_alpha` evaluates both poles in float64, so a slice costs several
+#: times its float32 footprint while it is in hand — sized to stay inside the one-heavy-job cap.
+GRADE_ROWS = 512
+
+
+def _warp_band(field: Path, bounds: tuple[float, float, float, float], width: int, height: int,
+               out: Path) -> Path:
+    """The 4326 field on one band of the 3857 grid, in ONE gdalwarp.
+
+    DIRECT RATHER THAN THE SUB-BANDED MOSAIC the two Earth cryosphere warps use, and the difference
+    is the extent being warped rather than a preference. That mosaic exists because a WHOLE-GRID
+    warp's pole-inflated average scale makes gdalwarp read the source decimated — the failure has no
+    error and no symptom beyond structure quietly going missing. A band spans a narrow enough range
+    of scales that the average is honest, which was measured on this grid against a sub-banded
+    reference and against a deliberately decimated control; `scripts/` has no home for that probe, so
+    the numbers live in PROCESS.md.
+
+    DO NOT "FIX" THIS BY ADDING BANDING. It would cost a subprocess per sub-band for output already
+    shown identical, and it would read as though the decimation question here were open.
+    """
+    left, bottom, right, top = bounds
+    subprocess.run(
+        ["gdalwarp", "-q", "-overwrite", "-t_srs", "EPSG:3857",
+         "-te", repr(left), repr(bottom), repr(right), repr(top),
+         "-ts", str(width), str(height), "-r", "bilinear", "-ot", "Float32",
+         "-co", "TILED=YES", "-co", "COMPRESS=DEFLATE", "-co", "BIGTIFF=YES",
+         str(field), str(out)], check=True)
+    return out
+
+
+def build_alpha_raster(field: Path, field_nodata: float,
+                       bounds: tuple[float, float, float, float], width: int, height: int,
+                       out: Path, ground_metres_per_map_unit: float) -> Path:
+    """This body's ice alpha on the 3857 grid: graded between the pinned levels, cut to the mapped
+    units, feathered outward — and computed only where a unit can reach.
+
+    ZERO IS A VALUE HERE AND NOT AN ABSENCE, which is why the output declares no nodata. Every row
+    outside a band is ice-free by construction, so the blocks that are never written read back as
+    alpha 0 and mean it. A nodata of 0 would say "unmeasured" about pixels this stage measured and
+    found bare.
+
+    THE FEATHER IS WHY THE BANDS ARE PADDED. A pixel outside every polygon still takes alpha from one
+    within `FEATHER_KM` of it, so a band cut to the polygons alone would clip its own feather at the
+    band edge — visible as a hard line parallel to no coastline.
+
+    THE SCALE PASSED DOWN IS GROUND METRES PER PIXEL AND IT VARIES PER ROW. A Mercator pixel is not a
+    fixed ground distance; across the latitudes this layer occupies it changes by more than half, so
+    a feather counted in pixels would be markedly wider at one end of the band than the other.
+    `feather_alpha_bands` holds the argument, and `ground_metres_per_map_unit` is the body's own
+    conversion rather than anything derivable here.
+    """
+    left, bottom, right, top = bounds
+    pixel = (top - bottom) / height
+    map_units_per_px = (right - left) / width
+    edge_latitude = float(mercator.latitude_at(np.array([top]), mercator.WEB_MERCATOR_RADIUS_M)[0])
+    # The finest ground pixel the grid can hold sits at its top row, so a pad derived from it covers
+    # the feather at every latitude a band could occupy. Derived, never a constant: the grid's own
+    # edge latitude is what sets it.
+    finest = map_units_per_px * ground_metres_per_map_unit * float(
+        np.cos(np.radians(edge_latitude)))
+    pad_rows = int(np.ceil(FEATHER_KM * 1000.0 / finest)) + 1
+
+    profile: dict[str, Any] = dict(
+        driver="GTiff", width=width, height=height, count=1, dtype="float32", crs="EPSG:3857",
+        transform=rasterio.transform.from_bounds(left, bottom, right, top, width, height),
+        tiled=True, compress="DEFLATE", bigtiff="YES")
+    work = out.parent
+    with rasterio.open(out, "w", **profile) as writer:  # pyright: ignore[reportCallIssue]
+        for row0, row1, northern in ice_bands(bounds, height, pad_rows):
+            pole = "north" if northern else "south"
+            band_bounds = (left, top - row1 * pixel, right, top - row0 * pixel)
+            band_height = row1 - row0
+            drawn = NORTH_UNITS if northern else SOUTH_UNITS
+            masks = {
+                unit: _read_mask(burn_unit(
+                    unit, "EPSG:3857", band_bounds, width, band_height,
+                    projected=work / f"ice_{pole}_{unit.lower()}_3857.geojson",
+                    out=work / f"ice_{pole}_{unit.lower()}.tif",
+                    # Only the units this hemisphere PAINTS are guaranteed to land: the band was
+                    # derived from their own reach. The other is burnt because `extent_for`
+                    # evaluates both unions, and it may legitimately be empty here.
+                    must_draw=(f"{unit} must reach the {pole} band it defines"
+                               if unit in drawn else None)))
+                for unit in NORTH_UNITS
+            }
+            latitude = mercator.latitude_at(
+                top - (np.arange(row0, row1) + 0.5) * pixel, mercator.WEB_MERCATOR_RADIUS_M)
+            scale = map_units_per_px * ground_metres_per_map_unit * np.cos(np.radians(latitude))
+            warped = _warp_band(field, band_bounds, width, band_height,
+                                work / f"ice_{pole}_field.tif")
+            extent = extent_for(masks, northern)
+            with rasterio.open(warped) as reader:
+                for sub0, sub1, feather in feather_alpha_bands(extent, scale,
+                                                               band_rows=GRADE_ROWS):
+                    window = Window(0, sub0, width, sub1 - sub0)  # pyright: ignore[reportCallIssue]
+                    graded = graded_alpha(reader.read(1, window=window), northern, field_nodata)
+                    writer.write((graded * feather).astype(np.float32), 1,
+                                 window=Window(0, row0 + sub0, width,  # pyright: ignore[reportCallIssue]
+                                               sub1 - sub0))
+    return out
+
+
+def _read_mask(path: Path) -> np.ndarray:
+    """A burnt 0/1 raster as a boolean array."""
+    with rasterio.open(path) as dataset:
+        return dataset.read(1) != 0

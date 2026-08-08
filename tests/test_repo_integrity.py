@@ -109,7 +109,8 @@ CITATION_FILES = [path for path in FILES if path.name not in CITATION_EXEMPT]
 # The trailing slash is load-bearing: it distinguishes a path being CITED from the same bare name
 # being passed as a directory-name argument, which `scripts/measure_viking_levels.py` legitimately
 # does.
-SCRATCH_DIRS = r"_ice_ab/|_ice_levels/|_ice_scout/|_viking_scout/|_crism_scout/"
+SCRATCH_DIRS = (r"_ice_ab/|_ice_levels/|_ice_scout/|_viking_scout/|_crism_scout/"
+                r"|_warp_probe/")
 
 CHECK_GROUPS = {
     "BLOCK_COMMENT_FILES": BLOCK_COMMENT_FILES,

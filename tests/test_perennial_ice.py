@@ -17,7 +17,7 @@ import numpy as np
 import pytest
 
 from pipeline import bodies, layers, mercator
-from pipeline.render import perennial_ice, snow
+from pipeline.render import mars_ice, perennial_ice, snow
 from pipeline.tile import cap_render
 
 
@@ -98,13 +98,22 @@ class TestTheRegistryAndTheLayerDeclarationsAgree:
                 with subtests.test(f"{body.name} {pole}"):
                     assert perennial_ice.cap_ice(body, pole)
 
-    def test_no_producer_is_registered_for_a_body_that_declares_no_such_layer(self, subtests):
-        silent = [body for body in bodies.BODIES.values()
-                  if layers.PERENNIAL_ICE.name not in body.surface_layers]
-        assert silent, "every body declares perennial ice — this sweep would pass vacuously"
-        for body in silent:
-            with subtests.test(body.name):
-                assert not [key for key in perennial_ice.CAP_ICE_BY_BODY if key[0] == body.name]
+    def test_every_registered_producer_belongs_to_a_body_that_declares_the_layer(self, subtests):
+        """The agreement read from the REGISTRY rather than from the bodies, which is the direction
+        that still has instances.
+
+        It used to sweep the bodies that declare nothing and assert they hold no producer. Both
+        registered planets now declare this layer, so that sweep found nothing to check and its own
+        anti-vacuity assertion said so — the guard reporting that its subject had moved rather than
+        passing on an empty list. Same claim, asked of a set that cannot empty while a producer
+        exists to be wrong about.
+        """
+        assert perennial_ice.CAP_ICE_BY_BODY, "no producers at all — this sweep would be vacuous"
+        for body_name, pole in perennial_ice.CAP_ICE_BY_BODY:
+            with subtests.test(f"{body_name} {pole}"):
+                assert layers.PERENNIAL_ICE.name in bodies.get(body_name).surface_layers, (
+                    f"{body_name} registers a {pole} cap producer for a layer it does not declare — "
+                    f"the cap would paint ice the composite knows nothing about")
 
 
 class TestEarthsProducersComputeWhatTheyComputedInline:
@@ -197,3 +206,96 @@ def _recording_warp(log: list[str], shape: tuple[int, int]):
     """`_fixed_warp` over a bland packed field, for tests that care only about what was asked."""
     rows, cols = shape
     return _fixed_warp(log, (np.arange(rows * cols, dtype=np.float32) * 100.0).reshape(shape))
+
+
+def _field_warp(log: list[str], values: np.ndarray):
+    """A `WarpToCap` handing back a chosen luma field and recording what was asked for."""
+    def warp(source, name, resampling, dtype, srcnodata=None):
+        log.append(name)
+        return values
+    return warp
+
+
+def _unit_burn(log: list[str], masks: "dict[str, np.ndarray]"):
+    """A `BurnToCap` over pre-decided unit masks, recording which units were asked for."""
+    def burn(source, name, must_draw) -> np.ndarray:
+        log.append(name)
+        return masks[name]
+    return burn
+
+
+class TestMarsGradesTheFieldInsideTheMappedUnits:
+    """Mars's two producers, driven with no GDAL behind them — which is what the injected warp and
+    burn are for. The arithmetic they compose is tested next door; what is asserted here is that
+    this producer composes it with THIS pole's constants and this pole's units."""
+
+    #: A 4x4 disc: the left half inside `lApc`, one column of `Apu` beside it, the rest bare.
+    LAPC = np.array([[True, True, False, False]] * 4)
+    APU = np.array([[False, False, True, False]] * 4)
+
+    def _inputs(self, field, warped, burnt):
+        return perennial_ice.CapIceInputs(
+            land=np.ones((4, 4), dtype=bool),
+            latitude=np.full((4, 4), 85.0, dtype=np.float32),
+            warp=_field_warp(warped, field), burn=_unit_burn(burnt, {"lapc": self.LAPC,
+                                                                     "apu": self.APU}),
+            ground_metres_per_px=cap_render.cap_ground_metres_per_px(
+                cap_render.north_grid(bodies.MARS)))
+
+    def _alpha(self, pole, field):
+        warped, burnt = [], []
+        alpha = perennial_ice.cap_ice(bodies.MARS, pole).alpha(
+            self._inputs(field, warped, burnt))
+        return alpha, warped, burnt
+
+    def test_it_reads_the_brightness_field_and_both_units(self):
+        """Both units at BOTH poles, which looks wasteful at the south and is not: `extent_for`
+        evaluates each hemisphere's union, so a missing mask raises rather than reading as no ice."""
+        for pole in ("north", "south"):
+            _alpha, warped, burnt = self._alpha(pole, np.full((4, 4), 200.0))
+            assert warped == ["viking_luma"]
+            assert sorted(burnt) == ["apu", "lapc"]
+
+    def test_the_north_paints_lApc_and_Apu_where_the_south_paints_lApc_alone(self):
+        """The hemispheric extent rule, reaching the cap tier. Southern `Apu` is layered deposits
+        that the albedo cannot tell from ordinary ground, so painting it would whiten most of that
+        disc on no evidence."""
+        bright = np.full((4, 4), 250.0)
+        north, _, _ = self._alpha("north", bright)
+        south, _, _ = self._alpha("south", bright)
+        assert north[:, 2].min() > 0.9, "the north must paint Apu at full strength"
+        # STRICTLY DIMMER RATHER THAN ZERO, and the difference is the feather doing its job: on a
+        # disc this small every pixel is within one feather of `lApc`, so the south's `Apu` column
+        # carries bleed from the unit next to it. Being OUTSIDE the extent is what the comparison
+        # tests; demanding an exact zero would be asserting that the feather does not exist.
+        assert south[:, 2].max() < north[:, 2].min(), "the south must not paint Apu as ice"
+        assert min(north[:, 0].min(), south[:, 0].min()) > 0.9, "both poles paint lApc"
+
+    def test_each_pole_grades_against_its_OWN_levels(self):
+        """The pinning that lets the cap and the tiles crossfade without a step. Driven at the
+        south's alpha-1 level: the north's is 30 DN higher, so a shared pair cannot give 1.0 here."""
+        field = np.full((4, 4), mars_ice.ALPHA_LEVELS["south"][1])
+        south, _, _ = self._alpha("south", field)
+        north, _, _ = self._alpha("north", field)
+        assert south[:, 0].min() == pytest.approx(1.0)
+        assert north[:, 0].max() < 1.0
+
+    def test_bare_ground_outside_every_unit_stays_exactly_zero(self):
+        """The extent limits the CLAIM: however bright a pixel is, white is only drawn where the
+        published map says there is ice. A feather softens the boundary and nothing beyond it."""
+        alpha, _, _ = self._alpha("north", np.full((4, 4), 255.0))
+        assert alpha[:, 3].max() < 1.0
+
+    def test_an_unmeasured_pixel_is_never_ice(self):
+        """Viking's fill is every channel at zero, which `mars_ice.luma` collapses to exactly zero;
+        a fill that graded as ordinary brightness would paint the hole white."""
+        alpha, _, _ = self._alpha("north", np.zeros((4, 4)))
+        assert alpha == pytest.approx(np.zeros((4, 4)))
+
+    def test_both_poles_declare_the_same_three_files_and_all_of_them_are_read(self):
+        """`cap_is_fresh` requires every declared source to EXIST, so a path named here that the
+        producer never opens pins the cap permanently stale."""
+        for pole in ("north", "south"):
+            declared = perennial_ice.cap_ice(bodies.MARS, pole).sources()
+            assert [path.name for path in declared] == [
+                "viking_luma_4326.tif", "lapc_sim3292.json", "apu_sim3292.json"]

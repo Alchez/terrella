@@ -833,9 +833,23 @@ class TestTheCompositeRecipeRecordsTheRastersThatAreOff:
         """Two vocabularies, two keys. A raster is what the planet stage emitted; a layer is what
         the render paints over it, and collapsing them would tie a cap-only decision to the tiles."""
         recorded = json.loads(shade_planet.composite_params(
-            {None: None}, bodies.MARS, frozenset({"heightfield"})))
+            {None: None}, UNDECLARED, frozenset({"heightfield"})))
         assert recorded["layers_off"] == sorted(layers.COMPOSITE_LAYERS)
         assert recorded["rasters_off"] == ["oceanmask", "watermask"]
+
+
+#: Mars with its one declaration taken away — a body that paints no surface layer at all.
+#:
+#: IT EXISTS BECAUSE MARS STOPPED BEING THE NEGATIVE INSTANCE. Every case below asks whether a body
+#: that paints nothing omits a key, and took its answer from a live registry field; the day Mars
+#: declared its ice, a table still pointing at it would have gone QUIET rather than red. That is the
+#: failure `test_run_pass_preflight.CAPLESS` already records on a different field.
+#:
+#: KEEPS THE NAME "mars" DELIBERATELY. `composite_params` resolves the ramp through
+#: `palette.look_for`, which refuses an unregistered body rather than falling back to Earth's, so a
+#: stand-in under a new name would need a look registered beside it. This one differs from the real
+#: planet in exactly the field under test and in nothing else.
+UNDECLARED = dataclasses.replace(bodies.MARS, surface_layers=frozenset())
 
 
 #: Each layer-gated group in the composite recipe: the layer whose paint reads it, one key it
@@ -880,7 +894,7 @@ class TestABodyRecordsOnlyWhatItsOwnCompositeReads:
         assert named, "the gated-group table is empty — every case below would pass on nothing"
         assert named <= layers.COMPOSITE_LAYERS
         assert named <= bodies.EARTH.surface_layers, "Earth must paint every layer named here"
-        assert not (named & bodies.MARS.surface_layers), "Mars must paint none of them"
+        assert not (named & UNDECLARED.surface_layers), "the negative body must paint none of them"
 
     @pytest.mark.parametrize(GATED_CASE, LAYER_GATED)
     def test_the_body_that_paints_it_records_it(self, layer, key, module, attr, value):
@@ -888,7 +902,7 @@ class TestABodyRecordsOnlyWhatItsOwnCompositeReads:
 
     @pytest.mark.parametrize(GATED_CASE, LAYER_GATED)
     def test_the_body_that_does_not_paint_it_omits_it(self, layer, key, module, attr, value):
-        assert key not in _recipe(bodies.MARS)
+        assert key not in _recipe(UNDECLARED)
 
     @pytest.mark.parametrize(GATED_CASE, LAYER_GATED)
     def test_moving_it_restages_the_body_that_paints_it(self, layer, key, module, attr, value,
@@ -903,9 +917,9 @@ class TestABodyRecordsOnlyWhatItsOwnCompositeReads:
     def test_moving_it_leaves_the_other_body_alone(self, layer, key, module, attr, value,
                                                    monkeypatch):
         """THE POINT. Tuning Earth's sea ice used to restage Mars, which declares no `sea_ice`."""
-        before = shade_planet.composite_params({None: None}, bodies.MARS, WHOLE_PLANET)
+        before = shade_planet.composite_params({None: None}, UNDECLARED, WHOLE_PLANET)
         monkeypatch.setattr(module, attr, value)
-        assert shade_planet.composite_params({None: None}, bodies.MARS, WHOLE_PLANET) == before
+        assert shade_planet.composite_params({None: None}, UNDECLARED, WHOLE_PLANET) == before
 
 
 class TestTheFlatWaterColourFollowsTheWatermask:
@@ -961,7 +975,7 @@ class TestTheKneeConstantsFollowTheCurveThatReadsThem:
         """`snow_position` keys the snow and the sea-ice whites; a body with neither never uses
         its output whatever the curve says."""
         monkeypatch.setitem(shade.KNOBS, "snow_curve", "knee")
-        assert "knee_x" not in _recipe(bodies.MARS)
+        assert "knee_x" not in _recipe(UNDECLARED)
 
     def test_moving_one_restages_only_under_that_branch(self, monkeypatch):
         before = shade_planet.composite_params({None: None}, bodies.EARTH, WHOLE_PLANET)

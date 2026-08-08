@@ -11,11 +11,13 @@ clipped away, so a band padded wider than the feather is exact everywhere the re
 a claim with a control — a pad too small must break it — and both halves are asserted below.
 """
 
+import json
+
 import numpy as np
 import pytest
 from scipy import ndimage
 
-from pipeline import vector_raster
+from pipeline import mercator, vector_raster
 from pipeline.acquire import download_sim3292
 from pipeline.raster_io import row_bands
 from pipeline.render import mars_ice
@@ -30,6 +32,10 @@ NODATA = -9999.0
 #: below is checkable by hand rather than by re-deriving it in the assertion.
 SCALE_M = 200.0   # ground metres per pixel; FEATHER_KM / this = FEATHER_PX exactly
 FEATHER_PX = 25
+
+#: The full EPSG:3857 square every planet's composite grid spans, as (left, bottom, right, top).
+WHOLE_MERCATOR = (-20037508.342789244, -20037508.342789244,
+                  20037508.342789244, 20037508.342789244)
 
 
 def _blobby_mask() -> np.ndarray:
@@ -315,3 +321,111 @@ class TestAUnitIsResolvedAtCallTime:
         mars_ice.burn_unit("lApc", "EPSG:3857", (0.0, 0.0, 1.0, 1.0), 2, 2,
                            projected=tmp_path / "p.json", out=tmp_path / "o.tif")
         assert seen == [tmp_path / "elsewhere" / "lapc_sim3292.json"]
+
+
+def _units(tmp_path, monkeypatch, **spans) -> None:
+    """Stand in for the acquired units with polygons at chosen latitudes.
+
+    SYNTHETIC RATHER THAN THE ACQUIRED FILES, so these run on a clone with no data store — and so
+    the latitudes under test are chosen rather than whatever the publisher currently draws.
+    """
+    def polygon(low, high):
+        return {"type": "Feature", "properties": {},
+                "geometry": {"type": "Polygon",
+                             "coordinates": [[[0.0, low], [1.0, low], [1.0, high],
+                                              [0.0, high], [0.0, low]]]}}
+
+    # EVERY unit the module consults, not only the ones a case names: `ice_bands` reads both
+    # tuples, so a unit left unwritten fails on a missing FILE and hides whatever the case meant
+    # to assert. An empty collection is the honest stand-in for "this unit is not mapped here".
+    for unit in set(mars_ice.NORTH_UNITS) | set(mars_ice.SOUTH_UNITS) | set(spans):
+        path = tmp_path / f"{unit.lower()}.json"
+        path.write_text(json.dumps(
+            {"type": "FeatureCollection",
+             "features": [polygon(low, high) for low, high in spans.get(unit, ())]}))
+    monkeypatch.setattr(download_sim3292, "unit_path",
+                        lambda unit: tmp_path / f"{unit.lower()}.json")
+
+
+class TestTheBandIsDerivedFromTheUnitsAndNotFromALatitude:
+    """Where the composite grades ice comes from the polygons, so a revised map moves it for free."""
+
+    def test_a_span_is_taken_PER_HEMISPHERE(self, tmp_path, monkeypatch):
+        """THE TRAP THIS ARGUMENT EXISTS FOR. `lApc` is mapped at BOTH poles, so one span over all
+        its features runs pole to pole and describes a planet rather than an extent."""
+        _units(tmp_path, monkeypatch, lApc=[(78.0, 85.0), (-85.0, -84.0)])
+        assert mars_ice.unit_latitude_span("lApc", northern=True) == (78.0, 85.0)
+        assert mars_ice.unit_latitude_span("lApc", northern=False) == (-85.0, -84.0)
+
+    def test_a_unit_absent_from_a_hemisphere_answers_None_rather_than_zero(
+            self, tmp_path, monkeypatch):
+        """Zero would be the equator, which is the one answer that would widen a band to the whole
+        grid. None is what lets `ice_bands` leave that hemisphere out entirely."""
+        _units(tmp_path, monkeypatch, Apu=[(76.0, 80.0)])
+        assert mars_ice.unit_latitude_span("Apu", northern=False) is None
+
+    def test_both_poles_get_their_own_band_and_neither_reaches_the_equator(
+            self, tmp_path, monkeypatch):
+        """The whole point of the banded build: two narrow strips, not one grid.
+
+        The equator assertion is the one that fails loudly if the hemispheric split above is lost —
+        a single span over `lApc` would put row 0 through the last row in one band, which still
+        renders correctly and costs a planet-sized warp to do it.
+        """
+        _units(tmp_path, monkeypatch,
+               lApc=[(78.0, 85.0), (-85.0, -84.0)], Apu=[(76.0, 80.0)])
+        height = 4096
+        bands = mars_ice.ice_bands(WHOLE_MERCATOR, height, pad_rows=4)
+        assert [northern for _row0, _row1, northern in bands] == [True, False]
+        for row0, row1, northern in bands:
+            latitudes = mercator.latitude_at(
+                WHOLE_MERCATOR[3] - np.array([row0, row1]) * (2 * WHOLE_MERCATOR[3] / height),
+                mercator.WEB_MERCATOR_RADIUS_M)
+            assert min(abs(latitudes)) > 60.0, (
+                f"the {'north' if northern else 'south'} band reaches {min(abs(latitudes)):.1f} "
+                f"degrees — a hemisphere span has leaked across the equator")
+
+    def test_the_pad_widens_the_band_on_both_sides(self, tmp_path, monkeypatch):
+        """The feather reaches outside every polygon, so a band cut to the polygons alone would clip
+        its own gradient at the band edge — a hard line parallel to no coastline."""
+        _units(tmp_path, monkeypatch, lApc=[(78.0, 85.0)])
+        narrow, = mars_ice.ice_bands(WHOLE_MERCATOR, 4096, pad_rows=0)
+        padded, = mars_ice.ice_bands(WHOLE_MERCATOR, 4096, pad_rows=7)
+        assert padded[0] == narrow[0] - 7 and padded[1] == narrow[1] + 7
+
+    def test_a_grid_no_unit_reaches_yields_no_band_at_all(self, tmp_path, monkeypatch):
+        """A body whose units sit off this grid builds nothing, rather than warping a planet to
+        discover that every pixel is bare."""
+        _units(tmp_path, monkeypatch, lApc=[(10.0, 12.0)])
+        _left, _bottom, _right, top = WHOLE_MERCATOR
+        polar_only = (_left, top * 0.95, _right, top)
+        assert mars_ice.ice_bands(polar_only, 256, pad_rows=2) == []
+
+
+class TestTheGradingFollowsTheHemisphere:
+    def test_each_pole_is_graded_against_its_own_levels(self):
+        """One pair applied to both poles would grade the south against the north's darker ground.
+
+        Driven at each pole's own alpha-1 level, so the correct answer is 1.0 on both rows and a
+        swapped pair cannot produce it: the levels differ by more than 30 DN at that end.
+        """
+        north_cap, south_cap = (mars_ice.ALPHA_LEVELS["north"][1],
+                                mars_ice.ALPHA_LEVELS["south"][1])
+        field = np.array([[north_cap, north_cap], [south_cap, south_cap]])
+        northern = np.array([[True], [False]])
+        graded = mars_ice.graded_alpha(field, northern, nodata=NODATA)
+        assert graded == pytest.approx(np.ones((2, 2)))
+
+    def test_a_scalar_hemisphere_grades_the_whole_slice(self):
+        """A cap disc is all one hemisphere and passes a plain bool, the same broadcast `extent_for`
+        already takes — so the two cannot disagree about which pole a pixel belongs to."""
+        field = np.full((2, 2), mars_ice.ALPHA_LEVELS["south"][1])
+        assert mars_ice.graded_alpha(field, False, NODATA) == pytest.approx(np.ones((2, 2)))
+        assert mars_ice.graded_alpha(field, True, NODATA).max() < 1.0
+
+    def test_the_fill_becomes_exactly_zero_in_both_hemispheres(self):
+        """`albedo_alpha` masks before scaling; `np.where` must not reintroduce the other branch's
+        answer over a pixel that was never measured."""
+        field = np.full((2, 2), NODATA)
+        for northern in (True, False):
+            assert mars_ice.graded_alpha(field, northern, NODATA) == pytest.approx(np.zeros((2, 2)))

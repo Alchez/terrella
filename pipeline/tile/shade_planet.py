@@ -472,6 +472,20 @@ def warp_inputs(work: Path, planet: Path, body: bodies.Body, rasters: frozenset[
         if not all(layers.layer_is_buildable(body, layer, source, consequence)
                    for source in sources):
             continue
+        # A BUILD-TIME CONSTANT IS MATERIALISED INTO A SOURCE, because `warp_needs_rebuild` is closed
+        # over PATHS and no Python value can reach it. A producer that grades before it writes has
+        # its tunables frozen into the file; recorded only in `composite_params`, changing one would
+        # restage the whole composite and then repaint from the unchanged raster — the same wrong
+        # pixels behind a restage that looks like it worked. `write_if_changed` moves an mtime if and
+        # only if a value moved, and is written BEFORE the question is asked, per its own docstring.
+        #
+        # Empty for every Earth producer, which writes no file and leaves this list exactly as it
+        # was — the reason adopting this restages nothing.
+        tunables = producer.build_recipe()
+        if tunables:
+            sources = (*sources, write_if_changed(
+                out.with_name(f"{out.stem}_build.json"),
+                json.dumps(tunables, indent=2, sort_keys=True) + "\n"))
         # `warp_needs_rebuild` re-warps when a source moved OR when the grid grew under the target;
         # the sources are the producer's because they are what it will actually read.
         if warp_needs_rebuild(out, grid, *sources):

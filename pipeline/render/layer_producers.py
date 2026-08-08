@@ -39,7 +39,8 @@ from typing import Any
 import numpy as np
 
 from pipeline import bodies, layers
-from pipeline.render import lake_depth, seaice, snow
+from pipeline.acquire import download_sim3292
+from pipeline.render import lake_depth, mars_ice, seaice, snow, viking_luma
 
 
 @dataclass(frozen=True)
@@ -117,6 +118,26 @@ class LayerProducer:
     #: `palette.LAKE_*`, on every body alike; those are live per LAYER rather than per producer, so
     #: `composite_params` keeps them and gates them on the layer that makes them reachable.
     recipe: Callable[[], dict[str, Any]]
+    #: The constants `build` bakes INTO the raster, which is a different set from `recipe` above and
+    #: cannot share its machinery.
+    #:
+    #: WHY THE SPLIT IS NOT TIDINESS. `recipe` reaches `composite_params`, so changing one of its
+    #: values restages the composite — which is exactly right for a constant read per window, because
+    #: the rerun re-reads it. A constant consumed at BUILD time is already frozen into the file on
+    #: disk, and `warp_needs_rebuild` is closed over PATHS: no Python value can reach it. Recording a
+    #: build-time constant in `recipe` alone therefore produces the worst available outcome — a full
+    #: composite restage that repaints from the unchanged raster and lands the same wrong pixels,
+    #: looking for all the world like the change applied.
+    #:
+    #: Materialised by `warp_inputs` through `freshness.write_if_changed`, whose whole purpose is to
+    #: let a constant stand in as an mtime dependency: the file moves if and only if a value moved.
+    #:
+    #: EMPTY IS THE ANSWER FOR EVERY EARTH PRODUCER and that is a property of them rather than an
+    #: omission — all four are pure transport, landing a source on the grid and storing it raw, with
+    #: every grading constant read later in `contribution`. An empty dict writes no file and adds no
+    #: source, so Earth's gate stays byte-for-byte what it was and the optional-layer warps do not
+    #: restage. Mars's ice is the first build to grade before it writes.
+    build_recipe: Callable[[], dict[str, Any]]
 
 
 def _build_lake_depth(request: LayerBuild) -> None:
@@ -254,25 +275,87 @@ def _earth_sea_ice_recipe() -> dict[str, Any]:
             "sh_ice_max_alpha": seaice.SH_ICE_MAX_ALPHA}
 
 
+def _mars_ice_sources() -> tuple[Path, ...]:
+    """The brightness field and both mapped units — every file the Mars build opens."""
+    return (viking_luma.luma_path(),
+            *(download_sim3292.unit_path(unit) for unit in mars_ice.NORTH_UNITS))
+
+
+def _build_mars_ice(request: LayerBuild) -> None:
+    """Viking luma graded, cut to the mapped units and feathered — the one build that is not a warp.
+
+    THE ONLY BUILD HERE THAT GRADES BEFORE IT WRITES. Its siblings land a source on the grid and
+    store it raw, leaving every constant to `contribution`; this one bakes `FEATHER_KM` and
+    `ALPHA_LEVELS` into the file, because the feather is a distance transform and a distance
+    transform cannot be computed from one window — a pixel's nearest ice can lie outside whatever
+    slice is in hand. That asymmetry is what `build_recipe` exists for, and why this producer's
+    `recipe` is empty rather than carrying those two.
+    """
+    print("grade Viking luma -> Mars ice alpha (polar bands) ...", flush=True)
+    request.out.unlink(missing_ok=True)
+    mars_ice.build_alpha_raster(
+        field=viking_luma.luma_path(), field_nodata=viking_luma.NODATA,
+        bounds=request.bounds, width=request.width, height=request.height, out=request.out,
+        ground_metres_per_map_unit=bodies.ground_metres_per_mercator_unit(bodies.get("mars")))
+
+
+def _mars_perennial_ice(window: LayerWindow) -> "np.ndarray | None":
+    """The alpha the build already computed, as float64 — this window and nothing else.
+
+    NOTHING IS GRADED HERE, the mirror image of Earth's producer, and it follows from where the
+    feather has to run rather than from taste. None when the raster was never built, per the
+    contract: no file, no ice, and no zeros pushed into the union to be blended against.
+
+    float64 because `shade.composite` blends whichever body's answer it is handed alongside Earth's,
+    and a narrower dtype from one of them shifts the other's blend sub-DN.
+    """
+    if window.raw is None:
+        return None
+    return np.asarray(window.raw, dtype=float)
+
+
+def _mars_ice_build_recipe() -> dict[str, Any]:
+    """The two constants `_build_mars_ice` freezes into its raster.
+
+    The luma WEIGHTS are deliberately absent, and covered rather than forgotten: `render/viking_luma`
+    records them in its own recipe, so a weight change restages that stage, moves the field's mtime,
+    and reaches this raster as a moved SOURCE. Recording them here as well would rebuild correctly
+    and claim the coupling lives in two places.
+    """
+    return {"mars_feather_km": mars_ice.FEATHER_KM,
+            "mars_alpha_levels": {pole: list(levels)
+                                  for pole, levels in sorted(mars_ice.ALPHA_LEVELS.items())}}
+
+
 #: Every composite-tier producer that ships, by (body slug, layer name).
 #:
-#: Four entries and four MECHANISMS — a banded NetCDF warp, a vector rasterize, a banded GeoTIFF
-#: warp and a nodata-masked bilinear warp — which is what gives the parameterisation real instances
-#: on day one instead of one shape repeated with a different constant in it.
+#: Five entries and five MECHANISMS — a banded NetCDF warp, a vector rasterize, a banded GeoTIFF
+#: warp, a nodata-masked bilinear warp, and Mars's graded-and-feathered polar bands — which is what
+#: gives the parameterisation real instances instead of one shape repeated with a different constant.
 PRODUCER_BY_BODY_LAYER: dict[tuple[str, str], LayerProducer] = {
     ("earth", layers.LAKE_DEPTH.name): LayerProducer(
         sources=lambda: (lake_depth.LAKE_VRT,),
-        build=_build_lake_depth, contribution=_earth_lake_depth, recipe=_no_tunables),
+        build=_build_lake_depth, contribution=_earth_lake_depth, recipe=_no_tunables,
+        build_recipe=_no_tunables),
     ("earth", layers.PERENNIAL_ICE.name): LayerProducer(
         sources=lambda: (snow.SP_NC,),
         build=_build_persistence, contribution=_earth_perennial_ice,
-        recipe=_earth_perennial_ice_recipe),
+        recipe=_earth_perennial_ice_recipe, build_recipe=_no_tunables),
     ("earth", layers.GLACIERS.name): LayerProducer(
         sources=lambda: (snow.RGI_GPKG,),
-        build=_build_glaciers, contribution=_earth_glaciers, recipe=_no_tunables),
+        build=_build_glaciers, contribution=_earth_glaciers, recipe=_no_tunables,
+        build_recipe=_no_tunables),
     ("earth", layers.SEA_ICE.name): LayerProducer(
         sources=lambda: (seaice.SEAICE_SRC,),
-        build=_build_sea_ice, contribution=_earth_sea_ice, recipe=_earth_sea_ice_recipe),
+        build=_build_sea_ice, contribution=_earth_sea_ice, recipe=_earth_sea_ice_recipe,
+        build_recipe=_no_tunables),
+    ("mars", layers.PERENNIAL_ICE.name): LayerProducer(
+        sources=_mars_ice_sources,
+        build=_build_mars_ice, contribution=_mars_perennial_ice,
+        # EMPTY, and that is the split working rather than an oversight: `_mars_perennial_ice`
+        # reads no constant at all, so there is nothing for the composite to restage on. What this
+        # producer can re-tune is frozen into the raster, and `build_recipe` is what tracks it.
+        recipe=_no_tunables, build_recipe=_mars_ice_build_recipe),
 }
 
 

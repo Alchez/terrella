@@ -859,11 +859,28 @@ def test_every_body_names_only_surface_layers_the_pipeline_knows() -> None:
         )
 
 
-def test_earth_has_every_surface_layer_and_the_second_body_has_none() -> None:
-    """Earth is the reference body, so its set is what "all of them" means. Mars's emptiness is the
-    whole point of the field and is a statement about our DATA, not about the planet."""
+#: A body declaring NO surface layer, which Mars supplied until its ice landed.
+#:
+#: THE LESSON `test_run_pass_preflight.CAPLESS` ALREADY RECORDS, arriving a second time on a
+#: different field: a guard whose only negative instance is a live registry value stops testing
+#: anything the day that value changes, and stays green while it happens. Four tests in this file
+#: took "declares nothing" from Mars and went quiet together the moment it declared one thing. Built
+#: off Earth so every unrelated field is a real planet's.
+LAYERLESS = dataclasses.replace(bodies.EARTH, name="layerless", path_prefix="layerless",
+                                surface_layers=frozenset())
+
+
+def test_earth_has_every_surface_layer_and_mars_declares_only_what_it_can_produce() -> None:
+    """Earth is the reference body, so its set is what "all of them" means.
+
+    Mars's set is the interesting one and it is a statement about our DATA rather than about the
+    planet: it declares the one layer a MARTIAN producer answers for, and stays silent on the four
+    whose only sources are Earth datasets sitting on this same disk. Pinned as an exact set, so
+    adding a layer to Mars has to be a decision someone makes here rather than a set that drifts.
+    """
     assert bodies.EARTH.surface_layers == layers.SURFACE_LAYERS
-    assert bodies.MARS.surface_layers == frozenset()
+    assert bodies.MARS.surface_layers == frozenset({layers.PERENNIAL_ICE.name})
+    assert LAYERLESS.surface_layers == frozenset(), "the negative instance must stay negative"
 
 
 def test_a_layer_is_refused_for_a_body_that_does_not_declare_it_even_though_the_source_is_there(
@@ -892,8 +909,8 @@ def test_a_layer_is_refused_for_a_body_that_does_not_declare_it_even_though_the_
     present.write_text("only its existence is read")
 
     assert layers.layer_is_buildable(bodies.EARTH, layers.PERENNIAL_ICE, present, "no ice") is True
-    assert layers.layer_is_buildable(bodies.MARS, layers.PERENNIAL_ICE, present, "no ice") is False
-    assert "mars declares no perennial_ice layer" in capsys.readouterr().out
+    assert layers.layer_is_buildable(LAYERLESS, layers.PERENNIAL_ICE, present, "no ice") is False
+    assert "layerless declares no perennial_ice layer" in capsys.readouterr().out
 
 
 def test_the_composite_recipe_records_only_the_layers_that_are_off() -> None:
@@ -912,8 +929,12 @@ def test_the_composite_recipe_records_only_the_layers_that_are_off() -> None:
     mars = json.loads(shade_planet.composite_params({None: None}, bodies.MARS, WHOLE_PLANET))
     # THE COMPOSITE'S OWN VOCABULARY, not the whole one. `coastline` is a cap-only layer, and
     # recording it here would make a decision about a polar texture restage the 46 GB planet.
-    assert mars["layers_off"] == sorted(layers.COMPOSITE_LAYERS)
+    assert mars["layers_off"] == sorted(layers.COMPOSITE_LAYERS - {layers.PERENNIAL_ICE.name})
     assert "coastline" not in mars["layers_off"]
+    # The layer Mars DOES declare is absent from the off-list by being present in the render, which
+    # is the direction that would fail silently: an over-full list restages for nothing, an
+    # under-full one leaves a composite painted with a layer that has since been switched off.
+    assert layers.PERENNIAL_ICE.name not in mars["layers_off"]
 
 
 def _southern_window(body: bodies.Body, persistence: "np.ndarray | None"):
@@ -1069,8 +1090,12 @@ def test_layers_off_names_what_is_missing_and_stays_silent_when_nothing_is(subte
         with subtests.test(f"earth {name}"):
             assert layers.layers_off(bodies.EARTH, vocabulary) == []
     with subtests.test("mars cap"):
-        assert layers.layers_off(bodies.MARS, layers.CAP_LAYERS) == ["coastline", "perennial_ice",
-                                                                     "sea_ice"]
+        assert layers.layers_off(bodies.MARS, layers.CAP_LAYERS) == ["coastline", "sea_ice"]
+    with subtests.test("a body that declares nothing names the whole vocabulary"):
+        # The all-off end of the range, which Mars stopped supplying when its ice landed. Without
+        # it the sweep only ever exercises "none off" and "some off", and the branch that names
+        # every layer would never run.
+        assert layers.layers_off(LAYERLESS, layers.CAP_LAYERS) == sorted(layers.CAP_LAYERS)
     with subtests.test("sorted"):
         # Sorted, so a frozenset's iteration order cannot make one body's recipe two recipes.
         partial = dataclasses.replace(bodies.EARTH, name="partial",
