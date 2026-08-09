@@ -31,9 +31,9 @@ describe("the relief source", () => {
   it("is measuring bodies that actually DISAGREE, or the case above proves nothing", () => {
     // The loop passes against a hardcoded Earth constant the moment every body shares a ceiling, and
     // it would go on passing silently. This is the premise that keeps it honest, asserted rather
-    // than assumed: Earth is cut to z8 and Mars to z6, because a ceiling follows each body's own
-    // source data. If a re-cut ever makes them agree, this fails and the case above needs a
-    // different second instance — not a wider tolerance.
+    // than assumed: the two bodies are cut to different ceilings, because a ceiling follows each
+    // body's own source data. If a re-cut ever makes them agree, this fails and the case above needs
+    // a different second instance — not a wider tolerance.
     expect(RELIEF_BODIES.length).toBeGreaterThan(1);
     const ceilings = new Set(RELIEF_BODIES.map((body) => archiveFor(body, "relief").maxZoom));
     expect(ceilings.size).toBeGreaterThan(1);

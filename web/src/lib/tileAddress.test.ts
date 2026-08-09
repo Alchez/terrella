@@ -190,9 +190,9 @@ describe("the registry", () => {
 describe("describeArchiveHeaderMismatch", () => {
   // This one check replaced three `assert*ZoomRange` functions, one per layer module, each of
   // which compared an archive against ITS OWN module constants. That shape could not survive a
-  // second body: Earth's relief is cut to z8 and Mars's to z6, so a per-layer constant is Earth's
-  // answer to a per-planet question. These cases are the three it inherited, plus the one that
-  // could not be written before — a correct archive for a body with a different ceiling.
+  // second body cut to a different ceiling, which makes a per-layer constant Earth's answer to a
+  // per-planet question. These cases are the three it inherited, plus the one that could not be
+  // written before — a correct archive for a body with a different ceiling.
 
   it("passes an archive that covers exactly what the registry advertises", () => {
     for (const [body, layers] of Object.entries(PUBLISHED)) {

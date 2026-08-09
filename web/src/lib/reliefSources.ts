@@ -1,10 +1,10 @@
 // The relief pyramid's two MapLibre sources, built from what the body in question publishes.
 //
 // FACTORED OUT OF earth.astro FOR THE REASON countryHighlight.ts WAS: a page is unit-testable by
-// nobody. What made it urgent is that the zoom range in these specs is a PER-BODY fact — Earth's
-// relief is cut to z8 and Mars's to z6, because a ceiling follows each body's own source data. A
-// spec built from `RELIEF_MAX_ZOOM`, which is Earth's answer, makes a Mars globe ask for z7 and z8
-// tiles that were never cut, and that failure is silent in the way this project keeps meeting:
+// nobody. What made it urgent is that the zoom range in these specs is a PER-BODY fact, because a
+// ceiling follows each body's own source data. A spec built from `RELIEF_MAX_ZOOM`, which is
+// Earth's answer, makes a shallower-cut body ask for tiles past its own ceiling that were never
+// cut, and that failure is silent in the way this project keeps meeting:
 // `parseTileAddress` refuses an address outside the archive's range without touching storage, so
 // the browser gets a 404 and paints nothing — indistinguishable from a tile still in flight.
 //

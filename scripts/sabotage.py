@@ -595,11 +595,11 @@ SABOTAGES: list[Sabotage] = [
     ),
     Sabotage(
         suite='web',
-        # The defect this whole split exists to make impossible. Earth's pyramid is cut to z8 and
-        # Mars's to z6, so Earth's numbers written out here — which is what the page held until the
-        # registry became the source of truth — make a Mars globe request two levels that were never
-        # cut. Nothing errors: the address is refused without a storage read, so the tiles simply
-        # never arrive and the globe looks slow rather than wrong.
+        # The defect this whole split exists to make impossible. The two bodies are cut to different
+        # ceilings, so Earth's numbers written out here — which is what the page held until the
+        # registry became the source of truth — make the shallower globe request levels that were
+        # never cut. Nothing errors: the address is refused without a storage read, so the tiles
+        # simply never arrive and the globe looks slow rather than wrong.
         label='the relief source takes Earth\'s zoom range instead of the body\'s',
         path='web/src/lib/reliefSources.ts',
         needle='    minzoom: archive.minZoom,\n    maxzoom: archive.maxZoom,',
@@ -2301,9 +2301,41 @@ SABOTAGES: list[Sabotage] = [
                      '                   tile_size=512, min_zoom=0,'),
         guard='test_the_cut_differs_between_bodies_in_exactly_one_setting',
     ),
+    # --- the browser's zoom range against the cut that produced it --------------------------------
+    # The cut deciding a ceiling is only half of it: the browser holds its own copy, and until this
+    # guard the two were bridged ONLY by the runtime header check, which needs archives on disk. On a
+    # checkout without them the copies could disagree freely. The three cases below are the three
+    # shapes that disagreement takes — a body's literal, a shared constant, and a layer going quiet.
+    Sabotage(
+        suite='python',
+        label="the browser's zoom range: Mars's ceiling drifts past what was cut",
+        path='web/src/lib/tileAddress.ts',
+        needle='      minZoom: 0,\n      maxZoom: 7,',
+        replacement='      minZoom: 0,\n      maxZoom: 8,',
+        guard='test_the_browser_publishes_every_pyramid_at_the_zoom_the_pipeline_cut_it_to',
+    ),
+    # Through a NAMED CONSTANT rather than a literal, which is the case the guard nearly missed:
+    # Earth's registry entry reads `RELIEF_MAX_ZOOM` where Mars's is a number, so a digits-only read
+    # would have covered one planet while reading as though it covered both.
+    Sabotage(
+        suite='python',
+        label="the browser's zoom range: Earth's ceiling drifts, via the constant its entry reads",
+        path='web/src/lib/reliefTiles.ts',
+        needle='export const RELIEF_MAX_ZOOM = 8;',
+        replacement='export const RELIEF_MAX_ZOOM = 9;',
+        guard='test_the_browser_publishes_every_pyramid_at_the_zoom_the_pipeline_cut_it_to',
+    ),
+    Sabotage(
+        suite='python',
+        label="the browser's zoom range: the vector pyramid stops matching the raster it overlays",
+        path='web/src/lib/countryTiles.ts',
+        needle='export const COUNTRIES_MAX_ZOOM = 8;',
+        replacement='export const COUNTRIES_MAX_ZOOM = 7;',
+        guard='test_the_browser_publishes_every_pyramid_at_the_zoom_the_pipeline_cut_it_to',
+    ),
     # The OVER-parameterisation direction, and the quieter one. Under-parameterising is loud — Mars
-    # cuts to z8 and the disk says so. Moving an encoder setting onto the body reads as thoroughness
-    # and silently lets two planets' encodings drift, with every other test still green.
+    # cuts to Earth's ceiling and the disk says so. Moving an encoder setting onto the body reads as
+    # thoroughness and silently lets two planets' encodings drift, with every other test still green.
     Sabotage(
         suite='python',
         label='the planet hillshade is driven at a literal, so the recipe records a relief nobody drew',

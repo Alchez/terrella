@@ -48,13 +48,14 @@ export const COUNTRIES_PATH_PREFIX = "countries";
 export const COUNTRIES_MIN_ZOOM = 0;
 
 /** Matches EARTH's relief ceiling, and not by coincidence: the hover outline is judged against the
- *  raster coastline at z8, so the vector detail has to reach where the raster does. MapLibre
- *  overzooms past this by re-using z8 tiles, which is correct — beyond z8 there is no more relief
- *  detail to disagree with.
+ *  raster coastline at that ceiling, so the vector detail has to reach where the raster does.
+ *  MapLibre overzooms past this by re-using the deepest tiles, which is correct — past the relief's
+ *  own ceiling there is no more detail to disagree with.
  *
  *  EARTH'S, THOUGH THE COUPLING IT DESCRIBES IS EVERY BODY'S. The per-planet answer is
- *  `PUBLISHED[body].countries` in tileAddress.ts, and Mars's relief stops at z6 — so "matches the
- *  relief ceiling" resolves to a different number per planet, while this constant cannot.
+ *  `PUBLISHED[body].countries` in tileAddress.ts, and each planet's relief stops where its own
+ *  source data runs out — so "matches the relief ceiling" resolves to a different number per
+ *  planet, while this constant cannot.
  *
  *  It is still what `countryTilesSource` reads, and that is a deferral rather than an oversight:
  *  Earth is the only body publishing vectors, so a version taking its zooms from the registry would

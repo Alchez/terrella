@@ -17,12 +17,18 @@ export const TILE_CONTENT_TYPE = "image/webp";
 /** Zoom range of EARTH's packaged pyramid.
  *
  *  NOT THE GENERAL ANSWER, AND THE SECOND BODY IS WHY. The per-planet answer lives in
- *  `PUBLISHED[body].relief` in tileAddress.ts — Earth is cut to z8 and Mars to z6, because a
- *  ceiling follows each body's own source data. Two callers are left, and both are asking an
- *  Earth-only question: the legacy path below, where an untokened URL is Earth's by definition, and
- *  Earth's own registry entry, which these are the values of. Nothing that has a body in hand reads
- *  them — a source spec asks `archiveFor`, and both servers check each archive's own header against
- *  the registry, which is what stops that copy drifting. */
+ *  `PUBLISHED[body].relief` in tileAddress.ts, because a ceiling follows each body's own source
+ *  data. Two callers are left, and both are asking an Earth-only question: the legacy path below,
+ *  where an untokened URL is Earth's by definition, and Earth's own registry entry, which these are
+ *  the values of. Nothing that has a body in hand reads them — a source spec asks `archiveFor`, and
+ *  both servers check each archive's own header against the registry, which is what stops that copy
+ *  drifting.
+ *
+ *  NEITHER NUMBER IS DECIDED HERE. Both restate `pipeline/bodies.py`, which cuts the pyramid, and
+ *  `tests/test_bodies.py` reads this file to hold the two together — so a re-cut that moves the
+ *  ceiling fails there rather than 404ing a zoom the browser still asks for. Do not restate either
+ *  value in prose anywhere: six comments across five modules did, and every one of them was still
+ *  claiming the pre-re-cut number long after it changed. */
 export const RELIEF_MIN_ZOOM = 0;
 export const RELIEF_MAX_ZOOM = 8;
 

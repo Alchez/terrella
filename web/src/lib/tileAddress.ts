@@ -208,11 +208,11 @@ export const PUBLISHED: Record<BodySlug, Record<LayerId, PublishedArchive | null
       objectKey: "mars/relief-v2.pmtiles",
       token: TOKENS.mars.relief.token,
       indexLeaves: TOKENS.mars.relief.indexLeaves,
-      // NOT `RELIEF_MIN_ZOOM`/`RELIEF_MAX_ZOOM`, which are Earth's answer to a per-planet question —
-      // Earth is cut to z8 and Mars to z7, for reasons that are about each body's data rather than
-      // about the scheme. These restate `pipeline/bodies.py`'s `MARS.tile_max_zoom`, and the copy is
-      // held honest by the dev server, which reads the archive's own header and throws when it
-      // disagrees with the numbers here.
+      // NOT `RELIEF_MIN_ZOOM`/`RELIEF_MAX_ZOOM`, which are Earth's answer to a per-planet question:
+      // a ceiling is about each body's own data rather than about the scheme. These restate
+      // `pipeline/bodies.py`'s `MARS.tile_max_zoom`, and the copy is held honest twice over — by
+      // `tests/test_bodies.py`, which reads this record against the cut on every suite, and at
+      // runtime by the dev server reading the archive's own header.
       minZoom: 0,
       maxZoom: 7,
     },
@@ -281,10 +281,9 @@ export function parseTileAddress(pathname: string): TileAddress | null {
  *  Returning a string rather than throwing matches `describeTileTypeMismatch` next door, and lets
  *  each server pick its own severity: the dev server throws, the Worker logs and 404s.
  *
- *  IT ASKS THE REGISTRY, NOT A MODULE CONSTANT. Earth's relief is cut to z8 and Mars's to z6,
- *  because a ceiling follows each body's own source data — so `RELIEF_MIN_ZOOM` and its two
- *  siblings are Earth's answer to a per-planet question, and checking Mars against them refuses a
- *  correct pyramid. */
+ *  IT ASKS THE REGISTRY, NOT A MODULE CONSTANT, because a ceiling follows each body's own source
+ *  data — so `RELIEF_MIN_ZOOM` and its two siblings are Earth's answer to a per-planet question,
+ *  and checking another body against them refuses a correct pyramid. */
 export function describeArchiveHeaderMismatch(
   body: BodySlug,
   layer: LayerId,

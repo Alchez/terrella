@@ -27,7 +27,7 @@ import pytest
 from pipeline import bodies, layers, mercator, paths, planet_seam
 from pipeline.compose import countries_pmtiles
 from pipeline.render import palette
-from pipeline.tile import cap_render, shade_planet
+from pipeline.tile import cap_render, shade_planet, terrain_rgb
 
 #: A planet whose seam emitted all three rasters — what Earth declares, and the only
 #: shape these tests care about unless they say otherwise.
@@ -422,39 +422,152 @@ def test_the_two_registries_agree_on_how_a_body_is_spelled() -> None:
     )
 
 
-def _browser_descriptor_blocks() -> dict[str, str]:
-    """Split `web/src/lib/bodies.ts`'s BODIES record into one source block per body.
+def _blocks_from(source: str, start: int) -> dict[str, str]:
+    """Split a TypeScript object literal into one source block per top-level key.
 
     BRACE-COUNTED RATHER THAN SPAN-MATCHED, and that is the whole reason this helper exists. A
     regex that runs from a body's key to the next `}` cannot tell which braces enclose the value it
     captured — nest one object literal inside a descriptor (`accent` already is one) and the span
     ends early or late, silently, and the guard above it starts comparing the wrong planet's
     answer. Counting decides enclosure; matching text only guesses at it.
-    """
-    source = (paths.ROOT / "web/src/lib/bodies.ts").read_text(encoding="utf-8")
-    opening = re.search(r"export const BODIES\b[^=]*=\s*\{", source)
-    assert opening, "web/src/lib/bodies.ts no longer declares a BODIES record — the guard is blind"
 
+    `start` is the offset just inside the literal's opening brace, so a block this returns can be
+    fed straight back in at 0 to split a nested record — which is what reaches `PUBLISHED`'s
+    per-layer entries two levels down.
+    """
     blocks: dict[str, str] = {}
-    index, depth = opening.end(), 1
+    index, depth = start, 1
     key_at_top: str | None = None
-    start = 0
+    block_start = 0
     while index < len(source) and depth > 0:
         character = source[index]
         if depth == 1 and key_at_top is None:
             key = re.match(r"\s*(\w+)\s*:\s*\{", source[index:])
             if key:
-                key_at_top, index, depth, start = key.group(1), index + key.end(), 2, index + key.end()
+                key_at_top = key.group(1)
+                index = block_start = index + key.end()
+                depth = 2
                 continue
         if character == "{":
             depth += 1
         elif character == "}":
             depth -= 1
             if depth == 1 and key_at_top is not None:
-                blocks[key_at_top] = source[start:index]
+                blocks[key_at_top] = source[block_start:index]
                 key_at_top = None
         index += 1
     return blocks
+
+
+def _record_blocks(relative_path: str, record: str) -> dict[str, str]:
+    """One source block per top-level key of `export const <record> = {…}` in a web module."""
+    source = (paths.ROOT / relative_path).read_text(encoding="utf-8")
+    opening = re.search(rf"export const {record}\b[^=]*=\s*\{{", source)
+    assert opening, f"{relative_path} no longer declares a {record} record — the guard is blind"
+    return _blocks_from(source, opening.end())
+
+
+def _browser_descriptor_blocks() -> dict[str, str]:
+    """Split `web/src/lib/bodies.ts`'s BODIES record into one source block per body."""
+    return _record_blocks("web/src/lib/bodies.ts", "BODIES")
+
+
+def _browser_zoom(block: str, field: str) -> int:
+    """Read a `minZoom:`/`maxZoom:` out of a registry entry, following a named constant.
+
+    The two bodies write this field in different shapes — Earth's entry reads the module constants
+    it is the values of, Mars's are literals — so a digits-only match would silently skip Earth and
+    leave the guard covering one planet while reading as if it covered both.
+    """
+    declared = re.search(rf"\b{field}:\s*(\w+)\s*,", block)
+    assert declared, f"a published relief entry declares no {field} — the guard is blind"
+    value = declared.group(1)
+    if value.isdigit():
+        return int(value)
+    defined = [
+        found
+        for module in sorted((paths.ROOT / "web/src/lib").glob("*.ts"))
+        for found in re.findall(
+            rf"^export const {value}\s*=\s*(\d+);", module.read_text(encoding="utf-8"), re.MULTILINE
+        )
+    ]
+    assert len(defined) == 1, (
+        f"{field} is declared as `{value}`, which web/src/lib defines {len(defined)} times — "
+        "the guard cannot resolve it to one number"
+    )
+    return int(defined[0])
+
+
+def _pipeline_zoom_range(layer: str, body: bodies.Body) -> tuple[int | None, int]:
+    """Where a published layer's zoom range is DECIDED, pipeline-side. `None` floor = not decided.
+
+    Relief is the only per-body one, which is why it takes the body: its ceiling follows each
+    planet's own source data. The other two are Earth's, and their constants live with the producer
+    that writes them. Terrain states no floor at all, so there is nothing there to bridge to and the
+    caller must not invent one.
+
+    RAISES ON AN UNKNOWN LAYER ON PURPOSE. A fourth pyramid — Mars's features are the one being
+    designed — must either name its owner here or make this test say why it has none. Returning a
+    default would let a new layer's ceiling go unpinned while every suite stayed green.
+    """
+    if layer == "relief":
+        cut = shade_planet.tile_cut(body)
+        return cut["min_zoom"], cut["max_zoom"]
+    if layer == "terrain":
+        return None, terrain_rgb.MASTER_ZOOM
+    if layer == "countries":
+        return countries_pmtiles.MIN_ZOOM, countries_pmtiles.MAX_ZOOM
+    raise AssertionError(
+        f"`{layer}` is published but names no pipeline constant that decides its zoom range — "
+        "add it here beside the producer that cuts it, or the browser's copy is pinned to nothing"
+    )
+
+
+def test_the_browser_publishes_every_pyramid_at_the_zoom_the_pipeline_cut_it_to() -> None:
+    """The zoom range the browser ASKS for against the one the pipeline CUT.
+
+    THE LAST LINK IN THE CHAIN, AND IT WAS THE UNGUARDED ONE. `tile_max_zoom` decides the relief
+    cut, `tile_cut` carries it into the pyramid, and `describeArchiveHeaderMismatch` checks that
+    pyramid's own header against this registry — but only at runtime, with archives on disk. On a
+    checkout without them, which is every CI run, the browser's copy was pinned to nothing: the
+    pipeline could say one ceiling and the registry another and both suites would pass. Six comments
+    across five web modules drifted to a stale ceiling behind exactly that gap.
+
+    THE FLOOR IS CHECKED WHERE ONE IS DECLARED AND SKIPPED WHERE IT IS NOT, rather than compared
+    against a literal 0 here — a 0 written in this file would be one more copy of the number, and
+    this test exists to remove copies.
+    """
+    published = _record_blocks("web/src/lib/tileAddress.ts", "PUBLISHED")
+    assert set(published) == set(bodies.BODIES), (
+        f"the pipeline knows {sorted(bodies.BODIES)} and the registry publishes for "
+        f"{sorted(published)} — one of them is describing a body the other has never heard of"
+    )
+    seen: set[str] = set()
+    for name, block in published.items():
+        layers_declared = _blocks_from(block, 0)
+        assert "relief" in layers_declared, (
+            f"{name} publishes no relief archive — a globe with no relief is not a globe"
+        )
+        for layer, entry in layers_declared.items():
+            floor, ceiling = _pipeline_zoom_range(layer, bodies.BODIES[name])
+            expected = {"maxZoom": ceiling} | ({} if floor is None else {"minZoom": floor})
+            for field, value in expected.items():
+                declared = _browser_zoom(entry, field)
+                assert declared == value, (
+                    f"{name}/{layer}: the pipeline cuts {field} z{value} and "
+                    f"PUBLISHED.{name}.{layer} says z{declared} — the browser would ask for a zoom "
+                    "that was never cut, which arrives as a 404 and paints exactly like a tile "
+                    "still in flight"
+                )
+            seen.add(layer)
+    # A `null` layer contributes no block, so the loop skips it in silence. This is what notices a
+    # pyramid that stopped being published — the loop above would go on passing, having compared one
+    # layer fewer and said nothing about it.
+    assert seen == {"relief", "terrain", "countries"}, (
+        f"the registry publishes {sorted(seen)}, so this test compared no zoom range for "
+        f"{sorted({'relief', 'terrain', 'countries'} - seen)} — either that pyramid is gone or it "
+        "is newly unpinned, and both need saying out loud"
+    )
 
 
 def test_the_two_registries_hold_one_radius_for_a_body_that_is_really_a_sphere() -> None:
