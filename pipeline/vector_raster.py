@@ -17,10 +17,20 @@ nothing is a legitimate answer, so `must_draw` carries a sentence about what sho
 None means an empty burn is fine. A windowed scan stops at the first non-zero pixel, so the whole
 raster is read only in the case that is about to raise anyway.
 
-MEASURED, so that a defensive unlink is not added here nor a flag dropped: given `-te` and `-ts`,
-`gdal_rasterize` RECREATES an existing target at the new size rather than opening it in update mode,
-creation options included. `snow.rasterize_glaciers_raster`'s unlink guards the call shape that omits
-them, which this one cannot express.
+THE TWO STEPS ANSWER DIFFERENTLY ON A RE-RUN, AND THIS NOTE ONCE COVERED ONLY THE SECOND. Measured:
+given `-te` and `-ts`, `gdal_rasterize` RECREATES an existing target at the new size rather than
+opening it in update mode, creation options included — so the BURN needs no unlink, and
+`snow.rasterize_glaciers_raster`'s unlink guards the call shape that omits them, which this one
+cannot express. That measurement is true and it says nothing about `ogr2ogr`, which the sentence
+above it used to be read as covering.
+
+`ogr2ogr` CANNOT WRITE OVER AN EXISTING GEOJSON BY ANY FLAG, so the reprojection unlinks first.
+`-overwrite` asks the driver to DeleteLayer and the GeoJSON driver has none ("DeleteLayer() not
+supported by this dataset"); dropping the flag only trades that for "The GeoJSON driver does not
+overwrite existing files". Both exit 1, so nothing was ever silently stale — but the stage succeeded
+exactly once and failed on every re-run, against a repo rule that stages are resumable. It went
+unseen because the projected intermediate outlives a run and no caller had ever produced one twice:
+the first thing to ask for it was a grid change, which is a body's ceiling moving.
 """
 
 import subprocess
@@ -43,8 +53,12 @@ def reproject_argv(source: Path, target_srs: str, out: Path) -> list[str]:
 
     `-t_srs` and never `-a_srs`; the module note holds why that is the whole subject here. The output
     driver comes from `out`'s extension, which is `ogr2ogr`'s own convention rather than ours.
+
+    NO `-overwrite`, and its absence is the fix rather than an omission: the flag asks for a
+    DeleteLayer the GeoJSON driver does not implement, so it turned every re-run into an exit 1.
+    `burn_onto_grid` removes `out` first, which is what overwriting a single-layer file actually is.
     """
-    return ["ogr2ogr", "-overwrite", "-t_srs", target_srs, str(out), str(source)]
+    return ["ogr2ogr", "-t_srs", target_srs, str(out), str(source)]
 
 
 def rasterize_argv(vector: Path, bounds: tuple[float, float, float, float], width: int, height: int,
@@ -92,6 +106,9 @@ def burn_onto_grid(source: Path, target_srs: str, bounds: tuple[float, float, fl
     Pass it wherever an empty answer would be a broken projection rather than an honest fact about the
     body — which is every caller whose geometry is known to intersect the grid.
     """
+    # The overwrite, done the one way that works for a single-layer file — see the module note. It
+    # must be here rather than in `reproject_argv`, which is pure so the flags stay checkable.
+    projected.unlink(missing_ok=True)
     subprocess.run(reproject_argv(source, target_srs, projected), check=True, capture_output=True)
     subprocess.run(rasterize_argv(projected, bounds, width, height, out, creation_options),
                    check=True, capture_output=True)

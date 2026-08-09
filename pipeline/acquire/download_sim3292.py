@@ -15,9 +15,10 @@ nodata, which makes "nothing was measured" and "the darkest surface on the plane
 
   THE MAPPED BOUNDARY IS NOT A MEASUREMENT OF ICE, and the source says so in its own metadata:
   linework drawn while viewing at 1:5,000,000, vertex spacing 5 km, minimum mappable outcrop 40 km
-  wide by 100 km long. Against a 651 m z6 pixel that is ~8 pixels per vertex, so a hard edge reads
-  as faceted. Any feather over this boundary is therefore DRAWN, and must be described as drawn --
-  a distance transform wearing a measurement's clothes is the `antarctic_snow_mask` mistake.
+  wide by 100 km long. A hard edge between two of those vertices reads as faceted, so any feather
+  over this boundary is DRAWN and must be described as drawn -- a distance transform wearing a
+  measurement's clothes is the `antarctic_snow_mask` mistake. How wide such a feather is in PIXELS
+  belongs to `render/mars_ice.FEATHER_KM`, whose note holds why no count may be written here.
 
 LICENCE: attribution-only, and read at the product rather than at the publisher. The FGDC metadata
 states `Access_Constraints: None`, `Use_Constraints: please cite authors.`, `Distribution_Liability:

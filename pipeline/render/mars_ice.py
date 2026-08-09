@@ -30,10 +30,16 @@ a residual ice cap — so a unit the albedo finds indistinguishable from ordinar
 stratigraphy also says is not surface ice. Two lines of evidence, neither derived from the other.
 
 THE FEATHER IS DRAWN AND MUST NEVER BE DESCRIBED AS OBSERVED. The published linework was drawn while
-viewing at 1:5,000,000 with 5 km vertex spacing, so against the tiles' polar pixels it is roughly
-eight pixels per vertex and a hard edge reads as faceted. `FEATHER_KM` softens that and nothing
-measured it — a distance transform wearing a measurement's clothes is the `antarctic_snow_mask`
-mistake, one module over.
+viewing at 1:5,000,000 with 5 km vertex spacing, so a hard edge between two of those vertices reads
+as faceted. `FEATHER_KM` softens that and nothing measured it — a distance transform wearing a
+measurement's clothes is the `antarctic_snow_mask` mistake, one module over.
+
+HOW WIDE THAT IS ON SCREEN IS NOT A CONSTANT AND MUST NOT BE WRITTEN DOWN AS ONE. A pixel count
+belongs to a tile ceiling and a latitude, neither of which this module owns. Both this note and the
+acquirer's carried one — "~8 pixels per vertex" — and it was arithmetic at the EQUATOR, here under a
+polar label; the ice sits at 76-85 degrees, where a Mercator pixel is a fraction of its equatorial
+ground size, so the real count was many times that and doubles with every rung the ceiling gains.
+Derive it from `bodies.ground_metres_per_mercator_unit` against the latitude in hand.
 
 THE ICE EDGE HAS SINCE BEEN MEASURED AND THAT IS A DIFFERENT QUANTITY — do not let the number migrate
 into `FEATHER_KM`. OMEGA against signed distance to the south's mapped contact puts real ice fading

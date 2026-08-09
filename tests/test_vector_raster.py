@@ -170,3 +170,53 @@ class TestTheCreationOptionsReachTheFile:
         with rasterio.open(out) as dataset:
             assert dataset.profile["tiled"] is True
             assert dataset.profile["compress"] == "deflate"
+
+
+class TestTheTwoStepSurvivesASecondRun:
+    """Running it TWICE, which is the thing no caller had ever done and no test had ever asked.
+
+    The projected intermediate outlives a run, and `ogr2ogr` cannot write over an existing GeoJSON
+    by any flag — so this pair succeeded exactly once and raised `CalledProcessError` on every
+    re-run after. It shipped because nothing produces the intermediate twice until a grid CHANGES,
+    which on this project means a body's tile ceiling moving; Mars z6 -> z7 was the first, four
+    minutes into a pass that had already re-warped a 65536-square heightfield.
+
+    Against the repo rule that a stage is idempotent and resumable, one arm of this is not a
+    regression test but the missing half of the original contract.
+    """
+
+    def test_a_second_identical_run_succeeds(self, source, tmp_path):
+        paths = dict(projected=tmp_path / "p.geojson", out=tmp_path / "burn.tif")
+        first = vector_raster.burn_onto_grid(
+            source, "EPSG:3857", WORLD_3857, GRID_PX, GRID_PX, **paths,
+            must_draw="the synthetic block")
+        before = first.read_bytes()
+        assert paths["projected"].exists(), "the intermediate must survive, or this proves nothing"
+        again = vector_raster.burn_onto_grid(
+            source, "EPSG:3857", WORLD_3857, GRID_PX, GRID_PX, **paths,
+            must_draw="the synthetic block")
+        assert again.read_bytes() == before, "a re-run must reproduce the raster, not merely finish"
+
+    def test_a_second_run_at_a_new_size_rebuilds_rather_than_reusing(self, source, tmp_path):
+        """THE CASE THAT MOTIVATED IT: the same vector onto a grid that changed under it, which is
+        what a moved ceiling asks for. The burn must follow the new size, not the intermediate."""
+        paths = dict(projected=tmp_path / "p.geojson", out=tmp_path / "burn.tif")
+        vector_raster.burn_onto_grid(source, "EPSG:3857", WORLD_3857, GRID_PX, GRID_PX, **paths,
+                                     must_draw="the synthetic block")
+        grown = vector_raster.burn_onto_grid(
+            source, "EPSG:3857", WORLD_3857, GRID_PX * 2, GRID_PX * 2, **paths,
+            must_draw="the synthetic block")
+        with rasterio.open(grown) as dataset:
+            assert (dataset.width, dataset.height) == (GRID_PX * 2, GRID_PX * 2)
+
+    def test_a_corrupt_intermediate_does_not_survive_into_the_burn(self, source, tmp_path):
+        """The unlink is what makes the re-run honest rather than merely quiet: whatever was at the
+        intermediate's path, the reprojection replaces it. Without it GDAL refuses outright, so a
+        stale file could never be read as fresh -- but the guard should hold if that ever changes."""
+        paths = dict(projected=tmp_path / "p.geojson", out=tmp_path / "burn.tif")
+        paths["projected"].write_text("not geojson at all")
+        out = vector_raster.burn_onto_grid(
+            source, "EPSG:3857", WORLD_3857, GRID_PX, GRID_PX, **paths,
+            must_draw="the synthetic block")
+        assert _burnt(out) > 100
+        assert json.loads(paths["projected"].read_text())["type"] == "FeatureCollection"

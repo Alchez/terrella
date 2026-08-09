@@ -27,7 +27,11 @@
 
 import path from "node:path";
 
-import { BODIES, type BodySlug } from "./bodies";
+// EXPLICIT `.ts`, because this module has two runtimes and only one of them is a bundler. Vite
+// resolves a bare specifier; `scripts/gen_tile_tokens.ts` runs under plain node, which does not,
+// and the only VALUE import here is the one that has to survive that. The type-only import below
+// needs no extension: type stripping erases it before resolution ever happens.
+import { BODIES, type BodySlug } from "./bodies.ts";
 import type { LayerId } from "./tileAddress";
 
 /** One archive's place in the pipeline's work tree, and the stage that puts it there. */

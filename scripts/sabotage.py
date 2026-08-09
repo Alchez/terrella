@@ -114,6 +114,11 @@ MUTABLE_ROOTS = (
     # guard over it passes on this box whether it fires or not; the body it protects is the one that
     # burns a mapped unit, and that body has no output to inspect yet.
     "pipeline/vector_raster.py",
+    # Joined when a stale `.done` marker was found vouching for bytes it never saw. Every stage in
+    # the pipeline asks this module whether to run, so a weakened answer here is silent everywhere
+    # at once and shows up as a rebuilt planet that quietly kept one empty layer. There is no output
+    # to inspect for a stage that DIDN'T run, which is the whole reason mutation is the only proof.
+    "pipeline/freshness.py",
     # Joined with the required `--body`. The planet entry points are where a silent Earth assumption
     # would be reintroduced, and it is invisible while Earth is the only body — so the guards against
     # it are worth exactly as much as the proof that they still fire.
@@ -2242,14 +2247,43 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label='the warp regrows Earth\'s grid resolution, putting every body on the z8 lattice',
         path='pipeline/tile/shade_planet.py',
-        needle='        resolution = body.map_units_per_pixel',
-        replacement='        resolution = 305.7483',
+        needle='    resolution = body.map_units_per_pixel',
+        replacement='    resolution = 305.7483',
         guard='test_the_shade_pass_no_longer_carries_its_own_grid_or_ceiling',
     ),
     # Identical output for Earth — which is exactly why nothing else can see it. The module has
     # quietly stopped asking the body and gone back to knowing the answer, and the next planet gets
     # a raster warped to a lattice its pyramid was never going to be cut on. The scan is the only
     # oracle available: a regrown constant type-checks and tests green.
+    #
+    # THE CASE ABOVE ASKS WHETHER THE RESOLUTION IS THE BODY'S; THIS ONE ASKS WHETHER ANYTHING EVER
+    # RE-READS IT. Registered because the reverted form is what actually shipped: the reference
+    # raster's inputs are a VRT and a chunk directory, neither of which moves when a ceiling does,
+    # so raising Mars z6 -> z7 left a 32768 square grid reading FRESH and a real pass composited it
+    # and began cutting a z7 pyramid out of z6 pixels. Every raster BELOW height was protected the
+    # whole time; the one they take their grid from was not. Mutating to the exact prior expression,
+    # which still type-checks and still passes every test that does not open the raster.
+    # THE ONE THAT ACTUALLY SHIPPED AN EMPTY LAYER. A marker from an earlier successful run keeps
+    # vouching after a later run overwrites the output and dies mid-write; the next pass then skips
+    # it, because the marker exists and `grid_matches` passes precisely BECAUSE the crash created a
+    # full-size target on the new grid. Mars's ice alpha came out 0 non-zero of 4.29 billion pixels
+    # with every gate green, and only an eye on the globe caught it.
+    Sabotage(
+        suite='python',
+        label='a done marker stops having to be newer than the bytes it vouches for',
+        path='pipeline/freshness.py',
+        needle='    if output.stat().st_mtime > stamped:\n        return True',
+        replacement='    pass  # a crashed rewrite now keeps the previous run\'s promise',
+        guard='test_an_output_rewritten_after_its_marker_is_stale',
+    ),
+    Sabotage(
+        suite='python',
+        label='the height warp goes back to mtimes alone, so a moved ceiling reuses the old grid',
+        path='pipeline/tile/shade_planet.py',
+        needle='    if reference_needs_rebuild(height, resolution, planet / "planet_heightfield.vrt", chunks):',
+        replacement='    if is_stale(height, planet / "planet_heightfield.vrt", chunks):',
+        guard='test_the_reference_raster_is_not_gated_on_mtimes_alone',
+    ),
     Sabotage(
         suite='python',
         label='the cut ceiling is hardcoded again, so every planet stops at Earth\'s depth',
@@ -2464,9 +2498,22 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label='the vector is LABELLED with the target CRS instead of reprojected into it',
         path='pipeline/vector_raster.py',
-        needle='    return ["ogr2ogr", "-overwrite", "-t_srs", target_srs, str(out), str(source)]',
-        replacement='    return ["ogr2ogr", "-overwrite", "-a_srs", target_srs, str(out), str(source)]',
+        needle='    return ["ogr2ogr", "-t_srs", target_srs, str(out), str(source)]',
+        replacement='    return ["ogr2ogr", "-a_srs", target_srs, str(out), str(source)]',
         guard='test_the_reprojection_uses_t_srs_and_never_a_srs',
+    ),
+    # NOT ONE OF THE FOUR ABOVE: this one is loud, and it is registered because it SHIPPED. The
+    # reprojection cannot write over an existing GeoJSON by any flag, so the stage succeeded once
+    # and raised on every re-run — invisible until something asked for the intermediate a second
+    # time, which needs a grid to change, which needs a body's ceiling to move. Mars z6 -> z7 was
+    # the first in this project's life, and it died four minutes into a real pass.
+    Sabotage(
+        suite='python',
+        label='the reprojection stops removing its target, so the stage works once and never again',
+        path='pipeline/vector_raster.py',
+        needle='    projected.unlink(missing_ok=True)',
+        replacement='    pass  # no unlink: the second run now dies on the first run\'s leftovers',
+        guard='test_a_second_identical_run_succeeds',
     ),
     Sabotage(
         suite='python',
@@ -4228,14 +4275,14 @@ SABOTAGES: list[Sabotage] = [
     ),
     Sabotage(
         suite='web',
-        # Re-anchored when Mars started publishing. The old case made Mars's `null` into Earth's
-        # archive; there is no `null` to mutate now, and the live failure moved with it. What is
-        # left is the tidy-looking one: Mars's ceiling written as the module constants that sit
-        # three lines above it in the same file. It compiles, it reads as removing a magic number,
-        # and it makes a z7 and z8 Mars address parse against a pyramid cut to z6.
+        # Re-anchored when Mars started publishing, and again when its ceiling moved to z7. The
+        # first case made Mars's `null` into Earth's archive; there is no `null` to mutate now.
+        # What is left is the tidy-looking one: Mars's ceiling written as the module constants that
+        # sit a few lines above it in the same file. It compiles, it reads as removing a magic
+        # number, and it makes a z8 Mars address parse against a pyramid cut one rung shallower.
         label='Mars relief takes Earth\'s zoom ceiling instead of its own',
         path='web/src/lib/tileAddress.ts',
-        needle='      minZoom: 0,\n      maxZoom: 6,',
+        needle='      minZoom: 0,\n      maxZoom: 7,',
         replacement='      minZoom: RELIEF_MIN_ZOOM,\n      maxZoom: RELIEF_MAX_ZOOM,',
         guard='bounds a Mars relief address by MARS\'s ceiling, not Earth\'s',
     ),

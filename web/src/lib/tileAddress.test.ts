@@ -171,12 +171,12 @@ describe("the registry", () => {
 
   it("bounds a Mars relief address by MARS's ceiling, not Earth's", () => {
     // The reason the zoom range is a registry field rather than a module constant. Earth is cut to
-    // z8 and Mars to z6; checked against Earth's constants a legitimate Mars pyramid answers two
-    // zoom levels it does not contain, and a range read would look for tiles that were never cut.
+    // z8 and Mars to z7; checked against Earth's constants a legitimate Mars pyramid answers a zoom
+    // level it does not contain, and a range read would look for tiles that were never cut.
     const token = archiveFor("mars", "relief").token;
-    expect(parseTileAddress(`mars/relief/${token}/6/32/32.webp`)).not.toBeNull();
-    expect(parseTileAddress(`mars/relief/${token}/7/64/64.webp`)).toBeNull();
-    expect(parseTileAddress(`earth/relief/${archiveFor("earth", "relief").token}/7/64/64.webp`))
+    expect(parseTileAddress(`mars/relief/${token}/7/64/64.webp`)).not.toBeNull();
+    expect(parseTileAddress(`mars/relief/${token}/8/128/128.webp`)).toBeNull();
+    expect(parseTileAddress(`earth/relief/${archiveFor("earth", "relief").token}/8/128/128.webp`))
       .not.toBeNull();
   });
 
@@ -208,9 +208,12 @@ describe("describeArchiveHeaderMismatch", () => {
   });
 
   it("accepts Mars at its own ceiling and refuses it at Earth's, which is the whole point", () => {
-    expect(describeArchiveHeaderMismatch("mars", "relief", { minZoom: 0, maxZoom: 6 })).toBeNull();
+    expect(describeArchiveHeaderMismatch("mars", "relief", { minZoom: 0, maxZoom: 7 })).toBeNull();
     expect(describeArchiveHeaderMismatch("mars", "relief", { minZoom: 0, maxZoom: 8 }))
       .toMatch(/covers z0-z8/);
+    // And the rung it just left, which is the direction a re-cut actually drifts.
+    expect(describeArchiveHeaderMismatch("mars", "relief", { minZoom: 0, maxZoom: 6 }))
+      .toMatch(/covers z0-z6/);
   });
 
   it("catches drift in BOTH directions, because neither shows up as an error", () => {

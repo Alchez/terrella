@@ -193,6 +193,129 @@ class TestWarpNeedsRebuild:
         assert freshness.warp_needs_rebuild(out, GRID, source) is True
 
 
+class TestAMarkerMustBeNewerThanTheBytesItVouchesFor:
+    """The third freshness question, and the one that shipped a planet with an empty ice layer.
+
+    A `.done` marker from an EARLIER successful run keeps vouching after a later run overwrites the
+    output and dies. Mars's ice alpha was rebuilt onto the z7 grid, crashed in its first unit burn,
+    and the next pass skipped it: the marker existed, and `grid_matches` passed precisely BECAUSE
+    the crash had created a full-size target on the new grid. The result was 0 non-zero pixels in
+    4.29 billion, with every gate green.
+    """
+
+    def _completed(self, tmp_path, age=100):
+        out = tmp_path / "snow_persistence_3857.tif"
+        out.write_text("the run that finished")
+        freshness.mark_done(out)
+        _age(out, age)
+        _age(freshness.done_marker(out), age)
+        return out
+
+    def test_an_output_rewritten_after_its_marker_is_stale(self, tmp_path):
+        """THE CASE ITSELF: a completed output, overwritten later by a run that never finished."""
+        out = self._completed(tmp_path)
+        source = tmp_path / "viking.tif"
+        source.write_text("source")
+        _age(source, 500)
+        assert freshness.is_stale(out, source) is False, "the setup must start out fresh"
+        out.write_text("a crashed rewrite, full size and empty")  # newer than the marker now
+        assert freshness.is_stale(out, source) is True
+
+    def test_equal_stamps_are_fresh(self, tmp_path):
+        """The boundary, and it has to fall this way: a stage marks done AFTER it writes, so on a
+        coarse-granularity clock the two land on the same stamp and that is the SUCCESS case."""
+        out = self._completed(tmp_path)
+        stamped = freshness.done_marker(out).stat().st_mtime
+        os.utime(out, (stamped, stamped))
+        assert freshness.is_stale(out) is False
+
+    def test_a_marker_older_than_its_output_beats_a_matching_grid(self, tmp_path):
+        """Why the other two guards did not save it: `warp_needs_rebuild` ORs them, and the crash
+        left the geometry correct, so the grid term voted fresh exactly when it mattered."""
+        out = _raster(tmp_path / "snow_persistence_3857.tif", 10, 10, GRID[2])
+        freshness.mark_done(out)
+        _age(freshness.done_marker(out), 100)
+        assert freshness.grid_matches(out, *GRID) is True, "the crash leaves the grid RIGHT"
+        assert freshness.warp_needs_rebuild(out, GRID, tmp_path / "src.vrt") is True
+
+
+class TestReferenceNeedsRebuild:
+    """The mirror of the class above, for the raster every one of those takes its grid FROM.
+
+    `warp_needs_rebuild` catches a raster left behind when the grid moved. Nothing caught the
+    reverse: `height_3857.tif` unchanged at the wrong SCALE. Its inputs are a VRT and a chunk
+    directory, and neither moves when a body's tile ceiling does, so raising Mars z6 -> z7 left a
+    32768 square grid reading fresh and the pass began cutting a z7 pyramid out of z6 pixels.
+    """
+
+    #: The pixel size of `GRID` — 100 map units across 10 pixels. Named rather than inlined so a
+    #: reader can see the mismatched values below are a doubling and a halving of one number.
+    RESOLUTION = 10.0
+
+    def _reference(self, tmp_path, width, height, bounds, age=100):
+        """A completed reference raster `age` s ago: the real raster plus its .done marker, aged."""
+        out = _raster(tmp_path / "height_3857.tif", width, height, bounds)
+        freshness.mark_done(out)
+        _age(out, age)
+        _age(freshness.done_marker(out), age)
+        return out
+
+    def test_a_matching_pixel_size_is_a_match(self, tmp_path):
+        out = self._reference(tmp_path, 10, 10, (0.0, 0.0, 100.0, 100.0))
+        assert freshness.resolution_matches(out, self.RESOLUTION) is True
+
+    def test_a_doubled_pixel_size_is_not(self, tmp_path):
+        """A ceiling raised by one rung halves the pixel; the raster on disk still holds the old one."""
+        out = self._reference(tmp_path, 5, 5, (0.0, 0.0, 100.0, 100.0))
+        assert freshness.resolution_matches(out, self.RESOLUTION) is False
+
+    def test_a_raster_square_in_pixels_but_not_in_scale_is_not(self, tmp_path):
+        """Both axes are asked, so a target that is square in COUNT but not in SCALE cannot pass."""
+        out = self._reference(tmp_path, 10, 10, (0.0, 0.0, 100.0, 50.0))
+        assert freshness.resolution_matches(out, self.RESOLUTION) is False
+
+    def test_an_absent_raster_is_not(self, tmp_path):
+        assert freshness.resolution_matches(tmp_path / "nope.tif", self.RESOLUTION) is False
+
+    def test_fresh_source_at_the_right_scale_skips(self, tmp_path):
+        out = self._reference(tmp_path, 10, 10, (0.0, 0.0, 100.0, 100.0))
+        source = tmp_path / "planet_heightfield.vrt"
+        source.write_text("vrt")
+        _age(source, 500)  # older than the output -> not stale
+        assert freshness.reference_needs_rebuild(out, self.RESOLUTION, source) is False
+
+    def test_fresh_source_at_the_wrong_scale_rebuilds(self, tmp_path):
+        """THE load-bearing case, and the bug itself: the source is older than the output, so
+        `is_stale` says fresh, and only the resolution term sees that the ceiling moved."""
+        out = self._reference(tmp_path, 5, 5, (0.0, 0.0, 100.0, 100.0))
+        source = tmp_path / "planet_heightfield.vrt"
+        source.write_text("vrt")
+        _age(source, 500)
+        assert freshness.is_stale(out, source) is False, "the source alone must look fresh"
+        assert freshness.reference_needs_rebuild(out, self.RESOLUTION, source) is True
+
+    def test_moved_source_at_the_right_scale_rebuilds(self, tmp_path):
+        """The is_stale half still fires, so the new term added a reason rather than replacing one."""
+        out = self._reference(tmp_path, 10, 10, (0.0, 0.0, 100.0, 100.0))
+        source = tmp_path / "planet_heightfield.vrt"
+        source.write_text("re-fused")  # written now -> newer than the output's marker
+        assert freshness.reference_needs_rebuild(out, self.RESOLUTION, source) is True
+
+
+def test_the_reference_raster_is_not_gated_on_mtimes_alone() -> None:
+    """A scan, because the call site reverting is invisible to every test above.
+
+    The functions can be perfect and the pass still wrong: what produced the z6-grid-at-z7 defect
+    was one call asking the cheaper question. `TestReferenceNeedsRebuild` pins the decision;
+    this pins that `warp_inputs` is the thing making it.
+    """
+    source = Path(shade_planet.__file__).read_text(encoding="utf-8")  # pyright: ignore[reportArgumentType]
+    assert "reference_needs_rebuild(height" in source, (
+        "the height warp is gated on mtimes alone again — its inputs do not move when a body's "
+        "ceiling does, so the pass will cut the new pyramid out of the old grid and raise nothing"
+    )
+
+
 class TestWriteIfChanged:
     def test_identical_content_leaves_mtime_alone(self, tmp_path):
         """Load-bearing: an unchanged palette must NOT invalidate a 31 GB raster."""
@@ -777,7 +900,11 @@ class TestTheWarpPassAsksTheSeamBeforeTheDisk:
         work, planet = tmp_path / "work", tmp_path / "planet"
         work.mkdir()
         planet.mkdir()
-        height = _raster(work / "height_3857.tif", 10, 10, GRID[2])
+        # On THIS body's pixel size, not GRID's: the warp gate asks the reference raster its own
+        # scale, so a fixture at a made-up resolution would re-warp height and record a gdalwarp
+        # call these tests read as a mask being warped.
+        span = 10 * self.BARE.map_units_per_pixel
+        height = _raster(work / "height_3857.tif", 10, 10, (0.0, 0.0, span, span))
         freshness.mark_done(height)
         for raster in planet_seam.PLANET_RASTERS:
             source = planet / f"planet_{raster}.vrt"

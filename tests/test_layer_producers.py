@@ -224,8 +224,15 @@ def _age(path, seconds):
     os.utime(path, (stamp, stamp))
 
 
+#: Every body these fixtures drive is Earth or a `dataclasses.replace` of it, and the warp gate now
+#: asks the reference raster whether it is on that body's pixel size. Built at a made-up 100-units
+#: extent the fixture described a grid the registry would re-warp on sight, which is a fixture
+#: asserting against a state production can never be in.
+_RESOLUTION = bodies.EARTH.map_units_per_pixel
+
+
 def _height_raster(path):
-    transform = from_bounds(0.0, 0.0, 100.0, 100.0, COLS, ROWS)
+    transform = from_bounds(0.0, 0.0, COLS * _RESOLUTION, ROWS * _RESOLUTION, COLS, ROWS)
     with rasterio.open(path, "w", driver="GTiff", width=COLS, height=ROWS, count=1,
                        dtype="float32", crs="EPSG:3857", transform=transform) as dataset:
         dataset.write(np.zeros((ROWS, COLS), dtype="float32"), 1)

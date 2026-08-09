@@ -199,17 +199,22 @@ export const PUBLISHED: Record<BodySlug, Record<LayerId, PublishedArchive | null
   // NAMING A KEY HERE COMMITS TO AN UPLOAD. The deploy preflight refuses on any published object the
   // bucket does not hold, so this entry and the R2 upload land together or not at all.
   mars: {
+    // `-v2` BECAUSE THE BYTES CHANGED, NEVER AN OVERWRITE OF `-v1`. A warm Worker isolate caches
+    // directory byte OFFSETS, and offsets from one cut against another's bytes serve a corrupt tile
+    // with a 200 — so a re-cut takes a new key, as Earth's `planet-v2` did. It also makes the deploy
+    // preflight the thing that catches an un-uploaded archive: it checks EXISTENCE, so reusing the
+    // key would let a deploy answer z7 requests out of the z6 object and report itself clean.
     relief: {
-      objectKey: "mars/relief-v1.pmtiles",
+      objectKey: "mars/relief-v2.pmtiles",
       token: TOKENS.mars.relief.token,
       indexLeaves: TOKENS.mars.relief.indexLeaves,
       // NOT `RELIEF_MIN_ZOOM`/`RELIEF_MAX_ZOOM`, which are Earth's answer to a per-planet question —
-      // Earth is cut to z8 and Mars to z6, for reasons that are about each body's data rather than
+      // Earth is cut to z8 and Mars to z7, for reasons that are about each body's data rather than
       // about the scheme. These restate `pipeline/bodies.py`'s `MARS.tile_max_zoom`, and the copy is
       // held honest by the dev server, which reads the archive's own header and throws when it
       // disagrees with the numbers here.
       minZoom: 0,
-      maxZoom: 6,
+      maxZoom: 7,
     },
     terrain: null,
     countries: null,

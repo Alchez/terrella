@@ -23,7 +23,9 @@
 // declaration. Constants that describe the RAMP rather than the body stay where they are measured;
 // `skyAtmosphere.ts` names that line for the atmosphere's own knobs.
 
-import { DEEP_SEA, MARS_MODAL_GROUND, TRENCH_FLOOR } from "./palette";
+// Explicit `.ts` for the reason `devStores.ts` states: this module is reachable from a plain-node
+// script, which does not resolve a bare specifier the way Vite does.
+import { DEEP_SEA, MARS_MODAL_GROUND, TRENCH_FLOOR } from "./palette.ts";
 
 /** Every body the site knows how to draw. Widening this union is what makes the compiler ask the
  *  record below for a full descriptor — and the same of every other `Record<BodySlug, …>` in the

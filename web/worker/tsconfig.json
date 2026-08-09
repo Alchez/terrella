@@ -28,6 +28,12 @@
     "lib": ["ESNext"],
     "module": "ESNext",
     "moduleResolution": "Bundler",
+    // A RESOLUTION PERMISSION, NOT A LOOSENING — it forbids nothing this program was catching. The
+    // site's config enables it too; this one needs it because the shared modules it compiles are
+    // also loaded by `scripts/gen_tile_tokens.ts` under plain node, which resolves no bare
+    // specifier, and an extension that satisfies node must then satisfy every program that reads
+    // the same file. Legal here only because `noEmit` is set, which it is, above.
+    "allowImportingTsExtensions": true,
     "types": ["@cloudflare/workers-types"],
     "strict": true,
     "noEmit": true,

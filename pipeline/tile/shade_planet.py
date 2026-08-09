@@ -55,6 +55,7 @@ from pipeline.freshness import (
     done_marker,
     is_stale,
     mark_done,
+    reference_needs_rebuild,
     warp_needs_rebuild,
     write_if_changed,
 )
@@ -416,10 +417,12 @@ def warp_inputs(work: Path, planet: Path, body: bodies.Body, rasters: frozenset[
     """
     chunks = planet / "chunks"
     height = work / "height_3857.tif"
-    if is_stale(height, planet / "planet_heightfield.vrt", chunks):
+    resolution = body.map_units_per_pixel
+    # NOT `is_stale` ALONE: this raster's inputs are a VRT and a chunk directory, and neither moves
+    # when the body's ceiling does. `reference_needs_rebuild` asks the raster its own pixel size.
+    if reference_needs_rebuild(height, resolution, planet / "planet_heightfield.vrt", chunks):
         print("warp height -> 3857 ...", flush=True)
         height.unlink(missing_ok=True)  # gdalwarp UPDATES an existing target; it must be gone
-        resolution = body.map_units_per_pixel
         _run(["gdalwarp", "-q", "-t_srs", "EPSG:3857", "-tr", resolution, resolution, "-tap",
               "-r", "bilinear", "-ot", "Float32", "-co", "TILED=YES", "-co", "COMPRESS=DEFLATE",
               "-co", "BIGTIFF=YES", "-co", "NUM_THREADS=ALL_CPUS",
