@@ -2859,6 +2859,40 @@ SABOTAGES: list[Sabotage] = [
         replacement='    if False:',
         guard='test_a_truncated_page_is_refused',
     ),
+    # --- the gazetteer acquisition, whose failures are all quiet ----------------------------------
+    # A REFUSED ARCHIVE MUST LEAVE THE PREVIOUS EDITION INTACT, and the one-pass version below is
+    # what this module actually did until a one-bit flip in `poly.dbf` was measured against it: four
+    # `line` members landed before the guard fired, leaving half of one edition beside half of
+    # another. It refuses just as loudly either way, which is exactly why nothing would say so.
+    Sabotage(
+        suite='python',
+        label='the gazetteer extracts as it verifies, so a refused archive half-overwrites a good one',
+        path='pipeline/acquire/download_nomenclature.py',
+        needle='            verified[name] = data\n    for name, data in verified.items():',
+        replacement='            verified[name] = data\n    if True:\n      for name, data in verified.items():',
+        guard='test_a_bad_digest_writes_NOTHING_not_even_the_members_before_it',
+    ),
+    # The `.cpg` is the ONE file here this pipeline invents, and it is invisible until someone reads
+    # a name: without it GDAL decodes the UTF-8 DBF as Latin-1 and 64 features become mojibake on
+    # screen. No digest can vouch for it, because it is not the publisher's.
+    Sabotage(
+        suite='python',
+        label='the gazetteer stops declaring its DBF encoding, so 64 names decode to mojibake',
+        path='pipeline/acquire/download_nomenclature.py',
+        needle='        codepage.write_text("UTF-8", encoding="ascii")',
+        replacement='        codepage.write_text("ISO-8859-1", encoding="ascii")',
+        guard='test_the_cpg_is_written_because_the_archive_ships_none',
+    ),
+    # The 540-degree span is the trap: a republished file normalised into 0-360 passes every
+    # digest-shaped and count-shaped check while silently dropping every seam-crossing outline.
+    Sabotage(
+        suite='python',
+        label='the gazetteer stops checking longitude bounds, so a normalised file passes',
+        path='pipeline/acquire/download_nomenclature.py',
+        needle='    if abs(low - pinned_low) > 0.001 or abs(high - pinned_high) > 0.001:',
+        replacement='    if False:',
+        guard='test_longitudes_normalised_into_0_360_are_refused',
+    ),
     # --- The Mars acquisition recipe ----------------------------------------------------------------
     # Nothing here can be caught by looking at output: the file is not on disk, and every one of these
     # mutations leaves a module that imports, type-checks and reads perfectly sensibly.

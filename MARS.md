@@ -595,8 +595,9 @@ Triaged by when each must be answered, because most of them cannot be answered e
 
 ## Vector sources, for Phase 3
 
-Scouted, not yet acquired. Two publishers, because the layer that draws and the layer that NAMES are
-different products.
+Two publishers, because the layer that draws and the layer that NAMES are different products. The
+gazetteer is acquired and pinned by `pipeline/acquire/download_nomenclature.py`; SIM 3292's geologic
+units are scouted only.
 
 - **The names — IAU/USGS Gazetteer of Planetary Nomenclature.** Bucket `asc-planetarynames-data`,
   regenerated nightly. `MARS_nomenclature_center_pts.zip` is what the `GIS_Downloads` page offers;
@@ -610,9 +611,11 @@ different products.
     declined for its filtered-away albedo. Measured against the blend over 477 named craters: median
     rim-minus-floor **1208 m at 98.1%**, collapsing to chance when centres are shifted 50 km, so the
     two frames agree well inside 25 km. The control is what makes that mean anything.
-  - **ITS EXTENT RUNS -180 TO +360.34 BECAUSE IT MIXES BOTH LONGITUDE CONVENTIONS**, with 1,047 of
-    1,717 centres east of 180. A grid built on either convention alone drops half the planet and
-    raises nothing; span 540 degrees and fold.
+  - **ITS OUTLINES SPAN 540 DEGREES OF A 360-DEGREE PLANET, AND ITS CENTRES DO NOT.** Every
+    `center_lon` is east-positive 0–360, 1,047 of 1,717 of them past 180; the POLYGONS reach -180 to
+    +360.34, because a feature crossing the prime meridian is drawn continuing past the seam rather
+    than wrapped. A grid built on either range alone silently drops the crossers; span 540 and fold.
+    The two are checked separately by the acquirer, since normalising one leaves the other intact.
 - **The polygons — SIM 3292, the same source the ice already uses.** The collection is the GLOBAL
   geologic map: 44 units, 1,311 features, and the acquirer has been fetching two of them all along.
   Contacts, structure and the Robbins crater database sit beside it on the same service.
