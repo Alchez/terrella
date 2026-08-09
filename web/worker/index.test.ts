@@ -193,14 +193,14 @@ describe("resolveRoute", () => {
   it("sends a bare address to the relief archive", () => {
     const route = resolveRoute("/8/189/107.webp");
     expect(route?.address).toMatchObject({ z: 8, x: 189, y: 107 });
-    expect(route?.archiveKey).toBe(archiveFor("earth", "relief").objectKey);
+    expect(route?.published.objectKey).toBe(archiveFor("earth", "relief").objectKey);
     expect(route?.layer.contentType).toBe(TILE_CONTENT_TYPE);
   });
 
   it("sends a prefixed address to the terrain archive", () => {
     const route = resolveRoute("/terrain/8/189/107.webp");
     expect(route?.address).toMatchObject({ z: 8, x: 189, y: 107 });
-    expect(route?.archiveKey).toBe(archiveFor("earth", "terrain").objectKey);
+    expect(route?.published.objectKey).toBe(archiveFor("earth", "terrain").objectKey);
     expect(route?.layer.contentType).toBe(TERRAIN_CONTENT_TYPE);
   });
 
@@ -208,7 +208,7 @@ describe("resolveRoute", () => {
     const relief = resolveRoute("/6/47/26.webp");
     const terrain = resolveRoute("/terrain/6/47/26.webp");
     expect(coordinates(relief!.address)).toEqual(coordinates(terrain!.address));
-    expect(relief?.archiveKey).not.toBe(terrain?.archiveKey);
+    expect(relief?.published.objectKey).not.toBe(terrain?.published.objectKey);
   });
 
   it("names each archive out of the registry, and never the other one's", () => {
@@ -220,9 +220,9 @@ describe("resolveRoute", () => {
     // day its WebP replacement went live, so the "safe" default pointed at nothing at all.
     const relief = resolveRoute("/0/0/0.webp");
     const terrain = resolveRoute("/terrain/0/0/0.webp");
-    expect(relief?.archiveKey).toBe(archiveFor("earth", "relief").objectKey);
-    expect(terrain?.archiveKey).toBe(archiveFor("earth", "terrain").objectKey);
-    expect(relief?.archiveKey).not.toBe(terrain?.archiveKey);
+    expect(relief?.published.objectKey).toBe(archiveFor("earth", "relief").objectKey);
+    expect(terrain?.published.objectKey).toBe(archiveFor("earth", "terrain").objectKey);
+    expect(relief?.published.objectKey).not.toBe(terrain?.published.objectKey);
   });
 
   it("refuses anything that is not a tile in either pyramid", () => {
@@ -250,8 +250,24 @@ describe("resolveRoute", () => {
     // The warning has to send someone to the file that is actually wrong; two archives means two
     // sets of constants, and a message naming the relief ones for a terrain drift is a wild goose
     // chase through the wrong module.
-    expect(resolveRoute("/0/0/0.webp")?.layer.zoomConstants).toContain("reliefTiles.ts");
-    expect(resolveRoute("/terrain/0/0/0.webp")?.layer.zoomConstants).toContain("terrainSource.ts");
+    expect(resolveRoute("/0/0/0.webp")?.published.zoomConstants).toContain("reliefTiles.ts");
+    expect(resolveRoute("/terrain/0/0/0.webp")?.published.zoomConstants).toContain(
+      "terrainSource.ts",
+    );
+  });
+
+  it("sends a MARS relief drift to the pipeline, not to Earth's module", () => {
+    // WHY THIS POINTER IS PER BODY. Mars deliberately does not use RELIEF_MIN_ZOOM/RELIEF_MAX_ZOOM
+    // — its ceiling follows its own source data — so a message naming reliefTiles.ts would send
+    // the reader to a file whose numbers Mars ignores, to edit a constant that would change Earth.
+    const mars = resolveRoute(
+      `/${tilePathTemplate("mars", "relief").replace("{z}", "0").replace("{x}", "0").replace("{y}", "0")}`,
+    );
+    expect(mars?.published.zoomConstants).toContain("bodies.py");
+    expect(mars?.published.zoomConstants).not.toContain("reliefTiles.ts");
+    // The negative alone would pass on an empty string, and the positive alone would pass on a
+    // pointer that also named Earth's file.
+    expect(resolveRoute("/0/0/0.webp")?.published.zoomConstants).not.toContain("bodies.py");
   });
 
   it("carries each archive's OWN tile-type check, not one shared one", () => {
@@ -270,13 +286,13 @@ describe("resolveRoute", () => {
   it("sends a countries address to the vector archive", () => {
     const route = resolveRoute("/countries/8/189/107.mvt");
     expect(route?.address).toMatchObject({ z: 8, x: 189, y: 107 });
-    expect(route?.archiveKey).toBe("countries-v1.pmtiles");
+    expect(route?.published.objectKey).toBe("countries-v1.pmtiles");
     expect(route?.layer.contentType).toBe(COUNTRIES_CONTENT_TYPE);
-    expect(route?.layer.zoomConstants).toContain("countryTiles.ts");
+    expect(route?.published.zoomConstants).toContain("countryTiles.ts");
   });
 
   it("gives the countries archive its own key too", () => {
-    expect(resolveRoute("/countries/0/0/0.mvt")?.archiveKey).toBe(
+    expect(resolveRoute("/countries/0/0/0.mvt")?.published.objectKey).toBe(
       archiveFor("earth", "countries").objectKey,
     );
   });
@@ -498,7 +514,7 @@ describe("fetch — the addressed grammar", () => {
       `/${tilePathTemplate("earth", "countries").replace("{z}", "1").replace("{x}", "0").replace("{y}", "0")}`,
       { ARCHIVE: null as never },
     );
-    expect(route?.archiveKey).toBe(archiveFor("earth", "countries").objectKey);
+    expect(route?.published.objectKey).toBe(archiveFor("earth", "countries").objectKey);
   });
 });
 

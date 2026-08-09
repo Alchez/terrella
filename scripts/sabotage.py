@@ -4323,6 +4323,18 @@ SABOTAGES: list[Sabotage] = [
         replacement='      objectKey: "planet-v2.pmtiles",',
         guard='never puts two raster pyramids in one archive',
     ),
+    # The pointer a drift warning hands the reader. It named one module for every planet until Mars
+    # published a ceiling that follows its own source data — and the failure is a reader editing
+    # Earth's constant to fix Mars, which changes Earth's pyramid and not Mars's.
+    Sabotage(
+        suite='web',
+        label="Mars's zoom pointer names Earth's module again",
+        path='web/src/lib/tileAddress.ts',
+        needle='        "minZoom/maxZoom in PUBLISHED.mars.relief, '
+               'restating MARS.tile_max_zoom in pipeline/bodies.py",',
+        replacement='        "RELIEF_MIN_ZOOM/RELIEF_MAX_ZOOM in web/src/lib/reliefTiles.ts",',
+        guard='sends a MARS relief drift to the pipeline, not to Earth\'s module',
+    ),
     # The compatibility half, which is temporary and therefore exactly the half nobody re-reads.
     Sabotage(
         suite='web',

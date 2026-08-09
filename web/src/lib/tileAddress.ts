@@ -98,10 +98,6 @@ export interface TileLayer {
    *  carries layers inside each tile — which is why every one of a body's vector products belongs
    *  in ONE archive, and why two raster products can never share one. */
   multiLayer: boolean;
-  /** Where this layer's copy of the zoom range lives, quoted into the message a server logs when an
-   *  archive header disagrees with it. The reader's next question after "these disagree" is always
-   *  "which copy do I edit", and it is a different file per layer. */
-  zoomConstants: string;
 }
 
 /** The layer contracts. A `Record` over the union, so a fourth pyramid is a compile error here
@@ -113,7 +109,6 @@ export const LAYERS: Record<LayerId, TileLayer> = {
     describeTileTypeMismatch,
     missingTileStatus: 404,
     multiLayer: false,
-    zoomConstants: "RELIEF_MIN_ZOOM/RELIEF_MAX_ZOOM in web/src/lib/reliefTiles.ts",
   },
   terrain: {
     extension: TERRAIN_TILE_EXTENSION,
@@ -121,7 +116,6 @@ export const LAYERS: Record<LayerId, TileLayer> = {
     describeTileTypeMismatch: describeTerrainTileTypeMismatch,
     missingTileStatus: 404,
     multiLayer: false,
-    zoomConstants: "TERRAIN_MIN_ZOOM/TERRAIN_MAX_ZOOM in web/src/lib/terrainSource.ts",
   },
   countries: {
     extension: COUNTRIES_TILE_EXTENSION,
@@ -130,7 +124,6 @@ export const LAYERS: Record<LayerId, TileLayer> = {
     // The one sparse pyramid: most of the planet is ocean and holds no country.
     missingTileStatus: 204,
     multiLayer: true,
-    zoomConstants: "COUNTRIES_MIN_ZOOM/COUNTRIES_MAX_ZOOM in web/src/lib/countryTiles.ts",
   },
 };
 
@@ -157,6 +150,15 @@ export interface PublishedArchive {
    *  archive alongside the token, for the reason the hand tally deserves no trust — it was wrong,
    *  recording terrain's 22 leaves as 21. */
   indexLeaves: number;
+  /** Where THIS BODY's copy of the two zooms below lives, quoted into the message a server logs
+   *  when an archive's header disagrees with them.
+   *
+   *  PER BODY RATHER THAN PER LAYER, because a ceiling follows each planet's own source data: the
+   *  entries below variously import a browser constant and restate a pipeline one, so there is no
+   *  single module a layer could name for every planet. It sat on `TileLayer` first, where a Mars
+   *  drift sent the reader to `reliefTiles.ts` — Earth's file, holding a number Mars deliberately
+   *  does not use. */
+  zoomConstants: string;
   minZoom: number;
   maxZoom: number;
 }
@@ -173,6 +175,7 @@ export const PUBLISHED: Record<BodySlug, Record<LayerId, PublishedArchive | null
       objectKey: "planet-v2.pmtiles",
       token: TOKENS.earth.relief.token,
       indexLeaves: TOKENS.earth.relief.indexLeaves,
+      zoomConstants: "RELIEF_MIN_ZOOM/RELIEF_MAX_ZOOM in web/src/lib/reliefTiles.ts",
       minZoom: RELIEF_MIN_ZOOM,
       maxZoom: RELIEF_MAX_ZOOM,
     },
@@ -180,6 +183,7 @@ export const PUBLISHED: Record<BodySlug, Record<LayerId, PublishedArchive | null
       objectKey: "terrain-v1.pmtiles",
       token: TOKENS.earth.terrain.token,
       indexLeaves: TOKENS.earth.terrain.indexLeaves,
+      zoomConstants: "TERRAIN_MIN_ZOOM/TERRAIN_MAX_ZOOM in web/src/lib/terrainSource.ts",
       minZoom: TERRAIN_MIN_ZOOM,
       maxZoom: TERRAIN_MAX_ZOOM,
     },
@@ -187,6 +191,7 @@ export const PUBLISHED: Record<BodySlug, Record<LayerId, PublishedArchive | null
       objectKey: "countries-v1.pmtiles",
       token: TOKENS.earth.countries.token,
       indexLeaves: TOKENS.earth.countries.indexLeaves,
+      zoomConstants: "COUNTRIES_MIN_ZOOM/COUNTRIES_MAX_ZOOM in web/src/lib/countryTiles.ts",
       minZoom: COUNTRIES_MIN_ZOOM,
       maxZoom: COUNTRIES_MAX_ZOOM,
     },
@@ -208,6 +213,10 @@ export const PUBLISHED: Record<BodySlug, Record<LayerId, PublishedArchive | null
       objectKey: "mars/relief-v2.pmtiles",
       token: TOKENS.mars.relief.token,
       indexLeaves: TOKENS.mars.relief.indexLeaves,
+      // The one entry that names no browser module, which is the whole reason this field is per
+      // body: Mars's ceiling is a pipeline number, so the reader has to be sent past the registry.
+      zoomConstants:
+        "minZoom/maxZoom in PUBLISHED.mars.relief, restating MARS.tile_max_zoom in pipeline/bodies.py",
       // NOT `RELIEF_MIN_ZOOM`/`RELIEF_MAX_ZOOM`, which are Earth's answer to a per-planet question:
       // a ceiling is about each body's own data rather than about the scheme. These restate
       // `pipeline/bodies.py`'s `MARS.tile_max_zoom`, and the copy is held honest twice over — by

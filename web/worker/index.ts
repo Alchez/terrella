@@ -42,6 +42,7 @@ import {
   PUBLISHED,
   archiveFor,
   resolveTileRequest,
+  type PublishedArchive,
   type TileAddress,
   type TileLayer,
 } from "../src/lib/tileAddress";
@@ -440,7 +441,11 @@ function withCrossOriginHeaders(
 interface TileRoute {
   /** Which tile, of which body's which layer, under whichever grammar asked. */
   address: TileAddress;
-  archiveKey: string;
+  /** This BODY's cut — its object key, and where the zoom range it advertises is decided. Held
+   *  whole rather than unpacked into an `archiveKey` field, because the key and the zoom pointer
+   *  come from one registry entry and a copy of either could name a different archive than the
+   *  other. */
+  published: PublishedArchive;
   /** The layer's contract — content type, what a miss means, how a header mismatch reads. Held as
    *  the registry entry rather than copied field by field, so this router cannot drift from the one
    *  the dev middleware answers with. */
@@ -481,7 +486,7 @@ export function resolveRoute(pathname: string): TileRoute | null {
   }
   return {
     address,
-    archiveKey: archiveFor(address.body, address.layer).objectKey,
+    published: archiveFor(address.body, address.layer),
     layer: LAYERS[address.layer],
   };
 }
@@ -521,7 +526,11 @@ export default {
     if (!route) {
       return respond(new Response("Not a tile path", { status: 404 }));
     }
-    const { address: tile, archiveKey, layer } = route;
+    const { address: tile, published, layer } = route;
+    // Read once into the name the rest of this handler keys on. The cache, the ETag chain and the
+    // log lines below are all archive-scoped, so what they want to say is "which object", not
+    // "which body's cut of which layer".
+    const archiveKey = published.objectKey;
 
     const cache = caches.default;
     const cacheLookupStartedAt = Date.now();
@@ -570,7 +579,7 @@ export default {
       if (tile.z < header.minZoom || tile.z > header.maxZoom) {
         console.warn(
           `z${tile.z} requested but ${archiveKey} covers z${header.minZoom}-z${header.maxZoom} — ` +
-            `${layer.zoomConstants} is stale`,
+            `${published.zoomConstants} is stale`,
         );
         return store(null, 404);
       }
