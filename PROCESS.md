@@ -79,28 +79,30 @@ All stage numbers below are at the **131072² grid** (the full Mercator square) 
 | 7 | `build_tiles` — `gdal raster tile` z0–8, WebP q95 | **4:19** | **skip** | `tiles/` **3.1 GB**, 87,381 tiles | `tiles.done` + `tile_params.json` |
 | T | `tile/terrain_rgb.py` — terrain-RGB encode + cut **z0–8**, 8 m, lossless WebP *(separate lane: reads `height_3857.tif` directly, never the composite, and is not part of the shade pass)* | **41:00** for the shipping z0–8 pyramid, including building `elev_z7`. A z0–6 variant is **~4 min** once the chain exists. | **skip** | `work/planet_terrain/bathy_s8_webp/tiles/` **2.63 GB**, 87,381 tiles | `tiles.done` + `terrain_params.json`; chain on `elev_z*.done` |
 
-### The same pass on Mars — measured, at the 32768² z6 grid
+### The same pass on Mars — measured, at the 65536² z7 grid
 
-`python -m pipeline.tile.shade_planet --body mars --tiles`, cold, **4:41 end to end** — against ~52
-minutes for the equivalent Earth stages, plus the hour and a half of optional-layer warps Mars never
-pays. One sixteenth the pixels, and a body that declares no surface layers.
+`python -m pipeline.tile.shade_planet --body mars --tiles`. The pass this column is taken from ran
+**7:35 with the warp and the hillshade already fresh**; composing the two carried rows onto it puts a
+cold pass near **16:10**, against ~52 minutes for the equivalent Earth stages plus the hour and a half
+of optional-layer warps Mars still mostly does not pay.
 
-**The 4:41 predates Mars's caps and does not include them** — it was measured while
-`renders_polar_caps` was `False`, and the cap stage runs outside the `--tiles` branch, so it now
-fires on every pass. The row below carries what the caps cost, measured separately; a cold
-end-to-end Mars figure covering both has not been taken. A WARM one has: with the warps and the
-hillshade already fresh, SVF + composite + cut + both caps runs **3:00**.
+**NO SINGLE RUN HAS PRODUCED EVERY ROW, AND THE COLUMN SAYS WHICH.** The sky-view, composite, cut and
+memory figures come from one instrumented pass whose profile log survives. Warp and hillshade are
+carried from the cold z7 pass before it, whose log the next run overwrote — `_profile_tiles/` keeps
+only the most recent — so they are the two numbers here that cannot be re-derived without a rebuild.
+The caps printed fresh and skipped, so their cost is still the separately-measured figure.
 
-| Stage | Earth z8 | Mars z6 | Note |
+| Stage | Earth z8 | Mars z7 | Note |
 |---|---|---|---|
-| warp height → 3857 | 6:49 | **2:12** | read-bound on the 10.6 GiB source, not pixel-bound |
-| warp masks + lake + snow + glaciers + ice | 1:35:31 | **0:00** | declared, not skipped by absence — every gate prints its reason |
-| `render/hillshade.py` | 16:20 | **0:58** | at Mars's own 10× and its own sphere |
-| `global_occlusion` | 3:23 | **0:15** | |
-| `composite_planet` | 21:37 | **0:46** | 256 windows, 5.57 win/s, threaded ×4 |
-| `build_tiles` z0–6 | 4:19 | **0:30** | 5,461 tiles, 352 MB |
-| `cap_render` | 1:36 | **~1:15** | Both discs, from the heightfield alone. Bounded by artifact mtimes from the first cap output to `caps.json`, on a run whose elevation rungs were already fresh — not from the cold pass the rest of this column comes from |
-| pack + convert | 0:16 | **~1 s** | `planet.pmtiles` **356 MB**, 5,334 unique of 5,461 |
+| warp height → 3857 | 6:49 | **4:37** | read-bound on the 10.6 GiB source, not pixel-bound. Carried — see above |
+| ice alpha, polar bands | — | **2:23** | `mars_ice.build_alpha_raster`. The one optional layer Mars declares, and the pass's memory peak |
+| warp masks + lake + glaciers + sea ice | 1:35:31 | **0:00** | declared, not skipped by absence — every gate prints its reason |
+| `render/hillshade.py` | 16:20 | **4:00** | at Mars's own 20× and its own sphere. Carried — see above |
+| `global_occlusion` | 3:23 | **0:52** | |
+| `composite_planet` | 21:37 | **2:58** | 512 windows, 2.88 win/s, threaded ×4 |
+| `build_tiles` z0–7 | 4:19 | **1:21** | 21,845 tiles, 1.4 GB |
+| `cap_render` | 1:36 | **~1:15** | Both discs, from the heightfield alone. Bounded by artifact mtimes on a run whose elevation rungs were already fresh, and it SKIPPED on the pass above |
+| pack + convert | 0:16 | **~4 s** | `planet.pmtiles` **1.40 GB**, **20,950 unique tile bodies of 21,845** — counted over the cut directory, which is what the archive dedupes on |
 
 **THREE MEMORY NUMBERS, AND ONLY ONE ANSWERS "DID IT FIT".** The cgroup's `memory.peak` is charged
 for reclaimable page cache — the source read and the outputs written — so it overstates what the box
@@ -114,6 +116,14 @@ On that same pass the three read **14.73 GiB** cgroup peak · **19.03 GiB** summ
 **8.85 GiB** peak live RSS, the last reached in the cap stage — so on Mars the caps, not the
 composite, are what the cap has to back. An earlier Mars figure of 4.01 GiB is superseded twice
 over: it was taken before Mars rendered caps at all, and by the summing method above.
+
+**MARS PER STAGE AT z7, PEAK INSTANTANEOUS SUMMED RSS** — ice alpha **5.91 GiB** · composite
+**4.37 GiB** · tile cut **2.95 GiB** · sky-view **0.64 GiB**, with the cgroup's `memory.peak` pinned
+at the 16 G cap throughout and no kill. **The pass's peak is the ICE stage, not the composite**, which
+is the opposite of Earth and was not true of Mars before this layer existed — `graded_alpha` evaluates
+both poles in float64 across a band 65536 px wide, so a slice costs several times its float32
+footprint while it is in hand. Ranked, what the cap has to back on Mars is caps 8.85 > ice 5.91 >
+composite 4.37 > cut 2.95.
 
 **EARTH, PER STAGE, PEAK LIVE RSS** — composite **12.56 GiB** · tile cut z0–8 **3.74 GiB** ·
 `cap_render` **14.41 GiB**, with the cgroup peak pinned at the 16 G cap throughout (page cache,
@@ -173,10 +183,18 @@ scale ratio this rests on. The probe was scratch and is not shipped; rebuilding 
 the same band — sub-banded at `WINDOW_ROWS`, direct, and direct from a 4×-downsampled source — and
 the two comparisons above.
 
+**THAT TRIGGER HAS FIRED AND THE RE-MEASUREMENT IS OWED.** The ceiling moved to z7, so the table above
+describes a grid the pipeline no longer cuts. It is not urgent, and the reason is a derivation rather
+than a measurement — the failure mode is DECIMATION, and halving the target pixel doubles the
+upsampling, moving the direct warp further from the condition that produces it. Do not let that
+argument stand in for the control-backed table; it says only that the risk moved the safe way.
+
 ### The look loop on Mars — WARM iteration costs, which are what a look session actually pays
 
-The 4:41 above is a cold pass and the wrong number to plan a look session with. Measured on repeated
-z6 passes, warm, at 20×, under the 12 G cap Mars had at the time:
+A cold pass is the wrong number to plan a look session with. Measured on repeated **z6** passes, warm,
+at 20×, under the 12 G cap Mars had at the time — so the SHAPE below is current and the wall clocks
+are one grid behind. Scale them by the composite's own measured ratio, **0:46 → 2:58, i.e. 3.9× for
+4× the pixels**, rather than re-deriving a factor from the pixel count:
 
 | Change | What restages | Wall clock |
 |---|---|---|

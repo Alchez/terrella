@@ -463,22 +463,28 @@ Restated as standalone facts, because the reason each was learned matters more t
 
 One small commit at a time, each green and each shippable alone. No commit may leave Earth broken.
 
-- **The cheapest lookable thing — RUN, and it was cheaper than the estimate.** The z6 pyramid is
-  **3.1 GB of master and 340 MB packed**, cut in **4:41** end to end. The estimate said 2.8 GB and
-  0.2 GB; the master is bigger because it is Float32 and the archive because Mars, having no flat
-  sea, dedupes to 5,334 unique tiles of 5,461 where Earth sheds about 5%.
+THE PHASES ARE NUMBERED HERE BECAUSE THEY ARE REFERRED TO BY NUMBER. They were not, and the numbering
+survived only in conversation and in the decision archive, which is how a reader — human or agent — ends up
+answering "which phase is this?" from the Earth plan's numbering instead, where the same numerals mean
+entirely different work. **Phase 0** is the one not listed below: parameterising the pipeline for a
+second body, Earth-only and Earth byte-identical throughout, landed before any Mars byte was fetched.
+
+- **Phase 1 — the cheapest lookable thing. DONE.** No sea, no vectors, a first-guess ramp; its only
+  job was to exist on the sphere, and it did.
   - Dev store layout, then the Worker's Mars archive routes with the cache recount, then the
     registry entry and its acquisition recipe, then the `/mars/` route and its Lite page.
   - Then the pipeline run, whose committed artifact is the recipe sidecar, not the pixels.
-  - No sea, no vectors, a first-guess ramp. Its only job is to exist on the sphere.
   - **What it proved beyond the pixels:** every surface-layer gate fires and says why, the cap gate
     declines out loud, and the nodata and provenance questions are both answered above.
-- **Pick a ceiling and cut.** One commit moving the Mars ceiling, then the re-cut.
-  - The source's answer is measured (§ The zoom ceiling); what is left is the sphere's.
-- **Vectors and the product model.** One commit per layer: units, then labels, then hit-testing.
-- **Heroes**, if they are wanted at all.
+  - Its z6 pyramid is superseded by Phase 2's; the sizes and timings that describe what SHIPS are in
+    PROCESS.md and INVENTORY.md, never here.
+- **Phase 2 — pick a ceiling and cut. DONE, and judged on the globe.** The source's answer is
+  measured (§ The zoom ceiling) and the sphere has now given its own.
+- **Phase 3 — vectors and the product model.** One commit per layer: units, then labels, then
+  hit-testing. Mars has no Natural Earth, so this opens with a source scout rather than with code.
+- **Phase 4 — heroes**, if they are wanted at all.
 
-The first phase costs roughly **15–22 GB** all-in, against a disk with several hundred GB free. The
+Phase 1 cost roughly **15–22 GB** all-in, against a disk with several hundred GB free. The
 source blend is **10.6 GiB** — measured from the server rather than estimated, and about half again
 the first guess, because the mosaic is uncompressed Int16 rather than compressed. Disk is still not
 a constraint for Mars, which is the opposite of Earth's situation at z9.
@@ -586,6 +592,47 @@ Triaged by when each must be answered, because most of them cannot be answered e
 - **Before vectors.** The unit of subdivision, if there is a gallery at all: geologic units, MC
   quadrangles, a curated landform list, or nothing.
 - **Any time.** What goes on the Mars Lite page.
+
+## Vector sources, for Phase 3
+
+Scouted, not yet acquired. Two publishers, because the layer that draws and the layer that NAMES are
+different products.
+
+- **The names — IAU/USGS Gazetteer of Planetary Nomenclature.** Bucket `asc-planetarynames-data`,
+  regenerated nightly. `MARS_nomenclature_center_pts.zip` is what the `GIS_Downloads` page offers;
+  **`MARS_nomenclature_geometries.zip` is not listed there and is the one to take**, because it
+  carries outlines rather than centres and so allows real polygon hit-testing. **1,717 polygons and
+  203 lines**, every one IAU-adopted, unioning to **89.78% of the sphere**.
+  - **Public domain**, and read at the product rather than off a web page: the archive ships
+    `metadata_nomenclature_polygons_MARS.xml` whose `useconst` is *"Public domain."* and whose
+    `distliab` is none. Composes with CC BY-SA 4.0 with nothing to argue about.
+  - **Its coordinates ride the MDIM 2.1 CONTROL NETWORK** — the frame, not the mosaic this project
+    declined for its filtered-away albedo. Measured against the blend over 477 named craters: median
+    rim-minus-floor **1208 m at 98.1%**, collapsing to chance when centres are shifted 50 km, so the
+    two frames agree well inside 25 km. The control is what makes that mean anything.
+  - **ITS EXTENT RUNS -180 TO +360.34 BECAUSE IT MIXES BOTH LONGITUDE CONVENTIONS**, with 1,047 of
+    1,717 centres east of 180. A grid built on either convention alone drops half the planet and
+    raises nothing; span 540 degrees and fold.
+- **The polygons — SIM 3292, the same source the ice already uses.** The collection is the GLOBAL
+  geologic map: 44 units, 1,311 features, and the acquirer has been fetching two of them all along.
+  Contacts, structure and the Robbins crater database sit beside it on the same service.
+  - **Whole-collection fetches fail and the per-unit query is the route** — that is the shape of the
+    service, not a transient. `download_sim3292.unit_url` already does the right thing.
+  - **Any use of it is a generalisation problem first**, since one unit reaches 139 MB of GeoJSON.
+    The linework's own 5 km vertex spacing is what makes decimating it honest.
+- **The units are complete but they are not DESTINATIONS**, which is the product-model finding: the
+  thing a visitor navigates to is a named feature. `mNh` is the case that makes it obvious — 99
+  disjoint pieces, 32 million km², and a name that describes an age rather than a place. The units'
+  job is the **10.2% of the sphere no name reaches**, so that pointing at Mars always has an answer.
+- **The crater database is REJECTED on its own numbers, not on size.** 384,343 Robbins craters reach
+  at most 17.3% summed disc area — an upper bound, since it double-counts overlap — against 6.2% for
+  the 304 above 100 km. A 156x increase in features buys under 3x the coverage, and what it uniquely
+  adds is the UNNAMED craters, which are the ones a panel has nothing to say about.
+- **Two hundred features carry 99.2% of all reachable coverage**, so the layer splits rather than
+  taking a cutoff: a couple of hundred large polygons for pointing, and the whole 1,717-name catalogue
+  as a search index, which is a few hundred KB and never geometry on screen.
+- **Mars has no worldview problem at all.** No disputed segments, no de-facto-versus-claimed
+  decision, nothing dashed. Every border policy this repo carries is Earth's alone.
 
 ## Sources
 
