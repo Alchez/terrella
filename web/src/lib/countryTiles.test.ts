@@ -1,11 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-  COUNTRIES_PATH_PREFIX,
-  COUNTRY_FILL_LAYER,
-  COUNTRY_HIT_LAYER,
-  COUNTRY_OUTLINE_LAYER,
-  parseCountriesTilePath,
-} from "./countryTiles";
+import { COUNTRIES_PATH_PREFIX, parseCountriesTilePath } from "./countryTiles";
 import { parseTilePath } from "./reliefTiles";
 import { parseTerrainTilePath } from "./terrainSource";
 
@@ -53,17 +47,5 @@ describe("the archive contract the pipeline writes", () => {
     // asking for, and it goes when that branch does.
     expect(COUNTRIES_PATH_PREFIX).toBe("countries");
     expect(parseCountriesTilePath(`${COUNTRIES_PATH_PREFIX}/3/4/3.mvt`)).toEqual({ z: 3, x: 4, y: 3 });
-  });
-
-  // These three strings are MapLibre `source-layer` values, and their writer is a Python file no
-  // type system reaches. A disagreement renders every country layer empty, with no error and no
-  // warning — so pin them here and in tests/test_countries_pmtiles.py, which reads the same names
-  // out of the pipeline module.
-  it("pins the source-layer names the cutter writes", () => {
-    expect([COUNTRY_FILL_LAYER, COUNTRY_OUTLINE_LAYER, COUNTRY_HIT_LAYER]).toEqual([
-      "country_fill",
-      "country_outline",
-      "country_hit",
-    ]);
   });
 });

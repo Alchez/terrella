@@ -4323,6 +4323,29 @@ SABOTAGES: list[Sabotage] = [
         replacement='      objectKey: "planet-v2.pmtiles",',
         guard='never puts two raster pyramids in one archive',
     ),
+    # The source-layer names, which must agree across a language seam no type system crosses. This
+    # mutation edits TYPESCRIPT and the PYTHON suite has to go red — before the cross-language pin
+    # existed, each side compared its own constants against its own literals, so renaming a layer
+    # and its neighbouring literal in one language left the other untouched and every suite green.
+    # What ships from that is a globe drawing nothing, with no error anywhere to say why.
+    Sabotage(
+        suite='python',
+        label="Earth's fill layer is renamed in the browser but not in the cutter",
+        path='web/src/lib/sourceLayers.ts',
+        needle='    fill: "country_fill",',
+        replacement='    fill: "country_fills",',
+        guard='test_every_role_matches_the_producer',
+    ),
+    # The loudness the literal imports gave for free. A null reaching a style spec is `undefined`,
+    # and MapLibre answers an unaddressable source-layer with an ErrorEvent and a RETURN.
+    Sabotage(
+        suite='web',
+        label='requireSourceLayer hands back an empty string instead of throwing',
+        path='web/src/lib/sourceLayers.ts',
+        needle='  if (name === null) {',
+        replacement='  if (false) {',
+        guard='THROWS rather than handing undefined to a style spec',
+    ),
     # The transport contract, split out of Earth's product module. Both mutations put a planet back
     # into a file every planet reads, which is the drift the split exists to make impossible — and
     # neither breaks a type, so the compiler has nothing to say about either.

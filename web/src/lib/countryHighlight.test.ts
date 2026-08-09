@@ -1,7 +1,16 @@
 import { readFileSync } from "node:fs";
 import { describe, it, expect } from "vitest";
 import type { FilterSpecification } from "maplibre-gl";
-import { COUNTRY_FILL_LAYER, COUNTRY_HIT_LAYER, COUNTRY_OUTLINE_LAYER } from "./countryTiles";
+import { requireSourceLayer } from "./sourceLayers";
+
+// Earth's three, read through the descriptor rather than restated. What the assertions below are
+// for is the PLUMBING — that each builder reads its name off the binding — which is the half that
+// shipped dead once: the hover wrote to a literal source id, MapLibre answered with an ErrorEvent
+// and no throw, and nothing painted. The names' own values are pinned in sourceLayers.test.ts and,
+// across the language seam, in tests/test_source_layers.py.
+const COUNTRY_FILL_LAYER = requireSourceLayer("earth", "fill");
+const COUNTRY_OUTLINE_LAYER = requireSourceLayer("earth", "outline");
+const COUNTRY_HIT_LAYER = requireSourceLayer("earth", "hit");
 import {
   COUNTRIES_SOURCE,
   VECTOR_BINDING,

@@ -18,16 +18,6 @@
 import type { TileCoordinate } from "./reliefTiles";
 import { VECTOR_TILE_EXTENSION } from "./vectorTiles";
 
-/** Layer names INSIDE a tile, used as MapLibre `source-layer` values.
- *
- *  Pinned on both sides — the writer is `FILL_LAYER`/`OUTLINE_LAYER`/`HIT_LAYER` in
- *  pipeline/compose/countries_pmtiles.py. A disagreement is silent: MapLibre renders a layer whose
- *  `source-layer` matches nothing as empty, with no error and no warning, so the globe would come
- *  up with no countries and nothing to say about why. */
-export const COUNTRY_FILL_LAYER = "country_fill";
-export const COUNTRY_OUTLINE_LAYER = "country_outline";
-export const COUNTRY_HIT_LAYER = "country_hit";
-
 /** The path segment telling the tile server which of the three archives a request is for.
  *
  *  The extension already differs from the two raster pyramids, so unlike `terrain` this prefix is
