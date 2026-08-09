@@ -387,19 +387,20 @@ def test_mars_projects_on_earths_spheres_and_that_is_deliberate() -> None:
 
 
 def test_mars_is_the_first_body_whose_ground_sphere_is_not_its_grid() -> None:
-    """The one geometry field that actually differs, and the arithmetic the ceiling table rests on.
+    """The one geometry field that actually differs, and the arithmetic every resolution claim uses.
 
-    Pinned against the published figures rather than restating the division, so the registry and the
-    standing brief cannot drift: 651 m/px at z6 is what the brief's ceiling table says, and it comes
-    out of these two fields multiplied. The z-factor ratio is the same fact inverted — a hillshade on
-    Mars needs 1.878x Earth's z for the same physical exaggeration.
+    LITERALS RATHER THAN A RESTATED DIVISION, because a test that recomputes the expression it is
+    guarding agrees with any value the registry happens to hold. 325.6 m/px is what a Mars tile
+    carries at the equator at this ceiling, and it is the number every band, seam and sampling
+    argument about this body is built on. The z-factor ratio is the same fact inverted — a hillshade
+    on Mars needs 1.878x Earth's z for the same physical exaggeration.
     """
     assert bodies.MARS.ground_radius_m != bodies.MARS.mercator_radius_m
     ratio = bodies.ground_metres_per_mercator_unit(bodies.MARS)
     assert ratio == pytest.approx(0.532474, abs=1e-6)
     assert 1.0 / ratio == pytest.approx(1.878, abs=1e-3)
     ground = bodies.MARS.map_units_per_pixel * ratio
-    assert ground == pytest.approx(651.2, abs=0.1)
+    assert ground == pytest.approx(325.6, abs=0.1)
 
 
 def test_the_two_registries_agree_on_how_a_body_is_spelled() -> None:

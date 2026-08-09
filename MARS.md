@@ -39,9 +39,9 @@
   whichever way the label is read, which is why it needs no legal determination to act on.
   - Irrevocable, and that is the whole cost: nothing published under it can be narrowed later.
   - **The alternative was to change the source rather than the licence, and it was declined.** MOLA
-    MEGDR is CC0 at 463 m/px against a z6 cut of 651 m/px, so the swap costs nothing visible today.
-    But it bites from z7 (326 m/px) up, where MEGDR is upsampled and the blend is not, and at z8 it
-    is a 2.8x upsample. Keeping the option of a finer cut is worth more than the permissive terms.
+    MEGDR is CC0 at 463 m/px, which cost nothing visible while the cut was z6 at 651 m/px. The cut
+    is now z7 at 326 m/px, which is where MEGDR would be upsampled and the blend is not — so the
+    option the decision was made to keep is the one now being spent.
   - Both readings of the label, the evidence for each, and the clause that permits a 3.0 IGO input
     to become a 4.0 output all live in `ATTRIBUTIONS.md`.
 
@@ -64,9 +64,9 @@ work below is legible as *remaining*.
     read as the obvious fix and produce a raster the tiler cannot cut. Its ground sphere is the IAU
     2015 sphere the source DEM declares, giving a ratio of 0.532 and a z-factor 1.878× Earth's.
   - **Its exaggeration is 20×, ratified on the sphere**, which is twice what the arithmetic below
-    predicts — the derivation gives a starting point and the globe settled it. **Its ceiling is
-    still provisional**: z6 is the cheapest lookable thing rather than a judged answer, and it is
-    ratified the same way, by being served and looked at.
+    predicts — the derivation gives a starting point and the globe settled it. **Its ceiling is z7,
+    cut and not yet ratified**: z6 preceded it as the cheapest lookable thing rather than as an
+    answer, and a ceiling is settled only by being served and looked at.
   - **One word names a body in both registries**, and a scan holds them together, because neither
     language can import the other and a divergence is a pyramid written under one name and requested
     under another — a 404 at the edge, long after the run that produced it.
@@ -178,11 +178,21 @@ What does not exist is stated as plainly as what does, because two of the absenc
 whole project.
 
 - **The MOLA/HRSC blended DEM is a 200 m/px grid, but not 200 m of information.**
-  - HRSC stereo DTMs cover about **44%** of the planet. The other **56%** is MOLA at 463 m/px,
-    upsampled onto the finer grid.
+  - HRSC stereo DTMs cover about **44%** of the planet as the publisher states it. The rest is MOLA
+    at 463 m/px, bilinearly upsampled onto the finer grid.
+  - **Coverage and influence are different quantities, and only the second one sets a ceiling.**
+    A bilinear upsample does not null the detail below its source's Nyquist — it manufactures a
+    rolled-off version — so magnitude cannot separate the two. Phase can: correlate a window's
+    sub-926 m detail against a bilinear upsample of its own 463 m version, and MOLA-only ground
+    scores ~1 by construction where ground a second instrument touched cannot.
+  - **Median 0.99 over an area-weighted global sample; 12.5% of windows below 0.95, 4.5% below
+    0.90.** The control is Earth's fused field through the identical operation — same 463 m coarse
+    grid, same sub-926 m verdict band — which returns **0.75**, so the test can come back low and on
+    Mars it does not. HRSC's reach into this grid's fine detail is nearer **5–12%** than 44%.
   - HRSC edges are feathered into the MOLA background over roughly **5 km** — about 100 px at the
     blend's own resolution.
-  - This is the single most consequential fact in this document, and it argues against a deep cut.
+  - This is the single most consequential fact in this document, and it bounds how deep a cut can be
+    honest. It does not touch the licence: 44% is the publisher's own coverage figure and stands.
 - **MOLA MEGDR, 463 m/px, global, is the honest floor** — one instrument, one resolution, no seams.
 - **INSIDE 87.1° OF EITHER POLE THERE IS ESSENTIALLY NO DATA, and no product fixes it.**
   - MGS flew at 92.9° inclination, so MOLA's nadir tracks reached no further; HRSC reaches neither
@@ -194,7 +204,9 @@ whole project.
   - The caps therefore smooth that disc deliberately rather than draw the interpolator's starburst;
     `cap_render.POLE_SMOOTH_BY_BODY` holds the constants and the About page tells visitors why.
 - **No provenance mask ships with the blend.** Which pixels are HRSC and which are upsampled MOLA is
-  not published as a layer. HRSC DTM footprints *are* published, so one is constructible.
+  not published as a layer. HRSC DTM footprints *are* published, so one is constructible — but the
+  correlation test above already answers the question a mask would be built to answer, off the
+  raster itself, with no second download.
 - **THE BOUNDARY READS AS BANDING, AND NO MASK WAS NEEDED TO SEE IT.** The first z6 pyramid answers
   it directly: the northern plains carry rectangular patches of visibly rougher terrain with hard
   straight edges, which are HRSC DTM footprints against the MOLA background.
@@ -269,10 +281,24 @@ whole project.
 - **Pyramid size is set by the ceiling, not by the body.** The tile grid at a given zoom has the
   same number of tiles whichever planet it covers, so these figures are Earth's measured artifacts
   re-read against Mars's resolutions.
-- **The honest ceiling is probably z7**, and the reason is the 44% coverage above: z8 costs four
-  times the disk to deliver a 2.8× upsample of MOLA over most of the planet.
-  - Not a decision. A resolution ceiling has never been judgeable from a number here — it has to
-    exist, be served, and be looked at on the sphere, which is how Earth's was settled.
+- **A rung is a wavelength question**, and the source answers it. A raster at ground resolution R
+  carries no wavelength shorter than 2R, so z6 shows ≥1302 m, z7 unlocks 652–1302 m, z8 unlocks
+  326–652 m — against MOLA's ≥926 m and the blend's own ≥400 m. Relief per band, meridional RMS
+  over an area-weighted global sample:
+
+| band | what it is | median RMS |
+| --- | --- | --- |
+| 1302–2604 m | z6 already shows it | 7.48 m |
+| 926–1302 m | **z7 unlocks it, and MOLA resolves it** | 3.25 m |
+| 652–926 m | z7 unlocks it, MOLA cannot | 2.66 m |
+| 400–652 m | z8 unlocks it, MOLA cannot, blend near its own Nyquist | 2.83 m |
+
+- **z7 is 60% measurement by energy; z8 is almost none.** The 4.28 m z7 adds is majority real, and
+  it is 57% of the whole octave z6 currently shows — a visible gain, not a marginal one. The 2.83 m
+  z8 would add lies entirely below MOLA's Nyquist, so outside the ~5–12% HRSC reaches it is the
+  interpolator's opinion rendered at four times the disk.
+  - Not yet a decision. A ceiling still has to exist, be served and be looked at on the sphere,
+    which is how Earth's was settled — but the number a look would be arguing with is now known.
 - **The polar caps do not sit on this ladder at all, and Mars's already outruns its own source.**
   The cap is one AEQD texture per pole at a fixed pixel count, so its ground resolution follows the
   body's radius rather than any zoom: **144.7 m/px on Mars against 271.8 on Earth**, from the same
@@ -280,7 +306,9 @@ whole project.
   - Against the 200 m/px blend that feeds it, Mars's cap is already **interpolating**. A larger
     texture buys nothing here, and the frontend's mesh — not the texture — is the standing limit.
   - The comparison that matters is at the **seam**, not the equator. Mercator pixels shrink by
-    cos(lat), so at 78° a z6 tile carries ~135 m/px and the cap is the coarser artifact of the two.
+    cos(lat), so across the 81–84° feather a z7 tile carries ~51 m/px against the cap's 144.7.
+  - **The z6 cut had them nearly matched at ~102 m/px and z7 does not**, which makes the cap the
+    coarser artifact by 2.8× — the one thing the deeper cut newly puts on screen.
 
 ### Exaggeration: two ratios that point opposite ways
 
@@ -298,10 +326,18 @@ Easy to conflate, and conflating them yields ~5× where the answer is ~10×.
 - **The sphere answered 20×, not 10×, and the arithmetic is kept because the gap is the finding.**
   Both ratios above are right and together they still predicted half the shipped value: 10× and 20×
   were put side by side at one camera and 20× won. The term the derivation omits is **sampling
-  rate** — what saturates a hillshade is the gradient per pixel, and Mars's z6 grid is 651 m/px
-  against Earth's z8 at 306, so half the sampling rate is half the slope. `pipeline/bodies.py` holds
-  the measurement; the consequence for this file is that **the exaggeration is coupled to the cut
-  depth**, so z7 spends headroom that 20× is currently relying on and has to be re-judged with it.
+  rate** — what saturates a hillshade is the gradient per pixel, and at z6's 651 m/px Mars was
+  sampled half as finely as Earth's z8 at 306, so it read as gentler ground. `pipeline/bodies.py`
+  holds the measurement.
+  - **At z7's 326 m/px the two bodies are within 7% of each other**, so that term has nearly
+    expired — which is a reason to re-look at 20×, not a value to compute a replacement from.
+- **The coupling to cut depth is real, and far weaker than halving the pixel suggests.** Doubling
+  the sampling rate would double the slope only if relief were scale-free in amplitude. Mars's is
+  self-affine with a Hurst exponent of **0.875**, measured off the blend, so RMS slope grows
+  **1.09× per rung** — z7 would want about **18×** to hold the same shaded contrast, a trim inside
+  eye noise rather than a re-ratification. The next rung after that moves it by 1.05×.
+  - Only the hillshade's contrast moves. Exaggeration also sets how far the relief stands off the
+    sphere, and that is a metre count the cut depth cannot touch.
 
 ### Heroes, if they happen
 
@@ -373,10 +409,13 @@ Each with its "or else", because a seam without a failure mode is a preference.
     string that names no body at all.
   - Or else: mixing the two radii yields a latitude-varying wrong exaggeration that renders
     plausibly everywhere and is true nowhere — the failure mode with no symptom.
-- **What is left of the palette work is the LOOK ITSELF, not the parameterisation.** The seam is
-  built: `palette.LOOK_BY_BODY` answers which ramps a body draws with, `look_for` refuses an
-  unregistered planet rather than falling back to Earth's, and the composite takes the resolved
-  look as a required argument so no ramp can be chosen by omission.
+- **The look is ratified, and `palette.LOOK_BY_BODY` is where it lives.** `look_for` answers which
+  ramps a body draws with and refuses an unregistered planet rather than falling back to Earth's;
+  the composite takes the resolved look as a required argument so no ramp can be chosen by omission.
+  - Settled on the sphere at z6, each by eye rather than by a value a test could recompute: the
+    land ramp, **20×**, both polar whites, the polar smooth, and the two accents.
+  - **Ratification is at the depth it was judged at.** A deeper cut re-opens exactly one term of it,
+    the shaded contrast, and by the 1.09× a rung is measured to be worth — not the whole look.
   - Mars's entry deliberately borrows Earth's land ramp — shared, not copied, so the borrowing
     cannot silently stop being true — and declares **no sea ramp at all**, which is a fact rather
     than a placeholder while its planet seam declares no oceanmask.
@@ -434,11 +473,8 @@ One small commit at a time, each green and each shippable alone. No commit may l
   - No sea, no vectors, a first-guess ramp. Its only job is to exist on the sphere.
   - **What it proved beyond the pixels:** every surface-layer gate fires and says why, the cap gate
     declines out loud, and the nodata and provenance questions are both answered above.
-- **The look loop, still at z6.** Each candidate look is one commit to the registry.
-  - Palette from scratch; exaggeration judged rather than computed.
-  - The sea question decided by rendering all three options — none, one contour, the family — rather
-    than by arguing them.
 - **Pick a ceiling and cut.** One commit moving the Mars ceiling, then the re-cut.
+  - The source's answer is measured (§ The zoom ceiling); what is left is the sphere's.
 - **Vectors and the product model.** One commit per layer: units, then labels, then hit-testing.
 - **Heroes**, if they are wanted at all.
 
@@ -538,12 +574,15 @@ Triaged by when each must be answered, because most of them cannot be answered e
       decision — expired when the look was ratified. Mars's caps now hide the plug exactly as
       Earth's do, and they carry both relief and ice: the two discs shade from the same ramps as the
       tiles, with the perennial-ice layer painted over them in each pole's own white.
-  - Does THEMIS night IR belong in the look, as a second physical field over relief?
-- **After a look is ratified.**
-  - The accent: derived from the Mars palette the way Earth's teal is derived from its hero ramp, or
-    chosen for contrast against it?
+  - **THEMIS night IR is outside the ratified look**, not rejected. A second physical field over
+    relief is an addition to a settled look rather than a candidate for it, and it would arrive as
+    its own layer with its own registry entry.
+- **Now that the look is ratified.**
+  - Does a wisp of atmosphere read better than none? Three colours in one registry row, and the only
+    part of the air question the ramp's ratification did not settle.
   - Heroes: worth a second Blender sweep once an 8K Olympus Mons can be pictured concretely?
-- **Before the cut.** z7 or z8, ratified on the sphere rather than chosen from the table.
+- **Before the cut.** z7 or z8, ratified on the sphere. What the source can supply is measured
+  (§ The zoom ceiling); what is not is whether the gain reads at the camera anyone actually uses.
 - **Before vectors.** The unit of subdivision, if there is a gallery at all: geologic units, MC
   quadrangles, a curated landform list, or nothing.
 - **Any time.** What goes on the Mars Lite page.

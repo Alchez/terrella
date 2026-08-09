@@ -218,14 +218,14 @@ MARS = Body(
     aeqd_radius_m=6371000.0,
     # The IAU 2015 Mars sphere, which is also what the source DEM's own CRS declares — so our
     # ground metres agree with the grid the data was published on. It is the equatorial radius used
-    # as a sphere, NOT the 3389500 m mean; the two differ by 0.2%, and the ceiling table in MARS.md
-    # is built on this one. The ratio against the grid sphere is 0.532474, so a hillshade z-factor
-    # comes out 1.878x Earth's for the same physical exaggeration.
+    # as a sphere, NOT the 3389500 m mean; the two differ by 0.2%. The ratio against the grid sphere
+    # is 0.532474, so a hillshade z-factor comes out 1.878x Earth's for the same physical
+    # exaggeration.
     ground_radius_m=3396190.0,
-    # Exactly 2*pi*6378137 / (512 * 2**6). Stored rather than derived for the reason the field
+    # Exactly 2*pi*6378137 / (512 * 2**7). Stored rather than derived for the reason the field
     # states, and pinned against `tile_max_zoom` relationally — so moving the ceiling without moving
     # this is a red test rather than a pyramid cut at a zoom its raster was not built for.
-    map_units_per_pixel=1222.99245256282,
+    map_units_per_pixel=611.49622628141,
     # JUDGED ON THE SPHERE, which is how Earth's own 15x was settled and the only way this number
     # was ever going to be. The arithmetic that opened at 10x is kept because it is worth knowing it
     # was wrong: MapLibre's globe shader draws every body on one Earth-sized sphere and displaces in
@@ -236,16 +236,25 @@ MARS = Body(
     # the reason not to fear the next step up. Earth is already saturated at 15x, so more steepness
     # there buys less than the number suggests. Mars at 20x is not: on the real hillshade raster,
     # 0.00% of pixels sit at DN 0 or DN 255 and the tonal spread is 48.05 against Earth's 45.59.
-    # The term that saturates is the gradient PER PIXEL, and Mars's z6 grid is 651 m/px against
-    # Earth's z8 at 306 — half the sampling rate is half the slope. So there is headroom above 20x,
-    # and a deeper cut would eat it, which is a thing to re-measure at z7 rather than to assume.
+    #
+    # A DEEPER CUT SPENDS SOME OF THAT HEADROOM, AND FAR LESS THAN HALVING THE PIXEL SUGGESTS.
+    # The saturating term is the gradient PER PIXEL, which would double with the sampling rate only
+    # if relief were scale-free in amplitude. The blend says otherwise — self-affine at a Hurst
+    # exponent of 0.875, so RMS slope grows 1.09x per rung. Do not re-derive a 2x from the pixel
+    # size: what a rung asks of this number is a trim, and only the sphere may decide it.
     exaggeration=20.0,
-    # PROVISIONAL, for the cheapest lookable thing rather than for the eventual ceiling — a z6
-    # pyramid is ~2.8 GB of master against z7's ~11 GB, and its only job is to exist on the sphere.
-    # The honest ceiling is probably z7: the blended DEM is HRSC over only 44% of the planet and
-    # MOLA upsampled beneath the rest, so z8 buys four times the disk for a 2.8x upsample over most
-    # of it. Ratified by looking, never from the table.
-    tile_max_zoom=6,
+    # CUT BUT NOT YET RATIFIED — a ceiling is settled by being served and looked at, which is how
+    # Earth's z8 was settled and the only way this one will be. z6 came first as the cheapest
+    # lookable thing rather than as an answer.
+    #
+    # THE SOURCE'S HALF IS MEASURED, AND IT IS NOT THE COVERAGE FIGURE IT LOOKS LIKE. A rung
+    # unlocks one octave of wavelength: z7's is 652-1302 m, of which MOLA's own 463 m grid resolves
+    # 926-1302 m — so of the 4.28 m RMS z7 adds, 3.25 m is measurement. z8's octave lies wholly
+    # below MOLA's Nyquist, and the blend's detail there correlates 0.99 with a bilinear upsample of
+    # its own coarse grid, where Earth's fused field returns 0.75 through the identical test. HRSC
+    # therefore reaches nearer 5-12% of this grid than the 44% coverage it is published with, and
+    # the ceiling must not be re-argued from that 44%.
+    tile_max_zoom=7,
     # Nests, where Earth's is empty. A second body pays no relocation cost, so it starts correct.
     path_prefix="mars",
     # ONE OF THEM, AND THE OTHER FOUR ARE REFUSED FOR THE REASON THE VOCABULARY WAS WRITTEN FOR:

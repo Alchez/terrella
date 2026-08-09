@@ -2218,8 +2218,8 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label='the Mars ceiling moves without its grid resolution, cutting at a zoom it was not built for',
         path='pipeline/bodies.py',
-        needle='    tile_max_zoom=6,',
-        replacement='    tile_max_zoom=7,',
+        needle='    tile_max_zoom=7,',
+        replacement='    tile_max_zoom=8,',
         guard='test_every_body_s_grid_resolution_agrees_with_its_own_tile_ceiling',
     ),
     # THE CASE THE RELATIONAL PIN WAS WAITING FOR. It shipped with the previous commit and had no
