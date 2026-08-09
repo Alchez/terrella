@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { globeSubsystems, globeTileAddresses, type GlobeSubsystems } from "./globeSubsystems";
 import { BODIES, type BodySlug } from "./bodies";
 import { PUBLISHED } from "./tileAddress";
+import { sourceLayer } from "./sourceLayers";
 
 /**
  * The claim under test is C5's whole point: a body that publishes only relief and a visitor asking
@@ -97,14 +98,14 @@ describe("the tile addresses a globe draws from", () => {
     const addresses = globeTileAddresses("mars", drawn);
     expect(addresses.relief).toContain("mars/relief");
     expect(addresses.terrain).toBeNull();
-    expect(addresses.countries).toBeNull();
+    expect(addresses.vector).toBeNull();
   });
 
   it("gives Earth all three, so the case above is not passing on a body with nothing to build", () => {
     const addresses = globeTileAddresses("earth", globeSubsystems("earth", NO_FLAGS));
     expect(addresses.relief).toContain("earth/relief");
     expect(addresses.terrain).toContain("earth/terrain");
-    expect(addresses.countries).toContain("earth/countries");
+    expect(addresses.vector).toContain("earth/vector");
   });
 
   it("withholds an address the flags turned off, so nothing can fetch behind a closed gate", () => {
@@ -112,7 +113,7 @@ describe("the tile addresses a globe draws from", () => {
     // live URL sitting in scope, one careless line away from a source that fetches the pyramid the
     // visitor asked not to see.
     const bare = globeTileAddresses("earth", globeSubsystems("earth", new URLSearchParams("bare")));
-    expect(bare.countries).toBeNull();
+    expect(bare.vector).toBeNull();
     expect(bare.relief, "?bare is the raster BASELINE, so relief must survive it").toContain(
       "earth/relief",
     );
@@ -129,7 +130,26 @@ describe("the registry is the only thing that can switch a subsystem ON", () => 
         const drawn = globeSubsystems(body, new URLSearchParams(flags));
         const where = `${body} ?${flags}`;
         if (drawn.terrain) expect(PUBLISHED[body].terrain, where).not.toBeNull();
-        if (drawn.countries) expect(PUBLISHED[body].countries, where).not.toBeNull();
+        if (drawn.countries) expect(PUBLISHED[body].vector, where).not.toBeNull();
+      }
+    }
+  });
+
+  it("turns the COUNTRY overlay on only where the archive actually holds country layers", () => {
+    // A FORCING FUNCTION, and it is expected to go red. `drawn.countries` is derived from
+    // `PUBLISHED[body].vector`, so the moment a second body publishes a vector archive this flag
+    // turns true for it and the globe adds style layers naming `country_fill` — which that archive
+    // does not contain. MapLibre paints an unmatched `source-layer` as EMPTY, no error, no warning,
+    // so the symptom would be a globe that silently draws nothing over Mars.
+    //
+    // Whoever makes this fail owns the decision it is asking for: either the overlay becomes
+    // per-body, or the flag stops being derived from the vector archive alone.
+    for (const body of ALL_BODIES) {
+      for (const flags of FLAG_SETS) {
+        const drawn = globeSubsystems(body, new URLSearchParams(flags));
+        if (drawn.countries) {
+          expect(sourceLayer(body, "fill"), `${body} ?${flags}`).toBe("country_fill");
+        }
       }
     }
   });

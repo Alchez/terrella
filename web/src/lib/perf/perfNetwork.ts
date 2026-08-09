@@ -100,7 +100,7 @@ export interface TrafficSlice {
  *  lands in whichever slice the classifier falls through to. The split used to be
  *  `startsWith("terrain/") ? terrain : relief`, a two-way branch over three layers.
  *
- *  `countries` NORMALLY READS ZERO, and that is not the vector pyramid failing to load. Measured
+ *  `vector` NORMALLY READS ZERO, and that is not the vector pyramid failing to load. Measured
  *  on the live globe: 407 tile entries with the country pyramid fully resident (276 features,
  *  France hit-testing), and not one of them an `.mvt` — every entry's `initiatorType` is `img`.
  *  MapLibre fetches raster tiles as images on the main thread and vector tiles from its worker,
@@ -165,7 +165,7 @@ export function summariseTileTraffic(
   const traffic: TileTraffic = {
     relief: emptySlice(),
     terrain: emptySlice(),
-    countries: emptySlice(),
+    vector: emptySlice(),
     opaqueCount: 0,
     unaddressedCount: 0,
     medianNetworkDurationMs: null,
@@ -275,7 +275,7 @@ export function tileTrafficLine(traffic: TileTraffic): PerfLine {
   // EVERY layer's bytes, including the ones with no label below: "MB wire" means bytes that crossed
   // the network under the tile base, and a total that quietly omitted a pyramid would understate
   // exactly the number this panel is read for.
-  const wire = traffic.relief.wireBytes + traffic.terrain.wireBytes + traffic.countries.wireBytes;
+  const wire = traffic.relief.wireBytes + traffic.terrain.wireBytes + traffic.vector.wireBytes;
   const medianText =
     traffic.medianNetworkDurationMs === null
       ? "med —"
@@ -292,11 +292,11 @@ export function tileTrafficLine(traffic: TileTraffic): PerfLine {
   // more than a 412 px phone has (54 against a measured 53-character budget).
   //
   // TWO LABELS FOR THREE SLICES. The line is already 49 of its 53 characters at typical values, so
-  // a third `· countries N` (14) would wrap on the phone the budget was measured against — and it
+  // a third `· vector N` (11) would wrap on the phone the budget was measured against — and it
   // would spend that width on a number measured to be zero on this page, since vector tiles are
   // fetched from MapLibre's worker and never enter this buffer (see TileTraffic). Relief and
   // terrain are the pair the panel exists to compare: same codec, same grid, so confusing them is
-  // the failure worth reading for. `traffic.countries` is there for any caller that wants it.
+  // the failure worth reading for. `traffic.vector` is there for any caller that wants it.
   return {
     group: "network",
     text:

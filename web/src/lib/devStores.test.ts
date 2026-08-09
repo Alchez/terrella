@@ -12,7 +12,7 @@ import {
 import type { LayerId } from "./tileAddress";
 
 const REPO = "/checkout/maps";
-const LAYERS_UNDER_TEST: LayerId[] = ["relief", "terrain", "countries"];
+const LAYERS_UNDER_TEST: LayerId[] = ["relief", "terrain", "vector"];
 
 describe("resolveDataRoot", () => {
   it("defaults to <repo>/data, the same fallback pipeline/paths.py takes", () => {
@@ -48,8 +48,8 @@ describe("archivePath", () => {
     expect(archivePath(data, "earth", "terrain")).toBe(
       "/checkout/maps/data/work/planet_terrain/terrain.pmtiles",
     );
-    expect(archivePath(data, "earth", "countries")).toBe(
-      "/checkout/maps/data/work/planet_countries/countries.pmtiles",
+    expect(archivePath(data, "earth", "vector")).toBe(
+      "/checkout/maps/data/work/planet_vector/vector.pmtiles",
     );
   });
 
@@ -76,7 +76,7 @@ describe("archiveFileName", () => {
   it("names each archive the way the pipeline does", () => {
     expect(archiveFileName("relief")).toBe("planet.pmtiles");
     expect(archiveFileName("terrain")).toBe("terrain.pmtiles");
-    expect(archiveFileName("countries")).toBe("countries.pmtiles");
+    expect(archiveFileName("vector")).toBe("vector.pmtiles");
   });
 });
 

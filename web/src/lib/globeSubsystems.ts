@@ -34,10 +34,16 @@ export interface GlobeSubsystems {
   /** The terrain-RGB displacement layer. Publishing the pyramid is necessary but not sufficient —
    *  the tier ladder and `?terrain=` still decide whether it is switched on for this visit. */
   terrain: boolean;
-  /** The country vector pyramid: hit-testing, the hover chip, the highlight outline. */
+  /** EARTH'S country overlay drawn off the vector pyramid: hit-testing, the hover chip, the
+   *  highlight outline.
+   *
+   *  Still spelled for the product rather than the role, unlike the `vector` LAYER it reads, and
+   *  the distinction is real: what these style layers name inside a tile is `country_fill` and its
+   *  two siblings, which no other body's archive holds. A second body's vector overlay is a
+   *  different subsystem, not this one under a wider name. */
   countries: boolean;
   /** The white boundary overlay, which is its own GeoJSON download rather than part of the
-   *  countries pyramid — hence its own answer, and not one derived from `countries`. */
+   *  vector pyramid — hence its own answer, and not one derived from `countries`. */
   borders: boolean;
   /** The in-globe hero panel a country click opens. Requires `countries`, since a click is
    *  hit-tested against that pyramid and there is no other route into the panel; the registry holds
@@ -61,7 +67,7 @@ export function globeSubsystems(body: BodySlug, flags: URLSearchParams): GlobeSu
     // the black-disc-on-context-restore bug was cornered.
     polarCaps: descriptor.rendersPolarCaps && !bare && !flags.has("nocaps"),
     terrain: published.terrain !== null,
-    countries: published.countries !== null && !bare,
+    countries: published.vector !== null && !bare,
     borders: descriptor.hasBorders && !bare,
     heroes: descriptor.hasHeroes && !bare,
   };
@@ -72,7 +78,7 @@ export interface GlobeTileAddresses {
   /** Always present. A globe with no relief is not a globe, so a body missing it is an error. */
   relief: string;
   terrain: string | null;
-  countries: string | null;
+  vector: string | null;
 }
 
 /**
@@ -91,6 +97,6 @@ export function globeTileAddresses(body: BodySlug, drawn: GlobeSubsystems): Glob
   return {
     relief: tileUrlTemplate(body, "relief"),
     terrain: drawn.terrain ? tileUrlTemplate(body, "terrain") : null,
-    countries: drawn.countries ? tileUrlTemplate(body, "countries") : null,
+    vector: drawn.countries ? tileUrlTemplate(body, "vector") : null,
   };
 }

@@ -98,7 +98,7 @@ const INPUTS: PerfReportInputs = {
   traffic: {
     relief: { count: 73, wireBytes: 6_500_000, fromBrowserCache: 0 },
     terrain: { count: 24, wireBytes: 1_500_000, fromBrowserCache: 0 },
-    countries: { count: 31, wireBytes: 240_000, fromBrowserCache: 0 },
+    vector: { count: 31, wireBytes: 240_000, fromBrowserCache: 0 },
     opaqueCount: 0,
     unaddressedCount: 0,
     medianNetworkDurationMs: 411,

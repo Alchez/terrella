@@ -50,7 +50,7 @@ describe("what a body declares it ships", () => {
     // subsystem with no route into it, which stays true forever with nothing reading it.
     for (const slug of SLUGS) {
       if (!BODIES[slug].hasHeroes) continue;
-      expect(PUBLISHED[slug].countries, `${slug} has heroes but no way to open one`).not.toBeNull();
+      expect(PUBLISHED[slug].vector, `${slug} has heroes but no way to open one`).not.toBeNull();
     }
   });
 });

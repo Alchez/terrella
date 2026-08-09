@@ -66,16 +66,18 @@ ROOT = paths.ROOT
 #: What `borders_geojson` and `countries_geojson` write — the same directory, named the same way,
 #: so a writer and its reader cannot drift apart by one editing its own copy of the path.
 BORDERS = bodies.work_dir(bodies.EARTH, "borders")
-OUT_DIR = paths.DATA / "work/planet_countries"
+#: One stage name per LAYER, under each body's own prefix — the convention `devStores.archivePath`
+#: rests on, so Earth's vector cut and Mars's land in directories that differ only by planet.
+OUT_DIR = bodies.work_dir(bodies.EARTH, "planet_vector")
 
 SRC = BORDERS / "countries.geojson"
 OUTLINES = BORDERS / "country_outlines.geojson"
 HITS = BORDERS / "country_hits.geojson"
 STAGED = OUT_DIR / "countries_staged.gpkg"
-OUT = OUT_DIR / "countries.pmtiles"
+OUT = OUT_DIR / "vector.pmtiles"
 
-# Layer names inside the archive. The frontend reads these as MapLibre `source-layer` values and
-# they are pinned on both sides — web/src/lib/countryTiles.ts is the other end.
+# Layer names inside the archive. The frontend reads these as MapLibre `source-layer` values, and
+# `tests/test_source_layers.py` compares them against web/src/lib/sourceLayers.ts on every suite.
 FILL_LAYER = "country_fill"
 OUTLINE_LAYER = "country_outline"
 HIT_LAYER = "country_hit"

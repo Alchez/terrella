@@ -40,7 +40,7 @@ const cached = (path: string, encodedBytes: number): TimedResource => ({
 
 /** One tile URL in the shipped grammar, built from the registry rather than typed out — so a
  *  change to the address shape reaches these tests instead of leaving them asserting an old one. */
-const addressed = (layer: "relief" | "terrain" | "countries") =>
+const addressed = (layer: "relief" | "terrain" | "vector") =>
   tilePathTemplate("earth", layer).replace("{z}", "5").replace("{x}", "22").replace("{y}", "13");
 
 describe("wire bytes, measured against how production actually reports them", () => {
@@ -125,14 +125,14 @@ describe("summariseTileTraffic", () => {
     // two apart, which is why nothing about the reading would have looked wrong.
     const traffic = summariseTileTraffic(
       [fetched(addressed("relief"), 40_000), fetched(addressed("terrain"), 10_000),
-       fetched(addressed("countries"), 2_000)],
+       fetched(addressed("vector"), 2_000)],
       BASE,
       PAGE,
       3000,
     );
     expect(traffic.relief.count).toBe(1);
     expect(traffic.terrain.count).toBe(1);
-    expect(traffic.countries.count).toBe(1);
+    expect(traffic.vector.count).toBe(1);
     expect(traffic.unaddressedCount).toBe(0);
   });
 
@@ -149,7 +149,7 @@ describe("summariseTileTraffic", () => {
     );
     expect(traffic.relief.count).toBe(1);
     expect(traffic.terrain.count).toBe(1);
-    expect(traffic.countries.count).toBe(1);
+    expect(traffic.vector.count).toBe(1);
   });
 
   it("gives a country tile its own slice, with its bytes in the total", () => {
@@ -162,7 +162,7 @@ describe("summariseTileTraffic", () => {
       [fetched("countries/5/22/13.mvt", 2 * 1024 * 1024)], BASE, PAGE, 3000,
     );
     expect(traffic.relief.count).toBe(0);
-    expect(traffic.countries.count).toBe(1);
+    expect(traffic.vector.count).toBe(1);
     // Sized so the total can actually SAY it: at a realistic 2 KB this would round to "0.0 MB"
     // whether the bytes were counted or dropped, and a check that reads the same either way is
     // not a check. The control below is the same line with nothing in it.
@@ -258,7 +258,7 @@ describe("summariseTileTraffic", () => {
     // origin was being matched. "Not our tile" means it contributes to nothing.
     expect(traffic.relief.count).toBe(0);
     expect(traffic.terrain.count).toBe(0);
-    expect(traffic.countries.count).toBe(0);
+    expect(traffic.vector.count).toBe(0);
     expect(traffic.unaddressedCount).toBe(0);
     expect(traffic.opaqueCount).toBe(0);
   });

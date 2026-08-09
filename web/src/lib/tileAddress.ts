@@ -67,11 +67,18 @@ import {
 // A committed file has to live somewhere git will actually keep it.
 import TOKENS from "./tileTokens.json";
 
-/** Every pyramid the site knows how to draw, named by what it draws.
+/** Every pyramid the site knows how to draw, named by the ROLE it plays on a globe.
  *
- *  ONE VOCABULARY FOR THE WHOLE STACK — the URL segment, the work-tree lookup and the R2 key all
- *  spell a layer this way. A second spelling anywhere is a second concept to keep in step. */
-export type LayerId = "relief" | "terrain" | "countries";
+ *  PICTURE, HEIGHTS, ANNOTATIONS — and role rather than product is the decision here. `countries`
+ *  named what was inside Earth's one vector archive, which read as a layer name only because Earth
+ *  was the only body publishing vectors; Mars's archive holds craters and will hold geologic units,
+ *  and `multiLayer` already says a body's vector products share ONE archive. So a product name here
+ *  would have to lie on the second planet, and again on the second product. What is inside an
+ *  archive is per body and lives in sourceLayers.ts.
+ *
+ *  ONE VOCABULARY FOR THE WHOLE STACK — the URL segment, the work-tree lookup and the token file
+ *  all spell a layer this way. A second spelling anywhere is a second concept to keep in step. */
+export type LayerId = "relief" | "terrain" | "vector";
 
 /** A tile URL is always this many segments. Stated as a constant because it is the invariant the
  *  grammar rests on, and a test pins it against the parser. */
@@ -119,11 +126,12 @@ export const LAYERS: Record<LayerId, TileLayer> = {
     missingTileStatus: 404,
     multiLayer: false,
   },
-  countries: {
+  vector: {
     extension: VECTOR_TILE_EXTENSION,
     contentType: VECTOR_CONTENT_TYPE,
     describeTileTypeMismatch: describeVectorTileTypeMismatch,
-    // The one sparse pyramid: most of the planet is ocean and holds no country.
+    // The one sparse role: most of Earth is ocean holding no country, and most of Mars is ground no
+    // name reaches. A miss here is ordinary rather than a packaging fault.
     missingTileStatus: 204,
     multiLayer: true,
   },
@@ -189,10 +197,13 @@ export const PUBLISHED: Record<BodySlug, Record<LayerId, PublishedArchive | null
       minZoom: TERRAIN_MIN_ZOOM,
       maxZoom: TERRAIN_MAX_ZOOM,
     },
-    countries: {
+    // THE OBJECT KEY KEEPS ITS OLD NAME ON PURPOSE. `objectKey` is recorded rather than derived
+    // precisely so a rename of the layer word costs nothing in R2 — renaming the object would mean
+    // copying it into a bucket with under a gigabyte of headroom, for no byte change.
+    vector: {
       objectKey: "countries-v1.pmtiles",
-      token: TOKENS.earth.countries.token,
-      indexLeaves: TOKENS.earth.countries.indexLeaves,
+      token: TOKENS.earth.vector.token,
+      indexLeaves: TOKENS.earth.vector.indexLeaves,
       zoomConstants: "COUNTRIES_MIN_ZOOM/COUNTRIES_MAX_ZOOM in web/src/lib/countryTiles.ts",
       minZoom: COUNTRIES_MIN_ZOOM,
       maxZoom: COUNTRIES_MAX_ZOOM,
@@ -200,8 +211,8 @@ export const PUBLISHED: Record<BodySlug, Record<LayerId, PublishedArchive | null
   },
   // MARS PUBLISHES RELIEF AND NOTHING ELSE, and the two remaining nulls are answers rather than
   // omissions — the record forces this body to answer for every layer, so nothing can be forgotten
-  // into existence later. `parseTileAddress` refuses a Mars terrain or countries URL without
-  // touching storage, and `archiveFor` throws rather than borrowing Earth's pyramid.
+  // into existence later. `parseTileAddress` refuses a Mars terrain or vector URL without touching
+  // storage, and `archiveFor` throws rather than borrowing Earth's pyramid.
   //
   // NAMING A KEY HERE COMMITS TO AN UPLOAD. The deploy preflight refuses on any published object the
   // bucket does not hold, so this entry and the R2 upload land together or not at all.
@@ -228,7 +239,7 @@ export const PUBLISHED: Record<BodySlug, Record<LayerId, PublishedArchive | null
       maxZoom: 7,
     },
     terrain: null,
-    countries: null,
+    vector: null,
   },
 };
 
@@ -252,6 +263,30 @@ const TILE_PATH_PATTERN = new RegExp(
     String.raw`(\d{1,2})\/(\d{1,7})\/(\d{1,7})\.([a-z0-9]+)$`,
 );
 
+/** Layer words this grammar still accepts under a spelling it no longer mints. TEMPORARY, and it
+ *  goes the same way the legacy grammar below does.
+ *
+ *  WHY IT HAS TO EXIST AT ALL: the token compiles into the SITE bundle while the tile Worker is a
+ *  separate deploy, so for the window between the two — and for every page a visitor already has
+ *  open, whose URLs are `immutable` for a year — requests keep arriving spelled the old way. A
+ *  Worker that refused them would blank the countries on a live globe rather than paint a stale
+ *  name. Accept both, ship the site second, delete this once `addressedLayerWord` stops reporting
+ *  the old spelling in production.
+ *
+ *  It maps a WORD to a layer and nothing else. The archive, the token and the zoom range are the
+ *  registry's, so an aliased request resolves to exactly the tile the current spelling would. */
+const RENAMED_LAYER_WORDS: Record<string, LayerId | undefined> = { countries: "vector" };
+
+/** The layer word an addressed path SPELLS, or null where it is not an addressed path.
+ *
+ *  A server compares this against the layer the request RESOLVED to, and a difference is a client
+ *  built before the rename. That comparison is the only signal for when `RENAMED_LAYER_WORDS` can
+ *  be deleted — an aliased request is served correctly and silently, which is exactly what makes it
+ *  safe and exactly what makes it invisible. Same argument as the legacy grammar's own latch. */
+export function addressedLayerWord(pathname: string): string | null {
+  return TILE_PATH_PATTERN.exec(pathname)?.[2] ?? null;
+}
+
 /** Parse a tile path into an address, or null if it is not one.
  *
  *  Null covers every rejection, and every rejection is answerable without touching storage: an
@@ -269,8 +304,8 @@ export function parseTileAddress(pathname: string): TileAddress | null {
   if (!bodySlug || !layerId || !token || !zoom || !column || !row || !extension) return null;
   if (!(bodySlug in PUBLISHED)) return null;
   const body = bodySlug as BodySlug;
-  if (!(layerId in LAYERS)) return null;
-  const layer = layerId as LayerId;
+  const layer = layerId in LAYERS ? (layerId as LayerId) : RENAMED_LAYER_WORDS[layerId];
+  if (!layer) return null;
   if (extension !== LAYERS[layer].extension) return null;
   const published = PUBLISHED[body][layer];
   if (!published) return null;
@@ -355,7 +390,9 @@ function parseLegacyTilePath(pathname: string): TileAddress | null {
   const terrain = parseTerrainTilePath(path);
   if (terrain) return { body: LEGACY_BODY, layer: "terrain", token: null, ...terrain };
   const countries = parseCountriesTilePath(path);
-  if (countries) return { body: LEGACY_BODY, layer: "countries", token: null, ...countries };
+  // The legacy PREFIX keeps its own spelling — it is a statement about URLs production already
+  // served, not a name we get to revise — and maps to the role that serves them now.
+  if (countries) return { body: LEGACY_BODY, layer: "vector", token: null, ...countries };
   return null;
 }
 

@@ -41,6 +41,7 @@ import {
   LAYERS,
   PUBLISHED,
   archiveFor,
+  addressedLayerWord,
   resolveTileRequest,
   type PublishedArchive,
   type TileAddress,
@@ -460,6 +461,11 @@ interface TileRoute {
  *  makes it invisible. */
 const seenLegacyGrammar = new Set<string>();
 
+/** Latched per isolate: which retired layer WORDS have been asked for under the addressed grammar.
+ *  Separate from the set above because these requests carry a token — they are current-shape URLs
+ *  with a stale word, which the legacy latch cannot see. */
+const seenRenamedLayerWord = new Set<string>();
+
 /**
  * Decide which pyramid a path addresses, or null if it addresses none.
  *
@@ -482,6 +488,17 @@ export function resolveRoute(pathname: string): TileRoute | null {
     console.warn(
       `${address.body}/${address.layer} was requested under the pre-token grammar (${pathname}) — ` +
         "a client built before the addressed URLs shipped is still live",
+    );
+  }
+  // The rename's own exit condition, latched the same way and for the same reason: an aliased
+  // request is served correctly and silently, so nothing else would ever say the old spelling is
+  // still in use. When this stops appearing, RENAMED_LAYER_WORDS can go.
+  const spelled = addressedLayerWord(pathname);
+  if (spelled !== null && spelled !== address.layer && !seenRenamedLayerWord.has(spelled)) {
+    seenRenamedLayerWord.add(spelled);
+    console.warn(
+      `${address.body}/${spelled} was requested under the pre-rename layer word (${pathname}) — ` +
+        `served as ${address.layer}; a client built before the rename is still live`,
     );
   }
   return {

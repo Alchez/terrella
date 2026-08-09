@@ -6,6 +6,7 @@ import {
   PUBLISHED,
   TILE_PATH_SEGMENTS,
   TOKEN_LENGTH,
+  addressedLayerWord,
   archiveFor,
   describeArchiveHeaderMismatch,
   parseTileAddress,
@@ -98,7 +99,9 @@ describe("the legacy grammar, which both servers still accept", () => {
   const legacy: [string, LayerId][] = [
     ["5/17/11.webp", "relief"],
     ["terrain/5/17/11.webp", "terrain"],
-    ["countries/1/0/0.mvt", "countries"],
+    // The legacy PREFIX keeps its spelling; the layer it resolves to does not. A URL production
+    // already served is a fact, not a name we get to revise.
+    ["countries/1/0/0.mvt", "vector"],
   ];
 
   for (const [pathname, layer] of legacy) {
@@ -123,6 +126,41 @@ describe("the legacy grammar, which both servers still accept", () => {
 
   it("cannot shadow an addressed path", () => {
     expect(resolveTileRequest(EARTH_RELIEF)).toMatchObject({ layer: "relief", token: expect.any(String) });
+  });
+});
+
+describe("the renamed layer word, which is temporary and separate from the legacy grammar", () => {
+  // These carry a TOKEN — they are current-shape URLs with a stale word, which is what the site
+  // minted before `countries` became `vector`. They must keep working across the window between
+  // the Worker deploy and the site deploy, and for every page a visitor already has open, whose
+  // tile URLs are `immutable` for a year.
+  const current = tilePathTemplate("earth", "vector")
+    .replace("{z}", "3").replace("{x}", "4").replace("{y}", "3");
+  const renamed = current.replace("earth/vector/", "earth/countries/");
+
+  it("resolves the old word to exactly the tile the new word resolves to", () => {
+    // Byte-for-byte the same address, so an aliased request cannot reach a different archive, a
+    // different zoom range or a different token than the current spelling would.
+    expect(resolveTileRequest(renamed)).toEqual(resolveTileRequest(current));
+    expect(resolveTileRequest(renamed)).toMatchObject({ layer: "vector", token: expect.any(String) });
+  });
+
+  it("is a distinct path from the legacy one, so the two can be deleted separately", () => {
+    // The legacy shape has no token; this one does. A single latch over both would go quiet as
+    // soon as either stopped, and delete the other branch while clients still used it.
+    expect(resolveTileRequest(renamed)?.token).not.toBeNull();
+  });
+
+  it("reports the word a path SPELLED, which is the only signal for when the alias can go", () => {
+    expect(addressedLayerWord(renamed)).toBe("countries");
+    expect(addressedLayerWord(current)).toBe("vector");
+    // Null for anything that is not an addressed path, so a legacy URL cannot be mistaken for a
+    // stale word and keep the alias alive forever.
+    expect(addressedLayerWord("countries/1/0/0.mvt")).toBeNull();
+  });
+
+  it("does not invent a layer that never existed", () => {
+    expect(resolveTileRequest(current.replace("earth/vector/", "earth/borders/"))).toBeNull();
   });
 });
 
@@ -224,8 +262,8 @@ describe("describeArchiveHeaderMismatch", () => {
     expect(describeArchiveHeaderMismatch("earth", "relief", { minZoom: 0, maxZoom: 10 }))
       .toMatch(/PUBLISHED\.earth\.relief/);
     // And a min that moved, which nothing else in the chain would notice.
-    expect(describeArchiveHeaderMismatch("earth", "countries", { minZoom: 1, maxZoom: 8 }))
-      .toMatch(/PUBLISHED\.earth\.countries/);
+    expect(describeArchiveHeaderMismatch("earth", "vector", { minZoom: 1, maxZoom: 8 }))
+      .toMatch(/PUBLISHED\.earth\.vector/);
   });
 
   it("names the file to edit, so the message is actionable without reading this test", () => {

@@ -25,7 +25,7 @@ import numpy as np
 import pytest
 
 from pipeline import bodies, layers, mercator, paths, planet_seam
-from pipeline.compose import countries_pmtiles
+from pipeline.compose import countries_pmtiles, features_pmtiles
 from pipeline.render import palette
 from pipeline.tile import cap_render, shade_planet, terrain_rgb
 
@@ -515,8 +515,16 @@ def _pipeline_zoom_range(layer: str, body: bodies.Body) -> tuple[int | None, int
         return cut["min_zoom"], cut["max_zoom"]
     if layer == "terrain":
         return None, terrain_rgb.MASTER_ZOOM
-    if layer == "countries":
-        return countries_pmtiles.MIN_ZOOM, countries_pmtiles.MAX_ZOOM
+    if layer == "vector":
+        # PER BODY, because `vector` names a ROLE and each planet cuts its own products into it.
+        # A single arm here would hand Mars Earth's ceiling the moment it publishes — silently, and
+        # in the direction that reads as working: the browser would ask for zooms nobody cut.
+        cutter = {"earth": countries_pmtiles, "mars": features_pmtiles}.get(body.name)
+        assert cutter is not None, (
+            f"`{body.name}` publishes a vector pyramid but no producer is named for it here — "
+            "add it beside the module that cuts it rather than letting it borrow another planet's"
+        )
+        return cutter.MIN_ZOOM, cutter.MAX_ZOOM
     raise AssertionError(
         f"`{layer}` is published but names no pipeline constant that decides its zoom range — "
         "add it here beside the producer that cuts it, or the browser's copy is pinned to nothing"
@@ -563,9 +571,9 @@ def test_the_browser_publishes_every_pyramid_at_the_zoom_the_pipeline_cut_it_to(
     # A `null` layer contributes no block, so the loop skips it in silence. This is what notices a
     # pyramid that stopped being published — the loop above would go on passing, having compared one
     # layer fewer and said nothing about it.
-    assert seen == {"relief", "terrain", "countries"}, (
+    assert seen == {"relief", "terrain", "vector"}, (
         f"the registry publishes {sorted(seen)}, so this test compared no zoom range for "
-        f"{sorted({'relief', 'terrain', 'countries'} - seen)} — either that pyramid is gone or it "
+        f"{sorted({'relief', 'terrain', 'vector'} - seen)} — either that pyramid is gone or it "
         "is newly unpinned, and both need saying out loud"
     )
 

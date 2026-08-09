@@ -63,10 +63,14 @@ const ARCHIVES: Record<LayerId, ArchiveLocation> = {
     file: "terrain.pmtiles",
     producedBy: "pipeline/tile/terrain_rgb.py, then pipeline/tile/pack_pmtiles.py",
   },
-  countries: {
-    stage: "planet_countries",
-    file: "countries.pmtiles",
-    producedBy: "pipeline/compose/countries_pmtiles.py",
+  // ONE STAGE NAME PER LAYER, UNDER EACH BODY'S OWN PREFIX — the convention `archivePath` rests on,
+  // which is why this record has no body dimension. Earth's directory was `planet_countries` until
+  // the layer became a role; Mars's vector cut lands in `data/work/mars/planet_vector/` under the
+  // same two names.
+  vector: {
+    stage: "planet_vector",
+    file: "vector.pmtiles",
+    producedBy: "pipeline/compose/countries_pmtiles.py on Earth, features_pmtiles.py on Mars",
   },
 };
 

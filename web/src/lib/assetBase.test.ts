@@ -67,7 +67,7 @@ describe("tileUrlTemplate", () => {
     // Derived rather than given a PUBLIC_TERRAIN_BASE or PUBLIC_COUNTRIES_BASE of their own. If
     // any two of these resolve to different origins, one tile server has been addressed in
     // several places — and an unset PUBLIC_ base does not error, it silently becomes same-origin.
-    const templates = (["relief", "terrain", "countries"] as const).map((layer) =>
+    const templates = (["relief", "terrain", "vector"] as const).map((layer) =>
       tileUrlTemplate("earth", layer),
     );
     for (const template of templates) expect(template.startsWith(TILE_BASE)).toBe(true);

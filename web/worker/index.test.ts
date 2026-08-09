@@ -293,7 +293,7 @@ describe("resolveRoute", () => {
 
   it("gives the countries archive its own key too", () => {
     expect(resolveRoute("/countries/0/0/0.mvt")?.published.objectKey).toBe(
-      archiveFor("earth", "countries").objectKey,
+      archiveFor("earth", "vector").objectKey,
     );
   });
 
@@ -511,10 +511,10 @@ describe("fetch — the addressed grammar", () => {
 
   it("keeps naming the object out of the registry when no var overrides it", () => {
     const route = resolveRoute(
-      `/${tilePathTemplate("earth", "countries").replace("{z}", "1").replace("{x}", "0").replace("{y}", "0")}`,
+      `/${tilePathTemplate("earth", "vector").replace("{z}", "1").replace("{x}", "0").replace("{y}", "0")}`,
       { ARCHIVE: null as never },
     );
-    expect(route?.published.objectKey).toBe(archiveFor("earth", "countries").objectKey);
+    expect(route?.published.objectKey).toBe(archiveFor("earth", "vector").objectKey);
   });
 });
 
@@ -538,7 +538,7 @@ describe("the archive keys live in ONE place", () => {
   });
 
   it("resolves every published archive from the registry instead", () => {
-    for (const layer of ["relief", "terrain", "countries"] as const) {
+    for (const layer of ["relief", "terrain", "vector"] as const) {
       expect(archiveFor("earth", layer).objectKey).toMatch(/\.pmtiles$/);
     }
   });

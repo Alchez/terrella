@@ -174,7 +174,7 @@ function openArchive(
 const VALIDATE_TILE_TYPE: Record<LayerId, (extension: string) => string | null> = {
   relief: describeTileTypeMismatch,
   terrain: describeTerrainTileTypeMismatch,
-  countries: describeVectorTileTypeMismatch,
+  vector: describeVectorTileTypeMismatch,
 };
 
 /** Header checks for one body's cut of one layer, THROWING where the Worker logs and 404s.

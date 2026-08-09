@@ -4323,6 +4323,27 @@ SABOTAGES: list[Sabotage] = [
         replacement='      objectKey: "planet-v2.pmtiles",',
         guard='never puts two raster pyramids in one archive',
     ),
+    # The rename's compatibility half, which is temporary and therefore the half nobody re-reads.
+    # Dropping it does not break a type or a current URL — it breaks every page a visitor already
+    # has open, whose tile URLs are `immutable` for a year and still spell the old word.
+    Sabotage(
+        suite='web',
+        label='the retired layer word stops resolving, blanking every page built before the rename',
+        path='web/src/lib/tileAddress.ts',
+        needle='const RENAMED_LAYER_WORDS: Record<string, LayerId | undefined> = { countries: "vector" };',
+        replacement='const RENAMED_LAYER_WORDS: Record<string, LayerId | undefined> = {};',
+        guard='resolves the old word to exactly the tile the new word resolves to',
+    ),
+    # The alias's only exit condition. Without the signal it is never safe to delete, so it stays
+    # forever — and a temporary branch nobody can retire is the shape this repo bans.
+    Sabotage(
+        suite='web',
+        label='the pre-rename word is served silently, with no signal for when the alias can go',
+        path='web/src/lib/tileAddress.ts',
+        needle='  return TILE_PATH_PATTERN.exec(pathname)?.[2] ?? null;',
+        replacement='  return null;',
+        guard='reports the word a path SPELLED, which is the only signal for when the alias can go',
+    ),
     # The source-layer names, which must agree across a language seam no type system crosses. This
     # mutation edits TYPESCRIPT and the PYTHON suite has to go red — before the cross-language pin
     # existed, each side compared its own constants against its own literals, so renaming a layer
