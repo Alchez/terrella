@@ -481,10 +481,11 @@ second body, Earth-only and Earth byte-identical throughout, landed before any M
 - **Phase 2 — pick a ceiling and cut. DONE, and judged on the globe.** The source's answer is
   measured (§ The zoom ceiling) and the sphere has now given its own.
 - **Phase 3 — vectors and the product model.** One commit per layer. Mars has no Natural Earth, so
-  it opened with a source scout rather than with code; the gazetteer is now acquired, folded onto one
-  longitude window, and cut to a four-layer pyramid that nothing serves yet. Still ahead: the
-  registry entry that publishes it, then labels, then hit-testing, then the geologic units that
-  answer for the ground no name reaches.
+  it opened with a source scout rather than with code; the gazetteer is acquired, folded onto one
+  longitude window, cut to a four-layer pyramid, and published — the globe draws its regions, rims
+  and valles off the registry like any other pyramid. Still ahead: labels, which need a `diameter`
+  declutter rule before 1,717 names can go up at once; then hit-testing; then the geologic units
+  that answer for the ground no name reaches.
 - **Phase 4 — heroes**, if they are wanted at all.
 
 Phase 1 cost roughly **15–22 GB** all-in, against a disk with several hundred GB free. The

@@ -32,8 +32,9 @@ Grouped by body, because the two planets are built from different data under dif
 
 | [Geologic Map of Mars (SIM 3292)](https://pubs.usgs.gov/sim/3292/) | where the permanent polar ice is — the mapped units the ice layer is drawn from | Read at the product: `Access_Constraints: None`, `Use_Constraints: please cite authors.` The one Mars source with a stated obligation, and it is an exact-string one |
 | [Viking Global Color Mosaic 925m](https://astrogeology.usgs.gov/search/map/mars_viking_colorized_global_mosaic_925m) | how bright each part of the ice is, which grades the white; and the hue the land ramp is measured against | Read at the product's own constraint fields: `Access Constraints: public domain`, `Use Constraints: None` — credited by courtesy, since no constraint requires it |
+| [IAU/USGS Gazetteer of Planetary Nomenclature — Mars geometries](https://planetarynames.wr.usgs.gov/) | every named feature the globe draws and a visitor can point at — 1,717 areal and 203 linear | Read at the product, in the archive's own FGDC record: `useconst: Public domain.`, `distliab: none`. `download_nomenclature.assert_licence` re-reads that field on every acquisition, so a republished archive with different terms stops the pipeline rather than flowing into a CC BY-SA 4.0 site unnoticed |
 
-Mars has three sources and no others are used. There is no bathymetry, no glacier, no sea-ice and no boundary dataset, because none of those exist as a Mars product we ship. The polar white is the one surface layer Mars declares: it is not a snow product but a mapped permanent cap, graded by brightness.
+Mars has four sources and no others are used. There is no bathymetry, no glacier, no sea-ice and no boundary dataset, because none of those exist as a Mars product we ship. The polar white is the one surface layer Mars declares: it is not a snow product but a mapped permanent cap, graded by brightness; the gazetteer is the only vector source, and it names features rather than dividing territory.
 
 #### The share-alike finding, which contradicts an earlier reading and is answered by taking the strict one
 

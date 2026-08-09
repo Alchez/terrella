@@ -34,7 +34,7 @@ export const COUNTRIES_MIN_ZOOM = 0;
  *  own ceiling there is no more detail to disagree with.
  *
  *  EARTH'S, THOUGH THE COUPLING IT DESCRIBES IS EVERY BODY'S. The per-planet answer is
- *  `PUBLISHED[body].countries` in tileAddress.ts, and each planet's relief stops where its own
+ *  `PUBLISHED[body].vector` in tileAddress.ts, and each planet's relief stops where its own
  *  source data runs out — so "matches the relief ceiling" resolves to a different number per
  *  planet, while this constant cannot.
  *

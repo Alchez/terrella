@@ -171,7 +171,7 @@ export interface BodyDescriptor {
    *
    *  NOT ANSWERABLE FROM THE TILE REGISTRY, which is why it is here. The overlay is Natural Earth
    *  `boundary_lines.geojson` fetched from `BORDERS_BASE`, a plain GeoJSON in its own store — a
-   *  different product from the countries MVT pyramid that `PUBLISHED[body].countries` covers, and
+   *  different product from the countries MVT pyramid that `PUBLISHED[body].vector` covers, and
    *  a body could plausibly publish either without the other.
    *
    *  It is also the only one of these three with no coherence partner: borders need no pyramid and

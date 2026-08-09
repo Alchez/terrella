@@ -48,11 +48,16 @@ from typing import Any
 from pipeline import bodies
 from pipeline.compose import features_geojson, vector_layers
 
-OUT_DIR = features_geojson.OUT_DIR
+#: One stage name per LAYER, under each body's own prefix — the convention `devStores.archivePath`
+#: rests on, so Mars's vector cut and Earth's land in directories that differ only by planet.
+OUT_DIR = bodies.work_dir(bodies.MARS, "planet_vector")
 
-OUTLINES = OUT_DIR / "feature_outlines.geojson"
+#: Derived, not acquired, so it lands beside the polygons it is derived FROM rather than beside the
+#: archive it feeds — `derive` compares the two mtimes and a split across directories would not
+#: change that, but the geojsons are one stage's output and belong together.
+OUTLINES = features_geojson.OUT_DIR / "feature_outlines.geojson"
 STAGED = OUT_DIR / "features_staged.gpkg"
-OUT = OUT_DIR / "features.pmtiles"
+OUT = OUT_DIR / "vector.pmtiles"
 
 # Layer names inside the archive. The frontend reads these as MapLibre `source-layer` values, and a
 # mismatch renders the layer empty with no error — so both ends are pinned by test.

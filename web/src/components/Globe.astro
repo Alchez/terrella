@@ -465,6 +465,10 @@ import { REPO_URL } from "../lib/siteLinks";
   // stylesheet is linked non-blocking from this page's frontmatter; see the note beside that link.
   import { manifest, type Country } from "../lib/manifest";
   import { BORDERS_BASE, HERO_BASE, TILE_BASE } from "../lib/assetBase";
+  // The registry itself, for the one thing an ADDRESS cannot carry: the zoom range the archive was
+  // cut to, which its source has to declare so MapLibre overzooms rather than requesting tiles
+  // nobody packed. Earth's equivalent still reads constants — see featureOverlay.ts.
+  import { PUBLISHED } from "../lib/tileAddress";
   import { reliefBaseTilesSource, reliefTilesSource } from "../lib/reliefSources";
   // The ONE static exemption for the instrument, and it is fifteen lines: the entry buffer has to be
   // raised ahead of `new maplibregl.Map`, which no dynamic import can promise. Everything else that
@@ -552,6 +556,7 @@ import { REPO_URL } from "../lib/siteLinks";
     highlightLayers,
     hitLayer,
   } from "../lib/countryHighlight";
+  import { FEATURES_SOURCE, featureFillLayer, featureTilesSource } from "../lib/featureOverlay";
   import { createHoverTracker } from "../lib/hoverTracking";
   import { createRailToggle, joinRailGroup } from "../lib/railControls";
   import { createQuietMode } from "../lib/quietMode";
@@ -718,7 +723,10 @@ import { REPO_URL } from "../lib/siteLinks";
   const {
     relief: reliefTileUrlTemplate,
     terrain: terrainTileUrlTemplate,
-    vector: countriesTileUrlTemplate,
+    // ONE ADDRESS FOR EVERY BODY'S VECTORS, because the URL names the ROLE. Which product arrives
+    // at it is `subsystems.vectorProduct`'s answer, and the two gates below are the only place that
+    // distinction reaches — a second variable here would be the same pyramid under two names.
+    vector: vectorTileUrlTemplate,
   } = globeTileAddresses(body.slug, subsystems);
 
   // Both relief sources draw the one archive this body publishes, and both take their zoom range
@@ -1794,12 +1802,33 @@ import { REPO_URL } from "../lib/siteLinks";
     // type-checker cannot reconstruct it across a closure at all. Unreachable by construction and
     // worth writing anyway: it is what a future second caller meets instead of a `null` reaching
     // MapLibre, which accepts it and then requests `/null/{z}/{x}/{y}` forever.
-    if (countriesTileUrlTemplate === null) {
+    if (vectorTileUrlTemplate === null) {
       throw new Error(`${body.slug} publishes no countries pyramid — nothing to add`);
     }
-    map.addSource(COUNTRIES_SOURCE, countryTilesSource(countriesTileUrlTemplate));
+    map.addSource(COUNTRIES_SOURCE, countryTilesSource(vectorTileUrlTemplate));
     // Invisible except on hover; a warm silhouette wash so the whole landmass lights up.
     map.addLayer(fillLayer(inScopeFilter, VECTOR_BINDING.fill));
+  }
+
+  /** MARS's named features — one source and the invisible fill a tap will land on.
+   *
+   *  The whole overlay in one call, unlike Earth's three, and the reason is what Earth's three are
+   *  for: theirs are split so `addBorders` can land BETWEEN them. Mars publishes no borders, so
+   *  there is nothing to interleave and a split would be entry points holding one order.
+   *
+   *  Nothing here paints — see featureOverlay.ts for why a vector pyramid is interaction data on
+   *  this globe rather than first-paint content. The fill is drapeable, so this adds no
+   *  render-to-texture stack; `addCountryHitTargets` records what that costs when it is not true. */
+  function addFeatureOverlay() {
+    const archive = PUBLISHED[body.slug].vector;
+    // Same precondition as `addCountryTiles`, stated where it is required rather than left to the
+    // caller's gate — a null template reaches MapLibre, which accepts it and then requests
+    // `/null/{z}/{x}/{y}` forever.
+    if (vectorTileUrlTemplate === null || archive === null) {
+      throw new Error(`${body.slug} publishes no vector pyramid — nothing to add`);
+    }
+    map.addSource(FEATURES_SOURCE, featureTilesSource(vectorTileUrlTemplate, archive));
+    map.addLayer(featureFillLayer());
   }
 
   /**
@@ -2044,7 +2073,7 @@ import { REPO_URL } from "../lib/siteLinks";
     map.setSky(skySpec(bodyAtmosphere, skyRamp, pitch));
   });
 
-  // Country polygons (hover/click hit-testing, highlight, island markers) are interaction data,
+  // Vector polygons (hover/click hit-testing, highlight, island markers) are interaction data,
   // not first-paint content — deferred to the first idle so nothing about them competes with the
   // tiles for the loading window. Degrades gracefully by construction: a click before they land
   // finds no country. Borders toggled on in that gap land above where the highlight will sit — the
@@ -2054,7 +2083,12 @@ import { REPO_URL } from "../lib/siteLinks";
   // having changed. Borders are their own GeoJSON download rather than part of the countries
   // pyramid, so a body could have one without the other; that is why each call asks its own
   // question instead of all four riding a single condition.
-  if (subsystems.countries || subsystems.borders) {
+  //
+  // THE PRODUCT PICKS THE STACK, one branch per member of `VectorProduct`. Nothing here can be
+  // typed exhaustive — these are gates inside an ordered run, not a returning switch — so what
+  // holds it is `globeSubsystems.test.ts` reading this source for every product the registry can
+  // hand it. A member with no branch is an idle that adds nothing and reports nothing.
+  if (subsystems.vectorProduct !== null || subsystems.borders) {
     map.once("idle", () => {
       // Spans the whole construction run, not each call: MapLibre does the work when the source
       // and layers are added, and splitting it four ways would price the caller rather than the
@@ -2064,12 +2098,14 @@ import { REPO_URL } from "../lib/siteLinks";
       // source by position, so a second ordered run would be indistinguishable from the order
       // having changed.
       const endLayers = beginSpan("countries:layers");
-      if (subsystems.countries) addCountryTiles(); // source + fill, under the borders
+      const countries = subsystems.vectorProduct === "countries";
+      if (countries) addCountryTiles(); // source + fill, under the borders
       if (subsystems.borders && bordersOn()) addBorders(); // opted-in only — default globe skips it
-      if (subsystems.countries) addCountryHighlight(); // hover outline, on top so the edge is crisp
+      if (countries) addCountryHighlight(); // hover outline, on top so the edge is crisp
+      if (subsystems.vectorProduct === "features") addFeatureOverlay();
       // LAST, always. Everything above is drapeable (fill, line); this circle is not, so putting
       // it here ends the drape run rather than splitting it. See addCountryHitTargets.
-      if (subsystems.countries) addCountryHitTargets();
+      if (countries) addCountryHitTargets();
       endLayers();
     });
   }

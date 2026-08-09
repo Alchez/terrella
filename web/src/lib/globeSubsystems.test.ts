@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { globeSubsystems, globeTileAddresses, type GlobeSubsystems } from "./globeSubsystems";
 import { BODIES, type BodySlug } from "./bodies";
 import { PUBLISHED } from "./tileAddress";
-import { sourceLayer } from "./sourceLayers";
+import { VECTOR_PRODUCT, sourceLayer, type VectorProduct } from "./sourceLayers";
 
 /**
  * The claim under test is C5's whole point: a body that publishes only relief and a visitor asking
@@ -14,7 +14,7 @@ import { sourceLayer } from "./sourceLayers";
  */
 const ALL_BODIES = Object.keys(BODIES) as BodySlug[];
 const NO_FLAGS = new URLSearchParams();
-const OVERLAYS = ["polarCaps", "countries", "borders", "heroes"] as const;
+const OVERLAYS = ["polarCaps", "borders", "heroes"] as const;
 
 /** Flag combinations a visitor can actually produce, including the nonsense ones. */
 const FLAG_SETS = ["", "bare", "nocaps", "bare&nocaps", "terrain=2", "bare&terrain=2", "perf"];
@@ -24,21 +24,25 @@ describe("what a body's globe draws", () => {
     expect(globeSubsystems("earth", NO_FLAGS)).toEqual({
       polarCaps: true,
       terrain: true,
-      countries: true,
+      vectorProduct: "countries",
       borders: true,
       heroes: true,
     } satisfies GlobeSubsystems);
   });
 
-  it("gives a body with no vectors its raster and its caps, and nothing else", () => {
-    // The caps are not an exception to "nothing else" — they are the projection's repair rather
-    // than a layer over it. Web Mercator carries no data past ~85°, so a globe without them draws
-    // `shade_planet.CAP_RGB` at both poles: a flat pale disc, tested on Earth and rejected. What
-    // Mars still declines is everything that needs a second dataset — terrain, vectors, heroes.
+  it("gives a body its own vector product rather than the one Earth publishes", () => {
+    // The caps are not an exception — they are the projection's repair rather than a layer over it.
+    // Web Mercator carries no data past ~85°, so a globe without them draws `shade_planet.CAP_RGB`
+    // at both poles: a flat pale disc, tested on Earth and rejected.
+    //
+    // `vectorProduct` is the field this case exists for now that Mars publishes vectors. It read
+    // `countries: false` while Mars published nothing, which was true and proved nothing about the
+    // question — whether a second body's overlay can be told apart from Earth's. It can, and a
+    // boolean could not have said so.
     expect(globeSubsystems("mars", NO_FLAGS)).toEqual({
       polarCaps: true,
       terrain: false,
-      countries: false,
+      vectorProduct: "features",
       borders: false,
       heroes: false,
     } satisfies GlobeSubsystems);
@@ -54,10 +58,14 @@ describe("what a body's globe draws", () => {
     // the registry to keep disagreeing about it would be asking a planet to keep a hole at its pole
     // to satisfy a test. What still gates it per visit is `?bare` and `?nocaps`, below.
     const answers = ALL_BODIES.map((body) => globeSubsystems(body, NO_FLAGS));
-    for (const subsystem of ["terrain", "countries", "borders", "heroes"] as const) {
+    for (const subsystem of ["terrain", "borders", "heroes"] as const) {
       const given = new Set(answers.map((answer) => answer[subsystem]));
       expect(given, `every body answers the same for ${subsystem}`).toEqual(new Set([true, false]));
     }
+    // Its own assertion because it is no longer a boolean: what has to differ is WHICH product,
+    // and a set of size two is the same claim the loop above makes.
+    const products = new Set(answers.map((answer) => answer.vectorProduct));
+    expect(products.size, "every body draws the same vector product").toBe(ALL_BODIES.length);
   });
 });
 
@@ -77,6 +85,10 @@ describe("?bare strips a globe to the raster baseline, on every body", () => {
       for (const overlay of OVERLAYS) {
         expect(bare[overlay], `?bare ${body} still draws ${overlay}`).toBe(false);
       }
+      // The vector overlay says the same thing in its own type. It left `OVERLAYS` when it stopped
+      // being a boolean, and asserting it here rather than dropping it is the difference between
+      // "?bare strips the overlays" and "?bare strips the overlays that are still booleans".
+      expect(bare.vectorProduct, `?bare ${body} still draws vectors`).toBeNull();
     }
   });
 
@@ -88,17 +100,21 @@ describe("?bare strips a globe to the raster baseline, on every body", () => {
 });
 
 describe("the tile addresses a globe draws from", () => {
-  it("resolves for a body that publishes only relief, instead of throwing at page load", () => {
-    // THE DEFECT THIS COMMIT CLOSES, and the reason it is worth a test rather than a read-through:
+  it("resolves for a body missing a pyramid, instead of throwing at page load", () => {
+    // THE DEFECT THIS CLOSES, and the reason it is worth a test rather than a read-through:
     // building an address for an unpublished layer throws, the page did it at module scope, and the
-    // result was a blank globe with one console line. It was invisible because nothing loads a Mars
-    // globe — and it stays invisible until C6 unless the address is a function something can call.
+    // result was a blank globe with one console line. Terrain is the layer carrying the case now —
+    // Mars publishes relief and vectors and no DEM-derived heights, so the mixed body is still the
+    // one under test rather than a planet that answers null to everything.
     const drawn = globeSubsystems("mars", NO_FLAGS);
     expect(() => globeTileAddresses("mars", drawn)).not.toThrow();
     const addresses = globeTileAddresses("mars", drawn);
     expect(addresses.relief).toContain("mars/relief");
     expect(addresses.terrain).toBeNull();
-    expect(addresses.vector).toBeNull();
+    // THE ROLE, not the product: Mars's archive holds features and its URL still says `vector`,
+    // which is the whole point of the segment naming a role. A path spelling `mars/features` here
+    // would mean the address grammar had grown a per-body case.
+    expect(addresses.vector).toContain("mars/vector");
   });
 
   it("gives Earth all three, so the case above is not passing on a body with nothing to build", () => {
@@ -130,27 +146,48 @@ describe("the registry is the only thing that can switch a subsystem ON", () => 
         const drawn = globeSubsystems(body, new URLSearchParams(flags));
         const where = `${body} ?${flags}`;
         if (drawn.terrain) expect(PUBLISHED[body].terrain, where).not.toBeNull();
-        if (drawn.countries) expect(PUBLISHED[body].vector, where).not.toBeNull();
+        if (drawn.vectorProduct !== null) expect(PUBLISHED[body].vector, where).not.toBeNull();
       }
     }
   });
 
-  it("turns the COUNTRY overlay on only where the archive actually holds country layers", () => {
-    // A FORCING FUNCTION, and it is expected to go red. `drawn.countries` is derived from
-    // `PUBLISHED[body].vector`, so the moment a second body publishes a vector archive this flag
-    // turns true for it and the globe adds style layers naming `country_fill` — which that archive
-    // does not contain. MapLibre paints an unmatched `source-layer` as EMPTY, no error, no warning,
-    // so the symptom would be a globe that silently draws nothing over Mars.
+  it("names a product the body's own archive holds, never another planet's", () => {
+    // WHAT THE PLANTED FORCING FUNCTION ASKED FOR, kept as a guard rather than retired with it.
+    // The flag it replaced was a boolean derived from `PUBLISHED[body].vector` alone, so Mars
+    // publishing an archive turned Earth's country overlay on for Mars — style layers naming
+    // `country_fill` over tiles that hold `feature_fill`. MapLibre paints an unmatched
+    // `source-layer` as EMPTY: no error, no warning, no network difference.
     //
-    // Whoever makes this fail owns the decision it is asking for: either the overlay becomes
-    // per-body, or the flag stops being derived from the vector archive alone.
+    // The claim is not tautological even though both sides live in sourceLayers.ts: `VECTOR_PRODUCT`
+    // and `SOURCE_LAYERS` are two independent records, and this is what stops one being edited
+    // without the other. `test_source_layers.py` pins the second to the Python that cuts it.
+    const fillFor: Record<VectorProduct, string> = {
+      countries: "country_fill",
+      features: "feature_fill",
+    };
     for (const body of ALL_BODIES) {
       for (const flags of FLAG_SETS) {
-        const drawn = globeSubsystems(body, new URLSearchParams(flags));
-        if (drawn.countries) {
-          expect(sourceLayer(body, "fill"), `${body} ?${flags}`).toBe("country_fill");
-        }
+        const product = globeSubsystems(body, new URLSearchParams(flags)).vectorProduct;
+        if (product === null) continue;
+        expect(sourceLayer(body, "fill"), `${body} ?${flags}`).toBe(fillFor[product]);
       }
+    }
+  });
+
+  it("has a globe branch for every product the registry can hand it", () => {
+    // The failure the `if` chain in Globe.astro cannot be typed against: a third `VectorProduct`
+    // added to the registry, published by some body, and gated nowhere. The idle block then adds a
+    // source and no layers — a globe that draws nothing and reports nothing, which is the same
+    // symptom as a wrong source-layer and just as silent.
+    //
+    // A source scan is the weakest kind of guard and the only kind available: these gates live in a
+    // page's client script that nothing can import. It buys the case that actually happens, which
+    // is a member added here and forgotten there.
+    const globe = readFileSync(new URL("../components/Globe.astro", import.meta.url), "utf8");
+    for (const product of Object.values(VECTOR_PRODUCT)) {
+      expect(globe, `no globe branch draws the ${product} overlay`).toContain(
+        `vectorProduct === "${product}"`,
+      );
     }
   });
 
@@ -161,7 +198,7 @@ describe("the registry is the only thing that can switch a subsystem ON", () => 
     for (const body of ALL_BODIES) {
       for (const flags of FLAG_SETS) {
         const drawn = globeSubsystems(body, new URLSearchParams(flags));
-        if (drawn.heroes) expect(drawn.countries, `${body} ?${flags}`).toBe(true);
+        if (drawn.heroes) expect(drawn.vectorProduct, `${body} ?${flags}`).toBe("countries");
       }
     }
   });
@@ -201,7 +238,7 @@ describe("the registry is the only thing that can switch a subsystem ON", () => 
     const plain = globeSubsystems("earth", NO_FLAGS);
     const nocaps = globeSubsystems("earth", new URLSearchParams("nocaps"));
     expect(nocaps.polarCaps).toBe(false);
-    for (const subsystem of ["terrain", "countries", "borders", "heroes"] as const) {
+    for (const subsystem of ["terrain", "vectorProduct", "borders", "heroes"] as const) {
       expect(nocaps[subsystem], `?nocaps changed ${subsystem}`).toBe(plain[subsystem]);
     }
   });

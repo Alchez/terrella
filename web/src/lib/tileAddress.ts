@@ -239,7 +239,23 @@ export const PUBLISHED: Record<BodySlug, Record<LayerId, PublishedArchive | null
       maxZoom: 7,
     },
     terrain: null,
-    vector: null,
+    vector: {
+      objectKey: "mars/features-v1.pmtiles",
+      token: TOKENS.mars.vector.token,
+      indexLeaves: TOKENS.mars.vector.indexLeaves,
+      // THE PRODUCT NAMES THE OBJECT, THE ROLE NAMES THE URL. Earth's key says `countries` and this
+      // one says `features` because an R2 key is a permanent statement about which bytes these are,
+      // and the two archives hold different products under one role.
+      zoomConstants:
+        "minZoom/maxZoom in PUBLISHED.mars.vector, restating MIN_ZOOM/MAX_ZOOM in "
+        + "pipeline/compose/features_pmtiles.py",
+      minZoom: 0,
+      // THE SAME CEILING AS MARS'S RELIEF, AND THE CUTTER DERIVES IT RATHER THAN RESTATING IT:
+      // `features_pmtiles.MAX_ZOOM` reads `MARS.tile_max_zoom`, so an outline can never stop short
+      // of the raster it is judged against. The literal here is what `_pipeline_zoom_range` compares
+      // that cut against, which is why it is written out rather than shared with the relief entry.
+      maxZoom: 7,
+    },
   },
 };
 

@@ -1,6 +1,7 @@
 import { BODIES, type BodySlug } from "./bodies";
 import { PUBLISHED } from "./tileAddress";
 import { tileUrlTemplate } from "./assetBase";
+import { VECTOR_PRODUCT, type VectorProduct } from "./sourceLayers";
 
 /**
  * What one body's globe draws, beyond the relief raster every globe draws.
@@ -34,20 +35,22 @@ export interface GlobeSubsystems {
   /** The terrain-RGB displacement layer. Publishing the pyramid is necessary but not sufficient —
    *  the tier ladder and `?terrain=` still decide whether it is switched on for this visit. */
   terrain: boolean;
-  /** EARTH'S country overlay drawn off the vector pyramid: hit-testing, the hover chip, the
-   *  highlight outline.
+  /** Which vector overlay this globe draws, or null where it draws none.
    *
-   *  Still spelled for the product rather than the role, unlike the `vector` LAYER it reads, and
-   *  the distinction is real: what these style layers name inside a tile is `country_fill` and its
-   *  two siblings, which no other body's archive holds. A second body's vector overlay is a
-   *  different subsystem, not this one under a wider name. */
-  countries: boolean;
+   *  NOT A BOOLEAN, AND THAT IS THE SECOND BODY'S DOING. This was `countries`, derived from
+   *  `PUBLISHED[body].vector` alone — which read correctly while Earth was the only planet cutting
+   *  vectors and inverted the moment Mars published: the flag turned true for Mars and the globe
+   *  would have added style layers naming `country_fill`, a name Mars's archive does not hold.
+   *  MapLibre paints an unmatched `source-layer` as EMPTY, so the symptom is a globe that draws
+   *  nothing and reports nothing. The archive says which product is in it; this passes that answer
+   *  through to the one place that has to branch on it. */
+  vectorProduct: VectorProduct | null;
   /** The white boundary overlay, which is its own GeoJSON download rather than part of the
    *  vector pyramid — hence its own answer, and not one derived from `countries`. */
   borders: boolean;
-  /** The in-globe hero panel a country click opens. Requires `countries`, since a click is
-   *  hit-tested against that pyramid and there is no other route into the panel; the registry holds
-   *  that rule, and `bodies.test.ts` enforces it. */
+  /** The in-globe hero panel a country click opens. Requires the `countries` product, since a click
+   *  is hit-tested against that pyramid and there is no other route into the panel; the registry
+   *  holds that rule, and `bodies.test.ts` enforces it. */
   heroes: boolean;
 }
 
@@ -67,7 +70,7 @@ export function globeSubsystems(body: BodySlug, flags: URLSearchParams): GlobeSu
     // the black-disc-on-context-restore bug was cornered.
     polarCaps: descriptor.rendersPolarCaps && !bare && !flags.has("nocaps"),
     terrain: published.terrain !== null,
-    countries: published.vector !== null && !bare,
+    vectorProduct: published.vector !== null && !bare ? VECTOR_PRODUCT[body] : null,
     borders: descriptor.hasBorders && !bare,
     heroes: descriptor.hasHeroes && !bare,
   };
@@ -97,6 +100,6 @@ export function globeTileAddresses(body: BodySlug, drawn: GlobeSubsystems): Glob
   return {
     relief: tileUrlTemplate(body, "relief"),
     terrain: drawn.terrain ? tileUrlTemplate(body, "terrain") : null,
-    vector: drawn.countries ? tileUrlTemplate(body, "vector") : null,
+    vector: drawn.vectorProduct !== null ? tileUrlTemplate(body, "vector") : null,
   };
 }

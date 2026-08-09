@@ -1451,11 +1451,11 @@ SABOTAGES: list[Sabotage] = [
         label='country-hit moves back above the highlight layers, costing a third drape stack',
         path='web/src/components/Globe.astro',
         needle=(
-            '      if (subsystems.countries) addCountryHighlight(); // hover outline, on top so the edge is crisp\n'
+            '      if (countries) addCountryHighlight(); // hover outline, on top so the edge is crisp\n'
         ),
         replacement=(
-            '      if (subsystems.countries) addCountryHitTargets();\n'
-            '      if (subsystems.countries) addCountryHighlight(); // hover outline, on top so the edge is crisp\n'
+            '      if (countries) addCountryHitTargets();\n'
+            '      if (countries) addCountryHighlight(); // hover outline, on top so the edge is crisp\n'
         ),
         guard='matches what the globe actually adds last',
     ),
@@ -3754,7 +3754,7 @@ SABOTAGES: list[Sabotage] = [
         path='web/src/lib/globeSubsystems.ts',
         needle='    terrain: drawn.terrain ? tileUrlTemplate(body, "terrain") : null,',
         replacement='    terrain: tileUrlTemplate(body, "terrain"),',
-        guard='resolves for a body that publishes only relief, instead of throwing at page load',
+        guard='resolves for a body missing a pyramid, instead of throwing at page load',
     ),
     Sabotage(
         suite='web',
@@ -4356,6 +4356,111 @@ SABOTAGES: list[Sabotage] = [
         needle='    fill: "country_fill",',
         replacement='    fill: "country_fills",',
         guard='test_every_role_matches_the_producer',
+    ),
+    # One level up from the layer names: which PRODUCT a body publishes. Every name below can be
+    # right while this word is wrong, and the frontend branches on this word to pick a style stack —
+    # so the failure is Earth's manifest-filtered, hit-tested country layers pointed at Mars's tiles.
+    Sabotage(
+        suite='python',
+        label="Mars is declared to publish Earth's product, with every layer name still correct",
+        path='web/src/lib/sourceLayers.ts',
+        needle='  mars: "features",',
+        replacement='  mars: "countries",',
+        guard='test_each_body_is_declared_to_publish_the_product_its_cutter_makes',
+    ),
+    # The half that makes the record above evidence rather than a third copy — and the stage name
+    # the dev server DERIVES an archive's path from, so a cutter writing elsewhere serves a 500 that
+    # reads as "the pipeline has not been run".
+    Sabotage(
+        suite='python',
+        label="Mars's vector cut goes back to writing beside its GeoJSONs",
+        path='pipeline/compose/features_pmtiles.py',
+        needle='OUT_DIR = bodies.work_dir(bodies.MARS, "planet_vector")',
+        replacement='OUT_DIR = features_geojson.OUT_DIR',
+        guard='test_each_cutter_writes_into_the_body_it_serves',
+    ),
+    # The gate that picks a style stack, mutated to Earth's answer for every planet. No type breaks:
+    # both sides of the ternary are a `VectorProduct`, and what ships is `country_fill` layers over
+    # an archive that holds `feature_fill` — which MapLibre paints as empty, silently.
+    Sabotage(
+        suite='web',
+        label='every body is handed the countries product, whatever its archive holds',
+        path='web/src/lib/globeSubsystems.ts',
+        needle='published.vector !== null && !bare ? VECTOR_PRODUCT[body] : null,',
+        replacement='published.vector !== null && !bare ? "countries" : null,',
+        guard="names a product the body's own archive holds, never another planet's",
+    ),
+    # THE CONSENT GATE, and it is the only guard in this table that does not ask whether the code is
+    # correct. Mars shipped a permanently painted overlay nobody had seen while every correctness
+    # guard was green — so these four break it the four ways it can be broken: a layer added without
+    # a ledger entry, a ledger entry outliving its layer, a paint claim downgraded without touching
+    # the paint, and the scan itself blinded.
+    Sabotage(
+        suite='web',
+        label='a painted layer is added to the globe with nobody told',
+        path='web/src/components/Globe.astro',
+        needle='    map.addLayer(featureFillLayer());\n',
+        replacement=(
+            '    map.addLayer(featureFillLayer());\n'
+            '    map.addLayer({ id: "feature-glow", type: "line", source: FEATURES_SOURCE,\n'
+            '      paint: { "line-color": "#ff0000", "line-opacity": 1 } });\n'
+        ),
+        guard='names every literal-id layer in the ledger, and ledgers no layer that does not exist',
+    ),
+    Sabotage(
+        suite='web',
+        label='the ledger keeps describing a layer the globe stopped adding',
+        path='web/src/lib/countryHighlight.ts',
+        needle='    id: "country-hit",',
+        replacement='    id: "country-hit-renamed",',
+        guard='names every literal-id layer in the ledger, and ledgers no layer that does not exist',
+    ),
+    Sabotage(
+        suite='web',
+        label="a layer's paint claim is downgraded without touching what it paints",
+        path='web/src/lib/paintedLayers.ts',
+        needle='    timing: "never",\n    looks:\n      "nothing. Mars\'s named features',
+        replacement='    timing: "always",\n    looks:\n      "nothing. Mars\'s named features',
+        guard='checks every one of them, rather than whichever ones someone remembered',
+    ),
+    Sabotage(
+        suite='web',
+        label='the layer scan is blinded, which would make the whole consent gate vacuous',
+        path='web/src/lib/paintedLayers.test.ts',
+        needle=r'  String.raw`\bid:\s*([^,\n]+?),\s*\n?\s*type:\s*"(${TYPE_ALTERNATION})"`, "g",',
+        replacement=r'  String.raw`\bnothing_matches_this:\s*"(${TYPE_ALTERNATION})"`, "g",',
+        guard='finds layer specs at all, or everything below is vacuous',
+    ),
+    # The invisible layer's own guard. Nothing on a globe can tell a working opacity-0 fill from a
+    # deleted one, so the pin that it PAINTS NOTHING is the only thing standing between the ratified
+    # decision and a future edit that quietly re-paints Mars.
+    Sabotage(
+        suite='web',
+        label='the feature fill starts painting again, which no screenshot could distinguish',
+        path='web/src/lib/featureOverlay.ts',
+        needle='      "fill-opacity": 0,',
+        replacement='      "fill-opacity": 0.06,',
+        guard='paints nothing, and that is the ratified decision rather than an unfinished edit',
+    ),
+    # Earth's unpaid debt, not repeated on Mars: a source that reads a module constant agrees with
+    # the registry forever, so only a range belonging to no archive can tell the two apart.
+    Sabotage(
+        suite='web',
+        label="Mars's feature source reads a constant zoom range instead of its archive's",
+        path='web/src/lib/featureOverlay.ts',
+        needle='    minzoom: archive.minZoom,\n    maxzoom: archive.maxZoom,',
+        replacement='    minzoom: 0,\n    maxzoom: 7,',
+        guard='takes its zoom range from the archive it is handed, not from a module constant',
+    ),
+    # A product the registry can return and the globe has no branch for. The idle block then adds a
+    # source and no layers — the same silent nothing as a wrong source-layer, one gate earlier.
+    Sabotage(
+        suite='web',
+        label='the feature overlay loses its branch, leaving Mars a source with nothing over it',
+        path='web/src/components/Globe.astro',
+        needle='      if (subsystems.vectorProduct === "features") addFeatureOverlay();\n',
+        replacement='',
+        guard='has a globe branch for every product the registry can hand it',
     ),
     # The loudness the literal imports gave for free. A null reaching a style spec is `undefined`,
     # and MapLibre answers an unaddressable source-layer with an ErrorEvent and a RETURN.

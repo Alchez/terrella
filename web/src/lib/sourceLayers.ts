@@ -23,6 +23,31 @@ import type { BodySlug } from "./bodies";
  *  silently inherits. */
 export type VectorRole = "fill" | "outline" | "hit" | "line" | "label";
 
+/** What a body's vector archive is OF. The role says a layer fills; the product says what.
+ *
+ *  A SEPARATE QUESTION FROM `LayerId`, AND THIS IS THE ONE THE GLOBE ASKS. The URL segment, the
+ *  Worker route and the work-tree stage all spell the role — `vector` — because those three do the
+ *  same thing for every planet. What is NOT the same is the style stack drawn over the source:
+ *  Earth's is filtered to the hero manifest, hit-tested and hover-linked, and pointing it at Mars's
+ *  tiles would name layers that archive does not hold, which MapLibre paints as empty.
+ *
+ *  ONE FIELD RATHER THAN A BOOLEAN PER PRODUCT, so a third product is a `case` in the globe and a
+ *  member here, never a sixth subsystem flag that every existing body has to answer `false` to. */
+export type VectorProduct = "countries" | "features";
+
+/** Which product each body cuts into its vector archive.
+ *
+ *  Total over bodies rather than nullable, and it is a statement about the PLANET rather than about
+ *  what has been published: Mars's archive was `features` on the day it existed only as a plan.
+ *  Whether anything is drawn is `PUBLISHED[body].vector`'s answer, asked separately.
+ *
+ *  `tests/test_source_layers.py` pins each entry to the module that cuts it, so this cannot drift
+ *  from the layer names below — the two would otherwise be independent claims about one archive. */
+export const VECTOR_PRODUCT: Record<BodySlug, VectorProduct> = {
+  earth: "countries",
+  mars: "features",
+};
+
 /** Every body's answer for every role. `null` means "this archive has no such layer" and is a
  *  REQUIRED answer rather than an omission, so a new role cannot appear on every planet at once.
  *
