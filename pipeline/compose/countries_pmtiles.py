@@ -51,6 +51,13 @@ from pathlib import Path
 from typing import Any
 
 from pipeline import bodies, paths
+from pipeline.compose import vector_layers
+from pipeline.compose.vector_layers import polygon_parts_of
+
+#: What this cut carries into its derived layers. One key, and it is the join key: the frontend
+#: matches it against countries.json by name. See `vector_layers.carried` for why the first is the
+#: identity.
+CARRIED = ("ADMIN",)
 
 #: The CHECKOUT, not the data store, and it is read for exactly one thing: the frontend constant
 #: this module's max zoom is pinned against. Kept because `web/src/` follows the repo wherever the
@@ -89,48 +96,12 @@ SIMPLIFICATION_MAX_ZOOM = 0.5
 # translucent fill wash double-paints in the default tile-buffer overlap, worst near the pole.
 # Baked here because a vector source cannot set it at runtime.
 BUFFER = 0
-EXTENT = 4096
-
-
-def polygon_parts_of(geometry: dict[str, Any]) -> list[Any]:
-    """Every polygon PART of a geometry, whatever container Natural Earth wrapped it in.
-
-    SOLE HOME as of the GeoJSON arm's deletion. A TypeScript twin (`polygonPartsOf`) derived the
-    same two layers in the browser while that arm existed, so a bug here used to show up as the two
-    disagreeing. It cannot any more — tests/test_countries_pmtiles.py is the whole guard.
-
-    The GeometryCollection branch is not defensive coding. Natural Earth ships **Greenland** as a
-    collection of 129 polygons plus one stray LineString; the two inline copies this replaced both
-    returned nothing for it, so an in-scope country had a fill wash and a click but no hover
-    outline and no hit targets. `-nlt MULTIPOLYGON` does not fix it upstream — GDAL keeps the
-    collection precisely because the LineString cannot join a MultiPolygon.
-    """
-    kind = geometry["type"]
-    if kind == "MultiPolygon":
-        return list(geometry["coordinates"])
-    if kind == "Polygon":
-        return [geometry["coordinates"]]
-    if kind == "GeometryCollection":
-        return [part for member in geometry["geometries"] for part in polygon_parts_of(member)]
-    return []
+EXTENT = vector_layers.EXTENT
 
 
 def outlines_from(countries: dict[str, Any]) -> dict[str, Any]:
     """Country rings re-expressed as boundary LINES — outer coasts and inner holes alike."""
-    features: list[dict[str, Any]] = []
-    for feature in countries["features"]:
-        admin = feature["properties"].get("ADMIN")
-        if not isinstance(admin, str):
-            continue
-        rings = [ring for part in polygon_parts_of(feature["geometry"]) for ring in part]
-        if not rings:
-            continue
-        features.append({
-            "type": "Feature",
-            "properties": {"ADMIN": admin},
-            "geometry": {"type": "MultiLineString", "coordinates": rings},
-        })
-    return {"type": "FeatureCollection", "features": features}
+    return vector_layers.outlines_from(countries, CARRIED)
 
 
 def hit_points_from(countries: dict[str, Any]) -> dict[str, Any]:
@@ -164,33 +135,21 @@ def hit_points_from(countries: dict[str, Any]) -> dict[str, Any]:
 
 
 def stage_command(source: Path, destination: Path, layer: str, update: bool) -> list[str]:
-    """One layer into the staging GeoPackage.
-
-    A GPKG intermediate exists because the PMTiles driver **cannot append a layer** to an archive
-    it already wrote — `-update -append` fails with "cannot be created by the output driver". All
-    three layers therefore have to reach `ogr2ogr` as one multi-layer dataset.
-    """
-    return [
-        "ogr2ogr", "-f", "GPKG",
-        *(["-update"] if update else []),
-        str(destination), str(source),
-        "-nln", layer,
-    ]
+    """One layer into the staging GeoPackage. See `vector_layers.stage_command` for why it exists."""
+    return vector_layers.stage_command(source, destination, layer, update)
 
 
 def pmtiles_command(source: Path, destination: Path) -> list[str]:
     """The single conversion, exposed pure for tests. Argument order is [options] DEST SOURCE."""
-    return [
-        "ogr2ogr", "-f", "PMTiles",
-        str(destination), str(source),
-        "-dsco", f"MINZOOM={MIN_ZOOM}",
-        "-dsco", f"MAXZOOM={MAX_ZOOM}",
-        "-dsco", "NAME=countries",
-        "-dsco", f"BUFFER={BUFFER}",
-        "-dsco", f"EXTENT={EXTENT}",
-        "-dsco", f"SIMPLIFICATION={SIMPLIFICATION}",
-        "-dsco", f"SIMPLIFICATION_MAX_ZOOM={SIMPLIFICATION_MAX_ZOOM}",
-    ]
+    return vector_layers.pmtiles_command(
+        source, destination,
+        name="countries",
+        min_zoom=MIN_ZOOM,
+        max_zoom=MAX_ZOOM,
+        buffer=BUFFER,
+        simplification=SIMPLIFICATION,
+        simplification_max_zoom=SIMPLIFICATION_MAX_ZOOM,
+    )
 
 
 def recipe() -> dict[str, Any]:

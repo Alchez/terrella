@@ -480,8 +480,11 @@ second body, Earth-only and Earth byte-identical throughout, landed before any M
     PROCESS.md and INVENTORY.md, never here.
 - **Phase 2 — pick a ceiling and cut. DONE, and judged on the globe.** The source's answer is
   measured (§ The zoom ceiling) and the sphere has now given its own.
-- **Phase 3 — vectors and the product model.** One commit per layer: units, then labels, then
-  hit-testing. Mars has no Natural Earth, so this opens with a source scout rather than with code.
+- **Phase 3 — vectors and the product model.** One commit per layer. Mars has no Natural Earth, so
+  it opened with a source scout rather than with code; the gazetteer is now acquired, folded onto one
+  longitude window, and cut to a four-layer pyramid that nothing serves yet. Still ahead: the
+  registry entry that publishes it, then labels, then hit-testing, then the geologic units that
+  answer for the ground no name reaches.
 - **Phase 4 — heroes**, if they are wanted at all.
 
 Phase 1 cost roughly **15–22 GB** all-in, against a disk with several hundred GB free. The
@@ -596,8 +599,15 @@ Triaged by when each must be answered, because most of them cannot be answered e
 ## Vector sources, for Phase 3
 
 Two publishers, because the layer that draws and the layer that NAMES are different products. The
-gazetteer is acquired and pinned by `pipeline/acquire/download_nomenclature.py`; SIM 3292's geologic
-units are scouted only.
+gazetteer is acquired and pinned by `pipeline/acquire/download_nomenclature.py`, folded to one
+longitude window by `pipeline/compose/features_geojson.py` and cut to a four-layer pyramid by
+`pipeline/compose/features_pmtiles.py`; SIM 3292's geologic units are scouted only.
+
+**GDAL's MVT writer segfaults on the gazetteer polygons when no simplification is applied**, whether
+the option is omitted or set to 0. Earth's countries cut clean through the same code path with none,
+and neither the coordinate quantisation nor the circumpolar features nor the linear layer reproduces
+it — so on this body simplification is not a weight setting but the difference between an archive and
+no output, and both knobs are required arguments rather than defaulted ones.
 
 - **The names — IAU/USGS Gazetteer of Planetary Nomenclature.** Bucket `asc-planetarynames-data`,
   regenerated nightly. `MARS_nomenclature_center_pts.zip` is what the `GIS_Downloads` page offers;
@@ -631,9 +641,22 @@ units are scouted only.
   at most 17.3% summed disc area — an upper bound, since it double-counts overlap — against 6.2% for
   the 304 above 100 km. A 156x increase in features buys under 3x the coverage, and what it uniquely
   adds is the UNNAMED craters, which are the ones a panel has nothing to say about.
-- **Two hundred features carry 99.2% of all reachable coverage**, so the layer splits rather than
-  taking a cutoff: a couple of hundred large polygons for pointing, and the whole 1,717-name catalogue
-  as a search index, which is a few hundred KB and never geometry on screen.
+- **THE ARCHIVE CARRIES ALL 1,717, AND THE COVERAGE STATISTIC THAT ARGUED OTHERWISE WAS THE WRONG
+  INSTRUMENT.** Two hundred features do carry 99.2% of the union coverage, but that measure is
+  area-weighted, so it is settled entirely by a few enormous terrae — and rank 200 is a **394 km
+  diameter floor**, which deletes Gale (154 km) and Jezero (47.5 km) because between them they are a
+  hundredth of a percent of the sphere. It is also a whole-sphere number aimed at a zoom-addressed
+  layer: **1,198 of 1,717 features fall between 5 km and one z7 tile**, which is exactly what fills
+  the screen once a visitor is zoomed in and exactly what the metric cannot weigh. Measured, the
+  cutoff buys **54 KB** on the cold window (z0 71.8 KB whole against 17.9 KB cut), and the whole
+  catalogue is already lighter at z0 than Earth's countries are. Declutter is a runtime filter on
+  `diameter` — the reversible direction, since a style filter can narrow and an archive cannot widen
+  without a re-cut.
+  - The same area argument appears under the crater database above. **That rejection still stands**,
+    on the other reason recorded with it — what Robbins uniquely adds is the UNNAMED craters, which
+    a detail card has nothing to say about. Only the area half of it is weak.
+- **The whole 1,717-name catalogue still becomes a search index** — a few hundred KB, never geometry
+  on screen, and the one place the long tail pays for itself on a phone.
 - **Mars has no worldview problem at all.** No disputed segments, no de-facto-versus-claimed
   decision, nothing dashed. Every border policy this repo carries is Earth's alone.
 

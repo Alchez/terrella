@@ -2893,6 +2893,98 @@ SABOTAGES: list[Sabotage] = [
         replacement='    if False:',
         guard='test_longitudes_normalised_into_0_360_are_refused',
     ),
+    # --- the gazetteer fold, where every failure produces a map that looks finished ----------------
+    # THE FOLD IS THE WHOLE POINT OF THE STEP. The source draws seam-crossing features continuing
+    # past 360 rather than wrapping, so without this flag 1,044 features carry vertices outside the
+    # tile grid and the tiler clips them away — silently, leaving a map that renders perfectly and is
+    # missing half its named features.
+    Sabotage(
+        suite='python',
+        label='the gazetteer fold is dropped, so every seam-crossing feature is clipped away',
+        path='pipeline/compose/features_geojson.py',
+        needle='        "-wrapdateline",\n        "-lco", "RFC7946=YES",',
+        replacement='        "-lco", "RFC7946=YES",',
+        guard='test_wrapdateline_does_the_fold',
+    ),
+    # DECLARING THE ANGLES IS NOT THE SAME AS TRANSFORMING THEM, and PROJ only refuses the second
+    # while the source SRS still names Mars. Restore ESRI:104905 on the source side and a datum shift
+    # is computed between two different planets — coordinates that are plausible, wrong, and carry no
+    # error with them.
+    Sabotage(
+        suite='python',
+        label='the gazetteer is reprojected rather than relabelled, shifting Mars through an Earth datum',
+        path='pipeline/compose/features_geojson.py',
+        needle='"-s_srs", "EPSG:4326", "-t_srs", "EPSG:4326",',
+        replacement='"-s_srs", "ESRI:104905", "-t_srs", "EPSG:4326",',
+        guard='test_source_and_target_are_the_same_frame',
+    ),
+    # THE HALF THE FLAGS CANNOT EXPRESS. `-s_srs EPSG:4326` over a GEOGRAPHIC Mars CRS is an identity
+    # on the numbers; over a PROJECTED one it reads metres as degrees and collapses the layer without
+    # raising. The command is character-identical either way, so only a check over the SOURCE can
+    # separate them — and SIM 3292 ships exactly the projected shape one directory away.
+    Sabotage(
+        suite='python',
+        label='the fold stops checking its source is geographic, so a projected one is read as degrees',
+        path='pipeline/compose/features_geojson.py',
+        needle='    if not declared.startswith("GEOGCS"):',
+        replacement='    if False:',
+        guard='test_a_projected_source_is_refused',
+    ),
+    # The container that cost Greenland its outline, reached from the other direction: RFC 7946's own
+    # fold MAKES GeometryCollections where -wrapdateline makes none, and a polygon walk that meets one
+    # returns nothing for it. Measured on this catalogue: two of them.
+    Sabotage(
+        suite='python',
+        label='the fold stops refusing GeometryCollections, so the Greenland container comes back',
+        path='pipeline/compose/features_geojson.py',
+        needle='    if "GeometryCollection" in containers:',
+        replacement='    if False:',
+        guard='test_a_geometrycollection_is_refused_by_name',
+    ),
+    # The check that notices the fold did not happen AT ALL. Without it the only symptom is features
+    # missing from tiles, which nothing on disk reports and no count catches — the file still holds
+    # all 1,717.
+    Sabotage(
+        suite='python',
+        label='the fold stops checking its own window, so an unfolded layer passes as folded',
+        path='pipeline/compose/features_geojson.py',
+        needle='            if not (-180.0001 <= longitude <= 180.0001 and -90.0001 <= latitude <= 90.0001):',
+        replacement='            if False:',
+        guard='test_a_vertex_outside_the_window_is_refused',
+    ),
+    # A folded geometry carrying an unfolded longitude PROPERTY is two conventions in one file, and
+    # the next reader cannot tell which of the two any given number is. The centres are east-positive
+    # 0-360 in the source; they reach the tiles as geometry, folded, or not at all.
+    Sabotage(
+        suite='python',
+        label='the unfolded centres travel as properties, mixing two longitude conventions in one file',
+        path='pipeline/compose/features_geojson.py',
+        needle='CARRIED_FIELDS = ("name", "clean_name", "type", "origin", "diameter")',
+        replacement='CARRIED_FIELDS = ("name", "clean_name", "type", "origin", "diameter", "center_lon")',
+        guard='test_the_centres_do_not_travel_as_properties',
+    ),
+    # --- the feature pyramid ----------------------------------------------------------------------
+    # THE CEILING MUST COME FROM THE BODY. Earth's 8 is the tempting literal and it is wrong by one
+    # on Mars: the vectors would outlive the raster they overlay, which shows up as an outline
+    # tracing a coast that has no pixels under it — visible only to someone who zooms in and looks.
+    Sabotage(
+        suite='python',
+        label="the feature pyramid restates its ceiling, so the vectors outlive Mars's raster",
+        path='pipeline/compose/features_pmtiles.py',
+        needle='MAX_ZOOM = bodies.MARS.tile_max_zoom',
+        replacement='MAX_ZOOM = 8',
+        guard='test_max_zoom_is_the_body_field_not_a_literal',
+    ),
+    # An identity is what makes a feature hoverable, labellable and joinable. Carrying one anonymously
+    # puts a shape in the layer that nothing can ever address — present, painted, and unreachable.
+    Sabotage(
+        suite='python',
+        label='a nameless feature is carried anonymously, putting unreachable shapes in the layer',
+        path='pipeline/compose/vector_layers.py',
+        needle='    if not isinstance(identity, str) or not identity:',
+        replacement='    if False:',
+        guard='test_the_first_key_is_the_identity_and_a_feature_without_it_is_dropped',
+    ),
     # --- The Mars acquisition recipe ----------------------------------------------------------------
     # Nothing here can be caught by looking at output: the file is not on disk, and every one of these
     # mutations leaves a module that imports, type-checks and reads perfectly sensibly.

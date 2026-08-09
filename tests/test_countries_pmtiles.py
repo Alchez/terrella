@@ -6,15 +6,13 @@ Three things are pinned here, and each fails silently in production if it drifts
     every country layer empty, with no error and no warning;
   - the two SIMPLIFICATION knobs staying separate, which is what lets overview weight be tuned
     without touching the z8 fidelity the hover outline is judged against;
-  - the geometry walks, which are now the ONLY home for this logic. They had a TypeScript twin
-    while the GeoJSON control arm derived the same two layers in the browser; that arm is deleted,
-    so a bug here can no longer be caught by disagreeing with anything — only by these tests.
+  - the geometry walks — whose cases now live in tests/test_vector_layers.py, because a second body
+    cuts a pyramid through the same code. What stays here is what is EARTH's about this cut: the
+    join key it carries, the ceiling it is pinned to, and the derivation being unscoped.
 """
 
 import json
 import re
-
-import pytest
 
 from pipeline.compose import countries_pmtiles as cut
 
@@ -93,9 +91,8 @@ class TestStagingCommand:
             assert later[later.index("-nln") + 1] == cut.OUTLINE_LAYER
 
 
-# Two polygons in one part each, plus a hole, plus the shape that caused the bug.
+# Two polygons, one part each — enough for the per-part questions this file still asks.
 SQUARE = [[0, 0], [2, 0], [2, 2], [0, 2], [0, 0]]
-HOLE = [[0.5, 0.5], [1.5, 0.5], [1.5, 1.5], [0.5, 1.5], [0.5, 0.5]]
 OTHER = [[10, 10], [12, 10], [12, 12], [10, 12], [10, 10]]
 
 
@@ -103,55 +100,14 @@ def feature(admin, geometry):
     return {"type": "Feature", "properties": {"ADMIN": admin}, "geometry": geometry}
 
 
-class TestPolygonPartsOf:
-    """THE GREENLAND WALK. No longer mirrored anywhere, so these cases are the whole guard."""
-
-    def test_a_polygon_is_one_part(self):
-        assert cut.polygon_parts_of({"type": "Polygon", "coordinates": [SQUARE, HOLE]}) == [
-            [SQUARE, HOLE]
-        ]
-
-    def test_a_multipolygon_keeps_every_part(self):
-        parts = cut.polygon_parts_of({"type": "MultiPolygon", "coordinates": [[SQUARE], [OTHER]]})
-        assert parts == [[SQUARE], [OTHER]]
-
-    def test_a_geometrycollection_is_flattened_and_its_lines_dropped(self):
-        """THE GREENLAND CASE. Natural Earth ships it as a collection of polygons plus one stray
-        LineString, and the walks this replaced returned nothing for it — so an in-scope country
-        had a fill wash and a click but no hover outline and no hit targets, live, unnoticed."""
-        parts = cut.polygon_parts_of({
-            "type": "GeometryCollection",
-            "geometries": [
-                {"type": "MultiPolygon", "coordinates": [[SQUARE]]},
-                {"type": "Polygon", "coordinates": [OTHER]},
-                {"type": "LineString", "coordinates": SQUARE},
-            ],
-        })
-        assert parts == [[SQUARE], [OTHER]]
-
-    @pytest.mark.parametrize("kind", ["LineString", "Point", "MultiLineString"])
-    def test_non_polygonal_geometry_yields_nothing(self, kind):
-        assert cut.polygon_parts_of({"type": kind, "coordinates": []}) == []
+class TestTheJoinKey:
+    def test_only_admin_is_carried(self):
+        """The frontend joins these tiles to countries.json by name and reads nothing else off
+        them. Every extra property would be paid for in every tile the country appears in."""
+        assert cut.CARRIED == ("ADMIN",)
 
 
 class TestDerivedLayers:
-    def test_outlines_carry_every_ring_including_holes(self):
-        collection = {"type": "FeatureCollection", "features": [
-            feature("Testland", {"type": "Polygon", "coordinates": [SQUARE, HOLE]})
-        ]}
-        out = cut.outlines_from(collection)
-        assert out["features"][0]["geometry"] == {
-            "type": "MultiLineString", "coordinates": [SQUARE, HOLE]
-        }
-
-    def test_a_feature_with_no_polygon_yields_no_outline(self):
-        """Not an empty MultiLineString — a feature with nothing to stroke rather than an absent
-        one is the shape that renders as an invisible defect."""
-        collection = {"type": "FeatureCollection", "features": [
-            feature("Testland", {"type": "LineString", "coordinates": SQUARE})
-        ]}
-        assert cut.outlines_from(collection)["features"] == []
-
     def test_hit_points_are_one_per_part_at_the_bbox_centre(self):
         collection = {"type": "FeatureCollection", "features": [
             feature("Archipelago", {"type": "MultiPolygon", "coordinates": [[SQUARE], [OTHER]]})
