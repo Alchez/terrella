@@ -14,7 +14,7 @@ import worker, {
 } from "./index";
 import { TILE_CONTENT_TYPE } from "../src/lib/reliefTiles";
 import { TERRAIN_CONTENT_TYPE } from "../src/lib/terrainSource";
-import { COUNTRIES_CONTENT_TYPE } from "../src/lib/countryTiles";
+import { VECTOR_CONTENT_TYPE } from "../src/lib/vectorTiles";
 import { PUBLISHED, archiveFor, tilePathTemplate } from "../src/lib/tileAddress";
 
 /** What one body's published archives cost the Worker's directory cache: a header entry, a root
@@ -287,7 +287,7 @@ describe("resolveRoute", () => {
     const route = resolveRoute("/countries/8/189/107.mvt");
     expect(route?.address).toMatchObject({ z: 8, x: 189, y: 107 });
     expect(route?.published.objectKey).toBe("countries-v1.pmtiles");
-    expect(route?.layer.contentType).toBe(COUNTRIES_CONTENT_TYPE);
+    expect(route?.layer.contentType).toBe(VECTOR_CONTENT_TYPE);
     expect(route?.published.zoomConstants).toContain("countryTiles.ts");
   });
 
@@ -313,7 +313,7 @@ describe("resolveRoute", () => {
     expect(route?.layer.describeTileTypeMismatch(".mvt")).toBeNull();
     // Pointing this route at a raster archive yields a globe with no countries and no error —
     // indistinguishable from a source-layer typo — so the message has to name the constant.
-    expect(route?.layer.describeTileTypeMismatch(".webp")).toContain("COUNTRIES_TILE_EXTENSION");
+    expect(route?.layer.describeTileTypeMismatch(".webp")).toContain("VECTOR_TILE_EXTENSION");
   });
 });
 

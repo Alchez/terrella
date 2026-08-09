@@ -1,14 +1,11 @@
-/** The country vector-tile contract — a `vector` source over the country pyramid.
+/** EARTH's country pyramid — what is inside its tiles, how deep it was cut, and its legacy URL.
  *
- *  Third sibling of reliefTiles.ts and terrainSource.ts, and a sibling rather than a
- *  generalisation for the same reason those two are separate: this one is MVT where they are
- *  WebP, it is legitimately SPARSE where they are complete, and its tiles carry named
- *  source-layers where a raster tile carries pixels. Folding them together would put a "which
- *  archive am I" branch in the files whose job is to have no branches.
+ *  The transport half moved to vectorTiles.ts, which is the contract every body's vector pyramid
+ *  answers. What is left here is the half that is Earth's alone, and the split is what stops the
+ *  next planet importing a country to reach an extension.
  *
- *  Like both siblings this is dependency-free and free of `import.meta.env`, because it is
- *  imported from the browser, the Astro dev server (plain Node, before Vite env exists) and the
- *  tile Worker.
+ *  Dependency-free and free of `import.meta.env`, like its siblings, because it is imported from
+ *  the browser, the Astro dev server (plain Node, before Vite env exists) and the tile Worker.
  *
  *  WHY THE GLOBE ADDRESSES COUNTRIES BY z/x/y AT ALL. Handing MapLibre a parsed FeatureCollection
  *  makes `Actor.sendAsync` deep-rebuild it in `serialize()` and then structured-clone the rebuilt
@@ -19,6 +16,7 @@
  */
 
 import type { TileCoordinate } from "./reliefTiles";
+import { VECTOR_TILE_EXTENSION } from "./vectorTiles";
 
 /** Layer names INSIDE a tile, used as MapLibre `source-layer` values.
  *
@@ -29,13 +27,6 @@ import type { TileCoordinate } from "./reliefTiles";
 export const COUNTRY_FILL_LAYER = "country_fill";
 export const COUNTRY_OUTLINE_LAYER = "country_outline";
 export const COUNTRY_HIT_LAYER = "country_hit";
-
-/** Mapbox Vector Tile. The archive stores these gzipped, but nothing downstream sees that:
- *  `PMTiles.getZxy` decompresses against the header's `tileCompression` before returning, and
- *  both tile servers read through it. So the wire carries plain protobuf and no `Content-Encoding`
- *  is involved — which is what keeps R2's undocumented encoding passthrough out of this path. */
-export const COUNTRIES_TILE_EXTENSION = "mvt";
-export const COUNTRIES_CONTENT_TYPE = "application/x-protobuf";
 
 /** The path segment telling the tile server which of the three archives a request is for.
  *
@@ -65,7 +56,7 @@ export const COUNTRIES_MIN_ZOOM = 0;
 export const COUNTRIES_MAX_ZOOM = 8;
 
 const COUNTRIES_PATH_PATTERN = new RegExp(
-  String.raw`^\/?${COUNTRIES_PATH_PREFIX}\/(\d{1,2})\/(\d{1,7})\/(\d{1,7})\.${COUNTRIES_TILE_EXTENSION}$`,
+  String.raw`^\/?${COUNTRIES_PATH_PREFIX}\/(\d{1,2})\/(\d{1,7})\/(\d{1,7})\.${VECTOR_TILE_EXTENSION}$`,
 );
 
 /** Parse `/countries/8/189/107.mvt` (leading slash optional) into a tile address, or null if the
@@ -83,21 +74,5 @@ export function parseCountriesTilePath(pathname: string): TileCoordinate | null 
   const gridSize = 2 ** z;
   if (x >= gridSize || y >= gridSize) return null;
   return { z, x, y };
-}
-
-/** Describe a COUNTRIES_TILE_EXTENSION/archive disagreement, or null when they match.
- *
- *  The failure it catches is the router having been pointed at a RASTER archive: a WebP tile
- *  served as `application/x-protobuf` fails to parse in MapLibre's worker, and the visible result
- *  is a globe with no countries — indistinguishable from a source-layer typo, from an empty
- *  archive, and from a filter that matches nothing. */
-export function describeCountriesTileTypeMismatch(archiveExtension: string): string | null {
-  if (archiveExtension === `.${COUNTRIES_TILE_EXTENSION}`) return null;
-  const declared = archiveExtension || "an encoding this pmtiles build cannot name";
-  return (
-    `Countries archive stores ${declared} tiles, but the globe requests ` +
-    `.${COUNTRIES_TILE_EXTENSION}. Update COUNTRIES_TILE_EXTENSION in src/lib/countryTiles.ts to ` +
-    `match the re-cut pyramid (its source of truth is pipeline/compose/countries_pmtiles.py).`
-  );
 }
 

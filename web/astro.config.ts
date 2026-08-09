@@ -22,7 +22,7 @@ import {
 import type { BodySlug } from './src/lib/bodies';
 import { describeTileTypeMismatch } from './src/lib/reliefTiles';
 import { describeTerrainTileTypeMismatch } from './src/lib/terrainSource';
-import { describeCountriesTileTypeMismatch } from './src/lib/countryTiles';
+import { describeVectorTileTypeMismatch } from './src/lib/vectorTiles';
 
 // Asset store locations. DEV-ONLY: the dev server serves /heroes, /borders and /tiles
 // out of these external directories (R2 does it in production; the
@@ -170,11 +170,11 @@ function openArchive(
 }
 
 /** Per-layer tile-ENCODING checks. Which encoding an archive stores is a property of the layer's
- *  contract, not of the planet: every body's relief is WebP and every body's countries are MVT. */
+ *  contract, not of the planet: every body's relief is WebP and every body's vectors are MVT. */
 const VALIDATE_TILE_TYPE: Record<LayerId, (extension: string) => string | null> = {
   relief: describeTileTypeMismatch,
   terrain: describeTerrainTileTypeMismatch,
-  countries: describeCountriesTileTypeMismatch,
+  countries: describeVectorTileTypeMismatch,
 };
 
 /** Header checks for one body's cut of one layer, THROWING where the Worker logs and 404s.

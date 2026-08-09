@@ -1,12 +1,9 @@
 import { describe, it, expect } from "vitest";
 import {
-  COUNTRIES_CONTENT_TYPE,
   COUNTRIES_PATH_PREFIX,
-  COUNTRIES_TILE_EXTENSION,
   COUNTRY_FILL_LAYER,
   COUNTRY_HIT_LAYER,
   COUNTRY_OUTLINE_LAYER,
-  describeCountriesTileTypeMismatch,
   parseCountriesTilePath,
 } from "./countryTiles";
 import { parseTilePath } from "./reliefTiles";
@@ -48,24 +45,6 @@ describe("parseCountriesTilePath", () => {
   });
 });
 
-describe("describeCountriesTileTypeMismatch", () => {
-  it("is silent when the archive stores what the globe asks for", () => {
-    expect(describeCountriesTileTypeMismatch(`.${COUNTRIES_TILE_EXTENSION}`)).toBeNull();
-  });
-
-  it("names the constant to change when the archive stores a raster codec", () => {
-    const message = describeCountriesTileTypeMismatch(".webp");
-    expect(message).toContain("COUNTRIES_TILE_EXTENSION");
-    expect(message).toContain("countries_pmtiles.py");
-  });
-
-  it("says so even when pmtiles cannot name the encoding at all", () => {
-    // tileTypeExt returns "" for an unknown type, and an empty string interpolated into the
-    // message reads as the archive storing nothing rather than something unrecognised.
-    expect(describeCountriesTileTypeMismatch("")).toContain("cannot name");
-  });
-});
-
 describe("the archive contract the pipeline writes", () => {
   it("keeps the prefix its own parser reads, which is the legacy grammar's discriminator", () => {
     // The prefix no longer appears in anything the browser ASKS for — tileAddress.ts builds those
@@ -74,10 +53,6 @@ describe("the archive contract the pipeline writes", () => {
     // asking for, and it goes when that branch does.
     expect(COUNTRIES_PATH_PREFIX).toBe("countries");
     expect(parseCountriesTilePath(`${COUNTRIES_PATH_PREFIX}/3/4/3.mvt`)).toEqual({ z: 3, x: 4, y: 3 });
-  });
-
-  it("declares protobuf, not an image type", () => {
-    expect(COUNTRIES_CONTENT_TYPE).toBe("application/x-protobuf");
   });
 
   // These three strings are MapLibre `source-layer` values, and their writer is a Python file no

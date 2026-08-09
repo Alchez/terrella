@@ -4323,6 +4323,26 @@ SABOTAGES: list[Sabotage] = [
         replacement='      objectKey: "planet-v2.pmtiles",',
         guard='never puts two raster pyramids in one archive',
     ),
+    # The transport contract, split out of Earth's product module. Both mutations put a planet back
+    # into a file every planet reads, which is the drift the split exists to make impossible — and
+    # neither breaks a type, so the compiler has nothing to say about either.
+    Sabotage(
+        suite='web',
+        label='the vector mismatch message names Earth again',
+        path='web/src/lib/vectorTiles.ts',
+        needle='    `This archive stores ${declared} tiles, but the globe requests ` +',
+        replacement='    `Countries archive stores ${declared} tiles, but the globe requests ` +',
+        guard='names NO body and NO producer, because one function answers for every planet',
+    ),
+    Sabotage(
+        suite='web',
+        label="a per-body zoom returns to the transport module",
+        path='web/src/lib/vectorTiles.ts',
+        needle='export const VECTOR_CONTENT_TYPE = "application/x-protobuf";',
+        replacement='export const VECTOR_CONTENT_TYPE = "application/x-protobuf";\n'
+                    'export const COUNTRIES_MAX_ZOOM = 8;',
+        guard='carries no per-body constant, which is the whole reason this module exists',
+    ),
     # The pointer a drift warning hands the reader. It named one module for every planet until Mars
     # published a ceiling that follows its own source data — and the failure is a reader editing
     # Earth's constant to fix Mars, which changes Earth's pyramid and not Mars's.

@@ -37,11 +37,8 @@
 
 import type { BodySlug } from "./bodies";
 import {
-  COUNTRIES_CONTENT_TYPE,
   COUNTRIES_MAX_ZOOM,
   COUNTRIES_MIN_ZOOM,
-  COUNTRIES_TILE_EXTENSION,
-  describeCountriesTileTypeMismatch,
   parseCountriesTilePath,
 } from "./countryTiles";
 import {
@@ -60,6 +57,11 @@ import {
   describeTerrainTileTypeMismatch,
   parseTerrainTilePath,
 } from "./terrainSource";
+import {
+  VECTOR_CONTENT_TYPE,
+  VECTOR_TILE_EXTENSION,
+  describeVectorTileTypeMismatch,
+} from "./vectorTiles";
 // Beside this module rather than in src/data/, which LOOKS like its home and is gitignored: the
 // repo's root `data/` pattern is unanchored, so it matches a directory of that name at any depth.
 // A committed file has to live somewhere git will actually keep it.
@@ -118,9 +120,9 @@ export const LAYERS: Record<LayerId, TileLayer> = {
     multiLayer: false,
   },
   countries: {
-    extension: COUNTRIES_TILE_EXTENSION,
-    contentType: COUNTRIES_CONTENT_TYPE,
-    describeTileTypeMismatch: describeCountriesTileTypeMismatch,
+    extension: VECTOR_TILE_EXTENSION,
+    contentType: VECTOR_CONTENT_TYPE,
+    describeTileTypeMismatch: describeVectorTileTypeMismatch,
     // The one sparse pyramid: most of the planet is ocean and holds no country.
     missingTileStatus: 204,
     multiLayer: true,
