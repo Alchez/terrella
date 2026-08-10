@@ -47,3 +47,24 @@ export interface NamedFeature {
 // unfolded longitude, a diameter in metres, a mis-sorted array: every one type-checks. That half is
 // `featureIndex.test.ts`'s, and it is the half that would actually reach a visitor.
 export const featureIndex = RECORDS as NamedFeature[];
+
+const byName = new Map(featureIndex.map((feature) => [feature.name, feature]));
+
+/**
+ * The feature this name belongs to, or null.
+ *
+ * THE POINTER ANSWERS WITH A NAME AND THE CAMERA NEEDS A PLACE, and nothing in a tile closes that
+ * gap: `features_geojson.CARRIED_FIELDS` leaves the centres out on purpose, so that a folded
+ * geometry never travels beside an unfolded longitude. A clipped tile geometry cannot supply one
+ * either — it is whatever survived the cut, not the feature. So a hit test can say WHAT was picked
+ * and only this can say WHERE it is.
+ *
+ * Every name a tile can produce has a row here, because both sides are cut from the same two
+ * gazetteer layers and the cutter drops a feature with no name — `tests/test_feature_index.py`
+ * holds the two sets against each other rather than trusting that. Null is still the honest return:
+ * the caller is handed an arbitrary string, and a lookup that threw would turn a stale name into a
+ * broken globe instead of a click that does nothing.
+ */
+export function featureNamed(name: string): NamedFeature | null {
+  return byName.get(name) ?? null;
+}

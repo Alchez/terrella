@@ -150,3 +150,58 @@ class TestTheCommittedFileIsStillWhatTheProducerEmits:
         perturbed[0]["longitude"] += 0.001
         assert json.dumps(perturbed, indent=2, ensure_ascii=False) + "\n" != COMMITTED.read_text(
             encoding="utf-8")
+
+
+class TestEveryNameInTheTilesHasARowToFlyTo:
+    """The two sets the globe silently assumes are one.
+
+    A tile answers the pointer with a NAME and carries no centre — `features_geojson.CARRIED_FIELDS`
+    keeps the gazetteer's unfolded longitudes away from its folded geometry — so the click path
+    turns that name into a place through the committed index. A feature reaching a tile without
+    reaching the index is therefore one that lights, names itself and then refuses to be flown to:
+    a per-feature hole nothing else here can see, because both halves are internally consistent.
+
+    They agree today by construction — `label_points` and the geometry outputs read the same two
+    gazetteer layers — which is exactly the kind of coincidence a later filter on either side ends
+    without a word. Needs the composed gazetteer, so it skips like its neighbours above.
+    """
+
+    @staticmethod
+    def _named(path: Path) -> set[str]:
+        collection = json.loads(path.read_text(encoding="utf-8"))
+        return {
+            feature["properties"]["name"]
+            for feature in collection["features"]
+            if feature["properties"].get("name")
+        }
+
+    def _tile_names(self) -> set[str]:
+        return self._named(features_geojson.POLYGONS) | self._named(features_geojson.LINES)
+
+    def _require_composed(self) -> tuple[set[str], set[str]]:
+        if not features_geojson.POLYGONS.exists() or not features_geojson.LINES.exists():
+            pytest.skip("gazetteer not composed on this machine")
+        indexed = {row["name"] for row in json.loads(COMMITTED.read_text(encoding="utf-8"))}
+        tiled = self._tile_names()
+        # BOTH SIDES PROVED NON-EMPTY BEFORE ANY DIFFERENCE IS TAKEN. Two empty sets differ by
+        # nothing, so a mistyped path or a schema change that stopped yielding names would satisfy
+        # every assertion below by having nothing to compare.
+        assert len(tiled) > 1000 and len(indexed) > 1000, (len(tiled), len(indexed))
+        return tiled, indexed
+
+    def test_no_feature_in_the_tiles_is_missing_from_the_index(self):
+        tiled, indexed = self._require_composed()
+        assert sorted(tiled - indexed) == []
+
+    def test_no_row_in_the_index_is_absent_from_the_tiles(self):
+        """The other direction, which is a different defect: a searchable feature that can never be
+        pointed at, lit, or seen to exist on the globe it claims to be on."""
+        tiled, indexed = self._require_composed()
+        assert sorted(indexed - tiled) == []
+
+    def test_the_comparison_can_fail(self):
+        """A planted tile-only name must surface, or both assertions above are `[] == []` over
+        whatever the two reads happened to produce."""
+        tiled, indexed = self._require_composed()
+        assert sorted((tiled | {"Barsoom"}) - indexed) == ["Barsoom"]
+        assert sorted((indexed | {"Barsoom"}) - tiled) == ["Barsoom"]

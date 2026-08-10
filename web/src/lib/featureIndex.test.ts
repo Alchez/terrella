@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { featureIndex, type NamedFeature } from "./featureIndex";
+import { featureIndex, featureNamed, type NamedFeature } from "./featureIndex";
 import { candidateFrom } from "./featureTargeting";
 
 /**
@@ -118,5 +118,40 @@ describe("one catalogue, one answer about size", () => {
       (feature) => feature.diameterKm !== null && !(feature.diameterKm > 0),
     );
     expect(bad.map((feature) => feature.name)).toEqual([]);
+  });
+});
+
+describe("a name resolves to the place it belongs to", () => {
+  it("finds a feature the pointer could have picked", () => {
+    const gale = featureNamed("Gale");
+    expect(gale?.latitude).toBeCloseTo(-5.37, 1);
+    expect(gale?.longitude).toBeCloseTo(137.85, 1);
+  });
+
+  it("resolves every name in the catalogue, since the pointer can produce any of them", () => {
+    // The lookup is what turns a picked name into a camera target, so a row it cannot reach is a
+    // feature that lights and names itself and then refuses to be flown to. Asserted over the whole
+    // index rather than sampled: the Map is built from these rows, so a partial answer would mean
+    // duplicate keys silently collapsing distinct features.
+    const unreachable = featureIndex.filter((row) => featureNamed(row.name) === null);
+    expect(unreachable.map((row) => row.name)).toEqual([]);
+  });
+
+  it("hands back the row itself, not a copy that could drift", () => {
+    expect(featureNamed(featureIndex[0]!.name)).toBe(featureIndex[0]);
+  });
+
+  it("answers null for a name no edition published", () => {
+    // The caller passes an arbitrary string — a stale search URL, a renamed feature. Null lets the
+    // click do nothing; throwing here would take the globe down with it.
+    expect(featureNamed("Barsoom")).toBeNull();
+    expect(featureNamed("")).toBeNull();
+  });
+
+  it("is case- and space-exact, because the tiles' promoteId is", () => {
+    // Not a matcher. Feature state, the hit test and this lookup are all keyed on the published
+    // spelling, and a lenient lookup here would resolve a name that could never light anything.
+    expect(featureNamed("gale")).toBeNull();
+    expect(featureNamed(" Gale")).toBeNull();
   });
 });

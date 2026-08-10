@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { describe, it, expect } from "vitest";
 import {
   formatGroundDistance,
@@ -16,6 +16,61 @@ import { BODIES } from "./bodies";
  * moved out of the block it was guarding. Counting braces is the only reading that answers
  * "is this statement still inside this function".
  */
+/**
+ * The text between the parenthesis at `open` and the one that closes it, nesting kept.
+ *
+ * A `[^)]*` match ends at the first inner `)` instead of the matching one, which reads a signature
+ * or a call as though everything after its first nested group did not exist. That is not a
+ * hypothetical: `rulerGroundDistance`'s first parameter is a FUNCTION TYPE, so a lazy scan of its
+ * signature stops before it reaches `groundRadiusM` and concludes the ruler does not take a radius.
+ * Written wrong here first, and found by the scan below returning one consumer instead of two.
+ */
+function parenthesised(source: string, open: number): string {
+  let depth = 0;
+  for (let index = open; index < source.length; index += 1) {
+    if (source[index] === "(") depth += 1;
+    else if (source[index] === ")") {
+      depth -= 1;
+      if (depth === 0) return source.slice(open + 1, index);
+    }
+  }
+  throw new Error(`unbalanced parentheses at ${open}`);
+}
+
+/**
+ * Every library function that takes a body radius, identified by its PARAMETER NAME.
+ *
+ * Read off the modules rather than written down here, so a third consumer is scanned the day it is
+ * written. The whole defect this discovery replaces was a hand-maintained scope of one.
+ */
+function radiusTakingFunctions(): Set<string> {
+  const names = new Set<string>();
+  const libDir = new URL(".", import.meta.url);
+  for (const file of readdirSync(libDir)) {
+    if (!file.endsWith(".ts") || file.includes(".test.")) continue;
+    const source = readFileSync(new URL(file, libDir), "utf8");
+    for (const match of source.matchAll(/export function (\w+)\(/g)) {
+      const open = match.index! + match[0].length - 1;
+      if (parenthesised(source, open).includes("groundRadiusM")) names.add(match[1]!);
+    }
+  }
+  return names;
+}
+
+/** The argument text of every call to `name`, nesting kept — `framingZoom` is passed a call. */
+function callArguments(source: string, name: string): string[] {
+  const calls: string[] = [];
+  const opening = `${name}(`;
+  for (let at = source.indexOf(opening); at !== -1; at = source.indexOf(opening, at + 1)) {
+    // A longer identifier ending in this name is a different function, and a declaration is not a
+    // call — neither should be read as a call site.
+    if (/[\w$.]/.test(source[at - 1] ?? "")) continue;
+    if (source.slice(Math.max(0, at - 9), at).includes("function ")) continue;
+    calls.push(parenthesised(source, at + opening.length - 1));
+  }
+  return calls;
+}
+
 function functionBody(source: string, signature: string): string {
   const start = source.indexOf(signature);
   expect(start, `Globe.astro no longer contains \`${signature}\``).toBeGreaterThan(-1);
@@ -172,21 +227,29 @@ describe("the ruler's measurement never resolves against terrain", () => {
   it("passes the drawn body's radius at EVERY call site, not only the ruler's", () => {
     // THE CASE ABOVE READS `updateRuler`'S BODY, which was the whole story while the ruler was the
     // only caller. It is not any more: the feature pick sizes a candidate against the current
-    // scale and needs the same measurement, from a different function that inherits none of the
+    // scale and the fly-to frames one against it, both from functions that inherit none of the
     // guard above. Earth's radius on Mars is wrong by the ratio of the two — a plausible number at
     // every zoom, which is exactly the failure this file exists for.
-    const calls = [...globeSource.matchAll(/rulerGroundDistance\(([^)]*)\)/g)];
-    // Completeness rather than a floor: every textual occurrence must have been parsed, so a call
-    // written in a shape this regex cannot read fails here instead of going unchecked.
-    const occurrences = globeSource.split("rulerGroundDistance(").length - 1;
-    expect(calls, "a call is written in a shape this scan cannot read").toHaveLength(occurrences);
-    expect(occurrences, "no call found at all — this scan has come unmoored").toBeGreaterThan(0);
-    for (const [, args] of calls) {
-      expect(args, "a call does not take the radius from the registry").toContain(
-        "body.groundRadiusM",
-      );
-      expect(args, "a numeric literal reached the radius").not.toMatch(/\d/);
+    //
+    // THE CONSUMERS ARE DISCOVERED, NOT LISTED, and that is the whole point. This test was written
+    // over `rulerGroundDistance` alone and its title already said EVERY; when `framingZoom` became
+    // the second consumer the scan went on passing, and a planted Earth radius there was MISSED.
+    // A list someone has to remember to extend fails silently in exactly the same way, so the
+    // parameter name is what identifies a consumer.
+    const consumers = radiusTakingFunctions();
+    expect(consumers.size, "no radius-taking function found — this scan has come unmoored")
+      .toBeGreaterThan(1);
+    let checked = 0;
+    for (const name of consumers) {
+      for (const args of callArguments(globeSource, name)) {
+        checked += 1;
+        expect(args, `${name} does not take the radius from the registry`).toContain(
+          "body.groundRadiusM",
+        );
+        expect(args, `a numeric literal reached ${name}'s radius`).not.toMatch(/\d/);
+      }
     }
+    expect(checked, "no call site found at all").toBeGreaterThan(1);
   });
 
   it("canary — MapLibre still exposes the terrain-free conversion we reach for", () => {

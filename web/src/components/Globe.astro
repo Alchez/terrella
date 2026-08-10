@@ -229,16 +229,13 @@ import { REPO_URL } from "../lib/siteLinks";
   .country-chip[hidden] {
     display: none;
   }
-  /* Phones have no hover state to leave anonymous, and on a body with heroes a tap opens the detail
-     card that names the region anyway. Without this the synthetic mouse events a tap emits would
-     flash the chip for an instant under the arriving card. Touchscreen laptops report
-     `hover: hover` and keep it.
-     THE SUPPRESSION IS CONDITIONAL BECAUSE THE REASON IS. A body with vectors and no heroes has no
-     card arriving, so suppressing here would leave a tap answering with nothing at all — the chip
-     IS the answer there, and the script says so by stamping the class. Default-off rather than
-     default-on: a future body that forgets gets a silent chip, not a chip flashing under a card. */
+  /* Phones have no hover state to leave anonymous, and a tap opens the detail card that names the
+     place anyway. Without this the synthetic mouse events a tap emits would flash the chip for an
+     instant under the arriving card — and on Mars the card waits on a fetch, so that instant is
+     however long the catalogue takes to land. Touchscreen laptops report `hover: hover` and keep
+     the chip. Unconditional: every body that answers a pointer now answers a tap with a card. */
   @media (hover: none) {
-    :global(body:not(.chip-answers-taps)) .country-chip {
+    .country-chip {
       display: none;
     }
   }
@@ -461,6 +458,7 @@ import { REPO_URL } from "../lib/siteLinks";
   import type {
     ExpressionSpecification,
     FilterSpecification,
+    FlyToOptions,
     LineLayerSpecification,
     Point,
   } from "maplibre-gl";
@@ -470,7 +468,14 @@ import { REPO_URL } from "../lib/siteLinks";
   import { BORDERS_BASE, TILE_BASE } from "../lib/assetBase";
   // The card takes CONTENT rather than a country, so a second body can open it without growing
   // `Country` with fields that mean nothing on Earth.
-  import { countryPanelContent, type PanelContent } from "../lib/detailPanel";
+  import {
+    FRAME_EDGE_PX,
+    PANEL_BESIDE_MIN_WIDTH_PX,
+    PANEL_CLEARANCE_PX,
+    countryPanelContent,
+    featurePanelContent,
+    type PanelContent,
+  } from "../lib/detailPanel";
   // The registry itself, for the one thing an ADDRESS cannot carry: the zoom range the archive was
   // cut to, which its source has to declare so MapLibre overzooms rather than requesting tiles
   // nobody packed. Earth's equivalent still reads constants — see featureOverlay.ts.
@@ -571,8 +576,8 @@ import { REPO_URL } from "../lib/siteLinks";
     featureTilesSource,
     hoverStateTargets,
   } from "../lib/featureOverlay";
-  import { candidateFrom, pickFeature } from "../lib/featureTargeting";
-  import { createHoverTracker } from "../lib/hoverTracking";
+  import { candidateFrom, framingZoom, pickFeature } from "../lib/featureTargeting";
+  import { createHoverTracker, type HoverTracker } from "../lib/hoverTracking";
   import { createRailToggle, joinRailGroup } from "../lib/railControls";
   import { createQuietMode } from "../lib/quietMode";
   import { RULER_WIDTH_PX, createScaleRuler, rulerGroundDistance } from "../lib/scaleRuler";
@@ -1853,9 +1858,6 @@ import { REPO_URL } from "../lib/siteLinks";
     // The chip's dot is the tie between the label and the linework it names, so it takes its colour
     // from the constant those layers paint with rather than from a CSS copy free to drift.
     if (countryChipDot) countryChipDot.style.backgroundColor = FEATURE_INK;
-    // A tap has no card to open on a body without heroes, so the chip is the whole answer and the
-    // stylesheet's touch suppression has to stand down. See the `(hover: none)` rule.
-    if (!subsystems.heroes) document.body.classList.add("chip-answers-taps");
 
     function paintFeatureHighlight(name: string | null, previousName: string | null) {
       const setState = (id: string, hover: boolean) => {
@@ -1876,18 +1878,18 @@ import { REPO_URL } from "../lib/siteLinks";
       ["feature-linear-hit", true],
     ];
 
-    function featureAt(point: Point): string | null {
+    function viewportSize() {
       const container = map.getContainer();
-      const viewport = { width: container.clientWidth, height: container.clientHeight };
+      return { width: container.clientWidth, height: container.clientHeight };
+    }
+
+    function featureAt(point: Point): string | null {
+      const viewport = viewportSize();
       // Ground scale through the ruler's own measurement, so "how big is this on screen" has one
       // owner and one body-aware conversion rather than a second copy that reads plausibly on Mars.
       const metresPerPixel =
-        rulerGroundDistance(
-          locateOnDatum,
-          body.groundRadiusM,
-          container.clientWidth,
-          container.clientHeight,
-        ) / RULER_WIDTH_PX;
+        rulerGroundDistance(locateOnDatum, body.groundRadiusM, viewport.width, viewport.height) /
+        RULER_WIDTH_PX;
       const candidates = [];
       for (const [layerId, linear] of HIT_SURFACES) {
         if (!map.getLayer(layerId)) continue;
@@ -1908,6 +1910,63 @@ import { REPO_URL } from "../lib/siteLinks";
       },
     });
 
+    /**
+     * The catalogue, fetched on its own chunk and only by this body.
+     *
+     * A STATIC IMPORT WOULD PUT IT IN EARTH'S DOWNLOAD. Both pages mount this one component, so
+     * they share one client chunk — measured at 1.04 MB, and `featureIndex.json` minifies to 324 KB
+     * (63 KB gz) of Martian place names Earth can never use. Asked for here, Vite splits it out and
+     * only Mars pays. It is requested as this wiring is built, which is already inside the map's
+     * first `idle`, so the fetch overlaps the time a visitor spends looking before pointing.
+     *
+     * Every handler binds SYNCHRONOUSLY and the promise is awaited inside the click instead. A tap
+     * during the fetch then flies late rather than not at all, where awaiting up here would leave
+     * the globe briefly unable to answer a hover — a slower fetch making the whole body look dead.
+     */
+    const featureCatalogue = import("../lib/featureIndex");
+
+    /**
+     * Fly to the picked feature and open its card — both, or neither.
+     *
+     * THE CENTRE IS THE REASON THIS IS ASYNC AT ALL. A tile says what a feature is called and how
+     * big it is, and deliberately not where: `features_geojson.CARRIED_FIELDS` keeps the gazetteer's
+     * unfolded centres away from its folded geometry. So the name the pointer resolved has to be
+     * looked up before the camera has anywhere to go.
+     *
+     * Earth gates the panel and not the fly, because its card needs a rendered hero. Mars's card
+     * carries no picture at all, so there is nothing left to gate and the two arrive together.
+     */
+    function goToFeature(name: string | null) {
+      if (name === null) return;
+      setSpinning(false); // a deliberate pick retires the idle spin, exactly as a country click does
+      void featureCatalogue.then(({ featureNamed }) => {
+        const feature = featureNamed(name);
+        if (feature === null) return;
+        const camera: FlyToOptions = {
+          center: [feature.longitude, feature.latitude],
+          // `flyTo` HAS NO `padding` — that option belongs to the fitBounds family, which needs a
+          // box and is the wrong tool for a centre. Shifting the target half the card's clearance
+          // leaves the feature centred in what is left of the map.
+          offset:
+            window.innerWidth > PANEL_BESIDE_MIN_WIDTH_PX ? [-PANEL_CLEARANCE_PX / 2, 0] : [0, 0],
+          duration: 2200,
+          essential: true, // run even under prefers-reduced-motion
+        };
+        // Null is "centre it and change nothing else", which is the honest camera for the two
+        // features the gazetteer publishes with no diameter. MapLibre clamps whatever it is given
+        // to the map's own zoom range, and most of this catalogue is small enough to clamp at 8.
+        const zoom = framingZoom(
+          feature.diameterKm,
+          feature.latitude,
+          viewportSize(),
+          body.groundRadiusM,
+        );
+        if (zoom !== null) camera.zoom = zoom;
+        map.flyTo(camera);
+        openPanel(featurePanelContent(feature));
+      });
+    }
+
     map.on("mousemove", (event) => featureTracker.pointerMoved(event.point));
     map.on("mouseout", () => featureTracker.pointerLeft());
     // The camera moving under a parked pointer changes the answer without a mousemove — and here it
@@ -1917,7 +1976,22 @@ import { REPO_URL } from "../lib/siteLinks";
     // what keeps this from becoming a second implementation: the tap resolves, lights and names by
     // the identical path a hover does. Tapping ground with nothing on it resolves null and clears,
     // which is the tap's version of the pointer leaving the canvas.
-    map.on("click", (event) => featureTracker.pointerMoved(event.point));
+    //
+    // THE CLICK RESOLVES ITS OWN POINT AND DOES NOT ASK THE TRACKER WHAT IT IS HOLDING. The tracker
+    // QUEUES a resolve for the next frame — deliberately, so a burst of moves costs one query — so
+    // `current()` read here answers for the previous frame, or for nothing at all. A tap is exactly
+    // the case with no previous frame: touch sends no hover, MapLibre synthesises the whole
+    // sequence in one tick, and the first tap on a phone would silently do nothing while the second
+    // worked. `featureAt` IS the tracker's own resolver, so this is the same answer computed now
+    // rather than a second implementation of it.
+    map.on("click", (event) => {
+      featureTracker.pointerMoved(event.point);
+      goToFeature(featureAt(event.point));
+    });
+
+    // The chip belongs to whoever answers the pointer on this body — see `closePanel`, which is the
+    // one place that has to repaint it without a pointer event to go on.
+    chipOwner = featureTracker;
   }
 
   /**
@@ -2032,6 +2106,19 @@ import { REPO_URL } from "../lib/siteLinks";
     },
   });
 
+  /**
+   * Which tracker's answer the chip is showing, for the one repaint that has no pointer event.
+   *
+   * A BODY HAS EXACTLY ONE POINTER RESOLVER AND THE CHIP IS SHARED, so `closePanel` cannot name the
+   * country one and be right on both planets. It read `hoverTracker` while Earth was the only body
+   * that could open a card; on Mars that tracker answers null everywhere, so closing a card would
+   * have hidden the chip until the pointer moved — the outline still lit, the name gone.
+   *
+   * Defaults to the country tracker and is reassigned by `wireFeatureInteraction`, which is the
+   * only other resolver and runs only where the body publishes features.
+   */
+  let chipOwner: HoverTracker<Point> = hoverTracker;
+
   map.on("mousemove", (event) => hoverTracker.pointerMoved(event.point));
   map.on("mouseout", () => hoverTracker.pointerLeft());
   // A drag, a zoom, the country fly-to and every spin step all put different land under a pointer
@@ -2097,9 +2184,9 @@ import { REPO_URL } from "../lib/siteLinks";
     chipSuppressedByPanel = false;
     // Two calls, because they do different jobs: the fly-to moved the globe while the card was
     // open, so re-resolve first; then repaint unconditionally, because viewChanged() only fires
-    // onChange on a CHANGE and the pointer is usually still on the country the card was showing.
-    hoverTracker.viewChanged();
-    paintChip(hoverTracker.current());
+    // onChange on a CHANGE and the pointer is usually still on the place the card was showing.
+    chipOwner.viewChanged();
+    paintChip(chipOwner.current());
   }
 
   document.getElementById("detail-close")?.addEventListener("click", closePanel);
@@ -2115,14 +2202,20 @@ import { REPO_URL } from "../lib/siteLinks";
 
   function flyToCountry(country: Country) {
     const [west, south, east, north] = country.bbox;
-    // Pad the side the card occupies so the country frames in the clear area.
-    const wide = window.innerWidth > 640;
+    // Pad the side the card occupies so the country frames in the clear area. The clearance is
+    // detailPanel.ts's, because Mars's fly-to spends the same number through a different API.
+    const wide = window.innerWidth > PANEL_BESIDE_MIN_WIDTH_PX;
     map.fitBounds(
       [[west, south], [east, north]],
       {
         padding: wide
-          ? { top: 60, bottom: 60, left: 60, right: 460 }
-          : { top: 60, bottom: 60, left: 30, right: 30 },
+          ? {
+              top: FRAME_EDGE_PX,
+              bottom: FRAME_EDGE_PX,
+              left: FRAME_EDGE_PX,
+              right: FRAME_EDGE_PX + PANEL_CLEARANCE_PX,
+            }
+          : { top: FRAME_EDGE_PX, bottom: FRAME_EDGE_PX, left: 30, right: 30 },
         maxZoom: 6, // small countries shouldn't slam to the z8 ceiling
         duration: 2200,
         essential: true, // run even under prefers-reduced-motion

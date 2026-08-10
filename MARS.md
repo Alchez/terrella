@@ -485,8 +485,14 @@ second body, Earth-only and Earth byte-identical throughout, landed before any M
   longitude window, cut to a four-layer pyramid, and published off the registry like any other
   pyramid. It is INTERACTION DATA rather than paint: nothing is drawn until the pointer picks
   something, and a tap answers the same way a hover does. **No labels go on the map** — the archive
-  carries the IAU's own anchors, and they stay unread. Still ahead: the geologic units that answer
-  for the ground no name reaches, and search, which is where the long tail of names pays for itself.
+  carries the IAU's own anchors, and they stay unread. A pick MIRRORS EARTH: the camera flies to the
+  feature at the scale its diameter reads at, and the card names it, gives its kind and size, and
+  quotes the IAU's etymology — no picture, because this body renders none. Still ahead: the geologic
+  units that answer for the ground no name reaches, and search, which is where the long tail pays
+  for itself.
+  - **A click resolves its own point rather than reading the hover tracker**, whose resolve is
+    queued a frame ahead. Touch sends no hover before a tap, so reading that state ignored the
+    first tap on a phone and answered the second.
 - **Phase 4 — heroes**, if they are wanted at all. **Their ceiling is the DEM, not the geometry.**
   - Nesting and overlap cost nothing: a hero is one camera framed from bounds, so two heroes sharing
     ground are a zoom rather than a conflict. Earth avoids it only because countries partition.
@@ -675,8 +681,11 @@ no output, and both knobs are required arguments rather than defaulted ones.
   - The same area argument appears under the crater database above. **That rejection still stands**,
     on the other reason recorded with it — what Robbins uniquely adds is the UNNAMED craters, which
     a detail card has nothing to say about. Only the area half of it is weak.
-- **The whole 1,717-name catalogue still becomes a search index** — a few hundred KB, never geometry
-  on screen, and the one place the long tail pays for itself on a phone.
+- **The whole catalogue becomes a search index** — both gazetteer layers, not just the polygons,
+  never geometry on screen, and the one place the long tail pays for itself on a phone.
+  - It ships as its OWN chunk, asked for by Mars's pointer wiring and by nothing else. Both globes
+    mount one component and so share one client bundle; imported normally, every Earth visitor
+    downloads Martian place names.
 - **Mars has no worldview problem at all.** No disputed segments, no de-facto-versus-claimed
   decision, nothing dashed. Every border policy this repo carries is Earth's alone.
 

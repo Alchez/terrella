@@ -74,16 +74,63 @@ describe("the page actually wires Mars's pointer", () => {
   it("answers a tap, so the body is not mute on a phone", () => {
     // A tap is the only pointer event a phone sends. Routed into the same tracker on purpose: the
     // alternative is a second resolution path that drifts from the first.
-    expect(wiringBody()).toContain('map.on("click", (event) => featureTracker.pointerMoved(event.point));');
+    expect(wiringBody()).toContain("featureTracker.pointerMoved(event.point);");
+    expect(wiringBody()).toContain("goToFeature(featureAt(event.point));");
   });
 
-  it("lets the chip through on touch, or the tap resolves and says nothing", () => {
-    // The stylesheet hides the chip under `(hover: none)` because on a body with heroes a card
-    // arrives to name the region instead. Without this class a Mars tap would light a boundary and
-    // name it to nobody — the paint would be the only answer, which is the half-answer this
-    // commit exists to avoid.
-    expect(wiringBody()).toContain('document.body.classList.add("chip-answers-taps")');
-    expect(GLOBE).toContain(':global(body:not(.chip-answers-taps)) .country-chip');
+  it("resolves the click's own point instead of asking the tracker what it holds", () => {
+    // MEASURED ON THE SHIPPED PAGE, where the first version of this handler read
+    // `featureTracker.current()` and clicks intermittently did nothing at all. The tracker QUEUES
+    // its resolve for the next frame, so `current()` answers for the previous one — and a tap has
+    // no previous one, because touch sends no hover and MapLibre synthesises the whole sequence in
+    // a single tick. The first tap on a phone did nothing and the second worked.
+    //
+    // NOTHING ELSE CAN SEE THIS. Every other assertion here passes either way: the listener is
+    // bound, the tracker is fed, the fly and the card are wired. Only the ORDER of a queue and a
+    // read separates a globe that answers a tap from one that answers the second tap.
+    expect(wiringBody()).not.toContain("goToFeature(featureTracker.current())");
+    expect(wiringBody()).toContain("goToFeature(featureAt(event.point));");
+  });
+
+  it("flies AND opens the card, which is the whole of mirroring Earth", () => {
+    // Earth gates the panel on a rendered hero and never gates the fly. Mars's card carries no
+    // picture, so there is nothing left to gate and half-wiring it — a fly with no card, or a card
+    // with no fly — is the failure this pins. Neither half has another witness.
+    expect(wiringBody()).toContain("map.flyTo(camera);");
+    expect(wiringBody()).toContain("openPanel(featurePanelContent(feature));");
+  });
+
+  it("takes the centre from the catalogue, because a tile does not carry one", () => {
+    // `features_geojson.CARRIED_FIELDS` keeps the gazetteer's unfolded centres out of the tiles, so
+    // the picked name must be looked up before the camera has a target. Building the card from the
+    // same row is what keeps a searched card and a tapped card identical.
+    expect(wiringBody()).toContain("featureNamed(name)");
+  });
+
+  it("asks for the catalogue LAZILY, or Earth downloads Mars's place names", () => {
+    // THE ONLY SYMPTOM OF GETTING THIS WRONG IS BYTES. Both pages mount this one component and so
+    // share one client chunk; a static import puts 324 KB of Martian nomenclature into Earth's
+    // download, where nothing reads it and no test notices. Present-then-absent rather than absent
+    // alone, because "does not appear" is true of any string that was merely renamed.
+    expect(wiringBody()).toContain('import("../lib/featureIndex")');
+    expect(GLOBE).not.toMatch(/^\s*import .*from "\.\.\/lib\/featureIndex";$/m);
+  });
+
+  it("hands the chip to the tracker that answers on this body", () => {
+    // `closePanel` repaints the chip with no pointer event to go on, so it has to ask the resolver
+    // this body actually uses. Reading the country tracker there leaves a closed Mars card with a
+    // lit outline and no name, until the pointer happens to move.
+    expect(wiringBody()).toContain("chipOwner = featureTracker;");
+    expect(GLOBE).toContain("chipOwner.viewChanged();");
+    expect(GLOBE).toContain("paintChip(chipOwner.current());");
+  });
+
+  it("suppresses the chip on touch for every body, now that every tap brings a card", () => {
+    // `chip-answers-taps` existed because a Mars tap had no card to arrive and the chip was the
+    // whole answer. It has a card now, so the exception is gone and the rule is unconditional —
+    // which also covers the window where Mars's card is still waiting on its catalogue fetch.
+    expect(GLOBE).toMatch(/@media \(hover: none\) \{\s*\n\s*\.country-chip \{/);
+    expect(GLOBE).not.toContain("chip-answers-taps");
   });
 
   it("queries BOTH hit surfaces, since the two kinds of feature are disjoint sets", () => {

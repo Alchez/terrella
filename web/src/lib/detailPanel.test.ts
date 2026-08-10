@@ -2,11 +2,19 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import {
   COUNTRY_PANEL_NOTE,
+  FRAME_EDGE_PX,
+  PANEL_BESIDE_MIN_WIDTH_PX,
+  PANEL_CLEARANCE_PX,
   countryPanelContent,
+  featurePanelContent,
+  featureTypeLabel,
+  formatFeatureDiameter,
   heroSrcset,
   variantWidth,
   type PanelContent,
 } from "./detailPanel";
+import { featureIndex, type NamedFeature } from "./featureIndex";
+import { formatGroundDistance } from "./scaleRuler";
 import type { Country } from "./manifest";
 
 const WEB_ROOT = new URL("../../", import.meta.url).pathname;
@@ -151,5 +159,126 @@ describe("the content contract stays body-neutral", () => {
     // failing, because Earth's builder would go on supplying them.
     const content: PanelContent = countryPanelContent(country());
     expect(Object.keys(content).toSorted()).toEqual(["eyebrow", "figure", "link", "name", "note"]);
+  });
+
+  it("is filled the same way by both bodies, or the card has two shapes", () => {
+    // The contract only means something if the second builder honours it. Compared as key SETS
+    // rather than asserted twice, so a field added to one builder and not the other fails here
+    // instead of being caught by whichever test was updated.
+    expect(Object.keys(featurePanelContent(feature())).toSorted()).toEqual(
+      Object.keys(countryPanelContent(country())).toSorted(),
+    );
+  });
+});
+
+/** One gazetteer row, with every field the builder reads populated. */
+function feature(overrides: Partial<NamedFeature> = {}): NamedFeature {
+  return {
+    name: "Gale",
+    cleanName: "Gale",
+    type: "Crater, craters",
+    origin: "Walter Frederick; Australian astronomer (1865-1945).",
+    diameterKm: 154.156,
+    longitude: 137.85,
+    latitude: -5.37,
+    ...overrides,
+  };
+}
+
+describe("the IAU descriptor becomes a label", () => {
+  it("keeps the singular and drops the plural", () => {
+    expect(featureTypeLabel("Crater, craters")).toBe("Crater");
+    expect(featureTypeLabel("Vallis, valles")).toBe("Vallis");
+  });
+
+  it("is total over the real catalogue, not just over the tidy types", () => {
+    // The rule is "split at the comma", which is only safe because every type in the published
+    // gazetteer carries one — including the two that pluralise with a macron (`Rupes, rupēs`) and
+    // the one whose singular and plural differ by nothing else. A future edition adding a
+    // comma-less descriptor would silently pass the whole type through as a label.
+    const types = new Set(featureIndex.map((row) => row.type));
+    expect(types.size).toBeGreaterThan(20);
+    for (const type of types) {
+      const label = featureTypeLabel(type);
+      expect(label, `${type} kept its plural`).not.toContain(",");
+      expect(label.length, `${type} produced an empty label`).toBeGreaterThan(0);
+      expect(type.startsWith(label), `${label} is not the head of ${type}`).toBe(true);
+    }
+  });
+});
+
+describe("a published diameter is quoted, not measured", () => {
+  it("reads whole kilometres with a separator once it is large", () => {
+    expect(formatFeatureDiameter(154.156)).toBe("154 km");
+    expect(formatFeatureDiameter(1471.557)).toBe("1,472 km");
+    expect(formatFeatureDiameter(5855.873)).toBe("5,856 km");
+  });
+
+  it("keeps a decimal on a small crater and drops to metres below a kilometre", () => {
+    expect(formatFeatureDiameter(4.63)).toBe("4.6 km");
+    expect(formatFeatureDiameter(0.23)).toBe("230 m");
+  });
+
+  it("disagrees with the scale ruler, which is the point of it existing", () => {
+    // THE ASYMMETRY PINNED RATHER THAN COMMENTED. `formatGroundDistance` holds two significant
+    // figures because its subject is a scale sampled off a sphere and re-sampled every frame.
+    // Neither reason survives here, and collapsing the two — the obvious tidy-up, since both turn
+    // a length into a label — would round the IAU's 1,471.6 km to "1,500 km" on the card.
+    expect(formatGroundDistance(1471.557 * 1000)).toBe("1,500 km");
+    expect(formatFeatureDiameter(1471.557)).not.toBe(formatGroundDistance(1471.557 * 1000));
+  });
+});
+
+describe("a gazetteer row becomes a card", () => {
+  it("names the feature, its kind and how big it is", () => {
+    const content = featurePanelContent(feature());
+    expect(content.name).toBe("Gale");
+    expect(content.eyebrow).toBe("Crater · 154 km");
+    expect(content.note).toBe("Walter Frederick; Australian astronomer (1865-1945).");
+  });
+
+  it("falls back to the kind alone where the gazetteer publishes no size", () => {
+    // Two features reach this branch, and they are the same two `candidateFrom` refuses to size.
+    // A card reading "Chaos · 0 km" would be the catalogue disagreeing with itself about which
+    // features have a diameter at all.
+    expect(featurePanelContent(feature({ diameterKm: null })).eyebrow).toBe("Crater");
+  });
+
+  it("carries no picture and no link, because this body has neither", () => {
+    const content = featurePanelContent(feature());
+    expect(content.figure).toBeNull();
+    expect(content.link).toBeNull();
+  });
+
+  it("fills every slot for every feature in the catalogue", () => {
+    // The card is opened by a tap on any of them and by a search for any of them, so a row that
+    // produces a blank eyebrow or an empty note is a card that looks broken for that one feature
+    // and no other. Cheaper to assert over all of them than to argue about which could be empty.
+    for (const row of featureIndex) {
+      const content = featurePanelContent(row);
+      expect(content.name.length, `${row.name} lost its name`).toBeGreaterThan(0);
+      expect(content.note.length, `${row.name} has no origin to show`).toBeGreaterThan(0);
+      expect(content.eyebrow.length, `${row.name} has no eyebrow`).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe("the camera and the card agree about how much room the card takes", () => {
+  it("gives Earth's padding and Mars's offset one source", () => {
+    // Two APIs spending one number: `fitBounds` takes padding on the card's side, `flyTo` has no
+    // padding at all and takes half the clearance as a leftward shift. Written as literals, a
+    // change to the card's width would correct one framing and leave the other pushing its subject
+    // under the panel — visible only as "the fly-to feels off" on one body.
+    expect(GLOBE).toContain("right: FRAME_EDGE_PX + PANEL_CLEARANCE_PX,");
+    expect(GLOBE).toContain("[-PANEL_CLEARANCE_PX / 2, 0] : [0, 0]");
+    expect(GLOBE).not.toMatch(/padding: wide[\s\S]{0,120}right: \d/);
+  });
+
+  it("leaves the clearance inside a phone's screen, or the offset flies the subject away", () => {
+    // The offset is applied only above the breakpoint. If half the clearance ever exceeded the
+    // narrowest viewport that takes it, the framed feature would land off-screen — the failure is
+    // silent because the camera still reports arriving exactly where it was asked to.
+    expect(PANEL_CLEARANCE_PX / 2).toBeLessThan(PANEL_BESIDE_MIN_WIDTH_PX / 2);
+    expect(FRAME_EDGE_PX).toBeGreaterThan(0);
   });
 });

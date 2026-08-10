@@ -3873,8 +3873,19 @@ SABOTAGES: list[Sabotage] = [
         # features are pointable at rather than throwing.
         label='the feature pick sizes candidates with Earth\'s radius on every body',
         path='web/src/components/Globe.astro',
-        needle='          locateOnDatum,\n          body.groundRadiusM,',
-        replacement='          locateOnDatum,\n          6371008.8,',
+        needle='rulerGroundDistance(locateOnDatum, body.groundRadiusM, viewport.width',
+        replacement='rulerGroundDistance(locateOnDatum, 6371008.8, viewport.width',
+        guard="passes the drawn body's radius at EVERY call site, not only the ruler's",
+    ),
+    Sabotage(
+        suite='web',
+        # The THIRD caller of the same radius, and the newest. Framing is the pick read backwards, so
+        # an Earth radius here lands the camera at the zoom a feature of that size would need on
+        # Earth — off by the ratio of the two bodies, and visible only as "the fly-to overshoots".
+        label='the fly-to frames Mars against Earth\'s radius',
+        path='web/src/components/Globe.astro',
+        needle='          viewportSize(),\n          body.groundRadiusM,',
+        replacement='          viewportSize(),\n          6371008.8,',
         guard="passes the drawn body's radius at EVERY call site, not only the ruler's",
     ),
     # --- Mars's hit-testing and hover -------------------------------------------------------------
@@ -3966,19 +3977,151 @@ SABOTAGES: list[Sabotage] = [
         # commit was asked to end, and which no desktop check would ever notice.
         label='a tap stops resolving, leaving the body silent on touch',
         path='web/src/components/Globe.astro',
-        needle='    map.on("click", (event) => featureTracker.pointerMoved(event.point));',
-        replacement='    // taps no longer resolve',
+        needle='      featureTracker.pointerMoved(event.point);\n      goToFeature',
+        replacement='      void 0;\n      goToFeature',
         guard='answers a tap, so the body is not mute on a phone',
     ),
     Sabotage(
         suite='web',
-        # The tap still resolves and still lights the boundary, and the chip stays suppressed by the
-        # stylesheet — so the phone gets paint and no name, the exact half-answer that was rejected.
-        label='the chip stays hidden on touch, so a tap names nothing',
+        # The pointer still names the feature and the click goes nowhere — a globe that looks fully
+        # alive on hover and does nothing at all when you act on what it told you.
+        label='a pick names the feature and the camera never moves',
         path='web/src/components/Globe.astro',
-        needle='    if (!subsystems.heroes) document.body.classList.add("chip-answers-taps");',
-        replacement='    // the chip stays suppressed on touch',
-        guard='lets the chip through on touch, or the tap resolves and says nothing',
+        needle='      goToFeature(featureAt(event.point));',
+        replacement='      // a tap names but goes nowhere',
+        guard='answers a tap, so the body is not mute on a phone',
+    ),
+    Sabotage(
+        suite='web',
+        # THE BUG THIS SHIPPED WITH ONCE, restored: the click asks the tracker for its state instead
+        # of resolving its own point. The tracker queues that resolve for the NEXT frame, so a tap —
+        # which has no hover before it — reads null and the first tap on a phone does nothing. Every
+        # other guard in the file passes unchanged, and desktop hover hides it completely.
+        label='the click reads a frame-stale answer, so a phone ignores the first tap',
+        path='web/src/components/Globe.astro',
+        needle='      goToFeature(featureAt(event.point));',
+        replacement='      goToFeature(featureTracker.current());',
+        guard="resolves the click's own point instead of asking the tracker what it holds",
+    ),
+    Sabotage(
+        suite='web',
+        # Half of mirroring Earth, deleted. The camera arrives framed on a feature the visitor now
+        # has no name, kind or etymology for — and the chip that WOULD have named it is suppressed
+        # on touch precisely because a card was promised.
+        label='the fly arrives with no card behind it',
+        path='web/src/components/Globe.astro',
+        needle='        openPanel(featurePanelContent(feature));',
+        replacement='        // no card on arrival',
+        guard='flies AND opens the card, which is the whole of mirroring Earth',
+    ),
+    Sabotage(
+        suite='web',
+        # The other half: the card opens on a globe that never went anywhere, so it describes a
+        # feature somewhere off screen. Reads as a bug in the CARD rather than in the camera.
+        label='the card opens and the camera stays put',
+        path='web/src/components/Globe.astro',
+        needle='        map.flyTo(camera);',
+        replacement='        // the camera stays where it was',
+        guard='flies AND opens the card, which is the whole of mirroring Earth',
+    ),
+    Sabotage(
+        suite='web',
+        # THE REGRESSION WITH NO VISIBLE SYMPTOM AT ALL. Both pages mount one component and share one
+        # client chunk, so a static import ships 324 KB of Martian nomenclature to every Earth
+        # visitor. Everything renders, every test that drives behaviour passes, and the only trace is
+        # a bigger download. Planted as the import line itself, which is how it would really arrive.
+        label='Earth downloads Mars\'s catalogue because the import went static',
+        path='web/src/components/Globe.astro',
+        needle='  import { createHoverTracker, type HoverTracker } from "../lib/hoverTracking";',
+        replacement='  import { createHoverTracker, type HoverTracker } from "../lib/hoverTracking";\n'
+                    '  import { featureNamed } from "../lib/featureIndex";',
+        guard='asks for the catalogue LAZILY, or Earth downloads Mars\'s place names',
+    ),
+    Sabotage(
+        suite='web',
+        # The chip goes back to asking the country tracker, which on Mars answers null everywhere. A
+        # closed card leaves the outline lit under the pointer and the name gone, until something
+        # moves. Nothing throws and the card itself is perfect.
+        label='closing a Mars card leaves its feature lit and unnamed',
+        path='web/src/components/Globe.astro',
+        needle='    chipOwner = featureTracker;',
+        replacement='    // the chip keeps its default owner',
+        guard='hands the chip to the tracker that answers on this body',
+    ),
+    Sabotage(
+        suite='web',
+        # The touch suppression is lifted again. Every tap now flashes the chip under the arriving
+        # card — and on Mars the card waits on a fetch, so the flash lasts as long as the network
+        # does. Invisible on every desktop check.
+        label='the chip flashes under the arriving card on touch',
+        path='web/src/components/Globe.astro',
+        needle='  @media (hover: none) {\n    .country-chip {',
+        replacement='  @media (hover: none) {\n    .country-chip-disabled {',
+        guard='suppresses the chip on touch for every body, now that every tap brings a card',
+    ),
+    Sabotage(
+        suite='web',
+        # The gazetteer's dictionary headword reaches the card. Every eyebrow on the body reads
+        # "CRATER, CRATERS" — wrong on all 1,919 features at once, which is the kind of wrongness
+        # that looks like a deliberate style choice to anyone who has not seen the alternative.
+        label='the card labels a feature with the IAU\'s singular AND plural',
+        path='web/src/lib/detailPanel.ts',
+        needle='  return type.split(",")[0]!.trim();',
+        replacement='  return type;',
+        guard='keeps the singular and drops the plural',
+    ),
+    Sabotage(
+        suite='web',
+        # The tidy-up that looks obviously right: two functions turning a length into a label, so
+        # collapse them. It re-rounds every published diameter to two significant figures, and the
+        # card starts quoting the IAU numbers the IAU did not publish.
+        label='a published diameter is rounded like a measured one',
+        path='web/src/lib/detailPanel.ts',
+        needle='  return `${Math.round(diameterKm).toLocaleString("en-US")} km`;',
+        replacement='  return `${Number(diameterKm.toPrecision(2)).toLocaleString("en-US")} km`;',
+        guard='disagrees with the scale ruler, which is the point of it existing',
+    ),
+    Sabotage(
+        suite='web',
+        # The two unsized features get a size after all. "Chaos · 0 km" is the catalogue contradicting
+        # itself: the same rows the pick refuses to size, sized on the card.
+        label='an unsized feature is given a diameter of zero on the card',
+        path='web/src/lib/detailPanel.ts',
+        needle='      feature.diameterKm === null\n        ? type',
+        replacement='      false\n        ? type',
+        guard='falls back to the kind alone where the gazetteer publishes no size',
+    ),
+    Sabotage(
+        suite='web',
+        # The lookup gets helpful. A trimmed key resolves names that can never light anything, since
+        # feature state and the hit test are both keyed on the published spelling — so a search
+        # result flies the camera to a feature the pointer then refuses to acknowledge.
+        label='the name lookup starts matching things the tiles cannot',
+        path='web/src/lib/featureIndex.ts',
+        needle='  return byName.get(name) ?? null;',
+        replacement='  return byName.get(name.trim()) ?? null;',
+        guard='is case- and space-exact, because the tiles\' promoteId is',
+    ),
+    Sabotage(
+        suite='web',
+        # Earth's framing goes back to a literal while Mars keeps deriving. The two stop meaning the
+        # same thing, and a later change to the card's width corrects one body and not the other.
+        label='Earth\'s card clearance becomes a literal again',
+        path='web/src/components/Globe.astro',
+        needle='              right: FRAME_EDGE_PX + PANEL_CLEARANCE_PX,',
+        replacement='              right: 460,',
+        guard="gives Earth's padding and Mars's offset one source",
+    ),
+    Sabotage(
+        suite='web',
+        # The offset's SIGN. The camera shifts the feature toward the card instead of away from it,
+        # so a deliberate pick arrives centred underneath the panel describing it. The fly still
+        # runs, the zoom is still right, and the arrival looks like a card placement bug.
+        label='the fly-to shifts its subject under the card instead of clear of it',
+        path='web/src/components/Globe.astro',
+        needle='? [-PANEL_CLEARANCE_PX / 2, 0] : [0, 0]',
+        replacement='? [PANEL_CLEARANCE_PX / 2, 0] : [0, 0]',
+        guard="gives Earth's padding and Mars's offset one source",
     ),
     Sabotage(
         suite='web',

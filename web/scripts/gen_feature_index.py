@@ -29,7 +29,7 @@ THE OUTPUT IS TRACKED IN GIT, WHICH `src/data/countries.json` IS NOT, AND THE DI
 INPUT IS. The gallery manifest describes whichever heroes happen to be rendered on this machine, so
 it cannot be committed without committing a machine's state. This index derives from an archive
 pinned by member digest — the same bytes anywhere, changing only when the IAU adopts a name. Being
-tracked is what lets `astro check` and the search tests run against the real 1,920 rows on a clean
+tracked is what lets `astro check` and the search tests run against the real catalogue on a clean
 checkout, with no absent-file branch in any consumer.
 
 That is also why no recipe sidecar sits beside it: `tests/test_feature_index.py` regenerates the
