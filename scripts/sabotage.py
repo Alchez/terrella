@@ -5299,6 +5299,58 @@ SABOTAGES: list[Sabotage] = [
         replacement='    "name": "Gale",\n    "cleanName": "Gale",',
         guard='leaves no name on two rows',
     ),
+    # THE FRAMING'S ONE HARD CONSTRAINT. At the ceiling the camera lands exactly where a region stops
+    # being a target, so the highlight goes out on the feature you asked to be taken to — and every
+    # arithmetic assertion still passes, because the arithmetic is doing what it was told.
+    Sabotage(
+        suite='web',
+        label='the fly-to frames a feature at the size that stops it being a target',
+        path='web/src/lib/featureTargeting.ts',
+        needle='export const FLY_TO_VIEWPORT_FRACTION = 0.5;',
+        replacement='export const FLY_TO_VIEWPORT_FRACTION = 0.7;',
+        guard='stays under the ceiling that decides a feature can be pointed at',
+    ),
+    # Frames every feature as though it sat on the equator. Invisible on the half of the catalogue
+    # that nearly does, and a whole zoom level out by 60 degrees.
+    Sabotage(
+        suite='web',
+        label='the framing ignores how ground scale falls off with latitude',
+        path='web/src/lib/featureTargeting.ts',
+        needle='    2 * Math.PI * groundRadiusM * Math.cos((latitude * Math.PI) / 180);',
+        replacement='    2 * Math.PI * groundRadiusM;',
+        guard='takes cos(latitude) into account rather than framing every feature as equatorial',
+    ),
+    # Sizes the view for a camera position the transform refuses to reach. The seven polar centres
+    # arrive too close, and nothing in the arithmetic can notice because the clamp happens later.
+    Sabotage(
+        suite='web',
+        label='a polar feature is framed for a latitude the camera cannot reach',
+        path='web/src/lib/featureTargeting.ts',
+        needle='  const reachableLatitude = Math.max(\n    -MAX_CENTRE_LATITUDE,\n    Math.min(MAX_CENTRE_LATITUDE, latitude),\n  );',
+        replacement='  const reachableLatitude = latitude;',
+        guard='frames a polar feature for where the camera can actually go',
+    ),
+    # The projection's own zoom unit, not our asset tile size. Halving it is one zoom level on every
+    # feature — and the unit test carries its own 512 rather than importing this, which is what lets
+    # it disagree at all.
+    Sabotage(
+        suite='web',
+        label='the framing scales the world by our tile size instead of the projection unit',
+        path='web/src/lib/featureTargeting.ts',
+        needle='const MERCATOR_TILE_PX = 512;',
+        replacement='const MERCATOR_TILE_PX = 256;',
+        guard='lands the diameter on the chosen share of the viewport reference',
+    ),
+    # An unsized feature framed at zoom 0 rather than left alone. The two zero-diameter features
+    # would fly to a whole-planet view, which reads as a broken search result rather than a decision.
+    Sabotage(
+        suite='web',
+        label='a feature with no diameter is framed instead of just centred',
+        path='web/src/lib/featureTargeting.ts',
+        needle='  if (diameterKm === null || !(diameterKm > 0)) return null;',
+        replacement='  if (diameterKm === null || !(diameterKm > 0)) return 0;',
+        guard='declines to size a feature the gazetteer publishes at zero',
+    ),
 ]
 
 

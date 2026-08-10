@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  FLY_TO_VIEWPORT_FRACTION,
+  MAX_CENTRE_LATITUDE,
   MAX_TARGET_VIEWPORT_FRACTION,
   MIN_TARGET_PX,
   candidateFrom,
+  framingZoom,
   pickFeature,
   readsAtThisScale,
   screenExtentPx,
@@ -189,5 +192,75 @@ describe("the judgements made on a real globe", () => {
     // The other live failure. Ares Vallis is longer than any zoom that shows its width can fit.
     expect(pickFeature([ARES_VALLIS], SCALE.crater, DESKTOP)).toBe("Ares Vallis");
     expect(pickFeature([ARES_VALLIS], SCALE.crater, PHONE)).toBe("Ares Vallis");
+  });
+});
+
+describe("framing a feature the camera has to fly to", () => {
+  const MARS_RADIUS_M = 3396190;
+
+  /** What the feature actually spans on screen once the camera is at `zoom`. */
+  function arrivalExtentPx(diameterKm: number, zoom: number, latitude: number): number {
+    const metresPerPixel =
+      (2 * Math.PI * MARS_RADIUS_M * Math.cos((latitude * Math.PI) / 180)) / (512 * 2 ** zoom);
+    return screenExtentPx(diameterKm, metresPerPixel);
+  }
+
+  it("stays under the ceiling that decides a feature can be pointed at", () => {
+    // THE ONE HARD CONSTRAINT, and the reason both constants live in one file. Framing at or above
+    // the ceiling lands the camera exactly where the feature stops being a target — the highlight
+    // would vanish on arrival, on the feature you just asked to be taken to.
+    expect(FLY_TO_VIEWPORT_FRACTION).toBeLessThan(MAX_TARGET_VIEWPORT_FRACTION);
+  });
+
+  it("lands the diameter on the chosen share of the viewport reference", () => {
+    for (const viewport of [DESKTOP, PHONE]) {
+      for (const diameterKm of [154, 610, 2299, 4852]) {
+        const zoom = framingZoom(diameterKm, 0, viewport, MARS_RADIUS_M)!;
+        const wanted = FLY_TO_VIEWPORT_FRACTION * viewportReferencePx(viewport);
+        expect(arrivalExtentPx(diameterKm, zoom, 0)).toBeCloseTo(wanted, 6);
+      }
+    }
+  });
+
+  it("still answers the pointer on arrival", () => {
+    // The property the fraction exists to protect, asserted through the picker rather than restated
+    // as arithmetic: fly to a landmark and it must still be the thing under the cursor.
+    for (const viewport of [DESKTOP, PHONE]) {
+      const zoom = framingZoom(4852, 0, viewport, MARS_RADIUS_M)!;
+      const metresPerPixel =
+        (2 * Math.PI * MARS_RADIUS_M) / (512 * 2 ** zoom);
+      expect(pickFeature([region("Arabia Terra", 4852)], metresPerPixel, viewport))
+        .toBe("Arabia Terra");
+    }
+  });
+
+  it("frames a polar feature for where the camera can actually go", () => {
+    // Seven adopted centres sit past the Mercator clamp. Sizing the view from the feature's own
+    // latitude computes for a camera position that cannot be reached and arrives too close, so a
+    // centre at 87.7 must be framed exactly as one at the clamp.
+    const past = framingZoom(1000, 87.73, DESKTOP, MARS_RADIUS_M);
+    const atClamp = framingZoom(1000, MAX_CENTRE_LATITUDE, DESKTOP, MARS_RADIUS_M);
+    expect(past).toBe(atClamp);
+    expect(past).toBeLessThan(framingZoom(1000, 87.73, DESKTOP, MARS_RADIUS_M * 2)!);
+  });
+
+  it("takes cos(latitude) into account rather than framing every feature as equatorial", () => {
+    // The globe's ground scale falls off with latitude exactly as Mercator's does — measured on a
+    // real transform across z0-z8 — so the same feature needs a lower zoom the further north it is.
+    expect(framingZoom(500, 60, DESKTOP, MARS_RADIUS_M)!)
+      .toBeCloseTo(framingZoom(500, 0, DESKTOP, MARS_RADIUS_M)! - 1, 3);
+  });
+
+  it("declines to size a feature the gazetteer publishes at zero", () => {
+    // Null is "centre it and change nothing else" — the same refusal to guess a size that
+    // `candidateFrom` makes, and the two must agree or one catalogue disagrees with itself.
+    expect(framingZoom(null, 0, DESKTOP, MARS_RADIUS_M)).toBeNull();
+    expect(framingZoom(0, 0, DESKTOP, MARS_RADIUS_M)).toBeNull();
+  });
+
+  it("declines a viewport that has not been laid out yet", () => {
+    // A map in a zero-height element builds a transform that projects every ground point onto one
+    // screen point; a zoom computed against it would be Infinity and the camera would never return.
+    expect(framingZoom(100, 0, { width: 0, height: 0 }, MARS_RADIUS_M)).toBeNull();
   });
 });

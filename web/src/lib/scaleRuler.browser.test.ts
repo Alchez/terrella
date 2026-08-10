@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { FIXTURE_HEIGHT_PX, FIXTURE_WIDTH_PX, mountGlobe, type MountedGlobe } from "./testing/mountGlobe";
+import {
+  FIXTURE_HEIGHT_PX,
+  FIXTURE_WIDTH_PX,
+  datumLocator,
+  mountGlobe,
+  type MountedGlobe,
+} from "./testing/mountGlobe";
 import { RULER_WIDTH_PX, formatGroundDistance, rulerGroundDistance } from "./scaleRuler";
 import { BODIES } from "./bodies";
 
@@ -42,26 +48,6 @@ afterEach(() => {
   mounted?.dispose();
   mounted = null;
 });
-
-/**
- * Read the ruler the way the page does: the transform's own datum conversion, looked up PER CALL.
- *
- * A plain `{x, y}` is accepted — verified against the live object rather than assumed, which is
- * why this needs no `maplibregl.Point` import.
- */
-type LiveLocation = { lng: number; lat: number; distanceTo(other: unknown): number };
-
-function datumLocator(globe: MountedGlobe): (point: [number, number]) => LiveLocation {
-  const painter = globe.map as unknown as { painter: { transform: Record<string, unknown> } };
-  return ([x, y]: [number, number]) => {
-    const transform = painter.painter.transform;
-    const convert = transform.screenPointToLocation as (point: {
-      x: number;
-      y: number;
-    }) => LiveLocation;
-    return convert.call(transform, { x, y });
-  };
-}
 
 /** Read the ruler for a body. Earth unless a test is about a second one. */
 function readRuler(globe: MountedGlobe, groundRadiusM = BODIES.earth.groundRadiusM): number {

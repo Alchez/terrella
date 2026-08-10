@@ -38,6 +38,34 @@ export interface MountGlobeOptions {
   height?: number;
 }
 
+/** A located ground point as the live transform hands it back. `distanceTo` is MapLibre's own arc,
+ *  which one test uses as an oracle against ours. */
+export type LiveLocation = { lng: number; lat: number; distanceTo(other: unknown): number };
+
+/**
+ * Read the datum the way the page does: the transform's own conversion, looked up PER CALL.
+ *
+ * THE PER-CALL LOOKUP IS THE POINT, not a style choice. The ruler once shipped frozen at one label
+ * for every zoom because a transform reference was captured once and the map replaced it; a helper
+ * that hoisted `painter.transform` out of the returned closure would reproduce that bug inside the
+ * fixture, where every test above it would keep passing.
+ *
+ * `screenPointToLocation` rather than `map.unproject`, also as the page does — `unproject` resolves
+ * against the draped surface and stalls the GPU, which is a real cost on a listener that runs per
+ * frame and a pointless one here. A plain `{x, y}` is accepted, verified against the live object.
+ */
+export function datumLocator(globe: MountedGlobe): (point: [number, number]) => LiveLocation {
+  const painter = globe.map as unknown as { painter: { transform: Record<string, unknown> } };
+  return ([x, y]: [number, number]) => {
+    const transform = painter.painter.transform;
+    const convert = transform["screenPointToLocation"] as (point: {
+      x: number;
+      y: number;
+    }) => LiveLocation;
+    return convert.call(transform, { x, y });
+  };
+}
+
 let workerUrlSet = false;
 
 /**

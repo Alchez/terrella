@@ -1,4 +1,4 @@
-/** WHICH named feature a point picks, on a body whose catalogue mixes scales.
+/** WHICH named feature a point picks, and at WHAT SCALE it should be shown — one band, read both ways.
  *
  *  Earth needs nothing like this because countries are a PARTITION: one answer per point, every
  *  boundary a real line. Mars's gazetteer is a CATALOGUE — a 22 km crater and a 5,519 km terra are
@@ -16,6 +16,13 @@
  *
  *  Over ground whose only container is too big to fit, this returns null and nothing paints. That
  *  is the same answer Earth gives over ocean, which is why it reads as a model rather than a gap.
+ *
+ *  THE FRAMING LIVES HERE BECAUSE IT IS THE SAME QUESTION ASKED BACKWARDS. Deciding that a feature
+ *  reads at the current scale and deciding what scale to show it at are one relationship, measured
+ *  against one reference dimension — so the fly-to fraction and the ceiling it must stay under are
+ *  adjacent constants a test can compare, rather than two numbers in two files that agree by habit.
+ *  Split them and the first edit to either lands the camera exactly where the feature stops
+ *  answering.
  *
  *  Pure and dependency-free on purpose: the sizing is arithmetic over a diameter and a scale, so it
  *  is testable without a map, a canvas or a projection.
@@ -162,4 +169,80 @@ export function candidateFrom(
       : null,
     linear,
   };
+}
+
+/**
+ * MapLibre's own tile size in CSS pixels — the unit `2^zoom` scales the world by.
+ *
+ * NOT the 512 px rasters we serve, which the style is told are 256; this is the projection's
+ * internal unit and is independent of anything we publish. `scaleRuler.browser.test.ts` carries its
+ * own copy of this number and THAT COPY MUST NOT BE COLLAPSED INTO THIS ONE: it is the independent
+ * oracle over a live transform, and an oracle importing the constant it is checking agrees with
+ * itself no matter how wrong both are.
+ */
+const MERCATOR_TILE_PX = 512;
+
+/**
+ * The furthest north or south the camera CENTRE can be placed. Measured, because nothing exports it.
+ *
+ * MapLibre clamps here on every route into the transform — asked for 86, 88 and 89.9 degrees it
+ * returns this latitude each time — and it is the Web Mercator limit rather than a globe one, so it
+ * binds even though the sphere plainly has ground beyond it. Seven adopted centres lie past it, and
+ * for those the scale to frame against is the scale AT THE CLAMP: computing from the feature's own
+ * latitude would size the view for a camera position that cannot be reached, and arrive too close.
+ */
+export const MAX_CENTRE_LATITUDE = 85.0511;
+
+/**
+ * The share of the viewport's reference dimension a feature's diameter spans when the camera lands.
+ *
+ * IT MUST STAY BELOW `MAX_TARGET_VIEWPORT_FRACTION`, and that is the only hard constraint on it.
+ * The two measure the same quantity against the same reference, so framing at or above the ceiling
+ * puts the camera exactly where the feature stops being a target — fly to a crater and watch its
+ * highlight disappear on arrival. The gap also absorbs an irregular polygon that overruns its
+ * nominal diameter, which the gazetteer's regions routinely do.
+ *
+ * Judged on the globe at 0.5, which lands the crossover with the zoom ceiling near the catalogue's
+ * own scale break: the features that clamp are craters, the ones framed as asked are landmarks.
+ */
+export const FLY_TO_VIEWPORT_FRACTION = 0.5;
+
+/** Ground metres one CSS pixel spans at `zoom` and `latitude`, on a sphere of `groundRadiusM`. */
+function groundMetresPerPixel(zoom: number, latitude: number, groundRadiusM: number): number {
+  const circumferenceAtLatitude =
+    2 * Math.PI * groundRadiusM * Math.cos((latitude * Math.PI) / 180);
+  return circumferenceAtLatitude / (MERCATOR_TILE_PX * 2 ** zoom);
+}
+
+/**
+ * The zoom that frames this feature at `FLY_TO_VIEWPORT_FRACTION`, or null when it cannot be sized.
+ *
+ * NULL IS "CENTRE IT AND CHANGE NOTHING ELSE", not an error. Two features carry no diameter, and
+ * for those the honest camera knows where but not how big — the same asymmetry `candidateFrom`
+ * already encodes by refusing to guess a size.
+ *
+ * The caller still has to clamp against the map's own zoom range. Deliberately not done here: the
+ * ceiling is a property of the body's pyramid, this is a property of the catalogue, and folding one
+ * into the other is what makes a constant turn up in a file that has no business knowing it.
+ * Clamping is also what a visitor sees as the rule breaking down — a small crater arrives smaller
+ * than asked, and no arithmetic here can change that.
+ */
+export function framingZoom(
+  diameterKm: number | null,
+  latitude: number,
+  viewport: ViewportSize,
+  groundRadiusM: number,
+): number | null {
+  if (diameterKm === null || !(diameterKm > 0)) return null;
+  const reference = viewportReferencePx(viewport);
+  if (!(reference > 0)) return null;
+  const targetMetresPerPixel =
+    (diameterKm * 1000) / (FLY_TO_VIEWPORT_FRACTION * reference);
+  const reachableLatitude = Math.max(
+    -MAX_CENTRE_LATITUDE,
+    Math.min(MAX_CENTRE_LATITUDE, latitude),
+  );
+  return Math.log2(
+    groundMetresPerPixel(0, reachableLatitude, groundRadiusM) / targetMetresPerPixel,
+  );
 }
