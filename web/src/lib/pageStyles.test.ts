@@ -115,7 +115,13 @@ describe("the globe's stylesheets stay split the way the cascade needs", () => {
   it("keeps the globe's own scoped elements out of the shared stylesheet", () => {
     // The half that cannot move must not be moved piecemeal either. A scoped rule relocated into
     // the shared file would lose its cid and its specificity level with it.
-    for (const scopedOnly of [".starfield", ".hero-panel", ".globe-lost"]) {
+    //
+    // EACH SELECTOR IS ASSERTED PRESENT BEFORE IT IS ASSERTED ABSENT, because "absent from the
+    // shared file" is true of every string that does not exist at all. Renaming `.hero-panel` to
+    // `.detail-panel` and forgetting this list would have left the loop passing over a selector no
+    // stylesheet contained — a guard that reports on nothing reads exactly like a guard that passed.
+    for (const scopedOnly of [".starfield", ".detail-panel", ".globe-lost"]) {
+      expect(globeAstro, `${scopedOnly} is not in the globe's scoped block`).toContain(scopedOnly);
       expect(globe, `${scopedOnly} belongs to the globe's scoped block`).not.toContain(scopedOnly);
     }
   });

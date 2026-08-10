@@ -3760,11 +3760,14 @@ SABOTAGES: list[Sabotage] = [
         suite='web',
         # A gate deleted in the page rather than in the module. This is the shape a source scan is
         # the only available guard for: the gates live in a client script nothing can import.
-        label='the hero panel opens for a body with no heroes rendered',
+        label='the detail panel opens for a body with no heroes rendered',
         path='web/src/components/Globe.astro',
-        needle='    if (subsystems.heroes) openPanel(country);',
-        replacement='    openPanel(country);',
-        guard='is READ by the globe for every answer it gives, so none of them is decoration',
+        needle='    if (subsystems.heroes) openPanel(countryPanelContent(country));',
+        replacement='    openPanel(countryPanelContent(country));',
+        # Re-pointed: the subsystem scan is existence-only, and `chip-answers-taps` became a second
+        # reader of `subsystems.heroes`, so deleting THIS gate stopped failing there. Proved by
+        # mutation — the case went MISSED against the old guard.
+        guard='opens only for a body whose places have renders',
     ),
     Sabotage(
         suite='web',
@@ -5147,6 +5150,59 @@ SABOTAGES: list[Sabotage] = [
         needle='pipeline.profile.pass_cap "$@") || exit 1',
         replacement='pipeline.profile.pass_cap "$@")',
         guard='test_an_omitted_body_is_refused_before_the_scope_opens',
+    ),
+    # The panel's own defect, restored: indexing `sizes[0]` unconditionally asks for
+    # `<slug>-undefined.webp`, which 404s behind a spinner. Nothing on Earth reaches it today, which
+    # is exactly why it survived — the branch only became reachable when a body with no renders
+    # arrived.
+    Sabotage(
+        suite='web',
+        label='an unrendered place asks for a hero variant that does not exist',
+        path='web/src/lib/detailPanel.ts',
+        needle='    sizes.length === 0\n      ? null\n      : {',
+        replacement='    false\n      ? null\n      : {',
+        guard='yields NO figure for an unrendered country rather than a broken image',
+    ),
+    # A portrait hero's key names its HEIGHT. Taking the descriptor from the key overstates every
+    # portrait variant's width, so the browser settles for a rung too small — and the picture is
+    # still a picture, just softer than the one that was asked for.
+    Sabotage(
+        suite='web',
+        label='srcset descriptors claim the long edge instead of the real width',
+        path='web/src/lib/detailPanel.ts',
+        needle='  return Math.round(longEdge * Math.min(1, aspect));',
+        replacement='  return longEdge;',
+        guard='narrows a portrait variant to its real width',
+    ),
+    # Re-couples the card to Earth's manifest. Earth goes on working, because Earth's builder is the
+    # one supplying the field — which is what makes this invisible without a shape assertion.
+    Sabotage(
+        suite='web',
+        label='a country field creeps back into the body-neutral content contract',
+        path='web/src/lib/detailPanel.ts',
+        needle='  return {\n    eyebrow: continent || "",',
+        replacement='  return {\n    slug,\n    eyebrow: continent || "",',
+        guard='names no country field',
+    ),
+    # Half a rename. The selector resolves to null, the non-null assertion throws — but only when a
+    # card is actually opened, which no unit test does.
+    Sabotage(
+        suite='web',
+        label='a querySelector keeps a class the markup no longer carries',
+        path='web/src/components/Globe.astro',
+        needle='panel.querySelector(".dp-note")!.textContent = content.note;',
+        replacement='panel.querySelector(".dp-caption")!.textContent = content.note;',
+        guard='selects only classes the markup actually carries',
+    ),
+    # The note goes back to being a sentence in the markup that claims the card shows a ray-traced
+    # render. True on Earth, false on Mars, and nothing renders differently on Earth either way.
+    Sabotage(
+        suite='web',
+        label='the note stops being written and goes back to the markup',
+        path='web/src/components/Globe.astro',
+        needle='    <p class="dp-note"></p>',
+        replacement='    <p class="dp-note">A ray-traced relief render.</p>',
+        guard='leaves every slot in the markup empty, the note included',
     ),
 ]
 

@@ -226,6 +226,11 @@ describe("the registry is the only thing that can switch a subsystem ON", () => 
     // A source scan is the weakest kind of guard and it is the only kind available here: these
     // gates live in a page's client script, which nothing can import and no unit test can drive.
     // It buys deletion and rename, which is how a gate actually gets lost.
+    //
+    // WHAT IT CANNOT BUY IS ONE GATE OUT OF SEVERAL. This asks whether a subsystem is read at all,
+    // so a second reader of the same flag makes deleting the first invisible here — which is what
+    // `chip-answers-taps` did to `subsystems.heroes`. A gate whose deletion must fail loudly needs
+    // its own pin at its own site; the heroes one lives in `detailPanel.test.ts`.
     const globe = readFileSync(new URL("../components/Globe.astro", import.meta.url), "utf8");
     for (const subsystem of Object.keys(globeSubsystems("earth", NO_FLAGS))) {
       expect(globe, `nothing in the globe reads subsystems.${subsystem}`).toContain(

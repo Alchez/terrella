@@ -487,7 +487,15 @@ second body, Earth-only and Earth byte-identical throughout, landed before any M
   something, and a tap answers the same way a hover does. **No labels go on the map** — the archive
   carries the IAU's own anchors, and they stay unread. Still ahead: the geologic units that answer
   for the ground no name reaches, and search, which is where the long tail of names pays for itself.
-- **Phase 4 — heroes**, if they are wanted at all.
+- **Phase 4 — heroes**, if they are wanted at all. **Their ceiling is the DEM, not the geometry.**
+  - Nesting and overlap cost nothing: a hero is one camera framed from bounds, so two heroes sharing
+    ground are a zoom rather than a conflict. Earth avoids it only because countries partition.
+  - The blend is 200 m/px against Earth's 30 m, and ART.md § Resolution floor already fixes the
+    tolerable upsample at 5x. An 8192 px master therefore wants a frame spanning **at least 328 km**.
+  - Only the terrae and planitiae clear that, which is the set § Vector sources calls not
+    destinations; Gale at 154 km is a 10.6x upsample and Jezero at 47.5 km a 34x one.
+  - **So a hero per named feature is not the product here.** A curated landmark set is the form that
+    survives the ceiling, and it decouples "hero" from "feature" — a seam Earth's model assumes away.
 
 Phase 1 cost roughly **15–22 GB** all-in, against a disk with several hundred GB free. The
 source blend is **10.6 GiB** — measured from the server rather than estimated, and about half again

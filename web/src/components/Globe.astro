@@ -66,22 +66,20 @@ import { REPO_URL } from "../lib/siteLinks";
   <span class="cc-dot"></span><span class="cc-name"></span>
 </p>
 
-{/* Country detail: populated + revealed on click, framed by fitBounds so the
-     flown-to country sits clear of this card. */}
-<aside id="hero-panel" class="hero-panel" hidden aria-hidden="true" aria-label="Country detail">
-  <button id="hero-close" class="hp-close" type="button" aria-label="Close">×</button>
-  <figure class="hp-figure">
-    <img class="hp-hero" alt="" decoding="async" />
-    <img class="hp-border" alt="" aria-hidden="true" />
+{/* Place detail: populated + revealed on click, framed so the flown-to place sits clear of this
+     card. EVERY SLOT IS EMPTY, including the note — see `detailPanel.ts` for why a sentence about
+     a ray-traced render cannot be markup on a site with a second body. */}
+<aside id="detail-panel" class="detail-panel" hidden aria-hidden="true" aria-label="Place detail">
+  <button id="detail-close" class="dp-close" type="button" aria-label="Close">×</button>
+  <figure class="dp-figure">
+    <img class="dp-hero" alt="" decoding="async" />
+    <img class="dp-border" alt="" aria-hidden="true" />
   </figure>
-  <div class="hp-body">
-    <p class="hp-eyebrow"></p>
-    <h2 class="hp-name"></h2>
-    <p class="hp-note">
-      A ray-traced relief render — softer shadows and heightened terrain than the
-      globe's live tiles.
-    </p>
-    <a class="hp-link" href="/">Open full-size render →</a>
+  <div class="dp-body">
+    <p class="dp-eyebrow"></p>
+    <h2 class="dp-name"></h2>
+    <p class="dp-note"></p>
+    <a class="dp-link" href="/">Open full-size render →</a>
   </div>
 </aside>
 
@@ -294,9 +292,9 @@ import { REPO_URL } from "../lib/siteLinks";
     display: none;
   }
 
-  /* Country detail card — a floating panel, not a full-screen takeover, so the
+  /* Place detail card — a floating panel, not a full-screen takeover, so the
      globe stays live behind it. Same token treatment as .globe-home. */
-  .hero-panel {
+  .detail-panel {
     position: fixed;
     top: 1.2rem;
     right: 1.2rem;
@@ -313,10 +311,10 @@ import { REPO_URL } from "../lib/siteLinks";
     border-radius: 14px;
     box-shadow: var(--shadow);
   }
-  .hero-panel[hidden] {
+  .detail-panel[hidden] {
     display: none;
   }
-  .hp-close {
+  .dp-close {
     position: absolute;
     top: 0.5rem;
     right: 0.5rem;
@@ -334,63 +332,63 @@ import { REPO_URL } from "../lib/siteLinks";
     border-radius: 999px;
     cursor: pointer;
   }
-  .hp-close:hover {
+  .dp-close:hover {
     color: var(--accent);
   }
-  .hp-figure {
+  .dp-figure {
     position: relative;
     margin: 0;
     border-radius: 14px 14px 0 0;
     overflow: hidden;
     background: var(--bg);
   }
-  .hp-figure img {
+  .dp-figure img {
     width: 100%;
     height: 100%;
     object-fit: cover;
   }
-  /* display:block only on the hero — a shared `.hp-figure img` rule would outrank
-     `.hp-border`'s display:none and force the border overlay on regardless of the toggle. */
-  .hp-hero {
+  /* display:block only on the hero — a shared `.dp-figure img` rule would outrank
+     `.dp-border`'s display:none and force the border overlay on regardless of the toggle. */
+  .dp-hero {
     display: block;
   }
-  .hp-border {
+  .dp-border {
     position: absolute;
     inset: 0;
     display: none;
   }
-  :global(body.borders-on) .hp-border {
+  :global(body.borders-on) .dp-border {
     display: block;
   }
-  .hp-body {
+  .dp-body {
     padding: 0.9rem 1.1rem 1.1rem;
   }
-  .hp-eyebrow {
+  .dp-eyebrow {
     margin: 0 0 0.15rem;
     font-size: 0.75rem;
     letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--muted);
   }
-  .hp-name {
+  .dp-name {
     margin: 0 0 0.4rem;
     font-family: var(--serif);
     font-size: 1.4rem;
     font-weight: 600;
     color: var(--text);
   }
-  .hp-note {
+  .dp-note {
     margin: 0 0 0.85rem;
     font-size: 0.82rem;
     line-height: 1.4;
     color: var(--muted);
   }
-  .hp-link {
+  .dp-link {
     font-size: 0.9rem;
     color: var(--accent);
     text-decoration: none;
   }
-  .hp-link:hover {
+  .dp-link:hover {
     text-decoration: underline;
   }
 </style>
@@ -469,7 +467,10 @@ import { REPO_URL } from "../lib/siteLinks";
   // NOT `import "maplibre-gl/dist/maplibre-gl.css"` — that is what made it render-blocking. The
   // stylesheet is linked non-blocking from this page's frontmatter; see the note beside that link.
   import { manifest, type Country } from "../lib/manifest";
-  import { BORDERS_BASE, HERO_BASE, TILE_BASE } from "../lib/assetBase";
+  import { BORDERS_BASE, TILE_BASE } from "../lib/assetBase";
+  // The card takes CONTENT rather than a country, so a second body can open it without growing
+  // `Country` with fields that mean nothing on Earth.
+  import { countryPanelContent, type PanelContent } from "../lib/detailPanel";
   // The registry itself, for the one thing an ADDRESS cannot carry: the zoom range the archive was
   // cut to, which its source has to declare so MapLibre overzooms rather than requesting tiles
   // nobody packed. Earth's equivalent still reads constants — see featureOverlay.ts.
@@ -1789,17 +1790,6 @@ import { REPO_URL } from "../lib/siteLinks";
   // Only in-scope (rendered) countries are interactive; reused by every country layer.
   const inScopeFilter: FilterSpecification = ["in", ["get", "ADMIN"], ["literal", inScope]];
 
-  /** srcset w-descriptor is the real pixel WIDTH, not the long edge (portrait
-   * variants are narrower than their key) — mirrors the gallery detail page. */
-  const variantWidth = (longEdge: number, aspect: number) => Math.round(longEdge * Math.min(1, aspect));
-  const srcsetFor = (slug: string, sizes: number[], aspect: number, border = false) =>
-    sizes
-      .map((size) => {
-        const suffix = border ? `-border-${size}.png` : `-${size}.webp`;
-        return `${HERO_BASE}${slug}${suffix} ${variantWidth(size, aspect)}w`;
-      })
-      .join(", ");
-
   /** ONE vector source carrying fill, outline and hit as three source-layers.
    *
    *  Nothing here touches geometry. MapLibre's worker fetches the tiles, parses them, and
@@ -2051,25 +2041,43 @@ import { REPO_URL } from "../lib/siteLinks";
   map.on("moveend", () => hoverTracker.viewChanged());
 
   // --- The detail card --------------------------------------------------------
-  const panel = document.getElementById("hero-panel") as HTMLElement;
-  const heroImg = panel.querySelector(".hp-hero") as HTMLImageElement;
-  const borderImg = panel.querySelector(".hp-border") as HTMLImageElement;
-  const figure = panel.querySelector(".hp-figure") as HTMLElement;
+  const panel = document.getElementById("detail-panel") as HTMLElement;
+  const heroImg = panel.querySelector(".dp-hero") as HTMLImageElement;
+  const borderImg = panel.querySelector(".dp-border") as HTMLImageElement;
+  const figure = panel.querySelector(".dp-figure") as HTMLElement;
+  const linkEl = panel.querySelector(".dp-link") as HTMLAnchorElement;
 
-  function openPanel(country: Country) {
-    panel.querySelector(".hp-eyebrow")!.textContent = country.continent || "";
-    panel.querySelector(".hp-name")!.textContent = country.name;
-    panel.querySelector(".hp-link")!.setAttribute("href", `/${country.slug}/`);
-    figure.style.aspectRatio = String(country.aspect);
+  /** Render one card. Takes CONTENT, not a country — `detailPanel.ts` says why. */
+  function openPanel(content: PanelContent) {
+    panel.querySelector(".dp-eyebrow")!.textContent = content.eyebrow;
+    panel.querySelector(".dp-name")!.textContent = content.name;
+    panel.querySelector(".dp-note")!.textContent = content.note;
+    if (content.link === null) {
+      linkEl.hidden = true;
+    } else {
+      linkEl.hidden = false;
+      linkEl.setAttribute("href", content.link);
+    }
     // Card is ~420px wide; ask for a sensibly-sized variant (DPR handled by srcset).
     const sizesAttr = "(max-width: 460px) 92vw, 420px";
-    heroImg.src = `${HERO_BASE}${country.slug}-${country.sizes[0]}.webp`;
-    heroImg.srcset = srcsetFor(country.slug, country.sizes, country.aspect);
-    heroImg.sizes = sizesAttr;
-    heroImg.alt = `Ray-traced relief map of ${country.name}`;
-    if (country.hasBorder && country.borderSizes.length) {
-      borderImg.src = `${HERO_BASE}${country.slug}-border-${country.borderSizes[0]}.png`;
-      borderImg.srcset = srcsetFor(country.slug, country.borderSizes, country.aspect, true);
+    const { figure: art } = content;
+    if (art === null) {
+      // A body with no renders. Hiding the whole figure rather than the image is what keeps the
+      // card's top corners rounded against the body block instead of against an empty box.
+      figure.hidden = true;
+      heroImg.removeAttribute("srcset");
+      heroImg.removeAttribute("src");
+    } else {
+      figure.hidden = false;
+      figure.style.aspectRatio = String(art.aspect);
+      heroImg.src = art.src;
+      heroImg.srcset = art.srcset;
+      heroImg.sizes = sizesAttr;
+      heroImg.alt = art.alt;
+    }
+    if (art?.border) {
+      borderImg.src = art.border.src;
+      borderImg.srcset = art.border.srcset;
       borderImg.sizes = sizesAttr;
       borderImg.style.removeProperty("display"); // let the body.borders-on rule decide
     } else {
@@ -2094,7 +2102,7 @@ import { REPO_URL } from "../lib/siteLinks";
     paintChip(hoverTracker.current());
   }
 
-  document.getElementById("hero-close")?.addEventListener("click", closePanel);
+  document.getElementById("detail-close")?.addEventListener("click", closePanel);
   // Escape peels ONE layer at a time, card first. The card is the most recent thing opened and
   // the largest thing in the way, so it goes before quiet mode; the alternative order would
   // restore the chrome while leaving a 420 px panel sitting on top of it. Quiet deliberately does
@@ -2132,7 +2140,7 @@ import { REPO_URL } from "../lib/siteLinks";
     // vectors without heroes — Mars's geologic units are exactly that. Framing a clicked region is
     // what the vectors are for; the panel needs a rendered hero to put in it, and without one it
     // opens on `undefined`, asking for a `<slug>-undefined.webp` that 404s behind a spinner.
-    if (subsystems.heroes) openPanel(country);
+    if (subsystems.heroes) openPanel(countryPanelContent(country));
   });
 
   // Pitch the sky was last built for. Tracked because `setSky` restarts a 300 ms transition, so
