@@ -636,6 +636,16 @@ no output, and both knobs are required arguments rather than defaulted ones.
     +360.34, because a feature crossing the prime meridian is drawn continuing past the seam rather
     than wrapped. A grid built on either range alone silently drops the crossers; span 540 and fold.
     The two are checked separately by the acquirer, since normalising one leaves the other intact.
+  - **IT ENTERS ONE FEATURE TWICE.** Both Bohar records sit in the `poly` layer and agree on every
+    attribute the archive carries, so the published 1,717 is 1,716 distinct areal features. The
+    frontend index collapses rows identical in every field — never on the name, which would silently
+    delete a genuine future collision — leaving **1,919** named features from the published 1,920.
+  - **A THIRD PRODUCT COMES OFF IT: the frontend's search index**, `web/src/lib/featureIndex.json`,
+    written by `web/scripts/gen_feature_index.py` from the folded label anchors. It is COMMITTED,
+    unlike Earth's gallery manifest, because it derives from a digest-pinned archive rather than from
+    a machine's render store — so a clean checkout type-checks and tests against the real catalogue.
+    It carries a centre and a diameter and no bounding box: framing a feature is choosing the zoom at
+    which its diameter reads, which is the inverse of the rule that decides it can be pointed at.
 - **The polygons — SIM 3292, the same source the ice already uses.** The collection is the GLOBAL
   geologic map: 44 units, 1,311 features, and the acquirer has been fetching two of them all along.
   Contacts, structure and the Robbins crater database sit beside it on the same service.

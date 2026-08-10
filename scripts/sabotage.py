@@ -5204,6 +5204,101 @@ SABOTAGES: list[Sabotage] = [
         replacement='    <p class="dp-note">A ray-traced relief render.</p>',
         guard='leaves every slot in the markup empty, the note included',
     ),
+    # THE FEATURE INDEX IS GUARDED FROM TWO SIDES, and the cases below are split the same way. The
+    # PRODUCER's mutations are caught in pytest, because the shipped file still says what it always
+    # said; the shipped FILE's mutations are caught in vitest, which is the only side that runs on a
+    # checkout with no gazetteer on it. Neither side sees the other's wound.
+    Sabotage(
+        suite='python',
+        label='the gazetteer record entered twice survives as two index rows',
+        path='web/scripts/gen_feature_index.py',
+        needle='        unique.setdefault(tuple(sorted(record.items(), key=lambda item: item[0])), record)',
+        replacement='        unique.setdefault((len(unique),), record)',
+        guard='test_rows_agreeing_in_every_field_collapse',
+    ),
+    # The plausible wrong collapse, and the reason the key is the whole row. It is indistinguishable
+    # from the right one on today's catalogue — both emit 1,919 rows — and starts deleting features
+    # the first time the IAU adopts a name that is already in use somewhere else on the planet.
+    Sabotage(
+        suite='python',
+        label='the collapse keys on the name, so two different features become one',
+        path='web/scripts/gen_feature_index.py',
+        needle='        unique.setdefault(tuple(sorted(record.items(), key=lambda item: item[0])), record)',
+        replacement='        unique.setdefault((record["name"],), record)',
+        guard='test_a_shared_name_over_different_data_keeps_both',
+    ),
+    Sabotage(
+        suite='python',
+        label='a zero diameter is carried as a size rather than as none',
+        path='web/scripts/gen_feature_index.py',
+        needle='        "diameterKm": round(diameter, DIAMETER_PRECISION) if diameter > 0 else None,',
+        replacement='        "diameterKm": round(diameter, DIAMETER_PRECISION) if diameter >= 0 else None,',
+        guard='test_a_zero_diameter_becomes_null_rather_than_zero',
+    ),
+    Sabotage(
+        suite='python',
+        label='the sort drops its position tie-break, so input order reaches the output',
+        path='web/scripts/gen_feature_index.py',
+        needle='    records.sort(key=lambda row: (row["name"], row["longitude"], row["latitude"]))',
+        replacement='    records.sort(key=lambda row: row["name"])',
+        guard='test_the_input_order_cannot_reach_the_output',
+    ),
+    # A change no unit test over the producer can see, because it alters the SERIALISATION and not
+    # the records: 69 names carry diacritics and would ship as \u escapes. Only regenerating the
+    # committed file and comparing bytes catches it, which is what that test exists to prove it can.
+    Sabotage(
+        suite='python',
+        label='the writer escapes non-ASCII, so the committed index stops matching it',
+        path='web/scripts/gen_feature_index.py',
+        needle='    args.out.write_text(json.dumps(records, indent=2, ensure_ascii=False) + "\\n",',
+        replacement='    args.out.write_text(json.dumps(records, indent=2, ensure_ascii=True) + "\\n",',
+        guard='test_regenerating_reproduces_the_committed_bytes',
+    ),
+    # Below: the shipped file, mutated one row at a time. Aarna is the anchor because its longitude
+    # is unique in the file; the block re-anchors if the IAU restates it.
+    Sabotage(
+        suite='web',
+        label='a centre keeps the gazetteer east-positive longitude instead of the folded one',
+        path='web/src/lib/featureIndex.json',
+        needle='    "longitude": -21.57,',
+        replacement='    "longitude": 338.43,',
+        guard='puts every centre inside the window the tile grid addresses',
+    ),
+    Sabotage(
+        suite='web',
+        label='a row loses the etymology the whole card is made of',
+        path='web/src/lib/featureIndex.json',
+        needle='    "origin": "Village in Rajasthan, India.",\n    "diameterKm": 43.0,\n    "longitude": -21.57,',
+        replacement='    "origin": "",\n    "diameterKm": 43.0,\n    "longitude": -21.57,',
+        guard='populates every string field on every row',
+    ),
+    Sabotage(
+        suite='web',
+        label='a diameter of zero reaches the index as a size',
+        path='web/src/lib/featureIndex.json',
+        needle='    "diameterKm": 43.0,\n    "longitude": -21.57,',
+        replacement='    "diameterKm": 0,\n    "longitude": -21.57,',
+        guard='never carries a zero or a negative',
+    ),
+    # The one that only the cross-module pin can see. A string passes every range check written over
+    # this file — `"43.0" > 0` is true in JS — and is read by the TILES' own reader as no diameter
+    # at all, which is a feature findable by search and unpointable by finger.
+    Sabotage(
+        suite='web',
+        label='a diameter ships as a string, which the tiles read as no diameter',
+        path='web/src/lib/featureIndex.json',
+        needle='    "diameterKm": 43.0,\n    "longitude": -21.57,',
+        replacement='    "diameterKm": "43.0",\n    "longitude": -21.57,',
+        guard='reads a missing diameter the same way the tiles do',
+    ),
+    Sabotage(
+        suite='web',
+        label='two rows share a name, so a lookup can only ever return one of them',
+        path='web/src/lib/featureIndex.json',
+        needle='    "name": "Aarna",\n    "cleanName": "Aarna",',
+        replacement='    "name": "Gale",\n    "cleanName": "Gale",',
+        guard='leaves no name on two rows',
+    ),
 ]
 
 

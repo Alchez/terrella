@@ -39,6 +39,13 @@ until all three exist**. In order:
    ```
    Requires the hero WebP variants and the Natural Earth admin-0 shapefile to already exist.
 
+   Its Mars counterpart, `src/lib/featureIndex.json`, needs no step here — it is **committed**,
+   because it derives from a digest-pinned archive rather than from this machine's render store.
+   Regenerate it only after re-composing the gazetteer, and read the diff:
+   ```sh
+   ../.venv/bin/python scripts/gen_feature_index.py --out src/lib/featureIndex.json
+   ```
+
 Then start the server (add `--host` to reach it from another device on your LAN, e.g. a phone):
 ```sh
 pnpm dev --host
@@ -106,6 +113,7 @@ web/
 │   └── caps/              # polar cap WebP rungs + caps.json (generated; gitignored)
 ├── scripts/
 │   ├── gen_manifest.py    # reads the variant store → src/data/countries.json
+│   ├── gen_feature_index.py   # reads the folded gazetteer → src/lib/featureIndex.json
 │   └── check_deploy_sync.ts   # deploy preflight: R2 objects vs the manifest
 ├── src/
 │   ├── pages/             # index (gallery) · [slug] (country) · earth · mars · mars/lite · about
