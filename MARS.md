@@ -486,10 +486,16 @@ second body, Earth-only and Earth byte-identical throughout, landed before any M
   pyramid. It is INTERACTION DATA rather than paint: nothing is drawn until the pointer picks
   something, and a tap answers the same way a hover does. **No labels go on the map** — the archive
   carries the IAU's own anchors, and they stay unread. A pick MIRRORS EARTH: the camera flies to the
-  feature at the scale its diameter reads at, and the card names it, gives its kind and size, and
-  quotes the IAU's etymology — no picture, because this body renders none. Still ahead: the geologic
-  units that answer for the ground no name reaches, and search, which is where the long tail pays
-  for itself.
+  feature at the scale its diameter reads at, and the card names it, gives its kind and size, quotes
+  the IAU's etymology and links to the entry it is quoting — no picture, because this body renders
+  none. Still ahead: the geologic units that answer for the ground no name reaches, and search,
+  which is where the long tail pays for itself.
+  - **The card's classification is informative exactly on the craters.** All 1,233 crater names omit
+    the word, and all 686 non-craters contain their own descriptor — Olympus **Mons**, Hellas
+    **Planitia** — with no exceptions either way, so nothing about the wording can improve both.
+    Worse for the 359 whose etymology is the generic `"Classical albedo feature name."`, a set
+    entirely inside those 686: their card repeats itself and then says nothing. That is what the
+    outbound link answers, since the eyebrow cannot.
   - **A click resolves its own point rather than reading the hover tracker**, whose resolve is
     queued a frame ahead. Touch sends no hover before a tap, so reading that state ignored the
     first tap on a phone and answered the second.
@@ -652,6 +658,10 @@ no output, and both knobs are required arguments rather than defaulted ones.
     a machine's render store — so a clean checkout type-checks and tests against the real catalogue.
     It carries a centre and a diameter and no bounding box: framing a feature is choosing the zoom at
     which its diameter reads, which is the inverse of the rule that decides it can be pointed at.
+    - **`link` is the one field it takes from the DBF rather than from the anchors**, because the
+      anchors' field list is also what the vector tiles carry and no tile consumer reads an address.
+      Stored whole and over https — the publisher's `http://` answers 301 — so nothing on the
+      frontend owns a URL shape only USGS controls.
 - **The polygons — SIM 3292, the same source the ice already uses.** The collection is the GLOBAL
   geologic map: 44 units, 1,311 features, and the acquirer has been fetching two of them all along.
   Contacts, structure and the Robbins crater database sit beside it on the same service.

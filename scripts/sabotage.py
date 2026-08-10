@@ -5345,7 +5345,7 @@ SABOTAGES: list[Sabotage] = [
         path='web/src/components/Globe.astro',
         needle='    <p class="dp-note"></p>',
         replacement='    <p class="dp-note">A ray-traced relief render.</p>',
-        guard='leaves every slot in the markup empty, the note included',
+        guard="leaves every slot in the markup empty, the note and the link's wording included",
     ),
     # THE FEATURE INDEX IS GUARDED FROM TWO SIDES, and the cases below are split the same way. The
     # PRODUCER's mutations are caught in pytest, because the shipped file still says what it always
@@ -5411,8 +5411,8 @@ SABOTAGES: list[Sabotage] = [
         suite='web',
         label='a row loses the etymology the whole card is made of',
         path='web/src/lib/featureIndex.json',
-        needle='    "origin": "Village in Rajasthan, India.",\n    "diameterKm": 43.0,\n    "longitude": -21.57,',
-        replacement='    "origin": "",\n    "diameterKm": 43.0,\n    "longitude": -21.57,',
+        needle='    "origin": "Village in Rajasthan, India.",\n    "gazetteer": "https://planetarynames.wr.usgs.gov/Feature/16115",',
+        replacement='    "origin": "",\n    "gazetteer": "https://planetarynames.wr.usgs.gov/Feature/16115",',
         guard='populates every string field on every row',
     ),
     Sabotage(
@@ -5441,6 +5441,104 @@ SABOTAGES: list[Sabotage] = [
         needle='    "name": "Aarna",\n    "cleanName": "Aarna",',
         replacement='    "name": "Gale",\n    "cleanName": "Gale",',
         guard='leaves no name on two rows',
+    ),
+    # THE CARD'S OUTBOUND LINK, WHICH IS THE ONE FIELD NO RENDERED PAGE CAN FALSIFY. A wrong address
+    # serialises, type-checks, styles and reads exactly like a right one, all the way to the click —
+    # so every wound below is deliberately one a screenshot would ratify.
+    Sabotage(
+        suite='python',
+        label='the gazetteer page ships with the scheme the publisher redirects away from',
+        path='web/scripts/gen_feature_index.py',
+        needle='    return "https://" + published.removeprefix("http://")',
+        replacement='    return published',
+        guard='test_the_publishers_http_becomes_the_https_it_redirects_to',
+    ),
+    Sabotage(
+        suite='python',
+        label='an address that is not a feature page is written into the index anyway',
+        path='web/scripts/gen_feature_index.py',
+        needle='    if not shape.match(published):',
+        replacement='    if False:',
+        guard='test_an_address_that_is_not_a_feature_page_stops_the_run',
+    ),
+    Sabotage(
+        suite='python',
+        label='a name resolving to two pages picks one and looks correct',
+        path='web/scripts/gen_feature_index.py',
+        needle='    ambiguous = sorted(name for name, pages in links.items() if len(pages) > 1)',
+        replacement='    ambiguous = sorted(name for name, pages in links.items() if len(pages) > 2)',
+        guard='test_a_name_with_two_pages_stops_the_run',
+    ),
+    Sabotage(
+        suite='python',
+        label='an anchor with no page writes a row whose card goes nowhere',
+        path='web/scripts/gen_feature_index.py',
+        needle='        if name not in links:',
+        replacement='        if False:',
+        guard='test_an_anchor_with_no_gazetteer_page_stops_the_run',
+    ),
+    Sabotage(
+        suite='python',
+        label='the acquirer stops reading the links it hands the card',
+        path='pipeline/acquire/download_nomenclature.py',
+        needle='    astray = [row["name"] for row in rows '
+                'if not FEATURE_URL.match((row.get("link") or "").strip())]',
+        replacement='    astray = []',
+        guard='test_a_link_that_is_not_a_feature_page_is_refused',
+    ),
+    Sabotage(
+        suite='web',
+        label='a shipped row points at a host that is not the gazetteer',
+        path='web/src/lib/featureIndex.json',
+        needle='    "gazetteer": "https://planetarynames.wr.usgs.gov/Feature/16115",',
+        replacement='    "gazetteer": "https://example.com/Feature/16115",',
+        guard='gives every row a live gazetteer page rather than an address shaped like one',
+    ),
+    # Two features describing themselves correctly and linking to the same entry — the whole-row
+    # collapse upstream cannot see this, because the rest of the two rows genuinely differs.
+    Sabotage(
+        suite='web',
+        label='two features are sent to one gazetteer entry',
+        path='web/src/lib/featureIndex.json',
+        needle='    "gazetteer": "https://planetarynames.wr.usgs.gov/Feature/16115",',
+        replacement='    "gazetteer": "https://planetarynames.wr.usgs.gov/Feature/2071",',
+        guard='sends no two features to the same entry',
+    ),
+    Sabotage(
+        suite='web',
+        label='the Mars card goes back to having nowhere to send a reader',
+        path='web/src/lib/detailPanel.ts',
+        needle='    link: { href: feature.gazetteer, label: GAZETTEER_LINK_LABEL, external: true },',
+        replacement='    link: null,',
+        guard='sends a reader to the IAU entry the note is quoting, in a new tab',
+    ),
+    # The wording drifting back to one string for both bodies, which is the defect this replaced:
+    # a Mars card promising a full-size render over a body that has none.
+    Sabotage(
+        suite='web',
+        label='both bodies label their link the same way again',
+        path='web/src/lib/detailPanel.ts',
+        needle='export const GAZETTEER_LINK_LABEL = "IAU Gazetteer entry →";',
+        replacement='export const GAZETTEER_LINK_LABEL = "Open full-size render →";',
+        guard="labels the two bodies' links differently, or one card lies about where it goes",
+    ),
+    Sabotage(
+        suite='web',
+        label='the link wording goes back into the markup, where one body must be wrong',
+        path='web/src/components/Globe.astro',
+        needle='    <a class="dp-link" href="/"></a>',
+        replacement='    <a class="dp-link" href="/">Open full-size render →</a>',
+        guard="leaves every slot in the markup empty, the note and the link's wording included",
+    ),
+    # Only the true case of a per-card field written, over a reused element. Unreachable today
+    # because one document wires one builder — which is the accident this refuses to lean on.
+    Sabotage(
+        suite='web',
+        label='the link honours external in one direction only',
+        path='web/src/components/Globe.astro',
+        needle='        linkEl.removeAttribute("target");',
+        replacement='        linkEl.setAttribute("target", "_self");',
+        guard='honours both values of external, not just the one its own body asks for',
     ),
     # THE FRAMING'S ONE HARD CONSTRAINT. At the ceiling the camera lands exactly where a region stops
     # being a target, so the highlight goes out on the feature you asked to be taken to — and every

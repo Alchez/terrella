@@ -3,6 +3,8 @@ import { readFileSync } from "node:fs";
 import {
   COUNTRY_PANEL_NOTE,
   FRAME_EDGE_PX,
+  GAZETTEER_LINK_LABEL,
+  HERO_LINK_LABEL,
   PANEL_BESIDE_MIN_WIDTH_PX,
   PANEL_CLEARANCE_PX,
   countryPanelContent,
@@ -69,7 +71,11 @@ describe("a country becomes card content", () => {
     expect(content.eyebrow).toBe("South America");
     expect(content.name).toBe("Chile");
     expect(content.note).toBe(COUNTRY_PANEL_NOTE);
-    expect(content.link).toBe("/chile/");
+    expect(content.link).toEqual({
+      href: "/chile/",
+      label: HERO_LINK_LABEL,
+      external: false,
+    });
   });
 
   it("empties the eyebrow rather than printing a missing continent", () => {
@@ -124,11 +130,23 @@ describe("the panel seam the module cannot check itself", () => {
     expect(GLOBE).toContain("if (subsystems.heroes) openPanel(countryPanelContent(country));");
   });
 
-  it("leaves every slot in the markup empty, the note included", () => {
-    // The note used to be a sentence in the markup claiming the card showed a ray-traced render.
+  it("leaves every slot in the markup empty, the note and the link's wording included", () => {
+    // The note used to be a sentence in the markup claiming the card showed a ray-traced render,
+    // and the link used to promise one — "Open full-size render →" — over a body that has none.
     // A static string cannot be right on one body and wrong on another, so it must arrive written.
     expect(panelMarkup()).toContain('<p class="dp-note"></p>');
     expect(GLOBE).toContain('panel.querySelector(".dp-note")!.textContent = content.note;');
+    expect(panelMarkup()).toContain('<a class="dp-link" href="/"></a>');
+    expect(GLOBE).toContain("linkEl.textContent = content.link.label;");
+  });
+
+  it("honours both values of external, not just the one its own body asks for", () => {
+    // `external` is a per-card field over a REUSED element, so writing only the true case leaves a
+    // Mars card's `target` on the Earth card after it. That is unreachable today for a reason that
+    // has nothing to do with the link — `subsystems.vectorProduct` is a single value, so a document
+    // wires one builder — and this keeps the accident from becoming the thing holding it up.
+    expect(GLOBE).toContain('linkEl.removeAttribute("target");');
+    expect(GLOBE).toContain('linkEl.removeAttribute("rel");');
   });
 
   it("retires every spelling that named the panel after a hero", () => {
@@ -178,6 +196,7 @@ function feature(overrides: Partial<NamedFeature> = {}): NamedFeature {
     cleanName: "Gale",
     type: "Crater, craters",
     origin: "Walter Frederick; Australian astronomer (1865-1945).",
+    gazetteer: "https://planetarynames.wr.usgs.gov/Feature/2071",
     diameterKm: 154.156,
     longitude: 137.85,
     latitude: -5.37,
@@ -244,10 +263,28 @@ describe("a gazetteer row becomes a card", () => {
     expect(featurePanelContent(feature({ diameterKm: null })).eyebrow).toBe("Crater");
   });
 
-  it("carries no picture and no link, because this body has neither", () => {
-    const content = featurePanelContent(feature());
-    expect(content.figure).toBeNull();
-    expect(content.link).toBeNull();
+  it("carries no picture, because this body renders no heroes", () => {
+    expect(featurePanelContent(feature()).figure).toBeNull();
+  });
+
+  it("sends a reader to the IAU entry the note is quoting, in a new tab", () => {
+    // The card has no page of its own to open, so the only onward destination is the publisher's.
+    // `external` decides the new tab, and leaving the globe tears down a WebGL context that costs
+    // seconds and gigabytes to rebuild — see `PanelLink`.
+    expect(featurePanelContent(feature()).link).toEqual({
+      href: "https://planetarynames.wr.usgs.gov/Feature/2071",
+      label: GAZETTEER_LINK_LABEL,
+      external: true,
+    });
+  });
+
+  it("labels the two bodies' links differently, or one card lies about where it goes", () => {
+    // The defect this replaced: "Open full-size render →" was hardcoded in the markup, so a Mars
+    // card promised a render that does not exist and pointed at a catalogue instead. Equal labels
+    // here would mean the wording drifted back into something one body has to be wrong about.
+    expect(featurePanelContent(feature()).link?.label).not.toBe(
+      countryPanelContent(country()).link?.label,
+    );
   });
 
   it("fills every slot for every feature in the catalogue", () => {
@@ -259,6 +296,9 @@ describe("a gazetteer row becomes a card", () => {
       expect(content.name.length, `${row.name} lost its name`).toBeGreaterThan(0);
       expect(content.note.length, `${row.name} has no origin to show`).toBeGreaterThan(0);
       expect(content.eyebrow.length, `${row.name} has no eyebrow`).toBeGreaterThan(0);
+      expect(content.link?.href, `${row.name} has nowhere to send a reader`).toMatch(
+        /^https:\/\/planetarynames\.wr\.usgs\.gov\/Feature\/\d+$/,
+      );
     }
   });
 });

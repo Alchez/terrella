@@ -79,7 +79,9 @@ import { REPO_URL } from "../lib/siteLinks";
     <p class="dp-eyebrow"></p>
     <h2 class="dp-name"></h2>
     <p class="dp-note"></p>
-    <a class="dp-link" href="/">Open full-size render →</a>
+    {/* Empty on purpose: the destination and its wording are `PanelContent.link`'s, because a body
+        with no heroes sends readers somewhere else entirely. See `detailPanel.PanelLink`. */}
+    <a class="dp-link" href="/"></a>
   </div>
 </aside>
 
@@ -2143,7 +2145,19 @@ import { REPO_URL } from "../lib/siteLinks";
       linkEl.hidden = true;
     } else {
       linkEl.hidden = false;
-      linkEl.setAttribute("href", content.link);
+      linkEl.textContent = content.link.label;
+      linkEl.setAttribute("href", content.link.href);
+      // BOTH DIRECTIONS WRITTEN, over an element that is reused for every card. Nothing today can
+      // hand this block both answers — `subsystems.vectorProduct` is one value, so a document wires
+      // one builder and sees one kind of card — which is a property of the wiring and not of the
+      // link. Setting only the true case would make that accident load-bearing.
+      if (content.link.external) {
+        linkEl.setAttribute("target", "_blank");
+        linkEl.setAttribute("rel", "noopener noreferrer");
+      } else {
+        linkEl.removeAttribute("target");
+        linkEl.removeAttribute("rel");
+      }
     }
     // Card is ~420px wide; ask for a sensibly-sized variant (DPR handled by srcset).
     const sizesAttr = "(max-width: 460px) 92vw, 420px";

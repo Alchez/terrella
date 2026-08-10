@@ -23,7 +23,8 @@ def rows(count: int = 3, **overrides) -> list[dict[str, str]]:
     base = {"name": "Gale", "clean_name": "Gale", "origin": "Walter F.; Australian astronomer.",
             "diameter": "154.0", "type": "Crater, craters", "code": "AA",
             "center_lon": "137.8", "center_lat": "-5.4",
-            "min_lon": "-180.0", "max_lon": "360.3366", "approval": "Adopted by IAU"}
+            "min_lon": "-180.0", "max_lon": "360.3366", "approval": "Adopted by IAU",
+            "link": "http://planetarynames.wr.usgs.gov/Feature/2071"}
     return [dict(base, name=f"{base['name']}{index}", **overrides) for index in range(count)]
 
 
@@ -129,7 +130,7 @@ class TestARefusedArchiveLeavesTheDirectoryAlone:
 
 
 class TestTheLayerContractRejectsNearMisses:
-    """Five checks that can each pass while another fails, so each gets its own case."""
+    """Six checks that can each pass while another fails, so each gets its own case."""
 
     def test_a_well_formed_layer_passes(self, pinned_to_one_layer):
         gazetteer.assert_layer("poly", rows(3, center_lon="200.0"))
@@ -147,6 +148,15 @@ class TestTheLayerContractRejectsNearMisses:
     def test_a_blank_origin_is_a_panel_that_says_nothing(self, pinned_to_one_layer):
         with pytest.raises(SystemExit, match="origin"):
             gazetteer.assert_layer("poly", rows(3, origin="   ", center_lon="200.0"))
+
+    def test_a_link_that_is_not_a_feature_page_is_refused(self, pinned_to_one_layer, subtests):
+        """The field the detail card sends readers to. A moved host and a moved path both leave
+        every other check here passing, and the failure only ever surfaces on a click."""
+        for astray in ("https://planetarynames.wr.usgs.gov/Feature/2071",  # scheme is the DBF's
+                       "http://planetarynames.wr.usgs.gov/Feature/",
+                       "http://example.com/Feature/2071", "   "):
+            with subtests.test(link=astray), pytest.raises(SystemExit, match="gazetteer feature"):
+                gazetteer.assert_layer("poly", rows(3, link=astray, center_lon="200.0"))
 
     def test_longitudes_normalised_into_0_360_are_refused(self, pinned_to_one_layer):
         # The trap the 540-degree span exists to catch: every other check passes on this file.

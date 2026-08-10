@@ -29,6 +29,24 @@ describe("the catalogue is whole", () => {
     );
     expect(empty.map((feature) => feature.name)).toEqual([]);
   });
+
+  it("gives every row a live gazetteer page rather than an address shaped like one", () => {
+    // A URL IS THE ONE FIELD WHOSE BREAKAGE IS INVISIBLE UNTIL A CLICK. It serialises, type-checks
+    // and renders identically whether it resolves or not, so this pins the whole shape the producer
+    // promises — the https the publisher's own 301 leads to, that host, that path, a numeric id —
+    // rather than checking it is a non-empty string. The acquirer holds the source side.
+    const astray = featureIndex.filter(
+      (feature) => !/^https:\/\/planetarynames\.wr\.usgs\.gov\/Feature\/\d+$/.test(feature.gazetteer),
+    );
+    expect(astray.map((feature) => `${feature.name}: ${feature.gazetteer}`)).toEqual([]);
+  });
+
+  it("sends no two features to the same entry", () => {
+    // The collapse upstream is on the whole ROW, so two features genuinely sharing a page would
+    // survive it and the card would describe one while linking to the other.
+    const pages = new Set(featureIndex.map((feature) => feature.gazetteer));
+    expect(pages.size).toBe(featureIndex.length);
+  });
 });
 
 describe("the longitudes arrived folded", () => {

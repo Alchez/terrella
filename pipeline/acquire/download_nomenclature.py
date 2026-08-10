@@ -116,9 +116,16 @@ CENTRES_EAST_OF_180 = {"poly": 1047, "line": 118}
 #: body with no heroes -- the IAU's own etymology, populated for every feature in both layers -- and
 #: a schema change that dropped it would otherwise surface as blank panels.
 REQUIRED_FIELDS = frozenset({
-    "name", "clean_name", "origin", "diameter", "type", "code",
+    "name", "clean_name", "origin", "diameter", "type", "code", "link",
     "center_lon", "center_lat", "min_lon", "max_lon", "approval",
 })
+
+#: The shape of the gazetteer's own per-feature page. PINNED BECAUSE THE SITE SENDS READERS THERE:
+#: `web/scripts/gen_feature_index.py` copies this field verbatim into a tracked artifact, so a
+#: republished catalogue that moved its host or its path would ship a dead link per feature -- and a
+#: URL is the one field whose breakage is invisible to everything downstream of it, since a wrong
+#: address serialises, type-checks and renders exactly like a right one.
+FEATURE_URL = re.compile(r"^http://planetarynames\.wr\.usgs\.gov/Feature/\d+$")
 
 #: The use constraint the FGDC record must still carry. Asserted rather than remembered, because a
 #: licence claim in a docstring is exactly the kind that outlives its source.
@@ -240,11 +247,12 @@ def read_attributes(layer: str) -> list[dict[str, str]]:
 def assert_layer(layer: str, rows: list[dict[str, str]]) -> None:
     """Assert one layer is the edition every downstream figure was measured over, or exit.
 
-    FOUR CHECKS THAT CAN EACH PASS WHILE ANOTHER FAILS. The count refuses a truncated or grown
+    FIVE CHECKS THAT CAN EACH PASS WHILE ANOTHER FAILS. The count refuses a truncated or grown
     catalogue; the schema identifies the product by its own field list; `origin` being populated
     everywhere is what a body with no heroes puts in its detail card, so an empty one is a blank
-    panel rather than an error; and the two longitude readings catch a re-projection that every
-    byte-shaped check would wave through.
+    panel rather than an error; `link` is where that card sends a reader next, and a URL is the one
+    field whose breakage renders exactly like a working one; and the two longitude readings catch a
+    re-projection that every byte-shaped check would wave through.
     """
     expected_count = FEATURE_COUNTS[layer]
     if len(rows) != expected_count:
@@ -262,6 +270,12 @@ def assert_layer(layer: str, rows: list[dict[str, str]]) -> None:
         sys.exit(f"{layer}: {len(blank)} feature(s) carry no `origin`, e.g. {blank[:3]} — that "
                  f"field is the entire content of Mars's detail card, and a blank one is a panel "
                  f"that opens saying nothing")
+
+    astray = [row["name"] for row in rows if not FEATURE_URL.match((row.get("link") or "").strip())]
+    if astray:
+        sys.exit(f"{layer}: {len(astray)} feature(s) carry a `link` that is not a gazetteer feature "
+                 f"page, e.g. {astray[:3]} — the detail card sends readers to that address, and a "
+                 f"wrong one renders identically to a right one all the way to the click")
 
     low, high = min(float(row["min_lon"]) for row in rows), max(float(row["max_lon"]) for row in rows)
     pinned_low, pinned_high = LONGITUDE_BOUNDS[layer]

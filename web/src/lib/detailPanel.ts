@@ -37,9 +37,35 @@ export interface PanelContent {
   note: string;
   /** Absent on a body with no renders, which is what hides the figure. */
   figure: PanelFigure | null;
-  /** Where "open full-size" points, or absent when there is no page to open. */
-  link: string | null;
+  /** Where the card sends a reader next, or absent when there is nowhere to go. */
+  link: PanelLink | null;
 }
+
+/**
+ * The card's one outbound link, named by whoever built the card.
+ *
+ * THE LABEL IS A FIELD FOR THE REASON `note` IS ONE. It sat in the markup as "Open full-size
+ * render →", which is a claim about where the link goes — true while the only destination was a
+ * hero page, false the moment a body with no heroes points at a catalogue entry instead. A static
+ * string cannot be right on one planet and wrong on another, so it stops being static.
+ *
+ * `external` IS DECLARED RATHER THAN SNIFFED FROM THE HREF. A builder knows whether it is sending a
+ * reader off the site; a consumer testing for "http" is inferring that from a string, which is the
+ * guess this repo refuses everywhere else. It decides the new tab, and a new tab is not cosmetic
+ * here — leaving the page tears down a WebGL context that costs seconds and gigabytes to rebuild.
+ */
+export interface PanelLink {
+  href: string;
+  /** The link's own text, ending in the → the card's typography expects. */
+  label: string;
+  external: boolean;
+}
+
+/** Where a Mars card sends a reader: the IAU's entry for the feature it is describing. */
+export const GAZETTEER_LINK_LABEL = "IAU Gazetteer entry →";
+
+/** Earth's: the country's own page, with the full-size render on it. */
+export const HERO_LINK_LABEL = "Open full-size render →";
 
 /**
  * How much horizontal room the open card takes from the map, in CSS pixels.
@@ -134,10 +160,14 @@ export function formatFeatureDiameter(diameterKm: number): string {
  * One builder over one source is what keeps the card a visitor searched to and the card they tapped
  * from being two slightly different cards.
  *
- * `figure` IS ALWAYS NULL AND `link` ALWAYS NULL, because this body has neither. Mars renders no
- * heroes — the resolution floor rules them out for every feature small enough to be a destination —
- * and there is no per-feature page to open. Both are the panel's own absent cases rather than
- * anything special here.
+ * `figure` IS ALWAYS NULL, because this body has no heroes — the resolution floor rules them out
+ * for every feature small enough to be a destination. That is the panel's own absent case rather
+ * than anything special here.
+ *
+ * THE LINK LEAVES THE SITE, WHICH EARTH'S NEVER DOES, and that is the whole reason `PanelLink`
+ * carries a label and a flag instead of an href. There is no per-feature page here to open, so the
+ * only thing a reader can be sent to is the IAU's own entry — and the card is already quoting that
+ * entry's etymology, so the link is where the sentence it is showing came from.
  */
 export function featurePanelContent(feature: NamedFeature): PanelContent {
   const type = featureTypeLabel(feature.type);
@@ -152,7 +182,7 @@ export function featurePanelContent(feature: NamedFeature): PanelContent {
     // is why `features_geojson` carries it into the tiles too rather than making it a second fetch.
     note: feature.origin,
     figure: null,
-    link: null,
+    link: { href: feature.gazetteer, label: GAZETTEER_LINK_LABEL, external: true },
   };
 }
 
@@ -183,6 +213,6 @@ export function countryPanelContent(country: Country): PanelContent {
     name,
     note: COUNTRY_PANEL_NOTE,
     figure,
-    link: `/${slug}/`,
+    link: { href: `/${slug}/`, label: HERO_LINK_LABEL, external: false },
   };
 }

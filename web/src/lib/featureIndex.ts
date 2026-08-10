@@ -29,6 +29,13 @@ export interface NamedFeature {
   /** The IAU's etymology. Populated for every feature, and the whole content of Mars's card. */
   origin: string;
   /**
+   * The publisher's own page for this feature — where the card sends a reader next.
+   *
+   * Carried whole rather than rebuilt from an id, so no constant here owns an address USGS
+   * controls; `gen_feature_index.gazetteer_url` states what that costs and why it is worth it.
+   */
+  gazetteer: string;
+  /**
    * The IAU diameter in km, or null where the gazetteer publishes a zero.
    *
    * A WIDTH on an areal feature and a LENGTH on a linear one — `featureTargeting.FeatureCandidate`
