@@ -23,9 +23,15 @@
   and looks right.
 - **Earth's output stays byte-identical** through every parameterisation step. Byte-identity is a
   per-commit gate, not an end-of-phase one — that is what makes a bisect mean anything.
-- **Mars ships a Lite page from the start**, even before its content is decided.
+- **Mars ships a Lite page from the start**, and it is the gazetteer.
   - Removing the tier button would not be enough: the pre-paint capability guard routes incapable
     devices too, and with no Mars Lite destination it would land them on Earth's gallery.
+  - Earth's Lite is a hero gallery and Mars renders none, so the page carries the catalogue instead
+    — every IAU name with its kind, size, position and etymology, lettered A–Z, each linking to the
+    publisher's entry. No GPU, no JavaScript, and the browser's own find is the search.
+  - **It is lettered on `cleanName` and renders that form as text wherever it differs**, because
+    Cmd/Ctrl+F matches neither a `title` attribute nor anything hidden — so "Belen" would otherwise
+    never find Belén.
 - **The tier preference is one key across bodies.** Which tier a device can run is a fact about the
   device, not a per-planet preference.
 - **The site keeps its name and its origin.** No rename, and no separate subdomain — a subdomain is

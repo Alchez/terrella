@@ -1,31 +1,54 @@
 ---
 // Mars's lite route — where a visitor goes who cannot, or will not, run the Mars globe.
 //
-// TEMPORARY BY DESIGN, AND THE REGISTRY IS WHAT MAKES IT CHEAP TO REPLACE. `BODIES.mars.liteRoute`
-// names this path; the pre-paint guard and the view bar's tier picker both read it from there, so
-// rewriting this page, or moving it, is this file plus one string. Nothing links here by hand.
+// IT IS THE GAZETTEER, AND THAT IS THE ONLY CONTENT MARS HAS TO PUT HERE. Earth's lite route is the
+// hero gallery; Mars renders no heroes, so the page spent a while apologising for a gap. What it
+// actually has is the IAU's catalogue — the same 1,919 rows the globe lets you point at — and a
+// listing is the one form of it that needs no GPU, no JavaScript and no network beyond this page.
 //
-// WHY IT EXISTS AT ALL, given Earth's lite route is the gallery. The tier ladder always has a
-// destination: a device with no WebGL2 is redirected off a globe before the page paints, and a
-// visitor can pick Lite in the view bar on purpose. Sending either of them to `/` would answer "this
-// device cannot draw Mars" by showing them Earth. What it cannot do is show hero renders instead,
-// because Mars has none — so it says so rather than pretending the gap is a design.
+// WHY IT EXISTS AT ALL. The tier ladder always has a destination: `Base.astro`'s pre-paint guard
+// `location.replace`s every non-WebGL2 visitor onto `BODIES.mars.liteRoute`, and a visitor can pick
+// Lite in the view bar on purpose. Sending either of them to `/` would answer "this device cannot
+// draw Mars" by showing them Earth.
+//
+// TWO SEPARATE THINGS FOLLOW FROM THE DIACRITICS, AND THEY ARE DIFFERENT SIZES.
+//
+// The alias is rendered for the 69 features whose published name carries one anywhere, because the
+// browser's own find is the search on this page and it matches neither a `title` attribute nor
+// anything `display:none` — so the IAU's diacritic-free form has to be real text, or "Belen"
+// simply fails to find Belén.
+//
+// The lettering reads `cleanName` for a much smaller reason: exactly TWO names differ in their
+// first character, Ōmura and Žulanka, and lettering on the published name gives each its own
+// section after Z with one row in it — plus two letters on the rail nobody would think to press.
 import Base from "../../layouts/Base.astro";
 import Masthead from "../../components/Masthead.astro";
 import { bodyRoutes } from "../../lib/bodyRoutes";
+import { featureIndex } from "../../lib/featureIndex";
+import { featureTypeLabel, formatFeatureDiameter } from "../../lib/detailPanel";
+import { byInitial, formatPosition } from "../../lib/gazetteer";
 
 const routes = bodyRoutes("mars");
+
+// `localeCompare` so the diacritics file where a reader expects them — Belén beside Belen, not
+// after Z. The index arrives sorted by the producer, which sorts by code point; this is the
+// collation the page is actually read in, and `byInitial` takes the order rather than imposing one.
+const alphabetical = [...featureIndex].toSorted((first, second) =>
+  first.cleanName.localeCompare(second.cleanName),
+);
+const byLetter = byInitial(alphabetical, (feature) => feature.cleanName[0]!);
+const indexLetters = [...byLetter.keys()];
 ---
 
 <Base
   title="Mars — Terrella"
-  description="Mars without the globe, for devices that cannot draw one."
+  description="Every named feature on Mars, as a listing — for devices that cannot draw the globe."
   body="mars"
   quality={true}
 >
   <Masthead
     heading="Mars"
-    eyebrow="Without the globe"
+    eyebrow="Gazetteer"
     legend={false}
     back="/"
     backLabel="← Gallery"
@@ -36,18 +59,66 @@ const routes = bodyRoutes("mars");
     <p class="lede">This device is seeing Mars without the globe.</p>
     <p>
       The globe is a WebGL2 map of shaded relief, and you are here because either your browser
-      cannot run one or you chose Lite in the view controls. On Earth that choice lands you in a
-      gallery of ray-traced renders; Mars has no renders yet, so there is nothing to put here in
-      their place.
+      cannot run one or you chose Lite in the view controls. Mars has no ray-traced renders, so
+      there is no gallery to stand in its place — what there is instead is the catalogue itself.
     </p>
     <p>
-      Both of those are open questions rather than oversights — a Mars look has not been decided,
-      and the renders come after it.
+      Every one of the {alphabetical.length.toLocaleString("en-US")} names the IAU has adopted for a
+      feature on Mars, with what kind of thing it is, how big it is, where it sits, and where the
+      name came from. Your browser's own find (<kbd>Ctrl</kbd>/<kbd>⌘</kbd> + <kbd>F</kbd>) searches
+      all of it. Each name links to its entry in the Gazetteer of Planetary Nomenclature.
     </p>
     <p>
-      <a class="onward" href={routes.globe}>Go to Mars →</a>
+      <a class="onward" href={routes.globe}>Go to the Mars globe →</a>
       <a class="onward" href="/earth/">Go to the Earth globe →</a>
     </p>
+
+    <nav class="az-rail" aria-label="Jump to letter">
+      {indexLetters.map((letter) => <a href={`#gz-${letter}`}>{letter}</a>)}
+    </nav>
+
+    <div class="gz-groups">
+      {
+        indexLetters.map((letter) => (
+          <section class="letter-group" aria-labelledby={`gz-${letter}`}>
+            <h2 class="letter" id={`gz-${letter}`}>
+              {letter}
+            </h2>
+            <ul class="entries">
+              {byLetter.get(letter)!.map((feature) => (
+                <li>
+                  <p class="gz-head">
+                    {/* Only the NAME is the link. A row-wide anchor would give the accessible name
+                        of every link on this page an etymology up to 254 characters long, and make
+                        the listing unselectable as text. New tab for the reason the detail card
+                        uses one, minus the WebGL half: it keeps a reader's place in a long list. */}
+                    <a
+                      class="gz-name"
+                      href={feature.gazetteer}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      {feature.name}
+                    </a>
+                    {feature.cleanName !== feature.name && (
+                      <span class="gz-alias">{feature.cleanName}</span>
+                    )}
+                    <span class="gz-kind">{featureTypeLabel(feature.type)}</span>
+                    {feature.diameterKm !== null && (
+                      <span class="gz-size">{formatFeatureDiameter(feature.diameterKm)}</span>
+                    )}
+                    <span class="gz-coord">
+                      {formatPosition(feature.latitude, feature.longitude)}
+                    </span>
+                  </p>
+                  <p class="gz-origin">{feature.origin}</p>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ))
+      }
+    </div>
   </main>
 </Base>
 
@@ -59,17 +130,22 @@ const routes = bodyRoutes("mars");
     color: var(--muted);
     line-height: 1.65;
   }
-  .lite p {
+  .lite > p {
     max-width: 62ch;
   }
   .lede {
     color: var(--text);
     font-size: 1.15rem;
     font-weight: 600;
-    /* The one place the body's accent appears on this page, which makes a provisional colour
+    /* The one place the body's accent appears above the listing, which makes a provisional colour
        visible to anyone judging it. */
     border-left: 3px solid var(--accent);
     padding-left: 0.75rem;
+  }
+  kbd {
+    font-family: var(--mono);
+    font-size: 0.85em;
+    color: var(--text);
   }
   .onward {
     color: var(--accent);
@@ -81,5 +157,118 @@ const routes = bodyRoutes("mars");
   .onward:hover,
   .onward:focus-visible {
     text-decoration: underline;
+  }
+
+  /* The listing. Sticky rail, then lettered sections — the gallery's index in the one arrangement
+     Rohan rejected there, and for the reason he rejected it: on `/` it would have been buried under
+     the card grid, and here there is nothing above it to bury it under. */
+  .az-rail {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.15rem 0.55rem;
+    margin-top: clamp(1.6rem, 4vw, 2.6rem);
+    padding: 0.6rem 0 0.5rem;
+    font-family: var(--mono);
+    font-size: 0.82rem;
+    letter-spacing: 0.06em;
+    background: color-mix(in srgb, var(--bg) 90%, transparent);
+    -webkit-backdrop-filter: blur(8px);
+    backdrop-filter: blur(8px);
+  }
+  .az-rail a {
+    color: var(--muted);
+    text-decoration: none;
+    padding: 0.1rem 0.15rem;
+  }
+  .az-rail a:hover,
+  .az-rail a:focus-visible {
+    color: var(--accent);
+  }
+  .letter-group {
+    margin-bottom: clamp(1.6rem, 3vw, 2.4rem);
+  }
+  .letter {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: clamp(1.6rem, 3vw, 2.2rem);
+    line-height: 1;
+    color: var(--accent);
+    margin: 0 0 0.7rem;
+    padding-bottom: 0.4rem;
+    border-bottom: 1px solid var(--line);
+    /* MUST EXCEED THE RAIL AT ITS TALLEST, and the rail's height is content-driven: 26 letters on
+       one row at desktop width, two rows once they wrap. Measured at a 500 px viewport it is 70 px,
+       where a value covering only the single row (3.2rem) left the letter heading 19 px underneath
+       it — a jump that lands on the thing it was aimed at, partly hidden. Generous on purpose: too
+       much clearance is a heading sitting lower in the viewport, too little is a broken jump. */
+    scroll-margin-top: 5.5rem;
+  }
+  .entries {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    /* Multi-column at width, one column on a phone. `columns` rather than a grid because entries
+       vary in height with their etymology, and a grid would leave every row as tall as its tallest. */
+    columns: 26rem;
+    column-gap: clamp(1.4rem, 3vw, 2.6rem);
+  }
+  .entries li {
+    /* A feature's name and its etymology must not be split across a column boundary. */
+    break-inside: avoid;
+    margin: 0 0 0.7rem;
+  }
+  .gz-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.15rem 0.5rem;
+    margin: 0;
+  }
+  .gz-name {
+    color: var(--text);
+    font-weight: 600;
+    text-decoration: none;
+  }
+  .gz-name:hover,
+  .gz-name:focus-visible {
+    color: var(--accent);
+    text-decoration: underline;
+  }
+  .gz-alias {
+    font-size: 0.78rem;
+    color: var(--muted);
+  }
+  .gz-alias::before {
+    content: "(";
+  }
+  .gz-alias::after {
+    content: ")";
+  }
+  .gz-kind {
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .gz-size,
+  .gz-coord {
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.02em;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+  .gz-coord {
+    margin-left: auto;
+  }
+  .gz-origin {
+    margin: 0.1rem 0 0;
+    font-size: 0.85rem;
+    line-height: 1.45;
+    color: var(--muted);
   }
 </style>

@@ -5,6 +5,7 @@ import { manifest as data, type Country } from "../lib/manifest";
 import { HERO_BASE } from "../lib/assetBase";
 import { REPO_URL } from "../lib/siteLinks";
 import { EAGER_CARD_COUNT, STAGED_PLACEHOLDER } from "../lib/lazyCards";
+import { boundsCentre, byInitial, formatPosition } from "../lib/gazetteer";
 
 // Rendered heroes first (so real imagery leads while the sweep fills in), then
 // everything else alphabetically.
@@ -47,26 +48,17 @@ const alphabetical = [...data.countries].toSorted((first, second) =>
   first.name.localeCompare(second.name),
 );
 
-// A gazetteer entry carries its coordinates: the centroid of the manifest bbox
-// [west, south, east, north], rounded to whole degrees with a hemisphere letter.
+// A gazetteer entry carries its coordinates. The manifest publishes a bbox and not a point, so the
+// centroid is taken here; the formatting itself belongs to `gazetteer.ts`, which Mars's listing
+// reads too — a hemisphere letter written twice is two listings free to disagree about one planet.
 const coordinates = (country: Country) => {
-  const [west, south, east, north] = country.bbox;
-  const latitude = (south + north) / 2;
-  const longitude = (west + east) / 2;
-  const northSouth = `${Math.round(Math.abs(latitude))}° ${latitude >= 0 ? "N" : "S"}`;
-  const eastWest = `${Math.round(Math.abs(longitude))}° ${longitude >= 0 ? "E" : "W"}`;
-  return `${northSouth}, ${eastWest}`;
+  const { latitude, longitude } = boundsCentre(country.bbox);
+  return formatPosition(latitude, longitude);
 };
 
 // Bucket by first letter for the lettered sections + the A–Z jump rail. Insertion
 // order follows `alphabetical`, so the letter keys come out already sorted.
-const byLetter = new Map<string, Country[]>();
-for (const country of alphabetical) {
-  const letter = country.name[0].toUpperCase();
-  const bucket = byLetter.get(letter);
-  if (bucket) bucket.push(country);
-  else byLetter.set(letter, [country]);
-}
+const byLetter = byInitial(alphabetical, (country) => country.name[0]!);
 const indexLetters = [...byLetter.keys()];
 ---
 

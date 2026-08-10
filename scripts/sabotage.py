@@ -5540,6 +5540,67 @@ SABOTAGES: list[Sabotage] = [
         replacement='        linkEl.setAttribute("target", "_self");',
         guard='honours both values of external, not just the one its own body asks for',
     ),
+    # THE GAZETTEER LISTING. Every wound here is one that renders as a perfectly good page — a
+    # findable name that is not findable, a lettered section that quietly holds nothing, a listing
+    # and a card describing the same feature two different ways.
+    Sabotage(
+        suite='web',
+        label='the hemisphere letter is taken from the wrong side of zero',
+        path='web/src/lib/gazetteer.ts',
+        needle='  const northSouth = `${Math.round(Math.abs(latitude))}° ${latitude >= 0 ? "N" : "S"}`;',
+        replacement='  const northSouth = `${Math.round(Math.abs(latitude))}° ${latitude > 0 ? "N" : "S"}`;',
+        guard='puts a point on the line in the positive hemisphere rather than printing nothing',
+    ),
+    Sabotage(
+        suite='web',
+        label='a position truncates towards the equator instead of rounding',
+        path='web/src/lib/gazetteer.ts',
+        needle='  const eastWest = `${Math.round(Math.abs(longitude))}° ${longitude >= 0 ? "E" : "W"}`;',
+        replacement='  const eastWest = `${Math.trunc(Math.abs(longitude))}° ${longitude >= 0 ? "E" : "W"}`;',
+        guard='rounds rather than truncates, so a feature does not drift a degree towards the equator',
+    ),
+    Sabotage(
+        suite='web',
+        label='the grouping re-sorts and throws away the collation the page was read in',
+        path='web/src/lib/gazetteer.ts',
+        needle='  for (const entry of sorted) {',
+        replacement='  for (const entry of [...sorted].toSorted()) {',
+        guard="keeps the caller's order and does not sort again",
+    ),
+    Sabotage(
+        suite='web',
+        label='the gallery goes back to its own copy of the coordinate format',
+        path='web/src/pages/index.astro',
+        needle='  const { latitude, longitude } = boundsCentre(country.bbox);',
+        replacement='  const { latitude, longitude } = { latitude: 0, longitude: 0 };',
+        guard='is what the gallery calls, so one page cannot drift from the other',
+    ),
+    # The 69 diacritic names becoming unfindable by the only search this page has. The page still
+    # renders every one of them, and every other assertion about it stays true.
+    Sabotage(
+        suite='web',
+        label='the diacritic-free name stops being text the browsers find can match',
+        path='web/src/pages/mars/lite.astro',
+        needle='                      <span class="gz-alias">{feature.cleanName}</span>',
+        replacement='                      <span class="gz-alias" title={feature.cleanName} />',
+        guard='renders the diacritic-free name as text wherever it differs',
+    ),
+    Sabotage(
+        suite='web',
+        label='Mars letters on the published name, filing the diacritics past Z',
+        path='web/src/pages/mars/lite.astro',
+        needle='const byLetter = byInitial(alphabetical, (feature) => feature.cleanName[0]!);',
+        replacement='const byLetter = byInitial(alphabetical, (feature) => feature.name[0]!);',
+        guard='letters the page on cleanName, and the cost of not doing is measured rather than assumed',
+    ),
+    Sabotage(
+        suite='web',
+        label='the listing writes its own kind label instead of the cards',
+        path='web/src/pages/mars/lite.astro',
+        needle='                    <span class="gz-kind">{featureTypeLabel(feature.type)}</span>',
+        replacement='                    <span class="gz-kind">{feature.type}</span>',
+        guard="reads the card's own formatters rather than writing a second kind and size",
+    ),
     # THE FRAMING'S ONE HARD CONSTRAINT. At the ceiling the camera lands exactly where a region stops
     # being a target, so the highlight goes out on the feature you asked to be taken to — and every
     # arithmetic assertion still passes, because the arithmetic is doing what it was told.
