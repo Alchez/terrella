@@ -122,7 +122,49 @@ export const RATIFIED_LAYERS: RatifiedLayer[] = [
     looks:
       "nothing. Mars's named features are INTERACTION DATA, not paint: this was permanently drawn "
       + "for one commit and reverted, because the outlines traced crater rims the relief already "
-      + "renders in shadow, better. It is the surface a tap will land on once hit-testing exists",
+      + "renders in shadow, better. It is the surface a pointer or a tap lands on",
+  },
+  {
+    id: "feature-linear-hit",
+    bodies: ["mars"],
+    timing: "never",
+    looks:
+      "nothing — a fat invisible stroke over the valles, rupes and fossae that exist ONLY as "
+      + "lines. They carry no polygon at all, so without this they cannot be pointed at by any "
+      + "means, at any zoom",
+  },
+  {
+    id: "feature-hl-casing",
+    bodies: ["mars"],
+    timing: "on-hover",
+    looks:
+      "soft dark separator under the pale outline of the hovered feature. It is what makes the "
+      + "outline survive the polar ice, where a pale line alone disappears completely — carrying "
+      + "legibility here rather than in the line's width is what keeps the line thin",
+  },
+  {
+    id: "feature-hl-line",
+    bodies: ["mars"],
+    timing: "on-hover",
+    looks:
+      "cool near-white hairline tracing the one feature under the pointer, and only where that "
+      + "feature reads at the current zoom — a crater up close, a terra at overview, nothing at all "
+      + "over ground whose only container is too big to fit the frame",
+  },
+  {
+    id: "feature-linear-hl-casing",
+    bodies: ["mars"],
+    timing: "on-hover",
+    looks: "the same dark separator, along a hovered vallis or fossa rather than around a rim",
+  },
+  {
+    id: "feature-linear-hl-line",
+    bodies: ["mars"],
+    timing: "on-hover",
+    looks:
+      "the same near-white hairline drawn ALONG a hovered linear feature. A separate layer from "
+      + "the one above because these features have no ring to trace and live in their own inner "
+      + "layer — one style layer reads one of them, never both",
   },
 ];
 

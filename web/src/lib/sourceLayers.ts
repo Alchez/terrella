@@ -59,7 +59,8 @@ export const SOURCE_LAYERS: Record<BodySlug, Record<VectorRole, string | null>> 
     fill: "country_fill",
     outline: "country_outline",
     // One fat invisible target per polygon part, because a 176-atoll nation is unhittable
-    // otherwise. Mars has no equivalent yet — its hit-testing is still to be designed.
+    // otherwise. Mars needs no BAKED equivalent: its polygons are pointable through the fill, and
+    // its linear features get a widened stroke at style time — see featureOverlay.ts.
     hit: "country_hit",
     line: null,
     label: null,

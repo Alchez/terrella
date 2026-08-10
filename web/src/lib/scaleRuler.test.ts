@@ -169,6 +169,26 @@ describe("the ruler's measurement never resolves against terrain", () => {
     );
   });
 
+  it("passes the drawn body's radius at EVERY call site, not only the ruler's", () => {
+    // THE CASE ABOVE READS `updateRuler`'S BODY, which was the whole story while the ruler was the
+    // only caller. It is not any more: the feature pick sizes a candidate against the current
+    // scale and needs the same measurement, from a different function that inherits none of the
+    // guard above. Earth's radius on Mars is wrong by the ratio of the two — a plausible number at
+    // every zoom, which is exactly the failure this file exists for.
+    const calls = [...globeSource.matchAll(/rulerGroundDistance\(([^)]*)\)/g)];
+    // Completeness rather than a floor: every textual occurrence must have been parsed, so a call
+    // written in a shape this regex cannot read fails here instead of going unchecked.
+    const occurrences = globeSource.split("rulerGroundDistance(").length - 1;
+    expect(calls, "a call is written in a shape this scan cannot read").toHaveLength(occurrences);
+    expect(occurrences, "no call found at all — this scan has come unmoored").toBeGreaterThan(0);
+    for (const [, args] of calls) {
+      expect(args, "a call does not take the radius from the registry").toContain(
+        "body.groundRadiusM",
+      );
+      expect(args, "a numeric literal reached the radius").not.toMatch(/\d/);
+    }
+  });
+
   it("canary — MapLibre still exposes the terrain-free conversion we reach for", () => {
     // The shipped bundle, where property names survive minification. `transform` is untyped on
     // `Map`, so a rename upstream would otherwise surface as a silent fallback to the slow path.

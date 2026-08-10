@@ -231,11 +231,16 @@ import { REPO_URL } from "../lib/siteLinks";
   .country-chip[hidden] {
     display: none;
   }
-  /* Phones have no hover state to leave anonymous, and a tap opens the detail card that names the
-     country anyway. Without this the synthetic mouse events a tap emits would flash the chip for an
-     instant under the arriving card. Touchscreen laptops report `hover: hover` and keep it. */
+  /* Phones have no hover state to leave anonymous, and on a body with heroes a tap opens the detail
+     card that names the region anyway. Without this the synthetic mouse events a tap emits would
+     flash the chip for an instant under the arriving card. Touchscreen laptops report
+     `hover: hover` and keep it.
+     THE SUPPRESSION IS CONDITIONAL BECAUSE THE REASON IS. A body with vectors and no heroes has no
+     card arriving, so suppressing here would leave a tap answering with nothing at all — the chip
+     IS the answer there, and the script says so by stamping the class. Default-off rather than
+     default-on: a future body that forgets gets a silent chip, not a chip flashing under a card. */
   @media (hover: none) {
-    .country-chip {
+    :global(body:not(.chip-answers-taps)) .country-chip {
       display: none;
     }
   }
@@ -556,11 +561,20 @@ import { REPO_URL } from "../lib/siteLinks";
     highlightLayers,
     hitLayer,
   } from "../lib/countryHighlight";
-  import { FEATURES_SOURCE, featureFillLayer, featureTilesSource } from "../lib/featureOverlay";
+  import {
+    FEATURES_SOURCE,
+    HIGHLIGHT_INK as FEATURE_INK,
+    featureFillLayer,
+    featureHighlightLayers,
+    featureLinearHitLayer,
+    featureTilesSource,
+    hoverStateTargets,
+  } from "../lib/featureOverlay";
+  import { candidateFrom, pickFeature } from "../lib/featureTargeting";
   import { createHoverTracker } from "../lib/hoverTracking";
   import { createRailToggle, joinRailGroup } from "../lib/railControls";
   import { createQuietMode } from "../lib/quietMode";
-  import { createScaleRuler, rulerGroundDistance } from "../lib/scaleRuler";
+  import { RULER_WIDTH_PX, createScaleRuler, rulerGroundDistance } from "../lib/scaleRuler";
   import {
     DEGRADED_PIXEL_RATIO,
     MAXIMUM_SAMPLE_COUNT,
@@ -1829,6 +1843,91 @@ import { REPO_URL } from "../lib/siteLinks";
     }
     map.addSource(FEATURES_SOURCE, featureTilesSource(vectorTileUrlTemplate, archive));
     map.addLayer(featureFillLayer());
+    map.addLayer(featureLinearHitLayer());
+    for (const layer of featureHighlightLayers()) map.addLayer(layer);
+  }
+
+  /**
+   * Mars's pointer: which named feature is under it, lit and named.
+   *
+   * A SEPARATE PATH FROM THE COUNTRY ONE RATHER THAN A BRANCH INSIDE IT. The two answer the same
+   * question and share the tracker that owns it, but nothing else lines up — the country resolver
+   * falls back to fat hit circles baked into Earth's archive, and this one has to size every
+   * candidate against the current scale because the gazetteer mixes a 22 km crater and a 5,500 km
+   * terra in one list. Folding them together would put a body check inside the hot path of both.
+   *
+   * Only wired where the body actually publishes features, so Earth pays nothing for it.
+   */
+  function wireFeatureInteraction() {
+    const stateTargets = hoverStateTargets();
+    // The chip's dot is the tie between the label and the linework it names, so it takes its colour
+    // from the constant those layers paint with rather than from a CSS copy free to drift.
+    if (countryChipDot) countryChipDot.style.backgroundColor = FEATURE_INK;
+    // A tap has no card to open on a body without heroes, so the chip is the whole answer and the
+    // stylesheet's touch suppression has to stand down. See the `(hover: none)` rule.
+    if (!subsystems.heroes) document.body.classList.add("chip-answers-taps");
+
+    function paintFeatureHighlight(name: string | null, previousName: string | null) {
+      const setState = (id: string, hover: boolean) => {
+        for (const target of stateTargets) map.setFeatureState({ ...target, id }, { hover });
+      };
+      if (previousName !== null) setState(previousName, false);
+      if (name !== null) setState(name, true);
+    }
+
+    /** Both hit surfaces, and WHICH ONE a feature came through is part of the answer.
+     *
+     *  Queried per layer rather than in one call, because the gazetteer's `diameter` means a width
+     *  on a crater and a LENGTH on a channel, and nothing in the properties says which. The layer
+     *  it arrived through does. They are disjoint sets, so at most one kind answers at a time, but
+     *  the ranking must not depend on which query ran first. */
+    const HIT_SURFACES: [string, boolean][] = [
+      ["feature-fill", false],
+      ["feature-linear-hit", true],
+    ];
+
+    function featureAt(point: Point): string | null {
+      const container = map.getContainer();
+      const viewport = { width: container.clientWidth, height: container.clientHeight };
+      // Ground scale through the ruler's own measurement, so "how big is this on screen" has one
+      // owner and one body-aware conversion rather than a second copy that reads plausibly on Mars.
+      const metresPerPixel =
+        rulerGroundDistance(
+          locateOnDatum,
+          body.groundRadiusM,
+          container.clientWidth,
+          container.clientHeight,
+        ) / RULER_WIDTH_PX;
+      const candidates = [];
+      for (const [layerId, linear] of HIT_SURFACES) {
+        if (!map.getLayer(layerId)) continue;
+        for (const feature of map.queryRenderedFeatures(point, { layers: [layerId] })) {
+          const candidate = candidateFrom(feature.properties, linear);
+          if (candidate !== null) candidates.push(candidate);
+        }
+      }
+      return pickFeature(candidates, metresPerPixel, viewport);
+    }
+
+    const featureTracker = createHoverTracker<Point>({
+      resolve: featureAt,
+      onChange: (name, previousName) => {
+        paintFeatureHighlight(name, previousName);
+        paintChip(name);
+        map.getCanvas().style.cursor = name ? "pointer" : "";
+      },
+    });
+
+    map.on("mousemove", (event) => featureTracker.pointerMoved(event.point));
+    map.on("mouseout", () => featureTracker.pointerLeft());
+    // The camera moving under a parked pointer changes the answer without a mousemove — and here it
+    // changes it twice over, because the pick depends on the SCALE as well as the position.
+    map.on("moveend", () => featureTracker.viewChanged());
+    // Touch. A tap is the only pointer event a phone sends, and routing it into the same tracker is
+    // what keeps this from becoming a second implementation: the tap resolves, lights and names by
+    // the identical path a hover does. Tapping ground with nothing on it resolves null and clears,
+    // which is the tap's version of the pointer leaving the canvas.
+    map.on("click", (event) => featureTracker.pointerMoved(event.point));
   }
 
   /**
@@ -2102,7 +2201,13 @@ import { REPO_URL } from "../lib/siteLinks";
       if (countries) addCountryTiles(); // source + fill, under the borders
       if (subsystems.borders && bordersOn()) addBorders(); // opted-in only — default globe skips it
       if (countries) addCountryHighlight(); // hover outline, on top so the edge is crisp
-      if (subsystems.vectorProduct === "features") addFeatureOverlay();
+      if (subsystems.vectorProduct === "features") {
+        addFeatureOverlay();
+        // Interaction, not layers — a separate call so the ordered run above stays a run of layer
+        // adds, but inside the SAME branch: two `if`s on one product read as two independent gates
+        // to a source scan, and deleting either would leave the other satisfying it.
+        wireFeatureInteraction();
+      }
       // LAST, always. Everything above is drapeable (fill, line); this circle is not, so putting
       // it here ends the drape run rather than splitting it. See addCountryHitTargets.
       if (countries) addCountryHitTargets();

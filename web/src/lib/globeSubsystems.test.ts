@@ -183,11 +183,25 @@ describe("the registry is the only thing that can switch a subsystem ON", () => 
     // A source scan is the weakest kind of guard and the only kind available: these gates live in a
     // page's client script that nothing can import. It buys the case that actually happens, which
     // is a member added here and forgotten there.
+    // A BRANCH THAT EXISTS IS NOT A BRANCH THAT DRAWS, which this asked for one commit too long.
+    // The mutation that deletes the features gate was not caught, because a second `if` on the same
+    // product — the interaction wiring — still satisfied a search for the condition alone. Naming
+    // the call each branch has to make closes that, and the record is total, so a third product is
+    // a compile error here rather than a globe that quietly draws nothing.
+    const DRAWS_WITH: Record<VectorProduct, string> = {
+      countries: "addCountryTiles();",
+      features: "addFeatureOverlay();",
+    };
     const globe = readFileSync(new URL("../components/Globe.astro", import.meta.url), "utf8");
     for (const product of Object.values(VECTOR_PRODUCT)) {
-      expect(globe, `no globe branch draws the ${product} overlay`).toContain(
-        `vectorProduct === "${product}"`,
-      );
+      const gate = globe.indexOf(`vectorProduct === "${product}"`);
+      expect(gate, `no globe branch draws the ${product} overlay`).toBeGreaterThan(-1);
+      const draws = globe.indexOf(DRAWS_WITH[product], gate);
+      expect(draws, `the ${product} branch never calls ${DRAWS_WITH[product]}`).toBeGreaterThan(-1);
+      // Within the gate's own statement rather than anywhere later in the file, or a call belonging
+      // to some other body's branch would satisfy this one.
+      expect(draws - gate, `${DRAWS_WITH[product]} is too far from its gate to be inside it`)
+        .toBeLessThan(200);
     }
   });
 

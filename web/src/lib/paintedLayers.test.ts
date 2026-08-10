@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { RATIFIED_LAYERS, neverPaintingLayerIds, ratifiedLayerIds } from "./paintedLayers";
 import { CAP_POLES, capLayerId } from "./polarCaps";
-import { featureFillLayer } from "./featureOverlay";
+import { featureFillLayer, featureLinearHitLayer } from "./featureOverlay";
 import { hitLayer } from "./countryHighlight";
 import { VECTOR_BINDING } from "./countryHighlight";
 
@@ -168,6 +168,7 @@ describe("a layer the ledger says paints NOTHING really paints nothing", () => {
   const INVISIBLE_SPECS: Record<string, () => { paint?: Record<string, unknown> }> = {
     "country-hit": () => hitLayer(["==", ["get", "ADMIN"], "nowhere"], VECTOR_BINDING.hit),
     "feature-fill": featureFillLayer,
+    "feature-linear-hit": featureLinearHitLayer,
   };
 
   it("checks every one of them, rather than whichever ones someone remembered", () => {

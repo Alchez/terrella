@@ -3856,9 +3856,168 @@ SABOTAGES: list[Sabotage] = [
         # required rather than defaulted, and why this case reads the PAGE.
         label='the page hands the ruler a literal radius instead of the body it is drawing',
         path='web/src/components/Globe.astro',
-        needle='        body.groundRadiusM,',
-        replacement='        6371008.8,',
+        # Anchored on the preceding argument, because a bare `body.groundRadiusM,` is now a
+        # substring of a second, more deeply indented call site — see the case below.
+        needle='        locateOnDatum,\n        body.groundRadiusM,',
+        replacement='        locateOnDatum,\n        6371008.8,',
         guard='takes the radius from the body it is drawing, not from a number',
+    ),
+    Sabotage(
+        suite='web',
+        # The SECOND caller of the same measurement. The ruler's guard reads `updateRuler`'s body
+        # and cannot see this one, so the widened scan is what has to catch it — on Mars an Earth
+        # radius mis-sizes every candidate by the ratio of the two, which silently changes which
+        # features are pointable at rather than throwing.
+        label='the feature pick sizes candidates with Earth\'s radius on every body',
+        path='web/src/components/Globe.astro',
+        needle='          locateOnDatum,\n          body.groundRadiusM,',
+        replacement='          locateOnDatum,\n          6371008.8,',
+        guard="passes the drawn body's radius at EVERY call site, not only the ruler's",
+    ),
+    # --- Mars's hit-testing and hover -------------------------------------------------------------
+    # The pick rule is arithmetic, so every one of these produces a globe that renders perfectly and
+    # answers the wrong thing — or nothing — with no error anywhere.
+    Sabotage(
+        suite='web',
+        # The band loses its floor, so a sub-pixel crater under the pointer beats the region that
+        # is actually on screen and the highlight lands on something invisible.
+        label='a feature too small to see can be picked',
+        path='web/src/lib/featureTargeting.ts',
+        needle='  if (extent < MIN_TARGET_PX) return false;\n',
+        replacement='',
+        guard='prefers the terra at overview where the crater really is a speck',
+    ),
+    Sabotage(
+        suite='web',
+        # The band loses its ceiling, which restores exactly the frame that was rejected on screen:
+        # a 4,688 km bracket drawn across a view it does not fit.
+        label='a container too big to fit the frame is painted again',
+        path='web/src/lib/featureTargeting.ts',
+        needle='  return extent <= MAX_TARGET_VIEWPORT_FRACTION * viewportReferencePx(viewport);',
+        replacement='  return true;',
+        guard='drops the terra at the zoom where it was judged wrong',
+    ),
+    Sabotage(
+        suite='web',
+        # Smallest rather than smallest ELIGIBLE — the naive rule this whole module replaced.
+        label='the pick ignores whether a candidate reads at this scale',
+        path='web/src/lib/featureTargeting.ts',
+        needle='    if (!readsAtThisScale(candidate, metresPerPixel, viewport)) continue;',
+        replacement='    if (candidate.diameterKm === null) continue;',
+        guard='picks the SMALLEST ELIGIBLE, not the smallest',
+    ),
+    Sabotage(
+        suite='web',
+        # An absent diameter becomes a zero, which is a different and wrong answer: absence is data
+        # here, because the cutter drops a falsy value from the tile.
+        label='a feature with no diameter is treated as one of size zero',
+        path='web/src/lib/featureTargeting.ts',
+        needle='      ? diameter\n      : null,',
+        replacement='      ? diameter\n      : 0,',
+        guard='treats a missing diameter as unsized rather than as zero',
+    ),
+    Sabotage(
+        suite='web',
+        # Without a promoted id a vector feature has no identity that survives tile splitting, so
+        # every setFeatureState write addresses nothing. MapLibre answers by firing an ErrorEvent
+        # and returning — no throw, and a globe whose hover silently does nothing.
+        label='the feature source stops promoting an id for hover to key on',
+        path='web/src/lib/featureOverlay.ts',
+        needle='    promoteId: "name",',
+        replacement='    // promoteId removed',
+        guard='promotes the same field the pick rule returns',
+    ),
+    Sabotage(
+        suite='web',
+        # One source-layer left out of the hover write, which lights a crater's ring and leaves
+        # every vallis dark — a half-working highlight nobody would call a bug from a screenshot.
+        label='the hover state is written to only one of the two painted layers',
+        path='web/src/lib/featureOverlay.ts',
+        needle='    { source: FEATURES_SOURCE, sourceLayer: requireSourceLayer("mars", "line") },',
+        replacement='    // the linear layer no longer takes a hover write',
+        guard='writes to every source-layer that carries hover paint, and to nothing else',
+    ),
+    Sabotage(
+        suite='web',
+        # Built but never mounted. Its spec stays in the source for the ledger scan to find and its
+        # own unit tests still pass, because they call the factory directly.
+        label='the linear hit surface is built and never added to the map',
+        path='web/src/components/Globe.astro',
+        needle='    map.addLayer(featureLinearHitLayer());',
+        replacement='    // the linear hit surface is never mounted',
+        guard='adds the hit surface for features that exist only as lines',
+    ),
+    Sabotage(
+        suite='web',
+        # Only the polygons are queried, so the valles and fossae — which carry no polygon anywhere
+        # in the archive — become unreachable at every zoom.
+        label='only one of the two hit surfaces is queried',
+        path='web/src/components/Globe.astro',
+        needle='      ["feature-linear-hit", true],\n',
+        replacement='',
+        guard='queries BOTH hit surfaces, since the two kinds of feature are disjoint sets',
+    ),
+    Sabotage(
+        suite='web',
+        # The tap binding goes and the body is mute on a phone again — which is the state this
+        # commit was asked to end, and which no desktop check would ever notice.
+        label='a tap stops resolving, leaving the body silent on touch',
+        path='web/src/components/Globe.astro',
+        needle='    map.on("click", (event) => featureTracker.pointerMoved(event.point));',
+        replacement='    // taps no longer resolve',
+        guard='answers a tap, so the body is not mute on a phone',
+    ),
+    Sabotage(
+        suite='web',
+        # The tap still resolves and still lights the boundary, and the chip stays suppressed by the
+        # stylesheet — so the phone gets paint and no name, the exact half-answer that was rejected.
+        label='the chip stays hidden on touch, so a tap names nothing',
+        path='web/src/components/Globe.astro',
+        needle='    if (!subsystems.heroes) document.body.classList.add("chip-answers-taps");',
+        replacement='    // the chip stays suppressed on touch',
+        guard='lets the chip through on touch, or the tap resolves and says nothing',
+    ),
+    Sabotage(
+        suite='web',
+        # A new painted layer id arrives without a ledger entry — the consent failure the gate was
+        # built for, planted at the one place this commit adds paint.
+        label='a hover layer is renamed and nobody is told it paints',
+        path='web/src/lib/featureOverlay.ts',
+        needle='      id: "feature-linear-hl-line",',
+        replacement='      id: "feature-glow",',
+        guard='names every literal-id layer in the ledger, and ledgers no layer that does not exist',
+    ),
+    Sabotage(
+        suite='web',
+        # The camera moves under a parked pointer and the answer goes stale — worse here than on
+        # Earth, because the pick depends on the SCALE as well as the position.
+        label='the pick is not re-run when the camera moves',
+        path='web/src/components/Globe.astro',
+        needle='    map.on("moveend", () => featureTracker.viewChanged());',
+        replacement='    // the camera moving no longer re-resolves',
+        guard='re-resolves when the camera moves, which matters more here than on Earth',
+    ),
+    Sabotage(
+        suite='web',
+        # The ceiling applies to channels again, and their diameter is a LENGTH: a 1,758 km vallis
+        # overflows every zoom that shows its width, so the whole linear catalogue goes unreachable
+        # while every polygon keeps working — a failure that looks like a data problem.
+        label='a channel is judged by its length, so no zoom can reach it',
+        path='web/src/lib/featureTargeting.ts',
+        needle='  if (candidate.linear) return true;\n',
+        replacement='',
+        guard='answers a channel whose length crosses the frame several times',
+    ),
+    Sabotage(
+        suite='web',
+        # Back to dividing by the viewport's shorter side, which makes the judgement depend on the
+        # aspect ratio: on a portrait phone the obvious thing on screen scores as an overflow and a
+        # tap returns nothing, while the same camera on a desktop answers.
+        label='the viewport is measured by its shorter side, so a phone loses its targets',
+        path='web/src/lib/featureTargeting.ts',
+        needle='  return Math.sqrt(Math.max(width, 0) * Math.max(height, 0));',
+        replacement='  return Math.min(width, height);',
+        guard='answers the same crater on a portrait phone, which is where this was caught',
     ),
     # --- Which body's pages the routing sends you to ----------------------------------------------
     # Every case below is the code as it was written for one globe, restored. None of them changes
@@ -4458,7 +4617,9 @@ SABOTAGES: list[Sabotage] = [
         suite='web',
         label='the feature overlay loses its branch, leaving Mars a source with nothing over it',
         path='web/src/components/Globe.astro',
-        needle='      if (subsystems.vectorProduct === "features") addFeatureOverlay();\n',
+        # Deletes the CALL rather than the gate, which is what the guard now checks for: a branch
+        # that exists without drawing anything was the shape that let this case go uncaught.
+        needle='        addFeatureOverlay();\n',
         replacement='',
         guard='has a globe branch for every product the registry can hand it',
     ),

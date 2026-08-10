@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { FEATURES_SOURCE, featureFillLayer, featureTilesSource } from "./featureOverlay";
+import {
+  FEATURES_SOURCE,
+  featureFillLayer,
+  featureHighlightLayers,
+  featureLinearHitLayer,
+  featureTilesSource,
+  hoverStateTargets,
+} from "./featureOverlay";
 import { PUBLISHED } from "./tileAddress";
 import { SOURCE_LAYERS } from "./sourceLayers";
 
@@ -72,5 +79,97 @@ describe("the fill, which is the whole overlay until hit-testing lands", () => {
     // globe, and the outlines traced crater rims the RELIEF already renders in shadow. Anything
     // that makes this visible has to come through here and say why.
     expect(featureFillLayer().paint?.["fill-opacity"]).toBe(0);
+  });
+});
+
+describe("the identity one hover writes against", () => {
+  it("promotes the same field the pick rule returns", () => {
+    // `pickFeature` returns a NAME, and `setFeatureState` addresses features by promoted id. If
+    // these two ever name different fields the highlight silently does nothing — MapLibre answers
+    // an unaddressable feature-state write by firing an ErrorEvent and returning.
+    expect(featureTilesSource("/t/{z}/{x}/{y}.mvt", NOBODYS_ARCHIVE).promoteId).toBe("name");
+  });
+
+  it("writes to every source-layer that carries hover paint, and to nothing else", () => {
+    // Feature state is keyed on (source, sourceLayer, id), so one write per source-layer is
+    // required and a missing one leaves half the highlight dark. Derived from the layers that
+    // actually paint rather than listed, so adding a highlight layer over a third source-layer
+    // fails here instead of shipping a half-lit feature.
+    const paintedLayers = new Set(
+      featureHighlightLayers().map((layer) => layer["source-layer"]),
+    );
+    expect(new Set(hoverStateTargets().map((target) => target.sourceLayer))).toEqual(paintedLayers);
+    expect(hoverStateTargets().every((target) => target.source === FEATURES_SOURCE)).toBe(true);
+    // The fill is deliberately absent: it carries no hover paint, so a write there could only be
+    // a mistake that looks like thoroughness.
+    expect(paintedLayers.has(SOURCE_LAYERS.mars.fill!)).toBe(false);
+  });
+});
+
+/** The widest stop of a zoom-interpolated `line-width` ramp. Throws rather than optional-chaining
+ *  into `undefined`: a spec with no width is a broken layer, and a silent NaN comparison below
+ *  would pass. */
+function widestWidth(spec: { paint?: Record<string, unknown> }): number {
+  const ramp = spec.paint?.["line-width"];
+  if (!Array.isArray(ramp)) throw new Error("this layer spec carries no line-width ramp");
+  return ramp.at(-1) as number;
+}
+
+describe("the linear features, which exist only as lines", () => {
+  it("gets a hit surface over the layer that carries them", () => {
+    // They have no polygon anywhere in the archive, so the fill cannot answer for them: without
+    // this layer they are unreachable at every zoom, not merely hard to hit.
+    expect(featureLinearHitLayer()["source-layer"]).toBe(SOURCE_LAYERS.mars.line);
+    expect(featureLinearHitLayer().source).toBe(FEATURES_SOURCE);
+  });
+
+  it("stays invisible, because a hit surface that paints is a decision nobody made", () => {
+    expect(featureLinearHitLayer().paint?.["line-opacity"]).toBe(0);
+  });
+
+  it("is wider than the hairline that highlights it, or it is not a tolerance", () => {
+    // The stroke's width IS the pointing tolerance. If it ever narrowed to the drawn width, a
+    // vallis would be exactly as unhittable as it is today and the layer would look present.
+    const drawn = featureHighlightLayers().find((l) => l.id === "feature-linear-hl-line")!;
+    expect(widestWidth(featureLinearHitLayer())).toBeGreaterThan(widestWidth(drawn) * 3);
+  });
+});
+
+describe("the hover linework", () => {
+  it("covers both kinds of geometry, since they are disjoint sets", () => {
+    const bySourceLayer = new Map(
+      featureHighlightLayers().map((layer) => [layer["source-layer"], layer.id]),
+    );
+    expect([...bySourceLayer.keys()].toSorted())
+      .toEqual([SOURCE_LAYERS.mars.line, SOURCE_LAYERS.mars.outline].toSorted());
+  });
+
+  it("strokes the ring layer rather than the polygon", () => {
+    // The stray-meridian fix countryHighlight.ts records: clipping a line trims it, clipping a
+    // polygon closes the ring along the cut and a `line` layer strokes that phantom edge.
+    const rings = featureHighlightLayers().filter((l) => l.id.startsWith("feature-hl-"));
+    expect(rings).toHaveLength(2);
+    expect(rings.every((l) => l["source-layer"] === SOURCE_LAYERS.mars.outline)).toBe(true);
+  });
+
+  it("is fully transparent until a feature's hover state is set", () => {
+    // The property that makes this an ON-HOVER layer rather than paint. Every opacity is a `case`
+    // whose default arm is a literal zero, so an un-hovered globe is untouched by all four.
+    for (const layer of featureHighlightLayers()) {
+      const opacity = layer.paint?.["line-opacity"] as unknown[];
+      expect(opacity[0], `${layer.id} is not conditional on hover`).toBe("case");
+      expect(opacity.at(-1), `${layer.id} paints without a hover`).toBe(0);
+    }
+  });
+
+  it("puts each casing under its ink, or the separator becomes a second line", () => {
+    const layers = featureHighlightLayers();
+    for (const [casing, ink] of [
+      ["feature-hl-casing", "feature-hl-line"],
+      ["feature-linear-hl-casing", "feature-linear-hl-line"],
+    ]) {
+      expect(layers.findIndex((l) => l.id === casing))
+        .toBeLessThan(layers.findIndex((l) => l.id === ink));
+    }
   });
 });
