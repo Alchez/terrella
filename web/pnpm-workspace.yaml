@@ -2,8 +2,5 @@ allowBuilds:
   esbuild: true
   sharp: true
   workerd: true
-minimumReleaseAgeExclude:
-  - miniflare@5.20260804.0-alpha
-  - wrangler@4.120.1
 patchedDependencies:
   maplibre-gl@6.1.0: patches/maplibre-gl@6.1.0.patch
