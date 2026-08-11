@@ -56,6 +56,8 @@ OUT_DIR = bodies.work_dir(bodies.MARS, "planet_vector")
 #: archive it feeds — `derive` compares the two mtimes and a split across directories would not
 #: change that, but the geojsons are one stage's output and belong together.
 OUTLINES = features_geojson.OUT_DIR / "feature_outlines.geojson"
+#: What the file above was derived UNDER — see `countries_pmtiles.OUTLINES_RECIPE`.
+OUTLINES_RECIPE = features_geojson.OUT_DIR / "feature_outlines_params.json"
 STAGED = OUT_DIR / "features_staged.gpkg"
 OUT = OUT_DIR / "vector.pmtiles"
 
@@ -133,22 +135,46 @@ def recipe_path() -> Path:
     return OUT_DIR / "features_tiles_params.json"
 
 
+def derivation_is_stamped() -> bool:
+    """True when the outlines on disk were written under the seam settings in force now.
+
+    Asked by both `derive` and `is_fresh` — see `countries_pmtiles.derivation_is_stamped` for what
+    asking it in only the first one costs.
+    """
+    return OUTLINES_RECIPE.exists() and json.loads(
+        OUTLINES_RECIPE.read_text(encoding="utf-8")) == vector_layers.seam_recipe()
+
+
 def is_fresh() -> bool:
     """True when the archive is present, newer than every layer it was cut from, and stamped with
-    the recipe on disk — the half that catches a knob change, which moves no mtime."""
+    both recipes on disk — the half that catches a knob change, which moves no mtime.
+
+    BOTH, because they answer for different stages: this module's recipe describes the cut, and
+    `vector_layers`' describes the geometry handed to it.
+    """
     if not OUT.exists() or OUT.stat().st_size == 0:
         return False
     for path in sources().values():
         if not path.exists() or OUT.stat().st_mtime <= path.stat().st_mtime:
             return False
+    if not derivation_is_stamped():
+        return False
     stamped = recipe_path()
     return stamped.exists() and json.loads(stamped.read_text()) == recipe()
 
 
 def derive(force: bool) -> None:
-    """Write the outline layer beside its source, skipping when already current."""
+    """Write the outline layer beside its source, skipping when already current.
+
+    Gated on the seam recipe as well as the source's mtime — see the note on
+    `countries_pmtiles.derive`, which is where this was found. Mars had the identical hole and
+    escaped it only by ordering: its outlines happened to be derived after the seam rule landed,
+    so nothing here was ever observed to be wrong. The next change to `vector_layers` would have
+    been the one that skipped.
+    """
     polygons = features_geojson.POLYGONS
-    if not force and OUTLINES.exists() and OUTLINES.stat().st_mtime > polygons.stat().st_mtime:
+    if (not force and OUTLINES.exists() and derivation_is_stamped()
+            and OUTLINES.stat().st_mtime > polygons.stat().st_mtime):
         print(f"{OUTLINES.name} current -> skip")
         return
     collection = json.loads(polygons.read_text(encoding="utf-8"))
@@ -158,6 +184,9 @@ def derive(force: bool) -> None:
     temporary.replace(OUTLINES)  # atomic promote
     print(f"wrote {OUTLINES.name} ({len(outlines['features'])} features, "
           f"{OUTLINES.stat().st_size / 1e6:.2f} MB)")
+    # After the promote, so a crash leaves the derivation stale rather than vouched for.
+    OUTLINES_RECIPE.write_text(json.dumps(vector_layers.seam_recipe(), indent=2) + "\n",
+                               encoding="utf-8")
 
 
 def stage() -> None:

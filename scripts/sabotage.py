@@ -3090,6 +3090,50 @@ SABOTAGES: list[Sabotage] = [
         replacement='MAX_ZOOM = 8',
         guard='test_max_zoom_is_the_body_field_not_a_literal',
     ),
+    # THE DERIVATION'S FRESHNESS, and these four exist because the hole shipped. `derive` skipped on
+    # its source's mtime alone, so retuning the shared geometry walk left the GeoJSON untouched; the
+    # cut then re-ran under its own changed recipe, produced a byte-identical archive from stale
+    # outlines, and stamped the new recipe over it — erasing the only signal anything was wrong.
+    # Earth's antimeridian closures survived the fix written to delete them, with every test green.
+    Sabotage(
+        suite='python',
+        label='the archive gate stops asking whether the geometry under it is current',
+        path='pipeline/compose/countries_pmtiles.py',
+        needle='    if not derivation_is_stamped():\n        return False',
+        replacement='    if False:\n        return False',
+        guard='test_a_seam_knob_change_makes_the_ARCHIVE_stale_though_no_mtime_moved',
+    ),
+    Sabotage(
+        suite='python',
+        # The producing half. Without it the archive correctly reports itself stale forever and the
+        # re-cut never fixes anything, which reads as a pipeline that cannot converge.
+        label='the derivation stops rewriting when its recipe moved',
+        path='pipeline/compose/countries_pmtiles.py',
+        needle='        and derivation_is_stamped()',
+        replacement='        and True',
+        guard='test_derive_reruns_when_the_stamp_is_stale_and_stamps_what_it_wrote',
+    ),
+    Sabotage(
+        suite='python',
+        # Absence must read as STALE. Every store on disk predates this stamp, so a missing file
+        # meaning "no objection" is precisely the state in which the guard reaches nothing.
+        label='a derivation that was never stamped is taken as current',
+        path='pipeline/compose/countries_pmtiles.py',
+        needle='    return OUTLINES_RECIPE.exists() and json.loads(',
+        replacement='    return True or json.loads(',
+        guard='test_a_derivation_that_was_never_stamped_is_not_believed',
+    ),
+    Sabotage(
+        suite='python',
+        # The second body. Mars escaped the original bug by ordering alone — its outlines happened
+        # to be derived after the seam rule landed — so its copy of the gate has never been observed
+        # to matter, which is exactly the kind of guard that is vacuous without a case.
+        label="Mars's archive gate stops asking whether its outlines are current",
+        path='pipeline/compose/features_pmtiles.py',
+        needle='    if not derivation_is_stamped():\n        return False',
+        replacement='    if False:\n        return False',
+        guard='test_a_seam_knob_change_makes_MARS_ARCHIVE_stale_though_no_mtime_moved',
+    ),
     # An identity is what makes a feature hoverable, labellable and joinable. Carrying one anonymously
     # puts a shape in the layer that nothing can ever address — present, painted, and unreachable.
     Sabotage(

@@ -10,6 +10,8 @@
 """
 
 import json
+import os
+import time
 
 from pipeline import bodies
 from pipeline.compose import features_geojson, vector_layers
@@ -149,3 +151,59 @@ class TestRecipe:
         """
         assert cut.recipe()["layers"] == [
             "feature_fill", "feature_outline", "feature_line", "feature_label"]
+
+
+class TestDerivationFreshness:
+    """Mars's half of the guard whose absence let Earth's antimeridian closures survive their fix.
+
+    THIS BODY ESCAPED THE BUG BY ORDERING, WHICH IS NOT A PROPERTY. Its outlines happened to be
+    derived after the seam rule landed, so nothing here was ever observed wrong — the next change
+    to `vector_layers` would have been the one that skipped. A second instance of the same gate is
+    the point: the first passed by construction. See `test_countries_pmtiles.TestDerivationFreshness`.
+    """
+
+    @staticmethod
+    def _store(tmp_path, monkeypatch):
+        outlines = tmp_path / "feature_outlines.geojson"
+        stamp = tmp_path / "feature_outlines_params.json"
+        archive = tmp_path / "vector.pmtiles"
+        recipe = tmp_path / "features_tiles_params.json"
+        sources = {layer: tmp_path / f"{layer}.geojson" for layer in cut.sources()}
+        for path in (*sources.values(), outlines, archive):
+            path.write_text("x", encoding="utf-8")
+        stamp.write_text(json.dumps(vector_layers.seam_recipe()), encoding="utf-8")
+        recipe.write_text(json.dumps(cut.recipe()), encoding="utf-8")
+        now = time.time()
+        for offset, path in enumerate((*sources.values(), outlines, stamp, recipe)):
+            os.utime(path, (now - 100 + offset, now - 100 + offset))
+        os.utime(archive, (now, now))
+        monkeypatch.setattr(cut, "OUTLINES", outlines)
+        monkeypatch.setattr(cut, "OUTLINES_RECIPE", stamp)
+        monkeypatch.setattr(cut, "OUT", archive)
+        monkeypatch.setattr(cut, "sources", lambda: sources)
+        monkeypatch.setattr(cut, "recipe_path", lambda: recipe)
+        return stamp
+
+    def test_the_fixture_reports_fresh_before_anything_is_perturbed(self, tmp_path, monkeypatch):
+        """The control, without which every assertion below passes on a broken fixture."""
+        self._store(tmp_path, monkeypatch)
+        assert cut.is_fresh()
+
+    def test_a_seam_knob_change_makes_MARS_ARCHIVE_stale_though_no_mtime_moved(
+            self, tmp_path, monkeypatch):
+        """Archive newest, archive recipe re-stamped as a real cut would leave it, and the only
+        stale thing is the geometry it was cut from."""
+        self._store(tmp_path, monkeypatch)
+        monkeypatch.setattr(vector_layers, "SEAM_BAND_DEGREES",
+                            vector_layers.SEAM_BAND_DEGREES + 1.0)
+        cut.recipe_path().write_text(json.dumps(cut.recipe()), encoding="utf-8")
+        older = cut.OUT.stat().st_mtime - 1
+        os.utime(cut.recipe_path(), (older, older))
+        assert json.loads(cut.recipe_path().read_text()) == cut.recipe(), "recipe half must PASS"
+        assert not cut.is_fresh()
+
+    def test_MARS_derivation_that_was_never_stamped_is_not_believed(self, tmp_path, monkeypatch):
+        """The state every store was in before this guard existed."""
+        stamp = self._store(tmp_path, monkeypatch)
+        stamp.unlink()
+        assert not cut.is_fresh()

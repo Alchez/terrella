@@ -73,6 +73,9 @@ OUT_DIR = bodies.work_dir(bodies.EARTH, "planet_vector")
 SRC = BORDERS / "countries.geojson"
 OUTLINES = BORDERS / "country_outlines.geojson"
 HITS = BORDERS / "country_hits.geojson"
+#: What the two files above were derived UNDER. Beside them rather than beside the archive, because
+#: it answers for the derivation and the archive has its own.
+OUTLINES_RECIPE = BORDERS / "country_outlines_params.json"
 STAGED = OUT_DIR / "countries_staged.gpkg"
 OUT = OUT_DIR / "vector.pmtiles"
 
@@ -178,16 +181,34 @@ def recipe_path() -> Path:
     return OUT_DIR / "countries_tiles_params.json"
 
 
+def derivation_is_stamped() -> bool:
+    """True when the derived layers on disk were written under the seam settings in force now.
+
+    Its own question, asked in two places: `derive` decides whether to rewrite the GeoJSON, and
+    `is_fresh` decides whether the archive above it can still be believed. Answering it in only the
+    first is what let a stale derivation hide behind a fresh archive — `main` returns on `is_fresh`
+    and never reaches `derive` at all.
+    """
+    return OUTLINES_RECIPE.exists() and json.loads(
+        OUTLINES_RECIPE.read_text()) == vector_layers.seam_recipe()
+
+
 def is_fresh() -> bool:
     """True when the live archive is current: present, non-empty, stamped newer than the source it
-    descends from, and cut under the recipe on disk.
+    descends from and the layers derived from it, and cut under both recipes on disk.
 
     The recipe comparison is the half that catches a settings change — a re-cut with a different
-    SIMPLIFICATION leaves an archive that is newer than its source and would otherwise pass.
+    SIMPLIFICATION leaves an archive that is newer than its source and would otherwise pass. THE
+    DERIVATION'S RECIPE IS THE OTHER HALF, and it is not the same question: this module's knobs
+    move the cut, `vector_layers`' knobs move the geometry that is cut, and an archive can be
+    current under the first while its outlines were drawn under the second's previous answer.
     """
     if not OUT.exists() or OUT.stat().st_size == 0:
         return False
-    if not SRC.exists() or OUT.stat().st_mtime <= SRC.stat().st_mtime:
+    for path in (SRC, OUTLINES, HITS):
+        if not path.exists() or OUT.stat().st_mtime <= path.stat().st_mtime:
+            return False
+    if not derivation_is_stamped():
         return False
     stamped = recipe_path()
     if not stamped.exists():
@@ -196,12 +217,21 @@ def is_fresh() -> bool:
 
 
 def derive(force: bool) -> None:
-    """Write the two derived layers beside their source, skipping when already current."""
+    """Write the two derived layers beside their source, skipping when already current.
+
+    THE RECIPE IS CHECKED HERE AND NOT ONLY AT THE CUT, because this is the stage `vector_layers`
+    writes through. Gating only on the source's mtime made a change to shared code unobservable:
+    the source does not move when that module's constants do, so the derivation skipped, the cut
+    re-ran on the stale GeoJSON it had always had, produced a byte-identical archive, and stamped
+    the NEW recipe over it — consuming the one signal that anything was out of date. A producer
+    records its recipe beside its output; these two files had none.
+    """
     fresh = (
         not force
         and OUTLINES.exists()
         and HITS.exists()
         and min(OUTLINES.stat().st_mtime, HITS.stat().st_mtime) > SRC.stat().st_mtime
+        and derivation_is_stamped()
     )
     if fresh:
         print(f"{OUTLINES.name} + {HITS.name} current -> skip")
@@ -213,6 +243,9 @@ def derive(force: bool) -> None:
         temporary.replace(path)  # atomic promote
         print(f"wrote {path.name} ({len(collection['features'])} features, "
               f"{path.stat().st_size / 1e6:.2f} MB)")
+    # Stamped AFTER both files exist, so a crash between them leaves the derivation stale rather
+    # than vouched for — the same order every other stage in this pipeline writes its marker in.
+    OUTLINES_RECIPE.write_text(json.dumps(vector_layers.seam_recipe(), indent=2) + "\n")
 
 
 def stage() -> None:

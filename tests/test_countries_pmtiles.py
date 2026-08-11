@@ -12,9 +12,12 @@ Three things are pinned here, and each fails silently in production if it drifts
 """
 
 import json
+import os
 import re
+import time
 
 from pipeline.compose import countries_pmtiles as cut
+from pipeline.compose import vector_layers
 
 
 class TestSourceLayerNames:
@@ -152,3 +155,101 @@ class TestRecipe:
         drifted = dict(cut.recipe())
         drifted["simplification"] = cut.SIMPLIFICATION + 1
         assert drifted != cut.recipe()
+
+
+class TestDerivationFreshness:
+    """The gate that decides whether `vector_layers`' opinion has reached the bytes on disk.
+
+    THE BUG THIS EXISTS FOR SHIPPED, and it was silent by construction. `derive` skipped on the
+    source's mtime alone, so a change to the shared geometry walk left the GeoJSON untouched; the
+    cut then re-ran (its own recipe HAD changed), produced a byte-identical archive from the stale
+    outlines, and stamped the new recipe over it — consuming the only signal that anything was out
+    of date. Earth's antimeridian closures survived the fix that was written to remove them, and
+    every test stayed green because they all exercise the walk directly.
+    """
+
+    @staticmethod
+    def _store(tmp_path, monkeypatch):
+        """A complete, internally consistent store — every path the module reads, redirected.
+
+        All of them or none: a half-redirected fixture writes the rest into the real work tree,
+        which is how a test starts depending on a store it did not build.
+        """
+        source = tmp_path / "countries.geojson"
+        outlines = tmp_path / "country_outlines.geojson"
+        hits = tmp_path / "country_hits.geojson"
+        stamp = tmp_path / "country_outlines_params.json"
+        archive = tmp_path / "vector.pmtiles"
+        recipe = tmp_path / "countries_tiles_params.json"
+        for path in (source, outlines, hits, archive):
+            path.write_text("x")
+        stamp.write_text(json.dumps(vector_layers.seam_recipe()))
+        recipe.write_text(json.dumps(cut.recipe()))
+        # The archive must be the NEWEST thing in the store, or mtime alone fails it and the
+        # recipe half of the gate is never reached — the check would pass for the wrong reason.
+        now = time.time()
+        for offset, path in enumerate((source, outlines, hits, stamp, recipe)):
+            os.utime(path, (now - 100 + offset, now - 100 + offset))
+        os.utime(archive, (now, now))
+        monkeypatch.setattr(cut, "SRC", source)
+        monkeypatch.setattr(cut, "OUTLINES", outlines)
+        monkeypatch.setattr(cut, "HITS", hits)
+        monkeypatch.setattr(cut, "OUTLINES_RECIPE", stamp)
+        monkeypatch.setattr(cut, "OUT", archive)
+        monkeypatch.setattr(cut, "recipe_path", lambda: recipe)
+        return stamp
+
+    def test_the_fixture_reports_fresh_before_anything_is_perturbed(self, tmp_path, monkeypatch):
+        """The control. Every case below asserts `is_fresh()` went False, and a fixture that was
+        never True would satisfy all of them while testing nothing."""
+        self._store(tmp_path, monkeypatch)
+        assert cut.is_fresh()
+
+    def _knob_moves_but_the_archive_recipe_is_restamped(self, tmp_path, monkeypatch, knob, value):
+        """Perturb a shared knob, then re-stamp the ARCHIVE's recipe as a real cut would.
+
+        WITHOUT THE RE-STAMP THIS TESTS THE OLD GUARD. `recipe()` interpolates `seam_recipe()`, so
+        moving a knob invalidates the archive's own sidecar too and `is_fresh()` goes False for a
+        reason that predates this class. Re-stamping reproduces the state that actually shipped:
+        the cut re-ran under the new recipe, from outlines derived under the old one.
+        """
+        self._store(tmp_path, monkeypatch)
+        monkeypatch.setattr(vector_layers, knob, value)
+        cut.recipe_path().write_text(json.dumps(cut.recipe()))
+        older = cut.OUT.stat().st_mtime - 1
+        os.utime(cut.recipe_path(), (older, older))
+
+    def test_a_seam_knob_change_makes_the_ARCHIVE_stale_though_no_mtime_moved(
+            self, tmp_path, monkeypatch):
+        """The regression, isolated to the derivation stamp: archive newest, archive recipe
+        current, and the only thing out of date is the geometry it was cut from."""
+        self._knob_moves_but_the_archive_recipe_is_restamped(
+            tmp_path, monkeypatch, "SEAM_BAND_DEGREES", vector_layers.SEAM_BAND_DEGREES + 1.0)
+        assert json.loads(cut.recipe_path().read_text()) == cut.recipe(), "recipe half must PASS"
+        assert not cut.is_fresh()
+
+    def test_the_other_seam_knob_counts_too(self, tmp_path, monkeypatch):
+        """Both knobs or neither: a stamp comparing one field would pass this suite while leaving
+        the other free to drift."""
+        self._knob_moves_but_the_archive_recipe_is_restamped(
+            tmp_path, monkeypatch, "SEAM_TWIN_LATITUDE_EPSILON",
+            vector_layers.SEAM_TWIN_LATITUDE_EPSILON * 2)
+        assert json.loads(cut.recipe_path().read_text()) == cut.recipe(), "recipe half must PASS"
+        assert not cut.is_fresh()
+
+    def test_a_derivation_that_was_never_stamped_is_not_believed(self, tmp_path, monkeypatch):
+        """The state every store was in before this guard existed. Absence must read as stale
+        rather than as "no objection", or the fix reaches nothing already on disk."""
+        stamp = self._store(tmp_path, monkeypatch)
+        stamp.unlink()
+        assert not cut.is_fresh()
+
+    def test_derive_reruns_when_the_stamp_is_stale_and_stamps_what_it_wrote(
+            self, tmp_path, monkeypatch):
+        """The producing half, asserted on the file it writes rather than on a print. `derive`
+        rewriting is what makes the archive's staleness actionable."""
+        stamp = self._store(tmp_path, monkeypatch)
+        cut.SRC.write_text(json.dumps({"type": "FeatureCollection", "features": []}))
+        stamp.write_text(json.dumps({"seam_band_degrees": -1.0}))
+        cut.derive(force=False)
+        assert json.loads(stamp.read_text()) == vector_layers.seam_recipe()
