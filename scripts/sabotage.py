@@ -5057,27 +5057,48 @@ SABOTAGES: list[Sabotage] = [
     ),
     # THE SECOND CONSENT MECHANISM, and the one the ledger above structurally cannot cover: terrain
     # is `setTerrain` over a `raster-dem` source rather than a style layer, so `paintedLayers.ts`
-    # would reject an entry for it as naming a layer that does not exist. These two cases exist
+    # would reject an entry for it as naming a layer that does not exist. The first two exist
     # because the failure already happened — publishing `PUBLISHED.mars.terrain` was by itself
-    # enough to make Mars displace at Earth's 15x, with every other guard green.
+    # enough to make Mars displace at Earth's 15x, with every other guard green. The third guards
+    # the NUMBER rather than the mechanism, which is the way this table can be emptied of meaning
+    # while every case above still passes.
     Sabotage(
         suite='web',
         label='the ratified table collapses back to one constant, so publishing a pyramid paints with it',
         path='web/src/lib/terrainSource.ts',
         needle='  return RATIFIED_TERRAIN_EXAGGERATION[body] ?? null;',
-        replacement='  return DEFAULT_TERRAIN_EXAGGERATION;',
+        replacement='  return 15;',
         guard='leaves a body with no entry FLAT at the full tier, however good its pyramid is',
     ),
     Sabotage(
         suite='web',
         # The tidy that reads as finishing the job: the archive is published, so surely the body
-        # belongs in the table. That edit IS the ratification, which is the whole point of the
-        # table being the record — it must never be made on anyone's behalf.
-        label='a body is ratified for terrain without anyone having looked at it',
+        # should get terrain — and a fallback grants it without anyone editing the table. That edit
+        # IS the ratification, which is the whole point of the table being the record.
+        #
+        # It replaces a case that ADDED Mars to the table, which stopped being a mutation the day
+        # Mars was legitimately ratified. A case whose subject is a table entry expires when someone
+        # writes that entry; this one attacks the lookup, so no amount of ratifying can retire it.
+        label="an unratified body inherits a ratified one's exaggeration",
         path='web/src/lib/terrainSource.ts',
-        needle='  earth: DEFAULT_TERRAIN_EXAGGERATION,\n};',
-        replacement='  earth: DEFAULT_TERRAIN_EXAGGERATION,\n  mars: DEFAULT_TERRAIN_EXAGGERATION,\n};',
+        needle='  return RATIFIED_TERRAIN_EXAGGERATION[body] ?? null;',
+        replacement=(
+            '  return RATIFIED_TERRAIN_EXAGGERATION[body] ?? RATIFIED_TERRAIN_EXAGGERATION.earth'
+            ' ?? null;'
+        ),
         guard='leaves a body with no entry FLAT at the full tier, however good its pyramid is',
+    ),
+    Sabotage(
+        suite='web',
+        # The two 15s are different quantities — one baked into renders and tiles, one a display
+        # uniform — and the way they get unified is a de-duplication that looks like tidying: the
+        # browser descriptor grows the field, OPTIONAL so nothing else has to change, and the table
+        # reads it. After that, retuning the globe's mesh silently invalidates 203 heroes.
+        label="the browser descriptor grows the pipeline's baked exaggeration",
+        path='web/src/lib/bodies.ts',
+        needle='  rendersPolarCaps: boolean;',
+        replacement='  exaggeration?: number;\n  rendersPolarCaps: boolean;',
+        guard='keeps this number independent of the BAKED exaggeration, which is 15 by coincidence',
     ),
     Sabotage(
         suite='web',

@@ -259,33 +259,6 @@ export function parseTerrainExaggeration(params: URLSearchParams): number | null
 export const TERRAIN_OFF = "off";
 
 /**
- * The exaggeration terrain runs at on the `full` tier, chosen by eye on the frames at Step 0:
- * 40x shreds the mesh into needles, 5x is too subtle to be worth the geometry. This is the value
- * the ramp DECAYS FROM — it holds to z3 and lands at DEFAULT_TERRAIN_RAMP_FLOOR by z8, so no
- * camera below the overview actually renders at 15x.
- *
- * It only became a constant when terrain graduated to a tier. Before that it lived exclusively in
- * `?terrain=15`, which is fine for an A/B and impossible for a tier — nothing was going to type a
- * URL flag on a visitor's behalf.
- */
-export const DEFAULT_TERRAIN_EXAGGERATION = 15;
-
-/**
- * Resolve whether terrain runs, and at what exaggeration, from the URL and the decided tier.
- *
- * `?terrain=` wins over the tier IN BOTH DIRECTIONS — a number forces terrain on at any tier (so
- * the whole flag family stays usable for A/B without first talking the probe into `full`), and
- * `?terrain=off` forces it off without demoting the tier. That second form is not decoration: once
- * terrain rides on `full` there is otherwise no way to hold every other variable fixed and remove
- * only the geometry, which is exactly the comparison every future look question needs. Picking
- * "Globe" in the view bar also disables terrain, but it changes the tier as well, so it is a
- * different experiment.
- *
- * Returns `null` for a flat globe. A malformed value is NOT silently upgraded to the tier default:
- * it returns null and the caller warns, because "I asked for 3x and got 15x" is the failure the
- * loud-refusal convention exists to prevent.
- */
-/**
  * The exaggeration each body's `full` tier runs terrain at — and the RECORD that someone approved
  * it running at all.
  *
@@ -300,14 +273,42 @@ export const DEFAULT_TERRAIN_EXAGGERATION = 15;
  * approval, and the two cannot drift apart — which is the property a separate ledger would not have
  * given, since a ledger can be updated to get past its own check.
  *
+ * THE NUMBER, chosen by eye at Step 0: 40x shreds the mesh into needles, 5x is too subtle to be
+ * worth the geometry. It is the value the ramp DECAYS FROM — held to z3 and landing on
+ * DEFAULT_TERRAIN_RAMP_FLOOR by z8, so no camera below the overview actually renders at it.
+ *
+ * THE TWO ENTRIES ARE EQUAL AND SEPARATELY WRITTEN, and both halves are the decision. Equal so a
+ * visitor reads ONE vertical scale across bodies instead of learning a new one per planet: Mars was
+ * swept at 15 rather than at the ~6.25 that would have made Olympus rise as Everest does, because
+ * the displacement is a fraction of Earth's radius on both bodies and the renderer does not know
+ * Mars is smaller. Separately written because an alias would let one planet's re-tune repaint
+ * another that nobody looked at — which is this table's own failure mode, wearing a tidier spelling.
+ *
  * NOT IN `paintedLayers.ts`, the ledger for style layers: its test matches ids against `type: "..."`
  * specs in source, and terrain is `setTerrain` over a `raster-dem` source rather than a layer, so an
  * entry there would be rejected as naming a layer that does not exist.
  */
 export const RATIFIED_TERRAIN_EXAGGERATION: Partial<Record<BodySlug, number>> = {
-  earth: DEFAULT_TERRAIN_EXAGGERATION,
+  earth: 15,
+  mars: 15,
 };
 
+/**
+ * Resolve whether terrain runs, and at what exaggeration, from the URL and the decided tier.
+ *
+ * `?terrain=` wins over the tier IN BOTH DIRECTIONS — a number forces terrain on at any tier (so
+ * the whole flag family stays usable for A/B without first talking the probe into `full`), and
+ * `?terrain=off` forces it off without demoting the tier. That second form is not decoration: once
+ * terrain rides on `full` there is otherwise no way to hold every other variable fixed and remove
+ * only the geometry, which is exactly the comparison every future look question needs. Picking
+ * "Globe" in the view bar also disables terrain, but it changes the tier as well, so it is a
+ * different experiment.
+ *
+ * Returns `null` for a flat globe — including for a body the table does not name, which is the
+ * branch every planet arrives through. A malformed value is NOT silently upgraded to the body's
+ * ratified number: it returns null and the caller warns, because "I asked for 3x and got 15x" is
+ * the failure the loud-refusal convention exists to prevent.
+ */
 export function resolveTerrainExaggeration(
   params: URLSearchParams,
   tierWantsTerrain: boolean,
