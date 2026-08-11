@@ -25,6 +25,17 @@ the Worker and the client both compile. Uploading a new archive is `aws --profil
 key and regenerate its token with `pnpm check:tile-tokens --write`; a re-cut always ships under a
 **new key**, never an overwrite.
 
+**Deleting the superseded object is irreversible, so it comes last.** R2 implements no object
+versioning and no undelete — `ListObjectVersions` answers `NotImplemented` — so a removed archive
+is gone from the bucket for good. Delete only once the new key is verified live, because until then
+the old object is what makes a rollback a revert-and-redeploy rather than a rebuild.
+
+**The copies on the render box are not a substitute.** The raster cutters keep exactly one
+generation at `tiles_old` and the next run of that stage removes it, so a pyramid is restorable from
+disk only until it is next cut — a rollback for the run you just did, not an archive. The vector
+archives keep no previous generation at all and their source GeoJSON is overwritten in place by the
+derivation, so rebuilding one means reverting the geometry rule out of git and re-cutting.
+
 **Ship the tile Worker BEFORE the site.** The token in a tile URL comes from the site bundle, and
 the Worker is what routes it — so a site deployed first advertises addresses the live Worker may
 not answer, and the globe comes up blank. The reverse is harmless: a Worker that understands an
@@ -57,7 +68,31 @@ Two independent ceilings, and the tighter one is storage.
   worst case, treating every request as a cache miss. The Workers Paid subscription *is* the bill;
   usage barely registers against it.
 
-## 1. The site shell
+## 1. The tile Worker
+
+```sh
+cd worker && npx wrangler deploy
+```
+
+**Required whenever `worker/` or anything it imports changes** — which is `src/lib/tileAddress.ts`
+and everything it reaches, the registry and `tileTokens.json` among them. Named as the entry point
+rather than as a list of modules, because a list goes stale in silence: a reader who checks it,
+finds their file absent and skips this deploy ships a site advertising addresses the live Worker
+cannot resolve.
+
+Two things about this deploy are confusing enough to waste a session:
+
+- **`No targets deployed for terrella-tiles` is not an error.** The site Worker declares
+  `routes: [{ pattern: "terrella.alchez.dev", custom_domain: true }]`; the tile Worker declares
+  **no routes**, because `tiles.terrella.alchez.dev` is attached to it **in the dashboard only**.
+  Wrangler is reporting that the config named no targets, not that the version failed. It does go
+  live — confirm from outside rather than from the message.
+- **A fresh setup must attach that custom domain by hand**, or the Worker deploys successfully and
+  is unreachable at every hostname: `workers_dev` and `preview_urls` are both off by design.
+  Declaring the route in `worker/wrangler.jsonc` would fix both points. It has not been done
+  because the domain is already attached and re-declaring it touches live routing.
+
+## 2. The site shell
 
 ```sh
 pnpm run deploy          # NOT `pnpm deploy` — that is a pnpm builtin
@@ -91,26 +126,6 @@ script nobody edited.
 It is also the one to expect after a re-cut: packing and uploading an archive are separate steps
 from deploying, so bumping the registry entry before the upload finishes is the easy mistake. The
 preflight turns that into a refusal instead of an outage.
-
-## 2. The tile Worker
-
-```sh
-cd worker && npx wrangler deploy
-```
-
-Required whenever `worker/` or anything it imports (`src/lib/reliefTiles.ts`) changes.
-
-Two things about this deploy are confusing enough to waste a session:
-
-- **`No targets deployed for terrella-tiles` is not an error.** The site Worker declares
-  `routes: [{ pattern: "terrella.alchez.dev", custom_domain: true }]`; the tile Worker declares
-  **no routes**, because `tiles.terrella.alchez.dev` is attached to it **in the dashboard only**.
-  Wrangler is reporting that the config named no targets, not that the version failed. It does go
-  live — confirm from outside rather than from the message.
-- **A fresh setup must attach that custom domain by hand**, or the Worker deploys successfully and
-  is unreachable at every hostname: `workers_dev` and `preview_urls` are both off by design.
-  Declaring the route in `worker/wrangler.jsonc` would fix both points. It has not been done
-  because the domain is already attached and re-declaring it touches live routing.
 
 ## Verifying a deploy
 
