@@ -494,8 +494,9 @@ second body, Earth-only and Earth byte-identical throughout, landed before any M
   carries the IAU's own anchors, and they stay unread. A pick MIRRORS EARTH: the camera flies to the
   feature at the scale its diameter reads at, and the card names it, gives its kind and size, quotes
   the IAU's etymology and links to the entry it is quoting — no picture, because this body renders
-  none. Still ahead: the geologic units that answer for the ground no name reaches, and search,
-  which is where the long tail pays for itself.
+  none. A typed query reaches that same card, which is the only route by which a name enters an
+  interface drawing no labels, and the only one the long tail has at all. Still ahead: the geologic
+  units that answer for the ground no name reaches.
   - **The card's classification is informative exactly on the craters.** All 1,233 crater names omit
     the word, and all 686 non-craters contain their own descriptor — Olympus **Mons**, Hellas
     **Planitia** — with no exceptions either way, so nothing about the wording can improve both.

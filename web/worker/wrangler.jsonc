@@ -5,12 +5,12 @@
   // private (terrella-tiles has no custom domain and its r2.dev domain is disabled) and what
   // makes the internal range reads subrequests, which Cloudflare does not bill.
   //
-  // It serves THREE pyramids, addressed `{body}/{layer}/{token}/{z}/{x}/{y}.{ext}`, where the
-  // layer segment is `relief`, `terrain` or `countries`. One binding, three object keys — and the
-  // keys are NOT here: `src/lib/tileAddress.ts` records which object each `{body}/{layer}` resolves
-  // to, and this Worker compiles that registry. See the note at the top of index.ts for why they
-  // stopped being `vars`, which is not tidiness — the token in a tile URL comes from the SITE
-  // bundle, so an archive swap has never been deployable from this file alone.
+  // It serves every published pyramid, addressed `{body}/{layer}/{token}/{z}/{x}/{y}.{ext}`, where
+  // the layer segment names a ROLE — `relief`, `terrain` or `vector`. One binding, one object per
+  // published `{body}/{layer}` — and the keys are NOT here: `src/lib/tileAddress.ts` records which
+  // object each pair resolves to, and this Worker compiles that registry. See the note at the top
+  // of index.ts for why they stopped being `vars`, which is not tidiness — the token in a tile URL
+  // comes from the SITE bundle, so an archive swap has never been deployable from this file alone.
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "terrella-tiles",
 
@@ -60,14 +60,14 @@
   ],
 
   "vars": {
-    // NO ARCHIVE KEYS. The three that used to live here — relief, terrain and countries — are in
+    // NO ARCHIVE KEYS, AND NONE MAY GROW BACK UNDER A NEW SPELLING. Every object key lives in
     // `src/lib/tileAddress.ts`, which this Worker and the site both compile, so the object a
     // request resolves to and the URL the browser asks for come from one declaration.
     //
     // The new-key-per-cut convention still holds and now lives beside those entries: a re-cut ships
     // under a NEW key rather than overwriting, so a warm isolate holding directory offsets from the
     // previous archive can never read them against different bytes. Delete the superseded object
-    // only after the new one is verified live. THREE KEYS, ONE BINDING — all three objects live in
+    // only after the new one is verified live. ONE BINDING FOR ALL OF THEM — every archive lives in
     // `terrella-tiles`, so a second `r2_buckets` entry would only duplicate the bucket name and
     // give it somewhere to drift.
     //

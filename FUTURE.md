@@ -63,14 +63,24 @@ grep HISTORY before re-arguing anything an entry says was already decided.
   page full-screen, where q95 is right.
 - **Compute is not the obstacle, storage might be.** Measured: hero variants **6 min** at `--jobs 8`,
   spotlight **1m45s**, borders **7m21s** (and a border rung costs a full regeneration). But a
-  portrait country gets TALLER files for the same width, so the 3.5 GB served store could grow into
-  870 MB of R2 headroom — that has to be measured before committing, not estimated.
+  portrait country gets TALLER files for the same width, so the served store grows — and **there is
+  no R2 headroom left to grow into**; the free tier is spent, so any growth is overage from the
+  first byte. It rounds up to whole GB-months at $0.015, which makes this cheap rather than free:
+  measure the growth before committing, and price it, rather than treating storage as headroom.
 - **It would close the border gap too**, which is real and currently exempted in the ladder guard:
   `gen_borders` stops at 1920, so a portrait border jumps to native — a lossless PNG at ~3× the
   width the panel draws. Off the cold path only because the layer is hidden until Borders is on.
 
-## No test ever drives a real map, and the scale ruler showed what that costs (analysed 2026-08-02)
+## No test ever drives a real map, and the scale ruler showed what that costs (analysed 2026-08-02, **SHIPPED 2026-08-03**, one shape still open)
 
+- **What shipped:** `testing/mountGlobe.ts` mounts a real MapLibre globe in the browser project, and
+  the two named shapes are asserted against it — the ruler takes a **distinct** label at every zoom
+  (`scaleRuler.browser.test.ts`), and the hover chip **follows the camera under a parked pointer**
+  (`hoverTracking.browser.test.ts`). The scale-linked tier readout is the one shape not yet covered.
+- **The fixture question was answered the other way.** This entry framed it as "stub the tile route
+  or point at the dev server"; the fixture mounts **no sources at all**, because every assertion it
+  exists for is camera-derived and the camera is fully real with zero tiles loaded. Wiring it to the
+  asset stores would have coupled the suite to a multi-gigabyte archive being on the machine.
 - **State at analysis:** every frontend guard is a unit test over a pure function, a source-text
   assertion over `earth.astro?raw`, or a canary over the shipped bundle. **Nothing instantiates a
   MapLibre map and checks what it does.** Grepped, not assumed.
@@ -92,8 +102,8 @@ grep HISTORY before re-arguing anything an entry says was already decided.
   here is much smaller and sharper — **assert that outputs which must track the camera actually
   track it.** The ruler is one; the hovered-country chip and the scale-linked tier readout are the
   same shape.
-- **Adjacent:** `forced-colors` below also needs Playwright. One browser-fixture pass would carry
-  both.
+- **Adjacent:** `forced-colors` below also needs Playwright, and the toolchain it was waiting on is
+  now here — that entry is no longer blocked on infrastructure, only unwritten.
 
 ## `forced-colors` is unhandled, and the rail's icons are the thing it breaks (analysed 2026-08-02)
 
@@ -847,8 +857,8 @@ conclusion below, which rests only on there being no value between 2 and 4.
   | 8 | 31,972 | 5,091,265 | 159 |
 
   Whole pyramid **11.19 MB gzip stored**, never all fetched. The globe opens at **zoom 1.6**, so
-  the cold window is z1–z2: **~50–180 KB against 2.51 MB today.** Storage is a non-issue against
-  R2's remaining headroom, and **no tippecanoe dependency** — the stage is a Node script using the
+  the cold window is z1–z2: **~50–180 KB against 2.51 MB today.** Storage is a non-issue at 11 MB whatever
+  R2 holds — not because there is headroom, there is none — and **no tippecanoe dependency** — the stage is a Node script using the
   same tiler MapLibre already runs at runtime.
 - **The stray-gold-meridian fix survives by construction:** ship the rings as a separate LINE layer
   in the same tileset. Clipping a line trims it; clipping a polygon closes the ring along the cut.

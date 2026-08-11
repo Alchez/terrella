@@ -44,9 +44,15 @@ Two independent ceilings, and the tighter one is storage.
     cache-tuning lever moves this number.
   - An earlier estimate of "a fraction, not a doubling" assumed `tileSize: 512`; the shipping
     declaration is 128, which is what makes it a doubling.
-- **Storage: 9.13 GB of the 10 GB free tier** — 3.00 relief + 2.63 terrain + 3.50 assets. That is
-  **0.87 GB of headroom**, and it is the constraint that binds first. Overage is inexpensive
-  ($0.015/GB-month), so this is a number to watch rather than to fear.
+- **Storage binds first, and the 10 GB-month allowance is already spent** — the two buckets together
+  are past it, which a second body's pyramids are what pushed them over.
+  - **Overage rounds UP to the next whole GB-month** at $0.015, so the bill moves in 1.5-cent steps
+    rather than continuously. That is what makes a new pyramid a disk-and-time decision rather than
+    a cost one, and it is the half of the pricing page easiest to read past.
+  - **Measure it rather than believing a figure written here.** The number this replaced drifted by
+    1.5 GB with nothing to catch it, because a total in prose has no reader that can go red:
+    `aws --profile r2 --endpoint-url "$R2_ENDPOINT" s3 ls --recursive --summarize s3://terrella-tiles`,
+    then the same for `terrella-assets`.
 - Priced against the published rates: **$5.00/month at 2,000 cold visits/day, ~$5.83 at 5,000** —
   worst case, treating every request as a cache miss. The Workers Paid subscription *is* the bill;
   usage barely registers against it.

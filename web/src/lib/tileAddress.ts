@@ -209,10 +209,10 @@ export const PUBLISHED: Record<BodySlug, Record<LayerId, PublishedArchive | null
       maxZoom: COUNTRIES_MAX_ZOOM,
     },
   },
-  // MARS PUBLISHES RELIEF AND NOTHING ELSE, and the two remaining nulls are answers rather than
-  // omissions — the record forces this body to answer for every layer, so nothing can be forgotten
-  // into existence later. `parseTileAddress` refuses a Mars terrain or vector URL without touching
-  // storage, and `archiveFor` throws rather than borrowing Earth's pyramid.
+  // A NULL IS AN ANSWER, NOT AN OMISSION — the record forces every body to answer for every layer,
+  // so a pyramid cannot be forgotten into existence later. Mars declares no terrain, and that null
+  // is load-bearing: `parseTileAddress` refuses a Mars terrain URL without touching storage, and
+  // `archiveFor` throws rather than borrowing Earth's pyramid.
   //
   // NAMING A KEY HERE COMMITS TO AN UPLOAD. The deploy preflight refuses on any published object the
   // bucket does not hold, so this entry and the R2 upload land together or not at all.
