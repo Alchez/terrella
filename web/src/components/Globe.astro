@@ -182,11 +182,14 @@ import { REPO_URL } from "../lib/siteLinks";
     color: var(--accent);
   }
 
-  /* The hovered-country name. Top-centre is the only free band on the page: .globe-chrome holds
-     the top left, MapLibre's navigation/globe/fullscreen stack the top right, the scale bar and
-     attribution the bottom left, .view-bar the bottom centre. Same pill treatment as .globe-home so
-     it reads as one family of floating chrome — the gold dot is what marks it as the LABEL for the
-     gold outline rather than as another control. */
+  /* The hovered-country name, top-centre. What is docked elsewhere: .globe-chrome the top left,
+     which also carries the credit; MapLibre's rail the top right, with the detail card and the
+     search panel sharing the band beside it; .view-bar the bottom centre, with the scale ruler as
+     its top edge. Top-centre is CHOSEN rather than merely left over — this is a label for whatever
+     is under the pointer, so it belongs near the pointer, and the free bottom corners are the
+     furthest point on the page from it. Same pill treatment as .globe-home so it reads as one
+     family of floating chrome — the gold dot is what marks it as the LABEL for the gold outline
+     rather than as another control. */
   .country-chip {
     position: fixed;
     top: 1.2rem;
@@ -264,8 +267,8 @@ import { REPO_URL } from "../lib/siteLinks";
     color: var(--muted);
   }
   /* Centred rather than docked to an edge like the noscript notice: the bottom rail already
-     carries the attribution, the scale bar and the quality toggle, and a full-width bar down
-     there overlapped all three. Centre is also simply where a dead map should say so. */
+     carries the scale bar and the quality toggle, and a full-width bar down there overlapped
+     both. Centre is also simply where a dead map should say so. */
   .globe-lost {
     position: fixed;
     top: 50%;
@@ -296,9 +299,13 @@ import { REPO_URL } from "../lib/siteLinks";
   .detail-panel {
     position: fixed;
     top: 1.2rem;
-    right: 1.2rem;
+    /* CLEARS THE RAIL RATHER THAN COVERING IT. At a flat 1.2rem this card sat on top of the whole
+       top-right stack — zoom, compass, spin, fullscreen, quiet — from the moment anything was
+       picked, on BOTH bodies, because its z-index is 30 against MapLibre's control corner at 2.
+       `--rail-clearance` is the rail's own footprint, owned once in globe.css. */
+    right: var(--rail-clearance);
     z-index: 30;
-    width: min(420px, calc(100vw - 2.4rem));
+    width: min(420px, calc(100vw - 1.2rem - var(--rail-clearance)));
     max-height: calc(100vh - 2.4rem);
     overflow: auto;
     display: flex;
@@ -312,6 +319,16 @@ import { REPO_URL } from "../lib/siteLinks";
   }
   .detail-panel[hidden] {
     display: none;
+  }
+  /* NARROW, WHERE CLEARING THE RAIL IS NOT ENOUGH. Widening the card to the space the rail leaves
+     puts its left edge back over the top-left chrome row — measured at a 500 px viewport, the card
+     runs from 28 px and `← Gallery` to 203 px. Below the row, exactly as the search panel does at
+     the same breakpoint, so the two right-side boxes behave the same way at the same width. */
+  @media (max-width: 40rem) {
+    .detail-panel {
+      top: 4.2rem;
+      max-height: calc(100vh - 5.4rem);
+    }
   }
   .dp-close {
     position: absolute;
@@ -579,6 +596,12 @@ import { REPO_URL } from "../lib/siteLinks";
     hoverStateTargets,
   } from "../lib/featureOverlay";
   import { candidateFrom, framingZoom, pickFeature } from "../lib/featureTargeting";
+  // The matcher and the field, both statically. NEITHER reaches the catalogue — `featureSearch`
+  // names `NamedFeature` as a type and `featureSearchBox` takes its `search` as a function — so the
+  // 324 KB of place names stays on the chunk the dynamic import below splits out, and Earth pays
+  // only for these two modules' own bytes.
+  import { createFeatureSearch, type FeatureSearch } from "../lib/featureSearch";
+  import { createFeatureSearchBox, type FeatureSearchBox } from "../lib/featureSearchBox";
   import { createHoverTracker, type HoverTracker } from "../lib/hoverTracking";
   import { createRailToggle, joinRailGroup } from "../lib/railControls";
   import { createQuietMode } from "../lib/quietMode";
@@ -995,8 +1018,15 @@ import { REPO_URL } from "../lib/siteLinks";
     pressedLabel: "Show controls",
     onToggle: () => quiet.toggle(),
   });
+  // Set by `wireFeatureInteraction` on the one body that has a catalogue to search; null
+  // everywhere else, which is why both readers ask rather than assume. TWO of them now — quiet mode
+  // and `openPanel` — so it is named for what it is rather than for the first thing that wanted it.
+  let searchPanel: FeatureSearchBox | null = null;
   function reflectQuiet(next: boolean): void {
     quietToggle.setPressed(next);
+    // Entering quiet closes the search. See the note where the panel is mounted: it is not a
+    // `.maplibregl-ctrl-group`, so the stylesheet's rule for hiding the rail cannot reach it.
+    if (next) searchPanel?.close();
   }
   joinRailGroup(map.getContainer(), ".maplibregl-ctrl-fullscreen", quietToggle.button);
 
@@ -1994,6 +2024,49 @@ import { REPO_URL } from "../lib/siteLinks";
     // The chip belongs to whoever answers the pointer on this body — see `closePanel`, which is the
     // one place that has to repaint it without a pointer event to go on.
     chipOwner = featureTracker;
+
+    // SEARCH. Built here rather than beside the other two rail toggles because both halves it needs
+    // live in this scope: the catalogue's promise, and `goToFeature`, which is the whole point —
+    // choosing a row runs the pick path a click runs, so a searched-to card and a tapped card are
+    // one card built once. The cost is that the button joins the rail at first idle rather than at
+    // load, which is the same moment the rest of this body's interaction arrives.
+    // Built from the catalogue when it lands, so the field answers nothing rather than throwing in
+    // the window before then — and the button says so, rather than looking live and doing nothing.
+    let matcher: FeatureSearch | null = null;
+    const searchBox = createFeatureSearchBox({
+      search: (query, limit) => matcher?.search(query, limit) ?? { matches: [], total: 0 },
+      onChoose: (feature) => goToFeature(feature.name),
+      onOpenChange: (open) => {
+        searchToggle.setPressed(open);
+        // THE CARD DOCKS IN THE CORNER THIS PANEL HANGS IN, measured rather than assumed — the two
+        // boxes overlap almost exactly at desktop width. They are sequential rather than
+        // simultaneous anyway (you search, you choose, the card answers), so the corner has one
+        // occupant at a time: opening the field dismisses the card, and choosing a row closes the
+        // field before the card it asked for opens.
+        if (open) closePanel();
+      },
+    });
+    const searchToggle = createRailToggle({
+      className: "rg-ctrl-search",
+      label: "Search features",
+      pressedLabel: "Close search",
+      onToggle: (next) => (next ? searchBox.open() : searchBox.close()),
+    });
+    searchToggle.setAvailable(false, "Search features (loading the catalogue)");
+    joinRailGroup(map.getContainer(), ".maplibregl-ctrl-zoom-in", searchToggle.button);
+    // Into MapLibre's own top-right container, which is what `.rg-search` positions against — see
+    // the panel's CSS for why it hangs off that box instead of off a page corner.
+    map.getContainer().querySelector(".maplibregl-ctrl-top-right")?.append(searchBox.element);
+
+    void featureCatalogue.then(({ featureIndex }) => {
+      matcher = createFeatureSearch(featureIndex);
+      searchToggle.setAvailable(true);
+    });
+
+    // Hiding the controls must take the panel with them. It is not inside a `.maplibregl-ctrl-group`
+    // — it is a panel, not a button — so the quiet stylesheet's rule cannot reach it, and a search
+    // field left floating beside a hidden rail is the one state this mode exists to prevent.
+    searchPanel = searchBox;
   }
 
   /**
@@ -2138,6 +2211,11 @@ import { REPO_URL } from "../lib/siteLinks";
 
   /** Render one card. Takes CONTENT, not a country — `detailPanel.ts` says why. */
   function openPanel(content: PanelContent) {
+    // THE EXCLUSION IS SYMMETRIC, and one direction alone was not enough. The card and the search
+    // panel are both right-side boxes in the same band, and closing the card when the field opens
+    // still left the other order: with the field up, a click on the globe opens a card straight
+    // over it. Nothing needs both at once — the field is how you ask, the card is the answer.
+    searchPanel?.close();
     panel.querySelector(".dp-eyebrow")!.textContent = content.eyebrow;
     panel.querySelector(".dp-name")!.textContent = content.name;
     panel.querySelector(".dp-note")!.textContent = content.note;

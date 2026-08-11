@@ -5699,6 +5699,205 @@ SABOTAGES: list[Sabotage] = [
         replacement='import { type NamedFeature } from "./featureIndex";',
         guard='names the row type without fetching the rows',
     ),
+    # THE SEARCH FIELD. Every wound below leaves a panel that opens, lists real features and flies
+    # to them — what breaks is the part a screenshot ratifies and a visitor discovers later: a
+    # panel that will not close, a highlight that is not what Enter acts on, a count that lies
+    # about how much was dropped.
+    #
+    # THE FIRST ONE IS THE BUG THAT ACTUALLY SHIPPED, restored verbatim. A bare `close()` has no
+    # local to bind to and resolves to `window.close` — real, argument-free, `void` — so it
+    # type-checks, lints and runs. Only a browser can tell the difference.
+    Sabotage(
+        suite='web',
+        label='choosing a row calls the global close(), so the panel stays over the card it opened',
+        path='web/src/lib/featureSearchBox.ts',
+        needle='    if (!feature) return;\n    setOpen(false);',
+        replacement='    if (!feature) return;\n    close();',
+        guard='closes itself before handing the feature over, so the card is not opened underneath it',
+    ),
+    Sabotage(
+        suite='web',
+        label='Escape calls the global close() too, so the field cannot be dismissed',
+        path='web/src/lib/featureSearchBox.ts',
+        needle='      setOpen(false);\n      return;',
+        replacement='      close();\n      return;',
+        guard='CLOSES ON ESCAPE — the branch a global shadow silently took over',
+    ),
+    Sabotage(
+        suite='web',
+        label='a row waits for click, so the field loses focus and closes under the pointer first',
+        path='web/src/lib/featureSearchBox.ts',
+        needle='      row.addEventListener("mousedown", (event) => {',
+        replacement='      row.addEventListener("click", (event) => {',
+        guard='acts on mousedown, because losing focus on mouse-down would close the panel mid-click',
+    ),
+    Sabotage(
+        suite='web',
+        label='Enter takes the first row rather than the armed one, so the arrows steer nothing',
+        path='web/src/lib/featureSearchBox.ts',
+        needle='      choose(active);',
+        replacement='      choose(0);',
+        guard='chooses the ARMED row, not the first one',
+    ),
+    Sabotage(
+        suite='web',
+        label='the arrows clamp instead of wrapping, so the last row cannot be reached upwards',
+        path='web/src/lib/featureSearchBox.ts',
+        needle='    setActive((active + step + shown.length) % shown.length);',
+        replacement='    setActive(Math.min(shown.length - 1, Math.max(0, active + step)));',
+        guard='moves the armed row and wraps at both ends',
+    ),
+    Sabotage(
+        suite='web',
+        label='the panel stops saying how many it dropped, so eight rows read as the whole answer',
+        path='web/src/lib/featureSearchBox.ts',
+        needle='    else if (results.total > results.matches.length)',
+        replacement='    else if (false)',
+        guard='answers a kind, which is the only route to a crater',
+    ),
+    Sabotage(
+        suite='web',
+        label='the alias is drawn on every row, so most names carry a bracketed copy of themselves',
+        path='web/src/lib/featureSearchBox.ts',
+        needle='        feature.cleanName === feature.name\n          ? null',
+        replacement='        false\n          ? null',
+        guard='shows the diacritic-free spelling only where it differs',
+    ),
+    # The painted highlight and the row Enter acts on drifting apart — the list then shows one
+    # answer and delivers another, which is the failure a visitor blames on themselves.
+    Sabotage(
+        suite='web',
+        label='the field stops naming the armed row, so assistive tech and the paint disagree',
+        path='web/src/lib/featureSearchBox.ts',
+        needle='    if (active >= 0) field.setAttribute("aria-activedescendant", `${OPTION_ID_PREFIX}${active}`);',
+        replacement='    if (false) field.setAttribute("aria-activedescendant", `${OPTION_ID_PREFIX}${active}`);',
+        guard='keeps the highlight and the armed row as one fact, so Enter cannot surprise',
+    ),
+    Sabotage(
+        suite='web',
+        label='opening twice re-announces and re-steals focus mid-typing',
+        path='web/src/lib/featureSearchBox.ts',
+        needle='    if (next === opened) return; // idempotent',
+        replacement='    if (false) return; // idempotent',
+        guard='is idempotent, so a repeated open does not re-steal focus or re-announce',
+    ),
+    # The page's half. Each of these leaves a working search box in the wrong relationship to
+    # something else on the page, which is exactly what no unit test of the widget can see.
+    Sabotage(
+        suite='web',
+        label='the search button joins the frame group, so the rail stops stating the concern',
+        path='web/src/components/Globe.astro',
+        needle='    joinRailGroup(map.getContainer(), ".maplibregl-ctrl-zoom-in", searchToggle.button);',
+        replacement='    joinRailGroup(map.getContainer(), ".maplibregl-ctrl-fullscreen", searchToggle.button);',
+        guard='mounts the button in the CAMERA group, which is what the placement argument rests on',
+    ),
+    Sabotage(
+        suite='web',
+        label='the card is left open under the search panel that shares its corner',
+        path='web/src/components/Globe.astro',
+        needle='        if (open) closePanel();',
+        replacement='        if (false) closePanel();',
+        guard='dismisses the card when the field opens, because the two share one corner',
+    ),
+    Sabotage(
+        suite='web',
+        label='hiding the controls leaves the search field floating beside a vanished rail',
+        path='web/src/components/Globe.astro',
+        needle='    if (next) searchPanel?.close();',
+        replacement='    if (false) searchPanel?.close();',
+        guard='hands the panel to quiet mode, which cannot reach it through the stylesheet',
+    ),
+    Sabotage(
+        suite='web',
+        label='the button looks live before the catalogue lands, and answers nothing when pressed',
+        path='web/src/components/Globe.astro',
+        needle='    searchToggle.setAvailable(false, "Search features (loading the catalogue)");',
+        replacement='    searchToggle.setAvailable(true, "Search features (loading the catalogue)");',
+        guard='greys the button until the catalogue lands, rather than looking live and doing nothing',
+    ),
+    # THE SECOND ROUND, ALL FOUR REPORTED BY ROHAN LOOKING AT THE PAGE. Each wound below leaves a
+    # panel that renders exactly as designed in a screenshot — what breaks is reachability, or what
+    # is underneath, neither of which a still can carry.
+    Sabotage(
+        suite='web',
+        label='the panel goes back to click-through, so every click on it flies the globe instead',
+        path='web/src/styles/globe.css',
+        needle='  pointer-events: auto;',
+        replacement='  pointer-events: none;',
+        guard='takes pointer events back for the panel, so a click on the field lands on the field',
+    ),
+    Sabotage(
+        suite='web',
+        label='the card goes back to sitting on top of the whole rail, on both bodies',
+        path='web/src/components/Globe.astro',
+        needle='    right: var(--rail-clearance);',
+        replacement='    right: 1.2rem;',
+        guard='clears the rail rather than covering it, on BOTH bodies',
+    ),
+    Sabotage(
+        suite='web',
+        label='a card opened from the globe lands on top of an open search panel',
+        path='web/src/components/Globe.astro',
+        needle='    searchPanel?.close();\n    panel.querySelector',
+        replacement='    panel.querySelector',
+        guard='closes the search panel when a card opens, which is the direction that was missing',
+    ),
+    Sabotage(
+        suite='web',
+        label='the card stops dropping below the chrome row narrow, covering the way off the globe',
+        path='web/src/components/Globe.astro',
+        needle='      top: 4.2rem;\n      max-height: calc(100vh - 5.4rem);',
+        replacement='      max-height: calc(100vh - 5.4rem);',
+        guard='drops below the top-left chrome narrow, where clearing the rail is not enough',
+    ),
+    Sabotage(
+        suite='web',
+        label='the panel keeps a desktop width ceiling on a phone, leaving dead space beside it',
+        path='web/src/styles/globe.css',
+        needle='    width: auto;',
+        replacement='    width: min(22rem, calc(100vw - 5rem));',
+        guard='fills the free width narrow by naming both edges, not by capping the width',
+    ),
+    Sabotage(
+        suite='web',
+        label='the rail button restates its own size, so the clearance can drift away from it',
+        path='web/src/styles/globe.css',
+        needle='  width: var(--rail-button-size);',
+        replacement='  width: 2.15rem;',
+        guard='derives the button size and the clearance from one declaration',
+    ),
+    Sabotage(
+        suite='web',
+        label='the shortcut stops answering, and the field can only be opened by hunting for it',
+        path='web/src/lib/featureSearchBox.ts',
+        needle='    if (event.key !== SEARCH_SHORTCUT) return;',
+        replacement='    if (true) return;',
+        guard='opens on the shortcut and puts the caret in the field',
+    ),
+    Sabotage(
+        suite='web',
+        label='the shortcut fires while typing, so a slash cannot be typed into the field it opens',
+        path='web/src/lib/featureSearchBox.ts',
+        needle='    if (isTypingTarget(event.target)) return;',
+        replacement='    if (false) return;',
+        guard='types a slash INTO the field rather than re-opening it',
+    ),
+    Sabotage(
+        suite='web',
+        label="Firefox's own quick-find opens underneath ours",
+        path='web/src/lib/featureSearchBox.ts',
+        needle="    event.preventDefault(); // Firefox's quick-find binds this key",
+        replacement="    void 0; // Firefox's quick-find binds this key",
+        guard='prevents the default, or Firefox quick-find opens underneath it',
+    ),
+    Sabotage(
+        suite='web',
+        label='a destroyed box leaves its key bound to a panel that is no longer on the page',
+        path='web/src/lib/featureSearchBox.ts',
+        needle='      doc.removeEventListener("keydown", onDocumentKeyDown);',
+        replacement='      void 0;',
+        guard='stops listening once destroyed, so a torn-down globe leaves no key bound',
+    ),
     # THE FRAMING'S ONE HARD CONSTRAINT. At the ceiling the camera lands exactly where a region stops
     # being a target, so the highlight goes out on the feature you asked to be taken to — and every
     # arithmetic assertion still passes, because the arithmetic is doing what it was told.

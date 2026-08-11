@@ -178,6 +178,18 @@
    EVERY SELECTOR REPEATS A CLASS, as everywhere else in this block: MapLibre's stylesheet is
    injected at RUNTIME by its ES-module import, so it lands after this block wherever the block
    sits, and an equal-specificity rule loses silently on source order. */
+
+/* HOW MUCH OF THE RIGHT EDGE THE RAIL OWNS, in one place, because three things now have to keep
+   clear of it: the search panel, the detail card, and anything added beside them later. The 10px
+   is MapLibre's own control margin, which its stylesheet hardcodes; the button size is ours and is
+   read back below rather than restated. Before this existed the card was written at a flat
+   `right: 1.2rem` and simply sat ON TOP of the rail — zoom, compass, spin and search all covered
+   the moment a feature was picked, on both bodies. */
+:root {
+  --rail-button-size: 2.15rem;
+  --rail-clearance: calc(var(--rail-button-size) + 10px + 0.5rem);
+}
+
 .maplibregl-ctrl-top-right .maplibregl-ctrl-group.maplibregl-ctrl-group {
   /* WHAT IS HELD CONSTANT IS THE INK, NOT THE BOX — the same rule the top-left row now follows.
      `mask-size` sizes the whole viewBox, so identical sizes across icons whose ink fills
@@ -200,8 +212,8 @@
   overflow: hidden; /* so the end buttons clip to the stadium rather than squaring it off */
 }
 .maplibregl-ctrl-top-right .maplibregl-ctrl-group.maplibregl-ctrl-group button {
-  width: 2.15rem;
-  height: 2.15rem;
+  width: var(--rail-button-size);
+  height: var(--rail-button-size);
   color: var(--muted);
   background: transparent;
 }
@@ -285,6 +297,149 @@
 }
 .maplibregl-ctrl-top-right .rg-ctrl-quiet[aria-pressed="true"] .maplibregl-ctrl-icon {
   --rail-icon: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2.5 12S6 5.8 12 5.8s9.5 6.2 9.5 6.2-3.5 6.2-9.5 6.2S2.5 12 2.5 12'/%3E%3Ccircle cx='12' cy='12' r='2.9'/%3E%3C/svg%3E");
+}
+
+/* Search: a plain magnifier, on the shared 24-unit box so its stroke matches spin and the eye.
+   Deliberately the most conventional glyph in the rail — every other icon here had to be designed
+   because nothing standard says "auto-rotate" or "hide the chrome", and a magnifier is the one
+   control on this page whose meaning is already settled everywhere else. */
+.maplibregl-ctrl-top-right .rg-ctrl-search .maplibregl-ctrl-icon {
+  --rail-icon: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='10.6' cy='10.6' r='6.1'/%3E%3Cpath d='M15.1 15.1 20.4 20.4'/%3E%3C/svg%3E");
+  --rail-icon-size: var(--rail-ink-24);
+}
+
+/* THE SEARCH PANEL HANGS OFF THE RAIL'S OWN BOX, so no constant here describes where the rail is.
+   It is appended into `.maplibregl-ctrl-top-right`, which MapLibre has already positioned and
+   which shrink-wraps to the rail's width — `right: 100%` is therefore "just left of the rail" at
+   every viewport, and `top: 0` aligns it with the rail's top edge rather than with the button,
+   which sits partway down a group whose length changes with the body. A clearance constant against
+   a fixed corner would have to be re-derived every time a control is added. */
+.rg-search {
+  position: absolute;
+  top: 10px; /* MapLibre's own ctrl margin, so the panel starts level with the first group */
+  right: 100%;
+  margin-right: 0.5rem;
+  z-index: 10;
+  /* MAPLIBRE MAKES ITS CONTROL CORNERS `pointer-events: none` AND HANDS IT BACK ONLY TO
+     `.maplibregl-ctrl`. This panel is not one — it is a panel, not a control — so without this the
+     whole thing is click-through: the field cannot be focused by clicking it, a row cannot be
+     picked, and every one of those clicks lands on the globe underneath and flies somewhere. The
+     panel still LOOKS right, which is why no screenshot catches it and no synthetic event does
+     either — `.click()` and `.focus()` in a test bypass hit-testing entirely. */
+  pointer-events: auto;
+  width: min(22rem, calc(100vw - 5rem));
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.5rem;
+  border-radius: 0.7rem;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--bg) 92%, transparent);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  text-align: left;
+}
+.rg-search[hidden] {
+  display: none; /* `hidden` alone loses to the `display: flex` above */
+}
+/* NARROW, WHERE THE PANEL REACHES BACK INTO THE TOP-LEFT CHROME. Its left edge is the viewport
+   minus the rail's clearance minus its own width, so it crosses `← Gallery`'s row at a viewport of
+   610 px — measured, with the panel at its 22rem ceiling and the row at its present content. Below
+   that the field renders underneath the Gallery pill. Dropping the panel past the row's 56 px
+   bottom is the fix that keeps its width: narrowing it instead would truncate the names it exists
+   to show. The breakpoint sits above the crossover on purpose, since the row's width is content and
+   a second body's could be wider. */
+@media (max-width: 40rem) {
+  .rg-search {
+    /* FIXED WITH BOTH EDGES NAMED, so the panel fills the width that is actually free instead of
+       stopping at a ceiling chosen for desktop. `width: min(22rem, …)` left a phone with the panel
+       hugging the rail and dead space down its left; here the only two facts are the margin and
+       the rail's own footprint, and the width falls out of them. */
+    position: fixed;
+    top: 4.2rem;
+    left: 0.75rem;
+    right: var(--rail-clearance);
+    width: auto;
+    margin-right: 0;
+  }
+}
+.rg-search-field {
+  width: 100%;
+  padding: 0.45rem 0.6rem;
+  border-radius: 0.45rem;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--bg) 70%, transparent);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.92rem;
+}
+.rg-search-field::placeholder {
+  color: var(--muted);
+}
+.rg-search-field:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+}
+.rg-search-results {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.rg-search-results:empty {
+  display: none; /* no empty gap under the field before anything is typed */
+}
+.rg-search-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.1rem 0.45rem;
+  padding: 0.35rem 0.5rem;
+  border-radius: 0.4rem;
+  cursor: pointer;
+}
+/* Selection is shown on `aria-selected`, the same attribute the keyboard moves — so the highlight
+   cannot disagree with what Enter would choose. Hover paints the same way rather than a second
+   colour, because two highlights on one list is a question about which one is armed. */
+.rg-search-row[aria-selected="true"],
+.rg-search-row:hover {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+.rg-search-name {
+  color: var(--text);
+  font-weight: 600;
+  font-size: 0.92rem;
+}
+.rg-search-alias {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+.rg-search-alias::before {
+  content: "(";
+}
+.rg-search-alias::after {
+  content: ")";
+}
+.rg-search-kind {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.rg-search-status {
+  margin: 0;
+  padding: 0 0.5rem;
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+.rg-search-status:empty {
+  display: none;
 }
 
 /* THE COMPASS IS AUTHORED, NOT MASKED. Its icon is two triangles — `#333` north over `#ccc`

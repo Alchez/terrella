@@ -153,3 +153,72 @@ describe("the page actually wires Mars's pointer", () => {
     expect(wiringBody()).toContain("hoverStateTargets()");
   });
 });
+
+describe("the page wires the search field to the pick path it already has", () => {
+  it("mounts the button in the CAMERA group, which is what the placement argument rests on", () => {
+    // Not `.maplibregl-ctrl-fullscreen`, which is the frame group the quiet toggle joins. Choosing
+    // a result moves the camera, so the button belongs with zoom, compass and spin — the grouping
+    // is the only thing on the page that states which concern a control serves.
+    expect(wiringBody()).toContain(
+      'joinRailGroup(map.getContainer(), ".maplibregl-ctrl-zoom-in", searchToggle.button)',
+    );
+  });
+
+  it("routes a chosen row through goToFeature, so one card is built one way", () => {
+    // A second path from a search hit to a card would be a second card builder in all but name:
+    // the same feature could then arrive with a different eyebrow or no fly-to at all.
+    expect(wiringBody()).toContain("onChoose: (feature) => goToFeature(feature.name)");
+  });
+
+  it("dismisses the card when the field opens, because the two share one corner", () => {
+    // Measured on the live page rather than assumed: the card spans 2121-2541 and the panel
+    // 2154-2506 at desktop width. Without this they stack.
+    expect(wiringBody()).toContain("if (open) closePanel();");
+  });
+
+  it("greys the button until the catalogue lands, rather than looking live and doing nothing", () => {
+    expect(wiringBody()).toContain("searchToggle.setAvailable(false,");
+    expect(wiringBody()).toContain("searchToggle.setAvailable(true)");
+  });
+
+  it("builds the matcher from the SAME dynamic import the pick path uses", () => {
+    // One fetch of the catalogue, not two. `featureSearch` itself is imported statically and may
+    // be — it names `NamedFeature` as a type and holds no data; the 324 KB array is what has to
+    // stay on this chunk, and asking for it again here would defeat that by duplicating it.
+    expect(wiringBody()).toContain("featureCatalogue.then(({ featureIndex })");
+    expect(wiringBody()).toContain("matcher = createFeatureSearch(featureIndex)");
+  });
+
+  it("hands the panel to quiet mode, which cannot reach it through the stylesheet", () => {
+    // `body.is-quiet` hides `.maplibregl-ctrl-group`s. The panel is not one — it is a panel, not a
+    // button — so hiding the controls would otherwise leave a search field floating beside a
+    // vanished rail. Verified as a pair: the handover here, and the close in `reflectQuiet`.
+    expect(wiringBody()).toContain("searchPanel = searchBox;");
+    expect(GLOBE).toContain("if (next) searchPanel?.close();");
+  });
+});
+
+describe("the right-hand band holds one box at a time, and none of them cover the rail", () => {
+  it("closes the search panel when a card opens, which is the direction that was missing", () => {
+    // One direction was already there (opening the field dismisses the card) and was not enough:
+    // with the field up, a click on the globe opened a card straight over it.
+    expect(GLOBE).toContain("searchPanel?.close();\n    panel.querySelector");
+  });
+
+  it("clears the rail rather than covering it, on BOTH bodies", () => {
+    // At a flat `right: 1.2rem` the card sat on top of the whole top-right stack from the moment
+    // anything was picked — its z-index is 30 against MapLibre's control corner at 2 — so zoom,
+    // compass, spin and fullscreen were all unreachable behind it. Earth had this too.
+    expect(GLOBE).toContain("right: var(--rail-clearance);");
+    expect(GLOBE).toContain("width: min(420px, calc(100vw - 1.2rem - var(--rail-clearance)));");
+    expect(GLOBE).not.toMatch(/\.detail-panel\s*\{[^}]*right:\s*1\.2rem/);
+  });
+
+  it("drops below the top-left chrome narrow, where clearing the rail is not enough", () => {
+    // Widening into the space the rail leaves puts the card's left edge back over `← Gallery`.
+    // Same breakpoint as the search panel, so the two right-side boxes behave alike.
+    const scoped = GLOBE.slice(GLOBE.indexOf(".detail-panel[hidden]"));
+    expect(scoped).toContain("@media (max-width: 40rem)");
+    expect(scoped).toContain("top: 4.2rem;");
+  });
+});
