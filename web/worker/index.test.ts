@@ -286,7 +286,7 @@ describe("resolveRoute", () => {
   it("sends a countries address to the vector archive", () => {
     const route = resolveRoute("/countries/8/189/107.mvt");
     expect(route?.address).toMatchObject({ z: 8, x: 189, y: 107 });
-    expect(route?.published.objectKey).toBe("countries-v1.pmtiles");
+    expect(route?.published.objectKey).toBe("countries-v2.pmtiles");
     expect(route?.layer.contentType).toBe(VECTOR_CONTENT_TYPE);
     expect(route?.published.zoomConstants).toContain("countryTiles.ts");
   });

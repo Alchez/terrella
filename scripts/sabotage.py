@@ -5011,7 +5011,7 @@ SABOTAGES: list[Sabotage] = [
         suite='web',
         label='terrain is published out of the relief archive',
         path='web/src/lib/tileAddress.ts',
-        needle='      objectKey: "terrain-v1.pmtiles",',
+        needle='      objectKey: "terrain-v2.pmtiles",',
         replacement='      objectKey: "planet-v2.pmtiles",',
         guard='never puts two raster pyramids in one archive',
     ),

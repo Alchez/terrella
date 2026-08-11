@@ -190,7 +190,7 @@ export const PUBLISHED: Record<BodySlug, Record<LayerId, PublishedArchive | null
       maxZoom: RELIEF_MAX_ZOOM,
     },
     terrain: {
-      objectKey: "terrain-v1.pmtiles",
+      objectKey: "terrain-v2.pmtiles",
       token: TOKENS.earth.terrain.token,
       indexLeaves: TOKENS.earth.terrain.indexLeaves,
       zoomConstants: "TERRAIN_MIN_ZOOM/TERRAIN_MAX_ZOOM in web/src/lib/terrainSource.ts",
@@ -201,7 +201,7 @@ export const PUBLISHED: Record<BodySlug, Record<LayerId, PublishedArchive | null
     // precisely so a rename of the layer word costs nothing in R2 — renaming the object would mean
     // copying it into a bucket with under a gigabyte of headroom, for no byte change.
     vector: {
-      objectKey: "countries-v1.pmtiles",
+      objectKey: "countries-v2.pmtiles",
       token: TOKENS.earth.vector.token,
       indexLeaves: TOKENS.earth.vector.indexLeaves,
       zoomConstants: "COUNTRIES_MIN_ZOOM/COUNTRIES_MAX_ZOOM in web/src/lib/countryTiles.ts",
