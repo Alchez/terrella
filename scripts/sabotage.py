@@ -2397,10 +2397,28 @@ SABOTAGES: list[Sabotage] = [
     # shapes that disagreement takes — a body's literal, a shared constant, and a layer going quiet.
     Sabotage(
         suite='python',
-        label="the browser's zoom range: Mars's ceiling drifts past what was cut",
+        label="the browser's zoom range: Mars's relief ceiling drifts past what was cut",
         path='web/src/lib/tileAddress.ts',
-        needle='      minZoom: 0,\n      maxZoom: 7,',
-        replacement='      minZoom: 0,\n      maxZoom: 8,',
+        # ANCHORED ON THE ENTRY'S OWN COMMENT, because `minZoom: 0, maxZoom: 7` stopped identifying
+        # a single entry the day Mars published a terrain pyramid at the same ceiling. A bare
+        # coordinate pair is not a location once a second thing legitimately holds it.
+        needle="      // runtime by the dev server reading the archive's own header.\n"
+               "      minZoom: 0,\n      maxZoom: 7,",
+        replacement="      // runtime by the dev server reading the archive's own header.\n"
+                    "      minZoom: 0,\n      maxZoom: 8,",
+        guard='test_the_browser_publishes_every_pyramid_at_the_zoom_the_pipeline_cut_it_to',
+    ),
+    Sabotage(
+        suite='python',
+        label="the browser's zoom range: Mars's TERRAIN ceiling takes Earth's z8",
+        path='web/src/lib/tileAddress.ts',
+        # The sibling the case above needed once a second Mars pyramid existed: the same drift, on
+        # the entry whose ceiling comes from the elevation cut's own master rather than the relief
+        # cut's. Earth's z8 here asks for a level the descent never wrote.
+        needle='      // arrives as a 404 and paints exactly like a tile still in flight.\n'
+               '      minZoom: 0,\n      maxZoom: 7,',
+        replacement='      // arrives as a 404 and paints exactly like a tile still in flight.\n'
+                    '      minZoom: 0,\n      maxZoom: 8,',
         guard='test_the_browser_publishes_every_pyramid_at_the_zoom_the_pipeline_cut_it_to',
     ),
     # Through a NAMED CONSTANT rather than a literal, which is the case the guard nearly missed:
@@ -3928,7 +3946,7 @@ SABOTAGES: list[Sabotage] = [
         path='web/src/lib/globeSubsystems.ts',
         needle='    terrain: drawn.terrain ? tileUrlTemplate(body, "terrain") : null,',
         replacement='    terrain: tileUrlTemplate(body, "terrain"),',
-        guard='resolves for a body missing a pyramid, instead of throwing at page load',
+        guard='builds no address for a subsystem that is off, instead of throwing at page load',
     ),
     Sabotage(
         suite='web',
@@ -5102,8 +5120,12 @@ SABOTAGES: list[Sabotage] = [
         # number, and it makes a z8 Mars address parse against a pyramid cut one rung shallower.
         label='Mars relief takes Earth\'s zoom ceiling instead of its own',
         path='web/src/lib/tileAddress.ts',
-        needle='      minZoom: 0,\n      maxZoom: 7,',
-        replacement='      minZoom: RELIEF_MIN_ZOOM,\n      maxZoom: RELIEF_MAX_ZOOM,',
+        # Anchored for the same reason as the ceiling-drift case above: two Mars entries now declare
+        # the same pair, so the coordinate no longer names one of them.
+        needle="      // runtime by the dev server reading the archive's own header.\n"
+               "      minZoom: 0,\n      maxZoom: 7,",
+        replacement="      // runtime by the dev server reading the archive's own header.\n"
+                    "      minZoom: RELIEF_MIN_ZOOM,\n      maxZoom: RELIEF_MAX_ZOOM,",
         guard='bounds a Mars relief address by MARS\'s ceiling, not Earth\'s',
     ),
     Sabotage(

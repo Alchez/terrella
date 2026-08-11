@@ -210,9 +210,12 @@ export const PUBLISHED: Record<BodySlug, Record<LayerId, PublishedArchive | null
     },
   },
   // A NULL IS AN ANSWER, NOT AN OMISSION — the record forces every body to answer for every layer,
-  // so a pyramid cannot be forgotten into existence later. Mars declares no terrain, and that null
-  // is load-bearing: `parseTileAddress` refuses a Mars terrain URL without touching storage, and
-  // `archiveFor` throws rather than borrowing Earth's pyramid.
+  // so a pyramid cannot be forgotten into existence later. NO ENTRY IS NULL TODAY, and that is worth
+  // saying here rather than leaving a reader to notice: Mars's terrain was the last unpublished
+  // pair, so the branches that reject one (`parseTileAddress` before it touches storage, `archiveFor`
+  // rather than borrowing Earth's pyramid) have no live case left to borrow and their tests build
+  // their own. Both branches stay because the arguments arrive as URL segments, which the type
+  // system has never seen.
   //
   // NAMING A KEY HERE COMMITS TO AN UPLOAD. The deploy preflight refuses on any published object the
   // bucket does not hold, so this entry and the R2 upload land together or not at all.
@@ -238,7 +241,23 @@ export const PUBLISHED: Record<BodySlug, Record<LayerId, PublishedArchive | null
       minZoom: 0,
       maxZoom: 7,
     },
-    terrain: null,
+    // `-v1` AND NOT `-v2`: the version rides the OBJECT, not the body. Mars's relief carries `-v2`
+    // because that pyramid was re-cut from z6 to z7; this is the first terrain archive Mars has had.
+    terrain: {
+      objectKey: "mars/terrain-v1.pmtiles",
+      token: TOKENS.mars.terrain.token,
+      indexLeaves: TOKENS.mars.terrain.indexLeaves,
+      zoomConstants:
+        "minZoom/maxZoom in PUBLISHED.mars.terrain, restating terrain_rgb.master_zoom_for in "
+        + "pipeline/tile/terrain_rgb.py",
+      // LITERALS, NOT `TERRAIN_MIN_ZOOM`/`TERRAIN_MAX_ZOOM`, for the reason the relief entry above
+      // gives and for one more: those constants are Earth's answers to a per-planet question, and
+      // Earth's ceiling is z8. The elevation cut descends from each body's OWN master, so this
+      // ceiling is that master's native zoom — asking z8 here would request tiles never cut, which
+      // arrives as a 404 and paints exactly like a tile still in flight.
+      minZoom: 0,
+      maxZoom: 7,
+    },
     vector: {
       objectKey: "mars/features-v1.pmtiles",
       token: TOKENS.mars.vector.token,

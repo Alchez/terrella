@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { BODIES } from "./bodies";
+import { BODIES, type BodySlug } from "./bodies";
 import {
   LAYERS,
   PUBLISHED,
@@ -191,20 +191,43 @@ describe("the registry", () => {
   });
 
   it("refuses to hand back a cut a body does not publish", () => {
-    // Not a hypothetical cast, and no longer a whole-body statement: Mars publishes relief and does
-    // not publish terrain, so this asks the per-LAYER question, which is the one that outlives the
-    // second body's first pyramid.
-    expect(() => archiveFor("mars", "terrain")).toThrow(/publishes no/);
-    expect(() => archiveFor("mars", "relief")).not.toThrow();
+    // CONSTRUCTED, BECAUSE NO REAL PAIR IS LEFT TO BORROW. This read `archiveFor("mars", "terrain")`
+    // while that entry was null, and publishing Mars's DEM took the last unpublished pair in the
+    // registry with it. The casts are not hypotheticals: `archiveFor` is defensive precisely because
+    // its arguments arrive as URL segments and `data-body`, neither of which the type system has
+    // ever seen — an unknown word IS the shape this guard exists for, on both axes.
+    expect(() => archiveFor("mars", "heightfield" as LayerId)).toThrow(/publishes no/);
+    expect(() => archiveFor("venus" as BodySlug, "relief")).toThrow(/publishes no/);
+    // The control, so the throws above are about the lookup rather than `archiveFor` being broken
+    // for everything. Skips nulls rather than forbidding them: a body is allowed to stop publishing
+    // a layer, and this case should not be the thing that argues against it.
+    for (const [body, layers] of Object.entries(PUBLISHED)) {
+      for (const [layer, entry] of Object.entries(layers)) {
+        if (entry === null) continue;
+        expect(() => archiveFor(body as BodySlug, layer as LayerId), `${body}/${layer}`)
+          .not.toThrow();
+      }
+    }
   });
 
-  it("refuses an unpublished Mars layer outright, rather than serving Earth's pyramid", () => {
-    // The failure this prevents does not 404 and does not look broken: Earth terrain served at a
-    // Mars address is a complete, plausible, wrong planet. `null` in PUBLISHED is what makes the
-    // parser reject it — before any storage is touched, so a probe costs no range read.
-    const unpublished = `mars/terrain/${archiveFor("earth", "terrain").token}/5/17/11.png`;
-    expect(parseTileAddress(unpublished)).toBeNull();
-    expect(resolveTileRequest(unpublished)).toBeNull();
+  it("bounds Mars's terrain by MARS's ceiling, so a z8 request is refused", () => {
+    // WHAT THIS CASE USED TO BE, AND WHY IT COULD NOT SURVIVE. It asserted that a `mars/terrain`
+    // address parsed to null while Mars published no DEM — but it spelled the tile `.png`, and
+    // terrain tiles are `.webp`, so the parser rejected it on EXTENSION several lines above the
+    // publication check it named. It would have gone on passing with Mars's terrain published,
+    // still asserting nothing it claimed to: a test can be green, load-bearing-looking, and about
+    // a different branch than its comment says.
+    //
+    // The reachable form of the same worry is the ceiling. Earth is cut to z8 and Mars to z7, and
+    // the failure never 404s in the obvious place — Earth terrain answered at a Mars address is a
+    // complete, plausible, wrong planet.
+    const token = archiveFor("mars", "terrain").token;
+    expect(parseTileAddress(`mars/terrain/${token}/7/64/64.webp`)).not.toBeNull();
+    expect(parseTileAddress(`mars/terrain/${token}/8/128/128.webp`)).toBeNull();
+    expect(resolveTileRequest(`mars/terrain/${token}/8/128/128.webp`)).toBeNull();
+    // The control: z8 is not refused everywhere, only above Mars's own ceiling.
+    const earth = archiveFor("earth", "terrain").token;
+    expect(parseTileAddress(`earth/terrain/${earth}/8/128/128.webp`)).not.toBeNull();
   });
 
   it("bounds a Mars relief address by MARS's ceiling, not Earth's", () => {
@@ -274,7 +297,10 @@ describe("describeArchiveHeaderMismatch", () => {
   it("throws rather than passing for a layer the body does not publish", () => {
     // Inherited from `archiveFor`, and worth pinning here: silently returning null would let a
     // server open an archive for a cut that is not supposed to exist.
-    expect(() => describeArchiveHeaderMismatch("mars", "terrain", { minZoom: 0, maxZoom: 8 }))
+    // Constructed for the same reason as the registry case above: Mars's terrain was the live
+    // example until Mars published it, and a borrowed negative instance ends without saying so.
+    expect(() => describeArchiveHeaderMismatch("mars", "heightfield" as LayerId,
+                                               { minZoom: 0, maxZoom: 8 }))
       .toThrow(/publishes no/);
   });
 });

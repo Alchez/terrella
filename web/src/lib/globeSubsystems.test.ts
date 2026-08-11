@@ -41,7 +41,7 @@ describe("what a body's globe draws", () => {
     // boolean could not have said so.
     expect(globeSubsystems("mars", NO_FLAGS)).toEqual({
       polarCaps: true,
-      terrain: false,
+      terrain: true,
       vectorProduct: "features",
       borders: false,
       heroes: false,
@@ -57,8 +57,14 @@ describe("what a body's globe draws", () => {
     // is a Web Mercator repair, so it is what every body wants once its ramps are ratified. Asking
     // the registry to keep disagreeing about it would be asking a planet to keep a hole at its pole
     // to satisfy a test. What still gates it per visit is `?bare` and `?nocaps`, below.
+    //
+    // `terrain` LEFT THIS LIST THE DAY MARS PUBLISHED A DEM, by that same rule rather than by
+    // weakening it: a body holding elevation data wants displacement, so demanding disagreement
+    // here would be asking Mars to stay flat to satisfy a test. The list is what still separates
+    // the bodies, and it shrinks as the second planet catches up — when it empties, the two cases
+    // above stop proving anything and this assertion is what will say so.
     const answers = ALL_BODIES.map((body) => globeSubsystems(body, NO_FLAGS));
-    for (const subsystem of ["terrain", "borders", "heroes"] as const) {
+    for (const subsystem of ["borders", "heroes"] as const) {
       const given = new Set(answers.map((answer) => answer[subsystem]));
       expect(given, `every body answers the same for ${subsystem}`).toEqual(new Set([true, false]));
     }
@@ -100,21 +106,34 @@ describe("?bare strips a globe to the raster baseline, on every body", () => {
 });
 
 describe("the tile addresses a globe draws from", () => {
-  it("resolves for a body missing a pyramid, instead of throwing at page load", () => {
+  it("builds no address for a subsystem that is off, instead of throwing at page load", () => {
     // THE DEFECT THIS CLOSES, and the reason it is worth a test rather than a read-through:
     // building an address for an unpublished layer throws, the page did it at module scope, and the
-    // result was a blank globe with one console line. Terrain is the layer carrying the case now —
-    // Mars publishes relief and vectors and no DEM-derived heights, so the mixed body is still the
-    // one under test rather than a planet that answers null to everything.
-    const drawn = globeSubsystems("mars", NO_FLAGS);
-    expect(() => globeTileAddresses("mars", drawn)).not.toThrow();
-    const addresses = globeTileAddresses("mars", drawn);
+    // result was a blank globe with one console line.
+    //
+    // THE RECORD IS BUILT HERE RATHER THAN TAKEN FROM A BODY, and it had to be. This case read
+    // `globeSubsystems("mars", NO_FLAGS)` while Mars published no DEM, and the day Mars published
+    // one it would have gone on passing having asserted nothing about the null branch — the
+    // subsystem it was watching had quietly turned on. A negative instance borrowed from live data
+    // lasts exactly as long as the gap it was borrowed from, and nothing announces its end.
+    const nothingButRelief: GlobeSubsystems = {
+      polarCaps: true, terrain: false, vectorProduct: null, borders: false, heroes: false,
+    };
+    expect(() => globeTileAddresses("mars", nothingButRelief)).not.toThrow();
+    const addresses = globeTileAddresses("mars", nothingButRelief);
     expect(addresses.relief).toContain("mars/relief");
     expect(addresses.terrain).toBeNull();
-    // THE ROLE, not the product: Mars's archive holds features and its URL still says `vector`,
-    // which is the whole point of the segment naming a role. A path spelling `mars/features` here
-    // would mean the address grammar had grown a per-body case.
+    expect(addresses.vector).toBeNull();
+  });
+
+  it("addresses Mars's vector archive by its ROLE, not by the product inside it", () => {
+    // Mars's archive holds features and its URL still says `vector`, which is the whole point of
+    // the segment naming a role. A path spelling `mars/features` would mean the address grammar had
+    // grown a per-body case. Split out of the case above when that one stopped using a real body.
+    const addresses = globeTileAddresses("mars", globeSubsystems("mars", NO_FLAGS));
     expect(addresses.vector).toContain("mars/vector");
+    expect(addresses.vector).not.toContain("features");
+    expect(addresses.terrain).toContain("mars/terrain");
   });
 
   it("gives Earth all three, so the case above is not passing on a body with nothing to build", () => {
@@ -149,6 +168,26 @@ describe("the registry is the only thing that can switch a subsystem ON", () => 
         if (drawn.vectorProduct !== null) expect(PUBLISHED[body].vector, where).not.toBeNull();
       }
     }
+    // THE LOOP ABOVE CANNOT FAIL TODAY, AND SAYING SO IS THE POINT. Both implications are
+    // conditional on a body publishing nothing, and since Mars's DEM landed every body publishes
+    // every layer — so `terrain: true` hardcoded would satisfy every iteration. The invariant is
+    // still real (a flag may only take away, and advertising an unpublished pyramid throws at
+    // module scope, before a map exists, leaving a blank page), but the registry no longer contains
+    // a case that exercises it.
+    //
+    // So the derivation is pinned in the source instead. This is a spelling check and is worth
+    // exactly what a spelling check is worth: it catches the tidy that reads as a simplification
+    // (`!== null` collapsing to a literal) and nothing subtler. THE REAL FIX IS TO PARAMETERISE
+    // `globeSubsystems` ON A REGISTRY, the way `terrainDemSource` and `featureTilesSource` already
+    // take an archive — then a record belonging to no body can tell a constant from a derivation.
+    // Left undone here on purpose: it is a production signature change, not a registry entry.
+    const source = readFileSync(new URL("./globeSubsystems.ts", import.meta.url), "utf8");
+    expect(source, "terrain stopped being derived from the registry").toContain(
+      "terrain: published.terrain !== null,",
+    );
+    expect(source, "the vector product stopped being derived from the registry").toContain(
+      "published.vector !== null",
+    );
   });
 
   it("names a product the body's own archive holds, never another planet's", () => {
