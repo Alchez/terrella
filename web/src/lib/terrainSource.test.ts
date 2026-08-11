@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { DECLARED_TILE_SIZE } from "./reliefSources";
-import { PUBLISHED } from "./tileAddress";
+import { archiveFor, PUBLISHED } from "./tileAddress";
 import {
   DEFAULT_TERRAIN_EXAGGERATION,
   DEFAULT_TERRAIN_RAMP_FLOOR,
@@ -16,8 +16,10 @@ import {
   parseTerrainTileSize,
   rampedExaggeration,
   resolveTerrainExaggeration,
+  terrainDemSource,
   TERRAIN_CONTENT_TYPE,
   TERRAIN_MAX_ZOOM,
+  TERRAIN_MIN_ZOOM,
   TERRAIN_OFF,
   TERRAIN_PATH_PREFIX,
   TERRAIN_QUANTISATION_M,
@@ -441,10 +443,43 @@ describe("the pyramid depth the source is allowed to reach", () => {
     // that the two could disagree: a deep directory declared 6 silently never requests the levels
     // it paid to build, and a shallow one declared 8 404s every tile past z6. With one archive
     // there is one number, which is the structural version of that guarantee.
-    const globe = readFileSync(new URL("../components/Globe.astro", import.meta.url), "utf8");
-    const source = globe.slice(globe.indexOf("type: \"raster-dem\""));
-    expect(source.slice(0, 400)).toContain("maxzoom: TERRAIN_MAX_ZOOM");
+    //
+    // ASSERTED BY CALLING IT, on a range no body publishes. A scan for the constant's NAME could
+    // only ever report that Earth's answer was spelled correctly; this says the source declares
+    // whatever depth it is handed, which is the claim that has to hold the moment a second body
+    // cuts a shallower pyramid — and the only form of it that can be exercised before one does.
+    const nobodys = { ...archiveFor("earth", "terrain"), minZoom: 2, maxZoom: 5 };
+    const invented = terrainDemSource("https://example.invalid/{z}/{x}/{y}.webp", nobodys, 128);
+    expect(invented.minzoom).toBe(2);
+    expect(invented.maxzoom).toBe(5);
+    // And Earth's spec is asserted WHOLE against the literal the page used to spell inline, which
+    // is what makes "the indirection moved no number" a proof rather than a claim: the registry
+    // entry is built from these constants, and the source now reads the entry. A field appearing,
+    // vanishing or changing on the way through fails here rather than on a globe.
+    const earth = "https://tiles.example/earth/terrain/{token}/{z}/{x}/{y}.webp";
+    expect(terrainDemSource(earth, archiveFor("earth", "terrain"), 128)).toEqual({
+      type: "raster-dem",
+      tiles: [earth],
+      minzoom: TERRAIN_MIN_ZOOM,
+      maxzoom: TERRAIN_MAX_ZOOM,
+      tileSize: 128,
+      ...terrainEncoding(),
+    });
     expect(TERRAIN_MAX_ZOOM).toBe(8);
+  });
+
+  it("hands the page's source the ARCHIVE and not this module's constants", () => {
+    // The function above can be flawless while the page passes it a literal, and no call to it
+    // could tell. This is the half that only the page's own text can answer: whose numbers reach
+    // the live source. Derived from the subject — every construction of a DEM source — rather than
+    // anchored on a neighbouring landmark, so a second one cannot arrive unseen.
+    const globe = readFileSync(new URL("../components/Globe.astro", import.meta.url), "utf8");
+    const built = [...globe.matchAll(/terrainDemSource\(([^)]*)\)/g)].map((match) => match[1]);
+    expect(built, "the globe builds exactly one DEM source").toHaveLength(1);
+    expect(built[0]).toContain("terrainArchive");
+    expect(globe, "and no longer spells a raster-dem spec inline").not.toContain(
+      'type: "raster-dem"',
+    );
   });
 
   it("is what makes 256 and 128 mean anything at the deepest camera", () => {
@@ -640,14 +675,19 @@ describe("source guard — the pipeline is the source of truth for the numbers",
     // of them selectable. `terrainEncoding()` is now correct to call bare — its default IS the
     // shipping step — which is the exact opposite of what this test asserted before, and the
     // reason it is rewritten rather than retargeted.
-    const globe = readFileSync(new URL("../components/Globe.astro", import.meta.url), "utf8");
-    const source = globe.slice(globe.indexOf('type: "raster-dem"'), globe.indexOf('type: "raster-dem"') + 400);
-    expect(source).toContain("tiles: [terrainTileUrlTemplate]");
-    expect(source).toContain("maxzoom: TERRAIN_MAX_ZOOM");
-    expect(source).toContain("...terrainEncoding()");
+    // Now asserted on the BUILT SPEC rather than on the page's text, which is strictly stronger:
+    // the address and the factors are fields of one returned object, so they arrive together or
+    // not at all. The step is no longer expressible at the call site either — `terrainDemSource`
+    // takes no quantisation parameter, so "fetch at one step, decode at another" stopped being a
+    // thing anyone can spell rather than a thing a scan has to watch for.
+    const template = "https://example.invalid/{z}/{x}/{y}.webp";
+    const spec = terrainDemSource(template, archiveFor("earth", "terrain"), 128);
+    expect(spec.tiles).toEqual([template]);
+    expect(spec.maxzoom).toBe(TERRAIN_MAX_ZOOM);
+    expect(spec).toMatchObject(terrainEncoding());
     // The one value still parsed per-request is the declared tile size, which cannot corrupt a
     // decode — it changes which zoom loads, not what the bytes mean.
-    expect(source).toContain("tileSize: declaredTileSize");
+    expect(spec.tileSize).toBe(128);
   });
 
   it("keeps both delivery codecs lossless in the pipeline", () => {

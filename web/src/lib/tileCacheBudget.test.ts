@@ -509,7 +509,10 @@ describe("earth.astro wires the instrument rather than re-stating it", () => {
     expect(globe).toMatch(/map\.on\("resize", applyCacheCap\)/);
     const styleLoad = globe
       .match(/map\.on\("style\.load", \(\) => \{[\s\S]*?\n    \}\);/g)
-      ?.find((block) => block.includes("addSource(TERRAIN_SOURCE"));
+      // Whitespace-tolerant on purpose: this needle was `includes("addSource(TERRAIN_SOURCE")` and
+      // broke the day the call wrapped across lines, with no argument changed. A matcher anchored
+      // on layout punishes formatting, which is not a property of the code.
+      ?.find((block) => /addSource\(\s*TERRAIN_SOURCE/.test(block));
     expect(styleLoad, "terrain must be added on style.load").toBeTruthy();
     expect(styleLoad).toContain("applyCacheCap()");
   });

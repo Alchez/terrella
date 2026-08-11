@@ -495,7 +495,7 @@ import { REPO_URL } from "../lib/siteLinks";
   // The registry itself, for the one thing an ADDRESS cannot carry: the zoom range the archive was
   // cut to, which its source has to declare so MapLibre overzooms rather than requesting tiles
   // nobody packed. Earth's equivalent still reads constants — see featureOverlay.ts.
-  import { PUBLISHED } from "../lib/tileAddress";
+  import { PUBLISHED, archiveFor } from "../lib/tileAddress";
   import { reliefBaseTilesSource, reliefTilesSource } from "../lib/reliefSources";
   // The ONE static exemption for the instrument, and it is fifteen lines: the entry buffer has to be
   // raised ahead of `new maplibregl.Map`, which no dynamic import can promise. Everything else that
@@ -511,8 +511,6 @@ import { REPO_URL } from "../lib/siteLinks";
   import type { CameraFill } from "../lib/perf/perfNetwork";
   import {
     MAX_TERRAIN_EXAGGERATION,
-    TERRAIN_MAX_ZOOM,
-    TERRAIN_MIN_ZOOM,
     TERRAIN_RAMP_END_ZOOM,
     TERRAIN_RAMP_START_ZOOM,
     TERRAIN_SKIRT_DEFAULT,
@@ -528,7 +526,7 @@ import { REPO_URL } from "../lib/siteLinks";
     parseTerrainSkirt,
     parseTerrainTileSize,
     rampedExaggeration,
-    terrainEncoding,
+    terrainDemSource,
   } from "../lib/terrainSource";
   import {
     atmosphereNeedsRebuild,
@@ -1191,6 +1189,11 @@ import { REPO_URL } from "../lib/siteLinks";
       );
     }
     const declaredTileSize = parsedTileSize ?? TERRAIN_TILE_SIZE;
+    // Safe by the guard above and not by luck: `terrainTileUrlTemplate` is non-null only where the
+    // registry publishes a DEM for this body, which is the same condition `archiveFor` throws on.
+    // Every zoom below reads it rather than `TERRAIN_*_ZOOM`, so a body whose pyramid stops
+    // shallower asks for its own ceiling instead of Earth's.
+    const terrainArchive = archiveFor(body.slug, "terrain");
     const parsedRamp = parseTerrainRamp(urlFlags);
     if (parsedRamp === null) {
       console.warn(
@@ -1225,7 +1228,7 @@ import { REPO_URL } from "../lib/siteLinks";
         coveringTileCount(),
       );
     coveringTileCount = () =>
-      terrainCoveringTileCount(map, declaredTileSize, TERRAIN_MIN_ZOOM, TERRAIN_MAX_ZOOM);
+      terrainCoveringTileCount(map, declaredTileSize, terrainArchive.minZoom, terrainArchive.maxZoom);
     const exaggerationFor = (zoom: number) =>
       ramp.kind === "off"
         ? terrainExaggeration
@@ -1306,14 +1309,10 @@ import { REPO_URL } from "../lib/siteLinks";
     map.on("idle", reassertTerrainBound);
 
     map.on("style.load", () => {
-      map.addSource(TERRAIN_SOURCE, {
-        type: "raster-dem",
-        tiles: [terrainTileUrlTemplate],
-        minzoom: TERRAIN_MIN_ZOOM,
-        maxzoom: TERRAIN_MAX_ZOOM,
-        tileSize: declaredTileSize,
-        ...terrainEncoding(),
-      });
+      map.addSource(
+        TERRAIN_SOURCE,
+        terrainDemSource(terrainTileUrlTemplate, terrainArchive, declaredTileSize),
+      );
       // AFTER setTerrain, not before: setTerrain is what swaps the plain TileManager for the
       // TerrainTileManager the cap has to land on, so capping first writes to an object MapLibre is
       // about to replace. It happened to work on a first load only because the initial `resize`
@@ -1365,10 +1364,10 @@ import { REPO_URL } from "../lib/siteLinks";
     console.log(
       ramp.kind === "off"
         ? `[terrain] ${declaredTileSize}px declared, ${terrainExaggeration}x constant ` +
-          `(?ramp=off), z${TERRAIN_MIN_ZOOM}-${TERRAIN_MAX_ZOOM}`
+          `(?ramp=off), z${terrainArchive.minZoom}-${terrainArchive.maxZoom}`
         : `[terrain] ${declaredTileSize}px declared, ${terrainExaggeration}x below ` +
           `z${TERRAIN_RAMP_START_ZOOM}, ramping to ${ramp.floor}x at ` +
-          `z${TERRAIN_RAMP_END_ZOOM}, z${TERRAIN_MIN_ZOOM}-${TERRAIN_MAX_ZOOM}`,
+          `z${TERRAIN_RAMP_END_ZOOM}, z${terrainArchive.minZoom}-${terrainArchive.maxZoom}`,
     );
   }
 

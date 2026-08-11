@@ -3825,6 +3825,40 @@ SABOTAGES: list[Sabotage] = [
     ),
     Sabotage(
         suite='web',
+        # The revert that looks like a simplification: the parameter is threaded through to reach a
+        # constant this module already exports, so reading it directly is one fewer hop and passes
+        # every Earth assertion by construction. It is silent until a second body cuts a shallower
+        # pyramid, and then the browser asks for zooms nobody packed.
+        label='the DEM source reads this module\'s ceiling instead of the archive it was handed',
+        path='web/src/lib/terrainSource.ts',
+        needle='    maxzoom: archive.maxZoom,',
+        replacement='    maxzoom: TERRAIN_MAX_ZOOM,',
+        guard='declares its maxzoom from the archive\'s own depth, with nothing left to disagree',
+    ),
+    Sabotage(
+        suite='web',
+        # The other half, and no call to the builder can see it: the function stays perfect while
+        # the page hands it somebody else's numbers. Hardcoding the slug is the realistic form —
+        # Earth is the body in front of you, and every Earth test agrees.
+        label='the page builds its DEM source from Earth rather than from the body it is drawing',
+        path='web/src/components/Globe.astro',
+        needle='terrainDemSource(terrainTileUrlTemplate, terrainArchive, declaredTileSize)',
+        replacement='terrainDemSource(terrainTileUrlTemplate, archiveFor("earth", "terrain"), declaredTileSize)',
+        guard='hands the page\'s source the ARCHIVE and not this module\'s constants',
+    ),
+    Sabotage(
+        suite='web',
+        # The silent-and-total one, moved: it used to need a flag threaded through a build directory
+        # and is now expressible in exactly one place, since `terrainDemSource` takes no step. Every
+        # tile still 200s and still decodes — a planet eight times too flat, with nothing logged.
+        label='the DEM source decodes at one metre while the archive was cut at eight',
+        path='web/src/lib/terrainSource.ts',
+        needle='    ...terrainEncoding(),\n  };\n}',
+        replacement='    ...terrainEncoding(1),\n  };\n}',
+        guard='cannot fetch one encoding and decode with another, because there is one of each',
+    ),
+    Sabotage(
+        suite='web',
         # One flag stops taking one thing away. Nothing about Earth's default globe changes, and the
         # only reader who notices is someone using ?bare to isolate the raster — i.e. someone already
         # hunting something else.

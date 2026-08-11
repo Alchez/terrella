@@ -19,6 +19,9 @@
 // `TerrainTileCoordinate` identical to `TileCoordinate` — which costs more than the import:
 // two names for one thing is how a fake distinction gets invented later.
 import type { TileCoordinate } from "./reliefTiles";
+// Also type-only, and a CYCLE only on paper: tileAddress.ts imports this module's zoom constants
+// as values to build Earth's registry entry, and this import is erased before either is bundled.
+import type { PublishedArchive } from "./tileAddress";
 
 /** MapLibre source id, owned here for the same reason COUNTRIES_SOURCE is owned by
  *  countryHighlight.ts — the module that defines a source names it. */
@@ -190,6 +193,36 @@ export function terrainEncoding(quantisationMetres: number = TERRAIN_QUANTISATIO
     greenFactor: quantisationMetres,
     blueFactor: 0,
     baseShift: TERRAIN_BASE_SHIFT,
+  };
+}
+
+/**
+ * The `raster-dem` source spec for one body's elevation pyramid.
+ *
+ * TAKES THE ARCHIVE RATHER THAN READING THIS MODULE'S CONSTANTS, which is what makes the range
+ * checkable before a second body publishes a DEM. `TERRAIN_MIN_ZOOM`/`TERRAIN_MAX_ZOOM` are Earth's
+ * answer and the registry entry is built FROM them, so a source reading them back would agree with
+ * Earth by construction and hand any other planet Earth's ceiling in silence. Threading the archive
+ * lets a test supply a range that belongs to no body at all, which is the only way this is provable
+ * while one body has a DEM. `featureTilesSource` took the same route for the same reason.
+ *
+ * The spec is a plain object rather than a `RasterDEMSourceSpecification`: naming that type would
+ * pull maplibre-gl into a module the tile Worker compiles under a DOM-free `lib`, which the note at
+ * the top of this file exists to prevent. The call site is where it meets MapLibre and where the
+ * structural check happens.
+ */
+export function terrainDemSource(
+  tileUrlTemplate: string,
+  archive: PublishedArchive,
+  declaredTileSize: number,
+) {
+  return {
+    type: "raster-dem" as const,
+    tiles: [tileUrlTemplate],
+    minzoom: archive.minZoom,
+    maxzoom: archive.maxZoom,
+    tileSize: declaredTileSize,
+    ...terrainEncoding(),
   };
 }
 
