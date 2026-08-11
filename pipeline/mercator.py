@@ -32,6 +32,17 @@ from numpy.typing import NDArray
 #: pins the same value as the body's own radius, which is a separate coincidence with its own test.
 WEB_MERCATOR_RADIUS_M = 6378137.0
 
+#: Half the width of the Web Mercator plane in map units — where the world's east and west edges
+#: sit, and therefore what "this raster is global" means when a caller has only bounds to go on.
+#:
+#: DERIVED, NOT TRANSCRIBED, and that is the whole reason it is here. The digits are what drift: the
+#: suite alone held `20037508.34`, `20037508.343` and the full `20037508.342789244`, each correct to
+#: its own author's tolerance and none of them able to answer whether a raster's bounds ARE the world
+#: or merely near it. Earth's heightfield overshoots this by 12.25 m and Mars lands on it exactly, so
+#: any test of globalness has to be written against a pixel size rather than against these decimals —
+#: which is a judgement a caller can only make if the exact value has one owner.
+MERCATOR_HALF_M = math.pi * WEB_MERCATOR_RADIUS_M
+
 
 def latitude_at(mercator_y, radius_m: float):
     """Latitude in degrees of a Web-Mercator northing, on a sphere of `radius_m`.

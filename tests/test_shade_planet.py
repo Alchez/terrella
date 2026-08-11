@@ -18,7 +18,7 @@ import pytest
 import rasterio
 from rasterio.transform import from_bounds
 
-from pipeline import bodies, freshness, layers, planet_seam
+from pipeline import bodies, freshness, layers, mercator, planet_seam
 from pipeline.render import palette, seaice, snow
 from pipeline.tile import cap_render, shade, shade_planet
 
@@ -926,6 +926,61 @@ class TestTheWarpPassAsksTheSeamBeforeTheDisk:
         commands = self._drive(tmp_path, monkeypatch, planet_seam.KNOWN_RASTERS)
         warped = {command[-1].rsplit("/", 1)[-1] for command in commands}
         assert warped == {"ocean_3857.tif", "water_3857.tif"}
+
+    def test_the_wrap_seam_is_closed_on_a_height_the_warp_did_not_rebuild(
+            self, tmp_path, monkeypatch):
+        """THE GUARD AGAINST THE FILL BEING GATED ON A RE-WARP.
+
+        Every planet already on disk was warped before this stage learned to close the seam, so the
+        one case that matters is the one where `reference_needs_rebuild` says no. A fill placed
+        inside that branch is invisible in every test that lets the warp run, passes review, and
+        leaves every existing body exactly as broken while the code reads as fixed.
+
+        The re-stamp is asserted with it, because filling the raster and NOT restaging is the same
+        defect wearing a different hat: the hillshade and the composite both key on this marker, so
+        without it they keep the cliff and the darkest-stop column they derived from the hole.
+        """
+        work, planet = tmp_path / "work", tmp_path / "planet"
+        work.mkdir()
+        planet.mkdir()
+        # THE BODY IS DERIVED FROM THE FIXTURE, not the other way round. The fill needs global
+        # bounds and the warp gate needs the raster to be at the body's own pixel size, and at any
+        # real body's resolution those two together mean a 131072-wide raster. A body whose pixel is
+        # an eighth of the world satisfies both at 8 px, and neither condition is weakened by it.
+        side = 8
+        span = 2 * mercator.MERCATOR_HALF_M
+        body = dataclasses.replace(self.BARE, map_units_per_pixel=span / side)
+        height = work / "height_3857.tif"
+        array = np.zeros((side, side), dtype=np.float32)
+        array[:, 0] = 1000.0
+        array[:, -2] = -4000.0
+        array[:, -1] = -32768.0
+        with rasterio.open(height, "w", driver="GTiff", width=side, height=side, count=1,
+                           dtype="float32", crs="EPSG:3857", nodata=-32768.0,
+                           transform=from_bounds(-span / 2, -span / 2, span / 2, span / 2,
+                                                 side, side)) as dataset:  # pyright: ignore[reportCallIssue]
+            dataset.write(array, 1)
+        freshness.mark_done(height)
+        marker_before = freshness.done_marker(height).stat().st_mtime_ns
+        for raster in planet_seam.PLANET_RASTERS:
+            source = planet / f"planet_{raster}.vrt"
+            source.write_text("vrt")
+            _age(source, 500)
+        commands: list[list[str]] = []
+        monkeypatch.setattr(shade_planet, "_run", lambda cmd: commands.append([str(p) for p in cmd]))
+
+        shade_planet.warp_inputs(work, planet, body, frozenset({"heightfield"}))
+
+        assert commands == [], "the warp re-ran, so this fixture never exercised the skip path"
+        with rasterio.open(height) as dataset:
+            assert dataset.nodata is None
+            closed = dataset.read(1)
+        assert closed[:, -1] == pytest.approx(-1500.0), (
+            "the seam was left at its sentinel because the fill was gated on a re-warp"
+        )
+        assert freshness.done_marker(height).stat().st_mtime_ns != marker_before, (
+            "the height changed and nothing downstream was told to rebuild"
+        )
 
     def test_the_two_masks_are_gated_separately(self, tmp_path, monkeypatch):
         """Not a pair: Phase 2's chosen shoreline contour gives a body an ocean mask while it still

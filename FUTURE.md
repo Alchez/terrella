@@ -124,6 +124,22 @@ grep HISTORY before re-arguing anything an entry says was already decided.
 - **Adjacent, same sweep:** the tier picker's `radiogroup` a11y defect is already parked here. If
   either is ever picked up, do both — one accessibility pass, one round of judgement.
 
+## Tiles "jump" a little when panning around a pole (observed 2026-08-11, not analysed)
+
+- **Observed by eye on Mars**, after the polar seam fix landed and was judged stable: panning around
+  the pole shows the tiles shifting slightly rather than sliding. Judged not a big deal at the time,
+  and recorded so it is not re-discovered as new.
+- **Nothing here is measured yet** — no camera, no magnitude, no frame capture. Treat every sentence
+  below as a hypothesis to test, not a finding.
+- Likely candidates, in the order worth checking: the render-tile covering set churning as the globe
+  reassigns zoom near the limb (`terrainZoomsFor` records that a pitched view drops a DEM level);
+  the cap-to-tile alpha crossfade re-evaluating per frame; and `TERRAIN_SKIRT_DEFAULT = "none"`,
+  which we ratified knowing it trades skirt artifacts for hairline gaps at zoom boundaries.
+- **The cheapest first move is to tell those apart, not to fix any of them** — `?skirt=auto` isolates
+  the third in one page load, and it is a control that can fail.
+- **Not Mars-specific until shown to be.** Everything named above is body-independent, so check
+  Earth's poles before scoping this as a Mars defect.
+
 ## The polar caps are a texture because MapLibre allows nothing else, and the ceiling is WebP's (analysed 2026-08-07)
 
 - **State at analysis:** each pole ships one AEQD texture with a four-rung ladder (1024/2048/4096/8192)

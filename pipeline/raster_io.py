@@ -40,3 +40,13 @@ def band_window(width: int, row0: int, row1: int) -> Window:
     no py.typed and its old-style attrs __init__ is invisible to the checker.
     """
     return Window(0, row0, width, row1 - row0)  # pyright: ignore[reportCallIssue]
+
+
+def column_window(height: int, col0: int, col1: int) -> Window:
+    """A full-height rasterio Window over columns col0..col1 — `band_window` transposed.
+
+    Here rather than at its caller for the reason in the module docstring: this is the second shape
+    of window this pipeline builds, and the pyright ignore above is only a single home while every
+    shape is built through this module.
+    """
+    return Window(col0, 0, col1 - col0, height)  # pyright: ignore[reportCallIssue]

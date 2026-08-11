@@ -21,7 +21,7 @@ from pipeline import bodies, mercator
 from pipeline.raster_io import band_window
 from pipeline.tile import terrain_rgb
 
-MERCATOR_HALF = 20037508.342789244
+MERCATOR_HALF = mercator.MERCATOR_HALF_M
 
 
 def encode_decode(metres, step=1.0, sea_clamp=False):

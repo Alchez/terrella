@@ -119,6 +119,11 @@ MUTABLE_ROOTS = (
     # at once and shows up as a rebuilt planet that quietly kept one empty layer. There is no output
     # to inspect for a stage that DIDN'T run, which is the whole reason mutation is the only proof.
     "pipeline/freshness.py",
+    # Joined with the antimeridian fill, whose every wrong answer is a PLAUSIBLE one. Copying a
+    # neighbour instead of interpolating across the seam is within noise of correct on real terrain
+    # (the two differ by a median of 2.2 m), and the refusal that keeps it from smoothing genuine
+    # source gaps produces no output at all while it is working. Neither has an artifact to inspect.
+    "pipeline/wrap_seam.py",
     # Joined with the required `--body`. The planet entry points are where a silent Earth assumption
     # would be reintroduced, and it is invisible while Earth is the only body — so the guards against
     # it are worth exactly as much as the proof that they still fire.
@@ -3943,6 +3948,77 @@ SABOTAGES: list[Sabotage] = [
         replacement='def encode_array(elevation: np.ndarray, step: float, sea_clamp: bool,\n'
                     '                 latitudes: np.ndarray | None = None) -> np.ndarray:',
         guard='test_encode_array_takes_nothing_a_caller_could_differ_on',
+    ),
+    # --- the antimeridian fill ------------------------------------------------------------------
+    # THE TEMPTING SIMPLIFICATION, NOT AN ABSURDITY. On real terrain the two neighbours differ by a
+    # median of 2.2 m, so copying one of them is within noise of correct everywhere and no
+    # measurement taken on Mars would separate them. Only a fixture built so the three candidate
+    # answers cannot coincide can see this, which is why that test carries the file's warning.
+    Sabotage(
+        suite='python',
+        label='the wrap fill copies its western neighbour instead of interpolating across the seam',
+        path='pipeline/wrap_seam.py',
+        needle='            midpoint = 0.5 * (west.astype(np.float64) + east.astype(np.float64))',
+        replacement='            midpoint = west.astype(np.float64)',
+        guard='test_the_fill_is_the_midpoint_of_BOTH_neighbours',
+    ),
+    # The generalisation that reads as an improvement: "why refuse a hole when we know how to fill
+    # one?" Because Earth's land DEM fuses a missing Copernicus tile as ocean, so the bodies with
+    # real gaps are exactly the bodies this would invent ground on, silently and at scale.
+    Sabotage(
+        suite='python',
+        label='the wrap fill stops refusing holes off the seam and smooths every gap it finds',
+        path='pipeline/wrap_seam.py',
+        needle='        off_seam = off_seam[off_seam != seam]\n        if off_seam.size:',
+        replacement='        off_seam = off_seam[off_seam != seam]\n        if False:',
+        guard='test_a_hole_off_the_seam_raises_rather_than_being_filled',
+    ),
+    # A column recompute rather than a hole fill. Passes on a fully-missing seam, which is the
+    # fixture anyone would reach for first; Mars's seam is 79% missing, so the 21% of real ground it
+    # would overwrite is invisible until a partial fixture exists.
+    Sabotage(
+        suite='python',
+        label='the wrap fill rewrites the whole seam column rather than only its missing pixels',
+        path='pipeline/wrap_seam.py',
+        needle='            column = np.where(column == missing, midpoint, column).astype(dataset.dtypes[0])',
+        replacement='            column = midpoint.astype(dataset.dtypes[0])',
+        guard='test_pixels_the_warp_did_fill_are_left_alone',
+    ),
+    # THE PLACEMENT BUG, WHICH IS THE ONE THAT ACTUALLY HAPPENED. The fill was first written inside
+    # the warp's freshness branch, where it is invisible to every test that lets the warp run — and
+    # every planet already on disk was warped before this stage existed, so on a real box it would
+    # have done nothing at all while the diff read as a fix.
+    Sabotage(
+        suite='python',
+        label='the wrap fill is gated on a re-warp, so no planet already on disk is ever closed',
+        path='pipeline/tile/shade_planet.py',
+        needle='    filled = wrap_seam.close_wrap_seam(height)',
+        replacement='    filled = 0',
+        guard='test_the_wrap_seam_is_closed_on_a_height_the_warp_did_not_rebuild',
+    ),
+    # Filling the raster and not restaging is the same defect wearing a different hat: the hillshade
+    # and the composite both key on this marker, so they keep the cliff and the darkest-stop column
+    # they derived from a hole that is no longer there.
+    Sabotage(
+        suite='python',
+        label='the wrap fill changes the height and leaves the freshness marker vouching for the old bytes',
+        path='pipeline/tile/shade_planet.py',
+        needle='        print(f"wrap seam: filled {filled} px at the antimeridian -> height restaged", flush=True)\n'
+               '        mark_done(height)',
+        replacement='        print(f"wrap seam: filled {filled} px at the antimeridian", flush=True)',
+        guard='test_the_wrap_seam_is_closed_on_a_height_the_warp_did_not_rebuild',
+    ),
+    # The concept regrowing a second home, in the half of `mercator.py` that had no scan until the
+    # fill needed it. A truncation is the realistic form and passes every tolerance anyone writes.
+    Sabotage(
+        suite='python',
+        label='a pipeline module transcribes half the Mercator plane instead of importing it',
+        path='pipeline/wrap_seam.py',
+        needle='    span = dataset.bounds.right - dataset.bounds.left\n'
+               '    return abs(span - 2.0 * MERCATOR_HALF_M) <= dataset.res[0]',
+        replacement='    span = dataset.bounds.right - dataset.bounds.left\n'
+                    '    return abs(span - 2.0 * 20037508.34) <= dataset.res[0]',
+        guard='test_no_module_regrows_the_mercator_half_extent',
     ),
     Sabotage(
         suite='web',

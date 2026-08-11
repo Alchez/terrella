@@ -315,6 +315,17 @@ whole project.
     cos(lat), so across the 81–84° feather a z7 tile carries ~51 m/px against the cap's 144.7.
   - **The z6 cut had them nearly matched at ~102 m/px and z7 does not**, which makes the cap the
     coarser artifact by 2.8× — the one thing the deeper cut newly puts on screen.
+- **The north polar region is a basin AND the cap inside it is a dome, so the cap standing proud of
+  the plain is correct and is not a displacement bug.** Both readings are true and the question has
+  already been asked once from a rendered frame.
+  - Measured off the heightfield: the 60–85°N zone means **−4,331 m** against **+1,824 m** for the
+    same band in the south, and its *maximum* is −2,428 — not one pixel of it reaches datum.
+  - Within the cap disc elevation climbs monotonically poleward, **−4,343 m** over 80–82° to
+    **−2,186 m** over 88–90°, summit −1,928. Planum Boreum stands ~2.2 km out of Vastitas Borealis
+    while its top is still ~1.9 km below datum.
+  - **The basin is not visible and that is arithmetic, not a defect.** At 15× the north–south
+    difference is 1.45% of the globe radius — about 5 px on a 700 px globe — and a frame displaced
+    together has nothing to read the depression against. The 2.2 km local step is what the eye gets.
 
 ### Exaggeration: two ratios that point opposite ways
 

@@ -50,7 +50,7 @@ import rasterio
 from rasterio.enums import Resampling
 from rasterio.windows import Window
 
-from pipeline import bodies, layers, planet_seam
+from pipeline import bodies, layers, planet_seam, wrap_seam
 from pipeline.freshness import (
     done_marker,
     is_stale,
@@ -427,6 +427,21 @@ def warp_inputs(work: Path, planet: Path, body: bodies.Body, rasters: frozenset[
               "-r", "bilinear", "-ot", "Float32", "-co", "TILED=YES", "-co", "COMPRESS=DEFLATE",
               "-co", "BIGTIFF=YES", "-co", "NUM_THREADS=ALL_CPUS",
               planet / "planet_heightfield.vrt", height])
+        mark_done(height)
+    # OUTSIDE THE FRESHNESS GATE ON PURPOSE, and this is the half that is easy to get wrong: the
+    # raster this has to reach was written by a warp that already ran, so gating the fill on a
+    # re-warp would leave every existing planet exactly as broken while reading as fixed. It is free
+    # to re-ask — a closed raster declares no nodata, so `close_wrap_seam` returns without touching
+    # a pixel — which is what lets it sit here rather than behind a condition.
+    #
+    # Height only, and deliberately not the mask warps below: those are class codes resampled with
+    # `near`, where the midpoint between two categories is not a category.
+    filled = wrap_seam.close_wrap_seam(height)
+    if filled:
+        # The bytes moved, so everything keyed on this marker has to rebuild — the hillshade reads
+        # the filled column as ground instead of a cliff, and the composite ramps it as terrain
+        # instead of clamping it to the darkest stop. Re-stamping IS that instruction.
+        print(f"wrap seam: filled {filled} px at the antimeridian -> height restaged", flush=True)
         mark_done(height)
     with rasterio.open(height) as dataset:
         bounds = [repr(value) for value in dataset.bounds]

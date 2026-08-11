@@ -127,6 +127,42 @@ def test_no_module_regrows_web_mercators_sphere() -> None:
     )
 
 
+#: How far from `MERCATOR_HALF_M` a literal can sit and still be a transcription of it rather than
+#: an unrelated number. A metre, because the copies this catches are TRUNCATIONS — the suite alone
+#: held `20037508.34` and `20037508.343` beside the full value — and an exact-equality scan would
+#: wave through every one of them while reporting the concept as owned.
+HALF_EXTENT_TOLERANCE_M = 1.0
+
+
+def test_no_module_regrows_the_mercator_half_extent() -> None:
+    """The sibling of the scan above, over the OTHER constant `mercator.py` owns.
+
+    Both are one concept — the plane the tile grid lives on — and guarding one of them was an
+    accident of which copy got hunted first. The half-extent is if anything the worse one to leave
+    open, because it is what a caller compares BOUNDS against to decide a raster is global: a
+    regrown `20037508.34` is 0.003 m off, so it passes every tolerance anyone would write and the
+    drift never announces itself.
+
+    Same AST parse rather than a grep, for the same reason the sibling gives — prose naming the
+    number is prose, and `mercator.py`'s own docstring quotes all three spellings on purpose.
+    """
+    offenders = {}
+    for path in sorted((paths.ROOT / "pipeline").rglob("*.py")):
+        relative = str(path.relative_to(paths.ROOT))
+        if relative in RADIUS_OWNERS:
+            continue
+        found = [node.lineno for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
+                 if isinstance(node, ast.Constant) and isinstance(node.value, float)
+                 and abs(node.value - mercator.MERCATOR_HALF_M) <= HALF_EXTENT_TOLERANCE_M]
+        if found:
+            offenders[relative] = found
+    assert not offenders, (
+        f"these modules have regrown half the Web Mercator plane: {offenders}. Import "
+        "`mercator.MERCATOR_HALF_M` — it is derived from the sphere radius, so importing it is also "
+        "what keeps the two constants from disagreeing about the same projection."
+    )
+
+
 def test_earth_carries_web_mercator_s_defining_sphere() -> None:
     """Pinned to the literal, because this one is not a tunable.
 
