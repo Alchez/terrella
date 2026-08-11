@@ -213,6 +213,46 @@ describe("joinRailGroup — a widget lands in the pill it belongs to", () => {
     const container = rail(`<div class="maplibregl-ctrl maplibregl-ctrl-group"></div>`);
     expect(findRailGroup(container, ".maplibregl-ctrl-fullscreen")).toBeNull();
   });
+
+  it('puts a "start" button ahead of the control it joins', () => {
+    // The quiet toggle's case. It is the one control quiet mode leaves on screen, so it has to lead
+    // its pill or it inherits a divider from the button above it — see railIcons.browser.test.
+    const container = rail(
+      `<div class="maplibregl-ctrl maplibregl-ctrl-group"><button class="maplibregl-ctrl-fullscreen"></button></div>`,
+    );
+    const quiet = createRailToggle({ className: "rg-ctrl-quiet", label: "Hide", onToggle: () => {} });
+    const landed = joinRailGroup(container, ".maplibregl-ctrl-fullscreen", quiet.button, "start");
+
+    expect(landed.firstElementChild).toBe(quiet.button);
+  });
+
+  it('carries "start" to the fallback GROUP too, not just to the button', () => {
+    // The half that is easy to miss, and it fails on exactly one device class. Where
+    // `FullscreenControl` renders nothing there is no group to lead, so the placement has to decide
+    // where the NEW pill goes — and appending it would park the eye below the camera group: a lone
+    // glyph partway down an otherwise empty right edge, which is the state the whole reorder exists
+    // to remove. A button-only reading of "start" passes the test above and still ships that.
+    const container = rail(
+      `<div class="maplibregl-ctrl maplibregl-ctrl-group"><button class="maplibregl-ctrl-zoom-in"></button></div>`,
+    );
+    const quiet = createRailToggle({ className: "rg-ctrl-quiet", label: "Hide", onToggle: () => {} });
+    const landed = joinRailGroup(container, ".maplibregl-ctrl-fullscreen", quiet.button, "start");
+
+    expect(container.querySelectorAll(".maplibregl-ctrl-group")).toHaveLength(2);
+    expect(container.firstElementChild, "the fallback pill must lead the corner").toBe(landed);
+  });
+
+  it('still appends by default, which is what spin and search rely on', () => {
+    // The default is load-bearing: two other callers join the camera group and must land AFTER
+    // zoom and compass. A placement that changed meaning without them would reorder the rail.
+    const container = rail(
+      `<div class="maplibregl-ctrl maplibregl-ctrl-group"><button class="maplibregl-ctrl-zoom-in"></button></div>`,
+    );
+    const spin = createRailToggle({ className: "rg-ctrl-spin", label: "Spin", onToggle: () => {} });
+    const landed = joinRailGroup(container, ".maplibregl-ctrl-zoom-in", spin.button);
+
+    expect(landed.lastElementChild).toBe(spin.button);
+  });
 });
 
 describe("the browser project is actually running in a browser", () => {

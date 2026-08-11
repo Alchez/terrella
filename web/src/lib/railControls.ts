@@ -113,6 +113,18 @@ export function findRailGroup(container: HTMLElement, buttonSelector: string): H
 }
 
 /**
+ * Where a joining button sits in its group's reading order.
+ *
+ * IT DECIDES TWO POSITIONS, NOT ONE, and that is the whole reason it is a parameter rather than a
+ * `prepend` at the call site. `"start"` also means "and if the control you are joining never
+ * rendered, put your new group at the TOP of the corner" — because the two cases have to agree.
+ * `FullscreenControl` draws nothing where the Fullscreen API is absent, so on that device a
+ * `"start"` button that only knew about its group would land in a pill appended below the camera:
+ * a lone eye halfway down the right edge, which is the exact state this placement exists to stop.
+ */
+export type RailPlacement = "start" | "end";
+
+/**
  * Put `button` in the group holding `buttonSelector`, or in a new group of its own if that
  * control never rendered — `FullscreenControl` draws nothing where the Fullscreen API is absent
  * (iPhone Safari), and the quiet toggle must not disappear with it.
@@ -123,15 +135,18 @@ export function joinRailGroup(
   container: HTMLElement,
   buttonSelector: string,
   button: HTMLButtonElement,
+  placement: RailPlacement = "end",
 ): HTMLElement {
   const existing = findRailGroup(container, buttonSelector);
   if (existing) {
-    existing.append(button);
+    if (placement === "start") existing.prepend(button);
+    else existing.append(button);
     return existing;
   }
   const group = document.createElement("div");
   group.className = "maplibregl-ctrl maplibregl-ctrl-group";
   group.append(button);
-  container.append(group);
+  if (placement === "start") container.prepend(group);
+  else container.append(group);
   return group;
 }

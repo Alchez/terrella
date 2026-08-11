@@ -185,9 +185,23 @@
    read back below rather than restated. Before this existed the card was written at a flat
    `right: 1.2rem` and simply sat ON TOP of the rail — zoom, compass, spin and search all covered
    the moment a feature was picked, on both bodies. */
+/* HOW FAR FLOATING CHROME SITS FROM THE VIEWPORT EDGE, and it is one distance rather than two. Our
+   own elements were written at a literal `1.2rem` in six places while MapLibre's control corners
+   used its own hardcoded `10px` — so the rail sat 9.2px higher and 9.2px further out than the
+   top-left row it is meant to line up with, on every page and every width. Reported from a phone as
+   the two rows not being level. The override below is what makes the rail read this instead. */
 :root {
+  --page-inset: 1.2rem;
   --rail-button-size: 2.15rem;
-  --rail-clearance: calc(var(--rail-button-size) + 10px + 0.5rem);
+  --rail-clearance: calc(var(--rail-button-size) + var(--page-inset) + 0.5rem);
+}
+
+/* MapLibre's own `margin: 10px 10px 0 0` on every control in this corner, replaced rather than
+   fought: its rule is (0,2,0) and this doubles a class to beat it, the same trick every selector in
+   this file uses. Both the top and the right come from one token, so the rail cannot go level with
+   the left-hand row while drifting away from the right-hand edge. */
+.maplibregl-ctrl-top-right .maplibregl-ctrl.maplibregl-ctrl {
+  margin: var(--page-inset) var(--page-inset) 0 0;
 }
 
 .maplibregl-ctrl-top-right .maplibregl-ctrl-group.maplibregl-ctrl-group {
@@ -316,7 +330,7 @@
    a fixed corner would have to be re-derived every time a control is added. */
 .rg-search {
   position: absolute;
-  top: 10px; /* MapLibre's own ctrl margin, so the panel starts level with the first group */
+  top: var(--page-inset); /* the corner's own control margin, so it starts level with the first group */
   right: 100%;
   margin-right: 0.5rem;
   z-index: 10;
@@ -344,11 +358,10 @@
 }
 /* NARROW, WHERE THE PANEL REACHES BACK INTO THE TOP-LEFT CHROME. Its left edge is the viewport
    minus the rail's clearance minus its own width, so it crosses `← Gallery`'s row at a viewport of
-   610 px — measured, with the panel at its 22rem ceiling and the row at its present content. Below
-   that the field renders underneath the Gallery pill. Dropping the panel past the row's 56 px
-   bottom is the fix that keeps its width: narrowing it instead would truncate the names it exists
-   to show. The breakpoint sits above the crossover on purpose, since the row's width is content and
-   a second body's could be wider. */
+   610 px — measured, with the panel at its 22rem ceiling and the row at its present content. The
+   breakpoint sits above the crossover on purpose, since the row's width is content and a second
+   body's could be wider. The panel used to drop past that row to 4.2rem; now the row yields
+   instead — see `body.panel-open` below for why that is the right way round. */
 @media (max-width: 40rem) {
   .rg-search {
     /* FIXED WITH BOTH EDGES NAMED, so the panel fills the width that is actually free instead of
@@ -356,11 +369,38 @@
        hugging the rail and dead space down its left; here the only two facts are the margin and
        the rail's own footprint, and the width falls out of them. */
     position: fixed;
-    top: 4.2rem;
+    top: var(--page-inset);
     left: 0.75rem;
     right: var(--rail-clearance);
     width: auto;
     margin-right: 0;
+  }
+}
+
+/* A PANEL IS OPEN AND THE VIEWPORT IS A PHONE, so the top band has one occupant instead of three.
+   `body.panel-open` is true for the card and for the search field alike — they are the same box in
+   the same band, and each already closes the other.
+
+   WHY THE ROW YIELDS AND NOT THE PANEL. At 390 px the panel spans 326 px of a 390 px viewport
+   between the margin and the rail, so nothing else fits on that line: either the panel drops below
+   the row, or the row goes. Dropping it costs 48 px of a ~660 px screen and still leaves a strip of
+   three pills reading as debris above the thing being read — reported as exactly that. The row is
+   also the one cluster with no job during the interaction: these are ways OFF the globe, and a
+   visitor reading a card is not leaving.
+
+   THE CREDIT GOES TOO, WHICH QUIET MODE DELIBERATELY DOES NOT DO, and the difference is the state
+   rather than the element. Quiet is persistent — you can sit in it, and the ghosted ⓘ is the only
+   licence pointer left on screen. A card is transient, carries its own ×, answers Escape, and
+   restores the whole row on close; occluding it with a 326 px panel and calling that "kept" would
+   be worse than hiding it honestly. `/about` carries the full credits either way.
+
+   `display`, not `visibility`, for the same reason as quiet mode's: hidden-but-present, these keep
+   their width and the panel would still be starting below a row of invisible boxes. */
+@media (max-width: 40rem) {
+  body.panel-open .globe-home,
+  body.panel-open .globe-source,
+  body.panel-open .chrome-credit.chrome-credit.maplibregl-ctrl {
+    display: none;
   }
 }
 .rg-search-field {
@@ -499,6 +539,13 @@
    rather than a view option. Each fades to a quarter and returns on hover or focus, so the exit
    and the licence are both reachable without either reading as chrome.
 
+   THE EYE REACHES ITS CORNER BY DOM ORDER, NOT BY A RULE HERE, and that is why nothing below
+   repositions it. The camera group is hidden with `visibility`, which keeps its box — so the eye
+   sits wherever the groups before it leave it, and the fix was to make the frame group FIRST in
+   `Globe.astro` rather than to re-anchor the survivor from the stylesheet. Do not "tidy" that call
+   order back: with the camera group first, this state puts a lone eye a five-button pill down an
+   otherwise empty right edge.
+
    `.globe-chrome` is NOT hidden as a whole any more — it holds the credit now, so its two links
    are hidden individually. `visibility` rather than `display` keeps the ⓘ where it already is;
    collapsing the row would slide it into the corner, which is motion for no reason. */
@@ -522,28 +569,18 @@ body.is-quiet .globe-source {
 /* Fullscreen goes too: one ghost per corner, per the note above. And a ghost is a GLYPH, not a
    filled button — the quiet toggle is pressed in this state, so without the cancel below it keeps
    its accent fill, and as the group's only remaining child it fills the whole 999px box: a solid
-   disc over the map where a ghost belongs. */
+   disc over the map where a ghost belongs.
+
+   NO DIVIDER CANCEL IS NEEDED HERE, and it used to be. `button + button` matches DOM ORDER rather
+   than visibility, so while the group read [fullscreen, quiet] the surviving eye went on counting
+   as "a button after a button": it kept a 1px hairline that the group's 999px radius clipped into
+   a dark chord across the top of the circle, reported from a phone as a nick out of the icon. The
+   group now reads [quiet, fullscreen], so the eye is the FIRST child and no `+` selector reaches
+   it — the ordering that put the ghost in its corner deleted this rule as a side effect. */
 body.is-quiet .maplibregl-ctrl-fullscreen {
   display: none;
 }
-/* ...and the divider it left behind. `+` matches DOM ORDER, not visibility, so hiding fullscreen
-   does not stop the quiet button below it from still counting as "a button after a button" — it
-   kept its 1px hairline while becoming the group's first VISIBLE child, and the group's 999px
-   radius clipped that line into a dark chord across the top of the circle. Reported from a phone,
-   where it reads as a nick out of the icon.
-
-   Keyed on the hidden NEIGHBOUR rather than on the quiet button, so it states the actual rule —
-   a divider needs two visible siblings — and stays right if anything else is ever hidden here.
-   The doubled group class is not decoration: the divider above is (0,4,2) and this has to beat
-   it, which the obvious `body.is-quiet .rg-ctrl-quiet` (0,3,1) would not. */
-body.is-quiet
-  .maplibregl-ctrl-top-right
-  .maplibregl-ctrl-group.maplibregl-ctrl-group
-  .maplibregl-ctrl-fullscreen
-  + button {
-  border-top-width: 0;
-}
-/* The cancel itself, and it needs the doubled group class for the same reason the divider's does.
+/* The pressed-state cancel, and it needs the doubled group class for the reason below.
    The "filled = on" rule is (0,4,1) through its own doubled class, so the obvious
    `body.is-quiet .rg-ctrl-quiet[aria-pressed="true"]` is (0,3,1) and loses — written that way it
    never applied at all. BOTH declarations are load-bearing and both were dead: `color` loses to

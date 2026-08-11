@@ -18,6 +18,9 @@ import { describe, expect, it } from "vitest";
 
 const LIB_DIR = path.dirname(fileURLToPath(import.meta.url));
 const GLOBE = readFileSync(path.resolve(LIB_DIR, "../components/Globe.astro"), "utf8");
+/** The globe's GLOBAL rules. The page writes a body class that only this file can act on, so the
+ *  two spellings have to be compared across the seam — see the class guard below. */
+const GLOBE_CSS = readFileSync(path.resolve(LIB_DIR, "../styles/globe.css"), "utf8");
 
 /** The body of `wireFeatureInteraction`, so an assertion cannot be satisfied by a line that happens
  *  to sit in Earth's half of the file. Sliced to the next top-level `function ` at the same indent,
@@ -206,19 +209,64 @@ describe("the right-hand band holds one box at a time, and none of them cover th
   });
 
   it("clears the rail rather than covering it, on BOTH bodies", () => {
-    // At a flat `right: 1.2rem` the card sat on top of the whole top-right stack from the moment
-    // anything was picked — its z-index is 30 against MapLibre's control corner at 2 — so zoom,
-    // compass, spin and fullscreen were all unreachable behind it. Earth had this too.
+    // At a flat inset the card sat on top of the whole top-right stack from the moment anything was
+    // picked — its z-index is 30 against MapLibre's control corner at 2 — so zoom, compass, spin
+    // and fullscreen were all unreachable behind it. Earth had this too.
     expect(GLOBE).toContain("right: var(--rail-clearance);");
-    expect(GLOBE).toContain("width: min(420px, calc(100vw - 1.2rem - var(--rail-clearance)));");
+    expect(GLOBE).toContain(
+      "width: min(420px, calc(100vw - var(--page-inset) - var(--rail-clearance)));",
+    );
     expect(GLOBE).not.toMatch(/\.detail-panel\s*\{[^}]*right:\s*1\.2rem/);
   });
 
-  it("drops below the top-left chrome narrow, where clearing the rail is not enough", () => {
-    // Widening into the space the rail leaves puts the card's left edge back over `← Gallery`.
-    // Same breakpoint as the search panel, so the two right-side boxes behave alike.
-    const scoped = GLOBE.slice(GLOBE.indexOf(".detail-panel[hidden]"));
-    expect(scoped).toContain("@media (max-width: 40rem)");
-    expect(scoped).toContain("top: 4.2rem;");
+  it("takes the whole narrow band rather than dropping below the row it would cover", () => {
+    // Widening into the space the rail leaves puts the card's left edge back over `← Gallery`, and
+    // the first fix dropped the card past that row. At 390 px the card spans 326 px of the
+    // viewport, so nothing shares its line either way — dropping it cost 48 px AND left the row
+    // reading as debris above the card. The row yields now, on a class the page writes.
+    //
+    // READ OUT OF THE CARD'S OWN RULE, not out of a slice of the file. Written as a region scan
+    // anchored on `.detail-panel[hidden]` this MISSED its own mutation twice over: the declaration
+    // it guards sits ABOVE that anchor, and `top: var(--page-inset)` is true of four other rules,
+    // so both halves passed against a card pinned back at 4.2rem.
+    const rules = [...GLOBE.matchAll(/\.detail-panel\s*\{([^}]*)\}/g)].map((match) => match[1]);
+    expect(rules, "the card must still have exactly one positioning rule").toHaveLength(1);
+    expect(rules[0], "the card starts at the shared inset, at every width").toMatch(
+      /top:\s*var\(--page-inset\);/,
+    );
+  });
+});
+
+describe("a narrow phone gives the open box the whole top band", () => {
+  it("writes the class from BOTH occupants' state, not from whoever moved last", () => {
+    // The card and the field close each other, so every open runs a close first. Two
+    // `toggle(true/false)` calls would depend on listener order, and the failure is a phone whose
+    // way back to the gallery is gone with nothing on screen explaining it.
+    expect(GLOBE).toContain(
+      "const occupied = !panel.hidden || (searchPanel?.isOpen() ?? false);",
+    );
+    // Every state change has to reach it: the card opening, the card closing, the field either way.
+    expect(GLOBE.match(/reflectBand\(\);/g) ?? [], "three call sites, one per transition").toHaveLength(3);
+  });
+
+  it("spells the class the same on both sides of a seam nothing can close", () => {
+    // A stylesheet cannot import a constant, so the name exists twice — and a class that matches
+    // nothing is valid CSS that cascades and does nothing. Derived from the page rather than
+    // listed, so renaming it in one place is what fails rather than editing this line.
+    const declared = GLOBE.match(/const PANEL_OPEN_CLASS = "([\w-]+)";/);
+    expect(declared, "the page must still name the class it writes").not.toBeNull();
+    expect(GLOBE_CSS, "globe.css must carry rules for the class the page writes").toContain(
+      `body.${declared![1]} `,
+    );
+  });
+
+  it("hides the credit with the links it sits beside, and says why in the same breath", () => {
+    // The one that looks like an oversight and is not: quiet mode deliberately KEEPS the credit as
+    // a ghost, because quiet is a state you can sit in. A card is transient and restores the row on
+    // close. Asserting all three together is what stops a later reader "restoring" one of them.
+    const block = GLOBE_CSS.slice(GLOBE_CSS.indexOf("body.panel-open .globe-home"));
+    for (const hidden of [".globe-home", ".globe-source", ".chrome-credit"]) {
+      expect(block.slice(0, 300), `${hidden} must yield with the rest of the row`).toContain(hidden);
+    }
   });
 });

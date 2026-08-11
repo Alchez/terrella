@@ -98,9 +98,43 @@ function maskedControlClasses(): string[] {
   return [...found];
 }
 
+/** One rail button in MapLibre's own markup, which is what the shared icon rule keys on. */
+function railButton(controlClass: string): string {
+  const pressed = controlClass === "rg-ctrl-quiet" ? ' aria-pressed="true"' : "";
+  return `<button class="${controlClass}"${pressed}><span class="maplibregl-ctrl-icon" aria-hidden="true"></span></button>`;
+}
+
+/**
+ * The rail as quiet mode leaves it — the frame group, the camera group, and `is-quiet` on the body.
+ *
+ * `frameButtons` is the order INSIDE the frame group, and it is the whole subject: that order is
+ * the only difference between a lone eye and an eye wearing a clipped hairline, and it is decided
+ * in `Globe.astro` where no stylesheet can see it.
+ */
+function mountQuietRail(frameButtons: readonly string[]) {
+  inject(globalCss);
+  inject(globalStyleBlock());
+  inject(maplibreCss);
+
+  document.body.className = "is-quiet";
+  document.body.innerHTML = `
+    <div class="maplibregl-ctrl-top-right">
+      <div class="maplibregl-ctrl maplibregl-ctrl-group">${frameButtons.map(railButton).join("")}</div>
+      <div class="maplibregl-ctrl maplibregl-ctrl-group">${["maplibregl-ctrl-zoom-in", "maplibregl-ctrl-zoom-out", "rg-ctrl-spin"].map(railButton).join("")}</div>
+    </div>`;
+
+  const quiet = document.querySelector(".rg-ctrl-quiet");
+  const camera = document.querySelector(".maplibregl-ctrl-zoom-in")?.closest(".maplibregl-ctrl-group");
+  if (!(quiet instanceof HTMLElement) || !(camera instanceof HTMLElement)) {
+    throw new Error("the quiet rail did not mount");
+  }
+  return { quiet, camera };
+}
+
 afterEach(() => {
   for (const element of installed.splice(0)) element.remove();
   document.body.innerHTML = "";
+  document.body.className = "";
 });
 
 describe("the rail's icons are masks, not images", () => {
@@ -204,5 +238,111 @@ describe("every icon payload is a decodable SVG", () => {
         "every icon is sized by mask-size against its viewBox, so it must declare one",
       ).not.toBeNull();
     }
+  });
+});
+
+describe("quiet mode leaves ONE ghost, and it is in the corner", () => {
+  it("gives the surviving eye no hairline, because it leads its group", () => {
+    // The defect this replaces: with the group ordered [fullscreen, quiet], quiet mode set
+    // fullscreen to `display: none` and the eye went on matching `button + button` — DOM order,
+    // not visibility — so it kept a 1px top border that the group's 999px radius clipped into a
+    // dark chord across the top of the circle. Reported from a phone as a nick out of the icon,
+    // and cured at the time with a `border-top-width: 0` cancel. Ordering the group [quiet,
+    // fullscreen] makes the eye the first child, so no `+` selector reaches it and the cancel is
+    // gone. Computed, not scanned: this is the state the phone showed.
+    const { quiet } = mountQuietRail(["rg-ctrl-quiet", "maplibregl-ctrl-fullscreen"]);
+    expect(getComputedStyle(quiet).borderTopWidth).toBe("0px");
+  });
+
+  it("grows the chord straight back if the group is reordered — the positive control", () => {
+    // Without this the assertion above would pass just as happily against a stylesheet with no
+    // divider rule at all, i.e. while measuring nothing. Same sheets, same body class, only the
+    // order changed, and the hairline must return.
+    const { quiet } = mountQuietRail(["maplibregl-ctrl-fullscreen", "rg-ctrl-quiet"]);
+    expect(
+      getComputedStyle(quiet).borderTopWidth,
+      "the divider must still be live, or the no-hairline assertion is vacuous",
+    ).not.toBe("0px");
+  });
+
+  it("hides the camera group while keeping the frame group visible", () => {
+    // The `:not(:has(.rg-ctrl-quiet))` split, rendered. It is `visibility` rather than `display` on
+    // purpose — the box stays, which is exactly why the frame group has to come FIRST rather than
+    // be re-anchored from here.
+    const { quiet, camera } = mountQuietRail(["rg-ctrl-quiet", "maplibregl-ctrl-fullscreen"]);
+    expect(getComputedStyle(camera).visibility).toBe("hidden");
+    expect(getComputedStyle(quiet).visibility).toBe("visible");
+  });
+
+  it("keeps the page building that order, which no stylesheet can state", () => {
+    // Both halves, because either one alone leaves the eye adrift. `addControl` APPENDS at every
+    // `top-*` position, so the two calls' order IS the column's order; and the quiet button joins
+    // at `"start"`, which is also what puts its fallback group at the top of the corner on a
+    // browser where `FullscreenControl` renders nothing at all.
+    const fullscreen = globeSource.indexOf("map.addControl(new maplibregl.FullscreenControl");
+    const navigation = globeSource.indexOf("map.addControl(new maplibregl.NavigationControl");
+    expect(fullscreen, "the page must still add a FullscreenControl").toBeGreaterThan(-1);
+    expect(navigation, "the page must still add a NavigationControl").toBeGreaterThan(-1);
+    expect(fullscreen, "the frame group must be added before the camera group").toBeLessThan(
+      navigation,
+    );
+    expect(globeSource).toContain(
+      'joinRailGroup(map.getContainer(), ".maplibregl-ctrl-fullscreen", quietToggle.button, "start")',
+    );
+  });
+});
+
+/**
+ * `--page-inset` in px, resolved by the browser rather than restated as a number here.
+ *
+ * THE PROBE MEASURES A MARGIN BECAUSE THE SUBJECT IS A MARGIN. Read off `width` instead it comes
+ * back 19.1875px against the margin's 19.2px — a used width is snapped to the layout grid and a
+ * computed margin is not, so the two disagree by a 64th of a pixel and the assertion fails on the
+ * instrument rather than on the rule.
+ */
+function resolvedPageInset(): string {
+  const probe = document.createElement("div");
+  probe.style.position = "absolute";
+  probe.style.marginTop = "var(--page-inset)";
+  document.body.append(probe);
+  const inset = getComputedStyle(probe).marginTop;
+  probe.remove();
+  expect(inset, "--page-inset must resolve, or both assertions below compare nothing").not.toBe(
+    "0px",
+  );
+  return inset;
+}
+describe("the rail sits the same distance off the edge as the row opposite it", () => {
+
+  it("takes both offsets from the one token the top-left row uses", () => {
+    // MapLibre hardcodes `margin: 10px 10px 0 0` here, so the rail sat 9.2px above and 9.2px
+    // outside a row written at 1.2rem. Reported from a phone as the two rows not being level.
+    // Computed, because the failure is a cascade one: our rule and theirs are both valid CSS.
+    const { icon } = mountRail("maplibregl-ctrl-zoom-in");
+    const group = icon.closest(".maplibregl-ctrl-group");
+    if (!(group instanceof HTMLElement)) throw new Error("the group did not mount");
+
+    const inset = resolvedPageInset();
+    const style = getComputedStyle(group);
+    expect(style.marginTop, "level with the top-left row").toBe(inset);
+    expect(style.marginRight, "and the same distance in from its own edge").toBe(inset);
+  });
+
+  it("loses to MapLibre's own margin without the doubled class — the positive control", () => {
+    // Their rule is (0,2,0) and injected at RUNTIME, so it lands after ours wherever ours sits.
+    // Drop one class from our selector and the override must stop applying, which is what makes
+    // the assertion above a measurement of the cascade rather than of a literal.
+    const weakened = globalStyleBlock().replace(
+      ".maplibregl-ctrl-top-right .maplibregl-ctrl.maplibregl-ctrl {",
+      ".maplibregl-ctrl-top-right .maplibregl-ctrl {",
+    );
+    const { icon } = mountRail("maplibregl-ctrl-zoom-in", weakened);
+    const group = icon.closest(".maplibregl-ctrl-group");
+    if (!(group instanceof HTMLElement)) throw new Error("the group did not mount");
+
+    expect(
+      getComputedStyle(group).marginTop,
+      "MapLibre's rule must be live, or the override assertion is vacuous",
+    ).toBe("10px");
   });
 });

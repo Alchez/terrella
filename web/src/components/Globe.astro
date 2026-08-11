@@ -128,11 +128,13 @@ import { REPO_URL } from "../lib/siteLinks";
     z-index: 1;
   }
   /* The top-left row holds the position; the pills inside it just sit in order, so adding a
-     third would need no arithmetic. */
+     third would need no arithmetic. `--page-inset` is the one distance every floating element in
+     this page is set off the viewport by — including MapLibre's control corners, which used to
+     carry their own 10px and so sat 9.2px above this row. Owned in `styles/globe.css`. */
   .globe-chrome {
     position: fixed;
-    top: 1.2rem;
-    left: 1.2rem;
+    top: var(--page-inset);
+    left: var(--page-inset);
     z-index: 20;
     display: flex;
     align-items: center;
@@ -192,7 +194,7 @@ import { REPO_URL } from "../lib/siteLinks";
      rather than as another control. */
   .country-chip {
     position: fixed;
-    top: 1.2rem;
+    top: var(--page-inset);
     left: 50%;
     transform: translateX(-50%);
     z-index: 20;
@@ -257,7 +259,7 @@ import { REPO_URL } from "../lib/siteLinks";
      dissolves as soon as anyone acts on it. */
   .globe-noscript {
     position: fixed;
-    inset: auto 1.2rem 1.2rem;
+    inset: auto var(--page-inset) var(--page-inset);
     z-index: 20;
     margin: 0;
     padding: 1rem 1.2rem;
@@ -298,15 +300,15 @@ import { REPO_URL } from "../lib/siteLinks";
      globe stays live behind it. Same token treatment as .globe-home. */
   .detail-panel {
     position: fixed;
-    top: 1.2rem;
-    /* CLEARS THE RAIL RATHER THAN COVERING IT. At a flat 1.2rem this card sat on top of the whole
+    top: var(--page-inset);
+    /* CLEARS THE RAIL RATHER THAN COVERING IT. At a flat inset this card sat on top of the whole
        top-right stack — zoom, compass, spin, fullscreen, quiet — from the moment anything was
        picked, on BOTH bodies, because its z-index is 30 against MapLibre's control corner at 2.
        `--rail-clearance` is the rail's own footprint, owned once in globe.css. */
     right: var(--rail-clearance);
     z-index: 30;
-    width: min(420px, calc(100vw - 1.2rem - var(--rail-clearance)));
-    max-height: calc(100vh - 2.4rem);
+    width: min(420px, calc(100vw - var(--page-inset) - var(--rail-clearance)));
+    max-height: calc(100vh - 2 * var(--page-inset));
     overflow: auto;
     display: flex;
     flex-direction: column;
@@ -322,14 +324,9 @@ import { REPO_URL } from "../lib/siteLinks";
   }
   /* NARROW, WHERE CLEARING THE RAIL IS NOT ENOUGH. Widening the card to the space the rail leaves
      puts its left edge back over the top-left chrome row — measured at a 500 px viewport, the card
-     runs from 28 px and `← Gallery` to 203 px. Below the row, exactly as the search panel does at
-     the same breakpoint, so the two right-side boxes behave the same way at the same width. */
-  @media (max-width: 40rem) {
-    .detail-panel {
-      top: 4.2rem;
-      max-height: calc(100vh - 5.4rem);
-    }
-  }
+     runs from 28 px and `← Gallery` to 203 px. The card used to drop below that row; the row now
+     yields instead, on `body.panel-open`, which is written for both right-side boxes at once in
+     globe.css. Nothing is left here to override, so the whole narrow block is gone. */
   .dp-close {
     position: absolute;
     top: 0.5rem;
@@ -870,14 +867,23 @@ import { REPO_URL } from "../lib/siteLinks";
     perfEventStamps.firstIdleMs = performance.now();
   });
 
-  // THE CAMERA RAIL. Two groups by design: zoom + compass + spin (where you are looking FROM),
-  // then fullscreen + the quiet toggle (the frame around it). Spin and quiet are appended into
-  // these two groups further down, beside the state each one drives — see railControls.ts for why
-  // they are plain widgets rather than IControls.
-  map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-right");
+  // THE CAMERA RAIL. Two groups by design: the quiet toggle + fullscreen (the frame the globe is
+  // seen through), then zoom + compass + spin (where you are looking FROM). Spin and quiet are
+  // appended into these two groups further down, beside the state each one drives — see
+  // railControls.ts for why they are plain widgets rather than IControls.
+  //
+  // THE FRAME GROUP IS FIRST BECAUSE OF WHAT QUIET MODE LEAVES BEHIND. Quiet hides the camera group
+  // with `visibility`, which keeps its box — so with the camera first, the one control still on
+  // screen was pushed down by a five-button pill nobody could see, and the eye ended up floating
+  // partway down the right edge against nothing. Reported from a phone as "at an arbitrary place".
+  // Ordering the corner outermost-first — the frame, then the camera inside it — puts the ghost in
+  // the corner it belongs to and costs the reorder nothing else. `addControl` APPENDS at every
+  // top-* position, so this order IS the call order and swapping these two lines is the whole move.
+  //
   // Fullscreen the PAGE, not the map container: the floating UI (gallery link, detail
   // card, toggle stack) are siblings of #globe and would vanish if only it went fullscreen.
   map.addControl(new maplibregl.FullscreenControl({ container: document.body }), "top-right");
+  map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-right");
   //
   // DO NOT ADD GlobeControl. Flat Mercator drops two signature features silently: `polarCaps.ts`
   // returns early from render() while `defaultProjectionData.projectionTransition < 1` ("on the
@@ -1005,7 +1011,7 @@ import { REPO_URL } from "../lib/siteLinks";
   updateRuler();
 
   // Quiet mode — the chrome put away so the render is the whole frame. Its button joins the
-  // rail's SECOND group, beside fullscreen: both frame the view rather than move the camera, and
+  // rail's FRAME group, beside fullscreen: both frame the view rather than move the camera, and
   // that hairline gap is the only thing on the page stating the difference.
   //
   // Wired through a hoisted `reflectQuiet` rather than two consts referring to each other: the
@@ -1022,13 +1028,28 @@ import { REPO_URL } from "../lib/siteLinks";
   // everywhere else, which is why both readers ask rather than assume. TWO of them now — quiet mode
   // and `openPanel` — so it is named for what it is rather than for the first thing that wanted it.
   let searchPanel: FeatureSearchBox | null = null;
+  /**
+   * The class saying a right-side box holds the top band — the card or the search field, since
+   * they are one box in one band and each closes the other. `panel-open` rather than a name per
+   * occupant, because the narrow layout does not care WHICH is up, only that the band is taken.
+   *
+   * A LITERAL ON BOTH SIDES OF A SEAM NOTHING CAN CLOSE: a stylesheet cannot import a constant, so
+   * `globe.css` spells the class out and this spells it out again — the same shape `QUIET_CLASS`
+   * and `borders-on` already live with. `pageStyles.test.ts` reads both and refuses a disagreement,
+   * which is the only thing that can, since a class that matches nothing is valid CSS.
+   */
+  const PANEL_OPEN_CLASS = "panel-open";
   function reflectQuiet(next: boolean): void {
     quietToggle.setPressed(next);
     // Entering quiet closes the search. See the note where the panel is mounted: it is not a
     // `.maplibregl-ctrl-group`, so the stylesheet's rule for hiding the rail cannot reach it.
     if (next) searchPanel?.close();
   }
-  joinRailGroup(map.getContainer(), ".maplibregl-ctrl-fullscreen", quietToggle.button);
+  // `"start"`, so the eye leads the whole column and not just its pill. It is the one control quiet
+  // mode leaves visible, so its position is the position of the ONLY thing on screen — and the
+  // placement carries to the fallback group too, which is what keeps that true on a browser where
+  // fullscreen never renders. See `RailPlacement`.
+  joinRailGroup(map.getContainer(), ".maplibregl-ctrl-fullscreen", quietToggle.button, "start");
 
   // Terrain (?terrain=N, off by default) — the Tier-3 displacement layer, behind a flag while it
   // is judged. MapLibre's globe DOES displace: _projection_globe.vertex.glsl's projectTileFor3D
@@ -2044,6 +2065,9 @@ import { REPO_URL } from "../lib/siteLinks";
         // occupant at a time: opening the field dismisses the card, and choosing a row closes the
         // field before the card it asked for opens.
         if (open) closePanel();
+        // AFTER the close above, never before: `reflectBand` reads both states, and running it
+        // first would read a card that is about to be dismissed.
+        reflectBand();
       },
     });
     const searchToggle = createRailToggle({
@@ -2209,6 +2233,21 @@ import { REPO_URL } from "../lib/siteLinks";
   const figure = panel.querySelector(".dp-figure") as HTMLElement;
   const linkEl = panel.querySelector(".dp-link") as HTMLAnchorElement;
 
+  /**
+   * Tell the page a right-side box is occupying the top band, so the narrow layout can give it the
+   * whole band — see the `body.panel-open` block in globe.css for what yields and why.
+   *
+   * DERIVED FROM BOTH STATES RATHER THAN SET BY WHOEVER MOVED LAST. The card and the field close
+   * each other, so every open runs a close first: written as two `toggle(true/false)` calls the
+   * class would depend on which listener fired in which order, and the failure mode is a phone
+   * whose gallery link is gone with nothing on screen to explain it. Reading `panel.hidden` and
+   * `isOpen()` cannot get that wrong, and costs one boolean per interaction.
+   */
+  function reflectBand(): void {
+    const occupied = !panel.hidden || (searchPanel?.isOpen() ?? false);
+    document.body.classList.toggle(PANEL_OPEN_CLASS, occupied);
+  }
+
   /** Render one card. Takes CONTENT, not a country — `detailPanel.ts` says why. */
   function openPanel(content: PanelContent) {
     // THE EXCLUSION IS SYMMETRIC, and one direction alone was not enough. The card and the search
@@ -2267,6 +2306,7 @@ import { REPO_URL } from "../lib/siteLinks";
     panel.hidden = false;
     panel.setAttribute("aria-hidden", "false");
     chipSuppressedByPanel = true;
+    reflectBand();
     paintChip(null);
   }
 
@@ -2274,6 +2314,7 @@ import { REPO_URL } from "../lib/siteLinks";
     panel.hidden = true;
     panel.setAttribute("aria-hidden", "true");
     chipSuppressedByPanel = false;
+    reflectBand();
     // Two calls, because they do different jobs: the fly-to moved the globe while the card was
     // open, so re-resolve first; then repaint unconditionally, because viewChanged() only fires
     // onChange on a CHANGE and the pointer is usually still on the place the card was showing.

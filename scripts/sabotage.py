@@ -863,23 +863,112 @@ SABOTAGES: list[Sabotage] = [
     ),
     Sabotage(
         suite='web',
-        # The chord comes back. `+` matches DOM order, so hiding fullscreen leaves its divider on
-        # the quiet button below, and the group's 999px radius clips it into a dark arc.
-        label='quiet mode keeps the divider of the button it hid',
-        path='web/src/styles/globe.css',
-        needle='  border-top-width: 0;',
-        replacement='  border-top-width: 1px;',
-        guard='cancels the hairline on the button after the hidden fullscreen control',
+        # The chord comes back, by the route that replaced the old `border-top-width: 0` cancel:
+        # `+` matches DOM order, so a quiet button placed AFTER fullscreen keeps the divider of the
+        # button quiet mode hid, and the group's 999px radius clips it into a dark arc.
+        label='the quiet toggle stops leading its pill',
+        path='web/src/components/Globe.astro',
+        needle='joinRailGroup(map.getContainer(), ".maplibregl-ctrl-fullscreen", quietToggle.button, "start");',
+        replacement='joinRailGroup(map.getContainer(), ".maplibregl-ctrl-fullscreen", quietToggle.button);',
+        # The SOURCE scan, not the rendered one — and the split is structural rather than an
+        # attribution slip. `railIcons.browser.test` mounts its own markup, so no edit to the page
+        # can ever reach it; what proves that rendered assertion non-vacuous is its own positive
+        # control, which the divider-deletion case below exercises. Both halves of the page's
+        # ordering land on the one guard that reads the page.
+        guard='keeps the page building that order, which no stylesheet can state',
     ),
     Sabotage(
         suite='web',
-        # The specificity, tidied away. `body.is-quiet .rg-ctrl-quiet` is the obvious way to write
-        # this cancel and it is (0,3,1) against a (0,4,2) divider — it loses, silently.
-        label="the divider cancel is rewritten without the specificity that makes it win",
+        # The other half of the same defect, and the one no stylesheet can see. `addControl` appends,
+        # so adding the camera group first puts the frame group under a five-button pill that quiet
+        # mode hides with `visibility` — leaving the eye floating partway down an empty right edge.
+        label='the camera group goes back above the frame group',
+        path='web/src/components/Globe.astro',
+        needle=(
+            '  map.addControl(new maplibregl.FullscreenControl({ container: document.body }), "top-right");\n'
+            '  map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-right");'
+        ),
+        replacement=(
+            '  map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-right");\n'
+            '  map.addControl(new maplibregl.FullscreenControl({ container: document.body }), "top-right");'
+        ),
+        guard='keeps the page building that order, which no stylesheet can state',
+    ),
+    Sabotage(
+        suite='web',
+        # The cure that flattens the rail. Deleting the divider outright also removes the chord, so
+        # the no-hairline assertion alone would pass — its positive control is what refuses this.
+        label='the rail loses the divider between its buttons',
         path='web/src/styles/globe.css',
-        needle='  .maplibregl-ctrl-group.maplibregl-ctrl-group\n  .maplibregl-ctrl-fullscreen\n  + button {',
-        replacement='  .maplibregl-ctrl-group\n  .maplibregl-ctrl-fullscreen\n  + button {',
-        guard='keeps the cancel more specific than the divider it has to beat',
+        needle='  border-top: 1px solid var(--line);',
+        replacement='  border-top: 0;',
+        guard='grows the chord straight back if the group is reordered — the positive control',
+    ),
+    Sabotage(
+        suite='web',
+        # The iPhone-Safari half. `FullscreenControl` renders nothing where the Fullscreen API is
+        # absent, so "start" has to decide where the FALLBACK pill goes as well; appending it parks
+        # the eye below the camera group on exactly the devices this reorder was reported from.
+        label='a "start" placement stops reaching the group it had to create',
+        path='web/src/lib/railControls.ts',
+        needle='  if (placement === "start") container.prepend(group);\n  else container.append(group);',
+        replacement='  container.append(group);',
+        guard='carries "start" to the fallback GROUP too, not just to the button',
+    ),
+    Sabotage(
+        suite='web',
+        # The rail goes back to MapLibre's own hardcoded margin, 9.2px above and outside the
+        # top-left row it is meant to line up with. Their rule is injected at RUNTIME, so an
+        # equal-specificity override loses on source order and nothing anywhere reports it.
+        label="the rail's inset loses to MapLibre's own control margin",
+        path='web/src/styles/globe.css',
+        needle='.maplibregl-ctrl-top-right .maplibregl-ctrl.maplibregl-ctrl {',
+        replacement='.maplibregl-ctrl-top-right .maplibregl-ctrl {',
+        # The RENDERED assertion, not its positive control — the control cannot catch this by
+        # construction. It weakens the selector itself, so against an already-weak source its
+        # `replace` matches nothing and it goes on measuring MapLibre's 10px and passing.
+        guard='takes both offsets from the one token the top-left row uses',
+    ),
+    Sabotage(
+        suite='web',
+        # The band state read from one occupant instead of both. Every open runs the other's close
+        # first, so this leaves the class stuck off after a search hit opens a card — a phone whose
+        # gallery link is gone with nothing on screen to explain it.
+        label='the open-panel class is written from the card alone',
+        path='web/src/components/Globe.astro',
+        needle='const occupied = !panel.hidden || (searchPanel?.isOpen() ?? false);',
+        replacement='const occupied = !panel.hidden;',
+        guard="writes the class from BOTH occupants' state, not from whoever moved last",
+    ),
+    Sabotage(
+        suite='web',
+        # Renamed on the side that can be renamed. A stylesheet cannot import a constant, so the
+        # class exists twice — and a selector matching nothing is valid CSS that cascades quietly.
+        label='the open-panel class is renamed in the page but not the stylesheet',
+        path='web/src/components/Globe.astro',
+        needle='const PANEL_OPEN_CLASS = "panel-open";',
+        replacement='const PANEL_OPEN_CLASS = "band-occupied";',
+        guard='spells the class the same on both sides of a seam nothing can close',
+    ),
+    Sabotage(
+        suite='web',
+        # The credit "restored" while a panel covers its corner — the tidy-up that looks like a
+        # licence fix and leaves a 326px panel sitting on top of the ⓘ instead.
+        label='the credit is exempted from the row that yields to an open panel',
+        path='web/src/styles/globe.css',
+        needle='  body.panel-open .globe-source,\n  body.panel-open .chrome-credit.chrome-credit.maplibregl-ctrl {',
+        replacement='  body.panel-open .globe-source {',
+        guard='hides the credit with the links it sits beside, and says why in the same breath',
+    ),
+    Sabotage(
+        suite='web',
+        # An edge offset written as its own literal again, which is how the rail and the row drifted
+        # 9.2px apart with every rule individually correct.
+        label='a floating element goes back to its own copy of the inset',
+        path='web/src/components/Globe.astro',
+        needle='  .globe-chrome {\n    position: fixed;\n    top: var(--page-inset);',
+        replacement='  .globe-chrome {\n    position: fixed;\n    top: 1.2rem;',
+        guard='leaves no edge offset written as its own literal',
     ),
     Sabotage(
         suite='web',
@@ -5844,11 +5933,13 @@ SABOTAGES: list[Sabotage] = [
     ),
     Sabotage(
         suite='web',
-        label='the card stops dropping below the chrome row narrow, covering the way off the globe',
+        # The card goes back to dropping past the top-left row instead of the row yielding to it —
+        # 48px of a ~660px screen spent to leave a strip of pills reading as debris above the card.
+        label='the card drops below the chrome row again instead of taking the band',
         path='web/src/components/Globe.astro',
-        needle='      top: 4.2rem;\n      max-height: calc(100vh - 5.4rem);',
-        replacement='      max-height: calc(100vh - 5.4rem);',
-        guard='drops below the top-left chrome narrow, where clearing the rail is not enough',
+        needle='  .detail-panel {\n    position: fixed;\n    top: var(--page-inset);',
+        replacement='  .detail-panel {\n    position: fixed;\n    top: 4.2rem;',
+        guard='takes the whole narrow band rather than dropping below the row it would cover',
     ),
     Sabotage(
         suite='web',
