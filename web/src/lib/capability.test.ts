@@ -544,7 +544,10 @@ describe("Base.astro view bar", () => {
     // terrainSource.test.ts, and both went red together when `currentTier()` was hoisted to a
     // `bootTier` const, which is the drift signal working rather than a defect.
     const gate = globe.match(
-      /resolveTerrainExaggeration\(\s*urlFlags\s*,\s*([\w$]+(?:\(\))?)\s*===\s*"full"\s*\)/,
+      // The trailing `(?:,[^)]*)?` is not decoration: this matcher was anchored on the call taking
+      // exactly TWO arguments, and it broke the day a third (the body) was added without a single
+      // character of the tier expression changing. An arity is not the property under test.
+      /resolveTerrainExaggeration\(\s*urlFlags\s*,\s*([\w$]+(?:\(\))?)\s*===\s*"full"\s*(?:,[^)]*)?\)/,
     );
     const tierExpression = gate?.[1] ?? "";
     // `decide(Globe)?Tier` — both spellings are the tier decision. `decideGlobeTier` wraps

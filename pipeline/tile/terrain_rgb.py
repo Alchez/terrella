@@ -39,8 +39,8 @@ flat planet rather than as an error.
 
 The pyramid itself is cut into a staging dir and swapped, and keyed on the master's marker plus
 `terrain_params.json`. The recipe is the load-bearing half: the variant DIRECTORY name carries
-only sea treatment, step and feather, so without a sidecar a `--format` or `--max-zoom` change is
-invisible to every guard and to anyone reading the store.
+only sea treatment and step, so without a sidecar a `--format` or `--max-zoom` change is invisible
+to every guard and to anyone reading the store.
 """
 
 import argparse
@@ -52,7 +52,7 @@ from pathlib import Path
 import numpy as np
 import rasterio
 
-from pipeline import bodies, mercator
+from pipeline import bodies
 from pipeline.freshness import (
     done_marker,
     is_stale,
@@ -71,6 +71,11 @@ BASE_SHIFT = 32768.0
 #: caps carry their own elevation texture and MUST encode identically, or cap and tiles displace to
 #: different heights across the alpha crossfade and ghost against each other. Two spellings of one
 #: number is the copy-drift that bit the hero/tile colour constants four times.
+#:
+#: AND AGREEING HERE IS NOT ENOUGH ON ITS OWN — an agreement about BYTES is not one about METRES.
+#: These two producers shared every constant on this line and still displaced to heights kilometres
+#: apart, because only one of them multiplied its metres afterwards. `encode_array` is a pure
+#: function of elevation for that reason; its docstring holds the argument.
 #: 8 m is the ratified knee (0.49x the archive; the error lands in mountains, not on plains) and
 #: bathymetry is ratified over sea-clamping, so the sea displaces rather than reading as a wall.
 #:
@@ -93,14 +98,6 @@ TILE_FORMATS = {
     "png": ("PNG", ["ZLEVEL=9"]),
     "webp": ("WEBP", ["LOSSLESS=YES"]),
 }
-
-#: Latitude band over which encoded elevation ramps to zero, so the tiles flatten into the polar
-#: caps. The caps are a CUSTOM layer and MapLibre does not drape custom layers onto the terrain
-#: mesh (`LAYERS_TO_TEXTURES` in render_to_texture.ts), so displaced tiles under an undisplaced
-#: cap would open a geometric seam — worst in the south, where this band is 2-3 km of Antarctic
-#: ice. `polarCaps.ts` feathers its alpha over the same latitudes; this is the geometric twin.
-FEATHER_LAT_LO = 78.0
-FEATHER_LAT_HI = 85.0
 
 def _run(cmd) -> None:
     subprocess.run([str(part) for part in cmd], check=True)
@@ -174,29 +171,6 @@ def master_grid_mismatch(master: Path, master_zoom: int) -> str | None:
             f"factor and emit a pyramid at the wrong resolution without failing")
 
 
-def row_latitudes(row0: int, row1: int, height: int, north: float, south: float) -> np.ndarray:
-    """Latitude (degrees) at the centre of each raster row in [row0, row1).
-
-    Rows are inverse-Mercator projected rather than linearly interpolated: latitude is not linear
-    in y, and the whole point of the feather is that it lands on the right parallels.
-    """
-    rows = np.arange(row0, row1, dtype=np.float64) + 0.5
-    y = north - rows * (north - south) / height
-    return mercator.latitude_at(y, mercator.WEB_MERCATOR_RADIUS_M)
-
-
-def feather_factor(latitudes: np.ndarray) -> np.ndarray:
-    """1.0 equatorward of FEATHER_LAT_LO, 0.0 poleward of FEATHER_LAT_HI, smoothstep between.
-
-    Smoothstep rather than linear because this multiplies GEOMETRY: a linear ramp leaves a slope
-    discontinuity at each end of the band, and a crease in a displacement mesh is visible in a way
-    a crease in an alpha ramp is not.
-    """
-    span = np.clip(
-        (FEATHER_LAT_HI - np.abs(latitudes)) / (FEATHER_LAT_HI - FEATHER_LAT_LO), 0.0, 1.0)
-    return span * span * (3.0 - 2.0 * span)
-
-
 #: Source rows held in memory at once by `downsample_elevation`. Budgeted on the SOURCE side, not
 #: the output side: a band of N output rows reads `N * factor` source rows, so a fixed output band
 #: silently scales peak RAM with the downsample factor — at the master's width, 256 output rows at
@@ -234,20 +208,30 @@ def downsample_elevation(src: Path, dst: Path, factor: int, band_rows: int | Non
                            1, window=band_window(out_width, out0, out1))
 
 
-def encode_array(elevation: np.ndarray, step: float, sea_clamp: bool,
-                 latitudes: np.ndarray | None = None) -> np.ndarray:
+def encode_array(elevation: np.ndarray, step: float, sea_clamp: bool) -> np.ndarray:
     """Pack metres into the (3, h, w) uint8 terrarium-with-zero-blue form described in the header.
 
     `sea_clamp` raises everything below zero to zero — land rises out of a smooth sphere, which is
     what a physical relief globe does, and what stops a continental shelf reading as a cliff wall.
     It is also most of the archive: an abyssal tile measured 162 KiB carrying real bathymetry and
     1.5 KiB flat.
+
+    NOTHING HERE MAY DEPEND ON WHERE A PIXEL IS, and that is the anti-redo guard rather than a
+    style note. `cap_render.write_cap_elevation` calls this same function for the polar caps, whose
+    grid is azimuthal-equidistant and has no rows to speak of, and the two surfaces are drawn
+    across each other through `polarCaps.ts`'s alpha crossfade — so any per-row or per-latitude term
+    added here separates two surfaces the viewer sees at once.
+
+    A latitude ramp did live here, to flatten the tiles toward datum from 78 to 85 degrees. It was
+    written when the cap could not displace at all, and the seam it closed reopened the moment
+    `polarCaps.vertexSrc` started lifting cap vertices: the tiles then flattened away from a cap
+    holding true elevation, and the 84-85 degree plug rim stood proud of it by the full local
+    relief. The fix was deleting the ramp, not tuning its band, so the shape to refuse is any
+    argument of the form "the poles need special treatment in the encode".
     """
     metres = np.nan_to_num(elevation.astype(np.float64), nan=0.0)
     if sea_clamp:
         metres = np.maximum(metres, 0.0)
-    if latitudes is not None:
-        metres = metres * feather_factor(latitudes)[:, None]
     packed = np.clip(np.round((metres + BASE_SHIFT) / step), 0, 65535).astype(np.uint16)
     return np.stack([(packed >> 8).astype(np.uint8), (packed & 0xFF).astype(np.uint8),
                      np.zeros(packed.shape, np.uint8)])
@@ -264,19 +248,20 @@ def decode_array(encoded: np.ndarray, step: float) -> np.ndarray:
 
 
 def encode_raster(elev_tif: Path, dst: Path, step: float, sea_clamp: bool,
-                  feather: bool = True, band_rows: int = 512) -> None:
-    """Encode a whole elevation raster to a 3-band Byte GTiff, streaming by row band."""
+                  band_rows: int = 512) -> None:
+    """Encode a whole elevation raster to a 3-band Byte GTiff, streaming by row band.
+
+    The band split is a MEMORY decision and must stay one: every band goes through `encode_array`
+    with nothing said about where it sits, so the seams between bands cannot carry a value.
+    """
     with rasterio.open(elev_tif) as source:
-        north, south = source.bounds.top, source.bounds.bottom
         # Same 4 GB ceiling as the elevation sink above: three uint8 bands at z8 is 51.5 GB raw.
         profile = source.profile | GTIFF_CREATE | {
             "dtype": "uint8", "count": 3, "nodata": None, "bigtiff": "IF_SAFER"}
         with rasterio.open(dst, "w", **profile) as sink:
             for row0, row1 in row_bands(source.height, band_rows):
                 window = band_window(source.width, row0, row1)
-                latitudes = (row_latitudes(row0, row1, source.height, north, south)
-                             if feather else None)
-                sink.write(encode_array(source.read(1, window=window), step, sea_clamp, latitudes),
+                sink.write(encode_array(source.read(1, window=window), step, sea_clamp),
                            window=window)
 
 
@@ -295,27 +280,23 @@ def cut_zoom(src: Path, staging: Path, zoom: int, tile_format: str = "png") -> N
           str(src), str(staging)])
 
 
-def terrain_params(max_zoom: int, step: float, sea_clamp: bool, feather: bool,
-                   tile_format: str) -> str:
+def terrain_params(max_zoom: int, step: float, sea_clamp: bool, tile_format: str) -> str:
     """The cut's own settings, recorded beside the pyramid as its freshness dependency.
 
     Everything listed alters the emitted bytes and nothing outside it does — the master and the
-    output dir are `is_stale`'s own arguments, not settings. The polar feather latitudes and the
-    terrarium zero point are in here because they are module CONSTANTS: they have no other file to
-    move an mtime, so editing one would otherwise restage nothing while changing every tile.
+    output dir are `is_stale`'s own arguments, not settings. The terrarium zero point is in here
+    because it is a module CONSTANT: it has no other file to move an mtime, so editing it would
+    otherwise restage nothing while changing every tile.
     """
     driver, creation_options = TILE_FORMATS[tile_format]
     return json.dumps({
         "max_zoom": max_zoom,
         "step": step,
         "sea_clamp": sea_clamp,
-        "feather": feather,
         "tile_size": TILE_SIZE,
         "format": driver,
         "creation_options": creation_options,
         "base_shift": BASE_SHIFT,
-        "feather_lat_lo": FEATHER_LAT_LO,
-        "feather_lat_hi": FEATHER_LAT_HI,
     }, sort_keys=True, indent=2)
 
 
@@ -352,7 +333,7 @@ def elevation_source(work: Path, zoom: int, master: Path, master_zoom: int) -> P
     return master if zoom == master_zoom else work / f"elev_z{zoom}.tif"
 
 
-def build(out: Path, max_zoom: int, step: float, sea_clamp: bool, feather: bool,
+def build(out: Path, max_zoom: int, step: float, sea_clamp: bool,
           master: Path, master_zoom: int, work: Path | None = None,
           keep_intermediates: bool = False, tile_format: str = "png") -> Path:
     """Build a complete z0..max_zoom terrain-RGB pyramid under `out`, returning the tile dir.
@@ -375,7 +356,7 @@ def build(out: Path, max_zoom: int, step: float, sea_clamp: bool, feather: bool,
     """
     out.mkdir(parents=True, exist_ok=True)
     write_if_changed(terrain_params_path(out),
-                     terrain_params(max_zoom, step, sea_clamp, feather, tile_format))
+                     terrain_params(max_zoom, step, sea_clamp, tile_format))
     tiles = out / "tiles"
     if tiles_are_fresh(out, master):
         print(f"terrain tiles fresh -> skip cut ({tiles})", flush=True)
@@ -383,7 +364,7 @@ def build(out: Path, max_zoom: int, step: float, sea_clamp: bool, feather: bool,
 
     work = work or out / "work"
     work.mkdir(parents=True, exist_ok=True)
-    variant = f"{'sea0' if sea_clamp else 'bathy'}_s{step:g}{'' if feather else '_nofeather'}"
+    variant = f"{'sea0' if sea_clamp else 'bathy'}_s{step:g}"
 
     top = elevation_source(work, max_zoom, master, master_zoom)
     if top != master and is_stale(top, done_marker(master)):
@@ -405,7 +386,7 @@ def build(out: Path, max_zoom: int, step: float, sea_clamp: bool, feather: bool,
                 downsample_elevation(parent, level, 2)
                 mark_done(level)
         encoded = work / f"rgb_{variant}_z{zoom}.tif"
-        encode_raster(level, encoded, step, sea_clamp, feather)
+        encode_raster(level, encoded, step, sea_clamp)
         print(f"z{zoom}: encoded {grid_size(zoom)}^2 -> cutting ...", flush=True)
         cut_zoom(encoded, staging, zoom, tile_format)
         if not keep_intermediates:
@@ -459,8 +440,6 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--sea", choices=["clamp", "bathy"],
                     default="clamp" if SHIPPED_SEA_CLAMP else "bathy",
                     help="clamp: sea flattened to 0; bathy: seafloor displaced too")
-    ap.add_argument("--no-feather", action="store_true",
-                    help="skip the polar ramp (only for isolating the cap seam)")
     ap.add_argument("--format", choices=sorted(TILE_FORMATS), default="webp",
                     help="delivery codec; both lossless, webp is ~0.67x png")
     ap.add_argument("--keep-intermediates", action="store_true")
@@ -482,8 +461,7 @@ def main() -> None:
 
     tiles = build(out, args.max_zoom if args.max_zoom is not None else native,
                   args.step, args.sea == "clamp",
-                  not args.no_feather, master, native, args.work, args.keep_intermediates,
-                  args.format)
+                  master, native, args.work, args.keep_intermediates, args.format)
     count = sum(1 for _ in tiles.rglob(f"*.{args.format}"))
     size = sum(path.stat().st_size for path in tiles.rglob(f"*.{args.format}"))
     print(f"{count} tiles, {size / 1e9:.2f} GB -> {tiles}", flush=True)

@@ -1,4 +1,5 @@
-"""Terrain-RGB encode/decode, the polar feather, and the resampler that must never change.
+"""Terrain-RGB encode/decode, the two producers' agreement, and the resampler that must never
+change.
 
 The load-bearing test here is `test_cut_zoom_never_resamples_encoded_bytes`. Every other property
 would survive someone "optimising" the cut to `average` or `cubic`; that one is the whole reason
@@ -16,18 +17,17 @@ import pytest
 import rasterio
 from rasterio.transform import from_bounds
 
-from pipeline import bodies
+from pipeline import bodies, mercator
 from pipeline.raster_io import band_window
 from pipeline.tile import terrain_rgb
 
 MERCATOR_HALF = 20037508.342789244
 
 
-def encode_decode(metres, step=1.0, sea_clamp=False, latitudes=None):
+def encode_decode(metres, step=1.0, sea_clamp=False):
     """Round-trip a 2-D array of metres through the shipped pair."""
     array = np.asarray(metres, dtype=np.float64)
-    return terrain_rgb.decode_array(
-        terrain_rgb.encode_array(array, step, sea_clamp, latitudes), step)
+    return terrain_rgb.decode_array(terrain_rgb.encode_array(array, step, sea_clamp), step)
 
 
 # --- The encoding -------------------------------------------------------------------
@@ -93,42 +93,55 @@ def test_a_clamped_ocean_encodes_to_one_repeated_value():
     assert len(np.unique(encoded.reshape(3, -1), axis=1)[0]) == 1
 
 
-# --- The polar feather --------------------------------------------------------------
+# --- The two producers' agreement ---------------------------------------------------
 
 
-def test_feather_is_one_equatorward_and_zero_poleward():
-    factors = terrain_rgb.feather_factor(np.array([0.0, 60.0, 78.0, 85.0, 88.0, -85.0, -60.0]))
-    assert factors[:3] == pytest.approx(1.0)
-    assert factors[3:6] == pytest.approx(0.0)
-    assert factors[6] == pytest.approx(1.0)
+def test_the_encode_is_a_pure_function_of_metres_at_every_latitude(tmp_path):
+    """THE GUARD WHOSE ABSENCE LET A SEAM SHIP AT BOTH POLES OF BOTH PLANETS.
+
+    `cap_render.write_cap_elevation` and `encode_raster` both hand metres to `encode_array`, and
+    `polarCaps.ts` draws their two surfaces across each other through an alpha crossfade — so they
+    have to return the same height for the same ground, not merely the same bytes for the same
+    number. A latitude ramp in the tile path (78 to 85 degrees, cap path exempt) satisfied every
+    encoding test in this file while separating the two surfaces by the full local relief.
+
+    Constant elevation in, constant elevation out. Constant is what makes it readable: any
+    positional term whatever — a ramp, a per-band seam, a pole special case — shows up as variance
+    where there is none in the input, without the test having to know its shape.
+    """
+    source, target = tmp_path / "in.tif", tmp_path / "rgb.tif"
+    _write_elevation(source, np.full((32, 8), 3000.0, dtype=np.float32))
+    terrain_rgb.encode_raster(source, target, 1.0, False, band_rows=4)
+    with rasterio.open(target) as ds:
+        decoded = terrain_rgb.decode_array(ds.read(), 1.0)
+
+    # THE ROWS ARE PROVED POLAR RATHER THAN ASSUMED SO, and by `mercator`, which is a different
+    # owner with its own tests — a guard that quietly sampled only the tropics would pass forever.
+    rows = np.arange(32, dtype=np.float64) + 0.5
+    latitudes = mercator.latitude_at(MERCATOR_HALF - rows * (2 * MERCATOR_HALF / 32),
+                                     mercator.WEB_MERCATOR_RADIUS_M)
+    assert latitudes.max() > 84.0, "this raster never reaches the latitudes the ramp acted on"
+    assert ((latitudes > 78.0) & (latitudes < 85.0)).sum() >= 4
+
+    assert decoded.min() == pytest.approx(3000.0, abs=0.5), (
+        f"the encode varies with position: rows decode from {decoded.min():.1f} to "
+        f"{decoded.max():.1f} m for a uniform 3000 m input, so the tiles no longer agree with the "
+        "cap texture they crossfade into")
+    assert decoded.max() == pytest.approx(3000.0, abs=0.5)
 
 
-def test_feather_is_monotonic_and_flat_at_both_ends():
-    """Smoothstep, not linear: this multiplies geometry, and a slope break is a visible crease."""
-    latitudes = np.linspace(78.0, 85.0, 200)
-    factors = terrain_rgb.feather_factor(latitudes)
-    assert np.all(np.diff(factors) <= 1e-12)
-    slope = np.diff(factors)
-    assert abs(slope[0]) < abs(slope[len(slope) // 2])
-    assert abs(slope[-1]) < abs(slope[len(slope) // 2])
+def test_encode_array_takes_nothing_a_caller_could_differ_on():
+    """The behavioural guard above can only see a term some caller actually passes. This closes the
+    door the other way: with three parameters and no fourth, the cap path and the tile path CANNOT
+    be given different treatment, which is stronger than testing that today they are not.
 
-
-def test_feather_drives_antarctic_ice_to_zero_at_the_cap_seam():
-    """The south cap sits over 2-3 km of ice; undamped, that is the geometric step it would open."""
-    latitudes = np.array([-70.0, -81.5, -86.0])
-    decoded = encode_decode(np.full((3, 4), 3000.0), latitudes=latitudes)
-    assert decoded[0].tolist() == pytest.approx([3000.0] * 4)
-    assert 0.0 < decoded[1, 0] < 3000.0
-    assert decoded[2].tolist() == pytest.approx([0.0] * 4)
-
-
-def test_row_latitudes_are_inverse_mercator_not_linear():
-    """Linear interpolation would put the feather on the wrong parallels by degrees."""
-    latitudes = terrain_rgb.row_latitudes(0, 4, 4, MERCATOR_HALF, -MERCATOR_HALF)
-    assert latitudes[0] > 70.0            # top row is deep in the Arctic
-    assert latitudes[1] == pytest.approx(-latitudes[2], abs=1e-9)   # symmetric about the equator
-    linear = np.linspace(85.05, -85.05, 4)
-    assert abs(latitudes[1] - linear[1]) > 5.0
+    The deleted ramp arrived as exactly this shape — an optional `latitudes` argument, passed by one
+    caller and left defaulted by the other, each site correct on its own reading.
+    """
+    parameters = list(inspect.signature(terrain_rgb.encode_array).parameters)
+    assert parameters == ["elevation", "step", "sea_clamp"], (
+        f"encode_array grew {parameters}: an argument only one producer passes is how the tile and "
+        "cap encodings drifted apart while sharing every constant")
 
 
 # --- Downsampling: in metres, never in bytes ----------------------------------------
@@ -191,7 +204,7 @@ def test_encode_raster_matches_the_array_encoder(tmp_path):
     source, target = tmp_path / "in.tif", tmp_path / "rgb.tif"
     array = np.random.default_rng(3).uniform(-6000, 6000, (16, 16)).astype(np.float32)
     _write_elevation(source, array)
-    terrain_rgb.encode_raster(source, target, 1.0, True, feather=False, band_rows=4)
+    terrain_rgb.encode_raster(source, target, 1.0, True, band_rows=4)
     with rasterio.open(target) as ds:
         written = ds.read(window=band_window(ds.width, 0, ds.height))
     assert (written == terrain_rgb.encode_array(array, 1.0, True)).all()
@@ -245,7 +258,7 @@ def test_build_threads_one_codec_through_every_zoom(monkeypatch, tmp_path):
                         lambda level, dst, *a, **k: dst.touch())
     monkeypatch.setattr(terrain_rgb, "downsample_elevation",
                         lambda src, dst, factor, **k: dst.touch())
-    terrain_rgb.build(tmp_path, 3, 8.0, False, True, tmp_path / "master.tif", 3,
+    terrain_rgb.build(tmp_path, 3, 8.0, False, tmp_path / "master.tif", 3,
                       tile_format="webp")
     assert formats == ["webp"] * 4
 
@@ -260,7 +273,7 @@ def test_each_zoom_is_cut_from_its_own_elevation(monkeypatch, tmp_path):
                         lambda level, dst, *a, **k: (encodes.append(level.name), dst.touch()))
     monkeypatch.setattr(terrain_rgb, "downsample_elevation",
                         lambda src, dst, factor, **k: dst.touch())
-    terrain_rgb.build(tmp_path, 3, 1.0, True, True, tmp_path / "master.tif", 4)
+    terrain_rgb.build(tmp_path, 3, 1.0, True, tmp_path / "master.tif", 4)
     assert [zoom for _, zoom in cuts] == [3, 2, 1, 0]
     assert encodes == [f"elev_z{zoom}.tif" for zoom in (3, 2, 1, 0)]
     assert [name for name, _ in cuts] == [f"rgb_sea0_s1_z{zoom}.tif" for zoom in (3, 2, 1, 0)]
@@ -279,7 +292,7 @@ def test_variants_sharing_a_work_dir_do_not_collide(monkeypatch, tmp_path):
                         lambda src, dst, factor, **k: dst.touch())
     work = tmp_path / "elev"
     for sea_clamp in (True, False):
-        terrain_rgb.build(tmp_path / str(sea_clamp), 1, 1.0, sea_clamp, True,
+        terrain_rgb.build(tmp_path / str(sea_clamp), 1, 1.0, sea_clamp,
                           tmp_path / "master.tif", 2, work=work)
     assert len(set(cuts)) == len(cuts)
     assert sorted(path.name for path in work.glob("elev_*.tif")) == ["elev_z0.tif", "elev_z1.tif"]
@@ -446,7 +459,7 @@ def _stamped_master(tmp_path):
 #: restage a live pyramid for no pixel change, which is the same reason `bodies.work_dir` carries a
 #: body in the PATH and never in a freshness recipe. Splatting one dict into both is how that fence
 #: gets quietly crossed, so there are two.
-RECIPE = {"max_zoom": 2, "step": 8.0, "sea_clamp": False, "feather": True, "tile_format": "webp"}
+RECIPE = {"max_zoom": 2, "step": 8.0, "sea_clamp": False, "tile_format": "webp"}
 #: DELIBERATELY DEEPER THAN `max_zoom`, so the default scenario is the general one: a master that
 #: has to be descended before the top level exists. Equal zooms is the special case — the master is
 #: read in place and no top level is written — and the two tests that are about it say so
@@ -472,10 +485,9 @@ def test_an_unchanged_rerun_skips_the_cut_entirely(monkeypatch, tmp_path):
     {"tile_format": "png"},
     {"max_zoom": 1},
     {"sea_clamp": True},
-    {"feather": False},
 ])
 def test_a_recipe_change_restages(monkeypatch, tmp_path, changed):
-    """The variant DIRECTORY name carries sea, step and feather — but NOT format and NOT max_zoom.
+    """The variant DIRECTORY name carries sea and step — but NOT format and NOT max_zoom.
     Without a sidecar those two are invisible to every guard, so a pyramid re-cut at a new codec is
     indistinguishable by existence from the one it replaced. Its control is the skip test above.
     """
@@ -508,18 +520,16 @@ def test_the_recipe_records_what_the_directory_name_cannot(subtests):
     silently drops out of the recipe is invisible to `is_stale`, which is the whole failure this
     test guards.
     """
-    recipe = json.loads(terrain_rgb.terrain_params(8, 8.0, False, True, "webp"))
+    recipe = json.loads(terrain_rgb.terrain_params(8, 8.0, False, "webp"))
     with subtests.test("max_zoom"):
         assert recipe["max_zoom"] == 8
     with subtests.test("format"):
         assert recipe["format"] == "WEBP"
     with subtests.test("creation_options"):
         assert recipe["creation_options"] == ["LOSSLESS=YES"]
-    # Module constants have no other file to move an mtime, so they must ride here or be invisible.
-    with subtests.test("feather_lat_lo rides the recipe"):
-        assert recipe["feather_lat_lo"] == terrain_rgb.FEATHER_LAT_LO
-    with subtests.test("feather_lat_hi rides the recipe"):
-        assert recipe["feather_lat_hi"] == terrain_rgb.FEATHER_LAT_HI
+    # A module constant has no other file to move an mtime, so it must ride here or be invisible.
+    with subtests.test("base_shift rides the recipe"):
+        assert recipe["base_shift"] == terrain_rgb.BASE_SHIFT
 
 
 def test_an_empty_pyramid_is_never_fresh(tmp_path):

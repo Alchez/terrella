@@ -295,8 +295,11 @@ def write_cap_elevation(grid: CapGrid) -> Path:
     wherever the low byte wraps, every 256*step metres, so a resampled encode invents cliffs. Same
     rule build_tiles states for the pyramid's overviews.
 
-    No latitude feather: `encode_array`'s ramp is applied per ROW, which is a Mercator statement and
-    meaningless on an AEQD grid, and the cap must carry true elevation regardless.
+    True elevation, with no ramp toward the pole. That used to be a difference between this writer
+    and the tile one, which flattened its own metres from 78 to 85 degrees — so the two surfaces
+    `polarCaps.ts` crossfades between stood kilometres apart, and the plug rim above 84 rose clear
+    of the cap it was meant to hide beneath. `encode_array` now refuses any positional term at all,
+    which is what makes "identical encoding" mean identical heights rather than identical bytes.
     """
     if CAP_PX % CAP_ELEV_PX:
         raise ValueError(f"CAP_ELEV_PX {CAP_ELEV_PX} must divide CAP_PX {CAP_PX}")

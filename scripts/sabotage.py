@@ -2161,15 +2161,18 @@ SABOTAGES: list[Sabotage] = [
         guard='test_no_module_regrows_web_mercators_sphere',
     ),
     # THE SAME REGROWTH IN A PACKAGE THE OLD GUARD COULD NOT SEE. That guard named `hillshade` and
-    # `snow`, which described where the constant had been found rather than where it could appear —
-    # and `terrain_rgb` really did carry an unguarded copy, plus its own `arctan(sinh(y/R))` form of
-    # the same Gudermannian. This case is what proves the sweep replaced a list of nouns.
+    # `snow`, which described where the constant had been found rather than where it could appear.
+    # This case is what proves the sweep replaced a list of nouns, so it must keep a live anchor in
+    # `pipeline/tile/` — it had one in `terrain_rgb.row_latitudes` until the polar feather that
+    # helper existed for was deleted, and an orphaned needle would have retired the demonstration
+    # silently. Re-anchored on the cap's projection string, where collapsing the body's AEQD sphere
+    # into Web Mercator's is both plausible and the exact three-radii confusion `bodies.py` warns of.
     Sabotage(
         suite='python',
         label='a tile module regrows the sphere radius the render package was guarded against',
-        path='pipeline/tile/terrain_rgb.py',
-        needle='    return mercator.latitude_at(y, mercator.WEB_MERCATOR_RADIUS_M)',
-        replacement='    return np.degrees(np.arctan(np.sinh(y / 6378137.0)))',
+        path='pipeline/tile/cap_render.py',
+        needle='        radius = self.body.aeqd_radius_m',
+        replacement='        radius = 6378137.0',
         guard='test_no_module_regrows_web_mercators_sphere',
     ),
     # Identical output today, which is exactly why nothing else would notice: the module has quietly
@@ -3915,6 +3918,32 @@ SABOTAGES: list[Sabotage] = [
         replacement='    ap.add_argument("--body", default="earth",',
         guard='test_the_body_is_required_with_no_default',
     ),
+    # --- the two elevation producers drift apart again -------------------------------------------
+    # THE WRONG FIX, NOT THE ORIGINAL BUG. Faced with tiles and cap at different heights, flattening
+    # BOTH toward the pole closes the seam between them and leaves every polar basin a smooth shell —
+    # and it satisfies any guard phrased as "the two producers agree", because they do. Only a test
+    # that asks what the tiles say about the GROUND can see it.
+    Sabotage(
+        suite='python',
+        label='the polar flatten returns inside the shared encoder, so both surfaces agree and both are wrong',
+        path='pipeline/tile/terrain_rgb.py',
+        needle='    packed = np.clip(np.round((metres + BASE_SHIFT) / step), 0, 65535).astype(np.uint16)',
+        replacement='    metres = metres * np.linspace(0.0, 1.0, metres.shape[0])[:, None]\n'
+                    '    packed = np.clip(np.round((metres + BASE_SHIFT) / step), 0, 65535).astype(np.uint16)',
+        guard='test_the_encode_is_a_pure_function_of_metres_at_every_latitude',
+    ),
+    # The door the behavioural guard cannot watch: an argument nobody passes YET. This is the exact
+    # shape the deleted feather arrived in — optional, defaulted, and honoured by one of the two
+    # callers — so the parameter list is pinned rather than the behaviour of today's callers.
+    Sabotage(
+        suite='python',
+        label='the encoder grows an optional argument only one of its two producers would pass',
+        path='pipeline/tile/terrain_rgb.py',
+        needle='def encode_array(elevation: np.ndarray, step: float, sea_clamp: bool) -> np.ndarray:',
+        replacement='def encode_array(elevation: np.ndarray, step: float, sea_clamp: bool,\n'
+                    '                 latitudes: np.ndarray | None = None) -> np.ndarray:',
+        guard='test_encode_array_takes_nothing_a_caller_could_differ_on',
+    ),
     Sabotage(
         suite='web',
         # The silent-and-total one, moved: it used to need a flag threaded through a build directory
@@ -4903,6 +4932,30 @@ SABOTAGES: list[Sabotage] = [
             '      paint: { "line-color": "#ff0000", "line-opacity": 1 } });\n'
         ),
         guard='names every literal-id layer in the ledger, and ledgers no layer that does not exist',
+    ),
+    # THE SECOND CONSENT MECHANISM, and the one the ledger above structurally cannot cover: terrain
+    # is `setTerrain` over a `raster-dem` source rather than a style layer, so `paintedLayers.ts`
+    # would reject an entry for it as naming a layer that does not exist. These two cases exist
+    # because the failure already happened — publishing `PUBLISHED.mars.terrain` was by itself
+    # enough to make Mars displace at Earth's 15x, with every other guard green.
+    Sabotage(
+        suite='web',
+        label='the ratified table collapses back to one constant, so publishing a pyramid paints with it',
+        path='web/src/lib/terrainSource.ts',
+        needle='  return RATIFIED_TERRAIN_EXAGGERATION[body] ?? null;',
+        replacement='  return DEFAULT_TERRAIN_EXAGGERATION;',
+        guard='leaves a body with no entry FLAT at the full tier, however good its pyramid is',
+    ),
+    Sabotage(
+        suite='web',
+        # The tidy that reads as finishing the job: the archive is published, so surely the body
+        # belongs in the table. That edit IS the ratification, which is the whole point of the
+        # table being the record — it must never be made on anyone's behalf.
+        label='a body is ratified for terrain without anyone having looked at it',
+        path='web/src/lib/terrainSource.ts',
+        needle='  earth: DEFAULT_TERRAIN_EXAGGERATION,\n};',
+        replacement='  earth: DEFAULT_TERRAIN_EXAGGERATION,\n  mars: DEFAULT_TERRAIN_EXAGGERATION,\n};',
+        guard='leaves a body with no entry FLAT at the full tier, however good its pyramid is',
     ),
     Sabotage(
         suite='web',

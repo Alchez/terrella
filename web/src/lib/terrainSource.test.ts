@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { DECLARED_TILE_SIZE } from "./reliefSources";
+import { BODIES } from "./bodies";
 import { archiveFor, PUBLISHED } from "./tileAddress";
 import {
   DEFAULT_TERRAIN_EXAGGERATION,
@@ -15,6 +16,7 @@ import {
   parseTerrainTilePath,
   parseTerrainTileSize,
   rampedExaggeration,
+  RATIFIED_TERRAIN_EXAGGERATION,
   resolveTerrainExaggeration,
   terrainDemSource,
   TERRAIN_CONTENT_TYPE,
@@ -731,29 +733,62 @@ describe("source guard — the pipeline is the source of truth for the numbers",
   });
 });
 
+describe("the ratified-exaggeration table is the consent record", () => {
+  it("leaves a body with no entry FLAT at the full tier, however good its pyramid is", () => {
+    // THE FAILURE THIS EXISTS FOR, and it had already happened when this was written. Publishing
+    // `PUBLISHED.mars.terrain` was enough to make Mars displace at Earth's 15x on the next page
+    // load: the archive was right, the zooms were right, every guard was green, and nobody had
+    // agreed to the look. A pyramid being SERVEABLE and a body being APPROVED to draw with it are
+    // different facts, and only one of them lives in the registry.
+    expect(RATIFIED_TERRAIN_EXAGGERATION.mars).toBeUndefined();
+    expect(resolveTerrainExaggeration(flags(""), true, "mars")).toBeNull();
+  });
+
+  it("still lets ?terrain=N reach an unratified body, because looking is how it gets ratified", () => {
+    // The table gates the DEFAULT, not the flag. A look loop has to be able to see the thing it is
+    // deciding about, and typing the number is the deliberate act that a default is not.
+    expect(resolveTerrainExaggeration(flags("terrain=20"), false, "mars")).toBe(20);
+  });
+
+  it("is measuring bodies that actually DISAGREE, or the two cases above prove nothing", () => {
+    // Both would pass on a function that returned null for everything. Earth is the entry that
+    // makes the table a table rather than a way of spelling `false`.
+    expect(resolveTerrainExaggeration(flags(""), true, "earth")).toBe(DEFAULT_TERRAIN_EXAGGERATION);
+    expect(RATIFIED_TERRAIN_EXAGGERATION.earth).toBe(DEFAULT_TERRAIN_EXAGGERATION);
+  });
+
+  it("names only bodies that exist, so a typo cannot look like an approval", () => {
+    // A key outside the body union is dead: it would read as a ratification for a planet nobody
+    // can navigate to, and the entry it was meant for would still be missing.
+    for (const slug of Object.keys(RATIFIED_TERRAIN_EXAGGERATION)) {
+      expect(Object.keys(BODIES), `${slug} is not a body`).toContain(slug);
+    }
+  });
+});
+
 describe("resolveTerrainExaggeration — what the `full` tier actually turns on", () => {
   it("gives the full tier the ratified exaggeration with no flag at all", () => {
     // The whole point of Tier 3 step 4: a visitor types nothing and gets terrain because the
     // probe promoted them. Before this, 15 existed only inside `?terrain=15`.
-    expect(resolveTerrainExaggeration(flags(""), true)).toBe(DEFAULT_TERRAIN_EXAGGERATION);
+    expect(resolveTerrainExaggeration(flags(""), true, "earth")).toBe(DEFAULT_TERRAIN_EXAGGERATION);
   });
 
   it("leaves every other tier flat", () => {
-    expect(resolveTerrainExaggeration(flags(""), false)).toBeNull();
+    expect(resolveTerrainExaggeration(flags(""), false, "earth")).toBeNull();
   });
 
   it("lets ?terrain=N force terrain on at ANY tier, so the A/B flags stay usable", () => {
     // Every look question from here on needs to set exaggeration explicitly without first
     // talking the capability probe into promoting the machine it runs on.
-    expect(resolveTerrainExaggeration(flags("terrain=40"), false)).toBe(40);
-    expect(resolveTerrainExaggeration(flags("terrain=2.5"), false)).toBe(2.5);
+    expect(resolveTerrainExaggeration(flags("terrain=40"), false, "earth")).toBe(40);
+    expect(resolveTerrainExaggeration(flags("terrain=2.5"), false, "earth")).toBe(2.5);
   });
 
   it("lets ?terrain=off remove ONLY the geometry, without demoting the tier", () => {
     // The control arm. Picking "Globe" in the view bar also disables terrain, but it changes the
     // tier too — so it cannot answer "same tier, same everything, no mesh".
-    expect(resolveTerrainExaggeration(flags(`terrain=${TERRAIN_OFF}`), true)).toBeNull();
-    expect(resolveTerrainExaggeration(flags(`terrain=${TERRAIN_OFF}`), false)).toBeNull();
+    expect(resolveTerrainExaggeration(flags(`terrain=${TERRAIN_OFF}`), true, "earth")).toBeNull();
+    expect(resolveTerrainExaggeration(flags(`terrain=${TERRAIN_OFF}`), false, "earth")).toBeNull();
     // And the caller must be able to tell "off" from a typo, or it will warn about a deliberate
     // choice: parse returns null for both, so the literal is what distinguishes them.
     expect(TERRAIN_OFF).toBe("off");
@@ -763,14 +798,14 @@ describe("resolveTerrainExaggeration — what the `full` tier actually turns on"
     // "I asked for 3x and silently got 15x" is exactly the failure the loud-refusal convention
     // exists to prevent, and it would only appear on the tier that already wanted terrain.
     for (const bad of ["terrain=abc", "terrain=0", "terrain=-5", "terrain=99999"]) {
-      expect(resolveTerrainExaggeration(flags(bad), true), bad).toBeNull();
-      expect(resolveTerrainExaggeration(flags(bad), false), bad).toBeNull();
+      expect(resolveTerrainExaggeration(flags(bad), true, "earth"), bad).toBeNull();
+      expect(resolveTerrainExaggeration(flags(bad), false, "earth"), bad).toBeNull();
     }
   });
 
   it("treats an empty ?terrain= as absent, deferring to the tier", () => {
-    expect(resolveTerrainExaggeration(flags("terrain="), true)).toBe(DEFAULT_TERRAIN_EXAGGERATION);
-    expect(resolveTerrainExaggeration(flags("terrain="), false)).toBeNull();
+    expect(resolveTerrainExaggeration(flags("terrain="), true, "earth")).toBe(DEFAULT_TERRAIN_EXAGGERATION);
+    expect(resolveTerrainExaggeration(flags("terrain="), false, "earth")).toBeNull();
   });
 
   it("starts from a value the ramp actually decays — endpoints are not independent", () => {
@@ -840,7 +875,10 @@ describe("the deploy preflight must refuse a globe production cannot serve", () 
     // The twin of this check lives in capability.test.ts (it decides whether the Full tooltip must
     // say "terrain"); both read the same call site, so both go red together rather than drifting.
     const gate = globe.match(
-      /resolveTerrainExaggeration\(\s*urlFlags\s*,\s*([\w$]+(?:\(\))?)\s*===\s*"full"\s*\)/,
+      // The trailing `(?:,[^)]*)?` is not decoration: this matcher was anchored on the call taking
+      // exactly TWO arguments, and it broke the day a third (the body) was added without a single
+      // character of the tier expression changing. An arity is not the property under test.
+      /resolveTerrainExaggeration\(\s*urlFlags\s*,\s*([\w$]+(?:\(\))?)\s*===\s*"full"\s*(?:,[^)]*)?\)/,
     );
     const tierExpression = gate?.[1] ?? "";
     // `decide(Globe)?Tier`: the globe page uses the `decideGlobeTier` wrapper, which clamps a soft

@@ -1150,7 +1150,7 @@ import { REPO_URL } from "../lib/siteLinks";
   // `?terrain=2` on such a body is a reasonable thing for someone to try, and a flag that does
   // nothing without saying so is how an hour goes into wondering which of five things broke.
   const terrainExaggeration = subsystems.terrain
-    ? resolveTerrainExaggeration(urlFlags, bootTier === "full")
+    ? resolveTerrainExaggeration(urlFlags, bootTier === "full", body.slug)
     : null;
   if (!subsystems.terrain && urlFlags.has("terrain")) {
     console.warn(
