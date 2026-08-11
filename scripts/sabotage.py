@@ -5601,6 +5601,104 @@ SABOTAGES: list[Sabotage] = [
         replacement='                    <span class="gz-kind">{feature.type}</span>',
         guard="reads the card's own formatters rather than writing a second kind and size",
     ),
+    # THE SEARCH MATCHER. Every wound below leaves a search box that works: it accepts a query, it
+    # returns features, and the ones it returns are real. What changes is which names have become
+    # unreachable, and a visitor who cannot find Koval'sky has no way to tell that from a visitor
+    # who misremembered the name. Nothing renders wrong, so nothing but these guards can see it.
+    Sabotage(
+        suite='web',
+        label='the fold is "simplified" to the one-liner that leaves a letter standing',
+        path='web/src/lib/featureSearch.ts',
+        needle='    .replace(/ł/g, "l")\n',
+        replacement='',
+        guard='folds the letter NFD cannot decompose, and the naive rule is shown to miss it',
+    ),
+    Sabotage(
+        suite='web',
+        label='a punctuated word keeps only its pieces, so the name typed without punctuation is lost',
+        path='web/src/lib/featureSearch.ts',
+        needle='  return joined ? [joined, ...word.split(/[^a-z0-9]+/).filter(Boolean)] : [];',
+        replacement='  return word.split(/[^a-z0-9]+/).filter(Boolean);',
+        guard='keeps both readings of a punctuated word, because different queries want different ones',
+    ),
+    Sabotage(
+        suite='web',
+        label='a punctuated word keeps only its joined form, so the part after the hyphen is lost',
+        path='web/src/lib/featureSearch.ts',
+        needle='  return joined ? [joined, ...word.split(/[^a-z0-9]+/).filter(Boolean)] : [];',
+        replacement='  return joined ? [joined] : [];',
+        guard='keeps both readings of a punctuated word, because different queries want different ones',
+    ),
+    Sabotage(
+        suite='web',
+        label='the query stops splitting on punctuation, so a name typed as published finds nothing',
+        path='web/src/lib/featureSearch.ts',
+        needle='  return foldForSearch(query)\n    .split(/[^a-z0-9]+/)',
+        replacement='  return foldForSearch(query)\n    .split(/\\s+/)',
+        guard='splits a query on punctuation as well as spaces',
+    ),
+    # The descriptor half, which is the only route to a crater — 1,233 features whose names never
+    # say what they are. Losing it leaves a search box that answers everything except the word a
+    # visitor is most likely to type first.
+    Sabotage(
+        suite='web',
+        label='the kind stops being searchable, so no crater can be found by asking for one',
+        path='web/src/lib/featureSearch.ts',
+        needle='      if (!onName && !everyTermPrefixes(terms, entry.everyToken)) continue;',
+        replacement='      if (!onName) continue;',
+        guard='is the only way to reach a crater, because no crater name says so',
+    ),
+    Sabotage(
+        suite='web',
+        label='a kind match can outrank a name match, so the feature asked for sinks below its kin',
+        path='web/src/lib/featureSearch.ts',
+        needle='  if (first.tier !== second.tier) return first.tier - second.tier;\n',
+        replacement='',
+        guard='ranks a name below nothing — a kind match never outranks a name match',
+    ),
+    Sabotage(
+        suite='web',
+        label='one term is enough, so a two-word query returns everything either word touches',
+        path='web/src/lib/featureSearch.ts',
+        needle='  return terms.every((term) => tokens.some((token) => token.startsWith(term)));',
+        replacement='  return terms.some((term) => tokens.some((token) => token.startsWith(term)));',
+        guard='still needs every term, whichever half answers each one',
+    ),
+    Sabotage(
+        suite='web',
+        label='where the query landed stops ordering, so the exact name sinks under the cap',
+        path='web/src/lib/featureSearch.ts',
+        needle='  if (first.lead !== second.lead) return first.lead - second.lead;\n',
+        replacement='',
+        guard='puts the whole name first, then the names that start with the query',
+    ),
+    Sabotage(
+        suite='web',
+        label='the size tie-break inverts, so a broad query answers with the smallest things on Mars',
+        path='web/src/lib/featureSearch.ts',
+        needle='  if (firstSize !== secondSize) return secondSize - firstSize;',
+        replacement='  if (firstSize !== secondSize) return firstSize - secondSize;',
+        guard='breaks a tie on size, largest first, with the unsized last',
+    ),
+    Sabotage(
+        suite='web',
+        label='the total reports the page rather than the catalogue, so "10 of 160" reads "10 of 10"',
+        path='web/src/lib/featureSearch.ts',
+        needle='      total: found.length,',
+        replacement='      total: Math.min(found.length, Math.max(0, limit)),',
+        guard='counts every match and returns only the page asked for',
+    ),
+    # THE BUNDLE SEAM, AND THE MUTATION IS THE EDIT SOMEONE WOULD ACTUALLY MAKE. `import { type X }`
+    # type-checks, erases the binding and STILL emits the module — so Earth silently starts
+    # downloading Martian place names with every other gate green and no visible change anywhere.
+    Sabotage(
+        suite='web',
+        label='the type import becomes an inline-type import, which keeps the catalogue in the graph',
+        path='web/src/lib/featureSearch.ts',
+        needle='import type { NamedFeature } from "./featureIndex";',
+        replacement='import { type NamedFeature } from "./featureIndex";',
+        guard='names the row type without fetching the rows',
+    ),
     # THE FRAMING'S ONE HARD CONSTRAINT. At the ceiling the camera lands exactly where a region stops
     # being a target, so the highlight goes out on the feature you asked to be taken to — and every
     # arithmetic assertion still passes, because the arithmetic is doing what it was told.
