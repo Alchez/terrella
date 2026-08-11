@@ -220,13 +220,14 @@ export const PUBLISHED: Record<BodySlug, Record<LayerId, PublishedArchive | null
   // NAMING A KEY HERE COMMITS TO AN UPLOAD. The deploy preflight refuses on any published object the
   // bucket does not hold, so this entry and the R2 upload land together or not at all.
   mars: {
-    // `-v2` BECAUSE THE BYTES CHANGED, NEVER AN OVERWRITE OF `-v1`. A warm Worker isolate caches
+    // `-v3` BECAUSE THE BYTES CHANGED, NEVER AN OVERWRITE OF `-v2`. A warm Worker isolate caches
     // directory byte OFFSETS, and offsets from one cut against another's bytes serve a corrupt tile
     // with a 200 — so a re-cut takes a new key, as Earth's `planet-v2` did. It also makes the deploy
     // preflight the thing that catches an un-uploaded archive: it checks EXISTENCE, so reusing the
     // key would let a deploy answer z7 requests out of the z6 object and report itself clean.
+    // `-v2` was the z6→z7 re-cut; `-v3` is the antimeridian seam fill, which moved 443 tiles.
     relief: {
-      objectKey: "mars/relief-v2.pmtiles",
+      objectKey: "mars/relief-v3.pmtiles",
       token: TOKENS.mars.relief.token,
       indexLeaves: TOKENS.mars.relief.indexLeaves,
       // The one entry that names no browser module, which is the whole reason this field is per
@@ -241,8 +242,9 @@ export const PUBLISHED: Record<BodySlug, Record<LayerId, PublishedArchive | null
       minZoom: 0,
       maxZoom: 7,
     },
-    // `-v1` AND NOT `-v2`: the version rides the OBJECT, not the body. Mars's relief carries `-v2`
-    // because that pyramid was re-cut from z6 to z7; this is the first terrain archive Mars has had.
+    // `-v1` WHILE MARS'S RELIEF IS ON `-v3`: the version rides the OBJECT, not the body. This is
+    // the first terrain archive Mars has had, and it was cut after the seam fill rather than before
+    // it — so the bytes that fix reached never existed under an earlier key here.
     terrain: {
       objectKey: "mars/terrain-v1.pmtiles",
       token: TOKENS.mars.terrain.token,
@@ -259,12 +261,13 @@ export const PUBLISHED: Record<BodySlug, Record<LayerId, PublishedArchive | null
       maxZoom: 7,
     },
     vector: {
-      objectKey: "mars/features-v1.pmtiles",
+      objectKey: "mars/features-v2.pmtiles",
       token: TOKENS.mars.vector.token,
       indexLeaves: TOKENS.mars.vector.indexLeaves,
       // THE PRODUCT NAMES THE OBJECT, THE ROLE NAMES THE URL. Earth's key says `countries` and this
       // one says `features` because an R2 key is a permanent statement about which bytes these are,
       // and the two archives hold different products under one role.
+      // `-v2` is the seam-closure drop: 13 features lost the edge that closed them along 180°.
       zoomConstants:
         "minZoom/maxZoom in PUBLISHED.mars.vector, restating MIN_ZOOM/MAX_ZOOM in "
         + "pipeline/compose/features_pmtiles.py",

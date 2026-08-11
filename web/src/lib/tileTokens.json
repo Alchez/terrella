@@ -15,15 +15,15 @@
   },
   "mars": {
     "relief": {
-      "token": "7e8c44fc",
+      "token": "5dafabf4",
       "indexLeaves": 6
     },
     "terrain": {
-      "token": "3bbabade",
+      "token": "09fb86eb",
       "indexLeaves": 6
     },
     "vector": {
-      "token": "08291b2d",
+      "token": "46574c95",
       "indexLeaves": 5
     }
   }
