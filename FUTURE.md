@@ -124,6 +124,20 @@ grep HISTORY before re-arguing anything an entry says was already decided.
 - **Adjacent, same sweep:** the tier picker's `radiogroup` a11y defect is already parked here. If
   either is ever picked up, do both — one accessibility pass, one round of judgement.
 
+## A cold page load at high zoom paints a flat fill and never recovers (observed 2026-08-11, not analysed)
+
+- **Reproduced three times while checking the antimeridian**: loading `/mars/?…#map=8/-20/180/0/0`
+  from scratch leaves the whole viewport one flat sand colour. The UI, the scale bar and the tier
+  pill all render, so the page is alive; only the map surface is empty, and waiting does not fix it.
+- **Changing only the HASH from an already-loaded overview works every time**, which is the whole
+  observation and also the workaround — load an overview first, then jump.
+- **Nothing here is measured**: no console read, no network read, no check of whether tiles were
+  requested at all. Worker-thread fetches do not appear in the main thread's `performance` entries,
+  so the obvious first probe has to be `read_network_requests` rather than a page script.
+- The shape suggests there is no lower-zoom tile to overzoom from while the first z8 requests are in
+  flight, but that is a guess with nothing behind it. **Not antimeridian-specific** — it reproduced
+  at 180° only because that is where the camera happened to be.
+
 ## Tiles "jump" a little when panning around a pole (observed 2026-08-11, not analysed)
 
 - **Observed by eye on Mars**, after the polar seam fix landed and was judged stable: panning around

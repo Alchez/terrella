@@ -170,6 +170,7 @@ def recipe() -> dict[str, Any]:
         "simplification_max_zoom": SIMPLIFICATION_MAX_ZOOM,
         "buffer": BUFFER,
         "extent": EXTENT,
+        **vector_layers.seam_recipe(),
     }
 
 

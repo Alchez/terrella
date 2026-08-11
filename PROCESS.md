@@ -82,22 +82,30 @@ All stage numbers below are at the **131072² grid** (the full Mercator square) 
 ### The same pass on Mars — measured, at the 65536² z7 grid
 
 `python -m pipeline.tile.shade_planet --body mars --tiles`. The pass this column is taken from ran
-**7:35 with the warp and the hillshade already fresh**; composing the two carried rows onto it puts a
-cold pass near **16:10**, against ~52 minutes for the equivalent Earth stages plus the hour and a half
+**7:35 with the warp and the hillshade already fresh**; composing the carried warp onto it puts a
+cold pass near **16:52**, against ~52 minutes for the equivalent Earth stages plus the hour and a half
 of optional-layer warps Mars still mostly does not pay.
 
 **NO SINGLE RUN HAS PRODUCED EVERY ROW, AND THE COLUMN SAYS WHICH.** The sky-view, composite, cut and
-memory figures come from one instrumented pass whose profile log survives. Warp and hillshade are
-carried from the cold z7 pass before it, whose log the next run overwrote — `_profile_tiles/` keeps
-only the most recent — so they are the two numbers here that cannot be re-derived without a rebuild.
-The caps printed fresh and skipped, so their cost is still the separately-measured figure.
+memory figures come from one instrumented pass whose profile log survives. The seam, hillshade and
+whole-pass figures come from the seam rebuild, taken from stage mtimes and the scope's own accounting.
+Only the **warp** is carried from the cold z7 pass before it, whose log the next run overwrote —
+`_profile_tiles/` keeps only the most recent — so it is the one number here that cannot be re-derived
+without a rebuild. The caps printed fresh and skipped, so their cost is still the separately-measured
+figure.
+
+**THE SEAM REBUILD IS ITS OWN SHAPE, AND IT IS THE ONE A FIX TO THE MASTER COSTS: 9:10 wall, 34:29
+CPU, 14.9 G peak** — everything from `close_wrap_seam` down, with the warp and the ice alpha both
+fresh and skipped. It is under the 16 G cap rather than pinned at it precisely because the ice stage,
+which is where a Mars pass peaks, did not run.
 
 | Stage | Earth z8 | Mars z7 | Note |
 |---|---|---|---|
 | warp height → 3857 | 6:49 | **4:37** | read-bound on the 10.6 GiB source, not pixel-bound. Carried — see above |
+| `wrap_seam.close_wrap_seam` | ~0 s | **0:42** | the whole-raster hole scan, then one column written — a read of the warp's output in 1024-row bands and nothing else. **Earth pays none of it**: its warp declares no nodata, so the function returns before the scan, and the same is true of any raster this has already closed. That is what lets the call sit outside the warp's freshness gate, where it has to be to reach a master already on disk |
 | ice alpha, polar bands | — | **2:23** | `mars_ice.build_alpha_raster`. The one optional layer Mars declares, and the pass's memory peak |
 | warp masks + lake + glaciers + sea ice | 1:35:31 | **0:00** | declared, not skipped by absence — every gate prints its reason |
-| `render/hillshade.py` | 16:20 | **4:00** | at Mars's own 20× and its own sphere. Carried — see above |
+| `render/hillshade.py` | 16:20 | **3:38** | at Mars's own 20× and its own sphere |
 | `global_occlusion` | 3:23 | **0:52** | |
 | `composite_planet` | 21:37 | **2:58** | 512 windows, 2.88 win/s, threaded ×4 |
 | `build_tiles` z0–7 | 4:19 | **1:21** | 21,845 tiles, 1.4 GB |

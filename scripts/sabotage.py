@@ -3100,6 +3100,52 @@ SABOTAGES: list[Sabotage] = [
         replacement='    if False:',
         guard='test_the_first_key_is_the_identity_and_a_feature_without_it_is_dropped',
     ),
+    # THE SEAM DROP IS TWO CLAIMS AND BOTH FAIL SILENTLY IN OPPOSITE DIRECTIONS. Too eager, it deletes
+    # 57 degrees of Terra Cimmeria's published boundary; too shy, it leaves the straight line down the
+    # antimeridian that it exists to remove. Neither shows up as an error, a count, or a byte size —
+    # only as a line that is there or a boundary that is not, on one meridian nobody looks at twice.
+    Sabotage(
+        suite='python',
+        label='the seam drop stops asking for a twin, so a real meridian boundary is deleted',
+        path='pipeline/compose/vector_layers.py',
+        needle='        if any(other_east is not east',
+        replacement='        if any(True or other_east is not east',
+        guard='test_a_lone_meridian_boundary_is_KEPT',
+    ),
+    Sabotage(
+        suite='python',
+        label='the seam band narrows to the exact meridian, missing a cut the publisher left unsnapped',
+        path='pipeline/compose/vector_layers.py',
+        needle='SEAM_BAND_DEGREES = 1.0',
+        replacement='SEAM_BAND_DEGREES = 0.0001',
+        guard='test_a_cut_the_publisher_did_not_snap_to_the_meridian_is_still_dropped',
+    ),
+    Sabotage(
+        suite='python',
+        label='the degenerate-span guard goes, so every short mirrored coast edge reads as a cut',
+        path='pipeline/compose/vector_layers.py',
+        needle='        if high - low <= SEAM_TWIN_LATITUDE_EPSILON:\n            continue',
+        replacement='        if False:\n            continue',
+        guard='test_two_degenerate_spans_do_not_twin_each_other',
+    ),
+    Sabotage(
+        suite='python',
+        label='an edge ACROSS the meridian counts as one along it, cutting a feature that never split',
+        path='pipeline/compose/vector_layers.py',
+        needle='            if start[0] * end[0] <= 0:',
+        replacement='            if False:',
+        guard='test_an_edge_ACROSS_the_meridian_is_not_one_along_it',
+    ),
+    # A ring's start point is arbitrary, so this failure MOVES: the gap lands wherever the publisher
+    # began the ring, which is nowhere near the seam and reads as a different bug entirely.
+    Sabotage(
+        suite='python',
+        label='the cut ring stops rejoining, leaving a second gap at the ring\'s arbitrary start',
+        path='pipeline/compose/vector_layers.py',
+        needle='    if ring[0] == ring[-1] and edge_count > 1:',
+        replacement='    if False:',
+        guard='test_a_cut_mid_ring_REJOINS_the_tail_to_the_head',
+    ),
     # --- The Mars acquisition recipe ----------------------------------------------------------------
     # Nothing here can be caught by looking at output: the file is not on disk, and every one of these
     # mutations leaves a module that imports, type-checks and reads perfectly sensibly.

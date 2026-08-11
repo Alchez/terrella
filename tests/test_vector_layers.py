@@ -10,6 +10,7 @@ carrying its simplification knobs at all, which on Earth measured a 4.3x weight 
 absent and on Mars is the difference between an archive and a segfault.
 """
 
+import itertools
 from pathlib import Path
 
 import pytest
@@ -20,6 +21,34 @@ from pipeline.compose import countries_pmtiles, features_pmtiles, vector_layers
 SQUARE = [[0, 0], [2, 0], [2, 2], [0, 2], [0, 0]]
 HOLE = [[0.5, 0.5], [1.5, 0.5], [1.5, 1.5], [0.5, 1.5], [0.5, 0.5]]
 OTHER = [[10, 10], [12, 10], [12, 12], [10, 12], [10, 10]]
+
+# A feature cut at the antimeridian: two halves, each closed along the seam between the same two
+# latitudes. The closure is at edge index 1 east and index 3 west — deliberately mid-ring, since a
+# cut at the ends would never exercise the rejoin.
+CUT_EAST = [[170, 10], [180, 10], [180, 30], [170, 30], [170, 10]]
+CUT_WEST = [[-180, 30], [-170, 30], [-170, 10], [-180, 10], [-180, 30]]
+
+# The same cut as a publisher that did not snap it: USGS ships Arcadia Planitia pre-split and closes
+# each half a fraction off the meridian, at 179.711 and (unfolded) 180.091.
+UNSNAPPED_EAST = [[165, 34], [179.711, 34.27], [180, 55.1], [175, 54.6], [165, 34]]
+UNSNAPPED_WEST = [[-180, 34.29], [-176, 34.5], [-170, 62], [-179.909, 55.114], [-180, 34.29]]
+
+# Terra Cimmeria: ONE unsplit polygon whose published eastern boundary follows the meridian for 57°
+# of latitude. Nothing about its geometry says "artifact" except that nothing answers it.
+LONE_MERIDIAN_BOUNDARY = [[100, -16], [179.56, -16], [179.66, -73], [100, -73], [100, -16]]
+
+# Fiji: real coast on both sides of the seam, near it and unmirrored.
+COAST_EAST = [[179.1, -16], [179.9, -16], [179.9, -16.5], [179.1, -16.5], [179.1, -16]]
+COAST_WEST = [[-179.9, -20], [-179.1, -20], [-179.1, -20.7], [-179.9, -20.7], [-179.9, -20]]
+
+
+def seam_edges_of(geometry, minimum_span=0.0):
+    """Every drawn edge left inside the seam band, as latitude spans — the thing a reader sees."""
+    return [abs(end[1] - start[1])
+            for line in geometry["coordinates"]
+            for start, end in itertools.pairwise(line)
+            if min(abs(start[0]), abs(end[0])) >= 179.0 and start[0] * end[0] > 0
+            and abs(end[1] - start[1]) >= minimum_span]
 
 
 def feature(properties, geometry):
@@ -134,6 +163,119 @@ class TestOutlinesFrom:
             "name": "Gale", "type": "Crater, craters", "origin": "Walter F. Gale",
             "diameter": 154.084,
         }
+
+
+class TestSeamClosures:
+    """The cut a split polygon closes itself along, told apart from a boundary that follows it."""
+
+    def test_both_halves_of_a_cut_are_dropped(self):
+        assert vector_layers.seam_closures([CUT_EAST, CUT_WEST]) == {(0, 1), (1, 3)}
+
+    def test_a_lone_meridian_boundary_is_KEPT(self):
+        """THE LOAD-BEARING CASE. Terra Cimmeria's published eastern boundary runs 57° down the
+        meridian and Terra Sirenum's western one answers it from the other side — but they are two
+        FEATURES, so neither has a counterpart within itself. Drop this and the fix deletes real
+        boundary from the two largest named regions on the planet to remove a line from a third."""
+        assert vector_layers.seam_closures([LONE_MERIDIAN_BOUNDARY]) == set()
+
+    def test_a_cut_the_publisher_did_not_snap_to_the_meridian_is_still_dropped(self):
+        """The case an exact-meridian test passes on Earth and fails on Mars."""
+        assert vector_layers.seam_closures([UNSNAPPED_EAST, UNSNAPPED_WEST]) == {(0, 1), (1, 3)}
+
+    def test_that_unsnapped_fixture_really_is_off_the_meridian(self):
+        """Otherwise the case above proves nothing — it would be the exact case wearing a name."""
+        start, end = UNSNAPPED_EAST[1], UNSNAPPED_EAST[2]
+        assert min(abs(abs(start[0]) - 180.0), abs(abs(end[0]) - 180.0)) == pytest.approx(0.0)
+        assert max(abs(abs(start[0]) - 180.0), abs(abs(end[0]) - 180.0)) > 0.25
+
+    def test_real_coast_on_both_sides_is_kept_when_it_is_not_mirrored(self):
+        """Fiji sits on the seam and contributes hundreds of candidate edges; every one is coast."""
+        assert vector_layers.seam_closures([COAST_EAST, COAST_WEST]) == set()
+
+    def test_two_degenerate_spans_do_not_twin_each_other(self):
+        """Without the span guard, any pair of short opposite-side edges at one latitude matches —
+        which is most of a coastline rather than a cut, and the failure is silent deletion."""
+        east = [[179.5, 5], [180, 5], [170, 8], [179.5, 5]]
+        west = [[-180, 5], [-179.5, 5], [-170, 8], [-180, 5]]
+        assert vector_layers.seam_closures([east, west]) == set()
+
+    def test_a_MIRRORED_pair_of_real_edges_is_dropped_and_that_is_the_known_limit(self):
+        """THE RULE'S FALSE POSITIVE, pinned rather than left to be discovered. One feature with
+        lobes on both sides whose seam-adjacent edges happen to span the same latitudes reads as a
+        cut, because that is all a cut looks like. Found by writing a fixture, not in the data —
+        neither catalogue contains it, and the alternative discriminators are worse: winding is not
+        guaranteed by publishers, and a length or Δlon threshold deletes Terra Cimmeria."""
+        east = [[179.5, 5], [179.8, 6], [170, 8], [179.5, 5]]
+        west = [[-179.5, 5], [-179.8, 6], [-170, 8], [-179.5, 5]]
+        assert vector_layers.seam_closures([east, west]) == {(0, 0), (1, 0)}
+
+    def test_an_edge_ACROSS_the_meridian_is_not_one_along_it(self):
+        """An unfolded feature reaching over the seam has a real edge joining the two sides."""
+        crossing = [[179.5, 10], [-179.5, 40], [170, 40], [179.5, 10]]
+        assert vector_layers.seam_closures([crossing]) == set()
+
+
+class TestArcsWithout:
+    def test_a_ring_with_nothing_dropped_is_returned_whole(self):
+        assert vector_layers.arcs_without(SQUARE, set()) == [SQUARE]
+
+    def test_a_cut_mid_ring_REJOINS_the_tail_to_the_head(self):
+        """One arc, not two. Removing edge 1 of a closed ring leaves a run that has to wrap through
+        the ring's arbitrary start point; two arcs would put a second gap wherever the publisher
+        happened to begin, and it would read as a shorter version of the bug being fixed."""
+        arcs = vector_layers.arcs_without(CUT_EAST, {1})
+        assert arcs == [[[180, 30], [170, 30], [170, 10], [180, 10]]]
+
+    def test_the_arc_ends_on_the_two_seam_vertices(self):
+        """The outline should stop AT the meridian from both directions, not short of it."""
+        (arc,) = vector_layers.arcs_without(CUT_EAST, {1})
+        assert [arc[0][0], arc[-1][0]] == [180, 180]
+
+    def test_two_cuts_in_one_ring_leave_two_arcs(self):
+        ring = [[180, 0], [180, 10], [170, 10], [170, 20], [180, 20], [180, 30], [180, 0]]
+        assert len(vector_layers.arcs_without(ring, {0, 4})) == 2
+
+    def test_an_unclosed_ring_is_split_where_it_is_cut_and_not_wrapped(self):
+        """A publisher habit, like the Greenland collection — wrapping an open line would invent an
+        edge between two ends that were never joined."""
+        line = [[0, 0], [1, 0], [2, 0], [3, 0]]
+        assert vector_layers.arcs_without(line, {1}) == [[[0, 0], [1, 0]], [[2, 0], [3, 0]]]
+
+
+class TestOutlinesKeepTheSeamClean:
+    def test_the_straight_line_down_the_antimeridian_is_gone(self):
+        collection = {"type": "FeatureCollection", "features": [
+            feature({"name": "Arcadia Planitia"},
+                    {"type": "MultiPolygon", "coordinates": [[UNSNAPPED_EAST], [UNSNAPPED_WEST]]})
+        ]}
+        out = vector_layers.outlines_from(collection, ("name",))
+        assert seam_edges_of(out["features"][0]["geometry"], minimum_span=1.0) == []
+
+    def test_the_feature_survives_the_drop_rather_than_disappearing(self):
+        """A feature that loses its cut must still be hoverable, tappable and outlined."""
+        collection = {"type": "FeatureCollection", "features": [
+            feature({"name": "Arcadia Planitia"},
+                    {"type": "MultiPolygon", "coordinates": [[UNSNAPPED_EAST], [UNSNAPPED_WEST]]})
+        ]}
+        out = vector_layers.outlines_from(collection, ("name",))
+        assert len(out["features"]) == 1
+        assert len(out["features"][0]["geometry"]["coordinates"]) == 2
+
+    def test_a_body_with_a_real_meridian_boundary_keeps_every_degree_of_it(self):
+        collection = {"type": "FeatureCollection", "features": [
+            feature({"name": "Terra Cimmeria"},
+                    {"type": "Polygon", "coordinates": [LONE_MERIDIAN_BOUNDARY]})
+        ]}
+        out = vector_layers.outlines_from(collection, ("name",))
+        assert seam_edges_of(out["features"][0]["geometry"]) == [pytest.approx(57.0)]
+
+    def test_geometry_away_from_the_seam_is_untouched(self):
+        """The drop must be invisible to the 1,700 features that never approach the meridian."""
+        collection = {"type": "FeatureCollection", "features": [
+            feature({"ADMIN": "Testland"}, {"type": "Polygon", "coordinates": [SQUARE, HOLE]})
+        ]}
+        out = vector_layers.outlines_from(collection, ("ADMIN",))
+        assert out["features"][0]["geometry"]["coordinates"] == [SQUARE, HOLE]
 
 
 class TestStageCommand:

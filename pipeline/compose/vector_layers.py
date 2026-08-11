@@ -13,12 +13,39 @@ is a producer's claim about what it emitted. Hoisting them would make one body's
 like a law.
 """
 
+import itertools
 from pathlib import Path
 from typing import Any
 
 #: MVT tile-space units. Not a knob either body has had reason to move, but it is part of the
 #: conversion's contract, so it is named rather than spelled into a command string.
 EXTENT = 4096
+
+#: How near ±180 an edge must sit for `seam_closures` to consider it at all. GENEROUS ON PURPOSE,
+#: because it only decides what gets ASKED the twin question and never what gets dropped — a wide
+#: band costs a comparison and a narrow one silently exempts a publisher who did not snap its cut to
+#: the meridian. USGS's Arcadia Planitia closes at 179.711 and 180.091, which is what sets the floor.
+SEAM_BAND_DEGREES = 1.0
+
+#: How closely two candidate edges' latitude spans must agree to be called the same cut seen from
+#: both sides. Tight, because it is a COINCIDENCE test rather than a magnitude one: a real boundary
+#: is not mirrored across the meridian at both ends to within a twentieth of a degree by accident.
+SEAM_TWIN_LATITUDE_EPSILON = 0.05
+
+
+def seam_recipe() -> dict[str, Any]:
+    """The seam drop's settings, for a body's recipe sidecar to carry.
+
+    IT IS SHARED CODE MAKING A CHOICE, WHICH IS THE ONE THING A PER-BODY RECIPE CANNOT NOTICE. The
+    outlines are gated on their SOURCE's mtime, and a source does not move when this module's
+    constants do — so without the sidecar, retuning either knob leaves every archive on disk exactly
+    as it was, reading fresh. Returned as a dict rather than spelled into each recipe so a third knob
+    reaches both bodies by existing.
+    """
+    return {
+        "seam_band_degrees": SEAM_BAND_DEGREES,
+        "seam_twin_latitude_epsilon": SEAM_TWIN_LATITUDE_EPSILON,
+    }
 
 
 def polygon_parts_of(geometry: dict[str, Any]) -> list[Any]:
@@ -58,6 +85,88 @@ def carried(properties: dict[str, Any], keys: tuple[str, ...]) -> dict[str, Any]
     return {key: properties[key] for key in keys if properties.get(key) is not None}
 
 
+def seam_closures(rings: list[Any]) -> set[tuple[int, int]]:
+    """`(ring index, edge index)` for every edge that is a polygon's cut at ±180 rather than boundary.
+
+    A FEATURE THAT STRADDLES THE ANTIMERIDIAN ARRIVES AS TWO POLYGONS, AND EACH HALF HAS TO CLOSE
+    ITSELF ALONG THE CUT. Stroked, those two closures draw one straight line down the meridian
+    through the middle of the feature — Arcadia Planitia's runs 20.8° of latitude. It is the same
+    phenomenon `outlines_from` already exists for, one stage earlier: there the cut is a tile
+    boundary, here it is the fold, and neither is anything a reader should see.
+
+    THE TEST IS A TWIN, NOT A THRESHOLD, and that is the whole difficulty. Proximity to ±180 cannot
+    decide it — Fiji contributes 388 edges inside the band and every one is real coast — and neither
+    can length, because **Terra Cimmeria's published eastern boundary genuinely follows the meridian
+    for 57°**, abutting Terra Sirenum's own 45° western boundary on the other side. Those two are
+    single unsplit polygons and their long meridian edges are the source's real answer. What a cut
+    has and a boundary does not is a counterpart: the same edge, in the same feature, on the other
+    side of the seam, spanning the same latitudes because both halves were closed along one line.
+
+    IT MUST ALSO SURVIVE A PUBLISHER THAT DID NOT SNAP ITS OWN CUT. `-wrapdateline` lands both ends
+    on exactly ±180, but the USGS gazetteer ships Arcadia pre-split and closes it at 179.711 and
+    180.091 — so an exact-meridian test would fix Earth completely, look correct, and leave the
+    worst Mars case untouched. The band is wide and the coincidence test does the discriminating.
+
+    THE KNOWN FALSE POSITIVE is a feature with lobes on both sides whose seam-adjacent edges span
+    the same latitudes by chance, which is indistinguishable from a cut and is dropped. It has a
+    test; it appears in neither catalogue. Winding cannot rescue it — publishers do not guarantee
+    ring orientation — and every threshold that would is one that deletes Terra Cimmeria.
+    """
+    candidates: list[tuple[int, int, bool, float, float]] = []
+    for ring_index, ring in enumerate(rings):
+        for edge_index, (start, end) in enumerate(itertools.pairwise(ring)):
+            if min(abs(start[0]), abs(end[0])) < 180.0 - SEAM_BAND_DEGREES:
+                continue
+            if start[0] * end[0] <= 0:  # an edge ACROSS the meridian is not one along it
+                continue
+            low, high = sorted((start[1], end[1]))
+            candidates.append((ring_index, edge_index, start[0] > 0, low, high))
+
+    closures: set[tuple[int, int]] = set()
+    for ring_index, edge_index, east, low, high in candidates:
+        # A degenerate span would twin with any other degenerate span at the same latitude, which is
+        # every pair of short opposite-side edges rather than a cut.
+        if high - low <= SEAM_TWIN_LATITUDE_EPSILON:
+            continue
+        if any(other_east is not east
+               and abs(low - other_low) < SEAM_TWIN_LATITUDE_EPSILON
+               and abs(high - other_high) < SEAM_TWIN_LATITUDE_EPSILON
+               for _, _, other_east, other_low, other_high in candidates):
+            closures.add((ring_index, edge_index))
+    return closures
+
+
+def arcs_without(ring: list[Any], dropped: set[int]) -> list[list[Any]]:
+    """`ring` as the open arcs left when `dropped` edge indices are removed.
+
+    A ring is closed, so removing an edge in the MIDDLE of the coordinate list has to rejoin the
+    tail to the head rather than leave two arcs that meet at a point nothing draws. Walking from
+    just past a cut is what makes that fall out; without it the seam looks fixed and the feature's
+    outline silently gains a gap at wherever the publisher happened to start the ring.
+    """
+    edge_count = len(ring) - 1
+    if not dropped or edge_count < 1:
+        return [ring]
+    order = list(range(edge_count))
+    if ring[0] == ring[-1] and edge_count > 1:
+        resume = (max(dropped) + 1) % edge_count
+        order = [(resume + step) % edge_count for step in range(edge_count)]
+    arcs: list[list[Any]] = []
+    current: list[Any] = []
+    for index in order:
+        if index in dropped:
+            if len(current) > 1:
+                arcs.append(current)
+            current = []
+            continue
+        if not current:
+            current = [ring[index]]
+        current.append(ring[index + 1])
+    if len(current) > 1:
+        arcs.append(current)
+    return arcs
+
+
 def outlines_from(collection: dict[str, Any], keys: tuple[str, ...]) -> dict[str, Any]:
     """Polygon rings re-expressed as boundary LINES — outer edges and inner holes alike.
 
@@ -65,6 +174,10 @@ def outlines_from(collection: dict[str, Any], keys: tuple[str, ...]) -> dict[str
     polygon closes the ring along the cut, and a `line` layer strokes that phantom edge — the stray
     gold meridian this project already fixed once at runtime. The fix cannot be made in the browser
     for a vector source, so it is made here.
+
+    The antimeridian is the same cut made earlier and by someone else, so `seam_closures` drops it
+    here too. A feature whose every ring is one closure would emit no line at all and is skipped,
+    which is why the emptiness test moved below the drop.
     """
     features: list[dict[str, Any]] = []
     for feature in collection["features"]:
@@ -72,12 +185,17 @@ def outlines_from(collection: dict[str, Any], keys: tuple[str, ...]) -> dict[str
         if properties is None or not feature.get("geometry"):
             continue
         rings = [ring for part in polygon_parts_of(feature["geometry"]) for ring in part]
-        if not rings:
+        closures = seam_closures(rings)
+        lines = [arc
+                 for ring_index, ring in enumerate(rings)
+                 for arc in arcs_without(
+                     ring, {edge for cut_ring, edge in closures if cut_ring == ring_index})]
+        if not lines:
             continue
         features.append({
             "type": "Feature",
             "properties": properties,
-            "geometry": {"type": "MultiLineString", "coordinates": rings},
+            "geometry": {"type": "MultiLineString", "coordinates": lines},
         })
     return {"type": "FeatureCollection", "features": features}
 
