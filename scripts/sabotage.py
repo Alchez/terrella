@@ -3846,6 +3846,57 @@ SABOTAGES: list[Sabotage] = [
         replacement='terrainDemSource(terrainTileUrlTemplate, archiveFor("earth", "terrain"), declaredTileSize)',
         guard='hands the page\'s source the ARCHIVE and not this module\'s constants',
     ),
+    # --- the elevation cut stops being Earth's ---------------------------------------------------
+    # Every mutation here produces a complete pyramid that no test of Earth can distinguish from the
+    # right one, because Earth IS the value being hardcoded. Only a second body's numbers differ.
+    Sabotage(
+        suite='python',
+        label='the master zoom goes back to a constant, so every planet descends from Earth\'s grid',
+        path='pipeline/tile/terrain_rgb.py',
+        needle='    return body.tile_max_zoom',
+        replacement='    return 8',
+        guard='test_each_body_s_master_grid_is_the_one_its_descent_assumes',
+    ),
+    Sabotage(
+        suite='python',
+        # The check that stands between a wrong native zoom and a half-resolution pyramid. Made
+        # unfalsifiable rather than deleted, which is how a guard usually dies: still called, still
+        # named in the log, answering None to everything.
+        label='the master-grid check accepts any raster it is handed',
+        path='pipeline/tile/terrain_rgb.py',
+        needle='    if width == expected and height == expected:',
+        replacement='    if True:',
+        guard='test_a_master_at_another_zooms_grid_is_refused_by_name',
+    ),
+    Sabotage(
+        suite='python',
+        # Earth's `path_prefix` is empty, so the containment bound is the one place this is easy to
+        # write wrong: moved one level up it passes for both planets and guards nothing.
+        label='the output bound moves up to the shared work root, where both planets satisfy it',
+        path='pipeline/tile/terrain_rgb.py',
+        needle='    stage = bodies.work_dir(body, "planet_terrain").resolve()',
+        replacement='    stage = bodies.work_dir(body, "planet_terrain").parent.resolve()',
+        guard='test_a_cut_aimed_at_another_planet_s_tree_is_refused',
+    ),
+    Sabotage(
+        suite='python',
+        # The documented trap, restored: argparse hands you a sea treatment the shipped archive does
+        # not use, so the bare command rebuilds a different pyramid. On a body with no sea it also
+        # flattens every point below zero, which is the deepest basin on Mars.
+        label='the sea default is spelled out again instead of following what shipped',
+        path='pipeline/tile/terrain_rgb.py',
+        needle='                    default="clamp" if SHIPPED_SEA_CLAMP else "bathy",',
+        replacement='                    default="clamp",',
+        guard='test_the_bare_command_reproduces_the_sea_treatment_that_is_on_the_wire',
+    ),
+    Sabotage(
+        suite='python',
+        label='the elevation cut assumes Earth when nobody names a body',
+        path='pipeline/tile/terrain_rgb.py',
+        needle='    ap.add_argument("--body", required=True,',
+        replacement='    ap.add_argument("--body", default="earth",',
+        guard='test_the_body_is_required_with_no_default',
+    ),
     Sabotage(
         suite='web',
         # The silent-and-total one, moved: it used to need a flag threaded through a build directory

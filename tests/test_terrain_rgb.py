@@ -16,6 +16,7 @@ import pytest
 import rasterio
 from rasterio.transform import from_bounds
 
+from pipeline import bodies
 from pipeline.raster_io import band_window
 from pipeline.tile import terrain_rgb
 
@@ -244,7 +245,8 @@ def test_build_threads_one_codec_through_every_zoom(monkeypatch, tmp_path):
                         lambda level, dst, *a, **k: dst.touch())
     monkeypatch.setattr(terrain_rgb, "downsample_elevation",
                         lambda src, dst, factor, **k: dst.touch())
-    terrain_rgb.build(tmp_path, 3, 8.0, False, True, tmp_path / "master.tif", tile_format="webp")
+    terrain_rgb.build(tmp_path, 3, 8.0, False, True, tmp_path / "master.tif", 3,
+                      tile_format="webp")
     assert formats == ["webp"] * 4
 
 
@@ -258,7 +260,7 @@ def test_each_zoom_is_cut_from_its_own_elevation(monkeypatch, tmp_path):
                         lambda level, dst, *a, **k: (encodes.append(level.name), dst.touch()))
     monkeypatch.setattr(terrain_rgb, "downsample_elevation",
                         lambda src, dst, factor, **k: dst.touch())
-    terrain_rgb.build(tmp_path, 3, 1.0, True, True, tmp_path / "master.tif")
+    terrain_rgb.build(tmp_path, 3, 1.0, True, True, tmp_path / "master.tif", 4)
     assert [zoom for _, zoom in cuts] == [3, 2, 1, 0]
     assert encodes == [f"elev_z{zoom}.tif" for zoom in (3, 2, 1, 0)]
     assert [name for name, _ in cuts] == [f"rgb_sea0_s1_z{zoom}.tif" for zoom in (3, 2, 1, 0)]
@@ -278,14 +280,90 @@ def test_variants_sharing_a_work_dir_do_not_collide(monkeypatch, tmp_path):
     work = tmp_path / "elev"
     for sea_clamp in (True, False):
         terrain_rgb.build(tmp_path / str(sea_clamp), 1, 1.0, sea_clamp, True,
-                          tmp_path / "master.tif", work=work)
+                          tmp_path / "master.tif", 2, work=work)
     assert len(set(cuts)) == len(cuts)
     assert sorted(path.name for path in work.glob("elev_*.tif")) == ["elev_z0.tif", "elev_z1.tif"]
 
 
-def test_grid_matches_the_colour_pyramids_master():
-    """height_3857.tif is 131072^2; if that stops being 512 x 2^8 the downsample factor is wrong."""
-    assert terrain_rgb.grid_size(terrain_rgb.MASTER_ZOOM) == 131072
+def test_the_body_is_required_with_no_default():
+    """Matching the cap, shade and pack passes. A defaulted body reads one planet's heightfield
+    while the operator believes they asked for another, and every tile it writes looks correct."""
+    parser = terrain_rgb.build_parser()
+    with pytest.raises(SystemExit):
+        parser.parse_args(["--out", "/tmp/whatever"])
+    assert parser.parse_args(["--body", "mars", "--out", "/tmp/whatever"]).body == "mars"
+
+
+def test_the_bare_command_reproduces_the_sea_treatment_that_is_on_the_wire():
+    """The default used to be the opposite of what shipped, so the bare command rebuilt a pyramid
+    that was not the live one — recorded in the module as a caution and now closed by derivation.
+
+    ASSERTED AGAINST `SHIPPED_SEA_CLAMP` RATHER THAN THE WORD, so this cannot pass by both sides
+    being edited to a new wrong value together, and cannot fail merely because the ratified sea
+    treatment changed. On a body with no sea it is not a look question at all: clamping deletes
+    every point below zero, which on Mars is the deepest basin on the planet.
+    """
+    args = terrain_rgb.build_parser().parse_args(["--body", "earth", "--out", "/tmp/whatever"])
+    assert (args.sea == "clamp") is terrain_rgb.SHIPPED_SEA_CLAMP
+
+
+def test_a_cut_may_land_anywhere_inside_its_own_body_s_stage():
+    """The variant directory is operator-named, so the bound is the stage rather than the path."""
+    stage = bodies.work_dir(bodies.MARS, "planet_terrain")
+    assert terrain_rgb.out_under_body(bodies.MARS, stage / "bathy_s8_webp") == (
+        (stage / "bathy_s8_webp").resolve())
+    assert terrain_rgb.out_under_body(bodies.MARS, stage) == stage.resolve()
+
+
+def test_a_cut_aimed_at_another_planet_s_tree_is_refused():
+    """Martian elevation written into Earth's terrain dir looks exactly like Earth's own tiles.
+
+    BOTH DIRECTIONS, because Earth's `path_prefix` is empty and its stage is therefore an ANCESTOR
+    of nothing while sitting beside Mars's. A containment test written one level up — at
+    `data/work` — would pass for both bodies and guard nothing at all.
+    """
+    earth_stage = bodies.work_dir(bodies.EARTH, "planet_terrain")
+    mars_stage = bodies.work_dir(bodies.MARS, "planet_terrain")
+    with pytest.raises(SystemExit, match="not under mars's terrain stage"):
+        terrain_rgb.out_under_body(bodies.MARS, earth_stage / "bathy_s8_webp")
+    with pytest.raises(SystemExit, match="not under earth's terrain stage"):
+        terrain_rgb.out_under_body(bodies.EARTH, mars_stage / "bathy_s8_webp")
+
+
+def test_a_master_at_the_declared_grid_passes_the_check(tmp_path):
+    """The control for the test below: a real raster at 512 x 2^0 must report nothing wrong.
+
+    Without it, `master_grid_mismatch` returning a sentence for every input would look like a
+    working guard — the failing case would pass and nothing would say the check is broken.
+    """
+    master = tmp_path / "height_3857.tif"
+    _write_elevation(master, np.zeros((512, 512), dtype=np.float32))
+    assert terrain_rgb.master_grid_mismatch(master, 0) is None
+
+
+def test_a_master_at_another_zooms_grid_is_refused_by_name(tmp_path):
+    """The one check standing between a wrong native zoom and a silently half-resolution pyramid.
+
+    Everything downstream of the wrong number succeeds — the descent runs, every zoom encodes, every
+    tile writes, and the recipe beside them records the ceiling that was ASKED for. So the sentence
+    has to name both grids: the failure has no other symptom to recognise it by.
+    """
+    master = tmp_path / "height_3857.tif"
+    _write_elevation(master, np.zeros((1024, 1024), dtype=np.float32))
+    complaint = terrain_rgb.master_grid_mismatch(master, 0)
+    assert complaint is not None
+    assert "1024x1024" in complaint and "512x512" in complaint
+
+
+def test_each_body_s_master_grid_is_the_one_its_descent_assumes():
+    """Every planet's `height_3857.tif` is 512 x 2^n; a wrong n makes the downsample factor wrong.
+
+    BOTH BODIES, because the number stopped being one: the value that was written out here was
+    Earth's, and against a master one level shallower it asks for a factor of two where the answer
+    is one. That produces a pyramid at half the resolution its recipe claims, with nothing raised.
+    """
+    assert terrain_rgb.grid_size(terrain_rgb.master_zoom_for(bodies.EARTH)) == 131072
+    assert terrain_rgb.grid_size(terrain_rgb.master_zoom_for(bodies.MARS)) == 65536
 
 
 def test_module_does_not_reach_for_a_smooth_resampler():
@@ -361,8 +439,19 @@ def _stamped_master(tmp_path):
     return master
 
 
-SETTINGS = {"max_zoom": 2, "step": 8.0, "sea_clamp": False, "feather": True,
-            "tile_format": "webp"}
+#: THE RECIPE AND THE BUILD SETTINGS ARE SEPARATE, and the split is the point rather than tidiness.
+#: `terrain_params` records everything that alters the emitted bytes; `master_zoom` is not one of
+#: those — it is a fact about the INPUT, and the descent uses it to arrive at exactly the pixels the
+#: recipe already describes. Putting it in the sidecar would change Earth's recorded bytes and
+#: restage a live pyramid for no pixel change, which is the same reason `bodies.work_dir` carries a
+#: body in the PATH and never in a freshness recipe. Splatting one dict into both is how that fence
+#: gets quietly crossed, so there are two.
+RECIPE = {"max_zoom": 2, "step": 8.0, "sea_clamp": False, "feather": True, "tile_format": "webp"}
+#: DELIBERATELY DEEPER THAN `max_zoom`, so the default scenario is the general one: a master that
+#: has to be descended before the top level exists. Equal zooms is the special case — the master is
+#: read in place and no top level is written — and the two tests that are about it say so
+#: themselves rather than inheriting it from here, where it would silently weaken every other test.
+SETTINGS = {**RECIPE, "master_zoom": 3}
 
 
 def test_an_unchanged_rerun_skips_the_cut_entirely(monkeypatch, tmp_path):
@@ -404,7 +493,7 @@ def test_an_identical_recipe_does_not_move_its_mtime(tmp_path):
     """`write_if_changed` is what makes the skip possible at all. Rewriting identical JSON would
     stamp the recipe newer than tiles.done on every run and restage a pyramid that is correct."""
     path = terrain_rgb.terrain_params_path(tmp_path)
-    recipe = terrain_rgb.terrain_params(**SETTINGS)
+    recipe = terrain_rgb.terrain_params(**RECIPE)
     terrain_rgb.write_if_changed(path, recipe)
     stamped = path.stat().st_mtime_ns
     terrain_rgb.write_if_changed(path, recipe)
@@ -439,7 +528,7 @@ def test_an_empty_pyramid_is_never_fresh(tmp_path):
     out = tmp_path / "out"
     (out / "tiles").mkdir(parents=True)
     terrain_rgb.write_if_changed(terrain_rgb.terrain_params_path(out),
-                                 terrain_rgb.terrain_params(**SETTINGS))
+                                 terrain_rgb.terrain_params(**RECIPE))
     terrain_rgb.mark_done(out / "tiles")
     assert terrain_rgb.tiles_are_fresh(out, _stamped_master(tmp_path)) is False
 
@@ -486,9 +575,10 @@ def test_the_master_is_read_in_place_at_its_native_zoom(tmp_path):
     """
     master = tmp_path / "height_3857.tif"
     work = tmp_path / "work"
-    native = terrain_rgb.MASTER_ZOOM
-    assert terrain_rgb.elevation_source(work, native, master) == master
-    assert terrain_rgb.elevation_source(work, native - 1, master) == work / f"elev_z{native - 1}.tif"
+    native = 3
+    assert terrain_rgb.elevation_source(work, native, master, native) == master
+    assert (terrain_rgb.elevation_source(work, native - 1, master, native)
+            == work / f"elev_z{native - 1}.tif")
 
 
 def test_a_native_zoom_build_never_materialises_the_master(monkeypatch, tmp_path):
@@ -500,9 +590,9 @@ def test_a_native_zoom_build_never_materialises_the_master(monkeypatch, tmp_path
                         lambda src, dst, factor, **k: (built.append(dst.name), dst.touch()))
     master = _stamped_master(tmp_path)
     work = tmp_path / "work"
-    native = terrain_rgb.MASTER_ZOOM
+    native = 3
     terrain_rgb.build(tmp_path / "out", master=master, work=work,
-                      **{**SETTINGS, "max_zoom": native})
+                      **{**SETTINGS, "max_zoom": native, "master_zoom": native})
     assert not (work / f"elev_z{native}.tif").exists()
     assert built[0] == f"elev_z{native - 1}.tif", "the descent must start from the master itself"
 

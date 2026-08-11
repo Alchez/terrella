@@ -54,7 +54,8 @@ export const TERRAIN_PATH_PREFIX = "terrain";
 export const TERRAIN_MIN_ZOOM = 0;
 
 /** Depth of the elevation pyramid, matching the colour pyramid's z8 — which is also the full extent
- *  of the master (`MASTER_ZOOM = 8`, 131072 = 512 x 2^8), so nothing deeper exists without a re-fuse.
+ *  of Earth's master (131072 = 512 x 2^8), so nothing deeper exists without a re-fuse. The pipeline
+ *  derives that native zoom from each body rather than holding one number, so this is Earth's.
  *
  *  Was 6 until 2026-07-28, on the reasoning that depth buys elevation detail but not mesh density
  *  and so was "a size lever, decided on a look that already works". That reasoning was sound and

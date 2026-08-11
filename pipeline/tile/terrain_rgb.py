@@ -52,7 +52,7 @@ from pathlib import Path
 import numpy as np
 import rasterio
 
-from pipeline import mercator, paths
+from pipeline import bodies, mercator
 from pipeline.freshness import (
     done_marker,
     is_stale,
@@ -61,8 +61,6 @@ from pipeline.freshness import (
 )
 from pipeline.raster_io import GTIFF_CREATE, band_window, row_bands
 
-#: Native grid of `height_3857.tif` — 512 px x 2^8, i.e. the colour pyramid's z8.
-MASTER_ZOOM = 8
 TILE_SIZE = 512
 
 #: Terrarium's zero point. Elevation `e` at quantisation `step` stores as `(e + 32768) / step`.
@@ -76,10 +74,13 @@ BASE_SHIFT = 32768.0
 #: 8 m is the ratified knee (0.49x the archive; the error lands in mountains, not on plains) and
 #: bathymetry is ratified over sea-clamping, so the sea displaces rather than reading as a wall.
 #:
-#: CAUTION, and it is not hypothetical: `--sea` still DEFAULTS to "clamp" while the shipped
-#: `terrain_params.json` records `sea_clamp: false`, so the live archive was cut with an explicit
-#: `--sea bathy` and the bare command would rebuild a different pyramid. SHIPPED_SEA_CLAMP names
-#: what is on the wire, which is what the caps must match — not what argparse hands you.
+#: SHIPPED_SEA_CLAMP NAMES WHAT IS ON THE WIRE, and `--sea` now derives its default from it rather
+#: than restating one. It restated the opposite for a while, so the bare command rebuilt a pyramid
+#: the live one had not been cut with — the trap this constant existed to warn about, closed by
+#: making the two the same fact. Do not spell the default out again.
+#:
+#: The clamp stops being a look question entirely on a body with no sea: every point below zero
+#: there is real ground, and flattening it deletes the deepest basin on the planet.
 QUANTISATION_M = 8.0
 SHIPPED_SEA_CLAMP = False
 
@@ -108,6 +109,69 @@ def _run(cmd) -> None:
 def grid_size(zoom: int) -> int:
     """Pixel width of the whole world at `zoom`, for 512 px tiles."""
     return TILE_SIZE * 2**zoom
+
+
+def master_zoom_for(body: bodies.Body) -> int:
+    """Native grid zoom of this body's `height_3857.tif` — 512 px x 2^n — and so the deepest
+    terrain zoom there is to cut.
+
+    DERIVED RATHER THAN STORED, because the chain that makes deriving safe already has two owners
+    and a third copy of the number is exactly the drift they exist to prevent. `shade_planet` warps
+    the master at `body.map_units_per_pixel` and rebuilds it whenever the raster's own pixel size
+    disagrees, so the file matches the field; `test_bodies` then pins that field against
+    `tile_max_zoom` relationally, at a tolerance that admits Earth's rounded value and cannot admit
+    a factor of two.
+
+    IT USED TO BE A MODULE CONSTANT HOLDING EARTH'S CEILING, and the reason that was dangerous
+    rather than merely wrong is that `build` does ARITHMETIC with it: the master is halved by
+    `2 ** (master_zoom - max_zoom)`. Against a body whose master is one level shallower, Earth's
+    number asks for a factor of two where the answer is one — which raises nothing, reads as a
+    normal run, and emits a pyramid at half the resolution its own recipe claims.
+    """
+    return body.tile_max_zoom
+
+
+def out_under_body(body: bodies.Body, out: Path) -> Path:
+    """`out` resolved, having checked it lands in THIS body's terrain stage. Raises if it does not.
+
+    The variant directory below the stage is operator-named, so the destination cannot be derived —
+    but it can be bounded, and the bound is the failure worth catching. Pointing a Mars cut at
+    Earth's tree writes Martian elevation into the directory the packer reads for Earth, and the
+    tiles look exactly like tiles.
+
+    Earth's empty `path_prefix` is why the bound is the STAGE directory rather than the body's
+    root: `data/work` contains every planet's tree, so a containment test one level up would pass
+    for both bodies and guard nothing. `data/work/planet_terrain` and `data/work/mars/planet_terrain`
+    contain neither the other.
+    """
+    stage = bodies.work_dir(body, "planet_terrain").resolve()
+    resolved = out.resolve()
+    if resolved != stage and stage not in resolved.parents:
+        raise SystemExit(f"--out {out} is not under {body.name}'s terrain stage ({stage}) — a cut "
+                         f"written outside it lands in another planet's tree, or somewhere the "
+                         f"packer will never look")
+    return resolved
+
+
+def master_grid_mismatch(master: Path, master_zoom: int) -> str | None:
+    """Why `master` is not the 512 x 2^`master_zoom` grid it was declared to be, or None.
+
+    The declaration comes from the body and this is where it meets the artifact, which is the one
+    check that can catch the failure above. Everything downstream of a wrong `master_zoom` succeeds:
+    the downsample runs, every zoom encodes, every tile writes, and the recipe beside them records
+    the ceiling that was asked for rather than the one that was cut.
+
+    A STRING RATHER THAN AN ASSERT so the caller decides what to do with it, and so a test can read
+    the sentence instead of matching an exception's text.
+    """
+    with rasterio.open(master) as raster:
+        width, height = raster.width, raster.height
+    expected = grid_size(master_zoom)
+    if width == expected and height == expected:
+        return None
+    return (f"{master} is {width}x{height}, not the {expected}x{expected} grid of a "
+            f"{TILE_SIZE}px tile at z{master_zoom} — the descent would resample by the wrong "
+            f"factor and emit a pyramid at the wrong resolution without failing")
 
 
 def row_latitudes(row0: int, row1: int, height: int, north: float, south: float) -> np.ndarray:
@@ -275,22 +339,22 @@ def tiles_are_fresh(out: Path, master: Path) -> bool:
             and not is_stale(live, done_marker(master), terrain_params_path(out)))
 
 
-def elevation_source(work: Path, zoom: int, master: Path) -> Path:
+def elevation_source(work: Path, zoom: int, master: Path, master_zoom: int) -> Path:
     """The elevation raster for `zoom` — THE MASTER ITSELF at its native zoom.
 
-    `height_3857.tif` is already 512 x 2^MASTER_ZOOM, so "downsampling" to that zoom is a box-mean
+    `height_3857.tif` is already 512 x 2^`master_zoom`, so "downsampling" to that zoom is a box-mean
     by a factor of 1: the identity. Materialising it wrote a 47 GB byte-for-value copy of a file
     already on disk, on every build, and the only transform it applied was NaN -> 0, which
     `encode_array` applies again regardless. Verified over six windows from Everest to the Pacific
     abyss at max |master - copy| of exactly 0.0000 m, with shifted-window controls differing by
     240-1660 m so the comparison could actually fail.
     """
-    return master if zoom == MASTER_ZOOM else work / f"elev_z{zoom}.tif"
+    return master if zoom == master_zoom else work / f"elev_z{zoom}.tif"
 
 
 def build(out: Path, max_zoom: int, step: float, sea_clamp: bool, feather: bool,
-          master: Path, work: Path | None = None, keep_intermediates: bool = False,
-          tile_format: str = "png") -> Path:
+          master: Path, master_zoom: int, work: Path | None = None,
+          keep_intermediates: bool = False, tile_format: str = "png") -> Path:
     """Build a complete z0..max_zoom terrain-RGB pyramid under `out`, returning the tile dir.
 
     The elevation chain is built once at `max_zoom` and halved from there, so the expensive read of
@@ -321,9 +385,9 @@ def build(out: Path, max_zoom: int, step: float, sea_clamp: bool, feather: bool,
     work.mkdir(parents=True, exist_ok=True)
     variant = f"{'sea0' if sea_clamp else 'bathy'}_s{step:g}{'' if feather else '_nofeather'}"
 
-    top = elevation_source(work, max_zoom, master)
+    top = elevation_source(work, max_zoom, master, master_zoom)
     if top != master and is_stale(top, done_marker(master)):
-        factor = 2 ** (MASTER_ZOOM - max_zoom)
+        factor = 2 ** (master_zoom - max_zoom)
         print(f"downsample master /{factor} -> {grid_size(max_zoom)}^2 ...", flush=True)
         downsample_elevation(master, top, factor)
         mark_done(top)
@@ -334,9 +398,9 @@ def build(out: Path, max_zoom: int, step: float, sea_clamp: bool, feather: bool,
     staging.mkdir(parents=True)
 
     for zoom in range(max_zoom, -1, -1):
-        level = elevation_source(work, zoom, master)
+        level = elevation_source(work, zoom, master, master_zoom)
         if zoom < max_zoom:
-            parent = elevation_source(work, zoom + 1, master)
+            parent = elevation_source(work, zoom + 1, master, master_zoom)
             if is_stale(level, done_marker(parent)):
                 downsample_elevation(parent, level, 2)
                 mark_done(level)
@@ -358,27 +422,67 @@ def build(out: Path, max_zoom: int, step: float, sea_clamp: bool, feather: bool,
     return tiles
 
 
-def main() -> None:
+def build_parser() -> argparse.ArgumentParser:
+    """The CLI, separable from `main` so its defaults are assertable without running a cut.
+
+    `cap_ladder` and `pack_pmtiles` split theirs for the same reason: the interesting properties
+    here are what happens when a flag is OMITTED, and that is unreachable through a function whose
+    next statement reads a 46 GB raster.
+    """
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--out", type=Path, required=True, help="pyramid root (tiles/ inside)")
+    # REQUIRED, WITH NO DEFAULT, exactly as shade_planet's is and for the same reason: a pass that
+    # assumes Earth because nobody said otherwise does not fail, it emits a complete and plausible
+    # pyramid for the wrong planet. Here it decides four things at once — the master, where the
+    # output lands, the ceiling cut to, and the descent's factor.
+    ap.add_argument("--body", required=True,
+                    help=f"which planet this cut is for ({', '.join(sorted(bodies.BODIES))})")
+    # STILL REQUIRED, AND DELIBERATELY NOT DEFAULTED TO THE STAGE DIRECTORY. The live pyramid sits
+    # one level further down, in an operator-named variant directory (`<sea><step><format>`), and
+    # that name is a choice rather than a derivation — the module header records that the name
+    # carries only part of the recipe, which is why the sidecar exists. A default would therefore
+    # not have pointed at the live pyramid: it would have built a second one beside it, found the
+    # first "missing", and left the packer reading whichever the operator remembered.
+    # It is checked against the body instead, below, which is the half that was actually unsafe.
+    ap.add_argument("--out", type=Path, required=True,
+                    help="pyramid root, under this body's planet_terrain dir (tiles/ inside)")
     ap.add_argument("--work", type=Path, default=None,
                     help="elevation-chain dir; share it across variants to read the master once")
-    ap.add_argument("--master", type=Path,
-                    default=paths.DATA / "work/planet_tiles/height_3857.tif")
-    ap.add_argument("--max-zoom", type=int, default=8)
+    ap.add_argument("--master", type=Path, default=None)
+    ap.add_argument("--max-zoom", type=int, default=None)
     ap.add_argument("--step", type=float, default=QUANTISATION_M,
                     help="metres per encoded level")
-    ap.add_argument("--sea", choices=["clamp", "bathy"], default="clamp",
+    # DEFAULTS TO WHAT IS ON THE WIRE, which it did not: the choice defaulted to "clamp" while the
+    # shipped recipe records the opposite, so the bare command rebuilt a pyramid that was not the
+    # live one. Deriving it from SHIPPED_SEA_CLAMP is what makes the two agree by construction —
+    # and the clamp is not merely a look question on a body with no sea, where every point below
+    # zero is real ground and flattening it deletes the deepest basin on the planet.
+    ap.add_argument("--sea", choices=["clamp", "bathy"],
+                    default="clamp" if SHIPPED_SEA_CLAMP else "bathy",
                     help="clamp: sea flattened to 0; bathy: seafloor displaced too")
     ap.add_argument("--no-feather", action="store_true",
                     help="skip the polar ramp (only for isolating the cap seam)")
     ap.add_argument("--format", choices=sorted(TILE_FORMATS), default="webp",
                     help="delivery codec; both lossless, webp is ~0.67x png")
     ap.add_argument("--keep-intermediates", action="store_true")
-    args = ap.parse_args()
+    return ap
 
-    tiles = build(args.out, args.max_zoom, args.step, args.sea == "clamp",
-                  not args.no_feather, args.master, args.work, args.keep_intermediates,
+
+def main() -> None:
+    args = build_parser().parse_args()
+    body = bodies.BODIES[args.body]
+    master = args.master or bodies.work_dir(body, "planet_tiles") / "height_3857.tif"
+    out = out_under_body(body, args.out)
+    native = master_zoom_for(body)
+    # THE ONE PLACE THE DECLARATION MEETS THE ARTIFACT. Every failure a wrong `native` causes is
+    # silent downstream — see `master_grid_mismatch` — so it is checked here, before the descent
+    # that would encode it into every tile and into the recipe beside them.
+    mismatch = master_grid_mismatch(master, native)
+    if mismatch:
+        raise SystemExit(mismatch)
+
+    tiles = build(out, args.max_zoom if args.max_zoom is not None else native,
+                  args.step, args.sea == "clamp",
+                  not args.no_feather, master, native, args.work, args.keep_intermediates,
                   args.format)
     count = sum(1 for _ in tiles.rglob(f"*.{args.format}"))
     size = sum(path.stat().st_size for path in tiles.rglob(f"*.{args.format}"))

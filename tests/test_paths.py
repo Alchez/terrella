@@ -247,6 +247,20 @@ class TestSharedDatasetsHaveOneHome:
             'use bodies.work_dir(bodies.EARTH, "borders")'
         )
 
+    def test_the_planet_tiles_work_dir_is_spelled_once(self):
+        """The last literal outside `bodies.work_dir`, and it was the one that could pick a planet.
+
+        It sat in the terrain cut's `--master` default, so the bare command read Earth's heightfield
+        whatever `--body` said — the shape that produces a complete, plausible pyramid for the wrong
+        world. The needle carries its opening quote so the field note in `bodies.py`, which names the
+        directory in prose, is not a hit: describing a path is not spelling one.
+        """
+        offenders = self.scan('"work/planet_tiles', set())
+        assert not offenders, (
+            f"a literal planet-tiles work dir: {offenders} — "
+            'use bodies.work_dir(body, "planet_tiles")'
+        )
+
     def test_the_scans_can_see_a_violation(self):
         """The control, and it is load-bearing: all three assertions above pass on an empty list,
         which is equally what a scan reading the wrong file set returns. Dropping the allowlist must

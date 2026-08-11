@@ -514,7 +514,11 @@ def _pipeline_zoom_range(layer: str, body: bodies.Body) -> tuple[int | None, int
         cut = shade_planet.tile_cut(body)
         return cut["min_zoom"], cut["max_zoom"]
     if layer == "terrain":
-        return None, terrain_rgb.MASTER_ZOOM
+        # PER BODY, like `vector` below and for the same reason: the elevation cut descends from
+        # that planet's own master, so its ceiling is the master's native zoom. A single arm here
+        # handed Mars Earth's answer, which is the silent factor-of-two the producer's
+        # `master_zoom_for` records.
+        return None, terrain_rgb.master_zoom_for(body)
     if layer == "vector":
         # PER BODY, because `vector` names a ROLE and each planet cuts its own products into it.
         # A single arm here would hand Mars Earth's ceiling the moment it publishes — silently, and

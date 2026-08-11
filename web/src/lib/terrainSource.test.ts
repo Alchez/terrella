@@ -274,10 +274,14 @@ describe("the contract", () => {
     // At 128 the DEM sits at camera, so the full depth is reachable — and z8 is the master's own
     // grid, so this is the ceiling rather than a step on the way to more.
     expect(TERRAIN_MAX_ZOOM).toBe(8);
-    const pipeline = readFileSync(
-      new URL("../../../pipeline/tile/terrain_rgb.py", import.meta.url), "utf8");
-    expect(pipeline).toContain("MASTER_ZOOM = 8");
-    expect(pipeline).toContain('"--max-zoom", type=int, default=8');
+    // THE CROSS-LANGUAGE HALF MOVED, and this is the link that stayed. It used to scan the pipeline
+    // for two literal 8s — a `MASTER_ZOOM` constant and an argparse default — and both were Earth's
+    // answer written where a second body would inherit it. The pipeline now derives the ceiling per
+    // body, so there is no literal to scan for; `tests/test_bodies.py` compares this registry entry
+    // against the producer's answer FOR EVERY BODY, which is what a scan for one number could not
+    // do. What is left here is the browser's own half of that chain: the constant reaches the
+    // registry the Python side reads.
+    expect(PUBLISHED.earth.terrain?.maxZoom).toBe(TERRAIN_MAX_ZOOM);
   });
 });
 
