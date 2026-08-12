@@ -480,8 +480,9 @@ describe("canary — the MapLibre surface this module depends on", () => {
     expect(declarations).toMatch(/getPixelRatio\(\): number;/);
   });
 
-  // Three comments in earth.astro cite LINE NUMBERS in the shipped bundle, and they are load-
-  // bearing: the whole reason the DEM bound, the polar caps and the recovery watch are driven
+  // Comments in Globe.astro and polarCaps.test.ts cite LINE NUMBERS in the shipped bundle, and
+  // they are load-bearing: the whole reason the DEM bound, the polar caps and the recovery watch
+  // are driven
   // from a healthy `idle` rather than from `webglcontextrestored` is the ORDER of these five
   // statements. A version bump moves every one of them, and a citation that has silently drifted
   // is worse than none — it reads as evidence. This pins the order, and prints the real numbers
@@ -506,12 +507,13 @@ describe("canary — the MapLibre surface this module depends on", () => {
     ) + 1;
     const fireRestored = lineOf('this.fire(new MapContextEvent("webglcontextrestored"');
 
-    const cited = { setStyle: 22446, setupPainter: 22452, resize: 22454, fireRestored: 22457 };
+    const cited = { setStyle: 22704, setupPainter: 22716, resize: 22718, fireRestored: 22721 };
     const actual = { setStyle, setupPainter, resize, fireRestored };
     expect(
       actual,
-      `earth.astro cites these bundle lines; MapLibre moved them. Update the comments beside ` +
-        `reassertTerrainBound, reassertPolarCaps and startRecoveryWatch to ` +
+      `Comments cite these bundle lines; MapLibre moved them. GREP FOR THE OLD NUMBERS rather ` +
+        `than working from a list — the list in this message was itself wrong once, naming a file ` +
+        `that cites nothing and missing one that does. Update every hit, and \`cited\` above, to ` +
         `${JSON.stringify(actual)}.`,
     ).toEqual(cited);
 

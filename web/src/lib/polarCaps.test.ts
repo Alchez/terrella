@@ -896,7 +896,7 @@ describe("the context-loss recovery contract", () => {
   // CORRECTS THE CLAIM THIS BLOCK USED TO MAKE. It asserted the caps "survive ONLY because the
   // restore re-fires style.load". They do not survive: measured, a restore re-fires style.load and
   // the caps come back as a BLACK DISC over the pole. _contextRestored calls setStyle() at line
-  // 22446 and _setupPainter() only at 22452, so a cap added from style.load binds its buffers to
+  // 22704 and _setupPainter() only at 22716, so a cap added from style.load binds its buffers to
   // the outgoing GL context. Present, wrong, and silent — worse than the hole it was guarding
   // against, because a hole is visible as a hole.
   it("re-adds the caps on recovery, from OUTSIDE style.load, because that ordering is too early", () => {

@@ -26,7 +26,7 @@ import { describe, expect, it } from "vitest";
  */
 
 const SHIPPED_BUNDLE = "../../node_modules/maplibre-gl/dist/maplibre-gl.mjs";
-const PATCHED_VERSION = "6.1.0";
+const PATCHED_VERSION = "6.3.0";
 
 function readShippedBundle(): string {
   return readFileSync(new URL(SHIPPED_BUNDLE, import.meta.url), "utf8");
@@ -46,8 +46,8 @@ describe("vendored MapLibre patch (upstream PR #7851)", () => {
     expect(
       patched.test(readShippedBundle()),
       "PR #7851's wrap fix is missing from maplibre-gl.mjs — the antimeridian tile explosion is " +
-        "back (13x tiles, 4.1 fps). Check `patchedDependencies` in pnpm-workspace.yaml and that " +
-        "patches/maplibre-gl@6.0.0.patch still applies, then re-run `pnpm install`.",
+        `back (13x tiles, 4.1 fps). Check \`patchedDependencies\` in pnpm-workspace.yaml and that ` +
+        `patches/maplibre-gl@${PATCHED_VERSION}.patch still applies, then re-run \`pnpm install\`.`,
     ).toBe(true);
   });
 
