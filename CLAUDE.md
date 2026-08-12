@@ -1,6 +1,7 @@
 # Terrella — project memory
 
-A static site of ray-traced relief maps of every country, navigable as an interactive globe.
+A static site of ray-traced relief maps, navigable as an interactive globe — every country on Earth,
+and Mars as a second body.
 Look target: Frank Ramspott's "3D Render Topographic Map — Neutral" — soft raytraced shadows,
 heavy vertical exaggeration, warm sand land, desaturated teal sea with bathymetry, white vector
 borders, minimal typography. The aesthetic decisions live in ART.md.
@@ -45,7 +46,7 @@ probe; degrade at runtime if frame rate tanks; honour `Save-Data`, `prefers-redu
 - One scene rig for every country: DEM displacement, low sun, two-ramp material (elevation-keyed land, depth-keyed sea), ortho camera framed from Natural Earth bounds.
 - **Vertical exaggeration belongs to the body** — 15× on Earth. The hero imports `palette.EXAGGERATION`, the tiles and caps read `Body.exaggeration`, and a test pins Earth's field equal to the constant; unpinned, the tiles drift away from the heroes they must match.
 - **Tiles approximate the Cycles look:** single-NW hillshade (multidirectional rejected) + sky-view factor from our own `sky_view.py` (WhiteboxTools dropped) + the same ramps, composited with GDAL.
-- **z0–8, and z8 is LOCKED.** z9/z10 are parked in FUTURE and blocked on disk — a planet re-fuse at ~2.5″, never a tiling flag.
+- **Tile depth belongs to the body too** — `Body.tile_max_zoom`, z8 on Earth and z7 on Mars. **Earth's z8 is LOCKED**: z9/z10 are parked in FUTURE and blocked on disk — a planet re-fuse at ~2.5″, never a tiling flag.
 - **Tiles are 512px**, declared to MapLibre as `tileSize: 256`, which centres the scheme on DPR 2. → FUTURE § raster tile resolution vs device pixel ratio
 - **Delivery encoding is a policy, not one constant** — masters stay lossless, delivery does not. → ART § Delivery encoding · § The srcset ladder
 - **Every writer records its recipe beside its output**, because existence cannot see a settings change.
@@ -66,15 +67,15 @@ probe; degrade at runtime if frame rate tanks; honour `Save-Data`, `prefers-redu
 - Pipeline Python is the uv-managed venv (`source .venv/bin/activate`); `uv sync` rebuilds it exactly, upgrades only via `uv lock --upgrade`. Blender's bundled Python is a **separate interpreter** — bpy scripts cannot import the venv's packages.
 - Dev/render box: dual-boot desktop, RTX 4070 Super, 12 GB VRAM. **All work happens in the Ubuntu boot** — never suggest Windows paths, WSL, or PowerShell.
 - **OptiX crash recipe:** `OPTIX_ERROR_UNKNOWN` at context creation → check `journalctl -k` for NVRM **Xid** lines; if the Xid's pid is Blender the driver is fine, just restart Blender to clear the dead CUDA context.
-- **One heavy job at a time under a 12 G cgroup cap, no third-party exemptions.** Keep project data and temp on ext4 — never tmpfs `/tmp`, never large rasters on NTFS.
+- **One heavy job at a time under a 16 G cgroup cap, no exemptions** — not for third-party tools, and not for an ad-hoc measurement either; the category that matters is "touches a full-planet raster", not "is a pipeline stage". `run_pass.sh` sizes the cap per body from `pipeline/profile/pass_cap.py`. 12 G is the value that failed: the shade pass invokes `cap_render` in its own cgroup, so a 12 G pass completed every tile stage and died at the last one. Keep project data and temp on ext4 — never tmpfs `/tmp`, never large rasters on NTFS.
 - A separate home server runs the pipeline; it is not the site's origin. The site is served entirely from the CDN.
-- Budget ~8–10 GB of DEM per large country and tens of GB for the full pyramid; keep intermediates out of backups.
+- **Keep intermediates out of backups.** INVENTORY.md is the storage map — current sizes, what each store feeds, and which are reclaimable.
 
 ## Working conventions
 
 - Pipeline stages are **idempotent and resumable** — a crash at tile N must not restart the world. Cache intermediates, validate per stage.
 - Python for pipeline code; boring debuggable scripts over frameworks. (Upheld on measurement, not taste: numpy releases the GIL, so threads reach the same ceiling xarray/dask would.)
-- **`uv run pyright` stays at 0 and `pytest` stays green** — there is no "pre-existing error" allowance. rasterio call sites take a targeted `# pyright: ignore[reportCallIssue]`; GDAL creation-option dicts are `dict[str, Any]`.
+- **Every gate stays at zero and there is no "pre-existing error" allowance.** From the root: `uv run pytest`, `uv run pyright`, `uv run ruff check` — pyright asks whether the types line up, ruff whether the code says what it means, and neither substitutes for the other. From `web/`: `pnpm test`, `pnpm lint`, `pnpm check` (which is `astro check` plus the worker's own tsconfig, since a second tsconfig is a second program the project check cannot see) and `pnpm check:test-collection`. rasterio call sites take a targeted `# pyright: ignore[reportCallIssue]`; GDAL creation-option dicts are `dict[str, Any]`.
 - **Docs in this repo state current truth, not history** — if a row and reality disagree, the row is the bug. Dated decisions live in a decision archive kept outside the repo.
 - **A learning goes where it will be met:** a fact about one function into that function's docstring, a general work heuristic into the agent's memory.
 - **A second reader with no owner is the defect, and the KIND of thing is incidental** — a path, a procedure, a constant, a header, an explanation in a comment. With no home to import from, the second module copies, and *every copy is correct where it sits*: Natural Earth reached eight spellings of one path, all resolving identically on this machine, before `pipeline/naturalearth.py`; `download_one` reached two, and the copy drifted a timeout and a 404 branch, each exercised only by its own callers. **The trigger is "change one copy — what goes red?"** Nothing red means it needs an owner; where one owner is impossible — a latitude that must exist in Python and in TypeScript — make one copy executable so the drift fails loudly instead.

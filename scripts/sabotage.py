@@ -810,6 +810,61 @@ SABOTAGES: list[Sabotage] = [
         replacement='return "the context came back but MapLibre never rebuilt the style";',
         guard='reports the most fundamental failure first',
     ),
+
+    # --- the arm a capture belongs to, and the seam that drives it ----------------------------------
+    # Every case here defends the same property: a capture must be able to say which ARM produced it.
+    # The instrument was already strict about provenance and a measurement went around it anyway, so
+    # what these protect is the path that makes going around it unnecessary.
+    Sabotage(
+        suite='web',
+        label='the origin records flag keys again, so two arms of one sweep read identically',
+        path='web/src/lib/perf/perfSnapshot.ts',
+        needle='    else for (const value of values) described.push(`${key}=${value}`);',
+        replacement='    else described.push(key);',
+        guard='separates two arms that differ only in what a flag is SET TO',
+    ),
+    Sabotage(
+        suite='web',
+        label='a blank arm becomes a name, so two unnamed captures collide',
+        path='web/src/lib/perf/perfOverlay.ts',
+        needle='  return arm === null || arm.trim() === "" ? undefined : arm;',
+        replacement='  return arm === null ? undefined : arm;',
+        guard='treats a blank arm as unnamed rather than as a name',
+    ),
+    Sabotage(
+        suite='web',
+        label='the export stops carrying the arm, so every capture is a bare timestamp',
+        path='web/src/lib/perf/perfOverlay.ts',
+        needle='    options.arm === undefined ? path : `${path}?arm=${encodeURIComponent(options.arm)}`;',
+        replacement='    path;',
+        guard='names the capture when an arm is given',
+    ),
+    Sabotage(
+        suite='web',
+        label='the arm slug admits a path separator, so a label can escape the capture directory',
+        path='web/src/lib/perfCaptureName.ts',
+        needle='    .replace(/[^a-z0-9]+/g, "-")',
+        replacement='    .replace(/[^a-z0-9./]+/g, "-")',
+        guard='cannot emit a path separator or a dot, so traversal has nothing to work with',
+    ),
+    Sabotage(
+        suite='web',
+        label='the capture is named arm-first, splitting the one run whose arms get compared',
+        path='web/src/lib/perfCaptureName.ts',
+        needle='  return slug === null ? `${stamp}.json` : `${stamp}-${slug}.json`;',
+        replacement='  return slug === null ? `${stamp}.json` : `${slug}-${stamp}.json`;',
+        guard="puts the timestamp first, so one run's arms sort adjacent",
+    ),
+    # The seam duplicate that actually shipped, replayed under a name the guard has never seen. The
+    # previous version of that guard named ONE handle and so could not have caught this at all.
+    Sabotage(
+        suite='web',
+        label='the page hands the live map to a global again, under a brand-new name',
+        path='web/src/components/Globe.astro',
+        needle='  // The scripted-diagnosis seam is NOT here.',
+        replacement='  window.debugMap = map;\n  // The scripted-diagnosis seam is NOT here.',
+        guard='is not also written from the page, where nothing structural would gate it',
+    ),
     Sabotage(
         suite='web',
         label='the loss line drops when the timestamp is missing',
@@ -1148,8 +1203,8 @@ SABOTAGES: list[Sabotage] = [
         suite='web',
         label='the seam is removed, so scripted A/Bs silently lose the camera',
         path='web/src/lib/perf/perfOverlay.ts',
-        needle='  window.terrellaMap = map;',
-        replacement='  // seam removed',
+        needle='  window.terrella = {',
+        replacement='  const seamRemoved = {',
         guard='lives in the lazily-imported instrument, so an ordinary visit cannot reach it',
     ),
     Sabotage(

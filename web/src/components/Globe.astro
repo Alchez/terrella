@@ -894,19 +894,12 @@ import { REPO_URL } from "../lib/siteLinks";
   // every camera change, which is invisible in a page corner and a twitching span once the ruler
   // rests against a centred pill. Ours fixes the span and lets the number move — see scaleRuler.ts.
 
-  // ?perf only: a handle on the live map, because nothing else reaches one. MapLibre keeps no
-  // back-reference from any DOM node to its Map, the page script's `map` is a module-local const,
-  // and the numbers that have driven the last three investigations — `terrain.tileManager
-  // ._renderableTilesKeys`, `painter._rttObjectRecyclePool`, `painter.renderToTexture._stacks` —
-  // are private state on objects only the map can reach. Every one of those sessions ended up
-  // adding this line temporarily; making it permanent and flag-gated is the honest version.
-  //
-  // Gated rather than unconditional so production ships no writable global that can pin the map
-  // (and everything it owns, including GL resources) alive after teardown. Costs one property
-  // assignment when the flag is present and does not exist otherwise.
-  if (urlFlags.has("perf")) {
-    window.__map = map;
-  }
+  // The scripted-diagnosis seam is NOT here. It lives in `lib/perf/perfOverlay.ts`, which this page
+  // dynamically imports inside the perf branch alone, so the module boundary is the gate and no
+  // edit to this file can widen it. A page-level assignment behind a flag check was tried, and it
+  // is the reason the rule is structural: a sabotage that closed the flag block early and reopened
+  // it after the assignment left the statement outside the gate and inside the region its guard
+  // matched, and passed. `capability.test.ts` asserts this page assigns the map to no global.
 
   // The credit stays a real AttributionControl rather than hand-rolled markup, so that any source
   // which ever declares `attribution` is still picked up automatically by _updateAttributions —
@@ -1509,7 +1502,7 @@ import { REPO_URL } from "../lib/siteLinks";
                 canvas.clientWidth > 0 ? canvas.width / canvas.clientWidth : map.getPixelRatio(),
               viewportCssWidth: canvas.clientWidth,
               viewportCssHeight: canvas.clientHeight,
-              flags: [...urlFlags.keys()].toSorted(),
+              flags: perfSnapshot.describeFlags(urlFlags),
               panelExpanded: panel.expanded,
             },
             timing,

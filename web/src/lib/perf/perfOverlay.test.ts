@@ -6,6 +6,7 @@ import {
   NARROW_VIEWPORT_PX,
   PERF_EXPORT_PATH,
   SLOW_FRAME_MS,
+  armFromSearch,
   exportPerfReport,
   recordLongTask,
   type LongTaskTally,
@@ -196,6 +197,48 @@ describe("exportPerfReport", () => {
     expect(seenPath).toBe(PERF_EXPORT_PATH);
     // Pretty-printed on purpose: the file is read by a human in an editor, not parsed by a tool.
     expect(seenBody).toBe('{\n  "a": 1\n}');
+  });
+
+  it("names the capture when an arm is given, and leaves the path bare when it is not", async () => {
+    // The arm rides the QUERY rather than the body so the endpoint can name the file without
+    // parsing the report. Absent must stay byte-identical to the old path — a trailing `?` would
+    // be a second spelling of the same endpoint for every existing caller.
+    const paths: string[] = [];
+    const fetchFn = ((path: string) => {
+      paths.push(path);
+      return ok();
+    }) as unknown as typeof fetch;
+    await exportPerfReport({ report: {}, fetchFn, arm: "refresh-true" });
+    await exportPerfReport({ report: {}, fetchFn });
+    expect(paths).toEqual([`${PERF_EXPORT_PATH}?arm=refresh-true`, PERF_EXPORT_PATH]);
+  });
+
+  it("takes the arm from the document's own query, so a label cannot contradict its arm", async () => {
+    // The failure this closes: naming the capture means repeating the arm, and a repeated string
+    // is one that can be typed differently the second time. Read from the URL there is only one.
+    expect(armFromSearch("?perf&arm=refresh-true")).toBe("refresh-true");
+    expect(armFromSearch("?arm=M11&lod=11")).toBe("M11");
+  });
+
+  it("treats a blank arm as unnamed rather than as a name", () => {
+    // A blank slug would collide silently with the next blank one; a bare timestamp is visibly
+    // unnamed, which is the honest rendering of "the caller gave me nothing usable".
+    expect(armFromSearch("?perf")).toBeUndefined();
+    expect(armFromSearch("?arm=")).toBeUndefined();
+    expect(armFromSearch("?arm=%20%20")).toBeUndefined();
+    expect(armFromSearch("")).toBeUndefined();
+  });
+
+  it("encodes an arm that would otherwise change the query it rides in", async () => {
+    // `&` in a label would forge a second parameter, which is how a capture ends up named by
+    // something the caller never asked for.
+    let seen = "";
+    const fetchFn = ((path: string) => {
+      seen = path;
+      return ok();
+    }) as unknown as typeof fetch;
+    await exportPerfReport({ report: {}, fetchFn, arm: "a&b=c d/../e" });
+    expect(seen).toBe(`${PERF_EXPORT_PATH}?arm=a%26b%3Dc%20d%2F..%2Fe`);
   });
 
   it("falls back to the clipboard when there is no endpoint — the production case", async () => {

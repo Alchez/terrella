@@ -19,10 +19,15 @@ import { describe, expect, it } from "vitest";
  *
  * DELETE THIS FILE when PR #7851 merges upstream and we take the release that carries it — at that
  * point the patch must also come out of `pnpm-workspace.yaml`, and this guard would then be
- * asserting our own stale edit rather than upstream behaviour. The upstream release also carries a
- * SECOND change we deliberately excluded (a narrow-lens zoom bump of `scaleZoom(36.87 / fov)`,
- * which at our fov 15 adds ~1.3 zoom levels and so multiplies tile counts); re-measure before
- * accepting it.
+ * asserting our own stale edit rather than upstream behaviour. Re-measure tile counts on that
+ * release rather than assuming parity: our globe runs at a far narrower field of view than
+ * MapLibre's default (`VERTICAL_FIELD_OF_VIEW_DEG` in Globe.astro), which is the regime upstream
+ * exercises least, so any zoom logic keyed to the field of view lands hardest here.
+ *
+ * RE-CUT it in the shape asserted below — an inline ternary on the clipping plane — rather than
+ * reproducing whatever structure upstream's source has by then. The patch target is a MINIFIED
+ * bundle, where editing one expression in place survives a re-minify that an added class method
+ * would not.
  */
 
 const SHIPPED_BUNDLE = "../../node_modules/maplibre-gl/dist/maplibre-gl.mjs";

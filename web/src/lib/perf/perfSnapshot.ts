@@ -54,8 +54,14 @@ import { summariseSpans, type Interval, type TraceSummary } from "./perfTrace";
  *
  *  How much this changed in practice is MEASURED, not assumed: on the live globe, all 407 tile
  *  entries were `img`-initiated raster, so a v3 relief count was inflated only by whatever failed
- *  to parse. Vector tiles are fetched from MapLibre's worker and never reach this buffer at all. */
-export const PERF_REPORT_SCHEMA = 4;
+ *  to parse. Vector tiles are fetched from MapLibre's worker and never reach this buffer at all.
+ *
+ *  5 gives `origin.flags` its VALUES. Up to v4 the field held bare keys, so two arms of the same
+ *  sweep that differed only in what a flag was set TO — the ordinary case for a valued flag —
+ *  produced byte-identical origins. `href` still separated them in an exported file, but the panel
+ *  never prints `href`, so the arm was unrecoverable from the screenshot that is this instrument's
+ *  whole reason for existing on a phone. See {@link describeFlags}. */
+export const PERF_REPORT_SCHEMA = 5;
 
 /** Where and under what conditions a reading was taken. */
 export interface PerfOrigin {
@@ -81,7 +87,7 @@ export interface PerfOrigin {
   realisedPixelRatio: number;
   viewportCssWidth: number;
   viewportCssHeight: number;
-  /** Diagnostic flags in effect (`nocaps`, `bare`, `demcache=off`…), sorted. */
+  /** Diagnostic flags in effect, as {@link describeFlags} renders them: `nocaps`, `demcache=off`. */
   flags: string[];
   /**
    * Whether the panel was EXPANDED when this was taken.
@@ -96,6 +102,32 @@ export interface PerfOrigin {
    * cannot rule out.
    */
   panelExpanded: boolean;
+}
+
+/**
+ * Render the query string as the flag list {@link PerfOrigin.flags} carries.
+ *
+ * A bare flag stays a bare key; a flag with a value becomes `key=value`. That distinction is the
+ * whole point of the function: this page's diagnostic flags are mostly VALUED (`?maxreq=`,
+ * `?skirt=`, `?terrain=`, `?lod=`), and a list of keys says two arms of a sweep were configured
+ * identically when the values are the only thing that differed between them.
+ *
+ * An empty value reads as bare — `?perf` and `?perf=` mean the same thing to every parser on this
+ * page, so they must not describe differently. Repeated keys yield one entry each rather than being
+ * collapsed, because `URLSearchParams` hands the whole list to whoever reads it and the last-wins
+ * behaviour a reader might assume is not universal.
+ *
+ * Values are NOT truncated. A long one wraps the panel, which is a legibility cost; a shortened one
+ * is a false record, which is the class of defect the schema note above exists to stop.
+ */
+export function describeFlags(params: URLSearchParams): string[] {
+  const described: string[] = [];
+  for (const key of new Set(params.keys())) {
+    const values = params.getAll(key).filter((value) => value.trim() !== "");
+    if (values.length === 0) described.push(key);
+    else for (const value of values) described.push(`${key}=${value}`);
+  }
+  return described.toSorted();
 }
 
 /** How far down the FPS degradation ladder this page has walked. */

@@ -795,7 +795,7 @@ describe("the scripted-diagnosis seam is gated by the module boundary", () => {
     // lazyBoundary.test.ts owns that rule for the whole directory, and a duplicate of it here was
     // silently vacuous for its entire life — anchored `^import` against Astro's indented imports, so
     // it matched nothing and passed by finding nothing.
-    expect(overlay).toContain("terrellaMap = map");
+    expect(overlay).toContain("window.terrella = {");
     expect(globe).toMatch(/if \(urlFlags\.has\("perf"\)\)/);
     expect(globe).toContain('import("../lib/perf/perfOverlay")');
   });
@@ -806,7 +806,16 @@ describe("the scripted-diagnosis seam is gated by the module boundary", () => {
     // the block early and re-opened it after the assignment passed that test: the statement was
     // outside the gate and still inside the span. A region match cannot decide what encloses a
     // statement, so the gate moved to the module boundary and this asserts the page stays clean.
-    expect(globe).not.toContain("terrellaMap");
+    //
+    // KEYED TO THE SHAPE, NOT TO A NAME, and that is the correction this assertion carries. It
+    // used to name one handle — so when a SECOND handle for the same map was added to this page
+    // under a different name, it passed without noticing, and that duplicate shipped assigned
+    // twice with its own flag gate dead from the day it landed. Both spellings were correct where
+    // they sat; nothing could go red. A guard that names its subject cannot see the same defect
+    // arrive under another name, so this one asks the question the concept asks: does the page
+    // hand the live map to a global at all?
+    const pageHandles = [...globe.matchAll(/window\.(\w+)\s*=\s*map\b/g)].map((match) => match[1]);
+    expect(pageHandles, "the map seam belongs behind the module boundary").toEqual([]);
   });
 });
 

@@ -23,6 +23,7 @@ import type { BodySlug } from './src/lib/bodies';
 import { describeTileTypeMismatch } from './src/lib/reliefTiles';
 import { describeTerrainTileTypeMismatch } from './src/lib/terrainSource';
 import { describeVectorTileTypeMismatch } from './src/lib/vectorTiles';
+import { perfCaptureName } from './src/lib/perfCaptureName';
 
 // Asset store locations. DEV-ONLY: the dev server serves /heroes, /borders and /tiles
 // out of these external directories (R2 does it in production; the
@@ -336,7 +337,11 @@ function perfSnapshotServer(): Plugin {
             // Colons are legal on ext4 but make the file annoying to pass to anything shell-shaped.
             const stamp = new Date().toISOString().replace(/[:.]/g, '-');
             const directory = path.resolve(process.cwd(), PERF_SNAPSHOT_DIR);
-            const file = path.join(directory, `${stamp}.json`);
+            // Mounted middleware sees the path AFTER the mount point, so the query is read off
+            // whatever remains rather than off a URL that still says `/__perf`. The label is
+            // untrusted — `perfCaptureName` owns making it safe, and owns it in one place.
+            const arm = new URL(req.url ?? '/', 'http://localhost').searchParams.get('arm');
+            const file = path.join(directory, perfCaptureName(stamp, arm));
             try {
               await fs.promises.mkdir(directory, { recursive: true });
               await fs.promises.writeFile(file, body, 'utf8');
@@ -350,6 +355,30 @@ function perfSnapshotServer(): Plugin {
             }
           })();
         });
+      });
+    },
+  };
+}
+
+// Dev-only: unlock the JS Self-Profiling API, which Chrome gates behind a document policy —
+// `new Profiler(...)` throws `NotAllowedError: JS profiling is disabled by Document Policy` until
+// this header is present, and no page-side code can grant it.
+//
+// DEV ONLY BY CONSTRUCTION, and it must stay that way: `configureServer` never runs for the static
+// build, so this cannot reach production by being forgotten. It is a diagnostic that lets the page
+// sample its own stacks, which is exactly what a visitor's page must not be able to do.
+//
+// The header goes on EVERY response rather than on documents alone. Discriminating would mean
+// re-deriving "is this a document" from the URL here, and this middleware runs ahead of the asset
+// servers below precisely so it cannot be skipped — a policy that arrives for some documents and
+// not others is worse than one that is uniformly too broad on a dev server.
+function jsProfilingPolicy(): Plugin {
+  return {
+    name: 'js-profiling-policy',
+    configureServer(server) {
+      server.middlewares.use((_req, res, next) => {
+        res.setHeader('Document-Policy', 'js-profiling');
+        next();
       });
     },
   };
@@ -388,6 +417,7 @@ export default defineConfig({
   },
   vite: {
     plugins: [
+      jsProfilingPolicy(),
       heroDevServer(),
       bordersDevServer(),
       tilesDevServer(),

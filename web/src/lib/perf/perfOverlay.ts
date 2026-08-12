@@ -375,6 +375,24 @@ export function perfSummaryLines(snapshot: PerfSnapshot): PerfLine[] {
  *  comment in astro.config.ts for why this is not configurable. */
 export const PERF_EXPORT_PATH = "/__perf";
 
+/**
+ * The arm this DOCUMENT is, read from its own query string.
+ *
+ * The capture names itself from the URL rather than from a string the caller repeats, and that is
+ * the entire point: an arm typed twice is an arm that can be typed differently the second time,
+ * which is precisely the mislabelling that made a whole sweep unusable. Here the label and the
+ * configuration it describes cannot disagree, because there is only one of them.
+ *
+ * Extracted and exported rather than inlined at the call site, per this module's standing rule —
+ * logic inside `mountPerfOverlay` is logic no test can reach, and a sabotage of it goes uncaught.
+ */
+export function armFromSearch(search: string): string | undefined {
+  const arm = new URLSearchParams(search).get("arm");
+  // An empty or blank `?arm=` is a typo, not a name. Undefined leaves the capture timestamped,
+  // which is visibly unnamed — a blank-looking slug would collide silently with the next one.
+  return arm === null || arm.trim() === "" ? undefined : arm;
+}
+
 /** What the export did, rendered onto the button so a phone with no console still gets an answer.
  *  Every branch is a distinct string: "it silently did nothing" must not be reachable. */
 export type PerfExportOutcome = "saved" | "copied" | "failed";
@@ -394,13 +412,20 @@ export type PerfExportOutcome = "saved" | "copied" | "failed";
  */
 export async function exportPerfReport(options: {
   report: unknown;
+  /** Names the capture on disk. A sweep otherwise lands as N timestamps that must each be opened
+   *  to find out which arm they are — the directory stops being readable at exactly the point a
+   *  sweep gets big enough to need reading. Advisory: the endpoint slugs it and owns the result. */
+  arm?: string;
   fetchFn?: typeof fetch;
   writeClipboard?: (text: string) => Promise<void>;
   path?: string;
 }): Promise<PerfExportOutcome> {
   const body = JSON.stringify(options.report, null, 2);
+  const path = options.path ?? PERF_EXPORT_PATH;
+  const target =
+    options.arm === undefined ? path : `${path}?arm=${encodeURIComponent(options.arm)}`;
   try {
-    const response = await options.fetchFn?.(options.path ?? PERF_EXPORT_PATH, {
+    const response = await options.fetchFn?.(target, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body,
@@ -441,18 +466,6 @@ export interface PerfOverlayOptions {
 export function mountPerfOverlay(map: MaplibreMap, options: PerfOverlayOptions = {}): void {
   const { eventStamps, extraLines, buildReport } = options;
 
-  // A seam for scripted diagnosis: without a map handle, a driven browser can reach the camera only
-  // through synthetic gestures or hash jumps, and an A/B whose arms cannot be given the identical
-  // camera route is the confound this project keeps paying for.
-  //
-  // It lives HERE, not in earth.astro, and that is what gates it. This module is dynamically
-  // imported inside the `?perf` branch alone, so an ordinary visit never downloads it, let alone
-  // runs this line — the module boundary IS the gate, and no edit to a page can accidentally widen
-  // it. The first version sat in earth.astro behind the flag with a test asserting the assignment
-  // appeared within the flag block's text span; a sabotage that moved it out of the block while
-  // leaving it inside the span passed that test cleanly. A guard that matches a region cannot
-  // decide what encloses a statement.
-  window.terrellaMap = map;
   const snapshot: PerfSnapshot = {
     bootMs: performance.now(),
     mapLoadMs: null,
@@ -547,20 +560,30 @@ export function mountPerfOverlay(map: MaplibreMap, options: PerfOverlayOptions =
   });
   applyCollapse();
 
+  // One export path, reached from the button and from the scripted seam below, so a tapped capture
+  // and a driven one cannot come from different compositions of the same moment. The arm defaults
+  // to the document's own `?arm=`, so a driver that configures an arm in the URL cannot then label
+  // the capture as something else; passing one explicitly is the override, not the ordinary path.
+  const runExport = (arm: string | undefined = armFromSearch(location.search)): Promise<PerfExportOutcome> =>
+    buildReport === undefined
+      ? Promise.resolve<PerfExportOutcome>("failed")
+      : exportPerfReport({
+          report: buildReport(snapshot, { expanded: !collapsed }),
+          arm,
+          fetchFn: typeof fetch === "function" ? fetch.bind(globalThis) : undefined,
+          writeClipboard: navigator.clipboard
+            ? (text) => navigator.clipboard.writeText(text)
+            : undefined,
+        });
+
   if (buildReport) {
     const exportButton = button("export");
     exportButton.addEventListener("click", () => {
       exportButton.textContent = "…";
-      void exportPerfReport({
-        report: buildReport(snapshot, { expanded: !collapsed }),
-        fetchFn: typeof fetch === "function" ? fetch.bind(globalThis) : undefined,
-        writeClipboard: navigator.clipboard
-          ? (text) => navigator.clipboard.writeText(text)
-          : undefined,
-        // The outcome stays on the button rather than reverting: on a phone the tap and the
-        // reading of the result are the same glance, and a label that flicked back to "export"
-        // would leave "did that work?" unanswered.
-      }).then((outcome) => {
+      // The outcome stays on the button rather than reverting: on a phone the tap and the reading
+      // of the result are the same glance, and a label that flicked back to "export" would leave
+      // "did that work?" unanswered.
+      void runExport().then((outcome) => {
         exportButton.textContent = outcome;
       });
     });
@@ -568,6 +591,29 @@ export function mountPerfOverlay(map: MaplibreMap, options: PerfOverlayOptions =
 
   panel.append(body, controls);
   document.body.appendChild(panel);
+
+  // THE SCRIPTED-DIAGNOSIS SEAM, and the reason it is in this module rather than on a page.
+  //
+  // Without it a driven browser reaches the camera only through synthetic gestures or hash jumps,
+  // and an A/B whose arms cannot be given the identical camera route is the confound this project
+  // keeps paying for. Everything worth reading — `terrain.tileManager._renderableTilesKeys`,
+  // `painter._rttObjectRecyclePool` — is private state that only the map can reach.
+  //
+  // This module is dynamically imported inside the `?perf` branch alone, so an ordinary visit never
+  // downloads it and the MODULE BOUNDARY is the gate: no edit to a page can widen it. A page-level
+  // assignment behind a flag check was tried and is why that rule is structural rather than
+  // textual — a sabotage that closed the flag block early and reopened it after the assignment left
+  // the statement outside the gate and inside the span its guard matched, and passed cleanly.
+  //
+  // ONE handle, not one per capability. The page briefly also shipped `window.__map` for the same
+  // map: nothing failed, both were correct where they sat, and the guard here went on passing
+  // because it was keyed to a NAME rather than to the concept — which is exactly how that
+  // duplicate came to be assigned twice with its own gate dead from the day it landed.
+  window.terrella = {
+    map,
+    report: () => buildReport?.(snapshot, { expanded: !collapsed }),
+    export: runExport,
+  };
 
   if (!eventStamps) {
     map.once("load", () => {
