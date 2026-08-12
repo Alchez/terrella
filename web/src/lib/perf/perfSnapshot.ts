@@ -32,6 +32,7 @@ import type { PerfSnapshot } from "./perfOverlay";
 import type { CameraFill, TileTraffic } from "./perfNetwork";
 import type { PerfLine } from "./perfLines";
 import type { DeviceClass } from "../polarCaps";
+import type { RttPoolStats } from "../rttPoolTrim";
 import type { SpanEntry } from "../perfSpans";
 import { megabytes } from "../format";
 import { summariseSpans, type Interval, type TraceSummary } from "./perfTrace";
@@ -60,8 +61,14 @@ import { summariseSpans, type Interval, type TraceSummary } from "./perfTrace";
  *  sweep that differed only in what a flag was set TO — the ordinary case for a valued flag —
  *  produced byte-identical origins. `href` still separated them in an exported file, but the panel
  *  never prints `href`, so the arm was unrecoverable from the screenshot that is this instrument's
- *  whole reason for existing on a phone. See {@link describeFlags}. */
-export const PERF_REPORT_SCHEMA = 5;
+ *  whole reason for existing on a phone. See {@link describeFlags}.
+ *
+ *  6 adds `rttPool`, and with it the renderable terrain tile count. That census already existed and
+ *  was formatted straight onto the panel, so it reached a human's glance and never the exported
+ *  file — a report was readable by eye and unparseable by a harness on the one quantity that
+ *  multiplies every per-tile cost the profiler attributes. A v5 file carries no tile count at all,
+ *  which is the absence the bump makes explicit. */
+export const PERF_REPORT_SCHEMA = 6;
 
 /** Where and under what conditions a reading was taken. */
 export interface PerfOrigin {
@@ -195,6 +202,14 @@ export interface PerfReportInputs {
    */
   traceSpans: readonly SpanEntry[];
   longTaskIntervals: readonly Interval[] | null;
+  /**
+   * The RTT pool census, whose `renderable` is the tile count every per-tile cost multiplies.
+   *
+   * Null when terrain never came up, which is distinct from a census reading zero: one says the arm
+   * had no terrain, the other says terrain is on and drawing nothing, and an arm read as a win
+   * because it was silently terrain-less is the confound this field exists to rule out.
+   */
+  rttPool: RttPoolStats | null;
   /**
    * Whether span tracing actually armed.
    *

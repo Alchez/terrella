@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_RTT_POOL_BOUND,
   attachRttPoolTrim,
+  renderableTerrainTiles,
   rttHeldBy,
   rttObjectBytes,
   rttPoolBytes,
@@ -12,6 +13,13 @@ import {
   trimRttPool,
   type RttObject,
 } from "./rttPoolTrim";
+
+/** The narrowest map that can answer the renderable-tile question, and nothing else. */
+const mapWithRenderable = (keys: string[]) => ({
+  on: () => {},
+  off: () => {},
+  terrain: { tileManager: { _renderableTilesKeys: keys } },
+});
 
 /** A pooled object that records whether its texture was destroyed, and in what order. */
 function fakeObject(size: number, log: string[], name: string): RttObject {
@@ -251,17 +259,57 @@ describe("attachRttPoolTrim", () => {
 describe("rttPoolLine", () => {
   it("fits the 53-character phone budget at realistic and pathological widths", () => {
     for (const stats of [
-      { pooled: 512, held: 78, heldTiles: 26, peakTotal: 5610, destroyedTotal: 5098 },
-      { pooled: 23037, held: 23037, heldTiles: 7679, peakTotal: 23037, destroyedTotal: 999999 },
+      { pooled: 512, held: 78, heldTiles: 26, peakTotal: 5610, destroyedTotal: 5098, renderable: 26 },
+      {
+        pooled: 23037,
+        held: 23037,
+        heldTiles: 7679,
+        peakTotal: 23037,
+        destroyedTotal: 999999,
+        renderable: 7679,
+      },
     ]) {
       expect(rttPoolLine(stats).length, rttPoolLine(stats)).toBeLessThanOrEqual(53);
     }
   });
 
+  it("leaves the renderable count off the row, whatever it reads", () => {
+    // The row is budgeted to 53 characters on a 412 px phone, and at the pathological width above
+    // a four-digit count lands it on exactly 53 with a five-digit one over. The count goes in the
+    // exported report instead, which is what a harness parses; this pins the row against someone
+    // later deciding the most interesting number ought to be on it.
+    const wide = {
+      pooled: 23037, held: 23037, heldTiles: 7679, peakTotal: 23037, destroyedTotal: 0,
+      renderable: 99999,
+    };
+    expect(rttPoolLine(wide)).not.toContain("99999");
+    expect(rttPoolLine(wide).length).toBeLessThanOrEqual(53);
+  });
+
   it("says so plainly when terrain is off rather than printing zeroes", () => {
-    expect(rttPoolLine({ pooled: 0, held: 0, heldTiles: 0, peakTotal: 0, destroyedTotal: 0 })).toBe(
-      "rtt — no terrain",
-    );
+    expect(
+      rttPoolLine({
+        pooled: 0, held: 0, heldTiles: 0, peakTotal: 0, destroyedTotal: 0, renderable: null,
+      }),
+    ).toBe("rtt — no terrain");
+  });
+});
+
+describe("renderableTerrainTiles", () => {
+  it("reads the count MapLibre is drawing this frame", () => {
+    expect(renderableTerrainTiles(mapWithRenderable(["a", "b", "c"]))).toBe(3);
+    expect(renderableTerrainTiles(mapWithRenderable([]))).toBe(0);
+  });
+
+  it("is null, not 0, when there is nothing to read", () => {
+    // 0 means terrain is on and drawing nothing; null means the count was not there. An arm read
+    // as a win because it silently had no terrain is the confound this distinction rules out — and
+    // it is also what an upstream rename would produce, which the canary below is there to catch.
+    expect(renderableTerrainTiles({ on: () => {}, off: () => {} })).toBeNull();
+    expect(renderableTerrainTiles({ on: () => {}, off: () => {}, terrain: null })).toBeNull();
+    expect(
+      renderableTerrainTiles({ on: () => {}, off: () => {}, terrain: { tileManager: {} } }),
+    ).toBeNull();
   });
 });
 
@@ -294,6 +342,14 @@ describe("canary — the private MapLibre surface this module depends on", () =>
 
   it("still destroys pooled textures through `.texture.destroy()`", () => {
     expect(bundle).toMatch(/_rttObjectRecyclePool\)\s*\w*\.?\w*\.?texture\.destroy\(\)/);
+  });
+
+  it("still names the drawn-tile list `_renderableTilesKeys`", () => {
+    // A rename turns `renderableTerrainTiles` into a permanent null, which reads exactly like
+    // "this arm had no terrain" — so a sweep would compare a terrain arm against what looks like a
+    // terrain-less one and find a difference that is entirely the instrument. It is declared in the
+    // shipped .d.ts despite the underscore, so this guards a name upstream is still free to move.
+    expect(bundle).toContain("_renderableTilesKeys");
   });
 
   it("still keeps one shared FBO whose colour attachment we detach before destroying", () => {

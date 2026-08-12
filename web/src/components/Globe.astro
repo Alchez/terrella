@@ -535,7 +535,7 @@ import { REPO_URL } from "../lib/siteLinks";
     parseAtmosphereRamp,
     skySpec,
   } from "../lib/skyAtmosphere";
-  import { attachRttPoolTrim, rttPoolLine } from "../lib/rttPoolTrim";
+  import { type RttPoolStats, attachRttPoolTrim, rttPoolLine } from "../lib/rttPoolTrim";
   import {
     applyDemCacheCap,
     demCacheCapFault,
@@ -550,6 +550,12 @@ import { REPO_URL } from "../lib/siteLinks";
     defaultMaxParallelImageRequests,
     parseMaxParallelImageRequests,
   } from "../lib/tileConcurrency";
+  import {
+    LOD_DEFAULT_TILE_COUNT_MAX_MIN_RATIO,
+    armFlagComplaint,
+    parseLodMaxZoomLevelsOnScreen,
+    parseRefreshExpiredTiles,
+  } from "../lib/perfArms";
   import {
     GL_RECOVERY_CEILING_MS,
     GL_RECOVERY_POLL_MS,
@@ -700,6 +706,17 @@ import { REPO_URL } from "../lib/siteLinks";
   }
   const terrainSkirtMode = parsedSkirt ?? TERRAIN_SKIRT_DEFAULT;
 
+  // Also read before the Map: `refreshExpiredTiles` is a constructor option and cannot be toggled
+  // on a live map, which is the concrete reason an arm has to be a property of the DOCUMENT rather
+  // than a call made between measurements. Null leaves the shipped default alone.
+  const requestedRefreshExpiredTiles = parseRefreshExpiredTiles(urlFlags);
+  const refreshComplaint = armFlagComplaint(
+    urlFlags,
+    "refresh",
+    requestedRefreshExpiredTiles !== null,
+  );
+  if (refreshComplaint !== null) console.warn(refreshComplaint);
+
   // MapLibre's parallel image-request cap, applied BEFORE the Map is constructed because the
   // style starts requesting tiles the moment it loads. An unconstrained visitor now gets 32
   // instead of the library's 16 — measured, see tileConcurrency.ts for the ladder and for why the
@@ -841,7 +858,14 @@ import { REPO_URL } from "../lib/siteLinks";
     // feature flags (?bare, ?nocaps, ?perf) live in the search string, so no collision.
     hash: "map",
     // The pyramid is immutable by design — never re-request tiles on HTTP expiry.
-    refreshExpiredTiles: false,
+    //
+    // It is also a lever on WHERE DEM tiles decode, which is why `?refresh=` can move it. False
+    // makes MapLibre's `canUseHTMLImageElement` true, so a DEM tile arrives as an HTMLImageElement
+    // and is decoded on the main thread through `getImageData`; true delivers an ImageBitmap the
+    // worker decodes. Our tiles ship `immutable, max-age=31536000`, so the refresh path that flips
+    // back on should essentially never fire — but "should" is why it is measurable rather than
+    // simply changed.
+    refreshExpiredTiles: requestedRefreshExpiredTiles ?? false,
     attributionControl: false, // re-added below with our own options, then folded into .view-bar
     // MSAA on the default framebuffer: the globe silhouette is a geometry edge
     // against the transparent starfield, so without multisampling the sphere's
@@ -1097,6 +1121,9 @@ import { REPO_URL } from "../lib/siteLinks";
   // `held` is the working set MapLibre genuinely needs; `pooled` is retained slack; `peak` is the
   // number that indicts the tile count, and it is the one to watch after the symptom is muted.
   let describeRttPool: (() => string) | null = null;
+  // The same census, unformatted, for the exported report. Null until terrain exists, which is the
+  // reading the report needs — "no terrain here" and "terrain drawing nothing" are different arms.
+  let readRttPool: (() => RttPoolStats) | null = null;
   // Tiles this camera needs, from MapLibre's own coveringTiles. Declared out here because the GL
   // loss snapshot wants it too and `?terrain=off` never enters the block below — in which case
   // there is no terrain source and null is the honest answer, not zero.
@@ -1329,6 +1356,10 @@ import { REPO_URL } from "../lib/siteLinks";
         urlFlags.has("nortt") ? { bound: Number.MAX_SAFE_INTEGER } : {},
       );
       describeRttPool = () => rttPoolLine(rttTrim.stats());
+      // The same census the panel row formats, handed over unformatted so the exported file carries
+      // the renderable tile count as a NUMBER. One reader owns the census; the panel and the report
+      // are two renderings of it and cannot disagree about the moment they describe.
+      readRttPool = () => rttTrim.stats();
     });
 
     // A resize changes the viewport, and with it the working set the cap has to hold — going
@@ -1395,6 +1426,41 @@ import { REPO_URL } from "../lib/siteLinks";
       console.info("[caps] re-adding polar caps after a GPU context restore");
       addCaps();
     };
+  }
+
+  // ?lod= — the LOD arm, applied to the sources rather than mutated on a live map between arms.
+  //
+  // BOUND TO `idle` AS WELL AS `style.load`, AND THE SECOND ONE IS NOT BELT-AND-BRACES. The two-arg
+  // `setSourceTileLodParams` iterates `style.tileManagers` AS IT STANDS AT THE MOMENT OF THE CALL,
+  // throws nothing when that is empty and returns `this` either way, so it configures whatever
+  // happens to exist and looks identical either way. On `style.load` that is relief, relief-base
+  // and terrain-dem — the vector archive is fetched on first `idle` and arrives AFTER, so a
+  // style.load-only version left `countries` unconfigured. That was not reasoned out; the reporting
+  // below printed 3 sources where the style has 4, which is the only reason it is not still true.
+  //
+  // Re-applying is therefore how a source added at any later point still gets the arm. It converges
+  // to a filter over a handful of keys, because the call only happens while something is missing.
+  const requestedLod = parseLodMaxZoomLevelsOnScreen(urlFlags);
+  const lodComplaint = armFlagComplaint(urlFlags, "lod", requestedLod !== null);
+  if (lodComplaint !== null) console.warn(lodComplaint);
+  if (requestedLod !== null) {
+    const applyLodParams = () => {
+      const sources = Object.keys(map.style.tileManagers);
+      const missing = sources.filter(
+        (id) => map.getSource(id)?.calculateTileZoom === undefined,
+      );
+      if (missing.length === 0) return;
+      // The ratio stays at MapLibre's default so the arm varies exactly one thing — and it is
+      // inert for us at any M >= 9.314 anyway, its term clamping to zero, so a second axis here
+      // could not move the result even if one were wanted.
+      map.setSourceTileLodParams(requestedLod, LOD_DEFAULT_TILE_COUNT_MAX_MIN_RATIO);
+      console.info(
+        `[perf] ?lod=${requestedLod} now on ${sources.length} source(s): ` +
+          `${sources.join(", ") || "NONE — the arm is NOT in force"} (newly ${missing.join(", ")})`,
+      );
+    };
+    map.on("style.load", applyLodParams);
+    map.on("idle", applyLodParams);
   }
 
   // Performance overlay (?perf): on-screen numbers for phone diagnosis; dynamic import so
@@ -1539,6 +1605,7 @@ import { REPO_URL } from "../lib/siteLinks";
             // spans against an empty window list and calling every millisecond unattributed.
             longTaskIntervals: timing.longTaskApiAvailable ? timing.longTaskIntervals : null,
             traceArmed: perfTraceArmed,
+            rttPool: readRttPool?.() ?? null,
           });
         };
 

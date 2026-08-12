@@ -109,6 +109,14 @@ const INPUTS: PerfReportInputs = {
   traceSpans: [],
   longTaskIntervals: null,
   traceArmed: true,
+  rttPool: {
+    pooled: 512,
+    held: 52,
+    heldTiles: 26,
+    peakTotal: 5610,
+    destroyedTotal: 5098,
+    renderable: 26,
+  },
 };
 
 describe("buildPerfReport", () => {

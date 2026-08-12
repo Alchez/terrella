@@ -865,6 +865,69 @@ SABOTAGES: list[Sabotage] = [
         replacement='  window.debugMap = map;\n  // The scripted-diagnosis seam is NOT here.',
         guard='is not also written from the page, where nothing structural would gate it',
     ),
+
+    # --- the arm flags, whose whole failure mode is being ignored quietly ---------------------------
+    Sabotage(
+        suite='web',
+        label='arm flags stop needing ?perf, so a pasted link reconfigures a stranger',
+        path='web/src/lib/perfArms.ts',
+        needle='  return params.has("perf");',
+        replacement='  return true;',
+        guard='changes nothing on a production URL, so a pasted link cannot reconfigure a stranger',
+    ),
+    Sabotage(
+        suite='web',
+        label='?lod falls back to a default instead of refusing, so a run measures the wrong arm',
+        path='web/src/lib/perfArms.ts',
+        needle='  if (!Number.isFinite(value)) return null;',
+        replacement='  if (!Number.isFinite(value)) return 9.314;',
+        guard='is null on anything doubtful rather than falling back to the default',
+    ),
+    Sabotage(
+        suite='web',
+        label='?refresh takes a number, so refresh=2 rounds into a silent arm',
+        path='web/src/lib/perfArms.ts',
+        needle='  return mode === "on" ? true : mode === "off" ? false : null;',
+        replacement='  return mode === "on" || mode === "1" ? true : mode === "off" || mode === "0" ? false : null;',
+        guard='takes named modes only, so a number cannot round into a silent arm',
+    ),
+    Sabotage(
+        suite='web',
+        label='an ignored arm flag stops complaining, so a typo reads as the default',
+        path='web/src/lib/perfArms.ts',
+        needle='  if (!params.has(flag) || honoured) return null;',
+        replacement='  if (true) return null;',
+        guard='says so rather than ignoring the flag in silence',
+    ),
+    # The defect that actually shipped: the complaint fired on PRESENCE, so a working ?lod=11 warned
+    # "not a value this flag takes" next to the line saying it applied. Every test covered a failure
+    # path and none covered success, so nothing was red.
+    Sabotage(
+        suite='web',
+        label='the complaint fires on presence again, crying wolf over every valid arm',
+        path='web/src/lib/perfArms.ts',
+        needle='  if (!params.has(flag) || honoured) return null;',
+        replacement='  if (!params.has(flag)) return null;',
+        guard='STAYS QUIET when the flag was honoured, which is the case that shipped broken',
+    ),
+    # The renderable count is the only term in the census that is a CAUSE, and both of its failure
+    # modes are silent: a missing count reads as "no terrain", and a present one crowds the row.
+    Sabotage(
+        suite='web',
+        label='an absent renderable count reads as terrain drawing nothing',
+        path='web/src/lib/rttPoolTrim.ts',
+        needle='  return Array.isArray(keys) ? keys.length : null;',
+        replacement='  return Array.isArray(keys) ? keys.length : 0;',
+        guard='is null, not 0, when there is nothing to read',
+    ),
+    Sabotage(
+        suite='web',
+        label='the renderable count is put back on the panel row, over the phone budget',
+        path='web/src/lib/rttPoolTrim.ts',
+        needle='  return `rtt ${stats.pooled} idle · ${stats.held} held · peak ${stats.peakTotal}`;',
+        replacement='  return `rtt ${stats.pooled} idle · ${stats.held} held · peak ${stats.peakTotal} · drawn ${stats.renderable}`;',
+        guard='leaves the renderable count off the row, whatever it reads',
+    ),
     Sabotage(
         suite='web',
         label='the loss line drops when the timestamp is missing',
