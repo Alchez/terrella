@@ -857,15 +857,21 @@ import { REPO_URL } from "../lib/siteLinks";
     // reload restores the position — a present fragment overrides center/zoom above. Our
     // feature flags (?bare, ?nocaps, ?perf) live in the search string, so no collision.
     hash: "map",
-    // The pyramid is immutable by design — never re-request tiles on HTTP expiry.
+    // TRUE, AND NOT FOR THE REASON THE FIELD IS NAMED FOR. Do not reason from the name and set it
+    // false: our pyramid ships `immutable, max-age=31536000`, so the HTTP-refresh behaviour this
+    // switches on essentially never fires, and "we never re-request tiles" is exactly the argument
+    // that had it false before it was measured.
     //
-    // It is also a lever on WHERE DEM tiles decode, which is why `?refresh=` can move it. False
-    // makes MapLibre's `canUseHTMLImageElement` true, so a DEM tile arrives as an HTMLImageElement
-    // and is decoded on the main thread through `getImageData`; true delivers an ImageBitmap the
-    // worker decodes. Our tiles ship `immutable, max-age=31536000`, so the refresh path that flips
-    // back on should essentially never fire — but "should" is why it is measurable rather than
-    // simply changed.
-    refreshExpiredTiles: requestedRefreshExpiredTiles ?? false,
+    // What it actually selects is HOW EVERY TILE IMAGE ARRIVES, raster and DEM alike. False makes
+    // MapLibre's `canUseHTMLImageElement` true, and an HTMLImageElement costs main-thread time
+    // twice over: the DEM source draws it to a per-tile canvas and reads it back through
+    // `getImageData`, and the raster source's texture upload pays that image's synchronous decode.
+    // True delivers an ImageBitmap instead — the DEM's goes to the worker untouched, and the
+    // upload takes a decoded source. Both costs go to roughly nothing.
+    //
+    // Both paths were timed on real tiles from the live pyramid before this was changed, and
+    // `?refresh=off` restores the old one so that comparison can be re-run without editing here.
+    refreshExpiredTiles: requestedRefreshExpiredTiles ?? true,
     attributionControl: false, // re-added below with our own options, then folded into .view-bar
     // MSAA on the default framebuffer: the globe silhouette is a geometry edge
     // against the transparent starfield, so without multisampling the sphere's
