@@ -30,6 +30,7 @@ function country(overrides: Partial<Country> = {}): Country {
     slug: "chile",
     name: "Chile",
     continent: "South America",
+    searchTerms: ["Republic of Chile", "Chile.", "CL", "CHL"],
     bbox: [-75.6, -55.9, -66.4, -17.5],
     aspect: 0.5,
     sizes: [640, 1920, 3840],

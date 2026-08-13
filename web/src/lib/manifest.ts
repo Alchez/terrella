@@ -14,6 +14,12 @@ export interface Country {
   slug: string;
   name: string;
   continent: string;
+  /**
+   * Other published spellings — "United States", "U.S.A.", "US", "USA" — for a query to reach the
+   * country by. MATCHED, NEVER SHOWN: a row on screen carries the name and the continent, so this
+   * is where a code or a formal title becomes typeable without appearing beside a name it repeats.
+   */
+  searchTerms: string[];
   /** Authored hero frame [west, south, east, north] in EPSG:4326 — the globe's fly-to target. */
   bbox: [number, number, number, number];
   /** width / height of the smallest rendered variant (1.5 fallback when unrendered). */

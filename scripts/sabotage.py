@@ -6152,6 +6152,43 @@ SABOTAGES: list[Sabotage] = [
         replacement='        if False:',
         guard='test_an_anchor_with_no_gazetteer_page_stops_the_run',
     ),
+    # THE GALLERY MANIFEST IS A CONTRACT SPLIT ACROSS TWO LANGUAGES and, unlike the feature index,
+    # neither half ships: `countries.json` is gitignored, so nothing anywhere compares the payload
+    # to `Country`. These four are what that comparison is worth.
+    Sabotage(
+        suite='python',
+        label='the payload stops emitting the terms a query matches',
+        path='web/scripts/gen_manifest.py',
+        needle='        searchTerms=search_terms(record, resolved["admin"]),',
+        replacement='',
+        guard='test_the_payload_and_the_interface_name_the_same_fields',
+    ),
+    # The wrong-looking-right revert. Natural Earth publishes both spellings and the bare pair reads
+    # as the obvious one; taking it loses France, Norway and three others with every gate green.
+    Sabotage(
+        suite='python',
+        label='the ISO columns revert to the pair that is null wherever a code is contested',
+        path='web/scripts/gen_manifest.py',
+        needle='"ABBREV", "ISO_A2_EH", "ISO_A3_EH")',
+        replacement='"ABBREV", "ISO_A2", "ISO_A3")',
+        guard='test_the_bare_iso_columns_are_not_read',
+    ),
+    Sabotage(
+        suite='python',
+        label="Natural Earth's null becomes a spelling a visitor can type",
+        path='web/scripts/gen_manifest.py',
+        needle='        if value and value != NE_NULL and value != name and value not in terms:',
+        replacement='        if value and value != name and value not in terms:',
+        guard='test_natural_earths_null_is_not_a_search_term',
+    ),
+    Sabotage(
+        suite='python',
+        label='the display name is repeated as one of its own alternatives',
+        path='web/scripts/gen_manifest.py',
+        needle='        if value and value != NE_NULL and value != name and value not in terms:',
+        replacement='        if value and value != NE_NULL and value not in terms:',
+        guard='test_the_display_name_is_not_repeated',
+    ),
     Sabotage(
         suite='python',
         label='the acquirer stops reading the links it hands the card',
