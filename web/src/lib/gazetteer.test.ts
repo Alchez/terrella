@@ -5,7 +5,7 @@ import { featureIndex } from "./featureIndex";
 
 const WEB_ROOT = new URL("../../", import.meta.url).pathname;
 const LITE = readFileSync(`${WEB_ROOT}src/pages/mars/lite.astro`, "utf8");
-const GALLERY = readFileSync(`${WEB_ROOT}src/pages/index.astro`, "utf8");
+const GALLERY = readFileSync(`${WEB_ROOT}src/components/Gallery.astro`, "utf8");
 
 describe("a position reads the way a gazetteer writes one", () => {
   it("takes the hemisphere from the sign and drops it", () => {

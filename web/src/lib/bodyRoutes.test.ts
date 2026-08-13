@@ -6,11 +6,20 @@ const SLUGS = Object.keys(BODIES) as BodySlug[];
 
 describe("the two pages a body has", () => {
   it("answers both for Earth", () => {
-    expect(bodyRoutes("earth")).toEqual({ globe: "/earth/", lite: "/" });
+    expect(bodyRoutes("earth")).toEqual({ globe: "/earth/", lite: "/earth/lite/" });
   });
 
   it("answers both for Mars", () => {
     expect(bodyRoutes("mars")).toEqual({ globe: "/mars/", lite: "/mars/lite/" });
+  });
+
+  it("names every lite route the same way, so a third body copies a row", () => {
+    // The property the two literals above only demonstrate. Earth's used to be `/`, which was the
+    // gallery's address rather than a route name — so the registry's one derivable-looking field
+    // was the one field nobody could derive, and the pre-paint guard read that coincidence as the
+    // rule. `/` still renders this content; what it no longer does is DEFINE where Earth's lite
+    // route is. See `BODIES.earth.liteRoute`.
+    for (const slug of SLUGS) expect(bodyRoutes(slug).lite).toBe(`/${slug}/lite/`);
   });
 
   it("puts every body's globe at its own slug", () => {

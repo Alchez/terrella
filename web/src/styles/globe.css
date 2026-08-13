@@ -14,7 +14,7 @@
    cannot be scoped — is:global is the only thing that reaches them. Until now nothing in the
    project styled them at all: the attribution and scale bar shipped as stock white boxes with
    4–12 px corners and Helvetica, which made them the only chrome on the page not speaking the
-   floating-pill language that .globe-home, .country-chip and .view-bar share. The credit no
+   floating-pill language that .globe-source, .country-chip and .view-bar share. The credit no
    longer needs a pill of its own — the script folds it into .view-bar — so what is left here is
    the reset that makes it sit inside one, plus the scale bar, which is now the only control
    still docked to a page corner. The top-right navigation stack is deliberately NOT included:
@@ -165,7 +165,7 @@
 /* ── THE CAMERA RAIL ───────────────────────────────────────────────────────────────────────
 
    Until now this stack was the only chrome on the page not speaking the floating-pill language
-   that `.globe-home`, `.country-chip` and `.view-bar` share, and the reason was cost, recorded
+   that `.globe-source`, `.country-chip` and `.view-bar` share, and the reason was cost, recorded
    at the time: every MapLibre icon is a `background-image` data-URI with its fill BAKED IN
    (`#333` light, `#fff` dark, `#33b5e5` for an enabled state, `#ccc` for the compass's south
    half), so recolouring meant re-authoring an image per state rather than swapping a token.
@@ -185,13 +185,11 @@
    read back below rather than restated. Before this existed the card was written at a flat
    `right: 1.2rem` and simply sat ON TOP of the rail — zoom, compass, spin and search all covered
    the moment a feature was picked, on both bodies. */
-/* HOW FAR FLOATING CHROME SITS FROM THE VIEWPORT EDGE, and it is one distance rather than two. Our
-   own elements were written at a literal `1.2rem` in six places while MapLibre's control corners
-   used its own hardcoded `10px` — so the rail sat 9.2px higher and 9.2px further out than the
-   top-left row it is meant to line up with, on every page and every width. Reported from a phone as
-   the two rows not being level. The override below is what makes the rail read this instead. */
+/* `--page-inset` — how far floating chrome sits from the viewport edge — is NOT declared here. It
+   moved to `global.css` when the body switcher started needing it on pages this stylesheet never
+   reaches; the rail's two constants stayed, because a control stack is something only the globe
+   has. The override below is what makes MapLibre's corners read it. */
 :root {
-  --page-inset: 1.2rem;
   --rail-button-size: 2.15rem;
   --rail-clearance: calc(var(--rail-button-size) + var(--page-inset) + 0.5rem);
 }
@@ -357,11 +355,12 @@
   display: none; /* `hidden` alone loses to the `display: flex` above */
 }
 /* NARROW, WHERE THE PANEL REACHES BACK INTO THE TOP-LEFT CHROME. Its left edge is the viewport
-   minus the rail's clearance minus its own width, so it crosses `← Gallery`'s row at a viewport of
-   610 px — measured, with the panel at its 22rem ceiling and the row at its present content. The
-   breakpoint sits above the crossover on purpose, since the row's width is content and a second
-   body's could be wider. The panel used to drop past that row to 4.2rem; now the row yields
-   instead — see `body.panel-open` below for why that is the right way round. */
+   minus the rail's clearance minus its own width, so below some width it crosses the top-left row.
+   THE BREAKPOINT SITS ABOVE THAT CROSSOVER ON PURPOSE AND NO NUMBER FOR IT IS RECORDED HERE: the
+   row's width is content, so the crossover moves whenever the row does — deleting `← Gallery`
+   moved it about a hundred pixels — and a figure in this comment would have gone on describing the
+   old row. The panel used to drop past the row to 4.2rem; now the row yields instead — see
+   `body.panel-open` below for why that is the right way round. */
 @media (max-width: 40rem) {
   .rg-search {
     /* FIXED WITH BOTH EDGES NAMED, so the panel fills the width that is actually free instead of
@@ -377,16 +376,16 @@
   }
 }
 
-/* A PANEL IS OPEN AND THE VIEWPORT IS A PHONE, so the top band has one occupant instead of three.
+/* A PANEL IS OPEN AND THE VIEWPORT IS A PHONE, so the top band has one occupant instead of a row.
    `body.panel-open` is true for the card and for the search field alike — they are the same box in
    the same band, and each already closes the other.
 
-   WHY THE ROW YIELDS AND NOT THE PANEL. At 390 px the panel spans 326 px of a 390 px viewport
+   WHY THE BAND YIELDS AND NOT THE PANEL. At 390 px the panel spans 326 px of a 390 px viewport
    between the margin and the rail, so nothing else fits on that line: either the panel drops below
-   the row, or the row goes. Dropping it costs 48 px of a ~660 px screen and still leaves a strip of
-   three pills reading as debris above the thing being read — reported as exactly that. The row is
-   also the one cluster with no job during the interaction: these are ways OFF the globe, and a
-   visitor reading a card is not leaving.
+   the band, or the band goes. Dropping it costs 48 px of a ~660 px screen and still leaves a strip
+   of pills reading as debris above the thing being read — reported as exactly that. Nothing in this
+   band has a job during the interaction: the left row is ways OFF the globe and the switcher is the
+   way across to another one, and a visitor reading a card is doing neither.
 
    THE CREDIT GOES TOO, WHICH QUIET MODE DELIBERATELY DOES NOT DO, and the difference is the state
    rather than the element. Quiet is persistent — you can sit in it, and the ghosted ⓘ is the only
@@ -397,8 +396,8 @@
    `display`, not `visibility`, for the same reason as quiet mode's: hidden-but-present, these keep
    their width and the panel would still be starting below a row of invisible boxes. */
 @media (max-width: 40rem) {
-  body.panel-open .globe-home,
   body.panel-open .globe-source,
+  body.panel-open .body-switcher,
   body.panel-open .chrome-credit.chrome-credit.maplibregl-ctrl {
     display: none;
   }
@@ -550,6 +549,7 @@
    are hidden individually. `visibility` rather than `display` keeps the ⓘ where it already is;
    collapsing the row would slide it into the corner, which is motion for no reason. */
 body.is-quiet .country-chip,
+body.is-quiet .body-switcher,
 body.is-quiet .view-bar {
   visibility: hidden;
   pointer-events: none;
@@ -562,7 +562,6 @@ body.is-quiet .maplibregl-ctrl-top-right .maplibregl-ctrl-group:not(:has(.rg-ctr
    their width and leave the credit parked mid-row: adrift near the middle of the top edge on a
    phone, touching no corner. Collapsing them lets it fall into the corner, where a lone ghost
    belongs. */
-body.is-quiet .globe-home,
 body.is-quiet .globe-source {
   display: none;
 }
@@ -610,9 +609,9 @@ body.is-quiet
   opacity: 1;
 }
 @media (prefers-reduced-motion: no-preference) {
-  .globe-home,
   .globe-source,
   .chrome-credit,
+  .body-switcher,
   .view-bar,
   .maplibregl-ctrl-top-right .maplibregl-ctrl-group {
     transition:

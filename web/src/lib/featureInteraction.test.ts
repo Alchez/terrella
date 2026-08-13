@@ -220,7 +220,7 @@ describe("the right-hand band holds one box at a time, and none of them cover th
   });
 
   it("takes the whole narrow band rather than dropping below the row it would cover", () => {
-    // Widening into the space the rail leaves puts the card's left edge back over `← Gallery`, and
+    // Widening into the space the rail leaves puts the card's left edge back over the top-left row, and
     // the first fix dropped the card past that row. At 390 px the card spans 326 px of the
     // viewport, so nothing shares its line either way — dropping it cost 48 px AND left the row
     // reading as debris above the card. The row yields now, on a class the page writes.
@@ -260,13 +260,17 @@ describe("a narrow phone gives the open box the whole top band", () => {
     );
   });
 
-  it("hides the credit with the links it sits beside, and says why in the same breath", () => {
+  it("hides the credit with everything else in its band, and says why in the same breath", () => {
     // The one that looks like an oversight and is not: quiet mode deliberately KEEPS the credit as
-    // a ghost, because quiet is a state you can sit in. A card is transient and restores the row on
-    // close. Asserting all three together is what stops a later reader "restoring" one of them.
-    const block = GLOBE_CSS.slice(GLOBE_CSS.indexOf("body.panel-open .globe-home"));
-    for (const hidden of [".globe-home", ".globe-source", ".chrome-credit"]) {
-      expect(block.slice(0, 300), `${hidden} must yield with the rest of the row`).toContain(hidden);
+    // a ghost, because quiet is a state you can sit in. A card is transient and restores the band
+    // on close. Asserting them together is what stops a later reader "restoring" one of them.
+    // The body switcher is in the list because it shares the band, not the row — it is centred
+    // between the left row and the rail, which is exactly where a phone's panel lands.
+    const block = GLOBE_CSS.slice(GLOBE_CSS.indexOf("body.panel-open .globe-source"));
+    for (const hidden of [".globe-source", ".body-switcher", ".chrome-credit"]) {
+      expect(block.slice(0, 300), `${hidden} must yield with the rest of the band`).toContain(
+        hidden,
+      );
     }
   });
 });

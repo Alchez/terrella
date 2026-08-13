@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { page } from "vitest/browser";
 
 import "../styles/global.css";
-import galleryPage from "../pages/index.astro?raw";
+import galleryPage from "../components/Gallery.astro?raw";
 import mastheadComponent from "../components/Masthead.astro?raw";
 
 /**

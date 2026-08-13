@@ -8,15 +8,20 @@ const page = (name: string) => readFileSync(new URL(name, PAGES_ROOT), "utf8");
 const ALL_PAGES: [string, string][] = readdirSync(PAGES_ROOT, { recursive: true })
   .filter((name): name is string => typeof name === "string" && name.endsWith(".astro"))
   .map((name) => [name, page(name)]);
-/** The globe is a COMPONENT, not a page: `pages/earth.astro` is the `<Base>` wrapper around it,
+/** The globe is a COMPONENT, not a page: `pages/earth/index.astro` is the `<Base>` wrapper around it,
  *  and everything asserted below — the credit control, the chrome row, the repo link — is here. */
 const globe = readFileSync(new URL("../components/Globe.astro", import.meta.url), "utf8");
 /** The globe's global stylesheet, which it imports — the rules that reach MapLibre's widgets. */
 const globeStyles = readFileSync(new URL("../styles/globe.css", import.meta.url), "utf8");
 
+/** The gallery is a COMPONENT too, for the same reason the globe is: `pages/index.astro` and
+ *  `pages/earth/lite.astro` are both `<Base>` wrappers around it, so the masthead that carries this
+ *  link is in neither of them. */
+const gallery = readFileSync(new URL("../components/Gallery.astro", import.meta.url), "utf8");
+
 /** The two views that carry a link back to the repository, each named by the file that draws it. */
 const LINKED_VIEWS: [string, string][] = [
-  ["index.astro", page("index.astro")],
+  ["Gallery.astro", gallery],
   ["Globe.astro", globe],
 ];
 
@@ -29,8 +34,12 @@ describe("the repository link", () => {
 
   it("reaches both views the user asked for", () => {
     // Named by the SOURCE that draws each view rather than by its route: the globe's link moved
-    // into the component with the rest of its chrome, and `pages/earth.astro` is now a wrapper
-    // that would satisfy neither assertion and pass the absence one below for free.
+    // into the component with the rest of its chrome, and `pages/earth/index.astro` is now a
+    // wrapper that would satisfy neither assertion and pass the absence one below for free.
+    //
+    // THAT HAS NOW HAPPENED TWICE, which is what makes it a rule rather than an anecdote. The
+    // gallery moved the same way when Earth's lite route needed a second URL to render it, and a
+    // route named here would have gone on reading a file whose entire content is two imports.
     for (const [view, source] of LINKED_VIEWS) {
       expect(source, `${view} no longer imports the constant`).toContain('from "../lib/siteLinks"');
       expect(source, `${view} no longer uses it`).toContain("REPO_URL");
@@ -86,7 +95,7 @@ describe("the on-map credit", () => {
   });
 
   it("folds into the top-left chrome row by class, not by relying on where the element sits", () => {
-    // It lives beside ← Gallery and the source link: all three are ways OFF the globe, where the
+    // It lives beside the source link, the two of them the ways OFF the globe, where the
     // view bar is what the globe SHOWS. The class travels with the element for exactly the reason
     // below — this is the element's SECOND home, and an ancestor selector would have quietly
     // stopped matching on the move rather than failing.

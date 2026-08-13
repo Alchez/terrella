@@ -1,10 +1,10 @@
 ---
 // Earth's route. The globe it draws is `components/Globe.astro`; what this file decides is which
 // body that globe is for, and what chrome goes around it.
-import Base from "../layouts/Base.astro";
-import Globe from "../components/Globe.astro";
-import MapStylesheet from "../components/MapStylesheet.astro";
-import { BODIES } from "../lib/bodies";
+import Base from "../../layouts/Base.astro";
+import Globe from "../../components/Globe.astro";
+import MapStylesheet from "../../components/MapStylesheet.astro";
+import { BODIES } from "../../lib/bodies";
 
 // The chrome this route wears, taken from the registry rather than written as literals.
 //
@@ -25,6 +25,7 @@ const body = BODIES.earth;
   body={body.slug}
   borders={body.hasBorders}
   quality={true}
+  pageRole="globe"
 >
   {/* A `Fragment` rather than the `<link>` itself: `slot` reaches `Base` only from a direct child
       written here, so this is the one line that cannot live inside the component it belongs to. */}

@@ -1,0 +1,25 @@
+---
+// Earth's lite route — where a visitor goes who cannot, or will not, run the Earth globe.
+//
+// IT IS THE GALLERY, WHICH ALREADY EXISTED AT `/`, AND THAT IS THE WHOLE OF THIS PAGE. Mars's lite
+// route is a page written for the purpose because Mars has no heroes to show; Earth's content was
+// the site's front page before there was a second body to need a route name. This file gives that
+// content the name every body's lite route has, so `liteRoute` is `/<slug>/lite/` on both planets
+// and a third body copies a row instead of inheriting a coincidence.
+//
+// WHY IT IS NOT A REDIRECT. The route is a redirect TARGET — the pre-paint guard `location.replace`s
+// here before the page paints — so a hop through it would be a second navigation on exactly the
+// devices least able to afford one, and a static build has no 301 to offer, only a meta refresh.
+//
+// The canonical link points the other way ON PURPOSE. The gallery's identity is the site's front
+// page: that is what is linked, shared and indexed, and this URL exists for the routing symmetry
+// rather than to compete for it. Root-relative because `astro.config.ts` sets no `site` — an
+// absolute URL here would be a second spelling of the origin with nothing checking it.
+import Base from "../../layouts/Base.astro";
+import Gallery from "../../components/Gallery.astro";
+---
+
+<Base title="Terrella — Gallery" body="earth" pageRole="lite" spotlight={true} quality={true}>
+  <link slot="head" rel="canonical" href="/" />
+  <Gallery />
+</Base>

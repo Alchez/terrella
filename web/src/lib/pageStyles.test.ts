@@ -18,6 +18,7 @@ import { readFileSync } from "node:fs";
  */
 const WEB_ROOT = new URL("../../", import.meta.url).pathname;
 const globe = readFileSync(`${WEB_ROOT}src/styles/globe.css`, "utf8");
+const global = readFileSync(`${WEB_ROOT}src/styles/global.css`, "utf8");
 
 describe("the rail's hairline stays a divider and not a cure", () => {
   it("still draws it between two buttons that are both visible", () => {
@@ -66,11 +67,19 @@ describe("one distance sets every floating element off the viewport edge", () =>
   const globeAstro = readFileSync(`${WEB_ROOT}src/components/Globe.astro`, "utf8");
   const scoped = globeAstro.match(/<style>([\s\S]*?)<\/style>/)?.[1] ?? "";
 
-  it("owns the inset once, where the rail can read it too", () => {
+  it("owns the inset once, in the sheet every page gets", () => {
     expect(scoped, "the scoped block must be readable, or the scan below proves nothing").toContain(
       ".globe-chrome",
     );
-    expect(globe).toMatch(/:root\s*\{[^}]*--page-inset:/);
+    // `global.css`, NOT `globe.css`, and the move is the assertion. The token was the globe's while
+    // only the globe had chrome floating off an edge; the body switcher is on the gallery and both
+    // Lite pages, none of which load the globe's stylesheet — so a declaration left there would
+    // resolve to nothing on three of the five pages that now read it, and `top: var(--page-inset)`
+    // with no value is `top: auto`: the pill lands in the flow, at the top of the document.
+    expect(global).toMatch(/:root\s*\{[^}]*--page-inset:/);
+    expect(globe, "two declarations is the drift this token exists to prevent").not.toMatch(
+      /--page-inset:/,
+    );
   });
 
   it("leaves no edge offset written as its own literal", () => {
@@ -78,7 +87,18 @@ describe("one distance sets every floating element off the viewport edge", () =>
     // at a literal `1.2rem` in six places while MapLibre's corners carried their own hardcoded
     // 10px, which is exactly how the two rows ended up 9.2px apart with nothing disagreeing.
     // `padding: 1rem 1.2rem` is untouched on purpose — a padding is not an inset.
-    expect(scoped).not.toMatch(/^\s*(top|left|right|bottom|inset):[^;]*\b1\.2rem/m);
+    //
+    // BOTH SHEETS THAT POSITION OUR OWN CHROME, since the token moved into the second of them: the
+    // view bar sat at a literal `bottom: 1.2rem` the whole time this scan was reading only the
+    // globe, which is the shape of miss that made the row 9.2 px out in the first place.
+    for (const [name, source] of [
+      ["Globe.astro's scoped block", scoped],
+      ["global.css", global],
+    ] as const) {
+      expect(source, `${name} writes an edge offset as its own literal`).not.toMatch(
+        /^\s*(top|left|right|bottom|inset):[^;]*\b1\.2rem/m,
+      );
+    }
   });
 
   it("takes MapLibre's own control margin over rather than living beside it", () => {

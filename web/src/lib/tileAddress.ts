@@ -173,13 +173,26 @@ export interface PublishedArchive {
   maxZoom: number;
 }
 
-/** Which cuts exist, per body.
+/** What one body publishes, per layer.
  *
  *  `null` means "this body does not publish this layer" and is a required answer, not an omission —
  *  a `Partial` record here would let a new body inherit silence for a layer nobody considered, and
- *  a new layer appear published on every planet at once. Mars will carry `null` for its vectors
- *  until they are cut. */
-export const PUBLISHED: Record<BodySlug, Record<LayerId, PublishedArchive | null>> = {
+ *  a new layer appear published on every planet at once.
+ *
+ *  RELIEF IS THE EXCEPTION AND THE TYPE SAYS SO RATHER THAN A COMMENT. `GlobeTileAddresses.relief`
+ *  already declares it — `string` where its siblings are `string | null`, because a globe with no
+ *  relief is not a globe — but while this record allowed `null` there, an unviewable body stayed
+ *  *representable*, and the only thing standing between one and a visitor was `tileUrlTemplate`
+ *  throwing after the page had already painted. Requiring it here moves that to `pnpm check`, which
+ *  is what a control that OFFERS bodies to a visitor needs: `Record<BodySlug, …>` is total, so a new
+ *  slug already forces an entry, and now that entry cannot be a placeholder for a cut that does not
+ *  exist. */
+export interface PublishedArchives extends Record<LayerId, PublishedArchive | null> {
+  relief: PublishedArchive;
+}
+
+/** Which cuts exist, per body. */
+export const PUBLISHED: Record<BodySlug, PublishedArchives> = {
   earth: {
     relief: {
       objectKey: "planet-v2.pmtiles",

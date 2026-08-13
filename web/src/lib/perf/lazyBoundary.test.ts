@@ -52,7 +52,7 @@ describe("lib/perf is a lazy boundary", () => {
     // Named across all three template directories rather than counted, because a count above zero
     // is exactly what the pages-only version of this sweep reported while missing its subject.
     const swept = pageSources.map((page) => page.name);
-    for (const required of ["layouts/Base.astro", "components/Globe.astro", "pages/earth.astro"]) {
+    for (const required of ["layouts/Base.astro", "components/Globe.astro", "pages/earth/index.astro"]) {
       expect(swept, `the sweep missed ${required}`).toContain(required);
     }
   });

@@ -13,7 +13,7 @@ import {
   type Quality,
 } from "./capability";
 import { BODIES, type BodySlug } from "./bodies";
-import { bodyRoutes, isSamePath } from "./bodyRoutes";
+import { bodyRoutes } from "./bodyRoutes";
 
 // A device that passes every check — the baseline each test perturbs one field of.
 const healthy: CapabilitySignals = {
@@ -156,8 +156,9 @@ describe("decideTier — quality type is the persisted contract", () => {
 // These tests exist because the guard shipped with a bug nothing pinned. `rg:steered` was written
 // ONLY on the auto-steer path, so it meant "we bounced you once" rather than "this session has
 // seen the globe" — and a visitor who reached /earth any other way (deep link, or the view bar's
-// Globe/Full button, which additionally cleared the flag) had their ← Gallery click hijacked
-// straight back to the globe.
+// Globe/Full button, which additionally cleared the flag) was hijacked straight back to the globe
+// the moment they navigated to a lite page. The control that made that vivid was the globe's
+// `← Gallery` link, since deleted; the flag's meaning is what these pin, not that link.
 const guardSource = (() => {
   const base = readFileSync(new URL("../layouts/Base.astro", import.meta.url), "utf8");
   const inlineScripts = [...base.matchAll(/<script is:inline>([\s\S]*?)<\/script>/g)].map(
@@ -177,7 +178,17 @@ const storage = (backing: Map<string, string>) => ({
 });
 
 interface GuardVisit {
-  path: string;
+  /** What the landed-on page says it IS — `Base.astro`'s `pageRole`, stamped on `<html>`.
+   *
+   *  THERE IS NO `path` HERE ANY MORE, AND THAT IS THE POINT OF THE ROLE. The guard used to decide
+   *  which of a body's two pages you were on by comparing `location.pathname` against the registry,
+   *  so every case below had to name a URL and the suite carried a table of trailing-slash
+   *  spellings to prove the comparison agreed with `isSamePath`. A page that declares itself needs
+   *  neither: `/earth` and `/earth/` are one page and say so, and Earth's lite content can answer
+   *  at both `/` and `/earth/lite/` without the guard having to be taught about aliases.
+   *
+   *  `location` is still handed in, because the guard still NAVIGATES — it just no longer reads. */
+  role?: string;
   /** Which body's page the visit lands on, i.e. what `Base.astro` stamped on `<html>`.
    *
    *  THE WHOLE REASON THE GUARD IS TESTABLE FOR A SECOND BODY BEFORE ONE HAS A GLOBE. The guard
@@ -205,7 +216,7 @@ interface GuardOutcome {
 
 /** Run the extracted guard against one simulated visit. */
 function visit({
-  path,
+  role = "lite",
   body = "earth",
   quality = "auto",
   steered = false,
@@ -222,6 +233,7 @@ function visit({
   const routes = bodyRoutes(body);
   const attributes: Record<string, string> = {
     "data-body": body,
+    "data-page-role": role,
     "data-globe-route": routes.globe,
     "data-lite-route": routes.lite,
   };
@@ -235,7 +247,9 @@ function visit({
     "matchMedia",
     guardSource,
   )(
-    { pathname: path, replace: (url: string) => redirects.push(url) },
+    // No `pathname`: if the guard ever starts reading one again, every case here reports it as an
+    // exception rather than as a quietly different verdict.
+    { replace: (url: string) => redirects.push(url) },
     storage(local),
     storage(session),
     { connection: { saveData } },
@@ -268,47 +282,44 @@ describe("Base.astro tier guard — steering onto the globe", () => {
   // and every "does not redirect" assertion below would pass vacuously. This test is the one that
   // fails loudly if the harness stops driving the real code.
   it("steers a capable first-time visitor from the gallery to the globe", () => {
-    expect(visit({ path: "/" })).toEqual({ redirects: ["/earth/"], steered: true });
+    expect(visit({ role: "lite" })).toEqual({ redirects: ["/earth/"], steered: true });
   });
 
   it("steers only once per session, so a deliberate return to the gallery sticks", () => {
-    expect(visit({ path: "/", steered: true }).redirects).toEqual([]);
+    expect(visit({ role: "lite", steered: true }).redirects).toEqual([]);
   });
 
   it("leaves the gallery alone when the visitor forced Lite", () => {
-    expect(visit({ path: "/", quality: "lite" }).redirects).toEqual([]);
+    expect(visit({ role: "lite", quality: "lite" }).redirects).toEqual([]);
   });
 
   it("leaves the gallery alone without WebGL2, whatever the saved quality", () => {
-    expect(visit({ path: "/", quality: "full", webgl2: false }).redirects).toEqual([]);
+    expect(visit({ role: "lite", quality: "full", webgl2: false }).redirects).toEqual([]);
   });
 
   it("respects data-saver on auto, but not against an explicit choice", () => {
-    expect(visit({ path: "/", saveData: true }).redirects).toEqual([]);
-    expect(visit({ path: "/", quality: "full", saveData: true }).redirects).toEqual(["/earth/"]);
+    expect(visit({ role: "lite", saveData: true }).redirects).toEqual([]);
+    expect(visit({ role: "lite", quality: "full", saveData: true }).redirects).toEqual(["/earth/"]);
   });
 });
 
 describe("Base.astro tier guard — rg:steered means 'this session has seen the globe'", () => {
-  // The regression the flag's old meaning caused, one test per route onto the globe.
+  // The regression the flag's old meaning caused, one test per way onto the globe.
   it("marks the session steered when the globe is reached by deep link", () => {
-    expect(visit({ path: "/earth/" })).toEqual({ redirects: [], steered: true });
-  });
-
-  it("marks it for the extensionless path too", () => {
-    expect(visit({ path: "/earth" }).steered).toBe(true);
+    expect(visit({ role: "globe" })).toEqual({ redirects: [], steered: true });
   });
 
   it("does NOT mark it when the globe refuses to render, since it was never seen", () => {
-    expect(visit({ path: "/earth/", quality: "lite" })).toEqual({ redirects: ["/"], steered: false });
-    expect(visit({ path: "/earth/", webgl2: false })).toEqual({ redirects: ["/"], steered: false });
+    expect(visit({ role: "globe", quality: "lite" })).toEqual({ redirects: ["/earth/lite/"], steered: false });
+    expect(visit({ role: "globe", webgl2: false })).toEqual({ redirects: ["/earth/lite/"], steered: false });
   });
 
-  it("lets ← Gallery reach the gallery after a deep-linked globe visit", () => {
+  it("lets a lite page hold a visitor who has already seen a globe this session", () => {
     // The reported bug, end to end: the flag written by visit one must survive into visit two.
-    const globeVisit = visit({ path: "/earth/" });
+    // Reachable today by a lite page's own back link, or by any external link into `/` mid-session.
+    const globeVisit = visit({ role: "globe" });
     expect(globeVisit.steered).toBe(true);
-    expect(visit({ path: "/", steered: globeVisit.steered }).redirects).toEqual([]);
+    expect(visit({ role: "lite", steered: globeVisit.steered }).redirects).toEqual([]);
   });
 
   it("never clears the flag — clearing it is what re-armed the hijack", () => {
@@ -316,13 +327,14 @@ describe("Base.astro tier guard — rg:steered means 'this session has seen the 
     expect(base).not.toMatch(/removeItem\(\s*["']rg:steered["']\s*\)/);
   });
 
-  it("marks a session steered on ANY body's globe, so ← Gallery still works from Mars", () => {
-    // The flag is one key across bodies because it means "this session has seen a globe", and the
-    // globe's own ← Gallery link points at `/` whichever planet you were on. Written per body, a
-    // Mars visitor clicking it would be steered straight back to Earth's globe.
-    const marsVisit = visit({ path: "/mars/", body: "mars" });
+  it("marks a session steered on ANY body's globe, so `/` holds a visitor arriving from Mars", () => {
+    // The flag is one key across bodies because it means "this session has seen a globe", and `/`
+    // is Earth's lite content whichever planet you came from. Written per body, a Mars visitor
+    // reaching the gallery would be steered straight back to EARTH's globe — a different planet,
+    // before paint, with nothing on screen to say one had been chosen for them.
+    const marsVisit = visit({ role: "globe", body: "mars" });
     expect(marsVisit).toEqual({ redirects: [], steered: true });
-    expect(visit({ path: "/", steered: marsVisit.steered }).redirects).toEqual([]);
+    expect(visit({ role: "lite", steered: marsVisit.steered }).redirects).toEqual([]);
   });
 });
 
@@ -331,27 +343,27 @@ describe("Base.astro tier guard — a second body's globe is guarded like the fi
   // body's globe every branch was skipped: a device with no WebGL2 was left sitting on a map it
   // could not draw, and nothing anywhere reported it. These run today, with no Mars globe built.
   it("bounces a Lite visitor off Mars's globe to MARS's fallback, not Earth's", () => {
-    expect(visit({ path: "/mars/", body: "mars", quality: "lite" })).toEqual({
+    expect(visit({ role: "globe", body: "mars", quality: "lite" })).toEqual({
       redirects: ["/mars/lite/"],
       steered: false,
     });
   });
 
   it("bounces a device that cannot run a globe at all", () => {
-    expect(visit({ path: "/mars/", body: "mars", webgl2: false }).redirects).toEqual([
+    expect(visit({ role: "globe", body: "mars", webgl2: false }).redirects).toEqual([
       "/mars/lite/",
     ]);
   });
 
   it("steers a capable visitor from Mars's fallback onto Mars's globe", () => {
-    expect(visit({ path: "/mars/lite/", body: "mars" })).toEqual({
+    expect(visit({ role: "lite", body: "mars" })).toEqual({
       redirects: ["/mars/"],
       steered: true,
     });
   });
 
   it("leaves a Lite visitor on Mars's fallback", () => {
-    expect(visit({ path: "/mars/lite/", body: "mars", quality: "lite" }).redirects).toEqual([]);
+    expect(visit({ role: "lite", body: "mars", quality: "lite" }).redirects).toEqual([]);
   });
 
   it("never sends a Mars visitor to Earth, on any of the four outcomes", () => {
@@ -359,10 +371,10 @@ describe("Base.astro tier guard — a second body's globe is guarded like the fi
     // destination: a control that answers "your device cannot draw Mars" by showing you a
     // different planet is the specific wrong that the literal `/earth` produced.
     const outcomes = [
-      visit({ path: "/mars/", body: "mars", quality: "lite" }),
-      visit({ path: "/mars/", body: "mars", webgl2: false }),
-      visit({ path: "/mars/lite/", body: "mars" }),
-      visit({ path: "/mars/lite/", body: "mars", saveData: true }),
+      visit({ role: "globe", body: "mars", quality: "lite" }),
+      visit({ role: "globe", body: "mars", webgl2: false }),
+      visit({ role: "lite", body: "mars" }),
+      visit({ role: "lite", body: "mars", saveData: true }),
     ];
     expect(outcomes.flatMap((outcome) => outcome.redirects).join(" ")).not.toMatch(/earth/);
   });
@@ -370,16 +382,20 @@ describe("Base.astro tier guard — a second body's globe is guarded like the fi
   it("reads both trailing-slash spellings of a body's globe", () => {
     // Astro serves `/mars` and `/mars/` alike, so an `===` against one of them is a guard that
     // works for everyone who arrives the way we happened to test.
-    expect(visit({ path: "/mars", body: "mars", quality: "lite" }).redirects).toEqual([
+    expect(visit({ role: "globe", body: "mars", quality: "lite" }).redirects).toEqual([
       "/mars/lite/",
     ]);
-    expect(visit({ path: "/mars/lite", body: "mars" }).redirects).toEqual(["/mars/"]);
+    expect(visit({ role: "lite", body: "mars" }).redirects).toEqual(["/mars/"]);
   });
 
-  it("leaves a page that is neither route alone, whatever body it is dressed in", () => {
+  it("leaves a page that is neither of a body's two alone, whatever body it dresses in", () => {
     for (const slug of Object.keys(BODIES) as BodySlug[]) {
-      expect(visit({ path: "/about/", body: slug }).redirects, `${slug} at /about/`).toEqual([]);
-      expect(visit({ path: "/france/", body: slug }).redirects, `${slug} at /france/`).toEqual([]);
+      expect(visit({ role: "plain", body: slug }).redirects, `${slug} plain`).toEqual([]);
+      // And on anything it does not recognise. The dispatch is an allowlist rather than a
+      // "not globe → treat as lite" test, so a role that is misspelled, renamed upstream, or
+      // absent because the attribute stopped rendering leaves the visitor where they are —
+      // rather than steering every country page onto the globe.
+      expect(visit({ role: "gallery", body: slug }).redirects, `${slug} typo`).toEqual([]);
     }
   });
 
@@ -389,49 +405,65 @@ describe("Base.astro tier guard — a second body's globe is guarded like the fi
     for (const slug of Object.keys(BODIES) as BodySlug[]) {
       const routes = bodyRoutes(slug);
       expect(
-        visit({ path: routes.globe, body: slug, quality: "lite" }).redirects,
+        visit({ role: "globe", body: slug, quality: "lite" }).redirects,
         `${slug} bounced off its globe`,
       ).toEqual([routes.lite]);
       expect(
-        visit({ path: routes.lite, body: slug }).redirects,
+        visit({ role: "lite", body: slug }).redirects,
         `${slug} steered off its fallback`,
       ).toEqual([routes.globe]);
     }
   });
 });
 
-describe("the guard's path comparison must not drift from bodyRoutes", () => {
-  // The second forced duplication in this file, and it is pinned the same way `capable()` is: by
-  // RUNNING the guard rather than reading it. `is:inline` means there is no bundle to import from,
-  // so the guard carries its own one-line `samePath`; if that copy and `isSamePath` disagree, the
-  // pre-paint guard and the view bar's tier picker decide differently which page you are on.
-  const SPELLINGS = [
-    "/",
-    "/earth",
-    "/earth/",
-    "/earth//",
-    "/mars",
-    "/mars/",
-    "/mars/lite",
-    "/mars/lite/",
-    "/marsx/",
-    "/about/",
-  ];
+describe("every page tells the guard what it is, and tells it the truth", () => {
+  // WHAT REPLACED A TABLE OF PATH SPELLINGS. This suite used to drive the guard at `/earth`,
+  // `/earth/`, `/earth//` and seven more, and assert its verdict matched `isSamePath` — because the
+  // guard carried its own copy of that rule and a drifted copy would put the pre-paint redirect and
+  // the view bar's tier picker on different pages. That duplication is gone: the guard is told what
+  // the page is, so spelling cannot reach it and there is nothing left to drift.
+  //
+  // The risk moved rather than vanishing. A page can now LIE — and a page that calls a globe a lite
+  // route steers a capable visitor in a loop, while one that calls a lite route plain leaves a
+  // device with no WebGL2 sitting on a map it cannot draw. The type only insists an answer is
+  // given; this insists it is the right one.
+  //
+  // Two of the three claims are derived from the registry. The third is not derivable by anything,
+  // and that is exactly why it is asserted: `/` renders Earth's lite content because the gallery
+  // was the front page before there was a second body to need a route name.
+  const PAGES = new URL("../pages/", import.meta.url);
+  const declaredRole = (route: string) => {
+    const source = readFileSync(new URL(route, PAGES), "utf8");
+    const attributes = /<Base\b([^>]*)>/.exec(source)?.[1];
+    if (attributes === undefined) throw new Error(`${route} no longer opens with a <Base …> tag`);
+    const role = /\bpageRole="([^"]*)"/.exec(attributes)?.[1];
+    // An ERROR rather than an absence, for the reason `resolveBodyProp` next door gives: a miss and
+    // a genuine mismatch would otherwise be the same value, and the whole claim here is that this
+    // read what the page ships.
+    if (role === undefined) throw new Error(`${route} declares no literal pageRole`);
+    return role;
+  };
 
   for (const slug of Object.keys(BODIES) as BodySlug[]) {
-    const routes = bodyRoutes(slug);
-    for (const path of SPELLINGS) {
-      it(`agrees for ${slug} at ${path}`, () => {
-        // A Lite visitor is redirected exactly when the guard thinks this is their globe; a capable
-        // first-time visitor is redirected exactly when it thinks this is their fallback. Neither
-        // probe can fire for the other case, so each isolates one of the two comparisons.
-        const guardSaysGlobe = visit({ path, body: slug, quality: "lite" }).redirects.length > 0;
-        const guardSaysLite = visit({ path, body: slug }).redirects.length > 0;
-        expect(guardSaysGlobe, `${path} vs ${routes.globe}`).toBe(isSamePath(path, routes.globe));
-        expect(guardSaysLite, `${path} vs ${routes.lite}`).toBe(isSamePath(path, routes.lite));
-      });
-    }
+    it(`calls ${slug}'s globe a globe`, () => {
+      expect(declaredRole(`${slug}/index.astro`)).toBe("globe");
+    });
+
+    it(`calls ${slug}'s lite route a lite page`, () => {
+      // Off the registry rather than written out, so a body whose lite route moves takes its
+      // declaration with it or fails here — which is the half of this commit that had no guard.
+      expect(declaredRole(`${bodyRoutes(slug).lite.replace(/^\/|\/$/g, "")}.astro`)).toBe("lite");
+    });
   }
+
+  it("calls the site root a lite page, which no registry field can tell it", () => {
+    expect(declaredRole("index.astro")).toBe("lite");
+  });
+
+  it("keeps the pages that are neither out of the guard's way", () => {
+    expect(declaredRole("about.astro")).toBe("plain");
+    expect(declaredRole("[slug].astro")).toBe("plain");
+  });
 });
 
 describe("Base.astro stamps the guard's inputs onto the page", () => {
@@ -697,27 +729,27 @@ describe("Base.astro tier guard — the software-rasterizer floor it used to be 
   it("bounces a software-rasterizer visitor who deep-links /earth", () => {
     // Previously the guard tested WebGL2 alone, so this visitor rendered the globe while the
     // page module was independently deciding "gallery" — the two disagreed on the same device.
-    const outcome = visit({ path: "/earth/", unmaskedRenderer: "Google SwiftShader" });
-    expect(outcome.redirects).toEqual(["/"]);
+    const outcome = visit({ role: "globe", unmaskedRenderer: "Google SwiftShader" });
+    expect(outcome.redirects).toEqual(["/earth/lite/"]);
   });
 
   it("bounces one whose only renderer string is the standard parameter (Firefox)", () => {
     const outcome = visit({
-      path: "/earth/",
+      role: "globe",
       unmaskedRenderer: null, // no WEBGL_debug_renderer_info
       renderer: "llvmpipe (LLVM 15.0.7, 256 bits)",
     });
-    expect(outcome.redirects).toEqual(["/"]);
+    expect(outcome.redirects).toEqual(["/earth/lite/"]);
   });
 
   it("does not steer a software-rasterizer visitor onto the globe from the gallery", () => {
-    const outcome = visit({ path: "/", unmaskedRenderer: "llvmpipe (LLVM 15.0.7, 256 bits)" });
+    const outcome = visit({ role: "lite", unmaskedRenderer: "llvmpipe (LLVM 15.0.7, 256 bits)" });
     expect(outcome.redirects).toEqual([]);
     expect(outcome.steered).toBe(false);
   });
 
   it("still steers a real GPU — the control that stops the three above passing vacuously", () => {
-    const outcome = visit({ path: "/", unmaskedRenderer: "Apple M2 Pro" });
+    const outcome = visit({ role: "lite", unmaskedRenderer: "Apple M2 Pro" });
     expect(outcome.redirects).toEqual(["/earth/"]);
   });
 });
@@ -744,7 +776,7 @@ describe("the guard and capability.ts must not drift apart", () => {
 
       const guardSteers =
         visit({
-          path: "/",
+          role: "lite",
           webgl2: scenario.webgl2,
           unmaskedRenderer: null,
           renderer: scenario.renderers[0] ?? "",

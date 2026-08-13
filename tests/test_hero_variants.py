@@ -241,11 +241,12 @@ class TestLadderServesTheLayout:
     contract live in different runtimes, so the pin has to read the file rather than import it.
     """
     # surface -> the `sizes` constant it declares, and the ladders layered into that surface. Paths
-    # are relative to `web/src/`, because the globe's panel is a COMPONENT rather than a page: it
-    # moved out of `pages/earth.astro` so a second body could draw the same globe, and a lookup
-    # still rooted at `pages/` would have found nothing to read.
+    # are relative to `web/src/`, because NEITHER surface is a page any more: the globe's panel moved
+    # out of `pages/earth/index.astro` so a second body could draw the same globe, and the gallery
+    # moved out of `pages/index.astro` so Earth's lite route could render it at a second URL. Both
+    # times a lookup rooted at `pages/` would have gone on reading a file that still existed.
     PAGES = (
-        ("pages/index.astro", "SIZES", ("hero", "spotlight")),
+        ("components/Gallery.astro", "SIZES", ("hero", "spotlight")),
         ("components/Globe.astro", "sizesAttr", ("hero", "border")),
     )
 

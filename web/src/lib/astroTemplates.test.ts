@@ -33,7 +33,7 @@ describe("every Astro template under src/", () => {
     // Without this the rule below is satisfied by an empty list, which is the shape that reads green
     // while checking nothing.
     const found = templates.map((template) => template.name);
-    for (const required of ["layouts/Base.astro", "components/Globe.astro", "pages/earth.astro"]) {
+    for (const required of ["layouts/Base.astro", "components/Globe.astro", "pages/earth/index.astro"]) {
       expect(found, `the sweep missed ${required}`).toContain(required);
     }
   });

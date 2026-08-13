@@ -1,7 +1,7 @@
 ---
 import "../styles/global.css";
 import { Font } from "astro:assets";
-import type { BodySlug } from "../lib/bodies";
+import { BODIES, type BodySlug } from "../lib/bodies";
 import { bodyRoutes } from "../lib/bodyRoutes";
 
 interface Props {
@@ -17,6 +17,30 @@ interface Props {
    *  design. A default here is invisible in the diff that adds the second body's page, and the
    *  result — a Mars view in Earth's teal — is the kind of wrong that ships. */
   body: BodySlug;
+  /** What this page IS to the tier guard below: a body's globe, a body's lite page, or neither.
+   *
+   *  IT IS DECLARED RATHER THAN DERIVED FROM THE PATH, and that is the whole of this prop. The
+   *  guard used to ask "does `location.pathname` equal this body's lite route" — a proxy that was
+   *  exact while each of a body's two pages had exactly one URL, and that broke the moment Earth's
+   *  lite content answered at both `/` and `/earth/lite/`. Moving `liteRoute` to the second of
+   *  those silently deleted the steer off the first: `/` matched neither route, so the guard
+   *  returned before reading anything, and a capable visitor landing on the site's front page was
+   *  never sent to the globe again. Seven guard tests fail on that flip, which is how it was found.
+   *
+   *  A page knows what it is. A URL only knows how it was spelled — which is also why this retires
+   *  the guard's copy of `isSamePath`: `/earth` and `/earth/` are one page and now say so
+   *  themselves, rather than being compared into agreement by a rule written twice.
+   *
+   *  REQUIRED, LIKE `body`, AND FOR A SHARPER REASON. Every value is a real answer, `"plain"`
+   *  included, so there is no sensible default to fall back to — and the failure a default would
+   *  buy is the guard doing NOTHING on a page that needed it: a visitor with no WebGL2 left sitting
+   *  on a globe their device cannot draw, on a page that renders perfectly in development.
+   *
+   *  IT ALSO DECIDES WHO GETS THE BODY SWITCHER, which is a second job and deliberately not a
+   *  second prop. "Belongs to a body" is exactly what the two non-`plain` values say, so a
+   *  `switcher` boolean would be that set written again beside the declaration it copies — true on
+   *  the same five pages, and free to fall out of step with them silently. */
+  pageRole: "globe" | "lite" | "plain";
 }
 const {
   title = "Terrella",
@@ -25,6 +49,7 @@ const {
   spotlight = false,
   quality = false,
   body,
+  pageRole,
 } = Astro.props;
 
 // The two pages this body has. Stamped onto the root element below because the pre-paint guard
@@ -39,12 +64,16 @@ const routes = bodyRoutes(body);
     tokens are declared on, so the accent is correct in the first painted frame — a class flipped by
     script would repaint the chrome after paint, which is the CLS this site has already paid for.
 
-    The two routes ride the same element for a different reason: they are the pre-paint guard's only
-    input, and an attribute is the one channel that is already parsed before any script runs. */}
+    The role and the two routes ride the same element for a different reason: they are the pre-paint
+    guard's only input, and an attribute is the one channel that is already parsed before any script
+    runs. Both routes are stamped on every page, `plain` ones included — the guard reads them only
+    after the role has let it through, and a tag whose shape depends on the role is one more thing
+    for a source scan to have to know. */}
 <html
   lang="en"
   class="no-js"
   data-body={body}
+  data-page-role={pageRole}
   data-globe-route={routes.globe}
   data-lite-route={routes.lite}
 >
@@ -69,40 +98,29 @@ const routes = bodyRoutes(body);
     {/* Pre-paint tier guard: runs synchronously BEFORE the page paints, so a
         capable visitor is redirected to this body's globe with no flash of the
         page they landed on, and an incapable/Lite visitor who deep-links that
-        globe bounces straight back. This is the minimal gallery-vs-globe
+        globe bounces straight back. This is the minimal lite-vs-globe
         boundary of src/lib/capability.ts decideTier() — it can't import (it must
         run before the bundle), so it is deliberately kept tiny and mirrors only
         that boundary: the same WebGL2 + software-rasterizer floor `capable()`
         applies. The nuanced globe-vs-full decision (memory, network,
         reduced-motion) still runs in the page module.
 
-        WHICH globe and which fallback are read off the root element rather than
-        written here. The literals used to be `/earth`, which was right while
-        there was one globe and silently wrong the moment there were two: on
-        another body's globe every branch below is skipped, so a Lite visitor is
-        left sitting on a map their device cannot draw. */}
+        WHAT this page is, and which two routes it sits between, are read off the
+        root element rather than written here. The routes used to be the literal
+        `/earth`, which was right while there was one globe and silently wrong
+        the moment there were two. The ROLE replaced a path comparison for the
+        same shape of reason one step later — see the `pageRole` prop above. */}
     <script is:inline>
       (function () {
         try {
-          var quality = localStorage.getItem("rg:quality") || "auto";
           var root = document.documentElement;
+          // The page's own answer, and the guard's entire dispatch. `plain` and any unrecognised
+          // value alike fall out here, which is the behaviour `/about/` and a country page want.
+          var role = root.getAttribute("data-page-role");
+          if (role !== "globe" && role !== "lite") return;
+          var quality = localStorage.getItem("rg:quality") || "auto";
           var globeRoute = root.getAttribute("data-globe-route");
           var liteRoute = root.getAttribute("data-lite-route");
-          // The rule `bodyRoutes.ts` states as `isSamePath`, copied because there is nothing to
-          // import from yet. Both spellings really arrive — Astro's default `trailingSlash: ignore`
-          // serves `/earth` and `/earth/` alike — and capability.test.ts runs this guard and that
-          // function over the same table and requires them to agree.
-          //
-          // Suppressed for the reason `capable()` below is: "the outer scope" the rule wants is a
-          // bundle that does not exist at this point in the page.
-          // oxlint-disable-next-line unicorn/consistent-function-scoping
-          function samePath(a, b) {
-            return String(a).replace(/\/+$/, "") === String(b).replace(/\/+$/, "");
-          }
-          var path = location.pathname;
-          var atEntry = samePath(path, liteRoute);
-          var atGlobe = samePath(path, globeRoute);
-          if (!atEntry && !atGlobe) return;
 
           // MUST mirror capability.ts `capable()` — WebGL2 present AND not a software
           // rasterizer. It cannot import it (this has to run before the bundle, which is the
@@ -141,18 +159,20 @@ const routes = bodyRoutes(body);
             (typeof matchMedia === "function" &&
               matchMedia("(prefers-reduced-data: reduce)").matches);
 
-          if (atGlobe) {
+          if (role === "globe") {
             // Can't run the globe here, or the user forced Lite → back to this body's own fallback.
             if (quality === "lite" || !capable()) location.replace(liteRoute);
             // Reaching the globe by ANY route counts as steered — not just by the auto-steer
-            // below. The flag means "this session has seen the globe", so a later visit to /
-            // is a deliberate choice (the ← Gallery link) and must not be bounced straight
-            // back. Writing it only on the auto-steer path made ← Gallery a no-op for anyone
-            // who deep-linked /earth or picked Globe/Full in the view bar.
+            // below. The flag means "this session has seen the globe", so a later arrival on a
+            // lite page is a deliberate choice and must not be bounced straight back. What made
+            // this concrete was the globe's own `← Gallery` link, now deleted; the claim outlives
+            // it, because the lite pages' own back links and any external link into `/` land the
+            // same way, and writing the flag only on the auto-steer path makes every one of them
+            // a no-op for anyone who deep-linked a globe or picked Globe/Full in the view bar.
             else sessionStorage.setItem("rg:steered", "1");
             return;
           }
-          // atEntry: steer capable visitors onto THIS body's globe, pessimistically.
+          // A lite page: steer capable visitors onto THIS body's globe, pessimistically.
           if (quality === "lite") return; // user forced the lite view
           if (sessionStorage.getItem("rg:steered")) return; // steer once per session
           if (!capable()) return; // no globe floor — same test capability.ts applies
@@ -175,6 +195,37 @@ const routes = bodyRoutes(body);
     <slot name="head" />
   </head>
   <body>
+    {
+      /* WHICH WORLD — one floating pill, top-centre, in a group of its own. The layout already
+         states the taxonomy the other clusters divide up: the view bar is what the globe SHOWS,
+         the globe's top-right rail is where you look FROM, its top-left row is ways OFF. Which
+         planet you are on is a fourth question, not a member of any of those.
+
+         ON EVERY PAGE A BODY OWNS, DERIVED AND NOT OPTED IN — see `pageRole` above for why this
+         is not its own prop.
+
+         NO CLIENT SCRIPT, AND THAT IS A DECISION ABOUT WHO OWNS THE TIER. Each href is that
+         body's globe, and the destination's own pre-paint guard resolves the tier on arrival —
+         so a visitor forced to Lite lands on the other body's lite page without this control
+         reading `rg:quality` at all. Rewriting the href from the stored preference would put a
+         second reader on the decision `bodyRoutes.ts` exists to own, and it would be the reader
+         that is wrong first: it runs at BUILD time, where nobody has a preference yet.
+
+         FIRST IN THE BODY, so the keyboard reaches it without crossing the page. Last would put
+         it behind every card in the gallery. */
+      pageRole !== "plain" && (
+        <nav class="body-switcher" aria-label="Which body">
+          {Object.values(BODIES).map((entry) => (
+            <a
+              href={bodyRoutes(entry.slug).globe}
+              aria-current={entry.slug === body ? "true" : undefined}
+            >
+              {entry.label}
+            </a>
+          ))}
+        </nav>
+      )
+    }
     <slot />
     {
       /* The view bar — ONE floating pill for what the globe SHOWS. Layer toggles (Borders,
@@ -325,7 +376,7 @@ const routes = bodyRoutes(body);
         // choice could steer the session again, but nothing needs that: every arrival at /earth
         // is already permitted by rg:quality alone, and every arrival at / with quality "lite"
         // returns early from the head guard. Clearing it only re-armed the auto-steer, which
-        // then hijacked the next ← Gallery click.
+        // then hijacked the next deliberate navigation back to a lite page.
         // Both destinations belong to the body whose page this is, so Globe and Full can no longer
         // navigate a Mars visitor to Earth. `isSamePath` rather than `===` for the same reason the
         // guard uses it: reached by the other trailing-slash spelling, this used to `assign` the
