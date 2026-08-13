@@ -506,8 +506,9 @@ second body, Earth-only and Earth byte-identical throughout, landed before any M
   feature at the scale its diameter reads at, and the card names it, gives its kind and size, quotes
   the IAU's etymology and links to the entry it is quoting — no picture, because this body renders
   none. A typed query reaches that same card, which is the only route by which a name enters an
-  interface drawing no labels, and the only one the long tail has at all. Still ahead: the geologic
-  units that answer for the ground no name reaches.
+  interface drawing no labels, and the only one the long tail has at all. **The geologic units that
+  were to answer for the ground no name reaches are closed** (§ Deliberately not doing), so bare
+  ground keeps returning null exactly as Earth's ocean does, and this phase is complete as it stands.
   - **The card's classification is informative exactly on the craters.** All 1,233 crater names omit
     the word, and all 686 non-craters contain their own descriptor — Olympus **Mons**, Hellas
     **Planitia** — with no exceptions either way, so nothing about the wording can improve both.
@@ -545,6 +546,27 @@ Listed so they are not re-proposed as if new.
 - **A redirect from the old globe URL.** The route was renamed before it was publicised.
 - **A separate tile server.** Ours are pre-rendered and immutable, and the tile Worker exists to
   solve a cache-object size limit that a tile server does not address. This is closed, not parked.
+- **The geologic units as anything a visitor meets.** Closed on the source's own attributes, which
+  are `objectid`, `shape_area`, `shape_leng`, `spharea_km`, `unit` and `unitdesc` — and `unitdesc`
+  IS the name: *Amazonian polar undivided unit*. There is no description, no lithology, no age
+  range, no text. A card built on it expands a stratigraphic code and then has nothing to say, where
+  the gazetteer's gives a kind, a size, the IAU's etymology and a link; and *undivided* reports the
+  mapping's own coarseness back to the visitor as if it were a fact about the ground. The arithmetic
+  seals it: the units tile the whole sphere, so a global layer would be acquired, decimated, cut and
+  shipped for every point in order that the **10.2%** inside no named feature could answer with an
+  epoch. The source stays acquired for the ice extent, which needs its geometry and none of its
+  meaning.
+- **Anything else answering for bare ground either.** RATIFIED: the pointer stays silent there, as
+  Earth's ocean already is. Two substitutes were weighed and declined. **Elevation at the pointer**
+  fails on its own API — `queryTerrainElevation` returns `null` unless terrain is enabled, so it
+  would answer for Full-tier visitors and no others, which is worse than answering for nobody; it
+  also returns metres *multiplied by* the exaggeration, a wrong number that looks right. And its
+  zero is the **areoid**, an equipotential surface sitting at the median of Mars's elevations with
+  no expression on the ground, so the sign of "−4,120 m" means nothing a visitor can read.
+  **Nearest named feature and distance** is the stronger of the two and is declined as unbuilt
+  rather than unsound — it would answer *what is this* in the interface's own vocabulary, and it is
+  well defined precisely on bare ground. Reopening it needs a reason, a per-pointer-move cost, and
+  an eye on the globe.
 
 ## Open questions
 
@@ -632,8 +654,8 @@ Triaged by when each must be answered, because most of them cannot be answered e
   - Heroes: worth a second Blender sweep once an 8K Olympus Mons can be pictured concretely?
 - **Before the cut.** z7 or z8, ratified on the sphere. What the source can supply is measured
   (§ The zoom ceiling); what is not is whether the gain reads at the camera anyone actually uses.
-- **Before vectors.** The unit of subdivision, if there is a gallery at all: geologic units, MC
-  quadrangles, a curated landform list, or nothing.
+- **Before vectors.** The unit of subdivision, if there is a gallery at all: MC quadrangles, a
+  curated landform list, or nothing. Geologic units were an option here and are now closed.
 - **Any time.** What goes on the Mars Lite page.
 
 ## Vector sources, for Phase 3
@@ -641,7 +663,9 @@ Triaged by when each must be answered, because most of them cannot be answered e
 Two publishers, because the layer that draws and the layer that NAMES are different products. The
 gazetteer is acquired and pinned by `pipeline/acquire/download_nomenclature.py`, folded to one
 longitude window by `pipeline/compose/features_geojson.py` and cut to a four-layer pyramid by
-`pipeline/compose/features_pmtiles.py`; SIM 3292's geologic units are scouted only.
+`pipeline/compose/features_pmtiles.py`. **SIM 3292's geologic units are closed** — the gazetteer is
+the only vector product a visitor meets, and the second publisher survives here only as the ice
+extent's geometry.
 
 **GDAL's MVT writer segfaults on the gazetteer polygons when no simplification is applied**, whether
 the option is omitted or set to 0. Earth's countries cut clean through the same code path with none,
@@ -687,10 +711,16 @@ no output, and both knobs are required arguments rather than defaulted ones.
     service, not a transient. `download_sim3292.unit_url` already does the right thing.
   - **Any use of it is a generalisation problem first**, since one unit reaches 139 MB of GeoJSON.
     The linework's own 5 km vertex spacing is what makes decimating it honest.
-- **The units are complete but they are not DESTINATIONS**, which is the product-model finding: the
-  thing a visitor navigates to is a named feature. `mNh` is the case that makes it obvious — 99
-  disjoint pieces, 32 million km², and a name that describes an age rather than a place. The units'
-  job is the **10.2% of the sphere no name reaches**, so that pointing at Mars always has an answer.
+- **The units are complete, and they are CLOSED as a visitor-facing layer** (§ Deliberately not
+  doing). Two findings, in the order they should be met. The product-model one first: the units are
+  not DESTINATIONS — the thing a visitor navigates to is a named feature, and `mNh` makes it obvious
+  at 99 disjoint pieces over 32 million km² under a name describing an age rather than a place.
+  Then the one that actually decides it, which is that **the records carry no meaning to show** —
+  `unitdesc` is the name itself and there is no other text in the schema, so the card would expand a
+  stratigraphic code and stop. Read the second before re-proposing on the strength of the first: a
+  layer can survive "not a destination" by answering in place, and cannot survive having nothing to
+  say. Their intended job was the **10.2% of the sphere no name reaches**, which bare ground now
+  keeps answering with null, exactly as Earth's ocean does.
 - **The crater database is REJECTED on its own numbers, not on size.** 384,343 Robbins craters reach
   at most 17.3% summed disc area — an upper bound, since it double-counts overlap — against 6.2% for
   the 304 above 100 km. A 156x increase in features buys under 3x the coverage, and what it uniquely
