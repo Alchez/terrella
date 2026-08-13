@@ -178,6 +178,32 @@
    EVERY SELECTOR REPEATS A CLASS, as everywhere else in this block: MapLibre's stylesheet is
    injected at RUNTIME by its ES-module import, so it lands after this block wherever the block
    sits, and an equal-specificity rule loses silently on source order. */
+
+/* HOW MUCH OF THE RIGHT EDGE THE RAIL OWNS, in one place, because three things now have to keep
+   clear of it: the search panel, the detail card, and anything added beside them later. The 10px
+   is MapLibre's own control margin, which its stylesheet hardcodes; the button size is ours and is
+   read back below rather than restated. Before this existed the card was written at a flat
+   `right: 1.2rem` and simply sat ON TOP of the rail — zoom, compass, spin and search all covered
+   the moment a feature was picked, on both bodies. */
+/* HOW FAR FLOATING CHROME SITS FROM THE VIEWPORT EDGE, and it is one distance rather than two. Our
+   own elements were written at a literal `1.2rem` in six places while MapLibre's control corners
+   used its own hardcoded `10px` — so the rail sat 9.2px higher and 9.2px further out than the
+   top-left row it is meant to line up with, on every page and every width. Reported from a phone as
+   the two rows not being level. The override below is what makes the rail read this instead. */
+:root {
+  --page-inset: 1.2rem;
+  --rail-button-size: 2.15rem;
+  --rail-clearance: calc(var(--rail-button-size) + var(--page-inset) + 0.5rem);
+}
+
+/* MapLibre's own `margin: 10px 10px 0 0` on every control in this corner, replaced rather than
+   fought: its rule is (0,2,0) and this doubles a class to beat it, the same trick every selector in
+   this file uses. Both the top and the right come from one token, so the rail cannot go level with
+   the left-hand row while drifting away from the right-hand edge. */
+.maplibregl-ctrl-top-right .maplibregl-ctrl.maplibregl-ctrl {
+  margin: var(--page-inset) var(--page-inset) 0 0;
+}
+
 .maplibregl-ctrl-top-right .maplibregl-ctrl-group.maplibregl-ctrl-group {
   /* WHAT IS HELD CONSTANT IS THE INK, NOT THE BOX — the same rule the top-left row now follows.
      `mask-size` sizes the whole viewBox, so identical sizes across icons whose ink fills
@@ -200,8 +226,8 @@
   overflow: hidden; /* so the end buttons clip to the stadium rather than squaring it off */
 }
 .maplibregl-ctrl-top-right .maplibregl-ctrl-group.maplibregl-ctrl-group button {
-  width: 2.15rem;
-  height: 2.15rem;
+  width: var(--rail-button-size);
+  height: var(--rail-button-size);
   color: var(--muted);
   background: transparent;
 }
@@ -287,6 +313,175 @@
   --rail-icon: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2.5 12S6 5.8 12 5.8s9.5 6.2 9.5 6.2-3.5 6.2-9.5 6.2S2.5 12 2.5 12'/%3E%3Ccircle cx='12' cy='12' r='2.9'/%3E%3C/svg%3E");
 }
 
+/* Search: a plain magnifier, on the shared 24-unit box so its stroke matches spin and the eye.
+   Deliberately the most conventional glyph in the rail — every other icon here had to be designed
+   because nothing standard says "auto-rotate" or "hide the chrome", and a magnifier is the one
+   control on this page whose meaning is already settled everywhere else. */
+.maplibregl-ctrl-top-right .rg-ctrl-search .maplibregl-ctrl-icon {
+  --rail-icon: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='10.6' cy='10.6' r='6.1'/%3E%3Cpath d='M15.1 15.1 20.4 20.4'/%3E%3C/svg%3E");
+  --rail-icon-size: var(--rail-ink-24);
+}
+
+/* THE SEARCH PANEL HANGS OFF THE RAIL'S OWN BOX, so no constant here describes where the rail is.
+   It is appended into `.maplibregl-ctrl-top-right`, which MapLibre has already positioned and
+   which shrink-wraps to the rail's width — `right: 100%` is therefore "just left of the rail" at
+   every viewport, and `top: 0` aligns it with the rail's top edge rather than with the button,
+   which sits partway down a group whose length changes with the body. A clearance constant against
+   a fixed corner would have to be re-derived every time a control is added. */
+.rg-search {
+  position: absolute;
+  top: var(--page-inset); /* the corner's own control margin, so it starts level with the first group */
+  right: 100%;
+  margin-right: 0.5rem;
+  z-index: 10;
+  /* MAPLIBRE MAKES ITS CONTROL CORNERS `pointer-events: none` AND HANDS IT BACK ONLY TO
+     `.maplibregl-ctrl`. This panel is not one — it is a panel, not a control — so without this the
+     whole thing is click-through: the field cannot be focused by clicking it, a row cannot be
+     picked, and every one of those clicks lands on the globe underneath and flies somewhere. The
+     panel still LOOKS right, which is why no screenshot catches it and no synthetic event does
+     either — `.click()` and `.focus()` in a test bypass hit-testing entirely. */
+  pointer-events: auto;
+  width: min(22rem, calc(100vw - 5rem));
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.5rem;
+  border-radius: 0.7rem;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--bg) 92%, transparent);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  text-align: left;
+}
+.rg-search[hidden] {
+  display: none; /* `hidden` alone loses to the `display: flex` above */
+}
+/* NARROW, WHERE THE PANEL REACHES BACK INTO THE TOP-LEFT CHROME. Its left edge is the viewport
+   minus the rail's clearance minus its own width, so it crosses `← Gallery`'s row at a viewport of
+   610 px — measured, with the panel at its 22rem ceiling and the row at its present content. The
+   breakpoint sits above the crossover on purpose, since the row's width is content and a second
+   body's could be wider. The panel used to drop past that row to 4.2rem; now the row yields
+   instead — see `body.panel-open` below for why that is the right way round. */
+@media (max-width: 40rem) {
+  .rg-search {
+    /* FIXED WITH BOTH EDGES NAMED, so the panel fills the width that is actually free instead of
+       stopping at a ceiling chosen for desktop. `width: min(22rem, …)` left a phone with the panel
+       hugging the rail and dead space down its left; here the only two facts are the margin and
+       the rail's own footprint, and the width falls out of them. */
+    position: fixed;
+    top: var(--page-inset);
+    left: 0.75rem;
+    right: var(--rail-clearance);
+    width: auto;
+    margin-right: 0;
+  }
+}
+
+/* A PANEL IS OPEN AND THE VIEWPORT IS A PHONE, so the top band has one occupant instead of three.
+   `body.panel-open` is true for the card and for the search field alike — they are the same box in
+   the same band, and each already closes the other.
+
+   WHY THE ROW YIELDS AND NOT THE PANEL. At 390 px the panel spans 326 px of a 390 px viewport
+   between the margin and the rail, so nothing else fits on that line: either the panel drops below
+   the row, or the row goes. Dropping it costs 48 px of a ~660 px screen and still leaves a strip of
+   three pills reading as debris above the thing being read — reported as exactly that. The row is
+   also the one cluster with no job during the interaction: these are ways OFF the globe, and a
+   visitor reading a card is not leaving.
+
+   THE CREDIT GOES TOO, WHICH QUIET MODE DELIBERATELY DOES NOT DO, and the difference is the state
+   rather than the element. Quiet is persistent — you can sit in it, and the ghosted ⓘ is the only
+   licence pointer left on screen. A card is transient, carries its own ×, answers Escape, and
+   restores the whole row on close; occluding it with a 326 px panel and calling that "kept" would
+   be worse than hiding it honestly. `/about` carries the full credits either way.
+
+   `display`, not `visibility`, for the same reason as quiet mode's: hidden-but-present, these keep
+   their width and the panel would still be starting below a row of invisible boxes. */
+@media (max-width: 40rem) {
+  body.panel-open .globe-home,
+  body.panel-open .globe-source,
+  body.panel-open .chrome-credit.chrome-credit.maplibregl-ctrl {
+    display: none;
+  }
+}
+.rg-search-field {
+  width: 100%;
+  padding: 0.45rem 0.6rem;
+  border-radius: 0.45rem;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--bg) 70%, transparent);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.92rem;
+}
+.rg-search-field::placeholder {
+  color: var(--muted);
+}
+.rg-search-field:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+}
+.rg-search-results {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.rg-search-results:empty {
+  display: none; /* no empty gap under the field before anything is typed */
+}
+.rg-search-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.1rem 0.45rem;
+  padding: 0.35rem 0.5rem;
+  border-radius: 0.4rem;
+  cursor: pointer;
+}
+/* Selection is shown on `aria-selected`, the same attribute the keyboard moves — so the highlight
+   cannot disagree with what Enter would choose. Hover paints the same way rather than a second
+   colour, because two highlights on one list is a question about which one is armed. */
+.rg-search-row[aria-selected="true"],
+.rg-search-row:hover {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+.rg-search-name {
+  color: var(--text);
+  font-weight: 600;
+  font-size: 0.92rem;
+}
+.rg-search-alias {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+.rg-search-alias::before {
+  content: "(";
+}
+.rg-search-alias::after {
+  content: ")";
+}
+.rg-search-kind {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.rg-search-status {
+  margin: 0;
+  padding: 0 0.5rem;
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+.rg-search-status:empty {
+  display: none;
+}
+
 /* THE COMPASS IS AUTHORED, NOT MASKED. Its icon is two triangles — `#333` north over `#ccc`
    south — and a single mask flattens both to one colour, rendering a bowtie. Two pseudo-elements
    instead, so north can take the accent and south the hairline. They sit inside the icon span,
@@ -344,6 +539,13 @@
    rather than a view option. Each fades to a quarter and returns on hover or focus, so the exit
    and the licence are both reachable without either reading as chrome.
 
+   THE EYE REACHES ITS CORNER BY DOM ORDER, NOT BY A RULE HERE, and that is why nothing below
+   repositions it. The camera group is hidden with `visibility`, which keeps its box — so the eye
+   sits wherever the groups before it leave it, and the fix was to make the frame group FIRST in
+   `Globe.astro` rather than to re-anchor the survivor from the stylesheet. Do not "tidy" that call
+   order back: with the camera group first, this state puts a lone eye a five-button pill down an
+   otherwise empty right edge.
+
    `.globe-chrome` is NOT hidden as a whole any more — it holds the credit now, so its two links
    are hidden individually. `visibility` rather than `display` keeps the ⓘ where it already is;
    collapsing the row would slide it into the corner, which is motion for no reason. */
@@ -367,28 +569,18 @@ body.is-quiet .globe-source {
 /* Fullscreen goes too: one ghost per corner, per the note above. And a ghost is a GLYPH, not a
    filled button — the quiet toggle is pressed in this state, so without the cancel below it keeps
    its accent fill, and as the group's only remaining child it fills the whole 999px box: a solid
-   disc over the map where a ghost belongs. */
+   disc over the map where a ghost belongs.
+
+   NO DIVIDER CANCEL IS NEEDED HERE, and it used to be. `button + button` matches DOM ORDER rather
+   than visibility, so while the group read [fullscreen, quiet] the surviving eye went on counting
+   as "a button after a button": it kept a 1px hairline that the group's 999px radius clipped into
+   a dark chord across the top of the circle, reported from a phone as a nick out of the icon. The
+   group now reads [quiet, fullscreen], so the eye is the FIRST child and no `+` selector reaches
+   it — the ordering that put the ghost in its corner deleted this rule as a side effect. */
 body.is-quiet .maplibregl-ctrl-fullscreen {
   display: none;
 }
-/* ...and the divider it left behind. `+` matches DOM ORDER, not visibility, so hiding fullscreen
-   does not stop the quiet button below it from still counting as "a button after a button" — it
-   kept its 1px hairline while becoming the group's first VISIBLE child, and the group's 999px
-   radius clipped that line into a dark chord across the top of the circle. Reported from a phone,
-   where it reads as a nick out of the icon.
-
-   Keyed on the hidden NEIGHBOUR rather than on the quiet button, so it states the actual rule —
-   a divider needs two visible siblings — and stays right if anything else is ever hidden here.
-   The doubled group class is not decoration: the divider above is (0,4,2) and this has to beat
-   it, which the obvious `body.is-quiet .rg-ctrl-quiet` (0,3,1) would not. */
-body.is-quiet
-  .maplibregl-ctrl-top-right
-  .maplibregl-ctrl-group.maplibregl-ctrl-group
-  .maplibregl-ctrl-fullscreen
-  + button {
-  border-top-width: 0;
-}
-/* The cancel itself, and it needs the doubled group class for the same reason the divider's does.
+/* The pressed-state cancel, and it needs the doubled group class for the reason below.
    The "filled = on" rule is (0,4,1) through its own doubled class, so the obvious
    `body.is-quiet .rg-ctrl-quiet[aria-pressed="true"]` is (0,3,1) and loses — written that way it
    never applied at all. BOTH declarations are load-bearing and both were dead: `color` loses to

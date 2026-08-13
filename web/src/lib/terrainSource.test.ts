@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
+import { DECLARED_TILE_SIZE } from "./reliefSources";
+import { BODIES } from "./bodies";
+import type { BodySlug } from "./bodies";
+import { archiveFor, PUBLISHED } from "./tileAddress";
 import {
-  assertTerrainZoomRange,
-  DEFAULT_TERRAIN_EXAGGERATION,
   DEFAULT_TERRAIN_RAMP_FLOOR,
   defaultTerrainRamp,
   describeTerrainState,
@@ -14,13 +16,14 @@ import {
   parseTerrainTilePath,
   parseTerrainTileSize,
   rampedExaggeration,
+  RATIFIED_TERRAIN_EXAGGERATION,
   resolveTerrainExaggeration,
+  terrainDemSource,
   TERRAIN_CONTENT_TYPE,
   TERRAIN_MAX_ZOOM,
   TERRAIN_MIN_ZOOM,
   TERRAIN_OFF,
   TERRAIN_PATH_PREFIX,
-  TERRAIN_PATH_TEMPLATE,
   TERRAIN_QUANTISATION_M,
   TERRAIN_RAMP_END_ZOOM,
   TERRAIN_RAMP_START_ZOOM,
@@ -32,6 +35,13 @@ import {
   terrainZoomsFor,
 } from "./terrainSource";
 import { parseTilePath } from "./reliefTiles";
+
+/** The shipping ramp sampled at one zoom: base 15x, full-strength through z4.
+ *
+ *  Module-level because two tests below sample the SAME curve — one for monotonicity, one for the
+ *  constant per-level factor — and a second copy of these arguments could drift into describing a
+ *  different curve while both tests still passed. */
+const at = (zoom: number) => rampedExaggeration(15, zoom, 4);
 
 const flags = (search: string) => new URLSearchParams(search);
 
@@ -131,7 +141,7 @@ describe("the archive replaced four flags, and the answers outlive them", () => 
     // Keyed on CODE, never on the flag spelling — the first draft searched for the literal
     // "?quant" and went red against a comment in earth.astro explaining what had been retired. A
     // guard that cannot tell an identifier from prose punishes documenting the decision.
-    const globe = readFileSync(new URL("../pages/earth.astro", import.meta.url), "utf8");
+    const globe = readFileSync(new URL("../components/Globe.astro", import.meta.url), "utf8");
     const retiredCalls = [
       "parseTerrainVariant",
       "parseTerrainQuantisation",
@@ -156,18 +166,36 @@ describe("the archive replaced four flags, and the answers outlive them", () => 
     // The spike served /terrain/<build>/{z}/{x}/{y} off loose tiles from location.origin. Both
     // halves of that are retired: the build segment, and the same-origin assumption that would
     // send production's DEM requests at the site Worker instead of the tile Worker.
-    const globe = readFileSync(new URL("../pages/earth.astro", import.meta.url), "utf8");
-    expect(globe).toContain("TERRAIN_URL_TEMPLATE");
-    expect(globe, "the DEM base must follow the tile hostname").not.toContain(
-      "location.origin}/terrain",
-    );
+    //
+    // TWO FILES, because the address builder moved out of the page and only ONE of these two
+    // assertions noticed. The positive one failed the moment its subject left — that is what a
+    // `toContain` does. The negative one would have gone on passing forever against a file that no
+    // longer builds a DEM address at all, which is the same silent narrowing the globe extraction
+    // taught: absence is a legitimate answer to `not.toContain`, so it cannot report being aimed at
+    // the wrong file. It is asserted over BOTH, since either could regrow a same-origin URL.
+    const globe = readFileSync(new URL("../components/Globe.astro", import.meta.url), "utf8");
+    const addresses = readFileSync(new URL("./globeSubsystems.ts", import.meta.url), "utf8");
+    expect(addresses).toContain('tileUrlTemplate(body, "terrain")');
+    for (const [name, source] of [
+      ["globeSubsystems.ts", addresses],
+      ["Globe.astro", globe],
+    ] as const) {
+      expect(source, `${name}: the DEM base must follow the tile hostname`).not.toContain(
+        "location.origin}/terrain",
+      );
+    }
   });
 });
 
-describe("the path contract — the prefix is the only discriminator left", () => {
-  it("puts the prefix in the template, so the URL says which pyramid it means", () => {
-    expect(TERRAIN_PATH_TEMPLATE).toBe(
-      `${TERRAIN_PATH_PREFIX}/{z}/{x}/{y}.${TERRAIN_TILE_EXTENSION}`,
+describe("the path contract — the layer segment is the only discriminator left", () => {
+  it("keeps the prefix its own parser reads, which is the legacy grammar's discriminator", () => {
+    // Nothing the browser asks for carries this prefix any more: tileAddress.ts builds those as
+    // `{body}/terrain/{token}/…`, where `terrain` is the LAYER segment and does the same job with
+    // a body and a cut beside it. The prefix survives because `parseTerrainTilePath` is still what
+    // accepts the shape a page built before the switch is asking for, and it goes when that does.
+    expect(TERRAIN_PATH_PREFIX).toBe("terrain");
+    expect(parseTerrainTilePath(`${TERRAIN_PATH_PREFIX}/8/189/107.${TERRAIN_TILE_EXTENSION}`)).toEqual(
+      { z: 8, x: 189, y: 107 },
     );
   });
 
@@ -209,9 +237,7 @@ describe("the path contract — the prefix is the only discriminator left", () =
     expect(parseTerrainTilePath("/terrain/bathy_s8_webp/8/189/107.webp")).toBeNull();
   });
 
-  it("names the two archive checks after their own constants, so a drift message is actionable", () => {
-    expect(() => assertTerrainZoomRange(0, 6)).toThrow(/TERRAIN_MIN_ZOOM\/TERRAIN_MAX_ZOOM/);
-    expect(() => assertTerrainZoomRange(TERRAIN_MIN_ZOOM, TERRAIN_MAX_ZOOM)).not.toThrow();
+  it("names the encoding check after its own constant, so a drift message is actionable", () => {
     expect(describeTerrainTileTypeMismatch(`.${TERRAIN_TILE_EXTENSION}`)).toBeNull();
     expect(describeTerrainTileTypeMismatch(".png")).toMatch(/LOSSLESS/);
   });
@@ -224,7 +250,6 @@ describe("the contract", () => {
     // and the rendered frame. If this ever reads a lossy codec, elevation is silently wrong.
     expect(TERRAIN_TILE_EXTENSION).toBe("webp");
     expect(TERRAIN_CONTENT_TYPE).toBe("image/webp");
-    expect(TERRAIN_PATH_TEMPLATE).toBe("terrain/{z}/{x}/{y}.webp");
   });
 
   it("declares a QUARTER of its true 512 px size, which is the whole of the axis-B decision", () => {
@@ -238,8 +263,11 @@ describe("the contract", () => {
     // 512 / 256 / 128, Chrome, DPR control passed) — rttSize halves as tile count doubles.
     expect(TERRAIN_TILE_SIZE).toBe(128);
     expect(TERRAIN_TILE_SIZE).toBeLessThan(512); // the asset is 512; this is a misdeclaration
-    const relief = readFileSync(new URL("../pages/earth.astro", import.meta.url), "utf8");
-    expect(relief).toContain("tileSize: 256");
+    // Relief's half of the comparison, read from the constant it is now declared in rather than
+    // scanned out of the page — the two misdeclarations are a relation, and a relation is worth
+    // asserting as one.
+    expect(DECLARED_TILE_SIZE).toBe(256);
+    expect(TERRAIN_TILE_SIZE).toBeLessThan(DECLARED_TILE_SIZE);
   });
 
   it("now matches the colour pyramid's depth, because the declaration made depth spendable", () => {
@@ -248,10 +276,14 @@ describe("the contract", () => {
     // At 128 the DEM sits at camera, so the full depth is reachable — and z8 is the master's own
     // grid, so this is the ceiling rather than a step on the way to more.
     expect(TERRAIN_MAX_ZOOM).toBe(8);
-    const pipeline = readFileSync(
-      new URL("../../../pipeline/tile/terrain_rgb.py", import.meta.url), "utf8");
-    expect(pipeline).toContain("MASTER_ZOOM = 8");
-    expect(pipeline).toContain('"--max-zoom", type=int, default=8');
+    // THE CROSS-LANGUAGE HALF MOVED, and this is the link that stayed. It used to scan the pipeline
+    // for two literal 8s — a `MASTER_ZOOM` constant and an argparse default — and both were Earth's
+    // answer written where a second body would inherit it. The pipeline now derives the ceiling per
+    // body, so there is no literal to scan for; `tests/test_bodies.py` compares this registry entry
+    // against the producer's answer FOR EVERY BODY, which is what a scan for one number could not
+    // do. What is left here is the browser's own half of that chain: the constant reaches the
+    // registry the Python side reads.
+    expect(PUBLISHED.earth.terrain?.maxZoom).toBe(TERRAIN_MAX_ZOOM);
   });
 });
 
@@ -268,7 +300,6 @@ describe("the zoom ramp", () => {
   });
 
   it("decays monotonically in between, with no step at either join", () => {
-    const at = (zoom: number) => rampedExaggeration(15, zoom, 4);
     const samples = [3, 3.5, 4, 4.5, 5, 5.5, 6, 6.5, 7, 7.5, 8].map(at);
     for (let index = 1; index < samples.length; index += 1) {
       expect(samples[index]).toBeLessThan(samples[index - 1]);
@@ -286,7 +317,6 @@ describe("the zoom ramp", () => {
   });
 
   it("keeps a constant per-level factor, which is the property that makes it scale-free", () => {
-    const at = (zoom: number) => rampedExaggeration(15, zoom, 4);
     const first = at(5) / at(4);
     for (const zoom of [5, 6, 7]) {
       expect(at(zoom + 1) / at(zoom)).toBeCloseTo(first, 10);
@@ -405,7 +435,7 @@ describe("?skirt=auto|none — which seam artifact you get", () => {
     // Not settable on a live map: getTerrainMesh caches per tile and _buildSkirts runs at build
     // time, so anything that toggles this after construction is reaching into _meshCache. If this
     // ever moves to a post-construction call it will look like it works and change nothing.
-    const globe = readFileSync(new URL("../pages/earth.astro", import.meta.url), "utf8");
+    const globe = readFileSync(new URL("../components/Globe.astro", import.meta.url), "utf8");
     expect(globe).toContain("terrainSkirtLength: terrainSkirtMode");
     const constructorAt = globe.indexOf("new maplibregl.Map({");
     expect(constructorAt).toBeGreaterThan(-1);
@@ -419,10 +449,43 @@ describe("the pyramid depth the source is allowed to reach", () => {
     // that the two could disagree: a deep directory declared 6 silently never requests the levels
     // it paid to build, and a shallow one declared 8 404s every tile past z6. With one archive
     // there is one number, which is the structural version of that guarantee.
-    const globe = readFileSync(new URL("../pages/earth.astro", import.meta.url), "utf8");
-    const source = globe.slice(globe.indexOf("type: \"raster-dem\""));
-    expect(source.slice(0, 400)).toContain("maxzoom: TERRAIN_MAX_ZOOM");
+    //
+    // ASSERTED BY CALLING IT, on a range no body publishes. A scan for the constant's NAME could
+    // only ever report that Earth's answer was spelled correctly; this says the source declares
+    // whatever depth it is handed, which is the claim that has to hold the moment a second body
+    // cuts a shallower pyramid — and the only form of it that can be exercised before one does.
+    const nobodys = { ...archiveFor("earth", "terrain"), minZoom: 2, maxZoom: 5 };
+    const invented = terrainDemSource("https://example.invalid/{z}/{x}/{y}.webp", nobodys, 128);
+    expect(invented.minzoom).toBe(2);
+    expect(invented.maxzoom).toBe(5);
+    // And Earth's spec is asserted WHOLE against the literal the page used to spell inline, which
+    // is what makes "the indirection moved no number" a proof rather than a claim: the registry
+    // entry is built from these constants, and the source now reads the entry. A field appearing,
+    // vanishing or changing on the way through fails here rather than on a globe.
+    const earth = "https://tiles.example/earth/terrain/{token}/{z}/{x}/{y}.webp";
+    expect(terrainDemSource(earth, archiveFor("earth", "terrain"), 128)).toEqual({
+      type: "raster-dem",
+      tiles: [earth],
+      minzoom: TERRAIN_MIN_ZOOM,
+      maxzoom: TERRAIN_MAX_ZOOM,
+      tileSize: 128,
+      ...terrainEncoding(),
+    });
     expect(TERRAIN_MAX_ZOOM).toBe(8);
+  });
+
+  it("hands the page's source the ARCHIVE and not this module's constants", () => {
+    // The function above can be flawless while the page passes it a literal, and no call to it
+    // could tell. This is the half that only the page's own text can answer: whose numbers reach
+    // the live source. Derived from the subject — every construction of a DEM source — rather than
+    // anchored on a neighbouring landmark, so a second one cannot arrive unseen.
+    const globe = readFileSync(new URL("../components/Globe.astro", import.meta.url), "utf8");
+    const built = [...globe.matchAll(/terrainDemSource\(([^)]*)\)/g)].map((match) => match[1]);
+    expect(built, "the globe builds exactly one DEM source").toHaveLength(1);
+    expect(built[0]).toContain("terrainArchive");
+    expect(globe, "and no longer spells a raster-dem spec inline").not.toContain(
+      'type: "raster-dem"',
+    );
   });
 
   it("is what makes 256 and 128 mean anything at the deepest camera", () => {
@@ -452,7 +515,7 @@ describe("the pyramid depth the source is allowed to reach", () => {
     // desired zoom from defaultCalculateTileZoom(9.314, 3), which subtracts a pitch term and a
     // tile-count penalty. So the PITCHED view — the one terrain exists to make worth looking at —
     // systematically gets less elevation detail than the flat-on view.
-    const globe = readFileSync(new URL("../pages/earth.astro", import.meta.url), "utf8");
+    const globe = readFileSync(new URL("../components/Globe.astro", import.meta.url), "utf8");
     expect(globe).toContain("maxZoom: 8");
     // 128's nominal exceeds what the camera cap alone would allow, which is why it is the arm
     // whose delivered depth depends on the heuristic rather than on the declaration.
@@ -466,7 +529,7 @@ describe("the pyramid depth the source is allowed to reach", () => {
     for (const depth of [6, 8]) {
       expect(terrainZoomsFor(8, 512, depth).demZoom).toBe(6);
     }
-    const globe = readFileSync(new URL("../pages/earth.astro", import.meta.url), "utf8");
+    const globe = readFileSync(new URL("../components/Globe.astro", import.meta.url), "utf8");
     expect(globe).toContain("maxZoom: 8");
   });
 });
@@ -571,7 +634,7 @@ describe("source guard — the pipeline is the source of truth for the numbers",
     // than counted together: exactly one `setTerrain({...})` may exist, while `setTerrain(null)`
     // is the one form that cleans up after itself and is what the degradation ladder's
     // `disable-terrain` rung pulls.
-    const globe = readFileSync(new URL("../pages/earth.astro", import.meta.url), "utf8");
+    const globe = readFileSync(new URL("../components/Globe.astro", import.meta.url), "utf8");
     const establishing = globe.match(/map\.setTerrain\(\s*\{/g) ?? [];
     const removing = globe.match(/map\.setTerrain\(\s*null\s*\)/g) ?? [];
     expect(establishing, "exactly one setTerrain({...}) — every extra call leaks").toHaveLength(1);
@@ -594,7 +657,7 @@ describe("source guard — the pipeline is the source of truth for the numbers",
     //
     // Asserted against the rung's OWN BRANCH rather than the whole file, so a release that gets
     // moved somewhere it never executes fails here instead of passing on a substring.
-    const globe = readFileSync(new URL("../pages/earth.astro", import.meta.url), "utf8");
+    const globe = readFileSync(new URL("../components/Globe.astro", import.meta.url), "utf8");
     const rung = globe.match(/action === "disable-terrain"[\s\S]*?\n\s*\} else \{/)?.[0];
     expect(rung, "the disable-terrain branch must exist").toBeTruthy();
     expect(rung, "the rung must drop the terrain").toMatch(/setTerrain\(\s*null\s*\)/);
@@ -618,14 +681,19 @@ describe("source guard — the pipeline is the source of truth for the numbers",
     // of them selectable. `terrainEncoding()` is now correct to call bare — its default IS the
     // shipping step — which is the exact opposite of what this test asserted before, and the
     // reason it is rewritten rather than retargeted.
-    const globe = readFileSync(new URL("../pages/earth.astro", import.meta.url), "utf8");
-    const source = globe.slice(globe.indexOf('type: "raster-dem"'), globe.indexOf('type: "raster-dem"') + 400);
-    expect(source).toContain("tiles: [TERRAIN_URL_TEMPLATE]");
-    expect(source).toContain("maxzoom: TERRAIN_MAX_ZOOM");
-    expect(source).toContain("...terrainEncoding()");
+    // Now asserted on the BUILT SPEC rather than on the page's text, which is strictly stronger:
+    // the address and the factors are fields of one returned object, so they arrive together or
+    // not at all. The step is no longer expressible at the call site either — `terrainDemSource`
+    // takes no quantisation parameter, so "fetch at one step, decode at another" stopped being a
+    // thing anyone can spell rather than a thing a scan has to watch for.
+    const template = "https://example.invalid/{z}/{x}/{y}.webp";
+    const spec = terrainDemSource(template, archiveFor("earth", "terrain"), 128);
+    expect(spec.tiles).toEqual([template]);
+    expect(spec.maxzoom).toBe(TERRAIN_MAX_ZOOM);
+    expect(spec).toMatchObject(terrainEncoding());
     // The one value still parsed per-request is the declared tile size, which cannot corrupt a
     // decode — it changes which zoom loads, not what the bytes mean.
-    expect(source).toContain("tileSize: declaredTileSize");
+    expect(spec.tileSize).toBe(128);
   });
 
   it("keeps both delivery codecs lossless in the pipeline", () => {
@@ -665,29 +733,103 @@ describe("source guard — the pipeline is the source of truth for the numbers",
   });
 });
 
+/** A body the ratified table has no entry for — synthetic, and it has to be.
+ *
+ *  Mars used to supply it. While its terrain was unratified, every case below took its negative
+ *  instance from that missing row, and ratifying Mars took the branch away with it: a guard whose
+ *  only negative instance is a live table entry stops testing anything the day someone writes that
+ *  entry, and says nothing while it happens. `tests/test_run_pass_preflight.py` names the same
+ *  failure for its capless body, and answers it the same way.
+ *
+ *  Spelled off the body union because that is what a planet added tomorrow looks like to this
+ *  function: the resolver reads nothing about a body except its slug, so an unknown one takes the
+ *  identical path a real unratified body would. */
+const UNRATIFIED_BODY = "unratified-body" as unknown as BodySlug;
+
+describe("the ratified-exaggeration table is the consent record", () => {
+  it("leaves a body with no entry FLAT at the full tier, however good its pyramid is", () => {
+    // THE FAILURE THIS EXISTS FOR, and it had already happened when this was written. Publishing
+    // `PUBLISHED.mars.terrain` was enough to make Mars displace at Earth's 15x on the next page
+    // load: the archive was right, the zooms were right, every guard was green, and nobody had
+    // agreed to the look. A pyramid being SERVEABLE and a body being APPROVED to draw with it are
+    // different facts, and only one of them lives in the registry.
+    expect(RATIFIED_TERRAIN_EXAGGERATION[UNRATIFIED_BODY]).toBeUndefined();
+    expect(resolveTerrainExaggeration(flags(""), true, UNRATIFIED_BODY)).toBeNull();
+  });
+
+  it("still lets ?terrain=N reach an unratified body, because looking is how it gets ratified", () => {
+    // The table gates the DEFAULT, not the flag. A look loop has to be able to see the thing it is
+    // deciding about, and typing the number is the deliberate act that a default is not.
+    expect(resolveTerrainExaggeration(flags("terrain=20"), false, UNRATIFIED_BODY)).toBe(20);
+  });
+
+  it("answers every ratified body with its OWN entry, or the two cases above prove nothing", () => {
+    // Both would pass on a function that returned null for everything. These are the positives.
+    //
+    // Read out of the table rather than restated as literals: a number written here would be a
+    // second consent record, free to disagree with the first, and the whole property is that
+    // approving a body and turning it on are one edit. What must not happen without that edit is a
+    // body ARRIVING at a number — which is what the null case above watches.
+    const ratified = Object.keys(RATIFIED_TERRAIN_EXAGGERATION);
+    expect(ratified.length).toBeGreaterThan(0);
+    for (const slug of ratified) {
+      expect(resolveTerrainExaggeration(flags(""), true, slug as BodySlug), slug)
+        .toBe(RATIFIED_TERRAIN_EXAGGERATION[slug as BodySlug]);
+    }
+  });
+
+  it("keeps this number independent of the BAKED exaggeration, which is 15 by coincidence", () => {
+    // TWO QUANTITIES, ONE VALUE. `Body.exaggeration` / `palette.EXAGGERATION` displaces the DEM
+    // before Cycles renders a hero and before the hillshade is cut, so moving it restages renders
+    // and re-cuts tiles; this one is a display uniform the ramp decays to a floor by z8, and moving
+    // it costs a reload. They are 15 apiece today and nothing says they should move together.
+    //
+    // The regrowth is a tidy that reads as de-duplication: the browser descriptor grows an
+    // `exaggeration` field mirroring the pipeline's, and the table reads it — after which retuning
+    // the globe's mesh silently invalidates 203 heroes. Scanned as a FIELD and as a READ rather
+    // than as the word, so both files can still explain in prose why they do not have one.
+    const bodies = readFileSync(new URL("./bodies.ts", import.meta.url), "utf8");
+    expect(bodies).not.toMatch(/\bexaggeration\s*\??\s*:/i);
+    const source = readFileSync(new URL("./terrainSource.ts", import.meta.url), "utf8");
+    expect(source).not.toMatch(/\.exaggeration\b/i);
+    // A VALUE import of the body registry is how a descriptor read would arrive; the type import
+    // that is already there cannot carry a number.
+    expect(source).not.toMatch(/^\s*import\s+(?!type\b)[^;]*from\s+"\.\/bodies"/m);
+  });
+
+  it("names only bodies that exist, so a typo cannot look like an approval", () => {
+    // A key outside the body union is dead: it would read as a ratification for a planet nobody
+    // can navigate to, and the entry it was meant for would still be missing.
+    for (const slug of Object.keys(RATIFIED_TERRAIN_EXAGGERATION)) {
+      expect(Object.keys(BODIES), `${slug} is not a body`).toContain(slug);
+    }
+  });
+});
+
 describe("resolveTerrainExaggeration — what the `full` tier actually turns on", () => {
   it("gives the full tier the ratified exaggeration with no flag at all", () => {
     // The whole point of Tier 3 step 4: a visitor types nothing and gets terrain because the
     // probe promoted them. Before this, 15 existed only inside `?terrain=15`.
-    expect(resolveTerrainExaggeration(flags(""), true)).toBe(DEFAULT_TERRAIN_EXAGGERATION);
+    expect(resolveTerrainExaggeration(flags(""), true, "earth"))
+      .toBe(RATIFIED_TERRAIN_EXAGGERATION.earth);
   });
 
   it("leaves every other tier flat", () => {
-    expect(resolveTerrainExaggeration(flags(""), false)).toBeNull();
+    expect(resolveTerrainExaggeration(flags(""), false, "earth")).toBeNull();
   });
 
   it("lets ?terrain=N force terrain on at ANY tier, so the A/B flags stay usable", () => {
     // Every look question from here on needs to set exaggeration explicitly without first
     // talking the capability probe into promoting the machine it runs on.
-    expect(resolveTerrainExaggeration(flags("terrain=40"), false)).toBe(40);
-    expect(resolveTerrainExaggeration(flags("terrain=2.5"), false)).toBe(2.5);
+    expect(resolveTerrainExaggeration(flags("terrain=40"), false, "earth")).toBe(40);
+    expect(resolveTerrainExaggeration(flags("terrain=2.5"), false, "earth")).toBe(2.5);
   });
 
   it("lets ?terrain=off remove ONLY the geometry, without demoting the tier", () => {
     // The control arm. Picking "Globe" in the view bar also disables terrain, but it changes the
     // tier too — so it cannot answer "same tier, same everything, no mesh".
-    expect(resolveTerrainExaggeration(flags(`terrain=${TERRAIN_OFF}`), true)).toBeNull();
-    expect(resolveTerrainExaggeration(flags(`terrain=${TERRAIN_OFF}`), false)).toBeNull();
+    expect(resolveTerrainExaggeration(flags(`terrain=${TERRAIN_OFF}`), true, "earth")).toBeNull();
+    expect(resolveTerrainExaggeration(flags(`terrain=${TERRAIN_OFF}`), false, "earth")).toBeNull();
     // And the caller must be able to tell "off" from a typo, or it will warn about a deliberate
     // choice: parse returns null for both, so the literal is what distinguishes them.
     expect(TERRAIN_OFF).toBe("off");
@@ -697,24 +839,29 @@ describe("resolveTerrainExaggeration — what the `full` tier actually turns on"
     // "I asked for 3x and silently got 15x" is exactly the failure the loud-refusal convention
     // exists to prevent, and it would only appear on the tier that already wanted terrain.
     for (const bad of ["terrain=abc", "terrain=0", "terrain=-5", "terrain=99999"]) {
-      expect(resolveTerrainExaggeration(flags(bad), true), bad).toBeNull();
-      expect(resolveTerrainExaggeration(flags(bad), false), bad).toBeNull();
+      expect(resolveTerrainExaggeration(flags(bad), true, "earth"), bad).toBeNull();
+      expect(resolveTerrainExaggeration(flags(bad), false, "earth"), bad).toBeNull();
     }
   });
 
   it("treats an empty ?terrain= as absent, deferring to the tier", () => {
-    expect(resolveTerrainExaggeration(flags("terrain="), true)).toBe(DEFAULT_TERRAIN_EXAGGERATION);
-    expect(resolveTerrainExaggeration(flags("terrain="), false)).toBeNull();
+    expect(resolveTerrainExaggeration(flags("terrain="), true, "earth"))
+      .toBe(RATIFIED_TERRAIN_EXAGGERATION.earth);
+    expect(resolveTerrainExaggeration(flags("terrain="), false, "earth")).toBeNull();
   });
 
-  it("starts from a value the ramp actually decays — endpoints are not independent", () => {
-    // The ramp holds this to z3 and lands on the floor by z8. If the base ever drifts below the
-    // floor the ramp inverts and every deep camera gets MORE exaggeration, not less.
-    expect(DEFAULT_TERRAIN_EXAGGERATION).toBeGreaterThan(DEFAULT_TERRAIN_RAMP_FLOOR);
-    expect(rampedExaggeration(DEFAULT_TERRAIN_EXAGGERATION, TERRAIN_RAMP_START_ZOOM, DEFAULT_TERRAIN_RAMP_FLOOR))
-      .toBeCloseTo(DEFAULT_TERRAIN_EXAGGERATION, 6);
-    expect(rampedExaggeration(DEFAULT_TERRAIN_EXAGGERATION, TERRAIN_RAMP_END_ZOOM, DEFAULT_TERRAIN_RAMP_FLOOR))
-      .toBeCloseTo(DEFAULT_TERRAIN_RAMP_FLOOR, 6);
+  it("starts EVERY ratified body from a value the ramp actually decays", () => {
+    // The ramp holds the base to z3 and lands on the floor by z8. If a base ever drifts below the
+    // floor the ramp inverts and every deep camera gets MORE exaggeration, not less — so this is a
+    // property of each entry, not of one constant. It was one constant, and a second body was
+    // exactly the thing that would have walked past it.
+    for (const [slug, base] of Object.entries(RATIFIED_TERRAIN_EXAGGERATION)) {
+      expect(base, slug).toBeGreaterThan(DEFAULT_TERRAIN_RAMP_FLOOR);
+      expect(rampedExaggeration(base, TERRAIN_RAMP_START_ZOOM, DEFAULT_TERRAIN_RAMP_FLOOR), slug)
+        .toBeCloseTo(base, 6);
+      expect(rampedExaggeration(base, TERRAIN_RAMP_END_ZOOM, DEFAULT_TERRAIN_RAMP_FLOOR), slug)
+        .toBeCloseTo(DEFAULT_TERRAIN_RAMP_FLOOR, 6);
+    }
   });
 });
 
@@ -729,19 +876,42 @@ describe("the deploy preflight must refuse a globe production cannot serve", () 
     // that routes /terrain/ perfectly at an object nobody uploaded — so the guard has to know
     // about the bucket too. That is the assertion that replaces the old source-only one.
     const script = readFileSync(new URL("../../scripts/check_deploy_sync.ts", import.meta.url), "utf8");
-    expect(script).toContain("checkTerrainHasAnOrigin");
-    expect(script, "the route half").toMatch(/worker\.includes\("parseTerrainTilePath"\)/);
-    expect(script, "the bytes half").toContain("ARCHIVE_BUCKET");
-    expect(script, "and it must name which key is missing").toContain("TERRAIN_ARCHIVE_KEY");
+    // DEFINED **AND CALLED**. Asserting the name alone was vacuous and mutation-testing proved it:
+    // deleting the call from main() left the function sitting there unreferenced, the grep passed,
+    // and the deploy would have stopped checking archives entirely. Two occurrences each — the
+    // declaration and the one call — so neither deleting a call nor smuggling in a second one goes
+    // unnoticed.
+    const occurrences = (name: string) => script.split(name).length - 1;
+    expect(occurrences("checkTerrainIsRoutable"), "declared and called exactly once").toBe(2);
+    expect(occurrences("checkEveryPublishedArchiveIsUploaded"), "declared and called once").toBe(2);
+    expect(script, "and main() is what calls them").toMatch(
+      /checkTerrainIsRoutable\(\);\s*\n\s*checkEveryPublishedArchiveIsUploaded\(endpoint\);/,
+    );
+    // The route half is two greps, because routing lives in the registry: the Worker has to
+    // dispatch through the shared resolver, AND the registry has to publish a terrain archive for
+    // it to find. Either alone is satisfiable while every DEM tile 404s.
+    expect(script, "the route half — the worker dispatches").toMatch(
+      /worker\.includes\("resolveTileRequest"\)/,
+    );
+    expect(script, "the route half — the registry publishes").toMatch(/registry\)/);
+    // The bytes half is no longer terrain-specific and no longer named key by key. It enumerates
+    // every archive the registry publishes — which is what closed the hole this test could not see:
+    // the check named two variables, so the COUNTRY archive was never verified at all, and a
+    // deploy missing it reported clean.
+    expect(script, "the bytes half").toContain("checkEveryPublishedArchiveIsUploaded");
+    expect(script, "and it enumerates rather than naming").toContain("publishedArchiveKeys");
+    expect(script, "against the archive bucket").toContain("ARCHIVE_BUCKET");
+    // Vacuity: a parse that matched nothing would report a perfect deploy for every archive at
+    // once, so the script must refuse to run on an empty enumeration.
+    expect(script, "and it must refuse a vacuous enumeration").toMatch(/keys\.length === 0/);
   });
 
   it("is satisfied by what step 3 actually landed, in every place it looks", () => {
     // The state assertion this replaces was armed on purpose while nothing served terrain, and
     // was written to flip here. It flips by becoming its own inverse: the same three files, now
     // asserted to agree rather than to disagree.
-    const globe = readFileSync(new URL("../pages/earth.astro", import.meta.url), "utf8");
+    const globe = readFileSync(new URL("../components/Globe.astro", import.meta.url), "utf8");
     const worker = readFileSync(new URL("../../worker/index.ts", import.meta.url), "utf8");
-    const workerConfig = readFileSync(new URL("../../worker/wrangler.jsonc", import.meta.url), "utf8");
 
     // Matched on the FACT, not on one spelling of it. This regex used to require the literal
     // `currentTier()`, and went red the day that call was hoisted to a `bootTier` const to save a
@@ -751,7 +921,10 @@ describe("the deploy preflight must refuse a globe production cannot serve", () 
     // The twin of this check lives in capability.test.ts (it decides whether the Full tooltip must
     // say "terrain"); both read the same call site, so both go red together rather than drifting.
     const gate = globe.match(
-      /resolveTerrainExaggeration\(\s*urlFlags\s*,\s*([\w$]+(?:\(\))?)\s*===\s*"full"\s*\)/,
+      // The trailing `(?:,[^)]*)?` is not decoration: this matcher was anchored on the call taking
+      // exactly TWO arguments, and it broke the day a third (the body) was added without a single
+      // character of the tier expression changing. An arity is not the property under test.
+      /resolveTerrainExaggeration\(\s*urlFlags\s*,\s*([\w$]+(?:\(\))?)\s*===\s*"full"\s*(?:,[^)]*)?\)/,
     );
     const tierExpression = gate?.[1] ?? "";
     // `decide(Globe)?Tier`: the globe page uses the `decideGlobeTier` wrapper, which clamps a soft
@@ -765,7 +938,14 @@ describe("the deploy preflight must refuse a globe production cannot serve", () 
     expect(ridesOnTier, `terrain rides the full tier (gate read: ${tierExpression || "none"})`).toBe(
       true,
     );
-    expect(worker, "the worker routes it").toContain("parseTerrainTilePath");
-    expect(workerConfig, "and names the object it reads").toMatch(/"TERRAIN_ARCHIVE_KEY"\s*:\s*"[^"]+\.pmtiles"/);
+    expect(worker, "the worker dispatches through the shared resolver").toContain(
+      "resolveTileRequest",
+    );
+    expect(PUBLISHED.earth.terrain, "and the registry publishes a terrain cut").not.toBeNull();
+    // The object it reads is named HERE, in the registry, and nowhere else. It used to also be a
+    // `TERRAIN_ARCHIVE_KEY` var in wrangler.jsonc, pinned against this entry — two copies of one
+    // fact, kept in step by a test. The var is gone: an env-only swap could not work anyway, since
+    // a tile URL carries the archive's token and that token is compiled into the site bundle.
+    expect(PUBLISHED.earth.terrain?.objectKey).toMatch(/\.pmtiles$/);
   });
 });

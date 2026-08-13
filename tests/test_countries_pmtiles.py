@@ -6,17 +6,18 @@ Three things are pinned here, and each fails silently in production if it drifts
     every country layer empty, with no error and no warning;
   - the two SIMPLIFICATION knobs staying separate, which is what lets overview weight be tuned
     without touching the z8 fidelity the hover outline is judged against;
-  - the geometry walks, which are now the ONLY home for this logic. They had a TypeScript twin
-    while the GeoJSON control arm derived the same two layers in the browser; that arm is deleted,
-    so a bug here can no longer be caught by disagreeing with anything — only by these tests.
+  - the geometry walks — whose cases now live in tests/test_vector_layers.py, because a second body
+    cuts a pyramid through the same code. What stays here is what is EARTH's about this cut: the
+    join key it carries, the ceiling it is pinned to, and the derivation being unscoped.
 """
 
 import json
+import os
 import re
-
-import pytest
+import time
 
 from pipeline.compose import countries_pmtiles as cut
+from pipeline.compose import vector_layers
 
 
 class TestSourceLayerNames:
@@ -93,9 +94,8 @@ class TestStagingCommand:
             assert later[later.index("-nln") + 1] == cut.OUTLINE_LAYER
 
 
-# Two polygons in one part each, plus a hole, plus the shape that caused the bug.
+# Two polygons, one part each — enough for the per-part questions this file still asks.
 SQUARE = [[0, 0], [2, 0], [2, 2], [0, 2], [0, 0]]
-HOLE = [[0.5, 0.5], [1.5, 0.5], [1.5, 1.5], [0.5, 1.5], [0.5, 0.5]]
 OTHER = [[10, 10], [12, 10], [12, 12], [10, 12], [10, 10]]
 
 
@@ -103,55 +103,14 @@ def feature(admin, geometry):
     return {"type": "Feature", "properties": {"ADMIN": admin}, "geometry": geometry}
 
 
-class TestPolygonPartsOf:
-    """THE GREENLAND WALK. No longer mirrored anywhere, so these cases are the whole guard."""
-
-    def test_a_polygon_is_one_part(self):
-        assert cut.polygon_parts_of({"type": "Polygon", "coordinates": [SQUARE, HOLE]}) == [
-            [SQUARE, HOLE]
-        ]
-
-    def test_a_multipolygon_keeps_every_part(self):
-        parts = cut.polygon_parts_of({"type": "MultiPolygon", "coordinates": [[SQUARE], [OTHER]]})
-        assert parts == [[SQUARE], [OTHER]]
-
-    def test_a_geometrycollection_is_flattened_and_its_lines_dropped(self):
-        """THE GREENLAND CASE. Natural Earth ships it as a collection of polygons plus one stray
-        LineString, and the walks this replaced returned nothing for it — so an in-scope country
-        had a fill wash and a click but no hover outline and no hit targets, live, unnoticed."""
-        parts = cut.polygon_parts_of({
-            "type": "GeometryCollection",
-            "geometries": [
-                {"type": "MultiPolygon", "coordinates": [[SQUARE]]},
-                {"type": "Polygon", "coordinates": [OTHER]},
-                {"type": "LineString", "coordinates": SQUARE},
-            ],
-        })
-        assert parts == [[SQUARE], [OTHER]]
-
-    @pytest.mark.parametrize("kind", ["LineString", "Point", "MultiLineString"])
-    def test_non_polygonal_geometry_yields_nothing(self, kind):
-        assert cut.polygon_parts_of({"type": kind, "coordinates": []}) == []
+class TestTheJoinKey:
+    def test_only_admin_is_carried(self):
+        """The frontend joins these tiles to countries.json by name and reads nothing else off
+        them. Every extra property would be paid for in every tile the country appears in."""
+        assert cut.CARRIED == ("ADMIN",)
 
 
 class TestDerivedLayers:
-    def test_outlines_carry_every_ring_including_holes(self):
-        collection = {"type": "FeatureCollection", "features": [
-            feature("Testland", {"type": "Polygon", "coordinates": [SQUARE, HOLE]})
-        ]}
-        out = cut.outlines_from(collection)
-        assert out["features"][0]["geometry"] == {
-            "type": "MultiLineString", "coordinates": [SQUARE, HOLE]
-        }
-
-    def test_a_feature_with_no_polygon_yields_no_outline(self):
-        """Not an empty MultiLineString — a feature with nothing to stroke rather than an absent
-        one is the shape that renders as an invisible defect."""
-        collection = {"type": "FeatureCollection", "features": [
-            feature("Testland", {"type": "LineString", "coordinates": SQUARE})
-        ]}
-        assert cut.outlines_from(collection)["features"] == []
-
     def test_hit_points_are_one_per_part_at_the_bbox_centre(self):
         collection = {"type": "FeatureCollection", "features": [
             feature("Archipelago", {"type": "MultiPolygon", "coordinates": [[SQUARE], [OTHER]]})
@@ -196,3 +155,101 @@ class TestRecipe:
         drifted = dict(cut.recipe())
         drifted["simplification"] = cut.SIMPLIFICATION + 1
         assert drifted != cut.recipe()
+
+
+class TestDerivationFreshness:
+    """The gate that decides whether `vector_layers`' opinion has reached the bytes on disk.
+
+    THE BUG THIS EXISTS FOR SHIPPED, and it was silent by construction. `derive` skipped on the
+    source's mtime alone, so a change to the shared geometry walk left the GeoJSON untouched; the
+    cut then re-ran (its own recipe HAD changed), produced a byte-identical archive from the stale
+    outlines, and stamped the new recipe over it — consuming the only signal that anything was out
+    of date. Earth's antimeridian closures survived the fix that was written to remove them, and
+    every test stayed green because they all exercise the walk directly.
+    """
+
+    @staticmethod
+    def _store(tmp_path, monkeypatch):
+        """A complete, internally consistent store — every path the module reads, redirected.
+
+        All of them or none: a half-redirected fixture writes the rest into the real work tree,
+        which is how a test starts depending on a store it did not build.
+        """
+        source = tmp_path / "countries.geojson"
+        outlines = tmp_path / "country_outlines.geojson"
+        hits = tmp_path / "country_hits.geojson"
+        stamp = tmp_path / "country_outlines_params.json"
+        archive = tmp_path / "vector.pmtiles"
+        recipe = tmp_path / "countries_tiles_params.json"
+        for path in (source, outlines, hits, archive):
+            path.write_text("x")
+        stamp.write_text(json.dumps(vector_layers.seam_recipe()))
+        recipe.write_text(json.dumps(cut.recipe()))
+        # The archive must be the NEWEST thing in the store, or mtime alone fails it and the
+        # recipe half of the gate is never reached — the check would pass for the wrong reason.
+        now = time.time()
+        for offset, path in enumerate((source, outlines, hits, stamp, recipe)):
+            os.utime(path, (now - 100 + offset, now - 100 + offset))
+        os.utime(archive, (now, now))
+        monkeypatch.setattr(cut, "SRC", source)
+        monkeypatch.setattr(cut, "OUTLINES", outlines)
+        monkeypatch.setattr(cut, "HITS", hits)
+        monkeypatch.setattr(cut, "OUTLINES_RECIPE", stamp)
+        monkeypatch.setattr(cut, "OUT", archive)
+        monkeypatch.setattr(cut, "recipe_path", lambda: recipe)
+        return stamp
+
+    def test_the_fixture_reports_fresh_before_anything_is_perturbed(self, tmp_path, monkeypatch):
+        """The control. Every case below asserts `is_fresh()` went False, and a fixture that was
+        never True would satisfy all of them while testing nothing."""
+        self._store(tmp_path, monkeypatch)
+        assert cut.is_fresh()
+
+    def _knob_moves_but_the_archive_recipe_is_restamped(self, tmp_path, monkeypatch, knob, value):
+        """Perturb a shared knob, then re-stamp the ARCHIVE's recipe as a real cut would.
+
+        WITHOUT THE RE-STAMP THIS TESTS THE OLD GUARD. `recipe()` interpolates `seam_recipe()`, so
+        moving a knob invalidates the archive's own sidecar too and `is_fresh()` goes False for a
+        reason that predates this class. Re-stamping reproduces the state that actually shipped:
+        the cut re-ran under the new recipe, from outlines derived under the old one.
+        """
+        self._store(tmp_path, monkeypatch)
+        monkeypatch.setattr(vector_layers, knob, value)
+        cut.recipe_path().write_text(json.dumps(cut.recipe()))
+        older = cut.OUT.stat().st_mtime - 1
+        os.utime(cut.recipe_path(), (older, older))
+
+    def test_a_seam_knob_change_makes_the_ARCHIVE_stale_though_no_mtime_moved(
+            self, tmp_path, monkeypatch):
+        """The regression, isolated to the derivation stamp: archive newest, archive recipe
+        current, and the only thing out of date is the geometry it was cut from."""
+        self._knob_moves_but_the_archive_recipe_is_restamped(
+            tmp_path, monkeypatch, "SEAM_BAND_DEGREES", vector_layers.SEAM_BAND_DEGREES + 1.0)
+        assert json.loads(cut.recipe_path().read_text()) == cut.recipe(), "recipe half must PASS"
+        assert not cut.is_fresh()
+
+    def test_the_other_seam_knob_counts_too(self, tmp_path, monkeypatch):
+        """Both knobs or neither: a stamp comparing one field would pass this suite while leaving
+        the other free to drift."""
+        self._knob_moves_but_the_archive_recipe_is_restamped(
+            tmp_path, monkeypatch, "SEAM_TWIN_LATITUDE_EPSILON",
+            vector_layers.SEAM_TWIN_LATITUDE_EPSILON * 2)
+        assert json.loads(cut.recipe_path().read_text()) == cut.recipe(), "recipe half must PASS"
+        assert not cut.is_fresh()
+
+    def test_a_derivation_that_was_never_stamped_is_not_believed(self, tmp_path, monkeypatch):
+        """The state every store was in before this guard existed. Absence must read as stale
+        rather than as "no objection", or the fix reaches nothing already on disk."""
+        stamp = self._store(tmp_path, monkeypatch)
+        stamp.unlink()
+        assert not cut.is_fresh()
+
+    def test_derive_reruns_when_the_stamp_is_stale_and_stamps_what_it_wrote(
+            self, tmp_path, monkeypatch):
+        """The producing half, asserted on the file it writes rather than on a print. `derive`
+        rewriting is what makes the archive's staleness actionable."""
+        stamp = self._store(tmp_path, monkeypatch)
+        cut.SRC.write_text(json.dumps({"type": "FeatureCollection", "features": []}))
+        stamp.write_text(json.dumps({"seam_band_degrees": -1.0}))
+        cut.derive(force=False)
+        assert json.loads(stamp.read_text()) == vector_layers.seam_recipe()

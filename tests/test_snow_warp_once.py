@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Warp-once snow (optimisation #4): the whole-grid warp must equal the per-window warp.
 
 The composite loop today forks `gdalwarp`/`gdal_rasterize` per window into fixed-path temps
@@ -22,11 +21,15 @@ import pytest
 import rasterio
 import rasterio.transform  # rasterio's __init__ pulls this in at runtime; name it for the checker
 
+from pipeline import bodies
 from pipeline.render import snow
 
 # --- shared geometry: a small WMQ-aligned 3857 target over a snowy region (the Alps) ---
-EARTH_RADIUS = 6378137.0
-Z8_RES = 305.7483  # the z8 planet grid, matching shade_planet.Z8_RES
+# READ FROM THE REGISTRY, not restated. Both of these were local literals with a comment claiming
+# they matched the pipeline's, which is the copied-constant pattern the registry exists to end —
+# and a comment is not a check.
+EARTH_RADIUS = bodies.EARTH.mercator_radius_m
+Z8_RES = bodies.EARTH.map_units_per_pixel
 
 
 def _merc(lat, lon):

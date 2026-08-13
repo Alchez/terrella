@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Download Copernicus GLO-30 elevation tiles for one lat/lon extent.
 
 For every 1x1 degree land tile intersecting --extent (per the bucket's
@@ -28,13 +27,12 @@ import concurrent.futures as cf
 import hashlib
 import json
 import os
-import shutil
 import sys
-import urllib.request
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
-from pipeline import paths
+from pipeline import fetch, paths
+from pipeline.fetch import download_one
 
 BUCKET_URL = "https://copernicus-dem-30m.s3.amazonaws.com"
 DATA_DIR = paths.DATA / "raw/glo30"
@@ -78,7 +76,7 @@ def preflight_cached_age_hours() -> float | None:
         checked = datetime.fromisoformat(stamp["checked_utc"])
     except (OSError, ValueError, KeyError, TypeError):
         return None
-    age_hours = (datetime.now(timezone.utc) - checked).total_seconds() / 3600.0
+    age_hours = (datetime.now(UTC) - checked).total_seconds() / 3600.0
     if not 0.0 <= age_hours < PREFLIGHT_TTL_HOURS:
         return None
     return age_hours
@@ -95,9 +93,8 @@ def bucket_preflight():
     sample = [held[0], held[len(held) // 2], held[-1]] if held else []
     for path in dict.fromkeys(sample):
         name = path.stem
-        req = urllib.request.Request(f"{BUCKET_URL}/{name}/{name}.tif",
-                                     method="HEAD")
-        with urllib.request.urlopen(req, timeout=30) as resp:
+        with fetch.open_url(f"{BUCKET_URL}/{name}/{name}.tif",
+                            method="HEAD", timeout=30) as resp:
             etag = resp.headers["ETag"].strip('"')
         local = hashlib.md5(path.read_bytes()).hexdigest()
         if local != etag:
@@ -110,34 +107,13 @@ def bucket_preflight():
         # replace): the stamp's existence must mean a completed pass.
         stamp_tmp = preflight_stamp_path().with_suffix(".json.tmp")
         stamp_tmp.write_text(json.dumps({
-            "checked_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "checked_utc": datetime.now(UTC).isoformat(timespec="seconds"),
             "tiles": [path.stem for path in dict.fromkeys(sample)],
         }, indent=1) + "\n")
         os.replace(stamp_tmp, preflight_stamp_path())
     print(f"bucket preflight: {len(set(sample))} held tiles match their ETags"
           if sample else "bucket preflight: no held tiles yet — nothing to check",
           flush=True)
-
-
-def download_one(url: str, dest: Path) -> str:
-    """Download url to dest. Returns 'ok', 'skipped', or 'failed: <reason>'."""
-    if dest.exists():
-        return "skipped"
-    part = dest.with_suffix(".part")
-    try:
-        with urllib.request.urlopen(url, timeout=60) as resp:
-            expected = int(resp.headers.get("Content-Length", -1))
-            with open(part, "wb") as out:
-                shutil.copyfileobj(resp, out)
-        actual = part.stat().st_size
-        if expected != -1 and actual != expected:
-            part.unlink()
-            return f"failed: size mismatch ({actual} of {expected} bytes)"
-        os.replace(part, dest)
-        return "ok"
-    except Exception as exc:
-        part.unlink(missing_ok=True)
-        return f"failed: {exc}"
 
 
 def tile_files(name: str) -> list[tuple[str, Path]]:

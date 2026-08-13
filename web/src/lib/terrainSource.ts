@@ -18,7 +18,13 @@
 // Type-only, and erased at run time. The alternative was a second name for one concept — a
 // `TerrainTileCoordinate` identical to `TileCoordinate` — which costs more than the import:
 // two names for one thing is how a fake distinction gets invented later.
+// Type-only, so the worker's DOM-free build erases it: `RATIFIED_TERRAIN_EXAGGERATION` is keyed by
+// body, and a table whose keys are not the body union is how a planet gets silently left out.
+import type { BodySlug } from "./bodies";
 import type { TileCoordinate } from "./reliefTiles";
+// Also type-only, and a CYCLE only on paper: tileAddress.ts imports this module's zoom constants
+// as values to build Earth's registry entry, and this import is erased before either is bundled.
+import type { PublishedArchive } from "./tileAddress";
 
 /** MapLibre source id, owned here for the same reason COUNTRIES_SOURCE is owned by
  *  countryHighlight.ts — the module that defines a source names it. */
@@ -48,13 +54,11 @@ export const TERRAIN_CONTENT_TYPE = "image/webp";
  *  object keys — so this costs no new deploy variable and no second custom domain. */
 export const TERRAIN_PATH_PREFIX = "terrain";
 
-/** Path portion of a terrain tile URL, with MapLibre's placeholders. */
-export const TERRAIN_PATH_TEMPLATE = `${TERRAIN_PATH_PREFIX}/{z}/{x}/{y}.${TERRAIN_TILE_EXTENSION}`;
-
 export const TERRAIN_MIN_ZOOM = 0;
 
 /** Depth of the elevation pyramid, matching the colour pyramid's z8 — which is also the full extent
- *  of the master (`MASTER_ZOOM = 8`, 131072 = 512 x 2^8), so nothing deeper exists without a re-fuse.
+ *  of Earth's master (131072 = 512 x 2^8), so nothing deeper exists without a re-fuse. The pipeline
+ *  derives that native zoom from each body rather than holding one number, so this is Earth's.
  *
  *  Was 6 until 2026-07-28, on the reasoning that depth buys elevation detail but not mesh density
  *  and so was "a size lever, decided on a look that already works". That reasoning was sound and
@@ -78,7 +82,15 @@ export const TERRAIN_MIN_ZOOM = 0;
  *  the DEM wants z8 and gets it at pitch 0 — the mesh refines and the data refines with it. Pitch
  *  takes it back: MapLibre's globe LOD heuristic drops the covering a level, so a pitched z8 view
  *  reads z7 (see terrainZoomsFor). The payoff view is therefore one level shallower than the flag
- *  suggests, which is worth knowing before anyone cuts a z9 that could never load. */
+ *  suggests, which is worth knowing before anyone cuts a z9 that could never load.
+ *
+ *  EARTH'S ANSWER, like its relief sibling. The per-planet one is `PUBLISHED[body].terrain`; this is
+ *  the value Earth's own registry entry is built from, and the number the legacy untokened path —
+ *  Earth's by definition — is checked against.
+ *
+ *  The globe's DEM source still reads it, deferred on the same evidence the countries ceiling
+ *  records: Earth is the only body publishing a DEM, so a registry-reading version could not be
+ *  made to fail. Threading the archive is what makes it checkable before a second body has one. */
 export const TERRAIN_MAX_ZOOM = 8;
 
 /** Built from the prefix and the extension rather than spelled out, so the path we ASK for and
@@ -120,22 +132,6 @@ export function describeTerrainTileTypeMismatch(archiveExtension: string): strin
     `match the re-cut pyramid (its source of truth is TERRAIN_TILE_EXTENSION in ` +
     `pipeline/tile/terrain_rgb.py). Elevation tiles must stay LOSSLESS.`
   );
-}
-
-/** Fail loudly when the terrain archive stops matching the constants above.
- *
- *  The failure this catches is silent in BOTH directions and neither shows up as an error: an
- *  archive shallower than TERRAIN_MAX_ZOOM 404s every tile past its depth while the globe still
- *  renders flat there, and a deeper one is simply never requested — which looks exactly like the
- *  extra levels having no visual effect. */
-export function assertTerrainZoomRange(archiveMinZoom: number, archiveMaxZoom: number): void {
-  if (archiveMinZoom !== TERRAIN_MIN_ZOOM || archiveMaxZoom !== TERRAIN_MAX_ZOOM) {
-    throw new Error(
-      `Terrain archive covers z${archiveMinZoom}-z${archiveMaxZoom}, but the globe requests ` +
-        `z${TERRAIN_MIN_ZOOM}-z${TERRAIN_MAX_ZOOM}. Update TERRAIN_MIN_ZOOM/TERRAIN_MAX_ZOOM in ` +
-        `src/lib/terrainSource.ts to match the re-cut pyramid.`,
-    );
-  }
 }
 
 /** DECLARED tile size, and deliberately a quarter of the asset's true 512 px — the same trick the
@@ -204,6 +200,36 @@ export function terrainEncoding(quantisationMetres: number = TERRAIN_QUANTISATIO
   };
 }
 
+/**
+ * The `raster-dem` source spec for one body's elevation pyramid.
+ *
+ * TAKES THE ARCHIVE RATHER THAN READING THIS MODULE'S CONSTANTS, which is what makes the range
+ * checkable before a second body publishes a DEM. `TERRAIN_MIN_ZOOM`/`TERRAIN_MAX_ZOOM` are Earth's
+ * answer and the registry entry is built FROM them, so a source reading them back would agree with
+ * Earth by construction and hand any other planet Earth's ceiling in silence. Threading the archive
+ * lets a test supply a range that belongs to no body at all, which is the only way this is provable
+ * while one body has a DEM. `featureTilesSource` took the same route for the same reason.
+ *
+ * The spec is a plain object rather than a `RasterDEMSourceSpecification`: naming that type would
+ * pull maplibre-gl into a module the tile Worker compiles under a DOM-free `lib`, which the note at
+ * the top of this file exists to prevent. The call site is where it meets MapLibre and where the
+ * structural check happens.
+ */
+export function terrainDemSource(
+  tileUrlTemplate: string,
+  archive: PublishedArchive,
+  declaredTileSize: number,
+) {
+  return {
+    type: "raster-dem" as const,
+    tiles: [tileUrlTemplate],
+    minzoom: archive.minZoom,
+    maxzoom: archive.maxZoom,
+    tileSize: declaredTileSize,
+    ...terrainEncoding(),
+  };
+}
+
 /** Ceiling for `?terrain=N`. Not a MapLibre limit — displacement is `elevation * N / 6371008.8` of
  *  the globe radius, so N=200 already lifts Everest to ~28% of the radius, well past anything a
  *  look test would defend. A guard against a typo'd URL turning the planet inside out. */
@@ -233,16 +259,39 @@ export function parseTerrainExaggeration(params: URLSearchParams): number | null
 export const TERRAIN_OFF = "off";
 
 /**
- * The exaggeration terrain runs at on the `full` tier, chosen by eye on the frames at Step 0:
- * 40x shreds the mesh into needles, 5x is too subtle to be worth the geometry. This is the value
- * the ramp DECAYS FROM — it holds to z3 and lands at DEFAULT_TERRAIN_RAMP_FLOOR by z8, so no
- * camera below the overview actually renders at 15x.
+ * The exaggeration each body's `full` tier runs terrain at — and the RECORD that someone approved
+ * it running at all.
  *
- * It only became a constant when terrain graduated to a tier. Before that it lived exclusively in
- * `?terrain=15`, which is fine for an A/B and impossible for a tier — nothing was going to type a
- * URL flag on a visitor's behalf.
+ * A TABLE RATHER THAN ONE CONSTANT, because a constant made publishing a pyramid sufficient to
+ * paint with it. Mars's archive went into the registry and its globe began displacing at Earth's
+ * 15x on the very next page load, with every correctness guard green: the source was right, the
+ * zooms were right, the tiles were right, and nobody had looked at the result. Correctness and
+ * consent are orthogonal, and consent was the one with nothing holding it.
+ *
+ * A body with NO ENTRY gets terrain only through `?terrain=N`, which is a deliberate act by someone
+ * who wants to see it. So the edit that turns terrain on for a planet IS the edit that records the
+ * approval, and the two cannot drift apart — which is the property a separate ledger would not have
+ * given, since a ledger can be updated to get past its own check.
+ *
+ * THE NUMBER, chosen by eye at Step 0: 40x shreds the mesh into needles, 5x is too subtle to be
+ * worth the geometry. It is the value the ramp DECAYS FROM — held to z3 and landing on
+ * DEFAULT_TERRAIN_RAMP_FLOOR by z8, so no camera below the overview actually renders at it.
+ *
+ * THE TWO ENTRIES ARE EQUAL AND SEPARATELY WRITTEN, and both halves are the decision. Equal so a
+ * visitor reads ONE vertical scale across bodies instead of learning a new one per planet: Mars was
+ * swept at 15 rather than at the ~6.25 that would have made Olympus rise as Everest does, because
+ * the displacement is a fraction of Earth's radius on both bodies and the renderer does not know
+ * Mars is smaller. Separately written because an alias would let one planet's re-tune repaint
+ * another that nobody looked at — which is this table's own failure mode, wearing a tidier spelling.
+ *
+ * NOT IN `paintedLayers.ts`, the ledger for style layers: its test matches ids against `type: "..."`
+ * specs in source, and terrain is `setTerrain` over a `raster-dem` source rather than a layer, so an
+ * entry there would be rejected as naming a layer that does not exist.
  */
-export const DEFAULT_TERRAIN_EXAGGERATION = 15;
+export const RATIFIED_TERRAIN_EXAGGERATION: Partial<Record<BodySlug, number>> = {
+  earth: 15,
+  mars: 15,
+};
 
 /**
  * Resolve whether terrain runs, and at what exaggeration, from the URL and the decided tier.
@@ -255,18 +304,21 @@ export const DEFAULT_TERRAIN_EXAGGERATION = 15;
  * "Globe" in the view bar also disables terrain, but it changes the tier as well, so it is a
  * different experiment.
  *
- * Returns `null` for a flat globe. A malformed value is NOT silently upgraded to the tier default:
- * it returns null and the caller warns, because "I asked for 3x and got 15x" is the failure the
- * loud-refusal convention exists to prevent.
+ * Returns `null` for a flat globe — including for a body the table does not name, which is the
+ * branch every planet arrives through. A malformed value is NOT silently upgraded to the body's
+ * ratified number: it returns null and the caller warns, because "I asked for 3x and got 15x" is
+ * the failure the loud-refusal convention exists to prevent.
  */
 export function resolveTerrainExaggeration(
   params: URLSearchParams,
   tierWantsTerrain: boolean,
+  body: BodySlug,
 ): number | null {
   const raw = params.get("terrain");
   const requested = raw !== null && raw.trim() !== "";
   if (requested) return parseTerrainExaggeration(params);
-  return tierWantsTerrain ? DEFAULT_TERRAIN_EXAGGERATION : null;
+  if (!tierWantsTerrain) return null;
+  return RATIFIED_TERRAIN_EXAGGERATION[body] ?? null;
 }
 
 /** Zoom at or below which the ramp holds the base exaggeration. Below here the whole globe is on

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Prefix each stdout line with wall-clock + elapsed seconds.
 
 shade_planet.py already prints a marker at every stage boundary ("warp height -> 3857 ...",

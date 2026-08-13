@@ -13,10 +13,12 @@ Changing one means re-rendering every hero. See ART.md for the look decisions be
 """
 
 import hashlib
+import re
 from pathlib import Path
 
 import pytest
 
+from pipeline import bodies
 from pipeline.render import palette
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -79,24 +81,24 @@ class TestRampColor:
 
 class TestColorRelief:
     def test_land_rows_span_zero_to_max(self):
-        rows = palette.color_relief_rows("land")
+        rows = palette.color_relief_rows("land", look=palette.EARTH_LOOK)
         assert rows[0][0] == 0.0
         assert rows[-1][0] == pytest.approx(palette.LAND_MAX_M)
 
     def test_sea_rows_span_min_to_zero(self):
-        rows = palette.color_relief_rows("sea")
+        rows = palette.color_relief_rows("sea", look=palette.EARTH_LOOK)
         assert rows[0][0] == pytest.approx(palette.SEA_MIN_M)
         assert rows[-1][0] == 0.0
 
     def test_elevations_are_monotonic(self):
         for kind in ("land", "sea"):
-            elevs = [elev for elev, _ in palette.color_relief_rows(kind)]
+            elevs = [elev for elev, _ in palette.color_relief_rows(kind, look=palette.EARTH_LOOK)]
             assert elevs == sorted(elevs)
 
     def test_color_relief_matches_locked_hero_hex(self):
         """Independent oracle: generated endpoints == the frozen hex transcribed in this file."""
-        land = palette.color_relief_rows("land")
-        sea = palette.color_relief_rows("sea")
+        land = palette.color_relief_rows("land", look=palette.EARTH_LOOK)
+        sea = palette.color_relief_rows("sea", look=palette.EARTH_LOOK)
         assert land[0][1] == LAND_COAST
         assert land[-1][1] == LAND_PEAK
         assert sea[-1][1] == SEA_SHALLOW   # shallowest is at elevation 0 (last sea row)
@@ -133,14 +135,22 @@ class TestSharedConstants:
         assert shade.KNOBS["alt"] == palette.SUN_ALT_DEG
 
     def test_exaggeration_is_shared(self):
-        """render_prep's displacement_scale and shade_planet's EXAG both source
-        palette.EXAGGERATION — the last copy-pair, collapsed to one constant."""
+        """render_prep's displacement_scale and the region shader both source palette.EXAGGERATION.
+
+        The planet leg USED to be here and is gone on purpose: the planet path takes its
+        exaggeration from `Body.exaggeration`, which `test_bodies.py` pins against this constant
+        for Earth. Asserting it twice would say nothing new.
+
+        Its replacement is not a downgrade — `shade.EXAG` was a THIRD literal 15.0 that this
+        guard's own docstring called "the last copy-pair", and no test named it. The region path
+        exists to predict the planet, so a look value it holds privately is drift by construction.
+        """
         from pipeline.render import render_prep
-        from pipeline.tile import shade_planet
+        from pipeline.tile import shade
 
         assert palette.EXAGGERATION == 15.0
         assert render_prep.EXAGGERATION == palette.EXAGGERATION
-        assert shade_planet.EXAG == palette.EXAGGERATION
+        assert shade.EXAG == palette.EXAGGERATION
 
     def test_web_palette_matches_the_ramp_it_copies(self):
         """web/src/lib/palette.ts restates pipeline colours for the browser, which cannot
@@ -152,7 +162,9 @@ class TestSharedConstants:
 
         # name in the TS file -> the ramp stop it encodes
         derived = {
-            "DEEP_SEA": palette.SEA_STOPS[4][1],  # -3800 m abyssal plain
+            "DEEP_SEA": palette.SEA_STOPS[4][1],                 # -3800 m, Earth's space-floor
+            "TRENCH_FLOOR": palette.SEA_STOPS[5][1],             # -6000 m, Earth's light accent
+            "MARS_MODAL_GROUND": palette.MARS_LAND_STOPS[3][1],  #  +655 m, Mars's space-floor
         }
         for name, linear in derived.items():
             red, green, blue = palette._srgb8(linear)
@@ -166,7 +178,7 @@ class TestSharedConstants:
 class TestWriteColorRelief:
     def test_writes_gdaldem_format_with_nodata(self, tmp_path):
         out = tmp_path / "ramp_land.txt"
-        palette.write_color_relief(out, "land")
+        palette.write_color_relief(out, "land", look=palette.EARTH_LOOK)
         lines = out.read_text().splitlines()
         assert lines[-1] == "nv 0 0 0"
         first = lines[0].split()
@@ -202,14 +214,14 @@ class TestTheLookIsByteStable:
         [("land", "c2137fc21d35aaf5"), ("sea", "3318a6ec1e793420")],
     )
     def test_gdaldem_ramp_text_is_unchanged(self, kind, expected):
-        assert self._digest(palette.color_relief_text(kind).encode()) == expected
+        assert self._digest(palette.color_relief_text(kind, look=palette.EARTH_LOOK).encode()) == expected
 
     @pytest.mark.parametrize(
         "kind,expected",
         [("land", "2981572a5c8865f4"), ("sea", "6839535a4a018129")],
     )
     def test_relief_lut_bytes_are_unchanged(self, kind, expected):
-        lut = palette.relief_lut(kind)
+        lut = palette.relief_lut(kind, look=palette.EARTH_LOOK)
         # Shape is part of the artefact: a (3, N) that quietly became (N, 3) would hash differently
         # but so would a genuinely different ramp, and only one of those is a transpose bug.
         assert lut.shape == (3, 6001)
@@ -218,3 +230,192 @@ class TestTheLookIsByteStable:
     def test_lake_lut_is_unchanged(self):
         flat = bytes(channel for colour in palette.lake_lut() for channel in colour)
         assert self._digest(flat) == "f5395a2466878b91"
+
+
+class TestTheLookRegistry:
+    """A second look exists, so the seam that was written for one is now load-bearing.
+
+    Every test here is unreachable while Earth is the only planet: with one look, resolving it is
+    the same operation as reading the globals, and a mutation that breaks the resolution still
+    produces Earth's ramp. The registry is what makes the wrong answer expressible, which is what
+    makes these guards able to fail.
+    """
+
+    def test_every_registered_body_has_a_look(self):
+        """The parity guard, and the reason the two registries are allowed to be separate.
+
+        `pipeline/bodies.py` opens by saying a body is "not a look", so colour lives here instead
+        of on the descriptor. The cost of that separation is that adding a planet now means two
+        edits, and forgetting the second is the failure that RENDERS rather than raises — a whole
+        pyramid in Earth's ramp, every gate green. Nothing but this test spans the two.
+        """
+        missing = sorted(set(bodies.BODIES) - set(palette.LOOK_BY_BODY))
+        assert not missing, (
+            f"registered bodies with no look: {missing}. Add an entry to palette.LOOK_BY_BODY — a "
+            "body that cannot resolve a look must not be able to reach the shading path at all."
+        )
+
+    def test_an_unregistered_body_gets_no_look_at_all(self):
+        """No fallback, for the reason `bodies.get` has none: the fallback renders.
+
+        A wrong ramp does not raise, does not warp, and does not look broken in a thumbnail. It
+        produces a planet that is internally consistent and belongs to somebody else.
+        """
+        with pytest.raises(KeyError, match="no look registered"):
+            palette.look_for("venus")
+
+    def test_earth_and_mars_resolve_to_different_looks(self):
+        """Anti-vacuity for everything above. Two names mapping to one object would pass every
+        other test in this class while proving nothing about the seam."""
+        assert palette.look_for("earth") is palette.EARTH_LOOK
+        assert palette.look_for("mars") is palette.MARS_LOOK
+        assert palette.MARS_LOOK is not palette.EARTH_LOOK
+
+    def test_mars_draws_its_own_colours_and_no_longer_borrows_earths(self):
+        """Mars's ramp is authored for Mars, and the two bodies share no colour object at all.
+
+        THIS REPLACES A GUARD THAT PINNED THE OPPOSITE, which is the point. While Mars had no
+        ratified look it drew Earth's `stops` LIST — shared by identity, so a re-tune of Earth's
+        ramp provably dragged Mars along and the borrowing could not silently stop being true. That
+        promise has been kept and is now spent: Mars has its own colours, so what needs guarding
+        flips to the negative, and re-establishing the sharing must fail rather than pass quietly.
+
+        Identity is asserted in BOTH directions because the failure modes differ. Sharing the list
+        object again would make a re-tune of Earth's palette silently repaint Mars. Holding an equal
+        but separate list would mean someone had copied Earth's stops back in — the same wrong
+        planet, arrived at without an `is` to catch it — so the values are compared too.
+
+        Its sea is None, which is a fact rather than a placeholder: the planet seam declares no
+        oceanmask, so no pixel could select a sea ramp however carefully one were written.
+        """
+        assert palette.MARS_LOOK.land.stops is palette.MARS_LAND_STOPS
+        assert palette.MARS_LOOK.land.stops is not palette.EARTH_LOOK.land.stops
+        assert palette.MARS_LOOK.land.stops != palette.EARTH_LOOK.land.stops
+        assert palette.MARS_LOOK.land is not palette.EARTH_LOOK.land
+        assert palette.MARS_LOOK.sea is None
+        assert palette.EARTH_LOOK.sea is not None
+
+    def test_mars_land_rises_monotonically_so_height_can_be_read(self):
+        """The one property that is a DECISION rather than a measurement, pinned as such.
+
+        Mars's real albedo is brightest at both ends — Hellas is a dust trap, Tharsis is
+        dust-mantled — so a ramp faithful to the planet would give the deepest basin and the highest
+        summit the same colour. That is precisely the defect Mars inherited from Earth's shoreline
+        hinge, where bright-at-zero means "beach" on a body that has one. Rising with elevation is
+        the cartographic convention chosen over the fidelity, and the About page discloses it.
+
+        Asserted on LUMINANCE rather than on any single channel: a ramp can rise in red while
+        falling in perceived brightness, and it is brightness the eye reads elevation from.
+        """
+        lumas = [0.2126 * r + 0.7152 * g + 0.0722 * b
+                 for _, (r, g, b) in palette.MARS_LAND_STOPS]
+        assert lumas == sorted(lumas), (
+            f"Mars's land ramp is not monotone in luminance: {[round(v, 4) for v in lumas]}. "
+            "Two elevations now share a brightness, which is the Hellas/Olympus collision the "
+            "authored ramp exists to remove."
+        )
+        assert len(set(lumas)) == len(lumas), "two stops share a luminance, so a band reads flat"
+
+    def test_a_zero_width_ramp_is_refused_at_declaration(self):
+        """The one failure in this class with no visible symptom at all.
+
+        `span_m` of 0 divides by zero, numpy hands back nan, `np.rint(nan)` is nan, and the cast to
+        int32 makes it an arbitrary index — a planet rendered in one wrong colour with no exception
+        anywhere and every gate green. Refusing where the ramp is DECLARED is the only cheap place;
+        by the time a pixel is being looked up there is no ramp left to name.
+        """
+        with pytest.raises(ValueError, match="two distinct ends"):
+            palette.Surface(stops=palette.LAND_STOPS, origin_m=1000.0, extreme_m=1000.0)
+
+    def test_a_ramp_that_runs_downward_keeps_its_direction(self):
+        """A SYNTHETIC ramp whose ends are neither body's, because a parameterisation is unverified
+        until something non-default runs through the real entry point — and both real looks happen
+        to put position 0.0 at the shallower end, which would hide a `lowest_m` that just returned
+        `origin_m`.
+        """
+        downward = palette.Surface(stops=palette.SEA_STOPS, origin_m=-200.0, extreme_m=-3500.0)
+        assert downward.span_m == -3300.0
+        assert downward.lowest_m == -3500.0
+        upward = palette.Surface(stops=palette.LAND_STOPS, origin_m=-200.0, extreme_m=3500.0)
+        assert upward.span_m == 3700.0
+        assert upward.lowest_m == -200.0
+
+    def test_mars_land_spans_its_own_measured_elevations(self):
+        """The domain is p1/p99 of Mars's own heightfield, area-weighted on the sphere.
+
+        Asserted as an ORDERING against Earth rather than as two literals restated from the module:
+        what must stay true is that Mars starts below the datum and Earth does not, which is the
+        defect this domain exists to fix. Pinning the numbers here would only pin the transcription.
+        """
+        mars, earth = palette.MARS_LOOK.land, palette.EARTH_LOOK.land
+        assert mars.origin_m < 0 < mars.extreme_m
+        assert earth.origin_m == 0.0
+        assert mars.span_m > earth.span_m
+        assert mars.lowest_m == mars.origin_m
+
+    def test_a_look_with_no_sea_refuses_to_resolve_one(self):
+        """Absence is answered by raising, never by handing back the absence itself.
+
+        Returning `None` would push the decision onto every caller and be wrong in whichever one
+        forgot — and `Surface | None` makes that the tidy the type checker appears to ask for.
+        """
+        with pytest.raises(ValueError, match="draws no sea"):
+            palette.surface("sea", look=palette.MARS_LOOK)
+        assert palette.surface("land", look=palette.MARS_LOOK) is palette.MARS_LOOK.land
+
+
+#: The authored ramp values, assembled into a `Look`, which outside `palette.py` nothing may read
+#: by name. `MARS_LAND_STOPS` joins them on the day Mars stops borrowing Earth's colours: a second
+#: body's ramp is reachable by exactly the same bypass, and it is the one whose regrowth would be
+#: invisible, since a module reading it renders Earth correctly no matter what it does to Mars.
+RAMP_GLOBALS = ("LAND_STOPS", "SEA_STOPS", "LAND_MAX_M", "SEA_MIN_M", "MARS_LAND_STOPS")
+
+#: A read of palette's own globals, qualified or imported. NOT a bare name: `scene_build` defines
+#: module constants of its own called `LAND_STOPS`/`SEA_STOPS` — built FROM the look — and those
+#: are the seam working rather than bypassing it.
+def _bypass_pattern(name: str) -> str:
+    return rf"palette\s+import\s+[^\n]*\b{name}\b|palette\.{name}\b"
+
+
+def test_no_module_reaches_around_the_look_to_the_ramp_globals():
+    """The anti-regrowth scan, and it is the guard that would have caught this seam's own defect.
+
+    `Look`, `EARTH_LOOK` and `surface(look=...)` existed for a while before anything used them: the
+    tile recipe and the hero rig both read `palette.LAND_STOPS` and friends directly, so every
+    body's freshness record carried Earth's ramp and no type checker could say so. **A bypass is
+    not a call site.** Removing `surface`'s default named eight LUT helpers and neither module that
+    actually drew a planet — those came out of grep, and only a source scan can keep them out.
+
+    Nothing else can see a regrowth. A module reading these globals renders Earth perfectly, passes
+    every gate, and is wrong only on a planet nobody has looked at yet.
+    """
+    positive_control = "value = palette.LAND_STOPS[0]"
+    assert re.search(_bypass_pattern("LAND_STOPS"), positive_control), (
+        "the bypass pattern no longer matches a qualified read — the scan below cannot bite"
+    )
+
+    palette_source = Path(palette.__file__).resolve()
+    scanned: set[str] = set()
+    offenders: dict[str, list[str]] = {}
+    for path in sorted((REPO_ROOT / "pipeline").rglob("*.py")):
+        if path.resolve() == palette_source:
+            continue
+        name = str(path.relative_to(REPO_ROOT))
+        scanned.add(name)
+        source = path.read_text(encoding="utf-8")
+        found = [g for g in RAMP_GLOBALS if re.search(_bypass_pattern(g), source)]
+        if found:
+            offenders[name] = found
+
+    # Anti-vacuity that NAMES the two modules which actually held the defect, rather than counting
+    # files. A count survives a walk narrowed to one package; these two do not.
+    must_scan = {"pipeline/tile/shade_planet.py", "pipeline/render/scene_build.py"}
+    assert must_scan <= scanned, (
+        f"the sweep never reached {sorted(must_scan - scanned)} — the two modules that carried "
+        "this exact bug. Whatever it is scanning now, it is not the shading path."
+    )
+    assert not offenders, (
+        f"these modules reach around the look to Earth's ramp globals: {offenders}. Resolve the "
+        "body's ramp with `palette.look_for(body.name)` and read `look.land` / `look.sea` — the "
+        "globals are the values EARTH'S look is assembled from, not the ramp any planet draws with."
+    )

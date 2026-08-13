@@ -3,49 +3,49 @@ import { loadEnv } from 'vite';
 import type { Plugin } from 'vite';
 import type { ServerResponse } from 'node:http';
 import fs from 'node:fs';
+import { createRequire } from 'node:module';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { EtagMismatch, PMTiles, type RangeResponse, type Source, tileTypeExt } from 'pmtiles';
 import {
-  TILE_CONTENT_TYPE,
-  assertZoomRange,
-  describeTileTypeMismatch,
-  parseTilePath,
-} from './src/lib/reliefTiles';
+  archiveFileName,
+  archivePath,
+  describeMissingArchive,
+  describeRetiredStoreVars,
+  resolveDataRoot,
+} from './src/lib/devStores';
 import {
-  TERRAIN_CONTENT_TYPE,
-  assertTerrainZoomRange,
-  describeTerrainTileTypeMismatch,
-  parseTerrainTilePath,
-} from './src/lib/terrainSource';
-import {
-  COUNTRIES_CONTENT_TYPE,
-  assertCountriesZoomRange,
-  describeCountriesTileTypeMismatch,
-  parseCountriesTilePath,
-} from './src/lib/countryTiles';
+  describeArchiveHeaderMismatch,
+  LAYERS,
+  resolveTileRequest,
+  type LayerId,
+} from './src/lib/tileAddress';
+import type { BodySlug } from './src/lib/bodies';
+import { describeTileTypeMismatch } from './src/lib/reliefTiles';
+import { describeTerrainTileTypeMismatch } from './src/lib/terrainSource';
+import { describeVectorTileTypeMismatch } from './src/lib/vectorTiles';
+import { perfCaptureName } from './src/lib/perfCaptureName';
 
 // Asset store locations. DEV-ONLY: the dev server serves /heroes, /borders and /tiles
 // out of these external directories (R2 does it in production; the
-// static build never reads them). The paths are machine-specific and MUST come from .env — copy
-// .env.example to .env and set them. `loadEnv` is required because .env files are not in
-// process.env by the time this config runs. There is deliberately NO fallback: the on-disk
-// layout differs per checkout (and this frontend worktree will eventually fold into the
-// main repo), so an unset var fails loudly (see resolveStore) rather than silently
-// pointing somewhere wrong.
+// static build never reads them). `loadEnv` is required because .env files are not in
+// process.env by the time this config runs.
+//
+// TWO KINDS OF STORE, AND ONLY ONE OF THEM IS CONFIGURED. Heroes and borders are named
+// explicitly, machine-specific, with deliberately NO fallback — an unset var fails loudly (see
+// resolveStore) rather than silently pointing somewhere wrong. The three tile ARCHIVES are not
+// named at all any more: they are derived from the pipeline's own work tree, because one variable
+// per archive per body does not survive a second planet. See src/lib/devStores.ts for the
+// convention and for where the fail-loud property went.
 const env = loadEnv(process.env.NODE_ENV || 'development', process.cwd(), '');
 const HERO_STORE = env.HERO_STORE;
 const BORDERS_STORE = env.BORDERS_STORE;
-const PMTILES_STORE = env.PMTILES_STORE;
-// A fourth store rather than a second file inside PMTILES_STORE: the two archives are products
-// of two different pipeline outputs (data/work/planet_tiles and data/work/planet_terrain), and
-// pointing one var at both would mean the packer had to write terrain.pmtiles somewhere other
-// than beside the pyramid it packed. In production they are two keys in one bucket, which is a
-// property of the deploy and not of this disk.
-const TERRAIN_PMTILES_STORE = env.TERRAIN_PMTILES_STORE;
-// A fifth store, for the same reason there is a fourth: the country vector pyramid is the product
-// of its own pipeline stage (data/work/planet_countries) and is written beside the geometry it was
-// cut from, not beside a raster pyramid it shares nothing with.
-const COUNTRIES_PMTILES_STORE = env.COUNTRIES_PMTILES_STORE;
+
+// The checkout, taken from this file's own location rather than from cwd — `pipeline/paths.py`
+// derives its ROOT the same way and for the same reason: a root that moved with the working
+// directory would resolve differently depending on where the server was started.
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const DATA_ROOT = resolveDataRoot(env, REPO_ROOT);
 
 // Resolve a required asset-store path, or 500 the request with actionable guidance.
 // Checked PER-REQUEST (not when the middleware is registered) so a missing var only
@@ -110,11 +110,6 @@ function bordersDevServer(): Plugin {
   };
 }
 
-// The packaged pyramids, as the pipeline names them inside their stores.
-const ARCHIVE_NAME = 'planet.pmtiles';
-const TERRAIN_ARCHIVE_NAME = 'terrain.pmtiles';
-const COUNTRIES_ARCHIVE_NAME = 'countries.pmtiles';
-
 // One open archive per path per dev-server process. Opening means an fs handle plus a header
 // read, and PMTiles caches the directory pages it decodes, so re-opening per request would throw
 // that cache away and re-read the root directory on every tile. An entry is dropped on failure so
@@ -131,13 +126,13 @@ const openedArchives = new Map<string, Promise<PMTiles>>();
  *  that must NOT be shared — each pyramid has its own zoom range and its own encoding rule, and a
  *  check that accepted either would accept the wrong archive under the wrong route. */
 function openArchive(
-  archivePath: string,
+  archivePathname: string,
   validateHeader: (header: { minZoom: number; maxZoom: number; tileType: number }) => void,
 ): Promise<PMTiles> {
-  const already = openedArchives.get(archivePath);
+  const already = openedArchives.get(archivePathname);
   if (already) return already;
   const archive = (async () => {
-    const handle = await fs.promises.open(archivePath, 'r');
+    const handle = await fs.promises.open(archivePathname, 'r');
     // Stand-in for an HTTP ETag: mtime+size changes whenever the archive is re-packed. PMTiles
     // caches directory entries, and a directory entry is a byte OFFSET — offsets into a
     // different archive are meaningless, so re-packing while the dev server holds warm
@@ -150,7 +145,7 @@ function openArchive(
       return `${stats.mtimeMs}-${stats.size}`;
     };
     const source: Source = {
-      getKey: () => archivePath,
+      getKey: () => archivePathname,
       async getBytes(offset, length, _signal, etag): Promise<RangeResponse> {
         const current = await archiveVersion();
         if (etag !== undefined && etag !== current) throw new EtagMismatch();
@@ -169,111 +164,80 @@ function openArchive(
     validateHeader(await opened.getHeader());
     return opened;
   })().catch((error: unknown) => {
-    openedArchives.delete(archivePath);
+    openedArchives.delete(archivePathname);
     throw error;
   });
-  openedArchives.set(archivePath, archive);
+  openedArchives.set(archivePathname, archive);
   return archive;
 }
 
-/** Header check for the relief pyramid. */
-function validateReliefHeader(header: { minZoom: number; maxZoom: number; tileType: number }) {
-  assertZoomRange(header.minZoom, header.maxZoom);
-  const mismatch = describeTileTypeMismatch(tileTypeExt(header.tileType));
-  if (mismatch) throw new Error(mismatch);
+/** Per-layer tile-ENCODING checks. Which encoding an archive stores is a property of the layer's
+ *  contract, not of the planet: every body's relief is WebP and every body's vectors are MVT. */
+const VALIDATE_TILE_TYPE: Record<LayerId, (extension: string) => string | null> = {
+  relief: describeTileTypeMismatch,
+  terrain: describeTerrainTileTypeMismatch,
+  vector: describeVectorTileTypeMismatch,
+};
+
+/** Header checks for one body's cut of one layer, THROWING where the Worker logs and 404s.
+ *
+ *  The asymmetry is deliberate and long-standing: a dev server should refuse to start on drift, a
+ *  live one should serve what it has and make the drift visible rather than 500 the world. Both
+ *  descriptions come from `lib/`, so the checks stay testable — a config is imported by nothing. */
+function headerCheckFor(body: BodySlug, layer: LayerId) {
+  return (header: { minZoom: number; maxZoom: number; tileType: number }): void => {
+    const zoomMismatch = describeArchiveHeaderMismatch(body, layer, header);
+    if (zoomMismatch) throw new Error(zoomMismatch);
+    const typeMismatch = VALIDATE_TILE_TYPE[layer](tileTypeExt(header.tileType));
+    if (typeMismatch) throw new Error(typeMismatch);
+  };
 }
 
-/** Header check for the elevation pyramid. */
-function validateTerrainHeader(header: { minZoom: number; maxZoom: number; tileType: number }) {
-  assertTerrainZoomRange(header.minZoom, header.maxZoom);
-  const mismatch = describeTerrainTileTypeMismatch(tileTypeExt(header.tileType));
-  if (mismatch) throw new Error(mismatch);
-}
-
-/** Header check for the country vector pyramid. */
-function validateCountriesHeader(header: { minZoom: number; maxZoom: number; tileType: number }) {
-  assertCountriesZoomRange(header.minZoom, header.maxZoom);
-  const mismatch = describeCountriesTileTypeMismatch(tileTypeExt(header.tileType));
-  if (mismatch) throw new Error(mismatch);
-}
-
-/** What one parsed request resolved to: which archive, and where in it. */
-interface ResolvedTileRoute {
-  tile: { z: number; x: number; y: number };
-  storeName: string;
-  store: string | undefined;
-  archiveName: string;
-  contentType: string;
-  validateHeader: (header: { minZoom: number; maxZoom: number; tileType: number }) => void;
-  /** What an absent tile MEANS for this archive — 404 where the pyramid is complete, 204 where it
-   *  is sparse. Mirrors `missingTileStatus` in the Worker; the two servers answering one contract
-   *  differently is the failure this whole arrangement exists to prevent. */
-  missingTileStatus: 404 | 204;
-}
-
-// Dev-only: answer /tiles/{z}/{x}/{y}.webp and /tiles/terrain/{z}/{x}/{y}.webp out of the two
-// packaged PMTiles archives. This is the local twin of the production tile Worker, and it exists
-// for the same reason the Worker does — the archives are GB-scale, so the browser must never
-// address one directly and must never send a Range header. The ranging happens here against a
-// local file; in production it happens inside a Worker against an R2 object.
+// Dev-only: answer /tiles/{z}/{x}/{y}.webp, /tiles/terrain/{z}/{x}/{y}.webp and
+// /tiles/countries/{z}/{x}/{y}.mvt out of the three packaged PMTiles archives, each found under
+// the pipeline's own work tree (src/lib/devStores.ts). This is the local twin of the production
+// tile Worker, and it exists for the same reason the Worker does — the archives are GB-scale, so
+// the browser must never address one directly and must never send a Range header. The ranging
+// happens here against a local file; in production it happens inside a Worker against an R2 object.
 //
-// ONE middleware over both, dispatching exactly the way the Worker does, because the two servers
-// answering the same contract differently is the failure this arrangement exists to prevent. It
-// falls out of the base URLs rather than being arranged: TERRAIN_URL_TEMPLATE is TILE_BASE plus
-// the `terrain/` prefix, so in dev (`TILE_BASE = /tiles/`) the mount strips `/tiles` and this
-// sees precisely the path the Worker sees at the root of its own hostname.
+// ONE middleware over all three, dispatching through the SAME function the Worker calls —
+// `resolveTileRequest` — because the two servers answering one contract differently is the failure
+// this arrangement exists to prevent. Sharing the parsers was never quite enough: the two routers
+// still chose between them separately, which is how dev came to 404 the `/v<N>/` prefix that
+// production has always accepted. One resolver cannot diverge.
 //
-// Order does not matter and cannot: `parseTilePath` requires the FIRST segment to be a zoom, so
-// it can never match a prefixed path, and the other two require their own literal prefix, so
-// neither can match a bare one. No prefix is a prefix of another.
+// It sees exactly what the Worker sees, and that falls out of the base URL rather than being
+// arranged: the templates are TILE_BASE plus a path, so in dev (`TILE_BASE = /tiles/`) the mount
+// strips `/tiles` and this reads precisely the path the Worker reads at the root of its hostname.
 function tilesDevServer(): Plugin {
   return {
     name: 'tiles-dev-server',
     configureServer(server) {
+      // Said once, at startup, rather than per request: a variable that used to steer this server
+      // and now does nothing is state someone edits, restarts, and then disbelieves the result of.
+      const retired = describeRetiredStoreVars(env);
+      if (retired) console.warn(`[tiles] ${retired}`);
       server.middlewares.use('/tiles', (req, res, next) => {
         const requested = decodeURIComponent((req.url || '').split('?')[0]);
-        const relief = parseTilePath(requested);
-        const terrain = relief ? null : parseTerrainTilePath(requested);
-        const countries = relief || terrain ? null : parseCountriesTilePath(requested);
-        if (!relief && !terrain && !countries) return next();
-        const route: ResolvedTileRoute = relief
-          ? {
-              tile: relief,
-              storeName: 'PMTILES_STORE',
-              store: PMTILES_STORE,
-              archiveName: ARCHIVE_NAME,
-              contentType: TILE_CONTENT_TYPE,
-              validateHeader: validateReliefHeader,
-              missingTileStatus: 404,
-            }
-          : terrain
-          ? {
-              tile: terrain,
-              storeName: 'TERRAIN_PMTILES_STORE',
-              store: TERRAIN_PMTILES_STORE,
-              archiveName: TERRAIN_ARCHIVE_NAME,
-              contentType: TERRAIN_CONTENT_TYPE,
-              validateHeader: validateTerrainHeader,
-              missingTileStatus: 404,
-            }
-          : {
-              tile: countries!,
-              storeName: 'COUNTRIES_PMTILES_STORE',
-              store: COUNTRIES_PMTILES_STORE,
-              archiveName: COUNTRIES_ARCHIVE_NAME,
-              contentType: COUNTRIES_CONTENT_TYPE,
-              // The one sparse pyramid — most of the planet is ocean and holds no country.
-              missingTileStatus: 204,
-              validateHeader: validateCountriesHeader,
-            };
-        const store = resolveStore(route.storeName, route.store, res);
-        if (!store) return;
-        const { tile } = route;
+        const tile = resolveTileRequest(requested);
+        if (!tile) return next();
+        const layer = LAYERS[tile.layer];
+        const archivePathname = archivePath(DATA_ROOT, tile.body, tile.layer);
+        const archiveName = archiveFileName(tile.layer);
+        // Checked per request, not once at startup, for the reason resolveStore is: `astro build`
+        // creates a Vite server and runs configureServer, but never asks for a tile, so a missing
+        // archive must not be able to fail a build that does not need it.
+        if (!fs.existsSync(archivePathname)) {
+          res.statusCode = 500;
+          res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+          res.end(describeMissingArchive(tile.body, tile.layer, archivePathname, DATA_ROOT));
+          return;
+        }
         void (async () => {
           try {
             const archive = await openArchive(
-              path.resolve(store, route.archiveName),
-              route.validateHeader,
+              archivePathname,
+              headerCheckFor(tile.body, tile.layer),
             );
             const entry = await archive.getZxy(tile.z, tile.x, tile.y);
             if (!entry) {
@@ -283,23 +247,23 @@ function tilesDevServer(): Plugin {
               // rather than a silent hole. The COUNTRY pyramid is sparse — most of the planet is
               // ocean — so a miss there is ordinary and gets an empty 204, which MapLibre reads
               // as a tile with no features.
-              res.statusCode = route.missingTileStatus;
-              if (route.missingTileStatus === 404) {
+              res.statusCode = layer.missingTileStatus;
+              if (layer.missingTileStatus === 404) {
                 res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-                res.end(`No tile ${tile.z}/${tile.x}/${tile.y} in ${route.archiveName}`);
+                res.end(`No tile ${tile.z}/${tile.x}/${tile.y} in ${archiveName}`);
               } else {
                 res.end();
               }
               return;
             }
-            res.setHeader('Content-Type', route.contentType);
+            res.setHeader('Content-Type', layer.contentType);
             res.setHeader('Cache-Control', 'no-cache');
             res.end(Buffer.from(entry.data));
           } catch (error) {
             res.statusCode = 500;
             res.setHeader('Content-Type', 'text/plain; charset=utf-8');
             res.end(
-              `Tile ${tile.z}/${tile.x}/${tile.y} from ${route.archiveName} failed: ` +
+              `Tile ${tile.z}/${tile.x}/${tile.y} from ${archiveName} failed: ` +
                 `${(error as Error).message}`,
             );
           }
@@ -374,7 +338,11 @@ function perfSnapshotServer(): Plugin {
             // Colons are legal on ext4 but make the file annoying to pass to anything shell-shaped.
             const stamp = new Date().toISOString().replace(/[:.]/g, '-');
             const directory = path.resolve(process.cwd(), PERF_SNAPSHOT_DIR);
-            const file = path.join(directory, `${stamp}.json`);
+            // Mounted middleware sees the path AFTER the mount point, so the query is read off
+            // whatever remains rather than off a URL that still says `/__perf`. The label is
+            // untrusted — `perfCaptureName` owns making it safe, and owns it in one place.
+            const arm = new URL(req.url ?? '/', 'http://localhost').searchParams.get('arm');
+            const file = path.join(directory, perfCaptureName(stamp, arm));
             try {
               await fs.promises.mkdir(directory, { recursive: true });
               await fs.promises.writeFile(file, body, 'utf8');
@@ -388,6 +356,75 @@ function perfSnapshotServer(): Plugin {
             }
           })();
         });
+      });
+    },
+  };
+}
+
+// Dev-only: unlock the JS Self-Profiling API, which Chrome gates behind a document policy —
+// `new Profiler(...)` throws `NotAllowedError: JS profiling is disabled by Document Policy` until
+// this header is present, and no page-side code can grant it.
+//
+// DEV ONLY BY CONSTRUCTION, and it must stay that way: `configureServer` never runs for the static
+// build, so this cannot reach production by being forgotten. It is a diagnostic that lets the page
+// sample its own stacks, which is exactly what a visitor's page must not be able to do.
+//
+// The header goes on EVERY response rather than on documents alone. Discriminating would mean
+// re-deriving "is this a document" from the URL here, and this middleware runs ahead of the asset
+// servers below precisely so it cannot be skipped — a policy that arrives for some documents and
+// not others is worse than one that is uniformly too broad on a dev server.
+function jsProfilingPolicy(): Plugin {
+  return {
+    name: 'js-profiling-policy',
+    configureServer(server) {
+      server.middlewares.use((_req, res, next) => {
+        res.setHeader('Document-Policy', 'js-profiling');
+        next();
+      });
+    },
+  };
+}
+
+// GPU MEMORY ACCOUNTING, DEV ONLY — and dev-only is what makes it affordable at all.
+//
+// The instrument this project ships is a SNAPSHOT, and the defects that have cost the most are
+// TRAJECTORIES: an unbounded pool, a tile set that inflates under one kind of camera movement. The
+// terms of that model are readable from MapLibre itself and the timeline samples them; what no
+// page-side counter can see is how many bytes the GPU is actually holding, because WebGL exposes no
+// memory query. `webgl-memory` (MIT) answers that by wrapping the context, and it also records a
+// creation stack per resource — which turns "9 GB of textures exist" into "this code made them".
+//
+// WHY IT CANNOT BE AN IMPORT. It must patch `getContext` BEFORE `new maplibregl.Map` builds one, and
+// a dynamic import cannot promise that against synchronous boot code — the same constraint that put
+// `resourceTimingBuffer.ts` outside `lib/perf/`. A static import would instead ship 50 KB to every
+// visitor and break the rule `lib/perf/lazyBoundary.test.ts` exists to enforce, which has already
+// been violated once for exactly this reason. A classic <script> sidesteps both: the platform runs
+// it before the deferred module scripts, so ordering is guaranteed rather than arranged.
+//
+// DEV ONLY BY CONSTRUCTION, like `jsProfilingPolicy` above: `configureServer` and `apply: 'serve'`
+// never run for the static build, so this cannot reach production by being forgotten. It is served
+// out of node_modules rather than copied into `public/`, so nothing enters the deployed bundle and
+// no committed file can drift from the installed version.
+//
+// This plugin only SERVES the file; the tag that loads it is in `layouts/Base.astro`, behind an
+// `import.meta.env.DEV` guard the build evaluates away. Injecting it from here via Vite's
+// `transformIndexHtml` was tried and is silently inert — Astro renders page HTML itself and never
+// runs that hook, so the route answered 200 while no tag ever appeared.
+function webglMemoryDevTool(): Plugin {
+  const scriptUrl = '/__webgl-memory.js';
+  return {
+    name: 'webgl-memory-dev-tool',
+    apply: 'serve',
+    configureServer(server) {
+      // Resolved HERE rather than at module scope, so a production install without devDependencies
+      // cannot fail the build on a missing dev tool. `apply: 'serve'` already prevents the plugin
+      // running at build; this makes the file lookup follow the same rule rather than trust it.
+      const scriptPath = createRequire(import.meta.url).resolve('webgl-memory');
+      server.middlewares.use(scriptUrl, (_req, res: ServerResponse) => {
+        res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+        // Never cached: a version bump must take effect on reload, not on a cleared cache.
+        res.setHeader('Cache-Control', 'no-store');
+        res.end(fs.readFileSync(scriptPath, 'utf8'));
       });
     },
   };
@@ -426,6 +463,8 @@ export default defineConfig({
   },
   vite: {
     plugins: [
+      jsProfilingPolicy(),
+      webglMemoryDevTool(),
       heroDevServer(),
       bordersDevServer(),
       tilesDevServer(),

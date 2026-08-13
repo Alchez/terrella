@@ -16,14 +16,14 @@ very lines the bug was in, so it passed on a broken scene), each guard here also
 companion proving it FAILS on a known-bad input.
 """
 
+import itertools
 from typing import Any, cast
 
 import numpy as np
 import pytest
-
 from conftest import hillshade_for_light
 
-from pipeline.render import lake_depth, palette
+from pipeline.render import lake_depth, palette, seaice
 from pipeline.tile import shade
 
 CURVES = ["log1p", "sqrt", "linear"]
@@ -53,7 +53,7 @@ class TestLakeRamp:
         luminance = [0.299 * red + 0.587 * green + 0.114 * blue
                      for red, green, blue in palette.lake_lut()]
         assert all(later <= earlier + 1e-9
-                   for earlier, later in zip(luminance, luminance[1:]))
+                   for earlier, later in itertools.pairwise(luminance))
 
     def test_srgb8_to_linear_roundtrips(self):
         """LAKE_STOPS[0] is derived through this, so a bug here silently shifts the shore."""
@@ -85,7 +85,7 @@ class TestLakePosition:
     def test_position_is_monotonic(self, curve):
         depths = np.array([0.0, 5.0, 11.2, 50.0, 230.0, 1642.0], "float32")
         position = shade.lake_position(depths, curve)
-        assert all(later >= earlier for earlier, later in zip(position, position[1:]))
+        assert all(later >= earlier for earlier, later in itertools.pairwise(position))
 
     def test_log1p_spreads_shallow_lakes_where_sqrt_does_not(self):
         """The measured reason log1p won: the median lake is 11.2 m, and sqrt parks it in
@@ -197,7 +197,8 @@ class TestCompositeUsesDepth:
         snow_a = np.zeros(shape, dtype="float32")
         shade.KNOBS["lake_curve"] = curve
         return shade.composite(heights, ocean, water, snow_a, hs, occ, (1, 1), shape,
-                               depth=depth)
+                               depth=depth, look=palette.EARTH_LOOK,
+                               snow_paint=(palette.SNOW_RGB, palette.SNOW_SHADOW_RGB), ice_paint=seaice.ice_white())
 
     def test_deep_lake_renders_darker_than_a_shallow_one(self):
         """Absolute depth, not per-lake normalisation: a pond must NOT look like Baikal.

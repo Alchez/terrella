@@ -11,6 +11,7 @@ import {
   RINGS,
   SECTORS,
   addPolarCap,
+  addPolarCaps,
   buildMesh,
   canvasBackingRatio,
   capDisplacementScale,
@@ -34,6 +35,19 @@ import {
   type CapsManifest,
 } from "./polarCaps";
 import { TERRAIN_QUANTISATION_M, terrainEncoding } from "./terrainSource";
+import { BODIES, type BodySlug } from "./bodies";
+
+const SLUGS = Object.keys(BODIES) as BodySlug[];
+
+/** A `fetch` that answers one manifest, or 404s when handed null. At module scope beside the other
+ *  fixtures, which is where this file already keeps them. */
+function stubFetch(body: object | null) {
+  return vi.fn(async () => ({
+    ok: body !== null,
+    status: body === null ? 404 : 200,
+    json: async () => body,
+  })) as unknown as typeof fetch;
+}
 
 // The shipped ladder (cap_render.CAP_RUNGS), so the fixture cannot drift from production.
 const RUNGS = (pole: string) => [
@@ -45,11 +59,11 @@ const RUNGS = (pole: string) => [
 
 const MANIFEST: CapsManifest = {
   north: {
-    rungs: RUNGS("north"), edge_lat: 78, feather_hi: 84,
+    rungs: RUNGS("north"), edge_lat: 80, feather_hi: 84,
     elev_url: "/caps/cap_north_elev.webp", elev_step: TERRAIN_QUANTISATION_M,
   },
   south: {
-    rungs: RUNGS("south"), edge_lat: -78, feather_hi: -84,
+    rungs: RUNGS("south"), edge_lat: -80, feather_hi: -84,
     elev_url: "/caps/cap_south_elev.webp", elev_step: TERRAIN_QUANTISATION_M,
   },
 };
@@ -72,7 +86,7 @@ describe("pickRung", () => {
   });
 
   it("does not depend on the manifest's rung order", () => {
-    const shuffled = [...RUNGS("north")].reverse();
+    const shuffled = [...RUNGS("north")].toReversed();
     expect(pickRung(shuffled, MOBILE_CAP_BUDGET_PX).px).toBe(4096);
     expect(pickRung(shuffled, Infinity).px).toBe(8192);
   });
@@ -86,9 +100,9 @@ describe("capOptionsFrom", () => {
     // which does not exist yet when the options are built.
     expect(north.rungs).toEqual(RUNGS("north"));
     expect(north.poleLat).toBe(90);
-    expect(north.texEdgeLat).toBe(78);
+    expect(north.texEdgeLat).toBe(80);
     expect(south.poleLat).toBe(-90);
-    expect(south.texEdgeLat).toBe(-78);
+    expect(south.texEdgeLat).toBe(-80);
     expect(south.latBottom).toBeLessThan(0);
   });
 
@@ -373,6 +387,37 @@ function stubImageLoading(gl: FakeGl, hold?: Promise<void>) {
   });
 }
 
+/** A cap layer carrying an elevation texture as well as a colour one. */
+function elevLayer(gl: unknown): CapLayer {
+  return {
+    id: "polar-cap-north", type: "custom", render: () => undefined,
+    gl: gl as WebGL2RenderingContext,
+    elevTexture: {} as WebGLTexture,
+    elevLoaded: false,
+  };
+}
+
+/** A GL context that RECORDS the draw calls made against it, rather than only absorbing them —
+ *  the blend mode and the uniforms are the thing under test, and neither shows in a return value. */
+function recordingGl() {
+  const calls = { blend: null as null | number[], draw: null as null | number[], uniforms: {} as Record<string, number> };
+  const constants = { TEXTURE_2D: 1, ARRAY_BUFFER: 2, ELEMENT_ARRAY_BUFFER: 3, FLOAT: 4, BLEND: 5,
+    ONE: 6, ONE_MINUS_SRC_ALPHA: 7, ZERO: 8, TRIANGLES: 9, UNSIGNED_INT: 10, UNSIGNED_SHORT: 11,
+    TEXTURE0: 12, TEXTURE1: 13 };
+  return {
+    calls, ...constants,
+    useProgram: () => undefined, uniformMatrix4fv: () => undefined, uniform4f: () => undefined,
+    activeTexture: () => undefined, bindTexture: () => undefined, bindBuffer: () => undefined,
+    enableVertexAttribArray: () => undefined, vertexAttribPointer: () => undefined,
+    disableVertexAttribArray: () => undefined, isEnabled: () => true, enable: () => undefined,
+    disable: () => undefined, uniform1i: () => undefined,
+    uniform1f: (location: unknown, value: number) => { calls.uniforms[String(location)] = value; },
+    blendFunc: (src: number, dst: number) => { calls.blend = [src, dst, src, dst]; },
+    blendFuncSeparate: (sc: number, dc: number, sa: number, da: number) => { calls.blend = [sc, dc, sa, da]; },
+    drawElements: (mode: number, count: number, type: number) => { calls.draw = [mode, count, type]; },
+  };
+}
+
 function makeLayer(gl: unknown): CapLayer {
   return {
     id: "polar-cap-north",
@@ -400,6 +445,32 @@ describe("syncCapRung", () => {
 
     await syncCapRung(layer, OPTS, fakeMap(5822)); // zoomed to the pole
     expect(gl.uploads).toEqual([1024, 8192]);
+  });
+
+  it("still uploads when the engine has no createImageBitmap and the Image path takes over", async () => {
+    // The documented fallback for engines that reject off-thread decode — slower, never wrong. It
+    // had no coverage at all: every other test here stubs `createImageBitmap` to SUCCEED, so the
+    // whole catch branch, its listener wiring included, only ever ran on machines we do not own.
+    const gl = fakeGl();
+    stubImageLoading(gl);
+    vi.stubGlobal("createImageBitmap", () => Promise.reject(new Error("no ImageBitmap here")));
+    // A write-only `src` that announces itself asynchronously, which is what a real Image does —
+    // dispatching synchronously would let a handler attached after the assignment still see it.
+    vi.stubGlobal(
+      "Image",
+      class extends EventTarget {
+        width = 0;
+        height = 0;
+        set src(url: string) {
+          this.width = Number(/_(\d+)\.webp$/.exec(url)?.[1] ?? 0);
+          this.height = this.width;
+          queueMicrotask(() => this.dispatchEvent(new Event("load")));
+        }
+      },
+    );
+
+    await syncCapRung(makeLayer(gl), OPTS, fakeMap(110));
+    expect(gl.uploads).toEqual([1024]);
   });
 
   it("jumps straight to the needed rung instead of walking the ladder", async () => {
@@ -442,8 +513,10 @@ describe("syncCapRung", () => {
   it("starts only one fetch while a rung is in flight", async () => {
     // A fast zoom fires many moveends; without the guard each would start its own 5 MB download.
     const gl = fakeGl();
-    let release = () => undefined as void;
-    const hold = new Promise<void>((resolve) => { release = () => resolve(); });
+    // `withResolvers` rather than a `let` placeholder reassigned inside an executor: the promise
+    // and the handle that settles it come out together, so there is no moment where `release` is
+    // a no-op that a mis-ordered line could call.
+    const { promise: hold, resolve: release } = Promise.withResolvers<void>();
     stubImageLoading(gl, hold);
     const layer = makeLayer(gl);
 
@@ -500,7 +573,10 @@ function fakeMapWithStyle(extentPx: number, gl: unknown) {
      *  cannot carry a custom layer. Map-level listeners are untouched. */
     loseContext: () => layers.clear(),
     fireMoveEnd: async () => {
-      for (const handler of [...(listeners.get("moveend") ?? [])]) handler();
+      // Snapshot first: a moveend handler here adds and removes cap layers, and one that
+      // unsubscribes mid-run would delete out of the Set being iterated.
+      const snapshot = [...(listeners.get("moveend") ?? [])];
+      for (const handler of snapshot) handler();
       await Promise.resolve();
       await new Promise((resolve) => setTimeout(resolve, 0));
     },
@@ -690,14 +766,6 @@ describe("vertexSrc", () => {
 });
 
 describe("loadCapElevation", () => {
-  function elevLayer(gl: unknown): CapLayer {
-    return {
-      id: "polar-cap-north", type: "custom", render: () => undefined,
-      gl: gl as WebGL2RenderingContext,
-      elevTexture: {} as WebGLTexture,
-      elevLoaded: false,
-    };
-  }
 
   it("fetches the manifest's texture and samples it NEAREST, never filtered or mipmapped", async () => {
     // THE LOAD-BEARING ASSERTION IN THIS FILE. These texels are not colour: elevation is
@@ -770,24 +838,6 @@ describe("compositedAlpha", () => {
 
 describe("the cap's draw call", () => {
   /** Enough GL to run the real `render`, recording the decisions worth asserting. */
-  function recordingGl() {
-    const calls = { blend: null as null | number[], draw: null as null | number[], uniforms: {} as Record<string, number> };
-    const constants = { TEXTURE_2D: 1, ARRAY_BUFFER: 2, ELEMENT_ARRAY_BUFFER: 3, FLOAT: 4, BLEND: 5,
-      ONE: 6, ONE_MINUS_SRC_ALPHA: 7, ZERO: 8, TRIANGLES: 9, UNSIGNED_INT: 10, UNSIGNED_SHORT: 11,
-      TEXTURE0: 12, TEXTURE1: 13 };
-    return {
-      calls, ...constants,
-      useProgram: () => undefined, uniformMatrix4fv: () => undefined, uniform4f: () => undefined,
-      activeTexture: () => undefined, bindTexture: () => undefined, bindBuffer: () => undefined,
-      enableVertexAttribArray: () => undefined, vertexAttribPointer: () => undefined,
-      disableVertexAttribArray: () => undefined, isEnabled: () => true, enable: () => undefined,
-      disable: () => undefined, uniform1i: () => undefined,
-      uniform1f: (location: unknown, value: number) => { calls.uniforms[String(location)] = value; },
-      blendFunc: (src: number, dst: number) => { calls.blend = [src, dst, src, dst]; },
-      blendFuncSeparate: (sc: number, dc: number, sa: number, da: number) => { calls.blend = [sc, dc, sa, da]; },
-      drawElements: (mode: number, count: number, type: number) => { calls.draw = [mode, count, type]; },
-    };
-  }
 
   const args = { defaultProjectionData: { projectionTransition: 1, mainMatrix: new Float32Array(16),
     clippingPlane: [0, 0, 1, 0] } };
@@ -831,7 +881,7 @@ describe("the cap's draw call", () => {
 });
 
 describe("the context-loss recovery contract", () => {
-  const globe = readFileSync(new URL("../pages/earth.astro", import.meta.url), "utf8");
+  const globe = readFileSync(new URL("../components/Globe.astro", import.meta.url), "utf8");
 
   it("earth.astro installs the caps from style.load, not from a one-shot load", () => {
     const boundToStyleLoad = /map\.on\(\s*["']style\.load["']\s*,\s*addCaps\s*\)/.test(globe);
@@ -846,7 +896,7 @@ describe("the context-loss recovery contract", () => {
   // CORRECTS THE CLAIM THIS BLOCK USED TO MAKE. It asserted the caps "survive ONLY because the
   // restore re-fires style.load". They do not survive: measured, a restore re-fires style.load and
   // the caps come back as a BLACK DISC over the pole. _contextRestored calls setStyle() at line
-  // 22446 and _setupPainter() only at 22452, so a cap added from style.load binds its buffers to
+  // 22704 and _setupPainter() only at 22716, so a cap added from style.load binds its buffers to
   // the outgoing GL context. Present, wrong, and silent — worse than the hole it was guarding
   // against, because a hole is visible as a hole.
   it("re-adds the caps on recovery, from OUTSIDE style.load, because that ordering is too early", () => {
@@ -857,5 +907,65 @@ describe("the context-loss recovery contract", () => {
     // there is the black-disc one.
     expect(reassert).toContain("removeLayer");
     expect(reassert).toContain("addCaps()");
+  });
+});
+
+// Which manifest a globe asks for. This is the only thing `addPolarCaps` decides that nothing
+// downstream can correct, and until now nothing drove it: the whole suite was green with the URL
+// written as the literal `/caps/caps.json`, because Earth is the only body that had ever had caps.
+describe("addPolarCaps addresses the manifest by body", () => {
+  // A map whose every layer already exists, so `addPolarCap` no-ops on its first line. The claim
+  // under test is the fetch, and letting the real layer factory run would drag a WebGL context in
+  // to prove something `capOptionsFrom` and `addPolarCap` already have their own tests for.
+  const inertMap = { getLayer: () => ({}) } as unknown as MaplibreMap;
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("fetches Mars's manifest for Mars, not the one Earth has always used", async () => {
+    // THE REGRESSION, WRITTEN AS A TEST. The old literal is Earth's real, live URL — so a Mars
+    // globe reaching it gets 200 OK, a valid manifest, and Earth's Arctic textures over the
+    // Martian pole. Nothing in the fetch, the parse or the render reports a problem.
+    const fetcher = stubFetch(MANIFEST);
+    vi.stubGlobal("fetch", fetcher);
+    await addPolarCaps(inertMap, "mars");
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(fetcher).mock.calls[0]?.[0]).toBe("/caps/mars/caps.json");
+    expect(vi.mocked(fetcher).mock.calls[0]?.[0]).not.toBe("/caps/caps.json");
+  });
+
+  it("still fetches exactly /caps/caps.json for Earth", async () => {
+    const fetcher = stubFetch(MANIFEST);
+    vi.stubGlobal("fetch", fetcher);
+    await addPolarCaps(inertMap, "earth");
+    expect(vi.mocked(fetcher).mock.calls[0]?.[0]).toBe("/caps/caps.json");
+  });
+
+  it("revalidates rather than reading a cached manifest, on every body", async () => {
+    // `cache: "no-cache"` is load-bearing: the textures are content-addressed by size so a stale
+    // one is impossible, but a stale MANIFEST describes a world that no longer exists — which is
+    // how adding the rung list once broke the caps on a browser holding a week-old copy.
+    // One shared recorder for every body at once. The bodies do not have to be driven in sequence
+    // — nothing here reads a per-call stub back — and awaiting them one at a time would be a claim
+    // about ordering that this test is not making.
+    const fetcher = stubFetch(MANIFEST);
+    vi.stubGlobal("fetch", fetcher);
+    await Promise.all(SLUGS.map((slug) => addPolarCaps(inertMap, slug)));
+    expect(vi.mocked(fetcher).mock.calls).toHaveLength(SLUGS.length);
+    for (const call of vi.mocked(fetcher).mock.calls) {
+      expect(call[1]).toEqual({ cache: "no-cache" });
+    }
+  });
+
+  it("names the URL it failed on, so a wrong planet is distinguishable from a broken fetch", async () => {
+    // Both failures log one line and leave the globe capless. Without the URL in the message they
+    // are the same line, and the interesting one — "this asked for the wrong body" — is unreadable.
+    const errors: string[] = [];
+    const spy = vi.spyOn(console, "error").mockImplementation((...args) => {
+      errors.push(args.map(String).join(" "));
+    });
+    vi.stubGlobal("fetch", stubFetch(null));
+    await addPolarCaps(inertMap, "mars");
+    expect(errors.join("\n")).toContain("/caps/mars/caps.json");
+    spy.mockRestore();
   });
 });

@@ -199,7 +199,7 @@ export function tileCountsBySource(
 ): SourceTileCount[] {
   if (!tileManagers || typeof tileManagers !== "object") return [];
   return Object.keys(tileManagers)
-    .sort()
+    .toSorted()
     .map((source) => ({ source, counts: summariseDemCache(tileManagers[source]) }));
 }
 

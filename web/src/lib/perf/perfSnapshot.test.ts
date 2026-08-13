@@ -9,6 +9,7 @@ import type { PerfSnapshot } from "./perfOverlay";
 import {
   PERF_REPORT_SCHEMA,
   buildPerfReport,
+  describeFlags,
   originLines,
   perfReportLines,
   type PerfOrigin,
@@ -77,6 +78,8 @@ const GL: GlLossSnapshot = {
 };
 
 const INPUTS: PerfReportInputs = {
+  timeline: [],
+  timelineMarkMs: null,
   nowMs: 25_000,
   origin: ORIGIN,
   timing: TIMING,
@@ -98,7 +101,9 @@ const INPUTS: PerfReportInputs = {
   traffic: {
     relief: { count: 73, wireBytes: 6_500_000, fromBrowserCache: 0 },
     terrain: { count: 24, wireBytes: 1_500_000, fromBrowserCache: 0 },
+    vector: { count: 31, wireBytes: 240_000, fromBrowserCache: 0 },
     opaqueCount: 0,
+    unaddressedCount: 0,
     medianNetworkDurationMs: 411,
     bufferFull: false,
   },
@@ -106,6 +111,14 @@ const INPUTS: PerfReportInputs = {
   traceSpans: [],
   longTaskIntervals: null,
   traceArmed: true,
+  rttPool: {
+    pooled: 512,
+    held: 52,
+    heldTiles: 26,
+    peakTotal: 5610,
+    destroyedTotal: 5098,
+    renderable: 26,
+  },
 };
 
 describe("buildPerfReport", () => {
@@ -405,5 +418,45 @@ describe("originLines", () => {
     expect(originLine(ORIGIN)).toContain("412x915 @ DPR 2");
     expect(originLine({ ...ORIGIN, flags: ["nocaps", "perf"] })).toContain("flags nocaps,perf");
     expect(originLine({ ...ORIGIN, flags: [] })).toContain("flags none");
+  });
+});
+
+const flagsOf = (search: string) => describeFlags(new URLSearchParams(search));
+
+describe("describeFlags", () => {
+  it("separates two arms that differ only in what a flag is SET TO", () => {
+    // The defect this function exists for. A key-only list made these two identical, so a sweep's
+    // arms were indistinguishable in the panel — and the panel is what gets photographed.
+    expect(flagsOf("?perf&maxreq=1")).not.toEqual(flagsOf("?perf&maxreq=8"));
+    expect(flagsOf("?perf&maxreq=8")).toEqual(["maxreq=8", "perf"]);
+  });
+
+  it("treats a bare flag and an empty-valued one alike, because every parser here does", () => {
+    expect(flagsOf("?perf")).toEqual(["perf"]);
+    expect(flagsOf("?perf=")).toEqual(["perf"]);
+    // Whitespace is not a value either — `?arm=%20` is a typo, and recording it as one would put a
+    // blank-looking arm name in the record and let two arms collide silently.
+    expect(flagsOf("?arm=%20")).toEqual(["arm"]);
+  });
+
+  it("keeps every value of a repeated key rather than picking one", () => {
+    // Which one `get` would return is a detail of the reader, and a record that silently drops the
+    // other cannot show that the URL was ambiguous in the first place.
+    expect(flagsOf("?lod=11&lod=12")).toEqual(["lod=11", "lod=12"]);
+  });
+
+  it("sorts, so two captures of the same arm compare equal whatever the URL order was", () => {
+    expect(flagsOf("?skirt=auto&perf&lod=11")).toEqual(flagsOf("?lod=11&perf&skirt=auto"));
+  });
+
+  it("does not truncate a value", () => {
+    // A shortened value is a false record, which is worse than a wrapped panel line: the whole
+    // schema note exists because a record that cannot re-derive its arm is not a record.
+    const long = "a".repeat(120);
+    expect(flagsOf(`?arm=${long}`)).toEqual([`arm=${long}`]);
+  });
+
+  it("is empty for a URL with no query at all, and says so as an empty list", () => {
+    expect(flagsOf("")).toEqual([]);
   });
 });

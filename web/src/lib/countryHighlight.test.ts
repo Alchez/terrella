@@ -1,7 +1,16 @@
 import { readFileSync } from "node:fs";
 import { describe, it, expect } from "vitest";
 import type { FilterSpecification } from "maplibre-gl";
-import { COUNTRY_FILL_LAYER, COUNTRY_HIT_LAYER, COUNTRY_OUTLINE_LAYER } from "./countryTiles";
+import { requireSourceLayer } from "./sourceLayers";
+
+// Earth's three, read through the descriptor rather than restated. What the assertions below are
+// for is the PLUMBING — that each builder reads its name off the binding — which is the half that
+// shipped dead once: the hover wrote to a literal source id, MapLibre answered with an ErrorEvent
+// and no throw, and nothing painted. The names' own values are pinned in sourceLayers.test.ts and,
+// across the language seam, in tests/test_source_layers.py.
+const COUNTRY_FILL_LAYER = requireSourceLayer("earth", "fill");
+const COUNTRY_OUTLINE_LAYER = requireSourceLayer("earth", "outline");
+const COUNTRY_HIT_LAYER = requireSourceLayer("earth", "hit");
 import {
   COUNTRIES_SOURCE,
   VECTOR_BINDING,
@@ -93,7 +102,7 @@ describe("featureStateTargets — the hover flag reaches both painted layers", (
   it("the hover painter derives its targets rather than naming source ids", () => {
     // The unit tests above cannot see the call site, and the call site is where this went wrong.
     // A literal `source:` inside a setFeatureState call is that mistake, in the only shape it takes.
-    const globe = readFileSync(new URL("../pages/earth.astro", import.meta.url), "utf8");
+    const globe = readFileSync(new URL("../components/Globe.astro", import.meta.url), "utf8");
     const calls = globe.match(/setFeatureState\([^)]*\)/g) ?? [];
     expect(calls.length, "earth.astro must still paint the hover highlight").toBeGreaterThan(0);
     for (const call of calls) {

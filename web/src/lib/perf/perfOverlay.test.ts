@@ -6,6 +6,7 @@ import {
   NARROW_VIEWPORT_PX,
   PERF_EXPORT_PATH,
   SLOW_FRAME_MS,
+  armFromSearch,
   exportPerfReport,
   recordLongTask,
   type LongTaskTally,
@@ -49,6 +50,44 @@ const evenFrames = (count: number, stepMs: number, now: number) =>
  *  are asserted once, on the sequence, rather than repeated on every case. */
 const summaryTexts = (snapshot: PerfSnapshot) =>
   perfSummaryLines(snapshot).map((line) => line.text);
+
+/** The two fetch outcomes the exporter distinguishes: it reads `ok` and nothing else. */
+const ok = () => Promise.resolve({ ok: true } as Response);
+const notFound = () => Promise.resolve({ ok: false } as Response);
+
+/** A PerformanceObserver stub that only declares which entry types it supports — the single
+ *  field the longtask feature-check reads. */
+const withEntryTypes = (types: string[]) =>
+  ({ supportedEntryTypes: types }) as unknown as typeof PerformanceObserver;
+
+/** Replay a script of frame events through the tracker and return where it ended up. */
+const replay = (script: ReadonlyArray<number | "idle">) => {
+  let tracker = newFrameTracker();
+  for (const event of script) {
+    tracker = event === "idle" ? onIdle(tracker) : onRender(tracker, event);
+  }
+  return { peakMs: tracker.peakMs, slowCount: tracker.slowCount };
+};
+
+/** The same replay, but reporting the peak after EVERY event rather than only at the end —
+ *  which is what makes a reset visible instead of averaged away. */
+const step = (script: ReadonlyArray<number | "idle">) => {
+  let tracker = newFrameTracker();
+  return script.map((event) => {
+    tracker = event === "idle" ? onIdle(tracker) : onRender(tracker, event);
+    return tracker.peakMs;
+  });
+};
+
+/** A zeroed tally — every field explicit, so a field added upstream fails here rather than
+ *  arriving as undefined and reading as a zero. */
+const newTally = (): LongTaskTally => ({
+  longTaskCount: 0,
+  longTaskTotalMs: 0,
+  longTaskMaxMs: 0,
+  longTaskIntervals: [],
+  longTaskIntervalsDropped: 0,
+});
 
 describe("perfSummaryLines", () => {
   it("renders pending timings as em-dashes and rounds real ones", () => {
@@ -146,9 +185,6 @@ describe("startsCollapsed", () => {
 });
 
 describe("exportPerfReport", () => {
-  const ok = () => Promise.resolve({ ok: true } as Response);
-  const notFound = () => Promise.resolve({ ok: false } as Response);
-
   it("posts the report as pretty JSON to the dev endpoint", async () => {
     let seenPath: string | undefined;
     let seenBody: string | undefined;
@@ -161,6 +197,48 @@ describe("exportPerfReport", () => {
     expect(seenPath).toBe(PERF_EXPORT_PATH);
     // Pretty-printed on purpose: the file is read by a human in an editor, not parsed by a tool.
     expect(seenBody).toBe('{\n  "a": 1\n}');
+  });
+
+  it("names the capture when an arm is given, and leaves the path bare when it is not", async () => {
+    // The arm rides the QUERY rather than the body so the endpoint can name the file without
+    // parsing the report. Absent must stay byte-identical to the old path — a trailing `?` would
+    // be a second spelling of the same endpoint for every existing caller.
+    const paths: string[] = [];
+    const fetchFn = ((path: string) => {
+      paths.push(path);
+      return ok();
+    }) as unknown as typeof fetch;
+    await exportPerfReport({ report: {}, fetchFn, arm: "refresh-true" });
+    await exportPerfReport({ report: {}, fetchFn });
+    expect(paths).toEqual([`${PERF_EXPORT_PATH}?arm=refresh-true`, PERF_EXPORT_PATH]);
+  });
+
+  it("takes the arm from the document's own query, so a label cannot contradict its arm", async () => {
+    // The failure this closes: naming the capture means repeating the arm, and a repeated string
+    // is one that can be typed differently the second time. Read from the URL there is only one.
+    expect(armFromSearch("?perf&arm=refresh-true")).toBe("refresh-true");
+    expect(armFromSearch("?arm=M11&lod=11")).toBe("M11");
+  });
+
+  it("treats a blank arm as unnamed rather than as a name", () => {
+    // A blank slug would collide silently with the next blank one; a bare timestamp is visibly
+    // unnamed, which is the honest rendering of "the caller gave me nothing usable".
+    expect(armFromSearch("?perf")).toBeUndefined();
+    expect(armFromSearch("?arm=")).toBeUndefined();
+    expect(armFromSearch("?arm=%20%20")).toBeUndefined();
+    expect(armFromSearch("")).toBeUndefined();
+  });
+
+  it("encodes an arm that would otherwise change the query it rides in", async () => {
+    // `&` in a label would forge a second parameter, which is how a capture ends up named by
+    // something the caller never asked for.
+    let seen = "";
+    const fetchFn = ((path: string) => {
+      seen = path;
+      return ok();
+    }) as unknown as typeof fetch;
+    await exportPerfReport({ report: {}, fetchFn, arm: "a&b=c d/../e" });
+    expect(seen).toBe(`${PERF_EXPORT_PATH}?arm=a%26b%3Dc%20d%2F..%2Fe`);
   });
 
   it("falls back to the clipboard when there is no endpoint — the production case", async () => {
@@ -206,9 +284,6 @@ describe("exportPerfReport", () => {
 });
 
 describe("longTaskApiSupported", () => {
-  const withEntryTypes = (types: string[]) =>
-    ({ supportedEntryTypes: types }) as unknown as typeof PerformanceObserver;
-
   it("accepts a browser that lists longtask", () => {
     expect(longTaskApiSupported(withEntryTypes(["mark", "measure", "longtask"]))).toBe(true);
   });
@@ -376,23 +451,6 @@ describe("frameInterval", () => {
 });
 
 describe("the frame tracker across a page's life", () => {
-  /** Replay a script of events through the tracker and return the peak after each one. */
-  const replay = (script: ReadonlyArray<number | "idle">) => {
-    let tracker = newFrameTracker();
-    for (const event of script) {
-      tracker = event === "idle" ? onIdle(tracker) : onRender(tracker, event);
-    }
-    return { peakMs: tracker.peakMs, slowCount: tracker.slowCount };
-  };
-
-  const step = (script: ReadonlyArray<number | "idle">) => {
-    let tracker = newFrameTracker();
-    return script.map((event) => {
-      tracker = event === "idle" ? onIdle(tracker) : onRender(tracker, event);
-      return tracker.peakMs;
-    });
-  };
-
   it("clears the load-time peak at the first idle, and only the first", () => {
     // Frames at 0/200/216 — a 200 ms load frame — then the map settles. The 200 must go, or it
     // sets a floor no later gesture can beat and the readout is stuck for the whole session.
@@ -463,14 +521,6 @@ describe("frameRate", () => {
 });
 
 describe("recordLongTask", () => {
-  const newTally = (): LongTaskTally => ({
-    longTaskCount: 0,
-    longTaskTotalMs: 0,
-    longTaskMaxMs: 0,
-    longTaskIntervals: [],
-    longTaskIntervalsDropped: 0,
-  });
-
   it("retains the WINDOW, not just the totals — the intervals cannot be recovered later", () => {
     // Long tasks reach a PerformanceObserver and are never added to the performance timeline, so
     // `getEntriesByType("longtask")` returns nothing. Retained here or lost for good.

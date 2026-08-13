@@ -38,9 +38,17 @@ export function rulerSamplePoints(
   ];
 }
 
-/** The one screen→ground result the ruler needs. Structural, so this module still imports nothing. */
-export interface GroundPoint {
-  distanceTo(other: GroundPoint): number;
+/** The one screen→ground result the ruler needs. Structural, so this module still imports nothing.
+ *
+ *  IT USED TO BE `{ distanceTo(other) }`, AND THAT IS THE WHOLE BUG. Taking the locator injected
+ *  read as body-agnostic, and it is not: a library's point type carries its own idea of a metre —
+ *  MapLibre's multiplies by a hardcoded 6371008.8 — so the seam injected WHERE THE POINTS ARE and
+ *  never WHAT A METRE IS WORTH. Every planet got Earth's distances, off by the ratio of the radii,
+ *  plausible at every zoom. Narrowing this to coordinates moves the conversion here, where the body
+ *  can be an argument. `maplibregl.LngLat` satisfies it unchanged. */
+export interface GroundLocation {
+  lng: number;
+  lat: number;
 }
 
 /**
@@ -56,15 +64,43 @@ export interface GroundPoint {
  *
  * Living here rather than at the call site so the measurement has ONE home that a test can reach;
  * the caller supplies only the conversion, and `scaleRuler.test.ts` pins which conversion that is.
+ *
+ * `groundRadiusM` IS REQUIRED AND HAS NO DEFAULT, which is the whole shape of the fix. A default
+ * would be Earth's, and a body that forgot to pass one would read plausibly rather than fail — the
+ * same reason the pipeline's entry points take a required `--body`. Passing it makes the compiler
+ * name every call site instead of leaving one to be remembered.
+ *
+ * THE ARC IS COMPUTED HERE, deliberately by the spherical law of cosines and in that exact order of
+ * operations, because that is what `LngLat.distanceTo` does — so on Earth, with the mean radius the
+ * registry now holds, this returns the same double the ruler has always shown. Earth's readings are
+ * unchanged by identity rather than by tolerance, and `scaleRuler.test.ts` proves it against the
+ * library over a table of pairs. Haversine would be better conditioned for tiny separations and is
+ * not worth losing that: at the ruler's widest zoom the angle is ~9e-3 rad, where the loss is ~1e-8
+ * relative, against a label rounded to two significant figures.
+ *
+ * The `Math.min(…, 1)` is not defensive tidiness: floating-point can push the cosine a hair above 1
+ * for two points at the same place, and `Math.acos` of that is NaN — which the formatter would
+ * render as the em-dash placeholder for a camera that is simply parked.
  */
 export function rulerGroundDistance(
-  locate: (point: [number, number]) => GroundPoint,
+  locate: (point: [number, number]) => GroundLocation,
+  groundRadiusM: number,
   width: number,
   height: number,
   spanPx: number = RULER_WIDTH_PX,
 ): number {
-  const [left, right] = rulerSamplePoints(width, height, spanPx);
-  return locate(left).distanceTo(locate(right));
+  const [leftPoint, rightPoint] = rulerSamplePoints(width, height, spanPx);
+  const from = locate(leftPoint);
+  const to = locate(rightPoint);
+  const radiansPerDegree = Math.PI / 180;
+  const fromLatitude = from.lat * radiansPerDegree;
+  const toLatitude = to.lat * radiansPerDegree;
+  const cosineOfArc =
+    Math.sin(fromLatitude) * Math.sin(toLatitude) +
+    Math.cos(fromLatitude) *
+      Math.cos(toLatitude) *
+      Math.cos((to.lng - from.lng) * radiansPerDegree);
+  return groundRadiusM * Math.acos(Math.min(cosineOfArc, 1));
 }
 
 /**

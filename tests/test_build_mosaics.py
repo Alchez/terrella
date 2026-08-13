@@ -44,7 +44,7 @@ def make_store(root: Path, tile_count: int = 2) -> None:
 def run_script(root: Path) -> str:
     result = subprocess.run(["bash", str(SCRIPT)],
                             env={**os.environ, "MAPS_DATA": str(root)},
-                            capture_output=True, text=True)
+                            capture_output=True, text=True, check=False)
     assert result.returncode == 0, result.stderr
     return result.stdout
 

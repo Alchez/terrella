@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Trace per-process GPU memory once a second, so a VRAM climb can be told from a crash-respawn.
 
 `nvidia-smi --query-compute-apps` lists CUDA/OpenCL clients only. A browser is a *graphics*
@@ -13,13 +12,11 @@ Sampling pid and age continuously turns that inference into an observation: a pi
 a crash, and only a number that grows under a stable pid is a genuine steady-state cost.
 """
 
-from __future__ import annotations
-
 import subprocess
 import sys
 import time
-import xml.etree.ElementTree as ElementTree
 from dataclasses import dataclass
+from xml.etree import ElementTree
 
 SAMPLE_INTERVAL_SECONDS = 1.0
 CLOCK_TICKS_PER_SECOND = 100.0

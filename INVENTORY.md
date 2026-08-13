@@ -8,7 +8,7 @@
   `blender/renders/` (the hero products); no assets or DEM data are in git. Free space:
   **~466 GB** of a 1.8 TB ext4 root. Sizes approximate.
 
-## Raw sources — `data/raw/` (~677 GB)
+## Raw sources — `data/raw/` (~688 GB)
 
 | Store | Size | What it is | Used by | Reclaim? |
 |---|---|---|---|---|
@@ -20,8 +20,9 @@
 | `seaice/` | 640 MB | OSI SAF OSI-450-a monthly EASE2 files + the derived 1991–2020 ice-frequency climatology (`seaice_frequency_1991-2020_4326.tif`) + native `freq_{nh,sh}_ease2.tif` | tile sea ice (`render/seaice.py`) + both caps | Keep (climatology is tiny); `monthly/` regenerable from anonymous THREDDS |
 | `cop30_void/` | 1.2 GB | Cop30 void-fill DEM | fusion void-fill | Keep |
 | `naturalearth/` | 38 MB | NE vectors (borders, framing polygons, coastline oracle) | framing, borders, countries/boundary GeoJSON | Keep (tiny) |
+| `mars/` | 12 GB | Two whole-planet downloads, no per-tile machinery. The MOLA/HRSC blended DEM (`Mars_HRSC_MOLA_BlendDEM_Global_200mp_v2.tif`, 11,384,463,908 B, 106694 × 53347 int16) is the heightfield. `Mars_Viking_ClrMosaic_global_925m.tif` (797,888,177 B, 23059 × 11530 RGB, SimpleCylindrical metres) is **an acquired input** — it is the field Mars's polar ice alpha is graded from, and `mars_ice.ALPHA_LEVELS` was measured over these exact bytes; it is also what the land ramp's hue was measured against | the DEM feeds Mars's planet seam (`fuse/relabel_mars.py`); the mosaic is acquired by `acquire/download_viking_mosaic.py` and read so far only by the ice-level scripts, no render stage yet | Keep the DEM — re-downloadable, but a ~23 min single-stream fetch with its edition pinned by size and Last-Modified. The mosaic is **re-fetchable exactly**, its acquirer pinning the publisher's own md5, so a deleted copy returns byte-identical in ~90 s — but it is no longer spare, and deleting it now costs a re-fetch rather than nothing |
 
-## Work / intermediates — `data/work/` (~320 GB)
+## Work / intermediates — `data/work/` (~330 GB)
 
 | Store | Size | What it is | Reclaim? |
 |---|---|---|---|
@@ -30,10 +31,15 @@
 | `globathy/` | 16 GB | GLOBathy extracted: `rasters/` = **83,357** per-lake 1″ TIFFs (~15 GB, 83 k inodes) + `lakedepth.vrt` (the Caspian is excluded — watermask class 1, takes GEBCO) | Keep — the VRT is the lake-depth warp's only dependency, and the raw zips it came from are gone, so this IS the store now (re-downloadable via `acquire.download_globathy`, pinned md5) |
 | `planet/` | 14 GB | Fused planet heightfield + masks, 648 cells of 10° (36 lon × 18 lat, pole to pole) | Keep — input to the tiler |
 | `planet_terrain/` | **7.6 GB** | Terrain-RGB (Tier 3 displacement), built by `tile/terrain_rgb.py` from `height_3857.tif`. Shipping pyramid is `bathy_s8_webp/` (**2.63 GB, 87,381 tiles, z0–8**), stamped `tiles.done` + `terrain_params.json` so it will not restage, packed to **`terrain.pmtiles` (2.63 GB)** via **`terrain.mbtiles` (2.69 GB)**. **Both the 60 GB `elev/` chain and the spike A/B builds are gone** — this store is now only the shipping pyramid, its archive, and the bridge | Mixed — `terrain.mbtiles` (2.69 GB) is the bridge format and is dead now that the archive is live in production; it rebuilds from `tiles/` in 12 s, the same standing exception `planet.mbtiles` takes. Keep `bathy_s8_webp/` (the pack source) and `terrain.pmtiles` (the deployment artifact). A rebuild re-derives the chain from `height_3857.tif` and no longer copies the master, so it costs ~13 GB transiently, not 60 |
-| `planet_countries/` | **10.2 MB** | Country VECTOR tiles (MVT), cut by `compose/countries_pmtiles.py` from `borders/countries.geojson` plus the two layers it derives. One archive, three source-layers (`country_fill`, `country_outline`, `country_hit`), z0–8, stamped `countries_tiles_params.json`. **Three orders of magnitude smaller than the raster pyramids** — it is geometry, not pixels | Keep. Re-cuts from `countries.geojson` in **17 s**, so the archive is cheap to regenerate; the recipe sidecar is what makes a settings change visible, since the filename cannot carry one |
+| `planet_vector/` | **10.2 MB** | Earth's VECTOR tiles (MVT), cut by `compose/countries_pmtiles.py` from `borders/countries.geojson` plus the two layers it derives. One archive, three source-layers (`country_fill`, `country_outline`, `country_hit`), z0–8, stamped `countries_tiles_params.json` — the sidecar keeps its producer's name, the archive takes the layer's. **Three orders of magnitude smaller than the raster pyramids** — it is geometry, not pixels | Keep. Re-cuts from `countries.geojson` in **17 s**, so the archive is cheap to regenerate; the recipe sidecar is what makes a settings change visible, since the filename cannot carry one |
 | `cap/` | 1.3 GB | Both caps' render intermediates (`tile/cap_render.py`): AEQD warps + `cap_{north,south}.tif` + **the freshness sidecars `cap_{north,south}_params.json`** + the A/B rung archives (decision records, ~10 MB). Served outputs live at `web/public/caps/` (two WebP rungs per pole + `caps.json`) | Reclaimable — regenerated by a cap render (deleting the sidecars merely forces one), but budget **≥16 G**: the render peaks ~14 GB and OOMs under the standard 12 G cap (PROCESS § Polar cap render) |
 | `borders/` | <1 GB | `countries.geojson` + `boundary_lines.geojson` (NE → GeoJSON emitters), served at `/borders/` | Keep (tiny); regenerable from `naturalearth/` |
+| `mars/` | 4.2 GB | **The second body's whole work tree**, nested under its own prefix where Earth's stages sit un-prefixed at the root. `planet/` is 12 KB — a CRS-relabelled VRT over the raw blend plus its seam declaration, no copy of the 11 GB. `planet_tiles/` holds the two products of the z7 cut — `tiles/` 1.4 GB (21,845 tiles, z0–7) and **`planet.pmtiles` 1.40 GB** (the deployment artifact, 20,950 unique tile bodies) — plus the four recipe sidecars and the burnt ice GeoJSONs. **Its intermediates are deliberately absent**: `height_3857.tif` (11 GB at 65536²), `planet_rgb.tif` 4.1 GB, `hs_3857.tif` 3.2 GB, the six ice rasters and the alpha, and `planet.mbtiles` were all reclaimed once the cut was accepted, because no remaining phase reads them — vectors are a web overlay and heroes render from the raw DEM | Mixed — the archive and `tiles/` are the products and `tiles/` stays until R2 holds a second copy of the archive. Everything reclaimed rebuilds from raw in ~16:10; the `.done` markers left vouching for absent outputs are safe, since every guard returns "rebuild" for a missing file |
+| `mars/ice/` | 205 MB | **Live.** `viking_luma_4326.tif` — the Viking mosaic collapsed to one Float32 brightness band on a 4326 grid covering the whole sphere, which is the field BOTH ice tiers grade against, beside the two VRTs that reach it and `viking_luma_params.json`. Whole-planet on purpose though only the poles are read: a polar crop would save ~160 MB and cost a crop latitude whose failure is ice quietly missing at the band edge | Keep — a 45 s rebuild from the raw mosaic, and the sidecar makes a re-run a skip. `mars_ice.ALPHA_LEVELS` is four percentiles OF THIS FILE, so rebuilding it on a different grid means re-measuring them |
+| `mars/cap/` | 1.3 GB | **Live.** The cap stage's intermediates for both poles — the AEQD height warps and the full-size colour renders, beside the `*_params.json` sidecars that decide whether a re-run restages them. `MARS.renders_polar_caps` is `True`, so the shade pass refreshes these on every run | Keep — deleting them costs a ~1:15 re-render, and the sidecars are what make it a skip |
 | `_profile_tiles/` | 6 MB | The latest `run_pass.sh --tiles` run: `pass.log` (stage timings) + `samples.jsonl`. **Truncated on every run** — only ever the most recent pass | Keep — the source of PROCESS.md's numbers |
+| `_profile_mars_tiles/` | 540 KB | The same two files for the FIRST Mars pass, under its own name because that one predates the harness knowing about bodies and was run by hand. Mars runs through `run_pass.sh` now and lands in `_profile_tiles/` beside Earth — the 16 G cap that forced the detour is derived from `renders_polar_caps` and answers 12 G for a capless body | Keep — the source of PROCESS.md's first Mars row, which no later run reproduces |
+| `_profile_pass/` | 17 MB | The same two files for the most recent `run_pass.sh` with NO `--tiles`, kept separate from `_profile_tiles/` so a composite-only look iteration does not overwrite the timings of the last full cut. **Truncated on every run** | Keep — the source of PROCESS.md's warm-loop row |
 | `_*/` experiment scratch | 0 now | A/B and investigation output, by convention leading-underscore (`_ab_shadow`, `_pinecone_exp`, …) | **Reclaim as soon as the decision lands in HISTORY** — the finding is the product, the pixels are not |
 
 ### `planet_tiles/` breakdown
@@ -86,9 +92,11 @@
 ## What the browser loads (dev vs prod)
 
 - The wire view — which stores actually reach a visitor, and how dev differs from the deploy
-  target. Dev serves stores through three routes in `web/astro.config.ts`, pointed by `web/.env`
-  (`HERO_STORE` → `blender/renders/variants`, `BORDERS_STORE` → `work/borders`,
-  `PMTILES_STORE` → `planet_tiles/`); the deploy target is Cloudflare — a **site Worker** serving
+  target. Dev serves stores through three routes in `web/astro.config.ts`: two pointed by
+  `web/.env` (`HERO_STORE` → `blender/renders/variants`, `BORDERS_STORE` → `work/borders`) and
+  `/tiles`, whose three archives are derived from the work tree itself
+  (`work/<body>/planet_tiles/planet.pmtiles` and siblings, rooted at `MAPS_DATA`); the deploy
+  target is Cloudflare — a **site Worker** serving
   `web/dist` as static assets (`web/wrangler.jsonc`, *not* Pages), R2 for the hero and border
   stores, and a **separate tile Worker** for tiles. The site addresses all three through
   `web/src/lib/assetBase.ts`, whose defaults are the same-origin dev paths.
@@ -101,10 +109,10 @@
 | page CSS | **inlined into every document** (`build.inlineStylesheets: 'always'`), so it costs document bytes and no request — 12 KB on the globe, 5 KB on the gallery, uncompressed | dev injects it as `<style>` via Vite instead, which is a different cascade order | same | in the HTML |
 | MapLibre's stylesheet | 70 KB raw, a **non-blocking** `<link media="print">` promoted on load — it styles widgets that cannot exist until the globe chunk has run | same link; dev *also* injects it as `<style>`, so it loads twice | same | `web/dist/_astro/maplibre-gl.*.css` |
 | small chunks (polarCaps, capability probe) | ~3 KB total | same | same | `web/dist/_astro/` |
-| relief tiles | **~36 KB avg/tile** (3.1 GB ÷ 87,381), viewport-driven | `/tiles/{z}/{x}/{y}.webp`, ranged out of the archive by the dev middleware | same URL shape, ranged by the Worker out of R2 — measured: first paint ≈ 40 requests | `planet.pmtiles` |
+| relief tiles | **~36 KB avg/tile** (3.1 GB ÷ 87,381), viewport-driven | `/tiles/earth/relief/{token}/{z}/{x}/{y}.webp`, ranged out of the archive by the dev middleware | same URL shape, ranged by the Worker out of R2 — measured: first paint ≈ 40 requests | `planet_tiles/planet.pmtiles` |
 | polar caps | **desktop 3.2 + 2.1 MB** (8192 rung) · **mobile 1.0 + 0.8 MB** (4096 rung) + `caps.json` (fetched eagerly at globe load, revalidated not cached; decode off-thread) | identical | identical — WebP ships pre-compressed | `web/public/caps/` |
 | `boundary_lines.geojson` | 0.55 MB gz (1.95 MB raw) — **opt-in only**: fetched on the first Borders toggle-on, never by default | uncompressed | edge gzip/brotli | `work/borders/` |
-| country vector tiles | **4 tiles, 175 KB brotli** in the cold window at the default camera (z1 covers the globe; 22–65 KB each, largest 122 KB raw), viewport-driven like the relief tiles | `/countries/{z}/{x}/{y}.mvt`, ranged by the dev middleware, identity bytes | same URL shape, ranged by the Worker out of R2; edge-compressed as text | `planet_countries.pmtiles` |
+| country vector tiles | **4 tiles, 175 KB brotli** in the cold window at the default camera (z1 covers the globe; 22–65 KB each, largest 122 KB raw), viewport-driven like the relief tiles | `/tiles/earth/vector/{token}/{z}/{x}/{y}.mvt`, ranged by the dev middleware, identity bytes | same URL shape, ranged by the Worker out of R2; edge-compressed as text | `planet_vector/vector.pmtiles` |
 | `countries.geojson` | 2.5 MB gz (9.4 MB raw at the 0.002° guard-tested tolerance) — **no longer delivered**: superseded by the vector tiles above, and now only the cut's input | — | — | `work/borders/` |
 | hero variants (gallery srcset + globe click panel) | mean per rung **60 KB / 130 / 222 / 466 / 2,838 / 8,624** (640/960/1280/1920/3840/native WebP) + the portrait fill rung (**2048/2560/3072, 19.0 MB over 25 countries**) + border overlays 0.14–1.1 MB PNG | staged behind an IntersectionObserver past the first two cards; srcset picks the rung, and for a portrait country the rung's WIDTH is `rung × aspect` | same | `blender/renders/variants/` |
 
@@ -117,17 +125,21 @@ Dev–prod differences that matter:
 - **Validators** — the dev store routes send no ETag/Last-Modified, so every dev reload
   re-downloads everything (recorded on the PLAN Lighthouse item); prod sends validators plus
   aggressive cache headers.
-- **Tile source** — one archive either way, and the browser never opens it: it asks for
-  `{z}/{x}/{y}.webp` and a tile server does the ranging (dev middleware locally, a Worker over
-  R2 in production). The extension follows `TILE_EXTENSION` in `web/src/lib/reliefTiles.ts`, which
-  both servers import. The XYZ directory the archive was packed from is not deployed at all.
+- **Tile source** — one archive per layer either way, and the browser never opens any of them: it
+  asks for `{body}/{layer}/{token}/{z}/{x}/{y}.{ext}` and a tile server does the ranging (dev
+  middleware locally, a Worker over R2 in production). Six segments, always — a planet, a layer or
+  a re-cut adds a word to one of the first three and never changes the shape. The token is the
+  archive's own content hash, which is what a re-cut changes: tiles ship `immutable` for a year and
+  a zone purge cannot reach a browser cache, so the URL *is* the version. `web/src/lib/tileAddress.ts`
+  is the one grammar, imported by both servers and by the client that builds the URLs. The XYZ
+  directory the archive was packed from is not deployed at all.
 - `countries.geojson` fetches on every globe load (it drives interactivity); `boundary_lines`
   loads only after the user opts into borders (the source is added lazily on first toggle-on,
   and the stored preference re-adds it on later visits) — async, first paint never waits.
 
 ## The freshness guard (why no manual `rm` list is ever needed)
 
-- `shade_planet.py` guards every stage on **freshness** (`is_stale`), not existence: a stage
+- Every stage is guarded on **freshness** (`pipeline/freshness.py`), not existence: a stage
   re-runs if its output is missing, was never stamped `.done`, or is older than any input —
   including the chunk **directory** (a VRT's mtime does not move when its chunks are re-fused)
   and the materialised param files. An exists()-only guard cannot tell *built* from *still

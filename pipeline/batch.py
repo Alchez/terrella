@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Batch runner: drive the whole pipeline across every in-scope country.
 
 Reuses country_config's resolver (scope, frames, per-country stage commands)
@@ -42,14 +41,25 @@ import shutil
 import subprocess
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
-from pipeline.frame.country_config import (build_scope, load_config,
-                                           load_ne_rows, preflight_gebco,
-                                           resolve, stage_commands)
+from pipeline import paths
+from pipeline.frame.country_config import (
+    build_scope,
+    country_render_dir,
+    country_work_dir,
+    load_config,
+    load_ne_rows,
+    preflight_gebco,
+    resolve,
+    stage_commands,
+)
 
-ROOT = Path(__file__).resolve().parent.parent
+#: The CHECKOUT, and the working directory every stage subprocess is run from — so the
+#: checkout-relative paths in those commands (`pipeline/…`, `blender/…`) resolve. Data paths do NOT
+#: hang off it; they come from `country_work_dir`, which follows the store.
+ROOT = paths.ROOT
 # Stage commands say "python …" assuming a venv-active shell; put this runner's
 # own interpreter dir first on PATH so the subprocesses use the venv, not system.
 ENV = {**os.environ,
@@ -77,7 +87,7 @@ def detect_cgroup_cap() -> bool:
         return False
     probe = ("systemd-run --user --scope -q -p MemoryMax=256M "
              "-p MemorySwapMax=0 -- true")
-    return subprocess.run(probe, shell=True, capture_output=True).returncode == 0
+    return subprocess.run(probe, shell=True, capture_output=True, check=False).returncode == 0
 
 
 def wait_for_mem(floor_gib: float) -> bool:
@@ -96,7 +106,7 @@ def wait_for_mem(floor_gib: float) -> bool:
 
 def log_failure(slug, stage_index, cmd, returncode, kind) -> None:
     FAIL_LOG.parent.mkdir(parents=True, exist_ok=True)
-    ts = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    ts = datetime.now(UTC).isoformat(timespec="seconds")
     with open(FAIL_LOG, "a") as log_file:
         log_file.write(json.dumps(dict(
             ts=ts, slug=slug, stage_index=stage_index,
@@ -108,7 +118,7 @@ def bootstrap() -> None:
     for cmd in ("bash pipeline/acquire/download_naturalearth.sh",
                 "python -m pipeline.acquire.download_gebco"):
         print(f"[bootstrap] {cmd}", flush=True)
-        if subprocess.run(cmd, shell=True, cwd=ROOT, env=ENV).returncode != 0:
+        if subprocess.run(cmd, shell=True, cwd=ROOT, env=ENV, check=False).returncode != 0:
             sys.exit(f"bootstrap failed: {cmd} — cannot proceed without it")
 
 
@@ -117,7 +127,7 @@ def prune_intermediates(slug: str) -> None:
     fused rasters, warp dir, and scene file. The hero PNG and the shared raw
     GLO-30/GEBCO tiles are kept. Used by --clean to keep a full sweep within
     disk (a near-global run accretes ~500 GB of tiles + fusions otherwise)."""
-    work = ROOT / f"data/work/{slug}"
+    work = country_work_dir(slug)
     if work.exists():
         shutil.rmtree(work)
     (ROOT / f"blender/{slug}_hero.blend").unlink(missing_ok=True)
@@ -129,7 +139,7 @@ def run_country(slug, resolved, through, force, dry, cap_gib, use_cap, floor,
     """Run one country's stages; return a short outcome string."""
     do_clean = clean and through == "render" and not dry
     target = (ROOT / f"blender/renders/heroes/{slug}.png" if through == "render"
-              else ROOT / f"data/work/{slug}/render/lakedepth_aea.tif")
+              else country_render_dir(slug) / "lakedepth_aea.tif")
     if target.exists() and not force:
         if do_clean:
             prune_intermediates(slug)
@@ -165,7 +175,7 @@ def run_country(slug, resolved, through, force, dry, cap_gib, use_cap, floor,
                   flush=True)
         else:
             rc = subprocess.run(prefix + run_cmd, shell=True, cwd=ROOT,
-                                env=ENV).returncode
+                                env=ENV, check=False).returncode
             if rc != 0:
                 kind = "oom" if rc in (137, -9) else "error"
                 if raw_tmp:
@@ -180,10 +190,10 @@ def run_country(slug, resolved, through, force, dry, cap_gib, use_cap, floor,
             # writes the shaded hero as a SEPARATE file (atomic, internal .tmp), so
             # the raw stays pristine and post-look tweaks never re-render.
             sv = subprocess.run(
-                f"python -m pipeline.render.sky_view --render-dir data/work/{slug}/render"
+                f"python -m pipeline.render.sky_view --render-dir {country_render_dir(slug)}"
                 f" --hero {raw} --out {final}"
                 f" --strength {resolved['sky_view_strength']}", shell=True,
-                cwd=ROOT, env=ENV).returncode
+                cwd=ROOT, env=ENV, check=False).returncode
             if sv != 0:
                 log_failure(slug, idx, "sky_view", sv, "error")
                 return f"FAIL@{idx} (sky_view)"

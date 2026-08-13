@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Batch-generate standalone transparent border layers + gallery variants.
 
 The gallery's border toggle overlays a per-country transparent PNG of the
@@ -22,21 +21,32 @@ import json
 from pathlib import Path
 
 import cairo
+import pyproj
 
-ROOT = Path(__file__).resolve().parents[2]
+from pipeline import naturalearth, paths
+from pipeline.compose.overlay_borders import (
+    DASHED_CLASSES,
+    DISPUTED_STYLE,
+    LAND_STYLE,
+    MARITIME_STYLE,
+    SOLID_CLASSES,
+    frame_bbox_lonlat,
+    read_lines,
+    render_mapping,
+    stroke,
+)
+from pipeline.frame.country_config import (
+    build_scope,
+    country_render_dir,
+    country_work_dir,
+    load_config,
+    load_ne_rows,
+)
 
-import pyproj  # noqa: E402
-from pipeline.frame.country_config import (build_scope, load_config,  # noqa: E402
-                                           load_ne_rows)
-from pipeline.compose.overlay_borders import (DASHED_CLASSES, DISPUTED_STYLE,  # noqa: E402
-                             LAND_STYLE, MARITIME_STYLE, SOLID_CLASSES,
-                             frame_bbox_lonlat, read_lines, render_mapping,
-                             stroke)
-
-NE = ROOT / "data/raw/naturalearth"
-BORDERS = ROOT / "blender/renders/borders"
-VARIANTS = ROOT / "blender/renders/variants"
-WORK = ROOT / "data/work"
+# The rendered layers live in the CHECKOUT beside the heroes they overlay; the per-country inputs
+# they read live in the DATA store, reached through `country_work_dir`. Two roots, two seams.
+BORDERS = paths.ROOT / "blender/renders/borders"
+VARIANTS = paths.ROOT / "blender/renders/variants"
 # The globe's hero panel is the only surface that overlays this layer, and it declares a 420 px
 # slot — so the rungs that matter are 420 px at DPR 1/2/3. 1920 alone left that panel pulling an
 # 85 kB border PNG on top of a 48 kB hero, i.e. the border became the heavier half of the card
@@ -46,13 +56,12 @@ WORK = ROOT / "data/work"
 TARGETS = (640, 960, 1280, 1920)   # each country's native long edge added too
 
 
-def ne(name: str) -> Path:
-    return NE / name / f"{name}.shp"
 
 
 def find_render_dir(slug: str) -> Path | None:
     """work/<slug>/render, else the first render* dir with the prep outputs."""
-    cand = [WORK / slug / "render", *sorted((WORK / slug).glob("render*"))]
+    work = country_work_dir(slug)
+    cand = [country_render_dir(slug), *sorted(work.glob("render*"))]
     for candidate in cand:
         if (candidate / "frame.json").exists() and (candidate / "heightfield_aea.tif").exists():
             return candidate
@@ -67,11 +76,11 @@ def draw_layer(rdir: Path):
     fwd = pyproj.Transformer.from_crs("EPSG:4326", crs, always_xy=True)
     bbox = frame_bbox_lonlat(bounds, crs)
 
-    land = list(read_lines(ne("ne_10m_admin_0_boundary_lines_land"), bbox))
+    land = list(read_lines(naturalearth.layer("ne_10m_admin_0_boundary_lines_land"), bbox))
     solid = [(record, parts) for record, parts in land if record.as_dict()["FEATURECLA"] in SOLID_CLASSES]
     dashed = [(record, parts) for record, parts in land if record.as_dict()["FEATURECLA"] in DASHED_CLASSES]
     maritime = list(read_lines(
-        ne("ne_10m_admin_0_boundary_lines_maritime_indicator"), bbox))
+        naturalearth.layer("ne_10m_admin_0_boundary_lines_maritime_indicator"), bbox))
 
     surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, width, height)
     ctx = cairo.Context(surface)

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Compute a country's render frame from its Natural Earth bounding box.
 
 The frame is the lon/lat window every downstream stage shares: the fusion
@@ -29,7 +28,7 @@ from pathlib import Path
 
 import shapefile
 
-NE_DIR = Path(__file__).resolve().parents[2] / "data/raw/naturalearth"
+from pipeline import naturalearth
 
 
 def country_bbox(shp_path, name):
@@ -69,11 +68,11 @@ def main():
     ap.add_argument("--country", required=True,
                     help="ADMIN name in ne_10m_admin_0_countries "
                          "(case-insensitive)")
-    ap.add_argument("--ne-dir", type=Path, default=NE_DIR)
+    ap.add_argument("--ne-dir", type=Path, default=naturalearth.DIR)
     ap.add_argument("--pad-pct", type=float, default=5.0)
     args = ap.parse_args()
 
-    shp = args.ne_dir / "ne_10m_admin_0_countries/ne_10m_admin_0_countries.shp"
+    shp = naturalearth.layer("ne_10m_admin_0_countries", directory=args.ne_dir)
     admin, bbox = country_bbox(shp, args.country)
     frame = pad_frame(bbox, args.pad_pct)
     print(f"country: {admin}")

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Custom hillshade with a per-row (latitude-varying) z-factor for Web Mercator grids.
 
 `gdaldem hillshade` takes a single scalar z-factor. A Web-Mercator planet needs the
@@ -28,10 +27,9 @@ from typing import Any
 import numpy as np
 import rasterio
 
-from pipeline import bodies, mercator
+from pipeline import mercator
 from pipeline.raster_io import GTIFF_CREATE, band_window, row_bands
 from pipeline.render import cast_shadow
-
 
 # The hero's fill sun, ported to the tiles (scene_build.FILL_ROTATION (30, 0, 135) -> 60 deg up
 # from the SE; FILL_ANGLE 10; use_shadow off). "Shadowless" used to reproduce for free, because a
@@ -101,9 +99,11 @@ def combine_fill(main: np.ndarray, fill: np.ndarray, strength: float, altitude: 
 def _latitude_of_rows(transform, row_indices: np.ndarray) -> np.ndarray:
     """Latitude (degrees) of pixel-row centres from an EPSG:3857 geotransform."""
     merc_y = transform.f + (row_indices + 0.5) * transform.e  # transform.e < 0 (north-up)
-    # Still Earth-bound at this one explicit site, where it used to be a bare literal duplicated in
-    # snow.py. The conversion itself now lives in `mercator` and takes the sphere it is projected on.
-    return mercator.latitude_at(merc_y, bodies.EARTH.mercator_radius_m)
+    # NOT the body's radius, and this is not a site left to parameterise. The row's latitude is a
+    # property of the GRID, and every grid here is EPSG:3857 whatever planet the heights describe —
+    # so the sphere is the projection's, permanently. Reading it off the body registry (which this
+    # did) invited the fix that would have made Mars's rows report latitudes 31 degrees out.
+    return mercator.latitude_at(merc_y, mercator.WEB_MERCATOR_RADIUS_M)
 
 
 def hillshade_array(heights: np.ndarray, cellsize: float, zfactor,
@@ -149,8 +149,20 @@ def hillshade_array(heights: np.ndarray, cellsize: float, zfactor,
 def per_row_zfactor_hillshade(height_path, out_path, exaggeration: float = 15.0,
                               altitude: float = 45.0, azimuth: float = 315.0,
                               window_rows: int = 256, fill_strength: float = 0.0,
-                              shadow_strength: float = 0.0, shadow_reach_px: int = 0) -> None:
+                              shadow_strength: float = 0.0, shadow_reach_px: int = 0,
+                              *, ground_scale: float) -> None:
     """Stream a seamless, per-latitude-z hillshade over a whole EPSG:3857 height raster.
+
+    `ground_scale` is how many real ground metres one map unit of this raster is worth
+    (`bodies.ground_metres_per_mercator_unit`), and it is KEYWORD-ONLY AND REQUIRED because there is
+    no safe default. A slope is a rise in body metres over a run in map units, and every raster here
+    is EPSG:3857 whatever planet the elevations came from — so on Earth the two agree exactly and on
+    Mars a map unit is worth 0.53 of a ground metre, making the true relief 1.878x steeper than the
+    grid says. Defaulting it to 1.0 would hand every future body Earth's answer silently, which is
+    the one failure mode with no symptom: the shading comes out plausible at every latitude.
+
+    It divides the z-factor for the same reason `cos(lat)` does — both convert a map run into a
+    ground run, one constant across the raster and one varying down it.
 
     `fill_strength` mixes in the hero's fill sun (see `combine_fill`); 0.0 skips the second
     hillshade entirely and is bit-identical to a no-fill pass. It defaults OFF so the fill is
@@ -201,7 +213,8 @@ def per_row_zfactor_hillshade(height_path, out_path, exaggeration: float = 15.0,
                                mode="edge")
                 out_rows = np.arange(row0, row1)
                 latitude = np.clip(_latitude_of_rows(src.transform, out_rows), -85.05, 85.05)
-                zfactor = (exaggeration / np.cos(np.radians(latitude))).reshape(-1, 1)
+                zfactor = (exaggeration
+                           / (ground_scale * np.cos(np.radians(latitude)))).reshape(-1, 1)
                 # hillshade_array's contract is exactly ONE halo row; a deeper shadow halo is
                 # trimmed back to it here rather than by widening that function's contract.
                 local = block if halo == 1 else block[halo - 1:block.shape[0] - (halo - 1)]
@@ -210,8 +223,8 @@ def per_row_zfactor_hillshade(height_path, out_path, exaggeration: float = 15.0,
                     block_rows = np.arange(row0 - halo, row1 + halo)
                     block_latitude = np.clip(_latitude_of_rows(src.transform, block_rows),
                                              -85.05, 85.05)
-                    block_zfactor = (exaggeration
-                                     / np.cos(np.radians(block_latitude))).reshape(-1, 1)
+                    block_zfactor = (exaggeration / (ground_scale * np.cos(
+                        np.radians(block_latitude)))).reshape(-1, 1)
                     shadow = cast_shadow.shadow_mask(block, block_zfactor, cellsize, altitude,
                                                      azimuth, shadow_reach_px)
                     shaded = shaded * (1.0 - shadow_strength * shadow[halo:halo + (row1 - row0)])

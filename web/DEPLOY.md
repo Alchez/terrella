@@ -13,13 +13,33 @@ Only the shell is small enough to ship inside the build, so production is three 
 | Hero renders, border GeoJSON  | R2 bucket `terrella-assets`                |
 | Relief tiles, terrain-RGB DEM | tile Worker (`worker/`) over an R2 binding |
 
-The tile Worker serves **two** archives out of one bucket, told apart by a path prefix:
-`{z}/{x}/{y}.webp` is relief and `terrain/{z}/{x}/{y}.webp` is the Tier-3 elevation pyramid. The
-prefix carries the whole distinction — both are lossless WebP over z0–8 on the same grid, so
-there is nothing else in a tile URL to tell them apart, and serving the wrong one would displace
-the globe rather than fail. Uploading a new archive is `aws --profile r2 --endpoint-url <r2> s3 cp
-<file> s3://terrella-tiles/<key>`, then bump the matching key in `worker/wrangler.jsonc`; a re-cut
-always ships under a **new key**, never an overwrite.
+The tile Worker serves **three** archives out of one bucket, told apart by the address:
+`{body}/{layer}/{token}/{z}/{x}/{y}.{ext}`, where the layer segment is `relief`, `terrain` or
+`countries`. That segment carries the whole distinction between the two raster pyramids — both are
+lossless WebP over z0–8 on the same grid, so there is nothing else in a tile URL to tell them
+apart, and serving the wrong one would displace the globe rather than fail.
+
+Which archive each `{body}/{layer}` resolves to is the registry in `src/lib/tileAddress.ts`, which
+the Worker and the client both compile. Uploading a new archive is `aws --profile r2 --endpoint-url
+<r2> s3 cp <file> s3://terrella-tiles/<key>`, then point that layer's registry entry at the new
+key and regenerate its token with `pnpm check:tile-tokens --write`; a re-cut always ships under a
+**new key**, never an overwrite.
+
+**Deleting the superseded object is irreversible, so it comes last.** R2 implements no object
+versioning and no undelete — `ListObjectVersions` answers `NotImplemented` — so a removed archive
+is gone from the bucket for good. Delete only once the new key is verified live, because until then
+the old object is what makes a rollback a revert-and-redeploy rather than a rebuild.
+
+**The copies on the render box are not a substitute.** The raster cutters keep exactly one
+generation at `tiles_old` and the next run of that stage removes it, so a pyramid is restorable from
+disk only until it is next cut — a rollback for the run you just did, not an archive. The vector
+archives keep no previous generation at all and their source GeoJSON is overwritten in place by the
+derivation, so rebuilding one means reverting the geometry rule out of git and re-cutting.
+
+**Ship the tile Worker BEFORE the site.** The token in a tile URL comes from the site bundle, and
+the Worker is what routes it — so a site deployed first advertises addresses the live Worker may
+not answer, and the globe comes up blank. The reverse is harmless: a Worker that understands an
+address nobody is asking for yet costs nothing.
 
 **There are TWO deploys.** `pnpm run deploy` ships the shell only; the tile Worker has its own
 config and its own command. Neither touches the other.
@@ -35,14 +55,44 @@ Two independent ceilings, and the tighter one is storage.
     cache-tuning lever moves this number.
   - An earlier estimate of "a fraction, not a doubling" assumed `tileSize: 512`; the shipping
     declaration is 128, which is what makes it a doubling.
-- **Storage: 9.13 GB of the 10 GB free tier** — 3.00 relief + 2.63 terrain + 3.50 assets. That is
-  **0.87 GB of headroom**, and it is the constraint that binds first. Overage is inexpensive
-  ($0.015/GB-month), so this is a number to watch rather than to fear.
+- **Storage binds first, and the 10 GB-month allowance is already spent** — the two buckets together
+  are past it, which a second body's pyramids are what pushed them over.
+  - **Overage rounds UP to the next whole GB-month** at $0.015, so the bill moves in 1.5-cent steps
+    rather than continuously. That is what makes a new pyramid a disk-and-time decision rather than
+    a cost one, and it is the half of the pricing page easiest to read past.
+  - **Measure it rather than believing a figure written here.** The number this replaced drifted by
+    1.5 GB with nothing to catch it, because a total in prose has no reader that can go red:
+    `aws --profile r2 --endpoint-url "$R2_ENDPOINT" s3 ls --recursive --summarize s3://terrella-tiles`,
+    then the same for `terrella-assets`.
 - Priced against the published rates: **$5.00/month at 2,000 cold visits/day, ~$5.83 at 5,000** —
   worst case, treating every request as a cache miss. The Workers Paid subscription *is* the bill;
   usage barely registers against it.
 
-## 1. The site shell
+## 1. The tile Worker
+
+```sh
+cd worker && npx wrangler deploy
+```
+
+**Required whenever `worker/` or anything it imports changes** — which is `src/lib/tileAddress.ts`
+and everything it reaches, the registry and `tileTokens.json` among them. Named as the entry point
+rather than as a list of modules, because a list goes stale in silence: a reader who checks it,
+finds their file absent and skips this deploy ships a site advertising addresses the live Worker
+cannot resolve.
+
+Two things about this deploy are confusing enough to waste a session:
+
+- **`No targets deployed for terrella-tiles` is not an error.** The site Worker declares
+  `routes: [{ pattern: "terrella.alchez.dev", custom_domain: true }]`; the tile Worker declares
+  **no routes**, because `tiles.terrella.alchez.dev` is attached to it **in the dashboard only**.
+  Wrangler is reporting that the config named no targets, not that the version failed. It does go
+  live — confirm from outside rather than from the message.
+- **A fresh setup must attach that custom domain by hand**, or the Worker deploys successfully and
+  is unreachable at every hostname: `workers_dev` and `preview_urls` are both off by design.
+  Declaring the route in `worker/wrangler.jsonc` would fix both points. It has not been done
+  because the domain is already attached and re-declaring it touches live routing.
+
+## 2. The site shell
 
 ```sh
 pnpm run deploy          # NOT `pnpm deploy` — that is a pnpm builtin
@@ -63,34 +113,19 @@ see `docs/pipeline.md`.
 
 **The preflight can refuse.** `scripts/check_deploy_sync.ts` runs before the upload and blocks on
 three things: an object the manifest promises that R2 does not have, a globe that would request
-terrain no Worker routes, and an archive key `worker/wrangler.jsonc` names that is not in
+terrain no Worker routes, and **any archive the registry publishes** that is not in
 `terrella-tiles`. All three are silent in production — a 404ing tile does not stop the globe
 rendering, it just renders wrong, flat, or blank with nothing in any log. The refusal message names
 the file to change.
 
-The third is the one to expect after a re-cut: packing and uploading an archive are separate steps
-from deploying, and the Worker reads its key from config, so bumping the key before the upload
-finishes is the easy mistake. The preflight turns that into a refusal instead of an outage.
+The third enumerates rather than naming keys, and that is what closed a real hole: it used to read
+two named variables out of the Worker's config, so the country pyramid was never checked at all and
+a deploy missing it reported clean. A fourth archive is now checked the day it is published, by a
+script nobody edited.
 
-## 2. The tile Worker
-
-```sh
-cd worker && npx wrangler deploy
-```
-
-Required whenever `worker/` or anything it imports (`src/lib/reliefTiles.ts`) changes.
-
-Two things about this deploy are confusing enough to waste a session:
-
-- **`No targets deployed for terrella-tiles` is not an error.** The site Worker declares
-  `routes: [{ pattern: "terrella.alchez.dev", custom_domain: true }]`; the tile Worker declares
-  **no routes**, because `tiles.terrella.alchez.dev` is attached to it **in the dashboard only**.
-  Wrangler is reporting that the config named no targets, not that the version failed. It does go
-  live — confirm from outside rather than from the message.
-- **A fresh setup must attach that custom domain by hand**, or the Worker deploys successfully and
-  is unreachable at every hostname: `workers_dev` and `preview_urls` are both off by design.
-  Declaring the route in `worker/wrangler.jsonc` would fix both points. It has not been done
-  because the domain is already attached and re-declaring it touches live routing.
+It is also the one to expect after a re-cut: packing and uploading an archive are separate steps
+from deploying, so bumping the registry entry before the upload finishes is the easy mistake. The
+preflight turns that into a refusal instead of an outage.
 
 ## Verifying a deploy
 

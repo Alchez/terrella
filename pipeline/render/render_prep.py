@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Prepare fused heightfield + ocean mask for Blender rendering.
 
 Warps both rasters from EPSG:4326 (degrees; east-west stretched away from the
@@ -46,7 +45,6 @@ import os
 from pathlib import Path
 from typing import Any
 
-import numpy as np
 import rasterio
 from rasterio.crs import CRS
 from rasterio.enums import Resampling

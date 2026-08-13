@@ -13,15 +13,18 @@
     "astro": "astro",
     "test": "vitest run",
     "test:watch": "vitest",
-    "check": "astro check",
+    "lint": "oxlint --report-unused-disable-directives-severity=error",
+    "check": "astro check && pnpm run check:worker",
+    "check:worker": "tsc --noEmit -p worker/tsconfig.json",
     "check:test-collection": "node scripts/check_test_collection.ts",
+    "check:tile-tokens": "node scripts/gen_tile_tokens.ts",
     "build:deploy": "PUBLIC_HERO_BASE=https://assets.terrella.alchez.dev/heroes/ PUBLIC_BORDERS_BASE=https://assets.terrella.alchez.dev/borders/ PUBLIC_TILE_BASE=https://tiles.terrella.alchez.dev/ astro build",
     "check:deploy-sync": "node scripts/check_deploy_sync.ts",
     "deploy": "pnpm run check:deploy-sync && pnpm run build:deploy && wrangler deploy"
   },
   "dependencies": {
     "astro": "^7.1.3",
-    "maplibre-gl": "6.1.0",
+    "maplibre-gl": "6.3.0",
     "pmtiles": "4.4.1"
   },
   "devDependencies": {
@@ -31,10 +34,12 @@
     "@types/node": "^26.1.1",
     "@vitest/browser": "4.1.10",
     "@vitest/browser-playwright": "4.1.10",
+    "oxlint": "1.76.0",
     "playwright": "1.62.1",
     "typescript": "^6.0.3",
     "vite": "^8.1.4",
     "vitest": "^4.1.10",
-    "wrangler": "4.114.0"
+    "webgl-memory": "1.1.3",
+    "wrangler": "4.120.1"
   }
 }

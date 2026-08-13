@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Download OSI SAF sea-ice concentration and build a frequency-of-occurrence climatology.
 
 The sea half of the polar look: a static, timeless "how often is this sea-water frozen"
@@ -29,7 +28,7 @@ Output (data/raw/seaice/):
       global EPSG:4326, packed UInt16 (0..10000 = 0..1 frequency, PACK_FILL where undefined)
 
 Idempotency: each monthly file streams to a .part name, is size-checked, then atomically
-renamed (download_glo30.download_one), so a file under its final name is always complete and
+renamed (fetch.download_one), so a file under its final name is always complete and
 re-runs skip it. The reduction rebuilds only if its output is missing (or --force). Edition
 oracle: the versioned THREDDS path (conc_450a_files) + the cdr-v3p0 filename self-pin the
 release -- a renamed/withdrawn file 404s and aborts the run -- and assert_edition() reads the
@@ -53,7 +52,7 @@ from rasterio.fill import fillnodata
 from scipy.ndimage import gaussian_filter
 
 from pipeline import paths
-from pipeline.acquire.download_glo30 import download_one
+from pipeline.fetch import download_one
 
 DATA_DIR = paths.DATA / "raw/seaice"
 MONTHLY_DIR = DATA_DIR / "monthly"
@@ -237,9 +236,8 @@ def main() -> int:
                         help="rebuild the climatology even if the output exists")
     args = parser.parse_args()
 
-    if not args.build_only:
-        if download_all() != 0:
-            return 1
+    if not args.build_only and download_all() != 0:
+        return 1
     if not args.download_only:
         if FINAL.exists() and not args.force:
             print(f"{FINAL} exists -- pass --force to rebuild", flush=True)

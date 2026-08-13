@@ -45,11 +45,12 @@ export interface QuietMode {
 /**
  * True when a keystroke belongs to whatever the user is typing into rather than to the page.
  *
- * The globe has no text fields today, so this guards a future one rather than a present bug —
- * but a bare single-letter shortcut is exactly the kind that starts eating keystrokes the moment
- * a search box lands, and by then the cause is not obvious.
+ * EXPORTED BECAUSE THE SEARCH FIELD ARRIVED, which is the future this was written for. It now has
+ * two readers — quiet mode's `Z` and the search field's `/` — and the list of what counts as a
+ * typing target is exactly the kind of thing a second reader copies and then drifts. One owner, so
+ * a shortcut that starts eating keystrokes is fixed once.
  */
-function isTypingTarget(target: EventTarget | null): boolean {
+export function isTypingTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
   if (target.isContentEditable) return true;
   return ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName);

@@ -16,12 +16,32 @@ Kept free of the body registry deliberately: this is projection maths, and coupl
 catalogue would mean every caller that has a radius but no `Body` had to invent one.
 """
 
-from __future__ import annotations
-
 import math
 
 import numpy as np
 from numpy.typing import NDArray
+
+#: The sphere EPSG:3857 is DEFINED on, in metres. A projection constant, not a planet's property —
+#: it happens to equal Earth's equatorial radius because that is where the projection came from,
+#: and it stays this number for every body: PROJ refuses to build an operation between two celestial
+#: bodies, so every raster in this pipeline is EPSG:3857 whatever planet its elevations describe.
+#:
+#: So a northing on a tile grid names a latitude on THIS sphere for Mars exactly as it does for
+#: Earth, and a caller reaching into the body registry for it is asking the wrong question — the
+#: latitude of a grid row is a property of the grid, not of the ground under it. `bodies.EARTH`
+#: pins the same value as the body's own radius, which is a separate coincidence with its own test.
+WEB_MERCATOR_RADIUS_M = 6378137.0
+
+#: Half the width of the Web Mercator plane in map units — where the world's east and west edges
+#: sit, and therefore what "this raster is global" means when a caller has only bounds to go on.
+#:
+#: DERIVED, NOT TRANSCRIBED, and that is the whole reason it is here. The digits are what drift: the
+#: suite alone held `20037508.34`, `20037508.343` and the full `20037508.342789244`, each correct to
+#: its own author's tolerance and none of them able to answer whether a raster's bounds ARE the world
+#: or merely near it. Earth's heightfield overshoots this by 12.25 m and Mars lands on it exactly, so
+#: any test of globalness has to be written against a pixel size rather than against these decimals —
+#: which is a judgement a caller can only make if the exact value has one owner.
+MERCATOR_HALF_M = math.pi * WEB_MERCATOR_RADIUS_M
 
 
 def latitude_at(mercator_y, radius_m: float):

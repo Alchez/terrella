@@ -32,6 +32,8 @@ import type { PerfSnapshot } from "./perfOverlay";
 import type { CameraFill, TileTraffic } from "./perfNetwork";
 import type { PerfLine } from "./perfLines";
 import type { DeviceClass } from "../polarCaps";
+import type { RttPoolStats } from "../rttPoolTrim";
+import type { TimelineSample } from "./perfTimeline";
 import type { SpanEntry } from "../perfSpans";
 import { megabytes } from "../format";
 import { summariseSpans, type Interval, type TraceSummary } from "./perfTrace";
@@ -44,8 +46,36 @@ import { summariseSpans, type Interval, type TraceSummary } from "./perfTrace";
  *
  *  3 adds `trace`: named spans, and the share of blocked time they do and do not explain. A v2 file
  *  carries long-task totals with no attribution at all, so the two cannot be compared on "how much
- *  of this was ours" — the absence is the point of the bump again. */
-export const PERF_REPORT_SCHEMA = 3;
+ *  of this was ours" — the absence is the point of the bump again.
+ *
+ *  4 narrows what `traffic.relief` MEANS. In a v3 export it was the fall-through: anything under
+ *  the tile base that did not start `terrain/` counted as relief, including entries that are no
+ *  tile at all. It is now what the tile servers' own parser calls relief, with `countries` and
+ *  `unaddressedCount` as the answers it used to absorb. The field did not move, so nothing about a
+ *  v3 file looks different — which is exactly why the number has to say so.
+ *
+ *  How much this changed in practice is MEASURED, not assumed: on the live globe, all 407 tile
+ *  entries were `img`-initiated raster, so a v3 relief count was inflated only by whatever failed
+ *  to parse. Vector tiles are fetched from MapLibre's worker and never reach this buffer at all.
+ *
+ *  5 gives `origin.flags` its VALUES. Up to v4 the field held bare keys, so two arms of the same
+ *  sweep that differed only in what a flag was set TO — the ordinary case for a valued flag —
+ *  produced byte-identical origins. `href` still separated them in an exported file, but the panel
+ *  never prints `href`, so the arm was unrecoverable from the screenshot that is this instrument's
+ *  whole reason for existing on a phone. See {@link describeFlags}.
+ *
+ *  6 adds `rttPool`, and with it the renderable terrain tile count. That census already existed and
+ *  was formatted straight onto the panel, so it reached a human's glance and never the exported
+ *  file — a report was readable by eye and unparseable by a harness on the one quantity that
+ *  multiplies every per-tile cost the profiler attributes. A v5 file carries no tile count at all,
+ *  which is the absence the bump makes explicit.
+ *
+ *  7 adds `timeline`: the same terms sampled over time rather than at the instant of export, plus
+ *  GPU bytes where the dev-only accounting library is attached. A v6 file can say the pool is large
+ *  and cannot say whether it is growing, which is the question every reading of it actually asks.
+ *  It also carries `timelineMarkMs`, the moment a reader chose to measure from — a MARK rather than
+ *  a reset, because the cumulative frame fields are deliberately never cleared. */
+export const PERF_REPORT_SCHEMA = 7;
 
 /** Where and under what conditions a reading was taken. */
 export interface PerfOrigin {
@@ -71,7 +101,7 @@ export interface PerfOrigin {
   realisedPixelRatio: number;
   viewportCssWidth: number;
   viewportCssHeight: number;
-  /** Diagnostic flags in effect (`nocaps`, `bare`, `demcache=off`…), sorted. */
+  /** Diagnostic flags in effect, as {@link describeFlags} renders them: `nocaps`, `demcache=off`. */
   flags: string[];
   /**
    * Whether the panel was EXPANDED when this was taken.
@@ -86,6 +116,32 @@ export interface PerfOrigin {
    * cannot rule out.
    */
   panelExpanded: boolean;
+}
+
+/**
+ * Render the query string as the flag list {@link PerfOrigin.flags} carries.
+ *
+ * A bare flag stays a bare key; a flag with a value becomes `key=value`. That distinction is the
+ * whole point of the function: this page's diagnostic flags are mostly VALUED (`?maxreq=`,
+ * `?skirt=`, `?terrain=`, `?lod=`), and a list of keys says two arms of a sweep were configured
+ * identically when the values are the only thing that differed between them.
+ *
+ * An empty value reads as bare — `?perf` and `?perf=` mean the same thing to every parser on this
+ * page, so they must not describe differently. Repeated keys yield one entry each rather than being
+ * collapsed, because `URLSearchParams` hands the whole list to whoever reads it and the last-wins
+ * behaviour a reader might assume is not universal.
+ *
+ * Values are NOT truncated. A long one wraps the panel, which is a legibility cost; a shortened one
+ * is a false record, which is the class of defect the schema note above exists to stop.
+ */
+export function describeFlags(params: URLSearchParams): string[] {
+  const described: string[] = [];
+  for (const key of new Set(params.keys())) {
+    const values = params.getAll(key).filter((value) => value.trim() !== "");
+    if (values.length === 0) described.push(key);
+    else for (const value of values) described.push(`${key}=${value}`);
+  }
+  return described.toSorted();
 }
 
 /** How far down the FPS degradation ladder this page has walked. */
@@ -154,6 +210,14 @@ export interface PerfReportInputs {
   traceSpans: readonly SpanEntry[];
   longTaskIntervals: readonly Interval[] | null;
   /**
+   * The RTT pool census, whose `renderable` is the tile count every per-tile cost multiplies.
+   *
+   * Null when terrain never came up, which is distinct from a census reading zero: one says the arm
+   * had no terrain, the other says terrain is on and drawing nothing, and an arm read as a win
+   * because it was silently terrain-less is the confound this field exists to rule out.
+   */
+  rttPool: RttPoolStats | null;
+  /**
    * Whether span tracing actually armed.
    *
    * Separate from "there are no spans", and the distinction is the whole point: a browser without
@@ -161,6 +225,27 @@ export interface PerfReportInputs {
    * indistinguishable from a session where the traced work genuinely never happened.
    */
   traceArmed: boolean;
+  /**
+   * The last two minutes of the pool model's terms, oldest first.
+   *
+   * The rest of this report is a MOMENT, and the two costliest defects this instrument has been
+   * pointed at were trajectories: an unbounded RTT pool, and a terrain tile set that inflates under
+   * a drag and not under a scripted pan. `renderable: 4999` and `renderable: 35` are equally
+   * plausible as single readings — only the series says which way it was going, and reconstructing
+   * one previously meant a throwaway script.
+   *
+   * Empty is a real state (a capture taken before the first tick), not a fault.
+   */
+  timeline: TimelineSample[];
+  /**
+   * When the reader marked a moment to measure from, or null if they never did.
+   *
+   * The INSTRUMENT'S OWN STATE is part of the reading — the same argument `panelExpanded` exists
+   * for. A capture whose panel was showing a since-mark figure and one showing only cumulative
+   * numbers are different readings of the same session, and nothing else in the file distinguishes
+   * them.
+   */
+  timelineMarkMs: number | null;
 }
 
 export interface PerfReport extends PerfReportInputs {

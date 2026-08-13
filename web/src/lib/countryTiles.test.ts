@@ -1,17 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-  COUNTRIES_CONTENT_TYPE,
-  COUNTRIES_MAX_ZOOM,
-  COUNTRIES_MIN_ZOOM,
-  COUNTRIES_PATH_TEMPLATE,
-  COUNTRIES_TILE_EXTENSION,
-  COUNTRY_FILL_LAYER,
-  COUNTRY_HIT_LAYER,
-  COUNTRY_OUTLINE_LAYER,
-  assertCountriesZoomRange,
-  describeCountriesTileTypeMismatch,
-  parseCountriesTilePath,
-} from "./countryTiles";
+import { COUNTRIES_PATH_PREFIX, parseCountriesTilePath } from "./countryTiles";
 import { parseTilePath } from "./reliefTiles";
 import { parseTerrainTilePath } from "./terrainSource";
 
@@ -51,55 +39,13 @@ describe("parseCountriesTilePath", () => {
   });
 });
 
-describe("describeCountriesTileTypeMismatch", () => {
-  it("is silent when the archive stores what the globe asks for", () => {
-    expect(describeCountriesTileTypeMismatch(`.${COUNTRIES_TILE_EXTENSION}`)).toBeNull();
-  });
-
-  it("names the constant to change when the archive stores a raster codec", () => {
-    const message = describeCountriesTileTypeMismatch(".webp");
-    expect(message).toContain("COUNTRIES_TILE_EXTENSION");
-    expect(message).toContain("countries_pmtiles.py");
-  });
-
-  it("says so even when pmtiles cannot name the encoding at all", () => {
-    // tileTypeExt returns "" for an unknown type, and an empty string interpolated into the
-    // message reads as the archive storing nothing rather than something unrecognised.
-    expect(describeCountriesTileTypeMismatch("")).toContain("cannot name");
-  });
-});
-
-describe("assertCountriesZoomRange", () => {
-  it("passes when the archive matches the constants", () => {
-    expect(() => assertCountriesZoomRange(COUNTRIES_MIN_ZOOM, COUNTRIES_MAX_ZOOM)).not.toThrow();
-  });
-
-  it("throws on drift in either direction, naming the file to fix", () => {
-    // A shallower archive is invisible on THIS pyramid in a way it is not on relief: the sparse
-    // route answers 204 for a missing tile, so an archive that stops early looks like ocean.
-    expect(() => assertCountriesZoomRange(0, 6)).toThrow(/countryTiles\.ts/);
-    expect(() => assertCountriesZoomRange(1, 8)).toThrow(/countryTiles\.ts/);
-  });
-});
-
 describe("the archive contract the pipeline writes", () => {
-  it("addresses tiles under the prefix MapLibre will interpolate", () => {
-    expect(COUNTRIES_PATH_TEMPLATE).toBe("countries/{z}/{x}/{y}.mvt");
-  });
-
-  it("declares protobuf, not an image type", () => {
-    expect(COUNTRIES_CONTENT_TYPE).toBe("application/x-protobuf");
-  });
-
-  // These three strings are MapLibre `source-layer` values, and their writer is a Python file no
-  // type system reaches. A disagreement renders every country layer empty, with no error and no
-  // warning — so pin them here and in tests/test_countries_pmtiles.py, which reads the same names
-  // out of the pipeline module.
-  it("pins the source-layer names the cutter writes", () => {
-    expect([COUNTRY_FILL_LAYER, COUNTRY_OUTLINE_LAYER, COUNTRY_HIT_LAYER]).toEqual([
-      "country_fill",
-      "country_outline",
-      "country_hit",
-    ]);
+  it("keeps the prefix its own parser reads, which is the legacy grammar's discriminator", () => {
+    // The prefix no longer appears in anything the browser ASKS for — tileAddress.ts builds those
+    // from `{body}/{layer}/…`, where `countries` is the layer segment. It survives here because
+    // `parseCountriesTilePath` is what still accepts the shape pages built before the switch are
+    // asking for, and it goes when that branch does.
+    expect(COUNTRIES_PATH_PREFIX).toBe("countries");
+    expect(parseCountriesTilePath(`${COUNTRIES_PATH_PREFIX}/3/4/3.mvt`)).toEqual({ z: 3, x: 4, y: 3 });
   });
 });

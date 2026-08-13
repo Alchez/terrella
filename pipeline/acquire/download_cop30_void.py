@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Fetch the GLO-30 DEM tiles that OpenTopography holds but AWS GLO-30 Public withholds.
 
 The AWS "GLO-30 Public" bucket (download_glo30.py's source) omits ~two dozen tiles over
@@ -14,7 +13,7 @@ alongside the AWS dir.
 The water mask for these tiles is NOT here (OpenTopography serves DEM only) — it comes from
 build_void_wbm.py, which synthesises a WBM from ESA WorldCover over the same extent.
 
-Idempotent/resumable: reuses download_glo30.download_one (streams to .part, size-checks
+Idempotent/resumable: reuses fetch.download_one (streams to .part, size-checks
 against Content-Length, atomic rename); held files are skipped, failures retried next run.
 Delete data/raw/cop30_void/COP30_hh.vrt to re-check the index against a newer OT edition.
 
@@ -27,8 +26,12 @@ import sys
 from pathlib import Path
 
 from pipeline import paths
-from pipeline.acquire.download_glo30 import (TILE_LIST, WORKERS, download_one,
-                                             fetch_tile_list)
+from pipeline.acquire.download_glo30 import (
+    TILE_LIST,
+    WORKERS,
+    fetch_tile_list,
+)
+from pipeline.fetch import download_one
 
 OT_ENDPOINT = "https://opentopography.s3.sdsc.edu"
 OT_PREFIX = "raster/COP30/COP30_hh"          # keyless public COG mirror, DGED 2023_1

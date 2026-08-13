@@ -9,7 +9,18 @@
 
 import type { Map as MaplibreMap } from "maplibre-gl";
 import { groupPerfLines, type PerfLine } from "./perfLines";
+import {
+  buildSample,
+  emitDevToolsTrack,
+  summariseSince,
+  PerfTimeline,
+  probeGpuMemory,
+  timelineLines,
+  type TimelineMapLike,
+  type TimelineSample,
+} from "./perfTimeline";
 import type { Interval } from "./perfTrace";
+import type { RttPoolStats } from "../rttPoolTrim";
 
 /** Map-event stamps recorded by the PAGE at map construction (earth.astro), not by this
  *  module: the overlay is dynamically imported and loses the race on fast (prod-built)
@@ -293,6 +304,16 @@ export function startsCollapsed(viewportCssWidth: number): boolean {
   return viewportCssWidth < NARROW_VIEWPORT_PX;
 }
 
+/** A duration, or the em dash that means "no reading" — never a fabricated 0.
+ *
+ *  Module-level because the collapsed view and the summary must round and dash IDENTICALLY: the
+ *  collapsed line is the same measurement the expanded panel shows, and two copies of this rule
+ *  could drift into reporting the same snapshot two ways. It was in fact written out twice. */
+const ms = (value: number | null) => (value === null ? "—" : `${Math.round(value)} ms`);
+
+/** A whole-second duration, for spans long enough that milliseconds are noise. */
+const seconds = (value: number) => `${(value / 1000).toFixed(0)}s`;
+
 /**
  * The two lines worth showing when the panel is collapsed.
  *
@@ -301,7 +322,6 @@ export function startsCollapsed(viewportCssWidth: number): boolean {
  * of what is on screen, so nothing is lost by collapsing.
  */
 export function perfCollapsedLines(snapshot: PerfSnapshot): string[] {
-  const ms = (value: number | null) => (value === null ? "—" : `${Math.round(value)} ms`);
   const rate = snapshot.fps === null ? "fps —" : `fps ${snapshot.fps}`;
   const tasks = snapshot.longTaskApiAvailable
     ? `blocked ${ms(snapshot.longTaskTotalMs)} in ${snapshot.longTaskCount}`
@@ -321,7 +341,6 @@ export function perfCollapsedLines(snapshot: PerfSnapshot): string[] {
  * filing it under one would be false precision.
  */
 export function perfSummaryLines(snapshot: PerfSnapshot): PerfLine[] {
-  const ms = (value: number | null) => (value === null ? "—" : `${Math.round(value)} ms`);
   const lines: PerfLine[] = [
     { group: "cpu", text: `boot ${ms(snapshot.bootMs)}` },
     {
@@ -347,7 +366,6 @@ export function perfSummaryLines(snapshot: PerfSnapshot): PerfLine[] {
   // panel's own font gives 53 characters on a 412 px phone, and the combined form ran to 61 and
   // wrapped. Wrapping costs the same height as a second line while making both halves harder to
   // scan, so this spends the row deliberately — and only when there is a retained rate to explain.
-  const seconds = (value: number) => `${(value / 1000).toFixed(0)}s`;
   const rate = snapshot.fps === null ? "fps — (idle)" : `fps ${snapshot.fps}`;
   lines.push({
     group: "feel",
@@ -368,6 +386,24 @@ export function perfSummaryLines(snapshot: PerfSnapshot): PerfLine[] {
  *  comment in astro.config.ts for why this is not configurable. */
 export const PERF_EXPORT_PATH = "/__perf";
 
+/**
+ * The arm this DOCUMENT is, read from its own query string.
+ *
+ * The capture names itself from the URL rather than from a string the caller repeats, and that is
+ * the entire point: an arm typed twice is an arm that can be typed differently the second time,
+ * which is precisely the mislabelling that made a whole sweep unusable. Here the label and the
+ * configuration it describes cannot disagree, because there is only one of them.
+ *
+ * Extracted and exported rather than inlined at the call site, per this module's standing rule —
+ * logic inside `mountPerfOverlay` is logic no test can reach, and a sabotage of it goes uncaught.
+ */
+export function armFromSearch(search: string): string | undefined {
+  const arm = new URLSearchParams(search).get("arm");
+  // An empty or blank `?arm=` is a typo, not a name. Undefined leaves the capture timestamped,
+  // which is visibly unnamed — a blank-looking slug would collide silently with the next one.
+  return arm === null || arm.trim() === "" ? undefined : arm;
+}
+
 /** What the export did, rendered onto the button so a phone with no console still gets an answer.
  *  Every branch is a distinct string: "it silently did nothing" must not be reachable. */
 export type PerfExportOutcome = "saved" | "copied" | "failed";
@@ -387,13 +423,20 @@ export type PerfExportOutcome = "saved" | "copied" | "failed";
  */
 export async function exportPerfReport(options: {
   report: unknown;
+  /** Names the capture on disk. A sweep otherwise lands as N timestamps that must each be opened
+   *  to find out which arm they are — the directory stops being readable at exactly the point a
+   *  sweep gets big enough to need reading. Advisory: the endpoint slugs it and owns the result. */
+  arm?: string;
   fetchFn?: typeof fetch;
   writeClipboard?: (text: string) => Promise<void>;
   path?: string;
 }): Promise<PerfExportOutcome> {
   const body = JSON.stringify(options.report, null, 2);
+  const path = options.path ?? PERF_EXPORT_PATH;
+  const target =
+    options.arm === undefined ? path : `${path}?arm=${encodeURIComponent(options.arm)}`;
   try {
-    const response = await options.fetchFn?.(options.path ?? PERF_EXPORT_PATH, {
+    const response = await options.fetchFn?.(target, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body,
@@ -428,24 +471,22 @@ export interface PerfOverlayOptions {
    *  `panel.expanded` is handed over because the INSTRUMENT'S OWN STATE is part of the reading:
    *  an expanded panel does strictly more work than a collapsed one, and a file that does not say
    *  which it was cannot rule out an observer effect. One already happened. */
-  buildReport?: (timing: PerfSnapshot, panel: { expanded: boolean }) => unknown;
+  buildReport?: (
+    timing: PerfSnapshot,
+    panel: { expanded: boolean; timeline: TimelineSample[]; markMs: number | null },
+  ) => unknown;
+  /** The pool census the page already computes, handed over rather than re-probed.
+   *
+   *  `rttPoolTrim.ts` owns the reach past MapLibre's public API for these terms and already ships
+   *  them in the report; sampling them again from here would be a second reader of the same private
+   *  state, free to drift on the next rename. The timeline's job is to add TIME to numbers that
+   *  already have an owner, not to acquire them. */
+  readRttPool?: () => RttPoolStats | null;
 }
 
 export function mountPerfOverlay(map: MaplibreMap, options: PerfOverlayOptions = {}): void {
-  const { eventStamps, extraLines, buildReport } = options;
+  const { eventStamps, extraLines, buildReport, readRttPool } = options;
 
-  // A seam for scripted diagnosis: without a map handle, a driven browser can reach the camera only
-  // through synthetic gestures or hash jumps, and an A/B whose arms cannot be given the identical
-  // camera route is the confound this project keeps paying for.
-  //
-  // It lives HERE, not in earth.astro, and that is what gates it. This module is dynamically
-  // imported inside the `?perf` branch alone, so an ordinary visit never downloads it, let alone
-  // runs this line — the module boundary IS the gate, and no edit to a page can accidentally widen
-  // it. The first version sat in earth.astro behind the flag with a test asserting the assignment
-  // appeared within the flag block's text span; a sabotage that moved it out of the block while
-  // leaving it inside the span passed that test cleanly. A guard that matches a region cannot
-  // decide what encloses a statement.
-  window.terrellaMap = map;
   const snapshot: PerfSnapshot = {
     bootMs: performance.now(),
     mapLoadMs: null,
@@ -540,20 +581,42 @@ export function mountPerfOverlay(map: MaplibreMap, options: PerfOverlayOptions =
   });
   applyCollapse();
 
+  // MARK, not reset. The cumulative frame and long-task fields are deliberately never cleared —
+  // see `PerfSnapshot.worstFrameMs` — because the hitch happens during a gesture and the screenshot
+  // is taken afterwards. Marking a moment adds a second reading derived from the ring instead of
+  // destroying the first, so "what did THAT gesture cost" and "what is the worst this session saw"
+  // are both answerable from one panel.
+  let markMs: number | null = null;
+  const mark = button("mark");
+  mark.addEventListener("click", () => {
+    markMs = markMs === null ? performance.now() : null;
+    mark.textContent = markMs === null ? "mark" : "unmark";
+  });
+
+  // One export path, reached from the button and from the scripted seam below, so a tapped capture
+  // and a driven one cannot come from different compositions of the same moment. The arm defaults
+  // to the document's own `?arm=`, so a driver that configures an arm in the URL cannot then label
+  // the capture as something else; passing one explicitly is the override, not the ordinary path.
+  const runExport = (arm: string | undefined = armFromSearch(location.search)): Promise<PerfExportOutcome> =>
+    buildReport === undefined
+      ? Promise.resolve<PerfExportOutcome>("failed")
+      : exportPerfReport({
+          report: buildReport(snapshot, { expanded: !collapsed, timeline: timeline.samples(), markMs }),
+          arm,
+          fetchFn: typeof fetch === "function" ? fetch.bind(globalThis) : undefined,
+          writeClipboard: navigator.clipboard
+            ? (text) => navigator.clipboard.writeText(text)
+            : undefined,
+        });
+
   if (buildReport) {
     const exportButton = button("export");
     exportButton.addEventListener("click", () => {
       exportButton.textContent = "…";
-      void exportPerfReport({
-        report: buildReport(snapshot, { expanded: !collapsed }),
-        fetchFn: typeof fetch === "function" ? fetch.bind(globalThis) : undefined,
-        writeClipboard: navigator.clipboard
-          ? (text) => navigator.clipboard.writeText(text)
-          : undefined,
-        // The outcome stays on the button rather than reverting: on a phone the tap and the
-        // reading of the result are the same glance, and a label that flicked back to "export"
-        // would leave "did that work?" unanswered.
-      }).then((outcome) => {
+      // The outcome stays on the button rather than reverting: on a phone the tap and the reading
+      // of the result are the same glance, and a label that flicked back to "export" would leave
+      // "did that work?" unanswered.
+      void runExport().then((outcome) => {
         exportButton.textContent = outcome;
       });
     });
@@ -561,6 +624,29 @@ export function mountPerfOverlay(map: MaplibreMap, options: PerfOverlayOptions =
 
   panel.append(body, controls);
   document.body.appendChild(panel);
+
+  // THE SCRIPTED-DIAGNOSIS SEAM, and the reason it is in this module rather than on a page.
+  //
+  // Without it a driven browser reaches the camera only through synthetic gestures or hash jumps,
+  // and an A/B whose arms cannot be given the identical camera route is the confound this project
+  // keeps paying for. Everything worth reading — `terrain.tileManager._renderableTilesKeys`,
+  // `painter._rttObjectRecyclePool` — is private state that only the map can reach.
+  //
+  // This module is dynamically imported inside the `?perf` branch alone, so an ordinary visit never
+  // downloads it and the MODULE BOUNDARY is the gate: no edit to a page can widen it. A page-level
+  // assignment behind a flag check was tried and is why that rule is structural rather than
+  // textual — a sabotage that closed the flag block early and reopened it after the assignment left
+  // the statement outside the gate and inside the span its guard matched, and passed cleanly.
+  //
+  // ONE handle, not one per capability. The page briefly also shipped `window.__map` for the same
+  // map: nothing failed, both were correct where they sat, and the guard here went on passing
+  // because it was keyed to a NAME rather than to the concept — which is exactly how that
+  // duplicate came to be assigned twice with its own gate dead from the day it landed.
+  window.terrella = {
+    map,
+    report: () => buildReport?.(snapshot, { expanded: !collapsed, timeline: timeline.samples(), markMs }),
+    export: runExport,
+  };
 
   if (!eventStamps) {
     map.once("load", () => {
@@ -611,6 +697,41 @@ export function mountPerfOverlay(map: MaplibreMap, options: PerfOverlayOptions =
     if (renderStamps.length > 512) renderStamps.splice(0, renderStamps.length - 256);
   });
 
+  // THE TRAJECTORY, sampled on the tick that already exists rather than on a second interval.
+  //
+  // A snapshot cannot show a trend, and the two costliest defects here were trends: an unbounded
+  // RTT pool and a terrain tile set that inflates under drag. Reusing this tick keeps the
+  // instrument's own cost where it already was — a second timer would be a second thing capable of
+  // perturbing what it measures, which this overlay has done before.
+  const timeline = new PerfTimeline();
+  let sliceStartMs = performance.now();
+  let longTaskTotalAtSlice = 0;
+  const sampleTimeline = (now: number, stamps: readonly number[]): TimelineSample => {
+    // Worst frame WITHIN the slice. `snapshot.worstFrameMs` is cumulative-since-load and a
+    // cumulative maximum can never come back down, so it cannot show recovery or onset — the two
+    // things a trajectory is read for.
+    let worstInSlice = 0;
+    let previous: number | null = null;
+    for (const stamp of stamps) {
+      if (stamp < sliceStartMs) continue;
+      if (previous !== null) worstInSlice = Math.max(worstInSlice, stamp - previous);
+      previous = stamp;
+    }
+    const longTaskTotal = snapshot.longTaskTotalMs ?? 0;
+    const sample = buildSample({
+      atMs: now,
+      stats: readRttPool?.() ?? null,
+      gpu: probeGpuMemory(map as unknown as TimelineMapLike),
+      worstFrameMs: worstInSlice,
+      longTaskMs: Math.max(0, longTaskTotal - longTaskTotalAtSlice),
+    });
+    timeline.push(sample);
+    emitDevToolsTrack(sample);
+    longTaskTotalAtSlice = longTaskTotal;
+    sliceStartMs = now;
+    return sample;
+  };
+
   // A slow textContent refresh — the overlay must never contribute the jank it measures.
   // Page-recorded stamps are copied here each tick: the object is live, so stamps that
   // land after mount still appear.
@@ -626,13 +747,17 @@ export function mountPerfOverlay(map: MaplibreMap, options: PerfOverlayOptions =
     snapshot.lastActiveFpsAgeMs =
       retainedRate.measuredAtMs === null ? null : now - retainedRate.measuredAtMs;
     snapshot.zoom = map.getZoom();
+    // Sampled BEFORE the trim below, or the slice loses the very stamps it is meant to measure.
+    const latest = sampleTimeline(now, renderStamps);
     while (renderStamps.length && now - renderStamps[0] > FPS_WINDOW_MS * 2) renderStamps.shift();
     // The collapsed view is a SUBSET of the same live snapshot, not a second reading — nothing on
     // the panel can disagree with the export because all three come from this one object.
     body.textContent = collapsed
       ? perfCollapsedLines(snapshot).join("\n")
-      : groupPerfLines([...perfSummaryLines(snapshot), ...(extraLines?.(snapshot) ?? [])]).join(
-          "\n",
-        );
+      : groupPerfLines([
+          ...perfSummaryLines(snapshot),
+          ...timelineLines(latest, summariseSince(timeline.samples(), markMs)),
+          ...(extraLines?.(snapshot) ?? []),
+        ]).join("\n");
   }, 300);
 }

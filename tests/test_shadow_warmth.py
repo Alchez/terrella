@@ -11,6 +11,7 @@ off, it moves hue WITHOUT moving brightness (which is what stops it re-creating 
 wash), and it leaves sea and snow alone.
 """
 
+import itertools
 import math
 from typing import Any, cast
 
@@ -18,9 +19,14 @@ import numpy as np
 import pytest
 from conftest import hillshade_for_light
 
-from pipeline.render import palette
+from pipeline import bodies, planet_seam
+from pipeline.render import palette, seaice
 from pipeline.tile import shade
 from pipeline.tile.shade import SHADOW_TINT, shadow_tint
+
+#: A planet whose seam emitted all three rasters — what Earth declares, and the only
+#: shape these tests care about unless they say otherwise.
+WHOLE_PLANET = planet_seam.KNOWN_RASTERS
 
 LUMINANCE = np.array([0.2126, 0.7152, 0.0722], dtype=np.float32)
 
@@ -45,7 +51,8 @@ def composite_at(light_value, *, ocean=False, water=False, snow=0.0):
                            np.full(shape, ocean, dtype=bool), np.full(shape, water, dtype=bool),
                            np.full(shape, snow, dtype="float32"),
                            np.full(shape, hillshade_for_light(pre), dtype="float32"),
-                           np.zeros((1, 1), dtype="float32"), (1, 1), shape)[:, 0, 0].astype(float)
+                           np.zeros((1, 1), dtype="float32"), (1, 1), shape, look=palette.EARTH_LOOK,
+                           snow_paint=(palette.SNOW_RGB, palette.SNOW_SHADOW_RGB), ice_paint=seaice.ice_white())[:, 0, 0].astype(float)
 
 
 class TestOffIsExactlyToday:
@@ -99,7 +106,7 @@ class TestItMovesHueNotBrightness:
         shade.KNOBS["shadow_warmth"] = 1.0
         ratios = [composite_at(value)[0] / composite_at(value)[2]
                   for value in (0.95, 0.85, 0.75, 0.65, 0.56)]
-        assert all(later > earlier for earlier, later in zip(ratios, ratios[1:])), ratios
+        assert all(later > earlier for earlier, later in itertools.pairwise(ratios)), ratios
 
 
 class TestItLeavesTheOtherSurfacesAlone:
@@ -129,7 +136,7 @@ class TestFreshness:
 
         from pipeline.tile.shade_planet import composite_params
 
-        assert "shadow_warmth" in json.loads(composite_params({}))["knobs"]
+        assert "shadow_warmth" in json.loads(composite_params({}, bodies.EARTH, WHOLE_PLANET))["knobs"]
 
     def test_it_is_not_hillshade_only(self):
         """It is consumed by composite(), so a re-tune must restage the composite (~19.6 min),
@@ -137,4 +144,4 @@ class TestFreshness:
         from pipeline.tile.shade_planet import HILLSHADE_ONLY_KNOBS, hs_params
 
         assert "shadow_warmth" not in HILLSHADE_ONLY_KNOBS
-        assert "shadow_warmth" not in math.__name__ + str(hs_params())
+        assert "shadow_warmth" not in math.__name__ + str(hs_params(bodies.EARTH))

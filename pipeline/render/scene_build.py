@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Build the hero-render Blender scene from code (Phase 1 keystone).
 
 Reconstructs the hand-built Phase 0 scene — plane + adaptive-subdivision
@@ -68,10 +67,24 @@ WATER_RGBA = (*palette.srgb8_to_linear(palette.WATER_RGB), 1.0)  # 8EC6C4 — se
                        # surface +7%, pinned relationally (the 98C5C8 drift's cure)
 SNOW_RGBA = (*palette.srgb8_to_linear(palette.SNOW_RGB), 1.0)    # E8F1F6
 
-LAND_RANGE = (0.0, palette.LAND_MAX_M)   # meters -> ramp position 0..1
-SEA_RANGE = (palette.SEA_MIN_M, 0.0)     # meters -> ramp position 1..0 (reversed To)
-LAND_STOPS = _rgba(palette.LAND_STOPS)
-SEA_STOPS = _rgba(palette.SEA_STOPS)     # the tile ramp: shelf-weighted stops to -6000 m
+# THE HERO RIG IS EARTH'S, AND IT NOW SAYS SO. These four read `EARTH_LOOK` rather than the module
+# globals they used to, and the difference is not cosmetic: read as globals they were the ramp, so a
+# second body's arrival could not be seen from here at all. Read as a named look, the day heroes are
+# wanted for another planet these four lines are exactly what has to answer for it — the rig is
+# built once at import, so there is no per-call seam to thread and the honest thing is to name which
+# planet it was built for. Heroes stay Earth-only by decision, not by omission.
+_HERO_LOOK = palette.EARTH_LOOK
+_HERO_SEA = _HERO_LOOK.sea
+assert _HERO_SEA is not None, "Earth's look must carry a sea ramp; the hero rig builds one"
+
+# Both ends come off the Surface now. They used to read `extreme_m` and RESTATE the 0.0, which was
+# the same Earth-is-the-datum assumption the ramp itself carried until `origin_m` — a third copy,
+# in the one module a type checker was never going to connect to the other two. It is Earth-only
+# today so nothing was wrong; it would have gone wrong silently on the first body with heroes.
+LAND_RANGE = (_HERO_LOOK.land.origin_m, _HERO_LOOK.land.extreme_m)  # meters -> ramp position 0..1
+SEA_RANGE = (_HERO_SEA.extreme_m, _HERO_SEA.origin_m)   # meters -> ramp position 1..0 (reversed To)
+LAND_STOPS = _rgba(_HERO_LOOK.land.stops)
+SEA_STOPS = _rgba(_HERO_SEA.stops)       # the tile ramp: shelf-weighted stops to -6000 m
 LAKE_STOPS = _rgba(palette.LAKE_STOPS)   # depth-position ramp; stop 0 IS the water tint
 RAMP_INTERPOLATION = "EASE"
 

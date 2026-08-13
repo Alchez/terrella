@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Shade the whole (non-Antarctic) planet into ONE seamless Web-Mercator RGB raster.
 
 Supersedes the 194-strip `tile_planet.py`, whose seam-avoidance hacks (a single global
@@ -19,13 +18,15 @@ composite is per-pixel, so windowing it cannot seam):
   5. composite each full-width horizontal window (reusing tile/shade.py::composite) with the
      latitude-ramped snow (blue-white shadows) and RGI glaciers, and cap both polar edges
      (>84N, <-59.5S -> flat pale sea-ice) so MapLibre's globe shows clean polar discs;
-  6. cut z0-8 512px tiles (no overview step -- `gdal raster tile` never reads them; see build_tiles).
+  6. cut 512px tiles from z0 to THIS BODY's ceiling -- z8 for Earth, and the body says so rather
+     than this module (no overview step: `gdal raster tile` never reads them; see build_tiles).
 
 Every stage skips if its output is FRESH -- present, completed, and newer than everything it
 derives from (`is_stale`). An exists()-only guard cannot tell "built" from "still correct":
 the Caspian re-fuse rewrote 4 of the 540 chunks, and a plain re-run would have
 skipped every stage and silently re-cut tiles from the pre-Caspian, pre-sea-rework rasters.
-Grid matches the existing tile pyramid exactly (131072 x 93009).
+Grid matches the existing tile pyramid exactly (131072 x 131072 — square since Antarctica was
+fused in; it was 131072 x 93009 while the pyramid stopped at -60).
 
     python -m pipeline.tile.shade_planet --body earth            # shade only
     python -m pipeline.tile.shade_planet --body earth --tiles    # + cut tiles
@@ -34,7 +35,6 @@ Grid matches the existing tile pyramid exactly (131072 x 93009).
 import argparse
 import gc
 import json
-import math
 import subprocess
 import sys
 import time
@@ -50,17 +50,42 @@ import rasterio
 from rasterio.enums import Resampling
 from rasterio.windows import Window
 
-from pipeline import bodies, paths
+from pipeline import bodies, layers, planet_seam, wrap_seam
+from pipeline.freshness import (
+    done_marker,
+    is_stale,
+    mark_done,
+    reference_needs_rebuild,
+    warp_needs_rebuild,
+    write_if_changed,
+)
 from pipeline.raster_io import GTIFF_CREATE, band_window
-from pipeline.render import cast_shadow, hillshade, lake_depth, palette, seaice, snow
-from pipeline.render import sky_view
+from pipeline.render import (
+    cast_shadow,
+    hillshade,
+    lake_depth,
+    layer_producers,
+    palette,
+    sky_view,
+    snow,
+)
 from pipeline.render.sky_view import normalised_occlusion, occlusion_shape
 from pipeline.tile import shade
 from pipeline.tile.shade import KNOBS
 
-ROOT = paths.ROOT
-Z8_RES = 305.7483          # metres/pixel of a 512px WebMercatorQuad tile at zoom 8
-EXAG = palette.EXAGGERATION
+# The grid resolution used to live here as a module constant named for the one zoom Earth cuts to.
+# It is `Body.map_units_per_pixel` now, because a planet with a different ceiling needs a different
+# pixel and a module constant cannot have one — and because a constant with no field to be bridged
+# to is exactly how this one survived the body parameterisation with every gate green.
+#
+# The value is deliberately NOT written out here. `tests/test_bodies.py` scans this file for it, and
+# a comment quoting a deleted number re-creates the needle the scan exists to find.
+#
+# The vertical exaggeration left the same way and for a sharper reason: it is a LOOK decision, and
+# two bodies whose relief is a different fraction of their radius cannot read right at one value.
+# It is `Body.exaggeration`, threaded to the two places that shade — the hillshade here, and the
+# caps, which used to import it from this module and therefore drew every planet at Earth's.
+# Same rule as above: the number is not written out, because the same scan looks for its name.
 ALT, AZ = KNOBS["alt"], 315.0
 WINDOW_ROWS = 256          # the snow-persistence banded-warp height (Phase A) AND composite_planet's
                            # DEFAULT window. Must stay 256: the persistence raster is banded at this
@@ -85,6 +110,18 @@ N_WORKERS = 4              # composite worker threads. The knee: numpy is DRAM-b
 # now that Antarctica is fused into the pyramid: the flat fill covers only the last
 # smeared Mercator sliver past -84, not real Antarctica (which is shaded down to the -85.06 grid edge).
 # It was -59.5 while the pyramid stopped at -60 and the AEQD cap supplied everything south of it.
+#
+# ON A BODY THAT RENDERS CAPS THIS FILL IS DEAD PIXELS, AND THAT IS THE POINT OF IT. polarCaps.ts
+# feathers with `smoothstep(FEATHER_LO 81, feather_hi)` where `feather_hi` IS CAP_NORTH, so the cap
+# is fully opaque from exactly this latitude poleward and nothing under it is ever seen. The fill
+# exists because the raster must hold SOMETHING between here and the 85.05 grid edge, and a smeared
+# Mercator sliver is uglier than a flat plug in the one case the plug shows.
+#
+# It shows on a body with `renders_polar_caps = False`, where it becomes the whole pole — MapLibre
+# extends the top tile row over the projection's hole as well, so a flat disc replaces the ice cap.
+# NO REGISTERED BODY IS IN THAT STATE, which is why this stays one constant rather than a per-body
+# field: Mars was the only capless body and its caps went on with its ramps. Pricing a colour per
+# planet would be pricing pixels that are covered on every planet that exists.
 CAP_NORTH, CAP_SOUTH = 84.0, -84.0
 CAP_RGB = (216, 226, 233)   # pale sea-ice fill for the poles (web-mercator has no data past ~85 deg)
 INFLIGHT_BUFFER = 2        # windows read AHEAD of the workers (optimisation #5): the main thread
@@ -95,93 +132,6 @@ INFLIGHT_BUFFER = 2        # windows read AHEAD of the workers (optimisation #5)
 
 def _run(cmd):
     subprocess.run([str(part) for part in cmd], check=True)
-
-
-def done_marker(output: Path) -> Path:
-    """The completion stamp beside `output` (height_3857.tif -> height_3857.done)."""
-    return output.with_suffix(".done")
-
-
-def mark_done(output: Path) -> None:
-    """Stamp `output` complete. Call ONLY after its stage has returned successfully."""
-    done_marker(output).touch()
-
-
-def newest_mtime(*inputs: Path) -> float:
-    """Newest mtime among `inputs`, recursing into directories. Missing paths score 0.0.
-
-    Directories are walked rather than stat'ed because a VRT's own mtime does NOT move when
-    the chunks it points at are re-fused -- which is exactly how the Caspian re-fuse stayed
-    invisible to the old guard. The planet is 540 cells x 3 rasters, so this is ~1.6k stats.
-    """
-    newest = 0.0
-    for path in inputs:
-        if not path.exists():
-            continue
-        if path.is_dir():
-            for child in path.rglob("*"):
-                if child.is_file():
-                    newest = max(newest, child.stat().st_mtime)
-        else:
-            newest = max(newest, path.stat().st_mtime)
-    return newest
-
-
-def is_stale(output: Path, *inputs: Path) -> bool:
-    """True if `output` must be rebuilt: never completed, or older than any of `inputs`.
-
-    Freshness is read from the .done marker, never from `output` itself: GDAL creates its
-    target at the START of a run, so a crashed pass leaves a full-sized, freshly-stamped,
-    half-written raster that an mtime test on the raster would happily accept as current.
-    """
-    if not output.exists() or not done_marker(output).exists():
-        return True
-    return newest_mtime(*inputs) > done_marker(output).stat().st_mtime
-
-
-def grid_matches(path: Path, width: int, height: int, bounds) -> bool:
-    """True if `path` exists on exactly the reference grid (`width` x `height`, same `bounds`).
-
-    Every 3857 raster below `height_3857` is warped to height's grid (via -te/-ts), but each one's
-    freshness is gated on its own SOURCE, not on height. A re-fuse that GROWS the grid -- un-skipping
-    Antarctica takes the planet from 93009 to 131072 rows -- re-warps height while these sit falsely
-    fresh at the old dimensions, and the composite then reads window slices past their bottom (silent
-    corruption). A dimension/bounds comparison catches exactly that, and is deliberately NOT an mtime
-    dependency on height: that would re-warp all of them on a SAME-grid re-fuse (the Caspian
-    rewrote 4 chunks without moving the grid), which is 30+ min of needless work.
-
-    Bounds are compared with a 1 m tolerance -- far below the 305 m pixel, so a real grid shift always
-    trips it, while the float noise of a -te repr round-trip never does. -> PLAN Antarctica precondition.
-    """
-    if not path.exists():
-        return False
-    with rasterio.open(path) as dataset:
-        return (dataset.width == width and dataset.height == height
-                and all(math.isclose(actual, expected, abs_tol=1.0)
-                        for actual, expected in zip(tuple(dataset.bounds), tuple(bounds))))
-
-
-def warp_needs_rebuild(out: Path, grid, *inputs: Path) -> bool:
-    """Whether a 3857 warp target must be rebuilt: `is_stale` (a source moved) OR off `grid`
-    (a re-fuse resized the planet under it). `grid` is (width, height, bounds).
-
-    Split out so the composed condition is testable on its own. The load-bearing case is the one
-    `is_stale` alone cannot see: a raster whose SOURCE is unchanged but whose grid shrank beneath it.
-    """
-    return is_stale(out, *inputs) or not grid_matches(out, *grid)
-
-
-def write_if_changed(path: Path, text: str) -> Path:
-    """Write `text` to `path` only when it differs, and return `path`.
-
-    The only-when-different part is load-bearing, not an optimisation: it lets a generated
-    file stand in as a dependency for `is_stale`. Tunables like KNOBS and the ramp colours
-    live in source, whose mtime moves on any `git checkout` and would force a full planet
-    rebuild; materialised here, their mtime moves if and only if a VALUE actually changed.
-    """
-    if not path.exists() or path.read_text() != text:
-        path.write_text(text)
-    return path
 
 
 # KNOBS entries consumed by the HILLSHADE stage rather than by composite(). Excluded from
@@ -200,8 +150,13 @@ def write_if_changed(path: Path, text: str) -> Path:
 HILLSHADE_ONLY_KNOBS = frozenset({"fill_strength", "shadow_strength", "shadow_reach"})
 
 
-def hs_params() -> str:
+def hs_params(body: bodies.Body) -> str:
     """The hillshade's tunables, recorded as hs_3857's dependency — composite_params' sibling.
+
+    Takes the body because the exaggeration is one of those tunables and belongs to the planet, not
+    to this module. Recording it was already right; sourcing it from a module constant was not, and
+    the two were indistinguishable while Earth was the only body. Earth's sidecar is unmoved — its
+    field holds the value the constant did — so this cannot restage the live pyramid.
 
     Split out of build_hillshade so BOTH halves of the freshness contract are
     testable from the outside. The asymmetry was itself the hazard: composite_params had tests
@@ -218,7 +173,15 @@ def hs_params() -> str:
     Composite-stage knobs must NOT appear here: this raster cannot see them, so recording one
     restages an 11:48 hillshade that would produce identical bytes.
     """
-    params: dict[str, Any] = {"exag": EXAG, "alt": ALT, "az": AZ}
+    params: dict[str, Any] = {"exag": body.exaggeration, "alt": ALT, "az": AZ}
+    # Recorded only when it is not the identity, the same rule the fill and the shadow follow below
+    # and for the same reason: on Earth the scale is exactly 1.0, so writing it would restage an
+    # 8:28 hillshade, a 53.8 min composite and a 3:44 cut to reproduce identical bytes. On any other
+    # body it is a genuine input to every slope in the raster, and an untracked one would leave a
+    # re-shaded planet reporting fresh.
+    ground_scale = bodies.ground_metres_per_mercator_unit(body)
+    if ground_scale != 1.0:
+        params["ground_scale"] = ground_scale
     if KNOBS["fill_strength"] != 0.0:
         params["fill"] = {"strength": KNOBS["fill_strength"],
                           "alt": hillshade.FILL_ALTITUDE, "az": hillshade.FILL_AZIMUTH}
@@ -232,7 +195,40 @@ def hs_params() -> str:
     return json.dumps(params, sort_keys=True, indent=2)
 
 
-def composite_params(variants, window_rows=WINDOW_ROWS) -> str:
+def _ramp_origin(kind: str, ramp: palette.Surface) -> dict[str, float]:
+    """`{kind}_origin_m`, recorded ONLY when the ramp does not start at the datum.
+
+    The conditional-record idiom, for the fourth time in this module (`fill`, `shadow`,
+    `ground_scale`) and for the identical reason. Earth's two ramps both hinge on 0 m, so an
+    unconditional record would add a key to a 2,672-byte sidecar that has been stable across the
+    whole shipped pyramid — restaging a 46 GB planet, a 21:37 composite and a 4:19 cut to reproduce
+    byte-identical output, and reporting the LIVE pyramid stale on the way.
+
+    Conditional is not the same as untracked, which is the trap this idiom always has to answer.
+    The origin cannot move WITHIN a body without changing this dict, because the only two states
+    are absent (0 m) and present (some other number) — and a body moving off the datum flips it
+    from absent to present, which is a change. What it deliberately cannot do is distinguish two
+    bodies, and it does not have to: sidecars are per-body files.
+    """
+    return {} if ramp.origin_m == 0.0 else {f"{kind}_origin_m": ramp.origin_m}
+
+
+def _when(evaluated: bool, values: dict[str, Any]) -> dict[str, Any]:
+    """`values` when this body's composite evaluates them, `{}` when it cannot reach them.
+
+    A body records only what can move its own pixels, so one body's re-tune cannot restage
+    another's composite for output that could not have changed.
+
+    Conditional is not untracked, and every caller has to earn that. A gate is correct only when
+    the values behind it are unreachable while it is false, AND the gate itself rides in the
+    recipe, so that opening it is a change: `layers_off` and `rasters_off` carry the layer and
+    raster gates, `knobs` carries the knob gates.
+    """
+    return values if evaluated else {}
+
+
+def composite_params(variants, body: bodies.Body, rasters: frozenset[str],
+                     window_rows=WINDOW_ROWS) -> str:
     """The composite's tunables, recorded as planet_rgb's dependency.
 
     KNOBS and the palette colours never reach a file of their own, so without this a knob or
@@ -251,7 +247,58 @@ def composite_params(variants, window_rows=WINDOW_ROWS) -> str:
     arrive here through `hs`, so repeating them would force composites that change nothing.
     """
     knobs = {key: value for key, value in KNOBS.items() if key not in HILLSHADE_ONLY_KNOBS}
-    return json.dumps({"knobs": knobs, "water_rgb": palette.WATER_RGB,
+    # THE LAYERS THAT ARE OFF, never the ones that are on — the conditional-record idiom that `fill`,
+    # `shadow` and `ground_scale` already follow. Earth has every layer, so its list is empty and
+    # nothing is written: the live 46 GB composite stays fresh. A body missing one records it, and
+    # turning a layer off on a body that had it correctly restages, which file mtimes cannot do —
+    # `newest_mtime` scores an absent path 0.0, so an unbuilt raster is silently not a dependency.
+    #
+    # `layers.COMPOSITE_LAYERS`, not the whole vocabulary: the caps read a coastline and this stage
+    # does not, so enumerating every layer here would make a cap-only decision restage the planet.
+    #
+    # `rasters_off` is the same idiom one tier up, and it tracks the OTHER direction of the same
+    # trap. When a mask APPEARS, `warp_inputs` builds it and `composite_deps` sees a new mtime, so
+    # the composite restages on its own. When one goes AWAY, nothing moves at all: the old
+    # `ocean_3857.tif` is still sitting on disk from the last run, and the composite painted with it
+    # reads perfectly fresh. That is exactly the loop Phase 2 runs on Mars — a shoreline contour,
+    # then a different one, then none — so the transition that has no mtime behind it needs a record.
+    absent_layers = layers.layers_off(body, layers.COMPOSITE_LAYERS)
+    absent_rasters = planet_seam.rasters_off(rasters)
+    missing: dict[str, list[str]] = {}
+    if absent_layers:
+        missing["layers_off"] = absent_layers
+    if absent_rasters:
+        missing["rasters_off"] = absent_rasters
+    look = palette.look_for(body.name)
+    # The sea ramp is recorded only when the body draws one — the conditional-record idiom this
+    # function already uses for `layers_off` and `rasters_off`, and `hs_params` for `ground_scale`.
+    # A body with no sea has no sea values to track, and writing nulls would put entries in the
+    # recipe that no edit could ever move, which reads as tracked while tracking nothing.
+    sea_recipe: dict[str, Any] = (
+        {} if look.sea is None
+        else {"sea_stops": look.sea.stops, "sea_min_m": look.sea.extreme_m,
+              **_ramp_origin("sea", look.sea)}
+    )
+    declared = body.surface_layers
+    # `snow_position` keys BOTH the snow and the sea-ice whites, so its curve constants are live
+    # when either layer is painted.
+    keys_white = bool({layers.PERENNIAL_ICE.name, layers.SEA_ICE.name} & declared)
+    # WHAT EACH DECLARED LAYER'S OWN PRODUCER READS, asked of the producer rather than spelled out
+    # here — `LayerProducer.recipe` carries the argument. This function gates on whether a body
+    # paints a layer, which stays right for every body; what it cannot know is HOW that body grades
+    # it, and a second planet painting the same layer by different arithmetic is exactly where a
+    # gate holding one body's constants starts recording the wrong ones. Merging keeps the answer
+    # beside the code that computes it and keeps a body's name out of this stage entirely.
+    #
+    # Order-free by construction: `sort_keys` below normalises the output, so where a key enters
+    # this dict cannot move a byte of a live sidecar. `layers.LAYERS` all the same, for its stated
+    # contract rather than `declared`'s arbitrary set iteration order.
+    produced: dict[str, Any] = {}
+    for layer in layers.LAYERS:
+        if layer.in_composite and layer.name in declared:
+            produced.update(layer_producers.producer_for(body, layer).recipe())
+    return json.dumps({**missing, **sea_recipe, **produced,
+                       "knobs": knobs,
                        "composite_window_rows": window_rows,
                        # The occlusion resolution reached NO freshness record at all --
                        # it was a module constant (`SVF_LONG_EDGE`, now OCCLUSION_TARGET_M_PER_PX)
@@ -265,24 +312,36 @@ def composite_params(variants, window_rows=WINDOW_ROWS) -> str:
                        # whole purpose was to gate the gdaldem stages. With those gone, nothing
                        # else would notice a ramp re-tune and planet_rgb would sit falsely fresh
                        # -- the exact failure this function exists to prevent.
-                       "land_stops": palette.LAND_STOPS, "sea_stops": palette.SEA_STOPS,
-                       "land_max_m": palette.LAND_MAX_M, "sea_min_m": palette.SEA_MIN_M,
+                       # Read off the BODY'S look, not the module globals. Those globals are
+                       # Earth's, so every planet's recipe used to record Earth's ramp — and this
+                       # dict is precisely what decides whether a look change restages. A Mars
+                       # re-tune would have left the Mars composite reading fresh.
+                       "land_stops": look.land.stops,
+                       "land_max_m": look.land.extreme_m,
+                       **_ramp_origin("land", look.land),
                        "lut_step_m": palette.LUT_STEP_M,
-                       "snow_rgb": palette.SNOW_RGB,
-                       "snow_shadow_rgb": palette.SNOW_SHADOW_RGB,
-                       "ice_rgb": palette.ICE_RGB,
-                       "ice_shadow_rgb": palette.ICE_SHADOW_RGB,
-                       # sea-ice alpha knobs run at composite time inside seaice.ice_alpha, so they
-                       # ride here (not in composite_deps) -- the untracked-input trap that let snow's
-                       # RAMP_* constants slip freshness; do not repeat it.
-                       "ice_lo": seaice.ICE_LO, "ice_band": seaice.ICE_BAND,
-                       "ice_max_alpha": seaice.ICE_MAX_ALPHA,
-                       # The toned SH pack (seaice.SH_ICE_*) runs at composite time for southern
-                       # windows, so it rides here too -- the same untracked-input trap the globals
-                       # above avoid. A re-tune must restage the composite.
-                       "sh_ice_lo": seaice.SH_ICE_LO, "sh_ice_max_alpha": seaice.SH_ICE_MAX_ALPHA,
-                       "lake_stops": palette.LAKE_STOPS,
-                       "lake_max_m": palette.LAKE_MAX_M,
+                       # Inland water is filled flat with this colour, so it is live only where a
+                       # watermask exists to select it.
+                       **_when("watermask" in rasters, {"water_rgb": palette.WATER_RGB}),
+                       **_when(layers.LAKE_DEPTH.name in declared,
+                               {"lake_stops": palette.LAKE_STOPS,
+                                "lake_max_m": palette.LAKE_MAX_M}),
+                       # BOTH WHITE PAIRS MOVED INTO `produced` ABOVE, where the producer that
+                       # paints with them declares them. This gate said "one white family for every
+                       # body's perennial ice", which held while Earth was the only body painting
+                       # any and fails twice over now: a second body arrived, and its two poles
+                       # measure as different colours from each other. A layer gate can only hold
+                       # one value per layer, so it had no way to be right for both.
+                       #
+                       # Earth's keys and values are unchanged — `produced` merges flat into this
+                       # dict and `sort_keys` normalises it — so this move restages nothing.
+                       # `shadow_tint` returns exactly 1.0 at warmth 0, bit-identical to not being
+                       # called, so the tint vector is live only above it.
+                       **_when(KNOBS["shadow_warmth"] != 0.0,
+                               {"shadow_tint": list(shade.SHADOW_TINT)}),
+                       # One branch of `snow_position`; the other curves never read them.
+                       **_when(KNOBS["snow_curve"] == "knee" and keys_white,
+                               {"knee_x": shade.KNEE_X, "knee_share": shade.KNEE_SHARE}),
                        "cap": [CAP_NORTH, CAP_SOUTH, list(CAP_RGB)],
                        "variants": {str(name): knobs for name, knobs in variants.items()}},
                       sort_keys=True, indent=2)
@@ -295,37 +354,94 @@ def composite_deps(work, hs, params) -> tuple:
     ramps itself from elevation, so the height raster IS the colour input. The ramp constants ride
     in `params` (composite_params) rather than in ramp_*.txt, which no longer exists.
 
-    `snow_persistence_3857.tif` + `glacier_3857.tif` joined (optimisation #4): the
-    composite reads pre-warped snow slices per window instead of forking gdalwarp/gdal_rasterize in
-    the loop, so a re-warp (new NSIDC/RGI, or a re-fuse to a new grid) must restage it. `glacier`
-    may be absent (RGI not downloaded) -- `newest_mtime` scores a missing path 0.0, so listing it
+    THE BUILT LAYERS COME FROM `layers.WARPED_LAYERS`, so this list, the warp that fills it and the
+    per-window reads cannot disagree about the set or the order. Each is joined here because the
+    composite reads a pre-warped slice per window instead of forking gdalwarp/gdal_rasterize in the
+    loop (optimisation #4), so a re-warp -- new NSIDC/RGI, or a re-fuse to a new grid -- must restage
+    it. Any of them may be absent, and `newest_mtime` scores a missing path 0.0, so naming them all
     unconditionally is safe. The ramp TUNABLES (`RAMP_*`) run at composite time inside `snow_alpha`,
-    so they ride in `composite_params`, NOT here -- this pair tracks the warp SOURCES only.
+    so they do not belong here either -- this tracks the warp SOURCES only.
 
-    `seaice_3857.tif` joined, the sea-side twin of snow persistence: its warp SOURCE is
-    tracked here, its ICE_LO/ICE_BAND alpha knobs in `composite_params`. Optional -- a missing path
-    scores `newest_mtime` 0.0, so listing it unconditionally is safe when the source isn't built.
+    THEY RIDE IN `composite_params` INSTEAD, and the split is the point: a warp source moves an
+    mtime, a constant moves nothing at all. A look constant that reaches a pixel and reaches
+    neither record leaves a stale composite reading fresh forever, so a new one goes into the
+    recipe beside the layer that reads it — never into this list, which cannot see it.
+
+    THAT SAFETY CUTS THE OTHER WAY AND IS WHY `composite_params` RECORDS THE ABSENT LAYERS. A path
+    that scores 0.0 is not merely harmless, it is INVISIBLE: switching a layer off leaves the old
+    composite — painted with that layer — looking perfectly fresh against a dependency list that can
+    no longer see it. The mtimes here track a layer that is ON; the recipe is what tracks one going
+    OFF.
+
+    SO THIS LIST IS DELIBERATELY OVER-INCLUSIVE, AND ITS SIBLING `cap_render.cap_sources` IS
+    DELIBERATELY EXACT. That reads like an inconsistency and is not: the two feed different
+    predicates. `is_stale` merely takes the newest mtime, so naming an input this planet does not
+    have costs nothing. `cap_is_fresh` requires every source to EXIST, so naming one there pins the
+    cap to a file that will never appear and leaves it permanently stale. Unifying them would mean
+    making this one exact, which trades a harmless imprecision for the chance to under-track — and
+    under-tracking is the direction that is silent. `test_the_two_freshness_predicates_disagree_on_a
+    _missing_input` is the executable form of this paragraph; read it before changing either.
     """
     return (work / "height_3857.tif", hs, work / "ocean_3857.tif", work / "water_3857.tif",
-            work / "lakedepth_3857.tif", work / "snow_persistence_3857.tif",
-            work / "glacier_3857.tif", work / "seaice_3857.tif", params)
+            *(layer.warped_in(work) for layer in layers.WARPED_LAYERS), params)
 
 
-def warp_inputs(work: Path, planet: Path):
-    """Warp height + ocean/water masks to the shared WMQ-aligned 3857 grid (skip if fresh).
+#: What the finished pixels lose when a layer is skipped at the WARP stage, by layer name.
+#:
+#: A CONSEQUENCE IS PER (LAYER, STAGE), which is why this is here and not a column on `Layer`:
+#: `cap_render` says something different about the same layers because it paints a different
+#: picture. Each states what the reader will see rather than what was missing, so a partial build
+#: can be read back off its own output.
+#:
+#: Keyed by name and looked up unconditionally, so a layer added to `WARPED_LAYERS` and forgotten
+#: here raises on the next pass of any body rather than being quietly skipped forever.
+WARP_CONSEQUENCE: dict[str, str] = {
+    layers.LAKE_DEPTH.name: "lakes stay flat; run pipeline.acquire.extract_globathy",
+    layers.PERENNIAL_ICE.name: "no ice painted; the composite reads None and skips it",
+    layers.GLACIERS.name: "persistence-only snow",
+    layers.SEA_ICE.name: "bathymetry bare at the poles",
+}
+
+
+def warp_inputs(work: Path, planet: Path, body: bodies.Body, rasters: frozenset[str]):
+    """Warp height + whichever masks this planet HAS to the shared WMQ-aligned 3857 grid.
 
     Each warp depends on the chunk DIRECTORY, not just its VRT -- re-fusing a cell leaves the
     VRT untouched, so the directory walk is the only thing that sees the change.
+
+    `rasters` is the planet stage's own declaration of what it emitted (`planet_seam`), and it is
+    passed in rather than read off the disk here for the reason the layer gates already follow: a
+    mask's presence and a body's answer are different questions, and the file system can only answer
+    the first. The two masks are gated SEPARATELY because the known next case needs it — a Mars that
+    gains a sea at a chosen contour has an ocean mask and still no inland water.
     """
     chunks = planet / "chunks"
     height = work / "height_3857.tif"
-    if is_stale(height, planet / "planet_heightfield.vrt", chunks):
+    resolution = body.map_units_per_pixel
+    # NOT `is_stale` ALONE: this raster's inputs are a VRT and a chunk directory, and neither moves
+    # when the body's ceiling does. `reference_needs_rebuild` asks the raster its own pixel size.
+    if reference_needs_rebuild(height, resolution, planet / "planet_heightfield.vrt", chunks):
         print("warp height -> 3857 ...", flush=True)
         height.unlink(missing_ok=True)  # gdalwarp UPDATES an existing target; it must be gone
-        _run(["gdalwarp", "-q", "-t_srs", "EPSG:3857", "-tr", Z8_RES, Z8_RES, "-tap",
+        _run(["gdalwarp", "-q", "-t_srs", "EPSG:3857", "-tr", resolution, resolution, "-tap",
               "-r", "bilinear", "-ot", "Float32", "-co", "TILED=YES", "-co", "COMPRESS=DEFLATE",
               "-co", "BIGTIFF=YES", "-co", "NUM_THREADS=ALL_CPUS",
               planet / "planet_heightfield.vrt", height])
+        mark_done(height)
+    # OUTSIDE THE FRESHNESS GATE ON PURPOSE, and this is the half that is easy to get wrong: the
+    # raster this has to reach was written by a warp that already ran, so gating the fill on a
+    # re-warp would leave every existing planet exactly as broken while reading as fixed. It is free
+    # to re-ask — a closed raster declares no nodata, so `close_wrap_seam` returns without touching
+    # a pixel — which is what lets it sit here rather than behind a condition.
+    #
+    # Height only, and deliberately not the mask warps below: those are class codes resampled with
+    # `near`, where the midpoint between two categories is not a category.
+    filled = wrap_seam.close_wrap_seam(height)
+    if filled:
+        # The bytes moved, so everything keyed on this marker has to rebuild — the hillshade reads
+        # the filled column as ground instead of a cliff, and the composite ramps it as terrain
+        # instead of clamping it to the darkest stop. Re-stamping IS that instruction.
+        print(f"wrap seam: filled {filled} px at the antimeridian -> height restaged", flush=True)
         mark_done(height)
     with rasterio.open(height) as dataset:
         bounds = [repr(value) for value in dataset.bounds]
@@ -337,7 +453,12 @@ def warp_inputs(work: Path, planet: Path):
     # The reference grid every raster below is warped onto. warp_needs_rebuild re-warps a target when
     # its source moved OR when this grid grew under it (the Antarctica re-fuse; see grid_matches).
     grid = (grid_width, grid_height, grid_bounds)
-    for name, src in (("ocean", "planet_oceanmask.vrt"), ("water", "planet_watermask.vrt")):
+    for name, raster in (("ocean", "oceanmask"), ("water", "watermask")):
+        if raster not in rasters:
+            print(f"{body.name}'s planet stage emitted no {raster} -> {name}_3857 skipped "
+                  f"(the composite reads None and treats every pixel as land)", flush=True)
+            continue
+        src = f"planet_{raster}.vrt"
         out = work / f"{name}_3857.tif"
         if warp_needs_rebuild(out, grid, planet / src, chunks):
             print(f"warp {name} -> 3857 ...", flush=True)
@@ -347,74 +468,50 @@ def warp_inputs(work: Path, planet: Path):
                   "-co", "BIGTIFF=YES", planet / src, out])
             mark_done(out)
 
-    # GLOBathy lake depth, warped ONCE here rather than per window: it is an 83k-source VRT,
-    # and a many-source VRT re-reads every source on each touch (the same reason the tiler
-    # materialises before cutting). Deliberately NOT in the loop above -- depth is continuous,
-    # so it needs bilinear/Float32, while `near`/Byte is right for the class codes and would
-    # quantise every lake to whole metres and hard-step its gradient.
-    # Its dependency is the VRT alone, unlike the chunk directory above: extract_globathy
-    # rebuilds the VRT whenever the raster set changes, so its mtime really does move.
-    depth_out = work / "lakedepth_3857.tif"
-    if not lake_depth.LAKE_VRT.exists():
-        print(f"no {lake_depth.LAKE_VRT.name} -> lakes stay flat "
-              f"(run pipeline.acquire.extract_globathy)", flush=True)
-    elif warp_needs_rebuild(depth_out, grid, lake_depth.LAKE_VRT):
-        print("warp lake depth -> 3857 ...", flush=True)
-        depth_out.unlink(missing_ok=True)
-        _run(["gdalwarp", "-q", "-t_srs", "EPSG:3857", "-te", *bounds, "-ts", *size,
-              "-srcnodata", str(lake_depth.GLOBATHY_NODATA), "-dstnodata", "0",
-              "-r", "bilinear", "-ot", "Float32", "-co", "TILED=YES",
-              "-co", "COMPRESS=DEFLATE", "-co", "BIGTIFF=YES",
-              "-co", "NUM_THREADS=ALL_CPUS", lake_depth.LAKE_VRT, depth_out])
-        mark_done(depth_out)
-
-    # Snow persistence + RGI glaciers, warped ONCE here rather than per window (optimisation #4).
-    # The old composite loop forked gdalwarp + gdal_rasterize for every window (~728 subprocesses)
-    # into two fixed-path temps -- the shared paths that blocked threading the composite. Same
-    # precedent as lakedepth above. Persistence stores the RAW PACKED Float32 (snow.warp_persistence_
-    # raster's docstring: the composite unpacks per window in float64, so a slice is bit-identical to
-    # the old per-window warp). Glacier is a 0/1 Byte mask; absent RGI leaves it unbuilt and the snow
-    # is persistence-only, exactly as before.
-    persistence_out = work / "snow_persistence_3857.tif"
-    if not snow.SP_NC.exists():
-        print(f"no {snow.SP_NC.name} -> snow layer unavailable (composite would fail)", flush=True)
-    elif warp_needs_rebuild(persistence_out, grid, snow.SP_NC):
-        print("warp snow persistence -> 3857 (banded) ...", flush=True)
-        persistence_out.unlink(missing_ok=True)
-        # band_rows == the composite window height, aligned to it: each band is exactly the
-        # per-window warp it replaces, so the mosaic is byte-identical to the old per-window path.
-        # A single whole-grid warp would DECIMATE this coarse source (snow.warp_persistence_raster).
-        snow.warp_persistence_raster(grid_bounds, grid_width, grid_height, persistence_out,
-                                     band_rows=WINDOW_ROWS)
-        mark_done(persistence_out)
-
-    glacier_out = work / "glacier_3857.tif"
-    if not snow.RGI_GPKG.exists():
-        print(f"no {snow.RGI_GPKG.name} -> glaciers skipped (persistence-only snow)", flush=True)
-    elif warp_needs_rebuild(glacier_out, grid, snow.RGI_GPKG):
-        print("rasterize RGI glaciers -> 3857 ...", flush=True)
-        snow.rasterize_glaciers_raster(grid_bounds, grid_width, grid_height, glacier_out)
-        mark_done(glacier_out)
-
-    # Sea-ice frequency climatology, warped ONCE here like snow persistence (same banded warp: a
-    # single whole-grid warp of the coarse 0.1deg source would decimate the ice edge). Optional,
-    # like glacier/depth -- an absent source just skips it and the composite paints no ice, leaving
-    # the bathymetry bare at the poles.
-    seaice_out = work / "seaice_3857.tif"
-    if not seaice.SEAICE_SRC.exists():
-        print(f"no {seaice.SEAICE_SRC.name} -> sea ice skipped (bathymetry bare at the poles)",
-              flush=True)
-    elif warp_needs_rebuild(seaice_out, grid, seaice.SEAICE_SRC):
-        print("warp sea-ice frequency -> 3857 (banded) ...", flush=True)
-        seaice_out.unlink(missing_ok=True)
-        seaice.warp_seaice_raster(grid_bounds, grid_width, grid_height, seaice_out,
-                                  band_rows=WINDOW_ROWS)
-        mark_done(seaice_out)
+    # Every optional surface layer, warped ONCE here rather than per window (optimisation #4). The
+    # old composite loop forked gdalwarp + gdal_rasterize for every window (~728 subprocesses) into
+    # fixed-path temps -- the shared paths that blocked threading the composite. Deliberately NOT in
+    # the mask loop above: those are class codes wanting `near`/Byte, and every one of these is a
+    # continuous or vector source with its own resampling.
+    for layer in layers.WARPED_LAYERS:
+        consequence = WARP_CONSEQUENCE[layer.name]
+        out = layer.warped_in(work)
+        # THE BODY IS ASKED FIRST AND THE PRODUCER SECOND, and the order is what makes the disk
+        # question honest: `producer.sources()` are that body's files, where the constants they
+        # replaced were Earth's at a fixed global path on every planet alike.
+        if not layers.body_declares_layer(body, layer, consequence):
+            continue
+        producer = layer_producers.producer_for(body, layer)
+        sources = producer.sources()
+        if not all(layers.layer_is_buildable(body, layer, source, consequence)
+                   for source in sources):
+            continue
+        # A BUILD-TIME CONSTANT IS MATERIALISED INTO A SOURCE, because `warp_needs_rebuild` is closed
+        # over PATHS and no Python value can reach it. A producer that grades before it writes has
+        # its tunables frozen into the file; recorded only in `composite_params`, changing one would
+        # restage the whole composite and then repaint from the unchanged raster — the same wrong
+        # pixels behind a restage that looks like it worked. `write_if_changed` moves an mtime if and
+        # only if a value moved, and is written BEFORE the question is asked, per its own docstring.
+        #
+        # Empty for every Earth producer, which writes no file and leaves this list exactly as it
+        # was — the reason adopting this restages nothing.
+        tunables = producer.build_recipe()
+        if tunables:
+            sources = (*sources, write_if_changed(
+                out.with_name(f"{out.stem}_build.json"),
+                json.dumps(tunables, indent=2, sort_keys=True) + "\n"))
+        # `warp_needs_rebuild` re-warps when a source moved OR when the grid grew under the target;
+        # the sources are the producer's because they are what it will actually read.
+        if warp_needs_rebuild(out, grid, *sources):
+            producer.build(layer_producers.LayerBuild(
+                bounds=grid_bounds, width=grid_width, height=grid_height, out=out,
+                band_rows=WINDOW_ROWS))
+            mark_done(out)
     return height
 
 
-def build_hillshade(work: Path, height: Path):
-    """The seamless per-row-z hillshade (skip if fresh).
+def build_hillshade(work: Path, height: Path, body: bodies.Body):
+    """The seamless per-row-z hillshade (skip if fresh), at THIS body's vertical exaggeration.
 
     Was `color_and_hillshade`: the two `gdaldem color-relief` passes it also ran were deleted
     (28:19 and 24.4% of all pass CPU, single-threaded; profile said `libgdal` 19.37%
@@ -423,42 +520,59 @@ def build_hillshade(work: Path, height: Path):
     over all 12.19 G px, 6/6 bands, zero pixels beyond 1 DN.
     """
     hs = work / "hs_3857.tif"
-    hs_params_path = write_if_changed(work / "hs_params.json", hs_params())
+    hs_params_path = write_if_changed(work / "hs_params.json", hs_params(body))
     if is_stale(hs, height, hs_params_path):
         fill_note = (f", fill {KNOBS['fill_strength']:.2f}" if KNOBS["fill_strength"] else "")
         shadow_note = (f", shadow {KNOBS['shadow_strength']:.2f}" if KNOBS["shadow_strength"]
                        else "")
-        print(f"per-row-z hillshade (EXAG={EXAG}{fill_note}{shadow_note}) ...", flush=True)
-        hillshade.per_row_zfactor_hillshade(height, hs, EXAG, ALT, AZ,
-                                            fill_strength=KNOBS["fill_strength"],
-                                            shadow_strength=KNOBS["shadow_strength"],
-                                            shadow_reach_px=int(KNOBS["shadow_reach"]))
+        print(f"per-row-z hillshade (exag={body.exaggeration}{fill_note}{shadow_note}) ...",
+              flush=True)
+        hillshade.per_row_zfactor_hillshade(
+            height, hs, body.exaggeration, ALT, AZ,
+            fill_strength=KNOBS["fill_strength"],
+            shadow_strength=KNOBS["shadow_strength"],
+            shadow_reach_px=int(KNOBS["shadow_reach"]),
+            ground_scale=bodies.ground_metres_per_mercator_unit(body))
         mark_done(hs)
     return hs
 
 
-def global_occlusion(height: Path):
+def global_occlusion(height: Path, body: bodies.Body):
     """Sky-view occlusion (1 = valley, 0 = open) on a global downsample, normalised globally.
 
     Sized from `sky_view.OCCLUSION_TARGET_M_PER_PX` — the same constant the region path uses — so
     a region preview and the planet it predicts can no longer drift apart. `SVF_LONG_EDGE` was the
     old planet-only spelling of this and is now derived, not chosen.
 
-    KNOWN INCORRECT, deliberately unchanged here: `Z8_RES` is a MAP-unit scale, and
-    ground metres in Web Mercator are `Z8_RES * cos(lat)`. Using map units understates the horizon
-    run by `1/cos(lat)` — 1.22x at 35N, 2.00x at 60N, 3.86x at 75N — so high latitudes are
-    systematically under-occluded, and the global affine renormalisation provably cannot absorb a
-    latitude-varying error. Fixing it needs a per-ROW ground scale (the hillshade's z-factor trick)
-    and changes production pixels, so it rides with the resolution change rather than sneaking in
-    under a refactor.
+    `occlusion_shape` and `normalised_occlusion` both document that they want a GROUND scale, and
+    this function used to hand them a map-unit one. Two independent errors hid behind that, and only
+    one of them is fixed here.
+
+    FIXED: THE BODY TERM. Every projection in this pipeline is Earth-sphered, so a map unit is a
+    ground metre only on Earth; elsewhere it is worth `ground_metres_per_mercator_unit(body)`. On
+    Mars the horizon run would be overstated by 1.878x, flattening the sky-view exactly where the
+    relief is most dramatic. The factor is EXACTLY 1.0 for Earth by construction of EPSG:3857, so
+    adopting it here moves no existing pixel.
+
+    NOT FIXED: THE LATITUDE TERM, which is the older half and is Earth's. Ground metres in Web
+    Mercator are also `cos(lat)` times map units, so the run is understated by `1/cos(lat)` —
+    1.22x at 35N, 2.00x at 60N, 3.86x at 75N — and high latitudes come out systematically
+    under-occluded. The global affine renormalisation provably cannot absorb a latitude-varying
+    error. It stays out because it is a different KIND of change: it needs a per-ROW scale (the
+    hillshade's z-factor trick) plus a decision about which latitude sizes the downsample, and it
+    moves Earth's production pixels — a re-shade and a re-cut, judged on the sphere rather than
+    accepted from a number. The region path already applies its own `cos(mid_lat)`, so the two
+    shading paths disagree on this term today; that is the shape of the outstanding work.
     """
+    ground = bodies.ground_metres_per_mercator_unit(body)
+    ground_res = body.map_units_per_pixel * ground
     with rasterio.open(height) as dataset:
         full_w, full_h = dataset.width, dataset.height
-        small_h, small_w = occlusion_shape(full_w, full_h, Z8_RES)
+        small_h, small_w = occlusion_shape(full_w, full_h, ground_res)
         low = dataset.read(1, out_shape=(small_h, small_w),
                            resampling=Resampling.average).astype(float)
     low = np.nan_to_num(np.where(low < -500, np.nan, low), nan=0.0)
-    m_per_px = Z8_RES * (full_w / small_w)
+    m_per_px = ground_res * (full_w / small_w)
     return normalised_occlusion(low, m_per_px)  # shape (small_h, small_w)
 
 
@@ -480,7 +594,13 @@ class _WindowInputs:
     read lives here and the pure-numpy compute (`_compute_shared`/`_compose`) takes this bundle.
     The fields are the untransformed slices (`ocean_raw`, not `ocean != 0`); the cheap numpy
     that derives masks/alpha from them runs on the worker, which is where optimisation #5 wants
-    the CPU. `depth_raw`/`glacier_raw`/`sea_ice_raw` are None when that optional input was never built.
+    the CPU.
+
+    `ocean_raw`/`watercode` are None on a planet whose seam emitted no masks, and that is a
+    DIFFERENT kind of None from a `layer_raw` entry's: that one says a dataset was not downloaded,
+    this one says the planet has no sea. `_compute_shared` turns it into an all-False selector,
+    which is the true answer rather than a stand-in — no pixel is ocean, none is inland water, and
+    every pixel is land.
     """
 
     win: Window
@@ -488,14 +608,19 @@ class _WindowInputs:
     win_top: float
     win_bottom: float
     height_win: np.ndarray
-    ocean_raw: np.ndarray
-    watercode: np.ndarray
+    ocean_raw: "np.ndarray | None"
+    watercode: "np.ndarray | None"
     hs_raw: np.ndarray
-    depth_raw: np.ndarray | None
-    persistence_raw: np.ndarray
-    glacier_raw: np.ndarray | None
-    sea_ice_raw: np.ndarray | None
+    #: One slice per `layers.WARPED_LAYERS` row, keyed by layer name, None where that layer's
+    #: raster was never built. ONE DICT AND NOT A FIELD PER LAYER: the reads are gated identically,
+    #: so a field each is four chances for the fourth to be written without the guard — which is
+    #: exactly what happened to snow persistence before this was one expression.
+    layer_raw: dict[str, "np.ndarray | None"]
     occ_win: np.ndarray
+    #: Which planet this window belongs to, and therefore which producers `_compute_shared` asks
+    #: for its layers. Deliberately not carrying paths: this struct crosses onto worker threads,
+    #: and a stage that read the filesystem there would leave `_compute_shared` impure.
+    body: bodies.Body
 
 
 @dataclass
@@ -512,7 +637,42 @@ class _WindowShared:
     depth_win: np.ndarray | None
     snow_a: np.ndarray
     ice_a: np.ndarray | None
+    #: The whites their producers declared for this window, or None where nothing paints one.
+    #: Variant-independent for the reason everything else here is: a sea knob cannot move them.
+    snow_paint: "tuple[Any, Any] | None"
+    ice_paint: "tuple[Any, Any] | None"
     cap: np.ndarray
+
+
+def _merge_paint(current: "tuple[Any, Any] | None", current_alpha: np.ndarray,
+                 incoming: "tuple[Any, Any] | None",
+                 incoming_alpha: np.ndarray) -> "tuple[Any, Any] | None":
+    """Fold one layer's white into the union's: the layer that WINS a pixel's alpha paints it.
+
+    The union is a `np.maximum` over several layers' alphas, so without this the first-registered
+    layer's colour would be painted over another layer's pixels — invisible on a body whose layers
+    agree and wrong on one whose layers do not.
+
+    EQUAL WHITES SHORT-CIRCUIT, and that is the only path any shipping body takes today: Earth's
+    perennial ice and glaciers both declare `palette.SNOW_RGB`, and Mars declares one ice layer with
+    nothing to merge against. The general branch below is therefore reached by NO live data, so its
+    guard has to construct two disagreeing paints rather than borrow a pair — a test that took its
+    negative case from the registry would go quiet the moment a body changed, not red.
+
+    The short circuit is also what keeps the cost at zero. Merging materialises `(3, H, W)` per end,
+    which on a planet window is ~400 MB apiece; agreeing whites never pay it.
+    """
+    if incoming is None:
+        return current
+    if current is None:
+        return incoming
+    if all(np.array_equal(np.asarray(old), np.asarray(new))
+           for old, new in zip(current, incoming, strict=True)):
+        return current
+    wins = (incoming_alpha > current_alpha)[None]
+    merged = tuple(np.where(wins, shade.paint_end(new), shade.paint_end(old))
+                   for old, new in zip(current, incoming, strict=True))
+    return merged[0], merged[1]
 
 
 def _compute_shared(inputs: _WindowInputs) -> _WindowShared:
@@ -523,43 +683,60 @@ def _compute_shared(inputs: _WindowInputs) -> _WindowShared:
     Runs on a worker thread in the threaded path; numpy releases the GIL, which is the whole
     basis of optimisation #5.
     """
-    ocean_win = inputs.ocean_raw != 0
+    # ALL-FALSE, NOT A SYNTHESISED RASTER, and the difference is the whole of Gap A. A planet with
+    # no sea could have been given an all-zero ocean mask on disk, and nothing downstream would have
+    # needed a line changed — but that file is indistinguishable from one produced by measuring the
+    # planet's oceans and finding none, and it would be the only body fact in this project expressed
+    # as a fabricated dataset. Built here instead, from the seam's declaration, it is a computation
+    # with a stated premise. `shade.composite` needs no branch either way: its eight selectors are
+    # boolean, and all-False means land everywhere, which is the answer.
+    shape = inputs.height_win.shape
+    ocean_win = inputs.ocean_raw != 0 if inputs.ocean_raw is not None else np.zeros(shape, bool)
     watercode = inputs.watercode
-    water_win = lake_depth.inland_water(watercode)
+    water_win = (lake_depth.inland_water(watercode) if watercode is not None
+                 else np.zeros(shape, bool))
     hs_win = inputs.hs_raw.astype(float)
-    # Lake depth, zeroed off class 2 so rivers stay flat and the (class 1) Caspian keeps GEBCO's
-    # measured bathymetry instead of GLOBathy's cone.
-    depth_win = (lake_depth.lakes_only(inputs.depth_raw, watercode)
-                 if inputs.depth_raw is not None else None)
-    # unpack_persistence runs the float64 unpack per window (as the old per-window path did), so
-    # snow_alpha sees bit-identical input. Glacier is optional (persistence-only when RGI absent).
-    persistence_win = snow.unpack_persistence(inputs.persistence_raw)
-    snow_a = snow.snow_alpha(persistence_win, inputs.win_top, inputs.win_bottom)
-    if inputs.glacier_raw is not None:
-        snow_a = np.maximum(snow_a, inputs.glacier_raw.astype(float))
-    latitude = snow.latitude_per_row(inputs.win_top, inputs.win_bottom, inputs.win_h)
-    # Force Antarctic land white: NSIDC-0791 is NH-only and RGI region 19 is excluded, so snow_a is 0
-    # over the continent and it would render on the tan LAND ramp. The same shared rule the south cap
-    # uses, so the two agree across the -84 seam (snow.antarctic_snow_mask).
     land_win = ~(ocean_win | water_win)
-    snow_a = np.maximum(snow_a, snow.antarctic_snow_mask(land_win, latitude))
-    # Sea-ice alpha: frequency -> smoothstep, the sea-side twin of snow_a (no latitude ramp needed).
-    # Optional (None when the seaice source was never warped); shade.composite gates it on ocean. South
-    # of the equator the SH pack is toned to the cap's fainter, pulled-in fringe (seaice.SH_ICE_*), else
-    # the full-strength Antarctic belt reads as a bright halo -- proven on the cap. No window straddles
-    # both hemispheres' ice, and the equator is ice-free, so the per-row split is exact.
-    if inputs.sea_ice_raw is not None:
-        frequency = seaice.unpack_seaice(inputs.sea_ice_raw)
-        ice_a = seaice.ice_alpha(frequency)
-        southern = latitude < 0.0
-        if southern.any():
-            toned = seaice.ice_alpha(frequency, ice_lo=seaice.SH_ICE_LO,
-                                     ice_max_alpha=seaice.SH_ICE_MAX_ALPHA)
-            ice_a = np.where(southern[:, None], toned, ice_a)
-    else:
-        ice_a = None
+    latitude = snow.latitude_per_row(inputs.win_top, inputs.win_bottom, inputs.win_h)
+    # ASKED OF THE BODY, never of the raster on disk. A producer runs because the planet DECLARED
+    # the layer, which is what lets Earth's perennial ice carry the forced Antarctic patch — a
+    # latitude-and-land rule with no file behind it, so no missing raster could ever switch it off.
+    # Reading the declaration off `layer_raw` instead would drop it the day NSIDC went absent.
+    contributions: dict[str, np.ndarray] = {}
+    paints: dict[str, tuple[Any, Any]] = {}
+    for layer in layers.WARPED_LAYERS:
+        if layer.name not in inputs.body.surface_layers:
+            continue
+        producer = layer_producers.producer_for(inputs.body, layer)
+        window = layer_producers.LayerWindow(
+            raw=inputs.layer_raw[layer.name], watercode=watercode, land=land_win,
+            latitude=latitude, top=inputs.win_top, bottom=inputs.win_bottom)
+        value = producer.contribution(window)
+        if value is not None:
+            contributions[layer.name] = value
+            # Asked ONLY of a layer that contributed, so a producer that paints nothing this window
+            # never has to answer what colour it would have used.
+            paint = producer.paint(window)
+            if paint is not None:
+                paints[layer.name] = paint
+    depth_win = contributions.get(layers.LAKE_DEPTH.name)
+    # The white union, in the table's order. float64 base because that is what `snow_alpha` returns
+    # and what the maxima promote to; a float32 base would narrow every pixel `composite` blends.
+    # `np.maximum` reorders freely and every contribution is non-negative, so which layer lands
+    # first cannot move a bit.
+    snow_a = np.zeros(inputs.height_win.shape, dtype=float)
+    snow_paint = None
+    for layer in (layers.PERENNIAL_ICE, layers.GLACIERS):
+        contribution = contributions.get(layer.name)
+        if contribution is not None:
+            snow_paint = _merge_paint(snow_paint, snow_a, paints.get(layer.name), contribution)
+            snow_a = np.maximum(snow_a, contribution)
+    # The sea-side twin, kept OUT of that union on purpose: `shade.composite` gates it on the ocean
+    # selector where snow_a paints land, and None there means the layer is absent rather than zero.
+    ice_a = contributions.get(layers.SEA_ICE.name)
     cap = (latitude > CAP_NORTH) | (latitude < CAP_SOUTH)
-    return _WindowShared(ocean_win, water_win, hs_win, depth_win, snow_a, ice_a, cap)
+    return _WindowShared(ocean_win, water_win, hs_win, depth_win, snow_a, ice_a,
+                         snow_paint, paints.get(layers.SEA_ICE.name), cap)
 
 
 def _compose(inputs: _WindowInputs, shared: _WindowShared) -> np.ndarray:
@@ -572,7 +749,8 @@ def _compose(inputs: _WindowInputs, shared: _WindowShared) -> np.ndarray:
     rgb = shade.composite(inputs.height_win, shared.ocean_win, shared.water_win, shared.snow_a,
                           shared.hs_win, inputs.occ_win, inputs.occ_win.shape,
                           (inputs.win_h, inputs.height_win.shape[1]), depth=shared.depth_win,
-                          ice_a=shared.ice_a)
+                          ice_a=shared.ice_a, look=palette.look_for(inputs.body.name),
+                          snow_paint=shared.snow_paint, ice_paint=shared.ice_paint)
     if shared.cap.any():  # force the smeared polar edges to a flat deep-sea disc
         for band in range(3):
             rgb[band][shared.cap] = CAP_RGB[band]
@@ -585,7 +763,8 @@ def _compute_window_rgb(inputs: _WindowInputs) -> tuple[Window, np.ndarray]:
     return inputs.win, _compose(inputs, _compute_shared(inputs))
 
 
-def composite_planet(work: Path, hs, compute_occlusion: Callable[[], np.ndarray], variants=None,
+def composite_planet(work: Path, hs, compute_occlusion: Callable[[], np.ndarray],
+                     body: bodies.Body, rasters: frozenset[str], variants=None,
                      window_rows=WINDOW_ROWS, max_windows=None, max_workers=1, row_start=0):
     """Composite the whole planet window-by-window into seamless RGB GeoTIFF(s).
 
@@ -616,7 +795,8 @@ def composite_planet(work: Path, hs, compute_occlusion: Callable[[], np.ndarray]
     if variants is None:
         variants = {None: None}
     outs = {name: work / f"planet_rgb{f'_{name}' if name else ''}.tif" for name in variants}
-    params = write_if_changed(work / "composite_params.json", composite_params(variants, window_rows))
+    params = write_if_changed(work / "composite_params.json",
+                              composite_params(variants, body, rasters, window_rows))
     deps = composite_deps(work, hs, params)
     # One shared params file is sound because every variant is composited in a single pass:
     # the guard rebuilds all of them or none.
@@ -627,7 +807,7 @@ def composite_planet(work: Path, hs, compute_occlusion: Callable[[], np.ndarray]
     occ = compute_occlusion()
     with rasterio.open(work / "height_3857.tif") as h:
         width, height, transform = h.width, h.height, h.transform
-    small_h, small_w = occ.shape
+    small_h, _small_w = occ.shape
     # dict[str, Any]: GDAL creation options are a heterogeneous bag, and `**profile` otherwise
     # hands rasterio.open's bool-typed `sharing`/`thread_safe` an inferred `str | int`.
     profile: dict[str, Any] = dict(
@@ -635,10 +815,7 @@ def composite_planet(work: Path, hs, compute_occlusion: Callable[[], np.ndarray]
         crs="EPSG:3857", transform=transform, photometric="RGB", BIGTIFF="YES",
         num_threads="ALL_CPUS", **GTIFF_CREATE)
     ocean_p, water_p = work / "ocean_3857.tif", work / "water_3857.tif"
-    depth_p = work / "lakedepth_3857.tif"
-    persistence_p = work / "snow_persistence_3857.tif"
-    glacier_p = work / "glacier_3857.tif"
-    seaice_p = work / "seaice_3857.tif"
+    layer_paths = {layer.name: layer.warped_in(work) for layer in layers.WARPED_LAYERS}
 
     def read_window(row0: int) -> _WindowInputs:
         """Gather one window's raw reads + geometry — MAIN thread only (GDAL is not thread-safe)."""
@@ -646,20 +823,26 @@ def composite_planet(work: Path, hs, compute_occlusion: Callable[[], np.ndarray]
         win = band_window(width, row0, row1)
         # sky-view occlusion slice for this window (smooth -> nearest rows are fine)
         sr0 = int(row0 / height * small_h)
-        sr1 = max(sr0 + 1, int(round(row1 / height * small_h)))
+        sr1 = max(sr0 + 1, round(row1 / height * small_h))
         return _WindowInputs(
             win=win, win_h=row1 - row0,
             win_top=transform.f + row0 * transform.e,
             win_bottom=transform.f + row1 * transform.e,
             height_win=read1_window(work / "height_3857.tif", win),
-            ocean_raw=read1_window(ocean_p, win),
-            watercode=read1_window(water_p, win),
+            # Gated on the SEAM'S DECLARATION, never on `ocean_p.exists()`. A declared mask that is
+            # missing from disk must crash here — the planet said it has one — where an existence
+            # check would quietly composite a sea-less Earth after a half-finished warp.
+            ocean_raw=read1_window(ocean_p, win) if "oceanmask" in rasters else None,
+            watercode=read1_window(water_p, win) if "watermask" in rasters else None,
             hs_raw=read1_window(hs, win),
-            depth_raw=read1_window(depth_p, win) if depth_p.exists() else None,
-            persistence_raw=read1_window(persistence_p, win),
-            glacier_raw=read1_window(glacier_p, win) if glacier_p.exists() else None,
-            sea_ice_raw=read1_window(seaice_p, win) if seaice_p.exists() else None,
-            occ_win=occ[sr0:sr1])
+            # ONE EXPRESSION FOR EVERY BUILT LAYER, which is what retires a bug rather than
+            # guarding it: written a field each, three of the four had this check and snow
+            # persistence did not, so a body whose ice layer was off crashed on a raster nothing
+            # had built. Four separate reads is four chances to write the fourth without it.
+            layer_raw={name: read1_window(path, win) if path.exists() else None
+                       for name, path in layer_paths.items()},
+            occ_win=occ[sr0:sr1],
+            body=body)
 
     rows = list(range(row_start, height, window_rows))
     if max_windows is not None:  # smoke test: only the first N windows
@@ -743,21 +926,39 @@ class TileCut(TypedDict):
 # zooms: q95 is 20.0% of PNG byte-weighted, and z8 -- three quarters of the pyramid -- is the
 # cheapest at 14.8%, so the aggregate is conservative. The archive goes ~16 GB -> ~3.2 GB and the
 # Worker's single R2 read per cold tile drops with it (~380 ms -> ~80 ms, it is bandwidth-bound).
-TILE_CUT = TileCut(format="WEBP", quality=95, tile_size=512, min_zoom=0, max_zoom=8,
+def tile_cut(body: bodies.Body) -> TileCut:
+    """This body's cut settings — eight encoder facts that are the same everywhere, and its ceiling.
+
+    A FUNCTION RATHER THAN A CONSTANT because exactly one of these keys belongs to the planet.
+    `max_zoom` was a literal 8 here, which is Earth's ceiling and nobody else's, and it is the
+    second of the two constants that survived the body parameterisation by having no field to be
+    bridged to. The other seven are properties of the encoder and the tile scheme, so they stay
+    written once here rather than being copied onto every body — a body answers for what differs
+    about it, not for what does not.
+
+    Earth's result is the same dict the constant held, so `tile_params` still serialises the exact
+    bytes beside the live pyramid and the cut does not restage.
+    """
+    return TileCut(format="WEBP", quality=95, tile_size=512, min_zoom=0,
+                   max_zoom=body.tile_max_zoom,
                    resampling="cubic", overview_resampling="cubic", convention="xyz",
                    skip_blank=True)
 
 
-def tile_params() -> str:
+def tile_params(body: bodies.Body) -> str:
     """The tile cut's own settings, recorded as the live pyramid's dependency — hs_params' sibling.
 
     This stage used to key freshness off `planet_rgb` ALONE, which meant the cut was the
     one stage that could not see its own recipe: changing the output format left `tiles_are_fresh`
     true, so the PNG->WebP switch would have silently shipped the old pyramid. Everything in
-    TILE_CUT alters the emitted bytes, and nothing outside it does — the input raster and the output
+    the cut alters the emitted bytes, and nothing outside it does — the input raster and the output
     directory are `is_stale`'s own arguments, not settings.
+
+    The BODY is not recorded here and must not be: each body writes this file into its own work
+    tree, so the recipe is already body-specific by location, and adding the name would restage
+    Earth's entire pyramid the day a second planet existed for no pixel change at all.
     """
-    return json.dumps(TILE_CUT, sort_keys=True, indent=2)
+    return json.dumps(tile_cut(body), sort_keys=True, indent=2)
 
 
 def tile_params_path(out: Path) -> Path:
@@ -765,10 +966,10 @@ def tile_params_path(out: Path) -> Path:
     return out / "tile_params.json"
 
 
-def _tile_cmd(planet_tif: Path, staging: Path) -> list[str]:
-    """The `gdal raster tile` invocation that cuts z0-8 512px tiles into `staging`.
+def _tile_cmd(planet_tif: Path, staging: Path, body: bodies.Body) -> list[str]:
+    """The `gdal raster tile` invocation that cuts this body's 512px tiles into `staging`.
 
-    Built FROM `TILE_CUT` rather than from literals, so the command and the freshness record cannot
+    Built FROM `tile_cut` rather than from literals, so the command and the freshness record cannot
     disagree about what was cut — the same one-fact-one-spelling rule pack_pmtiles now follows for
     the tile encoding.
 
@@ -784,14 +985,15 @@ def _tile_cmd(planet_tif: Path, staging: Path) -> list[str]:
     so a truncated tile from a mid-write kill would survive a resume. build_tiles instead removes
     any partial staging dir and cuts clean every time -- see its docstring.
     """
+    cut = tile_cut(body)
     cmd = ["gdal", "raster", "tile",
-           f"--min-zoom={TILE_CUT['min_zoom']}", f"--max-zoom={TILE_CUT['max_zoom']}",
-           f"--tile-size={TILE_CUT['tile_size']}",
-           f"--resampling={TILE_CUT['resampling']}",
-           f"--overview-resampling={TILE_CUT['overview_resampling']}",
-           f"--convention={TILE_CUT['convention']}",
-           f"--format={TILE_CUT['format']}", "--co", f"QUALITY={TILE_CUT['quality']}"]
-    if TILE_CUT["skip_blank"]:
+           f"--min-zoom={cut['min_zoom']}", f"--max-zoom={cut['max_zoom']}",
+           f"--tile-size={cut['tile_size']}",
+           f"--resampling={cut['resampling']}",
+           f"--overview-resampling={cut['overview_resampling']}",
+           f"--convention={cut['convention']}",
+           f"--format={cut['format']}", "--co", f"QUALITY={cut['quality']}"]
+    if cut["skip_blank"]:
         cmd.append("--skip-blank")
     return [*cmd, "--webviewer=none", str(planet_tif), str(staging)]
 
@@ -815,8 +1017,8 @@ def tiles_are_fresh(planet_tif: Path, out: Path) -> bool:
             and not is_stale(live, done_marker(planet_tif), tile_params_path(out)))
 
 
-def build_tiles(planet_tif: Path, out: Path):
-    """Cut z0-8 512px tiles into a staging dir, then swap over the live tiles.
+def build_tiles(planet_tif: Path, out: Path, body: bodies.Body):
+    """Cut this body's 512px tiles into a staging dir, then swap over the live tiles.
 
     Fresh-guarded like every other stage (`tiles_are_fresh`): a re-run whose `planet_rgb` AND
     `tile_params.json` are unchanged skips the ~4:19 cut entirely. This used to be the one
@@ -824,9 +1026,7 @@ def build_tiles(planet_tif: Path, out: Path):
     empty and the cut re-ran in full every time. The completion stamp is `tiles.done`, touched only
     after the swap.
 
-    The recipe is written BEFORE the freshness question is asked, so changing TILE_CUT is what
-    triggers its own re-cut; `write_if_changed` means an unchanged recipe never moves an mtime and
-    never restages a pyramid that is still correct.
+    Recipe-gated in the usual order — see `freshness.write_if_changed`.
 
     EVERY CUT IS A CLEAN FULL CUT: the staging dir is removed first and `--resume` is not passed
     (see `_tile_cmd`). GDAL writes each tile in place, so a worker killed mid-write leaves a
@@ -841,15 +1041,17 @@ def build_tiles(planet_tif: Path, out: Path):
     note that justified them credited a confounded fix: materialising the 194-source VRT
     to a GTiff was the real speed-up; the overviews rode along on the same commit untested.
     """
-    write_if_changed(tile_params_path(out), tile_params())
+    cut = tile_cut(body)
+    write_if_changed(tile_params_path(out), tile_params(body))
     if tiles_are_fresh(planet_tif, out):
         print("tiles fresh -> skip cut", flush=True)
         return
     staging = out / "tiles_new"
     if staging.exists():
         _run(["rm", "-rf", str(staging)])   # a partial from a prior mid-cut crash: never resume over it
-    print(f"cutting z0-8 512px tiles -> {staging} ...", flush=True)
-    _run(_tile_cmd(planet_tif, staging))
+    print(f"cutting z{cut['min_zoom']}-{cut['max_zoom']} {cut['tile_size']}px tiles "
+          f"-> {staging} ...", flush=True)
+    _run(_tile_cmd(planet_tif, staging, body))
     live = out / "tiles"
     if live.exists():
         old = out / "tiles_old"
@@ -869,10 +1071,13 @@ def build_parser() -> argparse.ArgumentParser:
     # pyramid, and the cost of discovering that late is a planet. Naming it costs one word.
     ap.add_argument("--body", required=True,
                     help=f"which planet this pass is for ({', '.join(sorted(bodies.BODIES))})")
-    # Optional override. Left unset it follows the body, which also honours the MAPS_DATA seam that
-    # the old `ROOT / "data/..."` default bypassed; set, it is how a look A/B is pointed elsewhere.
+    # Optional override. Left unset it follows the body, which also honours the MAPS_DATA seam its
+    # checkout-rooted default used to bypass; set, it is how a look A/B is pointed elsewhere. The
+    # old spelling is described rather than quoted — `tests/test_paths.py` scans for it, and a
+    # comment reproducing it re-creates the needle the scan exists to find.
     ap.add_argument("--out", type=Path, default=None)
-    ap.add_argument("--tiles", action="store_true", help="also cut z0-8 tiles from the mosaic")
+    ap.add_argument("--tiles", action="store_true",
+                    help="also cut tiles from the mosaic, z0 to the body's own ceiling")
     ap.add_argument("--knob", action="append", default=[], metavar="KEY=VALUE",
                     help="override a locked KNOBS entry (repeatable), as tile/shade.py does. "
                          "Look changes used to be made by EDITING the constant, which meant an "
@@ -886,6 +1091,17 @@ def build_parser() -> argparse.ArgumentParser:
 def resolve_body(args: argparse.Namespace) -> bodies.Body:
     """The body this run is for. Raises through the registry, which names the ones that exist."""
     return bodies.get(args.body)
+
+
+def runs_cap_pass(body: bodies.Body) -> bool:
+    """Whether a shade pass for this body ends by rendering polar caps.
+
+    A named predicate rather than the field read inline, so the DECISION is testable without
+    spawning a subprocess. Inline, the only way to prove the pass respects the registry is to run it
+    and watch what it shells out to — which needs a composited planet on disk, so in practice it
+    would be proven by nothing.
+    """
+    return body.renders_polar_caps
 
 
 def cap_pass_command(body: bodies.Body) -> list[str]:
@@ -919,15 +1135,20 @@ def main():
     work = resolve_out(args)
     work.mkdir(parents=True, exist_ok=True)
 
-    height = warp_inputs(work, bodies.work_dir(body, "planet"))
-    hs = build_hillshade(work, height)
+    # Read ONCE, at the top, and threaded down. The planet stage declares what it emitted and this
+    # raises if it never finished, so a half-built planet stops here rather than being shaded into a
+    # plausible-looking pyramid. Threading it (rather than each stage reading the file) keeps
+    # `_compute_shared` a pure function of its arguments, which is what lets it run on workers.
+    rasters = planet_seam.declared(body)
+    height = warp_inputs(work, planet_seam.planet_dir(body), body, rasters)
+    hs = build_hillshade(work, height, body)
     # Passed unevaluated: composite_planet runs it only if the composite is actually stale.
     # Production composite is threaded at COMPOSITE_ROWS/N_WORKERS (optimisation #5); the snow
     # persistence stays banded at WINDOW_ROWS (256), sliced 128 rows at a time.
-    planet_tif = composite_planet(work, hs, lambda: global_occlusion(height),
+    planet_tif = composite_planet(work, hs, lambda: global_occlusion(height, body), body, rasters,
                                   window_rows=COMPOSITE_ROWS, max_workers=N_WORKERS)[None]
     if args.tiles:
-        build_tiles(planet_tif, work)
+        build_tiles(planet_tif, work, body)
     # The polar caps are shade-stage outputs too: they run the same composite over the same
     # sources, so a look change that restages planet_rgb must restage them. Both caps once sat
     # stale against the tiles they feather into (the north −6.7 DN adrift) because nothing
@@ -935,8 +1156,16 @@ def main():
     # itself (cap_is_fresh), so a fresh pass pays only the ~2 s import here. Subprocess, not
     # import: cap_render imports FROM this module, and the caps' pyproj/scipy stack stays out
     # of the tile pass.
-    print("polar caps ...", flush=True)
-    subprocess.run(cap_pass_command(body), check=True)
+    if runs_cap_pass(body):
+        print("polar caps ...", flush=True)
+        subprocess.run(cap_pass_command(body), check=True)
+    else:
+        # SAID OUT LOUD, because the alternative is a pass that silently does less than the last one
+        # did. The cap pass would otherwise run and SUCCEED here — it needs only the heightfield once
+        # a body declares no surface layers — spending ~14 GB per pole to publish discs shaded by
+        # ramps this body has not ratified.
+        print(f"polar caps: {body.name} publishes none — skipped "
+              f"(the globe carries a hole above the Mercator limit)", flush=True)
     print("DONE", flush=True)
 
 

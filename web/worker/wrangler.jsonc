@@ -5,9 +5,12 @@
   // private (terrella-tiles has no custom domain and its r2.dev domain is disabled) and what
   // makes the internal range reads subrequests, which Cloudflare does not bill.
   //
-  // It serves THREE pyramids: relief at `{z}/{x}/{y}.webp`, terrain-RGB at
-  // `terrain/{z}/{x}/{y}.webp`, and country vector tiles at `countries/{z}/{x}/{y}.mvt`.
-  // One binding, three object keys — see the vars block.
+  // It serves every published pyramid, addressed `{body}/{layer}/{token}/{z}/{x}/{y}.{ext}`, where
+  // the layer segment names a ROLE — `relief`, `terrain` or `vector`. One binding, one object per
+  // published `{body}/{layer}` — and the keys are NOT here: `src/lib/tileAddress.ts` records which
+  // object each pair resolves to, and this Worker compiles that registry. See the note at the top
+  // of index.ts for why they stopped being `vars`, which is not tidiness — the token in a tile URL
+  // comes from the SITE bundle, so an archive swap has never been deployable from this file alone.
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "terrella-tiles",
 
@@ -57,29 +60,17 @@
   ],
 
   "vars": {
-    // A re-cut ships under a NEW key rather than overwriting the old one. Two reasons: the swap
-    // becomes atomic and reversible by editing this one line, and a warm isolate holding directory
-    // offsets from the previous archive can never read them against different bytes. Delete the
-    // superseded object only after the new one is verified live.
+    // NO ARCHIVE KEYS, AND NONE MAY GROW BACK UNDER A NEW SPELLING. Every object key lives in
+    // `src/lib/tileAddress.ts`, which this Worker and the site both compile, so the object a
+    // request resolves to and the URL the browser asks for come from one declaration.
     //
-    // `planet.pmtiles` is the PNG pyramid this replaced; `-v2` is the WebP q95 cut.
-    "ARCHIVE_KEY": "planet-v2.pmtiles",
-    // The Tier-3 elevation pyramid, served under the `/terrain/` prefix by the same Worker out of
-    // the same bucket. Same new-key-per-cut convention as above, and the same reason: a warm
-    // isolate holding directory offsets from one cut must never read them against another's bytes.
+    // The new-key-per-cut convention still holds and now lives beside those entries: a re-cut ships
+    // under a NEW key rather than overwriting, so a warm isolate holding directory offsets from the
+    // previous archive can never read them against different bytes. Delete the superseded object
+    // only after the new one is verified live. ONE BINDING FOR ALL OF THEM — every archive lives in
+    // `terrella-tiles`, so a second `r2_buckets` entry would only duplicate the bucket name and
+    // give it somewhere to drift.
     //
-    // A SECOND KEY RATHER THAN A SECOND BINDING — both objects live in `terrella-tiles`, so a
-    // second `r2_buckets` entry would only duplicate the bucket name and give it somewhere to
-    // drift out of step with the first.
-    "TERRAIN_ARCHIVE_KEY": "terrain-v1.pmtiles",
-    // The country VECTOR pyramid, served under `/countries/` by the same Worker out of the same
-    // bucket — a third key, not a third binding, for the reason stated above. Same
-    // new-key-per-cut convention: this one is re-cut whenever the simplification settings in
-    // pipeline/compose/countries_pmtiles.py change, and its recipe sidecar records which.
-    //
-    // It is the one SPARSE archive: a missing tile is ocean, not a packaging fault, so the router
-    // answers 204 for it and 404 for the two raster pyramids. See `missingTileStatus`.
-    "COUNTRIES_ARCHIVE_KEY": "countries-v1.pmtiles",
     // The site's own origin. MapLibre uploads tiles as WebGL textures, so a cross-origin
     // tile without CORS taints the canvas and never draws — this must stay in step with
     // the hostname in web/package.json's `build:deploy`.

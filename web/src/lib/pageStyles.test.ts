@@ -19,30 +19,14 @@ import { readFileSync } from "node:fs";
 const WEB_ROOT = new URL("../../", import.meta.url).pathname;
 const globe = readFileSync(`${WEB_ROOT}src/styles/globe.css`, "utf8");
 
-describe("quiet mode leaves no orphaned divider on the rail", () => {
-  it("cancels the hairline on the button after the hidden fullscreen control", () => {
-    // `+` matches DOM ORDER, not visibility. The rail's second group is [fullscreen, quiet]; quiet
-    // mode sets fullscreen to `display:none`, and the quiet button below it went on matching
-    // `button + button` while becoming the group's first VISIBLE child. It kept a 1px hairline that
-    // the group's 999px radius clipped into a dark chord across the top of the circle — reported
-    // from a phone as "a tiny black part of the icon".
-    expect(globe).toMatch(/\.maplibregl-ctrl-fullscreen\s*\n?\s*\+\s*button\s*\{[^}]*border-top-width:\s*0/);
-  });
-
-  it("keeps the cancel more specific than the divider it has to beat", () => {
-    // The divider is (0,4,2) — two classes doubled. Any cancel written the obvious way, as
-    // `body.is-quiet .rg-ctrl-quiet` (0,3,1), silently loses and the chord comes back. Asserting
-    // the doubled group class is asserting the specificity, which is the part that is easy to
-    // "tidy" away without noticing it was load-bearing.
-    const cancel = globe.match(
-      /body\.is-quiet\s*\n?\s*\.maplibregl-ctrl-top-right\s*\n?\s*\.maplibregl-ctrl-group\.maplibregl-ctrl-group\s*\n?\s*\.maplibregl-ctrl-fullscreen/,
-    );
-    expect(cancel, "the cancel must carry the doubled group class").not.toBeNull();
-  });
-
-  it("still draws the divider between two buttons that are both visible", () => {
-    // A cancel that killed the hairline outright would fix the chord and flatten the rail. The
-    // divider rule has to survive.
+describe("the rail's hairline stays a divider and not a cure", () => {
+  it("still draws it between two buttons that are both visible", () => {
+    // This used to sit beside a `border-top-width: 0` cancel keyed on the hidden fullscreen
+    // control, because with the group ordered [fullscreen, quiet] the surviving eye kept a hairline
+    // the 999px radius clipped into a dark chord. The group is [quiet, fullscreen] now, so the eye
+    // is the first child and no `+` selector reaches it — the cancel went with the reorder and this
+    // is what must NOT go with it. A "tidy-up" that deletes the divider outright fixes nothing and
+    // flattens the rail; `railIcons.browser.test` is what proves the chord itself stays gone.
     expect(globe).toMatch(/button\s*\+\s*button\s*\{\s*border-top:\s*1px solid var\(--line\)/);
   });
 });
@@ -78,18 +62,51 @@ describe("the pressed quiet toggle is a bare glyph, not a filled button", () => 
   });
 });
 
-describe("the globe's stylesheets stay split the way the cascade needs", () => {
-  const globeAstro = readFileSync(`${WEB_ROOT}src/pages/earth.astro`, "utf8");
+describe("one distance sets every floating element off the viewport edge", () => {
+  const globeAstro = readFileSync(`${WEB_ROOT}src/components/Globe.astro`, "utf8");
+  const scoped = globeAstro.match(/<style>([\s\S]*?)<\/style>/)?.[1] ?? "";
 
-  it("keeps the SCOPED block in the page, where Astro can stamp it", () => {
+  it("owns the inset once, where the rail can read it too", () => {
+    expect(scoped, "the scoped block must be readable, or the scan below proves nothing").toContain(
+      ".globe-chrome",
+    );
+    expect(globe).toMatch(/:root\s*\{[^}]*--page-inset:/);
+  });
+
+  it("leaves no edge offset written as its own literal", () => {
+    // Derived rather than listed, so a rule added later is covered the day it is added. The row was
+    // at a literal `1.2rem` in six places while MapLibre's corners carried their own hardcoded
+    // 10px, which is exactly how the two rows ended up 9.2px apart with nothing disagreeing.
+    // `padding: 1rem 1.2rem` is untouched on purpose — a padding is not an inset.
+    expect(scoped).not.toMatch(/^\s*(top|left|right|bottom|inset):[^;]*\b1\.2rem/m);
+  });
+
+  it("takes MapLibre's own control margin over rather than living beside it", () => {
+    // Its rule is `.maplibregl-ctrl-top-right .maplibregl-ctrl { margin: 10px 10px 0 0 }` at (0,2,0)
+    // and is injected at RUNTIME, so an equal-specificity override loses on source order and the
+    // rail silently keeps the old offset. `railIcons.browser.test` measures the result.
+    expect(globe).toMatch(
+      /\.maplibregl-ctrl-top-right\s+\.maplibregl-ctrl\.maplibregl-ctrl\s*\{[^}]*margin:\s*var\(--page-inset\)\s+var\(--page-inset\)/,
+    );
+  });
+});
+
+describe("the globe's stylesheets stay split the way the cascade needs", () => {
+  // The component, not the page: markup and scoped style moved together into `Globe.astro`, and
+  // they had to. Astro stamps ONE `data-astro-cid-…` on both halves of a component, so a scoped
+  // block left behind in the page would compile against a cid nothing renders — every selector
+  // matching nothing, with no error and no visual tell until someone looks at the globe.
+  const globeAstro = readFileSync(`${WEB_ROOT}src/components/Globe.astro`, "utf8");
+
+  it("keeps the SCOPED block beside its markup, where Astro can stamp both", () => {
     // This is the constraint that decided the split. Astro rewrites a scoped selector with a
     // `[data-astro-cid-…]` attribute at build time, worth one class of specificity. The identical
     // rules in a `.css` file compile WITHOUT it, so every one of them drops a level and starts
     // losing to things it currently beats — silently, and only in the build, since the rules
     // themselves are unchanged. There is no error and no visual tell until something overlaps.
     const scoped = globeAstro.match(/<style>([\s\S]*?)<\/style>/);
-    expect(scoped, "earth.astro must still carry its scoped <style> block").not.toBeNull();
-    expect(scoped![1], "the scoped block must still hold the page's own elements").toContain(
+    expect(scoped, "Globe.astro must still carry its scoped <style> block").not.toBeNull();
+    expect(scoped![1], "the scoped block must still hold the globe's own elements").toContain(
       ".starfield",
     );
     // Anchored to a tag at the start of a line: the phrase also appears in prose explaining why
@@ -101,18 +118,24 @@ describe("the globe's stylesheets stay split the way the cascade needs", () => {
     ).not.toMatch(/^<style is:global>/m);
   });
 
-  it("imports the global stylesheet, or the page ships with none of it", () => {
-    // The file is only reachable because the page asks for it. Drop the import and every MapLibre
+  it("imports the global stylesheet, or the globe ships with none of it", () => {
+    // The file is only reachable because the component asks for it. Drop the import and every MapLibre
     // widget reverts to stock white boxes — while every test that reads `styles/globe.css`
     // directly goes on passing, because the rules still exist. Nothing else would notice.
     expect(globeAstro).toContain('import "../styles/globe.css"');
   });
 
-  it("keeps the page's own elements out of the shared stylesheet", () => {
+  it("keeps the globe's own scoped elements out of the shared stylesheet", () => {
     // The half that cannot move must not be moved piecemeal either. A scoped rule relocated into
     // the shared file would lose its cid and its specificity level with it.
-    for (const scopedOnly of [".starfield", ".hero-panel", ".globe-lost"]) {
-      expect(globe, `${scopedOnly} belongs to the page's scoped block`).not.toContain(scopedOnly);
+    //
+    // EACH SELECTOR IS ASSERTED PRESENT BEFORE IT IS ASSERTED ABSENT, because "absent from the
+    // shared file" is true of every string that does not exist at all. Renaming `.hero-panel` to
+    // `.detail-panel` and forgetting this list would have left the loop passing over a selector no
+    // stylesheet contained — a guard that reports on nothing reads exactly like a guard that passed.
+    for (const scopedOnly of [".starfield", ".detail-panel", ".globe-lost"]) {
+      expect(globeAstro, `${scopedOnly} is not in the globe's scoped block`).toContain(scopedOnly);
+      expect(globe, `${scopedOnly} belongs to the globe's scoped block`).not.toContain(scopedOnly);
     }
   });
 });

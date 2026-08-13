@@ -30,8 +30,6 @@ here instead — the honest coverage statement is that severed PROSE is caught b
 baseline, not by this file.
 """
 
-from __future__ import annotations
-
 import re
 import subprocess
 from pathlib import Path
@@ -98,6 +96,22 @@ CITATION_EXEMPT = {
 }
 CITATION_FILES = [path for path in FILES if path.name not in CITATION_EXEMPT]
 
+# The investigation directories under gitignored `data/` — prototypes, scouts, and their notes.
+# A clone has none of them, so citing a file inside one is the same unfollowable pointer as citing
+# a working document, and it reached committed code six times before this line existed.
+#
+# NAMED RATHER THAN PATTERNED, WHICH IS MEASURED AND NOT PREFERENCE. The obvious generalisation —
+# "a path segment under `data/` beginning with an underscore" — fires 32 times on this repo, on
+# `node_modules/`, `_astro/`, `_tiles/planet.pmtiles` and `ne_10m_coastline/`: the underscore prefix
+# marks GENERATED OUTPUT here far more often than it marks scratch, and those references are all
+# legitimate. A guard that cries wolf gets ignored and then deleted, as the module note records.
+#
+# The trailing slash is load-bearing: it distinguishes a path being CITED from the same bare name
+# being passed as a directory-name argument, which `scripts/measure_viking_levels.py` legitimately
+# does.
+SCRATCH_DIRS = (r"_ice_ab/|_ice_levels/|_ice_scout/|_viking_scout/|_crism_scout/"
+                r"|_warp_probe/")
+
 CHECK_GROUPS = {
     "BLOCK_COMMENT_FILES": BLOCK_COMMENT_FILES,
     "DECLARATION_FILES": DECLARATION_FILES,
@@ -142,6 +156,19 @@ def block_comment_spans(source: str) -> tuple[list[tuple[int, str]], int | None]
         if char == "\n":
             line += 1
             in_line = False
+            # A `"` or `'` string cannot contain a raw newline in JS/TS, so arriving here still
+            # "inside" one means the opening quote was never a string at all. In practice it is a
+            # quote character inside a REGEX literal — `/data-body="([^"]+)"/` opens, closes and
+            # opens again — which this parser deliberately does not model, because telling a regex
+            # from a division needs the grammar.
+            #
+            # DROPPING THE BAD GUESS HERE IS WHAT KEEPS IT LOCAL. Left standing, the phantom quote
+            # runs until some later line happens to contain the same character, and every `/*` in
+            # between is invisible — so the parser reports an unclosed comment at a line whose only
+            # crime is being the first `/*` it could finally see. That is how this was found: a new
+            # test title with an apostrophe in it was blamed for a regex ninety lines above.
+            if quote in ('"', "'"):
+                quote = None
         elif in_line:
             pass
         elif in_block:
@@ -170,6 +197,26 @@ def block_comment_spans(source: str) -> tuple[list[tuple[int, str]], int | None]
     return spans, opened_at
 
 
+def test_a_quote_inside_a_regex_literal_does_not_swallow_the_rest_of_the_file() -> None:
+    """The parser's own blind spot, bounded to the line that has it.
+
+    It does not model regex literals, and it cannot cheaply: telling `/x/` from a division needs the
+    grammar. So a regex holding quote characters — `/data-body="([^"]+)"/` opens one, closes it and
+    opens another — leaves the scanner believing a string is open. What matters is not that the
+    guess is wrong but that it EXPIRES: a `"` string cannot span a line in JS, so the newline ends
+    it.
+
+    Left standing instead, the phantom runs to whatever line next contains that character, every
+    `/*` in between reads as ordinary text, and the first one it can finally see is reported as an
+    unclosed comment. The blame lands on a line that is perfectly correct — which is exactly what
+    happened, ninety lines downstream, to a test title whose only fault was an apostrophe.
+    """
+    source = 'const styled = /:root\\[data-body="([^"]+)"\\]/g;\nconst path = "a/*b";\n'
+    spans, opened_at = block_comment_spans(source)
+    assert opened_at is None
+    assert spans == []
+
+
 @pytest.mark.parametrize("path", BLOCK_COMMENT_FILES, ids=ids(BLOCK_COMMENT_FILES))
 def test_block_comments_are_closed(path: Path) -> None:
     """No block comment runs to end of file.
@@ -190,7 +237,7 @@ def test_block_comments_are_closed(path: Path) -> None:
 # which the end-of-file check above CANNOT see, because the next comment's terminator closes the
 # wound and the file still parses. Found by mutation-testing this file against the real corruption.
 SWALLOWED = re.compile(
-    r"^\s*(?:export|import|function|class|interface|enum)\s|^(?:const|let|var|type)\s", re.M)
+    r"^\s*(?:export|import|function|class|interface|enum)\s|^(?:const|let|var|type)\s", re.MULTILINE)
 
 
 @pytest.mark.parametrize("path", DECLARATION_FILES, ids=ids(DECLARATION_FILES))
@@ -242,15 +289,23 @@ def test_code_fences_are_balanced(path: Path) -> None:
 
 @pytest.mark.parametrize("path", CITATION_FILES, ids=ids(CITATION_FILES))
 def test_no_reference_to_a_file_a_clone_will_not_have(path: Path) -> None:
-    """Tracked files must not cite the working documents, which are deliberately not shipped.
+    """Tracked files must not cite the working documents or the scratch dirs, none of which ship.
 
     A pointer a reader cannot follow is worse than no pointer: it asserts that an explanation
     exists somewhere reachable. The exemptions live in CITATION_EXEMPT above; none of them ships
     an unfollowable pointer to a reader, they only describe one.
+
+    THE SCRATCH HALF HAS A SHARPER FAILURE THAN THE DOCUMENTS HALF. A working document is merely
+    absent from a clone; a prototype script can also STOP RUNNING while the sentence pointing at it
+    stays fluent. Two of the six that triggered this rule imported a module deleted with OMEGA, so
+    they were dead for their own author and read as reachable anyway. Where such a script owns
+    something shipped code depends on, the fix is to track it — `scripts/measure_viking_levels.py`
+    is that promotion — and not to reword the pointer.
     """
     source = path.read_text(encoding="utf-8")
     unreachable = re.findall(
-        r"HISTORY\.md|HISTORY §|HISTORY 20\d\d|PLAN\.md|PLAN §|see PLAN|claude-personal", source
+        r"HISTORY\.md|HISTORY §|HISTORY 20\d\d|PLAN\.md|PLAN §|see PLAN|claude-personal"
+        rf"|{SCRATCH_DIRS}", source
     )
     assert not unreachable, (
         f"{path.name} cites {sorted(set(unreachable))}, which no clone will have. "

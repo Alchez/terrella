@@ -16,6 +16,7 @@ import subprocess
 import sys
 from pathlib import Path
 from types import SimpleNamespace
+from typing import ClassVar
 
 import pytest
 
@@ -239,10 +240,13 @@ class TestLadderServesTheLayout:
     Cross-language by necessity, and the same shape as test_scene_build_sync: the two ends of the
     contract live in different runtimes, so the pin has to read the file rather than import it.
     """
-    # page -> the `sizes` constant it declares, and the ladders layered into that surface.
+    # surface -> the `sizes` constant it declares, and the ladders layered into that surface. Paths
+    # are relative to `web/src/`, because the globe's panel is a COMPONENT rather than a page: it
+    # moved out of `pages/earth.astro` so a second body could draw the same globe, and a lookup
+    # still rooted at `pages/` would have found nothing to read.
     PAGES = (
-        ("index.astro", "SIZES", ("hero", "spotlight")),
-        ("earth.astro", "sizesAttr", ("hero", "border")),
+        ("pages/index.astro", "SIZES", ("hero", "spotlight")),
+        ("components/Globe.astro", "sizesAttr", ("hero", "border")),
     )
 
     # The viewports the `vw` arm of `sizes` actually serves, as (CSS px, device pixel ratio).
@@ -273,7 +277,7 @@ class TestLadderServesTheLayout:
     # _load_bearing` asserts each one would FAIL without the exemption, so the day a gap is closed
     # this list fails loudly rather than quietly covering nothing — the failure mode of every
     # skip-list ever written.
-    MOBILE_EXEMPT_LADDERS = {
+    MOBILE_EXEMPT_LADDERS: ClassVar[dict[str, str]] = {
         "border": (
             "gen_borders tops out at 1920, so a portrait border jumps straight to the country's "
             "native rung — a lossless PNG at ~3x the width the panel draws. It is off the cold "
@@ -292,10 +296,10 @@ class TestLadderServesTheLayout:
 
     def declarations(self):
         """(page, constant, [fixed CSS px], [ladder names]) for each `sizes` the site declares."""
-        pages = Path(__file__).resolve().parents[1] / "web/src/pages"
+        source_root = Path(__file__).resolve().parents[1] / "web/src"
         found = []
         for filename, constant, ladder_names in self.PAGES:
-            source = (pages / filename).read_text()
+            source = (source_root / filename).read_text()
             match = re.search(rf'const {constant} = "([^"]+)"', source)
             assert match, (f"{filename} no longer declares `const {constant} = \"...\"` — this "
                            f"guard reads the layout's own words, so a rename must fail here "

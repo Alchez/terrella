@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Shade planet chunks into one seamless Web Mercator RGB raster, ready to tile.
 
 Reproject each chunk's height + masks
@@ -25,7 +24,7 @@ import rasterio
 from rasterio.enums import Resampling
 from scipy.ndimage import zoom
 
-from pipeline import paths
+from pipeline import bodies, paths
 from pipeline.raster_io import GTIFF_CREATE
 from pipeline.render import hillshade, lake_depth, palette, relief, snow
 from pipeline.render.sky_view import (
@@ -37,7 +36,11 @@ from pipeline.render.sky_view import (
 DATA = paths.DATA
 CHUNKS = DATA / "work/planet/chunks"
 Z8_MERC_RES = 305.7483  # metres/pixel of a 512px WebMercatorQuad tile at zoom 8
-EXAG = 15.0
+EXAG = palette.EXAGGERATION  # the region path exists to PREDICT the planet, so it cannot hold its
+                             # own copy of a look value. This was a third literal 15.0, uncovered by
+                             # the guard that calls the hero/planet pair "the last copy-pair". It
+                             # stays Earth-shaped: this path takes --cells, not --body, and a
+                             # Copernicus cell name is not a thing another planet has.
 MERCATOR = "EPSG:3857"
 
 class Knobs(TypedDict):
@@ -164,9 +167,9 @@ def reproject_cell(name: str, merc_dir: Path):
     with rasterio.open(height) as dataset:
         te = [repr(value) for value in dataset.bounds]
         ts = [str(dataset.width), str(dataset.height)]
-    for layer in ("oceanmask", "watermask"):
+    for raster in ("oceanmask", "watermask"):
         run(["gdalwarp", "-overwrite", "-q", "-t_srs", MERCATOR, "-te", *te, "-ts", *ts,
-             "-r", "near", chunk / f"{layer}_10s.tif", merc_dir / f"{name}_{layer}.tif"])
+             "-r", "near", chunk / f"{raster}_10s.tif", merc_dir / f"{name}_{raster}.tif"])
 
 
 def build_vrt(vrt_path, sources):
@@ -273,6 +276,11 @@ def main():
         print(f"hillshade: per-row z-factor (EXAG={EXAG}/cos(lat)), custom seamless shader"
               f"{shadow_note}", flush=True)
         hillshade.per_row_zfactor_hillshade(height_vrt, hs_tif, EXAG, KNOBS["alt"], 315.0,
+                                            # Spelled through the registry rather than as a bare
+                                            # 1.0: this path takes Copernicus cells, so Earth is
+                                            # not a default here, it is the subject.
+                                            ground_scale=bodies.ground_metres_per_mercator_unit(
+                                                bodies.EARTH),
                                             fill_strength=KNOBS["fill_strength"],
                                             shadow_strength=KNOBS["shadow_strength"],
                                             shadow_reach_px=int(KNOBS["shadow_reach"]))
@@ -334,8 +342,13 @@ def main():
     low = np.nan_to_num(np.where(low < -500, np.nan, low), nan=0.0)
     occ = normalised_occlusion(low, m_per_px)
 
+    # Earth's look for the same reason EXAG above is Earth's exaggeration: this path predicts the
+    # planet and takes --cells, and a Copernicus cell name is not a thing another planet has.
+    # Earth's whites for the reason the look above is Earth's: this path predicts the planet and
+    # takes --cells, and a Copernicus cell name is not a thing another planet has.
     rgb = composite(heights, ocean, water, snow_a, hs, occ, (sh, sw), (grid_h, grid_w),
-                    depth=depth)
+                    depth=depth, look=palette.EARTH_LOOK,
+                    snow_paint=(palette.SNOW_RGB, palette.SNOW_SHADOW_RGB), ice_paint=None)
 
     out_tif = args.out / "region_rgb.tif"
     with rasterio.open(height_vrt) as src:
@@ -479,8 +492,43 @@ def snow_position(light, curve):
     raise ValueError(f"unknown snow_curve {curve!r} (linear | gamma4 | gamma8 | knee)")
 
 
-def composite(heights, ocean, water, snow_a, hs, occ, occ_shape, grid, depth=None, ice_a=None):
+def paint_end(value) -> np.ndarray:
+    """One end of a light-keyed white as float32 broadcastable against `(3, H, W)`.
+
+    A bare `(R, G, B)` becomes `(3, 1, 1)`; anything already shaped per row or per pixel is passed
+    through, so a producer chooses its own granularity and this function never has to know which.
+    Public because the callers that assemble a paint want the same normalisation the blend applies.
+    """
+    array = np.asarray(value, dtype=np.float32)
+    return array.reshape(3, 1, 1) if array.ndim == 1 else array
+
+
+def composite(heights, ocean, water, snow_a, hs, occ, occ_shape, grid, depth=None, ice_a=None,
+              *, look: palette.Look, snow_paint, ice_paint):
     """Composite one window of the planet/region from ELEVATION, not pre-coloured rasters.
+
+    `look` is the body's ramp pair and is REQUIRED — this is the one function that turns elevation
+    into colour, so a default here would be a whole planet's palette chosen by omission.
+
+    THE WHITES ARE REQUIRED FOR THE SAME REASON AND THIS FUNCTION NO LONGER KNOWS ANY OF THEM.
+    `snow_paint` and `ice_paint` are each `(sunlit, shadowed)` or None, handed over by whoever
+    computed the alpha beside them, because the code that knows what material a pixel is, is the
+    code that decided to paint it at all. This module used to read `palette.SNOW_RGB` directly,
+    which is Earth's white, and a second body then painted its ice in it — silently, since a global
+    read cannot show a reader that another planet exists. Mars's two poles measure as different
+    colours from each other, so there is not one white even within a body.
+
+    BOTH MOVED TOGETHER even though only one had been falsified, because leaving the sea-ice pair
+    behind would make this function half-ignorant of colour: a reader would have to discover that
+    one white arrives and one is fetched, and the rule dividing them is a fact about the past.
+
+    Each end broadcasts against `(3, H, W)`: `(3, 1, 1)` for a constant, `(3, H, 1)` to vary by row.
+    The blend already materialises the full `(3, H, W)` colour array either way, so a constant or a
+    per-row paint costs no memory at all and only a genuinely per-pixel one costs more.
+
+    None means this window paints no such white and the blend is SKIPPED rather than run against a
+    zero alpha — the idiom `ice_a=None` already sets here, and bit-identical to running it, since
+    `base * 1.0 + anything * 0.0` is exactly `base` in float32.
 
     `heights` is metres on the fused heightfield; the land and sea ramps are applied here via
     `palette.relief_lut`, which replaced two `gdaldem color-relief` passes.
@@ -499,8 +547,8 @@ def composite(heights, ocean, water, snow_a, hs, occ, occ_shape, grid, depth=Non
     # float32 throughout — the output is 8-bit, and on the full-width planet windows float64
     # doubled peak RAM (~18 GB) and OOM-killed the box. asarray is a no-op when already float32.
     heights = np.asarray(heights, dtype=np.float32)
-    land = palette.lut_lookup(palette.relief_lut("land"), "land", heights).astype(np.float32)
-    sea = palette.lut_lookup(palette.relief_lut("sea"), "sea", heights).astype(np.float32)
+    land = palette.lut_lookup(palette.relief_lut("land", look=look), "land", heights,
+                              look=look).astype(np.float32)
     hs = np.asarray(hs, dtype=np.float32)
     snow_a = np.asarray(snow_a, dtype=np.float32)
     occ = np.asarray(occ, dtype=np.float32)
@@ -509,9 +557,25 @@ def composite(heights, ocean, water, snow_a, hs, occ, occ_shape, grid, depth=Non
                    * np.array([1.0, 1.0 - 0.5 * KNOBS["warmth"], 1.0 - KNOBS["warmth"]],
                               dtype=np.float32).reshape(3, 1, 1),
                    0, 255)
-    sea_lum = 0.299 * sea[0] + 0.587 * sea[1] + 0.114 * sea[2]
-    sea = np.clip(sea_lum[None] + (sea - sea_lum[None]) * KNOBS["sea_saturation"], 0, 255)
-    color = np.where(ocean[None], sea, land)
+    if look.sea is None:
+        # A body that draws no sea. The caller's ocean mask comes from the planet seam's
+        # DECLARATION, so on such a body it is all-False and `np.where` would select the sea ramp
+        # nowhere — skipping it states that, where building a second ramp would mean inventing a
+        # colour no pixel is painted in. The check is not defensive: an ocean mask arriving with
+        # pixels set means the look and the declaration disagree about the planet, and every one of
+        # those pixels would silently render as land.
+        if bool(np.any(ocean)):
+            raise ValueError(
+                "look draws no sea but the ocean mask has pixels set — the body's planet seam "
+                "declares an oceanmask its look has no ramp for, so sea would render as land."
+            )
+        color = land
+    else:
+        sea = palette.lut_lookup(palette.relief_lut("sea", look=look), "sea", heights,
+                                 look=look).astype(np.float32)
+        sea_lum = 0.299 * sea[0] + 0.587 * sea[1] + 0.114 * sea[2]
+        sea = np.clip(sea_lum[None] + (sea - sea_lum[None]) * KNOBS["sea_saturation"], 0, 255)
+        color = np.where(ocean[None], sea, land)
     # Inland water: flat WATER_RGB by default. Where a lake carries GLOBathy depth, ramp it
     # instead -- on ABSOLUTE depth, never normalised per lake, since a per-lake normalisation
     # is the artificial gradient the prototype was rejected for (a pond would read
@@ -555,11 +619,13 @@ def composite(heights, ocean, water, snow_a, hs, occ, occ_shape, grid, depth=Non
     # in sun (a two-colour ramp, not a neutral multiply), so snow keeps relief form instead of
     # muddying to grey on rugged terrain the way SNOW_RGB*light did.
     alpha = np.where(ocean | water, 0.0, snow_a)
-    snow_t = snow_position(light, KNOBS["snow_curve"])
-    snow_shadow = np.array(palette.SNOW_SHADOW_RGB, dtype=np.float32).reshape(3, 1, 1)
-    snow_lit = np.array(palette.SNOW_RGB, dtype=np.float32).reshape(3, 1, 1)
-    snow_rgb = snow_shadow + (snow_lit - snow_shadow) * snow_t[None]
-    final = base_rgb * (1.0 - alpha)[None] + snow_rgb * alpha[None]
+    snow_t = snow_position(light, KNOBS["snow_curve"])  # also the sea-ice light key below
+    if snow_paint is None:
+        final = base_rgb  # no layer here paints a land white; see the docstring on why not zeros
+    else:
+        snow_shadow, snow_lit = paint_end(snow_paint[1]), paint_end(snow_paint[0])
+        snow_rgb = snow_shadow + (snow_lit - snow_shadow) * snow_t[None]
+        final = base_rgb * (1.0 - alpha)[None] + snow_rgb * alpha[None]
 
     # soft-alpha sea ice: the sea-side mirror of the snow blend above. Gated on `ocean` (the mirror
     # of snow's ~(ocean|water) land gate) so ice paints ONLY over open sea -- never land, never the
@@ -571,8 +637,7 @@ def composite(heights, ocean, water, snow_a, hs, occ, occ_shape, grid, depth=Non
         # Sea ice is a cooler/dimmer white than snow (palette.ICE_*), light-keyed by the same snow_t
         # so it still takes the hillshade on pressure ridges / shelf edges. Distinct from land snow
         # without a hard colour split -- the coastline and relief carry the rest.
-        ice_shadow = np.array(palette.ICE_SHADOW_RGB, dtype=np.float32).reshape(3, 1, 1)
-        ice_lit = np.array(palette.ICE_RGB, dtype=np.float32).reshape(3, 1, 1)
+        ice_shadow, ice_lit = paint_end(ice_paint[1]), paint_end(ice_paint[0])
         gated_ice = np.where(ocean, np.asarray(ice_a, dtype=np.float32), 0.0)
         ice_light_key = snow_t
         if KNOBS["ice_relief_damp"] > 0.0:

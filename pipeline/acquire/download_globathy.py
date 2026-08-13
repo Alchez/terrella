@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Download the GLOBathy lake-bathymetry dataset (Khazaei 2022, CC0).
 
 The general answer to lake depth: every lake except the Caspian and the Great Lakes fuses
@@ -24,7 +23,7 @@ Edition oracle: figshare's /versions/1 endpoint is immutable, so the pin is the 
 API URL (the self-pinning download_gebco.py model) cross-checked against the size + md5
 baked in below. If figshare ever serves different bytes under v1, preflight aborts loudly
 rather than silently swapping the dataset underneath us. Downloads reuse
-download_glo30.download_one (.part -> Content-Length check -> atomic rename), so a file
+fetch.download_one (.part -> Content-Length check -> atomic rename), so a file
 under its final name is always complete and re-runs skip it; md5 is verified on fresh
 downloads only, so an idempotent re-run stays instant instead of re-hashing 16.7 GB.
 
@@ -38,11 +37,10 @@ import argparse
 import hashlib
 import json
 import sys
-import urllib.request
 from pathlib import Path
 
-from pipeline import paths
-from pipeline.acquire.download_glo30 import download_one
+from pipeline import fetch, paths
+from pipeline.fetch import download_one
 
 DATA_DIR = paths.DATA / "raw/globathy"
 API = "https://api.figshare.com/v2/articles/{article}/versions/1"
@@ -78,7 +76,7 @@ def preflight(entry: dict) -> None:
     contract broke -- abort rather than download a silently different edition.
     """
     url = API.format(article=entry["article"])
-    with urllib.request.urlopen(url, timeout=60) as response:
+    with fetch.open_url(url, timeout=60) as response:
         article = json.load(response)
     served = {item["name"]: item for item in article.get("files", [])}
     if entry["name"] not in served:
@@ -95,7 +93,7 @@ def preflight(entry: dict) -> None:
                  f"no-attribution assumption in ATTRIBUTIONS.md no longer holds")
 
 
-def fetch(entry: dict, verify_existing: bool) -> str:
+def fetch_archive(entry: dict, verify_existing: bool) -> str:
     """Download one archive if absent; md5-check whatever is new (or --verify)."""
     dest = DATA_DIR / entry["name"]
     gigabytes = entry["size"] / 1e9
@@ -136,7 +134,7 @@ def main() -> int:
 
     failures = []
     for entry in wanted:
-        status = fetch(entry, args.verify)
+        status = fetch_archive(entry, args.verify)
         if status.startswith("failed"):
             failures.append(f"{entry['name']}  {status}")
 

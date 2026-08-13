@@ -34,11 +34,22 @@
    file and then checks what the browser actually computes from it. A copied colour with nothing
    comparing it back is how WATER_RGB drifted 15% off the sea it was supposed to match. */
 :root[data-body="earth"] {
-  --accent: #3a6e7d; /* deep-sea teal, from the hero ramp */
+  --accent: #3a6e7d; /* SEA_STOPS[5], the trench floor */
 }
 @media (prefers-color-scheme: dark) {
   :root[data-body="earth"] {
     --accent: #7cb8b8; /* shallow teal in the dark */
+  }
+}
+
+/* Mars: eye-ratified, not ramp-derived. lib/bodies.ts holds the measurement that reverted a
+   derivation from ramp stops — don't retry it. */
+:root[data-body="mars"] {
+  --accent: #8c4a32;
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-body="mars"] {
+    --accent: #d08b6a;
   }
 }
 

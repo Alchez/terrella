@@ -1,14 +1,11 @@
-/** The country vector-tile contract — a `vector` source over the country pyramid.
+/** EARTH's country pyramid — what is inside its tiles, how deep it was cut, and its legacy URL.
  *
- *  Third sibling of reliefTiles.ts and terrainSource.ts, and a sibling rather than a
- *  generalisation for the same reason those two are separate: this one is MVT where they are
- *  WebP, it is legitimately SPARSE where they are complete, and its tiles carry named
- *  source-layers where a raster tile carries pixels. Folding them together would put a "which
- *  archive am I" branch in the files whose job is to have no branches.
+ *  The transport half moved to vectorTiles.ts, which is the contract every body's vector pyramid
+ *  answers. What is left here is the half that is Earth's alone, and the split is what stops the
+ *  next planet importing a country to reach an extension.
  *
- *  Like both siblings this is dependency-free and free of `import.meta.env`, because it is
- *  imported from the browser, the Astro dev server (plain Node, before Vite env exists) and the
- *  tile Worker.
+ *  Dependency-free and free of `import.meta.env`, like its siblings, because it is imported from
+ *  the browser, the Astro dev server (plain Node, before Vite env exists) and the tile Worker.
  *
  *  WHY THE GLOBE ADDRESSES COUNTRIES BY z/x/y AT ALL. Handing MapLibre a parsed FeatureCollection
  *  makes `Actor.sendAsync` deep-rebuild it in `serialize()` and then structured-clone the rebuilt
@@ -19,23 +16,7 @@
  */
 
 import type { TileCoordinate } from "./reliefTiles";
-
-/** Layer names INSIDE a tile, used as MapLibre `source-layer` values.
- *
- *  Pinned on both sides — the writer is `FILL_LAYER`/`OUTLINE_LAYER`/`HIT_LAYER` in
- *  pipeline/compose/countries_pmtiles.py. A disagreement is silent: MapLibre renders a layer whose
- *  `source-layer` matches nothing as empty, with no error and no warning, so the globe would come
- *  up with no countries and nothing to say about why. */
-export const COUNTRY_FILL_LAYER = "country_fill";
-export const COUNTRY_OUTLINE_LAYER = "country_outline";
-export const COUNTRY_HIT_LAYER = "country_hit";
-
-/** Mapbox Vector Tile. The archive stores these gzipped, but nothing downstream sees that:
- *  `PMTiles.getZxy` decompresses against the header's `tileCompression` before returning, and
- *  both tile servers read through it. So the wire carries plain protobuf and no `Content-Encoding`
- *  is involved — which is what keeps R2's undocumented encoding passthrough out of this path. */
-export const COUNTRIES_TILE_EXTENSION = "mvt";
-export const COUNTRIES_CONTENT_TYPE = "application/x-protobuf";
+import { VECTOR_TILE_EXTENSION } from "./vectorTiles";
 
 /** The path segment telling the tile server which of the three archives a request is for.
  *
@@ -45,19 +26,27 @@ export const COUNTRIES_CONTENT_TYPE = "application/x-protobuf";
  *  codec is exactly the thing a re-cut is allowed to change. */
 export const COUNTRIES_PATH_PREFIX = "countries";
 
-export const COUNTRIES_PATH_TEMPLATE =
-  `${COUNTRIES_PATH_PREFIX}/{z}/{x}/{y}.${COUNTRIES_TILE_EXTENSION}`;
-
 export const COUNTRIES_MIN_ZOOM = 0;
 
-/** Matches the relief pyramid's ceiling, and not by coincidence: the hover outline is judged
- *  against the raster coastline at z8, so the vector detail has to reach where the raster does.
- *  MapLibre overzooms past this by re-using z8 tiles, which is correct — beyond z8 there is no
- *  more relief detail to disagree with. */
+/** Matches EARTH's relief ceiling, and not by coincidence: the hover outline is judged against the
+ *  raster coastline at that ceiling, so the vector detail has to reach where the raster does.
+ *  MapLibre overzooms past this by re-using the deepest tiles, which is correct — past the relief's
+ *  own ceiling there is no more detail to disagree with.
+ *
+ *  EARTH'S, THOUGH THE COUPLING IT DESCRIBES IS EVERY BODY'S. The per-planet answer is
+ *  `PUBLISHED[body].vector` in tileAddress.ts, and each planet's relief stops where its own
+ *  source data runs out — so "matches the relief ceiling" resolves to a different number per
+ *  planet, while this constant cannot.
+ *
+ *  It is still what `countryTilesSource` reads, and that is a deferral rather than an oversight:
+ *  Earth is the only body publishing vectors, so a version taking its zooms from the registry would
+ *  produce byte-identical output forever and a test for it could not fail. The way in is to thread
+ *  the ARCHIVE into that function instead of a body slug — then a test can hand it a range that is
+ *  nobody's, and the guard bites without waiting for a second vector pyramid to exist. */
 export const COUNTRIES_MAX_ZOOM = 8;
 
 const COUNTRIES_PATH_PATTERN = new RegExp(
-  String.raw`^\/?${COUNTRIES_PATH_PREFIX}\/(\d{1,2})\/(\d{1,7})\/(\d{1,7})\.${COUNTRIES_TILE_EXTENSION}$`,
+  String.raw`^\/?${COUNTRIES_PATH_PREFIX}\/(\d{1,2})\/(\d{1,7})\/(\d{1,7})\.${VECTOR_TILE_EXTENSION}$`,
 );
 
 /** Parse `/countries/8/189/107.mvt` (leading slash optional) into a tile address, or null if the
@@ -77,33 +66,3 @@ export function parseCountriesTilePath(pathname: string): TileCoordinate | null 
   return { z, x, y };
 }
 
-/** Describe a COUNTRIES_TILE_EXTENSION/archive disagreement, or null when they match.
- *
- *  The failure it catches is the router having been pointed at a RASTER archive: a WebP tile
- *  served as `application/x-protobuf` fails to parse in MapLibre's worker, and the visible result
- *  is a globe with no countries — indistinguishable from a source-layer typo, from an empty
- *  archive, and from a filter that matches nothing. */
-export function describeCountriesTileTypeMismatch(archiveExtension: string): string | null {
-  if (archiveExtension === `.${COUNTRIES_TILE_EXTENSION}`) return null;
-  const declared = archiveExtension || "an encoding this pmtiles build cannot name";
-  return (
-    `Countries archive stores ${declared} tiles, but the globe requests ` +
-    `.${COUNTRIES_TILE_EXTENSION}. Update COUNTRIES_TILE_EXTENSION in src/lib/countryTiles.ts to ` +
-    `match the re-cut pyramid (its source of truth is pipeline/compose/countries_pmtiles.py).`
-  );
-}
-
-/** Fail loudly when the country archive stops matching the constants above.
- *
- *  Silent in both directions like its siblings, with one extra wrinkle: because this pyramid is
- *  sparse, a shallower archive does not 404 visibly the way relief does — the route answers 204
- *  for a missing tile, so an archive that stops at z6 looks exactly like ocean from z7 up. */
-export function assertCountriesZoomRange(archiveMinZoom: number, archiveMaxZoom: number): void {
-  if (archiveMinZoom !== COUNTRIES_MIN_ZOOM || archiveMaxZoom !== COUNTRIES_MAX_ZOOM) {
-    throw new Error(
-      `Countries archive covers z${archiveMinZoom}-z${archiveMaxZoom}, but the globe requests ` +
-        `z${COUNTRIES_MIN_ZOOM}-z${COUNTRIES_MAX_ZOOM}. Update COUNTRIES_MIN_ZOOM/` +
-        `COUNTRIES_MAX_ZOOM in src/lib/countryTiles.ts to match the re-cut pyramid.`,
-    );
-  }
-}

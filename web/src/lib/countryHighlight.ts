@@ -7,13 +7,8 @@ import type {
   VectorSourceSpecification,
 } from "maplibre-gl";
 
-import {
-  COUNTRIES_MAX_ZOOM,
-  COUNTRIES_MIN_ZOOM,
-  COUNTRY_FILL_LAYER,
-  COUNTRY_HIT_LAYER,
-  COUNTRY_OUTLINE_LAYER,
-} from "./countryTiles";
+import { COUNTRIES_MAX_ZOOM, COUNTRIES_MIN_ZOOM } from "./countryTiles";
+import { requireSourceLayer } from "./sourceLayers";
 
 // The country hover-highlight, factored out of earth.astro so its load-bearing wiring is
 // unit-testable (see countryHighlight.test.ts). Two choices here are non-obvious and each
@@ -55,9 +50,9 @@ export interface CountrySourceBinding {
  *  feature-state keys off (source, sourceLayer, id), so fill and outline sharing a source is what
  *  lets one `setFeatureState` light both — the same thing the shared `promoteId` bought before. */
 export const VECTOR_BINDING: CountrySourceBinding = {
-  fill: { source: COUNTRIES_SOURCE, "source-layer": COUNTRY_FILL_LAYER },
-  outline: { source: COUNTRIES_SOURCE, "source-layer": COUNTRY_OUTLINE_LAYER },
-  hit: { source: COUNTRIES_SOURCE, "source-layer": COUNTRY_HIT_LAYER },
+  fill: { source: COUNTRIES_SOURCE, "source-layer": requireSourceLayer("earth", "fill") },
+  outline: { source: COUNTRIES_SOURCE, "source-layer": requireSourceLayer("earth", "outline") },
+  hit: { source: COUNTRIES_SOURCE, "source-layer": requireSourceLayer("earth", "hit") },
 };
 
 /** What `map.setFeatureState` needs to address one layer's features: MapLibre's own key spelling,

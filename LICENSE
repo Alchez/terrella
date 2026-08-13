@@ -24,5 +24,5 @@ SOFTWARE.
 
 This license covers the source code of this repository. The rendered imagery
 the pipeline produces (hero renders, map tiles, polar caps — the site's visual
-output) is licensed separately under CC BY-NC 4.0; see ATTRIBUTIONS.md, which
+output) is licensed separately under CC BY-SA 4.0; see ATTRIBUTIONS.md, which
 also carries the upstream data licenses and required credits.

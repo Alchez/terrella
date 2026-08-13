@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Pull an OpenTopography Global DEM clip as an independent fusion oracle.
 
 Our heightfield is GLO-30 land fused with GEBCO bathymetry (fuse_heightfield.py).
@@ -37,12 +36,16 @@ import shutil
 import sys
 import urllib.error
 import urllib.parse
-import urllib.request
 from pathlib import Path
 
 import rasterio
 
-ROOT = Path(__file__).resolve().parent.parent
+from pipeline import fetch, paths
+from pipeline.frame.country_config import country_work_dir
+
+#: The CHECKOUT, read for one thing only: the gitignored `.env` holding the API key. The clips this
+#: writes are DATA and come from `country_work_dir`, which follows `MAPS_DATA`.
+ROOT = paths.ROOT
 API = "https://portal.opentopography.org/API/globaldem"
 
 # The 17 global rasters the API serves; the commented ones are the useful oracles.
@@ -89,7 +92,7 @@ def resolve_frame(slug: str) -> tuple:
     """The exact frame the pipeline fuses for this country (via country_config)."""
     import pipeline.frame.country_config as cc
     cfg = cc.load_config()
-    sf, rows = cc.load_ne_rows()
+    _sf, rows = cc.load_ne_rows()
     scope = cc.build_scope(cfg, rows)
     if slug not in scope:
         sys.exit(f"no country with slug {slug!r} in scope (see country_config --all)")
@@ -99,7 +102,7 @@ def resolve_frame(slug: str) -> tuple:
     return tuple(resolved["frame"])
 
 
-def fetch(dataset: str, frame: tuple, out: Path, key: str) -> None:
+def download_clip(dataset: str, frame: tuple, out: Path, key: str) -> None:
     """Download the clip to out (crash-safe via a .tmp sibling)."""
     west, south, east, north = frame
     query = urllib.parse.urlencode(dict(
@@ -108,7 +111,7 @@ def fetch(dataset: str, frame: tuple, out: Path, key: str) -> None:
     tmp = out.with_name(out.name + ".tmp")
     try:
         # key is in the URL — never log it
-        with urllib.request.urlopen(f"{API}?{query}", timeout=600) as resp, \
+        with fetch.open_url(f"{API}?{query}", timeout=600) as resp, \
              open(tmp, "wb") as out_file:
             shutil.copyfileobj(resp, out_file)
     except urllib.error.HTTPError as ex:
@@ -147,7 +150,7 @@ def main() -> int:
     args = ap.parse_args()
 
     frame = resolve_frame(args.country) if args.country else tuple(args.bounds)
-    out = args.out or (ROOT / f"data/work/{args.country}/oracle/{args.dataset}.tif")
+    out = args.out or (country_work_dir(args.country) / "oracle" / f"{args.dataset}.tif")
     if args.bounds is not None and args.out is None:
         ap.error("--bounds needs --out")
 
@@ -163,13 +166,13 @@ def main() -> int:
 
     fr = " ".join(f"{value:g}" for value in frame)
     print(f"{args.dataset} over [{fr}]  ({area:,.0f} km^2, cap {cap:,})", flush=True)
-    fetch(args.dataset, frame, out, load_api_key())
+    download_clip(args.dataset, frame, out, load_api_key())
     print(f"wrote {out}", flush=True)
 
     print("\nvalues (reference vs our fusion, if present):")
     summarize(out, f"oracle {args.dataset}")
     if args.country:
-        for hf in sorted((ROOT / f"data/work/{args.country}").glob("heightfield_*.tif")):
+        for hf in sorted(country_work_dir(args.country).glob("heightfield_*.tif")):
             summarize(hf, f"fusion {hf.stem.split('_')[-1]}")
     return 0
 

@@ -12,6 +12,8 @@ import {
   type CapabilitySignals,
   type Quality,
 } from "./capability";
+import { BODIES, type BodySlug } from "./bodies";
+import { bodyRoutes, isSamePath } from "./bodyRoutes";
 
 // A device that passes every check — the baseline each test perturbs one field of.
 const healthy: CapabilitySignals = {
@@ -166,8 +168,24 @@ const guardSource = (() => {
   return guard;
 })();
 
+/** A Storage-shaped view over a plain Map, for handing the inline guard a localStorage it can
+ *  read and write without a DOM. Only the three members that guard actually calls. */
+const storage = (backing: Map<string, string>) => ({
+  getItem: (key: string) => backing.get(key) ?? null,
+  setItem: (key: string, value: string) => void backing.set(key, value),
+  removeItem: (key: string) => void backing.delete(key),
+});
+
 interface GuardVisit {
   path: string;
+  /** Which body's page the visit lands on, i.e. what `Base.astro` stamped on `<html>`.
+   *
+   *  THE WHOLE REASON THE GUARD IS TESTABLE FOR A SECOND BODY BEFORE ONE HAS A GLOBE. The guard
+   *  reads its two routes off attributes rather than matching a literal path, so a test can hand it
+   *  Mars's and watch it steer — no Mars globe, no Mars page, nothing on disk. Had the routes stayed
+   *  inside the guard, the only way to exercise them would have been to ship the thing they route
+   *  to, and the bug would have been found by looking at it. */
+  body?: BodySlug;
   quality?: string;
   steered?: boolean;
   webgl2?: boolean;
@@ -188,6 +206,7 @@ interface GuardOutcome {
 /** Run the extracted guard against one simulated visit. */
 function visit({
   path,
+  body = "earth",
   quality = "auto",
   steered = false,
   webgl2 = true,
@@ -198,12 +217,14 @@ function visit({
   const session = new Map<string, string>(steered ? [["rg:steered", "1"]] : []);
   const local = new Map<string, string>(quality ? [["rg:quality", quality]] : []);
   const redirects: string[] = [];
-
-  const storage = (backing: Map<string, string>) => ({
-    getItem: (key: string) => backing.get(key) ?? null,
-    setItem: (key: string, value: string) => void backing.set(key, value),
-    removeItem: (key: string) => void backing.delete(key),
-  });
+  // From the real registry, not spelled out here: the values under test are the ones the layout
+  // will stamp, so a route that changes there changes what the guard is driven with.
+  const routes = bodyRoutes(body);
+  const attributes: Record<string, string> = {
+    "data-body": body,
+    "data-globe-route": routes.globe,
+    "data-lite-route": routes.lite,
+  };
 
   new Function(
     "location",
@@ -219,6 +240,7 @@ function visit({
     storage(session),
     { connection: { saveData } },
     {
+      documentElement: { getAttribute: (name: string) => attributes[name] ?? null },
       createElement: () => ({
         getContext: () =>
           webgl2
@@ -293,6 +315,179 @@ describe("Base.astro tier guard — rg:steered means 'this session has seen the 
     const base = readFileSync(new URL("../layouts/Base.astro", import.meta.url), "utf8");
     expect(base).not.toMatch(/removeItem\(\s*["']rg:steered["']\s*\)/);
   });
+
+  it("marks a session steered on ANY body's globe, so ← Gallery still works from Mars", () => {
+    // The flag is one key across bodies because it means "this session has seen a globe", and the
+    // globe's own ← Gallery link points at `/` whichever planet you were on. Written per body, a
+    // Mars visitor clicking it would be steered straight back to Earth's globe.
+    const marsVisit = visit({ path: "/mars/", body: "mars" });
+    expect(marsVisit).toEqual({ redirects: [], steered: true });
+    expect(visit({ path: "/", steered: marsVisit.steered }).redirects).toEqual([]);
+  });
+});
+
+describe("Base.astro tier guard — a second body's globe is guarded like the first", () => {
+  // WHAT THIS COMMIT EXISTS FOR. The guard used to match the literal `/earth`, so on any other
+  // body's globe every branch was skipped: a device with no WebGL2 was left sitting on a map it
+  // could not draw, and nothing anywhere reported it. These run today, with no Mars globe built.
+  it("bounces a Lite visitor off Mars's globe to MARS's fallback, not Earth's", () => {
+    expect(visit({ path: "/mars/", body: "mars", quality: "lite" })).toEqual({
+      redirects: ["/mars/lite/"],
+      steered: false,
+    });
+  });
+
+  it("bounces a device that cannot run a globe at all", () => {
+    expect(visit({ path: "/mars/", body: "mars", webgl2: false }).redirects).toEqual([
+      "/mars/lite/",
+    ]);
+  });
+
+  it("steers a capable visitor from Mars's fallback onto Mars's globe", () => {
+    expect(visit({ path: "/mars/lite/", body: "mars" })).toEqual({
+      redirects: ["/mars/"],
+      steered: true,
+    });
+  });
+
+  it("leaves a Lite visitor on Mars's fallback", () => {
+    expect(visit({ path: "/mars/lite/", body: "mars", quality: "lite" }).redirects).toEqual([]);
+  });
+
+  it("never sends a Mars visitor to Earth, on any of the four outcomes", () => {
+    // The failure mode stated as its own assertion, because each case above only checks one
+    // destination: a control that answers "your device cannot draw Mars" by showing you a
+    // different planet is the specific wrong that the literal `/earth` produced.
+    const outcomes = [
+      visit({ path: "/mars/", body: "mars", quality: "lite" }),
+      visit({ path: "/mars/", body: "mars", webgl2: false }),
+      visit({ path: "/mars/lite/", body: "mars" }),
+      visit({ path: "/mars/lite/", body: "mars", saveData: true }),
+    ];
+    expect(outcomes.flatMap((outcome) => outcome.redirects).join(" ")).not.toMatch(/earth/);
+  });
+
+  it("reads both trailing-slash spellings of a body's globe", () => {
+    // Astro serves `/mars` and `/mars/` alike, so an `===` against one of them is a guard that
+    // works for everyone who arrives the way we happened to test.
+    expect(visit({ path: "/mars", body: "mars", quality: "lite" }).redirects).toEqual([
+      "/mars/lite/",
+    ]);
+    expect(visit({ path: "/mars/lite", body: "mars" }).redirects).toEqual(["/mars/"]);
+  });
+
+  it("leaves a page that is neither route alone, whatever body it is dressed in", () => {
+    for (const slug of Object.keys(BODIES) as BodySlug[]) {
+      expect(visit({ path: "/about/", body: slug }).redirects, `${slug} at /about/`).toEqual([]);
+      expect(visit({ path: "/france/", body: slug }).redirects, `${slug} at /france/`).toEqual([]);
+    }
+  });
+
+  it("sends every body to the fallback that body advertises", () => {
+    // The loop rather than two literals, so a third planet added by copying a row is caught here
+    // and not by a visitor on a phone that cannot run its globe.
+    for (const slug of Object.keys(BODIES) as BodySlug[]) {
+      const routes = bodyRoutes(slug);
+      expect(
+        visit({ path: routes.globe, body: slug, quality: "lite" }).redirects,
+        `${slug} bounced off its globe`,
+      ).toEqual([routes.lite]);
+      expect(
+        visit({ path: routes.lite, body: slug }).redirects,
+        `${slug} steered off its fallback`,
+      ).toEqual([routes.globe]);
+    }
+  });
+});
+
+describe("the guard's path comparison must not drift from bodyRoutes", () => {
+  // The second forced duplication in this file, and it is pinned the same way `capable()` is: by
+  // RUNNING the guard rather than reading it. `is:inline` means there is no bundle to import from,
+  // so the guard carries its own one-line `samePath`; if that copy and `isSamePath` disagree, the
+  // pre-paint guard and the view bar's tier picker decide differently which page you are on.
+  const SPELLINGS = [
+    "/",
+    "/earth",
+    "/earth/",
+    "/earth//",
+    "/mars",
+    "/mars/",
+    "/mars/lite",
+    "/mars/lite/",
+    "/marsx/",
+    "/about/",
+  ];
+
+  for (const slug of Object.keys(BODIES) as BodySlug[]) {
+    const routes = bodyRoutes(slug);
+    for (const path of SPELLINGS) {
+      it(`agrees for ${slug} at ${path}`, () => {
+        // A Lite visitor is redirected exactly when the guard thinks this is their globe; a capable
+        // first-time visitor is redirected exactly when it thinks this is their fallback. Neither
+        // probe can fire for the other case, so each isolates one of the two comparisons.
+        const guardSaysGlobe = visit({ path, body: slug, quality: "lite" }).redirects.length > 0;
+        const guardSaysLite = visit({ path, body: slug }).redirects.length > 0;
+        expect(guardSaysGlobe, `${path} vs ${routes.globe}`).toBe(isSamePath(path, routes.globe));
+        expect(guardSaysLite, `${path} vs ${routes.lite}`).toBe(isSamePath(path, routes.lite));
+      });
+    }
+  }
+});
+
+describe("Base.astro stamps the guard's inputs onto the page", () => {
+  // The guard reads its routes off `<html>`, and an attribute that stopped being rendered would
+  // take every branch above out of service SILENTLY — the guard is wrapped in `try/catch` so it can
+  // never break a page, which also means it can never complain. The harness above supplies the
+  // attributes itself, so it cannot see this; only the layout's own source can.
+  const base = readFileSync(new URL("../layouts/Base.astro", import.meta.url), "utf8");
+  // ANCHORED AT COLUMN 0, and that is not stylistic. An unanchored match found the tag quoted in
+  // this layout's own prose — the "a source scan matches its own documentation" trap, on its first
+  // outing here — and read a comment's `<html>` as the element. The real one is a top-level node in
+  // the template, so it is the only one that can begin a line.
+  const rootTags = base.match(/^<html[^>]*>/gm) ?? [];
+
+  it("renders exactly one root element, which is what the check below assumes", () => {
+    expect(rootTags).toHaveLength(1);
+  });
+
+  it("puts the body and both of its routes on that element", () => {
+    // One case rather than three, and the title is static on purpose: the mutation table matches a
+    // guard by its exact `it(...)` string, so a title built from a loop variable names a test that
+    // cannot be found — and the case would be recorded as covering something nothing runs.
+    for (const attribute of ["data-body", "data-globe-route", "data-lite-route"]) {
+      expect(rootTags[0], `the root element must carry ${attribute}`).toContain(`${attribute}={`);
+    }
+  });
+
+  it("takes both routes from the registry rather than writing them out", () => {
+    // `bodyRoutes(body)` and nothing else: a literal here would be a third copy of a fact the
+    // registry already holds, and it would be correct on the day it was written.
+    expect(base).toMatch(/const routes = bodyRoutes\(body\);/);
+  });
+});
+
+describe("Base.astro view bar sends a visitor to THIS body's pages", () => {
+  // A SOURCE SCAN, AND ONLY BECAUSE NOTHING ELSE CAN REACH IT. The tier picker is a module script
+  // inside the layout: no export, no entry point, and its whole effect is a navigation. The guard
+  // above is testable because its source can be extracted and run; this one is testable by what it
+  // says. Both destinations were `"/"` and `"/earth/"` until this commit, which is how Globe and
+  // Full on Mars came to navigate to Earth.
+  const base = readFileSync(new URL("../layouts/Base.astro", import.meta.url), "utf8");
+
+  it("takes both tier destinations from the body's own routes", () => {
+    expect(base).toMatch(/const target = choice === "lite" \? routes\.lite : routes\.globe;/);
+  });
+
+  it("asks the registry which body it is dressed in, rather than reading the path", () => {
+    expect(base).toMatch(/const routes = bodyRoutes\(currentBody\(\)\.slug\);/);
+  });
+
+  it("decides 'am I already there' with the comparison the guard uses", () => {
+    // `===` against one trailing-slash spelling reloaded nothing and navigated to the page it was
+    // already on — cheap to miss, since both outcomes end up displaying the right page.
+    expect(base).toMatch(/isSamePath\(location\.pathname, target\)/);
+    expect(base).toMatch(/isSamePath\(location\.pathname, routes\.globe\)/);
+  });
 });
 
 describe("Base.astro view bar", () => {
@@ -344,12 +539,15 @@ describe("Base.astro view bar", () => {
     // for the copy — a tooltip left describing only the idle spin would have been undersold with
     // nothing to catch it. Now: if terrain rides on the tier the tooltip must say so, and if it
     // ever stops riding on the tier the claim must come back out.
-    const globe = readFileSync(new URL("../pages/earth.astro", import.meta.url), "utf8");
+    const globe = readFileSync(new URL("../components/Globe.astro", import.meta.url), "utf8");
     // Keyed on the fact rather than on one spelling — the twin of this detector is in
     // terrainSource.test.ts, and both went red together when `currentTier()` was hoisted to a
     // `bootTier` const, which is the drift signal working rather than a defect.
     const gate = globe.match(
-      /resolveTerrainExaggeration\(\s*urlFlags\s*,\s*([\w$]+(?:\(\))?)\s*===\s*"full"\s*\)/,
+      // The trailing `(?:,[^)]*)?` is not decoration: this matcher was anchored on the call taking
+      // exactly TWO arguments, and it broke the day a third (the body) was added without a single
+      // character of the tier expression changing. An arity is not the property under test.
+      /resolveTerrainExaggeration\(\s*urlFlags\s*,\s*([\w$]+(?:\(\))?)\s*===\s*"full"\s*(?:,[^)]*)?\)/,
     );
     const tierExpression = gate?.[1] ?? "";
     // `decide(Globe)?Tier` — both spellings are the tier decision. `decideGlobeTier` wraps
@@ -588,7 +786,7 @@ describe("canRunGlobe — one floor, exported so nothing re-derives it", () => {
 });
 
 describe("the scripted-diagnosis seam is gated by the module boundary", () => {
-  const globe = readFileSync(new URL("../pages/earth.astro", import.meta.url), "utf8");
+  const globe = readFileSync(new URL("../components/Globe.astro", import.meta.url), "utf8");
   const overlay = readFileSync(new URL("./perf/perfOverlay.ts", import.meta.url), "utf8");
 
   it("lives in the lazily-imported instrument, so an ordinary visit cannot reach it", () => {
@@ -597,7 +795,7 @@ describe("the scripted-diagnosis seam is gated by the module boundary", () => {
     // lazyBoundary.test.ts owns that rule for the whole directory, and a duplicate of it here was
     // silently vacuous for its entire life — anchored `^import` against Astro's indented imports, so
     // it matched nothing and passed by finding nothing.
-    expect(overlay).toContain("terrellaMap = map");
+    expect(overlay).toContain("window.terrella = {");
     expect(globe).toMatch(/if \(urlFlags\.has\("perf"\)\)/);
     expect(globe).toContain('import("../lib/perf/perfOverlay")');
   });
@@ -608,13 +806,22 @@ describe("the scripted-diagnosis seam is gated by the module boundary", () => {
     // the block early and re-opened it after the assignment passed that test: the statement was
     // outside the gate and still inside the span. A region match cannot decide what encloses a
     // statement, so the gate moved to the module boundary and this asserts the page stays clean.
-    expect(globe).not.toContain("terrellaMap");
+    //
+    // KEYED TO THE SHAPE, NOT TO A NAME, and that is the correction this assertion carries. It
+    // used to name one handle — so when a SECOND handle for the same map was added to this page
+    // under a different name, it passed without noticing, and that duplicate shipped assigned
+    // twice with its own flag gate dead from the day it landed. Both spellings were correct where
+    // they sat; nothing could go red. A guard that names its subject cannot see the same defect
+    // arrive under another name, so this one asks the question the concept asks: does the page
+    // hand the live map to a global at all?
+    const pageHandles = [...globe.matchAll(/window\.(\w+)\s*=\s*map\b/g)].map((match) => match[1]);
+    expect(pageHandles, "the map seam belongs behind the module boundary").toEqual([]);
   });
 });
 
 describe("probeSignals is a GPU allocation, and callers must treat it as one", () => {
   const capability = readFileSync(new URL("./capability.ts", import.meta.url), "utf8");
-  const globe = readFileSync(new URL("../pages/earth.astro", import.meta.url), "utf8");
+  const globe = readFileSync(new URL("../components/Globe.astro", import.meta.url), "utf8");
 
   it("releases the context it creates, not just the canvas", () => {
     // A live WebGL context is a GPU resource held until GC. Browsers force-lose the OLDEST live
@@ -639,7 +846,7 @@ describe("probeSignals is a GPU allocation, and callers must treat it as one", (
     // the least stable part of a declaration.
     const compose = globe.match(/const composeReport = \([\s\S]*?\n {8}\};/)?.[0];
     expect(compose, "the report composer must exist").toBeTruthy();
-    // A RUNAWAY DETECTOR, not a size budget — earth.astro is ~100 KB, so anything that escaped the
+    // A RUNAWAY DETECTOR, not a size budget — Globe.astro is ~100 KB, so anything that escaped the
     // composer overshoots this by an order of magnitude. Bumped once, when the report gained
     // `probedTier`; bump it again for a legitimate growth rather than trimming the composer to fit.
     expect(compose!.length, "matched a runaway span, not the composer").toBeLessThan(4000);

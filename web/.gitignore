@@ -32,3 +32,6 @@ public/caps/
 # DIRECTORY named like a spec — anything globbing *.test.ts must filter to files.
 .vitest-attachments/
 **/__screenshots__/
+
+# `wrangler check startup` writes its flamegraph beside the Worker it profiled.
+*.cpuprofile

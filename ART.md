@@ -6,7 +6,11 @@
   bathymetry, data-driven snow.
 - The system of record is code: shared constants in `pipeline/render/palette.py`, hero-only
   constants in `pipeline/render/scene_build.py`, tile levers in `pipeline/tile/shade.py`
-  (`KNOBS`). Canonical renders: `blender/renders/heroes/<country>.png` (203 posters — 204 countries are in scope, Kiribati deferred).
+  (`KNOBS`). The ramp constants below are Earth's unless a row says otherwise, and they are
+  assembled into a named `Look` that the shading path resolves **per body** — every lever's cost in
+  this file is Earth's cost. `KNOBS` is the exception that is NOT per body: tone, saturation and the
+  highlight ceiling apply to every planet alike, which is a shared house style rather than an
+  oversight, but it means a body cannot soften its own highlights without that changing first. Canonical renders: `blender/renders/heroes/<country>.png` (203 posters — 204 countries are in scope, Kiribati deferred).
 - The A/Bs and rationale behind every value live in HISTORY (cited by § heading); this file is
   the operational view.
 
@@ -54,14 +58,15 @@ Cost: hero sweep **~10–13 h** + tile restage **~29 min** + caps auto-restage *
 
 | Lever | Value | Section |
 |---|---|---|
-| `LAND_STOPS` (+ `LAND_MAX_M`) | 6 stops, 0–6000 m | § Land color ramp |
+| `LAND_STOPS` (+ `LAND_MAX_M`) | 6 stops; Earth's domain 0–6000 m, but the ENDS are the body's — a `Surface` carries `origin_m` and `extreme_m`, and only Earth's origin is the datum | § Land color ramp |
+| `MARS_LAND_STOPS` | 6 stops over −6000…+6100 m, sharing no colour object with Earth. Hue measured against a global Viking mosaic (G/R 0.654, vs the 0.780 Earth's ramp was shipping); level taken only in part, landing at **0.71× Earth's shipped land**, because the mosaic's 2.07× darker reading is mostly its own tone curve and an uncorrected haze floor. Monotone in luminance BY CHOICE — Mars is really brightest at both ends, so fidelity would put Hellas and Olympus in one colour | § Land color ramp |
 | `SEA_STOPS` (+ `SEA_MIN_M`) | 6 shelf-weighted stops, 0…−6000 m | § Sea color ramp |
 | `LAKE_STOPS` (+ `LAKE_MAX_M`) | 3 stops; stop 0 == `WATER_RGB`, far end 1642 m (Baikal) | § Inland water |
 | `WATER_RGB` | `8EC6C4` — pinned relationally: sea surface +7% | § Inland water |
 | `SNOW_RGB` / `SNOW_SHADOW_RGB` | `E8F1F6` / `B0C7DB` | § Snow |
 | `ICE_RGB` / `ICE_SHADOW_RGB` | `D4E4F0` / `9CB8D2` | § Sea ice |
 | `SUN_ALT_DEG` | 45.0 — hero X-tilt and tile `alt` both derive from it | § Sun altitude |
-| `EXAGGERATION` | 15.0 — hero displacement + tile `EXAG` both import it (the copy pair was collapsed) | § Vertical exaggeration |
+| `EXAGGERATION` | 15.0 — the hero's and the region preview's; the tiles read `Body.exaggeration`, pinned equal to it for Earth | § Vertical exaggeration |
 | `LUT_STEP_M` | 1.0 m — ramp LUT resolution (fidelity, not hue) | § Land color ramp |
 
 ### Hero only (`scene_build.py`, `render_prep.py`) — the 203-country sweep, ~10–13 h
@@ -87,7 +92,7 @@ Cost: hero sweep **~10–13 h** + tile restage **~29 min** + caps auto-restage *
 |---|---|---|---|
 | `fill_strength` | 0.15 | hillshade ~46 min | § Fill sun — TILES |
 | `shadow_strength` / `shadow_reach` | 0.0 (off; +~2.1 h when on) / 300 px | hillshade | § Fill sun — TILES |
-| tile `EXAG` (shade_planet.py) | 15 — imports `palette.EXAGGERATION` (shared, no longer a copy pair) | hillshade | § Vertical exaggeration |
+| `exaggeration` (bodies.py) | 15 on Earth — a per-body field; tiles AND caps read it, pinned equal to `palette.EXAGGERATION` | hillshade | § Vertical exaggeration |
 | `ambient` / `ambient_knee` | 0.50 / 0.30 | composite ~29 min | § Ambient floor |
 | `hi` / `exposure` / `saturation` / `warmth` | 1.12 / 1.05 / 1.18 / 0.06 | composite | § Ambient floor |
 | `shadow_warmth` | 0.55 | composite | § Hero → tile parameter map |
@@ -117,12 +122,12 @@ Cost: hero sweep **~10–13 h** + tile restage **~29 min** + caps auto-restage *
 | `SIMPLIFY_DEG` (countries_geojson.py) | 0.002° — guard-tested sub-pixel vs `Z8_RES` | regen, seconds |
 | `COORDINATE_PRECISION` (both geojson emitters) | 4 (countries) / 5 (borders) | regen, seconds |
 | highlight look (web/src/lib/countryHighlight.ts) | `HIGHLIGHT_GOLD` `#eca834`, casing `#1c140c`, wash 0.16 | `pnpm build` | § Borders |
-| border line ramps (earth.astro `inkWidth`/`casingWidth`) | 0.6→1.7 px ink, 2.2→5.0 px casing over z1–8 | `pnpm build` | § Borders |
-| hover name chip (earth.astro `.country-chip`) | top-centre pill on `.globe-home`'s treatment, `var(--serif)` 1.05 rem, 0.4 rem dot taking `HIGHLIGHT_GOLD` from the constant (never a CSS copy); no fade, hidden under `(hover: none)` and while the detail card is open | `pnpm build` |
-| globe camera flatness (earth.astro `VERTICAL_FIELD_OF_VIEW_DEG`) | 15° — tested band 5–15 (MapLibre default 36.87° reads as low-orbit fisheye; 5° ≈ the hero's orthographic camera) | `pnpm build` |
-| on-map credit + chrome placement (earth.astro `CREDITS`, global.css `.view-bar`) | credit is an **ⓘ** linking to /about, folded into the centred `.view-bar` as its own segment — the bottom edge carries ONE floating element, not three. Still a MapLibre `AttributionControl`, constructed **`compact: false`**: any source declaring `attribution` is still picked up automatically (joined with `\|`), while MapLibre's own ⓘ — a baked-in black SVG that CSS cannot recolour — is never shown at any width. Ours is the same glyph redrawn with `currentColor`, its **viewBox cropped to the ink** (`4 4 12 12`, not `0 0 20 20`): the untrimmed box is 40% margin and renders ~60% the size of the octicon beside it. `title` + `aria-label` are mandatory — an icon-only link has no accessible name without them | `pnpm build` |
+| border line ramps (Globe.astro `inkWidth`/`casingWidth`) | 0.6→1.7 px ink, 2.2→5.0 px casing over z1–8 | `pnpm build` | § Borders |
+| hover name chip (Globe.astro `.country-chip`) | top-centre pill on `.globe-home`'s treatment, `var(--serif)` 1.05 rem, 0.4 rem dot taking `HIGHLIGHT_GOLD` from the constant (never a CSS copy); no fade, hidden under `(hover: none)` and while the detail card is open | `pnpm build` |
+| globe camera flatness (Globe.astro `VERTICAL_FIELD_OF_VIEW_DEG`) | 15° — tested band 5–15 (MapLibre default 36.87° reads as low-orbit fisheye; 5° ≈ the hero's orthographic camera) | `pnpm build` |
+| on-map credit + chrome placement (Globe.astro `CREDITS`, global.css `.view-bar`) | credit is an **ⓘ** linking to /about, folded into the centred `.view-bar` as its own segment — the bottom edge carries ONE floating element, not three. Still a MapLibre `AttributionControl`, constructed **`compact: false`**: any source declaring `attribution` is still picked up automatically (joined with `\|`), while MapLibre's own ⓘ — a baked-in black SVG that CSS cannot recolour — is never shown at any width. Ours is the same glyph redrawn with `currentColor`, its **viewBox cropped to the ink** (`4 4 12 12`, not `0 0 20 20`): the untrimmed box is 40% margin and renders ~60% the size of the octicon beside it. `title` + `aria-label` are mandatory — an icon-only link has no accessible name without them | `pnpm build` |
 | view bar geometry + phone collapse (global.css `.view-bar`, Base.astro) | centres by `inset-inline: 0` + auto margins, **never** `left: 50%` + `translateX` — the transform applies after layout, so that form caps the bar's width at half the viewport and wraps it early. Below **600 px** it collapses to `[tune \| ⓘ]`, persisted, defaulting closed; the credit sits OUTSIDE `.view-bar-items` so a collapse can never hide it. `is-collapsible` must track the trigger's render condition exactly, or pages without a trigger lose their controls. An expanded bar reaches **141 px at 320 px**, so the scale bar drops via `body.viewbar-open` rather than the lift chasing it. MapLibre's CSS is injected at runtime, so overrides must out-specify, not just follow | `pnpm build` |
-| globe atmosphere (web/src/lib/skyAtmosphere.ts) | `atmosphere-blend` **0.7 at z≤3 → 0.15 at z≥6**, geometric, as a zoom expression MapLibre evaluates per frame. Not a halo: the same uniform lays aerial perspective over the ground, and the overview-tuned 0.7 clips 23.8% of a pitched z7 frame to ≥254. `?sky=off\|<floor>` sweeps it | `pnpm build` |
+| globe atmosphere (web/src/lib/skyAtmosphere.ts) | `atmosphere-blend` **0.7 at z≤3 → 0.15 at z≥6**, geometric, as a zoom expression MapLibre evaluates per frame. Not a halo: the same uniform lays aerial perspective over the ground, and the overview-tuned 0.7 clips 23.8% of a pitched z7 frame to ≥254. `?sky=off\|<floor>` sweeps it. The three COLOURS are the body's (`lib/bodies.ts`) and a body may declare none, in which case no sky is set at all; the numbers here are the ramp's | `pnpm build` |
 | terrain displacement (web/src/lib/terrainSource.ts) | **15× at z≤3 decaying geometrically to 2.5× at z8**, written to `terrain.exaggeration` per frame — **never** via `setTerrain`, which rebuilds the Terrain + RenderToTexture and only destroys on removal. Rides the **`full` tier**; `?terrain=N` forces it on at any tier and `?terrain=off` removes only the geometry. The floor is **derived, not preferred**: elevation change goes as ~`width^0.5` while the facet halves per level, so slope holds constant only at 0.707 per level. Declared **`tileSize: 128` over a z0–8 pyramid** (one decision — 512's DEM sits at `camera − 2` and could never reach z7), and **`terrainSkirtLength: "none"`**, which trades MapLibre's seam-tearing for tiny black specks that land only on drastic elevation change | `pnpm build` |
 | terrain polar feather (pipeline/tile/terrain_rgb.py `FEATHER_LAT_LO/HI`) | encoded elevation ramps to zero over **78°–85°** by smoothstep, the geometric twin of the alpha feather `polarCaps.ts` already applies across the same band. Not optional: MapLibre does **not** drape custom layers onto the terrain mesh, so displaced tiles under an undisplaced cap would open a geometric seam — worst in the south, where that band is 2–3 km of Antarctic ice. Smoothstep rather than linear because this multiplies *geometry*, and a slope discontinuity is a visible crease where an alpha one is not | terrain re-cut, ~41 min |
 
@@ -130,11 +135,12 @@ Cost: hero sweep **~10–13 h** + tile restage **~29 min** + caps auto-restage *
 
 ### Vertical exaggeration — global constant, per-country number
 
-- Baseline **15× globally** (`EXAGGERATION`, `palette.py` — imported by `render_prep` + `shade_planet`). The number in the scene is
+- Baseline **15× globally** (`EXAGGERATION`, `palette.py` — imported by `render_prep`; the tiles and caps read `Body.exaggeration`). The number in the scene is
   per-frame: `displacement_scale = 15 ÷ (extent_w_m / 2)` because the plane is always 2 units
   wide (India 8.0e-6, Nepal 3.3e-5, Sri Lanka 1.0e-4 — docs/framing-math.md). Copying one
   country's scale onto another multiplies exaggeration by the frame-width ratio.
-- **Adjust globally:** `EXAGGERATION` in `palette.py`, then regenerate frame.json per country
+- **Adjust globally:** `EXAGGERATION` in `palette.py` AND `exaggeration` on the body in `bodies.py` — a
+  test fails if you move one alone — then regenerate frame.json per country
   (delete + rerun; hand-edit pinned ones). **Adjust one country:** edit `displacement_scale` in
   its frame.json — legitimate only as a recorded pathology override; per-country drama
   re-litigates the series promise (same border, two posters, same mountain height).
@@ -221,7 +227,7 @@ Cost: hero sweep **~10–13 h** + tile restage **~29 min** + caps auto-restage *
 
 | Tile | Hero | Relationship |
 |---|---|---|
-| `EXAG` (shade_planet.py) | `render_prep` displacement (both import `palette.EXAGGERATION` 15.0) | **now import-shared** — the copy pair was collapsed into `palette` |
+| `exaggeration` (bodies.py) | `render_prep` displacement (imports `palette.EXAGGERATION` 15.0) | **pinned, not shared** — the tiles must vary per body, so a test holds Earth's field equal to the hero's constant |
 | `KNOBS["alt"]` 45°, azimuth 315° | `SUN_ROTATION` X = `90 − SUN_ALT_DEG`, NW | both derive from `palette.SUN_ALT_DEG` |
 | `KNOBS["fill_strength"]` 0.15 | `FILL_STRENGTH 0.45 / SUN_STRENGTH 3.0` | the ratio, ported exactly |
 | `FILL_ALTITUDE 60°` / `FILL_AZIMUTH 135°` | `FILL_ROTATION` | identical geometry |

@@ -1,0 +1,44 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+
+  // The web side's answer to ruff: a linter beside the two type-checkers, asking whether the code
+  // says what it means rather than whether the types line up. It stays at ZERO, with no
+  // "pre-existing finding" allowance, exactly as `astro check` and `pyright` do.
+  //
+  // No path argument in the script either — oxlint walks from here and follows .gitignore, so
+  // `dist/`, `node_modules/` and the dev asset stores are out without being named. It reaches all
+  // 95 sources: `src/`, `scripts/`, `worker/`, the eight `.astro` pages, and the two configs.
+  //
+  // `pnpm lint` also passes `--report-unused-disable-directives-severity=error`, which is a FLAG
+  // and has no home in this file. It makes a suppression that no longer suppresses anything a red
+  // gate, so a fix that removes the finding cannot leave the comment claiming it is still needed.
+  // Turned on only once the staged list below emptied: while a rule is off, every suppression of
+  // it reads as dead, and the audit would have demanded the deletion of directives that were
+  // about to matter again. On first run it found six `eslint-disable-next-line no-console`
+  // comments — ESLint has never been installed in this repo, so all six suppressed nothing.
+  "plugins": ["typescript", "unicorn", "oxc"],
+
+  // THREE CATEGORIES, chosen deliberately, and the two left out are left out on evidence:
+  // `pedantic` and `style` are taste, and `restriction` forbids language features this repo uses.
+  // `correctness` is code that is outright wrong, `suspicious` is code most likely wrong, and
+  // `perf` is the one that finds accidental quadratics in a page that has to hold 60 fps.
+  "categories": {
+    "correctness": "error",
+    "suspicious": "error",
+    "perf": "error"
+  },
+
+  "rules": {
+    // OFF PERMANENTLY, not staged. All 16 sites read MapLibre's own internals — `_maxTileCacheSize`,
+    // `_tiles`, `_rttObjectRecyclePool` — through the documented-as-undocumented seam the cache
+    // budget and the RTT pool trim are built on. The leading underscore is THEIR spelling; the rule
+    // asks us to rename a property we do not own, which would simply be wrong.
+    "no-underscore-dangle": "off"
+
+    // THE STAGED LIST IS EMPTY, which is the point at which this file stops being a to-do. Every
+    // one of the three categories now runs with exactly one rule turned off, on the merit stated
+    // above — nothing is held back waiting for a commit. A new finding is a red gate, not an entry
+    // here; the staging mechanism existed so a 58-line mechanical rewrite never landed in the same
+    // diff as a judgement call, and both have landed.
+  }
+}

@@ -14,6 +14,13 @@ new `Path.home()` root anywhere else fails the suite.
   is `build_mosaics.sh`, which reads the same variable.
 - BLENDER: the Blender binary for hero renders. `MAPS_BLENDER` overrides;
   defaults to the documented tarball install (docs/pipeline.md § Environment setup).
+
+DERIVE AT CALL TIME, NOT AT IMPORT — the rule every consumer of these three follows, stated here
+rather than at each of them. A module-level `SOMEWHERE = DATA / "x/y"` freezes the root at import,
+so redirecting `MAPS_DATA` moves some of a module's paths and not others. The failure has no error
+in it: the frozen readers go stale together, so they still agree with each other and every
+assertion between them still passes. It has already cost one run that isolated its working tree and
+wrote its served output into the real `web/public/`. Write a function.
 """
 
 import os

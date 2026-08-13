@@ -3,8 +3,12 @@ import { afterEach, describe, expect, it } from "vitest";
 import "../styles/global.css";
 import globalCss from "../styles/global.css?raw";
 import baseLayout from "../layouts/Base.astro?raw";
-import globePage from "../pages/earth.astro?raw";
-import { BODIES, bodyFor, currentBody, type BodySlug } from "./bodies";
+import globePage from "../components/Globe.astro?raw";
+import { BODIES, bodyFor, type BodySlug } from "./bodies";
+// Its own module now, because `bodies.ts` is compiled by the tile Worker (via tileAddress.ts) and
+// a `document` reference there fails that program. Tested from here anyway: the split is a runtime
+// boundary, not a change of subject, and these cases are about the registry a slug resolves in.
+import { currentBody } from "./currentBody";
 import { DEEP_SEA } from "./palette";
 
 /**
@@ -32,6 +36,12 @@ afterEach(() => {
   else root.setAttribute("data-body", originalBody);
 });
 
+/** Compare hex as a COLOUR, not a spelling: `palette.ts` is uppercase (its Python pin formats
+ *  `%02X`), `global.css` is lowercase. CSS hex is case-insensitive, so case is not the invariant. */
+function asColour(hex: string): string {
+  return hex.trim().toLowerCase();
+}
+
 function accentOf(slug: string | null): string {
   if (slug === null) root.removeAttribute("data-body");
   else root.setAttribute("data-body", slug);
@@ -55,7 +65,9 @@ describe("the accent comes from the body descriptor", () => {
     // The load-bearing assertion: the cascade, not the file. `getComputedStyle` on the element the
     // token is declared on is what every `var(--accent)` in the sheet resolves against.
     for (const slug of Object.keys(BODIES) as BodySlug[]) {
-      expect(accentOf(slug), `computed --accent for ${slug}`).toBe(BODIES[slug].accent.light);
+      expect(asColour(accentOf(slug)), `computed --accent for ${slug}`).toBe(
+        asColour(BODIES[slug].accent.light),
+      );
     }
   });
 
@@ -72,9 +84,9 @@ describe("the accent comes from the body descriptor", () => {
     // `prefers-color-scheme` cannot be flipped from inside the page, so the dark value is the one
     // claim here that only a source scan can reach — stated as such rather than implied.
     for (const slug of Object.keys(BODIES) as BodySlug[]) {
-      expect(declaredAccents(slug), `global.css declarations for ${slug}`).toEqual([
-        BODIES[slug].accent.light,
-        BODIES[slug].accent.dark,
+      expect(declaredAccents(slug).map(asColour), `global.css declarations for ${slug}`).toEqual([
+        asColour(BODIES[slug].accent.light),
+        asColour(BODIES[slug].accent.dark),
       ]);
     }
   });
@@ -83,7 +95,7 @@ describe("the accent comes from the body descriptor", () => {
     // The other direction. A block left behind by a removed body would be dead CSS that still
     // matched, so a stale `data-body` on a cached page would keep painting a planet that is gone.
     const styled = [...globalCss.matchAll(/:root\[data-body="([^"]+)"\]/g)].map((m) => m[1]);
-    expect([...new Set(styled)].sort()).toEqual(Object.keys(BODIES).sort());
+    expect([...new Set(styled)].toSorted()).toEqual(Object.keys(BODIES).toSorted());
   });
 });
 
@@ -148,6 +160,32 @@ describe("the globe's space-floor is the body's colour, not a constant", () => {
   });
 });
 
+/**
+ * Which body a page passes to `<Base>`, resolved from either spelling the site uses.
+ *
+ * A page may name the body outright (`body="mars"`) or take it from the descriptor it already
+ * holds (`body={body.slug}`), and both are read here. A THIRD spelling is an ERROR rather than an
+ * absence, for the reason the view bar's flag parser records: a miss and a genuine mismatch would
+ * otherwise be the same value, and this guard's whole claim is that it read what the page ships.
+ */
+function resolveBodyProp(route: string, source: string): string {
+  const attrs = /<Base\b([^>]*)>/.exec(source)?.[1];
+  if (attrs === undefined) throw new Error(`${route} no longer opens with a <Base …> tag`);
+  const literal = /\bbody="([^"]*)"/.exec(attrs)?.[1];
+  if (literal !== undefined) return literal;
+  const expression = /\bbody=\{([^}]*)\}/.exec(attrs)?.[1]?.trim();
+  // The page names its body once in frontmatter and passes `.slug` down, so the answer is read
+  // from the declaration rather than from the attribute — which is the half a rename would break.
+  if (expression === "body.slug") {
+    const named = /\bconst body = BODIES\.(\w+)\b/.exec(source)?.[1];
+    if (named !== undefined) return named;
+  }
+  throw new Error(
+    `${route}: cannot resolve body={${expression}}. Teach this guard about it — an unread ` +
+      `expression would let a page dress itself in the wrong planet with nothing reporting it.`,
+  );
+}
+
 describe("a body's slug is its route", () => {
   it("gives every body in the registry a page at its own slug", () => {
     // THE ACCEPTANCE CRITERION FOR THIS WHOLE DESCRIPTOR: adding a planet should be a registry
@@ -161,6 +199,65 @@ describe("a body's slug is its route", () => {
     const names = pages.map((p) => p.split("/").pop()!.replace(".astro", ""));
     for (const slug of Object.keys(BODIES)) {
       expect(names, `${slug} needs a page at src/pages/${slug}.astro`).toContain(slug);
+    }
+  });
+
+  it("gives every body's lite route a page to land on", () => {
+    // THE OTHER HALF OF THE SLUG-IS-A-ROUTE RULE, and the half whose failure nobody would report.
+    // The pre-paint guard redirects here BEFORE the page paints, and only for a visitor whose
+    // device cannot run a globe — so a typo in `liteRoute` is a 404 on exactly the hardware we do
+    // not develop on, reached with nothing on screen to say what happened.
+    //
+    // Recursive, unlike its sibling above: this route may be nested (`/mars/lite/`), and a
+    // non-recursive glob would report the page missing rather than find it.
+    const pages = Object.keys(import.meta.glob("../pages/**/*.astro"));
+    // Prove the glob resolves before trusting an absence — the two routes below are looked UP in
+    // this list, so an empty list would fail loudly, but a list missing only nested pages would
+    // fail confusingly. Naming one file per depth says which.
+    expect(pages.some((path) => path.endsWith("/pages/index.astro"))).toBe(true);
+    expect(pages.some((path) => path.endsWith("/pages/mars/lite.astro"))).toBe(true);
+
+    for (const [slug, descriptor] of Object.entries(BODIES)) {
+      // `/` is `index.astro`; `/mars/lite/` is `mars/lite.astro`. Astro routes by filename, so the
+      // route and the path are the same fact and this is the comparison that holds them together.
+      const trimmed = descriptor.liteRoute.replace(/^\/|\/$/g, "");
+      const expected = `../pages/${trimmed === "" ? "index" : trimmed}.astro`;
+      expect(pages, `${slug}'s liteRoute ${descriptor.liteRoute} needs ${expected}`).toContain(
+        expected,
+      );
+    }
+  });
+
+  it("dresses every page a body owns in that body, and not in the one next door", () => {
+    // A SECOND GLOBE IS WHAT MAKES THIS REACHABLE. `mars.astro` is `earth.astro` with two words
+    // changed, and the way to get it wrong is to change one of them: a page served at `/mars/` that
+    // passes Earth's descriptor draws Mars's relief in Earth's teal, sends its Lite button to the
+    // gallery, and steers a WebGL2-less visitor onto a planet they never asked for. Nothing else
+    // compares a page's ROUTE to the body it dresses itself in, so all of that ships green.
+    //
+    // "Owns" is the route, not the subject. `[slug].astro` is a country page and passes
+    // `body="earth"` because a country is Earth's; what is checked here is the narrower claim that
+    // a page reachable UNDER a body's own path agrees with the body whose path it is.
+    const sources = import.meta.glob("../pages/**/*.astro", {
+      query: "?raw",
+      import: "default",
+      eager: true,
+    }) as Record<string, string>;
+    const owned = Object.entries(sources).flatMap(([path, source]) => {
+      const route = path.replace("../pages/", "");
+      const slug = Object.keys(BODIES).find(
+        (candidate) => route === `${candidate}.astro` || route.startsWith(`${candidate}/`),
+      );
+      return slug === undefined ? [] : [{ route, source, slug }];
+    });
+    // Both depths, because a body owns a page at its own name AND everything nested beneath it, and
+    // a non-recursive glob would quietly check only the first kind.
+    const routes = owned.map((entry) => entry.route);
+    expect(routes, "the sweep missed a body's top-level page").toContain("earth.astro");
+    expect(routes, "the sweep missed a body's nested page").toContain("mars/lite.astro");
+
+    for (const { route, source, slug } of owned) {
+      expect(resolveBodyProp(route, source), `${route} is ${slug}'s route`).toBe(slug);
     }
   });
 

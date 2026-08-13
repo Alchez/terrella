@@ -6,10 +6,18 @@ shade_planet.composite_params (one recipe home) plus source-mtime comparison.
 
 import json
 import os
+from pathlib import Path
 
-from pipeline import bodies
+import pytest
+
+from pipeline import bodies, planet_seam
+from pipeline.render import perennial_ice
 from pipeline.tile import cap_render
 from pipeline.tile.shade import KNOBS
+
+#: A planet whose seam emitted all three rasters — what Earth declares, and the only
+#: shape these tests care about unless they say otherwise.
+WHOLE_PLANET = planet_seam.KNOWN_RASTERS
 
 ANCIENT = (1_000_000, 1_000_000)
 FUTURE = (4_000_000_000, 4_000_000_000)
@@ -88,11 +96,11 @@ class TestCapIsFresh:
 class TestCapRecipe:
     def test_a_composite_knob_change_restages_the_caps(self):
         """THE regression this guard exists for: ambient_knee shipped and no cap noticed."""
-        before = cap_render.cap_recipe(EARTH_NORTH)
+        before = cap_render.cap_recipe(EARTH_NORTH, WHOLE_PLANET)
         saved = KNOBS["ambient_knee"]
         KNOBS["ambient_knee"] = saved + 0.05
         try:
-            assert cap_render.cap_recipe(EARTH_NORTH) != before
+            assert cap_render.cap_recipe(EARTH_NORTH, WHOLE_PLANET) != before
         finally:
             KNOBS["ambient_knee"] = saved
 
@@ -100,31 +108,54 @@ class TestCapRecipe:
         """composite_params filters fill_strength as hillshade-stage (hs_params tracks it for the
         tiles), but the caps consume it directly in _shade — the one knob that would slip through
         the shared recipe if not listed explicitly."""
-        before = cap_render.cap_recipe(EARTH_SOUTH)
+        before = cap_render.cap_recipe(EARTH_SOUTH, WHOLE_PLANET)
         saved = KNOBS["fill_strength"]
         KNOBS["fill_strength"] = saved + 0.05
         try:
-            assert cap_render.cap_recipe(EARTH_SOUTH) != before
+            assert cap_render.cap_recipe(EARTH_SOUTH, WHOLE_PLANET) != before
         finally:
             KNOBS["fill_strength"] = saved
 
     def test_the_two_caps_have_distinct_recipes(self):
         """Grid geometry (edge_lat, taper, ice overrides) rides in the recipe, so the poles never
         share a sidecar."""
-        assert cap_render.cap_recipe(EARTH_NORTH) != cap_render.cap_recipe(EARTH_SOUTH)
+        assert cap_render.cap_recipe(EARTH_NORTH, WHOLE_PLANET) != cap_render.cap_recipe(EARTH_SOUTH, WHOLE_PLANET)
 
 
 class TestCapSources:
-    def test_north_reads_the_snow_dataset_and_the_coastline(self):
-        sources = cap_render.cap_sources(EARTH_NORTH)
-        assert any("snow" in str(source).lower() or str(cap_render.snow.SP_NC) in str(source)
-                   for source in sources)
-        assert cap_render.COAST_SHP in sources
+    """Both of these run through `bakes_coastline`, whose third question is the disk — so the
+    coastline has to be present for either assertion to be about the subject.
 
-    def test_south_forced_snow_needs_no_dataset_and_bakes_no_coastline(self):
-        sources = cap_render.cap_sources(EARTH_SOUTH)
-        assert not any(str(cap_render.snow.SP_NC) in str(source) for source in sources)
-        assert cap_render.COAST_SHP not in sources
+    IT IS A FILE THESE TESTS WRITE, not the real Natural Earth shapefile, and the reason is that
+    reading the real one made both claims depend on whether this machine holds the download. The
+    north's assertion failed on a checkout with no data store, which is the honest half. The
+    south's PASSED there, which is the dangerous one: a missing file and a zero opacity produce
+    the same empty answer, so the test could not tell its own subject from an absent input.
+    """
+
+    @pytest.fixture
+    def coastline(self, monkeypatch, tmp_path) -> Path:
+        """A present coastline, so the disk question answers yes and the look and body decide."""
+        shapefile = tmp_path / "ne_10m_coastline.shp"
+        shapefile.write_text("only its existence is read")
+        monkeypatch.setattr(cap_render, "COAST_SHP", shapefile)
+        return shapefile
+
+    def test_north_reads_the_ice_producers_dataset_and_the_coastline(self, coastline):
+        """Named off the PRODUCER's own declaration rather than off a path this test spells out.
+        A literal here would pass while `cap_sources` listed a file the producer never opens, which
+        is the drift the producer-declares-its-inputs rule exists to make impossible."""
+        sources = cap_render.cap_sources(EARTH_NORTH, WHOLE_PLANET)
+        declared = perennial_ice.cap_ice(bodies.EARTH, "north").sources()
+        assert declared, "the north producer reads a dataset — an empty tuple makes this vacuous"
+        assert all(source in sources for source in declared)
+        assert coastline in sources
+
+    def test_south_forced_ice_needs_no_dataset_and_bakes_no_coastline(self, coastline):
+        sources = cap_render.cap_sources(EARTH_SOUTH, WHOLE_PLANET)
+        assert perennial_ice.cap_ice(bodies.EARTH, "south").sources() == ()
+        assert not any(str(perennial_ice.snow.SP_NC) in str(source) for source in sources)
+        assert coastline not in sources
 
 
 class TestTheRecipeTracksTheBodyNarrowly:
@@ -138,11 +169,11 @@ class TestTheRecipeTracksTheBodyNarrowly:
     """
 
     def test_the_projection_radius_is_recorded(self):
-        recipe = json.loads(cap_render.cap_recipe(EARTH_NORTH))
+        recipe = json.loads(cap_render.cap_recipe(EARTH_NORTH, WHOLE_PLANET))
         assert recipe["grid"]["aeqd_radius_m"] == bodies.EARTH.aeqd_radius_m
 
     def test_the_whole_body_is_not_inlined(self):
-        recipe = json.loads(cap_render.cap_recipe(EARTH_NORTH))
+        recipe = json.loads(cap_render.cap_recipe(EARTH_NORTH, WHOLE_PLANET))
         assert "body" not in recipe["grid"], (
             "the Body object is inlined in the cap recipe — a change to any of its fields, including "
             "ones that cannot move a cap pixel, would restage both caps"
@@ -155,5 +186,5 @@ class TestTheRecipeTracksTheBodyNarrowly:
     def test_both_recipes_agree_on_how_a_grid_is_serialised(self):
         """They were briefly patched separately, which is how a fix lands in one and not the other."""
         elev = json.loads(cap_render.cap_elev_recipe(EARTH_NORTH))
-        full = json.loads(cap_render.cap_recipe(EARTH_NORTH))
+        full = json.loads(cap_render.cap_recipe(EARTH_NORTH, WHOLE_PLANET))
         assert elev["grid"] == full["grid"]

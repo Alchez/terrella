@@ -2,8 +2,7 @@
 
 Sibling of `shade_planet.py`, and deliberately NOT part of it: that module cuts *colour*, this
 one cuts *elevation*. They share one input (`height_3857.tif`), one tiling scheme, and the
-stage-freshness primitives imported below — `cap_render.py` already treats `shade_planet` as
-their one home, so a third spelling of `is_stale` would be the thing to avoid, not the import.
+stage-freshness primitives, which live in `pipeline/freshness.py` and belong to neither stage.
 Nothing about the LOOK crosses over. MapLibre consumes this as a second `raster-dem` source with
 its own `maxzoom`, so the two pyramids need not be the same depth.
 
@@ -12,7 +11,7 @@ THE ONE TRAP THIS MODULE EXISTS TO AVOID
 Elevation packed into RGB is not an image. The value is `R*256 + G - 32768`, so the green byte
 WRAPS every 256 metres — and interpolating across a wrap invents a 256 m cliff. That makes every
 smooth resampler wrong on this data: `average`, `cubic`, `bilinear`, `lanczos` all mix bytes.
-`shade_planet.TILE_CUT` uses `cubic` for both the cut and its overviews, which is correct for
+`shade_planet.tile_cut` uses `cubic` for both the cut and its overviews, which is correct for
 colour and catastrophic here.
 
 So the pyramid is built **per zoom, from elevation downsampled in elevation space**, and each
@@ -32,21 +31,20 @@ FRESHNESS
 ---------
 Two guards, because this stage has two kinds of output and they fail differently.
 
-The elevation chain is stamped with `.done` markers rather than tested with `exists()`. That is
-not tidiness: rasterio creates its target at the START of a write, so the BigTIFF crash of
-2026-07-28 left a full-sized, freshly-stamped, half-written `elev_z8.tif` on disk — and an
-existence test would have built the entire pyramid on top of it, silently, since a truncated
-float32 raster reads as a very flat planet rather than as an error.
+The elevation chain is stamped with `.done` markers rather than tested with `exists()`, per
+`freshness.is_stale`. This stage is where that rule was paid for: a BigTIFF crash left a
+full-sized, freshly-stamped, half-written `elev_z8.tif` on disk, and an existence test would have
+built the entire pyramid on top of it, silently, since a truncated float32 raster reads as a very
+flat planet rather than as an error.
 
 The pyramid itself is cut into a staging dir and swapped, and keyed on the master's marker plus
 `terrain_params.json`. The recipe is the load-bearing half: the variant DIRECTORY name carries
-only sea treatment, step and feather, so without a sidecar a `--format` or `--max-zoom` change is
-invisible to every guard and to anyone reading the store.
+only sea treatment and step, so without a sidecar a `--format` or `--max-zoom` change is invisible
+to every guard and to anyone reading the store.
 """
 
 import argparse
 import json
-import math
 import shutil
 import subprocess
 from pathlib import Path
@@ -54,14 +52,15 @@ from pathlib import Path
 import numpy as np
 import rasterio
 
-from pipeline import paths
+from pipeline import bodies
+from pipeline.freshness import (
+    done_marker,
+    is_stale,
+    mark_done,
+    write_if_changed,
+)
 from pipeline.raster_io import GTIFF_CREATE, band_window, row_bands
-from pipeline.tile.shade_planet import done_marker, is_stale, mark_done, write_if_changed
 
-ROOT = paths.ROOT
-
-#: Native grid of `height_3857.tif` — 512 px x 2^8, i.e. the colour pyramid's z8.
-MASTER_ZOOM = 8
 TILE_SIZE = 512
 
 #: Terrarium's zero point. Elevation `e` at quantisation `step` stores as `(e + 32768) / step`.
@@ -72,13 +71,21 @@ BASE_SHIFT = 32768.0
 #: caps carry their own elevation texture and MUST encode identically, or cap and tiles displace to
 #: different heights across the alpha crossfade and ghost against each other. Two spellings of one
 #: number is the copy-drift that bit the hero/tile colour constants four times.
+#:
+#: AND AGREEING HERE IS NOT ENOUGH ON ITS OWN — an agreement about BYTES is not one about METRES.
+#: These two producers shared every constant on this line and still displaced to heights kilometres
+#: apart, because only one of them multiplied its metres afterwards. `encode_array` is a pure
+#: function of elevation for that reason; its docstring holds the argument.
 #: 8 m is the ratified knee (0.49x the archive; the error lands in mountains, not on plains) and
 #: bathymetry is ratified over sea-clamping, so the sea displaces rather than reading as a wall.
 #:
-#: CAUTION, and it is not hypothetical: `--sea` still DEFAULTS to "clamp" while the shipped
-#: `terrain_params.json` records `sea_clamp: false`, so the live archive was cut with an explicit
-#: `--sea bathy` and the bare command would rebuild a different pyramid. SHIPPED_SEA_CLAMP names
-#: what is on the wire, which is what the caps must match — not what argparse hands you.
+#: SHIPPED_SEA_CLAMP NAMES WHAT IS ON THE WIRE, and `--sea` now derives its default from it rather
+#: than restating one. It restated the opposite for a while, so the bare command rebuilt a pyramid
+#: the live one had not been cut with — the trap this constant existed to warn about, closed by
+#: making the two the same fact. Do not spell the default out again.
+#:
+#: The clamp stops being a look question entirely on a body with no sea: every point below zero
+#: there is real ground, and flattening it deletes the deepest basin on the planet.
 QUANTISATION_M = 8.0
 SHIPPED_SEA_CLAMP = False
 
@@ -92,18 +99,6 @@ TILE_FORMATS = {
     "webp": ("WEBP", ["LOSSLESS=YES"]),
 }
 
-#: Latitude band over which encoded elevation ramps to zero, so the tiles flatten into the polar
-#: caps. The caps are a CUSTOM layer and MapLibre does not drape custom layers onto the terrain
-#: mesh (`LAYERS_TO_TEXTURES` in render_to_texture.ts), so displaced tiles under an undisplaced
-#: cap would open a geometric seam — worst in the south, where this band is 2-3 km of Antarctic
-#: ice. `polarCaps.ts` feathers its alpha over the same latitudes; this is the geometric twin.
-FEATHER_LAT_LO = 78.0
-FEATHER_LAT_HI = 85.0
-
-#: Web Mercator's sphere radius — the same constant the projection itself is defined on.
-MERCATOR_RADIUS = 6378137.0
-
-
 def _run(cmd) -> None:
     subprocess.run([str(part) for part in cmd], check=True)
 
@@ -113,27 +108,67 @@ def grid_size(zoom: int) -> int:
     return TILE_SIZE * 2**zoom
 
 
-def row_latitudes(row0: int, row1: int, height: int, north: float, south: float) -> np.ndarray:
-    """Latitude (degrees) at the centre of each raster row in [row0, row1).
+def master_zoom_for(body: bodies.Body) -> int:
+    """Native grid zoom of this body's `height_3857.tif` — 512 px x 2^n — and so the deepest
+    terrain zoom there is to cut.
 
-    Rows are inverse-Mercator projected rather than linearly interpolated: latitude is not linear
-    in y, and the whole point of the feather is that it lands on the right parallels.
+    DERIVED RATHER THAN STORED, because the chain that makes deriving safe already has two owners
+    and a third copy of the number is exactly the drift they exist to prevent. `shade_planet` warps
+    the master at `body.map_units_per_pixel` and rebuilds it whenever the raster's own pixel size
+    disagrees, so the file matches the field; `test_bodies` then pins that field against
+    `tile_max_zoom` relationally, at a tolerance that admits Earth's rounded value and cannot admit
+    a factor of two.
+
+    IT USED TO BE A MODULE CONSTANT HOLDING EARTH'S CEILING, and the reason that was dangerous
+    rather than merely wrong is that `build` does ARITHMETIC with it: the master is halved by
+    `2 ** (master_zoom - max_zoom)`. Against a body whose master is one level shallower, Earth's
+    number asks for a factor of two where the answer is one — which raises nothing, reads as a
+    normal run, and emits a pyramid at half the resolution its own recipe claims.
     """
-    rows = np.arange(row0, row1, dtype=np.float64) + 0.5
-    y = north - rows * (north - south) / height
-    return np.degrees(np.arctan(np.sinh(y / MERCATOR_RADIUS)))
+    return body.tile_max_zoom
 
 
-def feather_factor(latitudes: np.ndarray) -> np.ndarray:
-    """1.0 equatorward of FEATHER_LAT_LO, 0.0 poleward of FEATHER_LAT_HI, smoothstep between.
+def out_under_body(body: bodies.Body, out: Path) -> Path:
+    """`out` resolved, having checked it lands in THIS body's terrain stage. Raises if it does not.
 
-    Smoothstep rather than linear because this multiplies GEOMETRY: a linear ramp leaves a slope
-    discontinuity at each end of the band, and a crease in a displacement mesh is visible in a way
-    a crease in an alpha ramp is not.
+    The variant directory below the stage is operator-named, so the destination cannot be derived —
+    but it can be bounded, and the bound is the failure worth catching. Pointing a Mars cut at
+    Earth's tree writes Martian elevation into the directory the packer reads for Earth, and the
+    tiles look exactly like tiles.
+
+    Earth's empty `path_prefix` is why the bound is the STAGE directory rather than the body's
+    root: `data/work` contains every planet's tree, so a containment test one level up would pass
+    for both bodies and guard nothing. `data/work/planet_terrain` and `data/work/mars/planet_terrain`
+    contain neither the other.
     """
-    span = np.clip(
-        (FEATHER_LAT_HI - np.abs(latitudes)) / (FEATHER_LAT_HI - FEATHER_LAT_LO), 0.0, 1.0)
-    return span * span * (3.0 - 2.0 * span)
+    stage = bodies.work_dir(body, "planet_terrain").resolve()
+    resolved = out.resolve()
+    if resolved != stage and stage not in resolved.parents:
+        raise SystemExit(f"--out {out} is not under {body.name}'s terrain stage ({stage}) — a cut "
+                         f"written outside it lands in another planet's tree, or somewhere the "
+                         f"packer will never look")
+    return resolved
+
+
+def master_grid_mismatch(master: Path, master_zoom: int) -> str | None:
+    """Why `master` is not the 512 x 2^`master_zoom` grid it was declared to be, or None.
+
+    The declaration comes from the body and this is where it meets the artifact, which is the one
+    check that can catch the failure above. Everything downstream of a wrong `master_zoom` succeeds:
+    the downsample runs, every zoom encodes, every tile writes, and the recipe beside them records
+    the ceiling that was asked for rather than the one that was cut.
+
+    A STRING RATHER THAN AN ASSERT so the caller decides what to do with it, and so a test can read
+    the sentence instead of matching an exception's text.
+    """
+    with rasterio.open(master) as raster:
+        width, height = raster.width, raster.height
+    expected = grid_size(master_zoom)
+    if width == expected and height == expected:
+        return None
+    return (f"{master} is {width}x{height}, not the {expected}x{expected} grid of a "
+            f"{TILE_SIZE}px tile at z{master_zoom} — the descent would resample by the wrong "
+            f"factor and emit a pyramid at the wrong resolution without failing")
 
 
 #: Source rows held in memory at once by `downsample_elevation`. Budgeted on the SOURCE side, not
@@ -173,20 +208,30 @@ def downsample_elevation(src: Path, dst: Path, factor: int, band_rows: int | Non
                            1, window=band_window(out_width, out0, out1))
 
 
-def encode_array(elevation: np.ndarray, step: float, sea_clamp: bool,
-                 latitudes: np.ndarray | None = None) -> np.ndarray:
+def encode_array(elevation: np.ndarray, step: float, sea_clamp: bool) -> np.ndarray:
     """Pack metres into the (3, h, w) uint8 terrarium-with-zero-blue form described in the header.
 
     `sea_clamp` raises everything below zero to zero — land rises out of a smooth sphere, which is
     what a physical relief globe does, and what stops a continental shelf reading as a cliff wall.
     It is also most of the archive: an abyssal tile measured 162 KiB carrying real bathymetry and
     1.5 KiB flat.
+
+    NOTHING HERE MAY DEPEND ON WHERE A PIXEL IS, and that is the anti-redo guard rather than a
+    style note. `cap_render.write_cap_elevation` calls this same function for the polar caps, whose
+    grid is azimuthal-equidistant and has no rows to speak of, and the two surfaces are drawn
+    across each other through `polarCaps.ts`'s alpha crossfade — so any per-row or per-latitude term
+    added here separates two surfaces the viewer sees at once.
+
+    A latitude ramp did live here, to flatten the tiles toward datum from 78 to 85 degrees. It was
+    written when the cap could not displace at all, and the seam it closed reopened the moment
+    `polarCaps.vertexSrc` started lifting cap vertices: the tiles then flattened away from a cap
+    holding true elevation, and the 84-85 degree plug rim stood proud of it by the full local
+    relief. The fix was deleting the ramp, not tuning its band, so the shape to refuse is any
+    argument of the form "the poles need special treatment in the encode".
     """
     metres = np.nan_to_num(elevation.astype(np.float64), nan=0.0)
     if sea_clamp:
         metres = np.maximum(metres, 0.0)
-    if latitudes is not None:
-        metres = metres * feather_factor(latitudes)[:, None]
     packed = np.clip(np.round((metres + BASE_SHIFT) / step), 0, 65535).astype(np.uint16)
     return np.stack([(packed >> 8).astype(np.uint8), (packed & 0xFF).astype(np.uint8),
                      np.zeros(packed.shape, np.uint8)])
@@ -203,19 +248,20 @@ def decode_array(encoded: np.ndarray, step: float) -> np.ndarray:
 
 
 def encode_raster(elev_tif: Path, dst: Path, step: float, sea_clamp: bool,
-                  feather: bool = True, band_rows: int = 512) -> None:
-    """Encode a whole elevation raster to a 3-band Byte GTiff, streaming by row band."""
+                  band_rows: int = 512) -> None:
+    """Encode a whole elevation raster to a 3-band Byte GTiff, streaming by row band.
+
+    The band split is a MEMORY decision and must stay one: every band goes through `encode_array`
+    with nothing said about where it sits, so the seams between bands cannot carry a value.
+    """
     with rasterio.open(elev_tif) as source:
-        north, south = source.bounds.top, source.bounds.bottom
         # Same 4 GB ceiling as the elevation sink above: three uint8 bands at z8 is 51.5 GB raw.
         profile = source.profile | GTIFF_CREATE | {
             "dtype": "uint8", "count": 3, "nodata": None, "bigtiff": "IF_SAFER"}
         with rasterio.open(dst, "w", **profile) as sink:
             for row0, row1 in row_bands(source.height, band_rows):
                 window = band_window(source.width, row0, row1)
-                latitudes = (row_latitudes(row0, row1, source.height, north, south)
-                             if feather else None)
-                sink.write(encode_array(source.read(1, window=window), step, sea_clamp, latitudes),
+                sink.write(encode_array(source.read(1, window=window), step, sea_clamp),
                            window=window)
 
 
@@ -234,27 +280,23 @@ def cut_zoom(src: Path, staging: Path, zoom: int, tile_format: str = "png") -> N
           str(src), str(staging)])
 
 
-def terrain_params(max_zoom: int, step: float, sea_clamp: bool, feather: bool,
-                   tile_format: str) -> str:
+def terrain_params(max_zoom: int, step: float, sea_clamp: bool, tile_format: str) -> str:
     """The cut's own settings, recorded beside the pyramid as its freshness dependency.
 
     Everything listed alters the emitted bytes and nothing outside it does — the master and the
-    output dir are `is_stale`'s own arguments, not settings. The polar feather latitudes and the
-    terrarium zero point are in here because they are module CONSTANTS: they have no other file to
-    move an mtime, so editing one would otherwise restage nothing while changing every tile.
+    output dir are `is_stale`'s own arguments, not settings. The terrarium zero point is in here
+    because it is a module CONSTANT: it has no other file to move an mtime, so editing it would
+    otherwise restage nothing while changing every tile.
     """
     driver, creation_options = TILE_FORMATS[tile_format]
     return json.dumps({
         "max_zoom": max_zoom,
         "step": step,
         "sea_clamp": sea_clamp,
-        "feather": feather,
         "tile_size": TILE_SIZE,
         "format": driver,
         "creation_options": creation_options,
         "base_shift": BASE_SHIFT,
-        "feather_lat_lo": FEATHER_LAT_LO,
-        "feather_lat_hi": FEATHER_LAT_HI,
     }, sort_keys=True, indent=2)
 
 
@@ -278,22 +320,22 @@ def tiles_are_fresh(out: Path, master: Path) -> bool:
             and not is_stale(live, done_marker(master), terrain_params_path(out)))
 
 
-def elevation_source(work: Path, zoom: int, master: Path) -> Path:
+def elevation_source(work: Path, zoom: int, master: Path, master_zoom: int) -> Path:
     """The elevation raster for `zoom` — THE MASTER ITSELF at its native zoom.
 
-    `height_3857.tif` is already 512 x 2^MASTER_ZOOM, so "downsampling" to that zoom is a box-mean
+    `height_3857.tif` is already 512 x 2^`master_zoom`, so "downsampling" to that zoom is a box-mean
     by a factor of 1: the identity. Materialising it wrote a 47 GB byte-for-value copy of a file
     already on disk, on every build, and the only transform it applied was NaN -> 0, which
     `encode_array` applies again regardless. Verified over six windows from Everest to the Pacific
     abyss at max |master - copy| of exactly 0.0000 m, with shifted-window controls differing by
     240-1660 m so the comparison could actually fail.
     """
-    return master if zoom == MASTER_ZOOM else work / f"elev_z{zoom}.tif"
+    return master if zoom == master_zoom else work / f"elev_z{zoom}.tif"
 
 
-def build(out: Path, max_zoom: int, step: float, sea_clamp: bool, feather: bool,
-          master: Path, work: Path | None = None, keep_intermediates: bool = False,
-          tile_format: str = "png") -> Path:
+def build(out: Path, max_zoom: int, step: float, sea_clamp: bool,
+          master: Path, master_zoom: int, work: Path | None = None,
+          keep_intermediates: bool = False, tile_format: str = "png") -> Path:
     """Build a complete z0..max_zoom terrain-RGB pyramid under `out`, returning the tile dir.
 
     The elevation chain is built once at `max_zoom` and halved from there, so the expensive read of
@@ -305,9 +347,8 @@ def build(out: Path, max_zoom: int, step: float, sea_clamp: bool, feather: bool,
     identical whatever codec the tiles are written in, so re-cutting a built variant into another
     lossless format costs one encode pass, not another descent from the master.
 
-    Guarded per the module header's FRESHNESS section: the recipe is written BEFORE freshness is
-    asked, so changing a setting is what triggers its own re-cut, while `write_if_changed` means an
-    unchanged recipe never moves an mtime and never restages a pyramid that is still correct.
+    Recipe-gated in the usual order — see `freshness.write_if_changed`, and the module header's
+    FRESHNESS section for what each of this stage's two guards catches.
 
     EVERY CUT IS A CLEAN FULL CUT into `tiles_new`, swapped over `tiles` only on success, with one
     generation of rollback at `tiles_old`. GDAL writes each tile in place, so a run killed mid-cut
@@ -315,7 +356,7 @@ def build(out: Path, max_zoom: int, step: float, sea_clamp: bool, feather: bool,
     """
     out.mkdir(parents=True, exist_ok=True)
     write_if_changed(terrain_params_path(out),
-                     terrain_params(max_zoom, step, sea_clamp, feather, tile_format))
+                     terrain_params(max_zoom, step, sea_clamp, tile_format))
     tiles = out / "tiles"
     if tiles_are_fresh(out, master):
         print(f"terrain tiles fresh -> skip cut ({tiles})", flush=True)
@@ -323,11 +364,11 @@ def build(out: Path, max_zoom: int, step: float, sea_clamp: bool, feather: bool,
 
     work = work or out / "work"
     work.mkdir(parents=True, exist_ok=True)
-    variant = f"{'sea0' if sea_clamp else 'bathy'}_s{step:g}{'' if feather else '_nofeather'}"
+    variant = f"{'sea0' if sea_clamp else 'bathy'}_s{step:g}"
 
-    top = elevation_source(work, max_zoom, master)
+    top = elevation_source(work, max_zoom, master, master_zoom)
     if top != master and is_stale(top, done_marker(master)):
-        factor = 2 ** (MASTER_ZOOM - max_zoom)
+        factor = 2 ** (master_zoom - max_zoom)
         print(f"downsample master /{factor} -> {grid_size(max_zoom)}^2 ...", flush=True)
         downsample_elevation(master, top, factor)
         mark_done(top)
@@ -338,14 +379,14 @@ def build(out: Path, max_zoom: int, step: float, sea_clamp: bool, feather: bool,
     staging.mkdir(parents=True)
 
     for zoom in range(max_zoom, -1, -1):
-        level = elevation_source(work, zoom, master)
+        level = elevation_source(work, zoom, master, master_zoom)
         if zoom < max_zoom:
-            parent = elevation_source(work, zoom + 1, master)
+            parent = elevation_source(work, zoom + 1, master, master_zoom)
             if is_stale(level, done_marker(parent)):
                 downsample_elevation(parent, level, 2)
                 mark_done(level)
         encoded = work / f"rgb_{variant}_z{zoom}.tif"
-        encode_raster(level, encoded, step, sea_clamp, feather)
+        encode_raster(level, encoded, step, sea_clamp)
         print(f"z{zoom}: encoded {grid_size(zoom)}^2 -> cutting ...", flush=True)
         cut_zoom(encoded, staging, zoom, tile_format)
         if not keep_intermediates:
@@ -362,28 +403,65 @@ def build(out: Path, max_zoom: int, step: float, sea_clamp: bool, feather: bool,
     return tiles
 
 
-def main() -> None:
+def build_parser() -> argparse.ArgumentParser:
+    """The CLI, separable from `main` so its defaults are assertable without running a cut.
+
+    `cap_ladder` and `pack_pmtiles` split theirs for the same reason: the interesting properties
+    here are what happens when a flag is OMITTED, and that is unreachable through a function whose
+    next statement reads a 46 GB raster.
+    """
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--out", type=Path, required=True, help="pyramid root (tiles/ inside)")
+    # REQUIRED, WITH NO DEFAULT, exactly as shade_planet's is and for the same reason: a pass that
+    # assumes Earth because nobody said otherwise does not fail, it emits a complete and plausible
+    # pyramid for the wrong planet. Here it decides four things at once — the master, where the
+    # output lands, the ceiling cut to, and the descent's factor.
+    ap.add_argument("--body", required=True,
+                    help=f"which planet this cut is for ({', '.join(sorted(bodies.BODIES))})")
+    # STILL REQUIRED, AND DELIBERATELY NOT DEFAULTED TO THE STAGE DIRECTORY. The live pyramid sits
+    # one level further down, in an operator-named variant directory (`<sea><step><format>`), and
+    # that name is a choice rather than a derivation — the module header records that the name
+    # carries only part of the recipe, which is why the sidecar exists. A default would therefore
+    # not have pointed at the live pyramid: it would have built a second one beside it, found the
+    # first "missing", and left the packer reading whichever the operator remembered.
+    # It is checked against the body instead, below, which is the half that was actually unsafe.
+    ap.add_argument("--out", type=Path, required=True,
+                    help="pyramid root, under this body's planet_terrain dir (tiles/ inside)")
     ap.add_argument("--work", type=Path, default=None,
                     help="elevation-chain dir; share it across variants to read the master once")
-    ap.add_argument("--master", type=Path,
-                    default=paths.DATA / "work/planet_tiles/height_3857.tif")
-    ap.add_argument("--max-zoom", type=int, default=8)
+    ap.add_argument("--master", type=Path, default=None)
+    ap.add_argument("--max-zoom", type=int, default=None)
     ap.add_argument("--step", type=float, default=QUANTISATION_M,
                     help="metres per encoded level")
-    ap.add_argument("--sea", choices=["clamp", "bathy"], default="clamp",
+    # DEFAULTS TO WHAT IS ON THE WIRE, which it did not: the choice defaulted to "clamp" while the
+    # shipped recipe records the opposite, so the bare command rebuilt a pyramid that was not the
+    # live one. Deriving it from SHIPPED_SEA_CLAMP is what makes the two agree by construction —
+    # and the clamp is not merely a look question on a body with no sea, where every point below
+    # zero is real ground and flattening it deletes the deepest basin on the planet.
+    ap.add_argument("--sea", choices=["clamp", "bathy"],
+                    default="clamp" if SHIPPED_SEA_CLAMP else "bathy",
                     help="clamp: sea flattened to 0; bathy: seafloor displaced too")
-    ap.add_argument("--no-feather", action="store_true",
-                    help="skip the polar ramp (only for isolating the cap seam)")
     ap.add_argument("--format", choices=sorted(TILE_FORMATS), default="webp",
                     help="delivery codec; both lossless, webp is ~0.67x png")
     ap.add_argument("--keep-intermediates", action="store_true")
-    args = ap.parse_args()
+    return ap
 
-    tiles = build(args.out, args.max_zoom, args.step, args.sea == "clamp",
-                  not args.no_feather, args.master, args.work, args.keep_intermediates,
-                  args.format)
+
+def main() -> None:
+    args = build_parser().parse_args()
+    body = bodies.BODIES[args.body]
+    master = args.master or bodies.work_dir(body, "planet_tiles") / "height_3857.tif"
+    out = out_under_body(body, args.out)
+    native = master_zoom_for(body)
+    # THE ONE PLACE THE DECLARATION MEETS THE ARTIFACT. Every failure a wrong `native` causes is
+    # silent downstream — see `master_grid_mismatch` — so it is checked here, before the descent
+    # that would encode it into every tile and into the recipe beside them.
+    mismatch = master_grid_mismatch(master, native)
+    if mismatch:
+        raise SystemExit(mismatch)
+
+    tiles = build(out, args.max_zoom if args.max_zoom is not None else native,
+                  args.step, args.sea == "clamp",
+                  master, native, args.work, args.keep_intermediates, args.format)
     count = sum(1 for _ in tiles.rglob(f"*.{args.format}"))
     size = sum(path.stat().st_size for path in tiles.rglob(f"*.{args.format}"))
     print(f"{count} tiles, {size / 1e9:.2f} GB -> {tiles}", flush=True)

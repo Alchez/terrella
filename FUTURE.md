@@ -63,14 +63,24 @@ grep HISTORY before re-arguing anything an entry says was already decided.
   page full-screen, where q95 is right.
 - **Compute is not the obstacle, storage might be.** Measured: hero variants **6 min** at `--jobs 8`,
   spotlight **1m45s**, borders **7m21s** (and a border rung costs a full regeneration). But a
-  portrait country gets TALLER files for the same width, so the 3.5 GB served store could grow into
-  870 MB of R2 headroom — that has to be measured before committing, not estimated.
+  portrait country gets TALLER files for the same width, so the served store grows — and **there is
+  no R2 headroom left to grow into**; the free tier is spent, so any growth is overage from the
+  first byte. It rounds up to whole GB-months at $0.015, which makes this cheap rather than free:
+  measure the growth before committing, and price it, rather than treating storage as headroom.
 - **It would close the border gap too**, which is real and currently exempted in the ladder guard:
   `gen_borders` stops at 1920, so a portrait border jumps to native — a lossless PNG at ~3× the
   width the panel draws. Off the cold path only because the layer is hidden until Borders is on.
 
-## No test ever drives a real map, and the scale ruler showed what that costs (analysed 2026-08-02)
+## No test ever drives a real map, and the scale ruler showed what that costs (analysed 2026-08-02, **SHIPPED 2026-08-03**, one shape still open)
 
+- **What shipped:** `testing/mountGlobe.ts` mounts a real MapLibre globe in the browser project, and
+  the two named shapes are asserted against it — the ruler takes a **distinct** label at every zoom
+  (`scaleRuler.browser.test.ts`), and the hover chip **follows the camera under a parked pointer**
+  (`hoverTracking.browser.test.ts`). The scale-linked tier readout is the one shape not yet covered.
+- **The fixture question was answered the other way.** This entry framed it as "stub the tile route
+  or point at the dev server"; the fixture mounts **no sources at all**, because every assertion it
+  exists for is camera-derived and the camera is fully real with zero tiles loaded. Wiring it to the
+  asset stores would have coupled the suite to a multi-gigabyte archive being on the machine.
 - **State at analysis:** every frontend guard is a unit test over a pure function, a source-text
   assertion over `earth.astro?raw`, or a canary over the shipped bundle. **Nothing instantiates a
   MapLibre map and checks what it does.** Grepped, not assumed.
@@ -92,8 +102,8 @@ grep HISTORY before re-arguing anything an entry says was already decided.
   here is much smaller and sharper — **assert that outputs which must track the camera actually
   track it.** The ruler is one; the hovered-country chip and the scale-linked tier readout are the
   same shape.
-- **Adjacent:** `forced-colors` below also needs Playwright. One browser-fixture pass would carry
-  both.
+- **Adjacent:** `forced-colors` below also needs Playwright, and the toolchain it was waiting on is
+  now here — that entry is no longer blocked on infrastructure, only unwritten.
 
 ## `forced-colors` is unhandled, and the rail's icons are the thing it breaks (analysed 2026-08-02)
 
@@ -113,6 +123,57 @@ grep HISTORY before re-arguing anything an entry says was already decided.
   once tells you nothing about which one broke.
 - **Adjacent, same sweep:** the tier picker's `radiogroup` a11y defect is already parked here. If
   either is ever picked up, do both — one accessibility pass, one round of judgement.
+
+## A cold page load at high zoom paints a flat fill and never recovers (observed 2026-08-11, not analysed)
+
+- **Reproduced three times while checking the antimeridian**: loading `/mars/?…#map=8/-20/180/0/0`
+  from scratch leaves the whole viewport one flat sand colour. The UI, the scale bar and the tier
+  pill all render, so the page is alive; only the map surface is empty, and waiting does not fix it.
+- **Changing only the HASH from an already-loaded overview works every time**, which is the whole
+  observation and also the workaround — load an overview first, then jump.
+- **Nothing here is measured**: no console read, no network read, no check of whether tiles were
+  requested at all. Worker-thread fetches do not appear in the main thread's `performance` entries,
+  so the obvious first probe has to be `read_network_requests` rather than a page script.
+- The shape suggests there is no lower-zoom tile to overzoom from while the first z8 requests are in
+  flight, but that is a guess with nothing behind it. **Not antimeridian-specific** — it reproduced
+  at 180° only because that is where the camera happened to be.
+
+## Tiles "jump" a little when panning around a pole (observed 2026-08-11, not analysed)
+
+- **Observed by eye on Mars**, after the polar seam fix landed and was judged stable: panning around
+  the pole shows the tiles shifting slightly rather than sliding. Judged not a big deal at the time,
+  and recorded so it is not re-discovered as new.
+- **Nothing here is measured yet** — no camera, no magnitude, no frame capture. Treat every sentence
+  below as a hypothesis to test, not a finding.
+- Likely candidates, in the order worth checking: the render-tile covering set churning as the globe
+  reassigns zoom near the limb (`terrainZoomsFor` records that a pitched view drops a DEM level);
+  the cap-to-tile alpha crossfade re-evaluating per frame; and `TERRAIN_SKIRT_DEFAULT = "none"`,
+  which we ratified knowing it trades skirt artifacts for hairline gaps at zoom boundaries.
+- **The cheapest first move is to tell those apart, not to fix any of them** — `?skirt=auto` isolates
+  the third in one page load, and it is a control that can fail.
+- **Not Mars-specific until shown to be.** Everything named above is body-independent, so check
+  Earth's poles before scoping this as a Mars defect.
+
+## The polar caps are a texture because MapLibre allows nothing else, and the ceiling is WebP's (analysed 2026-08-07)
+
+- **State at analysis:** each pole ships one AEQD texture with a four-rung ladder (1024/2048/4096/8192)
+  picked from the cap's measured on-screen size. It is not a tile pyramid, and the reason has been
+  assumed rather than recorded.
+- **GDAL is not the constraint.** `gdal raster tile --tiling-scheme` offers `APSTILE` and
+  `LINZAntarticaMapTilegrid` alongside `WebMercatorQuad` — both polar stereographic, both able to
+  cut a real pyramid over a pole.
+- **MapLibre is.** Its raster and vector sources are Web Mercator only; `scheme` chooses `xyz` vs
+  `tms` and that is the whole vocabulary. Consuming a polar pyramid means a custom loader, LOD
+  selector and stitcher — most of what the custom cap layer already does, with 8 files instead of
+  thousands.
+- **The texture ceiling is 16,383 px, and it is a file-format limit, not a taste one.** WebP cannot
+  encode a larger side at all; GPU `MAX_TEXTURE_SIZE` is typically 16,384 on desktop and the mobile
+  budget already clamps to 4096. So the largest cap that could ever ship is 2× today's linear size.
+- **What that would buy, measured against each body's own source:** Mars nothing — its cap already
+  interpolates its 200 m/px blend. Earth's south cap is the one real gap, sitting several times
+  coarser than the land DEM beneath it and than the tiles it feathers into at the seam.
+- **Verdict: parked, and the gap is Earth's, not Mars's.** Revisit only if MapLibre gains a
+  TileMatrixSet source, or if Antarctic detail is judged short on the sphere — never from the number.
 
 ## MapLibre's WebGPU backend — irrelevant to our memory problem, and NOT the no-op we recorded (analysed 2026-07-29)
 
@@ -402,14 +463,15 @@ which is why it never blocked anything.
     bathymetry-dominant seamount fields (Maldives especially). So an atoll hero is on-aesthetic; the
     *only* real blocker is the antimeridian split.
   - **The render pipeline is single-frame end-to-end** — one slug → one bbox → one `frame.json` →
-    one ortho render → one hero (`country_config.py:100-102` unpacks exactly one `[W,S,E,N]`;
-    `scene_build.py` one camera/one render; there is no `montage()` anywhere in the tree, so a
-    multi-frame hero has no existing machinery to extend).
+    one ortho render → one hero (every `west, south, east, north =` unpack in
+    `pipeline/frame/country_config.py` takes exactly one `[W,S,E,N]`; `scene_build.py` one
+    camera/one render; there is no `montage()` anywhere in the tree, so a multi-frame hero has no
+    existing machinery to extend).
   - **The frontend already degrades gracefully for a hero-less country** — `rendered:false`/`sizes:[]`
-    is a first-class manifest state (`gen_manifest.py:97-98`, `lib/manifest.ts`), and both the
-    gallery card (`index.astro:110-115`) and detail page (`[slug].astro:57-61`) render a placeholder.
-    It is dead code today because Kiribati is dropped at the manifest step (`gen_manifest.py:82-83`
-    `continue`s on `resolve()==None`).
+    is a first-class manifest state (`gen_manifest.py`'s `rendered=bool(sizes)`, `lib/manifest.ts`),
+    and both the gallery card and the detail page branch on `country.rendered` to render a
+    placeholder. It is dead code today because Kiribati is dropped at the manifest step —
+    `gen_manifest.py`'s `main()` `continue`s on `resolve() is None`.
 
 ### Viable option A — composited twin-panel hero (keeps Kiribati as one country)
 
@@ -417,7 +479,8 @@ which is why it never blocked anything.
   normal non-crossing frame rendering like Maldives/Marshall. Preserves country integrity (one
   sovereign nation = one gallery card) — the reason it beats sub-heroes (below).
 - **Effort: HIGH.** The single-frame pipeline has no seam for it — needs new code at ~every stage:
-  a `panels=[...]` config key + list validation (`country_config.py:67,100-102`); per-panel
+  a `panels=[...]` config key + list validation (`country_config.py`'s `COUNTRY_KEYS` and its
+  `[W,S,E,N]` unpacks); per-panel
   work/render subdirs through `stage_commands` (each panel is a *different* AEA projection with its
   own `frame.json`/heightfield/masks); **a brand-new compositor stage** (the keystone — nothing
   composites two RGBA renders today); a batch loop over panels; and per-panel border/overlay mapping
@@ -429,12 +492,13 @@ which is why it never blocked anything.
 - Kiribati appears as a placeholder card + gazetteer + detail page, no relief hero — honest about a
   permanent deferral. Keeps it as one entry.
 - **Effort: LOW, and entirely in the data/manifest layer** (presentation already exists): (1) emit an
-  `rendered:false` manifest entry for antimeridian-deferred countries instead of dropping them
-  (`gen_manifest.py:82-83`); (2) author a `bbox` — Kiribati has `status`/`notes` but no `frame`, and
-  the gazetteer + globe fly-to read `country.bbox`; (3) guard the globe's `openPanel()`
-  (`earth.astro:685`) which unconditionally requests `…-${sizes[0]}.webp` → a broken
-  `kiribati-undefined.webp` for an unrendered entry; (4) optional distinct "deferred" copy — today's
-  only placeholder string is "still rendering," which misrepresents a permanent state.
+  `rendered:false` manifest entry for antimeridian-deferred countries instead of dropping them —
+  `gen_manifest.py`'s `main()` skips them with `if r is None: continue`; (2) author a `bbox` —
+  Kiribati has `status`/`notes` but no `frame`, and the gazetteer + globe fly-to read `country.bbox`;
+  (3) guard the globe's `openPanel()` in `Globe.astro`, which sets `heroImg.src` from
+  `country.sizes[0]` unconditionally → a broken `kiribati-undefined.webp` for an unrendered entry;
+  (4) optional distinct "deferred" copy — today's only placeholder string is "still rendering,"
+  which misrepresents a permanent state.
 
 ### Ruled out (do not re-litigate)
 
@@ -543,7 +607,7 @@ conclusion below, which rests only on there being no value between 2 and 4.
 - **Trigger:** the capability probe looks like it protects weak devices. Measured against the spec and
   the code, it barely does. Deferred rather than fixed — the question is a product one (*is `full` the
   right default for these visitors?*), and nobody has reported a bad experience.
-- **`capability.ts:119` is `lowMemory = deviceMemory < 4`** — but **`navigator.deviceMemory` is
+- **`capability.ts` then read `lowMemory = deviceMemory < 4`** — but **`navigator.deviceMemory` is
   spec-quantised to powers of two** (0.25 / 0.5 / 1 / 2 / 4 / 8, clamped at both ends). So `< 4`
   **cannot** mean "under 4 GB". It means **2 GB or less**. There is no 3.
 - **It is Chromium-only.** Absent → `Infinity` → never `lowMemory`, so **every Safari and Firefox
@@ -552,7 +616,7 @@ conclusion below, which rests only on there being no value between 2 and 4.
   i.e. the mobile score is measured on a device the ladder treats as healthy.
 - **A second, independent gap:** `Base.astro`'s pre-paint guard gates `/earth/` on `webgl2()` alone,
   while `decideTier`'s `capable()` also requires `!softwareGpu`. A software-rasterizer visitor who
-  deep-links `/earth/` is therefore never bounced to the gallery, and `earth.astro` reads
+  deep-links `/earth/` is therefore never bounced to the gallery, and `Globe.astro` reads
   `currentTier()` only to decide whether to spin — so they get a full globe on SwiftShader.
 - **If reopened, decide these separately:** the memory threshold is a *tuning* question (2 GB is a very
   low bar; `<= 4` would catch mid-range Android), the Safari/Firefox blindness is a *coverage* question
@@ -724,7 +788,7 @@ conclusion below, which rests only on there being no value between 2 and 4.
   - an **object** sets `params.data`, and `Actor.sendAsync` then calls `serialize(message.data)`,
     which **recursively rebuilds every array and object**, before `postMessage` structured-clones
     that rebuilt copy. Two full deep walks of the geometry, on the main thread.
-- **We pass objects for all three country sources** (`earth.astro`, `addCountries`) while
+- **We pass objects for all three country sources** (`Globe.astro`, `addCountries`) while
   `boundary_lines.geojson` in the same file is passed as a **URL**. The asymmetry inside one file
   is the defect; the geometry is only the multiplier.
 - **Measured** (Node 24 / V8, warm, ×3 — same engine as Chrome, different host, so a proxy):
@@ -823,8 +887,8 @@ conclusion below, which rests only on there being no value between 2 and 4.
   | 8 | 31,972 | 5,091,265 | 159 |
 
   Whole pyramid **11.19 MB gzip stored**, never all fetched. The globe opens at **zoom 1.6**, so
-  the cold window is z1–z2: **~50–180 KB against 2.51 MB today.** Storage is a non-issue against
-  R2's remaining headroom, and **no tippecanoe dependency** — the stage is a Node script using the
+  the cold window is z1–z2: **~50–180 KB against 2.51 MB today.** Storage is a non-issue at 11 MB whatever
+  R2 holds — not because there is headroom, there is none — and **no tippecanoe dependency** — the stage is a Node script using the
   same tiler MapLibre already runs at runtime.
 - **The stray-gold-meridian fix survives by construction:** ship the rings as a separate LINE layer
   in the same tileset. Clipping a line trims it; clipping a polygon closes the ring along the cut.

@@ -1,6 +1,13 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { FIXTURE_HEIGHT_PX, FIXTURE_WIDTH_PX, mountGlobe, type MountedGlobe } from "./testing/mountGlobe";
+import {
+  FIXTURE_HEIGHT_PX,
+  FIXTURE_WIDTH_PX,
+  datumLocator,
+  mountGlobe,
+  type MountedGlobe,
+} from "./testing/mountGlobe";
 import { RULER_WIDTH_PX, formatGroundDistance, rulerGroundDistance } from "./scaleRuler";
+import { BODIES } from "./bodies";
 
 /**
  * The ruler measured against a REAL globe transform, at real zooms.
@@ -42,22 +49,14 @@ afterEach(() => {
   mounted = null;
 });
 
-/**
- * Read the ruler the way the page does: the transform's own datum conversion, looked up PER CALL.
- *
- * A plain `{x, y}` is accepted — verified against the live object rather than assumed, which is
- * why this needs no `maplibregl.Point` import.
- */
-function readRuler(globe: MountedGlobe): number {
-  const painter = globe.map as unknown as { painter: { transform: Record<string, unknown> } };
-  const locate = ([x, y]: [number, number]) => {
-    const transform = painter.painter.transform;
-    const convert = transform.screenPointToLocation as (point: { x: number; y: number }) => {
-      distanceTo(other: unknown): number;
-    };
-    return convert.call(transform, { x, y });
-  };
-  return rulerGroundDistance(locate, FIXTURE_WIDTH_PX, FIXTURE_HEIGHT_PX);
+/** Read the ruler for a body. Earth unless a test is about a second one. */
+function readRuler(globe: MountedGlobe, groundRadiusM = BODIES.earth.groundRadiusM): number {
+  return rulerGroundDistance(
+    datumLocator(globe),
+    groundRadiusM,
+    FIXTURE_WIDTH_PX,
+    FIXTURE_HEIGHT_PX,
+  );
 }
 
 /** Zooms swept for the tracking assertions. Spans the range the globe actually serves. */
@@ -121,6 +120,60 @@ describe("the ruler tracks a real camera", () => {
       expect(error, `z${zoom}: ruler ${Math.round(actual)} m vs oracle ${Math.round(expected)} m`).toBeLessThan(
         0.01,
       );
+    }
+  });
+
+  it("returns exactly what MapLibre's own distanceTo returned, on Earth", async () => {
+    // THE "NOTHING CHANGED FOR EARTH" PROOF, and it has to be an identity rather than a tolerance.
+    // The arc used to come from `LngLat.distanceTo`; it now comes from this module against a radius
+    // out of the registry. Same formula, same order of operations, same constant — so the two must
+    // agree to the last bit, and any drift in either is a red test rather than a shifted readout.
+    //
+    // It is also the one place the library's hardcoded radius is allowed to be an oracle: if
+    // MapLibre ever changes it, this fails and the choice becomes ours to make deliberately.
+    mounted = await mountGlobe({ zoom: 6 });
+    const locate = datumLocator(mounted);
+    for (const zoom of [2, 4, 6, 8]) {
+      for (const center of [[0, 0], [12, 55], [-73, -41]] as [number, number][]) {
+        mounted.map.jumpTo({ zoom, center });
+        const [left, right] = [
+          [FIXTURE_WIDTH_PX / 2 - RULER_WIDTH_PX / 2, FIXTURE_HEIGHT_PX / 2],
+          [FIXTURE_WIDTH_PX / 2 + RULER_WIDTH_PX / 2, FIXTURE_HEIGHT_PX / 2],
+        ] as [number, number][];
+        const library = locate(left).distanceTo(locate(right));
+        expect(readRuler(mounted), `z${zoom} at ${center.join(",")}`).toBe(library);
+      }
+    }
+  });
+
+  it("measures Earth on the sphere MapLibre draws Earth on", async () => {
+    // Not a tautology with the oracle above it: that one checks the ARITHMETIC against a
+    // ground-resolution identity, this one checks the CONSTANT against the geometry. The registry
+    // could hold Earth's equatorial radius instead — `pipeline/bodies.py` does, for a conversion
+    // that genuinely needs it — and then the ruler would be measuring a sphere the renderer is not
+    // drawing, by 0.11%, with every label unchanged at two significant figures.
+    expect(BODIES.earth.groundRadiusM).toBe(GLOBE_RADIUS_M);
+  });
+
+  it("reports a second body's distances on that body, through the same live camera", async () => {
+    // THE DEFECT THIS COMMIT CLOSES, measured rather than reasoned. Nothing about the transform
+    // changes between planets — MapLibre projects every body on Earth's sphere — so the angle is
+    // shared and only the radius is not. Mars read 1.876x long at every zoom, plausibly.
+    mounted = await mountGlobe({ zoom: 6 });
+    for (const zoom of ORACLE_ZOOMS) {
+      mounted.map.jumpTo({ zoom, center: [0, 0] });
+      const expected =
+        expectedMetresPerPixel(zoom) *
+        RULER_WIDTH_PX *
+        (BODIES.mars.groundRadiusM / GLOBE_RADIUS_M);
+      const actual = readRuler(mounted, BODIES.mars.groundRadiusM);
+      const error = Math.abs(actual - expected) / expected;
+      expect(error, `z${zoom}: Mars ruler ${Math.round(actual)} m vs oracle ${Math.round(expected)} m`).toBeLessThan(
+        0.01,
+      );
+      // And the reading is a Mars reading, not an Earth one wearing a label: the gap is 47%, far
+      // outside anything the tolerance above could absorb.
+      expect(actual).toBeLessThan(readRuler(mounted) * 0.6);
     }
   });
 

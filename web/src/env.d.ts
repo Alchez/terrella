@@ -15,21 +15,31 @@ interface ImportMetaEnv {
 }
 
 /**
- * Debug handles the page attaches to `window`, declared once so the writes are plain assignments
- * rather than a cast at each site — a cast says "trust me" and is unchecked; a declaration is
- * checked everywhere the handle is read or written.
+ * The debug seam the instrument attaches to `window`, declared once so the write is a plain
+ * assignment rather than a cast — a cast says "trust me" and is unchecked; a declaration is checked
+ * everywhere the handle is read or written.
  *
- * BOTH ARE OPTIONAL AND BOTH ARE FLAG-GATED, which is the point of typing them `?`. Production
- * ships neither: a writable global pins the map, and everything it owns including GL resources,
- * alive past teardown. `__map` is written only under `?perf` in earth.astro; `terrellaMap` only
- * from `lib/perf/perfOverlay.ts`, which is behind a lazy import boundary that `lazyBoundary.test.ts`
- * and `capability.test.ts` both guard. Declaring them here does NOT relax either gate — the type
- * says the property may exist, never that it does.
+ * ONE handle, and the singular is load-bearing. Two names for this same map shipped side by side
+ * once, each correct where it sat, and the guard on one could not see the other arrive; the
+ * duplicate ended up assigned twice with its own gate dead from the day it landed. A second entry
+ * here is the first symptom of that, so adding one is the thing to refuse.
+ *
+ * OPTIONAL, which is the point of the `?`. Production ships nothing: a writable global pins the map
+ * and every GL resource it owns alive past teardown. It is written only from
+ * `lib/perf/perfOverlay.ts`, which sits behind a lazy import boundary that `lazyBoundary.test.ts`
+ * and `capability.test.ts` both guard. Declaring it here does NOT relax that gate — the type says
+ * the property may exist, never that it does.
  *
  * Inline `import(...)` types on purpose: a top-level `import` would make this file a module and
  * silently stop it augmenting the global scope at all.
  */
 interface Window {
-  __map?: import("maplibre-gl").Map;
-  terrellaMap?: import("maplibre-gl").Map;
+  terrella?: {
+    map: import("maplibre-gl").Map;
+    /** The same composition the panel and the export button read, or undefined when the page
+     *  supplied no report builder. */
+    report(): unknown;
+    /** Capture to `web/.perf/`, named by `arm` when the dev endpoint is there to name it. */
+    export(arm?: string): Promise<"saved" | "copied" | "failed">;
+  };
 }

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Simplify the Natural Earth admin-0 country POLYGONS -> one WGS84 GeoJSON
 shared by ALL of the globe's country layers: the click-to-fly hit fill, the
 hover wash, and the hover outline that strokes these very rings as the visible
@@ -29,22 +28,23 @@ import subprocess
 import sys
 from pathlib import Path
 
-from pipeline import paths
+from pipeline import bodies, naturalearth
 
-ROOT = paths.ROOT
-NE = ROOT / "data/raw/naturalearth"
-OUT_DIR = ROOT / "data/work/borders"
+#: Earth's, and named through the registry for the same reason `borders_geojson` does it.
+OUT_DIR = bodies.work_dir(bodies.EARTH, "borders")
 
-SRC = NE / "ne_10m_admin_0_countries" / "ne_10m_admin_0_countries.shp"
+SRC = naturalearth.layer("ne_10m_admin_0_countries")
 OUT = OUT_DIR / "countries.geojson"
 
 # Douglas-Peucker tolerance in degrees. 0.002 deg ~= 220 m ~= 0.7 px at z8 on
-# the equator (shade_planet.Z8_RES = 305.75 m/px) — sub-pixel where the raster
+# the equator (Earth's grid pixel, ~305.75 m/px) — sub-pixel where the raster
 # is sharpest, so the hover outline tracks the coast it traces. N-S error grows
 # toward the poles in Mercator pixels (~3 px at 75N: latitude degrees don't
 # shrink with cos(lat) but Mercator pixels do) — accepted; buying it back costs
 # ~1 MB more gzip for fjord vertices only a Svalbard hover would notice.
-# Pinned relationally against Z8_RES in tests/test_countries_geojson.py.
+# Pinned relationally in tests/test_countries_geojson.py against EARTH's grid pixel — Earth's
+# specifically, because this pyramid is Earth-only and the tolerance is justified against the
+# raster it overlays, not against whatever the sharpest body in the registry cuts to.
 SIMPLIFY_DEG = 0.002
 
 

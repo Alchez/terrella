@@ -12,7 +12,6 @@ from scipy.ndimage import uniform_filter
 
 from pipeline.render import render_prep as rp
 
-
 # ---- floor_box_px: kernel width + the engage/skip gate -----------------------
 
 def test_floor_box_px_values():

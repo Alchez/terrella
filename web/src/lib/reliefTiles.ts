@@ -14,23 +14,30 @@
 export const TILE_EXTENSION = "webp";
 export const TILE_CONTENT_TYPE = "image/webp";
 
-/** Path portion of a tile URL, with MapLibre's placeholders. */
-export const TILE_PATH_TEMPLATE = `{z}/{x}/{y}.${TILE_EXTENSION}`;
-
-/** Zoom range of the packaged pyramid. The source of truth is the PMTiles header; these are a
- *  copy, so that the browser can request its first tile without a round trip to learn them.
- *  assertZoomRange() below is what stops the copy drifting. */
+/** Zoom range of EARTH's packaged pyramid.
+ *
+ *  NOT THE GENERAL ANSWER, AND THE SECOND BODY IS WHY. The per-planet answer lives in
+ *  `PUBLISHED[body].relief` in tileAddress.ts, because a ceiling follows each body's own source
+ *  data. Two callers are left, and both are asking an Earth-only question: the legacy path below,
+ *  where an untokened URL is Earth's by definition, and Earth's own registry entry, which these are
+ *  the values of. Nothing that has a body in hand reads them — a source spec asks `archiveFor`, and
+ *  both servers check each archive's own header against the registry, which is what stops that copy
+ *  drifting.
+ *
+ *  NEITHER NUMBER IS DECIDED HERE. Both restate `pipeline/bodies.py`, which cuts the pyramid, and
+ *  `tests/test_bodies.py` reads this file to hold the two together — so a re-cut that moves the
+ *  ceiling fails there rather than 404ing a zoom the browser still asks for. Do not restate either
+ *  value in prose anywhere: six comments across five modules did, and every one of them was still
+ *  claiming the pre-re-cut number long after it changed. */
 export const RELIEF_MIN_ZOOM = 0;
 export const RELIEF_MAX_ZOOM = 8;
 
-/** Max zoom of the pinned base source that floors the globe (`relief-base` in earth.astro).
+/** Max zoom of the pinned base source that floors the globe.
  *
- *  It must be **0**, and that is a guarantee rather than a preference. A raster source's covering
- *  set is clamped to its own maxzoom, so at 0 there is exactly one tile — the same tile at every
- *  camera, therefore always ideal, therefore always resident once fetched. Any higher value leaves
- *  the set camera-dependent: measured on production, a pinned z1 (4 tiles, 273 KB) still paints a
- *  blank frame on the first visit to a cold quadrant, and z2 likewise. Raising this trades a
- *  guarantee for sharpness, which is the opposite of what the layer is for. */
+ *  It must be **0**, and that is a guarantee rather than a preference — the arithmetic behind it is
+ *  in reliefSources.ts, beside the source this is the ceiling of. It lives here rather than there
+ *  because it is a fact about the relief pyramid and not about MapLibre, and because it is the one
+ *  number in that spec which is deliberately NOT the body's. */
 export const RELIEF_BASE_MAX_ZOOM = 0;
 
 /** One tile address. */
@@ -81,15 +88,3 @@ export function describeTileTypeMismatch(archiveExtension: string): string | nul
   );
 }
 
-/** Fail loudly when the archive stops matching the constants above. Called by the tile server
- *  once, against the header it has already read — the whole point of duplicating the zooms
- *  into the client is that nothing in the browser can notice they went stale. */
-export function assertZoomRange(archiveMinZoom: number, archiveMaxZoom: number): void {
-  if (archiveMinZoom !== RELIEF_MIN_ZOOM || archiveMaxZoom !== RELIEF_MAX_ZOOM) {
-    throw new Error(
-      `PMTiles archive covers z${archiveMinZoom}-z${archiveMaxZoom}, but the globe requests ` +
-        `z${RELIEF_MIN_ZOOM}-z${RELIEF_MAX_ZOOM}. Update RELIEF_MIN_ZOOM/RELIEF_MAX_ZOOM in ` +
-        `src/lib/reliefTiles.ts to match the re-cut pyramid.`,
-    );
-  }
-}

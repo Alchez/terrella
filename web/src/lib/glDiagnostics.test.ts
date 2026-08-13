@@ -70,6 +70,12 @@ function healthyMap(overrides: Partial<MapLike> = {}): MapLike {
   };
 }
 
+/** A cap layer mid-upgrade: 4096 on the GPU, 8192 in flight, elevation not yet loaded. The one
+ *  state where every field of the reported summary is distinguishable from every other. */
+const midUpgradeLayer = () => ({
+  implementation: { loadedRungPx: 4096, rungLoading: 8192, elevLoaded: false },
+});
+
 describe("capTextureBytes — the one VRAM term we allocate ourselves", () => {
   it("prices an 8192 cap at 341.3 MiB — RGBA WITH the mip chain the upload allocates", () => {
     // The number this replaces was 256 MiB, and the old test asserted "no mipmaps" in its own name.
@@ -138,10 +144,7 @@ describe("capLayerStates", () => {
   it("reads the in-flight rung and the elevation flag, not just what is already on the GPU", () => {
     // The distinction the panel exists for: a cap SETTLED at 4096 and a cap CLIMBING to 8192 look
     // identical on screen, and only the second is still spending main thread.
-    const getLayer = () => ({
-      implementation: { loadedRungPx: 4096, rungLoading: 8192, elevLoaded: false },
-    });
-    expect(capLayerStates(healthyMap({ getLayer }))[0]).toEqual({
+    expect(capLayerStates(healthyMap({ getLayer: midUpgradeLayer }))[0]).toEqual({
       layerId: "polar-cap-north",
       loadedRungPx: 4096,
       rungLoading: 8192,
@@ -477,8 +480,9 @@ describe("canary — the MapLibre surface this module depends on", () => {
     expect(declarations).toMatch(/getPixelRatio\(\): number;/);
   });
 
-  // Three comments in earth.astro cite LINE NUMBERS in the shipped bundle, and they are load-
-  // bearing: the whole reason the DEM bound, the polar caps and the recovery watch are driven
+  // Comments in Globe.astro and polarCaps.test.ts cite LINE NUMBERS in the shipped bundle, and
+  // they are load-bearing: the whole reason the DEM bound, the polar caps and the recovery watch
+  // are driven
   // from a healthy `idle` rather than from `webglcontextrestored` is the ORDER of these five
   // statements. A version bump moves every one of them, and a citation that has silently drifted
   // is worse than none — it reads as evidence. This pins the order, and prints the real numbers
@@ -503,12 +507,13 @@ describe("canary — the MapLibre surface this module depends on", () => {
     ) + 1;
     const fireRestored = lineOf('this.fire(new MapContextEvent("webglcontextrestored"');
 
-    const cited = { setStyle: 22446, setupPainter: 22452, resize: 22454, fireRestored: 22457 };
+    const cited = { setStyle: 22704, setupPainter: 22716, resize: 22718, fireRestored: 22721 };
     const actual = { setStyle, setupPainter, resize, fireRestored };
     expect(
       actual,
-      `earth.astro cites these bundle lines; MapLibre moved them. Update the comments beside ` +
-        `reassertTerrainBound, reassertPolarCaps and startRecoveryWatch to ` +
+      `Comments cite these bundle lines; MapLibre moved them. GREP FOR THE OLD NUMBERS rather ` +
+        `than working from a list — the list in this message was itself wrong once, naming a file ` +
+        `that cites nothing and missing one that does. Update every hit, and \`cited\` above, to ` +
         `${JSON.stringify(actual)}.`,
     ).toEqual(cited);
 
@@ -524,7 +529,7 @@ describe("canary — the MapLibre surface this module depends on", () => {
 });
 
 describe("earth.astro wires the diagnostics rather than re-stating them", () => {
-  const globe = readFileSync(new URL("../pages/earth.astro", import.meta.url), "utf8");
+  const globe = readFileSync(new URL("../components/Globe.astro", import.meta.url), "utf8");
 
   const restoredHandler = globe
     .match(/map\.on\("webglcontextrestored"[\s\S]*?\n  \}\);/)?.[0];
@@ -657,7 +662,13 @@ describe("earth.astro wires the diagnostics rather than re-stating them", () => 
     expect(globe).toMatch(
       /buildReport: \(timing, panel\) => composeReport\(timing, panel, \{ sampleGlNow: true \}\)/,
     );
-    expect(globe).toContain("perfReportLines(composeReport(timing, { expanded: true }))");
+    // The panel argument gained `timeline` when the ring landed; what this pins is unchanged and is
+    // the ABSENCE of `sampleGlNow`, which is what keeps the 300 ms tick off the fresh-sample path.
+    // The ring itself is safe on that tick by measurement, not assumption: `getMemoryInfo()` spreads
+    // two running totals and is O(1), while the walking call (`getResourcesInfo`) is never made.
+    expect(globe).toContain(
+      "perfReportLines(composeReport(timing, { expanded: true, timeline: [], markMs: null }))",
+    );
     // Exactly one opt-in, and the line above proved it is the export's. A second would ship
     // per-tick sampling while both assertions above kept passing.
     expect(globe.match(/sampleGlNow: true/g)).toHaveLength(1);
@@ -817,7 +828,7 @@ describe("the snapshot names its library and what the camera needed", () => {
 });
 
 describe("earth.astro feeds the snapshot the version and the covering count", () => {
-  const globe = readFileSync(new URL("../pages/earth.astro", import.meta.url), "utf8");
+  const globe = readFileSync(new URL("../components/Globe.astro", import.meta.url), "utf8");
   const reader = globe.match(/const readGlState = [\s\S]*?\n    \}\);/)?.[0];
 
   it("passes MapLibre's own getVersion, not a hard-coded string", () => {

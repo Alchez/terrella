@@ -62,7 +62,12 @@ interface RttPainter {
 
 interface RttMap {
   painter?: RttPainter;
-  terrain?: { tileManager?: { _tiles?: Record<string, { rttObjects?: (RttObject | undefined)[] }> } } | null;
+  terrain?: {
+    tileManager?: {
+      _tiles?: Record<string, { rttObjects?: (RttObject | undefined)[] }>;
+      _renderableTilesKeys?: string[];
+    };
+  } | null;
   isMoving?(): boolean;
   on(event: string, listener: () => void): unknown;
   off(event: string, listener: () => void): unknown;
@@ -75,6 +80,19 @@ export interface RttPoolStats {
   heldTiles: number;
   peakTotal: number;
   destroyedTotal: number;
+  /**
+   * Terrain tiles being DRAWN this frame, or null when there is no terrain to count.
+   *
+   * The quantity the profile accuses. Per-tile main-thread work — a `Float64Array(16)` per
+   * renderable tile per call, then texture upload, then `uniformMatrix4fv` — makes this number the
+   * multiplier on everything else, so an arm that changes it changes the cost and an arm that does
+   * not, does not. It is NOT `heldTiles`: that counts the manager's whole cache, which is a
+   * superset and moves for different reasons.
+   *
+   * Null rather than 0 because "this page has no terrain" and "terrain is on and drawing nothing"
+   * are different readings, and a 0 that means the former is how an arm gets read as a win.
+   */
+  renderable: number | null;
 }
 
 /**
@@ -127,6 +145,19 @@ export function trimRttPool(pool: RttObject[], bound: number): number {
 export function rttPoolOf(map: RttMap): RttObject[] | null {
   const pool = map.painter?._rttObjectRecyclePool;
   return Array.isArray(pool) ? pool : null;
+}
+
+/**
+ * Terrain tiles being drawn this frame, or null when the count is not there to be read.
+ *
+ * `_renderableTilesKeys` is underscore-prefixed but IS declared in the shipped `.d.ts`, so this is
+ * typed rather than cast. The canary still guards it: a name upstream is free to change is one that
+ * would otherwise turn this reading into a permanent null nobody notices, which reads exactly like
+ * "terrain is off" — the same false-negative shape as the trim quietly ceasing to run.
+ */
+export function renderableTerrainTiles(map: RttMap): number | null {
+  const keys = map.terrain?.tileManager?._renderableTilesKeys;
+  return Array.isArray(keys) ? keys.length : null;
 }
 
 /** Objects currently owned by terrain tiles. Not trimmable — this is the working set. */
@@ -192,7 +223,14 @@ export function attachRttPoolTrim(map: RttMap, options: RttPoolTrimOptions = {})
     const { held, tiles } = rttHeldBy(map);
     const pooled = pool?.length ?? 0;
     peakTotal = Math.max(peakTotal, pooled + held);
-    return { pooled, held, heldTiles: tiles, peakTotal, destroyedTotal };
+    return {
+      pooled,
+      held,
+      heldTiles: tiles,
+      peakTotal,
+      destroyedTotal,
+      renderable: renderableTerrainTiles(map),
+    };
   };
 
   const trimNow = (): number => {
@@ -240,7 +278,15 @@ export function attachRttPoolTrim(map: RttMap, options: RttPoolTrimOptions = {})
   };
 }
 
-/** One `?perf` row, under GPU · VRAM. Kept inside the 53-character phone budget. */
+/**
+ * One `?perf` row, under GPU · VRAM. Kept inside the 53-character phone budget.
+ *
+ * `renderable` is deliberately NOT here. It is the most useful number in this census, and at the
+ * pathological widths this line is tested against it lands the row on exactly 53 characters with a
+ * four-digit count and over it with five. The budget is a measured phone constraint rather than a
+ * preference, so the count goes where it is actually read instead — the exported report, which is
+ * what a harness parses. A panel row is for a glance; a field is for an arm.
+ */
 export function rttPoolLine(stats: RttPoolStats): string {
   if (stats.pooled === 0 && stats.held === 0) return "rtt — no terrain";
   return `rtt ${stats.pooled} idle · ${stats.held} held · peak ${stats.peakTotal}`;

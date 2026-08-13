@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>maplibre-gl — terrain covering tiles: a narrow-fov cliff</title>
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@6.3.0/dist/maplibre-gl.css">
+<style>
+  html, body { margin: 0; height: 100%; font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  #map { position: absolute; inset: 0; }
+  #panel {
+    position: absolute; top: 12px; left: 12px; z-index: 1; width: 520px; max-width: calc(100vw - 24px);
+    max-height: calc(100vh - 24px); overflow: auto;
+    background: rgba(255,255,255,.95); border: 1px solid #bbb; border-radius: 6px; padding: 12px 14px;
+  }
+  h1 { font-size: 13px; margin: 0 0 8px; }
+  p { margin: 0 0 8px; }
+  button { font: inherit; padding: 5px 10px; margin: 0 6px 6px 0; cursor: pointer; }
+  button[disabled] { opacity: .5; cursor: default; }
+  label { display: inline-block; margin-right: 10px; }
+  input { font: inherit; width: 5.5em; }
+  table { border-collapse: collapse; margin-top: 10px; width: 100%; }
+  th, td { border-bottom: 1px solid #ddd; padding: 3px 4px; text-align: right; }
+  th:first-child, td:first-child { text-align: left; }
+  td.z { text-align: left; font-size: 11px; color: #444; }
+  .hi { font-weight: 700; background: #ffe9e9; }
+  .ok { color: #060; }
+  #status { margin-top: 8px; color: #555; min-height: 1.5em; }
+  #alarm { color: #a00; font-weight: 700; }
+  small { color: #666; }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div id="panel">
+  <h1>Terrain covering tiles: a narrow-fov cliff on the globe</h1>
+  <p>
+    With terrain on the globe projection, <code>coveringTiles</code> returns thousands of renderable
+    terrain tiles at ordinary cameras. The count is not a smooth function of field of view: it has a
+    band, and the sweep below finds it. All defaults — no <code>setSourceTileLodParams</code>, no
+    <code>setMaxPitch</code>, stock <code>maxZoomLevelsOnScreen</code>.
+  </p>
+  <p>
+    <small>
+      Keep this tab focused — a background tab throttles <code>requestAnimationFrame</code> and every
+      arm will read the same stale number. Each arm is gated on the WebGL context: if it is lost the
+      run aborts rather than reporting the last good frame forever.
+    </small>
+  </p>
+  <p>
+    <label>lat <input id="lat" value="-52"></label>
+    <label>lon <input id="lon" value="-140"></label>
+    <label>pitch <input id="pitch" value="60"></label><br>
+    <label>zoom from <input id="z0" value="4"></label>
+    <label>to <input id="z1" value="8"></label>
+    <label>step <input id="zs" value="0.02"></label>
+  </p>
+  <p><small id="config">…</small></p>
+  <p>
+    <label>fovs <input id="fovs" value="15, 18, 36.87" style="width: 12em"></label>
+  </p>
+  <button id="run">Sweep zoom at each fov</button>
+  <button id="lats">Sweep latitude at the worst zoom</button>
+  <button id="stop" disabled>Stop</button>
+  <div id="status">loading terrain…</div>
+  <div id="alarm"></div>
+  <table id="out" hidden>
+    <thead><tr><th>arm</th><th>peak tiles</th><th>at zoom</th><th>median</th><th class="z">by zoom level, at the peak</th></tr></thead>
+    <tbody></tbody>
+  </table>
+</div>
+
+<script type="module">
+// v6 ships ESM only (no UMD `dist/maplibre-gl.js`) and has no default export — named only.
+import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.3.0/dist/maplibre-gl.mjs';
+
+const map = new maplibregl.Map({
+  container: 'map',
+  style: 'https://demotiles.maplibre.org/globe.json',
+  center: [-140, -52],
+  zoom: 5.5,
+  pitch: 60,
+});
+window.map = map;   // module scope otherwise; exposed so the console can poke at it
+
+map.on('load', () => {
+  map.addSource('dem', {
+    type: 'raster-dem',
+    tiles: ['https://elevation-tiles-prod.s3.amazonaws.com/terrarium/{z}/{x}/{y}.png'],
+    encoding: 'terrarium',
+    tileSize: 256,
+    maxzoom: 12,
+    attribution: 'Terrain: AWS Terrain Tiles',
+  });
+  map.setTerrain({ source: 'dem', exaggeration: 1.5 });
+  map.once('idle', () => {
+    status('ready');
+    describeConfig();
+    runBtn.disabled = latsBtn.disabled = false;
+  });
+});
+
+// --- instrument -------------------------------------------------------------------------------
+//
+// Two failure modes make a harness like this report confident nonsense, and both were met building
+// it. A page whose GL context has gone keeps answering every query with the last good frame's
+// numbers, so a whole table can come back identical and read as a clean null; and a camera that
+// never rendered returns the *previous* arm's covering set, because the set is rebuilt inside
+// `map._render` rather than by the `jumpTo` that preceded it. So: abort on context loss rather than
+// reporting, and count this arm's own render events, reporting null when there were none.
+
+let glLost = false;
+map.getCanvas().addEventListener('webglcontextlost', () => { glLost = true; });
+
+let renders = 0;
+map.on('render', () => { renders += 1; });
+
+let stopRequested = false;
+
+const status = (t) => { document.getElementById('status').textContent = t; };
+const alarm = (t) => { document.getElementById('alarm').textContent = t; };
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+const nextFrame = () => new Promise((r) => requestAnimationFrame(r));
+
+class ContextLost extends Error {}
+
+/** Renderable terrain tiles right now, with the count broken out by canonical zoom level. */
+function census() {
+  const manager = map.terrain.tileManager;
+  const keys = manager._renderableTilesKeys;
+  const byZoom = new Map();
+  for (const key of keys) {
+    const z = manager._tiles[key]?.tileID?.canonical?.z;
+    if (z !== undefined) byZoom.set(z, (byZoom.get(z) ?? 0) + 1);
+  }
+  return {
+    total: keys.length,
+    byZoom: [...byZoom.entries()].sort((a, b) => a[0] - b[0]).map(([z, n]) => `z${z}:${n}`).join(' '),
+  };
+}
+
+/**
+ * Park the camera and read the covering set it produces. Forces repaints because MapLibre draws
+ * only on change: a settled map is idle, not broken, and an arm that waits passively reads nothing.
+ */
+async function arm({ lat, lon, zoom, pitch, fov, waitRenders = 2, timeoutMs = 400 }) {
+  if (glLost) throw new ContextLost('WebGL context lost — every later reading is void');
+  if (map.getVerticalFieldOfView() !== fov) map.setVerticalFieldOfView(fov);
+  map.jumpTo({ center: [lon, lat], zoom, pitch, bearing: 0 });
+
+  const start = renders;
+  const deadline = performance.now() + timeoutMs;
+  map.triggerRepaint();
+  while (renders - start < waitRenders && performance.now() < deadline) {
+    await nextFrame();
+    map.triggerRepaint();
+  }
+  const observed = renders - start;
+  if (glLost) throw new ContextLost('WebGL context lost mid-arm');
+
+  const seen = census();
+  return { zoom, renders: observed, total: observed === 0 ? null : seen.total, byZoom: seen.byZoom };
+}
+
+/**
+ * Sweep zoom at one fov and keep the worst reading, plus the median of every reading. The median is
+ * the point of the whole exercise: it says what this camera costs *normally*, so the peak beside it
+ * is a cliff rather than a cost curve. The band is ~0.02 wide, so a coarser step reports a clean null.
+ */
+async function sweepZoom({ lat, lon, pitch, fov, from, to, step }) {
+  let peak = { total: -1, renders: 0, byZoom: '', zoom: from };
+  const totals = [];
+  const steps = Math.floor((to - from) / step) + 1;
+  for (let i = 0; i < steps; i++) {
+    if (stopRequested) break;
+    const zoom = Math.round((from + i * step) * 1000) / 1000;
+    const row = await arm({ lat, lon, zoom, pitch, fov });
+    if (row.total !== null) {
+      totals.push(row.total);
+      if (row.total > peak.total) peak = row;
+    }
+    if (i % 10 === 0) status(`fov ${fov}: z${zoom.toFixed(2)} (${i + 1}/${steps}) — worst so far ${Math.max(peak.total, 0)}`);
+  }
+  totals.sort((a, b) => a - b);
+  peak.median = totals.length ? totals[totals.length >> 1] : null;
+  peak.samples = totals.length;
+  return peak;
+}
+
+// --- runs -------------------------------------------------------------------------------------
+
+const results = [];
+
+function addRow(label, row, highlight) {
+  results.push({ label, row, highlight });
+  const body = document.querySelector('#out tbody');
+  const tr = document.createElement('tr');
+  const cls = highlight ? ' class="hi"' : '';
+  tr.innerHTML =
+    `<td${cls}>${label}</td>` +
+    `<td${cls}>${row.total ?? '— no render —'}</td>` +
+    `<td${cls}>${row.total === null ? '—' : row.zoom.toFixed(2)}</td>` +
+    `<td>${row.median ?? '—'}</td>` +
+    `<td class="z">${row.byZoom}</td>`;
+  body.appendChild(tr);
+  document.getElementById('out').hidden = false;
+}
+
+async function guarded(fn) {
+  runBtn.disabled = latsBtn.disabled = true;
+  stopBtn.disabled = false;
+  stopRequested = false;
+  alarm('');
+  try {
+    await fn();
+    status(stopRequested ? 'stopped' : 'done');
+  } catch (error) {
+    if (error instanceof ContextLost) {
+      alarm(`ABORTED: ${error.message}. Reload the page before trusting anything above.`);
+      status('aborted');
+    } else {
+      alarm(`ABORTED: ${error.message}`);
+      status('aborted');
+      throw error;
+    }
+  } finally {
+    runBtn.disabled = latsBtn.disabled = false;
+    stopBtn.disabled = true;
+  }
+}
+
+/**
+ * The tile count scales with screen area, so a reading is meaningless without the canvas it was
+ * taken on — a small window will not reach the counts in the README. Reported here so a reader can
+ * say whether they reproduced it or merely ran it.
+ */
+function describeConfig() {
+  const canvas = map.getCanvas();
+  const manager = map.terrain.tileManager;
+  document.getElementById('config').textContent = [
+    `maplibre-gl ${maplibregl.getVersion()}`,
+    `canvas ${canvas.width}x${canvas.height} @ DPR ${window.devicePixelRatio}`,
+    `projection ${map.getProjection()?.type ?? '?'}`,
+    `maxPitch ${map.getMaxPitch()}`,
+    // Terrain covers at twice the source's tile size, so the centre zoom fed to calculateTileZoom is
+    // `transform.zoom + log2(512 / this)`. A 256 px source puts it at the camera zoom; a 128 px one
+    // puts it a level deeper, which moves where the cliff lands in camera zoom.
+    `DEM tileSize ${map.getSource('dem').tileSize} -> terrain tileSize ${manager.tileSize}, maxzoom ${manager.maxzoom}`,
+  ].join(' · ');
+}
+
+const num = (id) => Number(document.getElementById(id).value);
+
+function fovList() {
+  return document.getElementById('fovs').value.split(',').map((s) => Number(s.trim())).filter((n) => n > 0);
+}
+
+let worstZoom = null;
+
+document.getElementById('run').onclick = () => guarded(async () => {
+  const lat = num('lat'), lon = num('lon'), pitch = num('pitch');
+  const from = num('z0'), to = num('z1'), step = num('zs');
+  let worst = { total: -1 };
+  for (const fov of fovList()) {
+    if (stopRequested) break;
+    const peak = await sweepZoom({ lat, lon, pitch, fov, from, to, step });
+    addRow(`fov ${fov}`, peak, peak.total > 500);
+    if (peak.total > worst.total) { worst = peak; worstZoom = peak.zoom; }
+  }
+  map.setVerticalFieldOfView(15);
+});
+
+document.getElementById('lats').onclick = () => guarded(async () => {
+  const lon = num('lon'), pitch = num('pitch');
+  const zoom = worstZoom ?? num('z0');
+  const fov = fovList()[0] ?? 15;
+  status(`latitude sweep at fov ${fov}, z${zoom.toFixed(2)} — run the zoom sweep first to pin the zoom`);
+  for (let lat = 0; lat >= -68; lat -= 4) {
+    if (stopRequested) break;
+    const row = await arm({ lat, lon, zoom, pitch, fov, waitRenders: 3, timeoutMs: 600 });
+    addRow(`lat ${lat} (fov ${fov}, z${zoom.toFixed(2)})`, row, row.total > 500);
+  }
+});
+
+const runBtn = document.getElementById('run');
+const latsBtn = document.getElementById('lats');
+const stopBtn = document.getElementById('stop');
+runBtn.disabled = latsBtn.disabled = true;
+stopBtn.onclick = () => { stopRequested = true; status('stopping…'); };
+</script>
+</body>
+</html>
