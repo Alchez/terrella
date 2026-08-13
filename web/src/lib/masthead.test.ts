@@ -9,7 +9,7 @@ import { readFileSync } from "node:fs";
  */
 
 const source = (path: string) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
-const gallery = () => source("pages/index.astro");
+const gallery = () => source("components/Gallery.astro");
 
 describe("the gallery masthead has nothing that changes its width after paint", () => {
   it("does not link to the globe from the nav", () => {

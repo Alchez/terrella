@@ -114,8 +114,8 @@ describe("MapLibre's stylesheet must not block the globe's first paint", () => {
     // BOTH globes named, and that is the assertion this guard turns on. A count, or Earth alone,
     // stays true for a sweep narrowed back to the one page it used to read — which is the exact
     // regression, and the one that would otherwise look like a pass.
-    expect(drawing, "the sweep no longer finds Earth's globe").toContain("earth.astro");
-    expect(drawing, "the sweep no longer finds Mars's globe").toContain("mars.astro");
+    expect(drawing, "the sweep no longer finds Earth's globe").toContain("earth/index.astro");
+    expect(drawing, "the sweep no longer finds Mars's globe").toContain("mars/index.astro");
     expect(drawing, "a page with no <Globe /> was counted as one").not.toContain("index.astro");
   });
 

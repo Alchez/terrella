@@ -12,10 +12,10 @@
 // is written, and restating it here would be one claim in two places that can disagree. The only
 // one that resolves differently is `borders`, and it resolves from the registry, so this page can
 // state nothing about it even by accident.
-import Base from "../layouts/Base.astro";
-import Globe from "../components/Globe.astro";
-import MapStylesheet from "../components/MapStylesheet.astro";
-import { BODIES } from "../lib/bodies";
+import Base from "../../layouts/Base.astro";
+import Globe from "../../components/Globe.astro";
+import MapStylesheet from "../../components/MapStylesheet.astro";
+import { BODIES } from "../../lib/bodies";
 
 const body = BODIES.mars;
 ---
@@ -26,6 +26,7 @@ const body = BODIES.mars;
   body={body.slug}
   borders={body.hasBorders}
   quality={true}
+  pageRole="globe"
 >
   {/* A `Fragment` rather than the `<link>` itself: `slot` reaches `Base` only from a direct child
       written here, so this is the one line that cannot live inside the component it belongs to. */}

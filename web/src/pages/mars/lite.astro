@@ -23,12 +23,9 @@
 // section after Z with one row in it — plus two letters on the rail nobody would think to press.
 import Base from "../../layouts/Base.astro";
 import Masthead from "../../components/Masthead.astro";
-import { bodyRoutes } from "../../lib/bodyRoutes";
 import { featureIndex } from "../../lib/featureIndex";
 import { featureTypeLabel, formatFeatureDiameter } from "../../lib/detailPanel";
 import { byInitial, formatPosition } from "../../lib/gazetteer";
-
-const routes = bodyRoutes("mars");
 
 // `localeCompare` so the diacritics file where a reader expects them — Belén beside Belen, not
 // after Z. The index arrives sorted by the producer, which sorts by code point; this is the
@@ -45,6 +42,7 @@ const indexLetters = [...byLetter.keys()];
   description="Every named feature on Mars, as a listing — for devices that cannot draw the globe."
   body="mars"
   quality={true}
+  pageRole="lite"
 >
   <Masthead
     heading="Mars"
@@ -56,21 +54,11 @@ const indexLetters = [...byLetter.keys()];
   />
 
   <main class="lite">
-    <p class="lede">This device is seeing Mars without the globe.</p>
-    <p>
-      The globe is a WebGL2 map of shaded relief, and you are here because either your browser
-      cannot run one or you chose Lite in the view controls. Mars has no ray-traced renders, so
-      there is no gallery to stand in its place — what there is instead is the catalogue itself.
-    </p>
     <p>
       Every one of the {alphabetical.length.toLocaleString("en-US")} names the IAU has adopted for a
       feature on Mars, with what kind of thing it is, how big it is, where it sits, and where the
       name came from. Your browser's own find (<kbd>Ctrl</kbd>/<kbd>⌘</kbd> + <kbd>F</kbd>) searches
       all of it. Each name links to its entry in the Gazetteer of Planetary Nomenclature.
-    </p>
-    <p>
-      <a class="onward" href={routes.globe}>Go to the Mars globe →</a>
-      <a class="onward" href="/earth/">Go to the Earth globe →</a>
     </p>
 
     <nav class="az-rail" aria-label="Jump to letter">
@@ -133,30 +121,10 @@ const indexLetters = [...byLetter.keys()];
   .lite > p {
     max-width: 62ch;
   }
-  .lede {
-    color: var(--text);
-    font-size: 1.15rem;
-    font-weight: 600;
-    /* The one place the body's accent appears above the listing, which makes a provisional colour
-       visible to anyone judging it. */
-    border-left: 3px solid var(--accent);
-    padding-left: 0.75rem;
-  }
   kbd {
     font-family: var(--mono);
     font-size: 0.85em;
     color: var(--text);
-  }
-  .onward {
-    color: var(--accent);
-    font-weight: 600;
-    text-decoration: none;
-    margin-right: 1.5rem;
-    display: inline-block;
-  }
-  .onward:hover,
-  .onward:focus-visible {
-    text-decoration: underline;
   }
 
   /* The listing. Sticky rail, then lettered sections — the gallery's index in the one arrangement

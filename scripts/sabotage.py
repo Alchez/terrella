@@ -1139,7 +1139,7 @@ SABOTAGES: list[Sabotage] = [
         # a page that omits this line links MapLibre's sheet nowhere and every widget on that
         # planet renders unstyled — while Earth, the page the guard used to read, stays perfect.
         label="Mars's globe stops forwarding MapLibre's stylesheet into the head",
-        path='web/src/pages/mars.astro',
+        path='web/src/pages/mars/index.astro',
         needle='  <Fragment slot="head"><MapStylesheet /></Fragment>\n',
         replacement='',
         guard='puts it in the head, where the preload scanner finds it during the first parse',
@@ -2052,7 +2052,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='the no-js rule goes, so the staged image pushes the twin out of the figure',
-        path='web/src/pages/index.astro',
+        path='web/src/components/Gallery.astro',
         needle='  :global(html.no-js) .card figure img[data-src] {\n    display: none;\n  }',
         replacement='',
         guard='hides the staged image when script never runs',
@@ -2060,7 +2060,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='the watched set is taken with :has(), which the fallback browsers do not support',
-        path='web/src/pages/index.astro',
+        path='web/src/components/Gallery.astro',
         needle='  for (const image of document.querySelectorAll<HTMLImageElement>("img[data-src]")) {\n    const card = image.closest(".card");\n    if (card) deferredCards.add(card);\n  }',
         replacement='  for (const card of document.querySelectorAll(".card:has(img[data-src])")) {\n    deferredCards.add(card);\n  }',
         guard='derives the watched set from the staged attribute rather than repeating the card index',
@@ -2073,8 +2073,8 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='the Globe link returns to the nav, refilling the row it was removed from',
-        path='web/src/pages/index.astro',
-        needle='      <a href="/about/">About</a>',
+        path='web/src/components/Gallery.astro',
+        needle='    <a href="/about/">About</a>',
         replacement='      <a href="/earth/">Globe</a>\n      <a href="/about/">About</a>',
         guard='holds one layout across every heading width at 412px',
     ),
@@ -2083,7 +2083,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='the source link becomes a word again, spending the slack the icon bought',
-        path='web/src/pages/index.astro',
+        path='web/src/components/Gallery.astro',
         needle='    width: 1.05rem;\n    height: 1.05rem;',
         replacement='    width: 4rem;\n    height: 1.05rem;',
         guard='leaves the row real slack at the narrowest width it does not stack',
@@ -2118,7 +2118,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='the icon link loses its padding, leaving 16.8px of ink as the whole touch target',
-        path='web/src/pages/index.astro',
+        path='web/src/components/Gallery.astro',
         needle='    padding: 0.25rem;',
         replacement='',
         guard='gives the icon link a real touch target, not just its ink',
@@ -2126,8 +2126,8 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='the source link loses its accessible name, announcing as a bare URL',
-        path='web/src/pages/index.astro',
-        needle='        aria-label="Source on GitHub"\n',
+        path='web/src/components/Gallery.astro',
+        needle='      aria-label="Source on GitHub"\n',
         replacement='',
         guard='gives the source link an accessible name, since its only content is a decorative SVG',
     ),
@@ -2135,7 +2135,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='a script removes a masthead link again, re-arming the un-wrap half of the shift',
-        path='web/src/pages/index.astro',
+        path='web/src/components/Gallery.astro',
         needle='  import { watchDeferredCards } from "../lib/lazyCards";',
         replacement=(
             '  import { watchDeferredCards } from "../lib/lazyCards";\n'
@@ -2166,7 +2166,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='the globe gains a second toggle, spending the row it had left at 320px',
-        path='web/src/pages/earth.astro',
+        path='web/src/pages/earth/index.astro',
         needle='  borders={body.hasBorders}',
         replacement='  borders={body.hasBorders}\n  spotlight={true}',
         guard='fits on one row at 320px, on every bar the site ships',
@@ -3963,8 +3963,8 @@ SABOTAGES: list[Sabotage] = [
         suite='web',
         label='the layout stops writing data-body, so every page loads with no accent at all',
         path='web/src/layouts/Base.astro',
-        needle='<html\n  lang="en"\n  class="no-js"\n  data-body={body}\n  data-globe-route={routes.globe}\n  data-lite-route={routes.lite}\n>',
-        replacement='<html\n  lang="en"\n  class="no-js"\n  data-globe-route={routes.globe}\n  data-lite-route={routes.lite}\n>',
+        needle='<html\n  lang="en"\n  class="no-js"\n  data-body={body}\n  data-page-role={pageRole}\n  data-globe-route={routes.globe}\n  data-lite-route={routes.lite}\n>',
+        replacement='<html\n  lang="en"\n  class="no-js"\n  data-page-role={pageRole}\n  data-globe-route={routes.globe}\n  data-lite-route={routes.lite}\n>',
         guard='renders data-body on <html>, server-side and unconditionally',
     ),
     # The attribute goes on the wrong element. `:root` IS <html>, so this compiles, renders, and
@@ -3973,8 +3973,8 @@ SABOTAGES: list[Sabotage] = [
         suite='web',
         label='data-body lands on <body>, where the token block cannot see it',
         path='web/src/layouts/Base.astro',
-        needle='<html\n  lang="en"\n  class="no-js"\n  data-body={body}\n  data-globe-route={routes.globe}\n  data-lite-route={routes.lite}\n>',
-        replacement='<html\n  lang="en"\n  class="no-js"\n  data-globe-route={routes.globe}\n  data-lite-route={routes.lite}\n>\n  <body data-body={body}>',
+        needle='<html\n  lang="en"\n  class="no-js"\n  data-body={body}\n  data-page-role={pageRole}\n  data-globe-route={routes.globe}\n  data-lite-route={routes.lite}\n>',
+        replacement='<html\n  lang="en"\n  class="no-js"\n  data-page-role={pageRole}\n  data-globe-route={routes.globe}\n  data-lite-route={routes.lite}\n>\n  <body data-body={body}>',
         guard='renders data-body on <html>, server-side and unconditionally',
     ),
     # A bare fallback creeps back in. Earth looks perfect and the attribute becomes decorative, so
@@ -4004,8 +4004,8 @@ SABOTAGES: list[Sabotage] = [
         suite='web',
         label='the body prop gains a default, so a page that names no planet quietly gets Earth',
         path='web/src/layouts/Base.astro',
-        needle='  body,\n} = Astro.props;',
-        replacement='  body = "earth",\n} = Astro.props;',
+        needle='  body,\n  pageRole,\n} = Astro.props;',
+        replacement='  body = "earth",\n  pageRole,\n} = Astro.props;',
         guard='takes the body as a required prop with no default',
     ),
     # --- What a body declares it SHIPS -----------------------------------------------------------
@@ -4731,14 +4731,26 @@ SABOTAGES: list[Sabotage] = [
     ),
     Sabotage(
         suite='web',
-        # The tidy that looks like removing a pointless normalisation. Astro serves both spellings,
-        # so the guard would simply stop firing for anyone who arrived by the other one — and the
-        # site's own links all use the spelling that keeps working.
-        label='the guard compares paths exactly, so the other trailing-slash spelling is unguarded',
+        # THE ROLE DISPATCH IS AN ALLOWLIST, and this is the tidy that turns it into an else. Every
+        # page the guard should ignore then reads as a lite page: a country page and the About page
+        # would steer a capable first-time visitor onto the globe before they had seen either.
+        label='the guard treats anything that is not a globe as a lite page',
         path='web/src/layouts/Base.astro',
-        needle=r'            return String(a).replace(/\/+$/, "") === String(b).replace(/\/+$/, "");',
-        replacement='            return String(a) === String(b);',
-        guard="reads both trailing-slash spellings of a body's globe",
+        needle='          if (role !== "globe" && role !== "lite") return;',
+        replacement='          if (role === "globe" || role === "lite") { /* fall through */ }',
+        guard="leaves a page that is neither of a body's two alone, whatever body it dresses in",
+    ),
+    Sabotage(
+        suite='web',
+        # The site root is Earth's lite content at a second URL, and NOTHING derives that — the
+        # registry says `/earth/lite/` and is right. Demote this one declaration and `/` stops
+        # steering anyone: the front page quietly becomes the end of the journey for every capable
+        # visitor who arrives at it, which is what flipping `liteRoute` did before the role existed.
+        label='the site root stops calling itself a lite page, and the auto-steer goes with it',
+        path='web/src/pages/index.astro',
+        needle='pageRole="lite"',
+        replacement='pageRole="plain"',
+        guard='calls the site root a lite page, which no registry field can tell it',
     ),
     Sabotage(
         suite='web',
@@ -4778,7 +4790,7 @@ SABOTAGES: list[Sabotage] = [
         # still routes at /mars/, still draws Mars's relief — in Earth's accent, with a Lite button
         # aimed at Earth's gallery and a pre-paint guard that steers an incapable visitor there.
         label="a body's page keeps the descriptor of the page it was copied from",
-        path='web/src/pages/mars.astro',
+        path='web/src/pages/mars/index.astro',
         needle='const body = BODIES.mars;',
         replacement='const body = BODIES.earth;',
         guard='dresses every page a body owns in that body, and not in the one next door',
@@ -4850,7 +4862,7 @@ SABOTAGES: list[Sabotage] = [
         # That rule read a hand-written list of four names, so a fifth page was outside it — and a
         # page nobody checks cannot fail. Caught only because the list became a walk.
         label='a new page inlines the repository URL the shared constant exists to own',
-        path='web/src/pages/mars.astro',
+        path='web/src/pages/mars/index.astro',
         needle='  <Globe />\n',
         replacement='  <Globe />\n  <a href="https://github.com/Alchez/terrella">source</a>\n',
         guard='is never inlined as a literal, which is the drift this constant exists to stop',
@@ -6159,7 +6171,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='the gallery goes back to its own copy of the coordinate format',
-        path='web/src/pages/index.astro',
+        path='web/src/components/Gallery.astro',
         needle='  const { latitude, longitude } = boundsCentre(country.bbox);',
         replacement='  const { latitude, longitude } = { latitude: 0, longitude: 0 };',
         guard='is what the gallery calls, so one page cannot drift from the other',

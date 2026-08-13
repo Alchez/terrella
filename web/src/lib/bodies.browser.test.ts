@@ -195,10 +195,20 @@ describe("a body's slug is its route", () => {
     //
     // `import.meta.glob` is resolved by Vite at build time, so this sees the real page directory
     // rather than a list someone maintained by hand.
-    const pages = Object.keys(import.meta.glob("../pages/*.astro"));
-    const names = pages.map((p) => p.split("/").pop()!.replace(".astro", ""));
+    //
+    // A DIRECTORY PER BODY, and the globe is that directory's `index.astro`. Astro routes
+    // `earth.astro` and `earth/index.astro` to the same `/earth/`, so this is a filing decision
+    // rather than a routing one: a body owns two pages now, and the flat spelling scattered them
+    // across two places in the tree — `pages/earth.astro` beside `pages/earth/lite.astro`.
+    const pages = Object.keys(import.meta.glob("../pages/**/*.astro"));
+    // Prove the recursive glob resolves before trusting what it does not contain — every
+    // expectation below is a lookup, so an empty list would fail loudly, but a list that stopped
+    // recursing would report every body's globe missing and read as a routing catastrophe.
+    expect(pages, "the page glob must actually resolve").toContain("../pages/about.astro");
     for (const slug of Object.keys(BODIES)) {
-      expect(names, `${slug} needs a page at src/pages/${slug}.astro`).toContain(slug);
+      expect(pages, `${slug} needs a globe at src/pages/${slug}/index.astro`).toContain(
+        `../pages/${slug}/index.astro`,
+      );
     }
   });
 
@@ -250,11 +260,11 @@ describe("a body's slug is its route", () => {
       );
       return slug === undefined ? [] : [{ route, source, slug }];
     });
-    // Both depths, because a body owns a page at its own name AND everything nested beneath it, and
-    // a non-recursive glob would quietly check only the first kind.
+    // One probe per KIND of page a body owns — its globe and its lite route — because the two are
+    // written by different hands and a sweep that found only one of them would still look busy.
     const routes = owned.map((entry) => entry.route);
-    expect(routes, "the sweep missed a body's top-level page").toContain("earth.astro");
-    expect(routes, "the sweep missed a body's nested page").toContain("mars/lite.astro");
+    expect(routes, "the sweep missed a body's globe").toContain("earth/index.astro");
+    expect(routes, "the sweep missed a body's lite page").toContain("mars/lite.astro");
 
     for (const { route, source, slug } of owned) {
       expect(resolveBodyProp(route, source), `${route} is ${slug}'s route`).toBe(slug);
@@ -270,6 +280,14 @@ describe("a body's slug is its route", () => {
     // broken glob would report "the old page is gone" about a directory it never read.
     expect(names, "the page glob must actually resolve").toContain("about.astro");
     expect(names).not.toContain("globe.astro");
+    // Nor at the flat spelling each globe used to have. Astro routes `earth.astro` and
+    // `earth/index.astro` to one URL, so a leftover is not a second route that someone would
+    // notice — it is two files competing for `/earth/`, one of which stops being edited.
+    for (const slug of Object.keys(BODIES)) {
+      expect(names, `${slug}.astro should have moved into ${slug}/index.astro`).not.toContain(
+        `${slug}.astro`,
+      );
+    }
   });
 });
 

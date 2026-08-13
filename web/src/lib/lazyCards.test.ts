@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import gallerySource from "../pages/index.astro?raw";
+import gallerySource from "../components/Gallery.astro?raw";
 import {
   EAGER_CARD_COUNT,
   STAGED_PLACEHOLDER,

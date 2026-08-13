@@ -196,10 +196,17 @@ export interface BodyDescriptor {
 export const BODIES: Record<BodySlug, BodyDescriptor> = {
   earth: {
     slug: "earth",
-    // The gallery, which is the site's front page — so Earth is the body whose lite route happens
-    // to be `/`, not the body that defines it. Reading that coincidence as the rule is what put
-    // `location.replace("/")` in the pre-paint guard for every planet alike.
-    liteRoute: "/",
+    // The gallery, under the same `/<slug>/lite/` name Mars uses, so a third body copies a row
+    // rather than a special case. It renders exactly what `/` renders and says so with a canonical
+    // link: the gallery is the site's FRONT PAGE first and Earth's lite fallback second, and those
+    // are two jobs one URL was doing until this field separated them.
+    //
+    // WHICH MEANS `/` IS AN ALIAS OF THIS ROUTE, AND ONLY THE PAGE KNOWS IT. Nothing derivable
+    // from this string says that the site root also serves Earth's lite content — so the pre-paint
+    // guard cannot find out by comparing paths, and does not try: `Base.astro`'s `pageRole` is
+    // where both pages declare it. Pointing this field at `/` instead is what used to make that
+    // comparison work, and it read as the rule rather than as the coincidence it was.
+    liteRoute: "/earth/lite/",
     // Empty, and it is the empty one that carries the history: `/caps/caps.json` and
     // `/caps/cap_north_8192.webp` are URLs the frontend has fetched since before there was a second
     // body, and the pipeline keeps them by giving Earth no segment at all.

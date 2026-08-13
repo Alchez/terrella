@@ -306,7 +306,9 @@ describe("the view bar holds one row at the narrowest width the site serves", ()
     // named pages had been leaving out entirely — so its presence is what proves the expansion ran.
     expect(measured, "the sweep missed the country page").toContain("[slug].astro");
     for (const slug of Object.keys(BODIES)) {
-      expect(measured, `${slug}'s globe ships a bar nothing measures`).toContain(`${slug}.astro`);
+      expect(measured, `${slug}'s globe ships a bar nothing measures`).toContain(
+        `${slug}/index.astro`,
+      );
     }
     // And that they are not all the SAME bar — three copies of one configuration would pass
     // everything below while measuring one thing three times.

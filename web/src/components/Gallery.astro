@@ -1,0 +1,517 @@
+---
+// The atlas gallery: the masthead, the masonry of hero cards, and the A–Z country index.
+//
+// IT IS A COMPONENT BECAUSE IT ANSWERS AT TWO URLS. `/` is the site's front page and `/earth/lite/`
+// is Earth's lite route, and they render the same thing — see `BODIES.earth.liteRoute` for why
+// those are two jobs rather than one. What must not happen is two pages holding a copy each: this
+// is the site's Tier-1 guarantee, the page every crawler and every device without WebGL2 sees, so a
+// divergence between the copies would be invisible on the machine it was written on.
+//
+// The two pages differ only in `<head>` — one canonical link — which is exactly the part that has
+// to differ, and exactly the part that is not in here.
+import Masthead from "./Masthead.astro";
+import { manifest as data, type Country } from "../lib/manifest";
+import { HERO_BASE } from "../lib/assetBase";
+import { REPO_URL } from "../lib/siteLinks";
+import { EAGER_CARD_COUNT, STAGED_PLACEHOLDER } from "../lib/lazyCards";
+import { boundsCentre, byInitial, formatPosition } from "../lib/gazetteer";
+
+// Rendered heroes first (so real imagery leads while the sweep fills in), then
+// everything else alphabetically.
+const countries = [...data.countries].toSorted(
+  (first, second) =>
+    Number(second.rendered) - Number(first.rendered) ||
+    first.name.localeCompare(second.name),
+);
+
+// srcset w-descriptors must be the actual pixel WIDTH, not the long-edge key:
+// for a portrait country the file keyed "1920" is only ~450px wide, so
+// advertising it as 1920w makes the browser under-select and upscale. aspect is
+// w/h, so width = long edge (landscape) or long edge*aspect (portrait).
+const variantWidth = (country: Country, longEdge: number) =>
+  Math.round(longEdge * Math.min(1, country.aspect));
+
+const srcset = (country: Country) =>
+  country.sizes
+    .map((longEdge) => `${HERO_BASE}${country.slug}-${longEdge}.webp ${variantWidth(country, longEdge)}w`)
+    .join(", ");
+
+const spotlightSrcset = (country: Country) =>
+  country.spotlightSizes
+    .map((longEdge) => `${HERO_BASE}${country.slug}-spotlight-${longEdge}.webp ${variantWidth(country, longEdge)}w`)
+    .join(", ");
+
+// The gallery is MASONRY (`columns: 320px` below), not a breakpoint grid — so above the
+// single-column breakpoint a card is a near-constant column, never a fraction of the viewport.
+// Measured live at eleven viewports: 324–434 CSS px from 768 to 3440, peaking at 434 where a
+// column count is about to increment. The viewport fractions this replaced over-declared by
+// 1.40/1.76/2.29/3.08× at 1728/1920/2560/3440, and the browser selects on the DECLARED width —
+// so a wrong `sizes` pushes the widest screens up a rung and defeats the ladder entirely.
+// 440 covers the 434 peak: never under-declare, that direction shows as blur rather than bytes.
+const SIZES = "(max-width: 640px) 92vw, 440px";
+
+// --- Gazetteer index (the atlas's own find-by-name tool; pure links, works with
+// no JS, and the browser's native Cmd/Ctrl+F searches its text). The grid above
+// stays rendered-first; the index is always the full alphabetical listing.
+const alphabetical = [...data.countries].toSorted((first, second) =>
+  first.name.localeCompare(second.name),
+);
+
+// A gazetteer entry carries its coordinates. The manifest publishes a bbox and not a point, so the
+// centroid is taken here; the formatting itself belongs to `gazetteer.ts`, which Mars's listing
+// reads too — a hemisphere letter written twice is two listings free to disagree about one planet.
+const coordinates = (country: Country) => {
+  const { latitude, longitude } = boundsCentre(country.bbox);
+  return formatPosition(latitude, longitude);
+};
+
+// Bucket by first letter for the lettered sections + the A–Z jump rail. Insertion
+// order follows `alphabetical`, so the letter keys come out already sorted.
+const byLetter = byInitial(alphabetical, (country) => country.name[0]!);
+const indexLetters = [...byLetter.keys()];
+---
+
+<Masthead eyebrow="Atlas" heading="Terrella" maxWidth="min(2200px, 94vw)">
+  {/* No "Globe" link here on purpose. The masthead row has to hold this nav beside a 32 px
+      display heading, and at 360–412 px it had NO room to spare — so the heading widening by
+      14 px when the webfont swapped in was enough to wrap the nav onto a second line, grow the
+      header by 38 px, and move the entire gallery. The globe is reached from the view bar's tier
+      picker instead. The trade is stated rather than hidden: that picker PERSISTS a tier to
+      localStorage, where this link was plain navigation, so a visitor who wants the globe now
+      makes an explicit tier choice rather than staying on `auto`. */}
+  <nav slot="actions" class="head-links">
+    <a href="/about/">About</a>
+    <a href="#index">Index</a>
+    {/* The mark, not the word — the same 31 px of the row that the wrap needed. `aria-label`
+        and `title` are load-bearing, not decoration: the only content is an `aria-hidden` SVG,
+        so without them this link has no accessible name at all. Mirrors `.globe-source` in
+        earth.astro, which made this same trade for the same reason. */}
+    <a
+      class="head-source"
+      href={REPO_URL}
+      target="_blank"
+      rel="noopener noreferrer"
+      aria-label="Source on GitHub"
+      title="Source on GitHub"
+    >
+      <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+        <path
+          d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.012 8.012 0 0 0 16 8c0-4.42-3.58-8-8-8z"
+        ></path>
+      </svg>
+    </a>
+  </nav>
+  <p class="tagline">
+    Ray-traced relief maps of every country.
+    <span class="count">{data.rendered} of {data.count} rendered</span>
+  </p>
+</Masthead>
+
+<main class="gallery">
+  {
+    countries.map((country, index) => (
+      <article class="card" data-name={country.name.toLowerCase()} data-rendered={String(country.rendered)}>
+        <a class="card-link" href={`/${country.slug}/`}>
+        {country.rendered ? (
+          <figure style={`aspect-ratio:${country.aspect}`}>
+            <img
+              src={index < EAGER_CARD_COUNT ? `${HERO_BASE}${country.slug}-${country.sizes[0]}.webp` : STAGED_PLACEHOLDER}
+              srcset={index < EAGER_CARD_COUNT ? srcset(country) : undefined}
+              data-src={index < EAGER_CARD_COUNT ? undefined : `${HERO_BASE}${country.slug}-${country.sizes[0]}.webp`}
+              data-srcset={index < EAGER_CARD_COUNT ? undefined : srcset(country)}
+              sizes={SIZES}
+              alt={`Ray-traced relief map of ${country.name}`}
+              loading="lazy"
+              decoding="async"
+            />
+            {country.hasSpotlight && (
+              <img
+                class="spotlight-layer"
+                src={index < EAGER_CARD_COUNT ? `${HERO_BASE}${country.slug}-spotlight-${country.spotlightSizes[0]}.webp` : STAGED_PLACEHOLDER}
+                srcset={index < EAGER_CARD_COUNT ? spotlightSrcset(country) : undefined}
+                data-src={index < EAGER_CARD_COUNT ? undefined : `${HERO_BASE}${country.slug}-spotlight-${country.spotlightSizes[0]}.webp`}
+                data-srcset={index < EAGER_CARD_COUNT ? undefined : spotlightSrcset(country)}
+                sizes={SIZES}
+                alt=""
+                aria-hidden="true"
+                loading="lazy"
+              />
+            )}
+            {index >= EAGER_CARD_COUNT && (
+              /* The no-JS twin. This gallery is the pessimistic Tier-1 default that must render
+                 for no-JS visitors, incapable devices and crawlers, so deferring behind an
+                 IntersectionObserver may not cost them the imagery. Rendered only inside
+                 <noscript>, so a scripted visitor never fetches it, and paired with the
+                 `html.no-js` rule below that hides the staged <img> — otherwise both would sit
+                 in the figure's flow and overflow it. The spotlight overlay is deliberately
+                 absent: `body.spotlight-on` is only ever set by script, so without JS that
+                 layer can never be shown and shipping it would double this for nothing. */
+              <noscript>
+                <img
+                  src={`${HERO_BASE}${country.slug}-${country.sizes[0]}.webp`}
+                  srcset={srcset(country)}
+                  sizes={SIZES}
+                  alt={`Ray-traced relief map of ${country.name}`}
+                  loading="lazy"
+                  decoding="async"
+                />
+              </noscript>
+            )}
+            <figcaption>{country.name}</figcaption>
+          </figure>
+        ) : (
+          <div class="placeholder" style={`aspect-ratio:${country.aspect}`}>
+            <span>{country.name}</span>
+            <small>rendering…</small>
+          </div>
+        )}
+        </a>
+      </article>
+    ))
+  }
+</main>
+
+<section class="gazetteer" id="index" role="dialog" aria-label="Country index">
+  <div class="gz-bar">
+    <div class="gz-head">
+      <p class="eyebrow">Index</p>
+      <a class="gz-close" href="#" aria-label="Close index">Close ×</a>
+    </div>
+    <nav class="az-rail" aria-label="Jump to letter">
+      {indexLetters.map((letter) => <a href={`#ix-${letter}`}>{letter}</a>)}
+    </nav>
+  </div>
+  <div class="index-groups">
+    {
+      indexLetters.map((letter) => (
+        <section class="letter-group" aria-labelledby={`ix-${letter}`}>
+          <h2 class="letter" id={`ix-${letter}`}>
+            {letter}
+          </h2>
+          <ul class="entries">
+            {byLetter.get(letter)!.map((country) => (
+              <li>
+                <a href={`/${country.slug}/`}>
+                  <span class="entry-name">{country.name}</span>
+                  <span class="coord">{coordinates(country)}</span>
+                </a>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ))
+    }
+  </div>
+</section>
+
+<style>
+  .tagline {
+    color: var(--muted);
+    margin: 0.5rem 0 0;
+    font-size: 0.95rem;
+  }
+  .count {
+    margin-left: 0.5rem;
+    padding-left: 0.6rem;
+    border-left: 1px solid var(--line);
+    white-space: nowrap;
+  }
+  .head-links {
+    display: flex;
+    /* A 0.9rem word carries a 21.6 px line box and a 1.05rem icon carries 16.8, so the two would
+       sit on different baselines without this (the lesson `.globe-chrome` records). */
+    align-items: center;
+    gap: 1.1rem;
+  }
+  .head-links a {
+    font-size: 0.9rem;
+    color: var(--muted);
+    text-decoration: none;
+  }
+  .head-links a:hover {
+    color: var(--accent);
+  }
+  /* Padded to a 24.8 px hit target, because 16.8 px of ink is not a touch target. The padding is
+     symmetric so the nav's width stays something this file can reason about: 41 + 38 + 24.8 plus
+     two 17.6 px gaps = 139 px, against the 31–213 px the row has spare from 360 px up. */
+  .head-source {
+    display: flex;
+    padding: 0.25rem;
+    color: var(--muted);
+  }
+  .head-source svg {
+    display: block;
+    width: 1.05rem;
+    height: 1.05rem;
+    fill: currentColor;
+  }
+
+  .gallery {
+    max-width: min(2200px, 94vw);
+    margin: 0 auto;
+    padding: clamp(1.4rem, 3vw, 2rem) clamp(1.1rem, 4vw, 2.5rem) 4rem;
+    /* masonry: column *width* drives the count, so more relief cards fill wider
+       screens (≈6 columns at 2K, 1 on mobile) without cropping varied aspects. */
+    columns: 320px;
+    column-gap: clamp(0.8rem, 1.5vw, 1.4rem);
+  }
+  .card {
+    break-inside: avoid;
+    margin-bottom: clamp(0.8rem, 1.5vw, 1.4rem);
+  }
+  .card-link {
+    display: block;
+    text-decoration: none;
+    color: inherit;
+    border-radius: 10px;
+  }
+  .card-link:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 3px;
+  }
+
+  .card figure {
+    position: relative;
+    margin: 0;
+    border-radius: 10px;
+    overflow: hidden;
+    background: var(--bg-2);
+    box-shadow: var(--shadow);
+  }
+  .card figure img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  /* Without script nothing ever promotes `data-src`, so the staged <img> would sit in the figure's
+     flow as an empty box above the <noscript> twin and push it out of an `overflow: hidden` box.
+     Hiding it is safe precisely BECAUSE it is staged: `display: none` suppresses the fetch for a
+     lazy image (which is why 203 hidden spotlight overlays cost zero bytes today), and here there
+     is no URL on a fetchable attribute to suppress anyway. Keyed to `html.no-js`, the class the
+     layout's first inline script replaces with `js` before paint — so a scripted visitor never
+     matches this, and a visitor whose script never runs matches it for the whole session. */
+  :global(html.no-js) .card figure img[data-src] {
+    display: none;
+  }
+
+  .spotlight-layer {
+    position: absolute;
+    inset: 0;
+    display: none;
+  }
+  :global(body.spotlight-on) .spotlight-layer {
+    display: block;
+  }
+  .card figcaption {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    padding: 1.6rem 0.8rem 0.6rem;
+    font-family: var(--serif);
+    font-size: 0.95rem;
+    color: #fff;
+    background: linear-gradient(to top, rgba(0, 0, 0, 0.55), transparent);
+  }
+
+  .placeholder {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.2rem;
+    text-align: center;
+    padding: 1rem;
+    border: 1px dashed var(--line);
+    border-radius: 10px;
+    background: var(--bg-2);
+    color: var(--muted);
+  }
+  .placeholder span {
+    font-family: var(--serif);
+    font-size: 0.95rem;
+    color: var(--text);
+  }
+  .placeholder small {
+    font-size: 0.72rem;
+    opacity: 0.7;
+  }
+
+  /* The gazetteer — the atlas's alphabetical index, every country a link with its
+     centroid coordinates. It opens as a full-screen panel over the gallery (tap
+     "Index" in the header) so it's reachable from the top on any screen, rather than
+     buried below the grid. Pure CSS: :target opens it; :has(:target) keeps it open
+     while an A–Z letter anchor is active — so it works with no JavaScript, and the
+     browser's Cmd/Ctrl+F searches its text once open. */
+  .gazetteer {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    background: var(--bg);
+    visibility: hidden;
+    opacity: 0;
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .gazetteer {
+      transition: opacity 0.2s ease, visibility 0.2s ease;
+    }
+  }
+  /* Separate rulesets (not a selector list) so browsers without :has() still honour
+     the :target rule and can at least open the panel. */
+  .gazetteer:target {
+    visibility: visible;
+    opacity: 1;
+  }
+  .gazetteer:has(:target) {
+    visibility: visible;
+    opacity: 1;
+  }
+  .gz-bar {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    max-width: min(2200px, 94vw);
+    margin: 0 auto;
+    padding: clamp(1rem, 3vw, 1.6rem) clamp(1.1rem, 4vw, 2.5rem) 0.4rem;
+    background: color-mix(in srgb, var(--bg) 90%, transparent);
+    -webkit-backdrop-filter: blur(8px);
+    backdrop-filter: blur(8px);
+  }
+  .gz-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+  }
+  .gz-head .eyebrow {
+    margin: 0;
+  }
+  .gz-close {
+    flex: none;
+    font-family: var(--mono);
+    font-size: 0.74rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    text-decoration: none;
+    padding: 0.4rem 0.1rem 0.4rem 0.6rem;
+  }
+  .gz-close:hover,
+  .gz-close:focus-visible {
+    color: var(--accent);
+  }
+  .az-rail {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.15rem 0.55rem;
+    padding: 0.5rem 0 0.15rem;
+    font-family: var(--mono);
+    font-size: 0.82rem;
+    letter-spacing: 0.06em;
+  }
+  .index-groups {
+    max-width: min(2200px, 94vw);
+    margin: 0 auto;
+    padding: clamp(1rem, 3vw, 1.6rem) clamp(1.1rem, 4vw, 2.5rem) 5rem;
+  }
+  .az-rail a {
+    color: var(--muted);
+    text-decoration: none;
+    padding: 0.1rem 0.15rem;
+  }
+  .az-rail a:hover,
+  .az-rail a:focus-visible {
+    color: var(--accent);
+  }
+  .letter-group {
+    margin-bottom: clamp(1.6rem, 3vw, 2.4rem);
+    /* clear the sticky bar (head + A–Z rail) when you jump to a letter */
+    scroll-margin-top: 6rem;
+  }
+  .letter {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: clamp(1.6rem, 3vw, 2.2rem);
+    line-height: 1;
+    color: var(--accent);
+    margin: 0 0 0.7rem;
+    padding-bottom: 0.4rem;
+    border-bottom: 1px solid var(--line);
+  }
+  .entries {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    columns: 260px;
+    column-gap: clamp(1.5rem, 3vw, 2.6rem);
+  }
+  .entries li {
+    break-inside: avoid;
+  }
+  .entries a {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.34rem 0;
+    text-decoration: none;
+    color: var(--text);
+    border-bottom: 1px dotted var(--line);
+  }
+  .entry-name {
+    font-size: 0.95rem;
+  }
+  .coord {
+    flex: none;
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.02em;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+  .entries a:hover .entry-name,
+  .entries a:focus-visible .entry-name {
+    color: var(--accent);
+  }
+  .entries a:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 3px;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .card figure img {
+      transition: transform 0.35s ease;
+    }
+    .card figure:hover img {
+      transform: scale(1.03);
+    }
+  }
+</style>
+
+<script>
+  import { watchDeferredCards } from "../lib/lazyCards";
+
+  // Promote the deferred cards as they approach. The set is derived from the STAGED attribute
+  // rather than from a card index, so it cannot drift from what the markup above actually emitted —
+  // an index repeated here and disagreeing with EAGER_CARD_COUNT there would leave cards unwatched,
+  // which looks exactly like a working page until you scroll.
+  //
+  // `closest` rather than `.card:has(img[data-src])`, because the whole reason the factory below is
+  // conditional is a browser too old for IntersectionObserver — and such a browser is also too old
+  // for `:has()`, so that selector would match nothing and the fallback would dutifully promote an
+  // empty list. `closest` predates both. Cards are deduplicated because a card stages two images.
+  const deferredCards = new Set<Element>();
+  for (const image of document.querySelectorAll<HTMLImageElement>("img[data-src]")) {
+    const card = image.closest(".card");
+    if (card) deferredCards.add(card);
+  }
+  watchDeferredCards(
+    deferredCards,
+    typeof IntersectionObserver === "function"
+      ? (callback, options) => new IntersectionObserver(callback, options)
+      : undefined,
+  );
+</script>
