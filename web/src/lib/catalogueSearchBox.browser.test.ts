@@ -1,10 +1,11 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { createFeatureSearchBox, SEARCH_SHORTCUT, type FeatureSearchBox } from "./featureSearchBox";
+import { createCatalogueSearchBox, SEARCH_SHORTCUT, type CatalogueSearchBox } from "./catalogueSearchBox";
 import globalCss from "../styles/global.css?raw";
 import globeCss from "../styles/globe.css?raw";
 import maplibreCss from "maplibre-gl/dist/maplibre-gl.css?raw";
-import { createFeatureSearch } from "./featureSearch";
-import { featureIndex, type NamedFeature } from "./featureIndex";
+import { createCatalogueSearch, type SearchEntry } from "./catalogueSearch";
+import { featureSearchEntry } from "./detailPanel";
+import { featureIndex } from "./featureIndex";
 
 /**
  * The search panel, driven as a real widget in a real document.
@@ -15,15 +16,17 @@ import { featureIndex, type NamedFeature } from "./featureIndex";
  * source could see it and nothing that reads types could either; only running it can.
  */
 
-const matcher = createFeatureSearch(featureIndex);
-const built: FeatureSearchBox[] = [];
+// Mars's real catalogue, through Mars's own builder — the widget is body-neutral, so the entries
+// it is driven with have to come from a body rather than from a shape invented here.
+const matcher = createCatalogueSearch(featureIndex.map(featureSearchEntry));
+const built: CatalogueSearchBox[] = [];
 
-function mount(overrides: Partial<Parameters<typeof createFeatureSearchBox>[0]> = {}) {
-  const chosen: NamedFeature[] = [];
+function mount(overrides: Partial<Parameters<typeof createCatalogueSearchBox>[0]> = {}) {
+  const chosen: SearchEntry[] = [];
   const opens: boolean[] = [];
-  const box = createFeatureSearchBox({
+  const box = createCatalogueSearchBox({
     search: (query, limit) => matcher.search(query, limit),
-    onChoose: (feature) => chosen.push(feature),
+    onChoose: (entry) => chosen.push(entry),
     onOpenChange: (open) => opens.push(open),
     ...overrides,
   });

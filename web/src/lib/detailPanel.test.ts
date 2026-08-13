@@ -9,6 +9,7 @@ import {
   PANEL_CLEARANCE_PX,
   countryPanelContent,
   featurePanelContent,
+  featureSearchEntry,
   featureTypeLabel,
   formatFeatureDiameter,
   heroSrcset,
@@ -21,6 +22,7 @@ import type { Country } from "./manifest";
 
 const WEB_ROOT = new URL("../../", import.meta.url).pathname;
 const GLOBE = readFileSync(`${WEB_ROOT}src/components/Globe.astro`, "utf8");
+const PANEL_SOURCE = readFileSync(new URL("./detailPanel.ts", import.meta.url).pathname, "utf8");
 
 /** A rendered landscape country, with every field the builder reads populated. */
 function country(overrides: Partial<Country> = {}): Country {
@@ -320,5 +322,50 @@ describe("the camera and the card agree about how much room the card takes", () 
     // silent because the camera still reports arriving exactly where it was asked to.
     expect(PANEL_CLEARANCE_PX / 2).toBeLessThan(PANEL_BESIDE_MIN_WIDTH_PX / 2);
     expect(FRAME_EDGE_PX).toBeGreaterThan(0);
+  });
+});
+
+describe("the builders name Mars's rows without fetching them", () => {
+  it("keeps the catalogue off the chunk both bodies share", () => {
+    // MOVED HERE FROM `catalogueSearch.test.ts`, WITH ITS SUBJECT. `Globe.astro` splits
+    // `featureIndex` onto its own chunk so Earth never downloads 324 KB of Martian place names, and
+    // both bodies mount that one component — so a VALUE import in any module the component reaches
+    // statically undoes the split, silently and with every other gate green. This module is that
+    // module now: it holds the card's builder and the search row's, and both take a `NamedFeature`.
+    // Present-then-absent rather than absent alone, because "does not appear" is true of any string
+    // that was merely renamed.
+    expect(PANEL_SOURCE).toContain('import type { NamedFeature } from "./featureIndex"');
+    expect(PANEL_SOURCE).not.toMatch(/^import\s+(?!type\b)[^;]*from "\.\/featureIndex"/m);
+  });
+
+  it("writes one summary for the eyebrow and the search row, rather than two that agree today", () => {
+    // The row's second line and the card's eyebrow are the same sentence about the same feature,
+    // moments apart. They WERE two expressions — the box composed its own from this module's two
+    // formatters — which reads correctly right up to the day one side gains a unit or drops the
+    // separator. Asserted as equality against the real catalogue, not against a literal.
+    const sized = featureIndex.find((row) => row.diameterKm !== null)!;
+    const unsized = featureIndex.find((row) => row.diameterKm === null);
+    for (const row of [sized, unsized].filter(Boolean) as NamedFeature[]) {
+      expect(featureSearchEntry(row).descriptor).toBe(featurePanelContent(row).eyebrow);
+    }
+    expect(featureSearchEntry(sized).descriptor).toContain(formatFeatureDiameter(sized.diameterKm!));
+  });
+
+  it("hands the matcher the RAW gazetteer type, or half of every kind stops being typeable", () => {
+    // "Crater, craters" is a singular/plural pair and the matcher splits it, so both spellings
+    // answer. `featureTypeLabel` throws the plural away — correct for a card, wrong here, and the
+    // damage is a query that returns nothing while every other query keeps working.
+    const paired = featureIndex.find((row) => row.type.includes(","))!;
+    expect(featureSearchEntry(paired).terms).toEqual([paired.type]);
+    expect(featureSearchEntry(paired).terms[0]).not.toBe(featureTypeLabel(paired.type));
+  });
+
+  it("shows the flattened spelling only where it differs, and never matches on it", () => {
+    // `alias` is display-only by contract: the fold already reaches diacritics, so putting this in
+    // the token set would buy nothing and cost a second spelling in every row.
+    const differs = featureIndex.find((row) => row.cleanName !== row.name)!;
+    const same = featureIndex.find((row) => row.cleanName === row.name)!;
+    expect(featureSearchEntry(differs).alias).toBe(differs.cleanName);
+    expect(featureSearchEntry(same).alias).toBeNull();
   });
 });

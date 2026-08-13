@@ -11,14 +11,16 @@
 // its own chunk, and a widget that reached for the array itself would drag 324 KB of Martian place
 // names into every Earth visitor's download. It cannot, because there is nothing here to reach with.
 //
-// THE FIELD IS THE SECOND WAY INTO ONE CARD, NOT A SECOND CARD. `onChoose` hands the feature back
-// and the page runs its ordinary pick path with it, so a card a visitor searched to and a card they
+// THE FIELD IS THE SECOND WAY INTO ONE CARD, NOT A SECOND CARD. `onChoose` hands the entry back and
+// the page runs its ordinary pick path with it, so a card a visitor searched to and a card they
 // tapped are the same card built by the same builder. Nothing about a result row is authored here
 // beyond the row itself.
+//
+// IT FORMATS NOTHING. A row's second line arrives already written, because the body that owns a
+// catalogue owns how it reads — and the alternative was this module importing Mars's kind and size
+// formatters, which is how a widget with no data in it acquires a planet.
 
-import { featureTypeLabel, formatFeatureDiameter } from "./detailPanel";
-import type { NamedFeature } from "./featureIndex";
-import type { SearchResults } from "./featureSearch";
+import type { SearchEntry, SearchResults } from "./catalogueSearch";
 import { isTypingTarget } from "./quietMode";
 
 /**
@@ -37,11 +39,11 @@ export const SEARCH_SHORTCUT = "/";
  *  dropped is stated instead, which is what `SearchResults.total` is carried for. */
 export const SEARCH_RESULT_LIMIT = 8;
 
-export interface FeatureSearchBoxOptions {
+export interface CatalogueSearchBoxOptions {
   /** Run a query. Injected, so this module holds no catalogue — see the note above. */
   search: (query: string, limit: number) => SearchResults;
   /** A visitor picked a row. The page flies and opens the card, exactly as it does for a click. */
-  onChoose: (feature: NamedFeature) => void;
+  onChoose: (entry: SearchEntry) => void;
   /** Called when the panel opens or closes, so the rail button can mirror its own state. */
   onOpenChange?: (open: boolean) => void;
   /** Rows to offer. Defaults to `SEARCH_RESULT_LIMIT`. */
@@ -50,7 +52,7 @@ export interface FeatureSearchBoxOptions {
   doc?: Document;
 }
 
-export interface FeatureSearchBox {
+export interface CatalogueSearchBox {
   /** The panel, for the caller to mount. Starts closed. */
   readonly element: HTMLElement;
   isOpen(): boolean;
@@ -63,7 +65,7 @@ export interface FeatureSearchBox {
 const OPTION_ID_PREFIX = "rg-search-option-";
 
 /** Build the search panel. Nothing is queried until a visitor types. */
-export function createFeatureSearchBox(options: FeatureSearchBoxOptions): FeatureSearchBox {
+export function createCatalogueSearchBox(options: CatalogueSearchBoxOptions): CatalogueSearchBox {
   const { search, onChoose, onOpenChange, limit = SEARCH_RESULT_LIMIT, doc = document } = options;
 
   const element = doc.createElement("div");
@@ -99,7 +101,7 @@ export function createFeatureSearchBox(options: FeatureSearchBoxOptions): Featur
 
   element.append(field, list, status);
 
-  let shown: NamedFeature[] = [];
+  let shown: SearchEntry[] = [];
   let active = -1;
   // `opened`, not `open` — and `setOpen` is called directly everywhere below rather than through a
   // local `close()`. BOTH ARE THE SAME LANDMINE, and one of them shipped: a bare `close()` here
@@ -118,7 +120,7 @@ export function createFeatureSearchBox(options: FeatureSearchBoxOptions): Featur
 
   function renderRows(): void {
     list.replaceChildren();
-    shown.forEach((feature, index) => {
+    shown.forEach((entry, index) => {
       const row = doc.createElement("li");
       row.className = "rg-search-row";
       row.id = `${OPTION_ID_PREFIX}${index}`;
@@ -127,25 +129,21 @@ export function createFeatureSearchBox(options: FeatureSearchBoxOptions): Featur
 
       const name = doc.createElement("span");
       name.className = "rg-search-name";
-      name.textContent = feature.name;
-      // The IAU's diacritic-free spelling, shown only where it differs — the same reason the
-      // gazetteer page carries it: a visitor who typed "Belen" should see why Belén answered.
+      name.textContent = entry.name;
+      // A second spelling where the catalogue publishes one — on Mars the IAU's diacritic-free form,
+      // for the same reason the gazetteer page carries it: a visitor who typed "Belen" should see
+      // why Belén answered. `null` is the ordinary case and costs no element.
       const alias =
-        feature.cleanName === feature.name
+        entry.alias === null
           ? null
           : Object.assign(doc.createElement("span"), {
               className: "rg-search-alias",
-              textContent: feature.cleanName,
+              textContent: entry.alias,
             });
 
       const kind = doc.createElement("span");
       kind.className = "rg-search-kind";
-      // The card's own formatters, so a row and the card it opens never describe one feature two
-      // ways — the rule the gazetteer listing already follows.
-      kind.textContent =
-        feature.diameterKm === null
-          ? featureTypeLabel(feature.type)
-          : `${featureTypeLabel(feature.type)} · ${formatFeatureDiameter(feature.diameterKm)}`;
+      kind.textContent = entry.descriptor;
 
       row.append(name, ...(alias ? [alias] : []), kind);
       row.addEventListener("mousedown", (event) => {
@@ -182,10 +180,10 @@ export function createFeatureSearchBox(options: FeatureSearchBoxOptions): Featur
   }
 
   function choose(index: number): void {
-    const feature = shown[index];
-    if (!feature) return;
+    const entry = shown[index];
+    if (!entry) return;
     setOpen(false);
-    onChoose(feature);
+    onChoose(entry);
   }
 
   function onKeyDown(event: KeyboardEvent): void {

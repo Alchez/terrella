@@ -13,6 +13,7 @@
 // wrong on one planet and right on another, so it stops being static.
 
 import { HERO_BASE } from "./assetBase";
+import type { SearchEntry } from "./catalogueSearch";
 import type { NamedFeature } from "./featureIndex";
 import type { Country } from "./manifest";
 
@@ -152,6 +153,47 @@ export function formatFeatureDiameter(diameterKm: number): string {
 }
 
 /**
+ * Mars's one-line summary of a feature: the kind, and the size where the gazetteer publishes one.
+ *
+ * ONE STRING FOR TWO PLACES — the card's eyebrow and the search row's second line. They describe the
+ * same feature to the same reader moments apart, and they were two copies of this expression until
+ * the row's builder moved here; the search box held the second one and reached into this module for
+ * the formatters to write it, which is a duplicate that type-checks and reads correctly right up to
+ * the day one side gains a unit and the other does not.
+ */
+export function featureSummary(feature: NamedFeature): string {
+  const type = featureTypeLabel(feature.type);
+  return feature.diameterKm === null
+    ? type
+    : `${type} · ${formatFeatureDiameter(feature.diameterKm)}`;
+}
+
+/**
+ * Mars's search row: one gazetteer row becomes one `SearchEntry`.
+ *
+ * BESIDE THE CARD'S BUILDER BECAUSE IT IS THE SAME JOB — this module's opening note is that the card
+ * takes what it renders and each body owns the builder that produces it, and a search row is that
+ * sentence again one size smaller. Putting it here is also what lets the row and the eyebrow share
+ * `featureSummary` rather than agreeing by hand.
+ *
+ * `terms` IS THE RAW GAZETTEER TYPE, NOT THE LABEL. `"Crater, craters"` is a singular/plural pair,
+ * and the matcher splits it so both spellings are typeable; passing `featureTypeLabel`'s output here
+ * would leave "craters" matching nothing while every other query kept working.
+ */
+export function featureSearchEntry(feature: NamedFeature): SearchEntry {
+  return {
+    name: feature.name,
+    // The IAU's punctuation-flattened form, which is a DIFFERENT string from the diacritic-free one
+    // — the fold already handles diacritics, so this earns its place on screen rather than in the
+    // token set. `catalogueSearch`'s own note carries why that split matters.
+    alias: feature.cleanName === feature.name ? null : feature.cleanName,
+    descriptor: featureSummary(feature),
+    terms: [feature.type],
+    weight: feature.diameterKm,
+  };
+}
+
+/**
  * Mars's builder: one gazetteer row becomes one card.
  *
  * TAKES THE INDEX ROW RATHER THAN THE PICKED TILE FEATURE, and that is not a preference. The click
@@ -170,12 +212,8 @@ export function formatFeatureDiameter(diameterKm: number): string {
  * entry's etymology, so the link is where the sentence it is showing came from.
  */
 export function featurePanelContent(feature: NamedFeature): PanelContent {
-  const type = featureTypeLabel(feature.type);
   return {
-    eyebrow:
-      feature.diameterKm === null
-        ? type
-        : `${type} · ${formatFeatureDiameter(feature.diameterKm)}`,
+    eyebrow: featureSummary(feature),
     name: feature.name,
     // The IAU's etymology, published as a finished sentence — "Town in Mexico.", "Konstantin
     // Iosifovich; Russian cosmophysicist (1918–1993)." It is the whole content of the card, which

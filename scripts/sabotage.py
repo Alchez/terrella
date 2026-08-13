@@ -4697,8 +4697,8 @@ SABOTAGES: list[Sabotage] = [
         # itself: the same rows the pick refuses to size, sized on the card.
         label='an unsized feature is given a diameter of zero on the card',
         path='web/src/lib/detailPanel.ts',
-        needle='      feature.diameterKm === null\n        ? type',
-        replacement='      false\n        ? type',
+        needle='  return feature.diameterKm === null\n    ? type',
+        replacement='  return false\n    ? type',
         guard='falls back to the kind alone where the gazetteer publishes no size',
     ),
     Sabotage(
@@ -6310,7 +6310,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='the fold is "simplified" to the one-liner that leaves a letter standing',
-        path='web/src/lib/featureSearch.ts',
+        path='web/src/lib/catalogueSearch.ts',
         needle='    .replace(/ł/g, "l")\n',
         replacement='',
         guard='folds the letter NFD cannot decompose, and the naive rule is shown to miss it',
@@ -6318,7 +6318,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='a punctuated word keeps only its pieces, so the name typed without punctuation is lost',
-        path='web/src/lib/featureSearch.ts',
+        path='web/src/lib/catalogueSearch.ts',
         needle='  return joined ? [joined, ...word.split(/[^a-z0-9]+/).filter(Boolean)] : [];',
         replacement='  return word.split(/[^a-z0-9]+/).filter(Boolean);',
         guard='keeps both readings of a punctuated word, because different queries want different ones',
@@ -6326,7 +6326,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='a punctuated word keeps only its joined form, so the part after the hyphen is lost',
-        path='web/src/lib/featureSearch.ts',
+        path='web/src/lib/catalogueSearch.ts',
         needle='  return joined ? [joined, ...word.split(/[^a-z0-9]+/).filter(Boolean)] : [];',
         replacement='  return joined ? [joined] : [];',
         guard='keeps both readings of a punctuated word, because different queries want different ones',
@@ -6334,7 +6334,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='the query stops splitting on punctuation, so a name typed as published finds nothing',
-        path='web/src/lib/featureSearch.ts',
+        path='web/src/lib/catalogueSearch.ts',
         needle='  return foldForSearch(query)\n    .split(/[^a-z0-9]+/)',
         replacement='  return foldForSearch(query)\n    .split(/\\s+/)',
         guard='splits a query on punctuation as well as spaces',
@@ -6345,15 +6345,15 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='the kind stops being searchable, so no crater can be found by asking for one',
-        path='web/src/lib/featureSearch.ts',
-        needle='      if (!onName && !everyTermPrefixes(terms, entry.everyToken)) continue;',
+        path='web/src/lib/catalogueSearch.ts',
+        needle='      if (!onName && !everyTermPrefixes(terms, row.everyToken)) continue;',
         replacement='      if (!onName) continue;',
         guard='is the only way to reach a crater, because no crater name says so',
     ),
     Sabotage(
         suite='web',
         label='a kind match can outrank a name match, so the feature asked for sinks below its kin',
-        path='web/src/lib/featureSearch.ts',
+        path='web/src/lib/catalogueSearch.ts',
         needle='  if (first.tier !== second.tier) return first.tier - second.tier;\n',
         replacement='',
         guard='ranks a name below nothing — a kind match never outranks a name match',
@@ -6361,7 +6361,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='one term is enough, so a two-word query returns everything either word touches',
-        path='web/src/lib/featureSearch.ts',
+        path='web/src/lib/catalogueSearch.ts',
         needle='  return terms.every((term) => tokens.some((token) => token.startsWith(term)));',
         replacement='  return terms.some((term) => tokens.some((token) => token.startsWith(term)));',
         guard='still needs every term, whichever half answers each one',
@@ -6369,7 +6369,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='where the query landed stops ordering, so the exact name sinks under the cap',
-        path='web/src/lib/featureSearch.ts',
+        path='web/src/lib/catalogueSearch.ts',
         needle='  if (first.lead !== second.lead) return first.lead - second.lead;\n',
         replacement='',
         guard='puts the whole name first, then the names that start with the query',
@@ -6377,15 +6377,15 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='the size tie-break inverts, so a broad query answers with the smallest things on Mars',
-        path='web/src/lib/featureSearch.ts',
-        needle='  if (firstSize !== secondSize) return secondSize - firstSize;',
-        replacement='  if (firstSize !== secondSize) return firstSize - secondSize;',
+        path='web/src/lib/catalogueSearch.ts',
+        needle='  if (firstWeight !== secondWeight) return secondWeight - firstWeight;',
+        replacement='  if (firstWeight !== secondWeight) return firstWeight - secondWeight;',
         guard='breaks a tie on size, largest first, with the unsized last',
     ),
     Sabotage(
         suite='web',
         label='the total reports the page rather than the catalogue, so "10 of 160" reads "10 of 10"',
-        path='web/src/lib/featureSearch.ts',
+        path='web/src/lib/catalogueSearch.ts',
         needle='      total: found.length,',
         replacement='      total: Math.min(found.length, Math.max(0, limit)),',
         guard='counts every match and returns only the page asked for',
@@ -6396,10 +6396,30 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='the type import becomes an inline-type import, which keeps the catalogue in the graph',
-        path='web/src/lib/featureSearch.ts',
+        path='web/src/lib/detailPanel.ts',
         needle='import type { NamedFeature } from "./featureIndex";',
         replacement='import { type NamedFeature } from "./featureIndex";',
-        guard='names the row type without fetching the rows',
+        guard='keeps the catalogue off the chunk both bodies share',
+    ),
+    Sabotage(
+        suite='web',
+        # The row and the card's eyebrow become two expressions again. They agree on the day it is
+        # written, which is the whole difficulty: the drift arrives with whichever one gains a unit.
+        label='the search row writes its own summary instead of sharing the eyebrow',
+        path='web/src/lib/detailPanel.ts',
+        needle='    descriptor: featureSummary(feature),',
+        replacement='    descriptor: featureTypeLabel(feature.type),',
+        guard='writes one summary for the eyebrow and the search row, rather than two that agree today',
+    ),
+    Sabotage(
+        suite='web',
+        # The matcher is handed the card's LABEL instead of the gazetteer's singular/plural pair, so
+        # "craters" answers nothing while "crater" keeps working — half a kind, silently.
+        label="the matcher is given the kind's label rather than the pair it is published as",
+        path='web/src/lib/detailPanel.ts',
+        needle='    terms: [feature.type],',
+        replacement='    terms: [featureTypeLabel(feature.type)],',
+        guard='hands the matcher the RAW gazetteer type, or half of every kind stops being typeable',
     ),
     # THE SEARCH FIELD. Every wound below leaves a panel that opens, lists real features and flies
     # to them — what breaks is the part a screenshot ratifies and a visitor discovers later: a
@@ -6412,15 +6432,15 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='choosing a row calls the global close(), so the panel stays over the card it opened',
-        path='web/src/lib/featureSearchBox.ts',
-        needle='    if (!feature) return;\n    setOpen(false);',
-        replacement='    if (!feature) return;\n    close();',
+        path='web/src/lib/catalogueSearchBox.ts',
+        needle='    if (!entry) return;\n    setOpen(false);',
+        replacement='    if (!entry) return;\n    close();',
         guard='closes itself before handing the feature over, so the card is not opened underneath it',
     ),
     Sabotage(
         suite='web',
         label='Escape calls the global close() too, so the field cannot be dismissed',
-        path='web/src/lib/featureSearchBox.ts',
+        path='web/src/lib/catalogueSearchBox.ts',
         needle='      setOpen(false);\n      return;',
         replacement='      close();\n      return;',
         guard='CLOSES ON ESCAPE — the branch a global shadow silently took over',
@@ -6428,7 +6448,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='a row waits for click, so the field loses focus and closes under the pointer first',
-        path='web/src/lib/featureSearchBox.ts',
+        path='web/src/lib/catalogueSearchBox.ts',
         needle='      row.addEventListener("mousedown", (event) => {',
         replacement='      row.addEventListener("click", (event) => {',
         guard='acts on mousedown, because losing focus on mouse-down would close the panel mid-click',
@@ -6436,7 +6456,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='Enter takes the first row rather than the armed one, so the arrows steer nothing',
-        path='web/src/lib/featureSearchBox.ts',
+        path='web/src/lib/catalogueSearchBox.ts',
         needle='      choose(active);',
         replacement='      choose(0);',
         guard='chooses the ARMED row, not the first one',
@@ -6444,7 +6464,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='the arrows clamp instead of wrapping, so the last row cannot be reached upwards',
-        path='web/src/lib/featureSearchBox.ts',
+        path='web/src/lib/catalogueSearchBox.ts',
         needle='    setActive((active + step + shown.length) % shown.length);',
         replacement='    setActive(Math.min(shown.length - 1, Math.max(0, active + step)));',
         guard='moves the armed row and wraps at both ends',
@@ -6452,7 +6472,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='the panel stops saying how many it dropped, so eight rows read as the whole answer',
-        path='web/src/lib/featureSearchBox.ts',
+        path='web/src/lib/catalogueSearchBox.ts',
         needle='    else if (results.total > results.matches.length)',
         replacement='    else if (false)',
         guard='answers a kind, which is the only route to a crater',
@@ -6460,8 +6480,8 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='the alias is drawn on every row, so most names carry a bracketed copy of themselves',
-        path='web/src/lib/featureSearchBox.ts',
-        needle='        feature.cleanName === feature.name\n          ? null',
+        path='web/src/lib/catalogueSearchBox.ts',
+        needle='        entry.alias === null\n          ? null',
         replacement='        false\n          ? null',
         guard='shows the diacritic-free spelling only where it differs',
     ),
@@ -6470,7 +6490,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='the field stops naming the armed row, so assistive tech and the paint disagree',
-        path='web/src/lib/featureSearchBox.ts',
+        path='web/src/lib/catalogueSearchBox.ts',
         needle='    if (active >= 0) field.setAttribute("aria-activedescendant", `${OPTION_ID_PREFIX}${active}`);',
         replacement='    if (false) field.setAttribute("aria-activedescendant", `${OPTION_ID_PREFIX}${active}`);',
         guard='keeps the highlight and the armed row as one fact, so Enter cannot surprise',
@@ -6478,7 +6498,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='opening twice re-announces and re-steals focus mid-typing',
-        path='web/src/lib/featureSearchBox.ts',
+        path='web/src/lib/catalogueSearchBox.ts',
         needle='    if (next === opened) return; // idempotent',
         replacement='    if (false) return; // idempotent',
         guard='is idempotent, so a repeated open does not re-steal focus or re-announce',
@@ -6573,7 +6593,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='the shortcut stops answering, and the field can only be opened by hunting for it',
-        path='web/src/lib/featureSearchBox.ts',
+        path='web/src/lib/catalogueSearchBox.ts',
         needle='    if (event.key !== SEARCH_SHORTCUT) return;',
         replacement='    if (true) return;',
         guard='opens on the shortcut and puts the caret in the field',
@@ -6581,7 +6601,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='the shortcut fires while typing, so a slash cannot be typed into the field it opens',
-        path='web/src/lib/featureSearchBox.ts',
+        path='web/src/lib/catalogueSearchBox.ts',
         needle='    if (isTypingTarget(event.target)) return;',
         replacement='    if (false) return;',
         guard='types a slash INTO the field rather than re-opening it',
@@ -6589,7 +6609,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label="Firefox's own quick-find opens underneath ours",
-        path='web/src/lib/featureSearchBox.ts',
+        path='web/src/lib/catalogueSearchBox.ts',
         needle="    event.preventDefault(); // Firefox's quick-find binds this key",
         replacement="    void 0; // Firefox's quick-find binds this key",
         guard='prevents the default, or Firefox quick-find opens underneath it',
@@ -6597,7 +6617,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='a destroyed box leaves its key bound to a panel that is no longer on the page',
-        path='web/src/lib/featureSearchBox.ts',
+        path='web/src/lib/catalogueSearchBox.ts',
         needle='      doc.removeEventListener("keydown", onDocumentKeyDown);',
         replacement='      void 0;',
         guard='stops listening once destroyed, so a torn-down globe leaves no key bound',

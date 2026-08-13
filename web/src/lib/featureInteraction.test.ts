@@ -36,7 +36,7 @@ function wiringBody(): string {
 /** The block that BUILDS the search control, which is deliberately NOT inside the wiring that arms
  *  it — the comment there carries the measurement. Bounded the same way as `wiringBody`. */
 function searchBlock(): string {
-  const start = GLOBE.indexOf("let matcher: FeatureSearch | null = null;");
+  const start = GLOBE.indexOf("let matcher: CatalogueSearch | null = null;");
   expect(start, "the search control is gone — the rail has no field").toBeGreaterThan(-1);
   const rest = GLOBE.slice(start);
   const end = rest.indexOf("\n  function ");
@@ -184,8 +184,8 @@ describe("the page wires the search field to the pick path it already has", () =
     // 50-67 ms the catalogue then took, which is the delay everyone would have blamed instead.
     // A source scan is what is reachable here: the construction sits outside the wiring, and the
     // wiring only arms it.
-    expect(wiringBody()).not.toContain("createFeatureSearchBox(");
-    expect(searchBlock()).toContain("createFeatureSearchBox(");
+    expect(wiringBody()).not.toContain("createCatalogueSearchBox(");
+    expect(searchBlock()).toContain("createCatalogueSearchBox(");
   });
 
   it("joins the rail after spin, since joinRailGroup appends and that IS the rail's order", () => {
@@ -223,11 +223,11 @@ describe("the page wires the search field to the pick path it already has", () =
   });
 
   it("builds the matcher from the SAME dynamic import the pick path uses", () => {
-    // One fetch of the catalogue, not two. `featureSearch` itself is imported statically and may
+    // One fetch of the catalogue, not two. `catalogueSearch` itself is imported statically and may
     // be — it names `NamedFeature` as a type and holds no data; the 324 KB array is what has to
     // stay on this chunk, and asking for it again here would defeat that by duplicating it.
     expect(wiringBody()).toContain("featureCatalogue.then(({ featureIndex })");
-    expect(wiringBody()).toContain("matcher = createFeatureSearch(featureIndex)");
+    expect(wiringBody()).toContain("matcher = createCatalogueSearch(featureIndex.map(featureSearchEntry))");
   });
 
   it("hands the panel to quiet mode, which cannot reach it through the stylesheet", () => {

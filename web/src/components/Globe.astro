@@ -502,6 +502,7 @@ import { REPO_URL } from "../lib/siteLinks";
     PANEL_CLEARANCE_PX,
     countryPanelContent,
     featurePanelContent,
+    featureSearchEntry,
     type PanelContent,
   } from "../lib/detailPanel";
   // The registry itself, for the one thing an ADDRESS cannot carry: the zoom range the archive was
@@ -609,12 +610,12 @@ import { REPO_URL } from "../lib/siteLinks";
     hoverStateTargets,
   } from "../lib/featureOverlay";
   import { candidateFrom, framingZoom, pickFeature } from "../lib/featureTargeting";
-  // The matcher and the field, both statically. NEITHER reaches the catalogue — `featureSearch`
-  // names `NamedFeature` as a type and `featureSearchBox` takes its `search` as a function — so the
-  // 324 KB of place names stays on the chunk the dynamic import below splits out, and Earth pays
-  // only for these two modules' own bytes.
-  import { createFeatureSearch, type FeatureSearch } from "../lib/featureSearch";
-  import { createFeatureSearchBox, type FeatureSearchBox } from "../lib/featureSearchBox";
+  // The matcher and the field, both statically. NEITHER reaches a catalogue — `catalogueSearch`
+  // ranks `SearchEntry` and names no body at all, and `catalogueSearchBox` takes its `search` as a
+  // function — so the 324 KB of place names stays on the chunk the dynamic import below splits out,
+  // and Earth pays only for these two modules' own bytes.
+  import { createCatalogueSearch, type CatalogueSearch } from "../lib/catalogueSearch";
+  import { createCatalogueSearchBox, type CatalogueSearchBox } from "../lib/catalogueSearchBox";
   import { createHoverTracker, type HoverTracker } from "../lib/hoverTracking";
   import { createRailToggle, joinRailGroup, type RailToggle } from "../lib/railControls";
   import { createQuietMode } from "../lib/quietMode";
@@ -1063,7 +1064,7 @@ import { REPO_URL } from "../lib/siteLinks";
   // Set by `wireFeatureInteraction` on the one body that has a catalogue to search; null
   // everywhere else, which is why both readers ask rather than assume. TWO of them now — quiet mode
   // and `openPanel` — so it is named for what it is rather than for the first thing that wanted it.
-  let searchPanel: FeatureSearchBox | null = null;
+  let searchPanel: CatalogueSearchBox | null = null;
   /**
    * The class saying a right-side box holds the top band — the card or the search field, since
    * they are one box in one band and each closes the other. `panel-open` rather than a name per
@@ -2143,7 +2144,7 @@ import { REPO_URL } from "../lib/siteLinks";
     // button is disabled and says so rather than looking live and answering nothing.
     searchPick = goToFeature;
     void featureCatalogue.then(({ featureIndex }) => {
-      matcher = createFeatureSearch(featureIndex);
+      matcher = createCatalogueSearch(featureIndex.map(featureSearchEntry));
       searchToggle?.setAvailable(true);
     });
   }
@@ -2550,11 +2551,11 @@ import { REPO_URL } from "../lib/siteLinks";
    *
    * AFTER `spinToggle` DELIBERATELY — `joinRailGroup` appends, so this order is the rail's order.
    */
-  let matcher: FeatureSearch | null = null;
+  let matcher: CatalogueSearch | null = null;
   let searchPick: ((name: string) => void) | null = null;
   let searchToggle: RailToggle | null = null;
   if (subsystems.vectorProduct === "features") {
-    const searchBox = createFeatureSearchBox({
+    const searchBox = createCatalogueSearchBox({
       search: (query, limit) => matcher?.search(query, limit) ?? { matches: [], total: 0 },
       onChoose: (feature) => searchPick?.(feature.name),
       onOpenChange: (open) => {
