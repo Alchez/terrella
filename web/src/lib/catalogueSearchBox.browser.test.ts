@@ -3,6 +3,7 @@ import { createCatalogueSearchBox, SEARCH_SHORTCUT, type CatalogueSearchBox } fr
 import globalCss from "../styles/global.css?raw";
 import globeCss from "../styles/globe.css?raw";
 import maplibreCss from "maplibre-gl/dist/maplibre-gl.css?raw";
+import { BODIES } from "./bodies";
 import { createCatalogueSearch, type SearchEntry } from "./catalogueSearch";
 import { featureSearchEntry } from "./detailPanel";
 import { featureIndex } from "./featureIndex";
@@ -17,14 +18,18 @@ import { featureIndex } from "./featureIndex";
  */
 
 // Mars's real catalogue, through Mars's own builder — the widget is body-neutral, so the entries
-// it is driven with have to come from a body rather than from a shape invented here.
+// it is driven with have to come from a body rather than from a shape invented here. Its noun comes
+// from the registry for the same reason: a literal here would agree with the shipped page by
+// coincidence, and this file is where the shipped strings are read back.
 const matcher = createCatalogueSearch(featureIndex.map(featureSearchEntry));
+const MARS_NOUN = BODIES.mars.catalogue;
 const built: CatalogueSearchBox[] = [];
 
 function mount(overrides: Partial<Parameters<typeof createCatalogueSearchBox>[0]> = {}) {
   const chosen: SearchEntry[] = [];
   const opens: boolean[] = [];
   const box = createCatalogueSearchBox({
+    noun: MARS_NOUN,
     search: (query, limit) => matcher.search(query, limit),
     onChoose: (entry) => chosen.push(entry),
     onOpenChange: (open) => opens.push(open),
@@ -228,6 +233,33 @@ describe("it holds no catalogue of its own", () => {
     box.open();
     type("gale");
     expect(search).toHaveBeenCalledWith("gale", 8);
+  });
+
+  it("takes both its user-facing strings from the body, naming no planet itself", () => {
+    // The last two sentences of Mars in a module whose whole claim is that it holds no body. Both
+    // name the rows, and both were literals — so this widget said "feature" for as long as only one
+    // planet could be searched, and would have gone on saying it over a list of countries.
+    const { box, field, type } = mount({ noun: { singular: "country", plural: "countries" } });
+    box.open();
+    expect(field.placeholder).toBe("Search countries");
+    expect(field.getAttribute("aria-label")).toBe("Search countries");
+    type("zzzzz");
+    const status = box.element.querySelector(".rg-search-status")!;
+    expect(status.textContent).toBe("No country matches that.");
+    // SINGULAR IN ONE SENTENCE AND PLURAL IN THE OTHER, which is the whole reason the body declares
+    // two words: derived by rule, this reads "No countries matches that." on the only query that
+    // shows it, and only ever on the body whose plural a rule got wrong.
+    expect(status.textContent).not.toContain("countries");
+  });
+
+  it("still says what Mars calls its own rows, read from the registry rather than a literal", () => {
+    const { box, field, type } = mount();
+    box.open();
+    expect(field.placeholder).toBe(`Search ${BODIES.mars.catalogue.plural}`);
+    type("zzzzz");
+    expect(box.element.querySelector(".rg-search-status")!.textContent).toBe(
+      `No ${BODIES.mars.catalogue.singular} matches that.`,
+    );
   });
 });
 

@@ -40,6 +40,12 @@ export const SEARCH_SHORTCUT = "/";
 export const SEARCH_RESULT_LIMIT = 8;
 
 export interface CatalogueSearchBoxOptions {
+  /** What this body's catalogue is OF, singular and plural — `BODIES[slug].catalogue`.
+   *
+   *  Injected for the same reason `search` is. Both user-facing strings here name the rows, and
+   *  hard-coding them made this widget say "feature" on a planet of countries — the last two
+   *  sentences of Mars in a module whose whole claim is that it holds no body. */
+  noun: { singular: string; plural: string };
   /** Run a query. Injected, so this module holds no catalogue — see the note above. */
   search: (query: string, limit: number) => SearchResults;
   /** A visitor picked a row. The page flies and opens the card, exactly as it does for a click. */
@@ -66,7 +72,8 @@ const OPTION_ID_PREFIX = "rg-search-option-";
 
 /** Build the search panel. Nothing is queried until a visitor types. */
 export function createCatalogueSearchBox(options: CatalogueSearchBoxOptions): CatalogueSearchBox {
-  const { search, onChoose, onOpenChange, limit = SEARCH_RESULT_LIMIT, doc = document } = options;
+  const { noun, search, onChoose, onOpenChange, limit = SEARCH_RESULT_LIMIT, doc = document } =
+    options;
 
   const element = doc.createElement("div");
   element.className = "rg-search";
@@ -75,8 +82,8 @@ export function createCatalogueSearchBox(options: CatalogueSearchBoxOptions): Ca
   const field = doc.createElement("input");
   field.type = "text";
   field.className = "rg-search-field";
-  field.placeholder = "Search features";
-  field.setAttribute("aria-label", "Search features");
+  field.placeholder = `Search ${noun.plural}`;
+  field.setAttribute("aria-label", `Search ${noun.plural}`);
   // A browser's own suggestions would cover the result list with a list of its own, and a
   // spell-checker underlines most of this catalogue in red.
   field.autocomplete = "off";
@@ -112,7 +119,7 @@ export function createCatalogueSearchBox(options: CatalogueSearchBoxOptions): Ca
 
   function renderStatus(results: SearchResults, query: string): void {
     if (query.length === 0) status.textContent = "";
-    else if (results.total === 0) status.textContent = "No feature matches that.";
+    else if (results.total === 0) status.textContent = `No ${noun.singular} matches that.`;
     else if (results.total > results.matches.length)
       status.textContent = `${results.matches.length} of ${results.total.toLocaleString("en-US")}`;
     else status.textContent = "";

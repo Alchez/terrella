@@ -5998,8 +5998,8 @@ SABOTAGES: list[Sabotage] = [
         suite='web',
         label='a country field creeps back into the body-neutral content contract',
         path='web/src/lib/detailPanel.ts',
-        needle='  return {\n    eyebrow: continent || "",',
-        replacement='  return {\n    slug,\n    eyebrow: continent || "",',
+        needle='  return {\n    eyebrow: countrySummary(country),',
+        replacement='  return {\n    slug,\n    eyebrow: countrySummary(country),',
         guard='names no country field',
     ),
     # Half a rename. The selector resolves to null, the non-null assertion throws — but only when a
@@ -6326,7 +6326,7 @@ SABOTAGES: list[Sabotage] = [
         # right answers and does nothing with them reads as a dead globe rather than a dead binding.
         label='the chosen row stops reaching the pick path it was pointed at',
         path='web/src/components/Globe.astro',
-        needle='      onChoose: (feature) => searchPick?.(feature.name),',
+        needle='      onChoose: (entry) => searchPick?.(entry.name),',
         replacement='      onChoose: () => {},',
         guard='routes a chosen row through goToFeature, so one card is built one way',
     ),
@@ -6336,7 +6336,7 @@ SABOTAGES: list[Sabotage] = [
         # query typed in the window before the catalogue lands returns "No feature matches that."
         label='the search button is live before it has a catalogue to search',
         path='web/src/components/Globe.astro',
-        needle='    searchToggle.setAvailable(false, "Search features (loading the catalogue)");',
+        needle='    searchToggle.setAvailable(false, `${searchLabel} (loading the catalogue)`);',
         replacement='    searchToggle.setAvailable(true);',
         guard='greys the button until the catalogue lands, rather than looking live and doing nothing',
     ),
@@ -6568,10 +6568,85 @@ SABOTAGES: list[Sabotage] = [
     ),
     Sabotage(
         suite='web',
+        label='the search field narrows back to the one body that used to have it',
+        path='web/src/components/Globe.astro',
+        needle='  if (subsystems.vectorProduct !== null) {',
+        replacement='  if (subsystems.vectorProduct === "features") {',
+        guard='arms the search field for every product the registry can hand it',
+    ),
+    # The other half of that gate, and the one no type can see: a body may be gated IN and never
+    # arm. The button is born disabled, so what ships is a control that is present, greyed and
+    # captioned "loading the catalogue" forever — a rail that merely looks slow.
+    Sabotage(
+        suite='web',
+        label='Earth gets a search button and nothing ever arms it',
+        path='web/src/components/Globe.astro',
+        needle='      matcher = createCatalogueSearch(manifest.countries.map(countrySearchEntry));',
+        replacement='',
+        guard='arms the search field for every product the registry can hand it',
+    ),
+    # A ROW THAT RENDERS CORRECTLY AND SEARCHES WRONGLY, which is the whole reason `alias` and
+    # `terms` are separate fields. Shown-versus-matched cannot be checked by looking at a screenshot.
+    Sabotage(
+        suite='web',
+        label="the country's other spellings are shown instead of matched",
+        path='web/src/lib/detailPanel.ts',
+        needle='    terms: [...country.searchTerms, country.continent],',
+        replacement='    terms: [country.continent],',
+        guard='carries every manifest term through, so a column added upstream is typeable at once',
+    ),
+    Sabotage(
+        suite='web',
+        label='the continent stops being typeable, so "africa" answers with nothing',
+        path='web/src/lib/detailPanel.ts',
+        needle='    terms: [...country.searchTerms, country.continent],',
+        replacement='    terms: [...country.searchTerms],',
+        guard='makes the continent both the descriptor and a term, which no other field is',
+    ),
+    Sabotage(
+        suite='web',
+        label='the card and the search row compose the same line twice',
+        path='web/src/lib/detailPanel.ts',
+        needle='    descriptor: countrySummary(country),',
+        replacement='    descriptor: country.continent,',
+        guard='writes one summary for the eyebrow and the search row',
+    ),
+    # THE TOKENISER. This is the wound that shipped: an abbreviation loses its joined reading and a
+    # country becomes unreachable by the two letters everyone types for it — while every other query
+    # in the catalogue keeps working, and the wrong country answers confidently in its place.
+    Sabotage(
+        suite='web',
+        label='a punctuated term loses its joined reading, so "uk" cannot reach the United Kingdom',
+        path='web/src/lib/catalogueSearch.ts',
+        needle='  return [...new Set(terms.flatMap(phraseTokens))];',
+        replacement='  return [...new Set(terms.flatMap((term) => '
+                    'foldForSearch(term).split(/[^a-z0-9]+/).filter(Boolean)))];',
+        guard='reads a punctuated term joined AND split, exactly as it reads a name',
+    ),
+    # THE NOUN. Both strings the field shows name the rows, and getting them from the body is what
+    # stopped the widget saying "feature" on a planet of countries.
+    Sabotage(
+        suite='web',
+        label='the search box goes back to naming one planet in its placeholder',
+        path='web/src/lib/catalogueSearchBox.ts',
+        needle='  field.placeholder = `Search ${noun.plural}`;',
+        replacement='  field.placeholder = "Search features";',
+        guard='takes both its user-facing strings from the body, naming no planet itself',
+    ),
+    Sabotage(
+        suite='web',
+        label='a body copies one spelling of its catalogue noun into both sentences',
+        path='web/src/lib/bodies.ts',
+        needle='    catalogue: { singular: "country", plural: "countries" },',
+        replacement='    catalogue: { singular: "countries", plural: "countries" },',
+        guard='gives every body two spellings of what its catalogue is of, and never the same one twice',
+    ),
+    Sabotage(
+        suite='web',
         label='the button looks live before the catalogue lands, and answers nothing when pressed',
         path='web/src/components/Globe.astro',
-        needle='    searchToggle.setAvailable(false, "Search features (loading the catalogue)");',
-        replacement='    searchToggle.setAvailable(true, "Search features (loading the catalogue)");',
+        needle='    searchToggle.setAvailable(false, `${searchLabel} (loading the catalogue)`);',
+        replacement='    searchToggle.setAvailable(true, `${searchLabel} (loading the catalogue)`);',
         guard='greys the button until the catalogue lands, rather than looking live and doing nothing',
     ),
     # THE SECOND ROUND, ALL FOUR REPORTED BY ROHAN LOOKING AT THE PAGE. Each wound below leaves a

@@ -205,7 +205,9 @@ describe("the page wires the search field to the pick path it already has", () =
     // TWO HALVES NOW, because the control outlives the scope its pick path lives in: the box hands
     // the row to a binding, and the wiring points that binding at `goToFeature`. Either half alone
     // is a field that opens, lists and does nothing when a row is chosen.
-    expect(searchBlock()).toContain("onChoose: (feature) => searchPick?.(feature.name)");
+    // The box's own parameter is `entry` and not `feature`: the control is shared with Earth now,
+    // and a row it hands back is a `SearchEntry` whichever planet built it.
+    expect(searchBlock()).toContain("onChoose: (entry) => searchPick?.(entry.name)");
     expect(wiringBody()).toContain("searchPick = goToFeature;");
   });
 

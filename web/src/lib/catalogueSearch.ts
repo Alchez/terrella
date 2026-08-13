@@ -99,24 +99,24 @@ function wordTokens(word: string): string[] {
   return joined ? [joined, ...word.split(/[^a-z0-9]+/).filter(Boolean)] : [];
 }
 
-/** The tokens of a whole published name. */
-function nameTokens(name: string): string[] {
+/** The tokens of one whole published phrase — a name, or one of an entry's extra terms. */
+function phraseTokens(phrase: string): string[] {
   const tokens = new Set<string>();
-  for (const word of foldForSearch(name).split(/\s+/)) {
+  for (const word of foldForSearch(phrase).split(/\s+/)) {
     for (const token of wordTokens(word)) tokens.add(token);
   }
   return [...tokens];
 }
 
-/** The tokens of an entry's extra phrases. Split on everything, because a phrase here is a list as
- *  often as it is a word — the IAU publishes its kinds as a singular/plural pair ("Crater, craters")
- *  and both spellings have to be typeable. */
+/** The tokens of an entry's extra phrases — ONE rule with the name's, which it did not used to be.
+ *
+ *  This split on every non-alphanumeric and kept only the pieces, so a punctuated abbreviation lost
+ *  its joined reading: "U.K." became `{u, k}` and never `uk`. Invisible on Mars, whose terms are the
+ *  IAU's singular/plural kind pair ("Crater, craters") — two plain words either rule tokenises the
+ *  same. On Earth it made "uk" answer UKRAINE, which prefixes on the name tier and wins outright:
+ *  not a miss a visitor could see past, but a confident wrong country. */
 function termTokens(terms: readonly string[]): string[] {
-  const tokens = new Set<string>();
-  for (const term of terms) {
-    for (const token of foldForSearch(term).split(/[^a-z0-9]+/)) if (token) tokens.add(token);
-  }
-  return [...tokens];
+  return [...new Set(terms.flatMap(phraseTokens))];
 }
 
 /**
@@ -190,7 +190,7 @@ function byRelevance(first: Match, second: Match): number {
  */
 export function createCatalogueSearch(catalogue: readonly SearchEntry[]): CatalogueSearch {
   const indexed: Indexed[] = catalogue.map((entry) => {
-    const names = nameTokens(entry.name);
+    const names = phraseTokens(entry.name);
     return {
       entry,
       nameTokens: names,

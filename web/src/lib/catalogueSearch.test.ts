@@ -139,6 +139,26 @@ describe("the kind answers for the queries the names cannot", () => {
     expect(names(search.search("mons", 5))).toEqual(["Nili Mons", "Zed"]);
   });
 
+  it("reads a punctuated term joined AND split, exactly as it reads a name", () => {
+    // THE DEFECT, AND THE ONLY BODY THAT COULD SHOW IT. `termTokens` split on every non-alphanumeric
+    // and kept only the pieces, so "U.K." was `{u, k}` and never `uk`. On Mars nothing could see it
+    // — the IAU's kinds are two plain words, which both rules tokenise identically. On Earth it made
+    // "uk" answer UKRAINE: the query prefixes that name, so it wins the tier outright and a visitor
+    // gets one confident result that is the wrong country. Worse than a miss, which at least shows.
+    const search = createCatalogueSearch([
+      entry({ name: "United Kingdom", terms: ["U.K.", "GB", "GBR"] }),
+      entry({ name: "Ukraine", terms: ["UA", "UKR"] }),
+    ]);
+    // BOTH, AND UKRAINE STILL FIRST — which is the tier rule doing exactly what it is pinned to do
+    // two tests up: "uk" is IN the name Ukraine and only in the United Kingdom's terms, and a name
+    // match outranks a term match. What changed is that the second row exists at all. Whether an
+    // exact term ought to outrank a partial name is a question about ranking, not about tokens, and
+    // it would reshuffle every kind query on Mars — so it is not settled here.
+    expect(names(search.search("uk", 5))).toEqual(["Ukraine", "United Kingdom"]);
+    // The split reading has to survive the joined one, or the fix trades one loss for another.
+    expect(names(search.search("u", 5))).toContain("United Kingdom");
+  });
+
   it("still needs every term, whichever half answers each one", () => {
     const search = createCatalogueSearch([
       entry({ name: "Gale", terms: ["Crater, craters"] }),

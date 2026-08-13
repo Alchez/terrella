@@ -53,6 +53,22 @@ describe("what a body declares it ships", () => {
     expect(new Set(labels).size, "two bodies answer to the same name").toBe(SLUGS.length);
   });
 
+  it("gives every body two spellings of what its catalogue is of, and never the same one twice", () => {
+    // The failure is silent and reads as a typo nobody wrote: singular and plural are used in two
+    // different sentences — "Search countries" and "No country matches that." — so a row that
+    // copied one into both produces "No countries matches that." on a live rail, and only on the
+    // query that finds nothing. The distinctness across bodies is the copy-pasted-row check the
+    // label above makes, for the same reason: a second planet inheriting the first one's noun.
+    for (const slug of SLUGS) {
+      const { singular, plural } = BODIES[slug].catalogue;
+      expect(singular.trim(), `${slug} has no singular noun`).not.toBe("");
+      expect(plural.trim(), `${slug} has no plural noun`).not.toBe("");
+      expect(singular, `${slug} uses one spelling for both sentences`).not.toBe(plural);
+    }
+    const plurals = SLUGS.map((slug) => BODIES[slug].catalogue.plural);
+    expect(new Set(plurals).size, "two bodies search for the same kind of thing").toBe(SLUGS.length);
+  });
+
   it("gives heroes only to a body that publishes a countries pyramid", () => {
     // On the globe a hero panel opens exactly one way: `map.on("click")` resolves the point through
     // `countryAt()` against the countries MVT, looks the admin name up in the manifest, and calls

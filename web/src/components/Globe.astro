@@ -501,6 +501,7 @@ import { REPO_URL } from "../lib/siteLinks";
     PANEL_BESIDE_MIN_WIDTH_PX,
     PANEL_CLEARANCE_PX,
     countryPanelContent,
+    countrySearchEntry,
     featurePanelContent,
     featureSearchEntry,
     type PanelContent,
@@ -2412,9 +2413,17 @@ import { REPO_URL } from "../lib/siteLinks";
     );
   }
 
-  map.on("click", (event) => {
-    const admin = countryAt(event.point);
-    const country = admin ? byName.get(admin) : undefined;
+  /**
+   * Earth's pick path: a name becomes a flight and, where there is a hero, a card.
+   *
+   * TAKES A NAME RATHER THAN A COUNTRY, which is what lets the search field reach it — a row knows
+   * `SearchEntry.name` and nothing else, and `byName` is the lookup the click already did inline.
+   * The shape mirrors Mars's `goToFeature` deliberately: one pick path per body, reached from both
+   * the pointer and the field, so a card someone searched to and a card they tapped are one card
+   * built once.
+   */
+  function goToCountry(name: string | null) {
+    const country = name ? byName.get(name) : undefined;
     if (!country) return;
     setSpinning(false); // a deliberate pick retires the idle spin
     flyToCountry(country);
@@ -2423,7 +2432,9 @@ import { REPO_URL } from "../lib/siteLinks";
     // what the vectors are for; the panel needs a rendered hero to put in it, and without one it
     // opens on `undefined`, asking for a `<slug>-undefined.webp` that 404s behind a spinner.
     if (subsystems.heroes) openPanel(countryPanelContent(country));
-  });
+  }
+
+  map.on("click", (event) => goToCountry(countryAt(event.point)));
 
   // Pitch the sky was last built for. Tracked because `setSky` restarts a 300 ms transition, so
   // rebuilding when nothing moved is not free — it re-runs the crossfade.
@@ -2550,14 +2561,20 @@ import { REPO_URL } from "../lib/siteLinks";
    * `setAvailable(false)` with a reason until something arms it.
    *
    * AFTER `spinToggle` DELIBERATELY — `joinRailGroup` appends, so this order is the rail's order.
+   *
+   * THE GATE IS "DOES THIS BODY HAVE A CATALOGUE", spelled as the vector pyramid — not as one
+   * product. It read `=== "features"` while Mars was the only body that could be searched, which
+   * was the shape that had to change to let Earth in. A body with no pyramid has no pointer resolver
+   * and therefore nowhere for a chosen row to go, so `?bare` correctly takes the field with it.
    */
   let matcher: CatalogueSearch | null = null;
   let searchPick: ((name: string) => void) | null = null;
   let searchToggle: RailToggle | null = null;
-  if (subsystems.vectorProduct === "features") {
+  if (subsystems.vectorProduct !== null) {
     const searchBox = createCatalogueSearchBox({
+      noun: body.catalogue,
       search: (query, limit) => matcher?.search(query, limit) ?? { matches: [], total: 0 },
-      onChoose: (feature) => searchPick?.(feature.name),
+      onChoose: (entry) => searchPick?.(entry.name),
       onOpenChange: (open) => {
         searchToggle?.setPressed(open);
         // THE CARD DOCKS IN THE CORNER THIS PANEL HANGS IN, measured rather than assumed — the two
@@ -2571,13 +2588,16 @@ import { REPO_URL } from "../lib/siteLinks";
         reflectBand();
       },
     });
+    const searchLabel = `Search ${body.catalogue.plural}`;
     searchToggle = createRailToggle({
       className: "rg-ctrl-search",
-      label: "Search features",
+      label: searchLabel,
       pressedLabel: "Close search",
       onToggle: (next) => (next ? searchBox.open() : searchBox.close()),
     });
-    searchToggle.setAvailable(false, "Search features (loading the catalogue)");
+    // Disabled until something arms it, which on a body whose catalogue is already in memory is the
+    // very next statement — so this reason is only ever READ on a body that fetches one.
+    searchToggle.setAvailable(false, `${searchLabel} (loading the catalogue)`);
     joinRailGroup(map.getContainer(), ".maplibregl-ctrl-zoom-in", searchToggle.button);
     // Into MapLibre's own top-right container, which is what `.rg-search` positions against — see
     // the panel's CSS for why it hangs off that box instead of off a page corner. The container is
@@ -2587,6 +2607,18 @@ import { REPO_URL } from "../lib/siteLinks";
     // — it is a panel, not a button — so the quiet stylesheet's rule cannot reach it, and a search
     // field left floating beside a hidden rail is the one state this mode exists to prevent.
     searchPanel = searchBox;
+
+    // EARTH ARMS ITSELF HERE AND MARS ARMS ITSELF FROM `wireFeatureInteraction`, and the asymmetry
+    // is about WHEN each catalogue exists rather than about the bodies. Mars fetches a 324 KB index
+    // on its own chunk and cannot arm until it lands; Earth's is `manifest`, a static import already
+    // in this bundle, so there is nothing to wait for and a disabled button would be a lie about a
+    // list that is already in memory. `goToCountry` is hoisted, which is what lets it be named from
+    // above the rail without moving the click wiring down here.
+    if (subsystems.vectorProduct === "countries") {
+      searchPick = goToCountry;
+      matcher = createCatalogueSearch(manifest.countries.map(countrySearchEntry));
+      searchToggle.setAvailable(true);
+    }
   }
 
   // Single writer for `spinning` so the toggle button always mirrors reality — user

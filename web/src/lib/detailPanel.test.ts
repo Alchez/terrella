@@ -8,6 +8,7 @@ import {
   PANEL_BESIDE_MIN_WIDTH_PX,
   PANEL_CLEARANCE_PX,
   countryPanelContent,
+  countrySearchEntry,
   featurePanelContent,
   featureSearchEntry,
   featureTypeLabel,
@@ -107,6 +108,50 @@ describe("a country becomes card content", () => {
     const content = countryPanelContent(country({ sizes: [], native: null, rendered: false }));
     expect(content.figure).toBeNull();
     expect(JSON.stringify(content)).not.toContain("undefined.webp");
+  });
+});
+
+describe("a country becomes a search row", () => {
+  it("writes one summary for the eyebrow and the search row", () => {
+    // The duplicate this exists to stop is the one the box already shipped once on Mars: two
+    // readers composing the same sentence, correct on the day and free to drift after it.
+    //
+    // THE COUNTRY WITH NO CONTINENT IS WHAT MAKES THIS BITE, and the first version of this test had
+    // a real one and asserted nothing: `countrySummary(c)` and `c.continent` agree on every input a
+    // populated manifest can produce, so the mutation that inlines the field passed. They diverge in
+    // exactly one place — the unchecked cast in `manifest.ts`, where a missing field arrives as
+    // `undefined` through a type saying `string` and reaches the card as the word "undefined".
+    const chile = country();
+    expect(countrySearchEntry(chile).descriptor).toBe(countryPanelContent(chile).eyebrow);
+    const unplaced = country({ continent: undefined as unknown as string });
+    expect(countrySearchEntry(unplaced).descriptor).toBe("");
+    expect(countryPanelContent(unplaced).eyebrow).toBe("");
+  });
+
+  it("shows no second spelling, because the alternatives are codes rather than names", () => {
+    // `alias` is SHOWN. Natural Earth's alternatives are ISO codes and formal titles, which belong
+    // in `terms` — matched without being read back at someone beside a name they already repeat.
+    expect(countrySearchEntry(country()).alias).toBeNull();
+  });
+
+  it("makes the continent both the descriptor and a term, which no other field is", () => {
+    const entry = countrySearchEntry(country({ continent: "Africa", searchTerms: ["KE"] }));
+    expect(entry.descriptor).toBe("Africa");
+    expect(entry.terms).toContain("Africa");
+    expect(entry.terms).toContain("KE");
+  });
+
+  it("ranks by name rather than inventing a prominence Earth does not publish", () => {
+    // Mars ranks by diameter because a one-letter query slices 1,919 features down to 8. Earth's
+    // 203 against that same cap is a real page of a short list, so `null` takes name order — and a
+    // proxy invented to fill this field (area, population) would be a claim the manifest never made.
+    expect(countrySearchEntry(country()).weight).toBeNull();
+  });
+
+  it("carries every manifest term through, so a column added upstream is typeable at once", () => {
+    const terms = ["Republic of Kenya", "KE", "KEN"];
+    const entry = countrySearchEntry(country({ continent: "Africa", searchTerms: terms }));
+    expect(entry.terms).toEqual([...terms, "Africa"]);
   });
 });
 

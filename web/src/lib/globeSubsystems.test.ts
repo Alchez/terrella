@@ -244,6 +244,29 @@ describe("the registry is the only thing that can switch a subsystem ON", () => 
     }
   });
 
+  it("arms the search field for every product the registry can hand it", () => {
+    // THE GATE ON THE FIELD IS NOW `vectorProduct !== null`, so every product gets a button — and a
+    // button is BORN DISABLED. A product with no arming therefore ships a control that is present,
+    // greyed, and captioned "loading the catalogue" forever: not a crash, not a blank globe, just a
+    // rail that looks like it is still waiting. It read `=== "features"` before Earth arrived, which
+    // is what made this failure unreachable and is exactly what changed.
+    //
+    // Total over products, so a third one is a compile error here rather than a dead button. The
+    // arming call is what is named, not the gate — a body can be gated and still never arm.
+    const ARMS_WITH: Record<VectorProduct, string> = {
+      countries: "matcher = createCatalogueSearch(manifest.countries.map(countrySearchEntry))",
+      features: "matcher = createCatalogueSearch(featureIndex.map(featureSearchEntry))",
+    };
+    const globe = readFileSync(new URL("../components/Globe.astro", import.meta.url), "utf8");
+    for (const product of Object.values(VECTOR_PRODUCT)) {
+      expect(globe, `nothing arms the search matcher for the ${product} product`).toContain(
+        ARMS_WITH[product],
+      );
+    }
+    expect(globe, "the field's gate narrowed back to one product, so the other loses its button")
+      .toContain("if (subsystems.vectorProduct !== null) {");
+  });
+
   it("opens the hero panel only where a click has a country to land on", () => {
     // `heroes` without `countries` is a subsystem with no route into it — the panel opens exactly
     // one way, a map click hit-tested against the countries pyramid. The registry states the rule;

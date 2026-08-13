@@ -224,12 +224,50 @@ export function featurePanelContent(feature: NamedFeature): PanelContent {
   };
 }
 
+/** The one line under a country's name, on the card and on a search row alike.
+ *
+ *  Trivial next to `featureSummary` and stated anyway, because the card and the row are two readers
+ *  of one sentence: change it here and both move, write it twice and only one does.
+ *
+ *  `|| ""` IS THE UNCHECKED CAST'S GUARD, NOT DEFENSIVE HABIT. `manifest.ts` casts a gitignored JSON
+ *  file to `Manifest` behind a `@ts-ignore`, so `continent: string` is a promise nothing verifies —
+ *  a manifest written before this field existed, or by a producer that dropped it, hands `undefined`
+ *  through a type that says otherwise, and `country.continent` alone puts the word "undefined" on
+ *  screen under a country's name. The type system cannot reach this; only the fallback can. */
+export function countrySummary(country: Country): string {
+  return country.continent || "";
+}
+
+/**
+ * Earth's search row: one manifest entry becomes one `SearchEntry`.
+ *
+ * `alias` IS NULL AND `weight` IS NULL, and both are decisions this catalogue earns rather than
+ * gaps. Natural Earth publishes no second spelling worth showing beside a name — the alternatives
+ * are codes and formal titles, which belong in `terms` where they are matched without being read
+ * back at someone twice — and 203 countries against a cap of 8 is a real page of a short list, so
+ * name order is honest where Mars's diameter ranking is answering "which 8 of 1,919".
+ *
+ * THE CONTINENT IS BOTH SHOWN AND MATCHED, which no other field here is. It is the descriptor, so a
+ * row reads "Kenya · Africa"; it is also a term, so "africa" answers with the 54 countries on it.
+ * That is the one query on this body that is not a name — and it costs one array element, not a
+ * region index.
+ */
+export function countrySearchEntry(country: Country): SearchEntry {
+  return {
+    name: country.name,
+    alias: null,
+    descriptor: countrySummary(country),
+    terms: [...country.searchTerms, country.continent],
+    weight: null,
+  };
+}
+
 /** Earth's builder: one country becomes one card.
  *
  *  An unrendered country yields `figure: null` rather than a broken image — `sizes` is empty for
  *  those, and the old code asked for `${slug}-undefined.webp` behind a spinner. */
 export function countryPanelContent(country: Country): PanelContent {
-  const { slug, name, continent, aspect, sizes, borderSizes, hasBorder } = country;
+  const { slug, name, aspect, sizes, borderSizes, hasBorder } = country;
   const figure: PanelFigure | null =
     sizes.length === 0
       ? null
@@ -247,7 +285,7 @@ export function countryPanelContent(country: Country): PanelContent {
               : null,
         };
   return {
-    eyebrow: continent || "",
+    eyebrow: countrySummary(country),
     name,
     note: COUNTRY_PANEL_NOTE,
     figure,
