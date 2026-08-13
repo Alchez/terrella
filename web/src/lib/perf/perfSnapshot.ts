@@ -33,6 +33,7 @@ import type { CameraFill, TileTraffic } from "./perfNetwork";
 import type { PerfLine } from "./perfLines";
 import type { DeviceClass } from "../polarCaps";
 import type { RttPoolStats } from "../rttPoolTrim";
+import type { TimelineSample } from "./perfTimeline";
 import type { SpanEntry } from "../perfSpans";
 import { megabytes } from "../format";
 import { summariseSpans, type Interval, type TraceSummary } from "./perfTrace";
@@ -67,8 +68,14 @@ import { summariseSpans, type Interval, type TraceSummary } from "./perfTrace";
  *  was formatted straight onto the panel, so it reached a human's glance and never the exported
  *  file — a report was readable by eye and unparseable by a harness on the one quantity that
  *  multiplies every per-tile cost the profiler attributes. A v5 file carries no tile count at all,
- *  which is the absence the bump makes explicit. */
-export const PERF_REPORT_SCHEMA = 6;
+ *  which is the absence the bump makes explicit.
+ *
+ *  7 adds `timeline`: the same terms sampled over time rather than at the instant of export, plus
+ *  GPU bytes where the dev-only accounting library is attached. A v6 file can say the pool is large
+ *  and cannot say whether it is growing, which is the question every reading of it actually asks.
+ *  It also carries `timelineMarkMs`, the moment a reader chose to measure from — a MARK rather than
+ *  a reset, because the cumulative frame fields are deliberately never cleared. */
+export const PERF_REPORT_SCHEMA = 7;
 
 /** Where and under what conditions a reading was taken. */
 export interface PerfOrigin {
@@ -218,6 +225,27 @@ export interface PerfReportInputs {
    * indistinguishable from a session where the traced work genuinely never happened.
    */
   traceArmed: boolean;
+  /**
+   * The last two minutes of the pool model's terms, oldest first.
+   *
+   * The rest of this report is a MOMENT, and the two costliest defects this instrument has been
+   * pointed at were trajectories: an unbounded RTT pool, and a terrain tile set that inflates under
+   * a drag and not under a scripted pan. `renderable: 4999` and `renderable: 35` are equally
+   * plausible as single readings — only the series says which way it was going, and reconstructing
+   * one previously meant a throwaway script.
+   *
+   * Empty is a real state (a capture taken before the first tick), not a fault.
+   */
+  timeline: TimelineSample[];
+  /**
+   * When the reader marked a moment to measure from, or null if they never did.
+   *
+   * The INSTRUMENT'S OWN STATE is part of the reading — the same argument `panelExpanded` exists
+   * for. A capture whose panel was showing a since-mark figure and one showing only cumulative
+   * numbers are different readings of the same session, and nothing else in the file distinguishes
+   * them.
+   */
+  timelineMarkMs: number | null;
 }
 
 export interface PerfReport extends PerfReportInputs {

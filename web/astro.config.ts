@@ -3,6 +3,7 @@ import { loadEnv } from 'vite';
 import type { Plugin } from 'vite';
 import type { ServerResponse } from 'node:http';
 import fs from 'node:fs';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { EtagMismatch, PMTiles, type RangeResponse, type Source, tileTypeExt } from 'pmtiles';
@@ -384,6 +385,51 @@ function jsProfilingPolicy(): Plugin {
   };
 }
 
+// GPU MEMORY ACCOUNTING, DEV ONLY — and dev-only is what makes it affordable at all.
+//
+// The instrument this project ships is a SNAPSHOT, and the defects that have cost the most are
+// TRAJECTORIES: an unbounded pool, a tile set that inflates under one kind of camera movement. The
+// terms of that model are readable from MapLibre itself and the timeline samples them; what no
+// page-side counter can see is how many bytes the GPU is actually holding, because WebGL exposes no
+// memory query. `webgl-memory` (MIT) answers that by wrapping the context, and it also records a
+// creation stack per resource — which turns "9 GB of textures exist" into "this code made them".
+//
+// WHY IT CANNOT BE AN IMPORT. It must patch `getContext` BEFORE `new maplibregl.Map` builds one, and
+// a dynamic import cannot promise that against synchronous boot code — the same constraint that put
+// `resourceTimingBuffer.ts` outside `lib/perf/`. A static import would instead ship 50 KB to every
+// visitor and break the rule `lib/perf/lazyBoundary.test.ts` exists to enforce, which has already
+// been violated once for exactly this reason. A classic <script> sidesteps both: the platform runs
+// it before the deferred module scripts, so ordering is guaranteed rather than arranged.
+//
+// DEV ONLY BY CONSTRUCTION, like `jsProfilingPolicy` above: `configureServer` and `apply: 'serve'`
+// never run for the static build, so this cannot reach production by being forgotten. It is served
+// out of node_modules rather than copied into `public/`, so nothing enters the deployed bundle and
+// no committed file can drift from the installed version.
+//
+// This plugin only SERVES the file; the tag that loads it is in `layouts/Base.astro`, behind an
+// `import.meta.env.DEV` guard the build evaluates away. Injecting it from here via Vite's
+// `transformIndexHtml` was tried and is silently inert — Astro renders page HTML itself and never
+// runs that hook, so the route answered 200 while no tag ever appeared.
+function webglMemoryDevTool(): Plugin {
+  const scriptUrl = '/__webgl-memory.js';
+  return {
+    name: 'webgl-memory-dev-tool',
+    apply: 'serve',
+    configureServer(server) {
+      // Resolved HERE rather than at module scope, so a production install without devDependencies
+      // cannot fail the build on a missing dev tool. `apply: 'serve'` already prevents the plugin
+      // running at build; this makes the file lookup follow the same rule rather than trust it.
+      const scriptPath = createRequire(import.meta.url).resolve('webgl-memory');
+      server.middlewares.use(scriptUrl, (_req, res: ServerResponse) => {
+        res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+        // Never cached: a version bump must take effect on reload, not on a cleared cache.
+        res.setHeader('Cache-Control', 'no-store');
+        res.end(fs.readFileSync(scriptPath, 'utf8'));
+      });
+    },
+  };
+}
+
 // https://astro.build/config
 export default defineConfig({
   // Self-hosted display serif (Astro 7 Fonts API) — Fraunces, an optical
@@ -418,6 +464,7 @@ export default defineConfig({
   vite: {
     plugins: [
       jsProfilingPolicy(),
+      webglMemoryDevTool(),
       heroDevServer(),
       bordersDevServer(),
       tilesDevServer(),

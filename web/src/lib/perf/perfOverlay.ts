@@ -9,7 +9,18 @@
 
 import type { Map as MaplibreMap } from "maplibre-gl";
 import { groupPerfLines, type PerfLine } from "./perfLines";
+import {
+  buildSample,
+  emitDevToolsTrack,
+  summariseSince,
+  PerfTimeline,
+  probeGpuMemory,
+  timelineLines,
+  type TimelineMapLike,
+  type TimelineSample,
+} from "./perfTimeline";
 import type { Interval } from "./perfTrace";
+import type { RttPoolStats } from "../rttPoolTrim";
 
 /** Map-event stamps recorded by the PAGE at map construction (earth.astro), not by this
  *  module: the overlay is dynamically imported and loses the race on fast (prod-built)
@@ -460,11 +471,21 @@ export interface PerfOverlayOptions {
    *  `panel.expanded` is handed over because the INSTRUMENT'S OWN STATE is part of the reading:
    *  an expanded panel does strictly more work than a collapsed one, and a file that does not say
    *  which it was cannot rule out an observer effect. One already happened. */
-  buildReport?: (timing: PerfSnapshot, panel: { expanded: boolean }) => unknown;
+  buildReport?: (
+    timing: PerfSnapshot,
+    panel: { expanded: boolean; timeline: TimelineSample[]; markMs: number | null },
+  ) => unknown;
+  /** The pool census the page already computes, handed over rather than re-probed.
+   *
+   *  `rttPoolTrim.ts` owns the reach past MapLibre's public API for these terms and already ships
+   *  them in the report; sampling them again from here would be a second reader of the same private
+   *  state, free to drift on the next rename. The timeline's job is to add TIME to numbers that
+   *  already have an owner, not to acquire them. */
+  readRttPool?: () => RttPoolStats | null;
 }
 
 export function mountPerfOverlay(map: MaplibreMap, options: PerfOverlayOptions = {}): void {
-  const { eventStamps, extraLines, buildReport } = options;
+  const { eventStamps, extraLines, buildReport, readRttPool } = options;
 
   const snapshot: PerfSnapshot = {
     bootMs: performance.now(),
@@ -560,6 +581,18 @@ export function mountPerfOverlay(map: MaplibreMap, options: PerfOverlayOptions =
   });
   applyCollapse();
 
+  // MARK, not reset. The cumulative frame and long-task fields are deliberately never cleared —
+  // see `PerfSnapshot.worstFrameMs` — because the hitch happens during a gesture and the screenshot
+  // is taken afterwards. Marking a moment adds a second reading derived from the ring instead of
+  // destroying the first, so "what did THAT gesture cost" and "what is the worst this session saw"
+  // are both answerable from one panel.
+  let markMs: number | null = null;
+  const mark = button("mark");
+  mark.addEventListener("click", () => {
+    markMs = markMs === null ? performance.now() : null;
+    mark.textContent = markMs === null ? "mark" : "unmark";
+  });
+
   // One export path, reached from the button and from the scripted seam below, so a tapped capture
   // and a driven one cannot come from different compositions of the same moment. The arm defaults
   // to the document's own `?arm=`, so a driver that configures an arm in the URL cannot then label
@@ -568,7 +601,7 @@ export function mountPerfOverlay(map: MaplibreMap, options: PerfOverlayOptions =
     buildReport === undefined
       ? Promise.resolve<PerfExportOutcome>("failed")
       : exportPerfReport({
-          report: buildReport(snapshot, { expanded: !collapsed }),
+          report: buildReport(snapshot, { expanded: !collapsed, timeline: timeline.samples(), markMs }),
           arm,
           fetchFn: typeof fetch === "function" ? fetch.bind(globalThis) : undefined,
           writeClipboard: navigator.clipboard
@@ -611,7 +644,7 @@ export function mountPerfOverlay(map: MaplibreMap, options: PerfOverlayOptions =
   // duplicate came to be assigned twice with its own gate dead from the day it landed.
   window.terrella = {
     map,
-    report: () => buildReport?.(snapshot, { expanded: !collapsed }),
+    report: () => buildReport?.(snapshot, { expanded: !collapsed, timeline: timeline.samples(), markMs }),
     export: runExport,
   };
 
@@ -664,6 +697,41 @@ export function mountPerfOverlay(map: MaplibreMap, options: PerfOverlayOptions =
     if (renderStamps.length > 512) renderStamps.splice(0, renderStamps.length - 256);
   });
 
+  // THE TRAJECTORY, sampled on the tick that already exists rather than on a second interval.
+  //
+  // A snapshot cannot show a trend, and the two costliest defects here were trends: an unbounded
+  // RTT pool and a terrain tile set that inflates under drag. Reusing this tick keeps the
+  // instrument's own cost where it already was — a second timer would be a second thing capable of
+  // perturbing what it measures, which this overlay has done before.
+  const timeline = new PerfTimeline();
+  let sliceStartMs = performance.now();
+  let longTaskTotalAtSlice = 0;
+  const sampleTimeline = (now: number, stamps: readonly number[]): TimelineSample => {
+    // Worst frame WITHIN the slice. `snapshot.worstFrameMs` is cumulative-since-load and a
+    // cumulative maximum can never come back down, so it cannot show recovery or onset — the two
+    // things a trajectory is read for.
+    let worstInSlice = 0;
+    let previous: number | null = null;
+    for (const stamp of stamps) {
+      if (stamp < sliceStartMs) continue;
+      if (previous !== null) worstInSlice = Math.max(worstInSlice, stamp - previous);
+      previous = stamp;
+    }
+    const longTaskTotal = snapshot.longTaskTotalMs ?? 0;
+    const sample = buildSample({
+      atMs: now,
+      stats: readRttPool?.() ?? null,
+      gpu: probeGpuMemory(map as unknown as TimelineMapLike),
+      worstFrameMs: worstInSlice,
+      longTaskMs: Math.max(0, longTaskTotal - longTaskTotalAtSlice),
+    });
+    timeline.push(sample);
+    emitDevToolsTrack(sample);
+    longTaskTotalAtSlice = longTaskTotal;
+    sliceStartMs = now;
+    return sample;
+  };
+
   // A slow textContent refresh — the overlay must never contribute the jank it measures.
   // Page-recorded stamps are copied here each tick: the object is live, so stamps that
   // land after mount still appear.
@@ -679,13 +747,17 @@ export function mountPerfOverlay(map: MaplibreMap, options: PerfOverlayOptions =
     snapshot.lastActiveFpsAgeMs =
       retainedRate.measuredAtMs === null ? null : now - retainedRate.measuredAtMs;
     snapshot.zoom = map.getZoom();
+    // Sampled BEFORE the trim below, or the slice loses the very stamps it is meant to measure.
+    const latest = sampleTimeline(now, renderStamps);
     while (renderStamps.length && now - renderStamps[0] > FPS_WINDOW_MS * 2) renderStamps.shift();
     // The collapsed view is a SUBSET of the same live snapshot, not a second reading — nothing on
     // the panel can disagree with the export because all three come from this one object.
     body.textContent = collapsed
       ? perfCollapsedLines(snapshot).join("\n")
-      : groupPerfLines([...perfSummaryLines(snapshot), ...(extraLines?.(snapshot) ?? [])]).join(
-          "\n",
-        );
+      : groupPerfLines([
+          ...perfSummaryLines(snapshot),
+          ...timelineLines(latest, summariseSince(timeline.samples(), markMs)),
+          ...(extraLines?.(snapshot) ?? []),
+        ]).join("\n");
   }, 300);
 }

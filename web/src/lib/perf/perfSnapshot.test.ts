@@ -78,6 +78,8 @@ const GL: GlLossSnapshot = {
 };
 
 const INPUTS: PerfReportInputs = {
+  timeline: [],
+  timelineMarkMs: null,
   nowMs: 25_000,
   origin: ORIGIN,
   timing: TIMING,

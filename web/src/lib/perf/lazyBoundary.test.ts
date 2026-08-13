@@ -46,6 +46,7 @@ describe("lib/perf is a lazy boundary", () => {
       "perfNetwork",
       "perfOverlay",
       "perfSnapshot",
+      "perfTimeline",
       "perfTrace",
     ]);
     // Named across all three template directories rather than counted, because a count above zero

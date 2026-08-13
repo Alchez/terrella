@@ -1250,9 +1250,44 @@ SABOTAGES: list[Sabotage] = [
         suite='web',
         label='the 300 ms panel tick opts into per-tick sampling',
         path='web/src/components/Globe.astro',
-        needle='perfReportLines(composeReport(timing, { expanded: true }))',
-        replacement='perfReportLines(composeReport(timing, { expanded: true }, { sampleGlNow: true }))',
+        needle='perfReportLines(composeReport(timing, { expanded: true, timeline: [], markMs: null }))',
+        replacement=(
+            'perfReportLines(composeReport(timing, { expanded: true, timeline: [], markMs: null }, '
+            '{ sampleGlNow: true }))'
+        ),
         guard='takes a FRESH sample on export and the stale one on the panel tick',
+    ),
+    Sabotage(
+        suite='web',
+        label='the perf timeline ring grows without bound',
+        path='web/src/lib/perf/perfTimeline.ts',
+        needle='    if (this.ring.length < this.capacity) this.ring.push(sample);\n    else {',
+        replacement='    if (true) this.ring.push(sample);\n    else {',
+        guard='cannot grow past its capacity',
+    ),
+    Sabotage(
+        suite='web',
+        label='the GPU accounting asks for an extension name nothing registers',
+        path='web/src/lib/perf/perfTimeline.ts',
+        needle='gl.getExtension("GMAN_webgl_memory")',
+        replacement='gl.getExtension("WEBGL_memory")',
+        guard='asks for the extension by the name the library registers',
+    ),
+    Sabotage(
+        suite='web',
+        label='the mark swallows a hitch that happened before it',
+        path='web/src/lib/perf/perfTimeline.ts',
+        needle='    if (sample.atMs < markMs) continue;',
+        replacement='    if (false) continue;',
+        guard='EXCLUDES an earlier hitch, which is the entire point of marking',
+    ),
+    Sabotage(
+        suite='web',
+        label='the timeline invents zeros where the census is absent',
+        path='web/src/lib/perf/perfTimeline.ts',
+        needle='    rttPooled: input.stats?.pooled ?? null,',
+        replacement='    rttPooled: input.stats?.pooled ?? 0,',
+        guard='keeps a null census null rather than inventing zeros',
     ),
     Sabotage(
         suite='web',

@@ -662,7 +662,13 @@ describe("earth.astro wires the diagnostics rather than re-stating them", () => 
     expect(globe).toMatch(
       /buildReport: \(timing, panel\) => composeReport\(timing, panel, \{ sampleGlNow: true \}\)/,
     );
-    expect(globe).toContain("perfReportLines(composeReport(timing, { expanded: true }))");
+    // The panel argument gained `timeline` when the ring landed; what this pins is unchanged and is
+    // the ABSENCE of `sampleGlNow`, which is what keeps the 300 ms tick off the fresh-sample path.
+    // The ring itself is safe on that tick by measurement, not assumption: `getMemoryInfo()` spreads
+    // two running totals and is O(1), while the walking call (`getResourcesInfo`) is never made.
+    expect(globe).toContain(
+      "perfReportLines(composeReport(timing, { expanded: true, timeline: [], markMs: null }))",
+    );
     // Exactly one opt-in, and the line above proved it is the export's. A second would ship
     // per-tick sampling while both assertions above kept passing.
     expect(globe.match(/sampleGlNow: true/g)).toHaveLength(1);

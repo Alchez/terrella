@@ -614,6 +614,9 @@ import { REPO_URL } from "../lib/siteLinks";
     nextDegradationAction,
   } from "../lib/fpsDegradation";
   import type { PerfEventStamps, PerfSnapshot } from "../lib/perf/perfOverlay";
+  // Type-only, so nothing is added to the bundle — `lazyBoundary.test.ts` bans VALUE imports from
+  // lib/perf/ precisely because those pull the module into the main chunk; a type is erased.
+  import type { TimelineSample } from "../lib/perf/perfTimeline";
   // Type-only, so the perf report module stays out of every non-?perf bundle — the values come
   // from the dynamic import beside the overlay's.
   import type { LadderPosition } from "../lib/perf/perfSnapshot";
@@ -1554,7 +1557,11 @@ import { REPO_URL } from "../lib/siteLinks";
         // export, being one user-initiated moment, can afford to be current.
         const composeReport = (
           timing: PerfSnapshot,
-          panel = { expanded: true },
+          panel: { expanded: boolean; timeline: TimelineSample[]; markMs: number | null } = {
+            expanded: true,
+            timeline: [],
+            markMs: null,
+          },
           { sampleGlNow = false } = {},
         ) => {
           const canvas = map.getCanvas();
@@ -1611,6 +1618,8 @@ import { REPO_URL } from "../lib/siteLinks";
             // spans against an empty window list and calling every millisecond unattributed.
             longTaskIntervals: timing.longTaskApiAvailable ? timing.longTaskIntervals : null,
             traceArmed: perfTraceArmed,
+            timeline: panel.timeline,
+            timelineMarkMs: panel.markMs,
             rttPool: readRttPool?.() ?? null,
           });
         };
@@ -1641,9 +1650,12 @@ import { REPO_URL } from "../lib/siteLinks";
             // `expanded: true` stated rather than defaulted: these lines are only ever rendered
             // when the panel IS expanded (the collapsed view calls perfCollapsedLines instead), so
             // the fact is knowable here and should not rest on a default happening to be right.
-            ...perfSnapshot.perfReportLines(composeReport(timing, { expanded: true })),
+            ...perfSnapshot.perfReportLines(composeReport(timing, { expanded: true, timeline: [], markMs: null })),
           ],
           buildReport: (timing, panel) => composeReport(timing, panel, { sampleGlNow: true }),
+          // The census the overlay's tick samples into the ring. `rttPoolTrim.ts` owns computing
+          // it; handing it over keeps one owner for the reach past MapLibre's private state.
+          readRttPool: () => readRttPool?.() ?? null,
         });
       },
     );
