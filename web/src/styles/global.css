@@ -303,18 +303,3 @@ a {
     font-size: 0.78rem;
   }
 }
-
-/* TEMPORARY — the `?switcher` gate, and the only thing standing between this control and a
-   visitor. Both rules invert a default that is already the shipping one, so ratification is the
-   deletion of this block and nothing else: the pill goes back to `display: flex`, and the drop
-   above the country chip goes back to the space the pill occupies.
-
-   `:root:not(.switcher-on)` rather than a `.switcher-on` rule that turns things ON, because that
-   way the flag can only ever REMOVE — a stylesheet that lost this block still ships something
-   coherent, where one that lost the positive rule would ship a chip hanging under nothing. */
-:root:not(.switcher-on) .body-switcher {
-  display: none;
-}
-:root:not(.switcher-on) {
-  --switcher-drop: 0rem;
-}

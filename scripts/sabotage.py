@@ -2228,13 +2228,14 @@ SABOTAGES: list[Sabotage] = [
     ),
     Sabotage(
         suite='web',
-        # The gap opens above the country chip while the pill that is meant to fill it is still
-        # hidden — the half-shipped state the flag is written to make unreachable.
-        label='the flag leaves the drop behind when it takes the pill away',
+        # The pill keeps its place and the country chip comes back up into it. Both elements render,
+        # the collision is one line of overlap on the two widths where the chip exists at all, and
+        # no other rule in either component is wrong.
+        label='the space above the country chip is closed back up to nothing',
         path='web/src/styles/global.css',
-        needle=':root:not(.switcher-on) {\n  --switcher-drop: 0rem;\n}',
-        replacement=':root:not(.switcher-on) {\n  --switcher-drop: 3rem;\n}',
-        guard='can only remove, so a deleted flag leaves the ratified state behind',
+        needle='  --switcher-drop: 3rem;',
+        replacement='  --switcher-drop: 0rem;',
+        guard='is displayed, and drops whatever else centres in that band by a real distance',
     ),
     Sabotage(
         suite='web',

@@ -44,7 +44,6 @@ const originalBody = root.getAttribute("data-body");
 
 afterEach(() => {
   for (const element of mounted.splice(0)) element.remove();
-  root.classList.remove("switcher-on");
   if (originalBody === null) root.removeAttribute("data-body");
   else root.setAttribute("data-body", originalBody);
 });
@@ -52,10 +51,6 @@ afterEach(() => {
 /** Mount the switcher as the given body's page would, with that body's tokens in force. */
 function mountSwitcher(current: BodySlug) {
   root.setAttribute("data-body", current);
-  // The flag the control ships behind. Set here rather than left off, because every rule under test
-  // is cancelled by `:root:not(.switcher-on)` — an unflagged mount measures `display: none`, whose
-  // width is zero and whose colours are whatever the fixture inherits.
-  root.classList.add("switcher-on");
   const host = document.createElement("div");
   host.innerHTML = switcherMarkup(current);
   document.body.append(host);
@@ -152,28 +147,18 @@ describe("nothing but the registry decides what the switcher contains", () => {
   });
 });
 
-describe("the flag that keeps it off a visitor's screen", () => {
-  it("can only remove, so a deleted flag leaves the ratified state behind", () => {
-    // BOTH HALVES IN ONE ASSERTION, because either alone shipping is worse than neither: the drop
-    // with no pill is a country chip hanging under nothing, and the pill with no drop is two boxes
-    // on one line. Written as `:root:not(.switcher-on)`, deleting the block restores `display:
-    // flex` and the real drop — where a flag that turned things ON would leave a stylesheet that
-    // had lost it shipping neither.
-    const host = document.createElement("div");
-    host.innerHTML = switcherMarkup("earth");
-    document.body.append(host);
-    mounted.push(host);
-    const nav = host.querySelector<HTMLElement>(".body-switcher")!;
-
-    root.classList.remove("switcher-on");
-    expect(getComputedStyle(nav).display).toBe("none");
-    expect(getComputedStyle(root).getPropertyValue("--switcher-drop").trim()).toBe("0rem");
-
-    root.classList.add("switcher-on");
+describe("the pill and the space it is given ship together", () => {
+  it("is displayed, and drops whatever else centres in that band by a real distance", () => {
+    // BOTH HALVES IN ONE ASSERTION, because either alone is worse than neither: the drop with no
+    // pill is a country chip hanging under nothing, and the pill with no drop is two boxes on one
+    // line. They are two declarations in two components, so nothing but this couples them — and
+    // both failures render, which is what makes them the pair worth pinning rather than the pair
+    // the next reader would notice.
+    const { nav } = mountSwitcher("earth");
     expect(getComputedStyle(nav).display).toBe("flex");
     expect(
       Number.parseFloat(getComputedStyle(root).getPropertyValue("--switcher-drop")),
-      "the ratified drop must be a real distance, or the chip clears nothing",
+      "the drop must be a real distance, or the chip clears nothing",
     ).toBeGreaterThan(0);
   });
 });

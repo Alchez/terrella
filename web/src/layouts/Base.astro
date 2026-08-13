@@ -95,25 +95,6 @@ const routes = bodyRoutes(body);
     <script is:inline>
       document.documentElement.classList.replace("no-js", "js");
     </script>
-    {/* TEMPORARY — the whole of what keeps the body switcher off a visitor's screen. `?switcher`
-        reveals it, `?switcher=off` puts it away, and the answer is held for the session because
-        judging a control whose job is to navigate means following it to the other planet, where
-        the query string is gone. Ratification deletes this block and the one rule in global.css
-        that reads the class; the markup below is already what will ship. */}
-    <script is:inline>
-      (function () {
-        try {
-          var asked = new URLSearchParams(location.search).get("switcher");
-          if (asked === "off") sessionStorage.removeItem("rg:switcher");
-          else if (asked !== null) sessionStorage.setItem("rg:switcher", "1");
-          if (sessionStorage.getItem("rg:switcher")) {
-            document.documentElement.classList.add("switcher-on");
-          }
-        } catch (e) {
-          /* a flag must never break a page */
-        }
-      })();
-    </script>
     {/* Pre-paint tier guard: runs synchronously BEFORE the page paints, so a
         capable visitor is redirected to this body's globe with no flash of the
         page they landed on, and an incapable/Lite visitor who deep-links that
