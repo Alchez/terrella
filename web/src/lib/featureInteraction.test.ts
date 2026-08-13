@@ -33,6 +33,16 @@ function wiringBody(): string {
   return rest.slice(0, end === -1 ? undefined : end);
 }
 
+/** The block that BUILDS the search control, which is deliberately NOT inside the wiring that arms
+ *  it — the comment there carries the measurement. Bounded the same way as `wiringBody`. */
+function searchBlock(): string {
+  const start = GLOBE.indexOf("let matcher: FeatureSearch | null = null;");
+  expect(start, "the search control is gone — the rail has no field").toBeGreaterThan(-1);
+  const rest = GLOBE.slice(start);
+  const end = rest.indexOf("\n  function ");
+  return rest.slice(0, end === -1 ? undefined : end);
+}
+
 /** The body of `addFeatureOverlay`, bounded the same way. */
 function overlayBody(): string {
   const start = GLOBE.indexOf("function addFeatureOverlay()");
@@ -162,26 +172,54 @@ describe("the page wires the search field to the pick path it already has", () =
     // Not `.maplibregl-ctrl-fullscreen`, which is the frame group the quiet toggle joins. Choosing
     // a result moves the camera, so the button belongs with zoom, compass and spin — the grouping
     // is the only thing on the page that states which concern a control serves.
-    expect(wiringBody()).toContain(
+    expect(searchBlock()).toContain(
       'joinRailGroup(map.getContainer(), ".maplibregl-ctrl-zoom-in", searchToggle.button)',
     );
+  });
+
+  it("builds the control with the rest of the rail, not when its catalogue arrives", () => {
+    // THE DEFECT THIS REPLACED. Every other rail control is created during module evaluation and
+    // this one was created inside the map's first `idle`, so the group grew a fourth button under
+    // a pointer already resting on it — 543, 593 and 1142 ms in over three cold loads, against the
+    // 50-67 ms the catalogue then took, which is the delay everyone would have blamed instead.
+    // A source scan is what is reachable here: the construction sits outside the wiring, and the
+    // wiring only arms it.
+    expect(wiringBody()).not.toContain("createFeatureSearchBox(");
+    expect(searchBlock()).toContain("createFeatureSearchBox(");
+  });
+
+  it("joins the rail after spin, since joinRailGroup appends and that IS the rail's order", () => {
+    // Not cosmetic and not incidental: moving the construction earlier moves the button, and the
+    // order these two calls appear in is the only record of where a visitor finds it.
+    const spin = GLOBE.indexOf('".maplibregl-ctrl-zoom-in", spinToggle.button');
+    const search = GLOBE.indexOf('".maplibregl-ctrl-zoom-in", searchToggle.button');
+    expect(spin, "spin no longer joins the camera group").toBeGreaterThan(-1);
+    expect(search, "search no longer joins the camera group").toBeGreaterThan(-1);
+    expect(spin).toBeLessThan(search);
   });
 
   it("routes a chosen row through goToFeature, so one card is built one way", () => {
     // A second path from a search hit to a card would be a second card builder in all but name:
     // the same feature could then arrive with a different eyebrow or no fly-to at all.
-    expect(wiringBody()).toContain("onChoose: (feature) => goToFeature(feature.name)");
+    //
+    // TWO HALVES NOW, because the control outlives the scope its pick path lives in: the box hands
+    // the row to a binding, and the wiring points that binding at `goToFeature`. Either half alone
+    // is a field that opens, lists and does nothing when a row is chosen.
+    expect(searchBlock()).toContain("onChoose: (feature) => searchPick?.(feature.name)");
+    expect(wiringBody()).toContain("searchPick = goToFeature;");
   });
 
   it("dismisses the card when the field opens, because the two share one corner", () => {
     // Measured on the live page rather than assumed: the card spans 2121-2541 and the panel
     // 2154-2506 at desktop width. Without this they stack.
-    expect(wiringBody()).toContain("if (open) closePanel();");
+    expect(searchBlock()).toContain("if (open) closePanel();");
   });
 
   it("greys the button until the catalogue lands, rather than looking live and doing nothing", () => {
-    expect(wiringBody()).toContain("searchToggle.setAvailable(false,");
-    expect(wiringBody()).toContain("searchToggle.setAvailable(true)");
+    // The two ends are in the two blocks by construction: the button is born unavailable where it
+    // is built, and only the arrival of a catalogue can say otherwise.
+    expect(searchBlock()).toContain("searchToggle.setAvailable(false,");
+    expect(wiringBody()).toContain("searchToggle?.setAvailable(true)");
   });
 
   it("builds the matcher from the SAME dynamic import the pick path uses", () => {
@@ -196,7 +234,7 @@ describe("the page wires the search field to the pick path it already has", () =
     // `body.is-quiet` hides `.maplibregl-ctrl-group`s. The panel is not one — it is a panel, not a
     // button — so hiding the controls would otherwise leave a search field floating beside a
     // vanished rail. Verified as a pair: the handover here, and the close in `reflectQuiet`.
-    expect(wiringBody()).toContain("searchPanel = searchBox;");
+    expect(searchBlock()).toContain("searchPanel = searchBox;");
     expect(GLOBE).toContain("if (next) searchPanel?.close();");
   });
 });

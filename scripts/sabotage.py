@@ -6276,6 +6276,33 @@ SABOTAGES: list[Sabotage] = [
         replacement='                    <span class="gz-kind">{feature.type}</span>',
         guard="reads the card's own formatters rather than writing a second kind and size",
     ),
+    # THE SEARCH CONTROL'S TWO SEAMS. The control is built with the rail and armed later from the
+    # scope its catalogue and pick path live in, so what used to be one block is now two halves that
+    # can fall out of step. Both mutations below leave a button that appears, presses and lists.
+    #
+    # NOT COVERED HERE, and it cannot be: the guard that the control is built OUTSIDE the idle
+    # wiring has a code LOCATION for a subject, and one string replacement cannot express a move.
+    # It was proved by hand against `git show HEAD:...` instead — the pre-move source fails it.
+    Sabotage(
+        suite='web',
+        # The row is chosen, the panel closes, and nothing flies or opens. A field that lists the
+        # right answers and does nothing with them reads as a dead globe rather than a dead binding.
+        label='the chosen row stops reaching the pick path it was pointed at',
+        path='web/src/components/Globe.astro',
+        needle='      onChoose: (feature) => searchPick?.(feature.name),',
+        replacement='      onChoose: () => {},',
+        guard='routes a chosen row through goToFeature, so one card is built one way',
+    ),
+    Sabotage(
+        suite='web',
+        # Born available, before anything can answer: the button looks live from first paint and a
+        # query typed in the window before the catalogue lands returns "No feature matches that."
+        label='the search button is live before it has a catalogue to search',
+        path='web/src/components/Globe.astro',
+        needle='    searchToggle.setAvailable(false, "Search features (loading the catalogue)");',
+        replacement='    searchToggle.setAvailable(true);',
+        guard='greys the button until the catalogue lands, rather than looking live and doing nothing',
+    ),
     # THE SEARCH MATCHER. Every wound below leaves a search box that works: it accepts a query, it
     # returns features, and the ones it returns are real. What changes is which names have become
     # unreachable, and a visitor who cannot find Koval'sky has no way to tell that from a visitor
