@@ -12,6 +12,21 @@
   --serif: var(--font-serif, Georgia, "Times New Roman", serif);
   --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  /* HOW FAR FLOATING CHROME SITS FROM THE VIEWPORT EDGE, and it is one distance rather than two.
+     Our own elements were written at a literal `1.2rem` in six places while MapLibre's control
+     corners used its own hardcoded `10px` — so the rail sat 9.2px higher and 9.2px further out
+     than the top-left row it is meant to line up with. Reported from a phone as the two rows not
+     being level; `globe.css` overrides MapLibre's margin to read this instead.
+
+     HERE RATHER THAN IN `globe.css`, WHERE IT WAS DECLARED UNTIL THE BODY SWITCHER, because the
+     switcher is floating chrome on pages the globe's stylesheet never reaches. The rail's own
+     constants stayed behind: they describe a control stack only the globe has. */
+  --page-inset: 1.2rem;
+  /* How far anything else centred in the top band has to start, so it clears the body switcher.
+     One property because the two elements live in different components — the switcher below, the
+     globe's country chip in `Globe.astro` — and a literal in each is two numbers with nothing
+     holding them together. */
+  --switcher-drop: 3rem;
 }
 @media (prefers-color-scheme: dark) {
   :root {
@@ -139,7 +154,7 @@ a {
      this pill's top edge (see `.view-bar-ruler` in globe.astro). `fixed` already establishes one,
      so this is a statement of intent rather than a new behaviour — but the ruler's `bottom: 100%`
      silently retargets the viewport if this element ever stops being positioned. */
-  bottom: 1.2rem;
+  bottom: var(--page-inset);
   inset-inline: 0;
   margin-inline: auto;
   width: fit-content;
@@ -150,7 +165,7 @@ a {
   justify-content: center;
   gap: 0.2rem;
   padding: 0.25rem;
-  max-width: calc(100vw - 2.4rem);
+  max-width: calc(100vw - 2 * var(--page-inset));
   background: color-mix(in srgb, var(--bg-2) 92%, transparent);
   -webkit-backdrop-filter: blur(6px);
   backdrop-filter: blur(6px);
@@ -220,4 +235,86 @@ a {
     padding: 0.35rem 0.7rem;
     font-size: 0.78rem;
   }
+}
+
+/* The body switcher — one floating pill, top-centre, holding WHICH WORLD you are looking at.
+   `Base.astro` carries why it is its own group and why no script touches it.
+
+   THE SAME PILL AND THE SAME FILLED-IS-CURRENT LANGUAGE AS THE VIEW BAR, so the two read as one
+   family seen from opposite edges of the page rather than as two designers. The fill is `--accent`,
+   which is already per-body, so the control changes colour with the world it names — and the
+   current entry is therefore marked in the colour of the thing it is marking.
+
+   IT FLOATS OVER THE GALLERY TOO, exactly as the view bar does at the other edge. That is what
+   "on every page a body owns" costs, and it is the same cost the site already pays once.
+
+   CENTRED BY AUTO MARGINS rather than `left: 50%` + a translate, for the reason the view bar's
+   comment measures: a translate leaves the layout width shrink-to-fit against half the screen. */
+.body-switcher {
+  position: fixed;
+  top: var(--page-inset);
+  inset-inline: 0;
+  margin-inline: auto;
+  width: fit-content;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.25rem;
+  max-width: calc(100vw - 2 * var(--page-inset));
+  background: color-mix(in srgb, var(--bg-2) 92%, transparent);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  box-shadow: var(--shadow);
+}
+/* A link, not a button, so it works with no JavaScript and offers the browser's own open-in-new-tab
+   — this is navigation, and the view bar's buttons are the exception rather than the model. The
+   flex parent blockifies these, which is what lets the padding build the tap target. */
+.body-switcher a {
+  padding: 0.4rem 0.85rem;
+  font-size: 0.82rem;
+  line-height: 1;
+  color: var(--muted);
+  text-decoration: none;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.body-switcher a:hover {
+  color: var(--text);
+}
+/* Keyed on `aria-current` rather than on a class, so the paint cannot disagree with what a screen
+   reader is told — the same rule the view bar follows through `aria-pressed`. */
+.body-switcher a[aria-current] {
+  color: var(--bg);
+  background: var(--accent);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .body-switcher a {
+    transition:
+      background 0.15s ease,
+      color 0.15s ease;
+  }
+}
+@media (max-width: 420px) {
+  .body-switcher a {
+    padding: 0.35rem 0.7rem;
+    font-size: 0.78rem;
+  }
+}
+
+/* TEMPORARY — the `?switcher` gate, and the only thing standing between this control and a
+   visitor. Both rules invert a default that is already the shipping one, so ratification is the
+   deletion of this block and nothing else: the pill goes back to `display: flex`, and the drop
+   above the country chip goes back to the space the pill occupies.
+
+   `:root:not(.switcher-on)` rather than a `.switcher-on` rule that turns things ON, because that
+   way the flag can only ever REMOVE — a stylesheet that lost this block still ships something
+   coherent, where one that lost the positive rule would ship a chip hanging under nothing. */
+:root:not(.switcher-on) .body-switcher {
+  display: none;
+}
+:root:not(.switcher-on) {
+  --switcher-drop: 0rem;
 }

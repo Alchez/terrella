@@ -23,10 +23,25 @@ import { REPO_URL } from "../lib/siteLinks";
      map, so it shows only in the space around the sphere (zoomed out). */}
 <canvas id="starfield" class="starfield" aria-hidden="true"></canvas>
 <div id="globe" class="globe" role="application" aria-label="Interactive relief globe"></div>
-{/* Top-left chrome: the way back, and the source. One fixed row rather than two fixed
-     elements, so neither pill has to know the other's width to sit beside it. */}
+{/* Top-left chrome: the source, and the credit the script folds in beside it. One fixed row rather
+     than free-standing pills, so neither has to know the other's width to sit beside it.
+
+     THE WAY BACK USED TO LEAD THIS ROW AND IS DELETED, not moved. `← Gallery` was a second control
+     for the destination the view bar's Lite button already reaches, and two of them for one place
+     read as two different places. It also had a real bug — the href was the literal `/`, so on
+     `/mars/` it navigated to Earth — and deleting the control retires that rather than fixing it.
+
+     THE ROW'S WIDTH IS WHY THIS HAD TO GO WITH THE BODY SWITCHER. Measured on the live globe: with
+     the link in it this row is 184.0 px and the centred switcher overlaps it below a 522 px
+     viewport, i.e. at every phone width the site serves — reported from a OnePlus 11R as the pill
+     sitting under the GitHub and ⓘ marks. Without it the row is 80.8 px and the crossover falls
+     under the narrowest width the site is designed for. The two are one change.
+
+     WHAT IT COSTS, STATED RATHER THAN GLOSSED: Lite PERSISTS the tier where this link was plain
+     navigation, so returning to the gallery now means being in Lite until you pick again. That is
+     Rohan's call, and the gallery masthead already made the same trade in the other direction when
+     it dropped its Globe link for row space. */}
 <nav class="globe-chrome" aria-label="Site">
-  <a class="globe-home" href="/">← Gallery</a>
   <a
     class="globe-source"
     href={REPO_URL}
@@ -130,7 +145,7 @@ import { REPO_URL } from "../lib/siteLinks";
   /* The top-left row holds the position; the pills inside it just sit in order, so adding a
      third would need no arithmetic. `--page-inset` is the one distance every floating element in
      this page is set off the viewport by — including MapLibre's control corners, which used to
-     carry their own 10px and so sat 9.2px above this row. Owned in `styles/globe.css`. */
+     carry their own 10px and so sat 9.2px above this row. Owned in `styles/global.css`. */
   .globe-chrome {
     position: fixed;
     top: var(--page-inset);
@@ -151,7 +166,6 @@ import { REPO_URL } from "../lib/siteLinks";
      border. Stated here rather than cited from a sibling — this used to say "matching the
      .borders-fab token treatment", and `.borders-fab` has since been removed, leaving a rule
      whose stated reason pointed at nothing. */
-  .globe-home,
   .globe-source {
     display: inline-flex;
     align-items: center;
@@ -164,12 +178,8 @@ import { REPO_URL } from "../lib/siteLinks";
     color: var(--text);
     text-decoration: none;
   }
-  .globe-home {
-    padding: 0.55rem 0.95rem;
-    font-size: 0.9rem;
-  }
-  /* Icon-only, so the pair stays narrow enough for a phone's top row beside MapLibre's
-     control stack; square padding keeps it a circle rather than a stubby pill. */
+  /* Icon-only, and now the whole row is: square padding keeps it a circle rather than a stubby
+     pill, and two circles are what leaves the centred body switcher its space on a phone. */
   .globe-source {
     padding: 0.55rem;
   }
@@ -179,7 +189,6 @@ import { REPO_URL } from "../lib/siteLinks";
     height: var(--chrome-ink);
     fill: currentColor;
   }
-  .globe-home:hover,
   .globe-source:hover {
     color: var(--accent);
   }
@@ -189,12 +198,15 @@ import { REPO_URL } from "../lib/siteLinks";
      search panel sharing the band beside it; .view-bar the bottom centre, with the scale ruler as
      its top edge. Top-centre is CHOSEN rather than merely left over — this is a label for whatever
      is under the pointer, so it belongs near the pointer, and the free bottom corners are the
-     furthest point on the page from it. Same pill treatment as .globe-home so it reads as one
+     furthest point on the page from it. Same pill treatment as .globe-source so it reads as one
      family of floating chrome — the gold dot is what marks it as the LABEL for the gold outline
      rather than as another control. */
   .country-chip {
     position: fixed;
-    top: var(--page-inset);
+    /* CLEARS THE BODY SWITCHER, which took top-centre and pushed this down. `--switcher-drop` is
+       that pill's own footprint, owned once in global.css because the two elements are in
+       different components and neither can measure the other. */
+    top: calc(var(--page-inset) + var(--switcher-drop));
     left: 50%;
     transform: translateX(-50%);
     z-index: 20;
@@ -246,17 +258,17 @@ import { REPO_URL } from "../lib/siteLinks";
       display: none;
     }
   }
-  /* THE OVERLAP WITH `.globe-chrome` BELOW ~695 px IS NOT A DEFECT — measured, then deliberately
-     left alone. This chip is centred on the viewport while the chrome is anchored top-left, so on a
-     narrow hover-capable window a long name does sit on top of "← Gallery": at 640 px it clips the
-     GitHub mark, and at 412 px it buries both. Pinning it visible and photographing it makes that
-     look damning, which is exactly the mistake to avoid here — the state does not persist. The chip
-     is `pointer-events: none` and its visibility is a pure function of `hoverTracker.current()`
-     (three call sites, all of them), and `map.on("mouseout")` clears the tracker the moment the
-     pointer leaves the canvas. So moving toward the chrome hides the chip on the way, and there is
-     no reachable state where it covers something the user is trying to use. A width breakpoint that
-     suppressed it would cost the feature on every window under ~848 px to fix an appearance that
-     dissolves as soon as anyone acts on it. */
+  /* THE OVERLAP WITH `.globe-chrome` IS RETIRED BY GEOMETRY, not by a rule, and the note is kept
+     because the reasoning it retires was a decision rather than an oversight. This chip is centred
+     on the viewport while the chrome is anchored top-left, so a long name used to sit on top of the
+     row on any narrow hover-capable window — accepted at the time on the grounds that the state
+     does not persist: the chip is `pointer-events: none`, its visibility is a pure function of
+     `hoverTracker.current()`, and `map.on("mouseout")` clears that the moment the pointer leaves the
+     canvas, so moving toward the chrome hides the chip on the way. `--switcher-drop` has since put
+     the chip in a band below the row's, so the two no longer share a line at any width. What must
+     not come back is the fix that was declined: a width breakpoint suppressing the chip would cost
+     the feature on every narrow window to cure an appearance that dissolved as soon as anyone acted
+     on it. */
   .globe-noscript {
     position: fixed;
     inset: auto var(--page-inset) var(--page-inset);
@@ -297,7 +309,7 @@ import { REPO_URL } from "../lib/siteLinks";
   }
 
   /* Place detail card — a floating panel, not a full-screen takeover, so the
-     globe stays live behind it. Same token treatment as .globe-home. */
+     globe stays live behind it. Same token treatment as .globe-source. */
   .detail-panel {
     position: fixed;
     top: var(--page-inset);
@@ -323,10 +335,10 @@ import { REPO_URL } from "../lib/siteLinks";
     display: none;
   }
   /* NARROW, WHERE CLEARING THE RAIL IS NOT ENOUGH. Widening the card to the space the rail leaves
-     puts its left edge back over the top-left chrome row — measured at a 500 px viewport, the card
-     runs from 28 px and `← Gallery` to 203 px. The card used to drop below that row; the row now
-     yields instead, on `body.panel-open`, which is written for both right-side boxes at once in
-     globe.css. Nothing is left here to override, so the whole narrow block is gone. */
+     puts its left edge back over the top-left chrome row, and over the body switcher centred
+     between them. The card used to drop below that band; the band now yields instead, on
+     `body.panel-open`, which is written for every occupant at once in globe.css. Nothing is left
+     here to override, so the whole narrow block is gone. */
   .dp-close {
     position: absolute;
     top: 0.5rem;
@@ -947,7 +959,7 @@ import { REPO_URL } from "../lib/siteLinks";
   // that used to race MapLibre to force the collapse back down on phones.
   map.addControl(new maplibregl.AttributionControl({ compact: false }), "bottom-left");
 
-  // Fold the credit into the TOP-LEFT chrome row, beside ← Gallery and the source link: a link to
+  // Fold the credit into the TOP-LEFT chrome row, beside the source link: a link to
   // /about is a way OFF the globe, which is what that row holds, where the view bar holds what the
   // globe SHOWS. addControl runs onAdd synchronously, so the container already exists and can be
   // moved before the first paint. MapLibre only ever rewrites `.maplibregl-ctrl-attrib-inner` and

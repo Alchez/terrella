@@ -1,7 +1,7 @@
 ---
 import "../styles/global.css";
 import { Font } from "astro:assets";
-import type { BodySlug } from "../lib/bodies";
+import { BODIES, type BodySlug } from "../lib/bodies";
 import { bodyRoutes } from "../lib/bodyRoutes";
 
 interface Props {
@@ -34,7 +34,12 @@ interface Props {
    *  REQUIRED, LIKE `body`, AND FOR A SHARPER REASON. Every value is a real answer, `"plain"`
    *  included, so there is no sensible default to fall back to — and the failure a default would
    *  buy is the guard doing NOTHING on a page that needed it: a visitor with no WebGL2 left sitting
-   *  on a globe their device cannot draw, on a page that renders perfectly in development. */
+   *  on a globe their device cannot draw, on a page that renders perfectly in development.
+   *
+   *  IT ALSO DECIDES WHO GETS THE BODY SWITCHER, which is a second job and deliberately not a
+   *  second prop. "Belongs to a body" is exactly what the two non-`plain` values say, so a
+   *  `switcher` boolean would be that set written again beside the declaration it copies — true on
+   *  the same five pages, and free to fall out of step with them silently. */
   pageRole: "globe" | "lite" | "plain";
 }
 const {
@@ -89,6 +94,25 @@ const routes = bodyRoutes(body);
         No JS → the class stays `no-js` and those controls never show. */}
     <script is:inline>
       document.documentElement.classList.replace("no-js", "js");
+    </script>
+    {/* TEMPORARY — the whole of what keeps the body switcher off a visitor's screen. `?switcher`
+        reveals it, `?switcher=off` puts it away, and the answer is held for the session because
+        judging a control whose job is to navigate means following it to the other planet, where
+        the query string is gone. Ratification deletes this block and the one rule in global.css
+        that reads the class; the markup below is already what will ship. */}
+    <script is:inline>
+      (function () {
+        try {
+          var asked = new URLSearchParams(location.search).get("switcher");
+          if (asked === "off") sessionStorage.removeItem("rg:switcher");
+          else if (asked !== null) sessionStorage.setItem("rg:switcher", "1");
+          if (sessionStorage.getItem("rg:switcher")) {
+            document.documentElement.classList.add("switcher-on");
+          }
+        } catch (e) {
+          /* a flag must never break a page */
+        }
+      })();
     </script>
     {/* Pre-paint tier guard: runs synchronously BEFORE the page paints, so a
         capable visitor is redirected to this body's globe with no flash of the
@@ -159,9 +183,11 @@ const routes = bodyRoutes(body);
             if (quality === "lite" || !capable()) location.replace(liteRoute);
             // Reaching the globe by ANY route counts as steered — not just by the auto-steer
             // below. The flag means "this session has seen the globe", so a later arrival on a
-            // lite page is a deliberate choice (the ← Gallery link) and must not be bounced
-            // straight back. Writing it only on the auto-steer path made ← Gallery a no-op for
-            // anyone who deep-linked /earth or picked Globe/Full in the view bar.
+            // lite page is a deliberate choice and must not be bounced straight back. What made
+            // this concrete was the globe's own `← Gallery` link, now deleted; the claim outlives
+            // it, because the lite pages' own back links and any external link into `/` land the
+            // same way, and writing the flag only on the auto-steer path makes every one of them
+            // a no-op for anyone who deep-linked a globe or picked Globe/Full in the view bar.
             else sessionStorage.setItem("rg:steered", "1");
             return;
           }
@@ -188,6 +214,37 @@ const routes = bodyRoutes(body);
     <slot name="head" />
   </head>
   <body>
+    {
+      /* WHICH WORLD — one floating pill, top-centre, in a group of its own. The layout already
+         states the taxonomy the other clusters divide up: the view bar is what the globe SHOWS,
+         the globe's top-right rail is where you look FROM, its top-left row is ways OFF. Which
+         planet you are on is a fourth question, not a member of any of those.
+
+         ON EVERY PAGE A BODY OWNS, DERIVED AND NOT OPTED IN — see `pageRole` above for why this
+         is not its own prop.
+
+         NO CLIENT SCRIPT, AND THAT IS A DECISION ABOUT WHO OWNS THE TIER. Each href is that
+         body's globe, and the destination's own pre-paint guard resolves the tier on arrival —
+         so a visitor forced to Lite lands on the other body's lite page without this control
+         reading `rg:quality` at all. Rewriting the href from the stored preference would put a
+         second reader on the decision `bodyRoutes.ts` exists to own, and it would be the reader
+         that is wrong first: it runs at BUILD time, where nobody has a preference yet.
+
+         FIRST IN THE BODY, so the keyboard reaches it without crossing the page. Last would put
+         it behind every card in the gallery. */
+      pageRole !== "plain" && (
+        <nav class="body-switcher" aria-label="Which body">
+          {Object.values(BODIES).map((entry) => (
+            <a
+              href={bodyRoutes(entry.slug).globe}
+              aria-current={entry.slug === body ? "true" : undefined}
+            >
+              {entry.label}
+            </a>
+          ))}
+        </nav>
+      )
+    }
     <slot />
     {
       /* The view bar — ONE floating pill for what the globe SHOWS. Layer toggles (Borders,
@@ -338,7 +395,7 @@ const routes = bodyRoutes(body);
         // choice could steer the session again, but nothing needs that: every arrival at /earth
         // is already permitted by rg:quality alone, and every arrival at / with quality "lite"
         // returns early from the head guard. Clearing it only re-armed the auto-steer, which
-        // then hijacked the next ← Gallery click.
+        // then hijacked the next deliberate navigation back to a lite page.
         // Both destinations belong to the body whose page this is, so Globe and Full can no longer
         // navigate a Mars visitor to Earth. `isSamePath` rather than `===` for the same reason the
         // guard uses it: reached by the other trailing-slash spelling, this used to `assign` the

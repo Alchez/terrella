@@ -13,17 +13,16 @@ import { BODIES, type BodySlug } from "./bodies";
  *
  * ONLY ONE OF THE TWO ROUTES IS STORED, and the asymmetry is deliberate. A body's globe is the page
  * at its own slug — `bodies.browser.test.ts` already refuses a registry entry with no
- * `src/pages/<slug>.astro` behind it — so a `globeRoute` field would be that same fact written a
- * second time, free to disagree with the file system while every gate stayed green. The lite route
- * is derivable from nothing: Earth's is the gallery at `/` because the gallery was the front page
- * before there was a second body, and Mars's is a page written for the purpose because a gallery is
- * a wall of hero renders and Mars has none.
+ * `src/pages/<slug>/index.astro` behind it — so a `globeRoute` field would be that same fact written
+ * a second time, free to disagree with the file system while every gate stayed green. The lite route
+ * is derivable from nothing: Earth's gallery answers at a second URL as well, and Mars's is a page
+ * written for the purpose because a gallery is a wall of hero renders and Mars has none.
  *
- * THE PRE-PAINT GUARD CANNOT IMPORT THIS, and carries a one-line copy of `isSamePath` instead. That
- * is the same forced duplication `capable()` already lives with: the guard is `is:inline` precisely
- * so it runs before any bundle exists, so there is nothing for it to import from. What keeps the two
- * honest is not a comment but `capability.test.ts`, which EXECUTES the guard's own source and
- * asserts its verdict matches this function's over a table of path spellings.
+ * THE PRE-PAINT GUARD CANNOT IMPORT THIS, and does not need to any more. It used to carry a copy of
+ * `isSamePath` to work out what page it was on; pages declare that themselves now, through
+ * `Base.astro`'s `pageRole`, so the only forced duplication left in that script is `capable()`. What
+ * keeps the guard and this module honest is not a comment but `capability.test.ts`, which EXECUTES
+ * the guard's own source against the routes this function returns.
  */
 
 /** Where one body's two pages live. Absolute, and in the form a redirect should navigate to. */

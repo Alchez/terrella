@@ -63,6 +63,20 @@ export interface BodyDescriptor {
    *  names this body's directories, its archive keys and its route; two spellings would be two
    *  bodies to everything downstream. */
   slug: BodySlug;
+  /** How this body is NAMED on screen, as distinct from how it is spelled in a URL.
+   *
+   *  DERIVABLE BY CAPITALISING `slug` ON BOTH BODIES THAT EXIST, and stated anyway, because the
+   *  derivation lets the URL grammar decide the typography. `slug` is constrained from three
+   *  directions at once — it names directories, archive keys and a route, and must match
+   *  `pipeline/bodies.py`'s `Body.name` — so it is lowercase ASCII with no spaces. A display name
+   *  is under none of that, and the first body whose name carries a space, a digit or a diacritic
+   *  would have to choose between reading wrong on screen and renaming an archive key.
+   *
+   *  Which makes its guard weaker than the rest of this record's, and it says so rather than
+   *  implying otherwise: `bodies.test.ts` checks the labels are non-empty and distinct — the
+   *  copy-pasted row — and not that a derivation would have been wrong, which no body here can
+   *  show. */
+  label: string;
   /** Where a visitor goes who cannot, or will not, run this body's globe.
    *
    *  READ THROUGH `bodyRoutes()` RATHER THAN DIRECTLY — that module answers both of a body's routes
@@ -196,6 +210,7 @@ export interface BodyDescriptor {
 export const BODIES: Record<BodySlug, BodyDescriptor> = {
   earth: {
     slug: "earth",
+    label: "Earth",
     // The gallery, under the same `/<slug>/lite/` name Mars uses, so a third body copies a row
     // rather than a special case. It renders exactly what `/` renders and says so with a canonical
     // link: the gallery is the site's FRONT PAGE first and Earth's lite fallback second, and those
@@ -245,6 +260,7 @@ export const BODIES: Record<BodySlug, BodyDescriptor> = {
   // is not "we have not got to it yet".
   mars: {
     slug: "mars",
+    label: "Mars",
     // A page written for the purpose, because the thing Earth points at does not exist here: a
     // gallery is a wall of hero renders, and Mars has none. Deliberately its own route rather than
     // Earth's `/`, which would answer "this device cannot run the Mars globe" by showing a visitor

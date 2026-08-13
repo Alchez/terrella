@@ -95,7 +95,7 @@ describe("the on-map credit", () => {
   });
 
   it("folds into the top-left chrome row by class, not by relying on where the element sits", () => {
-    // It lives beside ← Gallery and the source link: all three are ways OFF the globe, where the
+    // It lives beside the source link, the two of them the ways OFF the globe, where the
     // view bar is what the globe SHOWS. The class travels with the element for exactly the reason
     // below — this is the element's SECOND home, and an ancestor selector would have quietly
     // stopped matching on the move rather than failing.

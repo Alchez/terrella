@@ -156,8 +156,9 @@ describe("decideTier — quality type is the persisted contract", () => {
 // These tests exist because the guard shipped with a bug nothing pinned. `rg:steered` was written
 // ONLY on the auto-steer path, so it meant "we bounced you once" rather than "this session has
 // seen the globe" — and a visitor who reached /earth any other way (deep link, or the view bar's
-// Globe/Full button, which additionally cleared the flag) had their ← Gallery click hijacked
-// straight back to the globe.
+// Globe/Full button, which additionally cleared the flag) was hijacked straight back to the globe
+// the moment they navigated to a lite page. The control that made that vivid was the globe's
+// `← Gallery` link, since deleted; the flag's meaning is what these pin, not that link.
 const guardSource = (() => {
   const base = readFileSync(new URL("../layouts/Base.astro", import.meta.url), "utf8");
   const inlineScripts = [...base.matchAll(/<script is:inline>([\s\S]*?)<\/script>/g)].map(
@@ -313,8 +314,9 @@ describe("Base.astro tier guard — rg:steered means 'this session has seen the 
     expect(visit({ role: "globe", webgl2: false })).toEqual({ redirects: ["/earth/lite/"], steered: false });
   });
 
-  it("lets ← Gallery reach the gallery after a deep-linked globe visit", () => {
+  it("lets a lite page hold a visitor who has already seen a globe this session", () => {
     // The reported bug, end to end: the flag written by visit one must survive into visit two.
+    // Reachable today by a lite page's own back link, or by any external link into `/` mid-session.
     const globeVisit = visit({ role: "globe" });
     expect(globeVisit.steered).toBe(true);
     expect(visit({ role: "lite", steered: globeVisit.steered }).redirects).toEqual([]);
@@ -325,10 +327,11 @@ describe("Base.astro tier guard — rg:steered means 'this session has seen the 
     expect(base).not.toMatch(/removeItem\(\s*["']rg:steered["']\s*\)/);
   });
 
-  it("marks a session steered on ANY body's globe, so ← Gallery still works from Mars", () => {
-    // The flag is one key across bodies because it means "this session has seen a globe", and the
-    // globe's own ← Gallery link points at `/` whichever planet you were on. Written per body, a
-    // Mars visitor clicking it would be steered straight back to Earth's globe.
+  it("marks a session steered on ANY body's globe, so `/` holds a visitor arriving from Mars", () => {
+    // The flag is one key across bodies because it means "this session has seen a globe", and `/`
+    // is Earth's lite content whichever planet you came from. Written per body, a Mars visitor
+    // reaching the gallery would be steered straight back to EARTH's globe — a different planet,
+    // before paint, with nothing on screen to say one had been chosen for them.
     const marsVisit = visit({ role: "globe", body: "mars" });
     expect(marsVisit).toEqual({ redirects: [], steered: true });
     expect(visit({ role: "lite", steered: marsVisit.steered }).redirects).toEqual([]);

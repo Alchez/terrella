@@ -43,6 +43,16 @@ describe("what a body declares it ships", () => {
     }
   });
 
+  it("names every body distinctly, which is all a label can be checked for here", () => {
+    // DELIBERATELY WEAKER THAN THE FLAGS ABOVE, and the field's docstring says why: capitalising
+    // the slug answers correctly for both bodies that exist, so there is no derivation this could
+    // catch being wrong. What it catches is the copy-pasted row — two planets wearing one name in
+    // a control whose entire job is to tell them apart — and the empty string, which type-checks.
+    const labels = SLUGS.map((slug) => BODIES[slug].label);
+    for (const label of labels) expect(label.trim()).not.toBe("");
+    expect(new Set(labels).size, "two bodies answer to the same name").toBe(SLUGS.length);
+  });
+
   it("gives heroes only to a body that publishes a countries pyramid", () => {
     // On the globe a hero panel opens exactly one way: `map.on("click")` resolves the point through
     // `countryAt()` against the countries MVT, looks the admin name up in the manifest, and calls

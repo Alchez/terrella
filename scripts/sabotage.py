@@ -1077,11 +1077,11 @@ SABOTAGES: list[Sabotage] = [
         suite='web',
         # The credit "restored" while a panel covers its corner — the tidy-up that looks like a
         # licence fix and leaves a 326px panel sitting on top of the ⓘ instead.
-        label='the credit is exempted from the row that yields to an open panel',
+        label='the credit is exempted from the band that yields to an open panel',
         path='web/src/styles/globe.css',
-        needle='  body.panel-open .globe-source,\n  body.panel-open .chrome-credit.chrome-credit.maplibregl-ctrl {',
-        replacement='  body.panel-open .globe-source {',
-        guard='hides the credit with the links it sits beside, and says why in the same breath',
+        needle='  body.panel-open .body-switcher,\n  body.panel-open .chrome-credit.chrome-credit.maplibregl-ctrl {',
+        replacement='  body.panel-open .body-switcher {',
+        guard='hides the credit with everything else in its band, and says why in the same breath',
     ),
     Sabotage(
         suite='web',
@@ -2187,8 +2187,10 @@ SABOTAGES: list[Sabotage] = [
         suite='web',
         label='the phone padding is tidied back to the desktop values it deliberately overrides',
         path='web/src/styles/global.css',
-        needle='    padding: 0.35rem 0.7rem;\n    font-size: 0.78rem;',
-        replacement='    padding: 0.4rem 0.85rem;\n    font-size: 0.82rem;',
+        # Qualified by the selector: the body switcher takes the same tightening, so the two
+        # declarations alone stopped naming one rule the day it arrived.
+        needle='  .view-bar button {\n    padding: 0.35rem 0.7rem;\n    font-size: 0.78rem;',
+        replacement='  .view-bar button {\n    padding: 0.4rem 0.85rem;\n    font-size: 0.82rem;',
         guard='keeps the tighter phone padding, which is what buys the fit',
     ),
     Sabotage(
@@ -2198,6 +2200,70 @@ SABOTAGES: list[Sabotage] = [
         needle='  justify-content: center;\n  gap: 0.2rem;\n}',
         replacement='  justify-content: center;\n  gap: 1.2rem;\n}',
         guard='fits on one row at 320px, on every bar the site ships',
+    ),
+    # --- The body switcher --------------------------------------------------------------------------
+    # Every mutation below leaves a control that renders, reads correctly on the body it was written
+    # for, and is wrong somewhere the author is not looking — another planet, another page, or the
+    # accessibility tree.
+    Sabotage(
+        suite='web',
+        # The switcher stops appearing on the pages a visitor is sent to when their device cannot
+        # run a globe — which is to say, on the pages where being able to change planet matters most
+        # and where nobody develops.
+        label='the switcher is narrowed to globes, and the lite pages lose their way across',
+        path='web/src/layouts/Base.astro',
+        needle='      pageRole !== "plain" && (',
+        replacement='      pageRole === "globe" && (',
+        guard='goes on every page that belongs to a body, and derives that from the role',
+    ),
+    Sabotage(
+        suite='web',
+        # The fill and the announcement come apart: the pill still paints if a class rule is added,
+        # and a screen reader is handed a set with nothing current in it.
+        label='the current body is marked with a class instead of aria-current',
+        path='web/src/layouts/Base.astro',
+        needle='aria-current={entry.slug === body ? "true" : undefined}',
+        replacement='class={entry.slug === body ? "is-current" : undefined}',
+        guard='marks the current body with aria-current, which is what the fill is keyed on',
+    ),
+    Sabotage(
+        suite='web',
+        # The gap opens above the country chip while the pill that is meant to fill it is still
+        # hidden — the half-shipped state the flag is written to make unreachable.
+        label='the flag leaves the drop behind when it takes the pill away',
+        path='web/src/styles/global.css',
+        needle=':root:not(.switcher-on) {\n  --switcher-drop: 0rem;\n}',
+        replacement=':root:not(.switcher-on) {\n  --switcher-drop: 3rem;\n}',
+        guard='can only remove, so a deleted flag leaves the ratified state behind',
+    ),
+    Sabotage(
+        suite='web',
+        # Two declarations of one distance, which is exactly how the rail and the top-left row ended
+        # up 9.2px apart with every rule individually correct.
+        label='the page inset is declared a second time, in the sheet it moved out of',
+        path='web/src/styles/globe.css',
+        needle=':root {\n  --rail-button-size: 2.15rem;',
+        replacement=':root {\n  --page-inset: 1.2rem;\n  --rail-button-size: 2.15rem;',
+        guard='owns the inset once, in the sheet every page gets',
+    ),
+    Sabotage(
+        suite='web',
+        # The same drift in the other file, and the instance that was sitting there unseen while the
+        # literal scan read only the globe's scoped block.
+        label='the view bar goes back to its own copy of the edge inset',
+        path='web/src/styles/global.css',
+        needle='  bottom: var(--page-inset);',
+        replacement='  bottom: 1.2rem;',
+        guard='leaves no edge offset written as its own literal',
+    ),
+    Sabotage(
+        suite='web',
+        # Two planets wearing one name in the control whose entire job is to tell them apart.
+        label='a second body is given a label that already belongs to another',
+        path='web/src/lib/bodies.ts',
+        needle='    label: "Mars",',
+        replacement='    label: "Earth",',
+        guard='names every body distinctly, which is all a label can be checked for here',
     ),
     # --- The globe fixture ------------------------------------------------------------------------
     # The fixture is the first thing here that instantiates a real map, so everything later built on
@@ -4042,13 +4108,16 @@ SABOTAGES: list[Sabotage] = [
     ),
     Sabotage(
         suite='web',
-        # Heroes with no countries pyramid is a panel with no route into it: on the globe the only
-        # way one opens is a map click hit-tested against the countries MVT.
-        label='Mars claims heroes, which nothing on its globe could ever open',
+        # Named against the ANTI-VACUITY assertion, and it did not used to be. The coherence rule —
+        # heroes need a countries pyramid, since a map click hit-tested against the countries MVT is
+        # the only way a panel opens — stopped being reachable from this file the day Mars published
+        # vectors: Mars now HAS the pyramid, so claiming heroes is coherent and only the flag's own
+        # both-answers check refuses it. Falsifying the coherence rule means mutating `PUBLISHED`.
+        label='Mars claims heroes, and the flag stops varying at all',
         path='web/src/lib/bodies.ts',
         needle='    hasHeroes: false,',
         replacement='    hasHeroes: true,',
-        guard='gives heroes only to a body that publishes a countries pyramid',
+        guard='holds both answers to every flag, so none of them is a constant in disguise',
     ),
     Sabotage(
         suite='web',
@@ -4889,7 +4958,11 @@ SABOTAGES: list[Sabotage] = [
         label='a second body borrows the first body\'s fallback page',
         path='web/src/lib/bodies.ts',
         needle='    liteRoute: "/mars/lite/",',
-        replacement='    liteRoute: "/",',
+        # Earth's own fallback, and it has to be re-read here whenever that moves. Pointed at `/`
+        # this stopped being a shared answer the day Earth's lite route became `/earth/lite/` —
+        # the two bodies went on disagreeing, so the named guard fell silent and an unrelated one
+        # picked the mutation up. The harness reported that as WRONG rather than as caught.
+        replacement='    liteRoute: "/earth/lite/",',
         guard='has the bodies actually disagree, on both routes',
     ),
     Sabotage(
