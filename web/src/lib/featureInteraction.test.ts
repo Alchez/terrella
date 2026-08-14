@@ -285,8 +285,21 @@ describe("a narrow phone gives the open box the whole top band", () => {
     expect(GLOBE).toContain(
       "const occupied = !panel.hidden || (searchPanel?.isOpen() ?? false);",
     );
-    // Every state change has to reach it: the card opening, the card closing, the field either way.
+    // Every state change has to reach it: the card opening, the card closing, the field either way,
+    // and the viewport itself — the chip's half of this rule reads a width, so a resize can flip it
+    // with nothing else on the page having moved.
     expect(GLOBE.match(/reflectBand\(\);/g) ?? [], "three call sites, one per transition").toHaveLength(3);
+  });
+
+  it("shows the chip whenever the pointer resolves, and never yields it to a box", () => {
+    // RATIFIED AFTER BEING MEASURED BOTH WAYS. The card really does cover the chip's slot below
+    // ~1250px — 23px of overlap at 1200, 223px at 800 — and the chip used to yield for exactly that
+    // reason. It reads as the chip breaking whenever a card opens, so it yields to nothing now and a
+    // partly-covered chip is accepted: that is a stacking order a visitor can see, where a vanished
+    // chip is one they cannot. Do not reintroduce a suppression, conditional or otherwise.
+    expect(GLOBE).toContain("countryChip.hidden = admin === null;");
+    expect(GLOBE, "the chip's visibility must depend on the pointer's answer and nothing else")
+      .not.toMatch(/countryChip\.hidden = [^;]*(panel|band|Panel|Band|innerWidth)/);
   });
 
   it("spells the class the same on both sides of a seam nothing can close", () => {

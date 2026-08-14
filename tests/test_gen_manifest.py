@@ -43,11 +43,11 @@ def record(**fields: str) -> dict:
 class TestWhatBecomesTypeable:
     def test_the_columns_are_taken_in_order(self):
         terms = GEN.search_terms(
-            record(NAME="Short", NAME_LONG="Longer", FORMAL_EN="Formal",
+            record(NAME="Short", NAME_LONG="Longer", NAME_EN="English", FORMAL_EN="Formal",
                    NAME_ALT="Other", ABBREV="Sh.", ISO_A2_EH="SH", ISO_A3_EH="SHO"),
             "Example",
         )
-        assert terms == ["Short", "Longer", "Formal", "Other", "Sh.", "SH", "SHO"], (
+        assert terms == ["Short", "Longer", "English", "Formal", "Other", "Sh.", "SH", "SHO"], (
             "the output order is the field order, which is what makes a re-run on unchanged "
             "data rewrite unchanged bytes"
         )
@@ -204,3 +204,102 @@ class TestAgainstNaturalEarth:
             "NAME_ALT is empty for all but four in-scope countries, so it is easy to read as "
             "dead weight — this is one of the three it carries"
         )
+
+    def test_the_english_column_carries_what_the_admin_name_dropped(self, records):
+        # NAME_EN disagrees with ADMIN for four countries and two of those are live usage. Both are
+        # named, because a column that agrees 199 times out of 203 is the kind a tidy-up deletes.
+        assert "Cape Verde" in GEN.search_terms(records["Cabo Verde"], "Cabo Verde"), (
+            "the 2013 rename is not what English writes — 'Cape Verde' lives only in NAME_EN"
+        )
+        assert "Vatican City" in GEN.search_terms(records["Vatican"], "Vatican"), (
+            "every query term must match, and no token in 'Vatican' is prefixed by 'city' — "
+            "without NAME_EN the query 'vatican city' returns nothing at all"
+        )
+
+
+class TestAuthoredAliases:
+    """`also` — the names Natural Earth publishes in no column the manifest reads."""
+
+    def test_authored_names_land_after_the_columns(self):
+        terms = GEN.search_terms(record(NAME="Myanmar", ABBREV="Myan."), "Myanmar", ["Burma"])
+        assert terms == ["Myan.", "Burma"], (
+            "column order then authored order — a stable order is what lets an unchanged config "
+            "rewrite unchanged bytes"
+        )
+
+    def test_an_authored_name_matching_a_column_is_dropped(self):
+        terms = GEN.search_terms(record(NAME_EN="Cape Verde"), "Cabo Verde", ["Cape Verde"])
+        assert terms == ["Cape Verde"], "one string, whichever source offered it first"
+
+    def test_an_authored_name_equal_to_the_display_name_is_dropped(self):
+        assert GEN.search_terms(record(), "Myanmar", ["Myanmar"]) == []
+
+    def test_the_default_is_no_aliases(self):
+        assert GEN.search_terms(record(ABBREV="Myan."), "Myanmar") == ["Myan."]
+
+    def test_blank_and_repeated_entries_cannot_reach_the_payload(self):
+        # `country_config._valid_also` rejects these at load, so this is the second line rather
+        # than the first — the producer must not emit junk even if it is handed junk.
+        assert GEN.search_terms(record(), "X", ["", "  ", "Burma", "Burma"]) == ["Burma"]
+
+    def test_a_row_carries_the_authored_aliases(self, tmp_path):
+        """The ROW, not just `search_terms` — the threading is its own failure and its own silence.
+
+        Called rather than read: a scan of `country_row`'s source would see the argument spelled
+        and never learn whether the value arrives. With the aliases dropped the manifest is still
+        well-formed and every other guard still passes; ten countries just quietly stop answering.
+        """
+        row = GEN.country_row(
+            "myanmar",
+            {"admin": "Myanmar", "frame": (92.0, 9.0, 102.0, 29.0), "also": ["Burma"]},
+            record(NAME="Myanmar", CONTINENT="Asia"),
+            tmp_path,
+        )
+        assert "Burma" in row["searchTerms"]
+
+
+class TestTheAliasesActuallyShipped:
+    """The real `config/countries.toml` against the real shapefile. Skips without either."""
+
+    def test_no_alias_restates_something_the_columns_already_give(self, records):
+        """An alias must be a name `SEARCH_FIELDS` does NOT already emit.
+
+        Not "absent from the shapefile" — that rule is wrong, and this guard asserted it first and
+        failed. "Burma" is in `NAME_CIAWF` and "Türkiye" in `NAME_TR`; both are real columns and
+        both are deliberately unread, one publishing sort keys and the other 153 Turkish names.
+        What must never happen is one name having two homes, because only the authored one goes
+        stale and nothing would say so.
+        """
+        from pipeline.frame.country_config import (
+            build_scope,
+            load_config,
+            load_ne_rows,
+            resolve,
+        )
+        cfg = load_config()
+        _sf, rows = load_ne_rows()
+        scope = build_scope(cfg, rows)
+        offenders = []
+        for slug, table in cfg.get("countries", {}).items():
+            aliases = table.get("also", [])
+            if not aliases or slug not in scope:
+                continue
+            resolved = resolve(slug, scope[slug], cfg)
+            assert resolved is not None, f"{slug}: carries aliases but does not resolve"
+            admin = resolved["admin"]
+            from_columns = {t.casefold() for t in GEN.search_terms(records.get(admin, {}), admin)}
+            from_columns.add(admin.casefold())
+            offenders += [(slug, a) for a in aliases if a.casefold() in from_columns]
+        assert not offenders, (
+            f"already emitted from SEARCH_FIELDS, so `also` would be a second home: {offenders}"
+        )
+
+    def test_every_aliased_slug_is_a_country_that_exists(self):
+        """A typo'd slug is silent: the table parses, validates, and reaches no country at all."""
+        from pipeline.frame.country_config import build_scope, load_config, load_ne_rows
+        cfg = load_config()
+        _sf, rows = load_ne_rows()
+        scope = build_scope(cfg, rows)
+        stray = [slug for slug, table in cfg.get("countries", {}).items()
+                 if table.get("also") and slug not in scope]
+        assert not stray, f"aliases authored against slugs no country resolves to: {stray}"

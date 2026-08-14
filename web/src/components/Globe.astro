@@ -372,6 +372,35 @@ import { REPO_URL } from "../lib/siteLinks";
     height: 100%;
     object-fit: cover;
   }
+  /* NARROW ONLY, AND THE OTHER NARROW BLOCK'S BREAKPOINT. A hero keeps its own aspect, so the card's
+     height is the country's shape: Chile at 0.31 asks for a figure four times its own width, and on
+     a phone that is a card taller than the screen with the render cropped to a band of its middle —
+     the country's ends, which are the whole point of its outline, gone. Above this width there is
+     room for that and the card renders freely; below it the box is capped and the render is fitted
+     into what is left. It is smaller, and small is the trade that keeps the whole country visible.
+
+     `max-height` RATHER THAN AN ASPECT, because `openPanel` writes `aspect-ratio` inline from the
+     manifest and a stylesheet cannot outrank that without `!important`. Capping the height lets the
+     inline ratio yield on its own, which is what `aspect-ratio` is specified to do.
+
+     `.dp-figure img` AND NOT `.dp-hero, .dp-border`, which is the same cascade trap the comment
+     below this one already warns about, walked into from the other side. `.dp-figure img` is
+     (0,1,1) and a bare class is (0,1,0), so the narrow rule LOST to the base rule and the images
+     went on cropping while `max-height` applied — a card that is capped and still cuts the country
+     in half, which is the worst of both and looks like the cap not working. Caught on the page; the
+     source guard that named the property passed throughout. Overriding through the identical
+     selector is what makes source order decide, and source order is a thing a reader can see.
+
+     Both images, never one: the border overlay is absolutely positioned over the hero and traces it
+     only while the two are fitted the same way. */
+  @media (max-width: 40rem) {
+    .dp-figure {
+      max-height: 40vh;
+    }
+    .dp-figure img {
+      object-fit: contain;
+    }
+  }
   /* display:block only on the hero — a shared `.dp-figure img` rule would outrank
      `.dp-border`'s display:none and force the border overlay on regardless of the toggle. */
   .dp-hero {
@@ -2220,16 +2249,19 @@ import { REPO_URL } from "../lib/siteLinks";
   // The dot exists to tie the chip to the outline it names, so it takes its colour from the very
   // constant those layers paint with. A CSS copy of the hex would be free to drift silently.
   if (countryChipDot) countryChipDot.style.backgroundColor = HIGHLIGHT_GOLD;
-  // The detail card names its country large and, at around a 900px viewport, covers this chip's
-  // slot outright (it is 420px wide at z-index 30, the chip is centred at 20). Rather than let the
-  // two fight for the same pixels and have the chip lose invisibly, the card suppresses it.
-  let chipSuppressedByPanel = false;
-
+  /**
+   * The chip is shown whenever the pointer has resolved something, and yields to nothing.
+   *
+   * IT USED TO YIELD TO THE CARD, on the reasoning that a 420px panel at z-index 30 covers a centred
+   * chip at 20 and the chip would lose the overlap invisibly. Measured: the two boxes really do
+   * collide below ~1250px, by 23px at 1200 and 223px at 800. RATIFIED ANYWAY — a chip that vanishes
+   * whenever a card opens reads as broken, and a partly-covered chip is a stacking order a visitor
+   * can see and understand. Do not reintroduce a suppression, at any width.
+   */
   function paintChip(admin: string | null) {
     if (!countryChip || !countryChipName) return;
-    const visible = admin !== null && !chipSuppressedByPanel;
-    if (visible) countryChipName.textContent = admin;
-    countryChip.hidden = !visible;
+    if (admin !== null) countryChipName.textContent = admin;
+    countryChip.hidden = admin === null;
   }
 
   // Hover highlight, keyed on the whole country (ADMIN) so every part lights together —
@@ -2299,6 +2331,9 @@ import { REPO_URL } from "../lib/siteLinks";
    * class would depend on which listener fired in which order, and the failure mode is a phone
    * whose gallery link is gone with nothing on screen to explain it. Reading `panel.hidden` and
    * `isOpen()` cannot get that wrong, and costs one boolean per interaction.
+   *
+   * IT SAYS NOTHING ABOUT THE CHIP. The chip is unconditional — see `paintChip` — so this class is
+   * only ever about the top-left row yielding its band on a narrow screen.
    */
   function reflectBand(): void {
     const occupied = !panel.hidden || (searchPanel?.isOpen() ?? false);
@@ -2362,15 +2397,12 @@ import { REPO_URL } from "../lib/siteLinks";
     }
     panel.hidden = false;
     panel.setAttribute("aria-hidden", "false");
-    chipSuppressedByPanel = true;
     reflectBand();
-    paintChip(null);
   }
 
   function closePanel() {
     panel.hidden = true;
     panel.setAttribute("aria-hidden", "true");
-    chipSuppressedByPanel = false;
     reflectBand();
     // Two calls, because they do different jobs: the fly-to moved the globe while the card was
     // open, so re-resolve first; then repaint unconditionally, because viewChanged() only fires

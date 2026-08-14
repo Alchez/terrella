@@ -24,6 +24,8 @@ import type { Country } from "./manifest";
 const WEB_ROOT = new URL("../../", import.meta.url).pathname;
 const GLOBE = readFileSync(`${WEB_ROOT}src/components/Globe.astro`, "utf8");
 const PANEL_SOURCE = readFileSync(new URL("./detailPanel.ts", import.meta.url).pathname, "utf8");
+/** The globe's GLOBAL rules, for the one breakpoint the card shares with the band. */
+const GLOBE_CSS = readFileSync(`${WEB_ROOT}src/styles/globe.css`, "utf8");
 
 /** A rendered landscape country, with every field the builder reads populated. */
 function country(overrides: Partial<Country> = {}): Country {
@@ -108,6 +110,49 @@ describe("a country becomes card content", () => {
     const content = countryPanelContent(country({ sizes: [], native: null, rendered: false }));
     expect(content.figure).toBeNull();
     expect(JSON.stringify(content)).not.toContain("undefined.webp");
+  });
+});
+
+describe("the card's box is capped where there is no room for a country's own shape", () => {
+  /** The card's narrow block, sliced so a rule from some other breakpoint cannot satisfy this. */
+  function narrowCardRules(): string {
+    const start = GLOBE.indexOf("  @media (max-width: 40rem) {\n    .dp-figure {");
+    expect(start, "the card has no narrow block — a tall hero is unbounded on a phone").toBeGreaterThan(-1);
+    return GLOBE.slice(start, GLOBE.indexOf("\n  }", GLOBE.indexOf("\n    }", start)));
+  }
+
+  it("caps the figure by HEIGHT, which is the only lever an inline aspect yields to", () => {
+    // `openPanel` writes `aspect-ratio` inline from the manifest, so a stylesheet cannot restate the
+    // ratio without `!important`. Capping the height lets the inline ratio yield on its own — and a
+    // rule that reached for `aspect-ratio` here would lose silently and look like a cascade bug.
+    expect(narrowCardRules()).toMatch(/max-height:\s*40vh;/);
+    expect(narrowCardRules(), "an aspect here loses to the inline one and does nothing").not.toContain(
+      "aspect-ratio",
+    );
+  });
+
+  it("overrides the fit through the SAME selector the base rule uses, or it silently loses", () => {
+    // THIS IS THE VERSION THAT WORKS, AND THE FIRST ONE DID NOT. Written as `.dp-hero, .dp-border`
+    // the rule is specificity (0,1,0) against the base `.dp-figure img`'s (0,1,1), so the cap
+    // applied and the images went on cropping — a card that is bounded and still cuts the country
+    // in half. Every property this test named was present in the source the whole time; only a
+    // computed style on a real page could tell, and that is what caught it.
+    //
+    // So the assertion is about the SELECTOR, not the property: matching the base rule exactly is
+    // what puts source order in charge, and source order is something a reader can check.
+    expect(narrowCardRules()).toMatch(/\.dp-figure img \{\s*\n\s*object-fit: contain;/);
+    expect(narrowCardRules(), "a bare class here is outranked by `.dp-figure img` and does nothing")
+      .not.toMatch(/^\s*\.dp-(hero|border)[ ,{]/m);
+  });
+
+  it("caps it only where the card has stopped being something to frame around", () => {
+    // A stylesheet cannot import a constant, so 40rem and PANEL_BESIDE_MIN_WIDTH_PX are one fact in
+    // two languages — this is the copy made executable. Same breakpoint as the band's own rules in
+    // globe.css, deliberately: below it the card is full-bleed, which is the whole reason to cap.
+    expect(PANEL_BESIDE_MIN_WIDTH_PX / 16).toBe(40);
+    expect(GLOBE_CSS, "globe.css writes the band's narrow rules at a different width").toContain(
+      "@media (max-width: 40rem)",
+    );
   });
 });
 

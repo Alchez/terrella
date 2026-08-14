@@ -103,6 +103,12 @@ MUTABLE_ROOTS = (
     # load-bearing. The look package as a whole, because the parameterisation touches all of it.
     "pipeline/bodies.py",
     "pipeline/render",
+    # Joined with `also`, the authored search aliases. Both guards over it read the SHIPPED config
+    # rather than a fixture, on purpose — the claim is "what this repo publishes is well-formed",
+    # and a fixture can only say the checker works on data nobody ships. So the only way to make
+    # either guard fire is to write to the real file, and a guard that cannot be made to fire is
+    # the thing this harness exists to catch.
+    "config",
     # Joined with the layer table, which took the body-half gate and the stage split out of the
     # planet shader. Both of its guards are invisible while Earth is the only body that declares a
     # layer: "ask the body before the disk" passes either way on a box holding Earth's files, and a
@@ -1057,6 +1063,30 @@ SABOTAGES: list[Sabotage] = [
         # The band state read from one occupant instead of both. Every open runs the other's close
         # first, so this leaves the class stuck off after a search hit opens a card — a phone whose
         # gallery link is gone with nothing on screen to explain it.
+        label='the narrow cap goes back to a selector the base rule outranks',
+        path='web/src/components/Globe.astro',
+        needle='    .dp-figure img {\n      object-fit: contain;\n    }',
+        replacement='    .dp-hero,\n    .dp-border {\n      object-fit: contain;\n    }',
+        guard='overrides the fit through the SAME selector the base rule uses, or it silently loses',
+    ),
+    Sabotage(
+        suite='web',
+        label='the card is capped at no width, so a tall hero is unbounded on a phone',
+        path='web/src/components/Globe.astro',
+        needle='      max-height: 40vh;',
+        replacement='      max-height: none;',
+        guard='caps the figure by HEIGHT, which is the only lever an inline aspect yields to',
+    ),
+    Sabotage(
+        suite='web',
+        label='the chip yields to the card again, so it vanishes whenever one opens',
+        path='web/src/components/Globe.astro',
+        needle='    countryChip.hidden = admin === null;',
+        replacement='    countryChip.hidden = admin === null || !panel.hidden;',
+        guard='shows the chip whenever the pointer resolves, and never yields it to a box',
+    ),
+    Sabotage(
+        suite='web',
         label='the open-panel class is written from the card alone',
         path='web/src/components/Globe.astro',
         needle='const occupied = !panel.hidden || (searchPanel?.isOpen() ?? false);',
@@ -6159,9 +6189,67 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label='the payload stops emitting the terms a query matches',
         path='web/scripts/gen_manifest.py',
-        needle='        searchTerms=search_terms(record, resolved["admin"]),',
+        needle='        searchTerms=search_terms(record, resolved["admin"], resolved.get("also", ())),',
         replacement='',
         guard='test_the_payload_and_the_interface_name_the_same_fields',
+    ),
+    # The authored half of the terms. Dropping the argument leaves a working manifest that has
+    # silently lost every name Natural Earth does not publish — ten countries, no error anywhere.
+    Sabotage(
+        suite='python',
+        label='the row stops carrying the authored aliases',
+        path='web/scripts/gen_manifest.py',
+        needle='        searchTerms=search_terms(record, resolved["admin"], resolved.get("also", ())),',
+        replacement='        searchTerms=search_terms(record, resolved["admin"]),',
+        guard='test_a_row_carries_the_authored_aliases',
+    ),
+    Sabotage(
+        suite='python',
+        label='search_terms ignores what the config authored',
+        path='web/scripts/gen_manifest.py',
+        needle='            [str(value).strip() for value in also]:',
+        replacement='            []:',
+        guard='test_authored_names_land_after_the_columns',
+    ),
+    Sabotage(
+        suite='python',
+        label='an authored alias may restate a column the manifest already reads',
+        path='config/countries.toml',
+        needle='also = ["Burma"]',
+        replacement='also = ["Republic of the Union of Myanmar"]',
+        guard='test_no_alias_restates_something_the_columns_already_give',
+    ),
+    Sabotage(
+        suite='python',
+        label='aliases are authored against a slug no country resolves to',
+        path='config/countries.toml',
+        needle='[countries.myanmar]',
+        replacement='[countries.myanmarr]',
+        guard='test_every_aliased_slug_is_a_country_that_exists',
+    ),
+    Sabotage(
+        suite='python',
+        label='`also` stops reaching the resolver',
+        path='pipeline/frame/country_config.py',
+        needle='        also=list(tbl.get("also", [])),',
+        replacement='        also=[],',
+        guard='test_resolve_carries_also_and_defaults_to_a_list',
+    ),
+    Sabotage(
+        suite='python',
+        label='a repeated alias the fold would merge is accepted',
+        path='pipeline/frame/country_config.py',
+        needle='            and len({v.strip().casefold() for v in value}) == len(value))',
+        replacement='            and len({v.strip() for v in value}) == len(value))',
+        guard='test_load_config_rejects_bad',
+    ),
+    Sabotage(
+        suite='python',
+        label='a blank alias is accepted',
+        path='pipeline/frame/country_config.py',
+        needle='            and all(isinstance(v, str) and v.strip() for v in value)',
+        replacement='            and all(isinstance(v, str) for v in value)',
+        guard='test_load_config_rejects_bad',
     ),
     # The wrong-looking-right revert. Natural Earth publishes both spellings and the bare pair reads
     # as the obvious one; taking it loses France, Norway and three others with every gate green.
@@ -6169,8 +6257,8 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label='the ISO columns revert to the pair that is null wherever a code is contested',
         path='web/scripts/gen_manifest.py',
-        needle='"ABBREV", "ISO_A2_EH", "ISO_A3_EH")',
-        replacement='"ABBREV", "ISO_A2", "ISO_A3")',
+        needle='"ISO_A2_EH", "ISO_A3_EH")',
+        replacement='"ISO_A2", "ISO_A3")',
         guard='test_the_bare_iso_columns_are_not_read',
     ),
     Sabotage(
