@@ -242,6 +242,16 @@ function unionBarMarkup(): string {
   );
 }
 
+/** One sheet's rules. A sheet the runner injected from another origin throws rather than
+ *  reporting empty, and an unreadable sheet is not a missing rule. */
+function rulesOf(sheet: CSSStyleSheet): CSSRule[] {
+  try {
+    return Array.from(sheet.cssRules);
+  } catch {
+    return [];
+  }
+}
+
 const mounted: HTMLElement[] = [];
 
 afterEach(() => {
@@ -355,6 +365,43 @@ describe("the view bar holds one row at the narrowest width the site serves", ()
       "view-bar-divider",
       "quality-fab",
     ]);
+  });
+
+  /**
+   * The pointer control is not offered where the primary input cannot hover.
+   *
+   * SPLIT IN TWO, because only half of the claim is reachable from here: the browser context fixes
+   * its own hover capability for the whole run, so the CONDITION is read off the shipped sheet
+   * while the DECLARATION is put through the real cascade. The second half is the one with a live
+   * opponent — `.view-bar button.icon-btn` sets `display: inline-flex`, so a hide written as a
+   * class would lose and the control would ship to touch devices regardless, with every other
+   * assertion in this file still green.
+   */
+  it("does not offer the pointer control where the pointer cannot hover", () => {
+    const hides = [...document.styleSheets]
+      .flatMap(rulesOf)
+      .filter((rule) => rule instanceof CSSMediaRule)
+      .filter((rule) => /\(\s*hover\s*:\s*none\s*\)/.test(rule.conditionText))
+      .flatMap((rule) => Array.from(rule.cssRules))
+      .filter((rule) => rule instanceof CSSStyleRule)
+      .filter((rule) => rule.selectorText.includes("highlight-toggle"));
+    expect(hides, "no `hover: none` block hides the highlight toggle").toHaveLength(1);
+    expect(hides[0].style.display).toBe("none");
+
+    const bar = mountBar({ highlight: true, borders: true, spotlight: false, quality: true });
+    const button = bar.bar.querySelector<HTMLElement>("#highlight-toggle")!;
+    // `flex`, not the `inline-flex` the sheet declares: a flex item's display is blockified.
+    expect(getComputedStyle(button).display).toBe("flex");
+    const unconditional = document.createElement("style");
+    unconditional.textContent = hides[0].cssText;
+    document.head.append(unconditional);
+    try {
+      expect(getComputedStyle(button).display, "the hide loses the cascade to .icon-btn").toBe(
+        "none",
+      );
+    } finally {
+      unconditional.remove();
+    }
   });
 
   // ONE CASE OVER EVERY CONFIGURATION, not `it.each` over them, and the reason is the harness that

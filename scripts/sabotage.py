@@ -2012,6 +2012,28 @@ SABOTAGES: list[Sabotage] = [
         replacement='  .view-bar-divider {\n    margin-inline: 0.25rem;\n  }',
         guard='fits on one row at 320px, on every bar the site ships',
     ),
+    # Two ways the touch hide dies, and they fail in different halves of one guard: the rule can
+    # stop naming the control, or it can keep naming it and lose the cascade. Neither renders
+    # differently on a hover-capable box, which is every box the suite runs on.
+    Sabotage(
+        suite='web',
+        label='the touch hide is written as a class and loses to the icon button',
+        path='web/src/styles/global.css',
+        needle='@media (hover: none) {\n  #highlight-toggle {',
+        replacement='@media (hover: none) {\n  .icon-btn {',
+        guard='does not offer the pointer control where the pointer cannot hover',
+    ),
+    Sabotage(
+        suite='web',
+        label='a later !important puts the pointer control back on touch devices',
+        path='web/src/styles/global.css',
+        needle='@media (hover: none) {\n  #highlight-toggle {\n    display: none;\n  }\n}\n',
+        replacement=(
+            '@media (hover: none) {\n  #highlight-toggle {\n    display: none;\n  }\n}\n'
+            '.view-bar button.icon-btn {\n  display: inline-flex !important;\n}\n'
+        ),
+        guard='does not offer the pointer control where the pointer cannot hover',
+    ),
     # `title` and `aria-label` come from one writer so they cannot disagree. The button's only
     # content is a decorative masked span, so a wrong `aria-label` leaves it with no accessible
     # name at all — and nothing renders differently.

@@ -223,6 +223,25 @@ a {
   width: 1.2em;
   height: 1.2em;
 }
+/* THE POINTER CONTROL IS NOT OFFERED WHERE THERE IS NO POINTER. A finger cannot rest on a country
+   without selecting it, so on touch the thing this switches is a tap artefact rather than a hover
+   state, and a control named for a pointer is one the device cannot exercise. Rohan's rule: a
+   tablet still SEES the highlight when it selects a country, and that is all it gets.
+
+   `hover` asks about the PRIMARY input, which is the question worth asking — a laptop with a
+   touchscreen keeps the control because its trackpad can hover, and a stylus tablet does not,
+   despite the stylus being a fine pointer. Nothing here changes what is PAINTED: the preference is
+   still honoured, so this hides a switch and never a behaviour.
+
+   The id is load-bearing. `.view-bar button.icon-btn` above sets `display: inline-flex`, so a hide
+   written as a class would lose the cascade and the control would ship to phones regardless — the
+   guard in `viewBar.browser.test.ts` puts this declaration through the real cascade for that
+   reason, since it cannot emulate the condition itself. */
+@media (hover: none) {
+  #highlight-toggle {
+    display: none;
+  }
+}
 .view-bar button:hover {
   color: var(--text);
 }
