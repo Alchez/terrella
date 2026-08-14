@@ -112,12 +112,12 @@ describe("createRailToggle — clicking", () => {
     // would happily invoke the listener.
     const seen: boolean[] = [];
     const control = createRailToggle({
-      className: "rg-ctrl-spin",
-      label: "Spin",
+      className: "rg-ctrl-search",
+      label: "Search countries",
       onToggle: (next) => seen.push(next),
     });
     mount(control.button);
-    control.setAvailable(false, "Zoom out to spin");
+    control.setAvailable(false, "Search countries (loading the catalogue)");
     control.button.click();
     expect(seen).toEqual([]);
     control.setAvailable(true);
@@ -129,34 +129,35 @@ describe("createRailToggle — clicking", () => {
 describe("createRailToggle — availability", () => {
   it("disables, greys, and says what would make it work again", () => {
     const control = createRailToggle({
-      className: "rg-ctrl-spin",
-      label: "Toggle globe auto-rotate",
+      className: "rg-ctrl-search",
+      label: "Search countries",
       onToggle: () => {},
     });
-    control.setAvailable(false, "Zoom out to spin");
+    control.setAvailable(false, "Search countries (loading the catalogue)");
     expect(control.button.disabled).toBe(true);
     expect(control.button.classList.contains("is-unavailable")).toBe(true);
-    expect(control.button.title).toBe("Zoom out to spin");
+    expect(control.button.title).toBe("Search countries (loading the catalogue)");
     control.setAvailable(true);
     expect(control.button.disabled).toBe(false);
     expect(control.button.classList.contains("is-unavailable")).toBe(false);
-    expect(control.button.title).toBe("Toggle globe auto-rotate");
+    expect(control.button.title).toBe("Search countries");
   });
 
   it("does not let a state change while unavailable overwrite the unavailable name", () => {
-    // The watchdog can retire the spin at any zoom, including one where the button is greyed.
+    // The pressed state is written by the PAGE as well as by this button — the search box's open
+    // state is driven by the panel — so it can change while the button is still greyed.
     const control = createRailToggle({
-      className: "rg-ctrl-spin",
-      label: "Spin",
-      pressedLabel: "Stop spinning",
+      className: "rg-ctrl-search",
+      label: "Search countries",
+      pressedLabel: "Close search",
       pressed: true,
       onToggle: () => {},
     });
-    control.setAvailable(false, "Zoom out to spin");
+    control.setAvailable(false, "Search countries (loading the catalogue)");
     control.setPressed(false);
-    expect(control.button.title).toBe("Zoom out to spin");
+    expect(control.button.title).toBe("Search countries (loading the catalogue)");
     control.setAvailable(true);
-    expect(control.button.title).toBe("Spin");
+    expect(control.button.title).toBe("Search countries");
   });
 });
 
