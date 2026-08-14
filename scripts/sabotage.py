@@ -1856,6 +1856,43 @@ SABOTAGES: list[Sabotage] = [
         replacement='if (event.key.toLowerCase() !== QUIET_KEY && event.key !== "Escape") return;',
         guard='does not act on Escape at all',
     ),
+    # The spin step is the one place a constant-in-degrees can creep back. Every failure below is
+    # silent on a desktop at low zoom — the globe still turns, at a speed nobody would call wrong
+    # until they zoom in — which is exactly how the old ceiling came to exist instead of a fix.
+    Sabotage(
+        suite='web',
+        label='the spin step goes back to a constant in degrees, the shape the ceiling existed to contain',
+        path='web/src/lib/spinRate.ts',
+        needle='return SPIN_REFERENCE_DEGREES * 2 ** (SPIN_REFERENCE_ZOOM - zoom);',
+        replacement='return SPIN_REFERENCE_DEGREES;',
+        guard='holds the screen speed constant across the camera\'s whole range',
+    ),
+    Sabotage(
+        suite='web',
+        label='the zoom term inverts, so the deep end crawls and the overview blurs',
+        path='web/src/lib/spinRate.ts',
+        needle='return SPIN_REFERENCE_DEGREES * 2 ** (SPIN_REFERENCE_ZOOM - zoom);',
+        replacement='return SPIN_REFERENCE_DEGREES * 2 ** (zoom - SPIN_REFERENCE_ZOOM);',
+        guard='halves for every zoom level gained',
+    ),
+    # The two constants are only pinned TOGETHER by the absolute-speed assertion; every other test
+    # in that file is a ratio and passes happily while the globe turns at twice the ratified rate.
+    Sabotage(
+        suite='web',
+        label='the ratified rate doubles while every relative property still holds',
+        path='web/src/lib/spinRate.ts',
+        needle='export const SPIN_REFERENCE_DEGREES = 2;',
+        replacement='export const SPIN_REFERENCE_DEGREES = 4;',
+        guard='holds the speed that was actually ratified on screen',
+    ),
+    Sabotage(
+        suite='web',
+        label='the reference zoom moves, which rescales the whole ladder invisibly',
+        path='web/src/lib/spinRate.ts',
+        needle='export const SPIN_REFERENCE_ZOOM = 3;',
+        replacement='export const SPIN_REFERENCE_ZOOM = 4;',
+        guard='holds the speed that was actually ratified on screen',
+    ),
     # `title` and `aria-label` come from one writer so they cannot disagree. The button's only
     # content is a decorative masked span, so a wrong `aria-label` leaves it with no accessible
     # name at all — and nothing renders differently.

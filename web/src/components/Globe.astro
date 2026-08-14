@@ -615,6 +615,7 @@ import { REPO_URL } from "../lib/siteLinks";
     snapshotHasContent,
   } from "../lib/glDiagnostics";
   import { currentBody } from "../lib/currentBody";
+  import { spinStepDegrees } from "../lib/spinRate";
   import { globeSubsystems, globeTileAddresses } from "../lib/globeSubsystems";
   // Ids and poles only — the cap MESH and its textures stay behind the dynamic import below.
   // glDiagnostics already pulls these two statically, so this adds nothing to the bundle.
@@ -2548,14 +2549,18 @@ import { REPO_URL } from "../lib/siteLinks";
     });
   }
 
-  // Idle rotation — a "living globe" at low zoom. Any interaction retires the spin (the Spin
-  // button drops to aria-pressed="false"); the toggle restarts it. Above z3 the fixed 2°/s sweep is too
-  // fast to follow, so spin() is a no-op there. Kept deliberately simple: a single spin
-  // easeTo driven off `moveend`, and interactions only flip the flag — no easeTo is ever
-  // called re-entrantly from the map's own animation events.
+  // Idle rotation — a "living globe" at every zoom. Any interaction retires the spin (the Spin
+  // button drops to aria-pressed="false"); the toggle restarts it. A ZOOM RETIRES IT LIKE ANY OTHER
+  // GESTURE AND THAT IS THE POINT: zooming in is someone heading for one feature, and a globe that
+  // kept sliding would be fighting them. Kept deliberately simple: a single spin easeTo driven off
+  // `moveend`, and interactions only flip the flag — no easeTo is ever called re-entrantly from the
+  // map's own animation events.
+  //
+  // THIS USED TO CARRY A ZOOM CEILING, and `spinRate.ts` is what replaced it rather than raised it.
+  // The ceiling existed because the step was a constant in DEGREES, which doubles the on-screen
+  // speed per zoom level; a step that halves per level holds one speed everywhere, so there is no
+  // zoom left at which the control would silently do nothing and nothing to grey out.
   const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  const DEGREES_PER_STEP = 2; // ~one 360° revolution every 3 minutes at 1s steps
-  const SPIN_MAX_ZOOM = 3; // above this the fixed sweep is too fast to follow — spin is an overview affordance
   let spinning = bootTier === "full" && !reduceMotion;
   // Applying the style's globe projection fires an instant camera jump at style.load
   // (movestart+moveend ~1 ms apart, measured at 141 ms on ?bare) — and that moveend
@@ -2660,25 +2665,18 @@ import { REPO_URL } from "../lib/siteLinks";
     spinToggle.setPressed(value);
     if (value) {
       firstIdleSeen = true; // user intent overrides the first-idle wait
-      spin(); // kick off now; spin() itself no-ops above SPIN_MAX_ZOOM
+      spin(); // kick off now rather than waiting for a moveend that may never come
     }
   }
 
+  // The step is READ PER CALL, not captured once, because the zoom it depends on changes under a
+  // spin that survives nothing — but also under the fly-to, which lands at up to z6.
   function spin() {
-    if (!firstIdleSeen || !spinning || map.getZoom() > SPIN_MAX_ZOOM) return;
+    if (!firstIdleSeen || !spinning) return;
     const center = map.getCenter();
-    center.lng -= DEGREES_PER_STEP;
+    center.lng -= spinStepDegrees(map.getZoom());
     map.easeTo({ center, duration: 1000, easing: (progress) => progress });
   }
-
-  // Spin is an overview affordance: above SPIN_MAX_ZOOM the fixed sweep is too fast to
-  // follow, so the control would silently do nothing there. Reflect that in the UI —
-  // grey + disable the toggle when zoomed in, re-enable on zoom-out (a tap restarts it).
-  // The replacement name says what would make it work again rather than just going quiet.
-  function syncSpinAvailability() {
-    spinToggle.setAvailable(map.getZoom() <= SPIN_MAX_ZOOM, "Zoom out to spin");
-  }
-  syncSpinAvailability();
 
   // On pointer-down we retire the spin AND map.stop() the in-flight easeTo — otherwise a
   // pan starting mid-animation fights the running spin (the visible "break") and its
@@ -2694,7 +2692,6 @@ import { REPO_URL } from "../lib/siteLinks";
     map.on(gesture, () => setSpinning(false));
   }
   map.on("moveend", spin);
-  map.on("zoomend", syncSpinAvailability);
   // Start the idle spin only after the FIRST full render settles ("idle"), not at "load":
   // animating while tiles, caps, and country geometry are still landing forced a render per
   // frame through the busiest seconds — visible as first-load jank on phones. A user toggle
@@ -2703,7 +2700,6 @@ import { REPO_URL } from "../lib/siteLinks";
     firstIdleSeen = true;
     spin();
   });
-  map.on("load", syncSpinAvailability);
 
   // --- Runtime FPS watchdog ---------------------------------------------------
   // If the frame rate stays low WHILE the globe is actually doing work (spinning
