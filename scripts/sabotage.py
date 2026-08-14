@@ -1893,6 +1893,157 @@ SABOTAGES: list[Sabotage] = [
         replacement='export const SPIN_REFERENCE_ZOOM = 4;',
         guard='holds the speed that was actually ratified on screen',
     ),
+    # The wash's zoom fade. The first case is the one the browser test exists for: the object is
+    # still well-formed, every unit assertion could be satisfied by re-deriving it from the
+    # constants, and MapLibre rejects it with an ErrorEvent and no throw — so the layer never
+    # enters the style and country picking dies with it.
+    Sabotage(
+        suite='web',
+        label='the zoom curve is nested inside the hover case, which MapLibre silently rejects',
+        path='web/src/lib/countryHighlight.ts',
+        needle=(
+            '      "fill-opacity": [\n'
+            '        "interpolate",\n'
+            '        ["linear"],\n'
+            '        ["zoom"],\n'
+            '        WASH_FULL_ZOOM,\n'
+            '        ["case", whenHovered, WASH_OPACITY, 0],\n'
+            '        WASH_CLEAR_ZOOM,\n'
+            '        0,\n'
+            '      ],'
+        ),
+        replacement=(
+            '      "fill-opacity": [\n'
+            '        "case",\n'
+            '        whenHovered,\n'
+            '        ["interpolate", ["linear"], ["zoom"], WASH_FULL_ZOOM, WASH_OPACITY,'
+            ' WASH_CLEAR_ZOOM, 0],\n'
+            '        0,\n'
+            '      ],'
+        ),
+        guard='is a spec MapLibre accepts',
+    ),
+    Sabotage(
+        suite='web',
+        label='the ratified wash strength doubles while the curve stays self-consistent',
+        path='web/src/lib/countryHighlight.ts',
+        needle='export const WASH_OPACITY = 0.16;',
+        replacement='export const WASH_OPACITY = 0.32;',
+        guard='holds the ratified strength at every zoom',
+    ),
+    Sabotage(
+        suite='web',
+        label='the fade finishes before the fly-to lands, so a clicked country arrives unlit',
+        path='web/src/lib/countryHighlight.ts',
+        needle='export const WASH_CLEAR_ZOOM = 7;',
+        replacement='export const WASH_CLEAR_ZOOM = 5;',
+        guard='still paints in the frame a clicked country lands in',
+    ),
+    Sabotage(
+        suite='web',
+        label='the fade\'s far stop stops falling, so the wash survives at every zoom',
+        path='web/src/lib/countryHighlight.ts',
+        needle='        WASH_CLEAR_ZOOM,\n        0,\n      ],',
+        replacement='        WASH_CLEAR_ZOOM,\n        WASH_OPACITY,\n      ],',
+        guard='is gone once the viewport is inside one country',
+    ),
+    # The highlight toggle. Its default is ON, which is the opposite of every other view-bar
+    # toggle, so the first two cases are the same mistake reached from two files — read the key
+    # Borders' way, or ship the markup in Borders' state — and each is invisible on its own.
+    Sabotage(
+        suite='web',
+        label='the highlight key is read the way an opt-in overlay is, so the default flips off',
+        path='web/src/lib/highlightPreference.ts',
+        needle='return storage.getItem(HIGHLIGHT_KEY) !== "0";',
+        replacement='return storage.getItem(HIGHLIGHT_KEY) === "1";',
+        guard='is on for a visitor who has never touched it',
+    ),
+    Sabotage(
+        suite='web',
+        label='the button renders unpressed while the globe is already highlighting',
+        path='web/src/layouts/Base.astro',
+        needle=(
+            '              id="highlight-toggle"\n'
+            '              class="icon-btn"\n'
+            '              aria-pressed="true"'
+        ),
+        replacement=(
+            '              id="highlight-toggle"\n'
+            '              class="icon-btn"\n'
+            '              aria-pressed="false"'
+        ),
+        guard='ships the button already pressed',
+    ),
+    # The two transitions no pointer event produces. Both leave the globe looking like the button
+    # did nothing, and both are green under every test that only drives the pointer.
+    Sabotage(
+        suite='web',
+        label='the switch stops repainting the feature the pointer is parked on',
+        path='web/src/lib/hoverHighlight.ts',
+        needle='      if (litId !== null) writeAll(litId, next);',
+        replacement='      if (false && litId !== null) writeAll(litId, next);',
+        guard='clears the parked feature the moment it goes off',
+    ),
+    Sabotage(
+        suite='web',
+        label='the chip stops answering the switch, leaving a name over unlit ground',
+        path='web/src/lib/hoverHighlight.ts',
+        needle='  const relabel = () => label(enabled ? litId : null);',
+        replacement='  const relabel = () => label(litId);',
+        guard='writes nothing at all and names nothing',
+    ),
+    # Mars wires its own highlight late. Handing over the tracker and not the highlight leaves the
+    # second body re-resolving correctly and then relabelling through Earth's, which holds nothing.
+    Sabotage(
+        suite='web',
+        label='the second body keeps the first body\'s highlight',
+        path='web/src/components/Globe.astro',
+        needle='    activeHighlight = featureHighlight;',
+        replacement='    void featureHighlight;',
+        guard='hands the pointer\'s chrome to the resolver that answers on this body',
+    ),
+    # The 8px the fourth control needed. A margin looks like spacing taste until it is the
+    # difference between one row and two at the narrowest width the site serves.
+    Sabotage(
+        suite='web',
+        label='the divider takes its side margins back, and the globe bar runs out of room',
+        path='web/src/styles/global.css',
+        needle='  .view-bar-divider {\n    margin-inline: 0;\n  }',
+        replacement='  .view-bar-divider {\n    margin-inline: 0.25rem;\n  }',
+        guard='fits on one row at 320px, on every bar the site ships',
+    ),
+    # The pills give back 1.6px a side at phone widths, and that is the half of the tightening the
+    # floor actually rests on — the gap beside it is headroom and clears 320px without this.
+    Sabotage(
+        suite='web',
+        label='the phone pills take their padding back, and the globe bar runs out of room',
+        path='web/src/styles/global.css',
+        needle='    padding: 0.35rem 0.6rem;\n    font-size: 0.78rem;',
+        replacement='    padding: 0.35rem 0.7rem;\n    font-size: 0.78rem;',
+        guard='fits on one row at 320px, on every bar the site ships',
+    ),
+    # Two ways the touch hide dies, and they fail in different halves of one guard: the rule can
+    # stop naming the control, or it can keep naming it and lose the cascade. Neither renders
+    # differently on a hover-capable box, which is every box the suite runs on.
+    Sabotage(
+        suite='web',
+        label='the touch hide is written as a class and loses to the icon button',
+        path='web/src/styles/global.css',
+        needle='@media (hover: none) {\n  #highlight-toggle {',
+        replacement='@media (hover: none) {\n  .icon-btn {',
+        guard='does not offer the pointer control where the pointer cannot hover',
+    ),
+    Sabotage(
+        suite='web',
+        label='a later !important puts the pointer control back on touch devices',
+        path='web/src/styles/global.css',
+        needle='@media (hover: none) {\n  #highlight-toggle {\n    display: none;\n  }\n}\n',
+        replacement=(
+            '@media (hover: none) {\n  #highlight-toggle {\n    display: none;\n  }\n}\n'
+            '.view-bar button.icon-btn {\n  display: inline-flex !important;\n}\n'
+        ),
+        guard='does not offer the pointer control where the pointer cannot hover',
+    ),
     # `title` and `aria-label` come from one writer so they cannot disagree. The button's only
     # content is a decorative masked span, so a wrong `aria-label` leaves it with no accessible
     # name at all — and nothing renders differently.
@@ -2256,7 +2407,7 @@ SABOTAGES: list[Sabotage] = [
         path='web/src/styles/global.css',
         # Qualified by the selector: the body switcher takes the same tightening, so the two
         # declarations alone stopped naming one rule the day it arrived.
-        needle='  .view-bar button {\n    padding: 0.35rem 0.7rem;\n    font-size: 0.78rem;',
+        needle='  .view-bar button {\n    padding: 0.35rem 0.6rem;\n    font-size: 0.78rem;',
         replacement='  .view-bar button {\n    padding: 0.4rem 0.85rem;\n    font-size: 0.82rem;',
         guard='keeps the tighter phone padding, which is what buys the fit',
     ),
@@ -4716,14 +4867,14 @@ SABOTAGES: list[Sabotage] = [
     ),
     Sabotage(
         suite='web',
-        # The chip goes back to asking the country tracker, which on Mars answers null everywhere. A
-        # closed card leaves the outline lit under the pointer and the name gone, until something
-        # moves. Nothing throws and the card itself is perfect.
+        # The re-resolve goes back to asking the country tracker, which on Mars answers null
+        # everywhere. A closed card leaves the outline lit under the pointer and the name gone,
+        # until something moves. Nothing throws and the card itself is perfect.
         label='closing a Mars card leaves its feature lit and unnamed',
         path='web/src/components/Globe.astro',
-        needle='    chipOwner = featureTracker;',
-        replacement='    // the chip keeps its default owner',
-        guard='hands the chip to the tracker that answers on this body',
+        needle='    activeTracker = featureTracker;',
+        replacement='    // the re-resolve keeps its default owner',
+        guard='hands the pointer\'s chrome to the resolver that answers on this body',
     ),
     Sabotage(
         suite='web',

@@ -8,14 +8,16 @@
 // no country vectors, no hero panel. The polar caps ARE drawn, and they are relief rather than
 // ice: Mars declares no surface layers, so the two discs shade from the same ramps as the tiles.
 //
-// The three props below are Earth's three and carry Earth's reasoning — `earth.astro` is where it
+// The four props below are Earth's four and carry Earth's reasoning — `earth.astro` is where it
 // is written, and restating it here would be one claim in two places that can disagree. The only
 // one that resolves differently is `borders`, and it resolves from the registry, so this page can
-// state nothing about it even by accident.
+// state nothing about it even by accident. `highlight` resolves the same way and happens to agree
+// today; both bodies light what the pointer is on, and neither page is what decides that.
 import Base from "../../layouts/Base.astro";
 import Globe from "../../components/Globe.astro";
 import MapStylesheet from "../../components/MapStylesheet.astro";
 import { BODIES } from "../../lib/bodies";
+import { hasHoverHighlight } from "../../lib/globeSubsystems";
 
 const body = BODIES.mars;
 ---
@@ -25,6 +27,7 @@ const body = BODIES.mars;
   description="An interactive globe of ray-traced Martian relief, from the blended MOLA and HRSC elevation model."
   body={body.slug}
   borders={body.hasBorders}
+  highlight={hasHoverHighlight(body.slug)}
   quality={true}
   pageRole="globe"
 >

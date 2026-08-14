@@ -76,6 +76,23 @@ export function globeSubsystems(body: BodySlug, flags: URLSearchParams): GlobeSu
   };
 }
 
+/**
+ * Does this body light anything under the pointer at all?
+ *
+ * ASKED BY THE LAYOUT, WHICH HAS NO MAP, so it cannot go through {@link globeSubsystems} — that
+ * function answers for one page load and takes the URL flags, and a control's EXISTENCE must not
+ * depend on a diagnostic query string. The hover paint hangs off the vector overlay on both bodies,
+ * so publishing a vector archive is exactly the condition.
+ *
+ * A BUTTON FOR SOMETHING A BODY DOES NOT HAVE IS THE FAILURE THIS PREVENTS, and the registry is the
+ * only thing that can see it. Both bodies publish vectors today, so this reads `true` twice — the
+ * point is that a third body publishing only relief gets no dead control rather than one that
+ * toggles nothing and reports nothing. Same rule the borders button follows.
+ */
+export function hasHoverHighlight(body: BodySlug): boolean {
+  return PUBLISHED[body].vector !== null;
+}
+
 /** The tile URL templates a globe draws from. `null` where this body publishes no such pyramid. */
 export interface GlobeTileAddresses {
   /** Always present. A globe with no relief is not a globe, so a body missing it is an error. */

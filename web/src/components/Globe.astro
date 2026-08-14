@@ -648,6 +648,12 @@ import { REPO_URL } from "../lib/siteLinks";
   import { createCatalogueSearch, type CatalogueSearch } from "../lib/catalogueSearch";
   import { createCatalogueSearchBox, type CatalogueSearchBox } from "../lib/catalogueSearchBox";
   import { createHoverTracker, type HoverTracker } from "../lib/hoverTracking";
+  import { createHoverHighlight, type HoverHighlight } from "../lib/hoverHighlight";
+  import {
+    HIGHLIGHT_EVENT,
+    highlightEnabled,
+    type HighlightChange,
+  } from "../lib/highlightPreference";
   import { createRailToggle, joinRailGroup, type RailToggle } from "../lib/railControls";
   import { createQuietMode } from "../lib/quietMode";
   import { RULER_WIDTH_PX, createScaleRuler, rulerGroundDistance } from "../lib/scaleRuler";
@@ -2028,18 +2034,20 @@ import { REPO_URL } from "../lib/siteLinks";
    * Only wired where the body actually publishes features, so Earth pays nothing for it.
    */
   function wireFeatureInteraction() {
-    const stateTargets = hoverStateTargets();
     // The chip's dot is the tie between the label and the linework it names, so it takes its colour
     // from the constant those layers paint with rather than from a CSS copy free to drift.
     if (countryChipDot) countryChipDot.style.backgroundColor = FEATURE_INK;
 
-    function paintFeatureHighlight(name: string | null, previousName: string | null) {
-      const setState = (id: string, hover: boolean) => {
-        for (const target of stateTargets) map.setFeatureState({ ...target, id }, { hover });
-      };
-      if (previousName !== null) setState(previousName, false);
-      if (name !== null) setState(name, true);
-    }
+    // Different targets, identical rule — which is why the rule is a module and this is a second
+    // instance of it rather than a second copy. It inherits the same preference, so a visitor who
+    // switched the highlight off on Earth arrives on Mars with it still off.
+    const featureHighlight = createHoverHighlight({
+      targets: hoverStateTargets(),
+      write: (target, id, hover) => map.setFeatureState({ ...target, id }, { hover }),
+      label: paintChip,
+      enabled: activeHighlight.isEnabled(),
+    });
+    activeHighlight = featureHighlight;
 
     /** Both hit surfaces, and WHICH ONE a feature came through is part of the answer.
      *
@@ -2077,9 +2085,8 @@ import { REPO_URL } from "../lib/siteLinks";
 
     const featureTracker = createHoverTracker<Point>({
       resolve: featureAt,
-      onChange: (name, previousName) => {
-        paintFeatureHighlight(name, previousName);
-        paintChip(name);
+      onChange: (name) => {
+        featureHighlight.paint(name);
         map.getCanvas().style.cursor = name ? "pointer" : "";
       },
     });
@@ -2165,7 +2172,7 @@ import { REPO_URL } from "../lib/siteLinks";
 
     // The chip belongs to whoever answers the pointer on this body — see `closePanel`, which is the
     // one place that has to repaint it without a pointer event to go on.
-    chipOwner = featureTracker;
+    activeTracker = featureTracker;
 
     // SEARCH — the two halves that can only be supplied from in here. The control itself is built
     // synchronously with the rest of the rail; see the block that creates it for why.
@@ -2258,6 +2265,12 @@ import { REPO_URL } from "../lib/siteLinks";
    * collide below ~1250px, by 23px at 1200 and 223px at 800. RATIFIED ANYWAY — a chip that vanishes
    * whenever a card opens reads as broken, and a partly-covered chip is a stacking order a visitor
    * can see and understand. Do not reintroduce a suppression, at any width.
+   *
+   * THE HIGHLIGHT SWITCH IS NOT THAT SUPPRESSION, and the difference is who asked. What was
+   * rejected is the chip disappearing because something else happened to be in the way; this
+   * disappears because the visitor said not to decorate what they are pointing at. Only
+   * `hoverHighlight.ts` calls this now — see its header — so there is no second path that could
+   * put a name back up over unlit ground.
    */
   function paintChip(admin: string | null) {
     if (!countryChip || !countryChipName) return;
@@ -2271,23 +2284,23 @@ import { REPO_URL } from "../lib/siteLinks";
   // Fill wash and gold boundary line share the ADMIN promoteId, so one id toggles both and the
   // whole country lights as a unit. WHERE that id is written comes from the binding rather than
   // from named source ids — see `featureStateTargets`, whose header records what naming them cost.
-  const highlightTargets = featureStateTargets(VECTOR_BINDING);
-  function paintHighlight(admin: string | null, previousAdmin: string | null) {
-    const setState = (id: string, hover: boolean) => {
-      for (const target of highlightTargets) map.setFeatureState({ ...target, id }, { hover });
-    };
-    if (previousAdmin !== null) setState(previousAdmin, false);
-    if (admin !== null) setState(admin, true);
-  }
+  const countryHighlight = createHoverHighlight({
+    targets: featureStateTargets(VECTOR_BINDING),
+    write: (target, id, hover) => map.setFeatureState({ ...target, id }, { hover }),
+    label: paintChip,
+    enabled: highlightEnabled(),
+  });
 
   // hoverTracking.ts owns WHICH country is hovered — including the part that is easy to get wrong,
   // re-resolving when the globe moves under a parked pointer. Nothing here keeps a second copy of
   // that state; the tracker hands over both the country being entered and the one being left.
   const hoverTracker = createHoverTracker<Point>({
     resolve: (point) => countryAt(point),
-    onChange: (admin, previousAdmin) => {
-      paintHighlight(admin, previousAdmin);
-      paintChip(admin);
+    onChange: (admin) => {
+      // The tracker offers what is being LEFT as well, and this no longer takes it: the highlight
+      // owns what it lit, because the toggle has to repaint with no pointer event to go on. It
+      // owns the CHIP for the same reason — one switch cannot leave a name up over unlit ground.
+      countryHighlight.paint(admin);
       // Driven from the resolved answer rather than from the mousemove handler, so one
       // queryRenderedFeatures serves all three — and so the cursor stops going stale after a drag
       // the same way the highlight used to.
@@ -2296,17 +2309,38 @@ import { REPO_URL } from "../lib/siteLinks";
   });
 
   /**
-   * Which tracker's answer the chip is showing, for the one repaint that has no pointer event.
+   * This body's pointer resolver, for the one RE-RESOLVE that has no pointer event behind it.
    *
-   * A BODY HAS EXACTLY ONE POINTER RESOLVER AND THE CHIP IS SHARED, so `closePanel` cannot name the
-   * country one and be right on both planets. It read `hoverTracker` while Earth was the only body
-   * that could open a card; on Mars that tracker answers null everywhere, so closing a card would
-   * have hidden the chip until the pointer moved — the outline still lit, the name gone.
+   * A BODY HAS EXACTLY ONE POINTER RESOLVER AND THE CHROME IS SHARED, so `closePanel` cannot name
+   * the country one and be right on both planets. It read `hoverTracker` while Earth was the only
+   * body that could open a card; on Mars that tracker answers null everywhere, so closing a card
+   * would have hidden the chip until the pointer moved — the outline still lit, the name gone.
+   *
+   * IT USED TO BE CALLED `chipOwner`, and the rename is the point rather than tidying: the chip now
+   * belongs to `activeHighlight`, so a name claiming otherwise would send the next reader to the
+   * wrong owner for the very question it looks like it answers.
    *
    * Defaults to the country tracker and is reassigned by `wireFeatureInteraction`, which is the
    * only other resolver and runs only where the body publishes features.
    */
-  let chipOwner: HoverTracker<Point> = hoverTracker;
+  let activeTracker: HoverTracker<Point> = hoverTracker;
+
+  /**
+   * Which body's decoration the view-bar toggle is switching — the same shape as `activeTracker`,
+   * and for the same reason: a body has exactly one pointer resolver, and the control is shared.
+   *
+   * Defaults to the country one and is reassigned by `wireFeatureInteraction`, which runs only
+   * where the body publishes features. Declared HERE rather than beside the listener below so the
+   * reassignment cannot outrun the declaration — `wireFeatureInteraction` is defined further up
+   * and called later, so a `let` further down would be a temporal-dead-zone throw on Mars only.
+   */
+  let activeHighlight: HoverHighlight = countryHighlight;
+
+  // The layout owns the persisted preference and broadcasts; the globe only paints. A body with no
+  // vector overlay never renders the button, so this listener simply never fires there.
+  document.addEventListener(HIGHLIGHT_EVENT, (event) => {
+    activeHighlight.setEnabled((event as CustomEvent<HighlightChange>).detail.on);
+  });
 
   map.on("mousemove", (event) => hoverTracker.pointerMoved(event.point));
   map.on("mouseout", () => hoverTracker.pointerLeft());
@@ -2333,8 +2367,9 @@ import { REPO_URL } from "../lib/siteLinks";
    * whose gallery link is gone with nothing on screen to explain it. Reading `panel.hidden` and
    * `isOpen()` cannot get that wrong, and costs one boolean per interaction.
    *
-   * IT SAYS NOTHING ABOUT THE CHIP. The chip is unconditional — see `paintChip` — so this class is
-   * only ever about the top-left row yielding its band on a narrow screen.
+   * IT SAYS NOTHING ABOUT THE CHIP, and still does not. The chip answers the pointer and the
+   * highlight switch, and nothing else — no card, no field, no width — so this class is only ever
+   * about the top-left row yielding its band on a narrow screen.
    */
   function reflectBand(): void {
     const occupied = !panel.hidden || (searchPanel?.isOpen() ?? false);
@@ -2408,8 +2443,9 @@ import { REPO_URL } from "../lib/siteLinks";
     // Two calls, because they do different jobs: the fly-to moved the globe while the card was
     // open, so re-resolve first; then repaint unconditionally, because viewChanged() only fires
     // onChange on a CHANGE and the pointer is usually still on the place the card was showing.
-    chipOwner.viewChanged();
-    paintChip(chipOwner.current());
+    // Through the highlight rather than straight at the chip, so a restored name obeys the switch.
+    activeTracker.viewChanged();
+    activeHighlight.relabel();
   }
 
   document.getElementById("detail-close")?.addEventListener("click", closePanel);

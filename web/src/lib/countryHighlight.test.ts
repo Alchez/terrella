@@ -14,6 +14,9 @@ const COUNTRY_HIT_LAYER = requireSourceLayer("earth", "hit");
 import {
   COUNTRIES_SOURCE,
   VECTOR_BINDING,
+  WASH_CLEAR_ZOOM,
+  WASH_FULL_ZOOM,
+  WASH_OPACITY,
   featureStateTargets,
   fillLayer,
   highlightLayers,
@@ -61,6 +64,108 @@ describe("layer wiring — one source, four source-layers", () => {
     const layers = [fillLayer(filter), ...highlightLayers(filter), hitLayer(filter)];
     expect(new Set(layers.map((layer) => layer.source))).toEqual(new Set([COUNTRIES_SOURCE]));
     expect(new Set(layers.map((layer) => layer["source-layer"])).size).toBe(3);
+  });
+});
+
+// --- the wash's zoom fade ----------------------------------------------------------------------
+// READS THE SHIPPED EXPRESSION RATHER THAN RESTATING IT. Everything below goes through this walker,
+// so a curve that no longer has zoom as its top-level input throws here instead of quietly being
+// re-derived from the constants — which is the failure the fade is most likely to take, because
+// MapLibre answers a wrongly-nested `["zoom"]` with an ErrorEvent and no throw at all.
+function washOpacityAt(zoom: number, hovered: boolean): number {
+  const expression = fillLayer(filter).paint?.["fill-opacity"];
+  if (!Array.isArray(expression)) throw new Error("the wash's opacity is no longer an expression");
+  const [operator, interpolation, input, ...stopPairs] = expression as unknown[];
+  if (operator !== "interpolate") {
+    throw new Error(`the zoom curve must be outermost, found \`${String(operator)}\` there`);
+  }
+  if (JSON.stringify(interpolation) !== JSON.stringify(["linear"])) {
+    throw new Error(`unreadable interpolation: ${JSON.stringify(interpolation)}`);
+  }
+  if (JSON.stringify(input) !== JSON.stringify(["zoom"])) {
+    throw new Error(`the curve's input must be ["zoom"], found ${JSON.stringify(input)}`);
+  }
+
+  const stops: [number, unknown][] = [];
+  for (let index = 0; index < stopPairs.length; index += 2) {
+    stops.push([stopPairs[index] as number, stopPairs[index + 1]]);
+  }
+  if (stops.length < 2) throw new Error("a fade needs at least two stops");
+
+  // A stop's output is either a bare number or the hover `case` — anything else means the shape
+  // moved and the reader should fail rather than guess at it.
+  const outputAt = (output: unknown): number => {
+    if (typeof output === "number") return output;
+    if (Array.isArray(output) && output[0] === "case") return (hovered ? output[2] : output[3]) as number;
+    throw new Error(`unreadable stop output: ${JSON.stringify(output)}`);
+  };
+
+  if (zoom <= stops[0][0]) return outputAt(stops[0][1]);
+  const last = stops[stops.length - 1];
+  if (zoom >= last[0]) return outputAt(last[1]);
+  for (let index = 0; index < stops.length - 1; index += 1) {
+    const [lowZoom, lowOutput] = stops[index];
+    const [highZoom, highOutput] = stops[index + 1];
+    if (zoom < lowZoom || zoom > highZoom) continue;
+    const progress = (zoom - lowZoom) / (highZoom - lowZoom);
+    return outputAt(lowOutput) + progress * (outputAt(highOutput) - outputAt(lowOutput));
+  }
+  throw new Error(`no stop pair covers z${zoom}`);
+}
+
+describe("the wash fades out with zoom, and the outline does not", () => {
+  it("holds the ratified strength at every zoom a country still reads as a shape", () => {
+    // 0.16 is the strength that was judged on the globe. It is pinned as a NUMBER rather than
+    // compared against itself, because a suite that only ever checks ratios stays green while the
+    // whole curve is rescaled — every relative assertion below would survive a doubled wash.
+    expect(WASH_OPACITY).toBe(0.16);
+    expect(washOpacityAt(0, true)).toBeCloseTo(WASH_OPACITY, 5);
+    expect(washOpacityAt(3, true)).toBeCloseTo(WASH_OPACITY, 5);
+    expect(washOpacityAt(WASH_FULL_ZOOM, true)).toBeCloseTo(WASH_OPACITY, 5);
+  });
+
+  it("is gone once the viewport is inside one country, and stays gone above that", () => {
+    expect(washOpacityAt(WASH_CLEAR_ZOOM, true)).toBeCloseTo(0, 5);
+    expect(washOpacityAt(8, true)).toBeCloseTo(0, 5);
+  });
+
+  it("still paints in the frame a clicked country lands in", () => {
+    // THE ONE ASSERTION TIED TO SOMETHING OUTSIDE THIS CURVE. `flyToCountry` caps its fit at z6, so
+    // that zoom is where a clicked country is framed and where the wash is most worth having. A
+    // fade that started earlier would pass every other test here and land its own flight on a
+    // country with nothing lit.
+    const FLY_TO_LANDING_CAP = 6;
+    expect(WASH_FULL_ZOOM).toBeLessThan(FLY_TO_LANDING_CAP);
+    expect(WASH_CLEAR_ZOOM).toBeGreaterThan(FLY_TO_LANDING_CAP);
+    expect(washOpacityAt(FLY_TO_LANDING_CAP, true)).toBeGreaterThan(WASH_OPACITY / 2);
+  });
+
+  it("falls monotonically across the fade rather than jumping at its ends", () => {
+    const zooms = [WASH_FULL_ZOOM, 5.9, 6.25, 6.6, WASH_CLEAR_ZOOM];
+    const opacities = zooms.map((zoom) => washOpacityAt(zoom, true));
+    for (let index = 1; index < opacities.length; index += 1) {
+      expect(opacities[index], `z${zooms[index]} against z${zooms[index - 1]}`).toBeLessThan(
+        opacities[index - 1],
+      );
+    }
+  });
+
+  it("paints nothing at all without a hover, at every zoom", () => {
+    for (const zoom of [0, 3, WASH_FULL_ZOOM, 6, WASH_CLEAR_ZOOM, 8]) {
+      expect(washOpacityAt(zoom, false), `z${zoom} un-hovered`).toBe(0);
+    }
+  });
+
+  it("leaves the outline's width untouched, because it never grew in the first place", () => {
+    // The outline is interpolated in SCREEN px, so it cannot swamp anything — the asymmetry is the
+    // whole design, and a future edit that "makes them consistent" would delete the highlight at
+    // exactly the zooms where it is the only thing left saying where the border is.
+    for (const layer of highlightLayers(filter)) {
+      const opacity = layer.paint?.["line-opacity"];
+      expect(Array.isArray(opacity) && opacity[0], layer.id).toBe("case");
+      const width = layer.paint?.["line-width"];
+      expect(Array.isArray(width) && width[0], layer.id).toBe("interpolate");
+    }
   });
 });
 

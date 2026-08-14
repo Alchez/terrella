@@ -3,6 +3,7 @@ import { page } from "vitest/browser";
 
 import "../styles/global.css";
 import { BODIES, type BodySlug } from "./bodies";
+import { hasHoverHighlight } from "./globeSubsystems";
 import type { Country } from "./manifest";
 import baseLayout from "../layouts/Base.astro?raw";
 
@@ -26,6 +27,15 @@ import baseLayout from "../layouts/Base.astro?raw";
  *   - every label is set in `--sans`, a pure system stack, so nothing about this bar changes width
  *     after first paint. The masthead's cliff needed zero slack AND a post-paint change. This has
  *     slack and no trigger.
+ *
+ * THE SAME SYSTEM STACK IS WHY THE MEASUREMENT IS PINNED TO ONE FACE. `system-ui` is not a font, it
+ * is whatever the machine calls its UI font — Noto Sans on the dev box, DejaVu Sans on the CI
+ * runner — and the same commit measured 265.4 px on one and 271.6 px on the other, which is a
+ * guard that passes or fails on where it runs. Across the faces a real visitor can land on, the
+ * spread is 248.3 px (Carlito) to 271.6 px (DejaVu): 24 px, wider than MIN_SLACK_PX itself, so the
+ * floor was never checkable from a single machine. Pinning makes the number reproducible AND
+ * pessimistic — DejaVu is at the wide end, and the faces that actually ship as `system-ui` on
+ * macOS, Windows and Android are all narrower than it.
  *
  * What it does share is the shape that bites: a fixed set of controls sized against a fixed budget,
  * where the next control added is the one that does not fit. The union of every group `Base.astro`
@@ -51,10 +61,34 @@ const TIGHT_MAX_PX = 420;
 const MIN_SLACK_PX = 16;
 
 /**
+ * The face every width here is measured in — see the header for why it is pinned rather than
+ * inherited. Named without a fallback ON PURPOSE: if the box has no DejaVu the text falls back to
+ * the default face and the bar measures narrower, which is a guard quietly grading itself easier.
+ * `fontsResolve` below is what turns that into a failure.
+ */
+const MEASUREMENT_FONT = '"DejaVu Sans"';
+
+/** Width of a fixed string in one family, for deciding whether a face resolved at all. */
+function inkWidth(family: string): number {
+  const ruler = document.createElement("span");
+  ruler.textContent = "Borders Lite Globe Full";
+  ruler.style.cssText = `font-family:${family};font-size:16px;position:absolute;white-space:pre`;
+  document.body.append(ruler);
+  const width = ruler.getBoundingClientRect().width;
+  ruler.remove();
+  return width;
+}
+
+/**
  * Which control groups a page turns on. Parsed from its `<Base …>` tag so the set of measured
  * configurations cannot drift from the set the site ships.
  */
-type BarFlags = { borders: boolean; spotlight: boolean; quality: boolean };
+type BarFlags = {
+  highlight: boolean;
+  borders: boolean;
+  spotlight: boolean;
+  quality: boolean;
+};
 
 /**
  * A flag's answer: fixed at build time, or `"varies"` for one template that renders both ways.
@@ -106,6 +140,17 @@ function resolveFlag(
     }
     return value;
   }
+  // A registry PREDICATE rather than a registry field, because what it asks — does this body
+  // publish a vector overlay — is already answered by `PUBLISHED` and copying it onto the body
+  // descriptor would be that answer written twice. Evaluated here for real, against the same
+  // function the page calls, so this cannot drift from what ships.
+  if (/^hasHoverHighlight\(body\.slug\)$/.test(expression)) {
+    const slug = /\bBODIES\.(\w+)\b/.exec(source)?.[1];
+    if (slug === undefined || !(slug in BODIES)) {
+      throw new Error(`${pageName}: ${flag}={${expression}} on a page that names no body`);
+    }
+    return hasHoverHighlight(slug as BodySlug);
+  }
   const countryField = /^country\.(\w+)$/.exec(expression)?.[1];
   if (countryField !== undefined) {
     if (!(COUNTRY_FLAG_FIELDS as readonly string[]).includes(countryField)) {
@@ -134,9 +179,11 @@ function barFlags(source: string, pageName: string): BarFlags[] {
     return written === undefined ? false : resolveFlag(pageName, flag, written.trim(), source);
   };
   const configurations: BarFlags[] = [];
-  for (const borders of arms(on("borders")))
-    for (const spotlight of arms(on("spotlight")))
-      for (const quality of arms(on("quality"))) configurations.push({ borders, spotlight, quality });
+  for (const highlight of arms(on("highlight")))
+    for (const borders of arms(on("borders")))
+      for (const spotlight of arms(on("spotlight")))
+        for (const quality of arms(on("quality")))
+          configurations.push({ highlight, borders, spotlight, quality });
   return configurations;
 }
 
@@ -156,7 +203,9 @@ const PAGE_SOURCES = import.meta.glob("../pages/**/*.astro", {
 
 /** The groups a configuration turns on, so each measured bar names itself in its own title. */
 const describeFlags = (flags: BarFlags) =>
-  (["borders", "spotlight", "quality"] as const).filter((flag) => flags[flag]).join("+");
+  (["highlight", "borders", "spotlight", "quality"] as const)
+    .filter((flag) => flags[flag])
+    .join("+");
 
 /**
  * Every bar the site ships, one entry per configuration rather than one per page.
@@ -221,6 +270,16 @@ function unionBarMarkup(): string {
   );
 }
 
+/** One sheet's rules. A sheet the runner injected from another origin throws rather than
+ *  reporting empty, and an unreadable sheet is not a missing rule. */
+function rulesOf(sheet: CSSStyleSheet): CSSRule[] {
+  try {
+    return Array.from(sheet.cssRules);
+  } catch {
+    return [];
+  }
+}
+
 const mounted: HTMLElement[] = [];
 
 afterEach(() => {
@@ -230,6 +289,9 @@ afterEach(() => {
 function mountBar(flags: BarFlags) {
   const host = document.createElement("div");
   host.innerHTML = unionBarMarkup();
+  // On the host rather than in the stylesheet: `.view-bar button` takes `font: inherit`, so the
+  // whole subtree resolves from here and the shipped `--sans` is left exactly as it ships.
+  host.style.fontFamily = MEASUREMENT_FONT;
   document.body.append(host);
   mounted.push(host);
 
@@ -239,11 +301,14 @@ function mountBar(flags: BarFlags) {
     const element = host.querySelector<HTMLElement>(selector);
     if (element) element.style.display = "none";
   };
+  if (!flags.highlight) hide("#highlight-toggle");
   if (!flags.borders) hide("#border-toggle");
   if (!flags.spotlight) hide("#spotlight-toggle");
   if (!flags.quality) hide(".quality-fab");
   // Mirrors the layout's own condition for the divider.
-  if (!((flags.borders || flags.spotlight) && flags.quality)) hide(".view-bar-divider");
+  if (!((flags.highlight || flags.borders || flags.spotlight) && flags.quality)) {
+    hide(".view-bar-divider");
+  }
 
   return {
     bar,
@@ -292,6 +357,7 @@ describe("the view bar holds one row at the narrowest width the site serves", ()
     // Every assertion below is satisfied for free by a bar that failed to render or a sheet that
     // failed to load. Prove all four groups survived extraction and the breakpoint is in the CSS.
     const markup = unionBarMarkup();
+    expect(markup).toContain("highlight-toggle");
     expect(markup).toContain("border-toggle");
     expect(markup).toContain("spotlight-toggle");
     expect(markup).toContain("view-bar-divider");
@@ -312,7 +378,7 @@ describe("the view bar holds one row at the narrowest width the site serves", ()
     }
     // And that they are not all the SAME bar — three copies of one configuration would pass
     // everything below while measuring one thing three times.
-    for (const flag of ["borders", "spotlight"] as const) {
+    for (const flag of ["highlight", "borders", "spotlight"] as const) {
       const answers = [...new Set(PAGE_BARS.map((entry) => entry.flags[flag]))].toSorted();
       expect(answers, `every measured page answers ${flag} the same way`).toEqual([false, true]);
     }
@@ -321,14 +387,64 @@ describe("the view bar holds one row at the narrowest width the site serves", ()
     // a tier segment nested INSIDE the 1 px divider, which every width assertion then passed —
     // a narrower bar fits more easily, so the harness's own bug read as a comfortable result.
     // Assert the shape the browser actually built: four groups, all siblings, in source order.
-    const bar = mountBar({ borders: true, spotlight: true, quality: true });
+    const bar = mountBar({ highlight: true, borders: true, spotlight: true, quality: true });
     const children = [...bar.bar.querySelector(".view-bar-items")!.children];
     expect(children.map((child) => child.id || child.className)).toEqual([
+      "highlight-toggle",
       "border-toggle",
       "spotlight-toggle",
       "view-bar-divider",
       "quality-fab",
     ]);
+  });
+
+  /**
+   * The pointer control is not offered where the primary input cannot hover.
+   *
+   * SPLIT IN TWO, because only half of the claim is reachable from here: the browser context fixes
+   * its own hover capability for the whole run, so the CONDITION is read off the shipped sheet
+   * while the DECLARATION is put through the real cascade. The second half is the one with a live
+   * opponent — `.view-bar button.icon-btn` sets `display: inline-flex`, so a hide written as a
+   * class would lose and the control would ship to touch devices regardless, with every other
+   * assertion in this file still green.
+   */
+  it("does not offer the pointer control where the pointer cannot hover", () => {
+    const hides = [...document.styleSheets]
+      .flatMap(rulesOf)
+      .filter((rule) => rule instanceof CSSMediaRule)
+      .filter((rule) => /\(\s*hover\s*:\s*none\s*\)/.test(rule.conditionText))
+      .flatMap((rule) => Array.from(rule.cssRules))
+      .filter((rule) => rule instanceof CSSStyleRule)
+      .filter((rule) => rule.selectorText.includes("highlight-toggle"));
+    expect(hides, "no `hover: none` block hides the highlight toggle").toHaveLength(1);
+    expect(hides[0].style.display).toBe("none");
+
+    const bar = mountBar({ highlight: true, borders: true, spotlight: false, quality: true });
+    const button = bar.bar.querySelector<HTMLElement>("#highlight-toggle")!;
+    // `flex`, not the `inline-flex` the sheet declares: a flex item's display is blockified.
+    expect(getComputedStyle(button).display).toBe("flex");
+    const unconditional = document.createElement("style");
+    unconditional.textContent = hides[0].cssText;
+    document.head.append(unconditional);
+    try {
+      expect(getComputedStyle(button).display, "the hide loses the cascade to .icon-btn").toBe(
+        "none",
+      );
+    } finally {
+      unconditional.remove();
+    }
+  });
+
+  it("is measuring in the face it pins, not in whatever the box fell back to", () => {
+    // `document.fonts.check` is NOT the oracle: asked about a family that does not exist it
+    // answered true, so it cannot tell a resolved face from a fallback. Widths can — an absent
+    // DejaVu renders in the default face, which is what an unresolvable name renders in too.
+    // The one false alarm this cannot distinguish is a box whose DEFAULT face is DejaVu Sans, and
+    // that direction is the safe one: it fails loudly rather than measuring the wrong thing.
+    expect(
+      inkWidth(MEASUREMENT_FONT),
+      `${MEASUREMENT_FONT} did not resolve — every width in this file is a fallback's`,
+    ).not.toBe(inkWidth('"NoSuchFaceZZ"'));
   });
 
   // ONE CASE OVER EVERY CONFIGURATION, not `it.each` over them, and the reason is the harness that
@@ -368,11 +484,11 @@ describe("the view bar holds one row at the narrowest width the site serves", ()
 
   it("can tell a bar that does not fit, so a passing measurement means something", async () => {
     // The positive control, and the record of a real limit: the union of every group Base.astro can
-    // emit needs more than 320 px allows, so no page may turn all three on at once. Nothing does
+    // emit needs more than 320 px allows, so no page may turn all four on at once. Nothing does
     // today — and because the configurations above are read from the pages, the day one does it is
     // measured rather than assumed.
     await page.viewport(NARROWEST_PX, 823);
-    const union = mountBar({ borders: true, spotlight: true, quality: true });
+    const union = mountBar({ highlight: true, borders: true, spotlight: true, quality: true });
     expect(union.required()).toBeGreaterThan(union.allowed());
     expect(union.rows()).toBeGreaterThan(1);
   });

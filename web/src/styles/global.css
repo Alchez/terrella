@@ -203,6 +203,44 @@ a {
   border-radius: 999px;
   cursor: pointer;
   user-select: none;
+  /* PINNED SO AN ICON CAN MATCH IT. Left at the UA's `normal` a text button's height is whatever
+     the font decides — about 1.15 here — while an icon button's is its SVG box, so the two pills
+     came out different heights and the icon's sat visibly proud of the row. Declaring the line box
+     gives `.icon-btn svg` below a number to be sized against, and the match then survives a
+     font-size change instead of being a px value that drifts away from one. */
+  line-height: 1.2;
+}
+/* An icon where the others are words. Square padding, so its pill is a circle rather than a
+   stadium, and the glyph box is exactly the text line box above — same height, by construction. */
+.view-bar button.icon-btn {
+  padding: 0.4rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.view-bar button.icon-btn svg {
+  display: block;
+  width: 1.2em;
+  height: 1.2em;
+}
+/* THE POINTER CONTROL IS NOT OFFERED WHERE THERE IS NO POINTER. A finger cannot rest on a country
+   without selecting it, so on touch the thing this switches is a tap artefact rather than a hover
+   state, and a control named for a pointer is one the device cannot exercise. Rohan's rule: a
+   tablet still SEES the highlight when it selects a country, and that is all it gets.
+
+   `hover` asks about the PRIMARY input, which is the question worth asking — a laptop with a
+   touchscreen keeps the control because its trackpad can hover, and a stylus tablet does not,
+   despite the stylus being a fine pointer. Nothing here changes what is PAINTED: the preference is
+   still honoured, so this hides a switch and never a behaviour.
+
+   The id is load-bearing. `.view-bar button.icon-btn` above sets `display: inline-flex`, so a hide
+   written as a class would lose the cascade and the control would ship to phones regardless — the
+   guard in `viewBar.browser.test.ts` puts this declaration through the real cascade for that
+   reason, since it cannot emulate the condition itself. */
+@media (hover: none) {
+  #highlight-toggle {
+    display: none;
+  }
 }
 .view-bar button:hover {
   color: var(--text);
@@ -232,8 +270,32 @@ a {
 /* Phones: slightly tighter buttons, so the bar stays one row down to 320 px. */
 @media (max-width: 420px) {
   .view-bar button {
-    padding: 0.35rem 0.7rem;
+    padding: 0.35rem 0.6rem;
     font-size: 0.78rem;
+  }
+  /* The row closes up with them, so the reduction is spread over two dimensions rather than taken
+     entirely out of the pills, where it reads as cramped. Of the two the PADDING is what buys the
+     fit and the gap is headroom above it — reverted on its own the gap still clears the floor,
+     which is why only the padding carries a mutation case. Why a few pixels here matter at all —
+     the labels are set in a system stack, so the same bar is a different width on every machine —
+     is measured and owned by `viewBar.browser.test.ts`. */
+  .view-bar-items,
+  .quality-fab {
+    gap: 0.15rem;
+  }
+  /* Load-bearing, not symmetry. `.view-bar button.icon-btn` outweighs `.view-bar button`, so
+     without this the icon keeps its 0.4rem here while the text buttons drop to 0.35rem — and the
+     two button heights diverge again on exactly the widths the tighter rule exists to serve. */
+  .view-bar button.icon-btn {
+    padding: 0.35rem;
+  }
+  /* The divider gives up its side margins, and only here. A fourth control left the globe's bar
+     fitting 320 px with too little room to spare, and this is the 8 px that were being spent
+     twice: the row's own `gap` already separates the divider from what it divides, so the margin
+     was extra distance around the one element that needs none. The VERTICAL margin stays — that
+     is what insets a `stretch`ed 1 px line from the pill's edges, a different job. */
+  .view-bar-divider {
+    margin-inline: 0;
   }
 }
 

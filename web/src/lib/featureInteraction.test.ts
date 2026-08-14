@@ -129,13 +129,19 @@ describe("the page actually wires Mars's pointer", () => {
     expect(GLOBE).not.toMatch(/^\s*import .*from "\.\.\/lib\/featureIndex";$/m);
   });
 
-  it("hands the chip to the tracker that answers on this body", () => {
-    // `closePanel` repaints the chip with no pointer event to go on, so it has to ask the resolver
-    // this body actually uses. Reading the country tracker there leaves a closed Mars card with a
-    // lit outline and no name, until the pointer happens to move.
-    expect(wiringBody()).toContain("chipOwner = featureTracker;");
-    expect(GLOBE).toContain("chipOwner.viewChanged();");
-    expect(GLOBE).toContain("paintChip(chipOwner.current());");
+  it("hands the pointer's chrome to the resolver that answers on this body", () => {
+    // `closePanel` repaints with no pointer event to go on, so it has to ask the things this body
+    // actually uses. Reading the country ones there leaves a closed Mars card with a lit outline
+    // and no name, until the pointer happens to move.
+    //
+    // TWO HANDOVERS NOW, NOT ONE, and they are different objects on purpose: the TRACKER is asked
+    // to re-resolve, and the HIGHLIGHT is asked to repaint the name it owns. A body that swapped
+    // only the tracker would re-resolve correctly and then relabel through Earth's highlight,
+    // which on Mars holds nothing — the same closed-card-with-no-name failure, one layer down.
+    expect(wiringBody()).toContain("activeTracker = featureTracker;");
+    expect(wiringBody()).toContain("activeHighlight = featureHighlight;");
+    expect(GLOBE).toContain("activeTracker.viewChanged();");
+    expect(GLOBE).toContain("activeHighlight.relabel();");
   });
 
   it("suppresses the chip on touch for every body, now that every tap brings a card", () => {

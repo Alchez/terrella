@@ -96,6 +96,31 @@ export const HIGHLIGHT_CASING = "#1c140c";
 const whenHovered: ExpressionSpecification = ["boolean", ["feature-state", "hover"], false];
 
 /**
+ * WHY THE WASH FADES OUT AND THE OUTLINE DOES NOT — the two halves of this highlight fail in
+ * opposite directions, and only one of them needed fixing.
+ *
+ * The outline's width is interpolated in SCREEN pixels, so it never grows; zoom in far enough and
+ * it simply leaves the viewport. The wash is a fill over the whole polygon, so its screen area
+ * grows with zoom without limit, and past the zoom where a country still fits on screen it stops
+ * being a silhouette and becomes a full-screen colour cast over everything — maximum ink for zero
+ * information, exactly where the chip is already naming the country out loud.
+ *
+ * The end zoom is a JUDGEMENT ABOUT WHERE A SHAPE STOPS READING, not a performance limit, and it
+ * is anchored on the framing the site already chose: `flyToCountry` caps at z6, so the wash is
+ * still near full strength in the frame a clicked country lands in, and gone by the time the
+ * viewport is inside one country. Mars needs none of this — its overlay is linework only, with no
+ * wash to fade.
+ *
+ * THE ZOOM CURVE HAS TO BE THE OUTER EXPRESSION. `["zoom"]` may only appear as the input of a
+ * top-level `interpolate` or `step`, so the hover `case` nests INSIDE a stop rather than wrapping
+ * the curve. Written the intuitive way round MapLibre rejects the layer with an ErrorEvent and no
+ * throw — the same silent-failure shape `featureStateTargets` above records.
+ */
+export const WASH_OPACITY = 0.16;
+export const WASH_FULL_ZOOM = 5.5;
+export const WASH_CLEAR_ZOOM = 7;
+
+/**
  * The country VECTOR source — one archive carrying all three layers.
  *
  * Replaces three GeoJSON sources with one, and the reason is the main thread rather than tidiness:
@@ -125,6 +150,13 @@ export function countryTilesSource(tileUrlTemplate: string): VectorSourceSpecifi
 /**
  * The warm silhouette wash over the whole hovered landmass. A FILL over the polygon source —
  * fills never stroke a clipped tile edge, so this one is safe on {@link COUNTRIES_SOURCE}.
+ *
+ * IT IS ALSO THE HIT SURFACE, which is why the fade above takes the opacity to zero and never
+ * touches `visibility`. `countryAt` queries this layer first and falls back to the hit circles
+ * only for geometry too small to point at, so a hidden layer would leave every large country
+ * pickable only near its islands — and it would fail exactly where the fade applies, at the zooms
+ * where the country is the whole screen. `queryRenderedFeatures` does not consult opacity; the
+ * `country-hit` circles have shipped invisible on that same property since they were written.
  */
 export function fillLayer(
   filter: FilterSpecification,
@@ -137,7 +169,15 @@ export function fillLayer(
     filter,
     paint: {
       "fill-color": HIGHLIGHT_GOLD,
-      "fill-opacity": ["case", whenHovered, 0.16, 0],
+      "fill-opacity": [
+        "interpolate",
+        ["linear"],
+        ["zoom"],
+        WASH_FULL_ZOOM,
+        ["case", whenHovered, WASH_OPACITY, 0],
+        WASH_CLEAR_ZOOM,
+        0,
+      ],
     },
   };
 }
