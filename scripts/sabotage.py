@@ -1893,6 +1893,60 @@ SABOTAGES: list[Sabotage] = [
         replacement='export const SPIN_REFERENCE_ZOOM = 4;',
         guard='holds the speed that was actually ratified on screen',
     ),
+    # The wash's zoom fade. The first case is the one the browser test exists for: the object is
+    # still well-formed, every unit assertion could be satisfied by re-deriving it from the
+    # constants, and MapLibre rejects it with an ErrorEvent and no throw — so the layer never
+    # enters the style and country picking dies with it.
+    Sabotage(
+        suite='web',
+        label='the zoom curve is nested inside the hover case, which MapLibre silently rejects',
+        path='web/src/lib/countryHighlight.ts',
+        needle=(
+            '      "fill-opacity": [\n'
+            '        "interpolate",\n'
+            '        ["linear"],\n'
+            '        ["zoom"],\n'
+            '        WASH_FULL_ZOOM,\n'
+            '        ["case", whenHovered, WASH_OPACITY, 0],\n'
+            '        WASH_CLEAR_ZOOM,\n'
+            '        0,\n'
+            '      ],'
+        ),
+        replacement=(
+            '      "fill-opacity": [\n'
+            '        "case",\n'
+            '        whenHovered,\n'
+            '        ["interpolate", ["linear"], ["zoom"], WASH_FULL_ZOOM, WASH_OPACITY,'
+            ' WASH_CLEAR_ZOOM, 0],\n'
+            '        0,\n'
+            '      ],'
+        ),
+        guard='is a spec MapLibre accepts',
+    ),
+    Sabotage(
+        suite='web',
+        label='the ratified wash strength doubles while the curve stays self-consistent',
+        path='web/src/lib/countryHighlight.ts',
+        needle='export const WASH_OPACITY = 0.16;',
+        replacement='export const WASH_OPACITY = 0.32;',
+        guard='holds the ratified strength at every zoom',
+    ),
+    Sabotage(
+        suite='web',
+        label='the fade finishes before the fly-to lands, so a clicked country arrives unlit',
+        path='web/src/lib/countryHighlight.ts',
+        needle='export const WASH_CLEAR_ZOOM = 7;',
+        replacement='export const WASH_CLEAR_ZOOM = 5;',
+        guard='still paints in the frame a clicked country lands in',
+    ),
+    Sabotage(
+        suite='web',
+        label='the fade\'s far stop stops falling, so the wash survives at every zoom',
+        path='web/src/lib/countryHighlight.ts',
+        needle='        WASH_CLEAR_ZOOM,\n        0,\n      ],',
+        replacement='        WASH_CLEAR_ZOOM,\n        WASH_OPACITY,\n      ],',
+        guard='is gone once the viewport is inside one country',
+    ),
     # `title` and `aria-label` come from one writer so they cannot disagree. The button's only
     # content is a decorative masked span, so a wrong `aria-label` leaves it with no accessible
     # name at all — and nothing renders differently.
