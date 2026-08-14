@@ -270,8 +270,18 @@ a {
 /* Phones: slightly tighter buttons, so the bar stays one row down to 320 px. */
 @media (max-width: 420px) {
   .view-bar button {
-    padding: 0.35rem 0.7rem;
+    padding: 0.35rem 0.6rem;
     font-size: 0.78rem;
+  }
+  /* The row closes up with them, so the reduction is spread over two dimensions rather than taken
+     entirely out of the pills, where it reads as cramped. Of the two the PADDING is what buys the
+     fit and the gap is headroom above it — reverted on its own the gap still clears the floor,
+     which is why only the padding carries a mutation case. Why a few pixels here matter at all —
+     the labels are set in a system stack, so the same bar is a different width on every machine —
+     is measured and owned by `viewBar.browser.test.ts`. */
+  .view-bar-items,
+  .quality-fab {
+    gap: 0.15rem;
   }
   /* Load-bearing, not symmetry. `.view-bar button.icon-btn` outweighs `.view-bar button`, so
      without this the icon keeps its 0.4rem here while the text buttons drop to 0.35rem — and the

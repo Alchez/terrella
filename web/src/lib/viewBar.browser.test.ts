@@ -28,6 +28,15 @@ import baseLayout from "../layouts/Base.astro?raw";
  *     after first paint. The masthead's cliff needed zero slack AND a post-paint change. This has
  *     slack and no trigger.
  *
+ * THE SAME SYSTEM STACK IS WHY THE MEASUREMENT IS PINNED TO ONE FACE. `system-ui` is not a font, it
+ * is whatever the machine calls its UI font — Noto Sans on the dev box, DejaVu Sans on the CI
+ * runner — and the same commit measured 265.4 px on one and 271.6 px on the other, which is a
+ * guard that passes or fails on where it runs. Across the faces a real visitor can land on, the
+ * spread is 248.3 px (Carlito) to 271.6 px (DejaVu): 24 px, wider than MIN_SLACK_PX itself, so the
+ * floor was never checkable from a single machine. Pinning makes the number reproducible AND
+ * pessimistic — DejaVu is at the wide end, and the faces that actually ship as `system-ui` on
+ * macOS, Windows and Android are all narrower than it.
+ *
  * What it does share is the shape that bites: a fixed set of controls sized against a fixed budget,
  * where the next control added is the one that does not fit. The union of every group `Base.astro`
  * can emit already does not fit at 320 px — see the control at the bottom of this file — so the
@@ -50,6 +59,25 @@ const TIGHT_MAX_PX = 420;
 
 /** Room the bar must still have spare at 320 px once it has laid out on one row. */
 const MIN_SLACK_PX = 16;
+
+/**
+ * The face every width here is measured in — see the header for why it is pinned rather than
+ * inherited. Named without a fallback ON PURPOSE: if the box has no DejaVu the text falls back to
+ * the default face and the bar measures narrower, which is a guard quietly grading itself easier.
+ * `fontsResolve` below is what turns that into a failure.
+ */
+const MEASUREMENT_FONT = '"DejaVu Sans"';
+
+/** Width of a fixed string in one family, for deciding whether a face resolved at all. */
+function inkWidth(family: string): number {
+  const ruler = document.createElement("span");
+  ruler.textContent = "Borders Lite Globe Full";
+  ruler.style.cssText = `font-family:${family};font-size:16px;position:absolute;white-space:pre`;
+  document.body.append(ruler);
+  const width = ruler.getBoundingClientRect().width;
+  ruler.remove();
+  return width;
+}
 
 /**
  * Which control groups a page turns on. Parsed from its `<Base …>` tag so the set of measured
@@ -261,6 +289,9 @@ afterEach(() => {
 function mountBar(flags: BarFlags) {
   const host = document.createElement("div");
   host.innerHTML = unionBarMarkup();
+  // On the host rather than in the stylesheet: `.view-bar button` takes `font: inherit`, so the
+  // whole subtree resolves from here and the shipped `--sans` is left exactly as it ships.
+  host.style.fontFamily = MEASUREMENT_FONT;
   document.body.append(host);
   mounted.push(host);
 
@@ -402,6 +433,18 @@ describe("the view bar holds one row at the narrowest width the site serves", ()
     } finally {
       unconditional.remove();
     }
+  });
+
+  it("is measuring in the face it pins, not in whatever the box fell back to", () => {
+    // `document.fonts.check` is NOT the oracle: asked about a family that does not exist it
+    // answered true, so it cannot tell a resolved face from a fallback. Widths can — an absent
+    // DejaVu renders in the default face, which is what an unresolvable name renders in too.
+    // The one false alarm this cannot distinguish is a box whose DEFAULT face is DejaVu Sans, and
+    // that direction is the safe one: it fails loudly rather than measuring the wrong thing.
+    expect(
+      inkWidth(MEASUREMENT_FONT),
+      `${MEASUREMENT_FONT} did not resolve — every width in this file is a fallback's`,
+    ).not.toBe(inkWidth('"NoSuchFaceZZ"'));
   });
 
   // ONE CASE OVER EVERY CONFIGURATION, not `it.each` over them, and the reason is the harness that

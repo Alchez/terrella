@@ -2012,6 +2012,16 @@ SABOTAGES: list[Sabotage] = [
         replacement='  .view-bar-divider {\n    margin-inline: 0.25rem;\n  }',
         guard='fits on one row at 320px, on every bar the site ships',
     ),
+    # The pills give back 1.6px a side at phone widths, and that is the half of the tightening the
+    # floor actually rests on — the gap beside it is headroom and clears 320px without this.
+    Sabotage(
+        suite='web',
+        label='the phone pills take their padding back, and the globe bar runs out of room',
+        path='web/src/styles/global.css',
+        needle='    padding: 0.35rem 0.6rem;\n    font-size: 0.78rem;',
+        replacement='    padding: 0.35rem 0.7rem;\n    font-size: 0.78rem;',
+        guard='fits on one row at 320px, on every bar the site ships',
+    ),
     # Two ways the touch hide dies, and they fail in different halves of one guard: the rule can
     # stop naming the control, or it can keep naming it and lose the cascade. Neither renders
     # differently on a hover-capable box, which is every box the suite runs on.
@@ -2397,7 +2407,7 @@ SABOTAGES: list[Sabotage] = [
         path='web/src/styles/global.css',
         # Qualified by the selector: the body switcher takes the same tightening, so the two
         # declarations alone stopped naming one rule the day it arrived.
-        needle='  .view-bar button {\n    padding: 0.35rem 0.7rem;\n    font-size: 0.78rem;',
+        needle='  .view-bar button {\n    padding: 0.35rem 0.6rem;\n    font-size: 0.78rem;',
         replacement='  .view-bar button {\n    padding: 0.4rem 0.85rem;\n    font-size: 0.82rem;',
         guard='keeps the tighter phone padding, which is what buys the fit',
     ),
