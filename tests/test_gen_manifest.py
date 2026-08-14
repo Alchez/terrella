@@ -294,8 +294,15 @@ class TestTheAliasesActuallyShipped:
             f"already emitted from SEARCH_FIELDS, so `also` would be a second home: {offenders}"
         )
 
-    def test_every_aliased_slug_is_a_country_that_exists(self):
-        """A typo'd slug is silent: the table parses, validates, and reaches no country at all."""
+    def test_every_aliased_slug_is_a_country_that_exists(self, records):
+        """A typo'd slug is silent: the table parses, validates, and reaches no country at all.
+
+        `records` is unused and is the SKIP GATE. This class's docstring claimed both tests skip
+        without the shapefile and only the sibling did, because a skip comes from requesting the
+        fixture rather than from saying so — so on a clean checkout this called `load_ne_rows`,
+        which `sys.exit`s, and CI went red on a machine that simply has no Natural Earth.
+        """
+        assert records is not None
         from pipeline.frame.country_config import build_scope, load_config, load_ne_rows
         cfg = load_config()
         _sf, rows = load_ne_rows()
