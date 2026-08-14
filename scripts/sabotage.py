@@ -1947,6 +1947,71 @@ SABOTAGES: list[Sabotage] = [
         replacement='        WASH_CLEAR_ZOOM,\n        WASH_OPACITY,\n      ],',
         guard='is gone once the viewport is inside one country',
     ),
+    # The highlight toggle. Its default is ON, which is the opposite of every other view-bar
+    # toggle, so the first two cases are the same mistake reached from two files — read the key
+    # Borders' way, or ship the markup in Borders' state — and each is invisible on its own.
+    Sabotage(
+        suite='web',
+        label='the highlight key is read the way an opt-in overlay is, so the default flips off',
+        path='web/src/lib/highlightPreference.ts',
+        needle='return storage.getItem(HIGHLIGHT_KEY) !== "0";',
+        replacement='return storage.getItem(HIGHLIGHT_KEY) === "1";',
+        guard='is on for a visitor who has never touched it',
+    ),
+    Sabotage(
+        suite='web',
+        label='the button renders unpressed while the globe is already highlighting',
+        path='web/src/layouts/Base.astro',
+        needle=(
+            '              id="highlight-toggle"\n'
+            '              class="icon-btn"\n'
+            '              aria-pressed="true"'
+        ),
+        replacement=(
+            '              id="highlight-toggle"\n'
+            '              class="icon-btn"\n'
+            '              aria-pressed="false"'
+        ),
+        guard='ships the button already pressed',
+    ),
+    # The two transitions no pointer event produces. Both leave the globe looking like the button
+    # did nothing, and both are green under every test that only drives the pointer.
+    Sabotage(
+        suite='web',
+        label='the switch stops repainting the feature the pointer is parked on',
+        path='web/src/lib/hoverHighlight.ts',
+        needle='      if (litId !== null) writeAll(litId, next);',
+        replacement='      if (false && litId !== null) writeAll(litId, next);',
+        guard='clears the parked feature the moment it goes off',
+    ),
+    Sabotage(
+        suite='web',
+        label='the chip stops answering the switch, leaving a name over unlit ground',
+        path='web/src/lib/hoverHighlight.ts',
+        needle='  const relabel = () => label(enabled ? litId : null);',
+        replacement='  const relabel = () => label(litId);',
+        guard='writes nothing at all and names nothing',
+    ),
+    # Mars wires its own highlight late. Handing over the tracker and not the highlight leaves the
+    # second body re-resolving correctly and then relabelling through Earth's, which holds nothing.
+    Sabotage(
+        suite='web',
+        label='the second body keeps the first body\'s highlight',
+        path='web/src/components/Globe.astro',
+        needle='    activeHighlight = featureHighlight;',
+        replacement='    void featureHighlight;',
+        guard='hands the pointer\'s chrome to the resolver that answers on this body',
+    ),
+    # The 8px the fourth control needed. A margin looks like spacing taste until it is the
+    # difference between one row and two at the narrowest width the site serves.
+    Sabotage(
+        suite='web',
+        label='the divider takes its side margins back, and the globe bar runs out of room',
+        path='web/src/styles/global.css',
+        needle='  .view-bar-divider {\n    margin-inline: 0;\n  }',
+        replacement='  .view-bar-divider {\n    margin-inline: 0.25rem;\n  }',
+        guard='fits on one row at 320px, on every bar the site ships',
+    ),
     # `title` and `aria-label` come from one writer so they cannot disagree. The button's only
     # content is a decorative masked span, so a wrong `aria-label` leaves it with no accessible
     # name at all — and nothing renders differently.
@@ -4770,14 +4835,14 @@ SABOTAGES: list[Sabotage] = [
     ),
     Sabotage(
         suite='web',
-        # The chip goes back to asking the country tracker, which on Mars answers null everywhere. A
-        # closed card leaves the outline lit under the pointer and the name gone, until something
-        # moves. Nothing throws and the card itself is perfect.
+        # The re-resolve goes back to asking the country tracker, which on Mars answers null
+        # everywhere. A closed card leaves the outline lit under the pointer and the name gone,
+        # until something moves. Nothing throws and the card itself is perfect.
         label='closing a Mars card leaves its feature lit and unnamed',
         path='web/src/components/Globe.astro',
-        needle='    chipOwner = featureTracker;',
-        replacement='    // the chip keeps its default owner',
-        guard='hands the chip to the tracker that answers on this body',
+        needle='    activeTracker = featureTracker;',
+        replacement='    // the re-resolve keeps its default owner',
+        guard='hands the pointer\'s chrome to the resolver that answers on this body',
     ),
     Sabotage(
         suite='web',

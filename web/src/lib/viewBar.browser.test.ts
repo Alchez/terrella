@@ -3,6 +3,7 @@ import { page } from "vitest/browser";
 
 import "../styles/global.css";
 import { BODIES, type BodySlug } from "./bodies";
+import { hasHoverHighlight } from "./globeSubsystems";
 import type { Country } from "./manifest";
 import baseLayout from "../layouts/Base.astro?raw";
 
@@ -54,7 +55,12 @@ const MIN_SLACK_PX = 16;
  * Which control groups a page turns on. Parsed from its `<Base …>` tag so the set of measured
  * configurations cannot drift from the set the site ships.
  */
-type BarFlags = { borders: boolean; spotlight: boolean; quality: boolean };
+type BarFlags = {
+  highlight: boolean;
+  borders: boolean;
+  spotlight: boolean;
+  quality: boolean;
+};
 
 /**
  * A flag's answer: fixed at build time, or `"varies"` for one template that renders both ways.
@@ -106,6 +112,17 @@ function resolveFlag(
     }
     return value;
   }
+  // A registry PREDICATE rather than a registry field, because what it asks — does this body
+  // publish a vector overlay — is already answered by `PUBLISHED` and copying it onto the body
+  // descriptor would be that answer written twice. Evaluated here for real, against the same
+  // function the page calls, so this cannot drift from what ships.
+  if (/^hasHoverHighlight\(body\.slug\)$/.test(expression)) {
+    const slug = /\bBODIES\.(\w+)\b/.exec(source)?.[1];
+    if (slug === undefined || !(slug in BODIES)) {
+      throw new Error(`${pageName}: ${flag}={${expression}} on a page that names no body`);
+    }
+    return hasHoverHighlight(slug as BodySlug);
+  }
   const countryField = /^country\.(\w+)$/.exec(expression)?.[1];
   if (countryField !== undefined) {
     if (!(COUNTRY_FLAG_FIELDS as readonly string[]).includes(countryField)) {
@@ -134,9 +151,11 @@ function barFlags(source: string, pageName: string): BarFlags[] {
     return written === undefined ? false : resolveFlag(pageName, flag, written.trim(), source);
   };
   const configurations: BarFlags[] = [];
-  for (const borders of arms(on("borders")))
-    for (const spotlight of arms(on("spotlight")))
-      for (const quality of arms(on("quality"))) configurations.push({ borders, spotlight, quality });
+  for (const highlight of arms(on("highlight")))
+    for (const borders of arms(on("borders")))
+      for (const spotlight of arms(on("spotlight")))
+        for (const quality of arms(on("quality")))
+          configurations.push({ highlight, borders, spotlight, quality });
   return configurations;
 }
 
@@ -156,7 +175,9 @@ const PAGE_SOURCES = import.meta.glob("../pages/**/*.astro", {
 
 /** The groups a configuration turns on, so each measured bar names itself in its own title. */
 const describeFlags = (flags: BarFlags) =>
-  (["borders", "spotlight", "quality"] as const).filter((flag) => flags[flag]).join("+");
+  (["highlight", "borders", "spotlight", "quality"] as const)
+    .filter((flag) => flags[flag])
+    .join("+");
 
 /**
  * Every bar the site ships, one entry per configuration rather than one per page.
@@ -239,11 +260,14 @@ function mountBar(flags: BarFlags) {
     const element = host.querySelector<HTMLElement>(selector);
     if (element) element.style.display = "none";
   };
+  if (!flags.highlight) hide("#highlight-toggle");
   if (!flags.borders) hide("#border-toggle");
   if (!flags.spotlight) hide("#spotlight-toggle");
   if (!flags.quality) hide(".quality-fab");
   // Mirrors the layout's own condition for the divider.
-  if (!((flags.borders || flags.spotlight) && flags.quality)) hide(".view-bar-divider");
+  if (!((flags.highlight || flags.borders || flags.spotlight) && flags.quality)) {
+    hide(".view-bar-divider");
+  }
 
   return {
     bar,
@@ -292,6 +316,7 @@ describe("the view bar holds one row at the narrowest width the site serves", ()
     // Every assertion below is satisfied for free by a bar that failed to render or a sheet that
     // failed to load. Prove all four groups survived extraction and the breakpoint is in the CSS.
     const markup = unionBarMarkup();
+    expect(markup).toContain("highlight-toggle");
     expect(markup).toContain("border-toggle");
     expect(markup).toContain("spotlight-toggle");
     expect(markup).toContain("view-bar-divider");
@@ -312,7 +337,7 @@ describe("the view bar holds one row at the narrowest width the site serves", ()
     }
     // And that they are not all the SAME bar — three copies of one configuration would pass
     // everything below while measuring one thing three times.
-    for (const flag of ["borders", "spotlight"] as const) {
+    for (const flag of ["highlight", "borders", "spotlight"] as const) {
       const answers = [...new Set(PAGE_BARS.map((entry) => entry.flags[flag]))].toSorted();
       expect(answers, `every measured page answers ${flag} the same way`).toEqual([false, true]);
     }
@@ -321,9 +346,10 @@ describe("the view bar holds one row at the narrowest width the site serves", ()
     // a tier segment nested INSIDE the 1 px divider, which every width assertion then passed —
     // a narrower bar fits more easily, so the harness's own bug read as a comfortable result.
     // Assert the shape the browser actually built: four groups, all siblings, in source order.
-    const bar = mountBar({ borders: true, spotlight: true, quality: true });
+    const bar = mountBar({ highlight: true, borders: true, spotlight: true, quality: true });
     const children = [...bar.bar.querySelector(".view-bar-items")!.children];
     expect(children.map((child) => child.id || child.className)).toEqual([
+      "highlight-toggle",
       "border-toggle",
       "spotlight-toggle",
       "view-bar-divider",
@@ -368,11 +394,11 @@ describe("the view bar holds one row at the narrowest width the site serves", ()
 
   it("can tell a bar that does not fit, so a passing measurement means something", async () => {
     // The positive control, and the record of a real limit: the union of every group Base.astro can
-    // emit needs more than 320 px allows, so no page may turn all three on at once. Nothing does
+    // emit needs more than 320 px allows, so no page may turn all four on at once. Nothing does
     // today — and because the configurations above are read from the pages, the day one does it is
     // measured rather than assumed.
     await page.viewport(NARROWEST_PX, 823);
-    const union = mountBar({ borders: true, spotlight: true, quality: true });
+    const union = mountBar({ highlight: true, borders: true, spotlight: true, quality: true });
     expect(union.required()).toBeGreaterThan(union.allowed());
     expect(union.rows()).toBeGreaterThan(1);
   });

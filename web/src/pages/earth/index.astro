@@ -5,6 +5,7 @@ import Base from "../../layouts/Base.astro";
 import Globe from "../../components/Globe.astro";
 import MapStylesheet from "../../components/MapStylesheet.astro";
 import { BODIES } from "../../lib/bodies";
+import { hasHoverHighlight } from "../../lib/globeSubsystems";
 
 // The chrome this route wears, taken from the registry rather than written as literals.
 //
@@ -24,6 +25,7 @@ const body = BODIES.earth;
   description="An interactive globe of ray-traced relief, every country."
   body={body.slug}
   borders={body.hasBorders}
+  highlight={hasHoverHighlight(body.slug)}
   quality={true}
   pageRole="globe"
 >

@@ -10,6 +10,12 @@ interface Props {
   borders?: boolean;
   spotlight?: boolean;
   quality?: boolean;
+  /** The cursor button that switches the hover highlight off — see `highlightPreference.ts`.
+   *
+   *  From the registry rather than from being a globe page, for the reason `borders` is: the paint
+   *  it governs hangs off a body's vector overlay, so a body publishing none would get a control
+   *  that toggles nothing. `hasHoverHighlight` is the one place that condition is written. */
+  highlight?: boolean;
   /** Which body this page is dressed in — see `lib/bodies.ts`.
    *
    *  REQUIRED, WITH NO DEFAULT, and `astro check` is what enforces it: a page that omitted it
@@ -48,6 +54,7 @@ const {
   borders = false,
   spotlight = false,
   quality = false,
+  highlight = false,
   body,
   pageRole,
 } = Astro.props;
@@ -236,7 +243,7 @@ const routes = bodyRoutes(body);
          globe's top-right rail holds where you are looking FROM. Anything that moves or frames
          the camera goes in the rail (see railControls.ts) — putting it here would sort controls
          by which layer built them rather than by what they do. */
-      (borders || spotlight || quality) && (
+      (highlight || borders || spotlight || quality) && (
         // DO NOT ADD A PHONE COLLAPSE. The controls measure 229.7 px and the bar is allowed
         // 281.6 px at 320 px, so they sit on one row at every width the site serves — and a
         // trigger costs more than it saves: adding one back puts 320 px onto two rows, because
@@ -244,6 +251,37 @@ const routes = bodyRoutes(body);
         //
         <div class="view-bar">
           <div class="view-bar-items" id="view-bar-items" role="group" aria-label="View options">
+          {/* FIRST IN THE ROW, and an icon where its neighbours are words. Both were Rohan's calls,
+              judged on a preview of the real pill. The icon is also what makes a fourth control
+              affordable at 320px, where a label would have spent the row's remaining space.
+
+              THE GLYPH IS INLINE SVG ON `currentColor`, not the rail's CSS-mask idiom. The rail
+              masks because MapLibre owns those buttons and hands us only a span; we own this
+              markup, so the pressed state's colour comes free from the same rule that recolours
+              the text buttons. Filled rather than stroked because everything beside it is text —
+              solid ink — and an outline glyph reads lighter than its own row. */}
+          {highlight && (
+            <button
+              type="button"
+              id="highlight-toggle"
+              class="icon-btn"
+              aria-pressed="true"
+              aria-label="Highlight what the pointer is on"
+              title="Highlight what the pointer is on"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                fill="currentColor"
+                stroke="currentColor"
+                stroke-width="1.3"
+                stroke-linejoin="round"
+                aria-hidden="true"
+                focusable="false"
+              >
+                <path d="M5.4 5.2 11.1 18.8 13 13.3 18.6 11.3Z" />
+              </svg>
+            </button>
+          )}
           {borders && (
             <button type="button" id="border-toggle" aria-pressed="false" title="Country borders">
               Borders
@@ -259,7 +297,9 @@ const routes = bodyRoutes(body);
               Focus
             </button>
           )}
-          {(borders || spotlight) && quality && <span class="view-bar-divider" aria-hidden="true" />}
+          {(highlight || borders || spotlight) && quality && (
+            <span class="view-bar-divider" aria-hidden="true" />
+          )}
           {/* Tooltips describe what each tier DOES TODAY, not what the architecture plans for it.
               `currentTier()` has exactly one behavioural read in the whole site — earth.astro's
               `spinning` — so Full currently buys idle rotation and nothing else. Saying "3D
@@ -296,6 +336,39 @@ const routes = bodyRoutes(body);
 </html>
 
 <script>
+  // The hover-highlight toggle. Same split as Borders below — the layout owns the persisted state
+  // and broadcasts, the globe reacts to the event rather than to the click — but the key, the
+  // default and the event name come from `highlightPreference.ts` instead of being spelled here,
+  // because the globe has to read the same three and Borders' way of doing that is two copies.
+  //
+  // NO BODY CLASS. Borders and Focus toggle one because CSS on the hero pages styles against them;
+  // this one has no CSS to drive, and a class nothing reads is a second source of truth waiting
+  // for someone to start believing it.
+  import {
+    HIGHLIGHT_EVENT,
+    HIGHLIGHT_KEY,
+    highlightEnabled,
+    highlightStorageValue,
+    type HighlightChange,
+  } from "../lib/highlightPreference";
+
+  const highlightButton = document.getElementById("highlight-toggle") as HTMLButtonElement | null;
+  if (highlightButton) {
+    const applyHighlightState = (on: boolean) => {
+      highlightButton.setAttribute("aria-pressed", String(on));
+    };
+    // The markup ships `aria-pressed="true"` because the default is ON, so a visitor who never
+    // touched it sees the right state before this runs. This call is what corrects the one who did.
+    applyHighlightState(highlightEnabled());
+    highlightButton.addEventListener("click", () => {
+      const on = highlightButton.getAttribute("aria-pressed") !== "true";
+      applyHighlightState(on);
+      localStorage.setItem(HIGHLIGHT_KEY, highlightStorageValue(on));
+      const detail: HighlightChange = { on };
+      document.dispatchEvent(new CustomEvent(HIGHLIGHT_EVENT, { detail }));
+    });
+  }
+
   // Shared border toggle — the floating control lives in the layout so it's
   // always reachable, and its state persists across gallery <-> detail nav.
   // Off by default: borders are an opt-in overlay, so a fresh visitor gets the
