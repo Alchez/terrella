@@ -21,6 +21,12 @@
 #   sky_view_strength  hero AO burn strength (0..1) — overrides [defaults]
 #   resolution_floor_m hero heightfield detail floor (m) — overrides [defaults];
 #                      set 0 to exempt a country from the floor
+#   also           further spellings the site's search should answer to, matched
+#                  and never shown. For names Natural Earth does not publish in
+#                  any of its 168 columns — a former name, or a part standing in
+#                  for the whole. Anything NE does publish belongs in
+#                  gen_manifest.SEARCH_FIELDS instead, where it stays current
+#                  for free; this list is authored and nothing refreshes it.
 #   notes          free text: why the override exists
 #
 # Frame pins are a separate mechanism: a committed config/frames/<slug>.json
@@ -130,7 +136,8 @@ notes = "Metropole incl. Corsica; whole bbox is 118x72 deg (reaches French Guian
 
 [countries.netherlands]
 frame = [3.1, 50.5, 7.4, 53.8]
-notes = "European Netherlands; whole bbox reaches the Caribbean municipalities (Bonaire, Saba, Sint Eustatius)."
+also = ["Holland"]
+notes = "European Netherlands; whole bbox reaches the Caribbean municipalities (Bonaire, Saba, Sint Eustatius). `also` lives here rather than with the other aliases because a slug gets ONE table."
 
 [countries.norway]
 frame = [3.3, 56.6, 32.4, 72.5]
@@ -174,3 +181,38 @@ notes = "DEFERRED special-case (2026-07-09): genuinely split across 180 - Gilber
 
 [countries.greenland]
 notes = "WorldCover stops at 82.75N; the northern tip has no snow mask. Decide fallback (treat as snow via GLO-30 WBM? plain ramp?) when Greenland's data is acquired."
+
+# ---- search aliases. Names a visitor types that Natural Earth publishes nowhere,
+# ---- verified against all 168 of its columns: every entry here was measured
+# ---- returning NOTHING, and every name that IS in a column was left to
+# ---- gen_manifest.SEARCH_FIELDS instead. Matched, never shown — the row on
+# ---- screen still reads the country's current name.
+
+[countries.myanmar]
+also = ["Burma"]
+
+[countries.iran]
+also = ["Persia"]
+
+[countries.srilanka]
+also = ["Ceylon"]
+
+[countries.thailand]
+also = ["Siam"]
+
+[countries.democraticrepublicofthecongo]
+also = ["Zaire"]
+
+[countries.zimbabwe]
+also = ["Rhodesia"]
+
+[countries.turkey]
+also = ["Türkiye"]
+notes = "Türkiye is the CURRENT official name, not a former one; NE's only home for it is NAME_TR, the Turkish-language column."
+
+[countries.taiwan]
+also = ["Formosa"]
+
+[countries.unitedkingdom]
+also = ["England"]
+notes = "A part standing in for the whole: England is not the UK, but there is no England to offer and 'britain' already answers via the formal name. Scotland and Wales are the same shape and deliberately not added yet."

@@ -110,4 +110,4 @@ omit = [
 [tool.coverage.report]
 show_missing = true
 skip_covered = true
-fail_under = 30  # the 2026-07-23 CI-visible baseline (30.94%), floored — ratchet up, never down
+fail_under = 50  # the 2026-08-14 CI-visible baseline (53.78%), floored — ratchet up, never down

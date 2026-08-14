@@ -8,7 +8,9 @@ import {
   PANEL_BESIDE_MIN_WIDTH_PX,
   PANEL_CLEARANCE_PX,
   countryPanelContent,
+  countrySearchEntry,
   featurePanelContent,
+  featureSearchEntry,
   featureTypeLabel,
   formatFeatureDiameter,
   heroSrcset,
@@ -21,6 +23,9 @@ import type { Country } from "./manifest";
 
 const WEB_ROOT = new URL("../../", import.meta.url).pathname;
 const GLOBE = readFileSync(`${WEB_ROOT}src/components/Globe.astro`, "utf8");
+const PANEL_SOURCE = readFileSync(new URL("./detailPanel.ts", import.meta.url).pathname, "utf8");
+/** The globe's GLOBAL rules, for the one breakpoint the card shares with the band. */
+const GLOBE_CSS = readFileSync(`${WEB_ROOT}src/styles/globe.css`, "utf8");
 
 /** A rendered landscape country, with every field the builder reads populated. */
 function country(overrides: Partial<Country> = {}): Country {
@@ -28,6 +33,7 @@ function country(overrides: Partial<Country> = {}): Country {
     slug: "chile",
     name: "Chile",
     continent: "South America",
+    searchTerms: ["Republic of Chile", "Chile.", "CL", "CHL"],
     bbox: [-75.6, -55.9, -66.4, -17.5],
     aspect: 0.5,
     sizes: [640, 1920, 3840],
@@ -104,6 +110,93 @@ describe("a country becomes card content", () => {
     const content = countryPanelContent(country({ sizes: [], native: null, rendered: false }));
     expect(content.figure).toBeNull();
     expect(JSON.stringify(content)).not.toContain("undefined.webp");
+  });
+});
+
+describe("the card's box is capped where there is no room for a country's own shape", () => {
+  /** The card's narrow block, sliced so a rule from some other breakpoint cannot satisfy this. */
+  function narrowCardRules(): string {
+    const start = GLOBE.indexOf("  @media (max-width: 40rem) {\n    .dp-figure {");
+    expect(start, "the card has no narrow block — a tall hero is unbounded on a phone").toBeGreaterThan(-1);
+    return GLOBE.slice(start, GLOBE.indexOf("\n  }", GLOBE.indexOf("\n    }", start)));
+  }
+
+  it("caps the figure by HEIGHT, which is the only lever an inline aspect yields to", () => {
+    // `openPanel` writes `aspect-ratio` inline from the manifest, so a stylesheet cannot restate the
+    // ratio without `!important`. Capping the height lets the inline ratio yield on its own — and a
+    // rule that reached for `aspect-ratio` here would lose silently and look like a cascade bug.
+    expect(narrowCardRules()).toMatch(/max-height:\s*40vh;/);
+    expect(narrowCardRules(), "an aspect here loses to the inline one and does nothing").not.toContain(
+      "aspect-ratio",
+    );
+  });
+
+  it("overrides the fit through the SAME selector the base rule uses, or it silently loses", () => {
+    // THIS IS THE VERSION THAT WORKS, AND THE FIRST ONE DID NOT. Written as `.dp-hero, .dp-border`
+    // the rule is specificity (0,1,0) against the base `.dp-figure img`'s (0,1,1), so the cap
+    // applied and the images went on cropping — a card that is bounded and still cuts the country
+    // in half. Every property this test named was present in the source the whole time; only a
+    // computed style on a real page could tell, and that is what caught it.
+    //
+    // So the assertion is about the SELECTOR, not the property: matching the base rule exactly is
+    // what puts source order in charge, and source order is something a reader can check.
+    expect(narrowCardRules()).toMatch(/\.dp-figure img \{\s*\n\s*object-fit: contain;/);
+    expect(narrowCardRules(), "a bare class here is outranked by `.dp-figure img` and does nothing")
+      .not.toMatch(/^\s*\.dp-(hero|border)[ ,{]/m);
+  });
+
+  it("caps it only where the card has stopped being something to frame around", () => {
+    // A stylesheet cannot import a constant, so 40rem and PANEL_BESIDE_MIN_WIDTH_PX are one fact in
+    // two languages — this is the copy made executable. Same breakpoint as the band's own rules in
+    // globe.css, deliberately: below it the card is full-bleed, which is the whole reason to cap.
+    expect(PANEL_BESIDE_MIN_WIDTH_PX / 16).toBe(40);
+    expect(GLOBE_CSS, "globe.css writes the band's narrow rules at a different width").toContain(
+      "@media (max-width: 40rem)",
+    );
+  });
+});
+
+describe("a country becomes a search row", () => {
+  it("writes one summary for the eyebrow and the search row", () => {
+    // The duplicate this exists to stop is the one the box already shipped once on Mars: two
+    // readers composing the same sentence, correct on the day and free to drift after it.
+    //
+    // THE COUNTRY WITH NO CONTINENT IS WHAT MAKES THIS BITE, and the first version of this test had
+    // a real one and asserted nothing: `countrySummary(c)` and `c.continent` agree on every input a
+    // populated manifest can produce, so the mutation that inlines the field passed. They diverge in
+    // exactly one place — the unchecked cast in `manifest.ts`, where a missing field arrives as
+    // `undefined` through a type saying `string` and reaches the card as the word "undefined".
+    const chile = country();
+    expect(countrySearchEntry(chile).descriptor).toBe(countryPanelContent(chile).eyebrow);
+    const unplaced = country({ continent: undefined as unknown as string });
+    expect(countrySearchEntry(unplaced).descriptor).toBe("");
+    expect(countryPanelContent(unplaced).eyebrow).toBe("");
+  });
+
+  it("shows no second spelling, because the alternatives are codes rather than names", () => {
+    // `alias` is SHOWN. Natural Earth's alternatives are ISO codes and formal titles, which belong
+    // in `terms` — matched without being read back at someone beside a name they already repeat.
+    expect(countrySearchEntry(country()).alias).toBeNull();
+  });
+
+  it("makes the continent both the descriptor and a term, which no other field is", () => {
+    const entry = countrySearchEntry(country({ continent: "Africa", searchTerms: ["KE"] }));
+    expect(entry.descriptor).toBe("Africa");
+    expect(entry.terms).toContain("Africa");
+    expect(entry.terms).toContain("KE");
+  });
+
+  it("ranks by name rather than inventing a prominence Earth does not publish", () => {
+    // Mars ranks by diameter because a one-letter query slices 1,919 features down to 8. Earth's
+    // 203 against that same cap is a real page of a short list, so `null` takes name order — and a
+    // proxy invented to fill this field (area, population) would be a claim the manifest never made.
+    expect(countrySearchEntry(country()).weight).toBeNull();
+  });
+
+  it("carries every manifest term through, so a column added upstream is typeable at once", () => {
+    const terms = ["Republic of Kenya", "KE", "KEN"];
+    const entry = countrySearchEntry(country({ continent: "Africa", searchTerms: terms }));
+    expect(entry.terms).toEqual([...terms, "Africa"]);
   });
 });
 
@@ -320,5 +413,50 @@ describe("the camera and the card agree about how much room the card takes", () 
     // silent because the camera still reports arriving exactly where it was asked to.
     expect(PANEL_CLEARANCE_PX / 2).toBeLessThan(PANEL_BESIDE_MIN_WIDTH_PX / 2);
     expect(FRAME_EDGE_PX).toBeGreaterThan(0);
+  });
+});
+
+describe("the builders name Mars's rows without fetching them", () => {
+  it("keeps the catalogue off the chunk both bodies share", () => {
+    // MOVED HERE FROM `catalogueSearch.test.ts`, WITH ITS SUBJECT. `Globe.astro` splits
+    // `featureIndex` onto its own chunk so Earth never downloads 324 KB of Martian place names, and
+    // both bodies mount that one component — so a VALUE import in any module the component reaches
+    // statically undoes the split, silently and with every other gate green. This module is that
+    // module now: it holds the card's builder and the search row's, and both take a `NamedFeature`.
+    // Present-then-absent rather than absent alone, because "does not appear" is true of any string
+    // that was merely renamed.
+    expect(PANEL_SOURCE).toContain('import type { NamedFeature } from "./featureIndex"');
+    expect(PANEL_SOURCE).not.toMatch(/^import\s+(?!type\b)[^;]*from "\.\/featureIndex"/m);
+  });
+
+  it("writes one summary for the eyebrow and the search row, rather than two that agree today", () => {
+    // The row's second line and the card's eyebrow are the same sentence about the same feature,
+    // moments apart. They WERE two expressions — the box composed its own from this module's two
+    // formatters — which reads correctly right up to the day one side gains a unit or drops the
+    // separator. Asserted as equality against the real catalogue, not against a literal.
+    const sized = featureIndex.find((row) => row.diameterKm !== null)!;
+    const unsized = featureIndex.find((row) => row.diameterKm === null);
+    for (const row of [sized, unsized].filter(Boolean) as NamedFeature[]) {
+      expect(featureSearchEntry(row).descriptor).toBe(featurePanelContent(row).eyebrow);
+    }
+    expect(featureSearchEntry(sized).descriptor).toContain(formatFeatureDiameter(sized.diameterKm!));
+  });
+
+  it("hands the matcher the RAW gazetteer type, or half of every kind stops being typeable", () => {
+    // "Crater, craters" is a singular/plural pair and the matcher splits it, so both spellings
+    // answer. `featureTypeLabel` throws the plural away — correct for a card, wrong here, and the
+    // damage is a query that returns nothing while every other query keeps working.
+    const paired = featureIndex.find((row) => row.type.includes(","))!;
+    expect(featureSearchEntry(paired).terms).toEqual([paired.type]);
+    expect(featureSearchEntry(paired).terms[0]).not.toBe(featureTypeLabel(paired.type));
+  });
+
+  it("shows the flattened spelling only where it differs, and never matches on it", () => {
+    // `alias` is display-only by contract: the fold already reaches diacritics, so putting this in
+    // the token set would buy nothing and cost a second spelling in every row.
+    const differs = featureIndex.find((row) => row.cleanName !== row.name)!;
+    const same = featureIndex.find((row) => row.cleanName === row.name)!;
+    expect(featureSearchEntry(differs).alias).toBe(differs.cleanName);
+    expect(featureSearchEntry(same).alias).toBeNull();
   });
 });

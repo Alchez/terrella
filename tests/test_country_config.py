@@ -88,6 +88,13 @@ def test_load_config_accepts_valid(tmp_path, monkeypatch):
     ('[countries.x]\nsky_view_strength = -0.1\n', "sky_view_strength"),  # < 0
     ('[countries.x]\nresolution_floor_m = -1\n', "resolution_floor_m"),   # < 0
     ('[countries.x]\nresolution_floor_m = 5000\n', "resolution_floor_m"), # > 1000
+    ('[countries.x]\nalso = "Burma"\n', "also"),          # a bare string is not a list
+    ('[countries.x]\nalso = []\n', "also"),               # empty says nothing; omit the key
+    ('[countries.x]\nalso = ["Burma", ""]\n', "also"),    # blank entry
+    ('[countries.x]\nalso = ["Burma", "  "]\n', "also"),  # whitespace-only entry
+    ('[countries.x]\nalso = ["Burma", "Burma"]\n', "also"),  # exact repeat
+    ('[countries.x]\nalso = ["Burma", "burma"]\n', "also"),  # repeat the matcher's fold would merge
+    ('[countries.x]\nalso = [1, 2]\n', "also"),           # not strings
     ('[nonsense]\nx = 1\n', "unknown top-level"),
 ])
 def test_load_config_rejects_bad(tmp_path, monkeypatch, bad_block, needle):
@@ -167,6 +174,20 @@ def test_resolve_sky_view_strength_default_and_override():
     assert overridden is not None
     assert overridden["sky_view_strength"] == 0.0            # per-country wins
     assert overridden["sky_view_strength_overridden"] is True
+
+
+def test_resolve_carries_also_and_defaults_to_a_list():
+    """A country with no aliases must resolve to `[]`, not to `None` or a missing key.
+
+    `gen_manifest` concatenates this straight onto the column-derived terms, so an absent value
+    would have to be special-cased at every reader instead of once here.
+    """
+    plain = cc.resolve("nepal", _rows()[0], _cfg())
+    assert plain is not None
+    assert plain["also"] == []
+    aliased = cc.resolve("nepal", _rows()[0], _cfg(countries={"nepal": {"also": ["Gorkha"]}}))
+    assert aliased is not None
+    assert aliased["also"] == ["Gorkha"]
 
 
 def test_load_config_rejects_bad_default_floor(tmp_path, monkeypatch):

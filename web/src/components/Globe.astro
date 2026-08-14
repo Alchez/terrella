@@ -372,6 +372,35 @@ import { REPO_URL } from "../lib/siteLinks";
     height: 100%;
     object-fit: cover;
   }
+  /* NARROW ONLY, AND THE OTHER NARROW BLOCK'S BREAKPOINT. A hero keeps its own aspect, so the card's
+     height is the country's shape: Chile at 0.31 asks for a figure four times its own width, and on
+     a phone that is a card taller than the screen with the render cropped to a band of its middle —
+     the country's ends, which are the whole point of its outline, gone. Above this width there is
+     room for that and the card renders freely; below it the box is capped and the render is fitted
+     into what is left. It is smaller, and small is the trade that keeps the whole country visible.
+
+     `max-height` RATHER THAN AN ASPECT, because `openPanel` writes `aspect-ratio` inline from the
+     manifest and a stylesheet cannot outrank that without `!important`. Capping the height lets the
+     inline ratio yield on its own, which is what `aspect-ratio` is specified to do.
+
+     `.dp-figure img` AND NOT `.dp-hero, .dp-border`, which is the same cascade trap the comment
+     below this one already warns about, walked into from the other side. `.dp-figure img` is
+     (0,1,1) and a bare class is (0,1,0), so the narrow rule LOST to the base rule and the images
+     went on cropping while `max-height` applied — a card that is capped and still cuts the country
+     in half, which is the worst of both and looks like the cap not working. Caught on the page; the
+     source guard that named the property passed throughout. Overriding through the identical
+     selector is what makes source order decide, and source order is a thing a reader can see.
+
+     Both images, never one: the border overlay is absolutely positioned over the hero and traces it
+     only while the two are fitted the same way. */
+  @media (max-width: 40rem) {
+    .dp-figure {
+      max-height: 40vh;
+    }
+    .dp-figure img {
+      object-fit: contain;
+    }
+  }
   /* display:block only on the hero — a shared `.dp-figure img` rule would outrank
      `.dp-border`'s display:none and force the border overlay on regardless of the toggle. */
   .dp-hero {
@@ -501,7 +530,9 @@ import { REPO_URL } from "../lib/siteLinks";
     PANEL_BESIDE_MIN_WIDTH_PX,
     PANEL_CLEARANCE_PX,
     countryPanelContent,
+    countrySearchEntry,
     featurePanelContent,
+    featureSearchEntry,
     type PanelContent,
   } from "../lib/detailPanel";
   // The registry itself, for the one thing an ADDRESS cannot carry: the zoom range the archive was
@@ -609,14 +640,14 @@ import { REPO_URL } from "../lib/siteLinks";
     hoverStateTargets,
   } from "../lib/featureOverlay";
   import { candidateFrom, framingZoom, pickFeature } from "../lib/featureTargeting";
-  // The matcher and the field, both statically. NEITHER reaches the catalogue — `featureSearch`
-  // names `NamedFeature` as a type and `featureSearchBox` takes its `search` as a function — so the
-  // 324 KB of place names stays on the chunk the dynamic import below splits out, and Earth pays
-  // only for these two modules' own bytes.
-  import { createFeatureSearch, type FeatureSearch } from "../lib/featureSearch";
-  import { createFeatureSearchBox, type FeatureSearchBox } from "../lib/featureSearchBox";
+  // The matcher and the field, both statically. NEITHER reaches a catalogue — `catalogueSearch`
+  // ranks `SearchEntry` and names no body at all, and `catalogueSearchBox` takes its `search` as a
+  // function — so the 324 KB of place names stays on the chunk the dynamic import below splits out,
+  // and Earth pays only for these two modules' own bytes.
+  import { createCatalogueSearch, type CatalogueSearch } from "../lib/catalogueSearch";
+  import { createCatalogueSearchBox, type CatalogueSearchBox } from "../lib/catalogueSearchBox";
   import { createHoverTracker, type HoverTracker } from "../lib/hoverTracking";
-  import { createRailToggle, joinRailGroup } from "../lib/railControls";
+  import { createRailToggle, joinRailGroup, type RailToggle } from "../lib/railControls";
   import { createQuietMode } from "../lib/quietMode";
   import { RULER_WIDTH_PX, createScaleRuler, rulerGroundDistance } from "../lib/scaleRuler";
   import {
@@ -1063,7 +1094,7 @@ import { REPO_URL } from "../lib/siteLinks";
   // Set by `wireFeatureInteraction` on the one body that has a catalogue to search; null
   // everywhere else, which is why both readers ask rather than assume. TWO of them now — quiet mode
   // and `openPanel` — so it is named for what it is rather than for the first thing that wanted it.
-  let searchPanel: FeatureSearchBox | null = null;
+  let searchPanel: CatalogueSearchBox | null = null;
   /**
    * The class saying a right-side box holds the top band — the card or the search field, since
    * they are one box in one band and each closes the other. `panel-open` rather than a name per
@@ -2135,51 +2166,17 @@ import { REPO_URL } from "../lib/siteLinks";
     // one place that has to repaint it without a pointer event to go on.
     chipOwner = featureTracker;
 
-    // SEARCH. Built here rather than beside the other two rail toggles because both halves it needs
-    // live in this scope: the catalogue's promise, and `goToFeature`, which is the whole point —
-    // choosing a row runs the pick path a click runs, so a searched-to card and a tapped card are
-    // one card built once. The cost is that the button joins the rail at first idle rather than at
-    // load, which is the same moment the rest of this body's interaction arrives.
-    // Built from the catalogue when it lands, so the field answers nothing rather than throwing in
-    // the window before then — and the button says so, rather than looking live and doing nothing.
-    let matcher: FeatureSearch | null = null;
-    const searchBox = createFeatureSearchBox({
-      search: (query, limit) => matcher?.search(query, limit) ?? { matches: [], total: 0 },
-      onChoose: (feature) => goToFeature(feature.name),
-      onOpenChange: (open) => {
-        searchToggle.setPressed(open);
-        // THE CARD DOCKS IN THE CORNER THIS PANEL HANGS IN, measured rather than assumed — the two
-        // boxes overlap almost exactly at desktop width. They are sequential rather than
-        // simultaneous anyway (you search, you choose, the card answers), so the corner has one
-        // occupant at a time: opening the field dismisses the card, and choosing a row closes the
-        // field before the card it asked for opens.
-        if (open) closePanel();
-        // AFTER the close above, never before: `reflectBand` reads both states, and running it
-        // first would read a card that is about to be dismissed.
-        reflectBand();
-      },
-    });
-    const searchToggle = createRailToggle({
-      className: "rg-ctrl-search",
-      label: "Search features",
-      pressedLabel: "Close search",
-      onToggle: (next) => (next ? searchBox.open() : searchBox.close()),
-    });
-    searchToggle.setAvailable(false, "Search features (loading the catalogue)");
-    joinRailGroup(map.getContainer(), ".maplibregl-ctrl-zoom-in", searchToggle.button);
-    // Into MapLibre's own top-right container, which is what `.rg-search` positions against — see
-    // the panel's CSS for why it hangs off that box instead of off a page corner.
-    map.getContainer().querySelector(".maplibregl-ctrl-top-right")?.append(searchBox.element);
-
+    // SEARCH — the two halves that can only be supplied from in here. The control itself is built
+    // synchronously with the rest of the rail; see the block that creates it for why.
+    //
+    // Choosing a row runs the pick path a click runs, so a searched-to card and a tapped card are
+    // one card built once. The catalogue arms the matcher when it lands, and until it does the
+    // button is disabled and says so rather than looking live and answering nothing.
+    searchPick = goToFeature;
     void featureCatalogue.then(({ featureIndex }) => {
-      matcher = createFeatureSearch(featureIndex);
-      searchToggle.setAvailable(true);
+      matcher = createCatalogueSearch(featureIndex.map(featureSearchEntry));
+      searchToggle?.setAvailable(true);
     });
-
-    // Hiding the controls must take the panel with them. It is not inside a `.maplibregl-ctrl-group`
-    // — it is a panel, not a button — so the quiet stylesheet's rule cannot reach it, and a search
-    // field left floating beside a hidden rail is the one state this mode exists to prevent.
-    searchPanel = searchBox;
   }
 
   /**
@@ -2252,16 +2249,19 @@ import { REPO_URL } from "../lib/siteLinks";
   // The dot exists to tie the chip to the outline it names, so it takes its colour from the very
   // constant those layers paint with. A CSS copy of the hex would be free to drift silently.
   if (countryChipDot) countryChipDot.style.backgroundColor = HIGHLIGHT_GOLD;
-  // The detail card names its country large and, at around a 900px viewport, covers this chip's
-  // slot outright (it is 420px wide at z-index 30, the chip is centred at 20). Rather than let the
-  // two fight for the same pixels and have the chip lose invisibly, the card suppresses it.
-  let chipSuppressedByPanel = false;
-
+  /**
+   * The chip is shown whenever the pointer has resolved something, and yields to nothing.
+   *
+   * IT USED TO YIELD TO THE CARD, on the reasoning that a 420px panel at z-index 30 covers a centred
+   * chip at 20 and the chip would lose the overlap invisibly. Measured: the two boxes really do
+   * collide below ~1250px, by 23px at 1200 and 223px at 800. RATIFIED ANYWAY — a chip that vanishes
+   * whenever a card opens reads as broken, and a partly-covered chip is a stacking order a visitor
+   * can see and understand. Do not reintroduce a suppression, at any width.
+   */
   function paintChip(admin: string | null) {
     if (!countryChip || !countryChipName) return;
-    const visible = admin !== null && !chipSuppressedByPanel;
-    if (visible) countryChipName.textContent = admin;
-    countryChip.hidden = !visible;
+    if (admin !== null) countryChipName.textContent = admin;
+    countryChip.hidden = admin === null;
   }
 
   // Hover highlight, keyed on the whole country (ADMIN) so every part lights together —
@@ -2331,6 +2331,9 @@ import { REPO_URL } from "../lib/siteLinks";
    * class would depend on which listener fired in which order, and the failure mode is a phone
    * whose gallery link is gone with nothing on screen to explain it. Reading `panel.hidden` and
    * `isOpen()` cannot get that wrong, and costs one boolean per interaction.
+   *
+   * IT SAYS NOTHING ABOUT THE CHIP. The chip is unconditional — see `paintChip` — so this class is
+   * only ever about the top-left row yielding its band on a narrow screen.
    */
   function reflectBand(): void {
     const occupied = !panel.hidden || (searchPanel?.isOpen() ?? false);
@@ -2394,15 +2397,12 @@ import { REPO_URL } from "../lib/siteLinks";
     }
     panel.hidden = false;
     panel.setAttribute("aria-hidden", "false");
-    chipSuppressedByPanel = true;
     reflectBand();
-    paintChip(null);
   }
 
   function closePanel() {
     panel.hidden = true;
     panel.setAttribute("aria-hidden", "true");
-    chipSuppressedByPanel = false;
     reflectBand();
     // Two calls, because they do different jobs: the fly-to moved the globe while the card was
     // open, so re-resolve first; then repaint unconditionally, because viewChanged() only fires
@@ -2445,9 +2445,17 @@ import { REPO_URL } from "../lib/siteLinks";
     );
   }
 
-  map.on("click", (event) => {
-    const admin = countryAt(event.point);
-    const country = admin ? byName.get(admin) : undefined;
+  /**
+   * Earth's pick path: a name becomes a flight and, where there is a hero, a card.
+   *
+   * TAKES A NAME RATHER THAN A COUNTRY, which is what lets the search field reach it — a row knows
+   * `SearchEntry.name` and nothing else, and `byName` is the lookup the click already did inline.
+   * The shape mirrors Mars's `goToFeature` deliberately: one pick path per body, reached from both
+   * the pointer and the field, so a card someone searched to and a card they tapped are one card
+   * built once.
+   */
+  function goToCountry(name: string | null) {
+    const country = name ? byName.get(name) : undefined;
     if (!country) return;
     setSpinning(false); // a deliberate pick retires the idle spin
     flyToCountry(country);
@@ -2456,7 +2464,9 @@ import { REPO_URL } from "../lib/siteLinks";
     // what the vectors are for; the panel needs a rendered hero to put in it, and without one it
     // opens on `undefined`, asking for a `<slug>-undefined.webp` that 404s behind a spinner.
     if (subsystems.heroes) openPanel(countryPanelContent(country));
-  });
+  }
+
+  map.on("click", (event) => goToCountry(countryAt(event.point)));
 
   // Pitch the sky was last built for. Tracked because `setSky` restarts a 300 ms transition, so
   // rebuilding when nothing moved is not free — it re-runs the crossfade.
@@ -2566,6 +2576,82 @@ import { REPO_URL } from "../lib/siteLinks";
     onToggle: setSpinning, // hoisted; the callback only ever fires on a click, long after setup
   });
   joinRailGroup(map.getContainer(), ".maplibregl-ctrl-zoom-in", spinToggle.button);
+
+  /**
+   * SEARCH — built and joined HERE, with the rest of the rail, and armed later from wherever this
+   * body's pick path lives.
+   *
+   * IT USED TO BE BUILT WHERE ITS CATALOGUE IS, INSIDE THE FIRST `idle`, and that made it the only
+   * control on this rail to arrive after the others. Measured over three cold loads, the button
+   * appeared 543, 593 and 1142 ms in and the catalogue then held it disabled for a further 50, 51
+   * and 67 ms — so what a visitor saw was a group growing a fourth button under a pointer already
+   * resting on it, and the fetch everything was blamed on was an order of magnitude smaller.
+   *
+   * The two halves it cannot have yet reach it through bindings rather than through scope: a body
+   * assigns `searchPick` when its pick path exists, and `matcher` when its catalogue lands. Both
+   * are read at call time, so the field is inert rather than broken in between, and the button is
+   * `setAvailable(false)` with a reason until something arms it.
+   *
+   * AFTER `spinToggle` DELIBERATELY — `joinRailGroup` appends, so this order is the rail's order.
+   *
+   * THE GATE IS "DOES THIS BODY HAVE A CATALOGUE", spelled as the vector pyramid — not as one
+   * product. It read `=== "features"` while Mars was the only body that could be searched, which
+   * was the shape that had to change to let Earth in. A body with no pyramid has no pointer resolver
+   * and therefore nowhere for a chosen row to go, so `?bare` correctly takes the field with it.
+   */
+  let matcher: CatalogueSearch | null = null;
+  let searchPick: ((name: string) => void) | null = null;
+  let searchToggle: RailToggle | null = null;
+  if (subsystems.vectorProduct !== null) {
+    const searchBox = createCatalogueSearchBox({
+      noun: body.catalogue,
+      search: (query, limit) => matcher?.search(query, limit) ?? { matches: [], total: 0 },
+      onChoose: (entry) => searchPick?.(entry.name),
+      onOpenChange: (open) => {
+        searchToggle?.setPressed(open);
+        // THE CARD DOCKS IN THE CORNER THIS PANEL HANGS IN, measured rather than assumed — the two
+        // boxes overlap almost exactly at desktop width. They are sequential rather than
+        // simultaneous anyway (you search, you choose, the card answers), so the corner has one
+        // occupant at a time: opening the field dismisses the card, and choosing a row closes the
+        // field before the card it asked for opens.
+        if (open) closePanel();
+        // AFTER the close above, never before: `reflectBand` reads both states, and running it
+        // first would read a card that is about to be dismissed.
+        reflectBand();
+      },
+    });
+    const searchLabel = `Search ${body.catalogue.plural}`;
+    searchToggle = createRailToggle({
+      className: "rg-ctrl-search",
+      label: searchLabel,
+      pressedLabel: "Close search",
+      onToggle: (next) => (next ? searchBox.open() : searchBox.close()),
+    });
+    // Disabled until something arms it, which on a body whose catalogue is already in memory is the
+    // very next statement — so this reason is only ever READ on a body that fetches one.
+    searchToggle.setAvailable(false, `${searchLabel} (loading the catalogue)`);
+    joinRailGroup(map.getContainer(), ".maplibregl-ctrl-zoom-in", searchToggle.button);
+    // Into MapLibre's own top-right container, which is what `.rg-search` positions against — see
+    // the panel's CSS for why it hangs off that box instead of off a page corner. The container is
+    // already there: `addControl` runs `onAdd` synchronously, and every control was added above.
+    map.getContainer().querySelector(".maplibregl-ctrl-top-right")?.append(searchBox.element);
+    // Hiding the controls must take the panel with them. It is not inside a `.maplibregl-ctrl-group`
+    // — it is a panel, not a button — so the quiet stylesheet's rule cannot reach it, and a search
+    // field left floating beside a hidden rail is the one state this mode exists to prevent.
+    searchPanel = searchBox;
+
+    // EARTH ARMS ITSELF HERE AND MARS ARMS ITSELF FROM `wireFeatureInteraction`, and the asymmetry
+    // is about WHEN each catalogue exists rather than about the bodies. Mars fetches a 324 KB index
+    // on its own chunk and cannot arm until it lands; Earth's is `manifest`, a static import already
+    // in this bundle, so there is nothing to wait for and a disabled button would be a lie about a
+    // list that is already in memory. `goToCountry` is hoisted, which is what lets it be named from
+    // above the rail without moving the click wiring down here.
+    if (subsystems.vectorProduct === "countries") {
+      searchPick = goToCountry;
+      matcher = createCatalogueSearch(manifest.countries.map(countrySearchEntry));
+      searchToggle.setAvailable(true);
+    }
+  }
 
   // Single writer for `spinning` so the toggle button always mirrors reality — user
   // toggle, an interaction retiring it, a country pick, or the FPS watchdog.

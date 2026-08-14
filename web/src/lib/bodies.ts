@@ -77,6 +77,21 @@ export interface BodyDescriptor {
    *  copy-pasted row — and not that a derivation would have been wrong, which no body here can
    *  show. */
   label: string;
+  /** What the things on this body are CALLED, for the search field that offers them.
+   *
+   *  BOTH SPELLINGS, because the two strings the field needs take different ones and English will
+   *  not derive one from the other: the placeholder says "Search countries" and the empty state says
+   *  "No country matches that." A single noun plus a rule would work for `feature`/`features` and
+   *  fail on the first body whose catalogue is of `atlas`, `oases` or `strata`.
+   *
+   *  A DISPLAY FACT ABOUT THE BODY, the same class as `label` above, and deliberately not keyed off
+   *  `VectorProduct` — which is a statement about what is inside an archive, and would answer the
+   *  question "what is drawn" for a question that is only ever "what does a visitor call it".
+   *
+   *  Not nullable, and the gate on whether the field appears at all is `vectorProduct !== null`:
+   *  a body with no vector pyramid has no pick path for a chosen row to run, so there is nothing to
+   *  search rather than nothing to call it. A nullable noun would be an arm no body exercises. */
+  catalogue: { singular: string; plural: string };
   /** Where a visitor goes who cannot, or will not, run this body's globe.
    *
    *  READ THROUGH `bodyRoutes()` RATHER THAN DIRECTLY — that module answers both of a body's routes
@@ -211,6 +226,11 @@ export const BODIES: Record<BodySlug, BodyDescriptor> = {
   earth: {
     slug: "earth",
     label: "Earth",
+    // Sovereign states and the handful of de-facto ones, per Natural Earth's ADMIN — the same set
+    // the gallery and the manifest are of, since a row a visitor searches to must have somewhere
+    // to fly. "Nation" and "state" both carry a second meaning this map would be making a claim
+    // with; "country" is the word the rest of the site already uses.
+    catalogue: { singular: "country", plural: "countries" },
     // The gallery, under the same `/<slug>/lite/` name Mars uses, so a third body copies a row
     // rather than a special case. It renders exactly what `/` renders and says so with a canonical
     // link: the gallery is the site's FRONT PAGE first and Earth's lite fallback second, and those
@@ -261,6 +281,10 @@ export const BODIES: Record<BodySlug, BodyDescriptor> = {
   mars: {
     slug: "mars",
     label: "Mars",
+    // The IAU's own word for what it names — craters, montes, valles and the rest travel under one
+    // noun in the gazetteer, and no narrower one covers a catalogue that holds both a mountain and
+    // a plain. It is also what the card and the overlay already call them.
+    catalogue: { singular: "feature", plural: "features" },
     // A page written for the purpose, because the thing Earth points at does not exist here: a
     // gallery is a wall of hero renders, and Mars has none. Deliberately its own route rather than
     // Earth's `/`, which would answer "this device cannot run the Mars globe" by showing a visitor

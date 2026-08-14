@@ -97,7 +97,7 @@ def country_render_dir(slug: str) -> Path:
 DEFAULT_KEYS = {"pad_pct", "hero_long_edge", "warp_long_edge", "fusion",
                 "sky_view_strength", "resolution_floor_m"}
 COUNTRY_KEYS = {"admin", "frame", "hero_long_edge", "fusion", "status", "notes",
-                "sky_view_strength", "resolution_floor_m"}
+                "also", "sky_view_strength", "resolution_floor_m"}
 FUSION_RES = {"1s": 1, "3s": 3}
 FAR_FLUNG_FRACTION = 0.25  # main part below this share of a bbox axis
 
@@ -117,6 +117,17 @@ def _valid_floor(value) -> bool:
     """resolution_floor_m must be a plain number in [0, 1000] m (reject bool)."""
     return (isinstance(value, (int, float)) and not isinstance(value, bool)
             and 0.0 <= value <= 1000.0)
+
+
+def _valid_also(value) -> bool:
+    """`also` must be a list of distinct non-blank strings.
+
+    Distinct because a repeat is a typo wearing a second entry, and the manifest dedupes silently:
+    without this the config could disagree with the payload and neither would say so.
+    """
+    return (isinstance(value, list) and bool(value)
+            and all(isinstance(v, str) and v.strip() for v in value)
+            and len({v.strip().casefold() for v in value}) == len(value))
 
 
 def load_config() -> dict:
@@ -151,6 +162,8 @@ def load_config() -> dict:
         if (rf := tbl.get("resolution_floor_m")) is not None \
                 and not _valid_floor(rf):
             bad.append(f"{where}: resolution_floor_m must be a number in [0, 1000]")
+        if (also := tbl.get("also")) is not None and not _valid_also(also):
+            bad.append(f"{where}: also must be a non-empty list of distinct non-blank strings")
         if "frame" in tbl:
             if tbl.get("status") == "antimeridian":
                 bad.append(f"{where}: frame + antimeridian status contradict")
@@ -254,6 +267,7 @@ def resolve(slug: str, row: dict, cfg: dict) -> dict | None:
     return dict(
         slug=slug, admin=row["admin"], frame=frame,
         frame_overridden="frame" in tbl, notes=tbl.get("notes"),
+        also=list(tbl.get("also", [])),
         aspect=aspect, extent_w_m=right - left,
         warp=(warp_w, round(warp_w * aspect)), hero=hero,
         hero_long_overridden="hero_long_edge" in tbl, hero_long=hero_long,

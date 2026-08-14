@@ -103,6 +103,12 @@ MUTABLE_ROOTS = (
     # load-bearing. The look package as a whole, because the parameterisation touches all of it.
     "pipeline/bodies.py",
     "pipeline/render",
+    # Joined with `also`, the authored search aliases. Both guards over it read the SHIPPED config
+    # rather than a fixture, on purpose — the claim is "what this repo publishes is well-formed",
+    # and a fixture can only say the checker works on data nobody ships. So the only way to make
+    # either guard fire is to write to the real file, and a guard that cannot be made to fire is
+    # the thing this harness exists to catch.
+    "config",
     # Joined with the layer table, which took the body-half gate and the stage split out of the
     # planet shader. Both of its guards are invisible while Earth is the only body that declares a
     # layer: "ask the body before the disk" passes either way on a box holding Earth's files, and a
@@ -1057,6 +1063,30 @@ SABOTAGES: list[Sabotage] = [
         # The band state read from one occupant instead of both. Every open runs the other's close
         # first, so this leaves the class stuck off after a search hit opens a card — a phone whose
         # gallery link is gone with nothing on screen to explain it.
+        label='the narrow cap goes back to a selector the base rule outranks',
+        path='web/src/components/Globe.astro',
+        needle='    .dp-figure img {\n      object-fit: contain;\n    }',
+        replacement='    .dp-hero,\n    .dp-border {\n      object-fit: contain;\n    }',
+        guard='overrides the fit through the SAME selector the base rule uses, or it silently loses',
+    ),
+    Sabotage(
+        suite='web',
+        label='the card is capped at no width, so a tall hero is unbounded on a phone',
+        path='web/src/components/Globe.astro',
+        needle='      max-height: 40vh;',
+        replacement='      max-height: none;',
+        guard='caps the figure by HEIGHT, which is the only lever an inline aspect yields to',
+    ),
+    Sabotage(
+        suite='web',
+        label='the chip yields to the card again, so it vanishes whenever one opens',
+        path='web/src/components/Globe.astro',
+        needle='    countryChip.hidden = admin === null;',
+        replacement='    countryChip.hidden = admin === null || !panel.hidden;',
+        guard='shows the chip whenever the pointer resolves, and never yields it to a box',
+    ),
+    Sabotage(
+        suite='web',
         label='the open-panel class is written from the card alone',
         path='web/src/components/Globe.astro',
         needle='const occupied = !panel.hidden || (searchPanel?.isOpen() ?? false);',
@@ -4697,8 +4727,8 @@ SABOTAGES: list[Sabotage] = [
         # itself: the same rows the pick refuses to size, sized on the card.
         label='an unsized feature is given a diameter of zero on the card',
         path='web/src/lib/detailPanel.ts',
-        needle='      feature.diameterKm === null\n        ? type',
-        replacement='      false\n        ? type',
+        needle='  return feature.diameterKm === null\n    ? type',
+        replacement='  return false\n    ? type',
         guard='falls back to the kind alone where the gazetteer publishes no size',
     ),
     Sabotage(
@@ -5998,8 +6028,8 @@ SABOTAGES: list[Sabotage] = [
         suite='web',
         label='a country field creeps back into the body-neutral content contract',
         path='web/src/lib/detailPanel.ts',
-        needle='  return {\n    eyebrow: continent || "",',
-        replacement='  return {\n    slug,\n    eyebrow: continent || "",',
+        needle='  return {\n    eyebrow: countrySummary(country),',
+        replacement='  return {\n    slug,\n    eyebrow: countrySummary(country),',
         guard='names no country field',
     ),
     # Half a rename. The selector resolves to null, the non-null assertion throws — but only when a
@@ -6152,6 +6182,101 @@ SABOTAGES: list[Sabotage] = [
         replacement='        if False:',
         guard='test_an_anchor_with_no_gazetteer_page_stops_the_run',
     ),
+    # THE GALLERY MANIFEST IS A CONTRACT SPLIT ACROSS TWO LANGUAGES and, unlike the feature index,
+    # neither half ships: `countries.json` is gitignored, so nothing anywhere compares the payload
+    # to `Country`. These four are what that comparison is worth.
+    Sabotage(
+        suite='python',
+        label='the payload stops emitting the terms a query matches',
+        path='web/scripts/gen_manifest.py',
+        needle='        searchTerms=search_terms(record, resolved["admin"], resolved.get("also", ())),',
+        replacement='',
+        guard='test_the_payload_and_the_interface_name_the_same_fields',
+    ),
+    # The authored half of the terms. Dropping the argument leaves a working manifest that has
+    # silently lost every name Natural Earth does not publish — ten countries, no error anywhere.
+    Sabotage(
+        suite='python',
+        label='the row stops carrying the authored aliases',
+        path='web/scripts/gen_manifest.py',
+        needle='        searchTerms=search_terms(record, resolved["admin"], resolved.get("also", ())),',
+        replacement='        searchTerms=search_terms(record, resolved["admin"]),',
+        guard='test_a_row_carries_the_authored_aliases',
+    ),
+    Sabotage(
+        suite='python',
+        label='search_terms ignores what the config authored',
+        path='web/scripts/gen_manifest.py',
+        needle='            [str(value).strip() for value in also]:',
+        replacement='            []:',
+        guard='test_authored_names_land_after_the_columns',
+    ),
+    Sabotage(
+        suite='python',
+        label='an authored alias may restate a column the manifest already reads',
+        path='config/countries.toml',
+        needle='also = ["Burma"]',
+        replacement='also = ["Republic of the Union of Myanmar"]',
+        guard='test_no_alias_restates_something_the_columns_already_give',
+    ),
+    Sabotage(
+        suite='python',
+        label='aliases are authored against a slug no country resolves to',
+        path='config/countries.toml',
+        needle='[countries.myanmar]',
+        replacement='[countries.myanmarr]',
+        guard='test_every_aliased_slug_is_a_country_that_exists',
+    ),
+    Sabotage(
+        suite='python',
+        label='`also` stops reaching the resolver',
+        path='pipeline/frame/country_config.py',
+        needle='        also=list(tbl.get("also", [])),',
+        replacement='        also=[],',
+        guard='test_resolve_carries_also_and_defaults_to_a_list',
+    ),
+    Sabotage(
+        suite='python',
+        label='a repeated alias the fold would merge is accepted',
+        path='pipeline/frame/country_config.py',
+        needle='            and len({v.strip().casefold() for v in value}) == len(value))',
+        replacement='            and len({v.strip() for v in value}) == len(value))',
+        guard='test_load_config_rejects_bad',
+    ),
+    Sabotage(
+        suite='python',
+        label='a blank alias is accepted',
+        path='pipeline/frame/country_config.py',
+        needle='            and all(isinstance(v, str) and v.strip() for v in value)',
+        replacement='            and all(isinstance(v, str) for v in value)',
+        guard='test_load_config_rejects_bad',
+    ),
+    # The wrong-looking-right revert. Natural Earth publishes both spellings and the bare pair reads
+    # as the obvious one; taking it loses France, Norway and three others with every gate green.
+    Sabotage(
+        suite='python',
+        label='the ISO columns revert to the pair that is null wherever a code is contested',
+        path='web/scripts/gen_manifest.py',
+        needle='"ISO_A2_EH", "ISO_A3_EH")',
+        replacement='"ISO_A2", "ISO_A3")',
+        guard='test_the_bare_iso_columns_are_not_read',
+    ),
+    Sabotage(
+        suite='python',
+        label="Natural Earth's null becomes a spelling a visitor can type",
+        path='web/scripts/gen_manifest.py',
+        needle='        if value and value != NE_NULL and value != name and value not in terms:',
+        replacement='        if value and value != name and value not in terms:',
+        guard='test_natural_earths_null_is_not_a_search_term',
+    ),
+    Sabotage(
+        suite='python',
+        label='the display name is repeated as one of its own alternatives',
+        path='web/scripts/gen_manifest.py',
+        needle='        if value and value != NE_NULL and value != name and value not in terms:',
+        replacement='        if value and value != NE_NULL and value not in terms:',
+        guard='test_the_display_name_is_not_repeated',
+    ),
     Sabotage(
         suite='python',
         label='the acquirer stops reading the links it hands the card',
@@ -6276,6 +6401,33 @@ SABOTAGES: list[Sabotage] = [
         replacement='                    <span class="gz-kind">{feature.type}</span>',
         guard="reads the card's own formatters rather than writing a second kind and size",
     ),
+    # THE SEARCH CONTROL'S TWO SEAMS. The control is built with the rail and armed later from the
+    # scope its catalogue and pick path live in, so what used to be one block is now two halves that
+    # can fall out of step. Both mutations below leave a button that appears, presses and lists.
+    #
+    # NOT COVERED HERE, and it cannot be: the guard that the control is built OUTSIDE the idle
+    # wiring has a code LOCATION for a subject, and one string replacement cannot express a move.
+    # It was proved by hand against `git show HEAD:...` instead — the pre-move source fails it.
+    Sabotage(
+        suite='web',
+        # The row is chosen, the panel closes, and nothing flies or opens. A field that lists the
+        # right answers and does nothing with them reads as a dead globe rather than a dead binding.
+        label='the chosen row stops reaching the pick path it was pointed at',
+        path='web/src/components/Globe.astro',
+        needle='      onChoose: (entry) => searchPick?.(entry.name),',
+        replacement='      onChoose: () => {},',
+        guard='routes a chosen row through goToFeature, so one card is built one way',
+    ),
+    Sabotage(
+        suite='web',
+        # Born available, before anything can answer: the button looks live from first paint and a
+        # query typed in the window before the catalogue lands returns "No feature matches that."
+        label='the search button is live before it has a catalogue to search',
+        path='web/src/components/Globe.astro',
+        needle='    searchToggle.setAvailable(false, `${searchLabel} (loading the catalogue)`);',
+        replacement='    searchToggle.setAvailable(true);',
+        guard='greys the button until the catalogue lands, rather than looking live and doing nothing',
+    ),
     # THE SEARCH MATCHER. Every wound below leaves a search box that works: it accepts a query, it
     # returns features, and the ones it returns are real. What changes is which names have become
     # unreachable, and a visitor who cannot find Koval'sky has no way to tell that from a visitor
@@ -6283,7 +6435,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='the fold is "simplified" to the one-liner that leaves a letter standing',
-        path='web/src/lib/featureSearch.ts',
+        path='web/src/lib/catalogueSearch.ts',
         needle='    .replace(/ł/g, "l")\n',
         replacement='',
         guard='folds the letter NFD cannot decompose, and the naive rule is shown to miss it',
@@ -6291,7 +6443,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='a punctuated word keeps only its pieces, so the name typed without punctuation is lost',
-        path='web/src/lib/featureSearch.ts',
+        path='web/src/lib/catalogueSearch.ts',
         needle='  return joined ? [joined, ...word.split(/[^a-z0-9]+/).filter(Boolean)] : [];',
         replacement='  return word.split(/[^a-z0-9]+/).filter(Boolean);',
         guard='keeps both readings of a punctuated word, because different queries want different ones',
@@ -6299,7 +6451,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='a punctuated word keeps only its joined form, so the part after the hyphen is lost',
-        path='web/src/lib/featureSearch.ts',
+        path='web/src/lib/catalogueSearch.ts',
         needle='  return joined ? [joined, ...word.split(/[^a-z0-9]+/).filter(Boolean)] : [];',
         replacement='  return joined ? [joined] : [];',
         guard='keeps both readings of a punctuated word, because different queries want different ones',
@@ -6307,7 +6459,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='the query stops splitting on punctuation, so a name typed as published finds nothing',
-        path='web/src/lib/featureSearch.ts',
+        path='web/src/lib/catalogueSearch.ts',
         needle='  return foldForSearch(query)\n    .split(/[^a-z0-9]+/)',
         replacement='  return foldForSearch(query)\n    .split(/\\s+/)',
         guard='splits a query on punctuation as well as spaces',
@@ -6318,15 +6470,15 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='the kind stops being searchable, so no crater can be found by asking for one',
-        path='web/src/lib/featureSearch.ts',
-        needle='      if (!onName && !everyTermPrefixes(terms, entry.everyToken)) continue;',
+        path='web/src/lib/catalogueSearch.ts',
+        needle='      if (!onName && !everyTermPrefixes(terms, row.everyToken)) continue;',
         replacement='      if (!onName) continue;',
         guard='is the only way to reach a crater, because no crater name says so',
     ),
     Sabotage(
         suite='web',
         label='a kind match can outrank a name match, so the feature asked for sinks below its kin',
-        path='web/src/lib/featureSearch.ts',
+        path='web/src/lib/catalogueSearch.ts',
         needle='  if (first.tier !== second.tier) return first.tier - second.tier;\n',
         replacement='',
         guard='ranks a name below nothing — a kind match never outranks a name match',
@@ -6334,7 +6486,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='one term is enough, so a two-word query returns everything either word touches',
-        path='web/src/lib/featureSearch.ts',
+        path='web/src/lib/catalogueSearch.ts',
         needle='  return terms.every((term) => tokens.some((token) => token.startsWith(term)));',
         replacement='  return terms.some((term) => tokens.some((token) => token.startsWith(term)));',
         guard='still needs every term, whichever half answers each one',
@@ -6342,7 +6494,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='where the query landed stops ordering, so the exact name sinks under the cap',
-        path='web/src/lib/featureSearch.ts',
+        path='web/src/lib/catalogueSearch.ts',
         needle='  if (first.lead !== second.lead) return first.lead - second.lead;\n',
         replacement='',
         guard='puts the whole name first, then the names that start with the query',
@@ -6350,15 +6502,15 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='the size tie-break inverts, so a broad query answers with the smallest things on Mars',
-        path='web/src/lib/featureSearch.ts',
-        needle='  if (firstSize !== secondSize) return secondSize - firstSize;',
-        replacement='  if (firstSize !== secondSize) return firstSize - secondSize;',
+        path='web/src/lib/catalogueSearch.ts',
+        needle='  if (firstWeight !== secondWeight) return secondWeight - firstWeight;',
+        replacement='  if (firstWeight !== secondWeight) return firstWeight - secondWeight;',
         guard='breaks a tie on size, largest first, with the unsized last',
     ),
     Sabotage(
         suite='web',
         label='the total reports the page rather than the catalogue, so "10 of 160" reads "10 of 10"',
-        path='web/src/lib/featureSearch.ts',
+        path='web/src/lib/catalogueSearch.ts',
         needle='      total: found.length,',
         replacement='      total: Math.min(found.length, Math.max(0, limit)),',
         guard='counts every match and returns only the page asked for',
@@ -6369,10 +6521,30 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='the type import becomes an inline-type import, which keeps the catalogue in the graph',
-        path='web/src/lib/featureSearch.ts',
+        path='web/src/lib/detailPanel.ts',
         needle='import type { NamedFeature } from "./featureIndex";',
         replacement='import { type NamedFeature } from "./featureIndex";',
-        guard='names the row type without fetching the rows',
+        guard='keeps the catalogue off the chunk both bodies share',
+    ),
+    Sabotage(
+        suite='web',
+        # The row and the card's eyebrow become two expressions again. They agree on the day it is
+        # written, which is the whole difficulty: the drift arrives with whichever one gains a unit.
+        label='the search row writes its own summary instead of sharing the eyebrow',
+        path='web/src/lib/detailPanel.ts',
+        needle='    descriptor: featureSummary(feature),',
+        replacement='    descriptor: featureTypeLabel(feature.type),',
+        guard='writes one summary for the eyebrow and the search row, rather than two that agree today',
+    ),
+    Sabotage(
+        suite='web',
+        # The matcher is handed the card's LABEL instead of the gazetteer's singular/plural pair, so
+        # "craters" answers nothing while "crater" keeps working — half a kind, silently.
+        label="the matcher is given the kind's label rather than the pair it is published as",
+        path='web/src/lib/detailPanel.ts',
+        needle='    terms: [feature.type],',
+        replacement='    terms: [featureTypeLabel(feature.type)],',
+        guard='hands the matcher the RAW gazetteer type, or half of every kind stops being typeable',
     ),
     # THE SEARCH FIELD. Every wound below leaves a panel that opens, lists real features and flies
     # to them — what breaks is the part a screenshot ratifies and a visitor discovers later: a
@@ -6385,15 +6557,15 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='choosing a row calls the global close(), so the panel stays over the card it opened',
-        path='web/src/lib/featureSearchBox.ts',
-        needle='    if (!feature) return;\n    setOpen(false);',
-        replacement='    if (!feature) return;\n    close();',
+        path='web/src/lib/catalogueSearchBox.ts',
+        needle='    if (!entry) return;\n    setOpen(false);',
+        replacement='    if (!entry) return;\n    close();',
         guard='closes itself before handing the feature over, so the card is not opened underneath it',
     ),
     Sabotage(
         suite='web',
         label='Escape calls the global close() too, so the field cannot be dismissed',
-        path='web/src/lib/featureSearchBox.ts',
+        path='web/src/lib/catalogueSearchBox.ts',
         needle='      setOpen(false);\n      return;',
         replacement='      close();\n      return;',
         guard='CLOSES ON ESCAPE — the branch a global shadow silently took over',
@@ -6401,7 +6573,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='a row waits for click, so the field loses focus and closes under the pointer first',
-        path='web/src/lib/featureSearchBox.ts',
+        path='web/src/lib/catalogueSearchBox.ts',
         needle='      row.addEventListener("mousedown", (event) => {',
         replacement='      row.addEventListener("click", (event) => {',
         guard='acts on mousedown, because losing focus on mouse-down would close the panel mid-click',
@@ -6409,7 +6581,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='Enter takes the first row rather than the armed one, so the arrows steer nothing',
-        path='web/src/lib/featureSearchBox.ts',
+        path='web/src/lib/catalogueSearchBox.ts',
         needle='      choose(active);',
         replacement='      choose(0);',
         guard='chooses the ARMED row, not the first one',
@@ -6417,7 +6589,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='the arrows clamp instead of wrapping, so the last row cannot be reached upwards',
-        path='web/src/lib/featureSearchBox.ts',
+        path='web/src/lib/catalogueSearchBox.ts',
         needle='    setActive((active + step + shown.length) % shown.length);',
         replacement='    setActive(Math.min(shown.length - 1, Math.max(0, active + step)));',
         guard='moves the armed row and wraps at both ends',
@@ -6425,7 +6597,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='the panel stops saying how many it dropped, so eight rows read as the whole answer',
-        path='web/src/lib/featureSearchBox.ts',
+        path='web/src/lib/catalogueSearchBox.ts',
         needle='    else if (results.total > results.matches.length)',
         replacement='    else if (false)',
         guard='answers a kind, which is the only route to a crater',
@@ -6433,8 +6605,8 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='the alias is drawn on every row, so most names carry a bracketed copy of themselves',
-        path='web/src/lib/featureSearchBox.ts',
-        needle='        feature.cleanName === feature.name\n          ? null',
+        path='web/src/lib/catalogueSearchBox.ts',
+        needle='        entry.alias === null\n          ? null',
         replacement='        false\n          ? null',
         guard='shows the diacritic-free spelling only where it differs',
     ),
@@ -6443,7 +6615,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='the field stops naming the armed row, so assistive tech and the paint disagree',
-        path='web/src/lib/featureSearchBox.ts',
+        path='web/src/lib/catalogueSearchBox.ts',
         needle='    if (active >= 0) field.setAttribute("aria-activedescendant", `${OPTION_ID_PREFIX}${active}`);',
         replacement='    if (false) field.setAttribute("aria-activedescendant", `${OPTION_ID_PREFIX}${active}`);',
         guard='keeps the highlight and the armed row as one fact, so Enter cannot surprise',
@@ -6451,7 +6623,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='opening twice re-announces and re-steals focus mid-typing',
-        path='web/src/lib/featureSearchBox.ts',
+        path='web/src/lib/catalogueSearchBox.ts',
         needle='    if (next === opened) return; // idempotent',
         replacement='    if (false) return; // idempotent',
         guard='is idempotent, so a repeated open does not re-steal focus or re-announce',
@@ -6484,10 +6656,85 @@ SABOTAGES: list[Sabotage] = [
     ),
     Sabotage(
         suite='web',
+        label='the search field narrows back to the one body that used to have it',
+        path='web/src/components/Globe.astro',
+        needle='  if (subsystems.vectorProduct !== null) {',
+        replacement='  if (subsystems.vectorProduct === "features") {',
+        guard='arms the search field for every product the registry can hand it',
+    ),
+    # The other half of that gate, and the one no type can see: a body may be gated IN and never
+    # arm. The button is born disabled, so what ships is a control that is present, greyed and
+    # captioned "loading the catalogue" forever — a rail that merely looks slow.
+    Sabotage(
+        suite='web',
+        label='Earth gets a search button and nothing ever arms it',
+        path='web/src/components/Globe.astro',
+        needle='      matcher = createCatalogueSearch(manifest.countries.map(countrySearchEntry));',
+        replacement='',
+        guard='arms the search field for every product the registry can hand it',
+    ),
+    # A ROW THAT RENDERS CORRECTLY AND SEARCHES WRONGLY, which is the whole reason `alias` and
+    # `terms` are separate fields. Shown-versus-matched cannot be checked by looking at a screenshot.
+    Sabotage(
+        suite='web',
+        label="the country's other spellings are shown instead of matched",
+        path='web/src/lib/detailPanel.ts',
+        needle='    terms: [...country.searchTerms, country.continent],',
+        replacement='    terms: [country.continent],',
+        guard='carries every manifest term through, so a column added upstream is typeable at once',
+    ),
+    Sabotage(
+        suite='web',
+        label='the continent stops being typeable, so "africa" answers with nothing',
+        path='web/src/lib/detailPanel.ts',
+        needle='    terms: [...country.searchTerms, country.continent],',
+        replacement='    terms: [...country.searchTerms],',
+        guard='makes the continent both the descriptor and a term, which no other field is',
+    ),
+    Sabotage(
+        suite='web',
+        label='the card and the search row compose the same line twice',
+        path='web/src/lib/detailPanel.ts',
+        needle='    descriptor: countrySummary(country),',
+        replacement='    descriptor: country.continent,',
+        guard='writes one summary for the eyebrow and the search row',
+    ),
+    # THE TOKENISER. This is the wound that shipped: an abbreviation loses its joined reading and a
+    # country becomes unreachable by the two letters everyone types for it — while every other query
+    # in the catalogue keeps working, and the wrong country answers confidently in its place.
+    Sabotage(
+        suite='web',
+        label='a punctuated term loses its joined reading, so "uk" cannot reach the United Kingdom',
+        path='web/src/lib/catalogueSearch.ts',
+        needle='  return [...new Set(terms.flatMap(phraseTokens))];',
+        replacement='  return [...new Set(terms.flatMap((term) => '
+                    'foldForSearch(term).split(/[^a-z0-9]+/).filter(Boolean)))];',
+        guard='reads a punctuated term joined AND split, exactly as it reads a name',
+    ),
+    # THE NOUN. Both strings the field shows name the rows, and getting them from the body is what
+    # stopped the widget saying "feature" on a planet of countries.
+    Sabotage(
+        suite='web',
+        label='the search box goes back to naming one planet in its placeholder',
+        path='web/src/lib/catalogueSearchBox.ts',
+        needle='  field.placeholder = `Search ${noun.plural}`;',
+        replacement='  field.placeholder = "Search features";',
+        guard='takes both its user-facing strings from the body, naming no planet itself',
+    ),
+    Sabotage(
+        suite='web',
+        label='a body copies one spelling of its catalogue noun into both sentences',
+        path='web/src/lib/bodies.ts',
+        needle='    catalogue: { singular: "country", plural: "countries" },',
+        replacement='    catalogue: { singular: "countries", plural: "countries" },',
+        guard='gives every body two spellings of what its catalogue is of, and never the same one twice',
+    ),
+    Sabotage(
+        suite='web',
         label='the button looks live before the catalogue lands, and answers nothing when pressed',
         path='web/src/components/Globe.astro',
-        needle='    searchToggle.setAvailable(false, "Search features (loading the catalogue)");',
-        replacement='    searchToggle.setAvailable(true, "Search features (loading the catalogue)");',
+        needle='    searchToggle.setAvailable(false, `${searchLabel} (loading the catalogue)`);',
+        replacement='    searchToggle.setAvailable(true, `${searchLabel} (loading the catalogue)`);',
         guard='greys the button until the catalogue lands, rather than looking live and doing nothing',
     ),
     # THE SECOND ROUND, ALL FOUR REPORTED BY ROHAN LOOKING AT THE PAGE. Each wound below leaves a
@@ -6546,7 +6793,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='the shortcut stops answering, and the field can only be opened by hunting for it',
-        path='web/src/lib/featureSearchBox.ts',
+        path='web/src/lib/catalogueSearchBox.ts',
         needle='    if (event.key !== SEARCH_SHORTCUT) return;',
         replacement='    if (true) return;',
         guard='opens on the shortcut and puts the caret in the field',
@@ -6554,7 +6801,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='the shortcut fires while typing, so a slash cannot be typed into the field it opens',
-        path='web/src/lib/featureSearchBox.ts',
+        path='web/src/lib/catalogueSearchBox.ts',
         needle='    if (isTypingTarget(event.target)) return;',
         replacement='    if (false) return;',
         guard='types a slash INTO the field rather than re-opening it',
@@ -6562,7 +6809,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label="Firefox's own quick-find opens underneath ours",
-        path='web/src/lib/featureSearchBox.ts',
+        path='web/src/lib/catalogueSearchBox.ts',
         needle="    event.preventDefault(); // Firefox's quick-find binds this key",
         replacement="    void 0; // Firefox's quick-find binds this key",
         guard='prevents the default, or Firefox quick-find opens underneath it',
@@ -6570,7 +6817,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='a destroyed box leaves its key bound to a panel that is no longer on the page',
-        path='web/src/lib/featureSearchBox.ts',
+        path='web/src/lib/catalogueSearchBox.ts',
         needle='      doc.removeEventListener("keydown", onDocumentKeyDown);',
         replacement='      void 0;',
         guard='stops listening once destroyed, so a torn-down globe leaves no key bound',
