@@ -71,12 +71,14 @@ grep HISTORY before re-arguing anything an entry says was already decided.
   `gen_borders` stops at 1920, so a portrait border jumps to native — a lossless PNG at ~3× the
   width the panel draws. Off the cold path only because the layer is hidden until Borders is on.
 
-## No test ever drives a real map, and the scale ruler showed what that costs (analysed 2026-08-02, **SHIPPED 2026-08-03**, one shape still open)
+## No test ever drives a real map, and the scale ruler showed what that costs (analysed 2026-08-02, **SHIPPED 2026-08-03**)
 
 - **What shipped:** `testing/mountGlobe.ts` mounts a real MapLibre globe in the browser project, and
   the two named shapes are asserted against it — the ruler takes a **distinct** label at every zoom
   (`scaleRuler.browser.test.ts`), and the hover chip **follows the camera under a parked pointer**
-  (`hoverTracking.browser.test.ts`). The scale-linked tier readout is the one shape not yet covered.
+  (`hoverTracking.browser.test.ts`). **Those two are the whole population**, so nothing is left open
+  here: the ruler and the chip are the only readouts the camera drives, and a third one this entry
+  used to name has no subject in the frontend to cover.
 - **The fixture question was answered the other way.** This entry framed it as "stub the tile route
   or point at the dev server"; the fixture mounts **no sources at all**, because every assertion it
   exists for is camera-derived and the camera is fully real with zero tiles loaded. Wiring it to the
@@ -100,8 +102,8 @@ grep HISTORY before re-arguing anything an entry says was already decided.
   design work and the reason this is parked rather than done.
 - **Deliberately narrow if picked up.** The temptation is a general "e2e suite"; the value measured
   here is much smaller and sharper — **assert that outputs which must track the camera actually
-  track it.** The ruler is one; the hovered-country chip and the scale-linked tier readout are the
-  same shape.
+  track it.** The ruler is one and the hovered-country chip is the other; a new readout of that
+  shape is what would reopen this, not a broader suite.
 - **Adjacent:** `forced-colors` below also needs Playwright, and the toolchain it was waiting on is
   now here — that entry is no longer blocked on infrastructure, only unwritten.
 
