@@ -7130,6 +7130,27 @@ SABOTAGES: list[Sabotage] = [
         replacement='  if (diameterKm === null || !(diameterKm > 0)) return 0;',
         guard='declines to size a feature the gazetteer publishes at zero',
     ),
+    # --- the lookup that calls into the package it is describing -------------------------------------
+    # `who_reads` invokes functions to answer a question ABOUT the store, which is the one instrument
+    # here that can damage its own subject. Both cases below are widenings a future edit makes for
+    # good reasons — cover more accessors, read the declaration more cheaply — and neither announces
+    # itself: the first writes, the second just answers less.
+    Sabotage(
+        suite='python',
+        label='the path lookup calls every function that returns a Path, writers included',
+        path='scripts/who_reads.py',
+        needle='ACCESSOR_SUFFIXES = ("_path", "_dir", "_root")',
+        replacement='ACCESSOR_SUFFIXES = ("",)',
+        guard='test_a_producer_that_returns_its_output_path_is_never_run',
+    ),
+    Sabotage(
+        suite='python',
+        label='the path lookup reads source declarations instead of executing them',
+        path='scripts/who_reads.py',
+        needle='    if not callable(supply) or _needs_an_argument(supply):',
+        replacement='    if True:',
+        guard='test_a_source_no_grep_could_find_is_reported',
+    ),
 ]
 
 
