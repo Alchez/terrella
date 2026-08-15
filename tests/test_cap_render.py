@@ -18,6 +18,7 @@ crossfade — which reads as ghosting, not as an error.
 
 import dataclasses
 import json
+import math
 import re
 import shutil
 import subprocess
@@ -941,6 +942,59 @@ class TestTheCapPixelIsMeasuredInGroundMetres:
         mars, earth = cap_render.north_grid(bodies.MARS), cap_render.north_grid(bodies.EARTH)
         assert cap_render.cap_ground_metres_per_px(mars) < 2.0 * mars.edge_m / mars.px
         assert cap_render.cap_ground_metres_per_px(earth) > 2.0 * earth.edge_m / earth.px
+
+
+class TestTheCapDiscCanSayWhichGridItIsOn:
+    """`cap_reference_grid` exists so a cached raster can be ASKED which disc it covers. An artifact
+    warped onto a cap is named for its pole alone, so a moved `edge_lat`, `CAP_PX` or body radius
+    leaves a file that still opens, still covers the pole, and is measured against another parallel.
+    """
+
+    def test_it_is_the_square_the_warp_is_told_to_cover(self):
+        """The triple is `grid_matches`' argument order, and the bounds are the disc's own inscribed
+        square — the same `(-edge, -edge, edge, edge)` the GDAL calls spell out."""
+        width, height, bounds = cap_render.cap_reference_grid(EARTH_NORTH)
+        edge = EARTH_NORTH.edge_m
+        assert (width, height) == (EARTH_NORTH.px, EARTH_NORTH.px)
+        assert bounds == (-edge, -edge, edge, edge)
+
+    def test_a_moved_disc_answers_differently_on_each_term_that_moves_it(self, subtests):
+        """Separately, because a grid agreeing on one of the two would still let a stale raster pass,
+        and they move for different reasons — a re-span and a re-sample."""
+        moved = {
+            "edge_lat": dataclasses.replace(EARTH_NORTH, edge_lat=70.0),
+            "px": dataclasses.replace(EARTH_NORTH, px=4096),
+        }
+        for term, grid in moved.items():
+            with subtests.test(term):
+                assert cap_render.cap_reference_grid(grid) != cap_render.cap_reference_grid(
+                    EARTH_NORTH), f"a cap that moved its {term} still reports the same grid"
+
+    def test_two_bodies_inscribe_THE_SAME_square_and_that_is_the_projection(self):
+        """The limitation, pinned rather than left to be discovered. Every cap AEQD is Earth-sphered,
+        so `aeqd_radius_m` is one number for all bodies and this shape cannot separate two planets —
+        the work dir does, one per body. Written as an assertion because the alternative is a reader
+        assuming a body swap is covered here, which is how a Mars artifact would be trusted on Earth.
+        """
+        assert bodies.MARS.aeqd_radius_m == bodies.EARTH.aeqd_radius_m
+        assert (cap_render.cap_reference_grid(cap_render.north_grid(bodies.MARS))
+                == cap_render.cap_reference_grid(cap_render.north_grid(bodies.EARTH)))
+        # The quantity that DOES separate them, so this reads as a property and not as a shrug.
+        assert (cap_render.cap_ground_metres_per_px(cap_render.north_grid(bodies.MARS))
+                != cap_render.cap_ground_metres_per_px(cap_render.north_grid(bodies.EARTH)))
+
+    def test_the_measurement_band_clears_the_frame_corners(self, subtests):
+        """`CAP_MEASURE_BAND_DEGREES` is chosen and the reach it must clear is DERIVED, so the two can
+        part company with nothing to say so. The disc is inscribed in its square, so a corner sits
+        sqrt(2) colatitudes out; a band narrower than that crops frame the instrument then reads as
+        nodata, which looks like ice that is not there rather than like an error."""
+        for body in (bodies.EARTH, bodies.MARS):
+            for grid in (cap_render.north_grid(body), cap_render.south_grid(body)):
+                with subtests.test(body=body.name, pole=grid.name):
+                    corner_reach = math.sqrt(2.0) * (90.0 - abs(grid.edge_lat))
+                    assert cap_render.CAP_MEASURE_BAND_DEGREES > corner_reach, (
+                        f"the {grid.name} frame reaches {corner_reach:.2f} degrees from the pole and "
+                        f"the band keeps only {cap_render.CAP_MEASURE_BAND_DEGREES}")
 
 
 class TestTheCapRecipeRecordsWhatIsOff:

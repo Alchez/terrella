@@ -3357,6 +3357,27 @@ SABOTAGES: list[Sabotage] = [
         replacement='    return 2.0 * grid.edge_m / grid.px',
         guard='test_every_shipped_cap_grid_spans_its_own_bodys_ground',
     ),
+    # --- the two ice instruments' caches ---------------------------------------------------------
+    # Both scripts reproduce a ratified look constant and nothing else can, so an oracle that reuses
+    # the previous disc's pixels reports agreement about ice it never looked at. The gate is what
+    # makes the cached name mean the grid rather than just the pole.
+    Sabotage(
+        suite='python',
+        label="the ice-white warp is cached on its filename, so a moved cap disc is measured stale",
+        path='scripts/measure_mars_ice_white.py',
+        needle='    if freshness.warp_needs_rebuild(warped, cap_render.cap_reference_grid(grid), mosaic):',
+        replacement='    if not warped.exists():',
+        guard='test_an_artifact_from_another_disc_is_rebuilt',
+    ),
+    Sabotage(
+        suite='python',
+        label="the levels script's unit burn is cached on its filename, so a moved cap disc is stale",
+        path='scripts/measure_viking_levels.py',
+        needle='        if freshness.warp_needs_rebuild(out, cap_render.cap_reference_grid(grid),\n'
+               '                                        download_sim3292.unit_path(unit)):',
+        replacement='        if not out.exists():',
+        guard='test_an_artifact_from_another_disc_is_rebuilt',
+    ),
     # --- The shared atomic download ------------------------------------------------------------
     # Eight of ten callers test `status.startswith("failed")`. Defaulting the 404 branch ON turns a
     # missing file into a silent success for all of them, and nothing downstream raises.
