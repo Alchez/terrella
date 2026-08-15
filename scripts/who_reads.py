@@ -40,7 +40,7 @@ import ast
 import importlib
 import inspect
 import sys
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
@@ -212,9 +212,13 @@ def _needs_an_argument(function: Any) -> bool:
 def declarations(modules: list[ModuleType]) -> list[Declaration]:
     """Every producer in the package that declares its sources as a zero-argument callable.
 
-    Found BY SHAPE and not by name — any module-level dict whose values carry a callable `sources`
-    taking no argument. A third body's registry is answered without editing this, which is the same
-    reason the two that exist are written alike.
+    FOUND BY SHAPE AND NOT BY NAME — anything module-level carrying a callable `sources` that takes
+    no argument, whether it stands alone or sits in a registry dict. A third body is answered
+    without editing this, which is the same reason the declarations that exist are written alike.
+
+    BOTH FORMS, because both exist and the dict was never the point. The two ice registries are
+    dicts keyed by body; a vector cut is one declaration per stage module, and a scan that only
+    looked inside dicts reported every path either composer names as watched by nobody.
     """
     found: list[Declaration] = []
     for module in modules:
@@ -224,24 +228,28 @@ def declarations(modules: list[ModuleType]) -> list[Declaration]:
             for target in targets:
                 if not isinstance(target, ast.Name):
                     continue
-                registry = getattr(module, target.id, None)
-                if not isinstance(registry, dict):
-                    continue
-                for key, producer in registry.items():  # pyright: ignore[reportUnknownVariableType]
-                    found.extend(_sources_of(module, target.id, key, producer))
+                value = getattr(module, target.id, None)
+                if isinstance(value, dict):
+                    for key, producer in value.items():  # pyright: ignore[reportUnknownVariableType]
+                        found.extend(_sources_of(module, f"{target.id}[{key!r}]", producer))
+                else:
+                    found.extend(_sources_of(module, target.id, value))
     return found
 
 
-def _sources_of(module: ModuleType, registry: str, key: Any, producer: Any) -> list[Declaration]:
-    """The paths one registry entry declares, or nothing when it is not a producer at all."""
+def _sources_of(module: ModuleType, where: str, producer: Any) -> list[Declaration]:
+    """The paths one declaration names, or nothing when it is not a producer at all."""
     supply = getattr(producer, "sources", None)
     if not callable(supply) or _needs_an_argument(supply):
         return []
     declared = supply()
+    # A MAPPING DECLARES ITS PATHS IN THE VALUES. Iterating one yields its KEYS, which are layer
+    # names here — so the dict form scored zero paths and read as a producer that reads nothing.
+    if isinstance(declared, Mapping):
+        declared = declared.values()  # pyright: ignore[reportUnknownMemberType]
     if not isinstance(declared, Iterable):
         return []
-    where = f"{module.__name__}.{registry}[{key!r}]"
-    return [Declaration(entry, where, _defined_at(supply))
+    return [Declaration(entry, f"{module.__name__}.{where}", _defined_at(supply))
             for entry in declared if isinstance(entry, Path)]
 
 

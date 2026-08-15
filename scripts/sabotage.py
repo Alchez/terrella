@@ -3591,8 +3591,10 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='python',
         label='the archive gate stops asking whether the geometry under it is current',
-        path='pipeline/compose/countries_pmtiles.py',
-        needle='    if not derivation_is_stamped():\n        return False',
+        # Re-anchored onto `vector_cut`: the two composers' identical gates became one, so this
+        # case is about the shared predicate rather than about Earth's copy of it.
+        path='pipeline/compose/vector_cut.py',
+        needle='    if not derivation_is_stamped(cut):\n        return False',
         replacement='    if False:\n        return False',
         guard='test_a_seam_knob_change_makes_the_ARCHIVE_stale_though_no_mtime_moved',
     ),
@@ -3601,8 +3603,8 @@ SABOTAGES: list[Sabotage] = [
         # The producing half. Without it the archive correctly reports itself stale forever and the
         # re-cut never fixes anything, which reads as a pipeline that cannot converge.
         label='the derivation stops rewriting when its recipe moved',
-        path='pipeline/compose/countries_pmtiles.py',
-        needle='        and derivation_is_stamped()',
+        path='pipeline/compose/vector_cut.py',
+        needle='        and derivation_is_stamped(cut)',
         replacement='        and True',
         guard='test_derive_reruns_when_the_stamp_is_stale_and_stamps_what_it_wrote',
     ),
@@ -3611,11 +3613,12 @@ SABOTAGES: list[Sabotage] = [
         # Absence must read as STALE. Every store on disk predates this stamp, so a missing file
         # meaning "no objection" is precisely the state in which the guard reaches nothing.
         label='a derivation that was never stamped is taken as current',
-        path='pipeline/compose/countries_pmtiles.py',
+        path='pipeline/compose/vector_cut.py',
         # Re-anchored when the sidecar read moved to `freshness.recorded_json`: the old needle
         # named the `.exists() and json.loads(` spelling, which was the whole of what that change
         # deleted. The case is about the STAMP being consulted at all, not about how it is read.
-        needle='    return freshness.recorded_json(OUTLINES_RECIPE) == vector_layers.seam_recipe()',
+        needle=('    return freshness.recorded_json(cut.derivation_stamp())'
+                ' == vector_layers.seam_recipe()'),
         replacement='    return True',
         guard='test_a_derivation_that_was_never_stamped_is_not_believed',
     ),
@@ -3624,11 +3627,25 @@ SABOTAGES: list[Sabotage] = [
         # The second body. Mars escaped the original bug by ordering alone — its outlines happened
         # to be derived after the seam rule landed — so its copy of the gate has never been observed
         # to matter, which is exactly the kind of guard that is vacuous without a case.
-        label="Mars's archive gate stops asking whether its outlines are current",
+        label="Earth stops recording the GeoJSON its whole pyramid descends from",
+        # The mirror of the case below, and the direction that matters more: Earth's archive is the
+        # older and larger of the two, and losing a key re-cuts it exactly as surely as gaining one.
+        path='pipeline/compose/countries_pmtiles.py',
+        needle='    extra_recipe=lambda: {"source": source_path().name},',
+        replacement='    extra_recipe=dict,',
+        guard='test_the_key_set_is_exactly_what_the_sidecar_carries',
+    ),
+    Sabotage(
+        suite='python',
+        label="Mars records a source key it has no source for, re-cutting its live archive",
+        # Its predecessor mutated Mars's own copy of the archive gate, which the merge deleted —
+        # one predicate serves both bodies now and the case above covers it. What the merge put at
+        # risk instead is the half that is still per body: Earth names the one GeoJSON its pyramid
+        # descends from and Mars names none, and either archive re-cuts if that set moves by a key.
         path='pipeline/compose/features_pmtiles.py',
-        needle='    if not derivation_is_stamped():\n        return False',
-        replacement='    if False:\n        return False',
-        guard='test_a_seam_knob_change_makes_MARS_ARCHIVE_stale_though_no_mtime_moved',
+        needle='    extra_recipe=dict,',
+        replacement='    extra_recipe=lambda: {"source": "features.geojson"},',
+        guard='test_the_key_set_is_exactly_what_the_sidecar_carries',
     ),
     # An identity is what makes a feature hoverable, labellable and joinable. Carrying one anonymously
     # puts a shape in the layer that nothing can ever address — present, painted, and unreachable.
@@ -5590,10 +5607,10 @@ SABOTAGES: list[Sabotage] = [
     # reads as "the pipeline has not been run".
     Sabotage(
         suite='python',
-        label="Mars's vector cut goes back to writing beside its GeoJSONs",
-        path='pipeline/compose/features_pmtiles.py',
-        needle='OUT_DIR = bodies.work_dir(bodies.MARS, "planet_vector")',
-        replacement='OUT_DIR = features_geojson.OUT_DIR',
+        label='the vector cut sends every body to one directory',
+        path='pipeline/compose/vector_cut.py',
+        needle='    return bodies.work_dir(cut.body, "planet_vector")',
+        replacement='    return bodies.work_dir(bodies.EARTH, "planet_vector")',
         guard='test_each_cutter_writes_into_the_body_it_serves',
     ),
     # The gate that picks a style stack, mutated to Earth's answer for every planet. No type breaks:
@@ -6055,8 +6072,8 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label='the borders reader spells its own path again, and the chain can now drift',
         path='pipeline/compose/countries_pmtiles.py',
-        needle='BORDERS = bodies.work_dir(bodies.EARTH, "borders")',
-        replacement='BORDERS = paths.DATA / "work/borders"',
+        needle='    return bodies.work_dir(bodies.EARTH, "borders")',
+        replacement='    return paths.DATA / "work/borders"',
         guard='test_the_borders_work_dir_is_spelled_once',
     ),
     # A reader re-deriving the shapefile longhand: the exact shape that reached five call sites.

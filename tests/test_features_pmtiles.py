@@ -9,14 +9,15 @@
     lost.
 """
 
+import dataclasses
 import json
 import os
 import time
 
 import pytest
 
-from pipeline import bodies
-from pipeline.compose import features_geojson, vector_layers
+from pipeline import bodies, paths
+from pipeline.compose import features_geojson, vector_cut, vector_layers
 from pipeline.compose import features_pmtiles as cut
 
 
@@ -54,7 +55,8 @@ class TestTheCeilingComesFromTheBody:
 
 class TestSimplificationIsRequiredNotPreferred:
     def test_both_knobs_reach_the_command(self, subtests):
-        command = " ".join(cut.pmtiles_command(cut.STAGED, cut.OUT))
+        command = " ".join(vector_cut.pmtiles_command(
+            cut.CUT, vector_cut.staged(cut.CUT), vector_cut.out(cut.CUT)))
         for label, expected in (
             ("simplification", f"SIMPLIFICATION={cut.SIMPLIFICATION}"),
             ("top-zoom simplification",
@@ -88,7 +90,8 @@ class TestTheArchiveIsUnfiltered:
         carries 99.2% of the union coverage, but that metric is area-weighted, so rank 200 is a
         394 km floor that deletes Gale and Jezero. Declutter is a runtime filter on `diameter`,
         which can always narrow; an archive cannot widen without a re-cut."""
-        command = " ".join(cut.pmtiles_command(cut.STAGED, cut.OUT))
+        command = " ".join(vector_cut.pmtiles_command(
+            cut.CUT, vector_cut.staged(cut.CUT), vector_cut.out(cut.CUT)))
         assert "-where" not in command
         assert "diameter" not in command
 
@@ -97,7 +100,7 @@ class TestTheArchiveIsUnfiltered:
         wrote for the whole catalogue, not a subset derived here."""
         expected = {
             cut.FILL_LAYER: features_geojson.POLYGONS,
-            cut.OUTLINE_LAYER: cut.OUTLINES,
+            cut.OUTLINE_LAYER: cut.outlines_path(),
             cut.LINE_LAYER: features_geojson.LINES,
             cut.LABEL_LAYER: features_geojson.LABELS,
         }
@@ -112,7 +115,7 @@ class TestStaging:
         layers = list(cut.sources())
         for index, layer in enumerate(layers):
             command = vector_layers.stage_command(
-                cut.sources()[layer], cut.STAGED, layer, update=index > 0)
+                cut.sources()[layer], vector_cut.staged(cut.CUT), layer, update=index > 0)
             with subtests.test(layer=layer):
                 assert ("-update" in command) == (index > 0)
 
@@ -120,29 +123,30 @@ class TestStaging:
         """It is the one source this module owns; the other three are the fold's outputs. It has to
         land beside them, or the cut would stage a stale outline against fresh polygons from a
         different directory and neither file's mtime would say so."""
-        assert cut.OUTLINES.parent == features_geojson.OUT_DIR
-        assert cut.OUTLINES.name not in {path.name for path in
+        assert cut.outlines_path().parent == features_geojson.OUT_DIR
+        assert cut.outlines_path().name not in {path.name for path in
                                          (features_geojson.POLYGONS, features_geojson.LINES,
                                           features_geojson.LABELS)}
 
 
 class TestRecipe:
     def test_records_every_setting_that_changes_the_bytes(self, subtests):
-        recorded = cut.recipe()
+        recorded = vector_cut.recipe(cut.CUT)
         for key in ("layers", "min_zoom", "max_zoom", "simplification",
                     "simplification_max_zoom", "buffer", "extent"):
             with subtests.test(key=key):
                 assert key in recorded
 
     def test_is_json_serialisable(self):
-        assert json.loads(json.dumps(cut.recipe())) == cut.recipe()
+        recorded = vector_cut.recipe(cut.CUT)
+        assert json.loads(json.dumps(recorded)) == recorded
 
     def test_freshness_notices_a_settings_change(self):
         """A re-cut under different settings leaves an archive NEWER than its sources, so mtime
         alone would call it fresh."""
-        drifted = dict(cut.recipe())
+        drifted = dict(vector_cut.recipe(cut.CUT))
         drifted["simplification"] = cut.SIMPLIFICATION + 1
-        assert drifted != cut.recipe()
+        assert drifted != vector_cut.recipe(cut.CUT)
 
     def test_the_recorded_layers_are_the_staged_layers_in_staging_order(self):
         """The sidecar is a producer's claim about what it emitted, and ORDER is part of the claim:
@@ -151,7 +155,7 @@ class TestRecipe:
         Spelled out rather than compared against `sources()`, which is what builds the recipe — that
         comparison reduces to `list(sources()) == list(sources())` and passes whatever either says.
         """
-        assert cut.recipe()["layers"] == [
+        assert vector_cut.recipe(cut.CUT)["layers"] == [
             "feature_fill", "feature_outline", "feature_line", "feature_label"]
 
 
@@ -166,30 +170,39 @@ class TestDerivationFreshness:
 
     @staticmethod
     def _store(tmp_path, monkeypatch):
-        outlines = tmp_path / "feature_outlines.geojson"
-        stamp = tmp_path / "feature_outlines_params.json"
-        archive = tmp_path / "vector.pmtiles"
-        recipe = tmp_path / "features_tiles_params.json"
-        sources = {layer: tmp_path / f"{layer}.geojson" for layer in cut.sources()}
-        for path in (*sources.values(), outlines, archive):
+        """The same shape as Earth's: a `VectorCut` that names every path, and `paths.DATA` for
+        the three the driver derives from the body."""
+        features = tmp_path / "work/mars/features"
+        features.mkdir(parents=True)
+        (tmp_path / "work/mars/planet_vector").mkdir(parents=True)
+        outlines = features / "feature_outlines.geojson"
+        stamp = features / "feature_outlines_params.json"
+        archive = tmp_path / "work/mars/planet_vector/vector.pmtiles"
+        sources = {layer: features / f"{layer}.geojson" for layer in cut.sources()}
+        sources[cut.OUTLINE_LAYER] = outlines
+        monkeypatch.setattr(paths, "DATA", tmp_path)
+        monkeypatch.setattr(cut, "CUT", dataclasses.replace(
+            cut.CUT,
+            sources=lambda: sources,
+            derived_from=lambda: sources[cut.FILL_LAYER],
+            derivation=lambda: {outlines: {"type": "FeatureCollection", "features": []}},
+            derivation_stamp=lambda: stamp,
+        ))
+        recipe = vector_cut.recipe_path(cut.CUT)
+        for path in (*sources.values(), archive):
             path.write_text("x", encoding="utf-8")
         stamp.write_text(json.dumps(vector_layers.seam_recipe()), encoding="utf-8")
-        recipe.write_text(json.dumps(cut.recipe()), encoding="utf-8")
+        recipe.write_text(json.dumps(vector_cut.recipe(cut.CUT)), encoding="utf-8")
         now = time.time()
-        for offset, path in enumerate((*sources.values(), outlines, stamp, recipe)):
+        for offset, path in enumerate((*sources.values(), stamp, recipe)):
             os.utime(path, (now - 100 + offset, now - 100 + offset))
         os.utime(archive, (now, now))
-        monkeypatch.setattr(cut, "OUTLINES", outlines)
-        monkeypatch.setattr(cut, "OUTLINES_RECIPE", stamp)
-        monkeypatch.setattr(cut, "OUT", archive)
-        monkeypatch.setattr(cut, "sources", lambda: sources)
-        monkeypatch.setattr(cut, "recipe_path", lambda: recipe)
         return stamp
 
     def test_the_fixture_reports_fresh_before_anything_is_perturbed(self, tmp_path, monkeypatch):
         """The control, without which every assertion below passes on a broken fixture."""
         self._store(tmp_path, monkeypatch)
-        assert cut.is_fresh()
+        assert vector_cut.is_fresh(cut.CUT)
 
     def test_a_seam_knob_change_makes_MARS_ARCHIVE_stale_though_no_mtime_moved(
             self, tmp_path, monkeypatch):
@@ -198,17 +211,19 @@ class TestDerivationFreshness:
         self._store(tmp_path, monkeypatch)
         monkeypatch.setattr(vector_layers, "SEAM_BAND_DEGREES",
                             vector_layers.SEAM_BAND_DEGREES + 1.0)
-        cut.recipe_path().write_text(json.dumps(cut.recipe()), encoding="utf-8")
-        older = cut.OUT.stat().st_mtime - 1
-        os.utime(cut.recipe_path(), (older, older))
-        assert json.loads(cut.recipe_path().read_text()) == cut.recipe(), "recipe half must PASS"
-        assert not cut.is_fresh()
+        recipe = vector_cut.recipe_path(cut.CUT)
+        recipe.write_text(json.dumps(vector_cut.recipe(cut.CUT)), encoding="utf-8")
+        older = vector_cut.out(cut.CUT).stat().st_mtime - 1
+        os.utime(recipe, (older, older))
+        assert (json.loads(recipe.read_text())
+                == vector_cut.recipe(cut.CUT)), "recipe half must PASS"
+        assert not vector_cut.is_fresh(cut.CUT)
 
     def test_MARS_derivation_that_was_never_stamped_is_not_believed(self, tmp_path, monkeypatch):
         """The state every store was in before this guard existed."""
         stamp = self._store(tmp_path, monkeypatch)
         stamp.unlink()
-        assert not cut.is_fresh()
+        assert not vector_cut.is_fresh(cut.CUT)
 
     @pytest.mark.parametrize("rubbish", ["{not json", "5", "[]", "null", ""])
     def test_an_UNREADABLE_stamp_is_stale_rather_than_an_exception(self, rubbish, tmp_path,
@@ -216,11 +231,11 @@ class TestDerivationFreshness:
         """Mars's copy of Earth's guard, and it had Earth's hole: absence handled, garbage not."""
         stamp = self._store(tmp_path, monkeypatch)
         stamp.write_text(rubbish, encoding="utf-8")
-        assert not cut.is_fresh()
+        assert not vector_cut.is_fresh(cut.CUT)
 
     @pytest.mark.parametrize("rubbish", ["{not json", "5", "[]", "null", ""])
     def test_an_UNREADABLE_archive_recipe_is_stale_rather_than_an_exception(
             self, rubbish, tmp_path, monkeypatch):
         self._store(tmp_path, monkeypatch)
-        cut.recipe_path().write_text(rubbish, encoding="utf-8")
-        assert not cut.is_fresh()
+        vector_cut.recipe_path(cut.CUT).write_text(rubbish, encoding="utf-8")
+        assert not vector_cut.is_fresh(cut.CUT)

@@ -87,6 +87,51 @@ class TestACallableDeclarationIsExecutedRatherThanRead:
         assert who_reads.declarations([module]) == []
 
 
+STANDALONE = '''
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Callable
+
+
+def _mapped() -> dict[str, Path]:
+    return {"fill": Path("/store/one.geojson"), "line": Path("/store/two.geojson")}
+
+
+@dataclass(frozen=True)
+class Cut:
+    sources: Callable[[], dict[str, Path]]
+
+
+CUT = Cut(sources=_mapped)
+'''
+
+
+class TestADeclarationNeedNotSitInARegistry:
+    """The dict was never the point — `sources` is. Both forms exist in the package: the two ice
+    registries are dicts keyed by body, and a vector cut is one declaration per stage module."""
+
+    def test_a_declaration_ALONE_at_module_level_is_found(self, tmp_path):
+        """Restricting the scan to dict values was an implementation detail that read as a rule, and
+        it reported every path either vector composer names as watched by nobody."""
+        module = _load(tmp_path, "standalone", STANDALONE)
+        assert [entry.producer for entry in who_reads.declarations([module])] == [
+            "standalone.CUT", "standalone.CUT"]
+
+    def test_a_MAPPING_declares_its_paths_in_the_values(self, tmp_path):
+        """Iterating a dict yields its KEYS, which are layer names here — so the mapping form scored
+        zero paths and read as a producer that reads nothing at all."""
+        module = _load(tmp_path, "mapped", STANDALONE)
+        assert [entry.path for entry in who_reads.declarations([module])] == [
+            Path("/store/one.geojson"), Path("/store/two.geojson")]
+
+    def test_a_module_level_value_that_is_not_a_producer_is_ignored(self, tmp_path):
+        """The scan now visits every module-level binding rather than only the dicts, so falling
+        through cleanly matters more than it did."""
+        module = _load(tmp_path, "ordinary",
+                       "COUNT = 3\nNAME = 'x'\nPLACES = ['a', 'b']\n")
+        assert who_reads.declarations([module]) == []
+
+
 class TestTheRealRegistriesAreReadWhole:
     """A round trip against production, written as a PROPERTY so that adding a body does not edit
     this file — the values are the registries' business, the reachability is this script's."""

@@ -215,17 +215,6 @@ def test_exaggeration_agrees_with_the_shared_palette_constant() -> None:
     assert bodies.EARTH.exaggeration == palette.EXAGGERATION
 
 
-def test_tile_ceiling_agrees_with_the_vector_pyramid() -> None:
-    """The raster cut and the country vector cut must agree, or the layers stop at different zooms.
-
-    Only the vector half is a bridge now: the raster cut READS the body, so asserting the two match
-    would be asking a function to agree with its own argument. The countries pyramid is still
-    Earth-hardcoded, deliberately — vectors stay Earth's until a Mars layer is designed — so this
-    stays a real statement about a real second copy, and it dies with that copy.
-    """
-    assert bodies.EARTH.tile_max_zoom == countries_pmtiles.MAX_ZOOM
-
-
 def test_the_cut_differs_between_bodies_in_exactly_one_setting() -> None:
     """The ceiling is the planet's; the other eight belong to the encoder and the tile scheme.
 
