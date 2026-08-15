@@ -15,8 +15,10 @@ These are general and belong to no stage. They lived in `tile/shade_planet.py`, 
 stages already imported them from — do not fold them back into a stage.
 """
 
+import json
 import math
 from pathlib import Path
+from typing import Any
 
 import rasterio
 
@@ -166,3 +168,34 @@ def write_if_changed(path: Path, text: str) -> Path:
     if not path.exists() or path.read_text() != text:
         path.write_text(text)
     return path
+
+
+def recorded_json(path: Path) -> "dict[str, Any] | None":
+    """The JSON object recorded at `path`, or None if there is no usable one there.
+
+    UNUSABLE MEANS NOT FRESH, NEVER AN EXCEPTION, and that is the whole reason this exists. A
+    predicate asking "can this stage be skipped" is answering about a file that may hold anything:
+    a truncated write, a hand edit, a stand-in left by something that had no business writing there.
+    Every one of those answers "no", and a predicate that raises instead turns a recoverable stale
+    verdict into a crashed pipeline run.
+
+    `download_sim3292.is_fresh` is why it is a function rather than a rule. It guarded the PARSE and
+    not the SHAPE — its docstring promised that a hand-edited document could not be called fresh,
+    and a two-byte `{}` parses cleanly, reaches `document["features"]` and raises `KeyError`. That
+    was found by a stub refetch dying on it. Six sibling predicates guarded even less: four compared
+    a recipe with a bare `json.loads` and no `try` at all.
+
+    Missing counts as unusable too, so a caller needs no `.exists()` first — `OSError` covers the
+    absent and the unreadable alike, and `ValueError` covers both `JSONDecodeError` and
+    `UnicodeDecodeError`, which are subclasses of it.
+
+    NOT FOR PRODUCERS OR CONSUMERS, only for freshness. `planet_seam` raises a long, specific
+    `FileNotFoundError` when a declaration is missing, and that loudness is the design: there, a
+    malformed file means the producer died and the rasters beside it cannot be trusted. Swapping
+    this in would convert a caught disaster into a silent one.
+    """
+    try:
+        parsed = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return parsed if isinstance(parsed, dict) else None

@@ -50,7 +50,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from pipeline import bodies, paths
+from pipeline import bodies, freshness, paths
 from pipeline.compose import vector_layers
 from pipeline.compose.vector_layers import polygon_parts_of
 
@@ -189,8 +189,7 @@ def derivation_is_stamped() -> bool:
     first is what let a stale derivation hide behind a fresh archive — `main` returns on `is_fresh`
     and never reaches `derive` at all.
     """
-    return OUTLINES_RECIPE.exists() and json.loads(
-        OUTLINES_RECIPE.read_text()) == vector_layers.seam_recipe()
+    return freshness.recorded_json(OUTLINES_RECIPE) == vector_layers.seam_recipe()
 
 
 def is_fresh() -> bool:
@@ -210,10 +209,7 @@ def is_fresh() -> bool:
             return False
     if not derivation_is_stamped():
         return False
-    stamped = recipe_path()
-    if not stamped.exists():
-        return False
-    return json.loads(stamped.read_text()) == recipe()
+    return freshness.recorded_json(recipe_path()) == recipe()
 
 
 def derive(force: bool) -> None:

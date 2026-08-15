@@ -72,7 +72,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from pipeline import fetch, paths
+from pipeline import fetch, freshness, paths
 
 DATA_DIR = paths.DATA / "raw/mars/sim3292"
 
@@ -235,12 +235,13 @@ def is_fresh(unit: str) -> bool:
     file is what a consumer will actually read, and a half-written or hand-edited one must not be
     called fresh because a JSON note beside it agrees with the module.
     """
-    path = unit_path(unit)
-    if not path.exists() or not recipe_path().exists():
+    if not recipe_path().exists():
         return False
-    try:
-        document = json.loads(path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, UnicodeDecodeError):
+    document = freshness.recorded_json(unit_path(unit))
+    # `features` IS CHECKED HERE rather than left to `geometry_digest`, which indexes it directly.
+    # Guarding the parse and not the shape is what this function used to do, and a two-byte `{}`
+    # parses cleanly and then raises — see `freshness.recorded_json`.
+    if document is None or "features" not in document:
         return False
     return geometry_digest(document) == GEOMETRY_DIGESTS[unit]
 

@@ -3378,6 +3378,29 @@ SABOTAGES: list[Sabotage] = [
         replacement='        if not out.exists():',
         guard='test_an_artifact_from_another_disc_is_rebuilt',
     ),
+    # --- a freshness predicate must ANSWER, never raise ------------------------------------------
+    # `download_sim3292.is_fresh` guarded the parse and not the shape, so a two-byte `{}` — valid
+    # JSON — reached `document["features"]` and raised `KeyError`, killing the re-fetch that was
+    # supposed to heal it. Six siblings guarded less; four compared a recipe with no `try` at all.
+    # The first case reverts `recorded_json` to that narrow form. The second is the shape half on
+    # its own, because the call site checks `features` independently of the helper and both are
+    # load-bearing: one owner can be fixed while the other rots.
+    Sabotage(
+        suite='python',
+        label='the JSON reader guards the parse but not the shape, so a non-object reaches the caller',
+        path='pipeline/freshness.py',
+        needle='    return parsed if isinstance(parsed, dict) else None',
+        replacement='    return parsed',
+        guard='test_valid_json_that_is_not_an_OBJECT_is_None',
+    ),
+    Sabotage(
+        suite='python',
+        label="the unit's freshness stops checking `features`, so a parseable stub raises KeyError",
+        path='pipeline/acquire/download_sim3292.py',
+        needle='    if document is None or "features" not in document:',
+        replacement='    if document is None:',
+        guard='test_a_document_that_PARSES_but_carries_no_features_is_not_fresh',
+    ),
     # --- The shared atomic download ------------------------------------------------------------
     # Eight of ten callers test `status.startswith("failed")`. Defaulting the 404 branch ON turns a
     # missing file into a silent success for all of them, and nothing downstream raises.
@@ -3589,8 +3612,11 @@ SABOTAGES: list[Sabotage] = [
         # meaning "no objection" is precisely the state in which the guard reaches nothing.
         label='a derivation that was never stamped is taken as current',
         path='pipeline/compose/countries_pmtiles.py',
-        needle='    return OUTLINES_RECIPE.exists() and json.loads(',
-        replacement='    return True or json.loads(',
+        # Re-anchored when the sidecar read moved to `freshness.recorded_json`: the old needle
+        # named the `.exists() and json.loads(` spelling, which was the whole of what that change
+        # deleted. The case is about the STAMP being consulted at all, not about how it is read.
+        needle='    return freshness.recorded_json(OUTLINES_RECIPE) == vector_layers.seam_recipe()',
+        replacement='    return True',
         guard='test_a_derivation_that_was_never_stamped_is_not_believed',
     ),
     Sabotage(

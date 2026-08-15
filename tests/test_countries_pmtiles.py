@@ -16,6 +16,8 @@ import os
 import re
 import time
 
+import pytest
+
 from pipeline.compose import countries_pmtiles as cut
 from pipeline.compose import vector_layers
 
@@ -242,6 +244,25 @@ class TestDerivationFreshness:
         rather than as "no objection", or the fix reaches nothing already on disk."""
         stamp = self._store(tmp_path, monkeypatch)
         stamp.unlink()
+        assert not cut.is_fresh()
+
+    @pytest.mark.parametrize("rubbish", ["{not json", "5", "[]", "null", ""])
+    def test_an_UNREADABLE_stamp_is_stale_rather_than_an_exception(self, rubbish, tmp_path,
+                                                                    monkeypatch):
+        """Absence was handled; garbage was not. Both comparisons here read a sidecar with a bare
+        `json.loads` and no `try`, so a truncated write raised out of a freshness question — the
+        family `freshness.recorded_json` now owns."""
+        stamp = self._store(tmp_path, monkeypatch)
+        stamp.write_text(rubbish)
+        assert not cut.is_fresh()
+
+    @pytest.mark.parametrize("rubbish", ["{not json", "5", "[]", "null", ""])
+    def test_an_UNREADABLE_archive_recipe_is_stale_rather_than_an_exception(
+            self, rubbish, tmp_path, monkeypatch):
+        """The second of the two sidecars, checked separately because they are read by different
+        functions and only one of them used to guard `.exists()`."""
+        self._store(tmp_path, monkeypatch)
+        cut.recipe_path().write_text(rubbish)
         assert not cut.is_fresh()
 
     def test_derive_reruns_when_the_stamp_is_stale_and_stamps_what_it_wrote(

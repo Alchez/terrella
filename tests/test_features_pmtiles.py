@@ -13,6 +13,8 @@ import json
 import os
 import time
 
+import pytest
+
 from pipeline import bodies
 from pipeline.compose import features_geojson, vector_layers
 from pipeline.compose import features_pmtiles as cut
@@ -206,4 +208,19 @@ class TestDerivationFreshness:
         """The state every store was in before this guard existed."""
         stamp = self._store(tmp_path, monkeypatch)
         stamp.unlink()
+        assert not cut.is_fresh()
+
+    @pytest.mark.parametrize("rubbish", ["{not json", "5", "[]", "null", ""])
+    def test_an_UNREADABLE_stamp_is_stale_rather_than_an_exception(self, rubbish, tmp_path,
+                                                                    monkeypatch):
+        """Mars's copy of Earth's guard, and it had Earth's hole: absence handled, garbage not."""
+        stamp = self._store(tmp_path, monkeypatch)
+        stamp.write_text(rubbish, encoding="utf-8")
+        assert not cut.is_fresh()
+
+    @pytest.mark.parametrize("rubbish", ["{not json", "5", "[]", "null", ""])
+    def test_an_UNREADABLE_archive_recipe_is_stale_rather_than_an_exception(
+            self, rubbish, tmp_path, monkeypatch):
+        self._store(tmp_path, monkeypatch)
+        cut.recipe_path().write_text(rubbish, encoding="utf-8")
         assert not cut.is_fresh()
