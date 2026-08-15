@@ -101,6 +101,15 @@ class TestFreshnessComparesInputsAndNeverOutputs:
         viking_luma.recipe_path().write_text("{not json")
         assert not viking_luma.is_fresh()
 
+    @pytest.mark.parametrize("literal", ["5", "[]", '"a string"', "null"])
+    def test_a_recipe_that_PARSES_into_a_non_object_is_STALE(self, literal, relocated):
+        """The case the one above cannot reach. `{not json` fails to parse and was caught; a bare
+        `5` parses, was handed back as the recorded recipe, and reached `.items()` — an
+        `AttributeError` raised from inside a question whose only honest answers are yes and no."""
+        viking_luma.luma_path().write_bytes(b"x")
+        viking_luma.recipe_path().write_text(literal)
+        assert not viking_luma.is_fresh()
+
 
 class TestItWritesWhereTheBodyLives:
     def test_both_paths_follow_a_relocated_data_store(self, relocated):

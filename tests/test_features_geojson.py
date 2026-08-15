@@ -13,6 +13,8 @@ Everything pinned here fails QUIETLY if it drifts, which is why it is pinned at 
 """
 
 import json
+import os
+import time
 
 import pytest
 
@@ -132,6 +134,69 @@ class TestWhatTravelsIntoTheTiles:
         """Against the acquirer's own pin, so a typo here fails at the gate rather than producing a
         layer that is silently missing a property."""
         assert set(fold.CARRIED_FIELDS) <= download_nomenclature.REQUIRED_FIELDS
+
+
+class TestFreshnessAnswersRatherThanRaises:
+    """`is_fresh` had no test at all, and carried two ways to raise out of a yes/no question.
+
+    Both are the same defect wearing different names: a predicate asked whether a stage can be
+    skipped, meeting a state it had not been written for, and throwing instead of saying no.
+    """
+
+    def _store(self, tmp_path, monkeypatch, *, acquired: bool = True):
+        """Outputs newer than their sources, with a matching recipe beside them."""
+        sources = tmp_path / "raw"
+        sources.mkdir()
+        monkeypatch.setattr(download_nomenclature, "layer_path",
+                            lambda layer, suffix="shp": sources / f"{layer}.{suffix}")
+        if acquired:
+            for layer in download_nomenclature.LAYERS:
+                download_nomenclature.layer_path(layer).write_text("source\n")
+
+        outputs = tmp_path / "out"
+        outputs.mkdir()
+        produced = {name: outputs / f"{name}.geojson" for name in fold.GEOMETRY_OUTPUTS}
+        labels = outputs / "labels.geojson"
+        for path in (*produced.values(), labels):
+            path.write_text('{"type": "FeatureCollection", "features": []}\n')
+        recipe = outputs / "recipe.json"
+        recipe.write_text(json.dumps(fold.recipe()))
+
+        now = time.time()
+        for layer in download_nomenclature.LAYERS:
+            source = download_nomenclature.layer_path(layer)
+            if source.exists():
+                os.utime(source, (now - 100, now - 100))
+        for path in (*produced.values(), labels, recipe):
+            os.utime(path, (now, now))
+
+        monkeypatch.setattr(fold, "GEOMETRY_OUTPUTS", produced)
+        monkeypatch.setattr(fold, "LABELS", labels)
+        monkeypatch.setattr(fold, "recipe_path", lambda: recipe)
+        return recipe
+
+    def test_the_fixture_reports_fresh_before_anything_is_perturbed(self, tmp_path, monkeypatch):
+        """The control. Both cases below assert False, which a permanently-False predicate also
+        satisfies."""
+        self._store(tmp_path, monkeypatch)
+        assert fold.is_fresh()
+
+    @pytest.mark.parametrize("rubbish", ["{not json", "5", "[]", "null", ""])
+    def test_an_UNREADABLE_recipe_is_stale_rather_than_an_exception(self, rubbish, tmp_path,
+                                                                     monkeypatch):
+        recipe = self._store(tmp_path, monkeypatch)
+        recipe.write_text(rubbish)
+        assert not fold.is_fresh()
+
+    def test_an_UNACQUIRED_gazetteer_is_stale_rather_than_a_ValueError(self, tmp_path, monkeypatch):
+        """The second bug, and it fired on the machine least able to notice: the source mtime came
+        from `max(... if ... .exists())`, so with nothing acquired the generator was empty and
+        `max` raised. Asking whether the outputs could be skipped crashed on any clean clone.
+        """
+        self._store(tmp_path, monkeypatch, acquired=False)
+        assert not any(download_nomenclature.layer_path(layer).exists()
+                       for layer in download_nomenclature.LAYERS), "fixture must leave none acquired"
+        assert fold.is_fresh() in (True, False)
 
 
 class TestNothingIsSimplifiedHere:

@@ -40,15 +40,15 @@ from pathlib import Path
 import numpy as np
 import rasterio
 
-from pipeline import bodies
-from pipeline.acquire import download_viking_mosaic
+from pipeline import bodies, freshness
+from pipeline.acquire import download_sim3292, download_viking_mosaic
 from pipeline.render import mars_ice, viking_luma
 from pipeline.tile import cap_render
 
-#: Degrees of latitude kept either side of the pole. The square cap FRAME reaches sqrt(2) * 10
-#: degrees from the pole at its corners, i.e. ~75.9, so 20 clears it with room for the ground ring
-#: the `ground` percentile is taken over.
-BAND_DEGREES = 20.0
+#: Degrees of latitude kept either side of the pole, with room beyond the frame corners for the
+#: ground ring the `ground` percentile is taken over. Owned by `cap_render` because what it has to
+#: clear is derived from `CAP_EDGE_LAT`; the ice-white script crops the same band from the same one.
+BAND_DEGREES = cap_render.CAP_MEASURE_BAND_DEGREES
 
 #: Neither the mosaic path, the sphere, nor the luma weights are respelled here. Each has an owner
 #: — `download_viking_mosaic`, `viking_luma`, `mars_ice` — and this script is the INSTRUMENT that
@@ -83,13 +83,22 @@ def viking_band(northern: bool) -> Path:
     mosaic = download_viking_mosaic.mosaic_path()
     name = "north" if northern else "south"
     out = out_dir() / f"viking_{name}_4326.tif"
-    if out.exists():
-        return out
 
+    # The mosaic is opened BEFORE the gate, which is what lets the gate describe the grid rather than
+    # just the filename: this band's shape is the mosaic's own sampling and BAND_DEGREES, and neither
+    # is in the name. Metadata only, so a cache hit still costs nothing measurable.
     with rasterio.open(mosaic) as dataset:
         degrees_per_px = 360.0 / dataset.width
 
     lat_lo, lat_hi = (90.0 - BAND_DEGREES, 90.0) if northern else (-90.0, BAND_DEGREES - 90.0)
+    # DIMENSIONS CARRY THE DISCRIMINATION HERE, not the bounds: `grid_matches` compares bounds at a
+    # 1.0 tolerance chosen for METRES, which is a whole degree on this grid. A band that re-spans
+    # moves the row count by thousands, so it trips regardless.
+    reference = (round(360.0 / degrees_per_px), round(BAND_DEGREES / degrees_per_px),
+                 (-180.0, lat_lo, 180.0, lat_hi))
+    if not freshness.warp_needs_rebuild(out, reference, mosaic):
+        return out
+
     degrees = out_dir() / f"viking_{name}_marsdeg.tif"
     run(["gdalwarp", "-q", "-overwrite", "-t_srs", viking_luma.MARS_LONGLAT,
          "-te", "-180", str(lat_lo), "180", str(lat_hi),
@@ -97,6 +106,7 @@ def viking_band(northern: bool) -> Path:
          "-co", "TILED=YES", str(mosaic), str(degrees)])
     run(["gdal_translate", "-q", "-a_srs", "EPSG:4326", str(degrees), str(out)])
     degrees.unlink()
+    freshness.mark_done(out)
     return out
 
 
@@ -117,11 +127,15 @@ def viking_on_cap(grid: cap_render.CapGrid,
     else:
         band = viking_band(grid.name == "north")
         warped = out_dir() / f"viking_{grid.name}_cap.tif"
-    if not warped.exists():
+    # Gated on the DISC and on the band beneath it. Either arm's name carries the pole and which arm
+    # it is, so a moved cap or a re-cut source would otherwise be answered with the previous run's
+    # pixels — and this script's whole output is a comparison between these two arms.
+    if freshness.warp_needs_rebuild(warped, cap_render.cap_reference_grid(grid), band):
         run(["gdalwarp", "-q", "-overwrite", "-t_srs", grid.aeqd,
              "-te", str(-grid.edge_m), str(-grid.edge_m), str(grid.edge_m), str(grid.edge_m),
              "-ts", str(grid.px), str(grid.px), "-r", "bilinear",
              "-co", "TILED=YES", str(band), str(warped)])
+        freshness.mark_done(warped)
 
     with rasterio.open(warped) as dataset:
         raw = dataset.read().astype(np.float32)
@@ -141,16 +155,18 @@ def unit_masks(grid: cap_render.CapGrid) -> dict[str, np.ndarray]:
     percentile excludes `Apu` everywhere and would otherwise take dusty layered deposits as bare
     ground in the one hemisphere where they cover most of the disc.
     """
-    bounds = (-grid.edge_m, -grid.edge_m, grid.edge_m, grid.edge_m)
+    width, height, bounds = cap_render.cap_reference_grid(grid)
     masks: dict[str, np.ndarray] = {}
     for unit in ("lApc", "Apu"):
         out = out_dir() / f"{unit.lower()}_{grid.name}.tif"
-        if not out.exists():
+        if freshness.warp_needs_rebuild(out, cap_render.cap_reference_grid(grid),
+                                        download_sim3292.unit_path(unit)):
             mars_ice.burn_unit(
-                unit, grid.aeqd, bounds, grid.px, grid.px,
+                unit, grid.aeqd, bounds, width, height,
                 projected=out_dir() / f"{unit.lower()}_{grid.name}_aeqd.geojson", out=out,
                 must_draw=f"{unit} must reach the {grid.name} cap disc at edge_lat "
                           f"{grid.edge_lat}")
+            freshness.mark_done(out)
         with rasterio.open(out) as dataset:
             masks[unit] = dataset.read(1).astype(bool)
     return masks

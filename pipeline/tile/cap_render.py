@@ -91,6 +91,15 @@ CAP_EDGE_LAT = 80.0    # inscribed-circle latitude of the texture disc, north; t
                        # polarCaps.test.ts against the served caps.json rather than restated here.
                        # DO NOT raise CAP_PX chasing a finer cap: Mars's disc already oversamples its
                        # 200 m source, and RINGS (polarCaps.ts) makes the MESH the limit, not this.
+CAP_MEASURE_BAND_DEGREES = 20.0
+                       # Latitude kept either side of the pole when an INSTRUMENT crops a global
+                       # raster before warping it onto a cap disc. Nothing shipped reads it; the two
+                       # ice reproducers do, and they held a copy each with only a comment tying them
+                       # together. It lives beside CAP_EDGE_LAT because that is what it has to clear:
+                       # the disc is inscribed, so the square frame's CORNERS reach sqrt(2) times the
+                       # colatitude, and a band narrower than that crops away frame the measurement
+                       # then reads as nodata. test_cap_render pins the inequality, since the number
+                       # is chosen and the thing it must clear is derived.
 CAP_WEBP_QUALITY = 85  # gdal_translate WEBP quality — hero_variants' proven setting; rides in
                        # cap_recipe because the encoder changes the shipped pixels
 CAP_ELEV_PX = 512      # elevation texture side; see cap_elev_asset for why there is only one size.
@@ -614,6 +623,29 @@ def cap_ground_metres_per_px(grid: CapGrid) -> float:
     guard on it has to be able to name it.
     """
     return (2.0 * grid.edge_m / grid.px) * bodies.ground_metres_per_aeqd_unit(grid.body)
+
+
+def cap_reference_grid(grid: CapGrid) -> tuple[int, int, tuple[float, float, float, float]]:
+    """This cap's warp target as `(width, height, bounds)` — the shape `freshness.grid_matches` asks
+    for, in the vocabulary `shade_planet` already calls a reference grid.
+
+    THE POINT IS THAT A CACHED RASTER CAN BE ASKED WHICH DISC IT IS ON. An artifact warped here is
+    named for its pole and nothing else, so `edge_lat` or `CAP_PX` can move underneath one and leave
+    a file that still opens, still covers the pole and answers every query — measured against the
+    wrong parallel. `edge_lat` has already moved once.
+
+    IT CANNOT TELL TWO BODIES APART, and that is a property of the projection rather than a gap here:
+    every cap AEQD is Earth-sphered, so `aeqd_radius_m` is one number for all of them and two planets
+    inscribe the identical square. What separates them is the work dir, one per body. The quantity
+    that DOES vary is the ground each pixel spans — `cap_ground_metres_per_px`, next door.
+
+    ITS CONSUMERS ARE THE TWO ICE INSTRUMENTS, which is where the drift is unwitnessed: they
+    reproduce ratified look constants, so a stale disc there is a wrong colour that reads as measured.
+    `_warp` and `_burn` below spell the same square out for GDAL and are the obvious next adopters —
+    left alone deliberately, since changing them is a render-path edit and this is not.
+    """
+    edge = grid.edge_m
+    return grid.px, grid.px, (-edge, -edge, edge, edge)
 
 
 def _burn(grid: CapGrid, source: Path, name: str, must_draw: "str | None") -> np.ndarray:

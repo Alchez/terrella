@@ -57,7 +57,7 @@ import numpy as np
 import rasterio
 from rasterio.windows import Window
 
-from pipeline import bodies
+from pipeline import bodies, freshness
 from pipeline.acquire import download_viking_mosaic
 from pipeline.raster_io import row_bands
 from pipeline.render import mars_ice
@@ -176,13 +176,9 @@ def build_recipe(valid_fraction: float) -> str:
 
 def recorded_recipe() -> "dict[str, Any] | None":
     """The recipe beside the output on disk, or None if there is none to read."""
-    path = recipe_path()
-    if not path.exists():
-        return None
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, UnicodeDecodeError):
-        return None
+    # Delegated rather than spelled out: this was the local copy that guarded the parse and let a
+    # non-dict through to `is_fresh`, where `.items()` raises. `freshness.recorded_json` owns it.
+    return freshness.recorded_json(recipe_path())
 
 
 def is_fresh() -> bool:

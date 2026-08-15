@@ -179,10 +179,38 @@ class TestFreshnessReadsTheFileNotTheSidecar:
     def test_a_corrupt_file_is_not_fresh_rather_than_an_exception(self, tmp_path, monkeypatch,
                                                                   pinned_to_one_feature):
         """A half-written file must make the acquirer re-fetch, not crash it — the resumability
-        rule: a crash at unit N must not require deleting the world by hand."""
+        rule: a crash at unit N must not require deleting the world by hand.
+
+        THIS CASE ONLY EVER REACHED THE PARSE, which is why the two below exist: the string is
+        truncated mid-token, so it raises `JSONDecodeError` and the guard caught it. A document that
+        PARSES and is the wrong shape took a different exit for two years — see the next test.
+        """
         monkeypatch.setattr(sim3292, "DATA_DIR", tmp_path)
         sim3292.recipe_path().write_text(sim3292.build_recipe())
         sim3292.unit_path("lApc").write_text('{"type": "FeatureColl')
+        assert not sim3292.is_fresh("lApc")
+
+    def test_a_document_that_PARSES_but_carries_no_features_is_not_fresh(
+            self, tmp_path, monkeypatch, pinned_to_one_feature):
+        """The two bytes that actually happened, and they raised `KeyError` rather than answering.
+
+        A test fixture wrote `{}` over the real acquired unit; the re-fetch that should have healed
+        it died here instead, because `is_fresh` guarded the parse and `geometry_digest` indexes
+        `document["features"]` directly. `{}` is valid JSON, so the case above cannot reach it.
+        """
+        monkeypatch.setattr(sim3292, "DATA_DIR", tmp_path)
+        sim3292.recipe_path().write_text(sim3292.build_recipe())
+        sim3292.unit_path("lApc").write_text("{}")
+        assert not sim3292.is_fresh("lApc")
+
+    @pytest.mark.parametrize("stub", ["5", '"a string"', "[]", "null"])
+    def test_valid_json_that_is_not_an_object_is_not_fresh(self, stub, tmp_path, monkeypatch,
+                                                           pinned_to_one_feature):
+        """`{}` is not the only parseable non-document. A list reaches the same index and raises
+        `TypeError` instead of `KeyError`, which is the same defect wearing a different name."""
+        monkeypatch.setattr(sim3292, "DATA_DIR", tmp_path)
+        sim3292.recipe_path().write_text(sim3292.build_recipe())
+        sim3292.unit_path("lApc").write_text(stub)
         assert not sim3292.is_fresh("lApc")
 
     def test_a_correct_sidecar_cannot_make_a_wrong_FILE_fresh(self, tmp_path, monkeypatch,

@@ -192,8 +192,9 @@ EARTH = Body(
     map_units_per_pixel=305.7483,
     # Duplicated today in render/palette.py, which the hero scene imports directly.
     exaggeration=15.0,
-    # The raster cut reads this; compose/countries_pmtiles.py still carries its own copy, because
-    # the vector pyramid is Earth-only until a Mars layer is designed. That last copy is bridged.
+    # Both cuts read this now — the raster pass and, since the two vector composers merged onto one
+    # driver, `countries_pmtiles.MAX_ZOOM` as well. The bridging test that stood in for that second
+    # copy is gone with it.
     tile_max_zoom=8,
     # Empty on purpose — see the field's note. Earth's intermediates stay exactly where they are.
     path_prefix="",

@@ -19,7 +19,7 @@ from pathlib import Path
 import pytest
 
 from pipeline import bodies, paths
-from pipeline.compose import countries_pmtiles, features_pmtiles
+from pipeline.compose import countries_pmtiles, features_pmtiles, vector_cut
 
 SOURCE_LAYERS_TS = "web/src/lib/sourceLayers.ts"
 
@@ -130,9 +130,10 @@ class TestTheTwoLanguagesAgree:
         for body_name, product in CUT_FOR_BODY.items():
             with subtests.test(body=body_name):
                 expected = bodies.work_dir(bodies.BODIES[body_name], VECTOR_STAGE)
-                assert CUTTERS[product].OUT_DIR == expected, (
+                written = vector_cut.out_dir(CUTTERS[product].CUT)
+                assert written == expected, (
                     f"{product} is declared as {body_name}'s product but its cutter writes to "
-                    f"{CUTTERS[product].OUT_DIR}, not {expected}"
+                    f"{written}, not {expected}"
                 )
 
     @pytest.mark.parametrize("body", sorted(CUT_FOR_BODY))

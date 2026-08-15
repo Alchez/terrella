@@ -46,7 +46,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from pipeline import bodies
+from pipeline import bodies, freshness
 from pipeline.acquire import download_nomenclature
 
 OUT_DIR = bodies.work_dir(bodies.MARS, "features")
@@ -219,17 +219,20 @@ def is_fresh() -> bool:
 
     The recipe half is what catches a flag change, which moves no mtime and leaves no mark on the
     geometry a reader would notice.
+
+    THE SOURCE MTIME COMES FROM `freshness.newest_mtime`, which scores a missing path 0.0. The
+    hand-rolled `max(... if ... .exists())` it replaces raised `ValueError` on an empty sequence
+    instead — so on a machine where the gazetteer is not acquired, asking whether the outputs could
+    be skipped crashed rather than answering.
     """
-    newest_source = max(download_nomenclature.layer_path(layer).stat().st_mtime
-                        for layer in download_nomenclature.LAYERS
-                        if download_nomenclature.layer_path(layer).exists())
+    newest_source = freshness.newest_mtime(
+        *(download_nomenclature.layer_path(layer) for layer in download_nomenclature.LAYERS))
     for path in (*GEOMETRY_OUTPUTS.values(), LABELS):
         if not path.exists() or path.stat().st_size == 0:
             return False
         if path.stat().st_mtime <= newest_source:
             return False
-    stamped = recipe_path()
-    return stamped.exists() and json.loads(stamped.read_text()) == recipe()
+    return freshness.recorded_json(recipe_path()) == recipe()
 
 
 def translate(force: bool) -> None:

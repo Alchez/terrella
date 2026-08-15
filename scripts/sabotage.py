@@ -3357,6 +3357,50 @@ SABOTAGES: list[Sabotage] = [
         replacement='    return 2.0 * grid.edge_m / grid.px',
         guard='test_every_shipped_cap_grid_spans_its_own_bodys_ground',
     ),
+    # --- the two ice instruments' caches ---------------------------------------------------------
+    # Both scripts reproduce a ratified look constant and nothing else can, so an oracle that reuses
+    # the previous disc's pixels reports agreement about ice it never looked at. The gate is what
+    # makes the cached name mean the grid rather than just the pole.
+    Sabotage(
+        suite='python',
+        label="the ice-white warp is cached on its filename, so a moved cap disc is measured stale",
+        path='scripts/measure_mars_ice_white.py',
+        needle='    if freshness.warp_needs_rebuild(warped, cap_render.cap_reference_grid(grid), mosaic):',
+        replacement='    if not warped.exists():',
+        guard='test_an_artifact_from_another_disc_is_rebuilt',
+    ),
+    Sabotage(
+        suite='python',
+        label="the levels script's unit burn is cached on its filename, so a moved cap disc is stale",
+        path='scripts/measure_viking_levels.py',
+        needle='        if freshness.warp_needs_rebuild(out, cap_render.cap_reference_grid(grid),\n'
+               '                                        download_sim3292.unit_path(unit)):',
+        replacement='        if not out.exists():',
+        guard='test_an_artifact_from_another_disc_is_rebuilt',
+    ),
+    # --- a freshness predicate must ANSWER, never raise ------------------------------------------
+    # `download_sim3292.is_fresh` guarded the parse and not the shape, so a two-byte `{}` — valid
+    # JSON — reached `document["features"]` and raised `KeyError`, killing the re-fetch that was
+    # supposed to heal it. Six siblings guarded less; four compared a recipe with no `try` at all.
+    # The first case reverts `recorded_json` to that narrow form. The second is the shape half on
+    # its own, because the call site checks `features` independently of the helper and both are
+    # load-bearing: one owner can be fixed while the other rots.
+    Sabotage(
+        suite='python',
+        label='the JSON reader guards the parse but not the shape, so a non-object reaches the caller',
+        path='pipeline/freshness.py',
+        needle='    return parsed if isinstance(parsed, dict) else None',
+        replacement='    return parsed',
+        guard='test_valid_json_that_is_not_an_OBJECT_is_None',
+    ),
+    Sabotage(
+        suite='python',
+        label="the unit's freshness stops checking `features`, so a parseable stub raises KeyError",
+        path='pipeline/acquire/download_sim3292.py',
+        needle='    if document is None or "features" not in document:',
+        replacement='    if document is None:',
+        guard='test_a_document_that_PARSES_but_carries_no_features_is_not_fresh',
+    ),
     # --- The shared atomic download ------------------------------------------------------------
     # Eight of ten callers test `status.startswith("failed")`. Defaulting the 404 branch ON turns a
     # missing file into a silent success for all of them, and nothing downstream raises.
@@ -3547,8 +3591,10 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='python',
         label='the archive gate stops asking whether the geometry under it is current',
-        path='pipeline/compose/countries_pmtiles.py',
-        needle='    if not derivation_is_stamped():\n        return False',
+        # Re-anchored onto `vector_cut`: the two composers' identical gates became one, so this
+        # case is about the shared predicate rather than about Earth's copy of it.
+        path='pipeline/compose/vector_cut.py',
+        needle='    if not derivation_is_stamped(cut):\n        return False',
         replacement='    if False:\n        return False',
         guard='test_a_seam_knob_change_makes_the_ARCHIVE_stale_though_no_mtime_moved',
     ),
@@ -3557,8 +3603,8 @@ SABOTAGES: list[Sabotage] = [
         # The producing half. Without it the archive correctly reports itself stale forever and the
         # re-cut never fixes anything, which reads as a pipeline that cannot converge.
         label='the derivation stops rewriting when its recipe moved',
-        path='pipeline/compose/countries_pmtiles.py',
-        needle='        and derivation_is_stamped()',
+        path='pipeline/compose/vector_cut.py',
+        needle='        and derivation_is_stamped(cut)',
         replacement='        and True',
         guard='test_derive_reruns_when_the_stamp_is_stale_and_stamps_what_it_wrote',
     ),
@@ -3567,9 +3613,13 @@ SABOTAGES: list[Sabotage] = [
         # Absence must read as STALE. Every store on disk predates this stamp, so a missing file
         # meaning "no objection" is precisely the state in which the guard reaches nothing.
         label='a derivation that was never stamped is taken as current',
-        path='pipeline/compose/countries_pmtiles.py',
-        needle='    return OUTLINES_RECIPE.exists() and json.loads(',
-        replacement='    return True or json.loads(',
+        path='pipeline/compose/vector_cut.py',
+        # Re-anchored when the sidecar read moved to `freshness.recorded_json`: the old needle
+        # named the `.exists() and json.loads(` spelling, which was the whole of what that change
+        # deleted. The case is about the STAMP being consulted at all, not about how it is read.
+        needle=('    return freshness.recorded_json(cut.derivation_stamp())'
+                ' == vector_layers.seam_recipe()'),
+        replacement='    return True',
         guard='test_a_derivation_that_was_never_stamped_is_not_believed',
     ),
     Sabotage(
@@ -3577,11 +3627,25 @@ SABOTAGES: list[Sabotage] = [
         # The second body. Mars escaped the original bug by ordering alone — its outlines happened
         # to be derived after the seam rule landed — so its copy of the gate has never been observed
         # to matter, which is exactly the kind of guard that is vacuous without a case.
-        label="Mars's archive gate stops asking whether its outlines are current",
+        label="Earth stops recording the GeoJSON its whole pyramid descends from",
+        # The mirror of the case below, and the direction that matters more: Earth's archive is the
+        # older and larger of the two, and losing a key re-cuts it exactly as surely as gaining one.
+        path='pipeline/compose/countries_pmtiles.py',
+        needle='    extra_recipe=lambda: {"source": source_path().name},',
+        replacement='    extra_recipe=dict,',
+        guard='test_the_key_set_is_exactly_what_the_sidecar_carries',
+    ),
+    Sabotage(
+        suite='python',
+        label="Mars records a source key it has no source for, re-cutting its live archive",
+        # Its predecessor mutated Mars's own copy of the archive gate, which the merge deleted —
+        # one predicate serves both bodies now and the case above covers it. What the merge put at
+        # risk instead is the half that is still per body: Earth names the one GeoJSON its pyramid
+        # descends from and Mars names none, and either archive re-cuts if that set moves by a key.
         path='pipeline/compose/features_pmtiles.py',
-        needle='    if not derivation_is_stamped():\n        return False',
-        replacement='    if False:\n        return False',
-        guard='test_a_seam_knob_change_makes_MARS_ARCHIVE_stale_though_no_mtime_moved',
+        needle='    extra_recipe=dict,',
+        replacement='    extra_recipe=lambda: {"source": "features.geojson"},',
+        guard='test_the_key_set_is_exactly_what_the_sidecar_carries',
     ),
     # An identity is what makes a feature hoverable, labellable and joinable. Carrying one anonymously
     # puts a shape in the layer that nothing can ever address — present, painted, and unreachable.
@@ -5543,10 +5607,10 @@ SABOTAGES: list[Sabotage] = [
     # reads as "the pipeline has not been run".
     Sabotage(
         suite='python',
-        label="Mars's vector cut goes back to writing beside its GeoJSONs",
-        path='pipeline/compose/features_pmtiles.py',
-        needle='OUT_DIR = bodies.work_dir(bodies.MARS, "planet_vector")',
-        replacement='OUT_DIR = features_geojson.OUT_DIR',
+        label='the vector cut sends every body to one directory',
+        path='pipeline/compose/vector_cut.py',
+        needle='    return bodies.work_dir(cut.body, "planet_vector")',
+        replacement='    return bodies.work_dir(bodies.EARTH, "planet_vector")',
         guard='test_each_cutter_writes_into_the_body_it_serves',
     ),
     # The gate that picks a style stack, mutated to Earth's answer for every planet. No type breaks:
@@ -6008,8 +6072,8 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label='the borders reader spells its own path again, and the chain can now drift',
         path='pipeline/compose/countries_pmtiles.py',
-        needle='BORDERS = bodies.work_dir(bodies.EARTH, "borders")',
-        replacement='BORDERS = paths.DATA / "work/borders"',
+        needle='    return bodies.work_dir(bodies.EARTH, "borders")',
+        replacement='    return paths.DATA / "work/borders"',
         guard='test_the_borders_work_dir_is_spelled_once',
     ),
     # A reader re-deriving the shapefile longhand: the exact shape that reached five call sites.
@@ -7082,6 +7146,27 @@ SABOTAGES: list[Sabotage] = [
         needle='  if (diameterKm === null || !(diameterKm > 0)) return null;',
         replacement='  if (diameterKm === null || !(diameterKm > 0)) return 0;',
         guard='declines to size a feature the gazetteer publishes at zero',
+    ),
+    # --- the lookup that calls into the package it is describing -------------------------------------
+    # `who_reads` invokes functions to answer a question ABOUT the store, which is the one instrument
+    # here that can damage its own subject. Both cases below are widenings a future edit makes for
+    # good reasons — cover more accessors, read the declaration more cheaply — and neither announces
+    # itself: the first writes, the second just answers less.
+    Sabotage(
+        suite='python',
+        label='the path lookup calls every function that returns a Path, writers included',
+        path='scripts/who_reads.py',
+        needle='ACCESSOR_SUFFIXES = ("_path", "_dir", "_root")',
+        replacement='ACCESSOR_SUFFIXES = ("",)',
+        guard='test_a_producer_that_returns_its_output_path_is_never_run',
+    ),
+    Sabotage(
+        suite='python',
+        label='the path lookup reads source declarations instead of executing them',
+        path='scripts/who_reads.py',
+        needle='    if not callable(supply) or _needs_an_argument(supply):',
+        replacement='    if True:',
+        guard='test_a_source_no_grep_could_find_is_reported',
     ),
 ]
 

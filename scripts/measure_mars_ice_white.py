@@ -41,14 +41,14 @@ from pathlib import Path
 import numpy as np
 import rasterio
 
-from pipeline import bodies
-from pipeline.acquire import download_viking_mosaic
+from pipeline import bodies, freshness
+from pipeline.acquire import download_sim3292, download_viking_mosaic
 from pipeline.render import mars_ice, palette, viking_luma
 from pipeline.tile import cap_render
 
-#: Degrees of latitude kept either side of the pole, matching the levels script's band for the same
-#: reason: the square cap FRAME reaches sqrt(2) * 10 degrees from the pole at its corners.
-BAND_DEGREES = 20.0
+#: Degrees of latitude kept either side of the pole. Imported rather than restated: the levels script
+#: crops the same band for the same reason, and the two held a copy each tied together by a comment.
+BAND_DEGREES = cap_render.CAP_MEASURE_BAND_DEGREES
 
 #: Rec709, the same weights the luminance of a white is judged by everywhere else on this site.
 REC709 = (0.2126, 0.7152, 0.0722)
@@ -166,11 +166,16 @@ def viking_rgb_on_cap(grid: cap_render.CapGrid) -> np.ndarray:
 
     `viking_luma.degrees_vrt` owns the two-step relabel out of SimpleCylindrical metres and carries
     why it cannot be one step; only the window is local to this script.
+
+    THE CACHE IS GATED ON THE DISC, NOT ON THE FILENAME. This name carries the pole and nothing else,
+    so an `edge_lat` or `CAP_PX` that moved would be answered with the previous disc's pixels and the
+    run would report a hue for ice it never looked at — the one failure this script cannot survive,
+    since it exists to notice exactly that class of drift in the constants it reproduces.
     """
     warped = out_dir() / f"viking_rgb_{grid.name}_cap.tif"
-    if not warped.exists():
-        whole = viking_luma.degrees_vrt(download_viking_mosaic.mosaic_path(),
-                                        out_dir() / "viking_degrees.vrt")
+    mosaic = download_viking_mosaic.mosaic_path()
+    if freshness.warp_needs_rebuild(warped, cap_render.cap_reference_grid(grid), mosaic):
+        whole = viking_luma.degrees_vrt(mosaic, out_dir() / "viking_degrees.vrt")
         northern = grid.name == "north"
         lat_lo, lat_hi = ((90.0 - BAND_DEGREES, 90.0) if northern
                           else (-90.0, BAND_DEGREES - 90.0))
@@ -182,6 +187,7 @@ def viking_rgb_on_cap(grid: cap_render.CapGrid) -> np.ndarray:
              "-ts", str(grid.px), str(grid.px), "-r", "bilinear",
              "-co", "TILED=YES", str(band), str(warped)])
         band.unlink()
+        freshness.mark_done(warped)
 
     with rasterio.open(warped) as dataset:
         return dataset.read().astype(np.float32)
@@ -197,15 +203,17 @@ def shipped_alpha(grid: cap_render.CapGrid, rgb: np.ndarray) -> np.ndarray:
     """
     field = mars_ice.luma(rgb)
     graded = mars_ice.albedo_alpha(field, mars_ice.ALPHA_LEVELS[grid.name], viking_luma.NODATA)
-    bounds = (-grid.edge_m, -grid.edge_m, grid.edge_m, grid.edge_m)
+    width, height, bounds = cap_render.cap_reference_grid(grid)
     masks: dict[str, np.ndarray] = {}
     for unit in mars_ice.NORTH_UNITS:
         burnt = out_dir() / f"{unit.lower()}_{grid.name}.tif"
-        if not burnt.exists():
+        if freshness.warp_needs_rebuild(burnt, cap_render.cap_reference_grid(grid),
+                                        download_sim3292.unit_path(unit)):
             mars_ice.burn_unit(
-                unit, grid.aeqd, bounds, grid.px, grid.px,
+                unit, grid.aeqd, bounds, width, height,
                 projected=out_dir() / f"{unit.lower()}_{grid.name}_aeqd.geojson", out=burnt,
                 must_draw=f"{unit} must reach the {grid.name} cap disc at edge_lat {grid.edge_lat}")
+            freshness.mark_done(burnt)
         with rasterio.open(burnt) as dataset:
             masks[unit] = dataset.read(1).astype(bool)
 
