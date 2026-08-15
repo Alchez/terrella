@@ -27,6 +27,7 @@ from typing import Any
 import numpy as np
 import pytest
 import rasterio
+from conftest import cap_ground_metres_per_px_from_ground_radius
 from rasterio.transform import from_bounds
 
 from pipeline import bodies, layers, paths, planet_seam
@@ -901,6 +902,45 @@ class TestTheCapIsShadedInGroundMetres:
         assert "ground_scale" not in json.dumps(
             cap_render.grid_recipe_fields(EARTH_NORTH))
         assert "ground_scale" not in cap_render.cap_elev_recipe(EARTH_NORTH)
+
+
+class TestTheCapPixelIsMeasuredInGroundMetres:
+    """`cap_ground_metres_per_px` is what every ground distance drawn on a cap divides by, and the
+    whole of its content is the AEQD-to-ground ratio. Strip that and it still returns metres, still
+    scales with the disc and still tracks the pixel count — it is simply the wrong planet's metres,
+    which is a defect with no visible signature and, until this class, no witness.
+
+    Aimed with `cap_ground_metres_per_px_from_ground_radius`, whose docstring holds why the
+    comparison is independent rather than the production line typed out a second time.
+    """
+
+    def test_every_shipped_cap_grid_spans_its_own_bodys_ground(self, subtests):
+        """All four rather than one, because the quantity is a body fact reached through a per-pole
+        grid: today the two poles share a colatitude and a pixel count, and a body that re-spanned
+        one of them would be asserting nothing here if only the other were named."""
+        for body in (bodies.EARTH, bodies.MARS):
+            for grid in (cap_render.north_grid(body), cap_render.south_grid(body)):
+                with subtests.test(body=body.name, pole=grid.name):
+                    assert cap_render.cap_ground_metres_per_px(grid) == pytest.approx(
+                        cap_ground_metres_per_px_from_ground_radius(grid))
+
+    def test_the_map_figure_it_is_not_is_reachable_from_the_same_grid(self):
+        """The positive control. Neither body's cap is drawn on its own sphere, so the bare
+        `2 * edge_m / px` is a DIFFERENT number for both — including Earth, where it differs by a
+        thousandth. Without this the class above could be passing because there is nothing for the
+        ratio to do, which is the state Earth's caps spent their whole life one body away from."""
+        for body in (bodies.EARTH, bodies.MARS):
+            grid = cap_render.north_grid(body)
+            assert cap_render.cap_ground_metres_per_px(grid) != 2.0 * grid.edge_m / grid.px
+
+    def test_the_correction_runs_toward_the_bodys_own_size(self):
+        """Direction, which is what an inverted quotient gets wrong while staying large and staying
+        Mars-only. Mars's cap is drawn on Earth's sphere, so one of its pixels covers LESS Martian
+        ground than the map units measuring it, and Earth's covers fractionally more. The magnitudes
+        belong to `bodies.ground_metres_per_aeqd_unit` and are pinned where it lives."""
+        mars, earth = cap_render.north_grid(bodies.MARS), cap_render.north_grid(bodies.EARTH)
+        assert cap_render.cap_ground_metres_per_px(mars) < 2.0 * mars.edge_m / mars.px
+        assert cap_render.cap_ground_metres_per_px(earth) > 2.0 * earth.edge_m / earth.px
 
 
 class TestTheCapRecipeRecordsWhatIsOff:

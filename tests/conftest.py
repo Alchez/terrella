@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from pipeline import bodies
-from pipeline.tile import shade
+from pipeline.tile import cap_render, shade
 
 #: The REAL served root, resolved once while `paths.ROOT` still points at this checkout.
 #:
@@ -82,3 +82,23 @@ def hillshade_for_light(light: float) -> float:
         raise ValueError(f"light {light} is at or below the ambient floor {ambient}; "
                          "the softplus never reaches it, so no hillshade DN produces it")
     return flat * (ambient + knee * math.log(math.expm1((light - ambient) / knee)))
+
+
+def cap_ground_metres_per_px_from_ground_radius(grid: cap_render.CapGrid) -> float:
+    """The ground metres one cap pixel spans, derived without the projection it is drawn on.
+
+    THE ORACLE FOR `cap_render.cap_ground_metres_per_px`, and it is one because the AEQD sphere
+    CANCELS. Production reaches the answer as `2 * edge_m / px` times the AEQD-to-ground ratio, and
+    `edge_m` is itself `aeqd_radius_m * colatitude` — so the radius the cap is drawn on divides out
+    and what is left mentions only the body's own size. Recomputing it this way is a second answer
+    rather than the production expression retyped, which is what lets one comparison catch a dropped
+    ratio, an inverted one and a doubled one alike.
+
+    Shared rather than written at each guard because a test that reads the function it is guarding
+    is not a guard at all: drop the ratio and a caller which asks `cap_ground_metres_per_px` how wide
+    its own pixels are gets a consistent pair of wrong numbers, and every distance it draws still
+    measures correct against them. Both guards therefore have to aim with this, and a second copy of
+    it could be corrected in one place and left wrong in the other.
+    """
+    return (2.0 * grid.body.ground_radius_m
+            * math.radians(90.0 - abs(grid.edge_lat)) / grid.px)

@@ -3346,6 +3346,17 @@ SABOTAGES: list[Sabotage] = [
         replacement='',
         guard='test_the_ground_scale_rides_in_the_recipe_that_gates_the_render',
     ),
+    # The same confusion one function further down, and the one that stayed uncaught longest: this
+    # returns metres either way, scales with the disc either way, and on an Earth-only pipeline is
+    # wrong by a thousandth. Every ground distance drawn on a cap divides by it.
+    Sabotage(
+        suite='python',
+        label='the cap pixel is measured in AEQD map metres, so a ground distance draws at the wrong width',
+        path='pipeline/tile/cap_render.py',
+        needle='    return (2.0 * grid.edge_m / grid.px) * bodies.ground_metres_per_aeqd_unit(grid.body)',
+        replacement='    return 2.0 * grid.edge_m / grid.px',
+        guard='test_every_shipped_cap_grid_spans_its_own_bodys_ground',
+    ),
     # --- The shared atomic download ------------------------------------------------------------
     # Eight of ten callers test `status.startswith("failed")`. Defaulting the 404 branch ON turns a
     # missing file into a silent success for all of them, and nothing downstream raises.
@@ -5462,15 +5473,25 @@ SABOTAGES: list[Sabotage] = [
         replacement='',
         guard='refuses a zoom past the cut',
     ),
-    # The rule the whole scheme rests on: two raster pyramids in one archive is not a tight packing,
-    # it is an address collision — and it would serve terrain bytes where relief was asked for.
+    # The rule the whole scheme rests on: two pyramids in one archive is not a tight packing, it is
+    # an address collision — and it would serve terrain bytes where relief was asked for.
     Sabotage(
         suite='web',
         label='terrain is published out of the relief archive',
         path='web/src/lib/tileAddress.ts',
         needle='      objectKey: "terrain-v2.pmtiles",',
         replacement='      objectKey: "planet-v2.pmtiles",',
-        guard='never puts two raster pyramids in one archive',
+        guard='never puts two pyramids in one archive',
+    ),
+    # The vector arm, which the guard could not see while it excluded that layer. Same collision,
+    # same consequence: country tiles served where relief was addressed.
+    Sabotage(
+        suite='web',
+        label='the vector archive is published under the relief key',
+        path='web/src/lib/tileAddress.ts',
+        needle='      objectKey: "countries-v2.pmtiles",',
+        replacement='      objectKey: "planet-v2.pmtiles",',
+        guard='never puts two pyramids in one archive',
     ),
     # The rename's compatibility half, which is temporary and therefore the half nobody re-reads.
     # Dropping it does not break a type or a current URL — it breaks every page a visitor already

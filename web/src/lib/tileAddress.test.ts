@@ -177,16 +177,20 @@ describe("the registry", () => {
     expect(Object.keys(PUBLISHED).toSorted()).toEqual(Object.keys(BODIES).toSorted());
   });
 
-  it("never puts two raster pyramids in one archive", () => {
-    // A PMTiles archive holds one tile per address, so two raster products in one object is not a
-    // tight packing — it is an address collision. Vector layers are the exception and travel
-    // together inside one MVT tile, which is why `multiLayer` is a layer fact.
+  it("never puts two pyramids in one archive", () => {
+    // A PMTiles archive holds one tile per address, so two of a body's pyramids in one object is
+    // not a tight packing — it is an address collision.
+    //
+    // EVERY LAYER, where this once excluded the vector one. `PublishedArchives` gives a body one
+    // archive slot per layer, so there is no layer for which sharing a key is legitimate and the
+    // exclusion could never fire. What it was reaching for — MVT carrying several named layers per
+    // tile — is real, but it lives on the PRODUCT axis, which this registry does not index and
+    // `sourceLayers.ts` owns.
     for (const layers of Object.values(PUBLISHED)) {
-      const rasterKeys = (Object.keys(LAYERS) as LayerId[])
-        .filter((layer) => !LAYERS[layer].multiLayer)
+      const keys = (Object.keys(LAYERS) as LayerId[])
         .map((layer) => layers[layer]?.objectKey)
         .filter((key): key is string => key !== undefined);
-      expect(new Set(rasterKeys).size).toBe(rasterKeys.length);
+      expect(new Set(keys).size).toBe(keys.length);
     }
   });
 

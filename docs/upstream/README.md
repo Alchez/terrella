@@ -9,7 +9,15 @@ report and a standalone `repro.html` that needs no Terrella code, no local patch
 | Report | What it claims | State |
 |---|---|---|
 | `maplibre-terrain-coords-allocation/` | `_getTerrainCoordsForRegularTile` allocates a tile ID and a `Float64Array(16)` for every renderable tile and discards ~96% of them. Mechanical fix, no visual change. | Unfiled. A fix is obvious and small. |
-| `maplibre-covering-tiles-fov-cliff/` | `coveringTiles` selects tiles ~3 zoom levels over-refined at narrow fields of view — 61 px tiles on a scheme aiming for 512. | Unfiled. **No fix proposed** — the root cause is not established. |
+| `maplibre-covering-tiles-fov-cliff/` | `coveringTiles` selects tiles ~3 zoom levels over-refined at narrow fields of view — 61 px tiles on a scheme aiming for 512. The count also exhausts VRAM and loses the WebGL context, which is a severity claim the reproduction does not yet carry. | Unfiled. **No fix proposed** — the root cause is not established. |
+
+**A third report was considered and rejected.** A production freeze — a camera parked at pitch 60
+inside a narrow zoom band, 0.9 fps, style never loading, GL context lost — turned out to be this same
+covering-tiles defect reached by a different route, so it sharpened the report above rather than
+opening a new directory. The rule that produced that answer is worth keeping: *a distinct trigger is
+not a distinct defect.* Before adding a directory here, check whether the mechanism is already
+described by one of these — the VRAM amplifier (`Painter._rttObjectRecyclePool`, uncapped) turns any
+tile-count spike fatal, so several unrelated-looking symptoms land on one of the two reports.
 
 ## What upstream expects
 

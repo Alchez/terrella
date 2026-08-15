@@ -22,6 +22,38 @@ exactly once, at a median of **61 px** where the scheme's own target is 512 — 
 default lens gives 20 tiles at 434 px. The selection is over-refined by about three zoom levels, which
 is a defect rather than an honest cost, and the section below traces it to the 3D-distance term.
 
+## Severity: the count does not just cost frames, it ends the context
+
+Observed on the application this was found in, **not yet folded into `repro.html`** — see the
+provenance note below before citing it upstream.
+
+Each renderable terrain tile costs about **1 MiB of VRAM per render stack** in
+`Painter._rttObjectRecyclePool`, which `releaseRTT` returns to without a cap. The pool therefore
+tracks the selected-tile count directly — `pool MiB ≈ renderable tiles × stacks × 1 MiB`, confirmed
+to 0.4% — so the cliff above is not only a frame-rate defect. A camera driven through the explosive
+band by a real pointer drag took the card from **4,183 MiB to 11,809 MiB of 12,282** and **lost the
+WebGL context 3 times out of 3**. A page whose context has gone renders one tile repeated over the
+whole globe and keeps answering every query with the last good frame's numbers, which is why the
+reproduction gates each arm on `glLossCount`.
+
+Two properties make this worse than a slow frame:
+
+- **The state is not transient.** A parked camera inside the band holds the count — forced centre and
+  elevation, the count flips exactly with the camera and back (581 / 35 / 581 / 35). Nothing recovers
+  while the camera sits there.
+- **It is reachable by a plain link, not only by dragging.** A cold load straight to a camera inside
+  the band arrives at ~0.9 fps with the style never finishing. So a shared URL is enough; the user
+  need not do anything.
+
+**Provenance, stated because this directory's convention is that a report runs on stock MapLibre
+against public data.** The tile counts, the band, the latitude table and the eliminations elsewhere in
+this report all satisfy that and come from `repro.html`. The VRAM and context-loss figures in this
+section do not: they were measured on our own globe, with our tiles and our vendored patch, using a
+real pointer drag that `easeTo` does not reproduce. They are reported here because they change what
+the defect *is*, and folding them in means extending `repro.html` with a drag-driven arm and a VRAM
+read — worth doing before filing, since "crashes the tab" is a materially stronger claim than "4 fps"
+and a maintainer will reasonably want it reproducible.
+
 ## Where
 
 `src/geo/projection/covering_tiles.ts`. Each candidate tile gets a desired zoom, which is floored:

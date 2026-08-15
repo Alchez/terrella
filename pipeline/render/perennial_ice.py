@@ -197,7 +197,9 @@ def _mars_cap_ice(inputs: CapIceInputs, pole: str) -> np.ndarray:
 
     THE FEATHER TAKES GROUND METRES, NEVER AEQD MAP METRES. `inputs.ground_metres_per_px` is
     supplied for exactly this call; deriving it here from the grid is the bug that already shipped
-    once, drawing 5.33 km of Martian ground under a label saying 10.
+    once, drawing roughly half the ground distance `FEATHER_KM` names. Nothing about the result looks
+    wrong — it is a plausible ice edge at any width — so the guard measures the drawn feather back
+    into kilometres rather than trying to see it.
     """
     field = inputs.warp(str(viking_luma.luma_path()), "viking_luma", "bilinear", "Float32",
                         srcnodata=viking_luma.NODATA)
