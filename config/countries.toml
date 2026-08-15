@@ -214,5 +214,5 @@ notes = "Türkiye is the CURRENT official name, not a former one; NE's only home
 also = ["Formosa"]
 
 [countries.unitedkingdom]
-also = ["England"]
-notes = "A part standing in for the whole: England is not the UK, but there is no England to offer and 'britain' already answers via the formal name. Scotland and Wales are the same shape and deliberately not added yet."
+also = ["England", "Scotland", "Wales"]
+notes = "Parts standing in for the whole. The category is exact rather than a judgement about which names are popular: these are the UK's constituent countries, which is why the list stops here and does not reach a German Land or a US state. Northern Ireland, the fourth, needs no entry — the formal name already carries it, as 'britain' does."

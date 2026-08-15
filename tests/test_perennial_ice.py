@@ -16,6 +16,7 @@ from typing import ClassVar
 
 import numpy as np
 import pytest
+from conftest import cap_ground_metres_per_px_from_ground_radius
 
 from pipeline import bodies, layers, mercator
 from pipeline.render import layer_producers, mars_ice, perennial_ice, snow
@@ -176,6 +177,10 @@ def ice_inputs() -> perennial_ice.CapIceInputs:
 #: rather than a placeholder that makes a units bug look like a fixture artifact.
 EARTH_CAP_GROUND_M_PER_PX = cap_render.cap_ground_metres_per_px(cap_render.north_grid(bodies.EARTH))
 
+#: The cap grid the feather guard measures on — the shipped one, not a convenient one. A grid built
+#: at a test's own span would let the feather be checked against a scale Mars never renders at.
+MARS_NORTH = cap_render.north_grid(bodies.MARS)
+
 
 def _refusing_burn(source, name, must_draw) -> np.ndarray:
     """A `BurnToCap` that fails if it is ever called.
@@ -300,6 +305,68 @@ class TestMarsGradesTheFieldInsideTheMappedUnits:
             declared = perennial_ice.cap_ice(bodies.MARS, pole).sources()
             assert [path.name for path in declared] == [
                 "viking_luma_4326.tif", "lapc_sim3292.json", "apu_sim3292.json"]
+
+
+class TestTheFeatherReachesItsGroundWidthOnTheRealCapScale:
+    """The composition, which is the half neither neighbour can see. `mars_ice` pins that a feather
+    of N ground metres is drawn N ground metres wide once it is told the scale, and `test_cap_render`
+    pins what a cap pixel actually spans — between them sits this producer, whose only job here is to
+    hand the second to the first, and which shipped once handing the AEQD map figure instead.
+
+    THAT FAILURE HAS NO OTHER WITNESS. It leaves both neighbours green, raises nothing, and paints an
+    ice edge that is a perfectly plausible ice edge; the only thing that changes is how far the fade
+    reaches, and no one can see a fade width and name it in kilometres. So the assertion is made in
+    the units the constant is written in — the drawn feather, converted back to Martian ground, is
+    `FEATHER_KM` — with the pixel grid's own quantisation as the tolerance and nothing looser.
+
+    Aimed with `conftest.cap_ground_metres_per_px_from_ground_radius` rather than with the production
+    scale, and that is the whole design: a test that measured the feather against the same function
+    the producer divided by would find them consistent no matter how wrong both were.
+    """
+
+    #: Wide enough to hold the extent plus a whole feather, and only four rows because the feather
+    #: is measured across columns. Rows and columns both, so a transposed distance is not silent.
+    SHAPE: ClassVar[tuple[int, int]] = (4, 96)
+    INSIDE: ClassVar[int] = 50
+
+    def _alpha(self, ground_metres_per_px: float) -> np.ndarray:
+        """Mars's real north producer over a half-covered disc, driven at a chosen cap scale."""
+        lapc = np.zeros(self.SHAPE, dtype=bool)
+        lapc[:, :self.INSIDE] = True
+        inputs = perennial_ice.CapIceInputs(
+            land=np.ones(self.SHAPE, dtype=bool),
+            latitude=np.full(self.SHAPE, 85.0, dtype=np.float32),
+            # Saturating luma, so the grading is 1 wherever the extent is and the alpha that comes
+            # back is the feather alone rather than the feather times an albedo shape.
+            warp=_field_warp([], np.full(self.SHAPE, 255.0, dtype=np.float32)),
+            burn=_unit_burn([], {"lapc": lapc, "apu": np.zeros(self.SHAPE, dtype=bool)}),
+            ground_metres_per_px=ground_metres_per_px)
+        return perennial_ice.cap_ice(bodies.MARS, "north").alpha(inputs)
+
+    def _drawn_feather_m(self, alpha: np.ndarray) -> float:
+        """How far past the extent the alpha is still lit, in TRUE Martian ground metres."""
+        lit = int((alpha[0] > 0).sum()) - self.INSIDE
+        return lit * cap_ground_metres_per_px_from_ground_radius(MARS_NORTH)
+
+    def test_the_producer_draws_the_feather_its_constant_claims(self):
+        """The claim in full: on the cap Mars actually ships, the fade reaches `FEATHER_KM` of that
+        planet's own ground. The tolerance is one pixel because the lit run is a whole number of
+        them, and a feather that missed by more than the grid can express is not rounding."""
+        one_pixel = cap_ground_metres_per_px_from_ground_radius(MARS_NORTH)
+        drawn = self._drawn_feather_m(self._alpha(
+            cap_render.cap_ground_metres_per_px(MARS_NORTH)))
+        assert drawn == pytest.approx(mars_ice.FEATHER_KM * 1000.0, abs=one_pixel)
+
+    def test_the_map_figure_draws_a_feather_that_misses_by_far_more_than_a_pixel(self):
+        """The positive control, and it is the shipped bug run on purpose. Mars's cap is drawn on a
+        sphere near twice its size, so dividing by AEQD map metres reaches roughly half the ground
+        distance — which the assertion above must be able to tell apart from rounding, or it is
+        measuring nothing. Deliberately not pinned to a ratio: what is claimed is the direction and
+        that the miss clears the tolerance, and the magnitude belongs to `bodies`."""
+        one_pixel = cap_ground_metres_per_px_from_ground_radius(MARS_NORTH)
+        drawn = self._drawn_feather_m(self._alpha(
+            2.0 * MARS_NORTH.edge_m / MARS_NORTH.px))
+        assert drawn < mars_ice.FEATHER_KM * 1000.0 - one_pixel
 
 
 class TestTheTwoTiersAgreeOnTheColourOfTheSameIce:

@@ -72,7 +72,7 @@ import TOKENS from "./tileTokens.json";
  *  PICTURE, HEIGHTS, ANNOTATIONS — and role rather than product is the decision here. `countries`
  *  named what was inside Earth's one vector archive, which read as a layer name only because Earth
  *  was the only body publishing vectors; Mars's archive holds craters and will hold geologic units,
- *  and `multiLayer` already says a body's vector products share ONE archive. So a product name here
+ *  and `sourceLayers.ts` already says a body's vector products share ONE archive. So a product name here
  *  would have to lie on the second planet, and again on the second product. What is inside an
  *  archive is per body and lives in sourceLayers.ts.
  *
@@ -103,10 +103,6 @@ export interface TileLayer {
   /** What an absent tile MEANS here: 404 where the pyramid is complete and a hole is a packaging
    *  fault, 204 where it is sparse and a hole is just ocean. */
   missingTileStatus: 404 | 204;
-  /** Whether one archive may hold several named layers. TRUE only for vector pyramids, where MVT
-   *  carries layers inside each tile — which is why every one of a body's vector products belongs
-   *  in ONE archive, and why two raster products can never share one. */
-  multiLayer: boolean;
 }
 
 /** The layer contracts. A `Record` over the union, so a fourth pyramid is a compile error here
@@ -117,14 +113,12 @@ export const LAYERS: Record<LayerId, TileLayer> = {
     contentType: TILE_CONTENT_TYPE,
     describeTileTypeMismatch,
     missingTileStatus: 404,
-    multiLayer: false,
   },
   terrain: {
     extension: TERRAIN_TILE_EXTENSION,
     contentType: TERRAIN_CONTENT_TYPE,
     describeTileTypeMismatch: describeTerrainTileTypeMismatch,
     missingTileStatus: 404,
-    multiLayer: false,
   },
   vector: {
     extension: VECTOR_TILE_EXTENSION,
@@ -133,7 +127,6 @@ export const LAYERS: Record<LayerId, TileLayer> = {
     // The one sparse role: most of Earth is ocean holding no country, and most of Mars is ground no
     // name reaches. A miss here is ordinary rather than a packaging fault.
     missingTileStatus: 204,
-    multiLayer: true,
   },
 };
 
