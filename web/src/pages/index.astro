@@ -10,8 +10,9 @@
 // carries why both exist.
 import Base from "../layouts/Base.astro";
 import Gallery from "../components/Gallery.astro";
+import { pageTitle } from "../lib/pageTitle";
 ---
 
-<Base title="Terrella — Gallery" body="earth" pageRole="lite" spotlight={true} quality={true}>
+<Base title={pageTitle("Gallery")} body="earth" pageRole="lite" spotlight={true} quality={true}>
   <Gallery />
 </Base>

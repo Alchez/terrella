@@ -174,6 +174,53 @@ class TestSharedConstants:
                 f"#{red:02X}{green:02X}{blue:02X} — the palette moved, the copy did not"
             )
 
+    def test_web_mars_ramp_matches_the_composited_stops(self):
+        """`MARS_RAMP` in the web palette is what the About page's legend is drawn from, and it
+        must be the colour the TILES carry rather than the colour the stops are authored as.
+
+        A SECOND DERIVATION, NOT A SECOND COPY OF THE ONE ABOVE. Everything in `derived` there is
+        `_srgb8(stop)` and nothing more, because those constants back flat fills that no
+        compositor touches. A ramp stop reaches a visitor through `shade.composite`, which
+        resaturates and warms it — so pinning the legend to `_srgb8` alone would guard the wrong
+        number, and `#784F3C` (authored) against `#7E4B33` (composited) is how far wrong.
+
+        The light term is deliberately absent from both this and the file it checks: `composite`
+        multiplies by a hillshade that varies per pixel, so there is no single value a swatch
+        could carry. `palette.py` annotating stop 0 as shipping `#804D35` is a reading off flat
+        lit ground, ~2% brighter than the ramp itself, and is not what a legend states.
+
+        This fails if the stops move OR if either knob does, which is the point — the same
+        retune that changes the map has to change the key beside it.
+        """
+        from pipeline.tile import shade
+
+        web_palette = (REPO_ROOT / "web/src/lib/palette.ts").read_text()
+        saturation = shade.KNOBS["saturation"]
+        warmth = shade.KNOBS["warmth"]
+
+        for position, linear in palette.MARS_LAND_STOPS:
+            channels = palette._srgb8(linear)
+            # Rec.601 luma and the per-channel warm tint, exactly as `shade.composite` spells them.
+            luma = 0.299 * channels[0] + 0.587 * channels[1] + 0.114 * channels[2]
+            tint = (1.0, 1.0 - 0.5 * warmth, 1.0 - warmth)
+            shipped = tuple(
+                round(min(255.0, max(0.0, (luma + (channel - luma) * saturation) * scale)))
+                for channel, scale in zip(channels, tint, strict=True)
+            )
+            expected = f'hex: "#{shipped[0]:02X}{shipped[1]:02X}{shipped[2]:02X}"'
+            assert expected in web_palette, (
+                f"web/src/lib/palette.ts MARS_RAMP must carry {expected} for the stop at "
+                f"{position} — the ramp or a shade knob moved and the legend did not follow"
+            )
+
+        declared = re.findall(r"\{ at: ([0-9.]+), hex:", web_palette)
+        assert [float(value) for value in declared] == [
+            position for position, _ in palette.MARS_LAND_STOPS
+        ], (
+            "MARS_RAMP's positions must match MARS_LAND_STOPS exactly — a legend whose stops sit "
+            "at different fractions than the ramp's draws the right colours in the wrong places"
+        )
+
 
 class TestWriteColorRelief:
     def test_writes_gdaldem_format_with_nodata(self, tmp_path):

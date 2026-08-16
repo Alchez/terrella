@@ -34,18 +34,26 @@ probe; degrade at runtime if frame rate tanks; honour `Save-Data`, `prefers-redu
 
 ## Data sources
 
+Every line below is **Earth's** until the Mars one, which is the whole of Mars's list — stated here
+rather than pointed at, because MARS.md is slated to leave version control and nothing tracked may
+depend on it.
+
 - **Land:** Copernicus DEM GLO-30. The AWS *Public DGED 2021* edition withholds tiles over some regions and a missing tile fuses **silently as ocean** — fill gaps from OpenTopography `2023_1` (keyless S3, `--no-sign-request`).
 - **Bathymetry:** GEBCO, fused with the land DEM into one seamless heightfield. Part of the signature look, not optional.
-- **Snow / glaciers:** NSIDC-0791 persistence + RGI 7.0. **Access gotcha:** an Earthdata bearer token authenticates CMR granule downloads but *not* the NSIDC file pool, and RGI 7.0 is not granule-searchable at all → take it from the UNESCO IHP-WINS CKAN mirror.
+- **Only those two are fused.** Everything below is warped onto the render grid at composite time and never enters the fusion master, which is also why a finer re-fuse would not have to redo any of it.
+- **Lake beds:** GLOBathy (CC0), a **tint-only** input — a carved bed at 15× makes a crater of every lake and kills the flat plate that catches the surrounding shadows. Modelling every lake alike is deliberate: restricting to surveyed ones renders survey funding as geology, the discontinuity falling on the US/Canada border.
+- **Snow / glaciers: the two surfaces differ, and that is a decision rather than drift.** Tiles take NSIDC-0791 persistence + RGI 7.0 with a latitude-ramped soft alpha, and **Antarctica is painted white outright** (persistence is NH-only, RGI region 19 skipped). Heroes take ESA WorldCover class 70, which the tiles **replaced** because permanent-ice-only left mid- and high-latitude ranges bare. **Access gotcha:** an Earthdata bearer token authenticates CMR granule downloads but *not* the NSIDC file pool, and RGI 7.0 is not granule-searchable at all → take it from the UNESCO IHP-WINS CKAN mirror.
 - **Sea ice:** OSI SAF OSI-450-a v3.0 reduced to a 1991–2020 ice-frequency climatology (`render/seaice.py`), chosen over the NSIDC CDR purely on access — anonymous over met.no THREDDS, no token churn.
 - **Boundaries:** Natural Earth. Borders are a white vector overlay, **never baked into raster tiles**; hero borders are composited in post, never rendered in the Blender scene. Worldview is NE default (de-facto) site-wide, disputed segments dashed, noted on the About page.
+- **Mars, in full, is three:** the USGS **MOLA/HRSC blended DEM** at 200 m (elevation), **SIM 3292** (where the permanent polar ice is), and the **Viking colour mosaic** (the ice's brightness, and the hue the land ramp is measured from). No sea, no borders, no snow dataset — and the share-alike half of the blend's licence is why the whole site's output is CC BY-SA 4.0.
 
 ## Rendering decisions
 
 - **Heroes:** headless Blender Cycles (bpy), RTX 4070 Super, OptiX backend + OpenImageDenoise — but **CPU denoise for 8K**, or render and denoise contend for the 12 GB VRAM and the driver throws an Xid 31 MMU fault.
 - One scene rig for every country: DEM displacement, low sun, two-ramp material (elevation-keyed land, depth-keyed sea), ortho camera framed from Natural Earth bounds.
 - **Vertical exaggeration belongs to the body** — 15× on Earth. The hero imports `palette.EXAGGERATION`, the tiles and caps read `Body.exaggeration`, and a test pins Earth's field equal to the constant; unpinned, the tiles drift away from the heroes they must match.
-- **Tiles approximate the Cycles look:** single-NW hillshade (multidirectional rejected) + sky-view factor from our own `sky_view.py` (WhiteboxTools dropped) + the same ramps, composited with GDAL.
+- **Tiles approximate the Cycles look:** single-NW hillshade (multidirectional rejected) + the hero's own fill sun ported across (`hillshade.combine_fill`) + sky-view factor from our own `sky_view.py` (WhiteboxTools dropped; the heroes burn it in post too) + the same ramps, composited with GDAL.
+- **Cast shadows are the one light term the tiles do not have, and re-adding one is a REJECTED idea, not an open one.** `cast_shadow.py` is written, wired and shipped at `shadow_strength` 0.0 — turned down twice on the look and the second time on the *mechanism*: attenuating the main sun scales light amplitude, and fine detail amplitude falls with it, so any such shadow erases the modelling it carries. Reopening needs a different mechanism, not a different number.
 - **Tile depth belongs to the body too** — `Body.tile_max_zoom`, z8 on Earth and z7 on Mars. **Earth's z8 is LOCKED**: z9/z10 are parked in FUTURE and blocked on disk — a planet re-fuse at ~2.5″, never a tiling flag.
 - **Tiles are 512px**, declared to MapLibre as `tileSize: 256`, which centres the scheme on DPR 2. → FUTURE § raster tile resolution vs device pixel ratio
 - **Delivery encoding is a policy, not one constant** — masters stay lossless, delivery does not. → ART § Delivery encoding · § The srcset ladder

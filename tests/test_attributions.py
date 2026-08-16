@@ -20,6 +20,10 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[1]
 ATTRIBUTIONS = REPO_ROOT / "ATTRIBUTIONS.md"
 ABOUT_PAGE = REPO_ROOT / "web/src/pages/about.astro"
+# The credits moved off the page and into a per-body module; the OUTPUT licence did not. Two
+# constants rather than one because the two obligations now live in two files, and pointing both at
+# whichever file happens to hold one of them is how a sweep goes quietly vacuous.
+ABOUT_CONTENT = REPO_ROOT / "web/src/lib/aboutContent.ts"
 
 # The licence on the site's OWN output, as opposed to the input obligations below. It is stated to
 # readers in four places and, until these two checks, was verified in none — which is how a licence
@@ -125,11 +129,22 @@ def _normalised(path: Path) -> str:
 
 @pytest.mark.parametrize("label,required", REQUIRED_STRINGS, ids=[e[0] for e in REQUIRED_STRINGS])
 def test_about_page_carries_the_required_string(label: str, required: str) -> None:
-    """The user-facing page is what discharges the obligation, not the repo file."""
-    haystack = _normalised(ABOUT_PAGE)
+    """The user-facing page is what discharges the obligation, not the repo file.
+
+    BOTH HALVES OF THE PAGE ARE SEARCHED, because either file can legitimately hold a notice and
+    which one it is follows from SCOPE. A per-source credit belongs to one planet and lives in
+    `aboutContent.ts`; anything the whole site owes would live in the page's shared block. The
+    Copernicus Art. 6(c) liability sentence moved from the second to the first once it was read
+    properly — it is about WorldDEM-30, which only Earth is built from, so it now sits in Earth's
+    `legal` list. The union weakens nothing: a string in neither file still fails, which is the only
+    way this can pass, and searching one file would make the guard turn on where prose happens to
+    sit rather than on whether it is there at all.
+    """
+    haystack = f"{_normalised(ABOUT_CONTENT)} {_normalised(ABOUT_PAGE)}"
     assert re.sub(r"\s+", " ", required) in haystack, (
-        f"{label}: ATTRIBUTIONS.md records this as licence-REQUIRED, but web/src/pages/about.astro "
-        f"does not contain it verbatim.\n  expected: {required!r}\n"
+        f"{label}: ATTRIBUTIONS.md records this as licence-REQUIRED, but neither "
+        f"web/src/lib/aboutContent.ts nor web/src/pages/about.astro contains it verbatim.\n"
+        f"  expected: {required!r}\n"
         "A paraphrase does not discharge an exact-notice obligation — copy the string unchanged."
     )
 
@@ -147,10 +162,10 @@ def test_attributions_file_still_records_the_required_string(label: str, require
 
 def test_every_source_on_the_about_page_declares_a_licence() -> None:
     """A missing licence badge is the failure mode that reads as 'no licence needed'."""
-    about = ABOUT_PAGE.read_text(encoding="utf-8")
+    about = ABOUT_CONTENT.read_text(encoding="utf-8")
     names = re.findall(r'^\s*name: "([^"]+)",', about, re.MULTILINE)
     licences = re.findall(r'^\s*license: "([^"]+)",', about, re.MULTILINE)
-    assert names, "no source entries parsed — the about.astro `sources` shape changed"
+    assert names, "no source entries parsed — the aboutContent.ts `sources` shape changed"
     assert len(names) == len(licences), (
         f"{len(names)} data sources but {len(licences)} licence fields — every source card must "
         f"declare one. Sources: {names}"

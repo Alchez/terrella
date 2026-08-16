@@ -4,6 +4,7 @@ import Masthead from "../components/Masthead.astro";
 import { manifest as data, type Country } from "../lib/manifest";
 import { smallestRungAtLeast } from "../lib/rungs";
 import { HERO_BASE } from "../lib/assetBase";
+import { pageTitle } from "../lib/pageTitle";
 
 // One statically-built page per country.
 export function getStaticPaths() {
@@ -34,7 +35,7 @@ const nativeSpotlight = country.hasSpotlight
 ---
 
 <Base
-  title={`${country.name} — Terrella`}
+  title={pageTitle(country.name)}
   description={`Ray-traced relief map of ${country.name}.`}
   body="earth"
   spotlight={country.hasSpotlight}

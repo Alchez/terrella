@@ -6,6 +6,7 @@ import Globe from "../../components/Globe.astro";
 import MapStylesheet from "../../components/MapStylesheet.astro";
 import { BODIES } from "../../lib/bodies";
 import { hasHoverHighlight } from "../../lib/globeSubsystems";
+import { pageTitle } from "../../lib/pageTitle";
 
 // The chrome this route wears, taken from the registry rather than written as literals.
 //
@@ -21,7 +22,7 @@ const body = BODIES.earth;
 ---
 
 <Base
-  title="Terrella — Globe"
+  title={pageTitle(body.label)}
   description="An interactive globe of ray-traced relief, every country."
   body={body.slug}
   borders={body.hasBorders}

@@ -1,158 +1,37 @@
 ---
 import Base from "../layouts/Base.astro";
 import Masthead from "../components/Masthead.astro";
+import Legend from "../components/Legend.astro";
+import { ABOUT } from "../lib/aboutContent";
+import { BODIES } from "../lib/bodies";
+import { bodyRoutes } from "../lib/bodyRoutes";
+import { pageTitle } from "../lib/pageTitle";
 
-// Credits are grouped by BODY, not merged into one list, and that is a claim rather than a layout
-// choice: the two planets are made of different data under different terms, and a single list would
-// invite a reader to assume the Copernicus notice covers both. The output licence does not split —
-// one CC BY-SA 4.0 for every image on the site — but the INPUT obligations very much do. The
-// group is also what a guard can check — `aboutCredits.test.ts` requires one per registered body,
-// because `/mars/` shipped a globe while this page still credited only Earth.
-const dataSources = [
-  {
-    body: "Earth",
-    blurb: "Eight datasets fused into one heightfield, then shaded.",
-    sources: [
-      {
-        name: "Copernicus DEM GLO-30",
-        href: "https://dataspace.copernicus.eu/explore-data/data-collections/copernicus-contributing-missions/collections-description/COP-DEM",
-        role: "Land elevation",
-        license: "Copernicus",
-        // Verbatim, not paraphrased: Article 6(b) of the WorldDEM-30 licence requires this exact
-        // notice for adapted data. ATTRIBUTIONS.md is the source of truth and a test guards the pair.
-        attribution:
-          "produced using Copernicus WorldDEM-30 © DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved",
-      },
-      {
-        name: "GEBCO 2026 Grid",
-        href: "https://www.gebco.net",
-        role: "Bathymetry",
-        license: "Public domain",
-        attribution: "Reproduced from the GEBCO_2026 Grid, GEBCO Compilation Group (2026).",
-      },
-      {
-        name: "GLOBathy",
-        href: "https://springernature.figshare.com/collections/GLOBathy_the_Global_Lakes_Bathymetry_Dataset/5243309",
-        role: "Lake depth",
-        license: "CC0",
-        attribution:
-          "GLOBathy global lakes bathymetry (Khazaei et al., Sci Data 9:36, 2022). Public-domain dedication (CC0); depth is modelled — see the Lake depth note below.",
-      },
-      {
-        name: "ESA WorldCover 2021",
-        href: "https://esa-worldcover.org",
-        role: "Snow / ice mask",
-        license: "CC-BY 4.0",
-        attribution:
-          "© ESA WorldCover project 2021 / Contains modified Copernicus Sentinel data (2021), processed by the ESA WorldCover consortium.",
-      },
-      {
-        name: "NSIDC-0791 Snow Persistence",
-        href: "https://nsidc.org/data/nsidc-0791",
-        role: "Snow persistence",
-        license: "Public domain",
-        attribution:
-          "MODIS snow-persistence climatology (water years 2001–2023), NASA NSIDC DAAC dataset NSIDC-0791.",
-      },
-      {
-        name: "RGI 7.0 Glaciers",
-        href: "https://nsidc.org/data/nsidc-0770/versions/7",
-        role: "Glaciers",
-        license: "CC-BY 4.0",
-        attribution:
-          "Randolph Glacier Inventory 7.0 (RGI Consortium, 2023), NSIDC-0770 v7. Antarctic region 19 excluded.",
-      },
-      {
-        name: "OSI SAF Sea Ice (OSI-450-a)",
-        href: "https://osi-saf.eumetsat.int/products/osi-450-a",
-        role: "Sea ice",
-        license: "CC-BY 4.0",
-        attribution:
-          "EUMETSAT Ocean and Sea Ice SAF — Global Sea Ice Concentration Climate Data Record (OSI-450-a), reduced to a 1991–2020 frequency climatology. Copyright EUMETSAT.",
-      },
-      {
-        name: "Natural Earth",
-        href: "https://www.naturalearthdata.com",
-        role: "Borders & coastlines",
-        license: "Public domain",
-        attribution: "naturalearthdata.com.",
-      },
-    ],
-  },
-  {
-    body: "Mars",
-    blurb:
-      "The relief, where the permanent ice sits, and how bright it is. No sea, no borders.",
-    sources: [
-      {
-        name: "MOLA / HRSC Blended DEM",
-        href: "https://astrogeology.usgs.gov/search/map/mars_mgs_mola_mex_hrsc_blended_dem_global_200m",
-        role: "Surface elevation",
-        // THE PUBLISHER'S OWN WORDS, not our reading of them. USGS states the blend's inputs as
-        // "MOLA (CC0) and HRSC (CC BY-SA 3.0 IGO)" and its use constraint as "Please cite authors".
-        // Quoting that is the one badge here that needs no interpretation from us. The share-alike
-        // half is why the whole site's output licence is BY-SA: whether that label binds is a legal
-        // question nobody here can close, so the strict reading is taken and complies either way.
-        license: "MOLA CC0 · HRSC CC BY-SA 3.0 IGO",
-        attribution:
-          "Fergason, R. L, Hare, T. M., & Laura, J. (2018). HRSC and MOLA Blended Digital Elevation Model at 200m v2. Astrogeology PDS Annex, U.S. Geological Survey. MOLA flew on NASA's Mars Global Surveyor and HRSC on ESA's Mars Express; HRSC covers 44% of the planet, MOLA the rest.",
-      },
-      {
-        name: "Geologic Map of Mars (SIM 3292)",
-        href: "https://pubs.usgs.gov/sim/3292/",
-        role: "Where the permanent polar ice is",
-        // THE ONE MARS SOURCE WITH A STATED OBLIGATION, and it is an exact-string one: the product's
-        // own metadata reads `Use_Constraints: please cite authors.`, so the citation below is
-        // quoted from its FGDC `Data_Set_Credit` field rather than composed here. Guarded by
-        // `REQUIRED_STRINGS`, which exists because the last licence with an exact-string obligation
-        // was the one being paraphrased.
-        license: "Public domain · cite authors",
-        attribution:
-          "K.L. Tanaka, J.A. Skinner, Jr., J.M. Dohm, R.P. Irwin, III, E.J. Kolb, C.M. Fortezzo, Thomas Platz, G.G. Michael, and T.M. Hare, 2014, Geologic Map of Mars, Scale 1:20,000,000, U.S. Geological Survey Scientific Investigations Map SIM 3292, http://pubs.usgs.gov/sim/3292",
-      },
-      {
-        name: "Viking colour mosaic",
-        href: "https://astrogeology.usgs.gov/search/map/mars_viking_colorized_global_mosaic_925m",
-        role: "How bright each part of the ice is, and the planet's hue",
-        // CREDITED BY COURTESY, NOT BY OBLIGATION, and the distinction is the publisher's own: its
-        // constraint fields read `Access Constraints: public domain`, `Use Constraints: None`. That
-        // is why this is absent from `REQUIRED_STRINGS` while SIM 3292 above is in it — putting it
-        // there would assert an obligation the publisher does not state.
-        license: "Public domain",
-        attribution:
-          "U.S. Geological Survey Astrogeology Science Center, Viking Global Color Mosaic 925m. Built for albedo rather than for relief, which is why the ice grades against it.",
-      },
-    ],
-  },
-];
-
-const steps = [
-  {
-    title: "Fusion",
-    text: "Copernicus GLO-30 land elevation is fused with GEBCO bathymetry into one seamless heightfield — the sea floor is part of the picture, so shelves and trenches read as terrain.",
-  },
-  {
-    title: "Render",
-    text: "The heightfield drives displacement in Blender's Cycles renderer, lit by a low sun for long relief shadows and coloured by elevation- and depth-keyed ramps.",
-  },
-  {
-    title: "Borders",
-    text: "Natural Earth boundaries composite on top as crisp vector lines — never baked into the terrain, so they stay sharp and toggle on demand.",
-  },
-  {
-    title: "Snow",
-    text: "A permanent snow / ice mask from ESA WorldCover whitens glaciers and ice caps.",
-  },
-  {
-    title: "Sea ice",
-    text: "At the poles, translucent white sea ice floats over the real ocean-floor relief — soft where the ice is seasonal, solid over the permanent pack. It's a 1991–2020 average of how often each stretch of sea freezes, not a live snapshot.",
-  },
-];
+// THE CONTENT LIVES IN `aboutContent.ts`, NOT HERE. This page used to carry every dataset, step and
+// note inline while claiming, through `body="earth"`, to be about one planet — see that module for
+// why a third body should be a declaration rather than an edit to this template.
+//
+// ORDER COMES FROM THE REGISTRY, so the toggle lists planets in the same order as the body switcher
+// and a third one needs no edit here either. `Object.values(BODIES)` is the same source that
+// component reads.
+const worlds = Object.values(BODIES).map((body) => ({
+  slug: body.slug,
+  label: body.label,
+  about: ABOUT[body.slug],
+  accent: body.accent,
+  // THIS PAGE HOLDS THE SITE'S ONLY CRAWLABLE LINKS TO THE GLOBES, which is a fact about the rest
+  // of the site rather than about this one: `.no-js .view-bar` is `display: none` and there is no
+  // sitemap integration, so without an ordinary anchor here a globe is unreachable to a crawler
+  // and to anyone without JavaScript. It used to be one hand-written `/earth/`, which left Mars
+  // orphaned the day it shipped and left nothing watching that; deriving both from the registry
+  // is what makes a third planet reachable by existing.
+  globe: bodyRoutes(body.slug).globe,
+}));
 
 const tools = [
   {
     label: "Rendering",
-    html: '<a href="https://www.blender.org" target="_blank" rel="noopener noreferrer">Blender</a> — Cycles, OptiX, OpenImageDenoise',
+    html: '<a href="https://www.blender.org" target="_blank" rel="noopener noreferrer">Blender</a>, with Cycles, OptiX and OpenImageDenoise',
   },
   { label: "Geoprocessing", html: "GDAL, rasterio, NumPy" },
   {
@@ -169,56 +48,109 @@ const tools = [
 // glued a link to the word before it ("is CC BY-SA 4.0" → "isCC BY-SA 4.0").
 const licenceHtml = [
   '<strong>Imagery</strong> is <a href="https://creativecommons.org/licenses/by-sa/4.0/"',
-  ' target="_blank" rel="noopener noreferrer">CC BY-SA 4.0</a> — use it for anything, credit',
+  ' target="_blank" rel="noopener noreferrer">CC BY-SA 4.0</a>. Use it for anything, credit',
   ' Terrella, and share what you make from it under the same license. <strong>Code</strong> is',
   ' <a href="https://opensource.org/license/mit" target="_blank"',
   ' rel="noopener noreferrer">MIT</a>.',
 ].join("");
 ---
 
+{/* `body="earth"` because `BodySlug` has no neutral member and widening it would oblige every
+    `Record<BodySlug, …>` in the codebase — the tile registry, the dev store, the body registry —
+    to answer for something that is not a planet. What the attribute drives on a `plain` page is the
+    chrome accent alone, and this page overrides that below, so nothing downstream reads Earth here.
+    `pageRole="plain"` keeps the pre-paint tier guard off it and the body switcher out of it: the
+    switcher sends you to a GLOBE, which is the wrong destination from a page whose whole subject is
+    the two planets side by side. */}
 <Base
-  title="About — Terrella"
+  title={pageTitle("About")}
   description="How Terrella is made: open elevation data, ray-traced relief, and the licenses behind it."
   body="earth"
   pageRole="plain"
 >
-  <Masthead eyebrow="Colophon" heading="About" back="/" maxWidth="min(1500px, 92vw)">
+  <Masthead
+    eyebrow="Colophon"
+    heading="About"
+    back="/"
+    maxWidth="min(1500px, 92vw)"
+    legend={false}
+  >
     <p class="lede">
-      A ray-traced relief map of every country — rendered from open elevation
-      data, not drawn. Warm land, teal seas with real bathymetry, white vector
-      borders. A <em>terrella</em> — a "little Earth" — is the model globe early
-      scientists spun to study the whole planet at once; this is a modern one,
-      and on a capable device it becomes <a href="/earth/">an interactive globe</a>.
+      A <em>terrella</em> is a "little Earth": the model globe early scientists spun to study a
+      whole planet at once. This one is ray-traced from open elevation data rather than drawn, and
+      there are two of them.
     </p>
   </Masthead>
 
   <main class="about">
-    <section class="block">
-      <h2 class="eyebrow">How it's made</h2>
-      <ol class="steps">
-        {
-          steps.map((step, index) => (
-            <li>
-              <span class="num">{index + 1}</span>
-              <h3>{step.title}</h3>
-              <p>{step.text}</p>
-            </li>
-          ))
-        }
-      </ol>
-    </section>
+    {/* THE TOGGLE IS RADIO INPUTS, NOT LINKS, and that is two decisions rather than a style.
+        Semantically this is a choice between mutually exclusive views, which is what a radio group
+        IS — so the keyboard gets arrow-key navigation for free and a screen reader announces the
+        set rather than two unrelated links. Mechanically, an `href="#mars"` would move the page:
+        the browser scrolls a fragment into view, so switching tabs from halfway down jumps you.
+        Radios change no URL and scroll nothing.
+        What it costs is deep-linking — nothing can point at Mars's tab. Worth revisiting only if
+        something actually needs to. */}
+    {
+      worlds.map((world, index) => (
+        <input
+          class="world-input"
+          type="radio"
+          name="world"
+          id={`w-${world.slug}`}
+          checked={index === 0}
+        />
+      ))
+    }
 
-    <section class="block">
-      <h2 class="eyebrow">Data &amp; licenses</h2>
+    {/* "Which body" is the site's own word for this, straight off the switcher in `Base.astro`.
+        This page said "planet" until a third body's plausibility made the difference matter: the
+        registry is `BodySlug`, and MARS.md's own scope note names the Moon among the candidates. */}
+    <nav class="worlds" role="radiogroup" aria-label="Which body">
       {
-        dataSources.map((group) => (
-          <div class="body-group">
-            <h3 class="body-head">
-              {group.body}
-              <span class="body-blurb">{group.blurb}</span>
-            </h3>
+        worlds.map((world) => (
+          <label class="world-chip" data-world={world.slug} for={`w-${world.slug}`}>
+            <span class="dot" aria-hidden="true" />
+            {world.label}
+            <span class="sub">
+              {world.about.sources.length} source{world.about.sources.length === 1 ? "" : "s"}
+            </span>
+          </label>
+        ))
+      }
+    </nav>
+
+    {
+      worlds.map((world) => (
+        <section class="panel" data-world={world.slug} aria-label={world.label}>
+          <p class="panel-lede">
+            {world.about.lede}{" "}
+            <a class="to-globe" href={world.globe}>
+              See {world.label} as a globe →
+            </a>
+          </p>
+
+          <Legend legend={world.about.legend} />
+
+          {world.about.steps.length > 0 && (
+            <div class="block">
+              <h2 class="eyebrow">How it's made</h2>
+              <ol class="steps">
+                {world.about.steps.map((step, index) => (
+                  <li>
+                    <span class="num">{index + 1}</span>
+                    <h3>{step.title}</h3>
+                    <p>{step.text}</p>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          )}
+
+          <div class="block">
+            <h2 class="eyebrow">Data &amp; licenses</h2>
             <div class="sources">
-              {group.sources.map((source) => (
+              {world.about.sources.map((source) => (
                 <article class="source">
                   <h4>
                     <a href={source.href} target="_blank" rel="noopener noreferrer">
@@ -231,153 +163,115 @@ const licenceHtml = [
                 </article>
               ))}
             </div>
+            {/* WITH THE SOURCES, NOT IN THE SHARED BLOCK. This is one dataset's licence talking,
+                so it sits under the cards that name that dataset; below the tools, where it used
+                to be, a reader on either tab had no way to tell which planet it was about. */}
+            {world.about.legal.length > 0 && (
+              <div class="disclaimer">
+                {world.about.legal.map((line) => (
+                  <p>{line}</p>
+                ))}
+              </div>
+            )}
           </div>
-        ))
-      }
-      <p class="legal">
-        The organisations in charge of the Copernicus programme by law or by delegation do not incur
-        any liability for any use of the Copernicus WorldDEM-30. Terrella is an independent project;
-        nothing here is endorsed by ESA, EUMETSAT or the European Union.
-      </p>
-    </section>
 
-    <div class="note-grid">
-      <section class="note-block">
-        <h2 class="eyebrow">Using this work</h2>
-        <div class="note">
-          <p set:html={licenceHtml} />
-          <p>
-            The data keeps its own licenses, listed above. They travel with whatever you
-            make from this.
-          </p>
-        </div>
-      </section>
-
-      <section class="note-block worldview">
-        <h2 class="eyebrow">Boundaries</h2>
-        <div class="note">
-          <p>
-            Borders use Natural Earth's <strong>de-facto</strong> worldview everywhere;
-            disputed lines are <strong>dashed</strong>. A cartographic default, not a
-            political statement — and consistency matters more than any single call, so
-            Kashmir keeps its shape whether you arrive from India or Pakistan.
-          </p>
-          <p>
-            It also produces results that look like bugs. Highlight Kazakhstan and a hole
-            opens mid-country: the <strong>Baikonur Cosmodrome</strong>, leased to Russia.
-            De-facto follows who administers the ground.
-          </p>
-        </div>
-      </section>
-
-      <section class="note-block">
-        <h2 class="eyebrow">Lake depth</h2>
-        <div class="note">
-          <p>
-            Lake beds are <strong>modelled, not surveyed</strong>. All 1.43&nbsp;million of
-            GLOBathy's lakes get the same synthetic cone, deepening from the shore. Against
-            the Caspian's real soundings that model correlates about <strong>0.53</strong>,
-            and only <strong>0.8%</strong> of lakes here have a measured depth at all.
-          </p>
-          <p>
-            Modelling them all alike is deliberate: showing only surveyed lakes would draw
-            survey funding as geology, since ~85% of them sit in the USA.
-          </p>
-        </div>
-      </section>
-
-      <section class="note-block">
-        <h2 class="eyebrow">Mars colour</h2>
-        <div class="note">
-          <p>
-            Mars is coloured <strong>by elevation, not by what it looks like</strong>. Its
-            real colouring comes from wind-blown dust, which pays no attention to height —
-            so the dark markings you can see from Earth through a small telescope,
-            <strong>Syrtis Major</strong> and <strong>Acidalia</strong>, are not here. We
-            measured that before choosing: across the elevations holding two thirds of the
-            surface, real colour barely shifts, and where it does it disagrees with height
-            more often than it agrees.
-          </p>
-          <p>
-            What is taken from the planet is the <strong>hue</strong> — the rust of it,
-            measured against a global Viking colour mosaic. What is chosen is that the
-            colour <strong>rises with elevation</strong>, so you can read height at a
-            glance. Truthfully, Mars is brightest at its highest and its lowest points
-            alike: Hellas, the deepest basin, is a dust trap. Drawing it that way would make
-            the bottom of the planet look like the top.
-          </p>
-        </div>
-      </section>
-
-      <section class="note-block">
-        <h2 class="eyebrow">The smooth patch at each pole</h2>
-        <div class="note">
-          <p>
-            Mars's heights were measured by a laser on an orbiting spacecraft, and that
-            spacecraft's path <strong>never took it over the poles</strong> — it crossed no
-            higher than about 87°, three degrees short. Inside that circle
-            <strong>96% of the map's cells never received a single measurement</strong>.
-          </p>
-          <p>
-            So the last stretch to each pole is drawn smooth, on purpose. The broad dome is
-            real and measured; the fine detail is not, and earlier versions of this map
-            rendered the gap-filling as a <strong>starburst of ridges radiating from the
-            pole</strong> — an artefact of the arithmetic, not a landscape. Where we cannot
-            see, we would rather show a shape than invent a texture.
-          </p>
-        </div>
-      </section>
-
-      <section class="note-block">
-        <h2 class="eyebrow">The white at the poles</h2>
-        <div class="note">
-          <p>
-            Mars's polar frost advances and retreats with the seasons, so this
-            <strong>isn't any single moment</strong>. It marks the ice that stays all year:
-            where the USGS geologic map of Mars places the permanent cap, shaded by how
-            bright the Viking orbiters photographed each part of it. The two caps are
-            different colours because the ice is — the northern one sits close to neutral,
-            the southern is noticeably creamier, and that difference survives measuring each
-            against its own surroundings.
-          </p>
-          <p>
-            Earth's white works the same way: snow that <strong>persists</strong> and sea ice
-            that is <strong>typical</strong>, not one day's weather.
-          </p>
-        </div>
-      </section>
-    </div>
-
-    <section class="block">
-      <h2 class="eyebrow">Tools &amp; technique</h2>
-      <dl class="tools">
-        {
-          tools.map((tool) => (
-            <div>
-              <dt>{tool.label}</dt>
-              <dd set:html={tool.html} />
+          {world.about.notes.length > 0 && (
+            <div class="note-grid">
+              {world.about.notes.map((note) => (
+                <section class="note-block">
+                  <h2 class="eyebrow">{note.heading}</h2>
+                  <div class="note">
+                    {note.paragraphs.map((paragraph) => (
+                      <p set:html={paragraph} />
+                    ))}
+                  </div>
+                </section>
+              ))}
             </div>
-          ))
-        }
-      </dl>
-    </section>
+          )}
+        </section>
+      ))
+    }
 
-    <footer class="colophon">
-      <p>
-        Built in collaboration with AI: the pipeline, documentation, and Blender
-        render setup were developed with Anthropic's Claude. Data-source
-        selection, design, and final review are the author's.
-      </p>
-    </footer>
+    {/* OUTSIDE THE TOGGLE AND MARKED AS SUCH. The licence, the tools and the liability notice apply
+        to the whole site, and a reader who arrived on the Mars tab must not read them as Mars's. */}
+    <div class="shared">
+      {/* NOT "Both planets", which went stale in two directions at once: it counts the bodies, so a
+          third one silently makes it a lie, and it categorises them, so the Moon or Mercury would
+          make it a lie without the count ever changing. "Site-wide" says the only thing this mark
+          means — that what follows does not vary by tab — and cannot rot. */}
+      <p class="shared-mark">Site-wide</p>
+
+      <div class="note-grid">
+        <section class="note-block">
+          <h2 class="eyebrow">Using this work</h2>
+          <div class="note">
+            <p set:html={licenceHtml} />
+            <p>
+              The data keeps its own licenses, listed above. They travel with whatever you make from
+              this.
+            </p>
+          </div>
+        </section>
+      </div>
+
+      <div class="block">
+        <h2 class="eyebrow">Tools &amp; technique</h2>
+        <dl class="tools">
+          {
+            tools.map((tool) => (
+              <div>
+                <dt>{tool.label}</dt>
+                <dd set:html={tool.html} />
+              </div>
+            ))
+          }
+        </dl>
+      </div>
+
+      <footer class="colophon">
+        {/* The independence line belongs here rather than beside the tools: it is a statement about
+            the project, and it now covers every publisher instead of naming the three European ones
+            that happened to sit next to the Copernicus sentence it was written with. */}
+        <p>
+          Terrella is an independent project and is not endorsed by any of the organisations whose
+          data it uses.
+        </p>
+        <p>
+          Built in collaboration with AI: the pipeline, documentation, and Blender render setup were
+          developed with Anthropic's Claude. Data-source selection, design, and final review are the
+          author's.
+        </p>
+      </footer>
+    </div>
   </main>
 </Base>
 
-<style>
+<style
+  define:vars={{
+    earthLight: BODIES.earth.accent.light,
+    earthDark: BODIES.earth.accent.dark,
+    marsLight: BODIES.mars.accent.light,
+    marsDark: BODIES.mars.accent.dark,
+  }}
+>
+  /* THE PAGE'S OWN ACCENT IS NEUTRAL, and the panels below put a planet's back. `data-body` on the
+     root stamps Earth's teal over everything, which is right on every other page and wrong here:
+     this page is about both planets, so the chrome carries neither and the two tabs own all the
+     colour on it. The neutral is the ink desaturated rather than a third hue, so nothing here
+     competes with the accents when both chips are on screen at once. */
   .about {
+    --accent: #5d564a;
     max-width: min(1500px, 92vw);
     margin: 0 auto;
     padding: 0 clamp(1.1rem, 4vw, 2.5rem) 5rem;
   }
+  @media (prefers-color-scheme: dark) {
+    .about {
+      --accent: #a49b8a;
+    }
+  }
+
   .lede {
     font-family: var(--serif);
     font-size: clamp(1.1rem, 2.2vw, 1.5rem);
@@ -388,8 +282,157 @@ const licenceHtml = [
   }
   @media (min-width: 640px) {
     .lede {
-      max-width: 44ch;
+      max-width: 46ch;
     }
+  }
+
+  /* Visually hidden but still focusable — `display: none` would take the toggle off the keyboard
+     entirely, which is the usual way this pattern is got wrong.
+     `position: fixed`, NOT `absolute`, AND THAT IS THE WHOLE NO-SCROLL FIX. Activating a label
+     focuses its radio, and the browser scrolls a newly focused element into view; an absolutely
+     positioned input sits at the top of `<main>`, so every tab switch yanked the page back to the
+     top — measured at 900 → 0. A fixed element is always inside the viewport, so there is nothing
+     to scroll to and the page does not move. Same reason the `:target` version was rejected. */
+  .world-input {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: 0;
+    opacity: 0;
+    pointer-events: none;
+    border: 0;
+  }
+
+  .worlds {
+    display: flex;
+    gap: 0.55rem;
+    flex-wrap: wrap;
+    margin: clamp(1.6rem, 3.5vw, 2.4rem) 0 0;
+    padding-top: clamp(1.2rem, 2.5vw, 1.6rem);
+    border-top: 1px solid var(--line);
+  }
+
+  /* The signature element: two chips, each wearing its OWN body accent. It is the only place on the
+     site where both accents appear at once, which is what makes it read as "choose a world" rather
+     than as a generic tab bar. */
+  .world-chip {
+    --chip: var(--muted);
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    font-family: var(--serif);
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--chip);
+    padding: 0.5rem 0.95rem;
+    border-radius: 999px;
+    border: 1px solid color-mix(in srgb, var(--chip) 40%, var(--line));
+    cursor: pointer;
+    transition:
+      background 0.18s ease,
+      color 0.18s ease,
+      border-color 0.18s ease;
+  }
+  .world-chip[data-world="earth"] {
+    --chip: var(--earthLight);
+  }
+  .world-chip[data-world="mars"] {
+    --chip: var(--marsLight);
+  }
+  @media (prefers-color-scheme: dark) {
+    .world-chip[data-world="earth"] {
+      --chip: var(--earthDark);
+    }
+    .world-chip[data-world="mars"] {
+      --chip: var(--marsDark);
+    }
+  }
+  .world-chip .dot {
+    width: 0.62rem;
+    height: 0.62rem;
+    border-radius: 50%;
+    background: var(--chip);
+    flex: none;
+    align-self: center;
+  }
+  .world-chip .sub {
+    font-family: var(--sans);
+    font-size: 0.74rem;
+    font-weight: 400;
+    opacity: 0.85;
+  }
+  .world-chip:hover {
+    background: color-mix(in srgb, var(--chip) 10%, transparent);
+  }
+  /* Focus lands on the input, which is invisible, so the ring has to be drawn on its label. */
+  .world-input:focus-visible + .world-input + .worlds .world-chip,
+  .world-input:focus-visible + .worlds .world-chip {
+    outline: none;
+  }
+  .world-input:nth-of-type(1):focus-visible ~ .worlds .world-chip[data-world="earth"],
+  .world-input:nth-of-type(2):focus-visible ~ .worlds .world-chip[data-world="mars"] {
+    outline: 2px solid var(--chip);
+    outline-offset: 2px;
+  }
+  .world-input:nth-of-type(1):checked ~ .worlds .world-chip[data-world="earth"],
+  .world-input:nth-of-type(2):checked ~ .worlds .world-chip[data-world="mars"] {
+    background: var(--chip);
+    border-color: var(--chip);
+    color: var(--bg);
+  }
+  .world-input:nth-of-type(1):checked ~ .worlds .world-chip[data-world="earth"] .dot,
+  .world-input:nth-of-type(2):checked ~ .worlds .world-chip[data-world="mars"] .dot {
+    background: var(--bg);
+  }
+
+  /* EACH PANEL SCOPES `--accent` TO ITS OWN BODY, and that one override is the whole theming
+     mechanism: the step numerals, the note borders, the licence pills and the links below all read
+     `var(--accent)` already, so they re-tint together and no rule anywhere is per-body. A third
+     planet adds a declaration and two lines here. */
+  .panel {
+    display: none;
+  }
+  .panel[data-world="earth"] {
+    --accent: var(--earthLight);
+  }
+  .panel[data-world="mars"] {
+    --accent: var(--marsLight);
+  }
+  @media (prefers-color-scheme: dark) {
+    .panel[data-world="earth"] {
+      --accent: var(--earthDark);
+    }
+    .panel[data-world="mars"] {
+      --accent: var(--marsDark);
+    }
+  }
+  .world-input:nth-of-type(1):checked ~ .panel[data-world="earth"],
+  .world-input:nth-of-type(2):checked ~ .panel[data-world="mars"] {
+    display: block;
+  }
+
+  .panel-lede {
+    font-family: var(--serif);
+    font-size: clamp(1.02rem, 1.8vw, 1.22rem);
+    line-height: 1.5;
+    max-width: 54ch;
+    margin: clamp(1.4rem, 3vw, 2rem) 0 0;
+    color: var(--text);
+  }
+
+  .to-globe {
+    font-family: var(--sans);
+    font-size: 0.86rem;
+    white-space: nowrap;
+    color: var(--accent);
+    text-decoration: none;
+    border-bottom: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  }
+  .to-globe:hover {
+    border-bottom-color: var(--accent);
   }
 
   .block {
@@ -402,7 +445,7 @@ const licenceHtml = [
     margin: 0;
     padding: 0;
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr));
     gap: clamp(1rem, 2.5vw, 1.8rem);
   }
   .steps li {
@@ -428,38 +471,13 @@ const licenceHtml = [
     color: var(--muted);
   }
 
-  /* Data — grouped by body, then one card per source: name (linked), role, license, attribution.
-     The group heading carries its own one-line blurb, so the two planets read as two accounts
-     rather than one list that happens to be sorted. */
-  .body-group + .body-group {
-    margin-top: clamp(1.6rem, 3.5vw, 2.4rem);
-  }
-  .body-head {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    gap: 0.2rem 0.7rem;
-    font-family: var(--serif);
-    font-size: 1.15rem;
-    font-weight: 600;
-    margin: 0 0 0.7rem;
-  }
-  .body-blurb {
-    font-family: var(--sans);
-    font-size: 0.82rem;
-    font-weight: 400;
-    color: var(--muted);
-  }
   .sources {
     display: grid;
     /* `auto-fill`, NOT `auto-fit`, and the difference only shows itself when a body has fewer
        sources than the row has tracks. auto-fit COLLAPSES the tracks nothing occupies, so a short
-       group stretches its cards several times wider than a full group's beside it — a card that
-       wide reads as a different kind of object, and its citation runs to one unreadable line.
-       auto-fill keeps the empty tracks, so a card is the same width whatever group it is in.
-       The two keywords are identical wherever no track is empty, which is why this looks like a
-       free simplification on whichever body currently has the most sources. It is not. */
-    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+       group stretches its cards several times wider than a full group's beside it — Mars's three
+       against Earth's eight is exactly that case, and it once shipped at 1420 px against 269. */
+    grid-template-columns: repeat(auto-fill, minmax(min(240px, 100%), 1fr));
     gap: clamp(0.8rem, 1.5vw, 1.2rem);
   }
   .source {
@@ -501,13 +519,6 @@ const licenceHtml = [
     padding: 0.18rem 0.55rem;
     margin: 0.05rem 0;
   }
-  .legal {
-    margin: clamp(0.9rem, 2vw, 1.3rem) 0 0;
-    font-size: 0.72rem;
-    line-height: 1.55;
-    color: var(--muted);
-    max-width: 68ch;
-  }
   .source .attr {
     margin: 0;
     font-size: 0.76rem;
@@ -515,12 +526,12 @@ const licenceHtml = [
     color: var(--muted);
   }
 
-  /* The caveat callouts (licence, worldview, lake depth) sit side by side rather than stacking:
-     at 62ch each they left most of a 1500px page empty and pushed the rest below the fold. */
+  /* The caveat callouts sit side by side rather than stacking: at 62ch each they left most of a
+     1500px page empty and pushed the rest below the fold. */
   .note-grid {
     margin-top: clamp(2rem, 4.5vw, 3rem);
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(clamp(280px, 26vw, 380px), 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(clamp(280px, 26vw, 380px), 100%), 1fr));
     gap: clamp(1.2rem, 2.5vw, 2rem);
     align-items: stretch; /* equal-height callouts — ragged box bottoms read as a mistake */
   }
@@ -529,21 +540,16 @@ const licenceHtml = [
     flex-direction: column;
     min-width: 0;
   }
-
-  /* Emphasised note — a disclaimer / caveat callout */
   .note {
-    max-width: 62ch;
+    max-width: none;
+    flex: 1;
     margin: 0;
     padding: 1rem 1.3rem;
     border-left: 3px solid var(--accent);
     background: color-mix(in srgb, var(--accent) 8%, var(--bg-2));
     border-radius: 0 10px 10px 0;
-    font-size: 0.98rem;
+    font-size: 0.95rem;
     line-height: 1.6;
-  }
-  .note-grid .note {
-    max-width: none;
-    flex: 1;
   }
   /* Paragraphs inside ONE callout, never separate callouts: two adjacent .note boxes met at
      their border-radii and showed a notch between them. */
@@ -554,9 +560,53 @@ const licenceHtml = [
     margin-top: 0.7rem;
   }
 
+  /* ONE RULE, AND IT IS THE ONE THAT SAYS SOMETHING. This block used to carry a plain `border-top`
+     AND the labelled rule of `.shared-mark` 36px below it, so the reader met two identical hairlines
+     stacked with nothing between them. The bare one went: a divider that names what it divides
+     ("Both planets") does the same work and answers the question the other one raised. */
+  .shared {
+    margin-top: clamp(2.6rem, 5.5vw, 3.8rem);
+  }
+  .shared-mark {
+    font-family: var(--mono);
+    font-size: 0.66rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--muted);
+    margin: 0 0 1.4rem;
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+  }
+  .shared-mark::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: var(--line);
+  }
+  .shared .note-grid {
+    margin-top: 0;
+  }
+
+  /* Set small and quiet, the way a licence notice is read: present, findable, and not competing
+     with the credits it hangs off. */
+  .disclaimer {
+    margin-top: clamp(1rem, 2vw, 1.4rem);
+  }
+  .disclaimer p {
+    margin: 0;
+    font-size: 0.72rem;
+    line-height: 1.55;
+    color: var(--muted);
+    max-width: 68ch;
+  }
+  .disclaimer p + p {
+    margin-top: 0.5rem;
+  }
+
   .tools {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(250px, 100%), 1fr));
     gap: clamp(0.9rem, 2vw, 1.6rem) clamp(1.5rem, 3vw, 2.5rem);
     margin: 0;
   }
@@ -578,7 +628,7 @@ const licenceHtml = [
   }
 
   .colophon {
-    margin-top: clamp(3rem, 7vw, 4.5rem);
+    margin-top: clamp(2rem, 5vw, 3rem);
     padding-top: 1.4rem;
     border-top: 1px solid var(--line);
   }
@@ -588,5 +638,8 @@ const licenceHtml = [
     font-size: 0.82rem;
     line-height: 1.6;
     color: var(--muted);
+  }
+  .colophon p + p {
+    margin-top: 0.7rem;
   }
 </style>

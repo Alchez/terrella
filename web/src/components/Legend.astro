@@ -1,11 +1,48 @@
 ---
 // The site's hypsometric elevation legend — the shared signature element.
-// Styles live in global.css (.legend / .ramp) so every page draws one key.
+//
+// THE GRADIENT IS DATA, NOT CSS, since the About page grew a second one. It used to be a nine-stop
+// `linear-gradient` in `global.css` under `.ramp`, which was right while Earth was the only body
+// with a key; a second body drawn from a different ramp would have meant a second gradient in a
+// second place, and Earth's would then have had two spellings the moment anything reused it.
+// `aboutContent.ts` owns both, `.ramp` keeps only the geometry, and this component draws whichever
+// it is handed.
+//
+// DEFAULTING TO EARTH IS NOT A BODY DEFAULT of the kind `Base.astro` refuses. The callers that pass
+// nothing — the gallery and the country pages — are Earth surfaces by construction, and Mars's lite
+// page already opts out with `legend={false}` rather than being mis-served. What the default buys is
+// that those two callers render exactly the bytes they rendered before this was parameterised.
+import { ABOUT, type AboutLegend } from "../lib/aboutContent";
+
+interface Props {
+  /** Which key to draw. Omit for Earth's, which is what every existing caller wants. */
+  legend?: AboutLegend | null;
+}
+const { legend = ABOUT.earth.legend } = Astro.props;
 ---
 
-<figure class="legend" aria-label="Elevation legend, sea floor to peak">
-  <div class="ramp"></div>
-  <figcaption>
-    <span>Sea floor</span><span>Coast</span><span>Peak</span>
-  </figcaption>
-</figure>
+{
+  legend && (
+    <figure class="legend" aria-label={`Elevation legend: ${legend.marks.join(" to ")}`}>
+      <div class="ramp" style={`background: ${legend.gradient}`}></div>
+      <figcaption>
+        {legend.marks.map((mark) => (
+          <span>{mark}</span>
+        ))}
+      </figcaption>
+      {legend.caption && <p class="legend-note">{legend.caption}</p>}
+    </figure>
+  )
+}
+
+<style>
+  /* Sits with the component that draws it, unlike `.legend` / `.ramp`, which stay in global.css
+     because three pages' layouts already position them. */
+  .legend-note {
+    margin: 0.5rem 0 0;
+    font-size: 0.78rem;
+    line-height: 1.5;
+    color: var(--muted);
+    max-width: 60ch;
+  }
+</style>
