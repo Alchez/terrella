@@ -92,6 +92,11 @@ const INPUTS: PerfReportInputs = {
     spinning: true,
     pixelRatioLowered: false,
     terrainRetired: false,
+    // Non-zero on purpose. A shared fixture that defaults a new field to its empty value makes
+    // every test that reads it pass by construction, which is how a field gets added, rendered
+    // wrongly, and guarded by nothing.
+    samples: 12,
+    slowRun: 0,
     nextAction: "retire-spin",
   },
   demCacheFault: null,
@@ -246,6 +251,8 @@ describe("perfReportLines", () => {
         spinning: false,
         pixelRatioLowered: true,
         terrainRetired: true,
+        samples: 0,
+        slowRun: 0,
         nextAction: null,
       },
     });

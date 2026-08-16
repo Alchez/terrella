@@ -151,6 +151,16 @@ export interface LadderPosition {
   terrainRetired: boolean;
   /** What the ladder would pull next; null means exhausted. */
   nextAction: DegradationAction;
+  /** Frame intervals currently under judgement.
+   *
+   *  Carried because `nextAction` alone cannot distinguish the two states that matter most on a
+   *  struggling page: a ladder poised on a rung it is about to pull, and one poised on a rung it
+   *  will never reach because nothing is feeding its window. Both print the same action, and the
+   *  second is the defect this field exists to make visible — it read `disable-terrain` for 55 s
+   *  at the cliff while collecting nothing. */
+  samples: number;
+  /** Consecutive frames over `CATASTROPHIC_FRAME_MS`, i.e. how far into a stall the page is. */
+  slowRun: number;
 }
 
 export interface PerfReportInputs {
@@ -355,9 +365,19 @@ export function perfReportLines(report: PerfReport): PerfLine[] {
   ].filter((rung): rung is string => rung !== null);
   // The ladder is CONFIG, not a cost: it says which rungs have fired, i.e. which page this reading
   // is even of. `dpr lowered` changes what every number below it means.
+  //
+  // THE SAMPLE COUNT IS PRINTED BESIDE THE NEXT ACTION BECAUSE THE ACTION ALONE IS AMBIGUOUS in
+  // exactly the case worth catching. `next disable-terrain` describes both a ladder about to pull
+  // that rung and one that will never pull it because nothing is feeding its window, and the
+  // second read `next disable-terrain` for 55 s on a page at 1 fps. `· 0 frames` is what tells
+  // those apart on sight; a stall in progress shows its run length instead.
+  const windowText =
+    report.ladder.slowRun > 0
+      ? `${report.ladder.samples} frames · ${report.ladder.slowRun} stalled`
+      : `${report.ladder.samples} frames`;
   lines.push({
     group: "config",
-    text: `ladder ${rungs.length ? rungs.join(" · ") : "unfired"} · next ${report.ladder.nextAction ?? "—"}`,
+    text: `ladder ${rungs.length ? rungs.join(" · ") : "unfired"} · next ${report.ladder.nextAction ?? "—"} · ${windowText}`,
   });
 
   // Attribution, and the line that keeps it honest. No span can wrap MapLibre's internals or a
