@@ -673,9 +673,50 @@ SABOTAGES: list[Sabotage] = [
         suite='web',
         label='flag raised AFTER the teardown, so an idle inside it still false-alarms',
         path='web/src/components/Globe.astro',
-        needle='          terrainRetired = true;\n          map.setTerrain(null);',
-        replacement='          map.setTerrain(null);\n          terrainRetired = true;',
+        needle='      terrainRetired = true;\n      map.setTerrain(null);',
+        replacement='      map.setTerrain(null);\n      terrainRetired = true;',
         guard='goes quiet when the FPS ladder retires terrain, instead of crying wolf about the cap',
+    ),
+    # --- the watchdog's reach: what gets judged at all ------------------------------------------
+    Sabotage(
+        suite='web',
+        label='the watchdog goes back to a motion gate, so a parked page is never judged',
+        path='web/src/components/Globe.astro',
+        needle='map.on("render", judgeFrame);',
+        replacement='map.on("move", judgeFrame);',
+        guard='DRIVES THE WATCHDOG FROM `render`, AND NEVER FROM A MOTION GATE',
+    ),
+    Sabotage(
+        suite='web',
+        label='the window stops resetting on idle, so a recovered device stays convicted',
+        path='web/src/components/Globe.astro',
+        needle='map.on("idle", forgetJudgedFrames);',
+        replacement='map.on("movestart", forgetJudgedFrames);',
+        guard='resets the window on the map\'s own `idle`, which is the only honest reset',
+    ),
+    Sabotage(
+        suite='web',
+        label='the catastrophic trigger is dropped, leaving only the 45-sample median',
+        path='web/src/lib/fpsDegradation.ts',
+        needle='return isSustainedSlow(frames.intervalsMs) || frames.slowRun >= CATASTROPHIC_RUN_LENGTH;',
+        replacement='return isSustainedSlow(frames.intervalsMs);',
+        guard='fires on a run of stalls long before the sustained rule could',
+    ),
+    Sabotage(
+        suite='web',
+        label='a stall run survives a fast frame, so scattered hitches accumulate into a rung',
+        path='web/src/lib/fpsDegradation.ts',
+        needle='slowRun: intervalMs > CATASTROPHIC_FRAME_MS ? frames.slowRun + 1 : 0,',
+        replacement='slowRun: intervalMs > CATASTROPHIC_FRAME_MS ? frames.slowRun + 1 : frames.slowRun,',
+        guard='counts a stall run and breaks it on ONE fast frame',
+    ),
+    Sabotage(
+        suite='web',
+        label='the first render after a reset books the whole quiet spell as one frame',
+        path='web/src/lib/fpsDegradation.ts',
+        needle='if (frames.previousStampMs === null) return { ...frames, previousStampMs: stampMs };',
+        replacement='if (frames.previousStampMs === null) frames = { ...frames, previousStampMs: 0 };',
+        guard='FORGETS THE STAMP ON RESET, so a quiet spell is not booked as one enormous frame',
     ),
     # --- the ?perf instrument, Phase 1 and 2 (2026-07-29/30) -----------------------------------------
     Sabotage(
@@ -954,8 +995,24 @@ SABOTAGES: list[Sabotage] = [
         suite='web',
         label="the ladder reads the DISPLAY ratio again, not the map's",
         path='web/src/components/Globe.astro',
-        needle='          pixelRatioLowered,\n          devicePixelRatio: map.getPixelRatio(),',
-        replacement='          pixelRatioLowered,\n          devicePixelRatio: window.devicePixelRatio || 1,',
+        # ANCHORED ON `const action =`, NOT ON INDENTATION. The ladder's call and the ?perf report's
+        # call are otherwise identical, and this needle used to tell them apart only by nesting
+        # depth — the ladder's was two levels deeper. When the watchdog stopped nesting inside a
+        # motion gate the two collapsed to the same indent and the needle matched twice, which
+        # `test_needle_matches_exactly_once` caught. This is the same pair that once bit the other
+        # way round, the shallower needle silently corrupting the report instead of the ladder.
+        needle=(
+            'const action = nextDegradationAction({\n'
+            '      spinning,\n'
+            '      pixelRatioLowered,\n'
+            '      devicePixelRatio: map.getPixelRatio(),'
+        ),
+        replacement=(
+            'const action = nextDegradationAction({\n'
+            '      spinning,\n'
+            '      pixelRatioLowered,\n'
+            '      devicePixelRatio: window.devicePixelRatio || 1,'
+        ),
         guard="feeds the ladder the MAP's ratio, never the display's",
     ),
     Sabotage(

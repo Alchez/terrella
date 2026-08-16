@@ -60,9 +60,9 @@ export interface RampStop {
  * annotates its first stop as shipping `#804D35`, about 2% brighter than the `#7E4B33` here,
  * because that annotation samples FLAT LIT GROUND: it is a reading off the map, not the ramp.
  *
- * Earth has no counterpart here because its ramp is still the hand-written gradient in
- * `global.css`. That copy is older than this file and equally unpinned; moving it here is worth
- * doing and is not this change.
+ * Earth's ramp is declared beside the legend that draws it, in `aboutContent.ts`, because it is
+ * hand-authored rather than derived and so has no constants here to answer to. That module's
+ * `EARTH_RAMP` says why.
  *
  * `tests/test_palette.py::test_web_mars_ramp_matches_the_composited_stops` recomputes every entry
  * from `MARS_LAND_STOPS` through `shade.KNOBS` and fails on drift in either. */

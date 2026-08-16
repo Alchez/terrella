@@ -570,7 +570,12 @@ describe("earth.astro wires the instrument rather than re-stating it", () => {
 
     // The flag has to be raised BEFORE the teardown: `idle` fires during setTerrain(null), and an
     // idle landing in that window would report the retirement as a fault.
-    const rung = globe.match(/action === "disable-terrain"\) \{[\s\S]*?\n        \} else \{/)?.[0];
+    // The closing anchor is INDENTATION-AGNOSTIC, and that is the same correction the test below
+    // records for its own pattern. This one closed on `\n        \} else \{` — eight spaces — so
+    // the day the watchdog stopped nesting the rung inside a motion gate and a sustained-slow `if`,
+    // the branch moved two levels left and the guard stopped finding its subject. It went red,
+    // which is the good outcome; an anchor that had matched something else would not have.
+    const rung = globe.match(/action === "disable-terrain"\) \{[\s\S]*?\n\s*\} else \{/)?.[0];
     expect(rung, "the disable-terrain rung must exist").toBeTruthy();
     expect(rung).toContain("terrainRetired = true");
     expect(rung!.indexOf("terrainRetired = true")).toBeLessThan(

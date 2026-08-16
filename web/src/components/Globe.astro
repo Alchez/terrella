@@ -659,9 +659,10 @@ import { REPO_URL } from "../lib/siteLinks";
   import { RULER_WIDTH_PX, createScaleRuler, rulerGroundDistance } from "../lib/scaleRuler";
   import {
     DEGRADED_PIXEL_RATIO,
-    MAXIMUM_SAMPLE_COUNT,
-    isSustainedSlow,
+    isDegradationWarranted,
+    newFrameWindow,
     nextDegradationAction,
+    onFrameRendered,
   } from "../lib/fpsDegradation";
   import type { PerfEventStamps, PerfSnapshot } from "../lib/perf/perfOverlay";
   // Type-only, so nothing is added to the bundle — `lazyBoundary.test.ts` bans VALUE imports from
@@ -1653,6 +1654,8 @@ import { REPO_URL } from "../lib/siteLinks";
               spinning: false,
               pixelRatioLowered: false,
               terrainRetired,
+              samples: 0,
+              slowRun: 0,
               nextAction: null,
             },
             demCacheFault: demFault?.() ?? null,
@@ -2738,15 +2741,21 @@ import { REPO_URL } from "../lib/siteLinks";
   });
 
   // --- Runtime FPS watchdog ---------------------------------------------------
-  // If the frame rate stays low WHILE the globe is actually doing work (spinning
-  // or being dragged), degrade in steps: retire the idle spin first, then drop
-  // the canvas to 1x pixel ratio — so a weak GPU still gets a usable globe.
-  // Frames are counted only while the map is moving: an idle on-demand render
-  // sitting at 0 fps is not "slow", just still. The ladder and thresholds live in
-  // fpsDegradation.ts (unit-tested); every action must earn its own fresh
-  // sustained-slow window, and the loop retires once the ladder is exhausted.
-  let frameDurationsMs: number[] = [];
-  let lastFrameTime = performance.now();
+  // If frames stay slow while the globe is actually drawing, degrade in steps: retire the idle
+  // spin first, then drop the canvas to 1x pixel ratio, then take terrain away — so a weak GPU
+  // still gets a usable globe. The ladder, the thresholds and the window's rules all live in
+  // fpsDegradation.ts (unit-tested); every action must earn its own fresh window, and the watchdog
+  // retires once the ladder is exhausted.
+  //
+  // THE SUBJECT IS THE MAP'S OWN `render`, NOT A rAF LOOP GATED ON MOTION. Both halves of that are
+  // load-bearing and both were learned the expensive way; fpsDegradation.ts's second header block
+  // carries the measurements. In short: a camera parked in a pathological view draws continuously
+  // without moving, so a motion gate never opens, and a rAF loop that empties its window on every
+  // callback that did not draw never accumulates one either.
+  let frames = newFrameWindow();
+  // Set when the ladder runs out of rungs. The handler stays attached and returns early rather than
+  // detaching itself mid-dispatch, which keeps the ?perf panel's sample count honest afterwards.
+  let ladderExhausted = false;
   let pixelRatioLowered = false;
   // Published for the ?perf report, which is declared ABOVE this block and would otherwise close
   // over `spinning`/`pixelRatioLowered` before they are initialised. Assigning a reader here is the
@@ -2756,6 +2765,8 @@ import { REPO_URL } from "../lib/siteLinks";
     spinning,
     pixelRatioLowered,
     terrainRetired,
+    samples: frames.intervalsMs.length,
+    slowRun: frames.slowRun,
     nextAction: nextDegradationAction({
       spinning,
       pixelRatioLowered,
@@ -2763,74 +2774,85 @@ import { REPO_URL } from "../lib/siteLinks";
       terrainEnabled: map.getTerrain() !== null,
     }),
   });
-  function watchFps(now: number) {
-    const frameDelta = now - lastFrameTime;
-    lastFrameTime = now;
-    if (spinning || map.isMoving()) {
-      frameDurationsMs.push(frameDelta);
-      if (frameDurationsMs.length > MAXIMUM_SAMPLE_COUNT) frameDurationsMs.shift();
-      if (isSustainedSlow(frameDurationsMs)) {
-        const action = nextDegradationAction({
-          spinning,
-          pixelRatioLowered,
-          devicePixelRatio: map.getPixelRatio(),
-          terrainEnabled: map.getTerrain() !== null,
-        });
-        if (action === "retire-spin") {
-          setSpinning(false);
-          console.info("[globe] low frame rate — idle animation disabled");
-        } else if (action === "lower-pixel-ratio") {
-          pixelRatioLowered = true;
-          map.setPixelRatio(DEGRADED_PIXEL_RATIO);
-          console.info("[globe] low frame rate persists — rendering at 1x pixel ratio");
-        } else if (action === "disable-terrain") {
-          // Last in the ladder's ORDER, and last on purpose — lowering the pixel ratio above is
-          // what puts the device in the regime where dropping terrain actually pays
-          // (fpsDegradation.ts header). Not necessarily the last rung REACHED: the pixel-ratio
-          // rung is gated on DPR > 1, so a DPR-1 desktop with the spin already off arrives here
-          // first. See the note beside `terrainRetired`.
-          //
-          // Flagged BEFORE the teardown, not after: `idle` fires during it, and an idle that lands
-          // between setTerrain(null) and the flag would report the retirement as a broken cap.
-          terrainRetired = true;
-          map.setTerrain(null);
-          // ...and then release the source, because dropping the geometry does NOT return the
-          // memory. That reclaims the DEM cache's HEAP — the ceiling runs to ~1.24 GiB on a
-          // desktop canvas, so a rung that left it resident bought nothing on the one axis a
-          // struggling device actually needs. The arithmetic and its root cause live in
-          // tileCacheBudget.ts, which is also where the bound that keeps it from getting there
-          // is derived.
-          //
-          // removeSource -> TileManager.onRemove -> clearTiles reaches _outOfViewCache.reset(),
-          // whose eviction callback is the raster-dem unloadTile: it deletes tile.dem, destroys
-          // tile.fbo, and returns the texture to the painter's recycle pool. Nothing re-adds the
-          // source afterwards — the ladder is one-way and returns null once terrain is off.
-          //
-          // AND THAT LAST CLAUSE IS WHY THIS RUNG RECLAIMS ALMOST NO GPU MEMORY. "Returns the
-          // texture to the painter's recycle pool" is not a release: `Painter.releaseRTT` is a
-          // bare push onto an UNBOUNDED pool that only `Painter.destroy()` ever empties, so
-          // tearing terrain down FEEDS it. Measured 2026-07-30, twice: `disable-terrain` fired
-          // mid-tour and the GPU process still held 6,066 MiB with terrain gone from the style
-          // AND the sources — ~4 GB above the terrain-off plateau, owned by nothing left alive to
-          // release it. `setTerrain(null)` alone grew the pool 6,720 -> 6,933 objects across the
-          // call. So this rung is a fix for HEAP and for frame time, and must not be read as a
-          // fix for VRAM exhaustion — that is what rttPoolTrim.ts bounds, and it has to be
-          // attached before this rung runs to help at all.
-          //
-          // Guarded because a throw here escapes the rAF loop and silently retires the whole
-          // watchdog; getTerrain() being non-null implies the source exists, so this cannot fire,
-          // which is exactly why it costs nothing to keep.
-          if (map.getSource(TERRAIN_SOURCE)) map.removeSource(TERRAIN_SOURCE);
-          console.info("[globe] low frame rate persists — terrain displacement disabled");
-        } else {
-          return; // ladder exhausted — stop the loop, nothing left to measure for
-        }
-        frameDurationsMs = []; // the next stage must earn its own sustained-slow window
-      }
+  function judgeFrame() {
+    if (ladderExhausted) return;
+    frames = onFrameRendered(frames, performance.now());
+    // Nothing is judged before the first idle. Loading reliably produces the slowest frames of the
+    // session — style parse, first tile decodes, the cap textures — and convicting a device on them
+    // would degrade every visitor whose first seconds are busy, which is all of them.
+    if (!firstIdleSeen || !isDegradationWarranted(frames)) return;
+    const action = nextDegradationAction({
+      spinning,
+      pixelRatioLowered,
+      devicePixelRatio: map.getPixelRatio(),
+      terrainEnabled: map.getTerrain() !== null,
+    });
+    if (action === "retire-spin") {
+      setSpinning(false);
+      console.info("[globe] low frame rate — idle animation disabled");
+    } else if (action === "lower-pixel-ratio") {
+      pixelRatioLowered = true;
+      map.setPixelRatio(DEGRADED_PIXEL_RATIO);
+      console.info("[globe] low frame rate persists — rendering at 1x pixel ratio");
+    } else if (action === "disable-terrain") {
+      // Last in the ladder's ORDER, and last on purpose — lowering the pixel ratio above is
+      // what puts the device in the regime where dropping terrain actually pays
+      // (fpsDegradation.ts header). Not necessarily the last rung REACHED: the pixel-ratio
+      // rung is gated on DPR > 1, so a DPR-1 desktop with the spin already off arrives here
+      // first. See the note beside `terrainRetired`.
+      //
+      // Flagged BEFORE the teardown, not after: `idle` fires during it, and an idle that lands
+      // between setTerrain(null) and the flag would report the retirement as a broken cap.
+      terrainRetired = true;
+      map.setTerrain(null);
+      // ...and then release the source, because dropping the geometry does NOT return the
+      // memory. That reclaims the DEM cache's HEAP — the ceiling runs to ~1.24 GiB on a
+      // desktop canvas, so a rung that left it resident bought nothing on the one axis a
+      // struggling device actually needs. The arithmetic and its root cause live in
+      // tileCacheBudget.ts, which is also where the bound that keeps it from getting there
+      // is derived.
+      //
+      // removeSource -> TileManager.onRemove -> clearTiles reaches _outOfViewCache.reset(),
+      // whose eviction callback is the raster-dem unloadTile: it deletes tile.dem, destroys
+      // tile.fbo, and returns the texture to the painter's recycle pool. Nothing re-adds the
+      // source afterwards — the ladder is one-way and returns null once terrain is off.
+      //
+      // AND THAT LAST CLAUSE IS WHY THIS RUNG RECLAIMS ALMOST NO GPU MEMORY. "Returns the
+      // texture to the painter's recycle pool" is not a release: `Painter.releaseRTT` is a
+      // bare push onto an UNBOUNDED pool that only `Painter.destroy()` ever empties, so
+      // tearing terrain down FEEDS it. Measured 2026-07-30, twice: `disable-terrain` fired
+      // mid-tour and the GPU process still held 6,066 MiB with terrain gone from the style
+      // AND the sources — ~4 GB above the terrain-off plateau, owned by nothing left alive to
+      // release it. `setTerrain(null)` alone grew the pool 6,720 -> 6,933 objects across the
+      // call. So this rung is a fix for HEAP and for frame time, and must not be read as a
+      // fix for VRAM exhaustion — that is what rttPoolTrim.ts bounds, and it has to be
+      // attached before this rung runs to help at all.
+      //
+      // Guarded because a throw here escapes the render handler and silently retires the whole
+      // watchdog; getTerrain() being non-null implies the source exists, so this cannot fire,
+      // which is exactly why it costs nothing to keep.
+      if (map.getSource(TERRAIN_SOURCE)) map.removeSource(TERRAIN_SOURCE);
+      console.info("[globe] low frame rate persists — terrain displacement disabled");
     } else {
-      frameDurationsMs.length = 0; // reset when idle so stale frames don't accumulate
+      ladderExhausted = true; // nothing left to pull, so nothing left to measure for
+      return;
     }
-    requestAnimationFrame(watchFps);
+    frames = newFrameWindow(); // the next stage must earn its own window
   }
-  requestAnimationFrame(watchFps);
+  map.on("render", judgeFrame);
+  // THE RESET, and it is the map's own verdict rather than a timer of ours: `idle` means MapLibre
+  // has drawn everything it wanted. Clearing the window here keeps a device that has caught up from
+  // being convicted on frames it has already recovered from, and `newFrameWindow` also forgets the
+  // last stamp — without that, the first render after a quiet spell books the whole spell as one
+  // enormous frame, which is a sleeping map wearing the costume of a stalled one.
+  //
+  // Measured, not assumed: `idle` fires once at 396 ms on a healthy overview and never once in
+  // 14.8 s at the covering-tiles cliff, so this clears exactly where there is nothing left to judge
+  // and stays out of the way where there is.
+  // Named rather than inline because this page has several `idle` handlers and a reader — human or
+  // regex — cannot tell them apart from the subscription line alone.
+  function forgetJudgedFrames() {
+    frames = newFrameWindow();
+  }
+  map.on("idle", forgetJudgedFrames);
 </script>

@@ -61,6 +61,52 @@
  * decision (a cache bound, or a smaller DEM asset) that this ladder does not make.
  */
 
+/**
+ * WHICH FRAMES ARE JUDGED, AND WHY IT IS NOT "IS THE CAMERA MOVING"
+ * ----------------------------------------------------------------
+ * The rules above decide when a window is slow and what to pull. {@link FrameWindow} decides what
+ * gets into the window, and it is a separate idea because the first version of the caller answered
+ * it with `spinning || map.isMoving()` — which asks whether the CAMERA is animating when the
+ * question is whether the MAIN THREAD is starved. Those come apart exactly where it matters:
+ * a camera parked in a pathological view renders continuously without ever moving, so the gate
+ * stayed shut, and the window was emptied on every frame it was shut for.
+ *
+ * Measured on the shipping build at the covering-tiles cliff, parked and untouched: 97.9% of the
+ * window inside long tasks, `areTilesLoaded` false, and the ladder sitting on `disable-terrain` —
+ * the rung that recovers frame time 79x — for 55 s while collecting ZERO samples.
+ *
+ * So the window is fed by the map's own `render` event and cleared by its `idle`:
+ *
+ *   render ─▶ record the interval since the previous render
+ *   idle   ─▶ the map has drawn everything it wanted; clear, and forget the stamp
+ *
+ * `idle` is the right reset and that is a measurement rather than a reading of the docs: it fires
+ * once at 396 ms on a healthy overview and NOT ONCE in 14.8 s at the cliff. The window therefore
+ * clears exactly where there is nothing left to judge and survives exactly where there is.
+ *
+ * Forgetting the stamp matters as much as clearing the samples. Without it the first render after
+ * a quiet spell records the whole spell as one enormous frame, which is a sleeping map wearing the
+ * costume of a stalled one.
+ *
+ * A NOTE ON THE REJECTED SIMPLER FORM: keeping the caller's rAF loop and merely widening its gate
+ * does not work. At the cliff the page delivers 22 rAF callbacks per 13 renders, so a rule that
+ * empties the window on any callback that did not draw never accumulates a verdict at all.
+ *
+ * TWO TRIGGERS, FOR TWO REGIMES
+ * -----------------------------
+ * {@link isSustainedSlow} answers "this device is mediocre" — a 45-sample median against 34 ms,
+ * deliberately slow to convince and robust to hitches. It is unchanged, and it is not the rule that
+ * can save the cliff: at ~0.65 renders per second a 45-sample minimum is a 70-second wait, because
+ * the count is a count and the frames it counts are seconds long. **The worse the frame rate, the
+ * later that alarm rings.**
+ *
+ * {@link FrameWindow.slowRun} answers the other regime — "this page is not working at all" — with
+ * consecutive intervals over {@link CATASTROPHIC_FRAME_MS}. It is far STRICTER in amplitude than
+ * the sustained rule (15x its threshold), and it is what makes the ladder reach the cliff in ~4 s
+ * instead of never. Neither trigger loosens the other; a device that is merely slow is judged by
+ * exactly the rule that judged it before.
+ */
+
 /** Samples needed before a verdict — ~0.75 s of movement at 60 fps. */
 export const MINIMUM_SAMPLE_COUNT = 45;
 
@@ -72,6 +118,68 @@ export const SLOW_MEDIAN_MILLISECONDS = 34;
 
 /** Where the pixel-ratio lever lands: native resolution, no DPR supersampling. */
 export const DEGRADED_PIXEL_RATIO = 1;
+
+/**
+ * A frame this slow is not a hitch, it is a stall — the page has stopped answering.
+ *
+ * 10x `perf/perfOverlay.ts`'s SLOW_FRAME_MS and 15x {@link SLOW_MEDIAN_MILLISECONDS}, so this is a
+ * deliberately extreme reading rather than a second opinion about mediocrity. Set against what the
+ * cliff actually produces: intervals of 1138-1597 ms, an order of magnitude clear of it.
+ */
+export const CATASTROPHIC_FRAME_MS = 500;
+
+/**
+ * Consecutive stalled frames before the fast path acts.
+ *
+ * A run rather than a count anywhere in the window, because a run is the shape no ordinary hitch
+ * can forge: one 1.1 s cap-texture upload, one GC pause or one interrupted frame is a single
+ * interval, and three IN SEQUENCE means at least 1.5 s of a main thread that never came back.
+ * Three fires at 4.2 s against the measured cliff; two would fire at ~2.8 s and is the knob to
+ * turn if that proves too patient on a phone.
+ */
+export const CATASTROPHIC_RUN_LENGTH = 3;
+
+/** The frames under judgement, and how far the current stall has run. */
+export interface FrameWindow {
+  /** Intervals between consecutive renders, newest last, bounded by {@link MAXIMUM_SAMPLE_COUNT}. */
+  intervalsMs: number[];
+  /** When the map last drew, or null when it has drawn nothing since the last idle. */
+  previousStampMs: number | null;
+  /** Consecutive intervals over {@link CATASTROPHIC_FRAME_MS}, newest first. */
+  slowRun: number;
+}
+
+export function newFrameWindow(): FrameWindow {
+  return { intervalsMs: [], previousStampMs: null, slowRun: 0 };
+}
+
+/**
+ * The map drew a frame at `stampMs`.
+ *
+ * The first render after a reset records no interval — there is nothing to measure it against, and
+ * inventing one from a stale stamp is the failure this function exists to avoid.
+ */
+export function onFrameRendered(frames: FrameWindow, stampMs: number): FrameWindow {
+  if (frames.previousStampMs === null) return { ...frames, previousStampMs: stampMs };
+  const intervalMs = stampMs - frames.previousStampMs;
+  const intervalsMs = [...frames.intervalsMs, intervalMs];
+  if (intervalsMs.length > MAXIMUM_SAMPLE_COUNT) intervalsMs.shift();
+  return {
+    intervalsMs,
+    previousStampMs: stampMs,
+    slowRun: intervalMs > CATASTROPHIC_FRAME_MS ? frames.slowRun + 1 : 0,
+  };
+}
+
+/**
+ * Whether this window has earned a rung.
+ *
+ * Two regimes, either of which is sufficient: a sustained mediocre median (the rule that has always
+ * shipped, unchanged), or a run of outright stalls. See the header for why one rule cannot be both.
+ */
+export function isDegradationWarranted(frames: FrameWindow): boolean {
+  return isSustainedSlow(frames.intervalsMs) || frames.slowRun >= CATASTROPHIC_RUN_LENGTH;
+}
 
 export type DegradationAction =
   | "retire-spin"
