@@ -44,11 +44,31 @@ describe("the gallery masthead has nothing that changes its width after paint", 
     expect(link).toContain('rel="noopener noreferrer"');
   });
 
-  it("keeps a real, crawlable link to the globe somewhere a clone can follow", () => {
+  it("keeps a real, crawlable link to EVERY body's globe somewhere a clone can follow", () => {
     // index.astro held the ONLY <a href="/earth/"> on the site, and `.no-js .view-bar` is
     // display:none — so dropping it with nothing else in place orphans /earth/ for crawlers and
     // for anyone without JavaScript. There is no sitemap integration to fall back on.
-    expect(source("pages/about.astro")).toContain('href="/earth/"');
+    //
+    // WIDENED FROM EARTH TO THE REGISTRY, because the narrow version was true and insufficient:
+    // it passed all the way through Mars shipping a globe that no ordinary anchor pointed at, and
+    // would have gone on passing for a third planet. The About page now derives one link per body
+    // from `bodyRoutes`, so this asserts the property rather than the one instance of it.
+    // WHAT THIS FILE CAN AND CANNOT SEE, stated rather than papered over: it reads SOURCE, so now
+    // that the hrefs are derived it cannot read the URLs a crawler ends up with. The claim is
+    // therefore split, and neither half is vacuous. Here: the page emits one globe anchor per body,
+    // taken from the registry. In `bodyRoutes.test.ts`: those calls produce the right paths. A
+    // literal `href="/earth/"` would let this file check the whole thing and is what left Mars
+    // orphaned, so the weaker assertion over derived links is the stronger guard overall.
+    const about = source("pages/about.astro");
+    expect(
+      about,
+      "about.astro no longer derives a globe route per body — a hand-written href here is what " +
+        "orphaned Mars, so this must stay a registry call",
+    ).toContain("bodyRoutes(body.slug).globe");
+    expect(
+      about,
+      "the derived route is no longer rendered as an anchor, so nothing crawlable points at any globe",
+    ).toMatch(/<a[^>]*href=\{world\.globe\}/);
   });
 });
 

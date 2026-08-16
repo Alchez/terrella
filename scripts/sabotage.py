@@ -2371,9 +2371,12 @@ SABOTAGES: list[Sabotage] = [
         suite='web',
         label='the About page stops linking the globe, orphaning it from crawlers and no-JS',
         path='web/src/pages/about.astro',
-        needle='<a href="/earth/">an interactive globe</a>',
-        replacement='an interactive globe',
-        guard='keeps a real, crawlable link to the globe somewhere a clone can follow',
+        # Re-anchored when the page grew a tab per planet: the link used to be one hand-written
+        # `/earth/`, and is now derived per body from `bodyRoutes`. Breaking the href alone leaves
+        # the derivation in place, so this falsifies the half that actually reaches a crawler.
+        needle='href={world.globe}',
+        replacement='href="#"',
+        guard="keeps a real, crawlable link to EVERY body's globe somewhere a clone can follow",
     ),
     # --- The view bar's one row ------------------------------------------------------------------
     # The bar is `position: fixed`, so a wrap here can never move page content — this is a LOOK
@@ -4112,7 +4115,7 @@ SABOTAGES: list[Sabotage] = [
         # nothing a reader can check, where Syrtis Major tells them exactly what is missing and lets
         # them go and look. The paragraph still reads as an honest limitation while disclosing none.
         label='the Mars colour note stops naming the feature the ramp cannot show',
-        path='web/src/pages/about.astro',
+        path='web/src/lib/aboutContent.ts',
         needle='<strong>Syrtis Major</strong> and <strong>Acidalia</strong>',
         replacement='certain dark markings',
         guard='names a real albedo feature the map does not reproduce',
@@ -5165,11 +5168,18 @@ SABOTAGES: list[Sabotage] = [
         # card still renders, the citation is still there — but the reader is now told that the
         # planet's data sits under the group whose terms are Copernicus's, which is the exact
         # inference the two groups exist to stop.
-        label="a body's data sources are filed under the planet next door",
-        path='web/src/pages/about.astro',
-        needle='    body: "Mars",',
-        replacement='    body: "Earth",',
-        guard='gives every registered body a group of its own',
+        # RE-AIMED, NOT RETIRED, and the reason is that the defect stopped being expressible. The
+        # credits were a flat list whose groups carried a `body:` label, so a group could be filed
+        # under the wrong planet by editing one string. They are now a `Record<BodySlug, …>`, where
+        # a body's sources sit under its own key and mislabelling is not a one-line edit — the
+        # structure took the mutation away, which is what the move was for. What remains reachable,
+        # and is the same defect one layer down, is a source going blank: a card renders, the planet
+        # still has an entry, and the credit is gone.
+        label="a body's credit goes blank while its card still renders",
+        path='web/src/lib/aboutContent.ts',
+        needle='        name: "MOLA / HRSC Blended DEM",',
+        replacement='        name: "",',
+        guard='gives every source a name, a role, a licence and a credit',
     ),
     Sabotage(
         suite='python',
@@ -5214,7 +5224,7 @@ SABOTAGES: list[Sabotage] = [
         # truth — the exact drift `test_attributions.py` was written for, now covering a string
         # the publisher asks for in its Use Constraints rather than one a licence compels.
         label="the Mars blend's requested citation is trimmed off the About page",
-        path='web/src/pages/about.astro',
+        path='web/src/lib/aboutContent.ts',
         needle='Fergason, R. L, Hare, T. M., & Laura, J. (2018). HRSC and MOLA Blended Digital Elevation Model at 200m v2. Astrogeology PDS Annex, U.S. Geological Survey. ',
         replacement='',
         guard='test_about_page_carries_the_required_string',
@@ -5229,6 +5239,32 @@ SABOTAGES: list[Sabotage] = [
         needle='  <Globe />\n',
         replacement='  <Globe />\n  <a href="https://github.com/Alchez/terrella">source</a>\n',
         guard='is never inlined as a literal, which is the drift this constant exists to stop',
+    ),
+    # --- The tab strip's one convention ------------------------------------------------------------
+    # Seven pages, three title shapes, two of them putting the site name on opposite ends — the drift
+    # had already happened before anything owned the format, and nothing could have failed: a
+    # `<title>` is a string the build never validates and no rendering test reads.
+    Sabotage(
+        suite='web',
+        # The edit a new page really makes: copy a neighbouring `<Base>`, hand-write the title. It
+        # renders, it reads fine on its own, and only the tab strip shows the two conventions.
+        label='a page hand-writes its title instead of composing one',
+        path='web/src/pages/about.astro',
+        needle='  title={pageTitle("About")}',
+        replacement='  title="About — Terrella"',
+        guard="routes every page's title through pageTitle()",
+    ),
+    Sabotage(
+        suite='web',
+        # The half the first rule cannot see, and the mutation that MISSED when this guard was
+        # written: calling the helper and hand-writing the format inside its argument. The extractor
+        # matched braces with `\{[^}]*\}`, so the `}` closing `${body.label}` ended the capture and
+        # the site name sat past it, unread. Counting braces is what made this reachable.
+        label='a page calls the title helper and spells the site name inside the argument',
+        path='web/src/pages/mars/index.astro',
+        needle='  title={pageTitle(body.label)}',
+        replacement='  title={pageTitle(`${body.label} — Terrella`)}',
+        guard='never lets a page spell the site name into a title itself',
     ),
     Sabotage(
         suite='web',

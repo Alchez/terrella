@@ -23,6 +23,8 @@
 // section after Z with one row in it — plus two letters on the rail nobody would think to press.
 import Base from "../../layouts/Base.astro";
 import Masthead from "../../components/Masthead.astro";
+import { BODIES } from "../../lib/bodies";
+import { pageTitle } from "../../lib/pageTitle";
 import { featureIndex } from "../../lib/featureIndex";
 import { featureTypeLabel, formatFeatureDiameter } from "../../lib/detailPanel";
 import { byInitial, formatPosition } from "../../lib/gazetteer";
@@ -38,7 +40,7 @@ const indexLetters = [...byLetter.keys()];
 ---
 
 <Base
-  title="Mars — Terrella"
+  title={pageTitle(`${BODIES.mars.label} Gazetteer`)}
   description="Every named feature on Mars, as a listing — for devices that cannot draw the globe."
   body="mars"
   quality={true}

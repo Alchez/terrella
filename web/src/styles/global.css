@@ -107,21 +107,11 @@ a {
 .legend {
   margin: clamp(1.4rem, 3.5vw, 2.2rem) 0 0;
 }
+/* Geometry only. The GRADIENT is set inline by Legend.astro from `aboutContent.ts`, because a
+   second body brought a second ramp and a colour spelled in two files drifts — see that module. */
 .ramp {
   height: 18px;
   border-radius: 999px;
-  background: linear-gradient(
-    90deg,
-    #2f5b68 0%,
-    #4d8886 14%,
-    #8bbcb7 25%,
-    #cfe0d3 34%,
-    #ecdfc6 45%,
-    #ddc3a2 60%,
-    #c49a72 74%,
-    #96693f 89%,
-    #f1ece0 100%
-  );
   box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.08);
 }
 .legend figcaption {
