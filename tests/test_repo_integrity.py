@@ -319,7 +319,7 @@ def test_no_reference_to_a_file_a_clone_will_not_have(path: Path) -> None:
     source = path.read_text(encoding="utf-8")
     unreachable = re.findall(
         r"HISTORY\.md|HISTORY §|HISTORY 20\d\d|see HISTORY\b|PLAN\.md|PLAN §|see PLAN"
-        r"|MARS\.md|MARS §|see MARS\b|claude-personal"
+        r"|MARS\.md|MARS §|see MARS\b|ONBOARDING-QUESTIONS\.md|claude-personal"
         rf"|{SCRATCH_DIRS}|{IGNORED_PATHS}", source
     )
     assert not unreachable, (

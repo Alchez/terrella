@@ -4767,6 +4767,19 @@ SABOTAGES: list[Sabotage] = [
         replacement='see MARS.md',
         guard='test_no_reference_to_a_file_a_clone_will_not_have',
     ),
+    # The newest alternation, added the day the brief was gitignored. It needs its own case
+    # because a filename the pattern ENUMERATES is exactly the half that goes missing:
+    # gitignoring a path is otherwise a change nothing goes red for, and this guard knows only
+    # the names written into it. The needle sits INSIDE the module docstring, so the sabotaged
+    # file still parses and the guard is the only thing that can fail.
+    Sabotage(
+        suite='python',
+        label="cite the newcomer's question brief from the module that owns the vector paths",
+        path='pipeline/naturalearth.py',
+        needle='WHY THIS MODULE EXISTS',
+        replacement='See ' + 'ONBOARDING-QUESTIONS' + '.md.\n\nWHY THIS MODULE EXISTS',
+        guard='test_no_reference_to_a_file_a_clone_will_not_have',
+    ),
     Sabotage(
         suite='python',
         # THE BARE FORM, which is the half that walked through for months: the pattern anticipated

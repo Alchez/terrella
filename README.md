@@ -40,9 +40,10 @@ attribution, and adaptations share alike. Underlying data has its own terms and 
 
 ## Read next
 
+- Running the checks, which need no data or GPU → [`CONTRIBUTING.md`](CONTRIBUTING.md)
 - Pipeline, and regenerating a hero → [`docs/pipeline.md`](docs/pipeline.md)
 - Framing math → [`docs/framing-math.md`](docs/framing-math.md)
-- Frontend, and first-run setup → [`web/README.md`](web/README.md)
+- Frontend, and running the dev server → [`web/README.md`](web/README.md)
 - Aesthetic decisions → [`ART.md`](ART.md)
 - Measured stage runtimes → [`PROCESS.md`](PROCESS.md)
 - Data sources & licenses → [`ATTRIBUTIONS.md`](ATTRIBUTIONS.md)
