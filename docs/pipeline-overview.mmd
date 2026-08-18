@@ -1,4 +1,8 @@
-%% Plain-language overview. Technical companion: pipeline-detail.mmd — update both together.
+%% Plain-language overview. Technical companion: pipeline-detail.mmd; update both together.
+%%
+%% EARTH's graph. Mars is the same pipeline with a different body: it arrives already fused, so it
+%% skips the whole left-hand side, and it has no sea, borders or country portraits. See the MARS
+%% subgraph near the bottom.
 
 flowchart TD
 
@@ -12,7 +16,7 @@ flowchart TD
     S7["OSI SAF sea-ice record<br/>how often each sea is frozen<br/>(satellite record, 1991–2020)"]
   end
 
-  subgraph ACQ["Getting it — done"]
+  subgraph ACQ["Getting it: done"]
     D1["Downloader scripts<br/>one per source; safe to re-run anytime<br/>(a part-file is never mistaken for a finished one)"]
     R1[("Land heights<br/>~550 GB of one-degree tiles")]
     R2[("Water map<br/>per pixel: dry / sea / lake / river")]
@@ -25,10 +29,10 @@ flowchart TD
   D1 --> R2
   D1 --> R3
 
-  subgraph FUSE["Combining land and sea — done, worldwide"]
-    F["Fusion script — makes one seamless height map:<br/>land keeps its measured height,<br/>sea floor comes from GEBCO, always below zero,<br/>sea-level lagoons and deltas count as sea.<br/>The Caspian is treated as sea, so its real<br/>measured depths survive instead of a flat lid"]
+  subgraph FUSE["Combining land and sea: done, worldwide"]
+    F["Fusion script, making one seamless height map:<br/>land keeps its measured height,<br/>sea floor comes from GEBCO, always below zero,<br/>sea-level lagoons and deltas count as sea.<br/>The Caspian is treated as sea, so its real<br/>measured depths survive instead of a flat lid"]
     O1[("Whole-planet height map<br/>every country fused into one world grid,<br/>Himalaya summits to ocean trenches")]
-    O2[("Sea/land map<br/>which pixels are sea —<br/>later picks sand vs teal coloring")]
+    O2[("Sea/land map<br/>which pixels are sea,<br/>later picking sand vs teal coloring")]
     O3[("Inland water map<br/>which pixels are lake or river")]
   end
 
@@ -39,7 +43,7 @@ flowchart TD
   F --> O2
   F --> O3
 
-  subgraph HERO["Country portraits — done, 203 countries"]
+  subgraph HERO["Country portraits: done, 203 countries"]
     P["Prepare for rendering:<br/>undo the map stretch (projection),<br/>shrink to a renderable size"]
     B["Blender 3D scene:<br/>heights become sculpted terrain,<br/>a low sun casts soft real shadows,<br/>color from height on land, depth at sea,<br/>lakes shaded by their real depth, rivers flat teal"]
     H8["8K portrait of each country"]
@@ -56,14 +60,16 @@ flowchart TD
   S3 --> OV
   OV --> HF
 
-  subgraph TILES["Zoomable world — built and serving"]
+  subgraph TILES["Zoomable world: built and serving"]
     T3["Snow, latitude-aware:<br/>white where MODIS says snow persists,<br/>fading softly; glaciers crisp on top"]
     T4["Lake depth:<br/>deep lakes shade like the sea instead of<br/>reading as flat plates"]
     T6["Sea ice:<br/>translucent white where the sea is often frozen,<br/>the seafloor glowing through"]
     T1["Fast shading that imitates the Blender look<br/>without ray tracing: hillshade + sky-view shadows<br/>+ the same land/sea colors + snow + sea ice + lake depth"]
-    T2["512 px map tiles, zoom 0–8, pole to pole<br/>(~87,000 tiles)"]
-    T5["Packed into one PMTiles file:<br/>a small server reads the byte range for one tile<br/>and hands back just that tile — the browser<br/>never downloads the whole archive"]
+    T2["512 px map tiles, pole to pole, up to the body's own ceiling<br/>(Earth zoom 0-8, ~87,000 tiles; Mars stops at 7)"]
+    T5["Packed into one PMTiles file:<br/>a small server reads the byte range for one tile<br/>and hands back just that tile, so the browser<br/>never downloads the whole archive"]
     T7["Polar caps: the two poles Mercator can't reach,<br/>drawn as separate circular images<br/>(sea ice over real seafloor)"]
+    T8["A second pyramid of raw heights, colour-coded,<br/>so the globe can push the terrain into real 3D<br/>(read from the height map, never from the shaded picture)"]
+    T9["A third pyramid, of shapes rather than pictures:<br/>country outlines on Earth, named features on Mars.<br/>This is what makes a click land on something"]
   end
 
   O1 --> T1
@@ -78,14 +84,31 @@ flowchart TD
   T6 --> T1
   T1 --> T2
   T1 --> T7
+  O1 --> T8
   T2 --> T5
 
-  subgraph SITE["The website — gallery and globe are live"]
-    W["Three versions, picked to fit your device:<br/>photo gallery / spinning globe / full 3D globe.<br/>The 3D-terrain version is still to come"]
+  subgraph MARS["The second body: same pipeline, different planet"]
+    M1["USGS MOLA/HRSC blend<br/>already a finished height map,<br/>so Mars skips fusion entirely"]
+    M2["SIM 3292 geologic map<br/>where the permanent polar ice is"]
+    M3["Viking colour mosaic<br/>the ice's brightness, and the hue<br/>the land colouring is measured against"]
+    M4["IAU gazetteer<br/>the names of 1,919 Martian things"]
+    M5["No sea, no borders, no country portraits.<br/>Exaggeration, zoom ceiling and colour all<br/>belong to the body, so one pipeline serves both"]
+  end
+
+  M1 --> M5
+  M2 --> M5
+  M3 --> M5
+  M5 --> T1
+  M4 --> T9
+
+  subgraph SITE["The website: all three tiers are live, on both bodies"]
+    W["Three versions, picked to fit your device:<br/>photo gallery / spinning globe / full 3D globe.<br/>A capability probe picks one and the visitor can override it"]
   end
 
   T2 --> W
   T7 --> W
+  T8 --> W
+  T9 --> W
   HF --> W
   S3 -->|clickable borders| W
 
@@ -96,5 +119,7 @@ flowchart TD
   class D1,R1,R2,R3 done
   class F,O1,O2,O3 done
   class P,B,H8,OV,HF done
-  class T1,T2,T3,T4,T5,T6,T7 done
+  class T1,T2,T3,T4,T5,T6,T7,T8,T9 done
+  class M1,M2,M3,M4 ext
+  class M5 done
   class W done

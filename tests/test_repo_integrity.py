@@ -49,10 +49,10 @@ def tracked_text_files() -> list[Path]:
     listing = subprocess.run(
         ["git", "ls-files"], cwd=REPO, capture_output=True, text=True, check=True
     ).stdout.split()
-    # PLAN.md and HISTORY.md are deliberately NOT tracked, which means git cannot recover them and
-    # cannot show what a bulk edit did to them. They therefore need these invariants MORE than the
-    # tracked files, not less — included when present, silently absent on a clone.
-    names = set(listing) | {"CLAUDE.md", "PLAN.md", "HISTORY.md"}
+    # PLAN.md, HISTORY.md and MARS.md are deliberately NOT tracked, which means git cannot recover
+    # them and cannot show what a bulk edit did to them. They therefore need these invariants MORE
+    # than the tracked files, not less — included when present, silently absent on a clone.
+    names = set(listing) | {"CLAUDE.md", "PLAN.md", "HISTORY.md", "MARS.md"}
     return [
         REPO / name
         for name in sorted(names)
@@ -308,10 +308,18 @@ def test_no_reference_to_a_file_a_clone_will_not_have(path: Path) -> None:
     they were dead for their own author and read as reachable anyway. Where such a script owns
     something shipped code depends on, the fix is to track it — `scripts/measure_viking_levels.py`
     is that promotion — and not to reword the pointer.
+
+    THE BARE FORMS CARRY A WORD BOUNDARY, AND THE STRESSOR THAT DEMANDS IT IS ALREADY IN THE TREE.
+    `see MARS` without `\\b` also matches `see MARS_ICE_WHITE` in `palette.py`, which names a constant
+    and is perfectly reachable. The boundary is the whole of what separates a pointer at a document
+    from a pointer at an identifier that starts the same way, and that line is this pattern's
+    standing negative control: drop the boundary and the guard goes red on a correct file, which a
+    reader would then "fix" by weakening the guard rather than by restoring the boundary.
     """
     source = path.read_text(encoding="utf-8")
     unreachable = re.findall(
-        r"HISTORY\.md|HISTORY §|HISTORY 20\d\d|PLAN\.md|PLAN §|see PLAN|claude-personal"
+        r"HISTORY\.md|HISTORY §|HISTORY 20\d\d|see HISTORY\b|PLAN\.md|PLAN §|see PLAN"
+        r"|MARS\.md|MARS §|see MARS\b|claude-personal"
         rf"|{SCRATCH_DIRS}|{IGNORED_PATHS}", source
     )
     assert not unreachable, (

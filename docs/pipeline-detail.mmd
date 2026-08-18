@@ -1,25 +1,30 @@
-%% Low-level companion to pipeline-overview.mmd — same structure, full technical
+%% Low-level companion to pipeline-overview.mmd, same structure and full technical
 %% labels. Update both when the pipeline changes.
+%%
+%% EARTH's graph unless a node says otherwise. Every tile stage takes a required --body and none
+%% defaults to Earth; Mars enters at the MARS subgraph, already fused, and shares the shade, cut,
+%% pack and cap stages unchanged. Earth's work paths carry no body segment because its prefix is
+%% empty; Mars's sit under work/mars/.
 
 flowchart TD
 
   subgraph SRC["External sources"]
-    S1["Copernicus GLO-30 — ESA<br/>AWS Open Data + OpenTopography 2023_1<br/>(AWS withholds ~25 S-Caucasus tiles)<br/>1-arcsec land DSM, 1x1 deg COG tiles"]
-    S2["GEBCO_2026 — Seabed 2030<br/>15-arcsec global land+sea grid<br/>ice-SURFACE, not sub-ice bathymetry"]
+    S1["Copernicus GLO-30: ESA<br/>AWS Open Data + OpenTopography 2023_1<br/>(AWS withholds ~25 S-Caucasus tiles)<br/>1-arcsec land DSM, 1x1 deg COG tiles"]
+    S2["GEBCO_2026: Seabed 2030<br/>15-arcsec global land+sea grid<br/>ice-SURFACE, not sub-ice bathymetry"]
     S3["Natural Earth<br/>country / coastline / border vectors<br/>1:10m, default worldview"]
-    S4["NSIDC-0791 — MODIS/Terra<br/>global annual snow-cover climatology<br/>0.01 deg, snow_persistence 2001-2023"]
-    S5["RGI 7.0 — Randolph Glacier Inventory<br/>global glacier outlines<br/>via open UNESCO IHP-WINS mirror"]
-    S6["GLOBathy — figshare, CC0<br/>1.43 M modelled lake-depth rasters, 1 arcsec<br/>cone shape x published Dmax"]
-    S7["OSI SAF OSI-450-a — EUMETSAT<br/>sea-ice concentration CDR, EASE2 25 km<br/>anonymous THREDDS, serial-only"]
+    S4["NSIDC-0791: MODIS/Terra<br/>global annual snow-cover climatology<br/>0.01 deg, snow_persistence 2001-2023"]
+    S5["RGI 7.0: Randolph Glacier Inventory<br/>global glacier outlines<br/>via open UNESCO IHP-WINS mirror"]
+    S6["GLOBathy: figshare, CC0<br/>1.43 M modelled lake-depth rasters, 1 arcsec<br/>cone shape x published Dmax"]
+    S7["OSI SAF OSI-450-a: EUMETSAT<br/>sea-ice concentration CDR, EASE2 25 km<br/>anonymous THREDDS, serial-only"]
   end
 
-  subgraph ACQ["Acquisition — done"]
+  subgraph ACQ["Acquisition: done"]
     D1["acquire/download_glo30.py<br/>idempotent: .part, size check, atomic rename"]
-    R1[("raw/glo30 — dem + wbm<br/>Float32 elevation + Byte water class<br/>0 dry / 1 ocean / 2 lake / 3 river, ~551 GB")]
+    R1[("raw/glo30: dem + wbm<br/>Float32 elevation + Byte water class<br/>0 dry / 1 ocean / 2 lake / 3 river, ~551 GB")]
     D3["acquire/download_gebco.py<br/>self-pinning by version"]
-    R3[("raw/gebco — 7.3 GB<br/>Int16 bathymetry + TID provenance")]
+    R3[("raw/gebco: 7.3 GB<br/>Int16 bathymetry + TID provenance")]
     D2["acquire/download_naturalearth.sh"]
-    R4[("raw/naturalearth — boundary lines,<br/>maritime indicators, countries, coastline")]
+    R4[("raw/naturalearth: boundary lines,<br/>maritime indicators, countries, coastline")]
     D4["acquire/download_globathy.py + extract_globathy.py<br/>figshare v1 pinned by size+md5;<br/>selective unzip of rasters >= 10 KB"]
     R5[("work/globathy/lakedepth.vrt<br/>83,357 per-lake rasters (Caspian excluded)")]
   end
@@ -33,14 +38,14 @@ flowchart TD
   S6 --> D4
   D4 --> R5
 
-  subgraph FUSE["Fusion — done, planet-wide"]
+  subgraph FUSE["Fusion: done, planet-wide"]
     V["VRT virtual mosaics<br/>gdalbuildvrt, explicit nodata fills<br/>no tile means open ocean"]
-    F["fuse/fuse_heightfield.py — land = GLO-30 area-average,<br/>sea = GEBCO cubic-spline clamped to -1 m max,<br/>ocean = WBM 1 | no coverage | WBM 2/3 within 1 m of sea level<br/>| is_caspian (WBM 2 & land < -5 m & in bbox)"]
-    PF["fuse/fuse_planet.py — globe as 10x10-deg cells<br/>10-arcsec EPSG:4326 (matches z8 1:1 at every latitude)<br/>12-wide subprocess runner; pole to pole (Antarctica fused)"]
+    F["fuse/fuse_heightfield.py: land = GLO-30 area-average,<br/>sea = GEBCO cubic-spline clamped to -1 m max,<br/>ocean = WBM 1 | no coverage | WBM 2/3 within 1 m of sea level<br/>| is_caspian (WBM 2 & land < -5 m & in bbox)"]
+    PF["fuse/fuse_planet.py: globe as 10x10-deg cells<br/>10-arcsec EPSG:4326 (matches z8 1:1 at every latitude)<br/>12-wide subprocess runner; pole to pole (Antarctica fused)"]
     PH[("work/planet/planet_{heightfield,oceanmask,watermask}.vrt<br/>129600x64800, lat -90..90, 648 cells, 14 GB")]
     O1[("work/&lt;country&gt;/heightfield_{1s,3s}.tif<br/>per-country frame, Float32, tiled + overviews")]
-    O2[("oceanmask — Byte 0/1<br/>drives the material split")]
-    O3[("watermask — Byte 4-class<br/>land / ocean / inland lake / river")]
+    O2[("oceanmask: Byte 0/1<br/>drives the material split")]
+    O3[("watermask: Byte 4-class<br/>land / ocean / inland lake / river")]
   end
 
   R1 --> V
@@ -52,13 +57,13 @@ flowchart TD
   F --> PF
   PF --> PH
 
-  subgraph HERO["Hero render path — done, 203 countries (204 in scope, Kiribati deferred)"]
+  subgraph HERO["Hero render path: done, 203 countries (204 in scope, Kiribati deferred)"]
     P["render/render_prep.py<br/>warp EPSG:4326 to Albers equal-area conic,<br/>~16k Float32 TIFF + nearest-warped masks<br/>+ 0/255 lake & river PNGs for the shader"]
-    B["render/scene_build.py — Blender Cycles, RTX 4070S / OptiX, headless -b<br/>true displacement + adaptive subdivision<br/>two ColorRamps switched by ocean mask<br/>+ GLOBathy depth-keyed lake ramp (render/lake_mask.py), rivers flat teal<br/>locked look: 15x, sun alt 45 (shared palette.SUN_ALT_DEG), OIDN denoise"]
-    SV["render/sky_view.py — burn-only horizon SVF<br/>darkens land valleys post-render"]
+    B["render/scene_build.py: Blender Cycles, RTX 4070S / OptiX, headless -b<br/>true displacement + adaptive subdivision<br/>two ColorRamps switched by ocean mask<br/>+ GLOBathy depth-keyed lake ramp (render/lake_mask.py), rivers flat teal<br/>locked look: 15x, sun alt 45 (shared palette.SUN_ALT_DEG), OIDN denoise"]
+    SV["render/sky_view.py: burn-only horizon SVF<br/>darkens land valleys post-render"]
     H8["8K hero (long edge 7680) + 6 WebP rungs 640..7680<br/>q85 to 1920, q95 above<br/>(compose/hero_variants.py)"]
     OV["compose/overlay_borders.py<br/>pyshp + pyproj + pycairo, same Albers +<br/>ortho-margin mapping; coastline oracle;<br/>cased white borders, dashed disputed/maritime"]
-    HF[("bordered hero + transparent border layer<br/>(compose/gen_borders.py — the gallery toggle asset)")]
+    HF[("bordered hero + transparent border layer<br/>(compose/gen_borders.py: the gallery toggle asset)")]
   end
 
   O1 --> P
@@ -71,17 +76,17 @@ flowchart TD
   R4 --> OV
   OV --> HF
 
-  subgraph TILES["Tile pyramid — built and serving (z0-8)"]
-    SN["render/snow.py — NSIDC-0791 persistence to a<br/>latitude-ramped soft alpha (0.40@45 to 0.60@63)<br/>unioned with an RGI 7.0 glacier raster"]
-    LD["render/lake_depth.py — GLOBathy depth warped once<br/>to the 3857 grid, masked to watermask class 2<br/>(tint-only: never carved into the heightfield)"]
-    IC["render/seaice.py — OSI SAF monthlies reduced to a<br/>1991-2020 annual ice-frequency climatology;<br/>smoothstep alpha, ocean-gated"]
+  subgraph TILES["Tile pyramid: built and serving (to each body's own ceiling; Earth z0-8, Mars z0-7)"]
+    SN["render/snow.py: NSIDC-0791 persistence to a<br/>latitude-ramped soft alpha (0.40@45 to 0.60@63)<br/>unioned with an RGI 7.0 glacier raster"]
+    LD["render/lake_depth.py: GLOBathy depth warped once<br/>to the 3857 grid, masked to watermask class 2<br/>(tint-only: never carved into the heightfield)"]
+    IC["render/seaice.py: OSI SAF monthlies reduced to a<br/>1991-2020 annual ice-frequency climatology;<br/>smoothstep alpha, ocean-gated"]
     WI["tile/shade_planet.py warp_inputs<br/>height + masks -> one WMQ-aligned 3857 grid<br/>-tap -tr 305.7483 -> 131072 x 131072"]
-    HS["render/hillshade.py — per-row z-factor 15/cos(lat)<br/>full-width, 1-row halo -> seamless;<br/>gdaldem takes only a scalar z, hence our own"]
-    SH["tile/shade.py composite() — per 128-row window, 4 workers:<br/>land/sea ramps from elevation via a 17.6 KB LUT<br/>(replaced two gdaldem color-relief passes)<br/>x hillshade x sky-view + snow + sea ice + lake depth"]
-    T2["gdal raster tile: 512 px, z0-8, xyz convention<br/>87,381 tiles; tiles_old kept as rollback<br/>(cut/pyramid/@2x/serve mechanics: see docs/tiling.mmd)"]
+    HS["render/hillshade.py: per-row z-factor 15/cos(lat)<br/>full-width, 1-row halo -> seamless;<br/>gdaldem takes only a scalar z, hence our own"]
+    SH["tile/shade.py composite(): per 128-row window, 4 workers:<br/>land/sea ramps from elevation via a 17.6 KB LUT<br/>(replaced two gdaldem color-relief passes)<br/>x hillshade x sky-view + snow + sea ice + lake depth"]
+    T2["gdal raster tile: 512 px, xyz convention, to the body ceiling<br/>Earth z0-8, 87,381 tiles; tiles_old kept as rollback<br/>(cut/pyramid/@2x/serve mechanics: see docs/tiling.mmd)"]
     T5["tile/pack_pmtiles.py + pmtiles convert<br/>-> planet.pmtiles 3.1 GB, range-request served<br/>(see docs/tiling.mmd)"]
-    TT["tile/terrain_rgb.py — stage T, a SEPARATE LANE<br/>reads height_3857.tif directly, never the composite above<br/>elevation -> RGB at 8 m, sea kept as bathymetry, LOSSLESS WebP<br/>-> terrain.pmtiles 2.6 GB, declared tileSize 128 (see docs/tiling.mmd)"]
-    CP["tile/cap_render.py — AEQD polar caps, both poles<br/>same shade.composite over the fused VRTs;<br/>8192-px WebP pair + caps.json -> web/public/caps/<br/>freshness-guarded: restages whenever the look does"]
+    TT["tile/terrain_rgb.py: stage T, a SEPARATE LANE<br/>reads height_3857.tif directly, never the composite above<br/>elevation -> RGB at 8 m, sea kept as bathymetry, LOSSLESS WebP<br/>-> terrain.pmtiles 2.6 GB, declared tileSize 128 (see docs/tiling.mmd)"]
+    CP["tile/cap_render.py: AEQD polar caps, both poles<br/>same shade.composite over the fused VRTs;<br/>8192-px WebP pair + caps.json -> web/public/caps/<br/>freshness-guarded: restages whenever the look does"]
   end
 
   PH --> WI
@@ -100,7 +105,31 @@ flowchart TD
   T2 --> T5
   PH --> CP
 
-  subgraph SITE["Site — deployed; all three tiers live"]
+  subgraph MARS["Mars: enters pre-fused, no fusion tier"]
+    MS1["USGS MOLA/HRSC blended DEM, 200 m<br/>acquire/download_mars_dem.py<br/>share-alike, which is why the whole site's output is CC BY-SA 4.0"]
+    MS2["USGS SIM 3292<br/>acquire/download_sim3292.py<br/>where the permanent polar ice is"]
+    MS3["Viking colour mosaic<br/>acquire/download_viking_mosaic.py<br/>ice brightness + the hue the land ramp is measured from"]
+    MS4["IAU gazetteer<br/>acquire/download_nomenclature.py<br/>1,919 named features"]
+    MH[("work/mars/planet/*.vrt<br/>the blend IS the heightfield: no ocean mask, no water mask,<br/>so the planet stage DECLARES what it emitted rather than<br/>leaving a consumer to infer it from what is on disk")]
+  end
+
+  subgraph VEC["Vector pyramid: geometry, not pixels"]
+    VC["compose/vector_cut.py, the driver: freshness gate,<br/>derivation, staging loop, conversion.<br/>Earth declares countries_pmtiles.py (3 layers, from countries_geojson.py)<br/>Mars declares features_pmtiles.py (4 layers, from features_geojson.py)"]
+    VD[("vector.pmtiles, MVT<br/>SPARSE: a missing tile answers 204 here, 404 on the raster pyramids<br/>carries the click target; Earth's fill also backs the hover wash")]
+  end
+
+  MS1 --> MH
+  MS2 --> MH
+  MS3 --> MH
+  MH --> WI
+  MH --> TT
+  MH --> CP
+  R4 --> VC
+  MS4 --> VC
+  VC --> VD
+  VD --> W
+
+  subgraph SITE["Site: deployed; all three tiers live"]
     W["three-tier static Astro site, shell on a CDN edge worker<br/>heroes + border vectors in object storage; tiles from a<br/>second worker over the PMTiles archives<br/>Tier 1 gallery / Tier 2 MapLibre globe / Tier 3 globe + terrain-RGB<br/>displacement, all live; a capability probe picks one and the visitor can override"]
   end
 
@@ -116,4 +145,6 @@ flowchart TD
   class D1,R1,D2,R4,D3,R3,D4,R5,V,F,PF,PH,O1,O2,O3,TT done
   class P,B,SV,H8,OV,HF done
   class SN,LD,IC,WI,HS,SH,T2,T5,CP done
+  class MS1,MS2,MS3,MS4 ext
+  class MH,VC,VD done
   class W done

@@ -47,7 +47,7 @@ The legal question is genuinely open and both readings are recorded so neither g
 - **It may be descriptive rather than a grant.** In the FGDC metadata vocabulary the page uses, *Access* constraints and *Use* constraints are separate fields, and USGS put the licences under *Access* while its *Use* constraint says only "Please cite authors". Read that way, the line names the provenance of the two inputs and the blend itself — a US Geological Survey work — carries no share-alike.
 - **It may be a real term on the HRSC half.** HRSC contributes 44% of the blend's coverage; if that fraction is BY-SA, the derived tiles are a derivative of BY-SA material regardless of which metadata field records it.
 
-**This supersedes MARS.md's earlier conclusion** that the share-alike trap applies only to ESA's published *pictures* and that the archive route imposes nothing. That conclusion was reached from ESA's own terms and is correct about ESA; what it did not account for is the USGS blend's own metadata making the same claim about the data.
+**This supersedes an earlier conclusion of ours** that the share-alike trap applies only to ESA's published *pictures* and that the archive route imposes nothing. That conclusion was reached from ESA's own terms and is correct about ESA; what it did not account for is the USGS blend's own metadata making the same claim about the data.
 
 **The resolution is to assume the strict reading and license the output share-alike**, which is correct whichever reading is right, and which needs no legal determination to act on. Three consequences worth stating rather than re-deriving:
 

@@ -36,6 +36,13 @@ convention alone silently drops the features that cross; span 540 and fold onto 
 publisher's own `min_lon`/`max_lon` fields reproduce that extent exactly, which is what
 `assert_layer` checks rather than re-deriving it from geometry.
 
+THE COORDINATES RIDE THE MDIM 2.1 CONTROL NETWORK, which is the FRAME and not the 232 m mosaic this
+project declined for its filtered-away albedo -- the two share a name and nothing else. That the
+frame agrees with the blend these outlines are drawn over is measured rather than assumed: over 477
+named craters the median rim-minus-floor is 1208 m and holds for 98.1% of them, and it collapses to
+chance when the centres are shifted 50 km, so the two frames agree well inside 25 km. The shifted
+control is what makes the agreement mean anything; without it the test passes on any frame at all.
+
 Output (data/raw/mars/nomenclature/):
   MARS_nomenclature_geometries.zip   the published archive, kept as fetched
   MARS_nomenclature_poly.{shp,shx,dbf,prj,cpg}   1,717 named areal features

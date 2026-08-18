@@ -1,18 +1,21 @@
-# Terrella — frontend (`web/`)
+# Terrella: the frontend (`web/`)
 
-The Astro site: Tier-1 gallery, country detail pages, About, and the `/earth` route (a MapLibre
-globe over the raster tile pyramid), with a capability probe that auto-steers between tiers.
+The Astro site: Tier-1 gallery, country detail pages, About, and a globe route per body. `/earth`
+and `/mars` are both the same `Globe.astro` over that body's raster tile pyramid, with a capability
+probe that auto-steers between tiers. A body's page decides which planet it is and what chrome goes
+around it; what the globe actually draws comes from the registry in `src/lib/tileAddress.ts`, not
+from anything the page asserts.
 
 ## First-run setup (fresh checkout / worktree)
 
-`web/` depends on three things that are **not** in git — they are generated or machine-specific,
+`web/` depends on three things that are **not** in git. They are generated or machine-specific,
 so a fresh clone or worktree has none of them and **every route 500s (`FailedToLoadModuleSSR`)
 until all three exist**. In order:
 
-1. **`.env`** — store paths for the dev middleware, which serves `/heroes`, `/borders` and
+1. **`.env`**, the store paths for the dev middleware, which serves `/heroes`, `/borders` and
    `/tiles` straight off disk (the static build never reads them; a deploy points the site at
    object storage instead, via the `PUBLIC_*_BASE` vars the same template documents).
-   Copy the template and set each var to an absolute local path — there is no fallback, an unset
+   Copy the template and set each var to an absolute local path. There is no fallback; an unset
    var fails the dev server with a clear message:
    ```sh
    cp .env.example .env
@@ -21,9 +24,11 @@ until all three exist**. In order:
    `.env` is gitignored (machine-specific), which is why it does not travel with the checkout.
 
    The three PMTiles archives are **not** configured: `/tiles` derives each one from the
-   pipeline's work tree (`data/work/<body>/planet_tiles/planet.pmtiles` and its terrain and
-   countries siblings), so a second body adds no variables. Set `MAPS_DATA` only if your data
-   store is not `<repo>/data` — it is the same variable the pipeline reads, so both halves move
+   pipeline's work tree (`data/work/<body>/planet_tiles/planet.pmtiles` and its `planet_terrain`
+   and `planet_vector` siblings), so a second body adds no variables. **Earth's `<body>` segment is
+   empty**, which is what keeps it on its historical layout: Earth's archives sit at
+   `data/work/planet_tiles/`, Mars's at `data/work/mars/planet_tiles/`. Set `MAPS_DATA` only if your
+   data store is not `<repo>/data`. It is the same variable the pipeline reads, so both halves move
    together. A missing archive answers 500 naming the path and the stage that writes it.
 
 2. **Dependencies**:
@@ -31,7 +36,19 @@ until all three exist**. In order:
    pnpm install
    ```
 
-3. **The gallery manifest** `src/data/countries.json` — generated from the hero-variant store,
+   **This applies a vendored patch, and you should know that before you debug MapLibre.**
+   `pnpm-workspace.yaml`'s `patchedDependencies` points at `patches/maplibre-gl@6.3.0.patch`, one
+   expression replaced in the minified bundle: `coveringTiles` locates the camera from the camera's
+   own position instead of unprojecting its nadir screen point, which is exact on mercator and lands
+   in the wrong place on a globe at pitch. The failure mode if it goes missing is **silence**: no
+   error, no build warning, the same picture, just far more tiles than the camera asked for. So it
+   is guarded from both sides: `src/lib/vendoredPatches.test.ts` pins the expression, and its
+   `.browser` twin pins the effect over 697 cameras. A version bump orphans the patch (pnpm keys it
+   to an exact version), and those guards are what turn that into a failure instead of a silent
+   regression. It is filed upstream as maplibre-gl-js#8187; when a release carries the fix, delete
+   the patch, both guards, and the `patchedDependencies` entry together.
+
+3. **The gallery manifest** `src/data/countries.json`, generated from the hero-variant store
    and imported by all three pages (index, `[slug]`, globe), so its absence 500s the whole site.
    Also gitignored. Regenerate it whenever heroes are re-rendered:
    ```sh
@@ -39,7 +56,7 @@ until all three exist**. In order:
    ```
    Requires the hero WebP variants and the Natural Earth admin-0 shapefile to already exist.
 
-   Its Mars counterpart, `src/lib/featureIndex.json`, needs no step here — it is **committed**,
+   Its Mars counterpart, `src/lib/featureIndex.json`, needs no step here. It is **committed**,
    because it derives from a digest-pinned archive rather than from this machine's render store.
    Regenerate it only after re-composing the gazetteer, and read the diff:
    ```sh
@@ -52,15 +69,15 @@ pnpm dev --host
 ```
 
 > If you rebuilt the tile pyramid while the server was running, the browser may hold stale tiles
-> and a failed SSR import can stay cached — a server restart plus a hard reload clears both.
+> and a failed SSR import can stay cached; a server restart plus a hard reload clears both.
 
 > **Vite does not hot-reload `astro.config.ts`.** Page and lib code reloads, the `/tiles` middleware
-> does not — so changing a tile contract (any of the `src/lib/` modules the config imports) leaves a
+> does not, so changing a tile contract (any of the `src/lib/` modules the config imports) leaves a
 > running dev server answering the *old* request shape while the freshly-compiled globe asks for the
 > new one, and every tile 404s. **Restart the dev server after touching the config, or any module it
 > imports.**
 
-### Baked or live — the rule for where a value gets computed
+### Baked or live: the rule for where a value gets computed
 
 Applied to every visual constant on the site, and worth knowing before adding a knob:
 
@@ -69,26 +86,29 @@ Applied to every visual constant on the site, and worth knowing before adding a 
 - Invariant *and* physics-coupled (sun geometry, exaggeration) → **baked**, so the heroes and the
   tiles cannot disagree.
 - Otherwise → **live, but pinned to authored constants** rather than computed from the data.
-- A **user-exposed setting** only where visitor context genuinely varies — device capability, motion
+- A **user-exposed setting** only where visitor context genuinely varies: device capability, motion
   and data preferences. Not for things we simply have an opinion about.
 
 ### The tile request contract
 
-`{body}/{layer}/{token}/{z}/{x}/{y}.{ext}`, z0–8, one tile per request — six segments, always.
+`{body}/{layer}/{token}/{z}/{x}/{y}.{ext}`, one tile per request, six segments always. The zoom
+range is **per body and per layer**, not a property of the scheme: Earth's relief reaches z8 and
+Mars's z7, each set by its own source resolution and recorded in `PUBLISHED` rather than in a shared
+constant, because a ceiling is a fact about a planet's data.
 Adding a planet, a layer or a re-cut adds a word to one of the first three segments and never
 changes the shape, which is what makes exclusivity structural: two archives cannot share an address
 because the address names its archive.
 
 `src/lib/tileAddress.ts` is the grammar and the registry of what each body publishes; the per-layer
 facts it composes stay in the module that owns them (`reliefTiles.ts`, `terrainSource.ts`,
-`countryTiles.ts` — extension, content type, zoom range). Everything imports from there: the
+`countryTiles.ts`: extension, content type, zoom range). Everything imports from there: the
 `/tiles` middleware in `astro.config.ts` for dev, `worker/index.ts` for production, and
 `assetBase.ts` for the client, so the address the browser asks for and the address the servers
 accept cannot drift. The servers differ only in where the bytes come from (a local file vs an R2
 binding); the browser never opens the archive itself.
 
 The token is a prefix of the archive's own SHA-256, generated by `scripts/gen_tile_tokens.ts` and
-committed. It is what a re-cut changes — see the cache-bust note below — and `pnpm check:tile-tokens`
+committed. It is what a re-cut changes (see the cache-bust note below), and `pnpm check:tile-tokens`
 fails if a committed token no longer matches the archive it names.
 
 Both servers also still accept the untokened shapes production served before this scheme, so a page
@@ -100,7 +120,7 @@ The extension follows the archive's declared tile type, which is set by the pipe
 archive stores **one** encoding for every tile, so this is a single global fact, not a per-tile one.
 
 The cache-bust is the **token**, not the extension. A re-cut that keeps the same codec leaves every
-path segment but that one identical, and a zone purge cannot reach a browser cache — so without a
+path segment but that one identical, and a zone purge cannot reach a browser cache, so without a
 new token a visitor would keep the tiles they already have for up to a year.
 
 ## Project structure
@@ -108,7 +128,9 @@ new token a visitor would keep the tiles they already have for up to a year.
 ```text
 web/
 ├── astro.config.ts        # build config + the dev-only /heroes, /borders, /tiles middleware
-├── wrangler.jsonc         # the site Worker — serves dist/ as static assets
+├── wrangler.jsonc         # the site Worker, serving dist/ as static assets
+├── pnpm-workspace.yaml    # allowed build scripts + patchedDependencies (see setup step 2)
+├── patches/               # the vendored maplibre-gl patch pnpm applies on install
 ├── public/
 │   └── caps/              # polar cap WebP rungs + caps.json (generated; gitignored)
 ├── scripts/
@@ -119,22 +141,33 @@ web/
 │   ├── pages/             # index (gallery) · [slug] (country) · earth · mars · mars/lite · about
 │   ├── components/        # Globe.astro is the globe itself; a body's page only wraps it
 │   ├── layouts/ styles/
-│   ├── lib/               # the tested logic — see below
+│   ├── lib/               # the tested logic, see below
+│   │   └── perf/          # the ?perf instrument, behind a lazy boundary
 │   └── data/              # countries.json (generated; gitignored)
 └── worker/                # the tile Worker: one z/x/y out of the PMTiles archive in R2
 ```
 
-`src/lib/` is where anything worth testing lives, each module paired with a `.test.ts`:
-`tileAddress` (the tile request contract, imported by *both* servers), `assetBase` (dev vs
-production origins), `capability` + `fpsDegradation` (the tier probe and runtime downgrade),
-`hoverTracking` (hover resolution, including re-resolving when the globe moves under a parked
-pointer), `countryHighlight`, `polarCaps` (rung choice by projected on-screen size),
-`terrainSource`, `tileCacheBudget`, `glDiagnostics`, `skyAtmosphere`, `tileConcurrency`, `rungs`,
-`manifest`, `palette`.
+`src/lib/` is where anything worth testing lives. Most modules are paired with a same-named `.test.ts`
+or `.browser.test.ts`, the rest reached through the test of the module that consumes them. **The
+directory listing is the current list; this file deliberately does not reproduce it.** An inventory
+in prose has no reader that can go red, so it rots silently: the one that stood here had fallen to
+naming under a third of the directory while still reading as complete.
 
-`src/lib/perf/` holds the `?perf` instrument alone — `perfOverlay`, `perfSnapshot`, `perfNetwork`.
-It is a **lazy boundary**: no page may statically value-import from it, so a visitor without the flag
-never downloads it. `lazyBoundary.test.ts` enforces that for the whole directory, because guarding it
+What is worth knowing before reading any of it is which modules carry a contract across a boundary,
+since those are the ones where being wrong is silent rather than loud:
+
+- **`tileAddress`**: the tile request grammar and the registry of what each body publishes.
+  Imported by *both* servers and by the client, so the address asked for and the address accepted
+  cannot drift.
+- **`bodies` / `globeSubsystems`**: which planet this is, and what its globe draws. Subsystems are
+  resolved from the registry and only ever *removed* by a URL flag; nothing probes for a layer and
+  infers from what it finds.
+- **`assetBase`**: dev versus production origins, the seam a deploy moves.
+- **`capability` + `fpsDegradation`**: the tier probe and the runtime downgrade ladder.
+- **`vendoredPatches`**: test-only, and the guard described under setup above.
+
+`src/lib/perf/` holds the `?perf` instrument and nothing else. It is a **lazy boundary**: no page may
+statically value-import from it, so a visitor without the flag never downloads it. `lazyBoundary.test.ts` enforces that for the whole directory, because guarding it
 per-file let a regression ship 268 lines of instrument to every visitor. The one exemption is
 `lib/resourceTimingBuffer.ts`, which has to run before the map is constructed and says so in its
 header.
@@ -149,21 +182,21 @@ UI controls on purpose**: several are `Map` *constructor* options that cannot be
 load, which has already produced one 47% effect that did not exist.
 
 A malformed value is **refused loudly** (a console warning naming the accepted set) and the default
-applies — never silently, because a run that believes it swept one value while running another is
+applies, never silently, because a run that believes it swept one value while running another is
 worse than no run.
 
 | Flag | Values | What it does |
 | --- | --- | --- |
-| `?perf` | — | The performance panel: timings, long tasks, frame rate, GL state, tile bytes, fill time, and an export button. Also sets `window.terrellaMap` for scripted camera routes. |
-| `?bare` | — | Tiles only: no caps, no borders, no country interaction. The floor of the loading window. |
-| `?nocaps` | — | Drops the polar caps. They are the largest VRAM term we allocate ourselves. |
-| `?terrain=` | `N` \| `off` | Forces 3D displacement on at any tier with exaggeration `N`, or `off` as a flat control **without demoting the tier**. Zero is refused — indistinguishable from off. |
-| `?maxreq=` | 1–`MAX_PARALLEL_IMAGE_REQUESTS_CEILING` | MapLibre's parallel image cap, which every tile, sprite and icon shares as one FIFO queue. The site raises MapLibre's own 16 to `RAISED_MAX_PARALLEL_IMAGE_REQUESTS` for an unconstrained visitor, and leaves it at 16 under `Save-Data`, a slow link, or a phone — see `src/lib/tileConcurrency.ts`. The sweep found no saturation below the ceiling, so a higher arm needs that constant raised first. |
-| `?demcache=` | `off` \| slots | The DEM tile cache bound — `off`, an explicit slot count, or absent for the canvas-derived cap. |
+| `?perf` | (none) | The performance panel: timings, long tasks, frame rate, GL state, tile bytes, fill time, and an export button. Also sets `window.terrellaMap` for scripted camera routes. |
+| `?bare` | (none) | Tiles only: no caps, no borders, no country interaction. The floor of the loading window. |
+| `?nocaps` | (none) | Drops the polar caps. They are the largest VRAM term we allocate ourselves. |
+| `?terrain=` | `N` \| `off` | Forces 3D displacement on at any tier with exaggeration `N`, or `off` as a flat control **without demoting the tier**. Zero is refused, being indistinguishable from off. |
+| `?maxreq=` | 1–`MAX_PARALLEL_IMAGE_REQUESTS_CEILING` | MapLibre's parallel image cap, which every tile, sprite and icon shares as one FIFO queue. The site raises MapLibre's own 16 to `RAISED_MAX_PARALLEL_IMAGE_REQUESTS` for an unconstrained visitor, and leaves it at 16 under `Save-Data`, a slow link, or a phone (see `src/lib/tileConcurrency.ts`). The sweep found no saturation below the ceiling, so a higher arm needs that constant raised first. |
+| `?demcache=` | `off` \| slots | The DEM tile cache bound: `off`, an explicit slot count, or absent for the canvas-derived cap. |
 | `?demsize=` | `256` \| `512` | The DEM tile size declaration. 512 is the most expensive arm by far: render tiles are per-frame framebuffer binds plus a full replay of the layer stack. |
-| `?skirt=` | `auto` \| `none` | Terrain skirt length (ships `none`). A **constructor** option — the skirt is baked into the cached mesh, so it needs one page load per arm. |
+| `?skirt=` | `auto` \| `none` | Terrain skirt length (ships `none`). A **constructor** option, since the skirt is baked into the cached mesh, so it needs one page load per arm. |
 | `?sky=` | `off` \| `0`–`1` | The atmosphere blend floor. `0` is accepted and meaningful here (no atmosphere past the overview), unlike `?terrain=0`. |
-| `?ramp=` | `off` \| number | The terrain exaggeration ramp's floor — the value it decays to at z8. Non-integers are fine; it is a continuous look knob. |
+| `?ramp=` | `off` \| number | The terrain exaggeration ramp's floor, the value it decays to at z8. Non-integers are fine; it is a continuous look knob. |
 
 ## Commands
 
@@ -177,9 +210,11 @@ Run from `web/`:
 | `pnpm preview`         | Preview your build locally, before deploying     |
 | `pnpm astro ...`       | Run CLI commands like `astro add`, `astro check` |
 | `pnpm astro -- --help` | Get help using the Astro CLI                     |
-| `pnpm check`           | Type-check (`astro check`) — must report 0 errors |
+| `pnpm check`           | Type-check: `astro check` **plus** `check:worker`, the Worker's own tsconfig. Both must report 0; a second tsconfig is a second program the first check cannot see |
+| `pnpm lint`            | oxlint, with unused disable-directives an error    |
 | `pnpm test`            | Unit tests (vitest)                              |
 | `pnpm run check:test-collection` | Asserts every `*.test.ts` is collected by a vitest project |
+| `pnpm run check:tile-tokens` | Recomputes each archive's token and fails if a committed one no longer matches; `--write` regenerates them after a re-cut |
 | `pnpm run build:deploy` | Build addressing the production asset hosts      |
 | `pnpm run deploy`      | `build:deploy`, then upload to Cloudflare        |
 
@@ -191,17 +226,17 @@ duplicate assertion in `capability.test.ts` was vacuous its whole life. Both pas
 
 The technique is [mutation testing](https://en.wikipedia.org/wiki/Mutation_testing), hand-authored
 one case per guard rather than machine-generated. Coverage tells you a line executed; this tells you
-something checked it. It finds **vacuous guards, never missing ones** — a behaviour with no test has
+something checked it. It finds **vacuous guards, never missing ones**: a behaviour with no test has
 no case here, because cases are written from the guard's side.
 
 **`uv run scripts/sabotage.py`** (from the repo root) runs it. Each case breaks one string in one
-source file, runs the suite, and restores the file whatever happens — and it names the test that must
+source file, runs the suite, and restores the file whatever happens, and it names the test that must
 catch it, so "the suite went red" is not accepted as proof. Cost is inherently *cases × suite
 runtime*, since running the suite is the measurement, so a full pass is a before-merge activity and
 `--filter` is the everyday one. `--list` prints the current table and runs nothing.
 
 Most cases drive `pnpm test`. The rest drive `pytest`, and they are the ones worth knowing about: they
-sabotage the guards that keep the *documentation and the table itself* honest — an unclosed code fence,
+sabotage the guards that keep the *documentation and the table itself* honest: an unclosed code fence,
 a clipped table row, a case whose needle a refactor has moved. The gate that keeps this table honest is
 a guard like any other, so it gets the same treatment.
 
@@ -214,14 +249,14 @@ uv run scripts/sabotage.py --restore        # put the tree back after a killed r
 ```
 
 Add a case whenever you add a guard, with the guard's test name. `tests/test_sabotage_cases.py` checks
-the table against the tree on every `pytest` run — so a needle a refactor moved fails in a tenth of a
+the table against the tree on every `pytest` run, so a needle a refactor moved fails in a tenth of a
 second, rather than as a shrug minutes into a run nobody is watching.
 
 ### Running a Lighthouse pass
 
 **The GL flag chooses which tier you measure**, so it is the experiment rather than boilerplate.
 `Base.astro`'s pre-paint guard bounces a body's globe back to that body's lite page whenever the
-renderer string names a software rasterizer — for Earth that pair is `/earth/` and `/`, which makes
+renderer string names a software rasterizer. For Earth that pair is `/earth/` and `/`, which makes
 SwiftShader the Tier-1 recipe and hardware ANGLE the Tier-3 one.
 
 ```sh
@@ -239,7 +274,7 @@ npx lighthouse https://terrella.alchez.dev/ \
 These will otherwise waste a run:
 
 - **Always check `finalDisplayedUrl` against `requestedUrl`.** The guard steers both ways within a
-  body — `/` to `/earth/` for a capable visitor, `/earth/` to `/` for everyone else — and a steered run is a
+  body (`/` to `/earth/` for a capable visitor, `/earth/` to `/` for everyone else), and a steered run is a
   clean, green, entirely valid report about the wrong document. It is the only check that catches a
   recipe the site has outgrown, which is how the SwiftShader flags above stopped measuring the globe.
 - **Headless Chrome reaches for SwiftShader on its own.** Dropping the GL flags entirely does not
@@ -253,10 +288,10 @@ These will otherwise waste a run:
   effects worth chasing.
 - **Lighthouse cannot seed `localStorage`.** Tier 1 no longer needs a pre-seeded profile because the
   SwiftShader recipe reaches it; pinning Tier 2 on a capable machine still does (`rg:quality =
-  "globe"`, which persists — restore it afterwards).
+  "globe"`, which persists; restore it afterwards).
 
 The default preset **is** the weak-Android test: Moto G Power, 4× CPU throttle, slow 4G.
-`--preset=desktop` is the unthrottled number. Both keep the host's real GPU, so neither is a phone —
+`--preset=desktop` is the unthrottled number. Both keep the host's real GPU, so neither is a phone,
 and a score measured under a software rasterizer is not comparable to one measured on a GPU.
 
 **The preset is DPR 1.75, which is lower than any current phone** (2.6–3.0). That matters for
@@ -272,12 +307,12 @@ Build both arms, then serve them **sequentially on the same port** so origin, po
 held constant and only the markup varies. Heroes come from R2 in both arms, so image bytes are real.
 
 - **Serve through something that compresses.** `python3 -m http.server` sends identity encoding, so
-  an arm that adds markup is billed for its full uncompressed size — 201 `<noscript>` twins cost
+  an arm that adds markup is billed for its full uncompressed size: 201 `<noscript>` twins cost
   +164 KiB raw against +2.6 KiB gzipped, which ate about a second and understated a fix by a third.
   The tell is `transferSize == resourceSize` on the document; assert `transferSize < resourceSize`
   before quoting anything.
 - **Then validate the harness against production itself** before believing the delta. One run
-  against the live site should land near the *before* arm — 3% on LCP and identical CLS is what
+  against the live site should land near the *before* arm. 3% on LCP and identical CLS is what
   a faithful harness looks like. Absolutes do not transfer between origins; deltas do.
 - Gate every run on `finalDisplayedUrl`, on a non-zero hero request count, and on CLS, which a
   layout-collapsing arm is otherwise the obvious way to fake.
@@ -286,28 +321,28 @@ held constant and only the markup varies. Heroes come from R2 in both arms, so i
 
 Lighthouse gives a CLS number and a list of shifted elements; neither is enough to fix one, because
 **the element that moves is rarely the element that caused the move**. Drive a browser directly and
-read `layout-shift` entries with their `sources` — each carries the node plus its `previousRect` and
+read `layout-shift` entries with their `sources`: each carries the node plus its `previousRect` and
 `currentRect`, so the direction and distance are readable rather than inferred.
 
-- **Record the state of the document at the instant of each shift** — how much of it had parsed,
+- **Record the state of the document at the instant of each shift**: how much of it had parsed,
   which resources had landed, `readyState`. That is what separates "an image arrived" from "a font
   swapped" from "a script mutated the DOM", and it is not recoverable afterwards.
 - **The score is driven by the furthest distance anything travelled, not by the height change.**
   A header growing 38 px scored 0.19 because the nav inside it also moved 190 px sideways. Reasoning
   about the vertical shift alone will not reproduce the number.
 - **Measure cold and warm as separate arms.** A webfont applies at first paint on a repeat visit and
-  after it on a first one, which are different experiments — one CLS fix measured 0.001 cold and
+  after it on a first one, which are different experiments. One CLS fix measured 0.001 cold and
   0.193 warm. Warm requires the harness to send `Cache-Control: immutable` on `/_astro/*`; without
   it the browser revalidates, the font misses its window, and the warm arm silently degrades into a
   second cold one. Prove it with `transferSize === 0`.
   - **That arm is currently a hypothesis, not production.** Measured on the live site: every
-    content-hashed asset — fonts, chunks, CSS — comes back `public, max-age=0, must-revalidate`
+    content-hashed asset (fonts, chunks, CSS) comes back `public, max-age=0, must-revalidate`
     with an ETag, and `If-None-Match` confirms a `304`. So a repeat visitor revalidates before the
     font can be used, and the true warm behaviour sits between the two arms rather than at the
     immutable one. `worker/index.ts` does send `immutable`, but it serves *tiles* on another
     origin; the site's own assets are Workers Static Assets defaults, and there is no `_headers`
     file. The local nginx twin **does** send `immutable` (`deploy/nginx/terrella-locations.conf`),
-    which makes it kinder than the CDN — the same shape as the identity-encoding trap above.
+    which makes it kinder than the CDN, the same shape as the identity-encoding trap above.
 - **Never intercept the document to simulate a change.** Rewriting the response body (Playwright's
   `route.fulfill`, or any equivalent) serves it from memory instead of streaming it over the
   throttled link, which moves every resource's arrival relative to paint. The control is decisive:
@@ -315,7 +350,7 @@ read `layout-shift` entries with their `sources` — each carries the node plus 
 
 ## Deploying
 
-**→ [`DEPLOY.md`](DEPLOY.md)** — two Workers, the R2 bucket, the three dashboard-only zone
+**→ [`DEPLOY.md`](DEPLOY.md)**: two Workers, the R2 bucket, the three dashboard-only zone
 settings, and how to verify a deploy without a cache lying to you.
 
 Short version: `pnpm run deploy` ships the shell (not `pnpm deploy`, which is a pnpm builtin), and

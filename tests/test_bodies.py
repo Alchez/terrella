@@ -381,7 +381,8 @@ def test_ground_metres_per_pixel_composes_from_the_two_fields() -> None:
                                   ground_radius_m=3396190.0, map_units_per_pixel=1222.992453,
                                   tile_max_zoom=6)
     ground = smaller.map_units_per_pixel * bodies.ground_metres_per_mercator_unit(smaller)
-    # 651 m/px at z6 on a 21,339 km circumference — the figure MARS.md's ceiling table is built on.
+    # 651 m/px at z6 on Mars's 21,339 km circumference, derived here from the body's own numbers
+    # rather than read back off the registry, so the composition is checked against an outside value.
     assert ground == pytest.approx(651.2, abs=0.1)
     earth_ground = (bodies.EARTH.map_units_per_pixel
                     * bodies.ground_metres_per_mercator_unit(bodies.EARTH))

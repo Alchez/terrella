@@ -35,8 +35,8 @@ probe; degrade at runtime if frame rate tanks; honour `Save-Data`, `prefers-redu
 ## Data sources
 
 Every line below is **Earth's** until the Mars one, which is the whole of Mars's list — stated here
-rather than pointed at, because MARS.md is slated to leave version control and nothing tracked may
-depend on it.
+rather than pointed at, because the standing brief for the second body is not a tracked document and
+nothing tracked may depend on it.
 
 - **Land:** Copernicus DEM GLO-30. The AWS *Public DGED 2021* edition withholds tiles over some regions and a missing tile fuses **silently as ocean** — fill gaps from OpenTopography `2023_1` (keyless S3, `--no-sign-request`).
 - **Bathymetry:** GEBCO, fused with the land DEM into one seamless heightfield. Part of the signature look, not optional.
@@ -92,7 +92,7 @@ depend on it.
 - **A superseded path is deleted the same day**, or moved out of the production package — prose calling it "retired" does not disarm a runnable entry point. Exception: under gitignored `data/`, where deletion is permanent.
 - Never commit rendered assets or DEM data — code and config only.
 - Plan first (Plan Mode) before any multi-file or architectural task.
-- The other docs, so facts are looked up rather than re-guessed: **PROCESS.md** measured runtimes (the authority — read it before estimating), **INVENTORY.md** the storage map, **ART.md** the aesthetic decisions, **FUTURE.md** the v2 parking lot (check it before designing a "new" feature), **MARS.md** the standing brief for the second body (read it before touching a body seam), **docs/*.mmd** the pipeline diagrams.
+- The other docs, so facts are looked up rather than re-guessed: **PROCESS.md** measured runtimes (the authority — read it before estimating), **INVENTORY.md** the storage map, **ART.md** the aesthetic decisions, **FUTURE.md** the v2 parking lot (check it before designing a "new" feature), **docs/*.mmd** the pipeline diagrams. A body seam is read from `pipeline/bodies.py` and its web twin, which own every per-body fact between them.
 
 ## Skills context
 
