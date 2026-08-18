@@ -112,6 +112,13 @@ CITATION_FILES = [path for path in FILES if path.name not in CITATION_EXEMPT]
 SCRATCH_DIRS = (r"_ice_ab/|_ice_levels/|_ice_scout/|_viking_scout/|_crism_scout/"
                 r"|_warp_probe/")
 
+# Paths this repo deliberately keeps out of version control, each of which becomes exactly the kind
+# of pointer this module exists to refuse: present for its author, absent from every clone.
+# `.claude/rules/` holds one author's agent instructions. Gitignoring a path is otherwise a change
+# nothing goes red for — this pattern is what makes it red, so extend it in the same commit that
+# adds a .gitignore entry.
+IGNORED_PATHS = r"\.claude/rules"
+
 CHECK_GROUPS = {
     "BLOCK_COMMENT_FILES": BLOCK_COMMENT_FILES,
     "DECLARATION_FILES": DECLARATION_FILES,
@@ -305,7 +312,7 @@ def test_no_reference_to_a_file_a_clone_will_not_have(path: Path) -> None:
     source = path.read_text(encoding="utf-8")
     unreachable = re.findall(
         r"HISTORY\.md|HISTORY §|HISTORY 20\d\d|PLAN\.md|PLAN §|see PLAN|claude-personal"
-        rf"|{SCRATCH_DIRS}", source
+        rf"|{SCRATCH_DIRS}|{IGNORED_PATHS}", source
     )
     assert not unreachable, (
         f"{path.name} cites {sorted(set(unreachable))}, which no clone will have. "

@@ -44,3 +44,9 @@ deploy/certs/
 # wrangler's local state — deploy/build cache and dev-server storage, regenerated on
 # demand. Written wherever a wrangler command is run, so this is deliberately unanchored.
 .wrangler/
+
+# Per-author agent instructions, loaded from disk when a matching file is opened. They are one
+# person's working notes rather than a project standard, so committing them would put a second,
+# unowned set of instructions beside CLAUDE.md. Everything a contributor must follow belongs in
+# CLAUDE.md, which IS tracked. Same posture as .claude/settings.local.json.
+.claude/rules/
