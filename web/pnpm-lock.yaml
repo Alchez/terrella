@@ -5,7 +5,7 @@ settings:
   excludeLinksFromLockfile: false
 
 patchedDependencies:
-  maplibre-gl@6.3.0: 76e2cd4a376d04ee903e736d3650e4801a5f6782fa2376367ebe9404baed7661
+  maplibre-gl@6.3.0: 92fa9a46152f38dca9068d805cdaa430d56e3e9093725dfa80781f02c1b49f93
 
 importers:
 
@@ -16,7 +16,7 @@ importers:
         version: 7.1.3(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.2)(@types/node@26.1.1)(yaml@2.9.0)
       maplibre-gl:
         specifier: 6.3.0
-        version: 6.3.0(patch_hash=76e2cd4a376d04ee903e736d3650e4801a5f6782fa2376367ebe9404baed7661)
+        version: 6.3.0(patch_hash=92fa9a46152f38dca9068d805cdaa430d56e3e9093725dfa80781f02c1b49f93)
       pmtiles:
         specifier: 4.4.1
         version: 4.4.1
@@ -3912,7 +3912,7 @@ snapshots:
       '@babel/types': 7.29.7
       source-map-js: 1.2.1
 
-  maplibre-gl@6.3.0(patch_hash=76e2cd4a376d04ee903e736d3650e4801a5f6782fa2376367ebe9404baed7661):
+  maplibre-gl@6.3.0(patch_hash=92fa9a46152f38dca9068d805cdaa430d56e3e9093725dfa80781f02c1b49f93):
     dependencies:
       '@mapbox/point-geometry': 1.1.0
       '@mapbox/tiny-sdf': 2.2.0

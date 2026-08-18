@@ -2,7 +2,7 @@
 
 Ideas deliberately **not** planned: analysed enough to record, parked without commitment. This is
 not the plan — nothing here has a phase or a checkbox, and nothing here is promised. When an idea
-graduates, it moves to PLAN and this file keeps a one-line pointer. Each entry carries the date of
+graduates, it moves to the living plan and this file keeps a one-line pointer. Each entry carries the date of
 its analysis and the facts its numbers depend on — check both before trusting an old entry, and
 grep HISTORY before re-arguing anything an entry says was already decided.
 
@@ -271,7 +271,8 @@ bug fix.
 
 **Consequence worth carrying:** while the plateau is pinned white, terrain displacement there is
 invisible — our shading is baked, so displacement reads as silhouette and parallax only, and a
-uniform white surface offers neither. That gates the payoff of PLAN's Step 2 feather re-cut.
+uniform white surface offers neither. The polar feather it once gated has since been deleted rather
+than re-cut — see ART § the tile pipeline, terrain polar encode — so this gates nothing now.
 
 ## GDAL 3.13 — assessed and SKIPPED (analysed 2026-07-23)
 
@@ -386,8 +387,7 @@ magnitude, so the taxonomy is the decision:
 
 ## A z9 / z10 pyramid — z10 is BLOCKED ON DISK, z9 is reachable (analysed 2026-07-26)
 
-- **The framing that governs everything: z10 is a planet RE-FUSE at ~2.5″, never a tiling flag**
-  (PLAN Phase 2). The grid is `131072²` = exactly `512 × 2⁸`, so a deeper pyramid means re-fusing at
+- **The framing that governs everything: z10 is a planet RE-FUSE at ~2.5″, never a tiling flag.** The grid is `131072²` = exactly `512 × 2⁸`, so a deeper pyramid means re-fusing at
   4× linear and re-warping every layer onto `524288²` — **16× area on every intermediate**.
 - **Measured cost model** (each stage ×16 from PROCESS's current numbers; storage projected off the
   real rasters on disk):
@@ -441,7 +441,7 @@ magnitude, so the taxonomy is the decision:
 
 ## Hero presentation — geography-conditional, and no universal design exists (analysed 2026-07-09)
 
-Parked here from PLAN, where it was the last surviving open question with no tracked home.
+Parked here from the living plan, where it was the last surviving open question with no tracked home.
 
 The finding is a **trilemma: consistent / coherent / neighbour-free — pick two.** Cutout-cream framing
 suits continental countries; real ocean suits islands; and most countries are *both* coastal and
@@ -524,7 +524,7 @@ which is why it never blocked anything.
 
 ## Worker placement hint near the APAC bucket — the prize shrank when lever A shipped (analysed 2026-07-26)
 
-- **Was PLAN's lever B; demoted the day Workers Caching shipped.** Not rejected — the expected win
+- **Was the second delivery lever; demoted the day Workers Caching shipped.** Not rejected — the expected win
   is now uncertain in sign and size, which is not the same as zero, and it is one config line to try.
 - **What changed:** pre-lever-A a cold tile paid **three sequential Marseille↔APAC reads**, so an
   explicit `placement.region` hint collapsed three long-haul round trips into roughly one — the
@@ -657,8 +657,8 @@ conclusion below, which rests only on there being no value between 2 and 4.
 ## Landing-page "poster mode" (deferred 2026-07-26, never scoped)
 
 - **What it is:** an optional flourish — a landing-page beauty shot of the sphere, styled as a print
-  poster rather than as an interactive map. Recorded here verbatim from PLAN because it was never
-  scoped beyond one line, and PLAN was its only home.
+  poster rather than as an interactive map. Recorded here verbatim because it was never scoped beyond
+  one line, and it had no other home.
 - **Status:** a weekend experiment, explicitly optional. Nothing depends on it and nothing is blocked
   by it. The gallery already opens on hero renders, so this is decoration on decoration.
 - **If reopened:** decide first whether it replaces the gallery's current entry point or sits beside
@@ -720,7 +720,7 @@ conclusion below, which rests only on there being no value between 2 and 4.
   probe object before anything is designed on top of it.
 - `DecompressionStream` has **no brotli**, so decompressing it in page JS is not an escape hatch.
 - **Low priority on purpose:** this is deferred-to-idle transfer (~0.4 s), entirely off the
-  first-paint path. The polar caps are the larger and simpler target → PLAN Phase 4.
+  first-paint path. The polar caps are the larger and simpler target.
 
 ## Metatile batching — collapse round trips instead of running more of them (analysed 2026-08-01)
 
