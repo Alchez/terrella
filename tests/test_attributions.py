@@ -43,8 +43,8 @@ SUPERSEDED_LICENSE_URL = "creativecommons.org/licenses/by-" + "nc/"
 CURRENT_LICENSE_URL = "creativecommons.org/licenses/by-sa/4.0"
 
 # Formats where a licence is declared rather than merely mentioned, plus the extension-less LICENSE.
-# A URL is the discriminator the prose cannot give: ATTRIBUTIONS.md and MARS.md both discuss the
-# superseded licence by name in recording why it changed, and must go on being allowed to.
+# A URL is the discriminator the prose cannot give: ATTRIBUTIONS.md discusses the superseded licence
+# by name in recording why it changed, and must go on being allowed to.
 LICENSE_BEARING_SUFFIXES = {".md", ".py", ".ts", ".astro", ".html"}
 
 # The one file exempt, and the reason is structural rather than convenient: the mutation table's
@@ -193,10 +193,10 @@ def test_every_site_states_the_output_license(site: Path) -> None:
 def test_no_tracked_file_links_the_superseded_output_license() -> None:
     """A licence URL is an active declaration; prose naming the old licence is history.
 
-    The distinction is what makes this checkable at all. ATTRIBUTIONS.md and MARS.md both discuss
-    the superseded licence at length — recording why share-alike input could not flow into it is the
-    reason the current one was chosen — so a ban on the NAME would forbid the explanation. Nobody
-    links a licence they are describing in the past tense, so the link is the honest discriminator.
+    The distinction is what makes this checkable at all. ATTRIBUTIONS.md discusses the superseded
+    licence at length — recording why share-alike input could not flow into it is the reason the
+    current one was chosen — so a ban on the NAME would forbid the explanation. Nobody links a
+    licence they are describing in the past tense, so the link is the honest discriminator.
     """
     linking: list[str] = []
     declaring_current: set[str] = set()

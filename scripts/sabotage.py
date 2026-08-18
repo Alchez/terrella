@@ -4756,6 +4756,31 @@ SABOTAGES: list[Sabotage] = [
     ),
     Sabotage(
         suite='python',
+        # THE NEGATIVE CONTROL TURNED POSITIVE, which is what makes this worth more than a pointer
+        # planted anywhere else. MARS.md left version control while 16 other branches still track
+        # it, so it joined the patterns this guard sweeps for — and `see MARS_ICE_WHITE` on this
+        # very line is a reachable CONSTANT that must go on passing. One `\b` decides between them,
+        # and nothing else in the suite would notice if it were dropped.
+        label='a pointer at the untracked Mars brief, planted on the line that proves the boundary',
+        path='pipeline/render/palette.py',
+        needle='see MARS_ICE_WHITE',
+        replacement='see MARS.md',
+        guard='test_no_reference_to_a_file_a_clone_will_not_have',
+    ),
+    Sabotage(
+        suite='python',
+        # THE BARE FORM, which is the half that walked through for months: the pattern anticipated
+        # `see PLAN` and never grew the `see HISTORY` twin, so a diagram shipped one and nothing
+        # went red. Planted WITHOUT the `.md` deliberately — `HISTORY\.md` already catches that
+        # spelling, so a case the old pattern would also have caught proves nothing about the new.
+        label='a pointer at the decision archive that never names the file',
+        path='pipeline/bodies.py',
+        needle='"""The single home for what differs between one planet and the next.',
+        replacement='"""The single home for what differs between one planet and the next, see HISTORY.',
+        guard='test_no_reference_to_a_file_a_clone_will_not_have',
+    ),
+    Sabotage(
+        suite='python',
         # The harness's own blind spot, restored: four MUTABLE_ROOTS are single FILES, and
         # `rglob` on a file matches nothing. `--restore` then reports a sabotaged tree clean,
         # which is how a mutation survives into a commit. Found by a killed run, not by a check.

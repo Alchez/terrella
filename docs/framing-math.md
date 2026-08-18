@@ -1,6 +1,6 @@
 # How a country becomes a framed render
 
-Every hero render shares one *look* — the same sun, the same colors, the same 15× vertical exaggeration (the locked global constants, shared by import from `palette.py`). What changes from country to country is only *geometry*: where the camera looks, and how numbers convert between the real world and Blender's little stage. This page explains each conversion in plain English, with the formulas alongside.
+Every hero render shares one *look*: the same sun, the same colors, the same 15× vertical exaggeration (the locked global constants, shared by import from `palette.py`). What changes from country to country is only *geometry*: where the camera looks, and how numbers convert between the real world and Blender's little stage. This page explains each conversion in plain English, with the formulas alongside.
 
 The chain, end to end:
 
@@ -11,11 +11,11 @@ frame.json ──scene_build.py──▶ Blender scene (+ render)
 frame.json ──overlay_borders.py──▶ borders drawn in exactly the camera's view
 ```
 
-`country_config.py` resolves `config/countries.toml` — the committed source of truth for which countries get heroes (203 ship; 204 are in scope, Kiribati deferred) and their per-country knobs. The frame is computed from the Natural Earth bbox (the `frame_country.py` math below) unless the config carries an override.
+`country_config.py` resolves `config/countries.toml`, the committed source of truth for which countries get heroes (203 ship; 204 are in scope, Kiribati deferred) and their per-country knobs. The frame is computed from the Natural Earth bbox (the `frame_country.py` math below) unless the config carries an override.
 
 `frame.json` is the hand-off: one small file per country holding every derived number. Blender's Python cannot read geographic metadata, so these numbers must be computed outside and handed over.
 
-## Step 1 — the frame
+## Step 1: the frame
 
 The frame is the rectangle of the world the poster shows. It comes from the country's bounding box in the Natural Earth data, grown a little so the country doesn't touch the edges:
 
@@ -24,27 +24,27 @@ The frame is the rectangle of the world the poster shows. It comes from the coun
 
 Nepal's bounding box is 80.03–88.17°E / 26.34–30.42°N; padded and rounded it becomes the frame **79.6–88.6°E / 25.9–30.9°N**.
 
-Countries with far-flung territories get absurd frames from this rule — France's whole-geometry bbox spans 118°×72° to reach French Guiana. Policy: the whole bbox stands unless catastrophic (main landmass under ~25% of a bbox axis); the five catastrophic ones (France, Netherlands, Norway, Portugal, Chile) carry hand-authored mainland frames in `config/countries.toml`, derived with this same pad-and-round math from the mainland parts only. Antimeridian crossers (Russia, Fiji, Kiribati, New Zealand, US) are marked `status = "antimeridian"` there and skipped loudly until their own plan item.
+Countries with far-flung territories get absurd frames from this rule. France's whole-geometry bbox spans 118°×72° to reach French Guiana. Policy: the whole bbox stands unless catastrophic (main landmass under ~25% of a bbox axis); the five catastrophic ones (France, Netherlands, Norway, Portugal, Chile) carry hand-authored mainland frames in `config/countries.toml`, derived with this same pad-and-round math from the mainland parts only. Antimeridian crossers (Russia, Fiji, Kiribati, New Zealand, US) are marked `status = "antimeridian"` there and skipped loudly until their own plan item.
 
-## Step 2 — the projection
+## Step 2: the projection
 
-A camera looking straight down at the scene means the finished poster *is* a flat map — so the choice of how to flatten the round Earth (the projection) is baked into the image. Two requirements drive the choice:
+A camera looking straight down at the scene means the finished poster *is* a flat map, so the choice of how to flatten the round Earth (the projection) is baked into the image. Two requirements drive the choice:
 
 - **Equal-area:** a square kilometer should cover the same pixels everywhere in the frame, or terrain would look stretched in one part of the country versus another.
 - **Centered on the frame:** flattening distorts least near the projection's "home"; every country deserves its own home rather than borrowing a neighbor's. This is the same reason national atlases each use a national projection.
 
 We use the Albers equal-area conic. The picture to have in mind: rest a paper cone over the globe so it touches along two circles of latitude, trace the surface onto the cone, unroll it. Along those two touch lines (the **standard parallels**) there is no distortion at all, and between them it stays tiny. The rule for placing them is a cartography textbook standard:
 
-- standard parallels: **1/6 of the frame's latitude span in from its south and north edges** — `lat₁ = S + (N−S)/6`, `lat₂ = N − (N−S)/6`
-- projection center: the frame's middle — `lat₀ = (S+N)/2`, `lon₀ = (W+E)/2`
+- standard parallels: **1/6 of the frame's latitude span in from its south and north edges**: `lat₁ = S + (N−S)/6`, `lat₂ = N − (N−S)/6`
+- projection center: the frame's middle, `lat₀ = (S+N)/2`, `lon₀ = (W+E)/2`
 
 For Nepal (25.9–30.9°N): parallels at 26.73° and 30.07°, centered at 28.4°N 84.1°E.
 
-## Step 3 — the warped grid
+## Step 3: the warped grid
 
-`render_prep.py` re-samples the fused heightfield from plain lon/lat degrees into this projection, producing the raster Blender will actually displace. Its `--width` sets the pixel width, bounded on both sides: don't exceed the source data's own width (upsampling invents nothing), and keep it near the render width (the Switzerland QA showed this is what prevents "bumpy" over-detail — the warp grid low-passes anything finer than the render can show, so displacement can't pick up sub-pixel noise). The height follows from the frame's shape. One number falls out that everything below depends on: the frame's true width in meters, `extent_w = width_px × meters_per_pixel`.
+`render_prep.py` re-samples the fused heightfield from plain lon/lat degrees into this projection, producing the raster Blender will actually displace. Its `--width` sets the pixel width, bounded on both sides: don't exceed the source data's own width (upsampling invents nothing), and keep it near the render width (the Switzerland QA showed this is what prevents "bumpy" over-detail: the warp grid low-passes anything finer than the render can show, so displacement can't pick up sub-pixel noise). The height follows from the frame's shape. One number falls out that everything below depends on: the frame's true width in meters, `extent_w = width_px × meters_per_pixel`.
 
-## Step 4 — the scene numbers
+## Step 4: the scene numbers
 
 Here is the one idea everything else hangs on: **the displacement plane in Blender is always 2 units wide, no matter how wide the country's frame really is.** India's 3,745 km and Sri Lanka's 299 km both become 2 Blender units. So:
 
@@ -52,10 +52,10 @@ Here is the one idea everything else hangs on: **the displacement plane in Blend
 
 Every scene number is just this conversion applied to a locked look constant:
 
-- **Plane height** — the plane must have the same shape as the raster: `plane_height = 2 × height_px / width_px`. Wider-than-tall countries (Nepal) get a plane shorter than 2; taller-than-wide ones (Sri Lanka) get taller than 2.
-- **Displacement scale** — the heightfield stores real meters. Multiplying by scale must turn meters into Blender units *and* apply the locked 15× exaggeration: `scale = 15 ÷ (extent_w / 2)`. This is why the number is different per country while the mountains' *relative* drama is identical: a small frame means each Blender unit is fewer meters, so each meter of rock is a bigger fraction of a unit. Copying India's value onto Switzerland would exaggerate ~100× — mountains as walls.
-- **Camera size (ortho scale)** — an orthographic camera has no zoom, just a window width in scene units. Blender applies `ortho_scale` to the *larger* side of the render. We set it to the plane's larger dimension × **1.0006**, so the picture is a hair bigger than the plane and the map never touches the frame edge: `ortho = max(2, plane_height) × 1.0006`.
-- **Resolution** — the raster's *longer* axis gets 7680 px and the other follows its shape: for wide countries `res_x = 7680, res_y = round(7680 × height_px / width_px)`, for tall ones the mirror image. For wide countries this is exactly the old fixed-width rule; for tall ones it caps the poster at 7680 instead of letting it explode (Sri Lanka wanted 7680×12498 under fixed-width, the Maldives 56,000 px). The default lives in `config/countries.toml` (`hero_long_edge = 7680`), per-country overridable, and reaches `render_prep.py` as `--hero-long-edge`.
+- **Plane height**: the plane must have the same shape as the raster: `plane_height = 2 × height_px / width_px`. Wider-than-tall countries (Nepal) get a plane shorter than 2; taller-than-wide ones (Sri Lanka) get taller than 2.
+- **Displacement scale**: the heightfield stores real meters. Multiplying by scale must turn meters into Blender units *and* apply the locked 15× exaggeration: `scale = 15 ÷ (extent_w / 2)`. This is why the number is different per country while the mountains' *relative* drama is identical: a small frame means each Blender unit is fewer meters, so each meter of rock is a bigger fraction of a unit. Copying India's value onto Switzerland would exaggerate ~100×, turning mountains into walls.
+- **Camera size (ortho scale)**: an orthographic camera has no zoom, just a window width in scene units. Blender applies `ortho_scale` to the *larger* side of the render. We set it to the plane's larger dimension × **1.0006**, so the picture is a hair bigger than the plane and the map never touches the frame edge: `ortho = max(2, plane_height) × 1.0006`.
+- **Resolution**: the raster's *longer* axis gets 7680 px and the other follows its shape: for wide countries `res_x = 7680, res_y = round(7680 × height_px / width_px)`, for tall ones the mirror image. For wide countries this is exactly the old fixed-width rule; for tall ones it caps the poster at 7680 instead of letting it explode (Sri Lanka wanted 7680×12498 under fixed-width, the Maldives 56,000 px). The default lives in `config/countries.toml` (`hero_long_edge = 7680`), per-country overridable, and reaches `render_prep.py` as `--hero-long-edge`.
 
 Worked examples (from the real `frame.json` files):
 
@@ -71,24 +71,24 @@ Worked examples (from the real `frame.json` files):
 
 ## The India exception
 
-India's scene was built by hand during Phase 0, and several numbers were typed in rounded (plane 2.058 instead of 2.05884, ortho 2.06 instead of 2.06007, displacement 8.0e-6 instead of 8.0113e-6 — all within 0.15%). The approved v3 hero is baked with those values (including its fixed-width-era 7680 × 7906 resolution), so India's `frame.json` is **hand-authored with the historical numbers** and `render_prep.py` never overwrites an existing `frame.json`. The authoritative copy is committed at `config/frames/india.json`; `country_config.py --emit-pin` places it into the workdir, so the pin survives a data-disk loss. Every new country gets the exact formula values; frame *overrides* (a different window, not different derived numbers) live in `config/countries.toml` instead.
+India's scene was built by hand during Phase 0, and several numbers were typed in rounded (plane 2.058 instead of 2.05884, ortho 2.06 instead of 2.06007, displacement 8.0e-6 instead of 8.0113e-6, all within 0.15%). The approved v3 hero is baked with those values (including its fixed-width-era 7680 × 7906 resolution), so India's `frame.json` is **hand-authored with the historical numbers** and `render_prep.py` never overwrites an existing `frame.json`. The authoritative copy is committed at `config/frames/india.json`; `country_config.py --emit-pin` places it into the workdir, so the pin survives a data-disk loss. Every new country gets the exact formula values; frame *overrides* (a different window, not different derived numbers) live in `config/countries.toml` instead.
 
-## Checking it worked — the coastline oracle
+## Checking it worked: the coastline oracle
 
-`overlay_borders.py --mode oracle` draws the Natural Earth coastline through the same projection and camera model, then measures how much of it lands on the rendered land/sea boundary. If the framing math were wrong anywhere, the whole line would miss by kilometers in one direction — unmissable.
+`overlay_borders.py --mode oracle` draws the Natural Earth coastline through the same projection and camera model, then measures how much of it lands on the rendered land/sea boundary. If the framing math were wrong anywhere, the whole line would miss by kilometers in one direction, which is unmissable.
 
-Tolerances are in **ground meters, not pixels** (600 / 1200 / 2500 m; the bar is 90% within 2500 m). Judged in pixels the oracle would silently mean a different thing per country: 5 px is 2.4 km on India's render but only 650 m on Sri Lanka's finer one — which is how Sri Lanka first "failed" the oracle while being perfectly aligned. The residual disagreement (both countries score ~57–65% at 600 m) is the two *data products* differing — Natural Earth's generalized 1:10m line versus the 30 m satellite water mask — biggest around lagoon spits and shifting sandbars, ~1–2 km at worst. That is the noise floor the tolerances sit above.
+Tolerances are in **ground meters, not pixels** (600 / 1200 / 2500 m; the bar is 90% within 2500 m). Judged in pixels the oracle would silently mean a different thing per country: 5 px is 2.4 km on India's render but only 650 m on Sri Lanka's finer one, which is how Sri Lanka first "failed" the oracle while being perfectly aligned. The residual disagreement (both countries score ~57–65% at 600 m) is the two *data products* differing: Natural Earth's generalized 1:10m line versus the 30 m satellite water mask, biggest around lagoon spits and shifting sandbars, ~1–2 km at worst. That is the noise floor the tolerances sit above.
 
 ## Glossary
 
 - **bounding box (bbox):** the smallest west/south/east/north rectangle containing a shape.
-- **frame:** our padded bbox — the window of the world one hero shows; also the fusion window and projection home.
+- **frame:** our padded bbox, the window of the world one hero shows; also the fusion window and projection home.
 - **projection:** any recipe for flattening the round Earth onto a plane; every one distorts something.
 - **Albers equal-area conic:** the projection we use; preserves areas, distorts least near its two standard parallels.
-- **standard parallels:** the two latitudes where a conic projection touches the globe — zero distortion there.
+- **standard parallels:** the two latitudes where a conic projection touches the globe, where there is zero distortion.
 - **CRS (coordinate reference system):** the machine-readable string naming a projection and its parameters.
 - **warping / resampling:** recomputing a raster's pixels onto a new grid (here: from lon/lat degrees into Albers meters).
 - **m/px:** ground meters covered by one pixel; smaller = finer detail.
-- **orthographic camera:** a camera with no perspective — parallel rays, so the image is a true plan view; `ortho_scale` is the width of its window in scene units.
+- **orthographic camera:** a camera with no perspective: parallel rays, so the image is a true plan view; `ortho_scale` is the width of its window in scene units.
 - **displacement:** Cycles pushing mesh surface up per-pixel by the heightfield value × scale.
 - **frame.json:** the per-country contract file carrying all numbers above from the GDAL world into the Blender world.

@@ -15,11 +15,19 @@ blender/*.blend
 # working on this repo, and shipping it is the honest version of "here is how this was built".
 # It states current truth only; the dated record stays in the archive below.
 
-# Working documents, deliberately untracked: the living plan and the dated decision archive are how
-# the work gets done, not what it ships. Nothing tracked cites them — a shipped file must never
-# point at something a clone does not have — so the repo reads complete without them.
+# Working documents, deliberately untracked: the dated decision archive and the standing brief for
+# the second body are how the work gets done, not what it ships. Nothing tracked cites them — a
+# shipped file must never point at something a clone does not have — so the repo reads complete
+# without them, and `test_no_reference_to_a_file_a_clone_will_not_have` is what keeps that true.
+#
+# UNTRACKING A FILE THAT OTHER BRANCHES STILL TRACK IS THE DANGEROUS HALF, not the ignore line.
+# Checking out any branch where the path is tracked makes git materialise its version over the
+# working copy, and because the path is ignored here it does so SILENTLY, exit 0. That is how six
+# HISTORY entries were destroyed. The files that still exist are snapshotted outside the repo and
+# restored by `guard-working-docs.py`, which also records why PLAN.md is deliberately not among them.
 PLAN.md
 HISTORY.md
+MARS.md
 # Guards the archive's index and anchors, so it travels with its subject: in a clone without the
 # archive it could only fail, and it keeps running locally where the file does exist.
 tests/test_history_integrity.py

@@ -1,31 +1,42 @@
-%% Tiling and serving — how the shaded 3857 master becomes a served tile pyramid.
+%% Tiling and serving: how a shaded 3857 master becomes a served tile pyramid.
+%%
+%% ONE BODY'S LANE, RUN ONCE PER BODY. Every stage takes a required --body and none defaults to
+%% Earth. The dimensions and counts below are EARTH's; Mars runs this same graph against its own
+%% master and stops at z7. A body's intermediates sit under data/work/<body>/, and Earth's prefix
+%% is empty, which is why its paths below carry no body segment.
+%%
 %% Companion to pipeline-detail.mmd, which compresses the relief cut into its single
 %% "gdal raster tile" node (T2) and the terrain lane into its own stage T.
 %% Update both when either lane changes.
 
 flowchart TD
 
-  M[("Shaded planet master — tile/shade_planet.py<br/>planet_rgb.tif, EPSG:3857, uint8 RGB<br/>131072 x 131072 (full Mercator square, Antarctica included), 305.7483 m/px<br/>z8-NATIVE: width = 512 x 2^8, so its pixels ARE the z8 grid")]
+  M[("Shaded planet master, tile/shade_planet.py<br/>planet_rgb.tif, EPSG:3857, uint8 RGB<br/>Earth: 131072 x 131072 (full Mercator square, Antarctica included), 305.7483 m/px<br/>MAX-ZOOM-NATIVE: width = 512 x 2^maxzoom, so its pixels ARE the finest grid<br/>the ceiling is the BODY's (Body.tile_max_zoom), so this size is a body fact, not a constant")]
 
-  subgraph CUT["gdal raster tile — build_tiles (one call, two phases)"]
-    P1["Phase 1 — max-zoom cut (z8)<br/>each z8 tile = the source region it covers, 512 px<br/>source is already 3857, grid-aligned, at z8 resolution, so this is a<br/>pure copy: --resampling=cubic is INERT here (proven byte-identical to nearest)"]
-    Z8["z8 tiles — 65,536 (the full 256 x 256 square; the Antarctica fill closed the clipped band)<br/>the finest level; holds the whole master, no loss yet"]
-    P2["Phase 2 — recursive overviews (z7 down to z0)<br/>each tile built from the 2x2 tiles BELOW it, never from the source<br/>(proven: tiling with vs without source overviews is byte-identical,<br/>which is why the old gdaladdo step was deleted)<br/>--overview-resampling=cubic pins an otherwise-undocumented default;<br/>cubic ringing compounds across the 8 levels"]
+  subgraph CUT["gdal raster tile: build_tiles (one call, two phases)"]
+    P1["Phase 1: max-zoom cut (z8 on Earth)<br/>each tile = the source region it covers, 512 px<br/>source is already 3857, grid-aligned, at that resolution, so this is a<br/>pure copy: --resampling=cubic is INERT here (proven byte-identical to nearest)"]
+    Z8["z8 tiles, Earth: 65,536 (the full 256 x 256 square; the Antarctica fill closed the clipped band)<br/>the finest level; holds the whole master, no loss yet"]
+    P2["Phase 2: recursive overviews (one level below the ceiling, down to z0)<br/>each tile built from the 2x2 tiles BELOW it, never from the source<br/>(proven: tiling with vs without source overviews is byte-identical,<br/>which is why the old gdaladdo step was deleted)<br/>--overview-resampling=cubic pins an otherwise-undocumented default;<br/>cubic ringing compounds across the levels"]
   end
 
-  subgraph TERRAIN["Terrain-RGB — a SEPARATE LANE, not a variant of the above"]
-    TR["tile/terrain_rgb.py — reads height_3857.tif DIRECTLY<br/>never the shaded composite, so it is not part of the shading pass at all<br/>elevation → RGB (Terrarium: (e + 32768) / step), step = 8 m, sea left as bathymetry<br/>so the seafloor displaces instead of reading as a wall<br/>encoded elevation feathers to zero over 78°-85° by smoothstep<br/>LOSSLESS WebP — a lossy pixel here is a wrong ELEVATION, not a blemish"]
-    TD["bathy_s8_webp/tiles/&lt;z&gt;/&lt;x&gt;/&lt;y&gt;.webp — 87,381 tiles, z0-8<br/>same grid and count as the relief cut; guarded by its own tiles.done + terrain_params.json<br/>DECLARED tileSize 128 to the client, which is what makes z8 reachable at all"]
+  subgraph TERRAIN["Terrain-RGB: a SEPARATE LANE, not a variant of the above"]
+    TR["tile/terrain_rgb.py reads height_3857.tif DIRECTLY<br/>never the shaded composite, so it is not part of the shading pass at all<br/>elevation to RGB (Terrarium: (e + 32768) / step), step = 8 m, sea left as bathymetry<br/>so the seafloor displaces instead of reading as a wall<br/>encoded elevation feathers to zero over 78-85 deg by smoothstep<br/>LOSSLESS WebP: a lossy pixel here is a wrong ELEVATION, not a blemish"]
+    TD["bathy_s8_webp/tiles/&lt;z&gt;/&lt;x&gt;/&lt;y&gt;.webp, Earth: 87,381 tiles, z0-8<br/>same grid and count as the relief cut; guarded by its own tiles.done + terrain_params.json<br/>DECLARED tileSize 128 to the client, which is what makes the ceiling reachable at all"]
   end
 
-  subgraph OUT["Tile directory — the addressing IS the API"]
-    DIR["planet_tiles/tiles/&lt;z&gt;/&lt;x&gt;/&lt;y&gt;.webp<br/>WebP q95 (--format=WEBP --co QUALITY), ~20% of an equivalent PNG cut<br/>XYZ convention (y counts down from the top-left)<br/>87,381 tiles, ~4x per level (z0=1, ... z8=65,536)<br/>--skip-blank omits empty tiles; --webviewer=none (no leaflet/ol junk)<br/>cuts CLEAN each time (no --resume — a truncated tile can't survive);<br/>guarded by tiles.done + tile_params.json (format/quality changes restage); staged in tiles_new, swapped atomically,<br/>tiles_old kept as rollback"]
+  subgraph VEC["Vector: the third pyramid, cut from geometry rather than from a raster"]
+    VC["compose/vector_cut.py is the driver; the STAGES are per body<br/>Earth: countries_geojson then countries_pmtiles, 3 layers (fill, outline, fat invisible hit target)<br/>Mars: features_geojson then features_pmtiles, 4 layers, from the IAU gazetteer<br/>never touches the master or the heightfield, so it shares nothing with the two lanes above"]
+    VD["vector.pmtiles, MVT rather than WebP<br/>SPARSE: a missing tile is 204 here and 404 on the two raster pyramids"]
+  end
+
+  subgraph OUT["Tile directory: the addressing IS the API"]
+    DIR["planet_tiles/tiles/&lt;z&gt;/&lt;x&gt;/&lt;y&gt;.webp<br/>WebP q95 (--format=WEBP --co QUALITY), ~20% of an equivalent PNG cut<br/>XYZ convention (y counts down from the top-left)<br/>Earth: 87,381 tiles, ~4x per level (z0=1, ... z8=65,536)<br/>--skip-blank omits empty tiles; --webviewer=none (no leaflet/ol junk)<br/>cuts CLEAN each time (no --resume, since a truncated tile cannot survive);<br/>guarded by tiles.done + tile_params.json (format/quality changes restage); staged in tiles_new, swapped atomically,<br/>tiles_old kept as rollback"]
   end
 
   subgraph SERVE["Serving"]
-    PM["PMTiles — tile/pack_pmtiles.py then pmtiles convert<br/>dir → MBTiles (blobs byte-moved, XYZ→TMS row flip) → planet.pmtiles, 3.1 GB<br/>~5% duplicate tiles collapsed; verified byte-identical vs the directory<br/>the tile directory it was built from is not deployed<br/>a SECOND archive rides the same path: terrain.pmtiles, 2.6 GB, from the terrain lane above"]
-    TS["Tile server — opens an archive, answers one z/x/y at a time<br/>dev: /tiles middleware in web/astro.config.ts, over a local file<br/>prod: a Worker, over R2 objects (see HISTORY, deploy target moves to R2)<br/>ONE server for both pyramids: a terrain/ path prefix selects the archive, and<br/>that prefix is load-bearing — both are WebP over z0-8, so nothing else in a<br/>tile URL tells them apart and the wrong one displaces the globe rather than 404ing<br/>the browser NEVER ranges an archive: Workers Caching strips Range and would<br/>fetch the whole multi-GB body per tile, which is also past the 512 MB cache ceiling"]
-    ML["MapLibre GL raster source — globe.astro (LIVE today)<br/>tiles &lt;PUBLIC_TILE_BASE&gt;&lt;z&gt;/&lt;x&gt;/&lt;y&gt;.webp, minzoom 0 maxzoom 8<br/>base unset = same-origin /tiles/ (what astro dev serves); a deploy points it at the Worker<br/>tileSize:256 declared + 512 px assets = @2x retina crispness<br/>the globe projection re-warps the mercator tiles onto a sphere, GPU-side<br/>(WebMercatorQuad is dictated by this renderer, not chosen for itself)"]
+    PM["PMTiles: tile/pack_pmtiles.py then pmtiles convert<br/>dir to MBTiles (blobs byte-moved, XYZ to TMS row flip) to planet.pmtiles, Earth 3.1 GB<br/>~5% duplicate tiles collapsed; verified byte-identical vs the directory<br/>the tile directory it was built from is not deployed<br/>THREE archives per body ride this same packer: planet.pmtiles, terrain.pmtiles (2.63 GB)<br/>and vector.pmtiles; the packer reads the tile encoding off the directory"]
+    TS["Tile server: opens an archive, answers one z/x/y at a time<br/>dev: /tiles middleware in web/astro.config.ts, over a local file<br/>prod: a Worker, over R2 objects<br/>ONE server for every pyramid of every body, because the ADDRESS names its archive:<br/>&lt;body&gt;/&lt;layer&gt;/&lt;token&gt;/&lt;z&gt;/&lt;x&gt;/&lt;y&gt;.&lt;ext&gt;, six segments, always<br/>the token is a prefix of the archive's own SHA-256, so a re-cut cache-busts itself<br/>the browser NEVER ranges an archive: Workers Caching strips Range and would<br/>fetch the whole multi-GB body per tile, which is also past the 512 MB cache ceiling"]
+    ML["MapLibre GL raster source, components/Globe.astro, one route per body (/earth, /mars)<br/>tiles &lt;PUBLIC_TILE_BASE&gt;&lt;body&gt;/relief/&lt;token&gt;/&lt;z&gt;/&lt;x&gt;/&lt;y&gt;.webp<br/>minzoom/maxzoom come from PUBLISHED in src/lib/tileAddress.ts, per body and per layer<br/>base unset = same-origin /tiles/ (what astro dev serves); a deploy points it at the Worker<br/>tileSize:256 declared + 512 px assets = @2x retina crispness<br/>the globe projection re-warps the mercator tiles onto a sphere, GPU-side<br/>(WebMercatorQuad is dictated by this renderer, not chosen for itself)"]
   end
 
   M --> P1
@@ -35,10 +46,12 @@ flowchart TD
   DIR --> PM
   PM --> TS
   TS --> ML
-  H[("height_3857.tif — the fused heightfield, pre-shading")] --> TR
+  H[("height_3857.tif, the fused heightfield, pre-shading")] --> TR
   TR --> TD
   TD --> PM
+  VC --> VD
+  VD --> PM
 
   classDef done fill:#dcefe2,stroke:#2e7d4f,color:#1a3a28
 
-  class M,P1,Z8,P2,DIR,ML,PM,TS,H,TR,TD done
+  class M,P1,Z8,P2,DIR,ML,PM,TS,H,TR,TD,VC,VD done

@@ -2,48 +2,47 @@
 
 **[terrella.alchez.dev](https://terrella.alchez.dev)**
 
-Ray-traced relief maps of every country, presented as a static website that starts as an image gallery and upgrades — where the visitor's hardware allows — into an interactive 3D globe.
+Ray-traced relief maps of every country on Earth, and of Mars. A static site that opens as an image
+gallery and upgrades, where the hardware allows, into an interactive globe.
 
-A *terrella* — a "little Earth" — is the small model globe that early scientists like William Gilbert and Kristian Birkeland spun to study the whole planet at once. This is a modern one: every country rendered from real elevation, not drawn.
+A *terrella*, a "little Earth", is the model globe early scientists spun to study the whole planet
+at once. This one is rendered from real elevation, not drawn.
 
-## The idea
+## Three tiers
 
-Each country's hero image is **ray-traced in Blender Cycles from real elevation data** — Copernicus GLO-30 land and GEBCO bathymetry fused into one seamless heightfield, lit by a low sun for long relief shadows, colored by elevation and depth, and finished with crisp white Natural Earth borders. The aesthetic follows Frank Ramspott's "3D Render Topographic Map": the result reads more like a physical relief model photographed under raking light than a conventional map.
+A capability probe picks one pessimistically and upgrades from there; the visitor can override it.
 
-The site meets each visitor where their device can take them, in three tiers:
-
-- **Gallery** — responsive hero images; renders instantly for everyone, and the pessimistic default while a capability probe runs.
-- **Globe** — a MapLibre globe draping pre-shaded raster tiles (needs WebGL2).
-- **Full** — the globe plus 3D terrain displacement, idle motion, and lazy-loaded 8K heroes on country click (gated on GPU tier and network).
-
-The probe upgrades optimistically and the visitor can override the choice. Everything is pre-rendered and served statically — no compute at request time.
+- **Gallery**: instant for everyone. Hero images on Earth; on Mars, a gazetteer of named features.
+- **Globe**: MapLibre draping pre-shaded raster tiles. Needs WebGL2.
+- **Full**: plus terrain displacement and idle motion. On Earth, a country click opens an 8K hero.
 
 ## How it's built
 
-Two asset pipelines feed one site:
-- Heroes are pre-rendered offline in Blender from the fused heightfield (one scene rig, framed per country).
-- A global **raster tile pyramid** approximates the same look without ray tracing — hillshade + sky-view shading and the same color ramps.
+- **Heroes**: Blender Cycles, from Copernicus GLO-30 land and GEBCO bathymetry fused into one
+  heightfield. Low sun, coloured by elevation and depth, after Frank Ramspott's
+  *3D Render Topographic Map*.
+- **Tiles**: a raster pyramid approximating that look without ray tracing, using hillshade, sky-view
+  shading and the same ramps.
+- **Mars is the same pipeline with a different body.** Exaggeration, zoom ceiling, ramp and radii
+  all belong to the body. It arrives pre-fused, as the USGS MOLA/HRSC blend, so there is no fusion
+  tier to run, and it has no ocean, borders or heroes.
+- **Delivery**: three PMTiles archives per body (relief, terrain-RGB, vectors), addressed
+  `{body}/{layer}/{token}/{z}/{x}/{y}` so an address names its own archive. The browser never opens
+  one; a tile server returns a single tile per request.
 
-The data then ships as **PMTiles** archives — one of shaded relief, and a second holding terrain-RGB elevation for the 3D tier, distinguished by a path prefix. The browser never opens them: a thin tile server reads the byte range for one `z/x/y` tile and returns just that tile — an Astro dev middleware locally, an edge worker in production. Serving a multi-gigabyte archive to the browser directly is the one shape a CDN cannot cache, so the ranging stays on the server side.
-
-The frontend is a static Astro site, served from a CDN edge worker with the heavy assets — heroes, border vectors, the tile archive — in object storage beside it. Everything is reproducible from committed source — **no rendered assets or DEM data live in git**, only code, config, and per-country frame pins.
+Everything is pre-rendered, so there is no compute at request time, and no rendered assets or DEM
+data live in git.
 
 ## License
 
-Code is [MIT](LICENSE). The rendered imagery (hero renders, tiles, polar caps) is [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) — free to use for any purpose with attribution, provided adaptations carry the same license. Underlying data carries its own licenses and required credits → [`ATTRIBUTIONS.md`](ATTRIBUTIONS.md).
+Code [MIT](LICENSE). Imagery [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/):
+attribution, and adaptations share alike. Underlying data has its own terms and required credits.
 
 ## Read next
 
-- **Running the pipeline / regenerating a hero** → [`docs/pipeline.md`](docs/pipeline.md)
-- **How a country becomes a framed render** (the math) → [`docs/framing-math.md`](docs/framing-math.md)
-- **The locked aesthetic** (sun, ramps, exaggeration) → [`ART.md`](ART.md)
-- **Measured stage runtimes** → [`PROCESS.md`](PROCESS.md)
-- **Data sources & licenses** → [`ATTRIBUTIONS.md`](ATTRIBUTIONS.md)
-
-### Where the reasoning lives
-
-A dated decision archive and a companion living plan are kept **outside** this repository — they are
-how the work gets done rather than part of what it ships. Nothing here points at them, so there is
-no dangling reference to chase: the constants, and the reasoning that has to travel with the code,
-are in the files above and in the source comments beside each decision. Where a value looks
-arbitrary, the comment next to it says why it is not.
+- Pipeline, and regenerating a hero → [`docs/pipeline.md`](docs/pipeline.md)
+- Framing math → [`docs/framing-math.md`](docs/framing-math.md)
+- Frontend, and first-run setup → [`web/README.md`](web/README.md)
+- Aesthetic decisions → [`ART.md`](ART.md)
+- Measured stage runtimes → [`PROCESS.md`](PROCESS.md)
+- Data sources & licenses → [`ATTRIBUTIONS.md`](ATTRIBUTIONS.md)

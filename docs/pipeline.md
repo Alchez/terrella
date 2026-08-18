@@ -4,24 +4,24 @@ How to set up a fresh machine and regenerate any Terrella hero from source. This
 
 ## Reproducible from source
 
-No rendered asset or DEM tile is in git — only code, config, and the per-country frame pins. The single source of truth for "what commands rebuild country X" is the resolver itself:
+No rendered asset or DEM tile is in git: only code, config, and the per-country frame pins. The single source of truth for "what commands rebuild country X" is the resolver itself:
 
 ```bash
 python -m pipeline.frame.country_config --country nepal
 ```
 
-That prints Nepal's frame, its derived render numbers, its data preflights, and **the exact stage commands** — the same commands the batch runner executes. When in doubt about how a country is built, ask `country_config`; this doc explains the workflow around it, not a frozen command list that would drift.
+That prints Nepal's frame, its derived render numbers, its data preflights, and **the exact stage commands**, the same commands the batch runner executes. When in doubt about how a country is built, ask `country_config`; this doc explains the workflow around it, not a frozen command list that would drift.
 
 ## Environment setup (fresh machine)
 
 The project runs natively on Ubuntu (dev box and the rohome host share the distro family; the pipeline is designed to run unchanged on both).
 
-1. **Blender 5.1.2** — a tarball install, *not* on PATH. This project expects it at `~/software/blender-5.1.2-linux-x64/blender`. Render headless with `blender -b`; the GUI needs far more RAM and is not used for production.
-2. **Python venv** — uv-managed. `uv sync` rebuilds `.venv` exactly from `pyproject.toml` + `uv.lock`. Activate it for every pipeline command: `source .venv/bin/activate`. (Blender's bundled Python 3.13 is a *separate* interpreter — `bpy` scripts cannot import the venv's packages, which is why geographic numbers are computed outside Blender and handed over in `frame.json`.)
-3. **Vendored geotools** — `bash pipeline/acquire/install_geotools.sh` installs the pinned `pmtiles` binary into gitignored `tools/`. Only needed for the Phase 2 tile pyramid, not for hero renders.
-4. **`.env`** *(optional)* — holds `OPENTOPOGRAPHY_API_KEY`, used only by `pipeline.ot_oracle` (a dev-time fusion validation oracle). Gitignored; not required to render.
+1. **Blender 5.1.2**, a tarball install, *not* on PATH. This project expects it at `~/software/blender-5.1.2-linux-x64/blender`. Render headless with `blender -b`; the GUI needs far more RAM and is not used for production.
+2. **Python venv**, uv-managed. `uv sync` rebuilds `.venv` exactly from `pyproject.toml` + `uv.lock`. Activate it for every pipeline command: `source .venv/bin/activate`. (Blender's bundled Python 3.13 is a *separate* interpreter, so `bpy` scripts cannot import the venv's packages, which is why geographic numbers are computed outside Blender and handed over in `frame.json`.)
+3. **Vendored geotools**: `bash pipeline/acquire/install_geotools.sh` installs the pinned `pmtiles` binary into gitignored `tools/`. Only needed for the Phase 2 tile pyramid, not for hero renders.
+4. **`.env`** *(optional)*, holding `OPENTOPOGRAPHY_API_KEY`, used only by `pipeline.ot_oracle` (a dev-time fusion validation oracle). Gitignored; not required to render.
 
-`pipeline/` is a Python package — run every stage from the repo root as `python -m pipeline.<sub>.<module>`. Keep all project data on the ext4 filesystem — never read or write large rasters from NTFS.
+`pipeline/` is a Python package, so run every stage from the repo root as `python -m pipeline.<sub>.<module>`. Keep all project data on the ext4 filesystem; never read or write large rasters from NTFS.
 
 ## Data bootstrap (once per machine)
 
@@ -32,11 +32,11 @@ bash pipeline/acquire/download_naturalearth.sh   # borders, framing polygons, co
 python -m pipeline.acquire.download_gebco        # global bathymetry
 ```
 
-Copernicus GLO-30 land tiles are **not** bootstrapped globally — they are downloaded per country, on demand, only for the tiles a frame needs (a full planet's worth is hundreds of GB). Russia alone pulls ~4900 tiles.
+Copernicus GLO-30 land tiles are **not** bootstrapped globally. They are downloaded per country, on demand, only for the tiles a frame needs (a full planet's worth is hundreds of GB). Russia alone pulls ~4900 tiles.
 
 ## Regenerating a hero
 
-The batch runner drives the whole chain and is the normal way in. It reuses `country_config`'s resolver, runs each country's stages as isolated subprocesses, and is built to survive an overnight sweep — crash-safe resume (a file at its final path means "done"; a partial country resumes stage-by-stage), a memory floor that defers heavy stages under load, and per-country failure logging to `blender/renders/batch_failures.jsonl`.
+The batch runner drives the whole chain and is the normal way in. It reuses `country_config`'s resolver, runs each country's stages as isolated subprocesses, and is built to survive an overnight sweep: crash-safe resume (a file at its final path means "done"; a partial country resumes stage-by-stage), a memory floor that defers heavy stages under load, and per-country failure logging to `blender/renders/batch_failures.jsonl`.
 
 **One country, end to end** (prep + render):
 
@@ -75,18 +75,35 @@ The chain `country_config` prints per country, in order. Each stage finalizes it
 
 Python stages run as `python -m <module>` (e.g. `python -m pipeline.render.render_prep …`), shell stages as `bash pipeline/<sub>/<script>.sh`, and the Blender scene as `blender -b --python pipeline/render/scene_build.py`. Ask `country_config --country <slug>` for the exact, filled-in commands.
 
-The geometry behind stages 1–7 — how a lon/lat box becomes projected pixels, displacement scale, and camera framing — is explained in plain English in [`framing-math.md`](framing-math.md). The pipeline diagrams are [`pipeline-overview.mmd`](pipeline-overview.mmd) and [`pipeline-detail.mmd`](pipeline-detail.mmd) (Mermaid).
+The geometry behind stages 1–7 (how a lon/lat box becomes projected pixels, displacement scale, and camera framing) is explained in plain English in [`framing-math.md`](framing-math.md). The pipeline diagrams are [`pipeline-overview.mmd`](pipeline-overview.mmd) and [`pipeline-detail.mmd`](pipeline-detail.mmd) (Mermaid).
 
-Borders are **never** rendered inside the Blender scene — they are composited in post as a standalone transparent layer, so the website can toggle them over the hero.
+Borders are **never** rendered inside the Blender scene. They are composited in post as a standalone transparent layer, so the website can toggle them over the hero.
 
 ### The tile pyramid (the zoomable globe)
 
 A separate, raster-only path that does **not** use Blender: fuse the whole planet once, shade it to imitate the hero look, cut tiles, and pack them into one servable archive.
 
+**Every stage below takes a required `--body`.** None of them defaults to Earth, deliberately: a default is exactly the silent Earth assumption the second body exists to remove, and the wrong one would produce plausible output against the wrong master. The body decides the vertical exaggeration, the zoom ceiling, the colour ramp and the projection radii together, from the registry in `pipeline/bodies.py`.
+
+Each body's intermediates live under its own work directory, `data/work/<body>/<stage>/`. **Earth's prefix is empty**, which keeps it on its historical layout: Earth's cut lands in `data/work/planet_tiles/` and Mars's in `data/work/mars/planet_tiles/`. That is what makes every recipe sidecar body-specific for free, without a body field in the recipe itself, which would have invalidated Earth's entire correct output the moment a second body existed.
+
+**Run a full pass through the harness, not by hand:**
+
+```bash
+pipeline/profile/run_pass.sh --body earth            # shade only
+pipeline/profile/run_pass.sh --body earth --tiles    # shade (skipped when fresh), then cut tiles
+```
+
+It runs the pass inside a systemd scope with a memory cap derived per body by `pipeline/profile/pass_cap.py`, so an overrun kills the job rather than the box, and it sets `GDAL_CACHEMAX=512`. Run **one heavy job at a time**: the cap is sized for a single pass, and the shade pass ends by invoking `cap_render` as a subprocess inside the same cgroup.
+
 | Module | Produces |
 |---|---|
-| `pipeline.fuse.fuse_planet` | the planet heightfield, pole to pole (10×10° cells at 10″, `data/work/planet/*.vrt`) |
-| NSIDC-0791 snow persistence | the snow-persistence NetCDF, obtained from NSIDC via Earthdata (earthaccess/CMR) and placed at `data/raw/snow/` — **no committed acquire script** (unlike RGI / sea ice) |
+| `pipeline.fuse.fuse_planet` | Earth's planet heightfield, pole to pole (10×10° cells at 10″, `data/work/planet/*.vrt`). **Earth only**: Mars arrives pre-fused, so it has no fusion tier at all |
+| `pipeline.acquire.download_mars_dem` | the USGS MOLA/HRSC blended DEM at 200 m, which *is* Mars's heightfield rather than an input to one |
+| `pipeline.acquire.download_sim3292` | SIM 3292, the geologic map that says where Mars's permanent polar ice is |
+| `pipeline.acquire.download_viking_mosaic` | the Viking colour mosaic: the ice's brightness, and the hue Mars's land ramp is measured against |
+| `pipeline.acquire.download_nomenclature` | the IAU gazetteer, the source of Mars's named features |
+| NSIDC-0791 snow persistence | the snow-persistence NetCDF, obtained from NSIDC via Earthdata (earthaccess/CMR) and placed at `data/raw/snow/`. **No committed acquire script** (unlike RGI / sea ice) |
 | `pipeline.acquire.download_rgi` | RGI 7.0 glacier shapefiles merged to `data/raw/rgi/rgi7_g_3857.gpkg` |
 | `pipeline.acquire.download_seaice` | OSI SAF monthly sea-ice concentration → the annual ice-frequency climatology |
 | `pipeline.render.snow` | tile snow: persistence → latitude-ramped soft alpha, unioned with RGI glaciers |
@@ -94,14 +111,16 @@ A separate, raster-only path that does **not** use Blender: fuse the whole plane
 | `pipeline.render.lake_depth` | GLOBathy lake depth on the tile grid (depth-keyed lake tint) |
 | `pipeline.tile.shade_planet` | the production planet pass: warp everything to one Web-Mercator grid, hillshade + fill sun, sky-view, windowed composite → `planet_rgb.tif`, then `gdal raster tile` → the z0–8 pyramid (`pipeline.tile.shade` is the region-sized A/B path) |
 | `pipeline.tile.cap_render` | both polar caps (AEQD, the same composite) → `web/public/caps/`. Takes the same required `--body` the shade pass does, and is invoked with it automatically at that pass's tail. The cap assets are gitignored, so a fresh clone regenerates them here; `--elev-only` rebuilds just the per-pole terrain-RGB textures, which have their own freshness gate and do not require the ~14 GB colour render |
-| `pipeline.tile.terrain_rgb` | the terrain-RGB elevation pyramid for the globe's Tier-3 displacement — read straight off `height_3857.tif`, never the composite, so it is a separate lane rather than a stage of the shade pass. Takes the same required `--body` the shade and cap passes do, which picks the master, the ceiling and the descent's factor together; `--out` stays required, because the variant directory under the stage is operator-named and is checked to be under that body's tree rather than derived |
-| `pipeline.tile.pack_pmtiles` + `tools/pmtiles convert` | `planet.pmtiles` and `terrain.pmtiles` — the range-request-servable archives, one per pyramid. The packer reads the tile encoding off the directory, so the same command packs either |
+| `pipeline.tile.terrain_rgb` | the terrain-RGB elevation pyramid for the globe's Tier-3 displacement, read straight off `height_3857.tif`, never the composite, so it is a separate lane rather than a stage of the shade pass. Takes the same required `--body` the shade and cap passes do, which picks the master, the ceiling and the descent's factor together; `--out` stays required, because the variant directory under the stage is operator-named and is checked to be under that body's tree rather than derived |
+| `pipeline.compose.countries_geojson` → `pipeline.compose.countries_pmtiles` | Earth's vector pyramid: Natural Earth admin-0 polygons simplified to one WGS84 GeoJSON, then cut to `vector.pmtiles`. Three layers (fill, outline, and a fat invisible hit target), because a 176-atoll nation is otherwise unclickable |
+| `pipeline.compose.features_geojson` → `pipeline.compose.features_pmtiles` | Mars's vector pyramid: the IAU gazetteer folded to GeoJSON, then cut to its own `vector.pmtiles`. Four layers, including the IAU's label anchors. Both cuts are driven by `pipeline.compose.vector_cut`, which owns the freshness gate, the staging loop and the conversion; the two stages above only declare what is in them |
+| `pipeline.tile.pack_pmtiles` + `tools/pmtiles convert` | `planet.pmtiles`, `terrain.pmtiles` and `vector.pmtiles`: the range-request-servable archives, one per pyramid. The packer reads the tile encoding off the directory, so the same command packs any of them |
 
-Snow here is **not** the hero's WorldCover class-70 mask (permanent ice only, which left mid/high-latitude ranges bare) — it is observed MODIS snow *persistence* as a soft alpha, ramped by latitude, with RGI glaciers crisp on top. The decisions behind every piece are recorded in the project's decision archive, which is kept outside this repository (see the note in the README); the pipeline diagrams show the full graph.
+Snow here is **not** the hero's WorldCover class-70 mask (permanent ice only, which left mid/high-latitude ranges bare). It is observed MODIS snow *persistence* as a soft alpha, ramped by latitude, with RGI glaciers crisp on top. The decisions behind every piece are recorded in the project's decision archive, which is kept outside this repository (see the note in the README); the pipeline diagrams show the full graph.
 
 ## From heroes to the website
 
-Once heroes exist, four steps turn them into what the site serves:
+Once heroes exist, three compose steps and a manifest regeneration turn them into what the site serves:
 
 ```bash
 python -m pipeline.compose.hero_variants --jobs 8   # 6 srcset rungs per hero (downscale-only, idempotent)
@@ -110,19 +129,19 @@ python -m pipeline.compose.gen_spotlight    # transparent Focus layer: dims ever
 ```
 
 All three take `--only <slug,slug>` to process a subset, and all three now take `--force`. They share
-one rung ladder — **640/960/1280/1920/3840/native** — because the gallery and the globe panel stack
+one rung ladder, **640/960/1280/1920/3840/native**, because the gallery and the globe panel stack
 their outputs under a single `sizes`; a rung in one ladder and not another makes the browser fetch
 mismatched files (`tests/test_hero_variants.py` guards this against what the pages declare).
 
 Parallelism is per-script and is a MEMORY question, not a core one. `hero_variants` peaks at ~525 MB
 per encode, so `--jobs 8` is comfortable and takes the 203-hero pass from ~49 min to ~6 min.
-`gen_spotlight` defaults to serial because its **native** rung peaks near 8 GB — but a small-rung
+`gen_spotlight` defaults to serial because its **native** rung peaks near 8 GB, but a small-rung
 pass (640/960/1280 only) measures ~0.5 GB per job, so that constraint does not apply to it; time one
 slug before choosing. `gen_borders` has no `--jobs` and takes ~3 s per country.
 
 `hero_variants` also records `hero_variants_recipe.json` (rung → the WebP quality it was written at).
 Existence alone cannot tell a q95 file from the q85 one it replaced, so **changing `quality_for()` is
-what restages a rung** — and only that rung. Then the frontend (the Astro site in `web/`) regenerates its manifest and builds:
+what restages a rung**, and only that rung. Then the frontend (the Astro site in `web/`) regenerates its manifest and builds:
 
 ```bash
 python web/scripts/gen_manifest.py --out web/src/data/countries.json

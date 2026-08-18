@@ -3,10 +3,13 @@
 // which planet it is and what chrome goes around it.
 //
 // IT REPLACED A HOLDING PAGE, and `PUBLISHED.mars.relief` is what made that honest: a relief
-// pyramid exists, so there is something for a map to draw. Everything Mars does NOT publish is
-// refused by `globeSubsystems` from the registry rather than by a flag written here — no terrain,
-// no country vectors, no hero panel. The polar caps ARE drawn, and they are relief rather than
-// ice: Mars declares no surface layers, so the two discs shade from the same ramps as the tiles.
+// pyramid exists, so there is something for a map to draw. What this globe draws is refused or
+// allowed by `globeSubsystems` reading the registry, never by a flag written here. Mars now
+// publishes all three archives — relief, terrain and a vector pyramid — so the things it still does
+// without are the ones no archive can supply: no borders, and no hero panel, since a click is
+// hit-tested against the `countries` product and Mars's vector product is `features`. The polar
+// caps ARE drawn, and they are relief rather than ice: Mars declares no surface layers, so the two
+// discs shade from the same ramps as the tiles.
 //
 // The four props below are Earth's four and carry Earth's reasoning — `earth.astro` is where it
 // is written, and restating it here would be one claim in two places that can disagree. The only
