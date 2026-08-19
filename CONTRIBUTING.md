@@ -1,25 +1,21 @@
 # Contributing
 
-Terrella is one person's project for learning how relief maps get made, published so it can be read,
-run and reused. Questions and issues are welcome. There is no promised review turnaround, and a large
-pull request that was not discussed first will probably sit, so open an issue before building
-anything substantial.
+Terrella is one person's project for learning how relief maps get made, published so it can be read, run and reused. Questions and issues are welcome. There is no promised review turnaround, and a large pull request that was not discussed first will probably sit, so open an issue before building anything substantial. Bug fixes, tests, documentation and macOS or Windows portability are all welcome as they come. Anything that adds a feature or replaces a subsystem should start as an issue: this is a learning project, and a pull request that hands over a piece the maintainer has not worked through yet defeats what it is for.
+
+By opening a pull request you license your contribution under this project's MIT license, and confirm you have the right to do so.
 
 ## What runs without the imagery
 
-No rendered asset or elevation tile is in git, so a clone gets the code and none of the output. That
-matters less than it sounds:
+No rendered asset or elevation tile is in git, so a clone gets the code and none of the output.
 
 | To do this | You need | Costs |
 | :-- | :-- | :-- |
 | Run every check the project has | git, uv, pnpm | minutes |
-| See the site in a browser | a local render store: the gallery manifest, hero images, three tile archives | an overnight render |
-| Change how the maps look | the above, plus an NVIDIA GPU and Blender | days |
+| See the site in a browser | a local render store, which nothing ships: the gallery manifest, hero images, three tile archives | the two rows below |
+| Change how the globe's tiles look | the source data and the fused heightfield, no GPU | hours |
+| Change how the gallery's renders look | the above, plus an NVIDIA GPU and Blender | days |
 
-Only the last row needs hardware. The first is the entire test suite for both halves of the project,
-the type checkers and the linters, and it passes on a fresh clone with nothing configured. If you are
-fixing a bug, adding a test, tightening types or working on the tile server, that is the row you are
-in, and you are not missing anything.
+The first row runs on a fresh clone with nothing configured, and it is both test suites, the type checkers and the linters. Everything under it needs the render store, and since nothing ships one, the bottom two rows are how you get the second.
 
 ## Setup
 
@@ -31,54 +27,33 @@ pnpm install -C web  # frontend: also applies a vendored MapLibre patch, explain
 ./scripts/check.sh
 ```
 
-Node 22.12 or newer. pnpm's version is pinned in `web/package.json` and `uv sync` pins the Python
-side from the lockfile, so neither is a choice you have to make.
+Node 22.12 or newer. pnpm and the Python toolchain are pinned by `web/package.json` and the lockfile.
+
+## Platforms
+
+Linux only, so far. CI runs Ubuntu, and the render pipeline expects a Blender tarball at a fixed path. macOS and Windows are untested rather than known-broken, so getting either working is worth an issue.
 
 ## One command for every check
 
-`./scripts/check.sh`, from the repo root. It runs every gate this project holds at zero, and it keeps
-going after a failure so you see all of them at once instead of the first. When something fails it
-prints the command to re-run just that gate, so you can iterate on one without paying for the rest.
-
-Pass `--python` or `--web` to run one half. CI uses the same two halves, one per job, so what you run
-locally is what will run on your pull request.
-
-CI runs the same set on every pull request. Skipping it locally moves the failure later rather than
-avoiding it.
+`./scripts/check.sh` from the repo root runs every gate this project holds at zero. It keeps going after a failure so you see all of them at once, and prints the command to re-run just the one you are fixing. Pass `--python` or `--web` for one half, which is how CI runs them: one per job.
 
 ## Tests that skip themselves
 
-Some tests read source data that is not in git. Those skip rather than fail, and each one names the
-artifact it wanted:
+Some tests read source data that is not in git. Those skip rather than fail, and `uv run pytest -rs` names the artifact each one wanted, which is how you tell an expected skip from a broken setup. A failure is a different thing and is worth reporting.
 
-```sh
-uv run pytest -rs
-```
+## AI-assisted contributions
 
-Skips there are expected on any machine without the data store, and the reasons are how you tell an
-expected one from a broken setup. A failure is a different thing and is worth reporting.
+AI coding tools are welcome. This project was largely built with them, so this is about review, not purity.
 
-## What is verified, and where
+- **You can explain and defend it, or it gets closed**, however it was produced.
+- **Disclose assistance beyond single-line autocomplete**, and name the tool. It costs you nothing in review.
+- **Write your own issue text and PR descriptions.** Spelling, grammar and translation tools are fine; lean hard against generated prose. The description is how a reviewer learns what you understood, and a generated one tells them nothing at the same reading cost.
+- **Generated code still carries its provenance**, which is the work the licence line above is doing.
 
-Linux. CI runs Ubuntu, and the render pipeline expects a Blender tarball at a fixed path. macOS and
-Windows are neither tested nor knowingly supported, so treat them as unknown rather than broken. If
-you get either working, that is worth an issue.
+Adapted from MapLibre's AI policy, which this project follows when contributing upstream.
 
 ## Where the reasoning lives
 
-`CLAUDE.md` is the standing brief: how the system is built, and which questions are settled. Read it
-before proposing an architectural change, because several of the obvious ideas have been tried and
-reverted, and it says which ones.
+`CLAUDE.md` is the standing brief: how the system is built, and which questions are settled. Read it before proposing an architectural change, because several of the obvious ideas have been tried and reverted and it says which ones. The README's *Read next* indexes everything else.
 
-It does not carry everything. Much of the reasoning behind a given decision is not in this repository
-at all, so when you cannot tell whether something has already been considered, open an issue and ask
-instead of guessing. That is a far cheaper question than a rejected pull request.
-
-Aesthetic decisions are in `ART.md`, measured stage runtimes in `PROCESS.md`, parked ideas in
-`FUTURE.md`, and the frontend's own conventions in `web/README.md`. Anything that changes what the
-site looks like is a judgement the maintainer makes by eye, so raise it before building it.
-
-## Licences
-
-Code is MIT. The rendered imagery is CC BY-SA 4.0, and the upstream data carries its own terms.
-`ATTRIBUTIONS.md` has the required credit strings.
+It does not carry everything, and much of the reasoning behind a decision is not in this repository at all. When you cannot tell whether an idea has already been considered, open an issue and ask: that is a far cheaper question than a rejected pull request. Anything that changes what the site looks like is a judgement the maintainer makes by eye, so raise it before building it.

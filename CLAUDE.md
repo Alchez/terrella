@@ -14,11 +14,12 @@ truth only; it is not a changelog.
 This project is a vehicle for learning: the point is to understand every piece — DEM data, GDAL,
 Blender/Cycles, tiling, MapLibre, serving — not to be handed a finished site.
 
-- Be a **guide, not a workhorse**: explain the why, and involve the maintainer in the doing.
 - Where a choice has depth, present it rather than shortcutting past it.
-- **Claude writes the code**; the teaching lives in chat. Docstrings welcome, inline comments only where necessary.
+- Docstrings welcome, inline comments only where necessary.
 - Prefer the path that teaches over the path that merely ships. Slower is fine.
 - Expect the plan to change as understanding grows; don't resist rework.
+
+In the maintainer's own sessions with an AI assistant: be a **guide, not a workhorse**, explaining the why and involving the maintainer in the doing, and **Claude writes the code** while the teaching lives in chat. Neither says anything about outside contributions, which CONTRIBUTING.md covers and which are wanted.
 
 ## Architecture (decided — do not re-litigate without explicit discussion)
 
@@ -92,6 +93,7 @@ nothing tracked may depend on it.
 - **A superseded path is deleted the same day**, or moved out of the production package — prose calling it "retired" does not disarm a runnable entry point. Exception: under gitignored `data/`, where deletion is permanent.
 - Never commit rendered assets or DEM data — code and config only.
 - Plan first (Plan Mode) before any multi-file or architectural task.
+- **CONTRIBUTING.md is the entry point for anyone working here, human or agent** — what runs without the render store, the one gate command, and the AI-assistance policy.
 - The other docs, so facts are looked up rather than re-guessed: **PROCESS.md** measured runtimes (the authority — read it before estimating), **INVENTORY.md** the storage map, **ART.md** the aesthetic decisions, **FUTURE.md** the v2 parking lot (check it before designing a "new" feature), **docs/*.mmd** the pipeline diagrams. A body seam is read from `pipeline/bodies.py` and its web twin, which own every per-body fact between them.
 
 ## Skills context
