@@ -389,6 +389,7 @@ magnitude, so the taxonomy is the decision:
 
 - **The framing that governs everything: z10 is a planet RE-FUSE at ~2.5″, never a tiling flag.** The grid is `131072²` = exactly `512 × 2⁸`, so a deeper pyramid means re-fusing at
   4× linear and re-warping every layer onto `524288²` — **16× area on every intermediate**.
+- **A second reason for the finer fuse, and this one does not want a deeper pyramid at all.** At 10″ a source row is a fixed 309 m of ground at every latitude, while a 3857 pixel covers `305.75 × cos(lat)` metres in both axes, so `-r near` replicates each source row over `1.011 / cos(lat)` output rows: the land/sea mask can only step every 4.95 rows at 78°N. The blockiness on Svalbard and the Arctic islands is that lattice, and it is purely vertical because the horizontal ratio is 1.011 at *every* latitude. **At 2.5″ a source row is 77 m, so the ratio stays under 1 up to 75.4° and the lattice stops existing rather than being smoothed over.** It is blocked by the same disk wall and unblocks nothing, but it means a re-fuse would pay for itself at z8 alone. The cheap alternative (bilinear-then-threshold) was measured and argued down: it cannot add what 10″ never sampled, and it moves every coast on Earth to fix the band above 75°. HISTORY, *the high-latitude coastline is a resampling lattice*.
 - **Measured cost model** (each stage ×16 from PROCESS's current numbers; storage projected off the
   real rasters on disk):
 
