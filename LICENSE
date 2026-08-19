@@ -19,10 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
----
-
-This license covers the source code of this repository. The rendered imagery
-the pipeline produces (hero renders, map tiles, polar caps — the site's visual
-output) is licensed separately under CC BY-SA 4.0; see ATTRIBUTIONS.md, which
-also carries the upstream data licenses and required credits.

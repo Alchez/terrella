@@ -6,9 +6,17 @@ probe that auto-steers between tiers. A body's page decides which planet it is a
 around it; what the globe actually draws comes from the registry in `src/lib/tileAddress.ts`, not
 from anything the page asserts.
 
-## First-run setup (fresh checkout / worktree)
+## What works with nothing configured
 
-`web/` depends on three things that are **not** in git. They are generated or machine-specific,
+`pnpm install -C web`, and then the test suite, the type checks and the linter all pass on a fresh
+clone: no `.env`, no manifest, no tile archives, no data store anywhere. `./scripts/check.sh --web`
+from the repo root runs exactly those, and without the flag it adds the Python half.
+[`CONTRIBUTING.md`](../CONTRIBUTING.md) has the fuller picture. **Nothing in the next section is
+needed to work on logic, types, tests or the tile Worker.** It is needed to *serve* the site.
+
+## Running the dev server (fresh checkout / worktree)
+
+`pnpm dev` depends on three things that are **not** in git. They are generated or machine-specific,
 so a fresh clone or worktree has none of them and **every route 500s (`FailedToLoadModuleSSR`)
 until all three exist**. In order:
 
@@ -205,7 +213,7 @@ Run from `web/`:
 | Command                   | Action                                           |
 | :------------------------ | :----------------------------------------------- |
 | `pnpm install`             | Installs dependencies                            |
-| `pnpm dev`             | Starts local dev server at `localhost:4321`      |
+| `pnpm dev`             | Starts the dev server at `localhost:4321`, host-exposed (the script carries `--host`), so a phone on the same LAN can reach it |
 | `pnpm build`           | Build your production site to `./dist/`          |
 | `pnpm preview`         | Preview your build locally, before deploying     |
 | `pnpm astro ...`       | Run CLI commands like `astro add`, `astro check` |

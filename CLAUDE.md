@@ -14,11 +14,12 @@ truth only; it is not a changelog.
 This project is a vehicle for learning: the point is to understand every piece — DEM data, GDAL,
 Blender/Cycles, tiling, MapLibre, serving — not to be handed a finished site.
 
-- Be a **guide, not a workhorse**: explain the why, and involve the maintainer in the doing.
 - Where a choice has depth, present it rather than shortcutting past it.
-- **Claude writes the code**; the teaching lives in chat. Docstrings welcome, inline comments only where necessary.
+- Docstrings welcome, inline comments only where necessary.
 - Prefer the path that teaches over the path that merely ships. Slower is fine.
 - Expect the plan to change as understanding grows; don't resist rework.
+
+In the maintainer's own sessions with an AI assistant: be a **guide, not a workhorse**, explaining the why and involving the maintainer in the doing, and **Claude writes the code** while the teaching lives in chat. Neither says anything about outside contributions, which CONTRIBUTING.md covers and which are wanted.
 
 ## Architecture (decided — do not re-litigate without explicit discussion)
 
@@ -83,7 +84,7 @@ nothing tracked may depend on it.
 
 - Pipeline stages are **idempotent and resumable** — a crash at tile N must not restart the world. Cache intermediates, validate per stage.
 - Python for pipeline code; boring debuggable scripts over frameworks. (Upheld on measurement, not taste: numpy releases the GIL, so threads reach the same ceiling xarray/dask would.)
-- **Every gate stays at zero and there is no "pre-existing error" allowance.** From the root: `uv run pytest`, `uv run pyright`, `uv run ruff check` — pyright asks whether the types line up, ruff whether the code says what it means, and neither substitutes for the other. From `web/`: `pnpm test`, `pnpm lint`, `pnpm check` (which is `astro check` plus the worker's own tsconfig, since a second tsconfig is a second program the project check cannot see) and `pnpm check:test-collection`. rasterio call sites take a targeted `# pyright: ignore[reportCallIssue]`; GDAL creation-option dicts are `dict[str, Any]`.
+- **Every gate stays at zero and there is no "pre-existing error" allowance.** `./scripts/check.sh` from the repo root runs all of them and is the single place the list lives; enumerating it here is what let this file fall a gate behind CI. Its header carries the order, why pyright and ruff cannot substitute for each other, and why `ci.yml` deliberately holds a second copy. rasterio call sites take a targeted `# pyright: ignore[reportCallIssue]`; GDAL creation-option dicts are `dict[str, Any]`.
 - **Docs in this repo state current truth, not history** — if a row and reality disagree, the row is the bug. Dated decisions live in a decision archive kept outside the repo.
 - **A learning goes where it will be met:** a fact about one function into that function's docstring, a general work heuristic into the agent's memory.
 - **A second reader with no owner is the defect, and the KIND of thing is incidental** — a path, a procedure, a constant, a header, an explanation in a comment. With no home to import from, the second module copies, and *every copy is correct where it sits*: Natural Earth reached eight spellings of one path, all resolving identically on this machine, before `pipeline/naturalearth.py`; `download_one` reached two, and the copy drifted a timeout and a 404 branch, each exercised only by its own callers. **The trigger is "change one copy — what goes red?"** Nothing red means it needs an owner; where one owner is impossible — a latitude that must exist in Python and in TypeScript — make one copy executable so the drift fails loudly instead.
@@ -92,6 +93,7 @@ nothing tracked may depend on it.
 - **A superseded path is deleted the same day**, or moved out of the production package — prose calling it "retired" does not disarm a runnable entry point. Exception: under gitignored `data/`, where deletion is permanent.
 - Never commit rendered assets or DEM data — code and config only.
 - Plan first (Plan Mode) before any multi-file or architectural task.
+- **CONTRIBUTING.md is the entry point for anyone working here, human or agent** — what runs without the render store, the one gate command, and the AI-assistance policy.
 - The other docs, so facts are looked up rather than re-guessed: **PROCESS.md** measured runtimes (the authority — read it before estimating), **INVENTORY.md** the storage map, **ART.md** the aesthetic decisions, **FUTURE.md** the v2 parking lot (check it before designing a "new" feature), **docs/*.mmd** the pipeline diagrams. A body seam is read from `pipeline/bodies.py` and its web twin, which own every per-body fact between them.
 
 ## Skills context

@@ -39,32 +39,19 @@ jobs:
       - name: Sync dependencies (incl. dev)
         run: uv sync
 
-      # No path argument: use [tool.pyright] include = pipeline + tests (excludes
-      # experiments). Was `pyright pipeline/`, which skipped tests/ — a type error in a
-      # test would pass CI while failing the local `uv run pyright`.
-      - name: Type-check (pyright)
-        run: uv run pyright
-
-      # The other half of the static gate. No path argument and no `select`: the rule set is
-      # ruff's own default, configured in [tool.ruff.lint], and the scan follows .gitignore so the
-      # data store and the venv are out without being named. Placed after pyright because the two
-      # overlap least at the top — a type error is usually the more informative first failure.
-      - name: Lint (ruff)
-        run: uv run ruff check
-
-      # The venv is Python 3.14, but palette.py + the two bpy scripts must stay importable
-      # under Blender's bundled 3.13.9. This re-checks exactly those files at 3.13 so
-      # 3.14-only syntax can't leak into a Blender-shared module. File list lives in the
-      # script (one source of truth for CI + local).
-      - name: Blender-drift guard (pyright @ 3.13)
-        run: bash scripts/check_blender_drift.sh
-
-      # --cov enforces [tool.coverage.report] fail_under — pinned to the CI-visible
-      # baseline (12 data-bound tests skip here, so CI coverage reads lower than a
-      # full local run; a 13th skips on the GDAL version above and costs 0 coverage).
-      # The ratchet: raise the floor as coverage lands, never lower it.
-      - name: Tests + coverage ratchet (pytest --cov)
-        run: uv run pytest -q --cov
+      # ONE STEP, because `scripts/check.sh` is the only place the gate list lives. It had
+      # already drifted when it was prose in three files: the blender-drift guard ran here and
+      # appeared in no doc. The script carries each gate's reasoning beside its invocation.
+      #
+      # `--python` rather than the whole script so this job and `web` stay on separate runners,
+      # concurrently. PYTEST_ARGS is the seam for CI-only policy: --cov enforces
+      # [tool.coverage.report] fail_under, pinned to the CI-visible baseline (the data-bound
+      # tests skip here, so CI coverage reads lower than a full local run). Ratchet the floor up
+      # as coverage lands, never down. A contributor's local run omits it on purpose.
+      - name: Gates (pyright, ruff, blender drift, pytest + coverage ratchet)
+        env:
+          PYTEST_ARGS: --cov
+        run: bash scripts/check.sh --python
 
   web:
     name: vitest + astro check
@@ -95,22 +82,6 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # TWO PROGRAMS, and `pnpm check` runs both. `astro check` excludes worker/ on purpose —
-      # @cloudflare/workers-types redefines fetch/Response and breaks the site's program — so the
-      # Worker has its own tsconfig, and for a while nothing ran it. Nothing would have noticed
-      # either: wrangler's esbuild strips types without checking them, so a deploy ships regardless.
-      - name: Type-check (astro check + the tile Worker)
-        run: pnpm check
-
-      # The web half of the static gate, and the counterpart to `ruff` in the job above: the two
-      # type-checkers ask whether the types line up, oxlint asks whether the code says what it
-      # means. No path argument — it walks from web/ and follows .gitignore, so it reaches all 95
-      # sources including the eight .astro pages and the Worker, which `astro check` excludes.
-      # Placed after the type-check for the same reason ruff sits after pyright, and before the
-      # ~100 MB browser download because it takes milliseconds.
-      - name: Lint (oxlint)
-        run: pnpm lint
-
       # The vitest `browser` project launches a real chromium; `pnpm install` fetches the
       # playwright NPM package but never its browser binaries, so without this the project
       # cannot start and the run reports `28 passed (30)` with an unhandled launch error.
@@ -123,12 +94,9 @@ jobs:
       - name: Install the browser vitest launches
         run: pnpm exec playwright install --with-deps --only-shell chromium
 
-      # A vitest project whose `include` matches nothing is absent from the run, not an error —
-      # green, exit 0, files silently uncollected — and `passWithNoTests` cannot be set per
-      # project. Its own step rather than part of `pnpm test`, because a guard inside the suite
-      # would be dropped by the same broken glob it is meant to catch.
-      - name: Every test file is collected
-        run: pnpm run check:test-collection
-
-      - name: Tests (vitest)
-        run: pnpm test
+      # ONE STEP, same reason as the job above, and `--web` keeps the two jobs parallel. Each
+      # gate's reasoning lives beside its invocation in the script. `working-directory` is
+      # overridden because this job defaults to web/ while the script resolves its own root.
+      - name: Gates (astro check + worker tsc, oxlint, test collection, vitest)
+        working-directory: .
+        run: bash scripts/check.sh --web

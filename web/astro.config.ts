@@ -431,6 +431,50 @@ function webglMemoryDevTool(): Plugin {
 }
 
 // https://astro.build/config
+// The gallery manifest is generated from the local render store and gitignored, so a fresh clone
+// does not have it and every SSR route dies on `manifest.ts`'s static import. Vite names the path
+// correctly and then guesses wrong about the cause: "This is often caused by a typo in the import
+// path", which sends someone hunting a typo in a file they never wrote and cannot have broken.
+// Nothing in that message says the file is generated, by what, or that its absence is the expected
+// state of a checkout. This replaces the guess, at both moments it can be met: once at startup, and
+// again if a request reaches the import.
+//
+// IT CANNOT BE FIXED AT THE IMPORT SITE. The import is static and at module scope, so the failure
+// happens during module resolution, before any of our code runs. The other two missing-input paths
+// do have a seam of ours to fail through, which is why they read so much better: `resolveStore`
+// answers per request naming the variable and the file to copy, and a missing archive answers with
+// the path and the stage that writes it. This plugin is the manifest's equivalent seam.
+//
+// DEV ONLY, and `apply: 'serve'` is load-bearing rather than an optimisation: a BUILD without the
+// manifest would ship an empty gallery, so that case must keep failing as hard as it does now.
+function manifestPresence(): Plugin {
+  const manifestPath = fileURLToPath(new URL('./src/data/countries.json', import.meta.url));
+  const advice = [
+    'src/data/countries.json is missing, so every route will answer 500.',
+    '',
+    'It is the gallery manifest, generated from the local render store and gitignored, so a fresh',
+    'clone never has it. Regenerate it with:',
+    '',
+    '  ../.venv/bin/python scripts/gen_manifest.py --out src/data/countries.json',
+    '',
+    'It is only needed to SERVE the site. Every check passes without it: ./scripts/check.sh',
+  ].join('\n');
+
+  return {
+    name: 'manifest-presence',
+    apply: 'serve',
+    configureServer() {
+      if (!fs.existsSync(manifestPath)) console.warn(`\n${advice}\n`);
+    },
+    resolveId(source) {
+      if (source.endsWith('data/countries.json') && !fs.existsSync(manifestPath)) {
+        throw new Error(advice);
+      }
+      return null;
+    },
+  };
+}
+
 export default defineConfig({
   // Self-hosted display serif (Astro 7 Fonts API) — Fraunces, an optical
   // old-style serif. Downloaded at build, served from _astro/fonts; no runtime
@@ -463,6 +507,7 @@ export default defineConfig({
   },
   vite: {
     plugins: [
+      manifestPresence(),
       jsProfilingPolicy(),
       webglMemoryDevTool(),
       heroDevServer(),

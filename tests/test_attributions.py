@@ -25,13 +25,18 @@ ABOUT_PAGE = REPO_ROOT / "web/src/pages/about.astro"
 # whichever file happens to hold one of them is how a sweep goes quietly vacuous.
 ABOUT_CONTENT = REPO_ROOT / "web/src/lib/aboutContent.ts"
 
-# The licence on the site's OWN output, as opposed to the input obligations below. It is stated to
-# readers in four places and, until these two checks, was verified in none — which is how a licence
-# change leaves a stale copy behind. The failure is not legal but epistemic: a reader believes
-# whichever copy they land on, and nothing tells them the others disagree.
+# The licence on the site's OWN output, as opposed to the input obligations below. Every site listed
+# restates it and, until these two checks, none was verified — which is how a licence change leaves a
+# stale copy behind. The failure is not legal but epistemic: a reader believes whichever copy they
+# land on, and nothing tells them the others disagree.
+#
+# LICENSE is deliberately NOT a site, and adding it back would undo a decision rather than tighten
+# one. It is pure MIT so that GitHub's licence detection reports MIT instead of "Other", which is the
+# truthful label: no rendered asset is in git, so everything the repository actually contains is MIT.
+# The output licence has better owners in ATTRIBUTIONS.md and on the About page, where the imagery is
+# published. The cost of appending here again is invisible from inside the repo, which is the point.
 OUTPUT_LICENSE = "CC BY-SA 4.0"
 LICENSE_SITES: list[Path] = [
-    REPO_ROOT / "LICENSE",
     REPO_ROOT / "README.md",
     ATTRIBUTIONS,
     ABOUT_PAGE,
@@ -178,9 +183,9 @@ def test_every_source_on_the_about_page_declares_a_licence() -> None:
 
 @pytest.mark.parametrize("site", LICENSE_SITES, ids=[p.name for p in LICENSE_SITES])
 def test_every_site_states_the_output_license(site: Path) -> None:
-    """Four copies of one sentence, held together.
+    """Every restatement of one sentence, held together.
 
-    ATTRIBUTIONS.md § Terrella's own outputs is the source of truth and the other three restate it.
+    ATTRIBUTIONS.md § Terrella's own outputs is the source of truth and the others restate it.
     A restatement that drifts is worse than one never written, because each copy reads as
     authoritative on its own — nothing on the page a reader lands on says a sibling disagrees.
     """

@@ -174,13 +174,11 @@ MUTABLE_ROOTS = (
     # and watch something fail. Narrowing is also the realistic mistake — the scan sits in a
     # palette test, and scoping it to the render package reads as tidying rather than gutting.
     "tests/test_palette.py",
-    # Joined with the output licence, which is stated in four files and was checked in none. Two
-    # roots, for two different reasons. `LICENSE` because it is a mutation TARGET no other root
-    # reaches — it has no extension, sits outside every package, and is the copy a reader treats as
-    # authoritative. `tests/test_attributions.py` because its sweep is guard and subject both: the
-    # suffix set decides which files are read at all, so narrowing it silences the check from the
-    # inside while every assertion still passes.
-    "LICENSE",
+    # Joined with the output licence, which every site below restates and none checked. The sweep in
+    # `tests/test_attributions.py` is guard and subject both: its suffix set decides which files are
+    # read at all, so narrowing it silences the check from the inside while every assertion still
+    # passes. `LICENSE` was a root here too until it went back to pure MIT; it states no licence but
+    # its own now, so mutating it would prove nothing.
     "tests/test_attributions.py",
     # The fourth on that principle, and the sharpest: the cross-language parity guard has to PARSE
     # `web/src/lib/bodies.ts` to compare it, so its brace counter is both guard and subject. A
@@ -4767,6 +4765,19 @@ SABOTAGES: list[Sabotage] = [
         replacement='see MARS.md',
         guard='test_no_reference_to_a_file_a_clone_will_not_have',
     ),
+    # The newest alternation, added the day the brief was gitignored. It needs its own case
+    # because a filename the pattern ENUMERATES is exactly the half that goes missing:
+    # gitignoring a path is otherwise a change nothing goes red for, and this guard knows only
+    # the names written into it. The needle sits INSIDE the module docstring, so the sabotaged
+    # file still parses and the guard is the only thing that can fail.
+    Sabotage(
+        suite='python',
+        label="cite the newcomer's question brief from the module that owns the vector paths",
+        path='pipeline/naturalearth.py',
+        needle='WHY THIS MODULE EXISTS',
+        replacement='See ' + 'ONBOARDING-QUESTIONS' + '.md.\n\nWHY THIS MODULE EXISTS',
+        guard='test_no_reference_to_a_file_a_clone_will_not_have',
+    ),
     Sabotage(
         suite='python',
         # THE BARE FORM, which is the half that walked through for months: the pattern anticipated
@@ -5265,13 +5276,13 @@ SABOTAGES: list[Sabotage] = [
     ),
     Sabotage(
         suite='python',
-        # The licence change reaches the three files a reader browses and misses the one nobody
-        # opens. LICENSE has no extension, sorts away from the docs, and is the copy a court would
-        # read first — so it is exactly the copy a sweep-by-eye skips.
-        label='the LICENSE file keeps the superseded output licence after the other three move',
-        path='LICENSE',
-        needle='under CC BY-SA 4.0; see ATTRIBUTIONS.md',
-        replacement='under CC BY-NC 4.0; see ATTRIBUTIONS.md',
+        # The licence change reaches the markdown a maintainer edits and misses the copy that is not
+        # markdown at all. The About page states it in TypeScript, in another tree, and shows it only
+        # when the page is loaded — so it is exactly the copy a sweep-by-eye skips.
+        label='the About page keeps the superseded output licence after the docs move',
+        path='web/src/pages/about.astro',
+        needle='>CC BY-SA 4.0</a>. Use it for anything, credit',
+        replacement='>CC BY-NC 4.0</a>. Use it for anything, credit',
         guard='test_every_site_states_the_output_license',
     ),
     Sabotage(
