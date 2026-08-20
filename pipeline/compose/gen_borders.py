@@ -9,8 +9,9 @@ hero WebP variants so the two srcset in lockstep.
 
 It needs only the prep outputs (frame.json + heightfield_aea.tif), NOT the hero
 render, so it can run any time after prep. Idempotent: existing outputs skip.
-Line widths are tuned for the full 8K render and survive downscaling (see ART.md
-/ overlay_borders), so the layer is always drawn at full res then scaled down.
+Line widths are tuned for the full 8K render and survive downscaling (ART.md
+§ Borders, with overlay_borders), so the layer is always drawn at full res then
+scaled down.
 
   gen_borders.py --only srilanka,switzerland
   gen_borders.py                      # every in-scope country with a render dir

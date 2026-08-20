@@ -2687,6 +2687,41 @@ SABOTAGES: list[Sabotage] = [
     # stopped asking the projection module and gone back to knowing the answer. The needle moved off
     # `bodies.EARTH` when the sphere did: a grid row's latitude is a property of the GRID, and every
     # grid here is EPSG:3857 for every planet, so reading it from a body was the misleading half.
+    # --- A pointer into a doc still lands where it says --------------------------------------------
+    # ALL THREE OF THESE ALREADY SHIPPED, which is why the guard exists rather than the reverse.
+    # `tile/shade.py` cited ART.md:56 and ART.md:90, both of which had become blank lines, and
+    # `look/hillshade.py` cited ART.md:63 for the sun's locked azimuth while that line had become a
+    # table row about the sea colour ramp. The mutations are planted in `gen_borders.py` because it
+    # is the pointer under a MUTABLE_ROOT; the defect has no preferred site.
+    Sabotage(
+        suite='python',
+        label='a doc pointer goes back to naming a line number, which is what rotted three times',
+        path='pipeline/compose/gen_borders.py',
+        needle='(ART.md\n§ Borders',
+        replacement='(ART.md:56\n§ Borders',
+        guard='test_no_pointer_cites_a_line_number',
+    ),
+    # The document is renamed or leaves version control. Existence on the author's disk is NOT the
+    # test — an untracked file passes that locally and is absent from every clone and from CI.
+    Sabotage(
+        suite='python',
+        label='a doc pointer names a document no clone receives',
+        path='pipeline/compose/gen_borders.py',
+        needle='downscaling (ART.md',
+        replacement='downscaling (ARTDIRECTION.md',
+        guard='test_every_document_a_pointer_names_reaches_a_clone',
+    ),
+    # The heading moves out from under a pointer that still names a real file. This is the live case
+    # rather than a hypothetical: ART.md took 42 commits in three months carrying 95 heading
+    # changes, and the `look/` split renamed two of them the same day it landed.
+    Sabotage(
+        suite='python',
+        label='the cited section is renamed, leaving a pointer at a file that no longer explains it',
+        path='pipeline/compose/gen_borders.py',
+        needle='§ Borders, with overlay_borders',
+        replacement='§ Boundaries, with overlay_borders',
+        guard='test_every_section_citation_lands_on_a_heading',
+    ),
     # THE DEFECT THAT ALREADY HAPPENED, four times, in the render probe. Every copy of the margin
     # arithmetic there divided by nothing, because each was written and checked on Earth where the
     # ratio is 1.0 — and the same edit here undersizes 93% of Mars's blocks while every Earth case
