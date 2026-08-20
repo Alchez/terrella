@@ -21,6 +21,7 @@ the cost model both read, in the sense the package note sets out, not a stage th
 from __future__ import annotations
 
 import math
+import warnings
 from dataclasses import dataclass
 
 import numpy as np
@@ -39,6 +40,11 @@ CELL_PX = 512
 #: each already define `BLOCK = 8192` meaning a streaming window, which is a different concept that
 #: happens to be measured in the same units.
 RENDER_BLOCK_PX = 2048
+
+#: Cache cells along one block's delivered edge. Derived, never written down: the cache is finer
+#: than the block ON PURPOSE, so that re-tuning the block edge re-folds an existing cache instead
+#: of re-reading a 46 GB master, and a restated 4 would silently decouple the two.
+CELLS_PER_BLOCK = RENDER_BLOCK_PX // CELL_PX
 
 #: Fraction of the longest possible shadow a margin has to carry. The tallest relief in a block is
 #: not adjacent to every edge of it, so a margin sized for the worst case pays for a shadow that
@@ -187,6 +193,55 @@ def whole_grid(body: Body) -> Window:
     """The window covering this body's entire grid, which is what a planet render plans over."""
     edge = grid_px(body)
     return Window(0, 0, edge, edge)  # pyright: ignore[reportCallIssue]
+
+
+def _folded(cells: NDArray[np.float64]) -> NDArray[np.float64]:
+    """A cell grid reshaped so a block's own cells sit on axes 1 and 3, ready to reduce."""
+    rows, columns = cells.shape
+    if rows % CELLS_PER_BLOCK or columns % CELLS_PER_BLOCK:
+        raise ValueError(f"cell grid {rows}x{columns} is not a whole number of "
+                         f"{CELLS_PER_BLOCK}x{CELLS_PER_BLOCK} blocks")
+    return cells.reshape(rows // CELLS_PER_BLOCK, CELLS_PER_BLOCK,
+                         columns // CELLS_PER_BLOCK, CELLS_PER_BLOCK)
+
+
+def relief_from_cells(high: NDArray[np.float64],
+                      low: NDArray[np.float64]) -> NDArray[np.float64]:
+    """Fold a per-cell high/low pair up to the per-block vertical range `plan` consumes.
+
+    The reduce is max-of-maxima and min-of-minima, never a mean: a block is sized for the tallest
+    thing that can cast into it, and averaging four cells would hide a single steep one.
+
+    AN ALL-NO-DATA BLOCK RAISES RATHER THAN SCORING ZERO, and that is the whole reason this is not
+    a two-line `nan_to_num`. The prototype zeroed it, which reads as "flat here" and yields margin
+    0, so a block whose elevations merely failed to arrive renders with its neighbours' shadows
+    truncated at the seam and nothing to notice. `margin_for` would not catch it either: it takes
+    the number it is handed. A body that genuinely has no-data blocks needs a decision recorded
+    here, not a default chosen by whichever value numpy happens to produce.
+    """
+    if high.shape != low.shape:
+        raise ValueError(f"high {high.shape} and low {low.shape} are different cell grids")
+    # An all-NaN block is the case handled three lines below, so numpy's warning about it is not
+    # news; left unsuppressed it prints once per empty block on the way to the exception.
+    with np.errstate(invalid="ignore"), warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        relief = np.nanmax(_folded(high), axis=(1, 3)) - np.nanmin(_folded(low), axis=(1, 3))
+    empty = np.nonzero(np.isnan(relief))
+    if empty[0].size:
+        first = (int(empty[0][0]), int(empty[1][0]))
+        raise ValueError(f"{empty[0].size} block(s) hold no elevation data at all, the first at "
+                         f"block row/column {first} — every cell in them is no-data, so their "
+                         f"relief is unknown rather than zero")
+    return relief
+
+
+def share_from_cells(share: NDArray[np.float64]) -> NDArray[np.float64]:
+    """Fold a per-cell fraction up to the per-block fraction `plan` takes as `ocean_share`.
+
+    A mean of means is the whole-block fraction only because every cell covers the same pixel
+    count, which `check_alignment` is what guarantees.
+    """
+    return _folded(share).mean(axis=(1, 3))
 
 
 def plan(relief: NDArray[np.float64], window: Window, body: Body, *, altitude_deg: float,

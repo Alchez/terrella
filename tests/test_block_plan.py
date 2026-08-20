@@ -318,3 +318,68 @@ def test_a_block_at_column_zero_renders_from_negative_columns():
     """The wrap is the reader's job, but the plan must express it rather than silently clamping."""
     block = block_plan.Block(col0=0, row0=32768, size_px=2048, margin_px=128)
     assert block.render_window.col_off == -128
+
+
+class TestFoldingCellsUpToBlocks:
+    """`relief_scan` records cells; `plan` consumes blocks. These two are the bridge."""
+
+    def test_four_cells_span_a_block_on_every_body(self):
+        """Derived from the two constants, never written down, so re-tuning either stays coherent."""
+        assert block_plan.CELLS_PER_BLOCK == block_plan.RENDER_BLOCK_PX // block_plan.CELL_PX
+        assert block_plan.CELLS_PER_BLOCK == 4
+
+    def test_relief_is_the_range_across_a_blocks_cells_and_not_the_greatest_elevation(self):
+        """The distinction `plan`'s own docstring pins with the 13,940 m Andes witness."""
+        high = np.zeros((4, 4))
+        low = np.zeros((4, 4))
+        high[1, 1] = 6000.0     # a summit in one cell
+        low[3, 3] = -8000.0     # a trench in another, of the same block
+        relief = block_plan.relief_from_cells(high, low)
+        assert relief.shape == (1, 1)
+        assert relief[0, 0] == pytest.approx(14000.0), "the fold returned an elevation, not a range"
+
+    def test_the_reduce_is_max_of_maxima_and_not_a_mean(self):
+        """Averaging would hide a single steep cell, which is the one the margin exists for."""
+        high = np.zeros((4, 4))
+        high[0, 0] = 4000.0
+        assert block_plan.relief_from_cells(high, np.zeros((4, 4)))[0, 0] == pytest.approx(4000.0)
+
+    def test_a_block_with_no_elevation_data_raises_rather_than_scoring_zero(self):
+        """Relief 0 yields margin 0, so a block whose data merely failed to arrive would render
+        with its neighbours' shadows truncated at the seam and nothing to notice."""
+        empty = np.full((4, 4), np.nan)
+        with pytest.raises(ValueError, match="no elevation data"):
+            block_plan.relief_from_cells(empty, empty)
+
+    def test_a_partly_no_data_block_still_uses_the_cells_that_have_data(self):
+        high = np.full((4, 4), np.nan)
+        low = np.full((4, 4), np.nan)
+        high[2, 2], low[2, 2] = 1200.0, 200.0
+        assert block_plan.relief_from_cells(high, low)[0, 0] == pytest.approx(1000.0)
+
+    def test_a_cell_grid_that_is_not_a_whole_number_of_blocks_is_refused(self):
+        ragged = np.zeros((4, 6))
+        with pytest.raises(ValueError, match="not a whole number"):
+            block_plan.relief_from_cells(ragged, ragged)
+
+    def test_mismatched_high_and_low_grids_are_refused(self):
+        with pytest.raises(ValueError, match="different cell grids"):
+            block_plan.relief_from_cells(np.zeros((4, 4)), np.zeros((8, 8)))
+
+    def test_ocean_share_folds_by_mean_because_every_cell_covers_the_same_pixels(self):
+        share = np.zeros((4, 4))
+        share[0, :] = 1.0
+        assert block_plan.share_from_cells(share)[0, 0] == pytest.approx(0.25)
+
+    def test_the_folded_pair_is_what_plan_accepts(self):
+        """The two ends of the contract, joined — a fold whose shape `plan` rejects is no bridge."""
+        cells = block_plan.CELLS_PER_BLOCK * 2
+        high, low = np.full((cells, cells), 3000.0), np.zeros((cells, cells))
+        share = np.zeros((cells, cells))
+        window = Window(0, 0, 2 * block_plan.RENDER_BLOCK_PX,  # pyright: ignore[reportCallIssue]
+                        2 * block_plan.RENDER_BLOCK_PX)
+        blocks = block_plan.plan(block_plan.relief_from_cells(high, low), window, bodies.EARTH,
+                                 altitude_deg=45.0,
+                                 ocean_share=block_plan.share_from_cells(share))
+        assert len(blocks) == 4
+        assert all(block.margin_px > 0 for block in blocks)
