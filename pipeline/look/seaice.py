@@ -1,6 +1,6 @@
 """Tile sea-ice layer: OSI SAF ice-frequency climatology -> soft white alpha over the sea.
 
-The sea-side mirror of pipeline/render/snow.py. Where snow drapes persistent white over LAND by a
+The sea-side mirror of pipeline/look/snow.py. Where snow drapes persistent white over LAND by a
 persistence-driven alpha, sea ice drapes translucent white over the SEA (the bathymetry showing
 through at the thinning edge) by a frequency-driven alpha. The two share the composite's blend; the
 only structural difference downstream is the mask -- ice alpha is gated on `ocean`, snow on
@@ -25,8 +25,8 @@ import rasterio
 from rasterio.transform import from_bounds
 
 from pipeline import paths
+from pipeline.look import palette
 from pipeline.raster_io import band_window, row_bands
-from pipeline.render import palette
 
 DATA = paths.DATA
 SEAICE_SRC = DATA / "raw/seaice/seaice_frequency_1991-2020_4326.tif"

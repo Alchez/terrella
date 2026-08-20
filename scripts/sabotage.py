@@ -102,6 +102,7 @@ MUTABLE_ROOTS = (
     # each original is deleted — and a bridge nobody can mutate is a bridge nobody can prove is
     # load-bearing. The look package as a whole, because the parameterisation touches all of it.
     "pipeline/bodies.py",
+    "pipeline/look",
     "pipeline/render",
     # Joined with `also`, the authored search aliases. Both guards over it read the SHIPPED config
     # rather than a fixture, on purpose — the claim is "what this repo publishes is well-formed",
@@ -317,7 +318,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='python',
         label='cite a prototype script from the module whose constants it owns',
-        path='pipeline/render/mars_ice.py',
+        path='pipeline/look/mars_ice.py',
         needle='FEATHER_KM = 5.0',
         replacement='#: Reproduced by ' + '_ice_ab' + '/scripts/feather.py\nFEATHER_KM = 5.0',
         guard='test_no_reference_to_a_file_a_clone_will_not_have',
@@ -337,7 +338,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='python',
         label='Mars paints both poles in its northern white, losing the measurement entirely',
-        path='pipeline/render/layer_producers.py',
+        path='pipeline/look/layer_producers.py',
         needle='    northern = np.asarray(window.latitude) >= 0.0',
         replacement='    northern = np.ones(np.asarray(window.latitude).shape, dtype=bool)',
         guard='test_mars_paints_its_two_poles_in_DIFFERENT_whites',
@@ -345,7 +346,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='python',
         label="a body's whites paint pixels and reach no recipe, so a re-tune looks fresh",
-        path='pipeline/render/layer_producers.py',
+        path='pipeline/look/layer_producers.py',
         needle='def _mars_ice_recipe() -> dict[str, Any]:\n',
         replacement='def _mars_ice_recipe() -> dict[str, Any]:\n    return {}\n',
         guard='test_every_declared_white_reaches_that_bodys_recipe',
@@ -353,7 +354,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='python',
         label='the cap and the tiles disagree about one ice colour across the crossfade',
-        path='pipeline/render/perennial_ice.py',
+        path='pipeline/look/perennial_ice.py',
         needle='                              paint=lambda: palette.MARS_ICE_WHITE["north"]),',
         replacement='                              paint=lambda: palette.MARS_ICE_WHITE["south"]),',
         guard='test_each_body_paints_one_pole_the_same_in_both_tiers',
@@ -361,7 +362,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='python',
         label="Earth's two union layers declare different whites, so one wins by table order",
-        path='pipeline/render/layer_producers.py',
+        path='pipeline/look/layer_producers.py',
         needle='        build=_build_glaciers, contribution=_earth_glaciers, paint=_earth_white,',
         replacement='        build=_build_glaciers, contribution=_earth_glaciers,\n'
                     '        paint=lambda _window: ((9, 9, 9), (1, 1, 1)),',
@@ -431,7 +432,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='python',
         label='the two poles are graded against each other\'s levels',
-        path='pipeline/render/mars_ice.py',
+        path='pipeline/look/mars_ice.py',
         needle='                    albedo_alpha(field, ALPHA_LEVELS["north"], nodata),\n'
                '                    albedo_alpha(field, ALPHA_LEVELS["south"], nodata))',
         replacement='                    albedo_alpha(field, ALPHA_LEVELS["south"], nodata),\n'
@@ -441,7 +442,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='python',
         label='a unit span stops being taken per hemisphere, so one band swallows the planet',
-        path='pipeline/render/mars_ice.py',
+        path='pipeline/look/mars_ice.py',
         needle='              if (value >= 0.0) == northern]',
         replacement='              if True]',
         guard='test_a_span_is_taken_PER_HEMISPHERE',
@@ -449,7 +450,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='python',
         label='the ice band loses its pad, clipping the feather at the band edge',
-        path='pipeline/render/mars_ice.py',
+        path='pipeline/look/mars_ice.py',
         needle='        row0, row1 = max(0, min(rows) - pad_rows), min(height, max(rows) + pad_rows)',
         replacement='        row0, row1 = max(0, min(rows)), min(height, max(rows))',
         guard='test_the_pad_widens_the_band_on_both_sides',
@@ -457,7 +458,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='python',
         label="Mars's cap grades both poles against the north's levels",
-        path='pipeline/render/perennial_ice.py',
+        path='pipeline/look/perennial_ice.py',
         needle='    graded = mars_ice.albedo_alpha(field, mars_ice.ALPHA_LEVELS[pole], '
                'viking_luma.NODATA)',
         replacement='    graded = mars_ice.albedo_alpha(field, mars_ice.ALPHA_LEVELS["north"], '
@@ -467,7 +468,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='python',
         label='the alpha levels drop out of the build recipe, so a re-tune leaves a stale raster',
-        path='pipeline/render/layer_producers.py',
+        path='pipeline/look/layer_producers.py',
         needle='            "mars_alpha_levels": {pole: list(levels)',
         replacement='            "mars_alpha_levels_unread": {pole: list(levels)',
         guard='test_mars_declares_the_two_constants_its_build_bakes_in',
@@ -2656,7 +2657,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='python',
         label='a shading module regrows its own sphere radius beside the shared one',
-        path='pipeline/render/snow.py',
+        path='pipeline/look/snow.py',
         needle='    return mercator.latitude_at(merc_y, mercator.WEB_MERCATOR_RADIUS_M)',
         replacement='    return mercator.latitude_at(merc_y, 6378137.0)',
         guard='test_no_module_regrows_web_mercators_sphere',
@@ -3017,7 +3018,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='python',
         label='the ground scale is multiplied into the z-factor instead of divided out',
-        path='pipeline/render/hillshade.py',
+        path='pipeline/look/hillshade.py',
         needle='                zfactor = (exaggeration\n                           / (ground_scale * np.cos(np.radians(latitude)))).reshape(-1, 1)',
         replacement='                zfactor = (exaggeration * ground_scale\n                           / np.cos(np.radians(latitude))).reshape(-1, 1)',
         guard='test_the_scale_divides_exactly_as_an_equal_exaggeration_change_would',
@@ -3117,7 +3118,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='python',
         label='an unregistered body inherits Earth composite producers instead of the registry refusing',
-        path='pipeline/render/layer_producers.py',
+        path='pipeline/look/layer_producers.py',
         needle='        return PRODUCER_BY_BODY_LAYER[(body.name, layer.name)]',
         replacement=('        return PRODUCER_BY_BODY_LAYER.get(\n'
                      '            (body.name, layer.name), PRODUCER_BY_BODY_LAYER[("earth", layer.name)])'),
@@ -3128,7 +3129,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='python',
         label='a producer freezes its composite sources at import, so a moved data store never reaches it',
-        path='pipeline/render/layer_producers.py',
+        path='pipeline/look/layer_producers.py',
         needle='        sources=lambda: (snow.SP_NC,),',
         replacement='        sources=lambda frozen=(snow.SP_NC,): frozen,',
         guard='test_the_composite_sources_are_read_at_CALL_time_so_a_redirect_reaches_them',
@@ -3169,7 +3170,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='python',
         label='the feather pad becomes a constant, so every band seam is quietly wrong',
-        path='pipeline/render/mars_ice.py',
+        path='pipeline/look/mars_ice.py',
         needle='    pad = int(np.ceil(feather_m / float(scale.min()))) + 1',
         replacement='    pad = 3',
         guard='test_banding_does_not_change_the_alpha_at_all',
@@ -3177,7 +3178,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='python',
         label="Apu is drawn in the south too, whitening two thirds of that disc on no evidence",
-        path='pipeline/render/mars_ice.py',
+        path='pipeline/look/mars_ice.py',
         needle='SOUTH_UNITS: tuple[str, ...] = ("lApc",)',
         replacement='SOUTH_UNITS: tuple[str, ...] = ("lApc", "Apu")',
         guard='test_apu_is_northern_only',
@@ -3187,7 +3188,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='python',
         label='the luma moves to Rec. 601, re-grading Mars against levels measured in Rec. 709',
-        path='pipeline/render/mars_ice.py',
+        path='pipeline/look/mars_ice.py',
         needle='LUMA_WEIGHTS: tuple[float, float, float] = (0.2126, 0.7152, 0.0722)',
         replacement='LUMA_WEIGHTS: tuple[float, float, float] = (0.299, 0.587, 0.114)',
         guard='test_it_is_rec_709_and_the_weights_are_a_partition_of_one',
@@ -3198,7 +3199,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='python',
         label='the brightness recipe stops recording its weights, so a re-graded field reads fresh',
-        path='pipeline/render/viking_luma.py',
+        path='pipeline/look/viking_luma.py',
         needle='        "luma_weights": list(mars_ice.LUMA_WEIGHTS),\n',
         replacement='',
         guard='test_changed_weights_are_STALE',
@@ -3206,7 +3207,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='python',
         label='the recipe drops the source edition, so a republished mosaic never restages',
-        path='pipeline/render/viking_luma.py',
+        path='pipeline/look/viking_luma.py',
         needle='        "source_md5": download_viking_mosaic.EXPECTED_MD5,\n',
         replacement='',
         guard='test_a_republished_source_edition_is_STALE',
@@ -3216,7 +3217,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='python',
         label='freshness compares the measured share too, so the stage rebuilds forever',
-        path='pipeline/render/viking_luma.py',
+        path='pipeline/look/viking_luma.py',
         needle='    return {key: value for key, value in recorded.items() if key != "valid_fraction"} == \\\n        {key: value for key, value in expected.items() if key != "valid_fraction"}',
         replacement='    return recorded == expected',
         guard='test_a_different_measured_share_is_STILL_fresh',
@@ -3227,7 +3228,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='python',
         label='the luma rounds to integers, turning the darkest measured ground into nodata',
-        path='pipeline/render/mars_ice.py',
+        path='pipeline/look/mars_ice.py',
         needle='    return (stack * weights).sum(axis=0)',
         replacement='    return np.rint((stack * weights).sum(axis=0))',
         guard='test_the_dimmest_measurable_pixel_survives_as_measured',
@@ -3314,7 +3315,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='python',
         label='an unregistered body inherits Earth ice instead of the registry refusing',
-        path='pipeline/render/perennial_ice.py',
+        path='pipeline/look/perennial_ice.py',
         needle='        return CAP_ICE_BY_BODY[(body.name, pole)]',
         replacement='        return CAP_ICE_BY_BODY.get((body.name, pole), CAP_ICE_BY_BODY[("earth", pole)])',
         guard='test_a_body_with_no_producer_raises_and_names_itself',
@@ -3322,7 +3323,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='python',
         label='the pole leaves the key, so both caps of a body get one producer',
-        path='pipeline/render/perennial_ice.py',
+        path='pipeline/look/perennial_ice.py',
         needle='    ("earth", "south"): CapIce(sources=lambda: (), alpha=_earth_south, paint=_earth_cap_white),',
         replacement='    ("earth", "south"): CapIce(sources=lambda: (Path(snow.SP_NC),), alpha=_earth_north, paint=_earth_cap_white),',
         guard='test_earths_two_poles_get_DIFFERENT_producers',
@@ -3330,7 +3331,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='python',
         label='a producer freezes its source list at import, so a moved data store never reaches it',
-        path='pipeline/render/perennial_ice.py',
+        path='pipeline/look/perennial_ice.py',
         needle='    ("earth", "north"): CapIce(sources=lambda: (Path(snow.SP_NC),), alpha=_earth_north,',
         replacement='    ("earth", "north"): CapIce(sources=lambda frozen=(Path(snow.SP_NC),): frozen, alpha=_earth_north,',
         guard='test_the_sources_are_read_at_CALL_time_so_a_redirect_reaches_them',
@@ -4075,7 +4076,7 @@ SABOTAGES: list[Sabotage] = [
         # adjacent lines. The claim is unchanged: land resolves to the sea's ramp, and every
         # continent is painted in the abyss's colours while the ramp stays monotonic.
         label='the look resolver hands back the sea ramp when land was asked for',
-        path='pipeline/render/palette.py',
+        path='pipeline/look/palette.py',
         needle='    if kind == "land":\n        return look.land',
         replacement='    if kind == "land":\n        return look.sea',
         guard='test_gdaldem_ramp_text_is_unchanged',
@@ -4087,7 +4088,7 @@ SABOTAGES: list[Sabotage] = [
         # What it actually does is hand `None` to a body with no sea and crash somewhere else --
         # or, worse, reach a caller that treats the absence as a ramp.
         label='the no-sea look stops refusing and returns its missing ramp instead',
-        path='pipeline/render/palette.py',
+        path='pipeline/look/palette.py',
         needle='        if look.sea is None:\n            raise ValueError(\n                "this look draws no sea',
         replacement='        if False:\n            raise ValueError(\n                "this look draws no sea',
         guard='test_a_look_with_no_sea_refuses_to_resolve_one',
@@ -4097,7 +4098,7 @@ SABOTAGES: list[Sabotage] = [
         # A body with no look inherits Earth's rather than raising -- the one-line "friendlier"
         # change that turns a hard stop into a whole plausible pyramid in another planet's colours.
         label='an unregistered body falls back to Earth\'s ramp instead of raising',
-        path='pipeline/render/palette.py',
+        path='pipeline/look/palette.py',
         needle='        return LOOK_BY_BODY[body]',
         replacement='        return LOOK_BY_BODY.get(body, EARTH_LOOK)',
         guard='test_an_unregistered_body_gets_no_look_at_all',
@@ -4132,7 +4133,7 @@ SABOTAGES: list[Sabotage] = [
         # and is now `Surface.lowest_m`. The mutation is the same defect and now reaches further —
         # it breaks Earth's sea AND every land ramp that starts below its body's datum.
         label='the sea LUT loses its abyss offset, so every depth reads the wrong colour',
-        path='pipeline/render/palette.py',
+        path='pipeline/look/palette.py',
         needle='    colors = [_srgb8(ramp_color((ramp.lowest_m + index * step',
         replacement='    colors = [_srgb8(ramp_color((0.0 + index * step',
         guard='test_relief_lut_bytes_are_unchanged',
@@ -4146,7 +4147,7 @@ SABOTAGES: list[Sabotage] = [
         # collapses the "duplication". Every Earth pixel is unchanged, every gate stays green, and
         # Mars silently goes back to wearing a shoreline hinge on a planet with no shore.
         label="Mars's ramp is pointed back at Earth's stops as a de-duplication",
-        path='pipeline/render/palette.py',
+        path='pipeline/look/palette.py',
         needle='    land=Surface(stops=MARS_LAND_STOPS, origin_m=-6000.0, extreme_m=6100.0),',
         replacement='    land=Surface(stops=EARTH_LOOK.land.stops, origin_m=-6000.0, extreme_m=6100.0),',
         guard='test_mars_draws_its_own_colours_and_no_longer_borrows_earths',
@@ -4158,7 +4159,7 @@ SABOTAGES: list[Sabotage] = [
         # property chosen over fidelity to the planet. Nothing renders wrong; two heights just
         # become one colour again, which is the defect the whole authored ramp exists to remove.
         label="a re-tune leaves Mars's ramp brighter in the middle than at the top",
-        path='pipeline/render/palette.py',
+        path='pipeline/look/palette.py',
         needle='    (1.000, (0.658375, 0.520996, 0.337164)),',
         replacement='    (1.000, (0.458375, 0.320996, 0.237164)),',
         guard='test_mars_land_rises_monotonically_so_height_can_be_read',
@@ -4185,7 +4186,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='python',
         label='the ramp hinges on the datum again, so a body below it loses half its colours',
-        path='pipeline/render/palette.py',
+        path='pipeline/look/palette.py',
         needle='        return min(self.origin_m, self.extreme_m)',
         replacement='        return min(0.0, self.extreme_m)',
         guard='test_mars_land_spans_its_own_measured_elevations',
@@ -4213,7 +4214,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='python',
         label='a zero-width ramp is admitted, so a planet renders from an arbitrary LUT index',
-        path='pipeline/render/palette.py',
+        path='pipeline/look/palette.py',
         needle='        if self.origin_m == self.extreme_m:',
         replacement='        if False:',
         guard='test_a_zero_width_ramp_is_refused_at_declaration',
@@ -4760,7 +4761,7 @@ SABOTAGES: list[Sabotage] = [
         # very line is a reachable CONSTANT that must go on passing. One `\b` decides between them,
         # and nothing else in the suite would notice if it were dropped.
         label='a pointer at the untracked Mars brief, planted on the line that proves the boundary',
-        path='pipeline/render/palette.py',
+        path='pipeline/look/palette.py',
         needle='see MARS_ICE_WHITE',
         replacement='see MARS.md',
         guard='test_no_reference_to_a_file_a_clone_will_not_have',

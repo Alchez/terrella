@@ -14,7 +14,7 @@ import rasterio
 from rasterio.transform import from_bounds
 
 from pipeline import bodies, freshness, layers
-from pipeline.render import lake_depth, layer_producers, mars_ice, palette, seaice, snow
+from pipeline.look import lake_depth, layer_producers, mars_ice, palette, seaice, snow
 from pipeline.tile import shade_planet
 
 #: A window well south of the Antarctic patch's -60, so the rule that has no dataset behind it is

@@ -26,7 +26,7 @@ import pytest
 
 from pipeline import bodies, layers, mercator, paths, planet_seam
 from pipeline.compose import countries_pmtiles, features_pmtiles
-from pipeline.render import palette
+from pipeline.look import palette
 from pipeline.tile import cap_render, shade_planet, terrain_rgb
 
 #: A planet whose seam emitted all three rasters — what Earth declares, and the only

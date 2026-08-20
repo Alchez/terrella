@@ -4,7 +4,7 @@ scene_build runs only under Blender's Python (`import bpy`), so it was historica
 ast-parsed and never imported, and its constants were COPIES — which is how three
 divergences accumulated undetected (sea ramp, water tint, sun altitude; the ART.md audit).
 Since the sea-sync the constants are imports from
-`pipeline.render.palette`; these tests stub bpy and import the module in the venv, so
+`pipeline.look.palette`; these tests stub bpy and import the module in the venv, so
 any re-inlined literal fails HERE instead of on a hero render.
 """
 
@@ -15,7 +15,7 @@ import types
 
 import pytest
 
-from pipeline.render import palette
+from pipeline.look import palette
 
 
 @pytest.fixture(scope="module")

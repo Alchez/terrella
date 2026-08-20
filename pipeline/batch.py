@@ -190,7 +190,7 @@ def run_country(slug, resolved, through, force, dry, cap_gib, use_cap, floor,
             # writes the shaded hero as a SEPARATE file (atomic, internal .tmp), so
             # the raw stays pristine and post-look tweaks never re-render.
             sv = subprocess.run(
-                f"python -m pipeline.render.sky_view --render-dir {country_render_dir(slug)}"
+                f"python -m pipeline.look.sky_view --render-dir {country_render_dir(slug)}"
                 f" --hero {raw} --out {final}"
                 f" --strength {resolved['sky_view_strength']}", shell=True,
                 cwd=ROOT, env=ENV, check=False).returncode

@@ -13,6 +13,6 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 exec uv run pyright --pythonversion 3.13 \
-  pipeline/render/palette.py \
+  pipeline/look/palette.py \
   pipeline/render/scene_build.py \
   pipeline/render/scene_dump.py

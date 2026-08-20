@@ -27,7 +27,7 @@ graded by NSIDC's packing convention, which no type and no test could notice.
 read on the main thread precisely so the compute stays pure; a producer opening a file here would
 put GDAL back where rasterio is not thread-safe.
 
-    from pipeline.render import layer_producers
+    from pipeline.look import layer_producers
     producer = layer_producers.producer_for(body, layers.SEA_ICE)
 """
 
@@ -40,7 +40,7 @@ import numpy as np
 
 from pipeline import bodies, layers
 from pipeline.acquire import download_sim3292
-from pipeline.render import lake_depth, mars_ice, palette, seaice, snow, viking_luma
+from pipeline.look import lake_depth, mars_ice, palette, seaice, snow, viking_luma
 
 
 @dataclass(frozen=True)

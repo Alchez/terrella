@@ -4,7 +4,7 @@
   safe to play with. The target is the Ramspott "Neutral" reference: soft raytraced shadows,
   heavy vertical exaggeration, warm sand/rose land, desaturated teal sea with visible shelf
   bathymetry, data-driven snow.
-- The system of record is code: shared constants in `pipeline/render/palette.py`, hero-only
+- The system of record is code: shared constants in `pipeline/look/palette.py`, hero-only
   constants in `pipeline/render/scene_build.py`, tile levers in `pipeline/tile/shade.py`
   (`KNOBS`). The ramp constants below are Earth's unless a row says otherwise, and they are
   assembled into a named `Look` that the shading path resolves **per body** — every lever's cost in
@@ -16,7 +16,7 @@
 
 ## Where levers live (the "how" for every Adjust line below)
 
-- **`pipeline/render/palette.py`** — the shared look constants (ramps, flat colours, ranges, sun
+- **`pipeline/look/palette.py`** — the shared look constants (ramps, flat colours, ranges, sun
   altitude). Heroes consume them **by import** (scene_build derives, never copies); tiles via
   `shade.KNOBS` and the composite LUT. One edit moves every surface.
 - **`pipeline/render/scene_build.py` constants** — the hero-only look (light rig, render
@@ -52,7 +52,7 @@
   — a lagging index is worse than none — and **the code is the single home**: if a row and the
   code disagree, the code is right and the row is the bug.
 
-### Both surfaces — shared constants (`pipeline/render/palette.py`)
+### Both surfaces — shared constants (`pipeline/look/palette.py`)
 
 Cost: hero sweep **~10–13 h** + tile restage **~29 min** + caps auto-restage **~1:35**.
 
@@ -103,7 +103,7 @@ Cost: hero sweep **~10–13 h** + tile restage **~29 min** + caps auto-restage *
 | NH ice trio `ICE_LO`/`ICE_BAND`/`ICE_MAX_ALPHA` (seaice.py) | 0.55 / 0.40 / 0.85 | composite | § Sea ice |
 | SH ice pair `SH_ICE_LO`/`SH_ICE_MAX_ALPHA` (seaice.py) | 0.62 / 0.55 | composite | § Sea ice |
 | `lake_curve` | log1p | composite | § Inland water |
-| `OCCLUSION_TARGET_M_PER_PX` (render/sky_view.py) | 9784 — resolution, not hue; region A/Bs must match it | SVF + composite | § Sky-view shading |
+| `OCCLUSION_TARGET_M_PER_PX` (look/sky_view.py) | 9784 — resolution, not hue; region A/Bs must match it | SVF + composite | § Sky-view shading |
 
 ### Caps only (`tile/cap_render.py`) — ~1:35 both poles
 
@@ -373,7 +373,7 @@ Cost: hero sweep **~10–13 h** + tile restage **~29 min** + caps auto-restage *
 - `CAP_RGB` in `shade_planet.py` is only the flat fill on Mercator tiles under the caps — not a
   lever.
 
-### Sky-view shading — heroes post-render (`pipeline/render/sky_view.py`)
+### Sky-view shading — heroes post-render (`pipeline/look/sky_view.py`)
 
 - Burn-only horizon sky-view-factor from `heightfield_aea`: darkens land *valleys* for
   topographic depth (so flat/low-relief countries read); open ground left at rendered

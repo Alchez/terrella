@@ -19,8 +19,8 @@ from scipy import ndimage
 
 from pipeline import mercator, vector_raster
 from pipeline.acquire import download_sim3292
+from pipeline.look import mars_ice
 from pipeline.raster_io import row_bands
-from pipeline.render import mars_ice
 
 #: A fill value for the alpha tests. LOCAL AND ARBITRARY ON PURPOSE, where it once came from the
 #: extractor: the graded field is now an 8-bit colour mosaic whose invalidity is every channel at

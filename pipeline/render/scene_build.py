@@ -39,7 +39,7 @@ import bpy  # pyright: ignore[reportMissingImports] — exists only in Blender's
 # design (numpy only, which Blender bundles) precisely so BOTH interpreters can
 # import it. parents[2] = the repo root, regardless of cwd.
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from pipeline.render import palette
+from pipeline.look import palette
 
 
 def _rgba(stops):
@@ -49,7 +49,7 @@ def _rgba(stops):
 
 # ---- locked look
 # ---- angle, land ramp top). Colour + sun-altitude constants are DERIVED from
-# ---- pipeline/render/palette.py since the hero sea-sync: copies drifted three
+# ---- pipeline/look/palette.py since the hero sea-sync: copies drifted three
 # ---- times (sea ramp, water tint, sun altitude) —
 # ---- imports cannot. WORLD_*/FILL_*/SUN_ANGLE/STRENGTH stay local: they have no
 # ---- tile counterpart or are deliberately not ports (ART.md hero→tile map). ----

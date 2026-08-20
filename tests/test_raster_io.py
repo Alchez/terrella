@@ -65,7 +65,7 @@ class TestAdoption:
     """Source-scan drift guards: the three tile writers carry the shared core,
     and fusion's writers never gain the threading flag."""
 
-    @pytest.mark.parametrize("relative", ["render/hillshade.py", "tile/shade.py",
+    @pytest.mark.parametrize("relative", ["look/hillshade.py", "tile/shade.py",
                                           "tile/shade_planet.py"])
     def test_tile_writers_use_the_shared_core(self, relative):
         assert "**GTIFF_CREATE" in (PIPELINE / relative).read_text()

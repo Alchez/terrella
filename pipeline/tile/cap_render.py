@@ -57,7 +57,7 @@ from scipy.ndimage import (
 )
 
 from pipeline import bodies, layers, naturalearth, planet_seam, vector_raster
-from pipeline.render import hillshade, lake_depth, palette, perennial_ice, seaice
+from pipeline.look import hillshade, lake_depth, palette, perennial_ice, seaice
 from pipeline.tile import shade, terrain_rgb
 from pipeline.tile.shade import KNOBS
 from pipeline.tile.shade_planet import (

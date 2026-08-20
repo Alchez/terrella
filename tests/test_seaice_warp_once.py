@@ -15,7 +15,7 @@ import rasterio
 import rasterio.transform  # rasterio's __init__ pulls this in at runtime; name it for the checker
 
 from pipeline import bodies
-from pipeline.render import seaice
+from pipeline.look import seaice
 
 # --- shared geometry: a small WMQ-aligned 3857 target over the Fram Strait marginal ice zone,
 # where the annual ice-frequency field has a real north-south gradient (needed by the can-fail test).

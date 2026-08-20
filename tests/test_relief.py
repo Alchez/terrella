@@ -12,7 +12,7 @@ import math
 
 import pytest
 
-from pipeline.render import relief
+from pipeline.look import relief
 
 
 class TestMercatorZFactor:

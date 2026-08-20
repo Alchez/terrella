@@ -16,7 +16,7 @@ import numpy as np
 import pytest
 from conftest import hillshade_for_light
 
-from pipeline.render import palette
+from pipeline.look import palette
 from pipeline.tile import shade
 
 SHAPE = (4, 8)

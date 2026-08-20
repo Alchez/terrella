@@ -47,7 +47,7 @@ import numpy as np
 
 from pipeline import bodies, layers
 from pipeline.acquire import download_sim3292
-from pipeline.render import mars_ice, palette, snow, viking_luma
+from pipeline.look import mars_ice, palette, snow, viking_luma
 
 
 class WarpToCap(Protocol):

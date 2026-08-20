@@ -6,7 +6,7 @@ nothing else whitens the continent; one home for the rule keeps the two paths ag
 
 import numpy as np
 
-from pipeline.render import snow
+from pipeline.look import snow
 
 
 class TestAntarcticSnowMask:

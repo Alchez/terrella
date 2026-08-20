@@ -19,7 +19,7 @@ import pytest
 from conftest import cap_ground_metres_per_px_from_ground_radius
 
 from pipeline import bodies, layers, mercator
-from pipeline.render import layer_producers, mars_ice, perennial_ice, snow
+from pipeline.look import layer_producers, mars_ice, perennial_ice, snow
 from pipeline.tile import cap_render
 
 

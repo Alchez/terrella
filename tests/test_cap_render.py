@@ -32,7 +32,7 @@ from conftest import cap_ground_metres_per_px_from_ground_radius
 from rasterio.transform import from_bounds
 
 from pipeline import bodies, layers, paths, planet_seam
-from pipeline.render import layer_producers, palette, perennial_ice, seaice, snow
+from pipeline.look import layer_producers, palette, perennial_ice, seaice, snow
 from pipeline.tile import cap_render, shade_planet, terrain_rgb
 
 #: A planet whose seam emitted all three rasters — what Earth declares, and the only

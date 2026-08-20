@@ -31,7 +31,7 @@ from typing import Any
 import numpy as np
 import rasterio
 
-from pipeline.render import lake_depth
+from pipeline.look import lake_depth
 from pipeline.tile import shade
 
 

@@ -19,7 +19,7 @@ from pathlib import Path
 import pytest
 
 from pipeline import bodies
-from pipeline.render import palette
+from pipeline.look import palette
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 

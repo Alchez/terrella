@@ -28,8 +28,8 @@ import numpy as np
 import rasterio
 
 from pipeline import mercator
+from pipeline.look import cast_shadow
 from pipeline.raster_io import GTIFF_CREATE, band_window, row_bands
-from pipeline.render import cast_shadow
 
 # The hero's fill sun, ported to the tiles (scene_build.FILL_ROTATION (30, 0, 135) -> 60 deg up
 # from the SE; FILL_ANGLE 10; use_shadow off). "Shadowless" used to reproduce for free, because a

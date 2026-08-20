@@ -53,7 +53,7 @@ from rasterio.vrt import WarpedVRT
 from rasterio.warp import transform_bounds
 from rasterio.windows import Window
 
-from pipeline.render.palette import EXAGGERATION  # shared vertical exaggeration
+from pipeline.look.palette import EXAGGERATION  # shared vertical exaggeration
 
 FRAME_MARGIN = 1.0006  # camera overshoot: the plane underfills the frame a hair
 HERO_LONG_EDGE = 7680  # hero render long edge in px; the short axis follows

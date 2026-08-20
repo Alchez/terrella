@@ -13,7 +13,7 @@ composite is per-pixel, so windowing it cannot seam):
 
   1. warp the 4326 planet heightfield + masks once to a WebMercatorQuad-aligned 3857 grid;
   2. `gdaldem color-relief` the height globally (per-pixel -> seamless);
-  3. custom per-row-z hillshade (pipeline/render/hillshade.py) -> seamless + correct 15x;
+  3. custom per-row-z hillshade (pipeline/look/hillshade.py) -> seamless + correct 15x;
   4. sky-view factor once on a global downsample with a single global normalisation;
   5. composite each full-width horizontal window (reusing tile/shade.py::composite) with the
      latitude-ramped snow (blue-white shadows) and RGI glaciers, and cap both polar edges
@@ -59,8 +59,7 @@ from pipeline.freshness import (
     warp_needs_rebuild,
     write_if_changed,
 )
-from pipeline.raster_io import GTIFF_CREATE, band_window
-from pipeline.render import (
+from pipeline.look import (
     cast_shadow,
     hillshade,
     lake_depth,
@@ -69,7 +68,8 @@ from pipeline.render import (
     sky_view,
     snow,
 )
-from pipeline.render.sky_view import normalised_occlusion, occlusion_shape
+from pipeline.look.sky_view import normalised_occlusion, occlusion_shape
+from pipeline.raster_io import GTIFF_CREATE, band_window
 from pipeline.tile import shade
 from pipeline.tile.shade import KNOBS
 

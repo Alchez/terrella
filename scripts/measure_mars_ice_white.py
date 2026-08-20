@@ -43,7 +43,7 @@ import rasterio
 
 from pipeline import bodies, freshness
 from pipeline.acquire import download_sim3292, download_viking_mosaic
-from pipeline.render import mars_ice, palette, viking_luma
+from pipeline.look import mars_ice, palette, viking_luma
 from pipeline.tile import cap_render
 
 #: Degrees of latitude kept either side of the pole. Imported rather than restated: the levels script

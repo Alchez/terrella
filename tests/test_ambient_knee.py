@@ -87,7 +87,7 @@ class TestFreshnessRecordsTheOcclusionResolution:
     def test_composite_params_records_the_occlusion_target(self):
         import json
 
-        from pipeline.render.sky_view import OCCLUSION_TARGET_M_PER_PX
+        from pipeline.look.sky_view import OCCLUSION_TARGET_M_PER_PX
         from pipeline.tile.shade_planet import composite_params
 
         recorded = json.loads(composite_params({}, bodies.EARTH, WHOLE_PLANET))
