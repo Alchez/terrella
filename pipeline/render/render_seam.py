@@ -32,10 +32,12 @@ OCEANMASK = "oceanmask.png"
 INLANDLAKE = "inlandlake.png"
 RIVER = "river.png"
 
-#: The two a prep may legitimately not write, being a measurement of the region rather than of the
-#: planet: a block with no snow in it and a block with no lake bed in it.
+#: The three a prep may legitimately not write, being measurements of the region rather than of
+#: the planet: a block with no snow in it, no lake bed in it, or no sea ice on its ocean. The ice
+#: image is a continuous 0..1 alpha, already confined to ocean pixels by the prep that cut it.
 SNOWMASK = "snowmask.png"
 LAKEDEPTH = "lakedepth.tif"
+SEAICE = "seaice.png"
 
 #: Prep byproducts on the hero path: analytical masks the post stages read and the rig never
 #: loads, which is why they are named here but stay outside the declaration vocabulary below.
@@ -47,7 +49,7 @@ WATERMASK = "watermask.tif"
 #: THE ONE OWNER FOR THESE SPELLINGS, on the rule that a second reader with no owner is the defect.
 #: The retired `_aea` suffix asserted a projection, and the block path writes these same names as
 #: EPSG:3857 cuts — no projection suffix can be true for both writers, which is why none returns.
-KNOWN_IMAGES = frozenset({HEIGHTFIELD, OCEANMASK, INLANDLAKE, RIVER, SNOWMASK, LAKEDEPTH})
+KNOWN_IMAGES = frozenset({HEIGHTFIELD, OCEANMASK, INLANDLAKE, RIVER, SNOWMASK, LAKEDEPTH, SEAICE})
 
 #: The file every stage that fills a render directory records itself in.
 DECLARATION_NAME = "render_inputs.json"

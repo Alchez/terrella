@@ -2722,6 +2722,39 @@ SABOTAGES: list[Sabotage] = [
         replacement='§ Boundaries, with overlay_borders',
         guard='test_every_section_citation_lands_on_a_heading',
     ),
+    # The defect that shipped: the block frame's payload stopped answering the whole vocabulary,
+    # and nothing ran the shipping path until a real prep crashed on it.
+    Sabotage(
+        suite='python',
+        label="the block frame stops answering the frame vocabulary's geo keys",
+        path='pipeline/render/prep_block.py',
+        needle='                   frame_lonlat=None, dst_crs="EPSG:3857",\n'
+               '                   xres_m=extent_w_m / window.width, extent_w_m=extent_w_m,\n'
+               '                   extent_h_m=extent_w_m * window.height / window.width)',
+        replacement='                   frame_lonlat=None, dst_crs="EPSG:3857")',
+        guard='test_the_payload_round_trips_the_validating_serialiser',
+    ),
+    # The ocean gate on the block's sea-ice cut. Dropping it leaks alpha onto shoreline land, and
+    # the same alpha damps displacement in the rig — coastal collapse at full exaggeration, while
+    # every open-ocean pixel still renders correctly.
+    Sabotage(
+        suite='python',
+        label='the sea-ice alpha stops being gated to the ocean',
+        path='pipeline/render/prep_block.py',
+        needle='    gated = np.where(ocean, contribution, 0.0)',
+        replacement='    gated = np.asarray(contribution, dtype=float)',
+        guard='test_ice_that_reaches_land_is_refused',
+    ),
+    # The column quietly flips back to the pre-ice answer. The literal pins in test_bodies catch
+    # the table; this guard catches the BEHAVIOUR — the gather stops handing the rig its ice.
+    Sabotage(
+        suite='python',
+        label="the block column drops sea ice again, starving the rig's ice arm",
+        path='pipeline/layers.py',
+        needle='SEA_ICE = Layer("sea_ice", in_composite=True, in_cap=True, in_block=True,',
+        replacement='SEA_ICE = Layer("sea_ice", in_composite=True, in_cap=True, in_block=False,',
+        guard='test_the_block_gathers_sea_ice_like_the_composite',
+    ),
     # THE DEFECT THAT ALREADY HAPPENED, four times, in the render probe. Every copy of the margin
     # arithmetic there divided by nothing, because each was written and checked on Earth where the
     # ratio is 1.0 — and the same edit here undersizes 93% of Mars's blocks while every Earth case
@@ -4038,37 +4071,22 @@ SABOTAGES: list[Sabotage] = [
         replacement='COASTLINE = Layer("coastline", in_composite=False, in_cap=False, in_block=False,',
         guard='test_the_stage_vocabularies_together_cover_the_whole_one_and_nothing_else',
     ),
-    # The block column's two failures, and both are the SAME mistake reached from different ends:
-    # the block render shades the Mercator grid the composite shades, so giving it the composite's
-    # answer looks like consistency. It is the one column no live body can contradict, because every
-    # body that declares sea ice declares it for a stage that does read it.
-    Sabotage(
-        suite='python',
-        label='the block render claims a sea ice layer, which its rig has no input to paint',
-        path='pipeline/layers.py',
-        needle='SEA_ICE = Layer("sea_ice", in_composite=True, in_cap=True, in_block=False,',
-        replacement='SEA_ICE = Layer("sea_ice", in_composite=True, in_cap=True, in_block=True,',
-        guard='test_the_stages_disagree_about_which_layers_they_read',
-    ),
-    Sabotage(
-        suite='python',
-        label='the block view is derived off the composite column, so the two can never disagree',
-        path='pipeline/layers.py',
-        needle='BLOCK_LAYERS = frozenset(layer.name for layer in LAYERS if layer.in_block)',
-        replacement='BLOCK_LAYERS = frozenset(layer.name for layer in LAYERS if layer.in_composite)',
-        guard='test_the_stages_disagree_about_which_layers_they_read',
-    ),
+    # The block column once carried two cases here, both retired the day the rig gained its ice
+    # input: mutating `sea_ice` to `in_block=True` became today's real source, and deriving
+    # BLOCK_LAYERS off `in_composite` now yields an IDENTICAL frozenset no test could distinguish.
+    # The column's live guard is the flip-back case beside the ground-ratio one, whose test
+    # starves the rig's ice arm behaviourally rather than comparing two equal sets.
     # --- the render directory's seam, and the gather both tiers now share ------------------------
     # Every one of these leaves a run that completes and produces a scene. What changes is whether
     # the rig was TOLD what the directory holds or inferred it, which is invisible until the run
     # where a producer skipped a file for a reason other than the region having none.
     Sabotage(
         suite='python',
-        label='the block stage gathers the composite\'s layers, so a raytraced Arctic claims ice',
+        label="the gather ignores its caller's vocabulary, handing every stage every declared layer",
         path='pipeline/look/layer_producers.py',
         needle='        if layer.name not in vocabulary or layer.name not in body.surface_layers:',
         replacement='        if layer.name not in body.surface_layers:',
-        guard='test_the_composite_gathers_sea_ice_and_the_block_does_not',
+        guard='test_the_vocabulary_is_an_actual_filter',
     ),
     Sabotage(
         suite='python',

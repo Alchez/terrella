@@ -1229,24 +1229,22 @@ def test_the_stages_disagree_about_which_layers_they_read(subtests) -> None:
     frozensets drifting apart was, so these literals are the hand-written expectation the derivation
     is checked against.
 
-    THE BLOCK PAIRINGS ARE WHERE A COPIED COLUMN WOULD SHOW. It shades the same Mercator grid the
-    composite does, so `in_block = in_composite` is the plausible wrong answer and the one that
-    passes every other guard in this file. Pinning the difference as a literal is what makes
-    `sea_ice` a stated gap rather than an assumed parity.
+    THE BLOCK COLUMN NOW EQUALS THE COMPOSITE'S, AND THE PIN CHANGES JOBS RATHER THAN RETIRING.
+    While the rig lacked an ice input the literals held `sea_ice` open as a stated gap; since it
+    gained one, the equality is the hand-written expectation — and a NEW layer that copies
+    `in_composite` unexamined still fails here until its row is answered on purpose.
     """
     with subtests.test("cap only"):
         assert layers.CAP_LAYERS - layers.COMPOSITE_LAYERS == {"coastline"}
     with subtests.test("composite only"):
         assert layers.COMPOSITE_LAYERS - layers.CAP_LAYERS == {"lake_depth", "glaciers"}
-    with subtests.test("composite but not block"):
-        # The rig has one snow input and no ice input at all, so a raytraced Arctic renders as open
-        # teal ocean until unit 5 gives it one. That is the whole difference, and it is a
-        # correctness gap rather than a look decision.
-        assert layers.COMPOSITE_LAYERS - layers.BLOCK_LAYERS == {"sea_ice"}
-    with subtests.test("block adds nothing the composite lacks"):
+    with subtests.test("block matches the composite exactly, and on purpose"):
+        # The rig grew its ice input, so a raytraced Arctic paints pack instead of open teal
+        # ocean; what remains block-versus-composite is agreement, pinned from both directions.
+        assert layers.COMPOSITE_LAYERS - layers.BLOCK_LAYERS == set()
         assert layers.BLOCK_LAYERS - layers.COMPOSITE_LAYERS == set()
     with subtests.test("block against the caps"):
-        assert layers.CAP_LAYERS - layers.BLOCK_LAYERS == {"coastline", "sea_ice"}
+        assert layers.CAP_LAYERS - layers.BLOCK_LAYERS == {"coastline"}
         assert layers.BLOCK_LAYERS - layers.CAP_LAYERS == {"lake_depth", "glaciers"}
 
 
@@ -1261,10 +1259,11 @@ def test_layers_off_names_what_is_missing_and_stays_silent_when_nothing_is(subte
     with subtests.test("mars cap"):
         assert layers.layers_off(bodies.MARS, layers.CAP_LAYERS) == ["coastline", "sea_ice"]
     with subtests.test("mars block"):
-        # Mars declares perennial ice and nothing else, so a Martian block is short exactly the two
-        # layers whose only sources are Earth datasets — and short no sea ice, because no stage that
-        # renders a block reads it on any body.
-        assert layers.layers_off(bodies.MARS, layers.BLOCK_LAYERS) == ["glaciers", "lake_depth"]
+        # Mars declares perennial ice and nothing else, so a Martian block is short the two layers
+        # whose only sources are Earth datasets — and short sea ice too now that the rig reads it,
+        # because Mars has no sea for pack to float on.
+        assert layers.layers_off(bodies.MARS, layers.BLOCK_LAYERS) == [
+            "glaciers", "lake_depth", "sea_ice"]
     with subtests.test("a body that declares nothing names the whole vocabulary"):
         # The all-off end of the range, which Mars stopped supplying when its ice landed. Without
         # it the sweep only ever exercises "none off" and "some off", and the branch that names

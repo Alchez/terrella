@@ -78,6 +78,20 @@ def _read(path: Path, window: Window) -> np.ndarray:
         return dataset.read(1, window=window, boundless=True, fill_value=0)
 
 
+def gated_sea_ice(contribution: "np.ndarray | None", ocean: np.ndarray) -> "np.ndarray | None":
+    """The ice alpha confined to ocean pixels, or None when no pixel survives.
+
+    THE GATE IS THE COASTAL-COLLAPSE GUARD, not bookkeeping: the same alpha damps displacement in
+    the rig, and ungated it would drag shoreline LAND toward sea level at full exaggeration.
+    `shade.composite` applies the identical gate for its own paint, and
+    `layers.SEA_ICE.requires_raster` is why an ocean mask is guaranteed wherever this layer is.
+    """
+    if contribution is None:
+        return None
+    gated = np.where(ocean, contribution, 0.0)
+    return gated if bool(gated.any()) else None
+
+
 def _write_mask(out: Path, array: np.ndarray) -> None:
     """A 0..1 field as 8-bit grey, which the rig takes as a Mix FACTOR rather than a switch.
 
@@ -143,6 +157,10 @@ def build(body: bodies.Body, window: Window, outdir: Path) -> list[str]:
                            dtype="float32", **GTIFF_CREATE) as out:
             out.write(depth.astype(np.float32), 1)
         written.append(render_seam.LAKEDEPTH)
+    ice = gated_sea_ice(contributions.get(layers.SEA_ICE.name), ocean)
+    if ice is not None:
+        _write_mask(outdir / render_seam.SEAICE, ice)
+        written.append(render_seam.SEAICE)
     return written
 
 
@@ -152,11 +170,19 @@ def write_frame(body: bodies.Body, window: Window, outdir: Path) -> dict[str, An
     `hero_long_edge` is the window's own edge because a block renders 1:1 with its heightfield,
     where a hero renders 7680 from a 16384-wide grid.
     """
+    extent_w_m = ground_width_m(window, body)
     numbers = render_prep.scene_numbers(
-        window.width, window.height, ground_width_m(window, body),
+        window.width, window.height, extent_w_m,
         exaggeration=body.exaggeration, hero_long_edge=window.width)
+    # The full FRAME_KEYS vocabulary, answered in a block's own terms: no padded lon/lat frame
+    # exists (None is the vocabulary's value for a grid taken from elsewhere), the CRS is the
+    # planet grid's, and the extents are ground metres at the block's mid-latitude — the same
+    # meaning the hero's AEA metres carry.
     payload = dict(numbers, body=body.name, exaggeration=body.exaggeration,
-                   width_px=window.width, height_px=window.height)
+                   width_px=window.width, height_px=window.height,
+                   frame_lonlat=None, dst_crs="EPSG:3857",
+                   xres_m=extent_w_m / window.width, extent_w_m=extent_w_m,
+                   extent_h_m=extent_w_m * window.height / window.width)
     (outdir / "frame.json").write_text(render_prep.frame_json_text(payload))
     return payload
 

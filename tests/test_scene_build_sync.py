@@ -198,6 +198,11 @@ class TestFlatTintsAreThePalettes:
     def test_snow_is_the_shared_white(self, scene_build):
         assert scene_build.SNOW_RGBA == (*palette.srgb8_to_linear(palette.SNOW_RGB), 1.0)
 
+    def test_ice_is_the_palettes_cool_white(self, scene_build):
+        """A single albedo where the composite keys a (sunlit, shadowed) pair: Cycles lights the
+        sheet itself, so the pair's shadowed half was the fake light key's job."""
+        assert scene_build.ICE_RGBA == (*palette.srgb8_to_linear(palette.ICE_RGB), 1.0)
+
 
 class TestSunAltitudeIsShared:
     def test_x_tilt_derives_from_sun_alt_deg(self, scene_build):

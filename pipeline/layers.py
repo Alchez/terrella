@@ -19,7 +19,8 @@ a table can hold a wrong column as easily as two sets can disagree.
 STAGE MEMBERSHIP IS A FIELD PER STAGE, NOT A SET OF NAMES, for the reason `bodies.Body` carries no
 defaults: a new stage must be a hard error at every row until each layer answers for it. A set would
 let the rows that need it be edited and the rest inherit "not mine" unexamined — which is how the
-block render would have inherited the composite's `sea_ice`, a layer its rig cannot paint.
+block render would have inherited the composite's `sea_ice` back when its rig had no ice input at
+all: a recorded layer no node could consume.
 
     from pipeline import layers
     if layers.layer_is_buildable(body, layers.SEA_ICE, source, "bathymetry bare at the poles"): ...
@@ -47,11 +48,11 @@ class Layer:
     in_cap: bool
     #: Read by the raytraced block render (`render/scene_build.py`, staged by the block prep).
     #:
-    #: THE THIRD STAGE, AND IT DOES NOT AGREE WITH EITHER OF THE OTHER TWO. It shades the same
-    #: Mercator grid the composite does and is about to replace it as `planet_rgb`'s producer, which
-    #: makes copying that column the natural mistake: the rig has one snow input and no ice input at
-    #: all, so `sea_ice` is False here while the composite paints it. That False is the correctness
-    #: gap itself rather than a look decision, and flipping it is what unit 5 does.
+    #: THE THIRD STAGE. It shades the same Mercator grid the composite does and is about to replace
+    #: it as `planet_rgb`'s producer, which makes copying the `in_composite` column the natural
+    #: mistake. Today the two columns agree row for row — the rig paints every raster layer the
+    #: composite does, `sea_ice` included — but the agreement is an answer per row and not a rule:
+    #: `tests/test_bodies.py` pins it as literals so a new layer still answers here on purpose.
     in_block: bool
     #: The planet raster this layer cannot be computed without, or None.
     #:
@@ -102,7 +103,7 @@ PERENNIAL_ICE = Layer("perennial_ice", in_composite=True, in_cap=True, in_block=
                       requires_raster=None, warped_basename="snow_persistence_3857.tif")
 GLACIERS = Layer("glaciers", in_composite=True, in_cap=False, in_block=True,
                  requires_raster=None, warped_basename="glacier_3857.tif")
-SEA_ICE = Layer("sea_ice", in_composite=True, in_cap=True, in_block=False,
+SEA_ICE = Layer("sea_ice", in_composite=True, in_cap=True, in_block=True,
                 requires_raster="oceanmask", warped_basename="seaice_3857.tif")
 COASTLINE = Layer("coastline", in_composite=False, in_cap=True, in_block=False,
                   requires_raster=None, warped_basename=None)

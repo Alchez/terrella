@@ -79,6 +79,10 @@ WORLD_STRENGTH = 0.3
 WATER_RGBA = (*palette.srgb8_to_linear(palette.WATER_RGB), 1.0)  # 8EC6C4 — sea
                        # surface +7%, pinned relationally (the 98C5C8 drift's cure)
 SNOW_RGBA = (*palette.srgb8_to_linear(palette.SNOW_RGB), 1.0)    # E8F1F6
+ICE_RGBA = (*palette.srgb8_to_linear(palette.ICE_RGB), 1.0)      # D4E4F0 — sea ice; a single
+                       # albedo where the composite keys a (sunlit, shadowed) pair, because
+                       # Cycles lights the sheet itself and the pair's shadowed half was the
+                       # fake light key's job (seaice.ice_white)
 
 LAKE_STOPS = _rgba(palette.LAKE_STOPS)   # depth-position ramp; stop 0 IS the water tint
 RAMP_INTERPOLATION = "EASE"
@@ -267,6 +271,23 @@ def mix_socket(mix_node, sock):
                 if socket.name == sock and socket.type == "RGBA")
 
 
+def make_float_mix(nt, name, label):
+    """`make_mix`'s FLOAT twin, for mixing the displacement height toward sea level."""
+    mix_node = nt.nodes.new("ShaderNodeMix")
+    mix_node.name, mix_node.label = name, label
+    mix_node.data_type = "FLOAT"
+    mix_node.blend_type = "MIX"
+    mix_node.clamp_factor = True
+    return mix_node
+
+
+def float_socket(mix_node, sock):
+    """A/B/Result sockets of a Mix node for its FLOAT data type."""
+    coll = mix_node.outputs if sock == "Result" else mix_node.inputs
+    return next(socket for socket in coll
+                if socket.name == sock and socket.type == "VALUE")
+
+
 def build_material(ob, render_dir, displacement_scale, look, present):
     """`present` is the prep's own declaration of what it wrote, never a `Path.exists()` sweep.
 
@@ -347,6 +368,26 @@ def build_material(ob, render_dir, displacement_scale, look, present):
         lake_ramp = make_ramp(nt, "Color Ramp.002", "", LAKE_STOPS)
         print(f"{render_seam.LAKEDEPTH} declared — wiring depth-keyed Lake ramp", flush=True)
 
+    # optional sea ice (block prep only today): ONE continuous ocean-gated alpha drives BOTH
+    # arms — an ice-white mix over the finished sea colour, and the displacement pulled toward
+    # sea level, which is what a floating sheet is. The ramps keep reading the RAW heightfield
+    # on purpose: damping the branch that feeds them would read 0 m under pack and collapse
+    # abyssal colour to shelf colour, deleting the see-through the alpha's ceiling exists for.
+    ice = None
+    ice_flatten = None
+    if render_seam.SEAICE in present:
+        ice_image_node = nt.nodes.new("ShaderNodeTexImage")
+        ice_image_node.name = "Image Texture.006"
+        ice_image_node.image = load_image(render_dir, render_seam.SEAICE)
+        ice_image_node.interpolation = "Linear"  # continuous alpha, like the heightfield
+        ice_image_node.extension = "REPEAT"
+        tex["Image Texture.006"] = ice_image_node
+        ice = make_mix(nt, "Mix.004", "Ice")
+        mix_socket(ice, "B").default_value = ICE_RGBA
+        ice_flatten = make_float_mix(nt, "Mix.005", "Ice Flatten")
+        float_socket(ice_flatten, "B").default_value = 0.0  # sea level
+        print(f"{render_seam.SEAICE} declared — wiring Ice mix + displacement damp", flush=True)
+
     bsdf = nt.nodes.new("ShaderNodeBsdfPrincipled")
     bsdf.name = "Principled BSDF"
     bsdf.inputs["Roughness"].default_value = 1.0
@@ -355,7 +396,12 @@ def build_material(ob, render_dir, displacement_scale, look, present):
 
     link = nt.links.new
     hf = tex["Image Texture"]
-    link(hf.outputs["Color"], disp.inputs["Height"])
+    if ice_flatten is not None:
+        link(hf.outputs["Color"], float_socket(ice_flatten, "A"))
+        link(tex["Image Texture.006"].outputs["Color"], ice_flatten.inputs["Factor"])
+        link(float_socket(ice_flatten, "Result"), disp.inputs["Height"])
+    else:
+        link(hf.outputs["Color"], disp.inputs["Height"])
     link(disp.outputs["Displacement"], out.inputs["Displacement"])
     link(hf.outputs["Color"], land_range.inputs["Value"])
     link(land_range.outputs["Result"], land_ramp.inputs["Factor"])
@@ -383,6 +429,10 @@ def build_material(ob, render_dir, displacement_scale, look, present):
         link(sea_ramp.outputs["Color"], mix_socket(ocean, "B"))
         link(tex[SEA_IMAGE].outputs["Color"], ocean.inputs[0])
         surface_color = mix_socket(ocean, "Result")
+    if ice is not None:
+        link(surface_color, mix_socket(ice, "A"))
+        link(tex["Image Texture.006"].outputs["Color"], ice.inputs[0])
+        surface_color = mix_socket(ice, "Result")
     link(surface_color, bsdf.inputs["Base Color"])
     link(bsdf.outputs["BSDF"], out.inputs["Surface"])
 

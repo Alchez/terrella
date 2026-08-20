@@ -95,7 +95,9 @@ class TestTheMarginIsRenderedAndNotDelivered:
 
 class TestTheBlockStageAsksForItsOwnLayersAndNotTheComposites:
     """The raytrace column reaching behaviour, which is the only thing that makes it more than a
-    field. Earth declares sea ice and the composite paints it; the rig has no ice input at all."""
+    field. Since the rig grew an ice input the block gathers everything the composite does, and
+    the agreement is pinned here BEHAVIOURALLY: flipping the column back off starves the rig's
+    ice arm and fails this, not only the literal pins in test_bodies."""
 
     def _gathered(self, vocabulary):
         packed = np.full((ROWS, COLS), 9_000.0, dtype="float32")
@@ -105,15 +107,50 @@ class TestTheBlockStageAsksForItsOwnLayersAndNotTheComposites:
         contributions, _ = layer_producers.gather(bodies.EARTH, layer_raw, window, vocabulary)
         return set(contributions)
 
-    def test_the_composite_gathers_sea_ice_and_the_block_does_not(self):
+    def test_the_block_gathers_sea_ice_like_the_composite(self):
         assert layers.SEA_ICE.name in self._gathered(layers.COMPOSITE_LAYERS)
-        assert layers.SEA_ICE.name not in self._gathered(layers.BLOCK_LAYERS)
+        assert layers.SEA_ICE.name in self._gathered(layers.BLOCK_LAYERS)
 
     def test_both_still_gather_the_white_the_rig_can_paint(self):
         """The companion that can fail: if the block vocabulary gathered nothing at all the test
         above would pass for the wrong reason."""
         for name in (layers.PERENNIAL_ICE.name, layers.GLACIERS.name):
             assert name in self._gathered(layers.BLOCK_LAYERS)
+
+    def test_the_vocabulary_is_an_actual_filter(self):
+        """The stage vocabularies agree on Earth today, so only a deliberately narrow one can
+        prove the gather honours its caller's vocabulary at all — a gather that ignored it would
+        hand every caller every layer the body declares, and no stage set could show it."""
+        narrowed = self._gathered(frozenset({layers.PERENNIAL_ICE.name}))
+        assert layers.PERENNIAL_ICE.name in narrowed
+        assert layers.GLACIERS.name not in narrowed
+        assert layers.SEA_ICE.name not in narrowed
+
+
+class TestSeaIceIsGatedToTheOcean:
+    """The coastal-collapse guard: the same alpha damps displacement in the rig, so ice that
+    leaked onto shoreline land would drag it toward sea level at full exaggeration."""
+
+    def test_ice_that_reaches_land_is_refused(self):
+        contribution = np.full((ROWS, COLS), 0.85)
+        ocean = np.zeros((ROWS, COLS), dtype=bool)
+        assert prep_block.gated_sea_ice(contribution, ocean) is None
+
+    def test_ice_on_the_ocean_survives_the_gate_exactly(self):
+        contribution = np.full((ROWS, COLS), 0.85)
+        ocean = np.zeros((ROWS, COLS), dtype=bool)
+        ocean[:, : COLS // 2] = True
+        gated = prep_block.gated_sea_ice(contribution, ocean)
+        assert gated is not None
+        assert gated[:, : COLS // 2].min() == 0.85
+        assert not gated[:, COLS // 2:].any()
+
+    def test_no_contribution_and_no_surviving_pixel_both_read_as_nothing_to_write(self):
+        """Both land in the skip-and-declare-empty path: `build` writes no image, and the block's
+        declaration says so rather than leaving an absence to interpret."""
+        ocean = np.ones((ROWS, COLS), dtype=bool)
+        assert prep_block.gated_sea_ice(None, ocean) is None
+        assert prep_block.gated_sea_ice(np.zeros((ROWS, COLS)), ocean) is None
 
 
 class TestTheWhiteUnionIsFoldedByItsOwner:
@@ -147,6 +184,22 @@ class TestTheWhiteUnionIsFoldedByItsOwner:
         assert seen == [(layers.PERENNIAL_ICE.name, 0.0), (layers.GLACIERS.name, 0.5)]
 
 
+class TestTheFrameGoesThroughTheHerosOwnSeam:
+    """`write_frame` must satisfy `frame_json_text`'s FULL vocabulary. The exact call shipped
+    broken while every gate was green, because nothing ran the shipping path: the validating
+    serialiser refused the block payload the first time a real prep reached it."""
+
+    def test_the_payload_round_trips_the_validating_serialiser(self, tmp_path):
+        window = prep_block.block_window(44032, 3584, 2048, 320)
+        prep_block.write_frame(bodies.EARTH, window, tmp_path)
+        written = json.loads((tmp_path / "frame.json").read_text())
+        assert written["body"] == "earth"
+        assert written["frame_lonlat"] is None, "a block is a grid window, not a lon/lat frame"
+        assert written["dst_crs"] == "EPSG:3857"
+        assert written["res_x"] == window.width, "a block renders 1:1 with its heightfield"
+        assert written["xres_m"] * written["width_px"] == pytest.approx(written["extent_w_m"])
+
+
 class TestTheRecipeRecordsWhatExistenceCannotSee:
     """A prose README with a git SHA names the whole tree and moves on any checkout; a recipe names
     the values this cut baked in, so a freshness check can compare them."""
@@ -169,7 +222,7 @@ class TestTheRecipeRecordsWhatExistenceCannotSee:
         """`layers_off` and `rasters_off` on their own rule: the ones that are OFF, never the ones
         that are on, so Earth's recipe stays empty and a full planet does not restage."""
         mars = self._written(monkeypatch, tmp_path, bodies.MARS)
-        assert mars["layers_off"] == ["glaciers", "lake_depth"]
+        assert mars["layers_off"] == ["glaciers", "lake_depth", "sea_ice"]
         assert mars["rasters_off"] == ["oceanmask", "watermask"]
 
     def test_earth_records_nothing_off_at_all(self, monkeypatch, tmp_path):
