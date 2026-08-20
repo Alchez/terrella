@@ -3170,9 +3170,9 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='python',
         label='the producer is gated on its raster rather than on the body declaring the layer',
-        path='pipeline/tile/shade_planet.py',
-        needle='        if layer.name not in inputs.body.surface_layers:\n            continue',
-        replacement='        if inputs.layer_raw[layer.name] is None:\n            continue',
+        path='pipeline/look/layer_producers.py',
+        needle='        if layer.name not in vocabulary or layer.name not in body.surface_layers:',
+        replacement='        if layer.name not in vocabulary or layer_raw[layer.name] is None:',
         guard='test_earths_antarctic_patch_survives_a_missing_persistence_raster',
     ),
     Sabotage(
@@ -4058,6 +4058,59 @@ SABOTAGES: list[Sabotage] = [
         replacement='BLOCK_LAYERS = frozenset(layer.name for layer in LAYERS if layer.in_composite)',
         guard='test_the_stages_disagree_about_which_layers_they_read',
     ),
+    # --- the render directory's seam, and the gather both tiers now share ------------------------
+    # Every one of these leaves a run that completes and produces a scene. What changes is whether
+    # the rig was TOLD what the directory holds or inferred it, which is invisible until the run
+    # where a producer skipped a file for a reason other than the region having none.
+    Sabotage(
+        suite='python',
+        label='the block stage gathers the composite\'s layers, so a raytraced Arctic claims ice',
+        path='pipeline/look/layer_producers.py',
+        needle='        if layer.name not in vocabulary or layer.name not in body.surface_layers:',
+        replacement='        if layer.name not in body.surface_layers:',
+        guard='test_the_composite_gathers_sea_ice_and_the_block_does_not',
+    ),
+    Sabotage(
+        suite='python',
+        label='the white union folds on a float32 base, narrowing every pixel the compositor blends',
+        path='pipeline/look/layer_producers.py',
+        needle='    alpha = np.zeros(shape, dtype=float)',
+        replacement='    alpha = np.zeros(shape, dtype=np.float32)',
+        guard='test_the_base_is_float64_so_no_contribution_is_narrowed',
+    ),
+    Sabotage(
+        suite='python',
+        label='a stage declares images it never wrote, so the rig loads a file that is not there',
+        path='pipeline/render/render_seam.py',
+        needle='    absent = [image for image in named if not (render_dir / image).exists()]',
+        replacement='    absent = []',
+        guard='test_naming_an_image_that_is_not_there_is_refused',
+    ),
+    Sabotage(
+        suite='python',
+        label='a stage rewrites the whole declaration, so a resume erases the stages behind it',
+        path='pipeline/render/render_seam.py',
+        needle='    stages = _records(render_dir)\n    stages[stage] = named',
+        replacement='    stages = {}\n    stages[stage] = named',
+        guard='test_re_running_one_stage_leaves_the_others_standing',
+    ),
+    Sabotage(
+        suite='python',
+        label='an unfilled render directory reads as an empty one rather than as an unfinished prep',
+        path='pipeline/render/render_seam.py',
+        needle='    if HEIGHTFIELD not in images:',
+        replacement='    if False:',
+        guard='test_no_declaration_at_all_raises_rather_than_returning_nothing',
+    ),
+    Sabotage(
+        suite='python',
+        label='the block width drops the body ground ratio, which is exactly 1.0 on Earth',
+        path='pipeline/render/prep_block.py',
+        needle='    return (mercator_width * math.cos(math.radians(mid_latitude))\n'
+               '            * bodies.ground_metres_per_mercator_unit(body))',
+        replacement='    return mercator_width * math.cos(math.radians(mid_latitude))',
+        guard='test_the_width_matches_the_closed_form_including_the_body_ratio',
+    ),
     Sabotage(
         suite='python',
         label='a layer requires a planet raster no producer can emit, and nothing spell-checks it',
@@ -4141,8 +4194,8 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label='the composite dependency list drops the masks to match cap_sources',
         path='pipeline/tile/shade_planet.py',
-        needle='    return (work / "height_3857.tif", hs, work / "ocean_3857.tif", work / "water_3857.tif",',
-        replacement='    return (work / "height_3857.tif", hs,',
+        needle='    return (work / HEIGHT_3857, hs, work / OCEAN_3857, work / WATER_3857,',
+        replacement='    return (work / HEIGHT_3857, hs,',
         guard='test_the_composite_names_the_masks_whatever_the_planet_declared',
     ),
     # --- Mars's planet producer ------------------------------------------------------------------

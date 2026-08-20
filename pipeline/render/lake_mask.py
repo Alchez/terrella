@@ -32,6 +32,7 @@ import numpy as np
 import rasterio
 
 from pipeline.look import lake_depth
+from pipeline.render import render_seam
 from pipeline.tile import shade
 
 
@@ -57,9 +58,10 @@ def main():
     args = ap.parse_args()
     render_dir = args.render_dir.resolve()
 
-    out_tif = render_dir / "lakedepth_aea.tif"
+    out_tif = render_dir / render_seam.LAKEDEPTH
     if out_tif.exists():
         print(f"{out_tif} exists — skipping", flush=True)
+        render_seam.declare(render_dir, render_seam.LAKE, [render_seam.LAKEDEPTH])
         return
 
     # The VRT is a local build product (pipeline.acquire.extract_globathy), so its
@@ -119,6 +121,7 @@ def main():
         out.write(position, 1)
     os.replace(tmp, out_tif)
 
+    render_seam.declare(render_dir, render_seam.LAKE, [render_seam.LAKEDEPTH])
     lake_px = int((position > 0).sum())
     km2 = lake_px * (xres * xres) / 1e6
     print(f"wrote {out_tif}", flush=True)

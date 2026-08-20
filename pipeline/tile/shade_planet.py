@@ -382,13 +382,24 @@ def composite_deps(work, hs, params) -> tuple:
     under-tracking is the direction that is silent. `test_the_two_freshness_predicates_disagree_on_a
     _missing_input` is the executable form of this paragraph; read it before changing either.
     """
-    return (work / "height_3857.tif", hs, work / "ocean_3857.tif", work / "water_3857.tif",
+    return (work / HEIGHT_3857, hs, work / OCEAN_3857, work / WATER_3857,
             *(layer.warped_in(work) for layer in layers.WARPED_LAYERS), params)
 
 
 #: What the finished pixels lose when a layer is skipped at the WARP stage, by layer name.
 #:
 #: A CONSEQUENCE IS PER (LAYER, STAGE), which is why this is here and not a column on `Layer`:
+#: The planet rasters this stage warps onto the Mercator grid, named once.
+#:
+#: THEY REACHED FIVE SPELLINGS HERE AND WOULD HAVE REACHED EIGHT, because the block prep consumes
+#: exactly these files and would have restated all three to do it. `layers.Layer.warped_basename`
+#: already owns the optional layers' names; these three are the planet seam's rasters, which have
+#: no such row. THE BASENAMES ARE SHIPPED AND MUST NOT BE TIDIED — each is a composite dependency
+#: by mtime, so renaming one restages Earth's whole pyramid to reproduce the pixels already there.
+HEIGHT_3857 = "height_3857.tif"
+OCEAN_3857 = "ocean_3857.tif"
+WATER_3857 = "water_3857.tif"
+
 #: `cap_render` says something different about the same layers because it paints a different
 #: picture. Each states what the reader will see rather than what was missing, so a partial build
 #: can be read back off its own output.
@@ -416,7 +427,7 @@ def warp_inputs(work: Path, planet: Path, body: bodies.Body, rasters: frozenset[
     gains a sea at a chosen contour has an ocean mask and still no inland water.
     """
     chunks = planet / "chunks"
-    height = work / "height_3857.tif"
+    height = work / HEIGHT_3857
     resolution = body.map_units_per_pixel
     # NOT `is_stale` ALONE: this raster's inputs are a VRT and a chunk directory, and neither moves
     # when the body's ceiling does. `reference_needs_rebuild` asks the raster its own pixel size.
@@ -698,39 +709,22 @@ def _compute_shared(inputs: _WindowInputs) -> _WindowShared:
     hs_win = inputs.hs_raw.astype(float)
     land_win = ~(ocean_win | water_win)
     latitude = snow.latitude_per_row(inputs.win_top, inputs.win_bottom, inputs.win_h)
-    # ASKED OF THE BODY, never of the raster on disk. A producer runs because the planet DECLARED
-    # the layer, which is what lets Earth's perennial ice carry the forced Antarctic patch — a
-    # latitude-and-land rule with no file behind it, so no missing raster could ever switch it off.
-    # Reading the declaration off `layer_raw` instead would drop it the day NSIDC went absent.
-    contributions: dict[str, np.ndarray] = {}
-    paints: dict[str, tuple[Any, Any]] = {}
-    for layer in layers.WARPED_LAYERS:
-        if layer.name not in inputs.body.surface_layers:
-            continue
-        producer = layer_producers.producer_for(inputs.body, layer)
-        window = layer_producers.LayerWindow(
-            raw=inputs.layer_raw[layer.name], watercode=watercode, land=land_win,
-            latitude=latitude, top=inputs.win_top, bottom=inputs.win_bottom)
-        value = producer.contribution(window)
-        if value is not None:
-            contributions[layer.name] = value
-            # Asked ONLY of a layer that contributed, so a producer that paints nothing this window
-            # never has to answer what colour it would have used.
-            paint = producer.paint(window)
-            if paint is not None:
-                paints[layer.name] = paint
+    # THE WALK AND THE FOLD BELONG TO `layer_producers`, and the block render is the second caller
+    # that proves it: which layers a stage reads, how a `LayerWindow` is built, and the order and
+    # dtype the whites fold in are all decisions, and a stage that re-wrote them would re-decide
+    # every one with nothing going red. What stays here is the PAINT, because only the compositor
+    # paints — the raytraced rig reads a ramp.
+    contributions, paints = layer_producers.gather(
+        inputs.body, inputs.layer_raw,
+        layer_producers.LayerWindow(raw=None, watercode=watercode, land=land_win,
+                                    latitude=latitude, top=inputs.win_top,
+                                    bottom=inputs.win_bottom),
+        layers.COMPOSITE_LAYERS)
     depth_win = contributions.get(layers.LAKE_DEPTH.name)
-    # The white union, in the table's order. float64 base because that is what `snow_alpha` returns
-    # and what the maxima promote to; a float32 base would narrow every pixel `composite` blends.
-    # `np.maximum` reorders freely and every contribution is non-negative, so which layer lands
-    # first cannot move a bit.
-    snow_a = np.zeros(inputs.height_win.shape, dtype=float)
-    snow_paint = None
-    for layer in (layers.PERENNIAL_ICE, layers.GLACIERS):
-        contribution = contributions.get(layer.name)
-        if contribution is not None:
-            snow_paint = _merge_paint(snow_paint, snow_a, paints.get(layer.name), contribution)
-            snow_a = np.maximum(snow_a, contribution)
+    snow_a, snow_paint = layer_producers.fold_white(
+        contributions, inputs.height_win.shape,
+        merge=lambda carried, alpha, name, contribution:
+            _merge_paint(carried, alpha, paints.get(name), contribution))
     # The sea-side twin, kept OUT of that union on purpose: `shade.composite` gates it on the ocean
     # selector where snow_a paints land, and None there means the layer is absent rather than zero.
     ice_a = contributions.get(layers.SEA_ICE.name)
@@ -805,7 +799,7 @@ def composite_planet(work: Path, hs, compute_occlusion: Callable[[], np.ndarray]
         return outs
     print("global sky-view factor ...", flush=True)
     occ = compute_occlusion()
-    with rasterio.open(work / "height_3857.tif") as h:
+    with rasterio.open(work / HEIGHT_3857) as h:
         width, height, transform = h.width, h.height, h.transform
     small_h, _small_w = occ.shape
     # dict[str, Any]: GDAL creation options are a heterogeneous bag, and `**profile` otherwise
@@ -814,7 +808,7 @@ def composite_planet(work: Path, hs, compute_occlusion: Callable[[], np.ndarray]
         driver="GTiff", width=width, height=height, count=3, dtype="uint8",
         crs="EPSG:3857", transform=transform, photometric="RGB", BIGTIFF="YES",
         num_threads="ALL_CPUS", **GTIFF_CREATE)
-    ocean_p, water_p = work / "ocean_3857.tif", work / "water_3857.tif"
+    ocean_p, water_p = work / OCEAN_3857, work / WATER_3857
     layer_paths = {layer.name: layer.warped_in(work) for layer in layers.WARPED_LAYERS}
 
     def read_window(row0: int) -> _WindowInputs:
@@ -828,7 +822,7 @@ def composite_planet(work: Path, hs, compute_occlusion: Callable[[], np.ndarray]
             win=win, win_h=row1 - row0,
             win_top=transform.f + row0 * transform.e,
             win_bottom=transform.f + row1 * transform.e,
-            height_win=read1_window(work / "height_3857.tif", win),
+            height_win=read1_window(work / HEIGHT_3857, win),
             # Gated on the SEAM'S DECLARATION, never on `ocean_p.exists()`. A declared mask that is
             # missing from disk must crash here — the planet said it has one — where an existence
             # check would quietly composite a sea-less Earth after a half-finished warp.

@@ -52,6 +52,7 @@ import bpy  # pyright: ignore[reportMissingImports] — exists only in Blender's
 # import it. parents[2] = the repo root, regardless of cwd.
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from pipeline.look import palette
+from pipeline.render import render_seam
 
 
 def _rgba(stops):
@@ -91,10 +92,10 @@ BOUNCES = dict(max_bounces=12, diffuse_bounces=4, glossy_bounces=4,
 CLAMP_INDIRECT = 10.0
 
 IMAGES = {  # node name -> (filename, interpolation)
-    "Image Texture": ("heightfield_aea.tif", "Linear"),
-    "Image Texture.001": ("oceanmask_aea.png", "Closest"),
-    "Image Texture.002": ("inlandlake_aea.png", "Closest"),
-    "Image Texture.003": ("river_aea.png", "Closest"),
+    "Image Texture": (render_seam.HEIGHTFIELD, "Linear"),
+    "Image Texture.001": (render_seam.OCEANMASK, "Closest"),
+    "Image Texture.002": (render_seam.INLANDLAKE, "Closest"),
+    "Image Texture.003": (render_seam.RIVER, "Closest"),
 }
 
 #: The one entry in `IMAGES` a look can decline, being the sea branch's own input.
@@ -266,7 +267,12 @@ def mix_socket(mix_node, sock):
                 if socket.name == sock and socket.type == "RGBA")
 
 
-def build_material(ob, render_dir, displacement_scale, look):
+def build_material(ob, render_dir, displacement_scale, look, present):
+    """`present` is the prep's own declaration of what it wrote, never a `Path.exists()` sweep.
+
+    The two optional images are skipped by a prep that measured no snow or no lake bed in this
+    region, and an absent file cannot tell that measurement from a prep that died before writing it.
+    """
     mat = bpy.data.materials.new("Material.001")
     mat.use_nodes = True
     mat.displacement_method = "DISPLACEMENT"
@@ -308,19 +314,19 @@ def build_material(ob, render_dir, displacement_scale, look):
     river = make_mix(nt, "Mix.002", "River")
     ocean = None if sea_ramp is None else make_mix(nt, "Mix", "")
 
-    # optional data-driven snow/ice (render/snow_mask.py); mask absent
+    # optional data-driven snow/ice (render/snow_mask.py); layer not declared
     # -> graph identical to the pre-snow scene
     snow = None
-    if (render_dir / "snowmask_aea.png").exists():
+    if render_seam.SNOWMASK in present:
         snow_image_node = nt.nodes.new("ShaderNodeTexImage")
         snow_image_node.name = "Image Texture.004"
-        snow_image_node.image = load_image(render_dir, "snowmask_aea.png")
+        snow_image_node.image = load_image(render_dir, render_seam.SNOWMASK)
         snow_image_node.interpolation = "Closest"
         snow_image_node.extension = "REPEAT"
         tex["Image Texture.004"] = snow_image_node
         snow = make_mix(nt, "Mix.003", "Snow")
         mix_socket(snow, "B").default_value = SNOW_RGBA
-        print("snowmask_aea.png found — wiring Snow mix", flush=True)
+        print(f"{render_seam.SNOWMASK} declared — wiring Snow mix", flush=True)
 
     # optional depth-keyed lake tint (render/lake_mask.py); raster absent ->
     # the Lake mix keeps the flat RGB node, the pre-lake-depth graph exactly.
@@ -331,15 +337,15 @@ def build_material(ob, render_dir, displacement_scale, look):
     # is tint-only and must NEVER reach displacement (at 15x exaggeration a
     # carved bed makes Namtso a 1.5 km crater).
     lake_ramp = None
-    if (render_dir / "lakedepth_aea.tif").exists():
+    if render_seam.LAKEDEPTH in present:
         lake_depth_node = nt.nodes.new("ShaderNodeTexImage")
         lake_depth_node.name = "Image Texture.005"
-        lake_depth_node.image = load_image(render_dir, "lakedepth_aea.tif")
+        lake_depth_node.image = load_image(render_dir, render_seam.LAKEDEPTH)
         lake_depth_node.interpolation = "Linear"  # continuous field, like the heightfield
         lake_depth_node.extension = "REPEAT"
         tex["Image Texture.005"] = lake_depth_node
         lake_ramp = make_ramp(nt, "Color Ramp.002", "", LAKE_STOPS)
-        print("lakedepth_aea.tif found — wiring depth-keyed Lake ramp", flush=True)
+        print(f"{render_seam.LAKEDEPTH} declared — wiring depth-keyed Lake ramp", flush=True)
 
     bsdf = nt.nodes.new("ShaderNodeBsdfPrincipled")
     bsdf.name = "Principled BSDF"
@@ -457,7 +463,8 @@ def main():
                  f"mismatched frame.json")
     bpy.data.images.remove(probe)
     plane = build_plane(frame["plane_height_units"])
-    build_material(plane, render_dir, frame["displacement_scale"], look)
+    build_material(plane, render_dir, frame["displacement_scale"], look,
+                   render_seam.declared(render_dir))
 
     prefs = bpy.context.preferences.addons["cycles"].preferences
     print(f"body {args.body}, {'sea' if look.sea is not None else 'no sea'}; ", flush=True)

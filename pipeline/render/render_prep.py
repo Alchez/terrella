@@ -62,6 +62,7 @@ from rasterio.warp import transform_bounds
 from rasterio.windows import Window
 
 from pipeline import bodies
+from pipeline.render import render_seam
 
 FRAME_MARGIN = 1.0006  # camera overshoot: the plane underfills the frame a hair
 HERO_LONG_EDGE = 7680  # hero render long edge in px; the short axis follows
@@ -307,9 +308,9 @@ def main():
              dtype, pred, floor_m=fm)
         wrote += 1
 
-    png_jobs = [(out_m, 1, "oceanmask_aea.png")]
+    png_jobs = [(out_m, 1, render_seam.OCEANMASK)]
     if args.watermask:
-        png_jobs += [(out_w, 2, "inlandlake_aea.png"), (out_w, 3, "river_aea.png")]
+        png_jobs += [(out_w, 2, render_seam.INLANDLAKE), (out_w, 3, render_seam.RIVER)]
     for src_tif, cls, name in png_jobs:
         out_png = args.outdir / name
         if out_png.exists():
@@ -318,6 +319,12 @@ def main():
         write_class_png(src_tif, out_png, cls)
         wrote += 1
 
+    # Declared unconditionally, INCLUDING on the "nothing to do" path, because the record is a
+    # statement about this stage having finished rather than about it having written bytes. A resume
+    # that skipped every warp has still produced the directory the rig is about to read.
+    print(f"declared {render_seam.declare(args.outdir, render_seam.PREP,
+                                          [render_seam.HEIGHTFIELD] + [n for _, _, n in png_jobs])}",
+          flush=True)
     print("complete" if wrote else "nothing to do — all outputs exist",
           flush=True)
 

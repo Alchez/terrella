@@ -17,6 +17,7 @@ import types
 import pytest
 
 from pipeline.look import palette
+from pipeline.render import render_seam
 
 
 @pytest.fixture(scope="module")
@@ -88,6 +89,27 @@ class TestRampsAreThePalettes:
         assert scene_build.look_constants(moved).land_range == (-1234.0, palette.LAND_MAX_M)
         assert scene_build.look_constants(palette.EARTH_LOOK).land_range == (
             0.0, palette.LAND_MAX_M)
+
+
+class TestTheRigsFilenamesHaveOneOwner:
+    """`render_seam` owns the six spellings and the rig reads them from there.
+
+    The drift this closes is not hypothetical: the prep that WRITES these files and the rig that
+    LOADS them are different modules in different interpreters, and every one of the six was a
+    literal in both. A rename touching one side is a scene that loads nothing, reported as a
+    missing image rather than as the rename it is.
+    """
+
+    def test_the_rig_loads_only_images_the_seam_declares(self, scene_build):
+        loaded = {filename for filename, _ in scene_build.IMAGES.values()}
+        assert loaded <= render_seam.KNOWN_IMAGES
+        assert render_seam.HEIGHTFIELD in loaded, "the elevation is always loaded"
+
+    def test_the_sea_image_is_the_oceanmask_by_name_and_not_by_position(self, scene_build):
+        """`SEA_IMAGE` is a node name and the table maps it to a filename; a table reordered so
+        that `.001` became a different mask would drop the wrong image for a sea-less body."""
+        filename, _ = scene_build.IMAGES[scene_build.SEA_IMAGE]
+        assert filename == render_seam.OCEANMASK
 
 
 class TestASeaLessLookDropsTheSeaBranch:

@@ -42,6 +42,7 @@ from rasterio.warp import transform_bounds
 
 from pipeline import paths
 from pipeline.fetch import download_one
+from pipeline.render import render_seam
 
 BUCKET_URL = "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map"
 DATA_DIR = paths.DATA / "raw/worldcover"
@@ -77,9 +78,10 @@ def main():
     args = ap.parse_args()
     render_dir = args.render_dir.resolve()
 
-    out_png = render_dir / "snowmask_aea.png"
+    out_png = render_dir / render_seam.SNOWMASK
     if out_png.exists():
         print(f"{out_png} exists — skipping", flush=True)
+        render_seam.declare(render_dir, render_seam.SNOW, [render_seam.SNOWMASK])
         return
 
     # grid + CRS from the existing heightfield (render_prep.py pattern):
@@ -186,6 +188,7 @@ def main():
         os.replace(aux, out_png.with_name(out_png.name + ".aux.xml"))
     os.replace(tmp, out_png)
 
+    render_seam.declare(render_dir, render_seam.SNOW, [render_seam.SNOWMASK])
     px = int((mask > 0).sum())
     km2 = px * (xres * xres) / 1e6
     print(f"wrote {out_png}", flush=True)

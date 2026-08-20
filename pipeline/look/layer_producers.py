@@ -31,6 +31,7 @@ put GDAL back where rasterio is not thread-safe.
     producer = layer_producers.producer_for(body, layers.SEA_ICE)
 """
 
+import dataclasses
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -465,3 +466,70 @@ def producer_for(body: bodies.Body, layer: layers.Layer) -> LayerProducer:
             f"{body.name} declares the {layer.name} layer but registers no composite producer; "
             f"known: {sorted(PRODUCER_BY_BODY_LAYER)}"
         ) from None
+
+
+#: The layers whose contributions merge into ONE white, in the order they fold.
+#:
+#: SEA ICE IS ABSENT AND THAT IS THE POINT. `shade.composite` gates it on the ocean selector where
+#: this union paints land, so folding it in here would paint pack ice onto the shore it borders.
+#: Lake depth is absent for a different reason: it is a ramp position and not a white at all.
+WHITE_UNION: tuple[layers.Layer, ...] = (layers.PERENNIAL_ICE, layers.GLACIERS)
+
+
+def gather(body: bodies.Body, layer_raw: dict[str, "np.ndarray | None"], window: LayerWindow,
+           vocabulary: frozenset[str]) -> tuple[dict[str, np.ndarray], dict[str, tuple[Any, Any]]]:
+    """Every layer `vocabulary` reads, as this body's producers answer for one window.
+
+    ASKED OF THE BODY, NEVER OF THE RASTER ON DISK. A producer runs because the planet DECLARED the
+    layer, which is what lets Earth's perennial ice carry the forced Antarctic patch — a
+    latitude-and-land rule with no file behind it, so no missing raster could ever switch it off.
+    Reading the declaration off `layer_raw` instead would drop it the day NSIDC went absent.
+
+    `vocabulary` IS THE CALLER'S STAGE VIEW, on `layers.layers_off`'s rule: the composite reads
+    `COMPOSITE_LAYERS` and the block render `BLOCK_LAYERS`, and the two genuinely disagree.
+
+    A paint is asked ONLY of a layer that contributed, so a producer that paints nothing this window
+    never has to answer what colour it would have used.
+    """
+    contributions: dict[str, np.ndarray] = {}
+    paints: dict[str, tuple[Any, Any]] = {}
+    for layer in layers.WARPED_LAYERS:
+        if layer.name not in vocabulary or layer.name not in body.surface_layers:
+            continue
+        producer = producer_for(body, layer)
+        seen = dataclasses.replace(window, raw=layer_raw[layer.name])
+        value = producer.contribution(seen)
+        if value is None:
+            continue
+        contributions[layer.name] = value
+        paint = producer.paint(seen)
+        if paint is not None:
+            paints[layer.name] = paint
+    return contributions, paints
+
+
+def fold_white(contributions: dict[str, np.ndarray], shape: tuple[int, ...], *,
+               merge: "Callable[[Any, np.ndarray, str, np.ndarray], Any] | None" = None
+               ) -> tuple[np.ndarray, Any]:
+    """Fold `WHITE_UNION`'s contributions into the one alpha `shade.composite` paints as snow.
+
+    float64 base because that is what `snow_alpha` returns and what the maxima promote to; a float32
+    base would narrow every pixel the compositor blends. `np.maximum` reorders freely and every
+    contribution is non-negative, so which layer lands first cannot move a bit — the fixed order is
+    for the caller that folds something ALONGSIDE the alpha and is not commutative.
+
+    `merge` is that caller. It receives the value carried so far, the alpha BEFORE this layer folds
+    in, and this layer's name and contribution, and it exists so the compositor's paint merge reads
+    the same running alpha this fold produces rather than recomputing a second one beside it. Left
+    None by a caller that wants the alpha alone, which is every caller that does not paint.
+    """
+    alpha = np.zeros(shape, dtype=float)
+    carried = None
+    for layer in WHITE_UNION:
+        contribution = contributions.get(layer.name)
+        if contribution is None:
+            continue
+        if merge is not None:
+            carried = merge(carried, alpha, layer.name, contribution)
+        alpha = np.maximum(alpha, contribution)
+    return alpha, carried
