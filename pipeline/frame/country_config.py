@@ -354,7 +354,8 @@ def stage_commands(resolved: dict) -> list[str]:
     # down (`pipeline/…`, `blender/…`) stay relative on purpose: those really are checkout paths.
     work = country_work_dir(resolved["slug"])
     rd = country_render_dir(resolved["slug"])
-    prep = (f"python -m pipeline.render.render_prep --heightfield {work}/heightfield_{tag}.tif"
+    prep = (f"python -m pipeline.render.render_prep --body {bodies.EARTH.name}"
+            f" --heightfield {work}/heightfield_{tag}.tif"
             f" --mask {work}/oceanmask_{tag}.tif"
             f" --watermask {work}/watermask_{tag}.tif"
             f" --frame {fr} --outdir {rd} --width {resolved['warp'][0]}"

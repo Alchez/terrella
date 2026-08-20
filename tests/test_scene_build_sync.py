@@ -9,6 +9,7 @@ any re-inlined literal fails HERE instead of on a hero render.
 """
 
 import importlib
+import json
 import math
 import sys
 import types
@@ -126,6 +127,45 @@ class TestASeaLessLookDropsTheSeaBranch:
         """The dump-diff against the hand-built .blend sees creation order, so the sea-less arm
         must not have reordered the arm that renders 203 heroes."""
         assert list(scene_build.images_for(palette.EARTH_LOOK)) == list(scene_build.IMAGES)
+
+
+class TestTheFlagIsCrossCheckedAgainstTheFrame:
+    """CLAUDE.md's treatment for a fact that must live in two places: make one copy executable so
+    drift fails loudly. The check runs before any bpy call, which is what lets a stub reach it."""
+
+    def _run(self, scene_build, monkeypatch, tmp_path, *, flag, frame):
+        (tmp_path / "frame.json").write_text(json.dumps(frame))
+        monkeypatch.setattr(sys, "argv", [
+            "blender", "--", "--body", flag, "--render-dir", str(tmp_path),
+            "--out", str(tmp_path / "out.blend")])
+        with pytest.raises(SystemExit) as exit_info:
+            scene_build.main()
+        return str(exit_info.value)
+
+    def test_a_flag_disagreeing_with_the_frame_stops_the_render(self, scene_build, monkeypatch,
+                                                                tmp_path):
+        message = self._run(scene_build, monkeypatch, tmp_path,
+                            flag="mars", frame={"body": "earth"})
+        assert "written for 'earth'" in message
+
+    def test_a_frame_with_no_body_is_refused_rather_than_assumed_to_be_earth(
+            self, scene_build, monkeypatch, tmp_path):
+        """The 203 frames on disk predate the field. Guessing would draw a plausible wrong planet,
+        which is the same refusal as the flag having no default."""
+        message = self._run(scene_build, monkeypatch, tmp_path,
+                            flag="earth", frame={"width_px": 8192})
+        assert "records no body" in message and "backfilling" in message
+
+    def test_an_agreeing_frame_gets_past_the_check(self, scene_build, monkeypatch, tmp_path):
+        """Anti-vacuity: both tests above would pass if the check rejected every frame. Agreement
+        must reach the next statement, which is the first bpy call and dies on the stub — an
+        exception the check itself can never raise, so it is unambiguous proof of passage."""
+        (tmp_path / "frame.json").write_text(json.dumps({"body": "earth"}))
+        monkeypatch.setattr(sys, "argv", [
+            "blender", "--", "--body", "earth", "--render-dir", str(tmp_path),
+            "--out", str(tmp_path / "out.blend")])
+        with pytest.raises(AttributeError, match="bpy"):
+            scene_build.main()
 
 
 class TestFlatTintsAreThePalettes:

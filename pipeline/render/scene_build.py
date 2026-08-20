@@ -433,6 +433,15 @@ def main():
     if not frame_path.exists():
         sys.exit(f"{frame_path} not found — render_prep.py emits it")
     frame = json.loads(frame_path.read_text())
+    # The executable copy of a fact that lives in two places. Refusing an absent `body` rather than
+    # assuming Earth is the same refusal as the flag having no default: a frame written before
+    # render_prep recorded one needs backfilling, and guessing would draw a plausible wrong planet.
+    if "body" not in frame:
+        sys.exit(f"{frame_path} records no body — render_prep writes one, so this frame predates "
+                 f"that and needs backfilling rather than assuming {args.body!r}")
+    if frame["body"] != args.body:
+        sys.exit(f"--body {args.body} but {frame_path} was written for {frame['body']!r}; one of "
+                 f"the two is wrong and the render would be plausible either way")
 
     clear_scene()
     configure_render(frame["res_x"], frame["res_y"])

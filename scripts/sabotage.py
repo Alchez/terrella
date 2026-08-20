@@ -4334,6 +4334,38 @@ SABOTAGES: list[Sabotage] = [
         replacement='            if True}',
         guard='test_the_oceanmask_is_not_asked_for',
     ),
+    # The scene and its frame are the two places one fact lives, so one of them has to be
+    # executable. Absent the check a wrong flag draws another planet's ramps and nothing raises.
+    Sabotage(
+        suite='python',
+        label='a frame written for another body is rendered anyway, in this one\'s ramps',
+        path='pipeline/render/scene_build.py',
+        needle='    if frame["body"] != args.body:',
+        replacement='    if False:',
+        guard='test_a_flag_disagreeing_with_the_frame_stops_the_render',
+    ),
+    # --- The exaggeration belongs to the body ---------------------------------------------------
+    # `scene_numbers` is the hero path's seam AND the block prep's, and the block prep runs on both
+    # planets. Earth's constant here is exactly 1.0's cousin: correct where it was written, and a
+    # flatter planet with no error anywhere else.
+    Sabotage(
+        suite='python',
+        label="the render seam re-imports Earth's exaggeration instead of taking the body's",
+        path='pipeline/render/render_prep.py',
+        needle='        displacement_scale=exaggeration / (extent_w_m / 2.0),',
+        replacement='        displacement_scale=15.0 / (extent_w_m / 2.0),',
+        guard='test_mars_displaces_at_its_own_number_and_not_earths',
+    ),
+    # frame.json is never overwritten, so a pin can only be checked by regenerating beside it. A
+    # tolerated stray or missing key makes that comparison fail for a reason that is not geometry.
+    Sabotage(
+        suite='python',
+        label='frame.json tolerates a missing key, writing null where a number belongs',
+        path='pipeline/render/render_prep.py',
+        needle='    if missing or unknown:',
+        replacement='    if unknown:',
+        guard='test_a_missing_key_is_refused_rather_than_written_as_null',
+    ),
     # --- Where a body's intermediates live -----------------------------------------------------------
     # The body is carried by the PATH, deliberately not by the freshness recipes: adding a body key to
     # composite_params.json would restage a 21:37 composite and a 4:19 cut to emit identical pixels.

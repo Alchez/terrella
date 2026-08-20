@@ -135,21 +135,23 @@ class TestSharedConstants:
         assert shade.KNOBS["alt"] == palette.SUN_ALT_DEG
 
     def test_exaggeration_is_shared(self):
-        """render_prep's displacement_scale and the region shader both source palette.EXAGGERATION.
+        """The region shader sources palette.EXAGGERATION.
 
-        The planet leg USED to be here and is gone on purpose: the planet path takes its
-        exaggeration from `Body.exaggeration`, which `test_bodies.py` pins against this constant
-        for Earth. Asserting it twice would say nothing new.
+        TWO legs have left this test and both for the same reason, which is worth stating once: a
+        path that draws more than one body takes its exaggeration from `Body.exaggeration`, and
+        `test_bodies.py` pins Earth's field against this constant. The planet leg went first. The
+        render leg followed when `scene_numbers` stopped importing this constant — it is the block
+        prep's seam as well as the hero path's, so importing Earth's 15x gave a Mars block two
+        thirds of its displacement with nothing to notice. `test_render_prep.py` now guards it.
 
-        Its replacement is not a downgrade — `shade.EXAG` was a THIRD literal 15.0 that this
-        guard's own docstring called "the last copy-pair", and no test named it. The region path
-        exists to predict the planet, so a look value it holds privately is drift by construction.
+        What remains is the region path, and it is not a downgrade — `shade.EXAG` was a THIRD
+        literal 15.0 that this guard's own docstring called "the last copy-pair", and no test named
+        it. The region path exists to predict the planet, so a look value it holds privately is
+        drift by construction.
         """
-        from pipeline.render import render_prep
         from pipeline.tile import shade
 
         assert palette.EXAGGERATION == 15.0
-        assert render_prep.EXAGGERATION == palette.EXAGGERATION
         assert shade.EXAG == palette.EXAGGERATION
 
     def test_web_palette_matches_the_ramp_it_copies(self):
