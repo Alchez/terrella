@@ -7,7 +7,7 @@ onto them. It is tracked so the constants in shipped code have a reachable owner
 reader cannot follow asserts that an explanation exists somewhere, which is worse than none.
 
 A LEVEL IS VOID WHEN EITHER THE FIELD OR THE GRID MOVES, and both have moved before. Re-run this
-after any change to `render/viking_luma`'s output or to `cap_render`'s `edge_lat` — the last such
+after any change to `look/viking_luma`'s output or to `cap_render`'s `edge_lat` — the last such
 change moved the north's cap level by 11.4% while leaving the south's at 0.03 DN, so neither
 direction of "it probably did not matter" is safe.
 
@@ -114,7 +114,7 @@ def viking_on_cap(grid: cap_render.CapGrid,
                   from_pipeline: bool = False) -> tuple[np.ndarray, np.ndarray]:
     """Viking luma on this cap's AEQD grid, and the validity mask, as `(luma, valid)`.
 
-    `from_pipeline` READS `render/viking_luma`'s SHIPPED RASTER INSTEAD OF REBUILDING THE BAND, and
+    `from_pipeline` READS `look/viking_luma`'s SHIPPED RASTER INSTEAD OF REBUILDING THE BAND, and
     that is what makes this script an oracle over the pipeline rather than a parallel implementation
     of it. The levels are percentiles of a particular field; if the stage that ships that field
     resamples it even slightly differently from the chain the levels were taken through, the four
@@ -239,7 +239,7 @@ def compare_against_the_pipeline() -> int:
     """Measure the levels BOTH ways and refuse any disagreement at the pinned precision.
 
     THE ONE CHECK THAT SAYS THE SHIPPED FIELD IS THE MEASURED FIELD. `ALPHA_LEVELS` is four
-    percentiles of a particular set of numbers; `render/viking_luma` builds those numbers on a grid
+    percentiles of a particular set of numbers; `look/viking_luma` builds those numbers on a grid
     stated rather than inherited, so nothing but running both and subtracting can establish that the
     stage ships what the instrument measured.
     """

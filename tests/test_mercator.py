@@ -1,6 +1,6 @@
 """The inverse Web-Mercator conversion, which existed twice before it existed once.
 
-`render/hillshade.py` and `render/snow.py` each carried their own `EARTH_RADIUS = 6378137.0` AND
+`look/hillshade.py` and `look/snow.py` each carried their own `EARTH_RADIUS = 6378137.0` AND
 their own transcription of `degrees(2*atan(exp(y/R)) - pi/2)`. Two copies of a constant is the drift
 this project has been bitten by; two copies of the FORMULA is the same hazard with more surface, and
 nothing related them. A second body makes it worse than drift — the radius is what turns a northing

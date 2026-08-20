@@ -1,7 +1,7 @@
 """Hero lake-depth stage: GLOBathy depth -> a log1p ramp-position raster for the scene.
 
-The hero twin of the tile pipeline's lake-depth layer (`render/lake_depth.py` +
-`shade.composite`'s lake branch), as `snow_mask.py` is the hero twin of `render/snow.py`.
+The hero twin of the tile pipeline's lake-depth layer (`look/lake_depth.py` +
+`shade.composite`'s lake branch), as `snow_mask.py` is the hero twin of `look/snow.py`.
 Emits `lakedepth_aea.tif` on the exact `heightfield_aea.tif` grid: Float32 storing the
 lake ramp POSITION 0..1 — `shade.lake_position`'s curve baked here, venv-side, where the
 tile implementation lives — so the scene just samples it into a ColorRamp over

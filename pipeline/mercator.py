@@ -1,6 +1,6 @@
 """Web-Mercator geometry, in one home and parameterised by the sphere it is projected on.
 
-WHY THIS MODULE EXISTS. `render/hillshade.py` and `render/snow.py` each carried their own
+WHY THIS MODULE EXISTS. `look/hillshade.py` and `look/snow.py` each carried their own
 `EARTH_RADIUS = 6378137.0` and their own transcription of the inverse projection. Two copies of a
 constant is the drift this project has already paid for; two copies of the FORMULA is the same
 hazard with more surface, and nothing related them — a fix applied to one would have looked

@@ -82,7 +82,7 @@ Cost: hero sweep **~10–13 h** + tile restage **~29 min** + caps auto-restage *
 | `RAMP_INTERPOLATION` | EASE | § Land color ramp |
 | render-quality block (`SAMPLES` 4096, `ADAPTIVE_THRESHOLD` 0.01, `BOUNCES`, `CLAMP_INDIRECT` 10) | quality/cost, not look | § View transform |
 
-### Tiles + caps — `shade.KNOBS` (+ `render/seaice.py`), caps restage automatically
+### Tiles + caps — `shade.KNOBS` (+ `look/seaice.py`), caps restage automatically
 
 - Two cost tiers by pipeline stage (PROCESS.md): **hillshade-stage ~46 min**, **composite-stage
   ~29 min**.
@@ -182,7 +182,7 @@ Cost: hero sweep **~10–13 h** + tile restage **~29 min** + caps auto-restage *
 
 - The hero fill, ported as a ratio. Baseline **0.15** = the hero's own `FILL_STRENGTH 0.45 /
   SUN_STRENGTH 3`. Geometry is the hero's too: 60° up, azimuth 135° (SE), in
-  `render/hillshade.py` as `FILL_ALTITUDE`/`FILL_AZIMUTH`. A hillshade has no cast shadows, so
+  `look/hillshade.py` as `FILL_ALTITUDE`/`FILL_AZIMUTH`. A hillshade has no cast shadows, so
   "shadowless" reproduces for free.
 - **Why the tiles need it:** a single 45° sun on the 15×-exaggerated grid makes the slope term
   `arctan(15 · gradient)`, so a 4° real slope presents as 46° — past the sun — and the face goes
@@ -315,7 +315,7 @@ Cost: hero sweep **~10–13 h** + tile restage **~29 min** + caps auto-restage *
 - **Adjust:** the palette constants; same ramp gotchas as land. Tile-side tone rides the sea
   quartet (`sea_shade` / `sea_lift` / `sea_saturation` / `sea_svf` in KNOBS).
 
-### Sea ice — TILES + caps (`ICE_*` in `render/seaice.py`; colours in `palette.py`)
+### Sea ice — TILES + caps (`ICE_*` in `look/seaice.py`; colours in `palette.py`)
 
 - The sea-side mirror of the snow layer: an OSI SAF annual ice-frequency climatology ("how often
   is this sea frozen", reference period 1991–2020) drives a translucent white overlay over the

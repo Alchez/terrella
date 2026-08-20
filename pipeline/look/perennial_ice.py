@@ -218,7 +218,7 @@ def _mars_cap_ice(inputs: CapIceInputs, pole: str) -> np.ndarray:
 #:
 #: MARS ARRIVED ONCE ITS FIELD HAD AN OWNER, which was the ordering this note used to record as the
 #: reason for its absence: a producer cannot declare a path nothing acquired. `download_viking_mosaic`
-#: and `render/viking_luma` closed that, and the OMEGA entries that once stood here are gone rather
+#: and `look/viking_luma` closed that, and the OMEGA entries that once stood here are gone rather
 #: than repointed because the licence blocks the source, not because the seam moved.
 def _earth_cap_white() -> tuple[Any, Any]:
     """Earth's one white at both poles, and the same pair its composite-tier producers declare.

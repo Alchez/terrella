@@ -4,7 +4,7 @@ ONE ANSWER TO "HOW DOES THIS BODY MAKE THAT LAYER" at the Mercator tier. `layers
 layer is and which stages read it; `Body.surface_layers` says which ones a planet has; this says who
 builds each one, out of what, and how the result becomes a number the composite can blend.
 
-THE CAP TIER'S REGISTRY IS `render/perennial_ice.py`, whose docstring holds the argument this module
+THE CAP TIER'S REGISTRY IS `look/perennial_ice.py`, whose docstring holds the argument this module
 inherits rather than restates: a producer is CODE, so bodies differ in machinery and not in
 constants. Two registries and not one because the tiers key differently — that one by
 `(body, pole)`, this one by `(body, layer)` — and a cap producer paints an AEQD disc where these
@@ -402,7 +402,7 @@ def _mars_ice_recipe() -> dict[str, Any]:
 def _mars_ice_build_recipe() -> dict[str, Any]:
     """The two constants `_build_mars_ice` freezes into its raster.
 
-    The luma WEIGHTS are deliberately absent, and covered rather than forgotten: `render/viking_luma`
+    The luma WEIGHTS are deliberately absent, and covered rather than forgotten: `look/viking_luma`
     records them in its own recipe, so a weight change restages that stage, moves the field's mtime,
     and reaches this raster as a moved SOURCE. Recording them here as well would rebuild correctly
     and claim the coupling lives in two places.

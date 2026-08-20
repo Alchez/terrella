@@ -73,7 +73,7 @@ All stage numbers below are at the **131072² grid** (the full Mercator square) 
 | 2 | warp ocean + water masks → 3857 | **~3:30** (1:45 + 1:47) | ~0 s | 69 MB | `warp_needs_rebuild` |
 | 3 | warp GLOBathy lake depth → 3857 | **1:01:44** (nodata-masker-bound, 102% CPU; no lakes south of −60°, the cost lives in the 50–70°N belt) | ~0 s | `lakedepth_3857.tif` 310 MB | `warp_needs_rebuild` |
 | 3b | warp snow persistence (banded) + rasterize glaciers + warp sea ice (banded) → 3857 | **snow 15:16, glaciers 0:19, sea-ice 14:42** | ~0 s | `snow_persistence_3857.tif`, `glacier_3857.tif`, `seaice_3857.tif` | `warp_needs_rebuild` |
-| 4 | `render/hillshade.py` — per-row z-factor **+ fill sun** | **16:20** | ~0 s | `hs_3857.tif` | `is_stale` |
+| 4 | `look/hillshade.py` — per-row z-factor **+ fill sun** | **16:20** | ~0 s | `hs_3857.tif` | `is_stale` |
 | 5 | `global_occlusion` — sky-view factor | **3:23** (I/O-bound) | ~0 s | in-memory only | **lazy** |
 | 6 | `composite_planet` — ramps × hillshade × SVF + snow + sea ice + lake depth | **21:37** (1024 windows; the Antarctic windows are all snow+ice work) | ~0 s | `planet_rgb.tif` 11 GB | `is_stale` |
 | 7 | `build_tiles` — `gdal raster tile` z0–8, WebP q95 | **4:19** | **skip** | `tiles/` **3.1 GB**, 87,381 tiles | `tiles.done` + `tile_params.json` |
@@ -105,7 +105,7 @@ which is where a Mars pass peaks, did not run.
 | `wrap_seam.close_wrap_seam` | ~0 s | **0:42** | the whole-raster hole scan, then one column written — a read of the warp's output in 1024-row bands and nothing else. **Earth pays none of it**: its warp declares no nodata, so the function returns before the scan, and the same is true of any raster this has already closed. That is what lets the call sit outside the warp's freshness gate, where it has to be to reach a master already on disk |
 | ice alpha, polar bands | — | **2:23** | `mars_ice.build_alpha_raster`. The one optional layer Mars declares, and the pass's memory peak |
 | warp masks + lake + glaciers + sea ice | 1:35:31 | **0:00** | declared, not skipped by absence — every gate prints its reason |
-| `render/hillshade.py` | 16:20 | **3:38** | at Mars's own 20× and its own sphere |
+| `look/hillshade.py` | 16:20 | **3:38** | at Mars's own 20× and its own sphere |
 | `global_occlusion` | 3:23 | **0:52** | |
 | `composite_planet` | 21:37 | **2:58** | 512 windows, 2.88 win/s, threaded ×4 |
 | `build_tiles` z0–7 | 4:19 | **1:21** | 21,845 tiles, 1.4 GB |
@@ -195,7 +195,7 @@ So `mars_ice._warp_band` is a single `gdalwarp` and must not grow banding: it wo
 subprocess per sub-band for output already shown identical, and would read as though the question
 were open.
 
-**Re-measure if Mars's `tile_max_zoom` or `render/viking_luma`'s grid moves**, since both change the
+**Re-measure if Mars's `tile_max_zoom` or `look/viking_luma`'s grid moves**, since both change the
 scale ratio this rests on. The probe was scratch and is not shipped; rebuilding it is three warps of
 the same band — sub-banded at `WINDOW_ROWS`, direct, and direct from a 4×-downsampled source — and
 the two comparisons above.
@@ -357,7 +357,7 @@ watch **anon**, not the total.
 | `render/lake_mask.py` (stage 6 of 7) | **0:11 finland (lake-densest) / 0:03 estonia** — the feared 83k-source-VRT warp cost is seconds, not minutes | skip-if-exists | `lakedepth_aea.tif` (log1p ramp position) |
 | `render/scene_build.py --render` — headless Cycles, OptiX | **3:36 @ 8K** (finland 1:29 at 4142×7680) | n/a | one hero PNG |
 | Full batch — **203 heroes** | **~10.5 h measured** (a full sweep at the current scene rig: 203 heroes, 0 fail; 9.36 h GPU-bound = 89.5% duty; host RSS peaked ~10 GB vs the 25 GB cap → the single 12 GB GPU is the wall, more RAM saves nothing) | per-country resume | `blender/renders/` |
-| `render/sky_view.py` re-shade (look re-tune, no re-render) | **no GPU, minutes** — re-runs the AO over the kept `heroes/raw/*.png`; a `sky_view_strength` change re-shaded all 203 with no Blender pass | — | shaded `heroes/*.png` |
+| `look/sky_view.py` re-shade (look re-tune, no re-render) | **no GPU, minutes** — re-runs the AO over the kept `heroes/raw/*.png`; a `sky_view_strength` change re-shaded all 203 with no Blender pass | — | shaded `heroes/*.png` |
 | Targeted re-render (e.g. a sea-floor fix across 7 microstates) | **~28 min** (~4 min each, tiny frames) — rm `heightfield_aea.tif` + hero + raw, then `batch --through render --only` | per-country resume | the named heroes |
 | `batch --through prep`, warm walk | **1.25 s/country** (six guarded stages) | same | prep-complete markers |
 
