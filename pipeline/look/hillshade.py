@@ -46,8 +46,8 @@ from pipeline.raster_io import GTIFF_CREATE, band_window, row_bands
 # ambient; the tiles copied its main sun and none of the three. See ART.md "Fill sun".
 #
 # GEOMETRY, NOT AN ART DIAL: the main sun's NW azimuth is a locked cartographic convention
-# (ART.md:63) and the fill is its mirror. The STRENGTH is the art lever and lives in
-# `shade.KNOBS["fill_strength"]`, beside `alt`, which is likewise consumed at this stage.
+# (ART.md § Sun altitude & azimuth) and the fill is its mirror. The STRENGTH is the art lever and
+# lives in `shade.KNOBS["fill_strength"]`, beside `alt`, which is likewise consumed at this stage.
 FILL_ALTITUDE = 60.0
 FILL_AZIMUTH = 135.0
 

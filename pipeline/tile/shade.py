@@ -93,12 +93,13 @@ class Knobs(TypedDict):
 # global SVF. It is the hero's own ratio, and any value >= 0.10 already drives pure black to 0.00%
 # everywhere; past ~0.20 the compression starts reading flat rather than soft.
 #
-# `hi` 1.30 -> 1.12 lands with it, as ART.md:56 demands (tune the pair, never each alone): the fill
-# lowers peak light, so the old 1.30 ceiling no longer binds and only clips the pale ramp.
+# `hi` 1.30 -> 1.12 lands with it, as ART.md § Fill sun — TILES demands (tune the pair, never each
+# alone): the fill lowers peak light, so the old 1.30 ceiling no longer binds and only clips the
+# pale ramp.
 # `ambient` deliberately STAYS 0.50 -- the sweep tried 0.56/0.62 and both re-created the "washed
 # rosy and flat" failure the hero's own A/B already rejected. The fill IS the shadow floor
-# (ART.md:90); a second floor under it only hazes the pale high country. Every metric said 0.62 was
-# best and every metric was wrong -- the eye decided it.
+# (ART.md § Fill sun — TILES); a second floor under it only hazes the pale high country. Every
+# metric said 0.62 was best and every metric was wrong -- the eye decided it.
 # hero's fill sun
 #
 # `snow_curve` **"gamma8", chosen by eye** off a four-curve A/B (linear/gamma4/gamma8/
