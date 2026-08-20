@@ -1,12 +1,22 @@
-"""Build the hero-render Blender scene from code (Phase 1 keystone).
+"""Build one relief scene from code: a country's hero, or one block of a planet.
+
+THIS IS THE SHARED RIG AND NOT THE HERO RIG. Two callers stage a render
+directory and shell into this exact file: `render_prep.py` for a country in
+its own Albers projection, and the block prep for a z8 EPSG:3857 block,
+which writes its cuts under the same `_aea` filenames purely to satisfy the
+table below. Nothing here is country-shaped.
 
 Reconstructs the hand-built Phase 0 scene — plane + adaptive-subdivision
-displacement, two-ramp land/sea material with lake/river switches (plus a
-snow switch iff snowmask_aea.png exists in the render dir, and a depth-keyed
-lake ramp iff lakedepth_aea.tif does), sun plus a shadowless fill sun, ortho
-camera, locked render settings — entirely from the constants below.
-Verified against the hand-built .blend by structural dump-diff and a
+displacement, a land ramp with lake/river switches over an optional sea ramp
+(plus a snow switch iff snowmask_aea.png exists in the render dir, and a
+depth-keyed lake ramp iff lakedepth_aea.tif does), sun plus a shadowless
+fill sun, ortho camera, locked render settings — entirely from the constants
+below. Verified against the hand-built .blend by structural dump-diff and a
 pixel-diff of test renders
+
+THE LOOK ARRIVES AS `--body`, WHICH IS A SLUG AND NOT A `Body`: Blender's
+interpreter cannot import this project's virtual environment, and
+`palette.look_for` keys on slugs for that reason.
 
 Runs inside Blender's Python, which has no GDAL: all geographic math
 (projection, frame width, plane aspect) happens in render_prep.py and
@@ -21,6 +31,7 @@ converts on entry — bpy does not).
 
 Usage:
   blender -b --python pipeline/render/scene_build.py -- \
+      --body earth \
       --render-dir data/work/nepal/render \
       --out blender/nepal_hero.blend \
       [--frame-json data/work/nepal/render/frame.json]  # default: sibling
@@ -28,6 +39,7 @@ Usage:
 """
 
 import argparse
+import dataclasses
 import json
 import math
 import sys
@@ -67,24 +79,6 @@ WATER_RGBA = (*palette.srgb8_to_linear(palette.WATER_RGB), 1.0)  # 8EC6C4 — se
                        # surface +7%, pinned relationally (the 98C5C8 drift's cure)
 SNOW_RGBA = (*palette.srgb8_to_linear(palette.SNOW_RGB), 1.0)    # E8F1F6
 
-# THE HERO RIG IS EARTH'S, AND IT NOW SAYS SO. These four read `EARTH_LOOK` rather than the module
-# globals they used to, and the difference is not cosmetic: read as globals they were the ramp, so a
-# second body's arrival could not be seen from here at all. Read as a named look, the day heroes are
-# wanted for another planet these four lines are exactly what has to answer for it — the rig is
-# built once at import, so there is no per-call seam to thread and the honest thing is to name which
-# planet it was built for. Heroes stay Earth-only by decision, not by omission.
-_HERO_LOOK = palette.EARTH_LOOK
-_HERO_SEA = _HERO_LOOK.sea
-assert _HERO_SEA is not None, "Earth's look must carry a sea ramp; the hero rig builds one"
-
-# Both ends come off the Surface now. They used to read `extreme_m` and RESTATE the 0.0, which was
-# the same Earth-is-the-datum assumption the ramp itself carried until `origin_m` — a third copy,
-# in the one module a type checker was never going to connect to the other two. It is Earth-only
-# today so nothing was wrong; it would have gone wrong silently on the first body with heroes.
-LAND_RANGE = (_HERO_LOOK.land.origin_m, _HERO_LOOK.land.extreme_m)  # meters -> ramp position 0..1
-SEA_RANGE = (_HERO_SEA.extreme_m, _HERO_SEA.origin_m)   # meters -> ramp position 1..0 (reversed To)
-LAND_STOPS = _rgba(_HERO_LOOK.land.stops)
-SEA_STOPS = _rgba(_HERO_SEA.stops)       # the tile ramp: shelf-weighted stops to -6000 m
 LAKE_STOPS = _rgba(palette.LAKE_STOPS)   # depth-position ramp; stop 0 IS the water tint
 RAMP_INTERPOLATION = "EASE"
 
@@ -102,6 +96,55 @@ IMAGES = {  # node name -> (filename, interpolation)
     "Image Texture.002": ("inlandlake_aea.png", "Closest"),
     "Image Texture.003": ("river_aea.png", "Closest"),
 }
+
+#: The one entry in `IMAGES` a look can decline, being the sea branch's own input.
+SEA_IMAGE = "Image Texture.001"
+
+
+@dataclasses.dataclass(frozen=True)
+class LookConstants:
+    """One look's ramps in the shapes bpy takes, rather than the ones palette authors them in.
+
+    `sea_range` and `sea_stops` are both-or-neither: `Look.sea = None` says the planet draws no
+    sea, so four nodes are never built rather than built in a colour no pixel can select.
+    """
+
+    land_range: tuple[float, float]
+    land_stops: list[tuple[float, tuple[float, float, float, float]]]
+    sea_range: tuple[float, float] | None
+    sea_stops: list[tuple[float, tuple[float, float, float, float]]] | None
+
+
+def look_constants(look: palette.Look) -> LookConstants:
+    """Derive the rig's ramp inputs from a look, restating none of them.
+
+    BOTH ENDS OF EACH RANGE COME OFF THE `Surface` rather than restating the 0.0, which was the
+    same Earth-is-the-datum assumption `origin_m` exists to remove. No assertion over Earth can
+    tell the read from the restatement, so `test_scene_build_sync` supplies a moved origin.
+    """
+    sea = look.sea
+    return LookConstants(
+        land_range=(look.land.origin_m, look.land.extreme_m),  # meters -> ramp position 0..1
+        land_stops=_rgba(look.land.stops),
+        sea_range=None if sea is None else (sea.extreme_m, sea.origin_m),
+        sea_stops=None if sea is None else _rgba(sea.stops),
+    )
+
+
+def images_for(look: palette.Look) -> dict[str, tuple[str, str]]:
+    """The images this look's graph loads: all of `IMAGES` bar the oceanmask, for a sea-less body.
+
+    A DECLARATION DECIDES THIS AND NEVER `Path.exists()`. Snow and lake depth are sniffed below and
+    survive it because a missing mask degrades to a defined colour; a missing oceanmask cannot tell
+    "this planet has no sea" from "prep crashed", and guessing the first renders a planet of land.
+
+    THE OCEANMASK IS THE ONLY ONE A LOOK CAN ANSWER FOR, because it selects between this look's two
+    ramps. The lake and river masks stay mandatory: whether a planet has inland water is its planet
+    seam's `watermask` declaration, not a colour, and absent one the image load fails loudly rather
+    than drawing anything. Giving the rig that declaration to read is unit 4's block sidecar.
+    """
+    return {name: spec for name, spec in IMAGES.items()
+            if look.sea is not None or name != SEA_IMAGE}
 
 
 def clear_scene():
@@ -223,7 +266,7 @@ def mix_socket(mix_node, sock):
                 if socket.name == sock and socket.type == "RGBA")
 
 
-def build_material(ob, render_dir, displacement_scale):
+def build_material(ob, render_dir, displacement_scale, look):
     mat = bpy.data.materials.new("Material.001")
     mat.use_nodes = True
     mat.displacement_method = "DISPLACEMENT"
@@ -231,8 +274,9 @@ def build_material(ob, render_dir, displacement_scale):
     for node in list(nt.nodes):
         nt.nodes.remove(node)
 
+    constants = look_constants(look)
     tex = {}
-    for name, (filename, interp) in IMAGES.items():
+    for name, (filename, interp) in images_for(look).items():
         image_node = nt.nodes.new("ShaderNodeTexImage")
         image_node.name = name
         image_node.image = load_image(render_dir, filename)
@@ -246,12 +290,15 @@ def build_material(ob, render_dir, displacement_scale):
     disp.inputs["Midlevel"].default_value = DISPLACEMENT_MIDLEVEL
     disp.inputs["Scale"].default_value = displacement_scale
 
+    # The sea nodes stay interleaved rather than grouped, and the `.00N` names stay frozen: the
+    # rig's only baseline is a hand-built .blend compared by dump-diff, which sees both.
     land_range = make_map_range(nt, "Map Range", "Land",
-                                LAND_RANGE, (0.0, 1.0))
-    sea_range = make_map_range(nt, "Map Range.001", "Sea",
-                               SEA_RANGE, (1.0, 0.0))
-    land_ramp = make_ramp(nt, "Color Ramp.001", "", LAND_STOPS)
-    sea_ramp = make_ramp(nt, "Color Ramp", "", SEA_STOPS)
+                                constants.land_range, (0.0, 1.0))
+    sea_range = (None if constants.sea_range is None else
+                 make_map_range(nt, "Map Range.001", "Sea", constants.sea_range, (1.0, 0.0)))
+    land_ramp = make_ramp(nt, "Color Ramp.001", "", constants.land_stops)
+    sea_ramp = (None if constants.sea_stops is None else
+                make_ramp(nt, "Color Ramp", "", constants.sea_stops))
 
     rgb = nt.nodes.new("ShaderNodeRGB")
     rgb.name = "Color"
@@ -259,7 +306,7 @@ def build_material(ob, render_dir, displacement_scale):
 
     lake = make_mix(nt, "Mix.001", "Lake")
     river = make_mix(nt, "Mix.002", "River")
-    ocean = make_mix(nt, "Mix", "")
+    ocean = None if sea_ramp is None else make_mix(nt, "Mix", "")
 
     # optional data-driven snow/ice (render/snow_mask.py); mask absent
     # -> graph identical to the pre-snow scene
@@ -305,9 +352,10 @@ def build_material(ob, render_dir, displacement_scale):
     link(hf.outputs["Color"], disp.inputs["Height"])
     link(disp.outputs["Displacement"], out.inputs["Displacement"])
     link(hf.outputs["Color"], land_range.inputs["Value"])
-    link(hf.outputs["Color"], sea_range.inputs["Value"])
     link(land_range.outputs["Result"], land_ramp.inputs["Factor"])
-    link(sea_range.outputs["Result"], sea_ramp.inputs["Factor"])
+    if sea_range is not None and sea_ramp is not None:
+        link(hf.outputs["Color"], sea_range.inputs["Value"])
+        link(sea_range.outputs["Result"], sea_ramp.inputs["Factor"])
     land_color = land_ramp.outputs["Color"]
     if snow is not None:
         link(land_color, mix_socket(snow, "A"))
@@ -323,10 +371,13 @@ def build_material(ob, render_dir, displacement_scale):
     link(mix_socket(lake, "Result"), mix_socket(river, "A"))
     link(tex["Image Texture.003"].outputs["Color"], river.inputs[0])
     link(rgb.outputs["Color"], mix_socket(river, "B"))
-    link(mix_socket(river, "Result"), mix_socket(ocean, "A"))
-    link(sea_ramp.outputs["Color"], mix_socket(ocean, "B"))
-    link(tex["Image Texture.001"].outputs["Color"], ocean.inputs[0])
-    link(mix_socket(ocean, "Result"), bsdf.inputs["Base Color"])
+    surface_color = mix_socket(river, "Result")
+    if ocean is not None and sea_ramp is not None:
+        link(surface_color, mix_socket(ocean, "A"))
+        link(sea_ramp.outputs["Color"], mix_socket(ocean, "B"))
+        link(tex[SEA_IMAGE].outputs["Color"], ocean.inputs[0])
+        surface_color = mix_socket(ocean, "Result")
+    link(surface_color, bsdf.inputs["Base Color"])
     link(bsdf.outputs["BSDF"], out.inputs["Surface"])
 
     ob.data.materials.append(mat)
@@ -360,6 +411,9 @@ def configure_render(res_x, res_y):
 def main():
     argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
     ap = argparse.ArgumentParser()
+    ap.add_argument("--body", required=True, choices=sorted(palette.LOOK_BY_BODY),
+                    help="which planet's ramps to draw with; no default, because a body that "
+                         "quietly inherited Earth's would render a plausible wrong planet")
     ap.add_argument("--render-dir", type=Path, required=True)
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--frame-json", type=Path, default=None,
@@ -373,6 +427,7 @@ def main():
                          "test convention ~= 27)")
     args = ap.parse_args(argv)
     render_dir = args.render_dir.resolve()
+    look = palette.look_for(args.body)
 
     frame_path = args.frame_json or render_dir / "frame.json"
     if not frame_path.exists():
@@ -393,9 +448,10 @@ def main():
                  f"mismatched frame.json")
     bpy.data.images.remove(probe)
     plane = build_plane(frame["plane_height_units"])
-    build_material(plane, render_dir, frame["displacement_scale"])
+    build_material(plane, render_dir, frame["displacement_scale"], look)
 
     prefs = bpy.context.preferences.addons["cycles"].preferences
+    print(f"body {args.body}, {'sea' if look.sea is not None else 'no sea'}; ", flush=True)
     print(f"plane 2.0 x {frame['plane_height_units']:.6f}; "
           f"ortho {frame['ortho_scale']:.6f}; "
           f"displacement {frame['displacement_scale']:.6e}; "

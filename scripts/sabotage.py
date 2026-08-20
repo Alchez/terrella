@@ -4310,11 +4310,29 @@ SABOTAGES: list[Sabotage] = [
     # Its own guard could not see this until it stopped comparing against a literal zero.
     Sabotage(
         suite='python',
-        label="the hero rig restates the datum instead of reading the ramp's own origin",
+        label="the shared rig restates the datum instead of reading the ramp's own origin",
         path='pipeline/render/scene_build.py',
-        needle='LAND_RANGE = (_HERO_LOOK.land.origin_m, _HERO_LOOK.land.extreme_m)',
-        replacement='LAND_RANGE = (0.0, _HERO_LOOK.land.extreme_m)',
+        needle='        land_range=(look.land.origin_m, look.land.extreme_m),',
+        replacement='        land_range=(0.0, look.land.extreme_m),',
         guard='test_the_origin_is_READ_and_not_coincidentally_zero',
+    ),
+    # Both below fail toward a planet that renders: a sea Mars never asked for, and a mask file the
+    # block prep was never going to write. Neither raises, and Earth is unaffected by either.
+    Sabotage(
+        suite='python',
+        label='every look inherits Earth\'s sea, so a body that draws none gets one anyway',
+        path='pipeline/render/scene_build.py',
+        needle='    sea = look.sea\n',
+        replacement='    sea = look.sea or palette.EARTH_LOOK.sea\n',
+        guard='test_mars_gets_no_sea_ramp',
+    ),
+    Sabotage(
+        suite='python',
+        label='the rig asks every body for an oceanmask, including the ones with no sea',
+        path='pipeline/render/scene_build.py',
+        needle='            if look.sea is not None or name != SEA_IMAGE}',
+        replacement='            if True}',
+        guard='test_the_oceanmask_is_not_asked_for',
     ),
     # --- Where a body's intermediates live -----------------------------------------------------------
     # The body is carried by the PATH, deliberately not by the freshness recipes: adding a body key to
