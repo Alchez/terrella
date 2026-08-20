@@ -110,6 +110,12 @@ MUTABLE_ROOTS = (
     # either guard fire is to write to the real file, and a guard that cannot be made to fire is
     # the thing this harness exists to catch.
     "config",
+    # Joined with the render block plan, whose every wrong answer is a PLAUSIBLE image. A margin
+    # sized too small does not fail: the block renders, the tile crops, and the shadows reaching it
+    # from outside are simply absent, on both sides of a seam that has no edge to notice. Earth
+    # cannot expose the body half at all — its map-unit-to-ground ratio is exactly 1.0, which is why
+    # all four probe copies of this arithmetic dropped that term and none of them ever looked wrong.
+    "pipeline/block_plan.py",
     # Joined with the layer table, which took the body-half gate and the stage split out of the
     # planet shader. Both of its guards are invisible while Earth is the only body that declares a
     # layer: "ask the body before the disk" passes either way on a box holding Earth's files, and a
@@ -2681,6 +2687,52 @@ SABOTAGES: list[Sabotage] = [
     # stopped asking the projection module and gone back to knowing the answer. The needle moved off
     # `bodies.EARTH` when the sphere did: a grid row's latitude is a property of the GRID, and every
     # grid here is EPSG:3857 for every planet, so reading it from a body was the misleading half.
+    # THE DEFECT THAT ALREADY HAPPENED, four times, in the render probe. Every copy of the margin
+    # arithmetic there divided by nothing, because each was written and checked on Earth where the
+    # ratio is 1.0 — and the same edit here undersizes 93% of Mars's blocks while every Earth case
+    # in the suite still passes. There is no artifact to inspect: the shadow simply stops.
+    Sabotage(
+        suite='python',
+        label='the block margin drops the map-unit-to-ground ratio, as all four probe copies did',
+        path='pipeline/block_plan.py',
+        needle='zfactor = exaggeration / (ground_scale * math.cos(math.radians(latitude_deg)))',
+        replacement='zfactor = exaggeration / (1.0 * math.cos(math.radians(latitude_deg)))',
+        guard='test_dropping_ground_scale_undersizes_mars_rather_than_erroring',
+    ),
+    # A margin that rounds to NEAREST is right for most blocks and one quantum short for the ones
+    # sitting just above a boundary — i.e. it fails on precisely the blocks whose shadows are
+    # longest. Two of the ten pinned cases sit within 0.2% of a boundary and exist for this.
+    Sabotage(
+        suite='python',
+        label='the margin quantum rounds to nearest, truncating the blocks with the longest shadows',
+        path='pipeline/block_plan.py',
+        needle='    quantised = math.ceil(MARGIN_RATIO * per_axis_px / MARGIN_QUANTUM_PX) * MARGIN_QUANTUM_PX',
+        replacement='    quantised = round(MARGIN_RATIO * per_axis_px / MARGIN_QUANTUM_PX) * MARGIN_QUANTUM_PX',
+        guard='test_margin_rounds_up_rather_than_to_nearest',
+    ),
+    # The two halo axes are not symmetric and the probe's copies had them both wrapping, which lets
+    # the north pole's relief size a block at the south pole. On a planet where both poles carry
+    # tall ice that produces a bigger margin than needed rather than a smaller one, so it costs GPU
+    # time silently instead of truncating anything — invisible in the output either way.
+    Sabotage(
+        suite='python',
+        label='the block halo wraps in latitude, so the north pole sizes the south',
+        path='pipeline/block_plan.py',
+        needle='    padded = np.pad(relief, ((1, 1), (0, 0)), mode="edge")',
+        replacement='    padded = np.pad(relief, ((1, 1), (0, 0)), mode="wrap")',
+        guard='test_halo_clamps_in_latitude',
+    ),
+    # The one geometric term this module contributes on top of the shared law. Dropping it makes
+    # every margin 1.41x larger than needed: nothing looks wrong, every seam is still covered, and
+    # the planet render simply costs about a fifth more GPU-hours than it should.
+    Sabotage(
+        suite='python',
+        label='the diagonal shadow loses its per-axis component, oversizing every frame',
+        path='pipeline/block_plan.py',
+        needle='    per_axis_px = reach_px * math.cos(math.radians(45.0))',
+        replacement='    per_axis_px = reach_px',
+        guard='test_earth_reproduces_blocks_that_were_actually_rendered',
+    ),
     Sabotage(
         suite='python',
         label='an unknown body silently falls back to Earth instead of raising',
