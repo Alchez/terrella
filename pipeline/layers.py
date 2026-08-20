@@ -17,8 +17,9 @@ structural, and the split itself is still pinned against literals in `tests/test
 a table can hold a wrong column as easily as two sets can disagree.
 
 STAGE MEMBERSHIP IS A FIELD PER STAGE, NOT A SET OF NAMES, for the reason `bodies.Body` carries no
-defaults: a fourth stage must be a hard error at every row until each layer answers for it. A set
-would let the rows that need it be edited and the rest inherit "not mine" unexamined.
+defaults: a new stage must be a hard error at every row until each layer answers for it. A set would
+let the rows that need it be edited and the rest inherit "not mine" unexamined — which is how the
+block render would have inherited the composite's `sea_ice`, a layer its rig cannot paint.
 
     from pipeline import layers
     if layers.layer_is_buildable(body, layers.SEA_ICE, source, "bathymetry bare at the poles"): ...
@@ -44,6 +45,14 @@ class Layer:
     in_composite: bool
     #: Read by the polar cap render (`tile/cap_render.py`).
     in_cap: bool
+    #: Read by the raytraced block render (`render/scene_build.py`, staged by the block prep).
+    #:
+    #: THE THIRD STAGE, AND IT DOES NOT AGREE WITH EITHER OF THE OTHER TWO. It shades the same
+    #: Mercator grid the composite does and is about to replace it as `planet_rgb`'s producer, which
+    #: makes copying that column the natural mistake: the rig has one snow input and no ice input at
+    #: all, so `sea_ice` is False here while the composite paints it. That False is the correctness
+    #: gap itself rather than a look decision, and flipping it is what unit 5 does.
+    in_block: bool
     #: The planet raster this layer cannot be computed without, or None.
     #:
     #: Held as a NAME rather than an imported constant so this module never imports `planet_seam`,
@@ -87,15 +96,15 @@ class Layer:
 #:
 #: THE BASENAMES BELOW ARE SHIPPED AND MUST NOT BE TIDIED. Each is a dependency of the composite by
 #: mtime, so renaming one restages Earth's whole pyramid to reproduce the pixels already on disk.
-LAKE_DEPTH = Layer("lake_depth", in_composite=True, in_cap=False,
+LAKE_DEPTH = Layer("lake_depth", in_composite=True, in_cap=False, in_block=True,
                    requires_raster="watermask", warped_basename="lakedepth_3857.tif")
-PERENNIAL_ICE = Layer("perennial_ice", in_composite=True, in_cap=True,
+PERENNIAL_ICE = Layer("perennial_ice", in_composite=True, in_cap=True, in_block=True,
                       requires_raster=None, warped_basename="snow_persistence_3857.tif")
-GLACIERS = Layer("glaciers", in_composite=True, in_cap=False,
+GLACIERS = Layer("glaciers", in_composite=True, in_cap=False, in_block=True,
                  requires_raster=None, warped_basename="glacier_3857.tif")
-SEA_ICE = Layer("sea_ice", in_composite=True, in_cap=True,
+SEA_ICE = Layer("sea_ice", in_composite=True, in_cap=True, in_block=False,
                 requires_raster="oceanmask", warped_basename="seaice_3857.tif")
-COASTLINE = Layer("coastline", in_composite=False, in_cap=True,
+COASTLINE = Layer("coastline", in_composite=False, in_cap=True, in_block=False,
                   requires_raster=None, warped_basename=None)
 
 LAYERS: tuple[Layer, ...] = (LAKE_DEPTH, PERENNIAL_ICE, GLACIERS, SEA_ICE, COASTLINE)
@@ -115,6 +124,7 @@ SURFACE_LAYERS = frozenset(layer.name for layer in LAYERS)
 #: glaciers (`depth=None`, persistence-only snow). Over- and under-tracking are both silent.
 COMPOSITE_LAYERS = frozenset(layer.name for layer in LAYERS if layer.in_composite)
 CAP_LAYERS = frozenset(layer.name for layer in LAYERS if layer.in_cap)
+BLOCK_LAYERS = frozenset(layer.name for layer in LAYERS if layer.in_block)
 
 #: The composite layers with a file behind them, as rows and IN `LAYERS` ORDER — the three places
 #: `shade_planet` handles a built layer walk this, so the warp, the dependency tuple and the window

@@ -4034,9 +4034,29 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label='a layer is read by no stage at all, so declaring it builds nothing',
         path='pipeline/layers.py',
-        needle='COASTLINE = Layer("coastline", in_composite=False, in_cap=True,',
-        replacement='COASTLINE = Layer("coastline", in_composite=False, in_cap=False,',
+        needle='COASTLINE = Layer("coastline", in_composite=False, in_cap=True, in_block=False,',
+        replacement='COASTLINE = Layer("coastline", in_composite=False, in_cap=False, in_block=False,',
         guard='test_the_stage_vocabularies_together_cover_the_whole_one_and_nothing_else',
+    ),
+    # The block column's two failures, and both are the SAME mistake reached from different ends:
+    # the block render shades the Mercator grid the composite shades, so giving it the composite's
+    # answer looks like consistency. It is the one column no live body can contradict, because every
+    # body that declares sea ice declares it for a stage that does read it.
+    Sabotage(
+        suite='python',
+        label='the block render claims a sea ice layer, which its rig has no input to paint',
+        path='pipeline/layers.py',
+        needle='SEA_ICE = Layer("sea_ice", in_composite=True, in_cap=True, in_block=False,',
+        replacement='SEA_ICE = Layer("sea_ice", in_composite=True, in_cap=True, in_block=True,',
+        guard='test_the_stages_disagree_about_which_layers_they_read',
+    ),
+    Sabotage(
+        suite='python',
+        label='the block view is derived off the composite column, so the two can never disagree',
+        path='pipeline/layers.py',
+        needle='BLOCK_LAYERS = frozenset(layer.name for layer in LAYERS if layer.in_block)',
+        replacement='BLOCK_LAYERS = frozenset(layer.name for layer in LAYERS if layer.in_composite)',
+        guard='test_the_stages_disagree_about_which_layers_they_read',
     ),
     Sabotage(
         suite='python',
