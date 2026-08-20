@@ -6,11 +6,16 @@ snowless scene with every gate green. So the guards below are almost all about t
 between "this stage ran and produced nothing" and "this stage did not run".
 """
 
+import ast
 import json
+import re
+from pathlib import Path
 
 import pytest
 
 from pipeline.render import render_seam
+
+PIPELINE_ROOT = Path(__file__).resolve().parent.parent / "pipeline"
 
 
 def _dir(tmp_path, *images):
@@ -50,9 +55,9 @@ class TestADeclarationIsCheckedAgainstDisk:
             render_seam.declare(render_dir, render_seam.SNOW, [render_seam.SNOWMASK])
 
     def test_an_unknown_image_is_a_typo_and_not_an_absence(self, tmp_path):
-        render_dir = _dir(tmp_path, render_seam.HEIGHTFIELD, "heightfeild_aea.tif")
+        render_dir = _dir(tmp_path, render_seam.HEIGHTFIELD, "heightfeild.tif")
         with pytest.raises(ValueError, match="unknown render input"):
-            render_seam.declare(render_dir, render_seam.PREP, ["heightfeild_aea.tif"])
+            render_seam.declare(render_dir, render_seam.PREP, ["heightfeild.tif"])
 
     def test_an_unknown_stage_is_refused(self, tmp_path):
         render_dir = _dir(tmp_path, render_seam.HEIGHTFIELD)
@@ -102,3 +107,51 @@ class TestTheVocabularyIsTheRigsOwn:
         assert render_seam.KNOWN_IMAGES == {
             render_seam.HEIGHTFIELD, render_seam.OCEANMASK, render_seam.INLANDLAKE,
             render_seam.RIVER, render_seam.SNOWMASK, render_seam.LAKEDEPTH}
+
+
+def _docstring_nodes(tree: ast.Module) -> set[int]:
+    """The `id()`s of every docstring constant, so the scan below can pass over prose."""
+    doc_nodes: set[int] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Module | ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef):
+            body = node.body
+            if (body and isinstance(body[0], ast.Expr)
+                    and isinstance(body[0].value, ast.Constant)
+                    and isinstance(body[0].value.value, str)):
+                doc_nodes.add(id(body[0].value))
+    return doc_nodes
+
+
+class TestTheSpellingsHaveOneOwner:
+    """Every module takes the render-directory filenames from `render_seam` rather than spelling
+    them, so a rename is one edit and a reintroduced literal fails here instead of at render time.
+
+    Docstrings are exempt: prose naming a file describes it, and cannot silently disagree with a
+    `Path` the way a second load-bearing literal can. Comments never reach the AST at all.
+    """
+
+    def test_no_pipeline_module_spells_a_render_filename(self):
+        owned = sorted(render_seam.KNOWN_IMAGES
+                       | {render_seam.OCEANMASK_TIF, render_seam.WATERMASK,
+                          render_seam.DECLARATION_NAME})
+        # a name at the start of the string or after a path separator is one of ours; the same
+        # characters as the TAIL of a longer basename (the region preview's `{cell}_oceanmask.tif`)
+        # are a different file in a different vocabulary
+        spells = re.compile("(^|/)(" + "|".join(re.escape(name) for name in owned) + ")")
+        modules = sorted(PIPELINE_ROOT.rglob("*.py"))
+        assert any(module.name == "render_seam.py" for module in modules), \
+            "the owner left the scanned tree, so the scan is checking nothing"
+        offenders = []
+        for module in modules:
+            if module.name == "render_seam.py":
+                continue
+            tree = ast.parse(module.read_text())
+            docstrings = _docstring_nodes(tree)
+            for node in ast.walk(tree):
+                if (isinstance(node, ast.Constant) and isinstance(node.value, str)
+                        and id(node) not in docstrings
+                        and spells.search(node.value)):
+                    offenders.append(f"{module.relative_to(PIPELINE_ROOT.parent)}"
+                                     f":{node.lineno}: {node.value!r}")
+        assert offenders == [], \
+            "spell it in render_seam and import it:\n" + "\n".join(offenders)

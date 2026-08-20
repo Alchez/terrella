@@ -27,21 +27,26 @@ from collections.abc import Iterable
 from pathlib import Path
 
 #: The rig's four mandatory images. A directory missing one of these is not a partial scene.
-HEIGHTFIELD = "heightfield_aea.tif"
-OCEANMASK = "oceanmask_aea.png"
-INLANDLAKE = "inlandlake_aea.png"
-RIVER = "river_aea.png"
+HEIGHTFIELD = "heightfield.tif"
+OCEANMASK = "oceanmask.png"
+INLANDLAKE = "inlandlake.png"
+RIVER = "river.png"
 
 #: The two a prep may legitimately not write, being a measurement of the region rather than of the
 #: planet: a block with no snow in it and a block with no lake bed in it.
-SNOWMASK = "snowmask_aea.png"
-LAKEDEPTH = "lakedepth_aea.tif"
+SNOWMASK = "snowmask.png"
+LAKEDEPTH = "lakedepth.tif"
 
-#: Every image a render directory may hold, and the whole vocabulary a declaration may name.
+#: Prep byproducts on the hero path: analytical masks the post stages read and the rig never
+#: loads, which is why they are named here but stay outside the declaration vocabulary below.
+OCEANMASK_TIF = "oceanmask.tif"
+WATERMASK = "watermask.tif"
+
+#: The whole vocabulary a declaration may name.
 #:
-#: THE ONE OWNER FOR THESE SPELLINGS, which is what makes the `_aea` suffix a single edit rather
-#: than the nine-file sweep it is today. `scene_build.IMAGES` reads them from here rather than
-#: restating them, on the rule that a second reader with no owner is the defect.
+#: THE ONE OWNER FOR THESE SPELLINGS, on the rule that a second reader with no owner is the defect.
+#: The retired `_aea` suffix asserted a projection, and the block path writes these same names as
+#: EPSG:3857 cuts — no projection suffix can be true for both writers, which is why none returns.
 KNOWN_IMAGES = frozenset({HEIGHTFIELD, OCEANMASK, INLANDLAKE, RIVER, SNOWMASK, LAKEDEPTH})
 
 #: The file every stage that fills a render directory records itself in.

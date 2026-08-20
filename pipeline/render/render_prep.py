@@ -28,12 +28,12 @@ claim the new value. `body` is what scene_build cross-checks its own --body
 against; `exaggeration` is the recipe.
 
 Every mask the shader consumes is also emitted as a 0/255 PNG (Blender
-divides 8-bit images by 255 on load): oceanmask_aea.png always, and with
---watermask (the 4-class mask from fusion) additionally watermask_aea.tif
-plus inlandlake_aea.png and river_aea.png.
+divides 8-bit images by 255 on load): oceanmask.png always, and with
+--watermask (the 4-class mask from fusion) additionally watermask.tif
+plus inlandlake.png and river.png.
 
 Per-output idempotency: existing outputs are skipped, never overwritten, so
-new outputs can be backfilled next to old ones. When heightfield_aea.tif
+new outputs can be backfilled next to old ones. When heightfield.tif
 already exists the grid AND projection are taken from it, not re-derived
 (--frame is then unneeded), so backfilled outputs stay aligned with any
 render already made from it.
@@ -222,8 +222,8 @@ def main():
     ap.add_argument("--heightfield", type=Path, required=True)
     ap.add_argument("--mask", type=Path, required=True)
     ap.add_argument("--watermask", type=Path,
-                    help="4-class water mask; adds watermask_aea.tif + "
-                         "inlandlake_aea.png + river_aea.png")
+                    help=f"4-class water mask; adds {render_seam.WATERMASK} + "
+                         f"{render_seam.INLANDLAKE} + {render_seam.RIVER}")
     ap.add_argument("--outdir", type=Path, required=True)
     ap.add_argument("--width", type=int, default=16384)
     ap.add_argument("--hero-long-edge", type=int, default=HERO_LONG_EDGE,
@@ -236,13 +236,13 @@ def main():
                          "config/countries.toml resolution_floor_m is the home")
     ap.add_argument("--frame", nargs=4, type=float, metavar=("W", "S", "E", "N"),
                     help="padded lon/lat frame from frame_country.py; "
-                         "required unless heightfield_aea.tif already exists")
+                         f"required unless {render_seam.HEIGHTFIELD} already exists")
     args = ap.parse_args()
     body = bodies.BODIES[args.body]
 
-    out_h = args.outdir / "heightfield_aea.tif"
-    out_m = args.outdir / "oceanmask_aea.tif"
-    out_w = args.outdir / "watermask_aea.tif"
+    out_h = args.outdir / render_seam.HEIGHTFIELD
+    out_m = args.outdir / render_seam.OCEANMASK_TIF
+    out_w = args.outdir / render_seam.WATERMASK
     out_f = args.outdir / "frame.json"
     args.outdir.mkdir(parents=True, exist_ok=True)
 

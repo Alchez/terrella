@@ -55,6 +55,7 @@ from pipeline.frame.country_config import (
     resolve,
     stage_commands,
 )
+from pipeline.render import render_seam
 
 #: The CHECKOUT, and the working directory every stage subprocess is run from — so the
 #: checkout-relative paths in those commands (`pipeline/…`, `blender/…`) resolve. Data paths do NOT
@@ -139,7 +140,7 @@ def run_country(slug, resolved, through, force, dry, cap_gib, use_cap, floor,
     """Run one country's stages; return a short outcome string."""
     do_clean = clean and through == "render" and not dry
     target = (ROOT / f"blender/renders/heroes/{slug}.png" if through == "render"
-              else country_render_dir(slug) / "lakedepth_aea.tif")
+              else country_render_dir(slug) / render_seam.LAKEDEPTH)
     if target.exists() and not force:
         if do_clean:
             prune_intermediates(slug)

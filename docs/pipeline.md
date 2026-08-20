@@ -85,7 +85,7 @@ The chain `country_config` prints per country, in order. Each stage finalizes it
 | 3 | Fuse heightfield | `pipeline.fuse.fuse_heightfield` | Seamless land+sea heightfield + ocean/lake/river masks |
 | 4 | Render prep | `pipeline.render.render_prep` | Projected rasters + `frame.json` (every derived number) |
 | 5 | Snow mask | `pipeline.render.snow_mask` | Snow/ice mask (ESA WorldCover class 70) |
-| 6 | Lake depth mask | `pipeline.render.lake_mask` | `lakedepth_aea.tif` (GLOBathy depth → ramp position; lakes shade by depth, rivers stay flat) |
+| 6 | Lake depth mask | `pipeline.render.lake_mask` | `lakedepth.tif` (GLOBathy depth → ramp position; lakes shade by depth, rivers stay flat) |
 | 7 | Render | `render/scene_build.py` via `blender -b` | The hero PNG |
 
 Python stages run as `python -m <module>` (e.g. `python -m pipeline.render.render_prep …`), shell stages as `bash pipeline/<sub>/<script>.sh`, and the Blender scene as `blender -b --python pipeline/render/scene_build.py`. Ask `country_config --country <slug>` for the exact, filled-in commands.

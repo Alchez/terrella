@@ -3,13 +3,13 @@
 THIS IS THE SHARED RIG AND NOT THE HERO RIG. Two callers stage a render
 directory and shell into this exact file: `render_prep.py` for a country in
 its own Albers projection, and the block prep for a z8 EPSG:3857 block,
-which writes its cuts under the same `_aea` filenames purely to satisfy the
+which writes its cuts under the same filenames purely to satisfy the
 table below. Nothing here is country-shaped.
 
 Reconstructs the hand-built Phase 0 scene — plane + adaptive-subdivision
 displacement, a land ramp with lake/river switches over an optional sea ramp
-(plus a snow switch iff snowmask_aea.png exists in the render dir, and a
-depth-keyed lake ramp iff lakedepth_aea.tif does), sun plus a shadowless
+(plus a snow switch iff snowmask.png exists in the render dir, and a
+depth-keyed lake ramp iff lakedepth.tif does), sun plus a shadowless
 fill sun, ortho camera, locked render settings — entirely from the constants
 below. Verified against the hand-built .blend by structural dump-diff and a
 pixel-diff of test renders

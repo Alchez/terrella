@@ -59,7 +59,7 @@ nothing tracked may depend on it.
 - **Tiles are 512px**, declared to MapLibre as `tileSize: 256`, which centres the scheme on DPR 2. → FUTURE § raster tile resolution vs device pixel ratio
 - **Delivery encoding is a policy, not one constant** — masters stay lossless, delivery does not. → ART § Delivery encoding · § The srcset ladder
 - **Every writer records its recipe beside its output**, because existence cannot see a settings change.
-- **A producer declares what it emitted; no consumer infers it from what is on disk.** A missing raster cannot distinguish "this body has none" from "the producer crashed", and an absent path scores nothing in an mtime comparison — so switching an input off leaves the output that used it looking fresh. `pipeline/planet_seam.py`.
+- **A producer declares what it emitted; no consumer infers it from what is on disk.** A missing raster cannot distinguish "this body has none" from "the producer crashed", and an absent path scores nothing in an mtime comparison — so switching an input off leaves the output that used it looking fresh. Two tiers own this: `pipeline/planet_seam.py` for a body's planet rasters, and `pipeline/render/render_seam.py` for what fills one render directory. The second records **one entry per stage** because a country is filled by three that do not know each other's output, which is what lets an empty list say "I ran here and produced nothing" — the fact a missing file cannot carry. It is stdlib-only, since Blender's interpreter reads it.
 - Baked NW-ish lighting globally (cartographic convention); no per-region sun position.
 
 ## Serving & deployment

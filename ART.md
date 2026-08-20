@@ -276,7 +276,7 @@ Cost: hero sweep **~10–13 h** + tile restage **~29 min** + caps auto-restage *
 
 ### Snow — mask + color (heroes: `snow_mask.py`; colour: `palette.SNOW_RGB`)
 
-- Data, not paint: `snowmask_aea.png` from ESA WorldCover class 70 (permanent snow/ice only;
+- Data, not paint: `snowmask.png` from ESA WorldCover class 70 (permanent snow/ice only;
   seasonal excluded by the annual composite). The shader branch keys on the file existing in the
   render dir; no mask → graph identical to pre-snow.
 - Colour baseline `E8F1F6` (glacial blue-white). The **cool cast is the signal**: at continental
@@ -375,7 +375,7 @@ Cost: hero sweep **~10–13 h** + tile restage **~29 min** + caps auto-restage *
 
 ### Sky-view shading — heroes post-render (`pipeline/look/sky_view.py`)
 
-- Burn-only horizon sky-view-factor from `heightfield_aea`: darkens land *valleys* for
+- Burn-only horizon sky-view-factor from `heightfield.tif`: darkens land *valleys* for
   topographic depth (so flat/low-relief countries read); open ground left at rendered
   brightness. Applied by `batch.py` after the render, before the atomic promote. Land only.
 - **Per-country strength**: `sky_view_strength` in `config/countries.toml`
@@ -412,7 +412,7 @@ Cost: hero sweep **~10–13 h** + tile restage **~29 min** + caps auto-restage *
   strand when the sea ramp moves.
 - **Lake depth is depth-keyed, not flat:** GLOBathy depths drive `LAKE_STOPS` (stop 0 IS the
   water tint, far end Baikal at 1642 m) through `lake_curve` (log1p). Heroes wire it via
-  `lake_mask.py` → `lakedepth_aea.tif` (file absent → flat graph, old render dirs stay
+  `lake_mask.py` → `lakedepth.tif` (not declared → flat graph, lake-less render dirs stay
   renderable); tiles via `lake_depth.py`. Calibrated to published max depths within 1%.
 - **Depth is tint-only — NEVER displacement**: at 15× exaggeration Namtso would become a 1.5 km
   crater and the shadow-catching plate dies. Flat *surfaces* stay locally honest (GLO-30

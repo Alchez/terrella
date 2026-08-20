@@ -4102,6 +4102,17 @@ SABOTAGES: list[Sabotage] = [
         replacement='    if False:',
         guard='test_no_declaration_at_all_raises_rather_than_returning_nothing',
     ),
+    # A reader bypasses the owner and spells the filename itself — the defect that reached seven
+    # modules before render_seam owned the spellings, reintroduced at one of the exact sites the
+    # rename cleaned.
+    Sabotage(
+        suite='python',
+        label='a stage spells a render filename instead of importing its owner',
+        path='pipeline/render/lake_mask.py',
+        needle='    heightfield_path = render_dir / render_seam.HEIGHTFIELD',
+        replacement='    heightfield_path = render_dir / "heightfield.tif"',
+        guard='test_no_pipeline_module_spells_a_render_filename',
+    ),
     Sabotage(
         suite='python',
         label='the block width drops the body ground ratio, which is exactly 1.0 on Earth',

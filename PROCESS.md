@@ -354,11 +354,11 @@ watch **anon**, not the total.
 | Stage | First run | Re-run | Output |
 |---|---|---|---|
 | `render/render_prep.py --frame` → `frame.json` | ~seconds | `is_stale` | per-country frame + warps |
-| `render/lake_mask.py` (stage 6 of 7) | **0:11 finland (lake-densest) / 0:03 estonia** — the feared 83k-source-VRT warp cost is seconds, not minutes | skip-if-exists | `lakedepth_aea.tif` (log1p ramp position) |
+| `render/lake_mask.py` (stage 6 of 7) | **0:11 finland (lake-densest) / 0:03 estonia** — the feared 83k-source-VRT warp cost is seconds, not minutes | skip-if-exists | `lakedepth.tif` (log1p ramp position) |
 | `render/scene_build.py --render` — headless Cycles, OptiX | **3:36 @ 8K** (finland 1:29 at 4142×7680) | n/a | one hero PNG |
 | Full batch — **203 heroes** | **~10.5 h measured** (a full sweep at the current scene rig: 203 heroes, 0 fail; 9.36 h GPU-bound = 89.5% duty; host RSS peaked ~10 GB vs the 25 GB cap → the single 12 GB GPU is the wall, more RAM saves nothing) | per-country resume | `blender/renders/` |
 | `look/sky_view.py` re-shade (look re-tune, no re-render) | **no GPU, minutes** — re-runs the AO over the kept `heroes/raw/*.png`; a `sky_view_strength` change re-shaded all 203 with no Blender pass | — | shaded `heroes/*.png` |
-| Targeted re-render (e.g. a sea-floor fix across 7 microstates) | **~28 min** (~4 min each, tiny frames) — rm `heightfield_aea.tif` + hero + raw, then `batch --through render --only` | per-country resume | the named heroes |
+| Targeted re-render (e.g. a sea-floor fix across 7 microstates) | **~28 min** (~4 min each, tiny frames) — rm `heightfield.tif` + hero + raw, then `batch --through render --only` | per-country resume | the named heroes |
 | `batch --through prep`, warm walk | **1.25 s/country** (six guarded stages) | same | prep-complete markers |
 
 - 8K frames denoise on **CPU**, not GPU: GPU render + GPU OIDN contend for the 12 GB VRAM → Xid 31
