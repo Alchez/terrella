@@ -49,10 +49,10 @@ def tracked_text_files() -> list[Path]:
     listing = subprocess.run(
         ["git", "ls-files"], cwd=REPO, capture_output=True, text=True, check=True
     ).stdout.split()
-    # PLAN.md, HISTORY.md and MARS.md are deliberately NOT tracked, which means git cannot recover
-    # them and cannot show what a bulk edit did to them. They therefore need these invariants MORE
-    # than the tracked files, not less — included when present, silently absent on a clone.
-    names = set(listing) | {"CLAUDE.md", "PLAN.md", "HISTORY.md", "MARS.md"}
+    # HISTORY.md and MARS.md are deliberately NOT tracked, which means git cannot recover them and
+    # cannot show what a bulk edit did to them. They therefore need these invariants MORE than the
+    # tracked files, not less — included when present, silently absent on a clone.
+    names = set(listing) | {"CLAUDE.md", "HISTORY.md", "MARS.md"}
     return [
         REPO / name
         for name in sorted(names)
@@ -89,8 +89,7 @@ FENCE_FILES = with_suffix(".md", ".mmd")
 # never in CHECKED_SUFFIXES and never collected. It carried a skip branch here that could not
 # execute — a guard clause for a case that never arrives reads as coverage and is not.
 CITATION_EXEMPT = {
-    "PLAN.md",                  # the working documents ARE the archive; they cite each other
-    "HISTORY.md",
+    "HISTORY.md",               # the working documents ARE the archive; they cite each other
     "test_repo_integrity.py",   # a guard must state the pattern it forbids
     "sabotage.py",              # a mutation table must hold the needle verbatim
 }
@@ -315,11 +314,18 @@ def test_no_reference_to_a_file_a_clone_will_not_have(path: Path) -> None:
     from a pointer at an identifier that starts the same way, and that line is this pattern's
     standing negative control: drop the boundary and the guard goes red on a correct file, which a
     reader would then "fix" by weakening the guard rather than by restoring the boundary.
+
+    PLAN.md IS RETIRED AND ITS THREE TERMS STAY, which is the cleanup to refuse rather than an
+    entry nobody updated. The file exists nowhere now, not even for its author, so a pointer at it
+    is MORE unfollowable than one at a working document, not less: a reader can at least be told
+    the working documents exist. Its entries in the collection set and in CITATION_EXEMPT were
+    different — those name files to be READ, which a file that does not exist can never be.
     """
     source = path.read_text(encoding="utf-8")
     unreachable = re.findall(
         r"HISTORY\.md|HISTORY §|HISTORY 20\d\d|see HISTORY\b|PLAN\.md|PLAN §|see PLAN"
         r"|MARS\.md|MARS §|see MARS\b|ONBOARDING-QUESTIONS\.md|claude-personal"
+        r"|RAYTRACING\.md|RAYTRACING §|see RAYTRACING\b"
         rf"|{SCRATCH_DIRS}|{IGNORED_PATHS}", source
     )
     assert not unreachable, (
