@@ -193,8 +193,15 @@ def plan(relief: NDArray[np.float64], window: Window, body: Body, *, altitude_de
          ocean_share: NDArray[np.float64] | None = None) -> list[Block]:
     """Every block covering `window`, each sized for the relief that can reach it.
 
-    `relief` is the greatest elevation in each block of `window`, in body metres, shaped
-    (height // RENDER_BLOCK_PX, width // RENDER_BLOCK_PX). `ocean_share`, if given, is the fraction
+    `relief` is the vertical RANGE within each block of `window`, highest minus lowest, in body
+    metres, shaped (height // RENDER_BLOCK_PX, width // RENDER_BLOCK_PX). Not the greatest
+    elevation, which is a different number and a smaller one wherever the sea floor is what a
+    coast's shadow falls toward: the largest value in the rendered set is 13,940 m, off the Andes
+    into the Peru-Chile trench, and no point on Earth stands 13,940 m above the datum. A producer
+    that supplied elevations instead would under-margin exactly the coastal blocks whose occluders
+    are tallest, and every test here would still pass, because they hand `margin_for` its number.
+
+    `ocean_share`, if given, is the fraction
     of each block that is open sea on the same grid: a block that is entirely ocean is flat at the
     surface whatever the bathymetry beneath it does, so it needs no margin at all.
 

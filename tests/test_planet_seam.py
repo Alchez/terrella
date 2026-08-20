@@ -211,7 +211,7 @@ class TestWriteVrtIfChanged:
     """Re-indexing a planet must be free when nothing moved.
 
     NOT AN OPTIMISATION. Every 3857 warp downstream is gated on the VRT's mtime, so an unconditional
-    overwrite restages the whole 46 GB planet — a 44 GB re-warp, an 8:28 hillshade, a 53.8 min
+    overwrite restages the whole 46 GB planet — a 46 GB re-warp, an 8:28 hillshade, a 53.8 min
     composite and a 3:44 cut — to reproduce pixels that were already correct. Re-indexing is the
     natural thing to do after touching a producer, so that cost sat one command away.
     """
