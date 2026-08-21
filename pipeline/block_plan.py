@@ -1,11 +1,25 @@
-"""How a body's Mercator grid is cut into raytraced render blocks, and how wide each block's margin
-must be so that nothing casting into it is missing.
+"""How a body's Mercator grid is cut into raytraced render blocks, and how much terrain each block
+must have around it so that nothing casting into it is missing.
 
-A raytraced block is rendered as its own scene, so it can only be lit by geometry inside its own
-frame. Terrain just outside the block still throws shadows across the boundary, and a block rendered
-to its exact footprint loses them silently: the shadow stops at the seam, on both sides, with no
-edge to notice. Each block is therefore rendered wider than it is delivered, by a margin sized from
-the tallest relief that can reach into it, and the delivered tile is cropped back out of the middle.
+A raytraced block is rendered as its own scene, so it can only be lit by geometry that is loaded
+with it. Terrain just outside the block still throws shadows across the boundary, and a block whose
+scene stops at its own footprint loses them silently: the shadow stops at the seam, on both sides,
+with no edge to notice. Each block therefore carries terrain past its own edge, sized from the
+tallest relief that can reach into it.
+
+THREE WIDTHS, AND CONFLATING ANY PAIR OF THEM IS HOW THIS GOES WRONG. They used to be two, which is
+why the outer ring was path-traced when its whole job is to exist:
+
+    delivered   `RENDER_BLOCK_PX`. What reaches the mosaic.
+    traced      delivered + 2 * `DENOISE_BAND_PX`. What Cycles path-traces, and the ONLY one that
+                costs render time. The band is the denoiser's own context: OIDN sees the traced
+                rectangle and nothing else, so its edge would otherwise be the delivered edge.
+    plane       delivered + 2 * the context this module computes. The heightfield window cut and
+                displaced. Off-camera, so it costs geometry and image memory and no render time.
+
+The context is therefore free in the only currency a pass is measured in, which is what retired it
+as a calibration problem: it is set to the shadow law's own undiscounted answer rather than to a
+fraction of it. `CONTEXT_RATIO` holds why there is still a ratio at all.
 
 The shadow law itself lives elsewhere. `cast_shadow.shadow_reach_px` owns how far exaggerated relief
 throws a shadow, `hillshade.per_row_zfactor_hillshade` owns how the z-factor is built from a body's
@@ -39,50 +53,61 @@ CELL_PX = 512
 #: The delivered edge of one render block. NOT named `BLOCK`: `fuse_heightfield` and `render_prep`
 #: each already define `BLOCK = 8192` meaning a streaming window, which is a different concept that
 #: happens to be measured in the same units.
-RENDER_BLOCK_PX = 2048
+RENDER_BLOCK_PX = 4096
 
 #: Cache cells along one block's delivered edge. Derived, never written down: the cache is finer
 #: than the block ON PURPOSE, so that re-tuning the block edge re-folds an existing cache instead
-#: of re-reading a 46 GB master, and a restated 4 would silently decouple the two.
+#: of re-reading a 46 GB master, and a restated 8 would silently decouple the two.
 CELLS_PER_BLOCK = RENDER_BLOCK_PX // CELL_PX
 
-#: Fraction of the longest possible shadow a margin has to carry. The tallest relief in a block is
-#: not adjacent to every edge of it, so a margin sized for the worst case pays for a shadow that
-#: cannot occur. Calibrated, not derived.
-MARGIN_RATIO = 0.39
+#: How far past the delivered block Cycles path-traces, and the only ring that costs render time.
+#:
+#: IT IS THE DENOISER'S CONTEXT AND NOTHING ELSE'S. Border-cropping with no band at all gives a
+#: 1.89 DN join against full-trace's 0.92, because OIDN is handed the traced rectangle and its own
+#: edge then falls exactly on the delivered edge. 128 px closes it: measured on `r07c26|r07c27`,
+#: the pair every margin finding here was taken on, 0.93 DN against full-trace's 0.92 — the best of
+#: any arm, in less time than the arrangement that produced the defect.
+#:
+#: Also what keeps the Cycles frame's own dark outermost pixels out of the mosaic, which used to be
+#: `MARGIN_MINIMUM_PX`'s job and needed a floor because a margin could be zero. This cannot be:
+#: every block gets the same band, so no block delivers its own frame edge.
+DENOISE_BAND_PX = 128
 
-#: Margins round up to this, so that neighbouring blocks share frame sizes and the renderer's
+#: Fraction of the longest possible shadow the context carries, and it is 1.0 because the context
+#: stopped being paid for in pixels.
+#:
+#: IT WAS 0.39 WHILE THE CONTEXT WAS PATH-TRACED, on the reasoning that the tallest relief in a
+#: block is not adjacent to every edge of it, so sizing for the worst case buys a shadow that cannot
+#: occur. That trade was real when the ring cost render time and is worth nothing now: the plane is
+#: off-camera, so widening it costs geometry and image memory alone. Measured at 79.7N, the
+#: contamination reached ~256 px against an undiscounted derivation of 258 and a discounted 100 —
+#: the discount was the entire error, and a discount that is not buying anything is just the error.
+#:
+#: KEPT AS A CONSTANT RATHER THAN DELETED because it is the knob a body with a different trade would
+#: turn, and because a law with its ratio written into the arithmetic cannot be swept.
+CONTEXT_RATIO = 1.0
+
+#: Contexts round up to this, so that neighbouring blocks share plane sizes and the renderer's
 #: allocations repeat instead of being unique per block.
-MARGIN_QUANTUM_PX = 64
+CONTEXT_QUANTUM_PX = 64
 
-#: The largest margin any block may ask for. At `MARGIN_RATIO` it is headroom rather than a clamp;
-#: it starts binding only as the ratio approaches 1.0, which couples it to `RENDERED_CEILING_PX`.
-MARGIN_CEILING_PX = 768
+#: The largest context any block may ask for, and on Earth it is headroom rather than a clamp.
+#:
+#: MEASURED ON THE REAL RELIEF CACHE rather than derived, because a clamped block keeps its defect
+#: while looking fixed. At `CONTEXT_RATIO` and this block edge Earth's widest ask is 1,856 px, on
+#: the three blocks of row 0 at 84.5N that hold 5,076 m of haloed relief; the deepest south is
+#: 1,664 px. So 2,048 clamps nothing, 1,792 clamps 3 blocks and 1,024 clamps 74. The cost of the
+#: headroom is borne only by the blocks that use it, since the plane is sized per block.
+CONTEXT_CEILING_PX = 2048
 
-#: The smallest margin any block may render with, and it is not a shadow number at all.
+#: The largest square frame renderable on this GPU. It bounds the TRACED size and not the plane:
+#: the plane is off-camera geometry, where this is a limit on what Cycles allocates a frame buffer
+#: for. Different from `CONTEXT_CEILING_PX`, which bounds the plane alone.
 #:
-#: THE MARGIN HAS A SECOND JOB THAT WENT UNWRITTEN, AND A ZERO MARGIN FAILS IT. A Cycles frame is
-#: dark at its outermost pixels — measured on delivered ocean blocks, the border reaches ~140 DN
-#: against a ~210 DN interior and takes about thirty columns to recover. A margin is discarded
-#: rather than delivered, so any block with one throws that border away for free; a block rendered
-#: at margin 0 delivers it, and abutting blocks then meet as a dark hairline.
-#:
-#: It shipped that way and the whole ocean showed it: an `ocean_share` shortcut in `plan` gave every
-#: all-ocean block margin 0, which is 45.8% of Earth, so the defect drew a grid over the calmest
-#: part of the image. That shortcut is gone — see `plan`, because the border's REACH turned out to
-#: scale with the surrounding relief exactly as a shadow does, which is why an all-ocean block
-#: beside a mountain range needs the mountain's margin and a floor alone does not save it.
-#:
-#: THIS FLOOR IS THEREFORE THE FLAT-GROUND CASE ONLY, and one quantum covers it: where nothing
-#: stands anywhere near a block, the law asks for nothing and the border is at its shortest. The
-#: deeper fix is a rig that does not darken its own border, which would retire both this and the
-#: margin's second job; that is a `scene_build` question rather than a partition one.
-MARGIN_MINIMUM_PX = MARGIN_QUANTUM_PX
-
-#: The largest square frame renderable on this GPU. A block whose delivered edge plus both margins
-#: exceeds it cannot be rendered at all - a different limit from `MARGIN_CEILING_PX`, which bounds
-#: the margin alone.
-RENDERED_CEILING_PX = 8192
+#: THE TRACED EDGE NO LONGER VARIES PER BLOCK, so this checks the constants above rather than any
+#: block's relief: `RENDER_BLOCK_PX + 2 * DENOISE_BAND_PX` is 4,352 for every block on every body,
+#: and what it refuses is a block edge raised past what this GPU is proven at.
+TRACED_CEILING_PX = 8192
 
 #: Web Mercator's own cut-off. Matches the clip `hillshade.per_row_zfactor_hillshade` applies before
 #: it builds a z-factor, so a polar block is sized from the same latitude the shading will use.
@@ -91,17 +116,28 @@ MERCATOR_LATITUDE_LIMIT_DEG = 85.05
 
 @dataclass(frozen=True)
 class Block:
-    """One render block: where it sits on the grid, and how much extra it must render."""
+    """One render block: where it sits on the grid, and how much terrain it must carry around it.
+
+    THE THREE WIDTHS ARE PROPERTIES AND NONE OF THEM IS SPELLED `rendered`, which is the word this
+    class used to carry. It meant the frame, and after the context stopped being traced there is no
+    longer one thing that word picks out: the frame and the cut window are different sizes and
+    swapping them writes a correctly-sized block of the wrong ground.
+    """
 
     col0: int
     row0: int
     size_px: int
-    margin_px: int
+    context_px: int
 
     @property
-    def rendered_edge_px(self) -> int:
-        """The square frame the renderer actually allocates, margins included."""
-        return self.size_px + 2 * self.margin_px
+    def traced_edge_px(self) -> int:
+        """The square frame Cycles path-traces, which is the delivered block plus the band."""
+        return self.size_px + 2 * DENOISE_BAND_PX
+
+    @property
+    def plane_edge_px(self) -> int:
+        """The square heightfield window cut and displaced, most of it outside the camera."""
+        return self.size_px + 2 * self.context_px
 
     @property
     def delivered_window(self) -> Window:
@@ -109,20 +145,20 @@ class Block:
         return Window(self.col0, self.row0, self.size_px, self.size_px)  # pyright: ignore[reportCallIssue]
 
     @property
-    def render_window(self) -> Window:
+    def plane_window(self) -> Window:
         """The pixels that must be read to render it.
 
         May extend past the grid on any side. Columns beyond the edge wrap (the planet is cyclic in
         longitude) and rows beyond it clamp, exactly as `cast_shadow.shadow_mask` treats its own
         march - resolving that is the reader's job, not this module's.
         """
-        return Window(self.col0 - self.margin_px, self.row0 - self.margin_px,  # pyright: ignore[reportCallIssue]
-                      self.rendered_edge_px, self.rendered_edge_px)
+        return Window(self.col0 - self.context_px, self.row0 - self.context_px,  # pyright: ignore[reportCallIssue]
+                      self.plane_edge_px, self.plane_edge_px)
 
     @property
     def fits(self) -> bool:
         """Whether this block can be rendered at all on the proven frame envelope."""
-        return self.rendered_edge_px <= RENDERED_CEILING_PX
+        return self.traced_edge_px <= TRACED_CEILING_PX
 
 
 def grid_px(body: Body) -> int:
@@ -142,9 +178,9 @@ def row_latitude_deg(row: float, body: Body) -> float:
     return float(np.clip(latitude, -MERCATOR_LATITUDE_LIMIT_DEG, MERCATOR_LATITUDE_LIMIT_DEG))
 
 
-def margin_for(max_relief_m: float, latitude_deg: float, *, exaggeration: float,
-               ground_scale: float, map_units_per_pixel: float, altitude_deg: float) -> int:
-    """Margin in pixels for a block holding `max_relief_m` of relief at `latitude_deg`.
+def context_for(max_relief_m: float, latitude_deg: float, *, exaggeration: float,
+                ground_scale: float, map_units_per_pixel: float, altitude_deg: float) -> int:
+    """Context in pixels for a block holding `max_relief_m` of relief at `latitude_deg`.
 
     Every argument is explicit and keyword-only, so this stays a pure function of numbers. `plan`
     below derives them all from a `Body` and is what production calls.
@@ -152,6 +188,13 @@ def margin_for(max_relief_m: float, latitude_deg: float, *, exaggeration: float,
     `altitude_deg` has no default: the sun altitude belongs to `tile.shade.KNOBS`, which a root
     module must not import, and a second copy of it here would be one more place to drift. Getting
     it wrong truncates shadows silently.
+
+    THE FLOOR IS `DENOISE_BAND_PX` AND IT IS A STRUCTURAL BOUND, NOT A LOOK ONE. The plane must
+    cover the traced rectangle: a block whose law asks for less than the band would path-trace a
+    ring of frame that has no heightfield under it at all, which renders as sky rather than as
+    terrain. It replaces a floor that existed for a different reason — a zero-margin block used to
+    deliver the Cycles frame's own dark border — and that reason is now covered unconditionally by
+    the band itself. Inert on Earth, whose narrowest ask is exactly 128 px.
     """
     zfactor = exaggeration / (ground_scale * math.cos(math.radians(latitude_deg)))
     reach_px = cast_shadow.shadow_reach_px(max_relief_m, zfactor, map_units_per_pixel,
@@ -159,15 +202,15 @@ def margin_for(max_relief_m: float, latitude_deg: float, *, exaggeration: float,
     # `shadow_reach_px` returns the length along the sun's own bearing. A 315-degree sun lays that
     # diagonally, so the component reaching across either axis is shorter by cos(45).
     per_axis_px = reach_px * math.cos(math.radians(45.0))
-    quantised = math.ceil(MARGIN_RATIO * per_axis_px / MARGIN_QUANTUM_PX) * MARGIN_QUANTUM_PX
-    return min(max(quantised, MARGIN_MINIMUM_PX), MARGIN_CEILING_PX)
+    quantised = math.ceil(CONTEXT_RATIO * per_axis_px / CONTEXT_QUANTUM_PX) * CONTEXT_QUANTUM_PX
+    return min(max(quantised, DENOISE_BAND_PX), CONTEXT_CEILING_PX)
 
 
 def haloed(relief: NDArray[np.float64]) -> NDArray[np.float64]:
     """Per-block relief widened to the greatest relief in its 3x3 neighbourhood.
 
     A block is sized for what can cast INTO it, not for what stands in it, so a flat block beside a
-    mountain still needs the mountain's margin.
+    mountain still needs the mountain's context.
 
     The two axes are not symmetric. Columns wrap, because a Mercator planet is cyclic in longitude;
     rows edge-replicate, because the north pole does not shadow the south. `cast_shadow.shadow_mask`
@@ -233,10 +276,10 @@ def relief_from_cells(high: NDArray[np.float64],
     thing that can cast into it, and averaging four cells would hide a single steep one.
 
     AN ALL-NO-DATA BLOCK RAISES RATHER THAN SCORING ZERO, and that is the whole reason this is not
-    a two-line `nan_to_num`. The prototype zeroed it, which reads as "flat here" and yields margin
-    0, so a block whose elevations merely failed to arrive renders with its neighbours' shadows
-    truncated at the seam and nothing to notice. `margin_for` would not catch it either: it takes
-    the number it is handed. A body that genuinely has no-data blocks needs a decision recorded
+    a two-line `nan_to_num`. The prototype zeroed it, which reads as "flat here" and yields the
+    narrowest context there is, so a block whose elevations merely failed to arrive renders with its
+    neighbours' shadows truncated at the seam and nothing to notice. `context_for` would not catch
+    it either: it takes the number it is handed. A body that genuinely has no-data blocks needs a decision recorded
     here, not a default chosen by whichever value numpy happens to produce.
     """
     if high.shape != low.shape:
@@ -266,15 +309,15 @@ def share_from_cells(share: NDArray[np.float64]) -> NDArray[np.float64]:
 
 def plan(relief: NDArray[np.float64], window: Window, body: Body, *,
          altitude_deg: float) -> list[Block]:
-    """Every block covering `window`, each sized for the relief that can reach it.
+    """Every block covering `window`, each given the context the relief that can reach it needs.
 
     `relief` is the vertical RANGE within each block of `window`, highest minus lowest, in body
     metres, shaped (height // RENDER_BLOCK_PX, width // RENDER_BLOCK_PX). Not the greatest
     elevation, which is a different number and a smaller one wherever the sea floor is what a
     coast's shadow falls toward: the largest value in the rendered set is 13,940 m, off the Andes
     into the Peru-Chile trench, and no point on Earth stands 13,940 m above the datum. A producer
-    that supplied elevations instead would under-margin exactly the coastal blocks whose occluders
-    are tallest, and every test here would still pass, because they hand `margin_for` its number.
+    that supplied elevations instead would under-context exactly the coastal blocks whose occluders
+    are tallest, and every test here would still pass, because they hand `context_for` its number.
 
     EVERY BLOCK GOES THROUGH THE LAW, INCLUDING THE ALL-OCEAN ONES. There used to be an
     `ocean_share` shortcut here that gave a block which is >99.9% sea its margin for free, on the
@@ -284,6 +327,9 @@ def plan(relief: NDArray[np.float64], window: Window, body: Body, *,
     the surrounding relief is tall. So an all-ocean block beside a mountain range needed the
     mountain's margin all along. Measured at the Norwegian coast, where the shortcut gave 64 px and
     the law gives 320: the boundary step went from 43 DN to 1.2, against 1.2 in the composite.
+
+    The shortcut would be a saving worth even less now than it was then, since what it would save is
+    geometry rather than traced pixels; it stays deleted on the correctness argument above.
 
     The body supplies exaggeration, ground scale and pixel size together, so they cannot disagree
     with each other. `hillshade` requires `ground_scale` as an argument instead only because it is
@@ -304,11 +350,11 @@ def plan(relief: NDArray[np.float64], window: Window, body: Body, *,
         row0 = row_origin + row_index * RENDER_BLOCK_PX
         latitude = row_latitude_deg(row0 + RENDER_BLOCK_PX / 2.0, body)
         for column_index in range(columns):
-            margin = margin_for(float(reach[row_index, column_index]), latitude,
-                                exaggeration=body.exaggeration,
-                                ground_scale=ground_scale,
-                                map_units_per_pixel=body.map_units_per_pixel,
-                                altitude_deg=altitude_deg)
+            context = context_for(float(reach[row_index, column_index]), latitude,
+                                  exaggeration=body.exaggeration,
+                                  ground_scale=ground_scale,
+                                  map_units_per_pixel=body.map_units_per_pixel,
+                                  altitude_deg=altitude_deg)
             blocks.append(Block(col0=col_origin + column_index * RENDER_BLOCK_PX, row0=row0,
-                                size_px=RENDER_BLOCK_PX, margin_px=margin))
+                                size_px=RENDER_BLOCK_PX, context_px=context))
     return blocks

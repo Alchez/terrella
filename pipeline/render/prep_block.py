@@ -6,8 +6,8 @@ same directory, which is why the framing maths is not repeated here — `render_
 takes a grid size, a ground width and an exaggeration and returns every number the rig reads out of
 frame.json.
 
-WHICH BLOCK IS THE CALLER'S QUESTION. This takes an origin and a size and cuts exactly that; the
-partition and the margin law are `block_plan`'s, and choosing an order over them is the runner's.
+WHICH BLOCK IS THE CALLER'S QUESTION. This takes a `Block` and cuts exactly its plane window; the
+partition and the context law are `block_plan`'s, and choosing an order over them is the runner's.
 
 WHAT THIS BODY HAS IS READ FROM TWO DECLARATIONS AND NEVER FROM DISK. `planet_seam.declared` says
 which planet rasters exist, so a body with no ocean mask is never asked for one; `Body.surface_layers`
@@ -22,8 +22,8 @@ every body, and Mars declares that same layer — so a verbatim port whitens Mar
 degrees south. `_earth_perennial_ice` carries the patch and `_mars_perennial_ice` does not.
 
 Usage:
-  python3 -m pipeline.render.prep_block --body earth --col 39424 --row 24576 \
-      --margin 256 --outdir data/work/earth/blocks/39424_24576
+  python3 -m pipeline.render.prep_block --body earth --col 40960 --row 24576 \
+      --context 512 --outdir data/work/earth/blocks/40960_24576
 """
 
 import argparse
@@ -37,6 +37,7 @@ import rasterio
 from rasterio.windows import Window
 
 from pipeline import block_plan, bodies, freshness, layers, planet_seam
+from pipeline.block_plan import Block
 from pipeline.look import lake_depth, layer_producers, snow
 from pipeline.raster_io import GTIFF_CREATE
 from pipeline.render import render_prep, render_seam
@@ -44,16 +45,6 @@ from pipeline.tile import shade_planet
 
 #: The recipe this stage bakes into its outputs, beside them, as every writer in the pipeline does.
 RECIPE_NAME = "block_recipe.json"
-
-
-def block_window(col: int, row: int, size: int, margin: int) -> Window:
-    """The window actually rendered: the delivered block plus its margin on every side.
-
-    The margin is rendered and thrown away, so that terrain just outside the block can still throw
-    a shadow across the boundary — `block_plan`'s module docstring holds why.
-    """
-    return Window(col - margin, row - margin,  # pyright: ignore[reportCallIssue]
-                  size + 2 * margin, size + 2 * margin)
 
 
 def ground_width_m(window: Window, body: bodies.Body) -> float:
@@ -164,16 +155,22 @@ def build(body: bodies.Body, window: Window, outdir: Path) -> list[str]:
     return written
 
 
-def write_frame(body: bodies.Body, window: Window, outdir: Path) -> dict[str, Any]:
+def write_frame(body: bodies.Body, block: Block, outdir: Path) -> dict[str, Any]:
     """The rig's frame numbers for this block, through `render_prep`'s own seam.
 
-    `hero_long_edge` is the window's own edge because a block renders 1:1 with its heightfield,
-    where a hero renders 7680 from a 16384-wide grid.
+    WHERE THE THREE WIDTHS MEET, and each reaches the rig as a different number. The heightfield is
+    the PLANE, so `width_px`/`height_px` and the ground extent are the plane's; the render
+    resolution is the TRACED edge, because a block renders 1:1 with the grid and only that
+    rectangle is photographed; and `camera_fraction` is the ratio between them, which is what
+    narrows the camera inside its own plane. A hero has no such distinction, which is why the
+    fraction defaults to the overshoot and the resolution to 7680 from a 16384-wide grid.
     """
+    window = block.plane_window
     extent_w_m = ground_width_m(window, body)
     numbers = render_prep.scene_numbers(
         window.width, window.height, extent_w_m,
-        exaggeration=body.exaggeration, hero_long_edge=window.width)
+        exaggeration=body.exaggeration, hero_long_edge=block.traced_edge_px,
+        camera_fraction=block.traced_edge_px / block.plane_edge_px)
     # The full FRAME_KEYS vocabulary, answered in a block's own terms: no padded lon/lat frame
     # exists (None is the vocabulary's value for a grid taken from elsewhere), the CRS is the
     # planet grid's, and the extents are ground metres at the block's mid-latitude — the same
@@ -207,8 +204,7 @@ def write_recipe(body: bodies.Body, window: Window, outdir: Path, written: list[
     }, indent=2, sort_keys=True) + "\n")
 
 
-def cut(body: bodies.Body, col: int, row: int, size: int, margin: int,
-        outdir: Path) -> dict[str, Any]:
+def cut(body: bodies.Body, block: Block, outdir: Path) -> dict[str, Any]:
     """Fill `outdir` with everything the rig needs for one block, and return its frame numbers.
 
     THE FOUR CALLS ARE ONE STAGE AND THEIR ORDER IS THE CONTRACT: images, then the frame the rig
@@ -216,10 +212,13 @@ def cut(body: bodies.Body, col: int, row: int, size: int, margin: int,
     declaration — which is what says the stage finished, so it goes last and after the files exist.
     Extracted from `main` so the block runner drives this in-process rather than restating the
     sequence; a second copy would be free to drop the declaration and look like it worked.
+
+    IT TAKES A `Block` RATHER THAN FOUR NUMBERS because the window arithmetic used to live here as
+    well as on `Block`, in two copies that nothing tied together: changing one moved no test.
     """
-    window = block_window(col, row, size, margin)
+    window = block.plane_window
     written = build(body, window, outdir)
-    frame = write_frame(body, window, outdir)
+    frame = write_frame(body, block, outdir)
     write_recipe(body, window, outdir, written)
     render_seam.declare(outdir, render_seam.BLOCK, written)
     return frame
@@ -235,21 +234,22 @@ def main() -> None:
     parser.add_argument("--row", type=int, required=True, help="block origin row on the grid")
     parser.add_argument("--size", type=int, default=block_plan.RENDER_BLOCK_PX,
                         help="delivered edge of the block in pixels")
-    parser.add_argument("--margin", type=int, required=True,
-                        help="rendered-and-discarded halo, from block_plan.margin_for; required "
-                             "because a zero margin loses every shadow crossing the boundary and "
-                             "does it silently, on both sides, with no edge to notice")
+    parser.add_argument("--context", type=int, required=True,
+                        help="off-camera terrain carried on every side, from "
+                             "block_plan.context_for; required because too little of it loses "
+                             "every shadow crossing the boundary and does it silently, on both "
+                             "sides, with no edge to notice")
     parser.add_argument("--outdir", type=Path, required=True, help="the render directory to fill")
     args = parser.parse_args()
 
     body = bodies.BODIES[args.body]
-    window = block_window(args.col, args.row, args.size, args.margin)
-    frame = cut(body, args.col, args.row, args.size, args.margin, args.outdir)
+    block = Block(col0=args.col, row0=args.row, size_px=args.size, context_px=args.context)
+    frame = cut(body, block, args.outdir)
     written = sorted(render_seam.declared(args.outdir))
     print(f"declared {render_seam.declaration_path(args.outdir)}", flush=True)
-    print(f"{body.name} block col={args.col} row={args.row} {args.size}px "
-          f"+{args.margin} margin -> {window.width}x{window.height}; "
-          f"ground width {frame['extent_w_m'] / 1000:.1f} km; "
+    print(f"{body.name} block col={args.col} row={args.row} {args.size}px delivered, "
+          f"traced {block.traced_edge_px}, plane {block.plane_edge_px} "
+          f"(+{args.context} context); ground width {frame['extent_w_m'] / 1000:.1f} km; "
           f"images {', '.join(sorted(written))}", flush=True)
 
 

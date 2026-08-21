@@ -1,9 +1,19 @@
 """Tests for `pipeline.block_plan`.
 
 Every triple in `RENDERED_BLOCKS` comes from a `.done` marker written by the render probe during the
-1,358-block judging run, by code sharing no line with the module under test. All 1,358 reproduce; the
-ten here span the range and include the two within 0.2% of a quantum boundary, which are what pin the
-rounding direction.
+1,358-block judging run, by code sharing no line with the module under test.
+
+THE TABLE DESCRIBES A PAST RUN, SO IT CARRIES THAT RUN'S PARAMETERS AND NOT TODAY'S. It used to
+derive each block's latitude from `RENDER_BLOCK_PX`, which silently made a record of what was
+rendered depend on what is CURRENTLY configured: doubling the block edge moved the latitude of
+every historical row and the table stopped describing anything. `PROBE_BLOCK_PX` and `PROBE_RATIO`
+are the run's own, pinned here, and nothing below reads a live constant for them.
+
+WHAT THE PROBE PINS IS THE REACH, NOT THE RATIO, which is what lets the table survive the ratio
+moving to 1.0. A margin of `m` written under ratio `r` and quantum `q` says the underlying per-axis
+reach lay in `((m - q) / r, m / r]` — an independent measurement of a physical quantity, with the
+policy divided back out. `implied_context_band` turns that into the width today's law must choose,
+and the band is a few quanta wide against reaches in the hundreds.
 
 Rows are pinned and latitude derived, rather than read back from the marker: markers record latitude
 to two decimals, and that is enough to flip a quantum on those two blocks.
@@ -30,6 +40,19 @@ def px_window(col_off: int, row_off: int, width: int, height: int) -> Window:
     """
     return Window(col_off, row_off, width, height)  # pyright: ignore[reportCallIssue]
 
+#: The judging run's own block edge. The rows below are ITS block origins; at today's edge nine of
+#: the ten are not block origins at all, which is exactly why this cannot be the live constant.
+PROBE_BLOCK_PX = 2048
+
+#: The margin ratio in force when those markers were written. The reach each margin implies is
+#: recovered by dividing it back out, so the table keeps its evidential value at any ratio.
+PROBE_RATIO = 0.39
+
+#: The probe's floor and ceiling, needed to tell a margin the law CHOSE from one it was clamped to.
+#: A clamped margin bounds the reach on one side only.
+PROBE_FLOOR_PX = 64
+PROBE_CEILING_PX = 768
+
 #: (grid row of the block's top edge, greatest relief reaching it in metres, margin the probe used).
 RENDERED_BLOCKS = [
     (89088, 6759.0, 192),    # southamerica, lat -55.78
@@ -45,9 +68,9 @@ RENDERED_BLOCKS = [
 ]
 
 
-def earth_margin(relief_m: float, latitude_deg: float) -> int:
+def earth_context(relief_m: float, latitude_deg: float) -> int:
     earth = bodies.EARTH
-    return block_plan.margin_for(
+    return block_plan.context_for(
         relief_m, latitude_deg,
         exaggeration=earth.exaggeration,
         ground_scale=bodies.ground_metres_per_mercator_unit(earth),
@@ -55,27 +78,82 @@ def earth_margin(relief_m: float, latitude_deg: float) -> int:
         altitude_deg=SUN_ALTITUDE_DEG)
 
 
-@pytest.mark.parametrize(("row", "relief_m", "expected"), RENDERED_BLOCKS)
-def test_earth_reproduces_blocks_that_were_actually_rendered(row, relief_m, expected):
-    latitude = block_plan.row_latitude_deg(row + block_plan.RENDER_BLOCK_PX / 2.0, bodies.EARTH)
-    assert earth_margin(relief_m, latitude) == expected
+def probe_latitude(row: int) -> float:
+    """The latitude the probe computed for a block whose top edge is at `row`."""
+    return block_plan.row_latitude_deg(row + PROBE_BLOCK_PX / 2.0, bodies.EARTH)
 
 
-def test_margin_rounds_up_rather_than_to_nearest():
-    """The two boundary cases above only discriminate if rounding is genuinely `ceil`.
+def implied_context_band(margin: int) -> tuple[int, int]:
+    """The width today's law must choose, bounded by what the probe's own margin implies.
 
-    Stated as its own case because a `round` would still pass eight of the ten parametrised ones,
-    and a reader should not have to recompute quanta to see which two carry the property.
+    A margin the probe CHOSE says `(m - q) / r < reach <= m / r`. A margin it clamped says only one
+    of those, and reading a clamp as a choice is how a table like this quietly stops constraining
+    anything — the 847 m row is a floor case and would otherwise claim the reach was ~164 px when
+    all it says is "not more than that".
     """
-    latitude = block_plan.row_latitude_deg(68608 + block_plan.RENDER_BLOCK_PX / 2.0, bodies.EARTH)
+    quantum = block_plan.CONTEXT_QUANTUM_PX
+    low = 0.0 if margin <= PROBE_FLOOR_PX else (margin - PROBE_FLOOR_PX) / PROBE_RATIO
+    high = math.inf if margin >= PROBE_CEILING_PX else margin / PROBE_RATIO
+
+    def quantised(reach: float) -> int:
+        if reach == math.inf:
+            return block_plan.CONTEXT_CEILING_PX
+        chosen = math.ceil(reach / quantum) * quantum
+        return min(max(chosen, block_plan.DENOISE_BAND_PX), block_plan.CONTEXT_CEILING_PX)
+
+    return quantised(low), quantised(high)
+
+
+@pytest.mark.parametrize(("row", "relief_m", "margin"), RENDERED_BLOCKS)
+def test_earth_reproduces_the_reach_of_blocks_that_were_actually_rendered(row, relief_m, margin):
+    """The independent oracle, with the ratio that produced it divided back out.
+
+    It cannot assert the probe's margin any more — that number was 0.39 of the reach and today's
+    law takes all of it — but the reach itself is a measurement of terrain and sun, and it did not
+    change when the policy did.
+    """
+    low, high = implied_context_band(margin)
+    assert low <= earth_context(relief_m, probe_latitude(row)) <= high
+
+
+def test_the_probes_own_ratio_would_now_fail_that_band():
+    """THE POSITIVE CONTROL, and without it the band above could be wide enough to prove nothing.
+
+    Reverting to 0.39 must put every unclamped row outside its own band. If this stops failing, the
+    band has widened to the point where the parametrised test is decoration.
+    """
+    escaped = 0
+    for row, relief_m, margin in RENDERED_BLOCKS:
+        if margin in (PROBE_FLOOR_PX, PROBE_CEILING_PX):
+            continue
+        low, _ = implied_context_band(margin)
+        assert margin < low, f"the old ratio's {margin} px sits inside the band for row {row}"
+        escaped += 1
+    assert escaped >= 8, "too few unclamped rows left to make this a control"
+
+
+def test_context_rounds_up_rather_than_to_nearest():
+    """`ceil` against `round`, on a case constructed to sit just past a quantum boundary.
+
+    THE BOUNDARY CASES CANNOT BE HARVESTED ANY MORE. Two of the rendered rows landed within 0.2% of
+    a boundary at ratio 0.39; scaling the ratio moved both off it, and no row of a ten-row table is
+    near a boundary at an arbitrary new ratio. So the case is INVERTED out of the law instead —
+    pick the quanta, solve for the relief that produces them — which pins the rounding direction
+    without pretending a rendered block happens to sit there.
+    """
     earth = bodies.EARTH
-    raw = (block_plan.MARGIN_RATIO
-           * (earth.exaggeration / math.cos(math.radians(latitude)))
-           * 13940.0 / math.tan(math.radians(SUN_ALTITUDE_DEG))
-           / earth.map_units_per_pixel * math.cos(math.radians(45.0)))
-    quanta = raw / block_plan.MARGIN_QUANTUM_PX
-    assert math.floor(quanta) < quanta < math.floor(quanta) + 0.01, "case no longer near a boundary"
-    assert earth_margin(13940.0, latitude) == math.ceil(quanta) * block_plan.MARGIN_QUANTUM_PX
+    latitude = probe_latitude(68608)
+    quantum = block_plan.CONTEXT_QUANTUM_PX
+    target_quanta = 4.004
+    # The law is linear in relief, so its own closed form inverts exactly.
+    relief_m = (target_quanta * quantum
+                * math.tan(math.radians(SUN_ALTITUDE_DEG))
+                * earth.map_units_per_pixel
+                * math.cos(math.radians(latitude))
+                / (block_plan.CONTEXT_RATIO * earth.exaggeration
+                   * math.cos(math.radians(45.0))))
+    assert earth_context(relief_m, latitude) == math.ceil(target_quanta) * quantum
+    assert earth_context(relief_m, latitude) != round(target_quanta) * quantum
 
 
 # --------------------------------------------------------------- the body seam
@@ -88,8 +166,8 @@ def test_ground_scale_alone_accounts_for_1_878x():
     """
     mars_scale = bodies.ground_metres_per_mercator_unit(bodies.MARS)
     common = dict(exaggeration=15.0, map_units_per_pixel=305.7483, altitude_deg=SUN_ALTITUDE_DEG)
-    with_scale = block_plan.margin_for(4000.0, 40.0, ground_scale=mars_scale, **common)
-    without = block_plan.margin_for(4000.0, 40.0, ground_scale=1.0, **common)
+    with_scale = block_plan.context_for(4000.0, 40.0, ground_scale=mars_scale, **common)
+    without = block_plan.context_for(4000.0, 40.0, ground_scale=1.0, **common)
     assert 1.0 / mars_scale == pytest.approx(1.8780, abs=1e-4)
     assert with_scale > without
 
@@ -97,11 +175,11 @@ def test_ground_scale_alone_accounts_for_1_878x():
 def test_dropping_ground_scale_undersizes_mars_rather_than_erroring():
     """The failure mode is silence: a truncated shadow simply stops, with no edge to notice."""
     mars = bodies.MARS
-    correct = block_plan.margin_for(
+    correct = block_plan.context_for(
         4000.0, 40.0, exaggeration=mars.exaggeration,
         ground_scale=bodies.ground_metres_per_mercator_unit(mars),
         map_units_per_pixel=mars.map_units_per_pixel, altitude_deg=SUN_ALTITUDE_DEG)
-    earthed = block_plan.margin_for(
+    earthed = block_plan.context_for(
         4000.0, 40.0, exaggeration=mars.exaggeration, ground_scale=1.0,
         map_units_per_pixel=mars.map_units_per_pixel, altitude_deg=SUN_ALTITUDE_DEG)
     assert earthed < correct
@@ -115,7 +193,7 @@ def test_mars_differs_from_earth_by_exaggeration_and_pixel_size_too():
     is wrong here by a third.
     """
     def body_margin(body, relief_m):
-        return block_plan.margin_for(
+        return block_plan.context_for(
             relief_m, 40.0, exaggeration=body.exaggeration,
             ground_scale=bodies.ground_metres_per_mercator_unit(body),
             map_units_per_pixel=body.map_units_per_pixel, altitude_deg=SUN_ALTITUDE_DEG)
@@ -134,7 +212,7 @@ def test_mars_differs_from_earth_by_exaggeration_and_pixel_size_too():
 
 def test_altitude_has_no_default_because_no_root_module_owns_one():
     with pytest.raises(TypeError):
-        block_plan.margin_for(  # pyright: ignore[reportCallIssue]
+        block_plan.context_for(  # pyright: ignore[reportCallIssue]
             4000.0, 40.0, exaggeration=15.0, ground_scale=1.0, map_units_per_pixel=305.7483)
 
 
@@ -221,22 +299,34 @@ def test_halo_does_not_mutate_its_input():
 
 # --------------------------------------------------------------- alignment
 
-@pytest.mark.parametrize("window", [
-    px_window(256, 0, 2048, 2048),        # origin off a cell boundary
-    px_window(0, 256, 2048, 2048),
-    px_window(0, 0, 1024, 2048),          # extent not a whole number of blocks
-    px_window(0, 0, 2048, 3000),
-    px_window(0, 0, 0, 2048),             # empty
-    px_window(131072 - 1024, 0, 2048, 2048),   # leaves the grid
-    px_window(-2048, 0, 2048, 2048),
+#: Each case must be illegal for its OWN stated reason, so every extent below is a legal number of
+#: blocks unless the case is about the extent. A window that is refused twice over tests whichever
+#: branch runs first, and the block edge doubling silently turned four of these into that: a 2048
+#: extent stopped being a whole block, so "leaves the grid" was never reached again.
+@pytest.mark.parametrize(("window", "expected"), [
+    (px_window(256, 0, block_plan.RENDER_BLOCK_PX, block_plan.RENDER_BLOCK_PX),
+     "cell boundary"),                                          # origin off a cell boundary
+    (px_window(0, 256, block_plan.RENDER_BLOCK_PX, block_plan.RENDER_BLOCK_PX),
+     "cell boundary"),
+    (px_window(0, 0, block_plan.CELL_PX, block_plan.RENDER_BLOCK_PX),
+     "whole number"),                                           # extent not a whole block
+    (px_window(0, 0, block_plan.RENDER_BLOCK_PX, 3000), "whole number"),
+    (px_window(0, 0, 0, block_plan.RENDER_BLOCK_PX), "empty"),
+    (px_window(131072 - block_plan.RENDER_BLOCK_PX // 2, 0,
+               block_plan.RENDER_BLOCK_PX, block_plan.RENDER_BLOCK_PX),
+     "leaves"),                                                 # runs off the east edge
+    (px_window(-block_plan.RENDER_BLOCK_PX, 0,
+               block_plan.RENDER_BLOCK_PX, block_plan.RENDER_BLOCK_PX), "leaves"),
 ])
-def test_illegal_windows_raise(window):
-    with pytest.raises(ValueError):
+def test_illegal_windows_raise_for_the_reason_they_were_written_for(window, expected):
+    with pytest.raises(ValueError, match=expected):
         block_plan.check_alignment(window, bodies.EARTH)
 
 
 def test_a_cell_aligned_block_multiple_window_is_legal():
-    block_plan.check_alignment(px_window(512, 1024, 4096, 2048), bodies.EARTH)
+    edge = block_plan.RENDER_BLOCK_PX
+    block_plan.check_alignment(px_window(block_plan.CELL_PX, 2 * block_plan.CELL_PX,
+                                         2 * edge, edge), bodies.EARTH)
 
 
 def test_whole_grid_is_itself_legal():
@@ -247,19 +337,23 @@ def test_whole_grid_is_itself_legal():
 # --------------------------------------------------------------- planning
 
 def test_plan_covers_the_window_exactly_once():
-    window = px_window(2048, 4096, 4096, 4096)
+    edge = block_plan.RENDER_BLOCK_PX
+    window = px_window(edge, 2 * edge, 2 * edge, 2 * edge)
     relief = np.full((2, 2), 1000.0)
     blocks = block_plan.plan(relief, window, bodies.EARTH, altitude_deg=SUN_ALTITUDE_DEG)
     assert len(blocks) == 4
     corners = {(b.col0, b.row0) for b in blocks}
-    assert corners == {(2048, 4096), (4096, 4096), (2048, 6144), (4096, 6144)}
+    assert corners == {(edge, 2 * edge), (2 * edge, 2 * edge),
+                       (edge, 3 * edge), (2 * edge, 3 * edge)}
     assert all(b.size_px == block_plan.RENDER_BLOCK_PX for b in blocks)
 
 
 def test_plan_rejects_a_relief_grid_of_the_wrong_shape():
     with pytest.raises(ValueError):
-        block_plan.plan(np.zeros((3, 3)), px_window(0, 0, 4096, 4096), bodies.EARTH,
-                        altitude_deg=SUN_ALTITUDE_DEG)
+        block_plan.plan(np.zeros((3, 3)),
+                        px_window(0, 0, 2 * block_plan.RENDER_BLOCK_PX,
+                                  2 * block_plan.RENDER_BLOCK_PX),
+                        bodies.EARTH, altitude_deg=SUN_ALTITUDE_DEG)
 
 
 def test_a_flat_block_beside_a_mountain_inherits_the_mountains_margin():
@@ -272,10 +366,11 @@ def test_a_flat_block_beside_a_mountain_inherits_the_mountains_margin():
     margin, which is exactly what `haloed` already gives it — the shortcut was overriding the right
     answer with a cheap one.
     """
-    window = px_window(0, 65536, 4096, 2048)
+    edge = block_plan.RENDER_BLOCK_PX
+    window = px_window(0, 16 * edge, 2 * edge, edge)
     relief = np.array([[0.0, 8000.0]])
     blocks = block_plan.plan(relief, window, bodies.EARTH, altitude_deg=SUN_ALTITUDE_DEG)
-    assert blocks[0].margin_px == blocks[1].margin_px > block_plan.MARGIN_MINIMUM_PX
+    assert blocks[0].context_px == blocks[1].context_px > block_plan.DENOISE_BAND_PX
 
 
 def test_no_block_is_ever_planned_without_a_margin():
@@ -285,120 +380,166 @@ def test_no_block_is_ever_planned_without_a_margin():
     was, bypassing the law entirely, so a guard pointed only at `margin_for` would have stayed green
     through the whole defect. This asks every block a planner can emit.
     """
-    window = px_window(0, 0, 4096 * 2, 2048 * 2)
+    edge = block_plan.RENDER_BLOCK_PX
+    window = px_window(0, 0, 4 * edge, 2 * edge)
     relief = np.array([[0.0, 12000.0, 0.0, 3000.0], [8000.0, 0.0, 500.0, 0.0]])
     blocks = block_plan.plan(relief, window, bodies.EARTH, altitude_deg=SUN_ALTITUDE_DEG)
     assert blocks, "no blocks planned, so the assertion below would pass vacuously"
-    assert all(b.margin_px >= block_plan.MARGIN_MINIMUM_PX for b in blocks)
+    assert all(b.context_px >= block_plan.DENOISE_BAND_PX for b in blocks)
 
 
-def test_the_shadow_law_alone_never_returns_less_than_the_minimum():
-    """Flat ground asks for no shadow reach at all, which is where the law's own zero comes from."""
-    assert block_plan.margin_for(0.0, 0.0, exaggeration=15.0, ground_scale=1.0,
-                                 map_units_per_pixel=305.7483,
-                                 altitude_deg=SUN_ALTITUDE_DEG) == block_plan.MARGIN_MINIMUM_PX
+def test_flat_ground_still_gets_a_plane_that_covers_the_traced_rectangle():
+    """THE FLOOR IS STRUCTURAL NOW, and it is the one bound whose failure is not merely a seam.
+
+    Flat ground asks for no shadow reach at all, which is where the law's own zero comes from. A
+    context below `DENOISE_BAND_PX` would leave the traced rectangle overhanging its own plane, so
+    Cycles would path-trace a ring of frame with no heightfield under it — sky, not terrain, cropped
+    straight into the mosaic. The old floor existed for the frame's dark border and was a look
+    number; this one cannot be turned down.
+    """
+    assert block_plan.context_for(0.0, 0.0, exaggeration=15.0, ground_scale=1.0,
+                                  map_units_per_pixel=305.7483,
+                                  altitude_deg=SUN_ALTITUDE_DEG) == block_plan.DENOISE_BAND_PX
+
+
+def test_no_planned_block_can_have_a_plane_narrower_than_its_traced_frame():
+    """The same bound, asked of the PLAN, because the law is not the only thing that can produce a
+    block — `plan`'s own ocean shortcut once bypassed it entirely and returned zero."""
+    window = px_window(0, 0, block_plan.RENDER_BLOCK_PX * 2, block_plan.RENDER_BLOCK_PX)
+    relief = np.array([[0.0, 0.0]])
+    blocks = block_plan.plan(relief, window, bodies.EARTH, altitude_deg=SUN_ALTITUDE_DEG)
+    assert blocks, "no blocks planned, so the assertion below would pass vacuously"
+    assert all(b.plane_edge_px >= b.traced_edge_px for b in blocks)
 
 
 def test_plan_takes_no_ocean_share_any_more():
     """The shortcut is gone, and its parameter with it: a `plan` that still ACCEPTED an ocean share
     while ignoring it would read to the next caller as a knob that does something."""
     with pytest.raises(TypeError):
-        block_plan.plan(np.zeros((1, 2)), px_window(0, 0, 4096, 2048), bodies.EARTH,
-                        altitude_deg=SUN_ALTITUDE_DEG,
+        block_plan.plan(np.zeros((1, 2)),
+                        px_window(0, 0, 2 * block_plan.RENDER_BLOCK_PX,
+                                  block_plan.RENDER_BLOCK_PX),
+                        bodies.EARTH, altitude_deg=SUN_ALTITUDE_DEG,
                         ocean_share=np.zeros((1, 2)))  # pyright: ignore[reportCallIssue]
 
 
 # --------------------------------------------------------------- the ceilings
 
-def test_margin_clamps_at_the_ceiling():
-    absurd = earth_margin(500_000.0, 84.0)
-    assert absurd == block_plan.MARGIN_CEILING_PX
+def test_context_clamps_at_the_ceiling():
+    absurd = earth_context(500_000.0, 84.0)
+    assert absurd == block_plan.CONTEXT_CEILING_PX
 
 
 def test_the_ceiling_does_not_bind_on_any_block_that_was_rendered():
-    """The judging run's largest margin was 576, so the 768 ceiling is headroom, not a clamp.
+    """A CLAMPED BLOCK KEEPS ITS DEFECT WHILE LOOKING FIXED, which is what this is really about.
 
-    If this fails the ratio has moved, and the margin/frame coupling recorded in the plan is live
-    again — it is not a licence to raise the ceiling.
+    Measured on Earth's own relief cache at this block edge, the widest ask is 1,856 px — the three
+    row-0 blocks at 84.5N holding 5,076 m of haloed relief — so the ceiling is headroom rather than
+    a clamp. That measurement needs the store; this is the weaker check that survives without it,
+    and it says none of the rendered blocks reaches the ceiling either.
     """
-    for row, relief_m, expected in RENDERED_BLOCKS:
-        latitude = block_plan.row_latitude_deg(row + block_plan.RENDER_BLOCK_PX / 2.0, bodies.EARTH)
-        assert earth_margin(relief_m, latitude) == expected < block_plan.MARGIN_CEILING_PX
+    for row, relief_m, margin in RENDERED_BLOCKS:
+        _, high = implied_context_band(margin)
+        assert earth_context(relief_m, probe_latitude(row)) <= high
+        assert high < block_plan.CONTEXT_CEILING_PX
 
 
-def test_rendered_edge_and_frame_fit():
-    fitting = block_plan.Block(col0=0, row0=0, size_px=2048, margin_px=576)
-    assert fitting.rendered_edge_px == 3200
-    assert fitting.fits
-    huge = block_plan.Block(col0=0, row0=0, size_px=2048, margin_px=4096)
+def test_the_three_widths_are_distinct_and_only_the_block_edge_can_overflow_the_frame():
+    edge = block_plan.RENDER_BLOCK_PX
+    block = block_plan.Block(col0=0, row0=0, size_px=edge, context_px=576)
+    assert block.traced_edge_px == edge + 2 * block_plan.DENOISE_BAND_PX
+    assert block.plane_edge_px == edge + 2 * 576
+    assert block.plane_edge_px > block.traced_edge_px > block.size_px
+    assert block.fits
+    widest = block_plan.Block(col0=0, row0=0, size_px=edge,
+                              context_px=block_plan.CONTEXT_CEILING_PX)
+    assert widest.fits, "a plane is geometry; no context however wide is a frame"
+    huge = block_plan.Block(col0=0, row0=0, size_px=block_plan.TRACED_CEILING_PX, context_px=128)
     assert not huge.fits
 
 
-def test_render_window_is_the_delivered_window_grown_by_the_margin():
-    block = block_plan.Block(col0=4096, row0=8192, size_px=2048, margin_px=192)
-    delivered, rendered = block.delivered_window, block.render_window
-    assert (delivered.col_off, delivered.row_off) == (4096, 8192)
-    assert (delivered.width, delivered.height) == (2048, 2048)
-    assert (rendered.col_off, rendered.row_off) == (4096 - 192, 8192 - 192)
-    assert rendered.width == rendered.height == 2048 + 2 * 192
+def test_the_plane_window_is_the_delivered_window_grown_by_the_context():
+    edge = block_plan.RENDER_BLOCK_PX
+    block = block_plan.Block(col0=4 * edge, row0=8 * edge, size_px=edge, context_px=192)
+    delivered, plane = block.delivered_window, block.plane_window
+    assert (delivered.col_off, delivered.row_off) == (4 * edge, 8 * edge)
+    assert (delivered.width, delivered.height) == (edge, edge)
+    assert (plane.col_off, plane.row_off) == (4 * edge - 192, 8 * edge - 192)
+    assert plane.width == plane.height == edge + 2 * 192
 
 
-def test_a_block_at_column_zero_renders_from_negative_columns():
+def test_a_block_at_column_zero_reads_from_negative_columns():
     """The wrap is the reader's job, but the plan must express it rather than silently clamping."""
-    block = block_plan.Block(col0=0, row0=32768, size_px=2048, margin_px=128)
-    assert block.render_window.col_off == -128
+    block = block_plan.Block(col0=0, row0=32768, size_px=block_plan.RENDER_BLOCK_PX,
+                             context_px=128)
+    assert block.plane_window.col_off == -128
 
 
 class TestFoldingCellsUpToBlocks:
-    """`relief_scan` records cells; `plan` consumes blocks. These two are the bridge."""
+    """`relief_scan` records cells; `plan` consumes blocks. These two are the bridge.
 
-    def test_four_cells_span_a_block_on_every_body(self):
-        """Derived from the two constants, never written down, so re-tuning either stays coherent."""
+    EVERY GRID HERE IS SIZED FROM `CELLS_PER_BLOCK` RATHER THAN SPELLED. They were all 4x4, which
+    was the fold's shape at the block edge those cases were written under, and doubling the edge
+    turned each of them from "one block's cells" into "a quarter of one" — the whole class failing
+    on an assertion about arithmetic it was not testing.
+    """
+
+    @property
+    def cells(self) -> int:
+        return block_plan.CELLS_PER_BLOCK
+
+    def _grid(self, fill=0.0):
+        return np.full((self.cells, self.cells), fill)
+
+    def test_the_cells_that_span_a_block_are_derived_from_the_two_constants(self):
+        """Never written down, so re-tuning either stays coherent. The cache is deliberately FINER
+        than the block, which is what lets a block-edge change re-fold it instead of re-reading a
+        46 GB master."""
         assert block_plan.CELLS_PER_BLOCK == block_plan.RENDER_BLOCK_PX // block_plan.CELL_PX
-        assert block_plan.CELLS_PER_BLOCK == 4
+        assert block_plan.CELL_PX < block_plan.RENDER_BLOCK_PX
 
     def test_relief_is_the_range_across_a_blocks_cells_and_not_the_greatest_elevation(self):
         """The distinction `plan`'s own docstring pins with the 13,940 m Andes witness."""
-        high = np.zeros((4, 4))
-        low = np.zeros((4, 4))
-        high[1, 1] = 6000.0     # a summit in one cell
-        low[3, 3] = -8000.0     # a trench in another, of the same block
+        high, low = self._grid(), self._grid()
+        high[1, 1] = 6000.0                     # a summit in one cell
+        low[self.cells - 1, self.cells - 1] = -8000.0   # a trench in another, of the same block
         relief = block_plan.relief_from_cells(high, low)
         assert relief.shape == (1, 1)
         assert relief[0, 0] == pytest.approx(14000.0), "the fold returned an elevation, not a range"
 
     def test_the_reduce_is_max_of_maxima_and_not_a_mean(self):
-        """Averaging would hide a single steep cell, which is the one the margin exists for."""
-        high = np.zeros((4, 4))
+        """Averaging would hide a single steep cell, which is the one the context exists for."""
+        high = self._grid()
         high[0, 0] = 4000.0
-        assert block_plan.relief_from_cells(high, np.zeros((4, 4)))[0, 0] == pytest.approx(4000.0)
+        assert block_plan.relief_from_cells(high, self._grid())[0, 0] == pytest.approx(4000.0)
 
     def test_a_block_with_no_elevation_data_raises_rather_than_scoring_zero(self):
-        """Relief 0 yields margin 0, so a block whose data merely failed to arrive would render
-        with its neighbours' shadows truncated at the seam and nothing to notice."""
-        empty = np.full((4, 4), np.nan)
+        """Relief 0 yields the narrowest context there is, so a block whose data merely failed to
+        arrive would render with its neighbours' shadows truncated at the seam and nothing to
+        notice."""
+        empty = self._grid(np.nan)
         with pytest.raises(ValueError, match="no elevation data"):
             block_plan.relief_from_cells(empty, empty)
 
     def test_a_partly_no_data_block_still_uses_the_cells_that_have_data(self):
-        high = np.full((4, 4), np.nan)
-        low = np.full((4, 4), np.nan)
+        high, low = self._grid(np.nan), self._grid(np.nan)
         high[2, 2], low[2, 2] = 1200.0, 200.0
         assert block_plan.relief_from_cells(high, low)[0, 0] == pytest.approx(1000.0)
 
     def test_a_cell_grid_that_is_not_a_whole_number_of_blocks_is_refused(self):
-        ragged = np.zeros((4, 6))
+        ragged = np.zeros((self.cells, self.cells + 2))
         with pytest.raises(ValueError, match="not a whole number"):
             block_plan.relief_from_cells(ragged, ragged)
 
     def test_mismatched_high_and_low_grids_are_refused(self):
         with pytest.raises(ValueError, match="different cell grids"):
-            block_plan.relief_from_cells(np.zeros((4, 4)), np.zeros((8, 8)))
+            block_plan.relief_from_cells(self._grid(), np.zeros((self.cells * 2,
+                                                                self.cells * 2)))
 
     def test_ocean_share_folds_by_mean_because_every_cell_covers_the_same_pixels(self):
-        share = np.zeros((4, 4))
+        share = self._grid()
         share[0, :] = 1.0
-        assert block_plan.share_from_cells(share)[0, 0] == pytest.approx(0.25)
+        assert block_plan.share_from_cells(share)[0, 0] == pytest.approx(1.0 / self.cells)
 
     def test_the_folded_pair_is_what_plan_accepts(self):
         """The two ends of the contract, joined — a fold whose shape `plan` rejects is no bridge."""
@@ -409,4 +550,4 @@ class TestFoldingCellsUpToBlocks:
         blocks = block_plan.plan(block_plan.relief_from_cells(high, low), window, bodies.EARTH,
                                  altitude_deg=45.0)
         assert len(blocks) == 4
-        assert all(block.margin_px > 0 for block in blocks)
+        assert all(block.context_px > 0 for block in blocks)

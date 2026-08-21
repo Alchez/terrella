@@ -64,7 +64,9 @@ from rasterio.windows import Window
 from pipeline import bodies
 from pipeline.render import render_seam
 
-FRAME_MARGIN = 1.0006  # camera overshoot: the plane underfills the frame a hair
+FRAME_MARGIN = 1.0006  # the hero path's `camera_fraction`: camera overshoot, so the plane
+                       # underfills the frame a hair. `scene_numbers` says why it is a default
+                       # rather than the rule
 HERO_LONG_EDGE = 7680  # hero render long edge in px; the short axis follows
                        # raster aspect (a tall country caps at 7680 tall, not
                        # 7680 wide — Maldives would be 56k px otherwise)
@@ -95,7 +97,7 @@ def aea_crs(frame):
 
 
 def scene_numbers(width_px, height_px, extent_w_m, *, exaggeration,
-                  hero_long_edge=HERO_LONG_EDGE):
+                  hero_long_edge=HERO_LONG_EDGE, camera_fraction=FRAME_MARGIN):
     """Blender scene numbers for a warped grid (docs/framing-math.md).
 
     The displacement plane is always 2 Blender units wide, so one unit is
@@ -103,6 +105,17 @@ def scene_numbers(width_px, height_px, extent_w_m, *, exaggeration,
     applied to the locked global look constants. The render resolution puts
     hero_long_edge on the grid's longer axis; for landscape grids this is
     identical to the retired fixed-width rule.
+
+    `camera_fraction` IS HOW MUCH OF THE PLANE THE CAMERA SEES, and its
+    default is the hero path's 1.0006 overshoot, which is why no pinned
+    frame moves. A block passes a fraction BELOW one: its plane carries
+    terrain far past the traced rectangle so that off-block ridges cast in,
+    and that terrain must not be photographed. The alternative was a render
+    border, which crops the output buffer while leaving the camera spanning
+    everything — so the whole plane still dices at full rate and the context
+    is charged for in geometry it does not need. Narrowing the camera is what
+    makes off-frustum context nearly free; `block_plan` holds the three
+    widths this is one half of.
 
     `exaggeration` IS KEYWORD-ONLY AND REQUIRED, and this used to import
     Earth's 15x directly. It is `Body.exaggeration`, which is 20x on Mars,
@@ -120,7 +133,7 @@ def scene_numbers(width_px, height_px, extent_w_m, *, exaggeration,
                    res_y=round(hero_long_edge * height_px / width_px))
     return dict(
         plane_height_units=plane_h,
-        ortho_scale=max(2.0, plane_h) * FRAME_MARGIN,
+        ortho_scale=max(2.0, plane_h) * camera_fraction,
         displacement_scale=exaggeration / (extent_w_m / 2.0),
         **res,
     )

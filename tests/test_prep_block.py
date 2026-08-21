@@ -12,8 +12,20 @@ import numpy as np
 import pytest
 
 from pipeline import block_plan, bodies, layers
+from pipeline.block_plan import Block
 from pipeline.look import layer_producers, snow
 from pipeline.render import prep_block
+
+
+def plane_window(col, row, size, context):
+    """The window a block is cut from, built through its one owner.
+
+    `prep_block` used to spell this arithmetic itself, beside an identical copy on `Block`, and
+    changing either moved no test. The helper is here rather than there so the test still says
+    which numbers it means without being a second implementation of them.
+    """
+    return Block(col0=col, row0=row, size_px=size, context_px=context).plane_window
+
 
 ROWS, COLS = 8, 16
 
@@ -34,7 +46,7 @@ class TestTheGroundWidthIsTheBodysAndNotTheProjectionsphere:
 
     def _equator_window(self, body):
         row = block_plan.grid_px(body) // 2 - block_plan.RENDER_BLOCK_PX // 2
-        return prep_block.block_window(0, row, block_plan.RENDER_BLOCK_PX, 0)
+        return plane_window(0, row, block_plan.RENDER_BLOCK_PX, 0)
 
     def _predicted(self, window, body, *, ratio):
         """The closed form, with the body ratio passed in so the dropped-term arm is expressible."""
@@ -76,21 +88,43 @@ class TestTheGroundWidthIsTheBodysAndNotTheProjectionsphere:
         the correction and the half that is live on every body."""
         equator = prep_block.ground_width_m(self._equator_window(bodies.EARTH), bodies.EARTH)
         polar = prep_block.ground_width_m(
-            prep_block.block_window(0, 0, block_plan.RENDER_BLOCK_PX, 0), bodies.EARTH)
+            plane_window(0, 0, block_plan.RENDER_BLOCK_PX, 0), bodies.EARTH)
         assert polar < equator
 
 
-class TestTheMarginIsRenderedAndNotDelivered:
-    def test_the_window_grows_by_the_margin_on_every_side(self):
-        window = prep_block.block_window(4096, 2048, 2048, 256)
+class TestTheContextIsCutAndNeverDelivered:
+    def test_the_window_grows_by_the_context_on_every_side(self):
+        window = plane_window(4096, 2048, 2048, 256)
         assert (window.col_off, window.row_off) == (4096 - 256, 2048 - 256)
         assert (window.width, window.height) == (2048 + 512, 2048 + 512)
 
-    def test_a_zero_margin_is_expressible_but_never_defaulted(self):
-        """The CLI requires `--margin`, because a silently-zero one loses every shadow crossing the
-        boundary, on both sides, with no edge to notice."""
-        window = prep_block.block_window(0, 0, 2048, 0)
+    def test_a_zero_context_is_expressible_but_never_defaulted(self):
+        """The CLI requires `--context`, because a silently-zero one loses every shadow crossing
+        the boundary, on both sides, with no edge to notice. Expressible because the window
+        arithmetic is a pure function; what refuses it is the law, which floors at the band."""
+        window = plane_window(0, 0, 2048, 0)
         assert (window.width, window.height) == (2048, 2048)
+
+    def test_what_the_rig_is_told_is_the_traced_edge_and_not_the_plane(self, tmp_path):
+        """THE SEAM WHERE THE THREE WIDTHS MEET, and the one place a swap is expressible.
+
+        `write_frame` hands the rig a heightfield the size of the PLANE and a resolution the size
+        of the TRACED rectangle, with `camera_fraction` the ratio between them. Passing the plane
+        as the resolution renders the context — the defect the whole unit exists to remove — and
+        every downstream shape check would still pass, because the crop is taken by offset.
+        """
+        block = Block(col0=0, row0=block_plan.grid_px(bodies.EARTH) // 2,
+                      size_px=block_plan.RENDER_BLOCK_PX, context_px=1024)
+        window = block.plane_window
+        numbers = prep_block.render_prep.scene_numbers(
+            window.width, window.height, prep_block.ground_width_m(window, bodies.EARTH),
+            exaggeration=bodies.EARTH.exaggeration, hero_long_edge=block.traced_edge_px,
+            camera_fraction=block.traced_edge_px / block.plane_edge_px)
+        assert numbers["res_x"] == numbers["res_y"] == block.traced_edge_px
+        assert numbers["res_x"] < block.plane_edge_px, "the camera would be photographing context"
+        # The camera spans the traced rectangle exactly, in the plane's own units.
+        assert numbers["ortho_scale"] == pytest.approx(
+            2.0 * block.traced_edge_px / block.plane_edge_px)
 
 
 class TestTheBlockStageAsksForItsOwnLayersAndNotTheComposites:
@@ -190,13 +224,14 @@ class TestTheFrameGoesThroughTheHerosOwnSeam:
     serialiser refused the block payload the first time a real prep reached it."""
 
     def test_the_payload_round_trips_the_validating_serialiser(self, tmp_path):
-        window = prep_block.block_window(44032, 3584, 2048, 320)
-        prep_block.write_frame(bodies.EARTH, window, tmp_path)
+        block = Block(col0=44032, row0=3584, size_px=2048, context_px=320)
+        prep_block.write_frame(bodies.EARTH, block, tmp_path)
         written = json.loads((tmp_path / "frame.json").read_text())
         assert written["body"] == "earth"
         assert written["frame_lonlat"] is None, "a block is a grid window, not a lon/lat frame"
         assert written["dst_crs"] == "EPSG:3857"
-        assert written["res_x"] == window.width, "a block renders 1:1 with its heightfield"
+        assert written["width_px"] == block.plane_edge_px, "the heightfield is the plane's"
+        assert written["res_x"] == block.traced_edge_px, "and the render is the traced rectangle's"
         assert written["xres_m"] * written["width_px"] == pytest.approx(written["extent_w_m"])
 
 
@@ -207,7 +242,7 @@ class TestTheRecipeRecordsWhatExistenceCannotSee:
     def _written(self, monkeypatch, tmp_path, body):
         monkeypatch.setattr(prep_block.planet_seam, "declared",
                             lambda _body: frozenset({"heightfield"}))
-        window = prep_block.block_window(0, 4096, 2048, 256)
+        window = plane_window(0, 4096, 2048, 256)
         prep_block.write_recipe(body, window, tmp_path, [prep_block.render_seam.HEIGHTFIELD])
         return json.loads((tmp_path / prep_block.RECIPE_NAME).read_text())
 
@@ -228,7 +263,7 @@ class TestTheRecipeRecordsWhatExistenceCannotSee:
     def test_earth_records_nothing_off_at_all(self, monkeypatch, tmp_path):
         monkeypatch.setattr(prep_block.planet_seam, "declared",
                             lambda _body: frozenset({"heightfield", "oceanmask", "watermask"}))
-        window = prep_block.block_window(0, 4096, 2048, 256)
+        window = plane_window(0, 4096, 2048, 256)
         prep_block.write_recipe(bodies.EARTH, window, tmp_path,
                                 [prep_block.render_seam.HEIGHTFIELD])
         recipe = json.loads((tmp_path / prep_block.RECIPE_NAME).read_text())
@@ -248,15 +283,15 @@ class TestTheMidLatitudeIsTheWindowsAndNotTheBlocks:
         """A margin is asymmetric about the equator's rows in latitude terms, so taking the
         DELIVERED block's centre instead of the rendered window's would size the frame from a
         latitude the render never uses."""
-        with_margin = prep_block.block_window(0, 1024, 2048, 512)
-        without = prep_block.block_window(0, 1024, 2048, 0)
+        with_margin = plane_window(0, 1024, 2048, 512)
+        without = plane_window(0, 1024, 2048, 0)
         assert with_margin.row_off + with_margin.height / 2 == pytest.approx(
             without.row_off + without.height / 2), "centres agree; the SPAN is what differs"
         assert prep_block.ground_width_m(with_margin, bodies.EARTH) > prep_block.ground_width_m(
             without, bodies.EARTH)
 
     def test_the_width_is_taken_at_the_mid_latitude_and_not_at_an_edge(self):
-        window = prep_block.block_window(0, 1024, 2048, 0)
+        window = plane_window(0, 1024, 2048, 0)
         mid = block_plan.row_latitude_deg(window.row_off + window.height / 2, bodies.EARTH)
         expected = (window.width * bodies.EARTH.map_units_per_pixel
                     * math.cos(math.radians(mid)))

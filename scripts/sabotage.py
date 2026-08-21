@@ -2772,11 +2772,11 @@ SABOTAGES: list[Sabotage] = [
     # longest. Two of the ten pinned cases sit within 0.2% of a boundary and exist for this.
     Sabotage(
         suite='python',
-        label='the margin quantum rounds to nearest, truncating the blocks with the longest shadows',
+        label='the context quantum rounds to nearest, truncating the blocks with the longest shadows',
         path='pipeline/block_plan.py',
-        needle='    quantised = math.ceil(MARGIN_RATIO * per_axis_px / MARGIN_QUANTUM_PX) * MARGIN_QUANTUM_PX',
-        replacement='    quantised = round(MARGIN_RATIO * per_axis_px / MARGIN_QUANTUM_PX) * MARGIN_QUANTUM_PX',
-        guard='test_margin_rounds_up_rather_than_to_nearest',
+        needle='    quantised = math.ceil(CONTEXT_RATIO * per_axis_px / CONTEXT_QUANTUM_PX) * CONTEXT_QUANTUM_PX',
+        replacement='    quantised = round(CONTEXT_RATIO * per_axis_px / CONTEXT_QUANTUM_PX) * CONTEXT_QUANTUM_PX',
+        guard='test_context_rounds_up_rather_than_to_nearest',
     ),
     # The two halo axes are not symmetric and the probe's copies had them both wrapping, which lets
     # the north pole's relief size a block at the south pole. On a planet where both poles carry
@@ -2799,7 +2799,7 @@ SABOTAGES: list[Sabotage] = [
         path='pipeline/block_plan.py',
         needle='    per_axis_px = reach_px * math.cos(math.radians(45.0))',
         replacement='    per_axis_px = reach_px',
-        guard='test_earth_reproduces_blocks_that_were_actually_rendered',
+        guard='test_earth_reproduces_the_reach_of_blocks_that_were_actually_rendered',
     ),
     Sabotage(
         suite='python',
@@ -4145,22 +4145,22 @@ SABOTAGES: list[Sabotage] = [
     ),
     Sabotage(
         suite='python',
-        label='the shadow law drops its floor, so flat ground plans a zero margin again',
+        label='the shadow law drops its floor, so flat ground plans a plane inside its own frame',
         path='pipeline/block_plan.py',
-        needle='    return min(max(quantised, MARGIN_MINIMUM_PX), MARGIN_CEILING_PX)',
-        replacement='    return min(quantised, MARGIN_CEILING_PX)',
-        guard='test_the_shadow_law_alone_never_returns_less_than_the_minimum',
+        needle='    return min(max(quantised, DENOISE_BAND_PX), CONTEXT_CEILING_PX)',
+        replacement='    return min(quantised, CONTEXT_CEILING_PX)',
+        guard='test_flat_ground_still_gets_a_plane_that_covers_the_traced_rectangle',
     ),
     # THE RECIPE GOING SHORT, which is the failure that bit three times in one session and is
     # silent every time: the recipe text does not move, the generation stamp still reads as
     # current, and the next resume keeps blocks rendered under a rule that no longer exists.
     Sabotage(
         suite='python',
-        label='the recipe stops recording the margins, so a law change restages nothing at all',
+        label='the recipe stops recording the contexts, so a law change restages nothing at all',
         path='pipeline/tile/block_render.py',
-        needle='        "margins": margin_census(blocks),',
-        replacement='        "margins": {},',
-        guard='test_a_margin_moving_moves_the_recipe_and_a_law_change_that_moves_none_does_not',
+        needle='        "contexts": context_census(blocks),',
+        replacement='        "contexts": {},',
+        guard='test_a_context_moving_moves_the_recipe_and_a_law_change_that_moves_none_does_not',
     ),
     # THE BLOCK RUNNER. Every case below is silent: the run completes, the gates stay green, and
     # what is wrong is either a planet nobody re-rendered or a planet rendered from the wrong
@@ -4201,11 +4201,43 @@ SABOTAGES: list[Sabotage] = [
     ),
     Sabotage(
         suite='python',
-        label='the margin is left on the crop, so every block is written offset by its own halo',
+        label='the crop takes the context instead of the band, writing the wrong ground into the mosaic',
         path='pipeline/tile/block_render.py',
-        needle='    crop = frame[:3, margin:margin + edge, margin:margin + edge]',
-        replacement='    crop = frame[:3, :edge, :edge]',
-        guard='test_the_margin_is_cut_back_off',
+        needle=('    band, edge, traced = block_plan.DENOISE_BAND_PX, block.size_px, '
+                'block.traced_edge_px'),
+        replacement='    band, edge, traced = block.context_px, block.size_px, block.traced_edge_px',
+        guard='test_the_denoise_band_is_cut_back_off',
+    ),
+    # The base grid is the one mutation here whose damage never raises, never logs and never
+    # changes a file size: `MAX_SUBDIVISIONS` caps micropolygons PER PATCH, so a single quad silently
+    # dices a 4,096-block's plane at half its pixels and delivers a slightly soft planet.
+    Sabotage(
+        suite='python',
+        label='the plane goes back to one patch, so every block dices at half its own resolution',
+        path='pipeline/render/scene_build.py',
+        needle='    return max(1, math.ceil(span_px / 2 ** MAX_SUBDIVISIONS))',
+        replacement='    return 1',
+        guard='test_the_base_grid_covers_every_context_width_on_every_body',
+    ),
+    Sabotage(
+        suite='python',
+        label='the plane span is read off the heightfield, so a hero under-dices and a block over-dices',
+        path='pipeline/render/scene_build.py',
+        needle=('    pixels_per_unit = max(frame["res_x"], frame["res_y"]) '
+                '/ frame["ortho_scale"]'),
+        replacement='    pixels_per_unit = max(frame["res_x"], frame["res_y"]) / 2.0',
+        guard='test_the_plane_span_is_the_planes_and_not_the_heightfields',
+    ),
+    # The frame CHECK and the crop OFFSET are separate mutations because they fail differently and
+    # only one of them changes a shape. Cropping a plane-sized frame by the band yields a square of
+    # exactly the right size, so the assertion that used to live on `crop.shape` passed through it.
+    Sabotage(
+        suite='python',
+        label='the frame size is checked on the crop instead of the render, so an unnarrowed camera passes',
+        path='pipeline/tile/block_render.py',
+        needle='    if frame.shape[1:] != (traced, traced):',
+        replacement='    if frame.shape[1:] < (traced, traced):',
+        guard='test_a_frame_the_size_of_the_PLANE_rather_than_the_traced_rectangle_raises',
     ),
     Sabotage(
         suite='python',

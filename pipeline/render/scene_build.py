@@ -61,6 +61,34 @@ def _rgba(stops):
     return [(pos, (*rgb, 1.0)) for pos, rgb in stops]
 
 
+def arrival_azimuth_deg(rotation):
+    """Compass bearing a sun with this XYZ euler ARRIVES FROM, clockwise from north.
+
+    THE ONLY THING ABOUT A SUN THAT IS VISIBLE IN THE OUTPUT, and for two years nothing derived it.
+    A Blender sun shines along its own local -Z, so an euler is a statement about where the light
+    GOES; the cartographic convention is about where it COMES FROM, and the two differ by 180
+    degrees before the euler's own sign conventions are applied at all. The guard that was supposed
+    to pin the light asserted `SUN_ROTATION[2] == -45.0`, which stays true with the light arriving
+    from any bearing whatever, and the rig shipped 90 degrees off the convention it was written to.
+
+    So this is the executable copy of the conversion, and the pinned number lives in the test that
+    calls it. Rotating the sun and its guard together is then the mutation that has to fail, which
+    is exactly what a coordinate assertion cannot catch.
+
+    Pure arithmetic on purpose: no `bpy`, so a test can call it without Blender, and it was checked
+    against Blender's own world matrix on the renders the 315 decision was taken from.
+    """
+    rx, _, rz = rotation
+    # Travel direction is Rz @ Ry @ Rx applied to (0, 0, -1), giving a source direction whose
+    # horizontal part is sin(rx) * (sin rz, -cos rz). For any sun above the horizon sin(rx) is
+    # positive and divides out, so the bearing is the z euler's alone — but only then, which is why
+    # the tilt is asserted rather than assumed away.
+    if math.sin(rx) <= 0.0:
+        raise ValueError(f"a sun tilted {math.degrees(rx):.1f} degrees is at or below the horizon, "
+                         f"where it has no arrival bearing to report")
+    return math.degrees(math.atan2(math.sin(rz), -math.cos(rz))) % 360.0
+
+
 # ---- locked look
 # ---- angle, land ramp top). Colour + sun-altitude constants are DERIVED from
 # ---- pipeline/look/palette.py since the hero sea-sync: copies drifted three
@@ -68,13 +96,16 @@ def _rgba(stops):
 # ---- imports cannot. WORLD_*/FILL_*/SUN_ANGLE/STRENGTH stay local: they have no
 # ---- tile counterpart or are deliberately not ports (ART.md hero→tile map). ----
 DISPLACEMENT_MIDLEVEL = 0.0
-SUN_ROTATION = (math.radians(90.0 - palette.SUN_ALT_DEG), 0.0, math.radians(-45.0))
+SUN_ROTATION = (math.radians(90.0 - palette.SUN_ALT_DEG), 0.0, math.radians(-135.0))
 SUN_ANGLE = math.radians(12.0)
 SUN_STRENGTH = 3.0
-FILL_ROTATION = (math.radians(30.0), 0.0, math.radians(135.0))
+FILL_ROTATION = (math.radians(30.0), 0.0, math.radians(45.0))
 FILL_ANGLE = math.radians(10.0)
 FILL_STRENGTH = 0.45   # 15% of SUN_STRENGTH; shadowless SE fill so shadowed
-                       # faces keep directional modeling (never pure black)
+                       # faces keep directional modeling (never pure black).
+                       # The comment said SE while the light arrived from NE;
+                       # putting the main sun on 315 put this on 135 and made
+                       # it true. `arrival_azimuth_deg` is what says so.
 WORLD_RGBA = (0.887923, 0.799103, 0.665388, 1.0)   # F2E7D5
 WORLD_STRENGTH = 0.3
 WATER_RGBA = (*palette.srgb8_to_linear(palette.WATER_RGB), 1.0)  # 8EC6C4 — sea
@@ -88,10 +119,20 @@ ICE_RGBA = (*palette.srgb8_to_linear(palette.ICE_RGB), 1.0)      # D4E4F0 — se
 LAKE_STOPS = _rgba(palette.LAKE_STOPS)   # depth-position ramp; stop 0 IS the water tint
 RAMP_INTERPOLATION = "EASE"
 
-SAMPLES = 4096
+SAMPLES = 4096        # a Cycles SAMPLE COUNT, and the one number here measured in the same units
+                      # as a block edge without being one. Never search-and-replace it.
 ADAPTIVE_THRESHOLD = 0.01
 DICING_RATE = 1.0
-MAX_SUBDIVISIONS = 12
+MAX_SUBDIVISIONS = 12   # per PATCH, not per mesh — `base_patches` holds what that means
+OFFSCREEN_DICING_SCALE = 16.0
+                      # How much coarser geometry outside the camera is diced. It exists for the
+                      # block path, whose plane carries terrain far past the traced rectangle so
+                      # that off-block ridges cast shadows in; at Earth's widest that plane is
+                      # 7,808 px against a 4,352 px frame, so most of the mesh is never seen.
+                      # PINNED BECAUSE IT WAS AN UNRECORDED BLENDER DEFAULT, not because it is a
+                      # quality lever: 4, 16 and 64 sit within 0.06 DN mean of each other on the
+                      # same block, against 37.58 DN for the control that deletes the context
+                      # outright. 16 over the default 4 for memory rather than for pixels.
 BOUNCES = dict(max_bounces=12, diffuse_bounces=4, glossy_bounces=4,
                transmission_bounces=12, volume_bounces=0)
 CLAMP_INDIRECT = 10.0
@@ -178,6 +219,7 @@ def rig_recipe(look: palette.Look) -> dict[str, Any]:
         "ADAPTIVE_THRESHOLD": ADAPTIVE_THRESHOLD,
         "DICING_RATE": DICING_RATE,
         "MAX_SUBDIVISIONS": MAX_SUBDIVISIONS,
+        "OFFSCREEN_DICING_SCALE": OFFSCREEN_DICING_SCALE,
         "BOUNCES": dict(BOUNCES),
         "CLAMP_INDIRECT": CLAMP_INDIRECT,
         # The interpolation beside each filename is as much a look decision as a colour is: an
@@ -220,12 +262,55 @@ def clear_scene():
             block.remove(item)
 
 
-def build_plane(height):
+def plane_span_px(frame):
+    """How many RENDER pixels the displacement plane spans, which is what dicing counts.
+
+    NOT the heightfield's pixel width, which is the tempting number and is wrong on both paths for
+    opposite reasons: a hero's 16384-wide grid is photographed at 7680, and a block's plane is
+    deliberately wider than the rectangle its camera sees. What both have in common is the frame's
+    own arithmetic — the plane is 2.0 Blender units across, the camera spans `ortho_scale` of them
+    along the longer axis, and the render puts its long resolution across that span.
+    """
+    pixels_per_unit = max(frame["res_x"], frame["res_y"]) / frame["ortho_scale"]
+    return max(2.0, frame["plane_height_units"]) * pixels_per_unit
+
+
+def base_patches(span_px):
+    """Quads per plane edge, so adaptive subdivision can reach one micropolygon per pixel.
+
+    `MAX_SUBDIVISIONS` CAPS EACH PATCH, NOT THE MESH, and that is the whole reason this exists. The
+    plane is added as a single quad, so the cap is 2**12 = 4096 micropolygons along its entire
+    edge however many pixels the render asks for. Past that, Cycles dices coarser than the pixels
+    and the displacement detail the raytrace exists for is quietly lost — no warning, no error, an
+    image that merely looks a little softer than it should.
+
+    Measured at 256 px, where 256 micropolygons per edge are needed: a bare quad at maxsub 5
+    (cap 32) differs from a maxsub 9 reference by 26.10 DN mean and 154 max, while an 8x8 grid at
+    maxsub 5 is bit-identical to that reference, 0.0000 DN. It is also bit-identical when the cap
+    is not binding, so a patch count larger than necessary costs nothing.
+
+    A GRID RATHER THAN A LARGER `MAX_SUBDIVISIONS` because a constant has to be re-derived every
+    time the block edge or the context moves, and this does not: it is computed from the frame that
+    is actually being rendered. `test_scene_build_sync` asserts every planned block on every
+    registered body clears one micropolygon per pixel through it.
+    """
+    return max(1, math.ceil(span_px / 2 ** MAX_SUBDIVISIONS))
+
+
+def build_plane(height, patches_per_edge):
+    # NO DEFAULT, for the reason no field on `Body` has one. A defaulted 1 is exactly the value
+    # that under-dices in silence, so a caller that dropped the argument would render a softer
+    # planet and raise nothing; without one it is a TypeError before Cycles starts.
     bpy.ops.mesh.primitive_plane_add(size=2.0)
     ob = bpy.context.active_object
     ob.name = "Plane"
     for vertex in ob.data.vertices:
         vertex.co.y *= height / 2.0
+    if patches_per_edge > 1:
+        bpy.ops.object.mode_set(mode="EDIT")
+        bpy.ops.mesh.select_all(action="SELECT")
+        bpy.ops.mesh.subdivide(number_cuts=patches_per_edge - 1)
+        bpy.ops.object.mode_set(mode="OBJECT")
     mod = ob.modifiers.new("Subdivision", "SUBSURF")
     mod.subdivision_type = "SIMPLE"
     mod.levels = 1
@@ -536,6 +621,7 @@ def configure_render(res_x, res_y, *, denoise_device):
     cycles_settings.denoising_use_gpu = denoise_device == "gpu"
     cycles_settings.dicing_rate = DICING_RATE
     cycles_settings.max_subdivisions = MAX_SUBDIVISIONS
+    cycles_settings.offscreen_dicing_scale = OFFSCREEN_DICING_SCALE
     for attr, val in BOUNCES.items():
         setattr(cycles_settings, attr, val)
     cycles_settings.sample_clamp_indirect = CLAMP_INDIRECT
@@ -609,12 +695,17 @@ def main():
                  f"({frame['width_px']}, {frame['height_px']}) — stale or "
                  f"mismatched frame.json")
     bpy.data.images.remove(probe)
-    plane = build_plane(frame["plane_height_units"])
+    span_px = plane_span_px(frame)
+    patches = base_patches(span_px)
+    plane = build_plane(frame["plane_height_units"], patches)
     build_material(plane, render_dir, frame["displacement_scale"], look,
                    render_seam.declared(render_dir))
 
     prefs = bpy.context.preferences.addons["cycles"].preferences
     print(f"body {args.body}, {'sea' if look.sea is not None else 'no sea'}; ", flush=True)
+    # ECHOED SO A CALLER CAN ASSERT IT, for `--denoise-device`'s reason: a base grid that failed to
+    # be cut renders successfully, a little soft, and leaves nothing on disk that differs.
+    print(f"BASE_PATCHES {patches} SPAN_PX {span_px:.0f}", flush=True)
     print(f"plane 2.0 x {frame['plane_height_units']:.6f}; "
           f"ortho {frame['ortho_scale']:.6f}; "
           f"displacement {frame['displacement_scale']:.6e}; "

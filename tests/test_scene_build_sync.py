@@ -16,8 +16,9 @@ import types
 
 import pytest
 
+from pipeline import block_plan, bodies
 from pipeline.look import palette
-from pipeline.render import render_seam
+from pipeline.render import prep_block, render_prep, render_seam
 
 
 @pytest.fixture(scope="module")
@@ -252,5 +253,112 @@ class TestSunAltitudeIsShared:
         assert math.degrees(scene_build.SUN_ROTATION[0]) == pytest.approx(
             90.0 - palette.SUN_ALT_DEG)
 
-    def test_azimuth_unchanged(self, scene_build):
-        assert math.degrees(scene_build.SUN_ROTATION[2]) == pytest.approx(-45.0)
+    def test_the_sun_arrives_from_the_north_west(self, scene_build):
+        """THE ASSERTION THIS REPLACES PINNED A COORDINATE AND THE RIG SHIPPED 90 DEGREES OFF.
+
+        It read `SUN_ROTATION[2] == -45.0`, which is a statement about a euler and not about light:
+        a Blender sun shines along its local -Z, so that euler put the light ARRIVING from 225, the
+        south-west, against a cartographic convention of north-west that every other surface in the
+        project follows. The old assertion stays true with the light coming from anywhere, so it
+        could never have caught it, and nothing else looked.
+
+        Ratified at 315 on real z8 tiles in the product globe rather than on images.
+        """
+        assert scene_build.arrival_azimuth_deg(scene_build.SUN_ROTATION) == pytest.approx(315.0)
+
+    def test_the_fill_arrives_from_the_south_east_its_comment_already_claimed(self, scene_build):
+        """The comment said SE while the light came from NE. Both were wrong by the same 90."""
+        assert scene_build.arrival_azimuth_deg(scene_build.FILL_ROTATION) == pytest.approx(135.0)
+
+    def test_rotating_the_pair_together_is_what_the_bearing_pin_catches(self, scene_build):
+        """THE MUTATION THE OLD GUARD COULD NOT SEE, run rather than described.
+
+        Rotating a sun by any amount leaves a coordinate assertion satisfiable by simply editing it
+        to match, and that is how the defect survived a guard for two years. A bearing is derived,
+        so a moved euler moves it and there is nothing to edit into agreement.
+        """
+        tilt = scene_build.SUN_ROTATION[0]
+        # The bearing runs OPPOSITE to the euler — arrival is (180 - z) — which is one more reason
+        # not to read a rotation as a compass direction by eye.
+        for turn_deg, expected in ((90.0, 225.0), (180.0, 135.0), (-90.0, 45.0)):
+            turned = (tilt, 0.0, scene_build.SUN_ROTATION[2] + math.radians(turn_deg))
+            assert scene_build.arrival_azimuth_deg(turned) == pytest.approx(expected)
+
+    def test_a_sun_below_the_horizon_has_no_bearing_to_report(self, scene_build):
+        """The one case where the elevation term does not divide out, refused rather than silently
+        returning the opposite bearing."""
+        with pytest.raises(ValueError, match="below the horizon"):
+            scene_build.arrival_azimuth_deg((math.radians(200.0), 0.0, 0.0))
+
+
+class TestEveryBlockGetsAMicropolygonPerPixel:
+    """THE DICING GUARD, and what it protects against does not raise, log or look broken.
+
+    `MAX_SUBDIVISIONS` caps subdivision PER PATCH. The plane is added as a single quad, so without
+    a base grid the cap is 2**12 = 4096 micropolygons along the whole plane edge whatever the render
+    asks for. Past that Cycles dices coarser than the pixels and the displacement detail the
+    raytrace exists for is quietly lost — measured at 26.10 DN mean where the cap bound by 8x.
+
+    ASKED OF EVERY PLANNED BLOCK ON EVERY REGISTERED BODY, not of a chosen one: the context width
+    varies per block, so the widest plane on the planet is the case that binds and it is not the
+    one anybody would pick by hand. Pure arithmetic, so it needs no store, no GPU and no Blender.
+    """
+
+    def _frame(self, block, body):
+        """The frame numbers this block would be rendered through, from the shipping seam."""
+        window = block.plane_window
+        return render_prep.scene_numbers(
+            window.width, window.height, prep_block.ground_width_m(window, body),
+            exaggeration=body.exaggeration, hero_long_edge=block.traced_edge_px,
+            camera_fraction=block.traced_edge_px / block.plane_edge_px)
+
+    def _widest_blocks(self, body):
+        """One block per context width the law can produce on this body, the ceiling included."""
+        widths = {block_plan.DENOISE_BAND_PX, block_plan.CONTEXT_CEILING_PX,
+                  block_plan.CONTEXT_QUANTUM_PX * 7, block_plan.CONTEXT_CEILING_PX // 2}
+        edge = block_plan.RENDER_BLOCK_PX
+        return [block_plan.Block(col0=0, row0=block_plan.grid_px(body) // 2,
+                                 size_px=edge, context_px=width) for width in sorted(widths)]
+
+    @pytest.mark.parametrize("body", [bodies.EARTH, bodies.MARS], ids=lambda b: b.name)
+    def test_the_base_grid_covers_every_context_width_on_every_body(self, scene_build, body):
+        for block in self._widest_blocks(body):
+            frame = self._frame(block, body)
+            span = scene_build.plane_span_px(frame)
+            patches = scene_build.base_patches(span)
+            reachable = patches * 2 ** scene_build.MAX_SUBDIVISIONS
+            assert reachable >= span, (
+                f"{body.name} at context {block.context_px}: {patches} patches reach "
+                f"{reachable} micropolygons per edge against a plane spanning {span:.0f} px")
+
+    def test_the_plane_span_is_the_planes_and_not_the_heightfields(self, scene_build):
+        """The number this is computed FROM is where it would go wrong, and both paths disagree
+        with the tempting answer in opposite directions: a block's plane is wider than what its
+        camera sees, and a hero's grid is far wider than what it is rendered at."""
+        block = block_plan.Block(col0=0, row0=block_plan.grid_px(bodies.EARTH) // 2,
+                                 size_px=block_plan.RENDER_BLOCK_PX, context_px=1024)
+        frame = self._frame(block, bodies.EARTH)
+        assert scene_build.plane_span_px(frame) == pytest.approx(block.plane_edge_px, rel=1e-6)
+        assert frame["res_x"] == block.traced_edge_px < block.plane_edge_px
+
+    def test_removing_the_grid_is_what_this_catches(self, scene_build):
+        """THE MUTATION, run rather than trusted. A guard whose subject is already satisfied by the
+        single quad would pass with the base grid deleted and say nothing."""
+        block = block_plan.Block(col0=0, row0=block_plan.grid_px(bodies.EARTH) // 2,
+                                 size_px=block_plan.RENDER_BLOCK_PX,
+                                 context_px=block_plan.CONTEXT_CEILING_PX)
+        span = scene_build.plane_span_px(self._frame(block, bodies.EARTH))
+        assert scene_build.base_patches(span) > 1, "the cap does not bind, so this proves nothing"
+        assert 1 * 2 ** scene_build.MAX_SUBDIVISIONS < span, (
+            "a bare quad would reach far enough here, so removing the grid would not fail")
+
+    def test_a_hero_frame_also_needs_more_than_one_patch(self, scene_build):
+        """CARRIED BY THE SAME CODE AND IT IS NOT A BLOCK-ONLY FIX. A hero renders 7,680 px across
+        a plane spanning the frame, against a single quad's 4,096 — so every hero on disk was diced
+        at roughly half its own resolution, and the base grid moves them. That is a look change
+        owed a judgement, recorded here so it cannot be discovered from the pixels later."""
+        hero = render_prep.scene_numbers(16384, 12000, 4.0e6, exaggeration=bodies.EARTH.exaggeration)
+        span = scene_build.plane_span_px(hero)
+        assert span == pytest.approx(render_prep.HERO_LONG_EDGE / render_prep.FRAME_MARGIN, rel=1e-3)
+        assert span > 2 ** scene_build.MAX_SUBDIVISIONS
+        assert scene_build.base_patches(span) == 2

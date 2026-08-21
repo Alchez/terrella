@@ -109,26 +109,30 @@ def block_name(block: Block) -> str:
     return f"r{block.row0 // block.size_px:02d}c{block.col0 // block.size_px:02d}"
 
 
-def margin_census(blocks: list[Block]) -> dict[str, int]:
-    """How many blocks this plan renders at each margin, which is the margin law's OUTPUT.
+def context_census(blocks: list[Block]) -> dict[str, int]:
+    """How many blocks this plan renders at each context width, which is the context law's OUTPUT.
 
     RECORDED INSTEAD OF THE LAW'S CONSTANTS, and the difference is the whole point. A hand-written
-    list of `MARGIN_RATIO`, `MARGIN_QUANTUM_PX`, `MARGIN_MINIMUM_PX`, `MARGIN_CEILING_PX` failed
-    three times in one session, in both directions: twice it went SHORT — a floor added to the law
-    and not to the list, then a shortcut deleted from the law and not reflected anywhere — which
-    left the recipe text unmoved, the generation reading as current, and a resume about to keep
-    blocks rendered under the old rule; and once it went LONG, recording a ceiling no block on this
-    body reaches, so raising it for another planet would restage this one for identical pixels.
+    list of the law's constants failed three times in one session, in both directions: twice it went
+    SHORT — a floor added to the law and not to the list, then a shortcut deleted from the law and
+    not reflected anywhere — which left the recipe text unmoved, the generation reading as current,
+    and a resume about to keep blocks rendered under the old rule; and once it went LONG, recording
+    a ceiling no block on this body reaches, so raising it for another planet would restage this one
+    for identical pixels.
 
     A census cannot go short, because it is measured from the plan rather than described: any change
-    to the law that moves a margin moves this, and any change that moves none does not. It is exact
-    enough on the ordering question too — a margin is a pure function of relief and latitude, so
-    margins cannot permute between blocks without the relief moving, and the relief derives from
+    to the law that moves a context moves this, and any change that moves none does not. It is exact
+    enough on the ordering question too — a context is a pure function of relief and latitude, so
+    widths cannot permute between blocks without the relief moving, and the relief derives from
     `height_3857`, which is a dependency by mtime.
+
+    IT COVERS ONE OF THE THREE WIDTHS AND ONLY ONE. The delivered and traced edges are the same for
+    every block on a body, so they are recorded as the plain constants they are; the context is the
+    one the law computes per block, so it is the one that needs measuring rather than describing.
     """
     census: dict[str, int] = {}
     for block in blocks:
-        key = str(block.margin_px)
+        key = str(block.context_px)
         census[key] = census.get(key, 0) + 1
     return dict(sorted(census.items(), key=lambda item: int(item[0])))
 
@@ -152,8 +156,12 @@ def params(body: bodies.Body, rasters: frozenset[str], look: palette.Look,
         "producer": "raytrace",
         "grid_px": block_plan.grid_px(body),
         "block_px": block_plan.RENDER_BLOCK_PX,
-        # The margin law's OUTPUT, not its constants — see `margin_census` for why.
-        "margins": margin_census(blocks),
+        # The two widths that are the same for every block, recorded as the constants they are.
+        "denoise_band_px": block_plan.DENOISE_BAND_PX,
+        "traced_px": block_plan.RENDER_BLOCK_PX + 2 * block_plan.DENOISE_BAND_PX,
+        # The third is per block, so the context law's OUTPUT and not its constants — see
+        # `context_census` for why a described law went wrong three times and a measured one cannot.
+        "contexts": context_census(blocks),
         "exaggeration": body.exaggeration,
         "ground_scale": bodies.ground_metres_per_mercator_unit(body),
         "map_units_per_pixel": body.map_units_per_pixel,
@@ -272,13 +280,20 @@ def check_fits(blocks: list[Block], body: bodies.Body) -> list[Block]:
     discovering it from the pixels costs the pass and the look decision taken off them.
 
     Separated from the plan it checks so that the refusal is provable without a planet on disk.
+
+    IT NOW CHECKS THE CONSTANTS RATHER THAN THE RELIEF, and that is a real narrowing worth saying
+    out loud. The traced edge is `RENDER_BLOCK_PX + 2 * DENOISE_BAND_PX` for every block on every
+    body, so this can no longer refuse one block and pass its neighbour: what it catches is a block
+    edge raised past what the GPU is proven at. The width that still varies per block is the
+    context, and it is bounded by `CONTEXT_CEILING_PX` inside the law instead of here, because a
+    plane is geometry rather than a frame.
     """
     oversized = [block_name(block) for block in blocks if not block.fits]
     if oversized:
         raise SystemExit(
-            f"{len(oversized)} block(s) exceed the {block_plan.RENDERED_CEILING_PX} px frame this "
-            f"GPU is proven at, the first at {oversized[0]}; the margin law or the block edge has "
-            f"to change before {body.name} can render")
+            f"{len(oversized)} block(s) exceed the {block_plan.TRACED_CEILING_PX} px frame this "
+            f"GPU is proven at, the first at {oversized[0]}; the block edge or the denoise band "
+            f"has to change before {body.name} can render")
     return blocks
 
 
@@ -350,20 +365,32 @@ def blender_command(body: bodies.Body, render_dir: Path, blend: Path, png: Path)
 
 
 def cropped(png: Path, block: Block) -> np.ndarray:
-    """The delivered pixels of a rendered frame: its margin cut back off, alpha dropped.
+    """The delivered pixels of a rendered frame: the denoise band cut back off, alpha dropped.
 
-    The frame is rendered wider than it is delivered so that terrain outside the block can still
-    throw a shadow across the boundary; the margin has done its whole job by the time it is read.
+    THE BAND, NEVER THE CONTEXT, AND THE TWO ARE DIFFERENT NUMBERS. The frame Cycles produced is
+    the TRACED rectangle, which overhangs the delivered block by `DENOISE_BAND_PX` so that OIDN's
+    own edge falls outside the pixels that ship. The context is far wider and never reaches a
+    frame at all: it is off-camera geometry, there so that terrain outside the block can still
+    throw a shadow across the boundary.
+
+    Cropping by the context instead would take a correctly SHAPED square out of the wrong place —
+    on Earth's widest blocks, 1,856 px off true — and the mosaic would record it as done. The shape
+    check below cannot see that on its own, which is why `test_block_render` asserts the offset
+    against the band in both directions.
     """
     with rasterio.open(png) as src:  # pyright: ignore[reportCallIssue]
         frame = src.read()
-    margin, edge = block.margin_px, block.size_px
-    crop = frame[:3, margin:margin + edge, margin:margin + edge]
-    if crop.shape != (3, edge, edge):
-        raise RuntimeError(f"{png.name}: cropped to {crop.shape}, expected (3, {edge}, {edge}) — "
-                           f"the render is not the {block.rendered_edge_px} px frame it was asked "
-                           f"for, so the margin law and the rig disagree")
-    return crop
+    band, edge, traced = block_plan.DENOISE_BAND_PX, block.size_px, block.traced_edge_px
+    # THE FRAME IS CHECKED, NOT THE CROP, and the difference is a hole this had while the outer
+    # ring was the margin. A frame LARGER than asked for — a rig that photographed its whole plane
+    # — still yields a crop of exactly the right shape, so a shape assertion on the result passes
+    # and the mosaic takes the wrong ground. Only the frame's own size can tell the two apart.
+    if frame.shape[1:] != (traced, traced):
+        raise RuntimeError(f"{png.name}: rendered {frame.shape[1]}x{frame.shape[2]}, expected the "
+                           f"{traced} px traced frame — the frame numbers and the rig disagree, "
+                           f"and this block's plane is {block.plane_edge_px} px, which is what a "
+                           f"camera that was never narrowed would have produced")
+    return frame[:3, band:band + edge, band:band + edge]
 
 
 def render_block(body: bodies.Body, block: Block, mosaic: Path, scratch: Path,
@@ -381,7 +408,7 @@ def render_block(body: bodies.Body, block: Block, mosaic: Path, scratch: Path,
     shutil.rmtree(render_dir, ignore_errors=True)
     png.unlink(missing_ok=True)
 
-    prep_block.cut(body, block.col0, block.row0, block.size_px, block.margin_px, render_dir)
+    prep_block.cut(body, block, render_dir)
     result = subprocess.run(blender_command(body, render_dir, scratch / f"{name}.blend", png),
                             cwd=paths.ROOT, capture_output=True, text=True, check=False)
     if result.returncode != 0 or not png.exists():
@@ -399,8 +426,15 @@ def render_block(body: bodies.Body, block: Block, mosaic: Path, scratch: Path,
     crop = cropped(png, block)
     with rasterio.open(mosaic, "r+") as dst:  # pyright: ignore[reportCallIssue]
         dst.write(crop, window=block.delivered_window)
+    # The base grid is READ BACK rather than recomputed here. It is a pure function of the frame and
+    # `scene_build` owns it; a second evaluation on this side would be a copy free to disagree,
+    # which is the failure it is meant to catch. Recorded so an under-diced block is identifiable
+    # afterwards, since it is not identifiable from its pixels.
+    reported = next((line for line in result.stdout.splitlines()
+                     if line.startswith("BASE_PATCHES ")), "BASE_PATCHES ?")
     (markers / name).write_text(
-        f"margin {block.margin_px} frame {block.rendered_edge_px}\n")
+        f"context {block.context_px} traced {block.traced_edge_px} "
+        f"plane {block.plane_edge_px} {reported}\n")
     shutil.rmtree(render_dir, ignore_errors=True)
     png.unlink(missing_ok=True)
     (scratch / f"{name}.blend").unlink(missing_ok=True)
@@ -564,8 +598,8 @@ def run(body: bodies.Body, work: Path, mosaic: Path, *, limit: int | None = None
         elapsed = time.monotonic() - started
         status.last = f"{name} {elapsed:.1f}s"
         status.write()
-        log(f"[{index}/{len(todo)}] {name} margin {block.margin_px:3d} "
-            f"frame {block.rendered_edge_px:4d} {elapsed:5.1f}s | "
+        log(f"[{index}/{len(todo)}] {name} context {block.context_px:4d} "
+            f"plane {block.plane_edge_px:4d} {elapsed:5.1f}s | "
             f"{status.done}/{status.total} ({100 * status.done / status.total:.1f}%)")
 
     complete = all((markers / block_name(block)).exists() for block in blocks)

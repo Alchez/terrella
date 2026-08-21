@@ -21,9 +21,9 @@ from pipeline.raster_io import GTIFF_CREATE
 from pipeline.tile import block_render, shade_planet
 
 
-def _block(row_index, col_index, margin=0):
+def _block(row_index, col_index, context=block_plan.DENOISE_BAND_PX):
     edge = block_plan.RENDER_BLOCK_PX
-    return Block(col0=col_index * edge, row0=row_index * edge, size_px=edge, margin_px=margin)
+    return Block(col0=col_index * edge, row0=row_index * edge, size_px=edge, context_px=context)
 
 
 def _stale_by_a_second(path):
@@ -180,8 +180,8 @@ class TestTheDependencySetIsTheRaytracesAndNotTheComposites:
 
 class TestTheRecipeSeesWhatNoMtimeCan:
 
-    BLOCKS: ClassVar[list] = [_block(0, 0, margin=64), _block(0, 1, margin=64),
-                              _block(0, 2, margin=320)]
+    BLOCKS: ClassVar[list] = [_block(0, 0, context=128), _block(0, 1, context=128),
+                              _block(0, 2, context=320)]
 
     @pytest.fixture(autouse=True)
     def _no_store(self, monkeypatch):
@@ -204,7 +204,7 @@ class TestTheRecipeSeesWhatNoMtimeCan:
         assert (block_render.params(*arguments, moved, self.BLOCKS)
                 != block_render.params(*arguments, rig, self.BLOCKS))
 
-    def test_the_recipe_records_the_margins_produced_and_not_the_law(self):
+    def test_the_recipe_records_the_contexts_produced_and_not_the_law(self):
         """THE HAND-ENUMERATION'S REPLACEMENT, and it exists because that list failed three times.
 
         Twice it went SHORT — a floor added to the law and not to the list, then a shortcut deleted
@@ -213,21 +213,34 @@ class TestTheRecipeSeesWhatNoMtimeCan:
         went LONG, recording a ceiling no block on this body reaches. A census is measured from the
         plan rather than described, so it cannot go short.
         """
-        recorded = json.loads(self._params())["margins"]
-        assert recorded == {"64": 2, "320": 1}
+        recorded = json.loads(self._params())["contexts"]
+        assert recorded == {"128": 2, "320": 1}
         assert "ratio" not in json.dumps(recorded), "the law's constants are not what is recorded"
 
-    def test_a_margin_moving_moves_the_recipe_and_a_law_change_that_moves_none_does_not(self):
+    def test_the_two_fixed_widths_are_recorded_as_the_constants_they_are(self):
+        """THE CENSUS COVERS ONE WIDTH OF THREE, and the other two still have to be seen.
+
+        Delivered and traced are the same for every block on a body, so a census of them would be a
+        one-entry dictionary saying nothing. They are constants, so they are recorded as constants —
+        but recorded, because moving either restages the planet and no mtime can see a constant.
+        """
+        recorded = json.loads(self._params())
+        assert recorded["block_px"] == block_plan.RENDER_BLOCK_PX
+        assert recorded["denoise_band_px"] == block_plan.DENOISE_BAND_PX
+        assert recorded["traced_px"] == (block_plan.RENDER_BLOCK_PX
+                                         + 2 * block_plan.DENOISE_BAND_PX)
+
+    def test_a_context_moving_moves_the_recipe_and_a_law_change_that_moves_none_does_not(self):
         """Both directions, which is the property the constants list could not hold.
 
         The first arm is the under-tracking failure that nearly shipped a seamed planet; the second
         is the over-tracking one that would restage a finished Earth for another planet's benefit.
         """
-        widened = [*self.BLOCKS[:2], _block(0, 2, margin=384)]
+        widened = [*self.BLOCKS[:2], _block(0, 2, context=384)]
         assert self._params(blocks=widened) != self._params()
-        renamed = [_block(0, 1, margin=64), _block(0, 0, margin=64), _block(0, 2, margin=320)]
+        renamed = [_block(0, 1, context=128), _block(0, 0, context=128), _block(0, 2, context=320)]
         assert self._params(blocks=renamed) == self._params(), \
-            "the census must not move when the same margins are merely planned in another order"
+            "the census must not move when the same contexts are merely planned in another order"
 
     def test_the_bodys_exaggeration_is_in_the_recipe(self):
         assert json.loads(self._params())["exaggeration"] == bodies.EARTH.exaggeration
@@ -243,27 +256,64 @@ class TestTheRecipeSeesWhatNoMtimeCan:
                                    "the assertion above can no longer tell a read from a constant"
 
 
-class TestTheCropIsTheDeliveredBlock:
+class TestTheCropTakesTheBandAndNeverTheContext:
+    """TRACED IS NOT PLANE, and getting the two the wrong way round is the silent failure.
 
-    def _frame(self, block, bands=4):
-        edge = block.rendered_edge_px
+    The frame Cycles hands back is the TRACED rectangle: the delivered block plus `DENOISE_BAND_PX`
+    on every side. The context is a different and far larger number — off-camera geometry that
+    never reaches a frame at all. Cropping by the context takes a correctly SHAPED square out of
+    the wrong place, and the mosaic records it as done: right size, right dtype, wrong ground, no
+    exception anywhere. On Earth's widest blocks it would be 1,856 px off true.
+
+    A SHAPE ASSERTION ALONE CANNOT SEE IT, which is why the crop is checked against pixels here
+    rather than against `crop.shape`, and why the second test exists to prove the first one is
+    discriminating at all.
+    """
+
+    def _traced_frame(self, block, bands=4):
+        edge = block.traced_edge_px
         return np.arange(bands * edge * edge, dtype=np.uint8).reshape(bands, edge, edge)
 
-    def test_the_margin_is_cut_back_off(self, tmp_path, monkeypatch):
-        block = _block(0, 0, margin=64)
-        frame = self._frame(block)
+    def test_the_denoise_band_is_cut_back_off(self, tmp_path, monkeypatch):
+        band = block_plan.DENOISE_BAND_PX
+        block = _block(0, 0, context=1024)
+        frame = self._traced_frame(block)
         monkeypatch.setattr(block_render, "rasterio", _FakeRasterio(frame))
         crop = block_render.cropped(tmp_path / "r00c00.png", block)
         assert crop.shape == (3, block.size_px, block.size_px)
-        assert np.array_equal(crop, frame[:3, 64:64 + block.size_px, 64:64 + block.size_px])
+        assert np.array_equal(crop, frame[:3, band:band + block.size_px,
+                                          band:band + block.size_px])
 
-    def test_a_frame_that_is_not_the_size_it_was_asked_for_raises(self, tmp_path, monkeypatch):
-        """The rig and the margin law disagreeing is the failure this catches, and it would
-        otherwise write a wrongly-offset block into the planet and mark it done."""
-        block = _block(0, 0, margin=64)
+    def test_the_two_offsets_select_different_pixels_so_the_pin_above_can_fail(self):
+        """The positive control. `context_px` defaults to the band, and where the two are equal a
+        crop written against the wrong one passes every assertion — so the block above is given a
+        context deliberately unequal to the band, and this is what proves that matters."""
+        block = _block(0, 0, context=1024)
+        assert block.context_px != block_plan.DENOISE_BAND_PX
+        frame = self._traced_frame(block)
+        band, wrong, edge = block_plan.DENOISE_BAND_PX, block.context_px, block.size_px
+        assert not np.array_equal(frame[:3, band:band + edge, band:band + edge],
+                                  frame[:3, wrong:wrong + edge, wrong:wrong + edge])
+
+    def test_a_frame_the_size_of_the_PLANE_rather_than_the_traced_rectangle_raises(
+            self, tmp_path, monkeypatch):
+        """A rig that photographed its whole plane would hand back a frame this size. It is the
+        other half of the same confusion, and it must not be cropped as though it were correct."""
+        block = _block(0, 0, context=1024)
+        plane = block.plane_edge_px
+        frame = np.zeros((4, plane, plane), dtype=np.uint8)
+        monkeypatch.setattr(block_render, "rasterio", _FakeRasterio(frame))
+        with pytest.raises(RuntimeError, match="traced frame"):
+            block_render.cropped(tmp_path / "r00c00.png", block)
+
+    def test_a_frame_smaller_than_the_traced_rectangle_raises(self, tmp_path, monkeypatch):
+        """The frame numbers and the rig disagreeing, which would otherwise write a wrongly-offset
+        block into the planet and mark it done."""
+        block = _block(0, 0)
+        short = block.traced_edge_px - 2 * block_plan.DENOISE_BAND_PX
         monkeypatch.setattr(block_render, "rasterio",
-                            _FakeRasterio(self._frame(_block(0, 0, margin=0))))
-        with pytest.raises(RuntimeError, match="margin law and the rig disagree"):
+                            _FakeRasterio(np.zeros((4, short, short), dtype=np.uint8)))
+        with pytest.raises(RuntimeError, match="traced frame"):
             block_render.cropped(tmp_path / "r00c00.png", block)
 
 
@@ -313,13 +363,21 @@ class TestTheDiskFloorIsSizedForWhatIsLeft:
 class TestABlockTooBigToRenderStopsTheRun:
 
     def test_a_plan_that_fits_is_returned_unchanged(self):
-        blocks = [_block(0, 0, margin=block_plan.MARGIN_CEILING_PX)]
+        blocks = [_block(0, 0, context=block_plan.CONTEXT_CEILING_PX)]
         assert block_render.check_fits(blocks, bodies.EARTH) == blocks
+
+    def test_the_widest_context_on_the_registry_does_not_make_a_block_unrenderable(self):
+        """WHAT THE CEILING BOUNDS CHANGED, and this is the assertion that says so. The context is
+        plane geometry now, not frame, so no context however wide can push a block past the GPU's
+        frame envelope; the only thing that can is the block edge itself."""
+        widest = _block(0, 0, context=block_plan.CONTEXT_CEILING_PX)
+        assert widest.plane_edge_px >= block_plan.TRACED_CEILING_PX
+        assert widest.fits
 
     def test_one_oversized_block_refuses_the_whole_plan(self):
         """Not skipped: an unwritten block reads as black in the mosaic rather than as missing,
         so a hole would ship as a look decision."""
-        oversized = Block(col0=0, row0=0, size_px=block_plan.RENDERED_CEILING_PX, margin_px=64)
+        oversized = Block(col0=0, row0=0, size_px=block_plan.TRACED_CEILING_PX, context_px=128)
         with pytest.raises(SystemExit, match="exceed"):
             block_render.check_fits([_block(0, 0), oversized], bodies.EARTH)
 
@@ -528,13 +586,13 @@ class TestTheDenoiseDeviceIsTheCallersAndIsRecorded:
     def test_the_recipe_records_it(self):
         recipe = json.loads(block_render.params(
             bodies.EARTH, frozenset(planet_seam.KNOWN_RASTERS), palette.EARTH_LOOK,
-            {"SAMPLES": 4096}, [Block(col0=0, row0=0, size_px=2048, margin_px=128)]))
+            {"SAMPLES": 4096}, [Block(col0=0, row0=0, size_px=2048, context_px=128)]))
         assert recipe["denoise_device"] == block_render.BLOCK_DENOISE_DEVICE
 
     def test_moving_it_moves_the_recipe(self, monkeypatch):
         """The freshness arm. The two denoisers do not agree to the last DN, so a pass resumed
         across a change of this must restage rather than blend both into one mosaic."""
-        blocks = [Block(col0=0, row0=0, size_px=2048, margin_px=128)]
+        blocks = [Block(col0=0, row0=0, size_px=2048, context_px=128)]
         args = (bodies.EARTH, frozenset(planet_seam.KNOWN_RASTERS), palette.EARTH_LOOK,
                 {"SAMPLES": 4096}, blocks)
         before = block_render.params(*args)
