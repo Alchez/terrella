@@ -44,6 +44,7 @@ import json
 import math
 import sys
 from pathlib import Path
+from typing import Any
 
 import bpy  # pyright: ignore[reportMissingImports] — exists only in Blender's Python
 
@@ -134,6 +135,63 @@ def look_constants(look: palette.Look) -> LookConstants:
         sea_range=None if sea is None else (sea.extreme_m, sea.origin_m),
         sea_stops=None if sea is None else _rgba(sea.stops),
     )
+
+
+def rig_recipe(look: palette.Look) -> dict[str, Any]:
+    """Every constant here that can move a rendered pixel, keyed by its own name.
+
+    THE ENUMERATION LIVES WITH THE CONSTANTS, which is the whole point of it being here rather than
+    in the runner that serialises it. A freshness recipe is a list of things that reach a pixel, and
+    a list kept anywhere but beside them is a second copy that goes quietly short: the constant gets
+    added, the recipe does not, and the output that was rendered with the old value keeps reading as
+    current forever. `test_scene_build_sync` closes that by scanning this module's own capitals and
+    requiring every one of them to appear below, so forgetting is a red test rather than a silent
+    stale planet.
+
+    KEYED BY CONSTANT NAME AND NOT BY CONCEPT, for the same reason: a key like "sun" cannot be
+    checked against anything, where `SUN_STRENGTH` can be checked against the module.
+
+    A HASH OF THIS FILE WOULD ALSO BE HONEST AND IS DELIBERATELY NOT WHAT THIS IS. It would restage
+    a planet render on a docstring edit, and the render is the most expensive output the project
+    has; the point of a recipe over a source stamp is that it moves when a VALUE moves.
+
+    The look arrives as an argument because it is not this module's to own — `look_constants` is
+    what turns it into the numbers the graph takes, and both ends of every ramp ride along.
+    """
+    constants = look_constants(look)
+    return {
+        "DISPLACEMENT_MIDLEVEL": DISPLACEMENT_MIDLEVEL,
+        "SUN_ROTATION": list(SUN_ROTATION),
+        "SUN_ANGLE": SUN_ANGLE,
+        "SUN_STRENGTH": SUN_STRENGTH,
+        "FILL_ROTATION": list(FILL_ROTATION),
+        "FILL_ANGLE": FILL_ANGLE,
+        "FILL_STRENGTH": FILL_STRENGTH,
+        "WORLD_RGBA": list(WORLD_RGBA),
+        "WORLD_STRENGTH": WORLD_STRENGTH,
+        "WATER_RGBA": list(WATER_RGBA),
+        "SNOW_RGBA": list(SNOW_RGBA),
+        "ICE_RGBA": list(ICE_RGBA),
+        "LAKE_STOPS": [[position, list(rgba)] for position, rgba in LAKE_STOPS],
+        "RAMP_INTERPOLATION": RAMP_INTERPOLATION,
+        "SAMPLES": SAMPLES,
+        "ADAPTIVE_THRESHOLD": ADAPTIVE_THRESHOLD,
+        "DICING_RATE": DICING_RATE,
+        "MAX_SUBDIVISIONS": MAX_SUBDIVISIONS,
+        "BOUNCES": dict(BOUNCES),
+        "CLAMP_INDIRECT": CLAMP_INDIRECT,
+        # The interpolation beside each filename is as much a look decision as a colour is: an
+        # oceanmask read Linear instead of Closest feathers every coastline.
+        "IMAGES": {name: list(spec) for name, spec in images_for(look).items()},
+        "SEA_IMAGE": SEA_IMAGE,
+        "look": {
+            "land_range": list(constants.land_range),
+            "land_stops": [[position, list(rgba)] for position, rgba in constants.land_stops],
+            "sea_range": None if constants.sea_range is None else list(constants.sea_range),
+            "sea_stops": None if constants.sea_stops is None else
+            [[position, list(rgba)] for position, rgba in constants.sea_stops],
+        },
+    }
 
 
 def images_for(look: palette.Look) -> dict[str, tuple[str, str]]:

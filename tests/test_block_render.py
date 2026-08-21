@@ -1,0 +1,459 @@
+"""The block runner: what its resume trusts, what its recipe can see, and what it refuses to do.
+
+Every guard here is about a claim that is silent when it is wrong. A resume that trusts the wrong
+markers re-renders nothing and republishes last week's pixels; a recipe that cannot see a constant
+leaves a stale planet reading fresh forever; a mosaic stamped complete while it is half written
+sends the tile cut at a planet that is half one producer and half the other. None of those raise.
+"""
+
+import json
+import os
+import time
+from typing import ClassVar
+
+import numpy as np
+import pytest
+
+from pipeline import block_plan, bodies, freshness, layers, planet_seam
+from pipeline.block_plan import Block
+from pipeline.look import palette
+from pipeline.raster_io import GTIFF_CREATE
+from pipeline.tile import block_render, shade_planet
+
+
+def _block(row_index, col_index, margin=0):
+    edge = block_plan.RENDER_BLOCK_PX
+    return Block(col0=col_index * edge, row0=row_index * edge, size_px=edge, margin_px=margin)
+
+
+def _stale_by_a_second(path):
+    """Age `path` so a later touch is unambiguously newer than it.
+
+    Whole seconds because a filesystem's mtime granularity is not promised finer, and a same-second
+    write is exactly the case that made a sabotage verdict flip-flop once already.
+    """
+    stamp = time.time() - 2
+    os.utime(path, (stamp, stamp))
+
+
+class TestTheInternalTilingDividesTheBlock:
+    """THE ALIGNMENT THAT MAKES THE SHARED-MOSAIC WRITE SAFE, pinned instead of left a coincidence.
+
+    Two independent 512s make it true — the render block's edge and the GTiff's internal tile — and
+    nothing tied them. Straddling internal tiles means every block write decompresses, modifies and
+    recompresses pixels its neighbours own, and a rewritten tile that grows cannot go back in place,
+    so a random-order pass fragments an eleven-gigabyte raster. It stops being a performance
+    question and becomes a correctness one the moment two blocks are written concurrently.
+    """
+
+    def test_a_render_block_is_a_whole_number_of_internal_tiles(self):
+        assert GTIFF_CREATE["blockxsize"] == GTIFF_CREATE["blockysize"]
+        assert block_plan.RENDER_BLOCK_PX % GTIFF_CREATE["blockxsize"] == 0
+
+    def test_the_mosaic_takes_its_tiling_from_the_one_owner(self):
+        """The runner must not spell its own 512: a creation option written here would be a third
+        copy, free to drift from the two the alignment above is between."""
+        source = (block_render.__file__).replace(".pyc", ".py")
+        with open(source) as handle:
+            text = handle.read()
+        assert "blockxsize" not in text
+        assert "GTIFF_CREATE" in text
+
+
+class TestTheBlockNameIsItsPlaceOnTheGrid:
+
+    def test_the_name_is_the_block_index_and_not_the_pixel_origin(self):
+        assert block_render.block_name(_block(0, 0)) == "r00c00"
+        assert block_render.block_name(_block(63, 63)) == "r63c63"
+
+    def test_every_block_of_a_grid_gets_its_own_name(self):
+        """A collision would silently let one block's marker vouch for another's pixels."""
+        blocks = [_block(row, column) for row in range(8) for column in range(8)]
+        assert len({block_render.block_name(block) for block in blocks}) == len(blocks)
+
+
+class TestTheGenerationStampIsNotAFreshnessMarker:
+    """`is_stale` is the wrong predicate here and this is what would go wrong if it were used.
+
+    Its load-bearing clause is that an output REWRITTEN since its stamp is stale, which catches a
+    crashed half-written raster. The marker directory is written into after its stamp on purpose —
+    that is what a resume IS — so the same clause would call a healthy run stale on its second
+    block and re-render the planet from the top, every time, forever.
+    """
+
+    def test_a_directory_written_into_after_its_stamp_is_still_current(self, tmp_path):
+        markers, dependency = tmp_path / "blocks", tmp_path / "recipe.json"
+        dependency.write_text("{}")
+        _stale_by_a_second(dependency)
+        block_render.start_generation(markers, tmp_path / "planet_rgb.tif")
+        (markers / "r00c00").write_text("margin 0\n")
+        assert block_render.generation_is_current(markers, (dependency,))
+
+    def test_is_stale_would_have_called_that_same_state_stale(self, tmp_path):
+        """The positive control for the paragraph above: the rejected predicate, on the state the
+        accepted one just passed. Without this the docstring is an assertion about code nobody ran.
+        """
+        markers, dependency = tmp_path / "blocks", tmp_path / "recipe.json"
+        dependency.write_text("{}")
+        _stale_by_a_second(dependency)
+        block_render.start_generation(markers, tmp_path / "planet_rgb.tif")
+        freshness.mark_done(markers)
+        _stale_by_a_second(freshness.done_marker(markers))
+        (markers / "r00c00").write_text("margin 0\n")
+        assert freshness.is_stale(markers, dependency)
+
+    def test_an_input_moving_after_the_stamp_ends_the_generation(self, tmp_path):
+        markers, dependency = tmp_path / "blocks", tmp_path / "recipe.json"
+        dependency.write_text("{}")
+        block_render.start_generation(markers, tmp_path / "planet_rgb.tif")
+        _stale_by_a_second(block_render.generation_stamp(markers))
+        assert not block_render.generation_is_current(markers, (dependency,))
+
+    def test_no_stamp_at_all_is_not_a_generation(self, tmp_path):
+        markers = tmp_path / "blocks"
+        markers.mkdir()
+        (markers / "r00c00").write_text("margin 0\n")
+        assert not block_render.generation_is_current(markers, ())
+
+
+class TestStartingAGenerationUnstampsTheMosaic:
+    """THE ORDER THE PYRAMID DEPENDS ON. `tiles_are_fresh` keys on the mosaic's `.done` marker, so
+    a mosaic left stamped while it is rewritten block by block would let a cut run against a planet
+    that is part composite and part raytrace, with every gate green."""
+
+    def test_the_mosaics_completion_marker_is_removed(self, tmp_path):
+        mosaic = tmp_path / "planet_rgb.tif"
+        mosaic.write_bytes(b"")
+        freshness.mark_done(mosaic)
+        block_render.start_generation(tmp_path / "blocks", mosaic)
+        assert not freshness.done_marker(mosaic).exists()
+
+    def test_every_marker_of_the_previous_generation_is_cleared(self, tmp_path):
+        markers = tmp_path / "blocks"
+        markers.mkdir()
+        (markers / "r00c00").write_text("margin 0\n")
+        block_render.start_generation(markers, tmp_path / "planet_rgb.tif")
+        assert not (markers / "r00c00").exists()
+        assert block_render.generation_stamp(markers).exists()
+
+
+class TestTheMarkersFollowTheMosaicTheyDescribe:
+    """A run pointed at a second raster keeps its own markers, or the two resume over each other —
+    which is how an A/B silently inherits the production run's finished blocks."""
+
+    def test_two_mosaics_do_not_share_a_marker_directory(self, tmp_path):
+        first = block_render.markers_in(tmp_path / "planet_rgb.tif")
+        second = block_render.markers_in(tmp_path / "planet_rgb_raytrace.tif")
+        assert first != second
+
+    def test_the_markers_sit_beside_the_raster(self, tmp_path):
+        assert block_render.markers_in(tmp_path / "planet_rgb.tif").parent == tmp_path
+
+
+class TestTheDependencySetIsTheRaytracesAndNotTheComposites:
+    """The switch replaces one raster's producer, so the two producers' dependency lists must
+    differ in exactly the terms the switch removes. Sharing `composite_deps` would leave a body
+    moved between producers with its old pixels looking fresh against inputs it no longer reads."""
+
+    def test_the_hillshade_is_not_a_raytrace_dependency(self, tmp_path):
+        """Cycles computes its own light; `hs_3857` reaches no raytraced pixel."""
+        deps = block_render.raytrace_deps(tmp_path, tmp_path / block_render.PARAMS_NAME)
+        assert not any("hs" == path.stem or path.name.startswith("hs_") for path in deps)
+
+    def test_the_composites_recipe_is_not_a_raytrace_dependency(self, tmp_path):
+        deps = block_render.raytrace_deps(tmp_path, tmp_path / block_render.PARAMS_NAME)
+        assert not any(path.name == "composite_params.json" for path in deps)
+
+    def test_the_warped_inputs_the_prep_cuts_from_are_all_tracked(self, tmp_path):
+        """The block prep reads exactly these, so a re-warp — a re-fuse, a new NSIDC or RGI —
+        has to restage the planet."""
+        deps = set(block_render.raytrace_deps(tmp_path, tmp_path / block_render.PARAMS_NAME))
+        for name in (shade_planet.HEIGHT_3857, shade_planet.OCEAN_3857, shade_planet.WATER_3857):
+            assert tmp_path / name in deps
+        for layer in layers.WARPED_LAYERS:
+            assert layer.warped_in(tmp_path) in deps
+
+    def test_the_recipe_itself_is_a_dependency(self, tmp_path):
+        recipe = tmp_path / block_render.PARAMS_NAME
+        assert recipe in block_render.raytrace_deps(tmp_path, recipe)
+
+
+class TestTheRecipeSeesWhatNoMtimeCan:
+
+    BLOCKS: ClassVar[list] = [_block(0, 0, margin=64), _block(0, 1, margin=64),
+                              _block(0, 2, margin=320)]
+
+    def _params(self, body=bodies.EARTH, blocks=None):
+        return block_render.params(body, planet_seam.declared(body),
+                                   palette.look_for(body.name), block_render.rig_recipe(body),
+                                   self.BLOCKS if blocks is None else blocks)
+
+    def test_a_rig_constant_moving_moves_the_recipe(self):
+        """The whole reason the rig's constants are serialised rather than left to source mtimes:
+        a look change has to restage the render, and a checkout must not."""
+        rig = block_render.rig_recipe(bodies.EARTH)
+        moved = {**rig, "SAMPLES": rig["SAMPLES"] // 2}
+        arguments = (bodies.EARTH, planet_seam.declared(bodies.EARTH), palette.look_for("earth"))
+        assert (block_render.params(*arguments, moved, self.BLOCKS)
+                != block_render.params(*arguments, rig, self.BLOCKS))
+
+    def test_the_recipe_records_the_margins_produced_and_not_the_law(self):
+        """THE HAND-ENUMERATION'S REPLACEMENT, and it exists because that list failed three times.
+
+        Twice it went SHORT — a floor added to the law and not to the list, then a shortcut deleted
+        from the law and reflected nowhere — each leaving the recipe text unmoved, the generation
+        reading as current, and a resume about to keep blocks rendered under the old rule. Once it
+        went LONG, recording a ceiling no block on this body reaches. A census is measured from the
+        plan rather than described, so it cannot go short.
+        """
+        recorded = json.loads(self._params())["margins"]
+        assert recorded == {"64": 2, "320": 1}
+        assert "ratio" not in json.dumps(recorded), "the law's constants are not what is recorded"
+
+    def test_a_margin_moving_moves_the_recipe_and_a_law_change_that_moves_none_does_not(self):
+        """Both directions, which is the property the constants list could not hold.
+
+        The first arm is the under-tracking failure that nearly shipped a seamed planet; the second
+        is the over-tracking one that would restage a finished Earth for another planet's benefit.
+        """
+        widened = [*self.BLOCKS[:2], _block(0, 2, margin=384)]
+        assert self._params(blocks=widened) != self._params()
+        renamed = [_block(0, 1, margin=64), _block(0, 0, margin=64), _block(0, 2, margin=320)]
+        assert self._params(blocks=renamed) == self._params(), \
+            "the census must not move when the same margins are merely planned in another order"
+
+    def test_the_bodys_exaggeration_is_in_the_recipe(self):
+        assert json.loads(self._params())["exaggeration"] == bodies.EARTH.exaggeration
+        assert json.loads(self._params(bodies.MARS))["exaggeration"] == bodies.MARS.exaggeration
+
+    def test_a_layer_switched_off_is_recorded_rather_than_merely_absent(self):
+        """The conditional-record idiom, and the direction that is silent without it: a path that
+        is not there scores 0.0 in an mtime comparison, so turning sea ice off would otherwise
+        leave a planet painted with it looking perfectly current."""
+        mars = json.loads(self._params(bodies.MARS))
+        assert mars["layers_off"] == layers.layers_off(bodies.MARS, layers.BLOCK_LAYERS)
+        assert mars["layers_off"], "Mars declares fewer block layers than Earth; if this is empty "\
+                                   "the assertion above can no longer tell a read from a constant"
+
+
+class TestTheCropIsTheDeliveredBlock:
+
+    def _frame(self, block, bands=4):
+        edge = block.rendered_edge_px
+        return np.arange(bands * edge * edge, dtype=np.uint8).reshape(bands, edge, edge)
+
+    def test_the_margin_is_cut_back_off(self, tmp_path, monkeypatch):
+        block = _block(0, 0, margin=64)
+        frame = self._frame(block)
+        monkeypatch.setattr(block_render, "rasterio", _FakeRasterio(frame))
+        crop = block_render.cropped(tmp_path / "r00c00.png", block)
+        assert crop.shape == (3, block.size_px, block.size_px)
+        assert np.array_equal(crop, frame[:3, 64:64 + block.size_px, 64:64 + block.size_px])
+
+    def test_a_frame_that_is_not_the_size_it_was_asked_for_raises(self, tmp_path, monkeypatch):
+        """The rig and the margin law disagreeing is the failure this catches, and it would
+        otherwise write a wrongly-offset block into the planet and mark it done."""
+        block = _block(0, 0, margin=64)
+        monkeypatch.setattr(block_render, "rasterio",
+                            _FakeRasterio(self._frame(_block(0, 0, margin=0))))
+        with pytest.raises(RuntimeError, match="margin law and the rig disagree"):
+            block_render.cropped(tmp_path / "r00c00.png", block)
+
+
+class _FakeRasterio:
+    """Stands in for the module, so the crop is provable without a PNG on disk."""
+
+    def __init__(self, frame):
+        self._frame = frame
+
+    def open(self, *args, **kwargs):
+        frame = self._frame
+
+        class _Reader:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def read(self):
+                return frame
+
+        return _Reader()
+
+
+class TestTheDiskFloorIsSizedForWhatIsLeft:
+    """A floor sized for a whole planet would abort a nearly finished pass that needs megabytes,
+    which costs a night in the direction nobody checks for."""
+
+    def test_the_floor_relaxes_as_the_run_progresses(self):
+        total = 4096
+        early = block_render.disk_floor_bytes(bodies.EARTH, total, total)
+        late = block_render.disk_floor_bytes(bodies.EARTH, 8, total)
+        assert late < early
+
+    def test_a_finished_run_asks_for_nothing(self):
+        assert block_render.disk_floor_bytes(bodies.EARTH, 0, 4096) == 0.0
+
+    def test_the_floor_assumes_compression_buys_nothing(self):
+        """Stated as the closed form rather than as a measured size: the DEFLATE ratio is not
+        knowable before the pixels exist, and a floor derived from the last planet's ratio would be
+        a measurement standing in for a guarantee."""
+        edge = block_plan.grid_px(bodies.EARTH)
+        assert block_render.disk_floor_bytes(bodies.EARTH, 4096, 4096) == edge * edge * 3
+
+
+class TestABlockTooBigToRenderStopsTheRun:
+
+    def test_a_plan_that_fits_is_returned_unchanged(self):
+        blocks = [_block(0, 0, margin=block_plan.MARGIN_CEILING_PX)]
+        assert block_render.check_fits(blocks, bodies.EARTH) == blocks
+
+    def test_one_oversized_block_refuses_the_whole_plan(self):
+        """Not skipped: an unwritten block reads as black in the mosaic rather than as missing,
+        so a hole would ship as a look decision."""
+        oversized = Block(col0=0, row0=0, size_px=block_plan.RENDERED_CEILING_PX, margin_px=64)
+        with pytest.raises(SystemExit, match="exceed"):
+            block_render.check_fits([_block(0, 0), oversized], bodies.EARTH)
+
+
+class TestTheRunnerStopsWhenTheMosaicIsAlreadyCurrent:
+    """The shipping path's early return, exercised rather than assumed: a fresh planet must cost a
+    plan and a stat, never a night. Planning is what the recipe is computed FROM, so it runs first
+    now; what must not run is a single Blender invocation."""
+
+    def test_a_fresh_mosaic_renders_nothing(self, tmp_path, monkeypatch):
+        """The recipe is already on disk holding exactly what this run would write, which is the
+        second-run state: `write_if_changed` moves no mtime, so the stamp stays the newest thing."""
+        _declare_earths_rasters(monkeypatch)
+        planned = [_block(0, column) for column in range(3)]
+        monkeypatch.setattr(block_render, "plan_blocks", lambda body, work: planned)
+        _stage_warped_inputs(tmp_path)
+        (tmp_path / block_render.PARAMS_NAME).write_text(block_render.params(
+            bodies.EARTH, planet_seam.declared(bodies.EARTH), palette.look_for("earth"),
+            block_render.rig_recipe(bodies.EARTH), planned))
+        mosaic = tmp_path / "planet_rgb.tif"
+        mosaic.write_bytes(b"")
+        freshness.mark_done(mosaic)
+        assert block_render.run(bodies.EARTH, tmp_path, mosaic) == 0
+
+    def test_a_moved_input_is_not_fresh(self, tmp_path, monkeypatch):
+        """The other direction, so the test above cannot pass by the predicate always saying yes."""
+        _declare_earths_rasters(monkeypatch)
+        monkeypatch.setattr(block_render, "plan_blocks", _stop_here)
+        mosaic = tmp_path / "planet_rgb.tif"
+        mosaic.write_bytes(b"")
+        freshness.mark_done(mosaic)
+        _stale_by_a_second(freshness.done_marker(mosaic))
+        _stale_by_a_second(mosaic)
+        _stage_warped_inputs(tmp_path)
+        with pytest.raises(SystemExit, match="reached the plan"):
+            block_render.run(bodies.EARTH, tmp_path, mosaic)
+
+
+class TestTheLoopStampsOnlyAWholePlanet:
+    """`run` driven over a stand-in renderer, so the ordering it owns is provable without a GPU.
+
+    What is being checked is `run`'s own arithmetic — which blocks are attempted, and whether the
+    mosaic ends up stamped — not the stand-in's. The stamp is the dangerous one: `tiles_are_fresh`
+    keys on it, so a partial planet that stamps itself is a pyramid cut from half a producer.
+    """
+
+    def _drive(self, tmp_path, monkeypatch, *, blocks=3, **kwargs):
+        _declare_earths_rasters(monkeypatch)
+        # The disk floor is sized for a whole planet and these blocks stand in for one, so on any
+        # ordinary scratch filesystem it would abort before the loop this class is about. It has
+        # its own guards above; here it is held out of the way rather than left to fire.
+        monkeypatch.setattr(block_render, "free_bytes", lambda path: 1 << 60)
+        planned = [_block(0, column) for column in range(blocks)]
+        attempted: list[str] = []
+
+        def _fake_render(body, block, mosaic, scratch, markers):
+            attempted.append(block_render.block_name(block))
+            (markers / block_render.block_name(block)).write_text("margin 0\n")
+
+        monkeypatch.setattr(block_render, "plan_blocks", lambda body, work: planned)
+        monkeypatch.setattr(block_render, "ensure_mosaic", lambda mosaic, body: None)
+        monkeypatch.setattr(block_render, "render_block", _fake_render)
+        _stage_warped_inputs(tmp_path)
+        mosaic = tmp_path / "planet_rgb.tif"
+        mosaic.write_bytes(b"")
+        return attempted, mosaic, block_render.run(bodies.EARTH, tmp_path, mosaic, **kwargs)
+
+    def test_a_whole_planet_stamps_the_mosaic(self, tmp_path, monkeypatch):
+        attempted, mosaic, rendered = self._drive(tmp_path, monkeypatch)
+        assert rendered == 3 and attempted == ["r00c00", "r00c01", "r00c02"]
+        assert freshness.done_marker(mosaic).exists()
+
+    def test_a_limited_run_renders_but_does_not_stamp(self, tmp_path, monkeypatch):
+        attempted, mosaic, rendered = self._drive(tmp_path, monkeypatch, limit=2)
+        assert rendered == 2 and len(attempted) == 2
+        assert not freshness.done_marker(mosaic).exists()
+
+    def test_limit_zero_renders_nothing_at_all(self, tmp_path, monkeypatch):
+        """`--limit 0` MUST mean none, and it is the falsy value: a truthiness test reads it as no
+        limit and starts the whole planet. That exact shape has breached this project's one-heavy-
+        job rule before, from a different flag."""
+        attempted, mosaic, rendered = self._drive(tmp_path, monkeypatch, limit=0)
+        assert rendered == 0 and attempted == []
+        assert not freshness.done_marker(mosaic).exists()
+
+    def test_a_named_subset_never_stamps_even_when_all_of_it_renders(self, tmp_path, monkeypatch):
+        """The subset finished; the planet did not. Completion is asked of the grid, never of the
+        selection, or `--only` on one block would declare a planet done."""
+        attempted, mosaic, rendered = self._drive(tmp_path, monkeypatch,
+                                                 only=frozenset({"r00c01"}))
+        assert rendered == 1 and attempted == ["r00c01"]
+        assert not freshness.done_marker(mosaic).exists()
+
+    def test_a_block_that_is_not_on_the_grid_is_refused(self, tmp_path, monkeypatch):
+        """A typo in `--only` would otherwise render nothing and report success."""
+        with pytest.raises(SystemExit, match="no such block"):
+            self._drive(tmp_path, monkeypatch, only=frozenset({"r99c99"}))
+
+
+class TestARunRefusesToStartWithoutItsInputs:
+    """The failure this converts from slow and misattributed into immediate and named.
+
+    Without it a missing heightfield raises on the first block and on the next seven, and the run
+    stops on the consecutive-failure counter — whose message says the GPU is gone, about a stage
+    that never ran. On an unattended night that reads as a hardware fault.
+    """
+
+    def test_a_missing_heightfield_stops_the_run_by_name(self, tmp_path):
+        with pytest.raises(SystemExit, match=shade_planet.HEIGHT_3857):
+            block_render.check_inputs(tmp_path, frozenset({"heightfield"}))
+
+    def test_the_error_names_the_stage_that_builds_them(self, tmp_path):
+        """An error that says what is missing and not how to fix it costs the reader two tiers."""
+        with pytest.raises(SystemExit, match="shade_planet"):
+            block_render.check_inputs(tmp_path, frozenset({"heightfield"}))
+
+    def test_a_body_that_declares_no_inland_water_is_not_asked_for_a_watermask(self, tmp_path):
+        """The declaration decides, never the disk: asking every body for every raster would make
+        a sea-less planet unrenderable, and sniffing the disk cannot tell 'has none' from 'died'."""
+        (tmp_path / shade_planet.HEIGHT_3857).write_bytes(b"")
+        block_render.check_inputs(tmp_path, frozenset({"heightfield"}))
+
+    def test_a_body_that_does_declare_one_may_not_start_without_it(self, tmp_path):
+        (tmp_path / shade_planet.HEIGHT_3857).write_bytes(b"")
+        with pytest.raises(SystemExit, match=shade_planet.WATER_3857):
+            block_render.check_inputs(tmp_path, frozenset({"heightfield", "watermask"}))
+
+
+def _stage_warped_inputs(tmp_path):
+    """The warped rasters the block prep cuts from, as empty files: `check_inputs` asks only
+    whether they are there, and a test that wrote real ones would be testing rasterio."""
+    for name in (shade_planet.HEIGHT_3857, shade_planet.OCEAN_3857, shade_planet.WATER_3857):
+        (tmp_path / name).write_bytes(b"")
+
+
+def _declare_earths_rasters(monkeypatch):
+    """Answer the planet seam from the registry rather than from this machine's store, so these
+    guards run in a checkout with no data at all — the mode a store-bound test skips forever in."""
+    monkeypatch.setattr(block_render.planet_seam, "declared",
+                        lambda body: frozenset({"heightfield", "oceanmask", "watermask"}))
+
+
+def _stop_here(*args, **kwargs):
+    raise SystemExit("reached the plan")

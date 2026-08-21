@@ -204,6 +204,48 @@ class TestFlatTintsAreThePalettes:
         assert scene_build.ICE_RGBA == (*palette.srgb8_to_linear(palette.ICE_RGB), 1.0)
 
 
+class TestTheRigRecipeNamesEveryConstantHere:
+    """The freshness recipe for a raytraced planet is `rig_recipe`, and the failure it has to be
+    proof against is OMISSION rather than error.
+
+    A constant added here and forgotten there reaches every pixel and moves no mtime, so a planet
+    rendered with the old value keeps reading as current forever — and the render is the most
+    expensive output the project has. Nothing about a missing key is visible from the recipe's own
+    side, which is why the check runs from the MODULE's side: every all-caps name this file defines
+    must appear, so forgetting is red here rather than silent for a night.
+    """
+
+    def _capitals(self, scene_build):
+        return {name for name in vars(scene_build)
+                if name.isupper() and not name.startswith("_")}
+
+    def test_every_module_constant_is_in_the_recipe(self, scene_build):
+        recipe = scene_build.rig_recipe(palette.EARTH_LOOK)
+        assert self._capitals(scene_build) <= set(recipe)
+
+    def test_the_scan_finds_the_constants_it_claims_to(self, scene_build):
+        """The anti-vacuity arm. An empty capital set would satisfy the subset above trivially, and
+        that is exactly what a rename to lower case or a moved constant block would produce."""
+        found = self._capitals(scene_build)
+        assert {"SAMPLES", "SUN_STRENGTH", "WORLD_RGBA", "IMAGES"} <= found
+
+    def test_the_look_rides_along_rather_than_being_restated(self, scene_build):
+        """A ramp is as much a render input as a sun is, and it is the body's rather than this
+        module's — so it is recorded under its own key from `look_constants`, not copied."""
+        recipe = scene_build.rig_recipe(palette.EARTH_LOOK)
+        constants = scene_build.look_constants(palette.EARTH_LOOK)
+        assert recipe["look"]["land_range"] == list(constants.land_range)
+        assert len(recipe["look"]["land_stops"]) == len(constants.land_stops)
+
+    def test_a_sealess_look_records_the_absence(self, scene_build):
+        """`None` is the statement that this planet draws no sea, and the recipe has to carry it:
+        a body that GAINED a sea would otherwise restage nothing."""
+        sealess = palette.Look(land=palette.EARTH_LOOK.land, sea=None)
+        recipe = scene_build.rig_recipe(sealess)
+        assert recipe["look"]["sea_stops"] is None
+        assert scene_build.SEA_IMAGE not in recipe["IMAGES"]
+
+
 class TestSunAltitudeIsShared:
     def test_x_tilt_derives_from_sun_alt_deg(self, scene_build):
         """The 46-vs-45 split's cure: the X tilt is 90 − the shared altitude."""

@@ -262,21 +262,50 @@ def test_plan_rejects_a_relief_grid_of_the_wrong_shape():
                         altitude_deg=SUN_ALTITUDE_DEG)
 
 
-def test_open_ocean_blocks_need_no_margin():
-    """Bathymetry casts nothing at the surface, so an all-sea block renders to its own footprint."""
+def test_a_flat_block_beside_a_mountain_inherits_the_mountains_margin():
+    """THE DEFECT THIS REPLACES, and the halo is what makes it work.
+
+    An all-ocean block used to take its margin for free from an `ocean_share` shortcut, because a
+    flat sea cannot receive a shadow. True, and beside the point: the margin is also what keeps the
+    rendered frame's dark border out of the delivered pixels, and that border reaches as far as the
+    SURROUNDING relief is tall. So a flat block next to a mountain range needs the mountain's
+    margin, which is exactly what `haloed` already gives it — the shortcut was overriding the right
+    answer with a cheap one.
+    """
     window = px_window(0, 65536, 4096, 2048)
-    relief = np.full((1, 2), 8000.0)
-    ocean = np.array([[1.0, 0.0]])
-    blocks = block_plan.plan(relief, window, bodies.EARTH, altitude_deg=SUN_ALTITUDE_DEG,
-                             ocean_share=ocean)
-    assert blocks[0].margin_px == 0
-    assert blocks[1].margin_px > 0
+    relief = np.array([[0.0, 8000.0]])
+    blocks = block_plan.plan(relief, window, bodies.EARTH, altitude_deg=SUN_ALTITUDE_DEG)
+    assert blocks[0].margin_px == blocks[1].margin_px > block_plan.MARGIN_MINIMUM_PX
 
 
-def test_ocean_share_must_match_the_relief_grid():
-    with pytest.raises(ValueError):
+def test_no_block_is_ever_planned_without_a_margin():
+    """THE GUARD THE DEFECT NEEDED, and it has to be asked of the PLAN rather than of the law.
+
+    `margin_for` was never the thing that returned zero on the ocean blocks — `plan`'s own shortcut
+    was, bypassing the law entirely, so a guard pointed only at `margin_for` would have stayed green
+    through the whole defect. This asks every block a planner can emit.
+    """
+    window = px_window(0, 0, 4096 * 2, 2048 * 2)
+    relief = np.array([[0.0, 12000.0, 0.0, 3000.0], [8000.0, 0.0, 500.0, 0.0]])
+    blocks = block_plan.plan(relief, window, bodies.EARTH, altitude_deg=SUN_ALTITUDE_DEG)
+    assert blocks, "no blocks planned, so the assertion below would pass vacuously"
+    assert all(b.margin_px >= block_plan.MARGIN_MINIMUM_PX for b in blocks)
+
+
+def test_the_shadow_law_alone_never_returns_less_than_the_minimum():
+    """Flat ground asks for no shadow reach at all, which is where the law's own zero comes from."""
+    assert block_plan.margin_for(0.0, 0.0, exaggeration=15.0, ground_scale=1.0,
+                                 map_units_per_pixel=305.7483,
+                                 altitude_deg=SUN_ALTITUDE_DEG) == block_plan.MARGIN_MINIMUM_PX
+
+
+def test_plan_takes_no_ocean_share_any_more():
+    """The shortcut is gone, and its parameter with it: a `plan` that still ACCEPTED an ocean share
+    while ignoring it would read to the next caller as a knob that does something."""
+    with pytest.raises(TypeError):
         block_plan.plan(np.zeros((1, 2)), px_window(0, 0, 4096, 2048), bodies.EARTH,
-                        altitude_deg=SUN_ALTITUDE_DEG, ocean_share=np.zeros((2, 2)))
+                        altitude_deg=SUN_ALTITUDE_DEG,
+                        ocean_share=np.zeros((1, 2)))  # pyright: ignore[reportCallIssue]
 
 
 # --------------------------------------------------------------- the ceilings
@@ -375,11 +404,9 @@ class TestFoldingCellsUpToBlocks:
         """The two ends of the contract, joined — a fold whose shape `plan` rejects is no bridge."""
         cells = block_plan.CELLS_PER_BLOCK * 2
         high, low = np.full((cells, cells), 3000.0), np.zeros((cells, cells))
-        share = np.zeros((cells, cells))
         window = Window(0, 0, 2 * block_plan.RENDER_BLOCK_PX,  # pyright: ignore[reportCallIssue]
                         2 * block_plan.RENDER_BLOCK_PX)
         blocks = block_plan.plan(block_plan.relief_from_cells(high, low), window, bodies.EARTH,
-                                 altitude_deg=45.0,
-                                 ocean_share=block_plan.share_from_cells(share))
+                                 altitude_deg=45.0)
         assert len(blocks) == 4
         assert all(block.margin_px > 0 for block in blocks)

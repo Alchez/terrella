@@ -59,6 +59,26 @@ MARGIN_QUANTUM_PX = 64
 #: it starts binding only as the ratio approaches 1.0, which couples it to `RENDERED_CEILING_PX`.
 MARGIN_CEILING_PX = 768
 
+#: The smallest margin any block may render with, and it is not a shadow number at all.
+#:
+#: THE MARGIN HAS A SECOND JOB THAT WENT UNWRITTEN, AND A ZERO MARGIN FAILS IT. A Cycles frame is
+#: dark at its outermost pixels — measured on delivered ocean blocks, the border reaches ~140 DN
+#: against a ~210 DN interior and takes about thirty columns to recover. A margin is discarded
+#: rather than delivered, so any block with one throws that border away for free; a block rendered
+#: at margin 0 delivers it, and abutting blocks then meet as a dark hairline.
+#:
+#: It shipped that way and the whole ocean showed it: an `ocean_share` shortcut in `plan` gave every
+#: all-ocean block margin 0, which is 45.8% of Earth, so the defect drew a grid over the calmest
+#: part of the image. That shortcut is gone — see `plan`, because the border's REACH turned out to
+#: scale with the surrounding relief exactly as a shadow does, which is why an all-ocean block
+#: beside a mountain range needs the mountain's margin and a floor alone does not save it.
+#:
+#: THIS FLOOR IS THEREFORE THE FLAT-GROUND CASE ONLY, and one quantum covers it: where nothing
+#: stands anywhere near a block, the law asks for nothing and the border is at its shortest. The
+#: deeper fix is a rig that does not darken its own border, which would retire both this and the
+#: margin's second job; that is a `scene_build` question rather than a partition one.
+MARGIN_MINIMUM_PX = MARGIN_QUANTUM_PX
+
 #: The largest square frame renderable on this GPU. A block whose delivered edge plus both margins
 #: exceeds it cannot be rendered at all - a different limit from `MARGIN_CEILING_PX`, which bounds
 #: the margin alone.
@@ -140,7 +160,7 @@ def margin_for(max_relief_m: float, latitude_deg: float, *, exaggeration: float,
     # diagonally, so the component reaching across either axis is shorter by cos(45).
     per_axis_px = reach_px * math.cos(math.radians(45.0))
     quantised = math.ceil(MARGIN_RATIO * per_axis_px / MARGIN_QUANTUM_PX) * MARGIN_QUANTUM_PX
-    return min(quantised, MARGIN_CEILING_PX)
+    return min(max(quantised, MARGIN_MINIMUM_PX), MARGIN_CEILING_PX)
 
 
 def haloed(relief: NDArray[np.float64]) -> NDArray[np.float64]:
@@ -244,8 +264,8 @@ def share_from_cells(share: NDArray[np.float64]) -> NDArray[np.float64]:
     return _folded(share).mean(axis=(1, 3))
 
 
-def plan(relief: NDArray[np.float64], window: Window, body: Body, *, altitude_deg: float,
-         ocean_share: NDArray[np.float64] | None = None) -> list[Block]:
+def plan(relief: NDArray[np.float64], window: Window, body: Body, *,
+         altitude_deg: float) -> list[Block]:
     """Every block covering `window`, each sized for the relief that can reach it.
 
     `relief` is the vertical RANGE within each block of `window`, highest minus lowest, in body
@@ -256,9 +276,14 @@ def plan(relief: NDArray[np.float64], window: Window, body: Body, *, altitude_de
     that supplied elevations instead would under-margin exactly the coastal blocks whose occluders
     are tallest, and every test here would still pass, because they hand `margin_for` its number.
 
-    `ocean_share`, if given, is the fraction
-    of each block that is open sea on the same grid: a block that is entirely ocean is flat at the
-    surface whatever the bathymetry beneath it does, so it needs no margin at all.
+    EVERY BLOCK GOES THROUGH THE LAW, INCLUDING THE ALL-OCEAN ONES. There used to be an
+    `ocean_share` shortcut here that gave a block which is >99.9% sea its margin for free, on the
+    reasoning that a flat sea surface cannot receive a shadow. The reasoning was about shadows and
+    the margin turned out not to be only about shadows: it is also what keeps the rendered frame's
+    own dark border out of the delivered pixels, and that border reaches as far into the block as
+    the surrounding relief is tall. So an all-ocean block beside a mountain range needed the
+    mountain's margin all along. Measured at the Norwegian coast, where the shortcut gave 64 px and
+    the law gives 320: the boundary step went from 43 DN to 1.2, against 1.2 in the composite.
 
     The body supplies exaggeration, ground scale and pixel size together, so they cannot disagree
     with each other. `hillshade` requires `ground_scale` as an argument instead only because it is
@@ -270,9 +295,6 @@ def plan(relief: NDArray[np.float64], window: Window, body: Body, *, altitude_de
     if relief.shape != (rows, columns):
         raise ValueError(f"relief grid {relief.shape} does not match the {rows}x{columns} blocks "
                          f"of a {int(window.width)}x{int(window.height)} window")
-    if ocean_share is not None and ocean_share.shape != relief.shape:
-        raise ValueError(f"ocean_share {ocean_share.shape} does not match relief {relief.shape}")
-
     reach = haloed(relief)
     ground_scale = bodies.ground_metres_per_mercator_unit(body)
     col_origin, row_origin = int(window.col_off), int(window.row_off)
@@ -282,14 +304,11 @@ def plan(relief: NDArray[np.float64], window: Window, body: Body, *, altitude_de
         row0 = row_origin + row_index * RENDER_BLOCK_PX
         latitude = row_latitude_deg(row0 + RENDER_BLOCK_PX / 2.0, body)
         for column_index in range(columns):
-            if ocean_share is not None and ocean_share[row_index, column_index] > 0.999:
-                margin = 0
-            else:
-                margin = margin_for(float(reach[row_index, column_index]), latitude,
-                                    exaggeration=body.exaggeration,
-                                    ground_scale=ground_scale,
-                                    map_units_per_pixel=body.map_units_per_pixel,
-                                    altitude_deg=altitude_deg)
+            margin = margin_for(float(reach[row_index, column_index]), latitude,
+                                exaggeration=body.exaggeration,
+                                ground_scale=ground_scale,
+                                map_units_per_pixel=body.map_units_per_pixel,
+                                altitude_deg=altitude_deg)
             blocks.append(Block(col0=col_origin + column_index * RENDER_BLOCK_PX, row0=row0,
                                 size_px=RENDER_BLOCK_PX, margin_px=margin))
     return blocks

@@ -4131,6 +4131,116 @@ SABOTAGES: list[Sabotage] = [
         replacement='    heightfield_path = render_dir / "heightfield.tif"',
         guard='test_no_pipeline_module_spells_a_render_filename',
     ),
+    # THE MARGIN FLOOR, WHICH SHIPPED MISSING AND DREW A GRID OVER EVERY OCEAN ON EARTH. A Cycles
+    # frame is dark for about thirty pixels at its border; a margin is discarded, so any block with
+    # one throws that away, and a block rendered to its exact footprint delivers it. Both branches
+    # get a case because the defect was in the one that BYPASSES the law.
+    Sabotage(
+        suite='python',
+        label='a block is sized by its OWN relief, so a flat one beside a mountain gets the floor',
+        path='pipeline/block_plan.py',
+        needle='    reach = haloed(relief)',
+        replacement='    reach = relief',
+        guard='test_a_flat_block_beside_a_mountain_inherits_the_mountains_margin',
+    ),
+    Sabotage(
+        suite='python',
+        label='the shadow law drops its floor, so flat ground plans a zero margin again',
+        path='pipeline/block_plan.py',
+        needle='    return min(max(quantised, MARGIN_MINIMUM_PX), MARGIN_CEILING_PX)',
+        replacement='    return min(quantised, MARGIN_CEILING_PX)',
+        guard='test_the_shadow_law_alone_never_returns_less_than_the_minimum',
+    ),
+    # THE RECIPE GOING SHORT, which is the failure that bit three times in one session and is
+    # silent every time: the recipe text does not move, the generation stamp still reads as
+    # current, and the next resume keeps blocks rendered under a rule that no longer exists.
+    Sabotage(
+        suite='python',
+        label='the recipe stops recording the margins, so a law change restages nothing at all',
+        path='pipeline/tile/block_render.py',
+        needle='        "margins": margin_census(blocks),',
+        replacement='        "margins": {},',
+        guard='test_a_margin_moving_moves_the_recipe_and_a_law_change_that_moves_none_does_not',
+    ),
+    # THE BLOCK RUNNER. Every case below is silent: the run completes, the gates stay green, and
+    # what is wrong is either a planet nobody re-rendered or a planet rendered from the wrong
+    # neighbourhood. None of them raise, and the pixels look plausible in all of them.
+    Sabotage(
+        suite='python',
+        label="the resume's generation test becomes is_stale, which calls every healthy run stale",
+        path='pipeline/tile/block_render.py',
+        needle='    return stamp.exists() and freshness.newest_mtime(*deps) <= stamp.stat().st_mtime',
+        replacement='    return stamp.exists() and not freshness.is_stale(markers, *deps)',
+        guard='test_a_directory_written_into_after_its_stamp_is_still_current',
+    ),
+    Sabotage(
+        suite='python',
+        label='a new generation leaves the mosaic stamped, so the cut can run on half a producer',
+        path='pipeline/tile/block_render.py',
+        needle='    freshness.done_marker(mosaic).unlink(missing_ok=True)\n'
+               '    shutil.rmtree(markers, ignore_errors=True)',
+        replacement='    shutil.rmtree(markers, ignore_errors=True)',
+        guard='test_the_mosaics_completion_marker_is_removed',
+    ),
+    Sabotage(
+        suite='python',
+        label='the block markers stop following their mosaic, so an A/B resumes over production',
+        path='pipeline/tile/block_render.py',
+        needle='    return mosaic.with_name(f"{mosaic.stem}_blocks")',
+        replacement='    return mosaic.parent / "planet_blocks"',
+        guard='test_two_mosaics_do_not_share_a_marker_directory',
+    ),
+    Sabotage(
+        suite='python',
+        label="the raytrace inherits the composite's hillshade as a dependency it never reads",
+        path='pipeline/tile/block_render.py',
+        needle='    return (work / shade_planet.HEIGHT_3857, work / shade_planet.OCEAN_3857,',
+        replacement='    return (work / "hs_3857.tif", work / shade_planet.HEIGHT_3857,\n'
+                    '            work / shade_planet.OCEAN_3857,',
+        guard='test_the_hillshade_is_not_a_raytrace_dependency',
+    ),
+    Sabotage(
+        suite='python',
+        label='the margin is left on the crop, so every block is written offset by its own halo',
+        path='pipeline/tile/block_render.py',
+        needle='    crop = frame[:3, margin:margin + edge, margin:margin + edge]',
+        replacement='    crop = frame[:3, :edge, :edge]',
+        guard='test_the_margin_is_cut_back_off',
+    ),
+    Sabotage(
+        suite='python',
+        label='--limit is read for truthiness, so limit 0 starts the whole planet instead of none',
+        path='pipeline/tile/block_render.py',
+        needle='        if limit is not None and rendered >= limit:',
+        replacement='        if limit and rendered >= limit:',
+        guard='test_limit_zero_renders_nothing_at_all',
+    ),
+    Sabotage(
+        suite='python',
+        label='completion is asked of the selection, so --only on one block stamps a whole planet',
+        path='pipeline/tile/block_render.py',
+        needle='    complete = all((markers / block_name(block)).exists() for block in blocks)',
+        replacement='    complete = all((markers / block_name(block)).exists() for block in selected)',
+        guard='test_a_named_subset_never_stamps_even_when_all_of_it_renders',
+    ),
+    Sabotage(
+        suite='python',
+        label='the run stops checking its warped inputs, so a missing stage reads as a dead GPU',
+        path='pipeline/tile/block_render.py',
+        needle='    missing = [path.name for path in required if not path.exists()]',
+        replacement='    missing = []',
+        guard='test_a_missing_heightfield_stops_the_run_by_name',
+    ),
+    # The rig's own recipe going short by one constant. The planet keeps rendering, the gates keep
+    # passing, and a look change made through that constant restages nothing at all.
+    Sabotage(
+        suite='python',
+        label='the rig recipe forgets a constant, so a look change leaves the planet reading fresh',
+        path='pipeline/render/scene_build.py',
+        needle='        "SAMPLES": SAMPLES,',
+        replacement='',
+        guard='test_every_module_constant_is_in_the_recipe',
+    ),
     Sabotage(
         suite='python',
         label='the block width drops the body ground ratio, which is exactly 1.0 on Earth',

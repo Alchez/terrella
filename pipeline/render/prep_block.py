@@ -207,6 +207,24 @@ def write_recipe(body: bodies.Body, window: Window, outdir: Path, written: list[
     }, indent=2, sort_keys=True) + "\n")
 
 
+def cut(body: bodies.Body, col: int, row: int, size: int, margin: int,
+        outdir: Path) -> dict[str, Any]:
+    """Fill `outdir` with everything the rig needs for one block, and return its frame numbers.
+
+    THE FOUR CALLS ARE ONE STAGE AND THEIR ORDER IS THE CONTRACT: images, then the frame the rig
+    reads them through, then the recipe that says what settings made them, and only then the
+    declaration — which is what says the stage finished, so it goes last and after the files exist.
+    Extracted from `main` so the block runner drives this in-process rather than restating the
+    sequence; a second copy would be free to drop the declaration and look like it worked.
+    """
+    window = block_window(col, row, size, margin)
+    written = build(body, window, outdir)
+    frame = write_frame(body, window, outdir)
+    write_recipe(body, window, outdir, written)
+    render_seam.declare(outdir, render_seam.BLOCK, written)
+    return frame
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--body", required=True, choices=sorted(bodies.BODIES),
@@ -226,10 +244,9 @@ def main() -> None:
 
     body = bodies.BODIES[args.body]
     window = block_window(args.col, args.row, args.size, args.margin)
-    written = build(body, window, args.outdir)
-    frame = write_frame(body, window, args.outdir)
-    write_recipe(body, window, args.outdir, written)
-    print(f"declared {render_seam.declare(args.outdir, render_seam.BLOCK, written)}", flush=True)
+    frame = cut(body, args.col, args.row, args.size, args.margin, args.outdir)
+    written = sorted(render_seam.declared(args.outdir))
+    print(f"declared {render_seam.declaration_path(args.outdir)}", flush=True)
     print(f"{body.name} block col={args.col} row={args.row} {args.size}px "
           f"+{args.margin} margin -> {window.width}x{window.height}; "
           f"ground width {frame['extent_w_m'] / 1000:.1f} km; "

@@ -400,6 +400,14 @@ HEIGHT_3857 = "height_3857.tif"
 OCEAN_3857 = "ocean_3857.tif"
 WATER_3857 = "water_3857.tif"
 
+#: The shaded colour raster the tile cut reads, whatever produced it.
+#:
+#: NAMED HERE BECAUSE IT NOW HAS TWO PRODUCERS. `composite_planet` builds it window by window and
+#: `tile.block_render` renders it block by block, and the tile cut, the freshness marker and the
+#: publish all key on this one basename — so it is exactly the kind of spelling the second writer
+#: would otherwise copy. The variant suffix stays a local f-string: only the composite emits those.
+PLANET_RGB = "planet_rgb.tif"
+
 #: `cap_render` says something different about the same layers because it paints a different
 #: picture. Each states what the reader will see rather than what was missing, so a partial build
 #: can be read back off its own output.
@@ -788,7 +796,8 @@ def composite_planet(work: Path, hs, compute_occlusion: Callable[[], np.ndarray]
     """
     if variants is None:
         variants = {None: None}
-    outs = {name: work / f"planet_rgb{f'_{name}' if name else ''}.tif" for name in variants}
+    outs = {name: work / (PLANET_RGB if not name else f"planet_rgb_{name}.tif")
+            for name in variants}
     params = write_if_changed(work / "composite_params.json",
                               composite_params(variants, body, rasters, window_rows))
     deps = composite_deps(work, hs, params)
