@@ -505,3 +505,38 @@ class TestTheFakeDeclarationMatchesTheRealOne:
 
 def _stop_here(*args, **kwargs):
     raise SystemExit("reached the plan")
+
+
+class TestTheDenoiseDeviceIsTheCallersAndIsRecorded:
+    """OIDN on the GPU is ~8x faster and the heroes must not have it, so it is an argument.
+
+    The whole point of the shape is that the two callers of `scene_build` disagree about one Cycles
+    setting while sharing everything else, so the tests that matter are the two directions of that
+    disagreement plus the recipe that has to be able to see it move.
+    """
+
+    def _command(self, tmp_path):
+        return block_render.blender_command(
+            bodies.EARTH, tmp_path / "rd", tmp_path / "b.blend", tmp_path / "b.png")
+
+    def test_the_block_runner_opts_in(self, tmp_path):
+        command = self._command(tmp_path)
+        assert "--denoise-device" in command
+        assert command[command.index("--denoise-device") + 1] == block_render.BLOCK_DENOISE_DEVICE
+        assert block_render.BLOCK_DENOISE_DEVICE == "gpu"
+
+    def test_the_recipe_records_it(self):
+        recipe = json.loads(block_render.params(
+            bodies.EARTH, frozenset(planet_seam.KNOWN_RASTERS), palette.EARTH_LOOK,
+            {"SAMPLES": 4096}, [Block(col0=0, row0=0, size_px=2048, margin_px=128)]))
+        assert recipe["denoise_device"] == block_render.BLOCK_DENOISE_DEVICE
+
+    def test_moving_it_moves_the_recipe(self, monkeypatch):
+        """The freshness arm. The two denoisers do not agree to the last DN, so a pass resumed
+        across a change of this must restage rather than blend both into one mosaic."""
+        blocks = [Block(col0=0, row0=0, size_px=2048, margin_px=128)]
+        args = (bodies.EARTH, frozenset(planet_seam.KNOWN_RASTERS), palette.EARTH_LOOK,
+                {"SAMPLES": 4096}, blocks)
+        before = block_render.params(*args)
+        monkeypatch.setattr(block_render, "BLOCK_DENOISE_DEVICE", "cpu")
+        assert block_render.params(*args) != before

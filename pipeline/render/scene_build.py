@@ -497,7 +497,27 @@ def build_material(ob, render_dir, displacement_scale, look, present):
     ob.data.materials.append(mat)
 
 
-def configure_render(res_x, res_y):
+def configure_render(res_x, res_y, *, denoise_device):
+    """Cycles settings for one frame. `denoise_device` is the caller's, and deliberately so.
+
+    OIDN ON THE GPU IS ROUGHLY EIGHT TIMES FASTER AND THE HEROES STILL MUST NOT USE IT. Render and
+    denoise then contend for the same 12 GB and the driver throws an Xid 31 MMU fault, which is what
+    CLAUDE.md's rule is about; measured, a block frame denoises in 0.85 s on the GPU against 5.93 s
+    on the CPU, and a hero is several times a block.
+
+    IT CANNOT BE DERIVED FROM `res_x`/`res_y`, which is the obvious idea and does not survive the
+    numbers: the two populations OVERLAP. Maldives is 13.8 Mpx and Chile 18.1 against a 4096 block's
+    18.9, so no threshold separates "block" from "hero" -- one placed above the block flips two
+    heroes into an untested regime, one placed below it puts the blocks back on the CPU. A threshold
+    would also encode THIS machine's 12 GB as though it were a fact about the project, and a rule
+    that reads the device at render time makes the output depend on the host with nothing on disk
+    saying which way it went. A recipe can record a value; it cannot record a rule.
+
+    So the caller decides and records what it decided. The default is the conservative one, because
+    the default is what a future caller at an unknown frame size inherits.
+    """
+    if denoise_device not in ("cpu", "gpu"):
+        raise ValueError(f"denoise_device must be 'cpu' or 'gpu', not {denoise_device!r}")
     scene = bpy.context.scene
     render_settings, cycles_settings = scene.render, scene.cycles
     render_settings.engine = "CYCLES"
@@ -513,7 +533,7 @@ def configure_render(res_x, res_y):
     cycles_settings.denoising_input_passes = "RGB_ALBEDO_NORMAL"
     cycles_settings.denoising_prefilter = "ACCURATE"
     cycles_settings.denoising_quality = "HIGH"
-    cycles_settings.denoising_use_gpu = False
+    cycles_settings.denoising_use_gpu = denoise_device == "gpu"
     cycles_settings.dicing_rate = DICING_RATE
     cycles_settings.max_subdivisions = MAX_SUBDIVISIONS
     for attr, val in BOUNCES.items():
@@ -522,13 +542,23 @@ def configure_render(res_x, res_y):
     scene.view_settings.view_transform = "Standard"
 
 
-def main():
-    argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
+def build_parser():
+    """The CLI, separated from `main` so its DEFAULTS can be asserted without Blender.
+
+    Only one of them is load-bearing and it is `--denoise-device`: that default is the whole
+    mechanism protecting 203 pinned hero renders from a setting measured only on blocks, and a
+    default nothing can reach is a default nothing can pin.
+    """
     ap = argparse.ArgumentParser()
     ap.add_argument("--body", required=True, choices=sorted(palette.LOOK_BY_BODY),
                     help="which planet's ramps to draw with; no default, because a body that "
                          "quietly inherited Earth's would render a plausible wrong planet")
     ap.add_argument("--render-dir", type=Path, required=True)
+    ap.add_argument("--denoise-device", choices=("cpu", "gpu"), default="cpu",
+                    help="where OpenImageDenoise runs. Defaults to cpu because that is what an "
+                         "unknown frame size should inherit: at hero sizes render and denoise "
+                         "contend for the same VRAM and the driver faults. The block runner opts "
+                         "in explicitly and records that it did")
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--frame-json", type=Path, default=None,
                     help="per-country numbers from render_prep.py; "
@@ -539,7 +569,12 @@ def main():
                     help="resolution_percentage for the --render still; the "
                          "saved .blend always keeps 100 (Phase 0's 2048-wide "
                          "test convention ~= 27)")
-    args = ap.parse_args(argv)
+    return ap
+
+
+def main():
+    argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
+    args = build_parser().parse_args(argv)
     render_dir = args.render_dir.resolve()
     look = palette.look_for(args.body)
 
@@ -558,7 +593,11 @@ def main():
                  f"the two is wrong and the render would be plausible either way")
 
     clear_scene()
-    configure_render(frame["res_x"], frame["res_y"])
+    configure_render(frame["res_x"], frame["res_y"], denoise_device=args.denoise_device)
+    # ECHOED SO A CALLER CAN ASSERT IT. A flag that failed to arrive would otherwise render on the
+    # CPU while the caller's recipe records "gpu", which is the producer-declares rule inverted into
+    # a lie: the block would be correct, slow, and permanently mislabelled.
+    print(f"DENOISE_DEVICE {args.denoise_device}", flush=True)
     build_world()
     build_camera(frame["ortho_scale"])
     build_sun()

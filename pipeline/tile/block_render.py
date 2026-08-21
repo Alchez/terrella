@@ -159,6 +159,10 @@ def params(body: bodies.Body, rasters: frozenset[str], look: palette.Look,
         "map_units_per_pixel": body.map_units_per_pixel,
         "layers_off": layers.layers_off(body, layers.BLOCK_LAYERS),
         "rasters_off": planet_seam.rasters_off(rasters),
+        # Not a look constant, so not `rig`'s: it is this caller's choice, and the two denoisers do
+        # not agree to the last DN. Recorded because a pass resumed across a change of it would
+        # otherwise write both into one mosaic with nothing saying which made which block.
+        "denoise_device": BLOCK_DENOISE_DEVICE,
         "rig": rig,
     }
     if look.sea is None:
@@ -322,6 +326,16 @@ def ensure_mosaic(mosaic: Path, body: bodies.Body) -> None:
     print(f"created {mosaic} ({edge} x {edge})", flush=True)
 
 
+#: Where OIDN runs for BLOCKS, which is not where it runs for heroes and is the only Cycles setting
+#: that differs between the two callers of `scene_build`. Everything else that separates a hero from
+#: a block happens before Blender starts: a different prep module, a different framing law, a
+#: different snow source. Measured on r07c26 and r26c46 at both block edges: 5.07 s and 4.69 s saved
+#: per 2048 block, 20.11 s and 19.82 s per 4096 block, no fault, and a delivered-pixel difference of
+#: at most 1 DN with 88-91% of channels bit-identical. `scene_build.configure_render` holds why this
+#: cannot be derived from the frame size instead.
+BLOCK_DENOISE_DEVICE = "gpu"
+
+
 def blender_command(body: bodies.Body, render_dir: Path, blend: Path, png: Path) -> list[str]:
     """The one Blender invocation a block needs, built rather than spelled at the call site.
 
@@ -331,7 +345,8 @@ def blender_command(body: bodies.Body, render_dir: Path, blend: Path, png: Path)
     return [str(paths.BLENDER), "-b", "--python",
             str(paths.ROOT / "pipeline" / "render" / "scene_build.py"), "--",
             "--body", body.name, "--render-dir", str(render_dir),
-            "--out", str(blend), "--render", str(png)]
+            "--out", str(blend), "--render", str(png),
+            "--denoise-device", BLOCK_DENOISE_DEVICE]
 
 
 def cropped(png: Path, block: Block) -> np.ndarray:
@@ -372,6 +387,14 @@ def render_block(body: bodies.Body, block: Block, mosaic: Path, scratch: Path,
     if result.returncode != 0 or not png.exists():
         raise RuntimeError(f"blender exited {result.returncode} for {name}: "
                            f"{result.stdout[-1500:]}{result.stderr[-1500:]}")
+    # THE RECIPE BELOW WILL CLAIM A DENOISE DEVICE, SO THE RENDER HAS TO CONFIRM IT USED ONE. A
+    # dropped or renamed flag renders on the CPU and succeeds, and the only surviving trace would be
+    # a recipe asserting something that never happened — stale-looking-fresh in the one direction a
+    # freshness check cannot see, because the recipe would be self-consistent.
+    if f"DENOISE_DEVICE {BLOCK_DENOISE_DEVICE}" not in result.stdout:
+        raise RuntimeError(f"{name}: asked Blender for --denoise-device "
+                           f"{BLOCK_DENOISE_DEVICE} and it did not report back; the recipe would "
+                           f"record a device this block was not rendered with")
 
     crop = cropped(png, block)
     with rasterio.open(mosaic, "r+") as dst:  # pyright: ignore[reportCallIssue]

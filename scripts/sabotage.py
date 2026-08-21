@@ -7647,6 +7647,43 @@ SABOTAGES: list[Sabotage] = [
         replacement='    if True:',
         guard='test_a_source_no_grep_could_find_is_reported',
     ),
+    # The denoise device is the only Cycles setting the two callers of `scene_build` disagree about,
+    # and every failure below is silent in the direction that matters. Losing the opt-in costs six
+    # hours a pass and nothing reports it; gaining it on the hero path puts 203 pinned renders at a
+    # frame size where the driver is known to fault; losing it from the recipe leaves two denoisers
+    # writing one mosaic with nothing on disk saying which made which block.
+    Sabotage(
+        suite='python',
+        label='the block runner stops asking for GPU denoise and silently pays CPU for the planet',
+        path='pipeline/tile/block_render.py',
+        needle='            "--denoise-device", BLOCK_DENOISE_DEVICE]',
+        replacement=']',
+        guard='test_the_block_runner_opts_in',
+    ),
+    Sabotage(
+        suite='python',
+        label='the rig default flips to gpu, opting every hero into an untested frame size',
+        path='pipeline/render/scene_build.py',
+        needle='ap.add_argument("--denoise-device", choices=("cpu", "gpu"), default="cpu",',
+        replacement='ap.add_argument("--denoise-device", choices=("cpu", "gpu"), default="gpu",',
+        guard='test_the_default_the_hero_inherits_is_cpu',
+    ),
+    Sabotage(
+        suite='python',
+        label='the hero stage starts passing the denoise flag it must inherit instead',
+        path='pipeline/frame/country_config.py',
+        needle='         f" --body {bodies.EARTH.name} --render-dir {rd}"',
+        replacement='         f" --body {bodies.EARTH.name} --render-dir {rd} --denoise-device gpu"',
+        guard='test_the_hero_stage_does_not_pass_the_flag',
+    ),
+    Sabotage(
+        suite='python',
+        label='the block recipe forgets the denoise device, so switching it restages nothing',
+        path='pipeline/tile/block_render.py',
+        needle='        "denoise_device": BLOCK_DENOISE_DEVICE,',
+        replacement='',
+        guard='test_moving_it_moves_the_recipe',
+    ),
 ]
 
 
