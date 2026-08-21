@@ -293,6 +293,16 @@ def base_patches(span_px):
     time the block edge or the context moves, and this does not: it is computed from the frame that
     is actually being rendered. `test_scene_build_sync` asserts every planned block on every
     registered body clears one micropolygon per pixel through it.
+
+    IT IS REACHED ONLY THROUGH `--base-grid fitted`, AND THE REASON IS A HARD VRAM CEILING RATHER
+    THAN A COST. The grid multiplies micropolygons by 4x on both callers alike; what differs is the
+    total, because `OFFSCREEN_DICING_SCALE` coarsens the ~69% of a block's plane its camera never
+    sees while a hero's plane is entirely in frame. Measured on this box's 12 GB card: a block lands
+    near 21M and is comfortable; Nepal at 41.8M renders but takes 177% longer; Australia at 67M
+    fails outright with `Failed to build OptiX acceleration structure`, having also wanted 17.0 GB
+    of host against a 16 G rule. So the hero lane keeps the single quad -- knowingly under-diced,
+    and the alternative is not a slower hero but no hero at all. Which frame sizes sit on which side
+    of that wall is unmeasured; Nepal at 36.8 Mpx clears it and Australia at 58.8 does not.
     """
     return max(1, math.ceil(span_px / 2 ** MAX_SUBDIVISIONS))
 
@@ -645,6 +655,13 @@ def build_parser():
                          "unknown frame size should inherit: at hero sizes render and denoise "
                          "contend for the same VRAM and the driver faults. The block runner opts "
                          "in explicitly and records that it did")
+    ap.add_argument("--base-grid", choices=("single", "fitted"), default="single",
+                    help="how many quads the plane starts as. 'fitted' derives the count from the "
+                         "frame so adaptive subdivision can reach one micropolygon per pixel; "
+                         "'single' is the historical bare quad, which under-dices any plane wider "
+                         "than 4096 px. Defaults to single because that is the only one that is "
+                         "known to RENDER at hero sizes -- see `base_patches` for the VRAM "
+                         "ceiling. The block runner opts in explicitly and records that it did")
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--frame-json", type=Path, default=None,
                     help="per-country numbers from render_prep.py; "
@@ -696,7 +713,7 @@ def main():
                  f"mismatched frame.json")
     bpy.data.images.remove(probe)
     span_px = plane_span_px(frame)
-    patches = base_patches(span_px)
+    patches = base_patches(span_px) if args.base_grid == "fitted" else 1
     plane = build_plane(frame["plane_height_units"], patches)
     build_material(plane, render_dir, frame["displacement_scale"], look,
                    render_seam.declared(render_dir))
@@ -704,8 +721,10 @@ def main():
     prefs = bpy.context.preferences.addons["cycles"].preferences
     print(f"body {args.body}, {'sea' if look.sea is not None else 'no sea'}; ", flush=True)
     # ECHOED SO A CALLER CAN ASSERT IT, for `--denoise-device`'s reason: a base grid that failed to
-    # be cut renders successfully, a little soft, and leaves nothing on disk that differs.
-    print(f"BASE_PATCHES {patches} SPAN_PX {span_px:.0f}", flush=True)
+    # be cut renders successfully, a little soft, and leaves nothing on disk that differs. The
+    # POLICY rides with the count because they fail independently -- `fitted` on a plane under the
+    # cap yields 1, which is indistinguishable from the flag never arriving.
+    print(f"BASE_GRID {args.base_grid} BASE_PATCHES {patches} SPAN_PX {span_px:.0f}", flush=True)
     print(f"plane 2.0 x {frame['plane_height_units']:.6f}; "
           f"ortho {frame['ortho_scale']:.6f}; "
           f"displacement {frame['displacement_scale']:.6e}; "

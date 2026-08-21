@@ -583,6 +583,21 @@ class TestTheDenoiseDeviceIsTheCallersAndIsRecorded:
         assert command[command.index("--denoise-device") + 1] == block_render.BLOCK_DENOISE_DEVICE
         assert block_render.BLOCK_DENOISE_DEVICE == "gpu"
 
+    def test_the_block_runner_opts_into_the_base_grid_too(self, tmp_path):
+        """The blocks' half of the pair `TestTheHeroRenderStaysOnTheSingleQuad` guards. Blocks are
+        the caller that can AFFORD one micropolygon per pixel, because most of their plane is
+        off-camera; pinned to `fitted` by name so a silent revert to the hero default is caught."""
+        command = self._command(tmp_path)
+        assert "--base-grid" in command
+        assert command[command.index("--base-grid") + 1] == block_render.BLOCK_BASE_GRID
+        assert block_render.BLOCK_BASE_GRID == "fitted"
+
+    def test_the_recipe_records_the_base_grid(self):
+        recipe = json.loads(block_render.params(
+            bodies.EARTH, frozenset(planet_seam.KNOWN_RASTERS), palette.EARTH_LOOK,
+            {"SAMPLES": 4096}, [Block(col0=0, row0=0, size_px=2048, context_px=128)]))
+        assert recipe["base_grid"] == block_render.BLOCK_BASE_GRID
+
     def test_the_recipe_records_it(self):
         recipe = json.loads(block_render.params(
             bodies.EARTH, frozenset(planet_seam.KNOWN_RASTERS), palette.EARTH_LOOK,

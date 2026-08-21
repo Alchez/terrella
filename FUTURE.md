@@ -156,6 +156,28 @@ grep HISTORY before re-arguing anything an entry says was already decided.
 - **Not Mars-specific until shown to be.** Everything named above is body-independent, so check
   Earth's poles before scoping this as a Mars defect.
 
+## Heroes record no recipe, so nothing on disk says which rig made any of the 203 (analysed 2026-08-21, PARKED)
+
+- **State at analysis:** `scene_build.rig_recipe` exists and has exactly one caller,
+  `pipeline/tile/block_render.py`. The hero lane never invokes it, and `batch.py`'s freshness test
+  is bare file existence (`target.exists() and not force`). So a hero is "current" if its PNG is
+  present, whatever produced it.
+- **This is the producer-declares rule, unimplemented on the lane holding 203 approved artefacts.**
+  The block tier states what it emitted, per stage, precisely so a consumer never has to infer it.
+  The hero tier infers everything from one file's existence.
+- **Two rig changes have already landed that the heroes cannot see.** The sun moved to 315 degrees
+  and the base grid became a per-caller argument that heroes deliberately do not take. Every hero on
+  disk carries the old sun and the single quad, and nothing beside them records either fact.
+- **The live hazard is the TARGETED re-render, which PROCESS.md documents as a normal ~28 minute
+  workflow.** Re-rendering a handful of countries today emits heroes that differ from their 202
+  neighbours in lighting, and the only way to tell afterwards is to look at the pixels.
+- **What it would take:** the block tier's shape, a recipe written beside the output and compared on
+  the next run. The hero lane's own `frame.json` is per-country and never overwritten, so it is not
+  a candidate; this wants a separate file with the rig's constants in it.
+- **Parked deliberately** rather than deferred by accident: the fleet re-render is itself waiting on
+  the tiles carrying raytraced terrain, and a recipe with no re-render behind it only records that
+  everything is stale. Revisit when that re-render is scheduled.
+
 ## The polar caps are a texture because MapLibre allows nothing else, and the ceiling is WebP's (analysed 2026-08-07)
 
 - **State at analysis:** each pole ships one AEQD texture with a four-rung ladder (1024/2048/4096/8192)

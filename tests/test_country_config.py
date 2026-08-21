@@ -376,6 +376,47 @@ class TestTheHeroRenderStaysOnCpuDenoise:
         assert args.denoise_device == "gpu"
 
 
+class TestTheHeroRenderStaysOnTheSingleQuad:
+    """THE SECOND ANTI-REGRESSION ARM, and this one guards against a FAILURE rather than a risk.
+
+    `--base-grid fitted` gives adaptive subdivision one micropolygon per pixel, which every hero on
+    disk has been missing since the rig was built. It cannot simply be switched on for them: it
+    multiplies micropolygons by 4x, a hero's plane is entirely in frame where a block's is mostly
+    outside it, and on this box's 12 GB card Australia at 67M dies on `Failed to build OptiX
+    acceleration structure` after 18 s. Nepal at 41.8M renders and takes 177% longer. So the hero
+    lane keeps the bare quad, knowingly under-diced, until the hero path has an answer.
+
+    The failure this catches is the SAME cheap version its sibling above catches — flipping the
+    default rather than threading the caller's choice — and here it would not merely opt heroes into
+    an untested regime, it would break every large country outright. `base_patches` carries the
+    measurement; this pins that heroes cannot reach it by construction.
+    """
+
+    def _hero_command(self):
+        resolved = cc.resolve("nepal", _rows()[0], _cfg())
+        assert resolved is not None
+        hero = [command for command in cc.stage_commands(resolved)
+                if "scene_build.py" in command]
+        assert len(hero) == 1, f"expected exactly one scene_build stage, got {len(hero)}"
+        return hero[0]
+
+    def test_the_hero_stage_does_not_pass_the_flag(self):
+        assert "--base-grid" not in self._hero_command()
+
+    def test_the_default_the_hero_inherits_is_the_single_quad(self, scene_build_module):
+        """Pinned separately from the absence above, because the two fail independently."""
+        args = scene_build_module.build_parser().parse_args(
+            ["--body", "earth", "--render-dir", "/tmp/x", "--out", "/tmp/x.blend"])
+        assert args.base_grid == "single"
+
+    def test_the_flag_still_accepts_fitted(self, scene_build_module):
+        """The control: a default of single proves nothing if the parser takes no other value."""
+        args = scene_build_module.build_parser().parse_args(
+            ["--body", "earth", "--render-dir", "/tmp/x", "--out", "/tmp/x.blend",
+             "--base-grid", "fitted"])
+        assert args.base_grid == "fitted"
+
+
 @pytest.fixture(scope="module")
 def scene_build_module():
     """scene_build with bpy stubbed — the same pattern `test_scene_build_sync` has used since the

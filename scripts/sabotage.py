@@ -4219,6 +4219,36 @@ SABOTAGES: list[Sabotage] = [
         replacement='    return 1',
         guard='test_the_base_grid_covers_every_context_width_on_every_body',
     ),
+    # THE PER-CALLER WIRING, three mutations, and they fail in opposite directions. Flipping the
+    # DEFAULT breaks every large hero outright (OptiX cannot build the BVH at 67M micropolygons);
+    # dropping the block's OPT-IN silently halves the planet's dicing. Both are the cheap version of
+    # the change -- one constant instead of one argument -- which is the shape that has now caught
+    # this rig twice, the denoiser being the first.
+    Sabotage(
+        suite='python',
+        label='the base grid becomes the default, so every large hero fails to build its BVH',
+        path='pipeline/render/scene_build.py',
+        needle='    ap.add_argument("--base-grid", choices=("single", "fitted"), default="single",',
+        replacement='    ap.add_argument("--base-grid", choices=("single", "fitted"), default="fitted",',
+        guard='test_the_default_the_hero_inherits_is_the_single_quad',
+    ),
+    Sabotage(
+        suite='python',
+        label='the block runner stops asking for the base grid, so the planet dices at half',
+        path='pipeline/tile/block_render.py',
+        needle=('            "--denoise-device", BLOCK_DENOISE_DEVICE,\n'
+                '            "--base-grid", BLOCK_BASE_GRID]'),
+        replacement='            "--denoise-device", BLOCK_DENOISE_DEVICE]',
+        guard='test_the_block_runner_opts_into_the_base_grid_too',
+    ),
+    Sabotage(
+        suite='python',
+        label='the recipe stops recording the dicing, so a resumed pass blends both into one mosaic',
+        path='pipeline/tile/block_render.py',
+        needle='        "base_grid": BLOCK_BASE_GRID,\n        "rig": rig,',
+        replacement='        "rig": rig,',
+        guard='test_the_recipe_records_the_base_grid',
+    ),
     Sabotage(
         suite='python',
         label='the plane span is read off the heightfield, so a hero under-dices and a block over-dices',
@@ -7688,8 +7718,9 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label='the block runner stops asking for GPU denoise and silently pays CPU for the planet',
         path='pipeline/tile/block_render.py',
-        needle='            "--denoise-device", BLOCK_DENOISE_DEVICE]',
-        replacement=']',
+        needle=('            "--denoise-device", BLOCK_DENOISE_DEVICE,\n'
+                '            "--base-grid", BLOCK_BASE_GRID]'),
+        replacement='            "--base-grid", BLOCK_BASE_GRID]',
         guard='test_the_block_runner_opts_in',
     ),
     Sabotage(

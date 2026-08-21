@@ -171,6 +171,10 @@ def params(body: bodies.Body, rasters: frozenset[str], look: palette.Look,
         # not agree to the last DN. Recorded because a pass resumed across a change of it would
         # otherwise write both into one mosaic with nothing saying which made which block.
         "denoise_device": BLOCK_DENOISE_DEVICE,
+        # This caller's too, and recorded for a sharper reason than the denoiser's: the two grids
+        # differ by 1.4 DN mean and up to 75, which is a look difference rather than a rounding one.
+        # A pass resumed across a change of it would write both dicings into one mosaic.
+        "base_grid": BLOCK_BASE_GRID,
         "rig": rig,
     }
     if look.sea is None:
@@ -350,6 +354,14 @@ def ensure_mosaic(mosaic: Path, body: bodies.Body) -> None:
 #: cannot be derived from the frame size instead.
 BLOCK_DENOISE_DEVICE = "gpu"
 
+#: Whether a block's plane starts as a base grid, which is the SECOND setting that differs between
+#: the two callers of `scene_build` and differs for a harder reason than the first. `base_patches`
+#: holds the measurement; the short of it is that a block's plane is mostly off-camera and lands
+#: near 21M micropolygons, while a hero's is entirely in frame and reaches 41.8M to 67M — past the
+#: 12 GB card, where OptiX fails to build at all. Blocks can afford one micropolygon per pixel and
+#: heroes currently cannot, so this is the caller's to state and not a constant to flip.
+BLOCK_BASE_GRID = "fitted"
+
 
 def blender_command(body: bodies.Body, render_dir: Path, blend: Path, png: Path) -> list[str]:
     """The one Blender invocation a block needs, built rather than spelled at the call site.
@@ -361,7 +373,8 @@ def blender_command(body: bodies.Body, render_dir: Path, blend: Path, png: Path)
             str(paths.ROOT / "pipeline" / "render" / "scene_build.py"), "--",
             "--body", body.name, "--render-dir", str(render_dir),
             "--out", str(blend), "--render", str(png),
-            "--denoise-device", BLOCK_DENOISE_DEVICE]
+            "--denoise-device", BLOCK_DENOISE_DEVICE,
+            "--base-grid", BLOCK_BASE_GRID]
 
 
 def cropped(png: Path, block: Block) -> np.ndarray:
@@ -422,6 +435,14 @@ def render_block(body: bodies.Body, block: Block, mosaic: Path, scratch: Path,
         raise RuntimeError(f"{name}: asked Blender for --denoise-device "
                            f"{BLOCK_DENOISE_DEVICE} and it did not report back; the recipe would "
                            f"record a device this block was not rendered with")
+    # THE SAME CHECK FOR THE SAME REASON, and the count below cannot stand in for it: `fitted` on a
+    # plane under the cap yields one patch, which is byte-identical to the flag never arriving. Only
+    # the POLICY discriminates, so only the policy can confirm the recipe's claim.
+    if f"BASE_GRID {BLOCK_BASE_GRID}" not in result.stdout:
+        raise RuntimeError(f"{name}: asked Blender for --base-grid {BLOCK_BASE_GRID} and it did "
+                           f"not report back; the recipe would record a dicing this block was not "
+                           f"rendered with, and an under-diced block is not identifiable from its "
+                           f"pixels")
 
     crop = cropped(png, block)
     with rasterio.open(mosaic, "r+") as dst:  # pyright: ignore[reportCallIssue]
@@ -431,7 +452,7 @@ def render_block(body: bodies.Body, block: Block, mosaic: Path, scratch: Path,
     # which is the failure it is meant to catch. Recorded so an under-diced block is identifiable
     # afterwards, since it is not identifiable from its pixels.
     reported = next((line for line in result.stdout.splitlines()
-                     if line.startswith("BASE_PATCHES ")), "BASE_PATCHES ?")
+                     if line.startswith("BASE_GRID ")), "BASE_GRID ? BASE_PATCHES ?")
     (markers / name).write_text(
         f"context {block.context_px} traced {block.traced_edge_px} "
         f"plane {block.plane_edge_px} {reported}\n")
