@@ -1167,6 +1167,7 @@ def test_every_built_layer_names_the_raster_the_composite_reads(subtests) -> Non
         "perennial_ice": "snow_persistence_3857.tif",
         "glaciers": "glacier_3857.tif",
         "sea_ice": "seaice_3857.tif",
+        "antarctic_rock": "addrock_3857.tif",
     }
     with subtests.test("every composite layer builds a raster today"):
         assert {layer.name for layer in layers.WARPED_LAYERS} == layers.COMPOSITE_LAYERS, (
@@ -1248,6 +1249,32 @@ def test_the_stages_disagree_about_which_layers_they_read(subtests) -> None:
         assert layers.BLOCK_LAYERS - layers.CAP_LAYERS == {"lake_depth", "glaciers"}
 
 
+def test_the_rock_row_is_read_by_every_stage_that_forces_antarctic_white(subtests) -> None:
+    """Antarctic outcrop is a layer no stage PAINTS, and its row still has to answer all three.
+
+    The rule it modifies (`snow.antarctic_snow_mask`) runs in the tile composite, in the block prep
+    and on the south cap, so all three read it and all three must record it when it is off. A
+    column answered `False` here is the silent kind: the stage would go on subtracting rock while
+    its recipe said nothing about the layer, so switching the layer off would leave that stage's
+    output — painted with rock removed — reading perfectly fresh.
+
+    THE THREE DIFFERENCE LITERALS ABOVE ARE UNCHANGED BY THIS ROW, and that is the point rather
+    than a coincidence: a layer every stage reads moves none of them. Had one column been answered
+    wrong, the differences would have moved and that test would have failed instead of this one.
+    """
+    with subtests.test("every stage"):
+        assert layers.ANTARCTIC_ROCK.in_composite
+        assert layers.ANTARCTIC_ROCK.in_cap
+        assert layers.ANTARCTIC_ROCK.in_block
+    with subtests.test("no planet raster behind it"):
+        # Subtraction from a mask the caller already computed — it needs no oceanmask of its own,
+        # and claiming one would refuse the layer on any body whose seam emitted none.
+        assert layers.ANTARCTIC_ROCK.requires_raster is None
+    with subtests.test("earth declares it and mars does not"):
+        assert layers.ANTARCTIC_ROCK.name in bodies.EARTH.surface_layers
+        assert layers.ANTARCTIC_ROCK.name not in bodies.MARS.surface_layers
+
+
 def test_layers_off_names_what_is_missing_and_stays_silent_when_nothing_is(subtests) -> None:
     """Off, never on. Earth answers with an empty list at every stage, which is what lets the
     callers' conditional record write nothing and leave a live 46 GB composite and a 14 GB cap
@@ -1257,13 +1284,14 @@ def test_layers_off_names_what_is_missing_and_stays_silent_when_nothing_is(subte
         with subtests.test(f"earth {name}"):
             assert layers.layers_off(bodies.EARTH, vocabulary) == []
     with subtests.test("mars cap"):
-        assert layers.layers_off(bodies.MARS, layers.CAP_LAYERS) == ["coastline", "sea_ice"]
+        assert layers.layers_off(bodies.MARS, layers.CAP_LAYERS) == [
+            "antarctic_rock", "coastline", "sea_ice"]
     with subtests.test("mars block"):
-        # Mars declares perennial ice and nothing else, so a Martian block is short the two layers
-        # whose only sources are Earth datasets — and short sea ice too now that the rig reads it,
-        # because Mars has no sea for pack to float on.
+        # Mars declares perennial ice and nothing else, so a Martian block is short the layers
+        # whose only sources are Earth datasets — sea ice too now that the rig reads it, because
+        # Mars has no sea for pack to float on, and Antarctic outcrop because it has no Antarctica.
         assert layers.layers_off(bodies.MARS, layers.BLOCK_LAYERS) == [
-            "glaciers", "lake_depth", "sea_ice"]
+            "antarctic_rock", "glaciers", "lake_depth", "sea_ice"]
     with subtests.test("a body that declares nothing names the whole vocabulary"):
         # The all-off end of the range, which Mars stopped supplying when its ice landed. Without
         # it the sweep only ever exercises "none off" and "some off", and the branch that names

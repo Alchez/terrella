@@ -17,7 +17,7 @@ import rasterio
 from rasterio.transform import from_bounds
 from scipy import ndimage
 
-from pipeline import mercator, paths
+from pipeline import mercator, paths, vector_raster
 from pipeline.raster_io import band_window, row_bands
 
 DATA = paths.DATA
@@ -138,6 +138,39 @@ def rasterize_glaciers_raster(bounds, width, height, out_path, rgi=RGI_GPKG):
           "-co", "TILED=YES", "-co", "COMPRESS=DEFLATE", "-co", "BIGTIFF=YES",
           "-l", "glaciers", "-te", repr(left), repr(bottom), repr(right), repr(top),
           "-ts", str(width), str(height), str(rgi), str(out_path)])
+    return out_path
+
+
+def rasterize_antarctic_rock(bounds, width, height, out_path, gpkg, layer):
+    """Burn SCAR ADD's outcrop polygons to a Web-Mercator 0/1 Byte raster, refusing an empty result.
+
+    The mask `antarctic_snow_mask` subtracts. `gpkg` and `layer` are REQUIRED rather than defaulted
+    to the acquirer's constants: a default binds at import, so a caller that redirects the data root
+    would be answered with the path from before the redirect -- `perennial_ice.CapIce.sources`
+    records that trap at length, and the fix there was the same one.
+
+    AN EMPTY BURN RAISES HERE, WHERE THE GLACIER BURN BESIDE IT LETS ONE THROUGH, and the asymmetry
+    is about what an empty answer LOOKS like downstream rather than about being stricter. A missing
+    glacier mask shows: the union loses its crisp tongues and the composite prints a skip line. A
+    rock mask of zeros subtracts nothing from a rule that already covers the whole continent, which
+    is exactly the look that shipped before this layer existed -- no missing file, no changed
+    consumer, and no eye that can tell it from "there is no exposed rock in Antarctica".
+
+    `vector_raster` owns the argv and the emptiness scan, but not the reprojection: the acquirer
+    reprojects 147 MB of polygons ONCE, so `burn_onto_grid`'s ogr2ogr step would be a no-op pass over
+    the whole file on every build.
+    """
+    out_path = Path(out_path)
+    out_path.unlink(missing_ok=True)
+    _run(vector_raster.rasterize_argv(
+        Path(gpkg), bounds, width, height, out_path,
+        creation_options=("TILED=YES", "COMPRESS=DEFLATE", "BIGTIFF=YES"), layer=layer))
+    if vector_raster.drew_nothing(out_path):
+        raise vector_raster.NothingBurnt(
+            f"Antarctic rock outcrop rasterised to nothing over {bounds}. gdal_rasterize succeeded, "
+            f"so this is geometry that missed the grid rather than a GDAL failure: check that "
+            f"{gpkg} is in EPSG:3857 and that {layer!r} is the layer holding the polygons."
+        )
     return out_path
 
 
@@ -297,7 +330,7 @@ def soften_source_cells(alpha, ground_metres_per_px):
     return out
 
 
-def antarctic_snow_mask(land, latitude, lat_max=-60.0):
+def antarctic_snow_mask(land, latitude, rock=None, lat_max=-60.0):
     """1.0 where Antarctic land must be forced permanent-ice white, else 0.0 (float32).
 
     Antarctica has no snow dataset in this pipeline: NSIDC-0791 persistence is NH-only and RGI region
@@ -309,8 +342,22 @@ def antarctic_snow_mask(land, latitude, lat_max=-60.0):
     (2-D, the AEQD cap); a 1-D array is broadcast down `land`'s columns. The whole Antarctic Peninsula
     is south of -60, so lat_max=-60 covers the continent; only tiny sub-Antarctic islands north of it
     stay bare (deferred RGI-19 polish).
+
+    `rock` is SCAR ADD's outcrop, SUBTRACTED rather than unioned, and the direction is the design.
+    A union of "where a dataset says ice" needs a data-availability branch, and the boundary between
+    "the dataset answers here" and "the rule answers here" is a hard edge across the ice shelves --
+    which is what the superseded MODIS arm drew, as thin tan outlines. Removing rock from a rule that
+    already covers the whole continent has no such boundary anywhere.
+
+    OPTIONAL BECAUSE THE ARGUMENT IS ABOUT A DATASET AND THE RULE IS NOT. A body that declares no
+    rock layer, or a window built before the raster existed, must get the un-subtracted answer
+    exactly rather than a plausible one -- the same reason the forced patch rides the layer's
+    DECLARATION and never a `Path.exists()`.
     """
     cold = np.asarray(latitude) < lat_max
     if cold.ndim == 1:
         cold = cold[:, None]
-    return (np.asarray(land) & cold).astype(np.float32)
+    white = np.asarray(land) & cold
+    if rock is not None:
+        white = white & ~np.asarray(rock).astype(bool)
+    return white.astype(np.float32)

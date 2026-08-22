@@ -40,7 +40,7 @@ from typing import Any
 import numpy as np
 
 from pipeline import bodies, layers
-from pipeline.acquire import download_sim3292
+from pipeline.acquire import download_add_rock, download_sim3292
 from pipeline.look import lake_depth, mars_ice, palette, seaice, snow, viking_luma
 
 
@@ -205,6 +205,32 @@ def _build_sea_ice(request: LayerBuild) -> None:
     request.out.unlink(missing_ok=True)
     seaice.warp_seaice_raster(request.bounds, request.width, request.height, request.out,
                               band_rows=request.band_rows)
+
+
+def _build_antarctic_rock(request: LayerBuild) -> None:
+    """SCAR ADD's outcrop burnt onto the grid as a 0/1 Byte mask — the glacier burn's twin.
+
+    Reads the source path and the layer name off the acquirer that writes them, at call time. The
+    acquirer is the one home for both: it chose the filename and it chose `-nln rock`, so a second
+    spelling here would agree with it until one of them moved, and the failure is an absent file
+    read as "this body has no exposed rock".
+    """
+    print("rasterize ADD Antarctic rock -> 3857 ...", flush=True)
+    snow.rasterize_antarctic_rock(request.bounds, request.width, request.height, request.out,
+                                  gpkg=download_add_rock.GPKG, layer=download_add_rock.LAYER)
+
+
+def _earth_antarctic_rock(_window: LayerWindow) -> "np.ndarray | None":
+    """None on every window, and that is this layer's whole answer at this tier.
+
+    THE ONE PRODUCER THAT BUILDS A RASTER AND CONTRIBUTES NOTHING. What reads the raster is
+    `_earth_perennial_ice`, which SUBTRACTS it from the forced Antarctic white; the mask reaches that
+    producer as a shared field on the window rather than as its own contribution, exactly as
+    `watercode` reaches lake depth. Returning an array here instead would put the rock into
+    `fold_white`'s maximum and paint the outcrop the very white this layer exists to remove — an
+    inversion that renders as a perfectly plausible ice sheet.
+    """
+    return None
 
 
 def _earth_lake_depth(window: LayerWindow) -> "np.ndarray | None":
@@ -433,9 +459,10 @@ def _mars_ice_build_recipe() -> dict[str, Any]:
 
 #: Every composite-tier producer that ships, by (body slug, layer name).
 #:
-#: Five entries and five MECHANISMS — a banded NetCDF warp, a vector rasterize, a banded GeoTIFF
-#: warp, a nodata-masked bilinear warp, and Mars's graded-and-feathered polar bands — which is what
-#: gives the parameterisation real instances instead of one shape repeated with a different constant.
+#: Six entries and six MECHANISMS — a banded NetCDF warp, a vector rasterize, a banded GeoTIFF warp,
+#: a nodata-masked bilinear warp, Mars's graded-and-feathered polar bands, and a vector rasterize
+#: whose result no pixel of its own is painted from — which is what gives the parameterisation real
+#: instances instead of one shape repeated with a different constant.
 PRODUCER_BY_BODY_LAYER: dict[tuple[str, str], LayerProducer] = {
     ("earth", layers.LAKE_DEPTH.name): LayerProducer(
         sources=lambda: (lake_depth.LAKE_VRT,),
@@ -458,6 +485,15 @@ PRODUCER_BY_BODY_LAYER: dict[tuple[str, str], LayerProducer] = {
         build=_build_sea_ice, contribution=_earth_sea_ice,
         paint=lambda _window: seaice.ice_white(),
         recipe=_earth_sea_ice_recipe, build_recipe=_no_tunables),
+    ("earth", layers.ANTARCTIC_ROCK.name): LayerProducer(
+        sources=lambda: (download_add_rock.GPKG,),
+        # None for both, and neither is a gap. The number this layer builds is consumed by the
+        # perennial-ice producer rather than blended, so there is no contribution to paint and no
+        # white to name — the two fields existing and being answered "not applicable" is what keeps
+        # that visible, exactly as lake depth's `paint` does for a number that is a depth.
+        build=_build_antarctic_rock, contribution=_earth_antarctic_rock,
+        paint=lambda _window: None,
+        recipe=_no_tunables, build_recipe=_no_tunables),
     ("mars", layers.PERENNIAL_ICE.name): LayerProducer(
         sources=_mars_ice_sources,
         build=_build_mars_ice, contribution=_mars_perennial_ice, paint=_mars_ice_white,

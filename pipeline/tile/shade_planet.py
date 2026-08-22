@@ -419,6 +419,7 @@ WARP_CONSEQUENCE: dict[str, str] = {
     layers.PERENNIAL_ICE.name: "no ice painted; the composite reads None and skips it",
     layers.GLACIERS.name: "persistence-only snow",
     layers.SEA_ICE.name: "bathymetry bare at the poles",
+    layers.ANTARCTIC_ROCK.name: "Antarctic outcrop stays under the forced white",
 }
 
 

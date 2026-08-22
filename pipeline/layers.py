@@ -107,8 +107,26 @@ SEA_ICE = Layer("sea_ice", in_composite=True, in_cap=True, in_block=True,
                 requires_raster="oceanmask", warped_basename="seaice_3857.tif")
 COASTLINE = Layer("coastline", in_composite=False, in_cap=True, in_block=False,
                   requires_raster=None, warped_basename=None)
+#: THE ONE ROW WHOSE RASTER IS READ BY ANOTHER LAYER'S PRODUCER, and it paints nothing of its own.
+#: `perennial_ice` forces Antarctic land white by a latitude rule with no dataset behind it, and this
+#: is the dataset that takes exposed rock back out from under that white — subtracted rather than
+#: unioned, which is why it is outside `layer_producers.WHITE_UNION` and why its contribution is
+#: None on every window.
+#:
+#: A LAYER ALL THE SAME, and not a fourth planet raster. Those three are the fused planet's own
+#: outputs; this is a third-party vector burnt onto the grid as 0/1, which is exactly what `glaciers`
+#: already is. The deciding argument is Mars: it simply omits the name from `surface_layers` and
+#: `layers_off` records it off, where a planet raster would have made every `planet_seam.declared`
+#: reader answer for a mask no body but Earth can have.
+#:
+#: EVERY STAGE COLUMN IS True BECAUSE ALL THREE RUN THE RULE — the tile composite, the block prep and
+#: the south cap. A stage that subtracts rock and does not record the layer would keep its old output
+#: looking fresh the day the layer was switched off.
+ANTARCTIC_ROCK = Layer("antarctic_rock", in_composite=True, in_cap=True, in_block=True,
+                       requires_raster=None, warped_basename="addrock_3857.tif")
 
-LAYERS: tuple[Layer, ...] = (LAKE_DEPTH, PERENNIAL_ICE, GLACIERS, SEA_ICE, COASTLINE)
+LAYERS: tuple[Layer, ...] = (LAKE_DEPTH, PERENNIAL_ICE, GLACIERS, SEA_ICE, COASTLINE,
+                             ANTARCTIC_ROCK)
 
 
 #: The whole vocabulary, as names.

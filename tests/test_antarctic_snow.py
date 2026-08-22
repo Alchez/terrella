@@ -56,3 +56,66 @@ class TestAntarcticSnowMask:
     def test_returns_float32(self):
         """composite does np.maximum(snow_a, mask) with a float snow_a, so the mask must be float."""
         assert snow.antarctic_snow_mask(np.ones((1, 1), bool), np.array([-80.0])).dtype == np.float32
+
+
+class TestExposedRockComesOutFromUnderTheWhite:
+    """SCAR ADD's rock outcrop, SUBTRACTED rather than unioned.
+
+    THE SUBTRACTION IS THE DESIGN AND NOT AN IMPLEMENTATION CHOICE. A union of "where the data says
+    ice" would need a data-availability branch, and the boundary between "the dataset answers here"
+    and "the latitude rule answers here" is a hard edge across the ice shelves — which is exactly
+    what the superseded MODIS arm drew, as thin tan outlines. Removing rock from a rule that
+    otherwise covers the whole continent has no such boundary anywhere.
+
+    `rock` stays OPTIONAL because the argument is about a dataset and the rule is not: a body that
+    declares no rock layer, or a window built before the raster existed, must get today's answer
+    exactly rather than a plausible one.
+    """
+
+    def test_rock_on_cold_land_is_not_forced_white(self):
+        land = np.ones((1, 3), bool)
+        latitude = np.array([-75.0])
+        rock = np.array([[True, False, True]])
+        assert snow.antarctic_snow_mask(land, latitude, rock=rock).ravel().tolist() == \
+            [0.0, 1.0, 0.0]
+
+    def test_rock_outside_the_cold_land_region_changes_nothing(self):
+        """Rock north of the cutoff and rock on ocean are both already 0.0, so neither can move.
+
+        The arm that makes this non-vacuous is the case above: without it, a mask that simply
+        returned zeros everywhere would satisfy this one.
+        """
+        land = np.array([[True, False]])
+        latitude = np.array([-40.0])
+        rock = np.ones((1, 2), bool)
+        assert (snow.antarctic_snow_mask(land, latitude, rock=rock) ==
+                snow.antarctic_snow_mask(land, latitude)).all()
+
+    def test_omitting_rock_reproduces_todays_answer_exactly(self):
+        """The default is not "no rock anywhere", it is "this caller has nothing to say about rock".
+
+        Both spellings are checked because `rock=None` is what a body without the layer passes and
+        an omitted argument is what every existing call site passes, and a signature that made them
+        differ would break one of the two silently.
+        """
+        land = np.array([[True, True], [True, False]])
+        latitude = np.array([-70.0, -50.0])
+        expected = [[1.0, 1.0], [0.0, 0.0]]
+        assert snow.antarctic_snow_mask(land, latitude).tolist() == expected
+        assert snow.antarctic_snow_mask(land, latitude, rock=None).tolist() == expected
+
+    def test_rock_takes_the_same_two_latitude_shapes_the_rule_does(self):
+        """The AEQD cap passes 2-D per-pixel latitude and the Mercator path 1-D per-row, and rock is
+        a full 2-D field on both. A rock term that only worked against one of them would pass every
+        tile test and fail on the cap alone, which is the seam this rule exists to hold."""
+        land = np.ones((2, 2), bool)
+        rock = np.array([[True, False], [False, False]])
+        per_row = snow.antarctic_snow_mask(land, np.array([-70.0, -70.0]), rock=rock)
+        per_pixel = snow.antarctic_snow_mask(
+            land, np.array([[-70.0, -70.0], [-70.0, -70.0]]), rock=rock)
+        assert per_row.tolist() == per_pixel.tolist() == [[0.0, 1.0], [1.0, 1.0]]
+
+    def test_it_still_returns_float32_with_rock_applied(self):
+        rock = np.array([[True, False]])
+        mask = snow.antarctic_snow_mask(np.ones((1, 2), bool), np.array([-80.0]), rock=rock)
+        assert mask.dtype == np.float32

@@ -14,6 +14,7 @@ import rasterio
 from rasterio.transform import from_bounds
 
 from pipeline import bodies, freshness, layers, mercator
+from pipeline.acquire import download_add_rock
 from pipeline.look import lake_depth, layer_producers, mars_ice, palette, seaice, snow
 from pipeline.tile import shade_planet
 
@@ -534,4 +535,58 @@ class TestAProducerDeclaresTheWhiteItIsPaintedIn:
         recorded = layer_producers.producer_for(bodies.MARS, layers.PERENNIAL_ICE).recipe()
         assert list(palette.SNOW_RGB) not in [list(v) for v in recorded.values()]
         assert list(palette.SNOW_SHADOW_RGB) not in [list(v) for v in recorded.values()]
+
+
+class TestARockLayerBuildsARasterAndContributesNothing:
+    """Antarctic outcrop is the first layer whose raster is read by ANOTHER layer's producer.
+
+    It has a row, a source, a build and a warped raster like the four before it, and then its own
+    `contribution` is None on every window: what consumes it is `snow.antarctic_snow_mask` inside
+    the perennial-ice producer, which SUBTRACTS it. That asymmetry is the whole design, and both
+    halves of it are silent if they break. A rock layer that started contributing would be folded
+    into `WHITE_UNION`'s maximum and paint the outcrop the very white it exists to remove — the
+    exact inversion, and one that renders as a plausible ice sheet.
+    """
+
+    def _rock(self, rows=ROWS, cols=COLS) -> np.ndarray:
+        """A rock mask covering the left half — enough that a fold would be unmistakable."""
+        mask = np.zeros((rows, cols), dtype=np.uint8)
+        mask[:, : cols // 2] = 1
+        return mask
+
+    def test_gather_returns_no_entry_for_it_however_much_rock_there_is(self):
+        """`gather` skips a producer returning None, so the layer never reaches the fold at all.
+
+        Asserted with the raster PRESENT and non-empty: a rock mask of zeros would satisfy this
+        against a producer that folded its input, which is the arm that has to fail.
+        """
+        raw: dict[str, np.ndarray | None] = {layer.name: None for layer in layers.WARPED_LAYERS}
+        raw[layers.ANTARCTIC_ROCK.name] = self._rock()
+        contributions, paints = layer_producers.gather(
+            bodies.EARTH, raw, _window(None), layers.COMPOSITE_LAYERS)
+        assert layers.ANTARCTIC_ROCK.name not in contributions
+        assert layers.ANTARCTIC_ROCK.name not in paints
+
+    def test_it_is_not_in_the_white_union(self):
+        """The union is the one place a contribution would become white, and it is a fixed tuple —
+        so this is the guard against the tidy that adds every ice-ish layer to it."""
+        assert layers.ANTARCTIC_ROCK not in layer_producers.WHITE_UNION
+
+    def test_it_declares_no_paint_because_it_is_never_painted(self):
+        """None rather than a white, for lake depth's reason and a stronger one: this layer's
+        number reaches no pixel of its own at all."""
+        producer = layer_producers.producer_for(bodies.EARTH, layers.ANTARCTIC_ROCK)
+        assert producer.paint(_window(self._rock())) is None
+        assert producer.contribution(_window(self._rock())) is None
+
+    def test_its_source_is_the_gpkg_the_acquirer_writes(self, monkeypatch, tmp_path):
+        """One home for the path, read at CALL time — the acquirer owns it because it writes it.
+
+        A second spelling here would be a path that agrees with the acquirer's until one of them
+        moves, and the failure is an absent file read as "this body has no rock".
+        """
+        moved = tmp_path / "somewhere-else.gpkg"
+        monkeypatch.setattr(download_add_rock, "GPKG", moved)
+        producer = layer_producers.producer_for(bodies.EARTH, layers.ANTARCTIC_ROCK)
+        assert producer.sources() == (moved,)
 

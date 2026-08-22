@@ -410,7 +410,7 @@ class TestTheRecipeRecordsWhatExistenceCannotSee:
         """`layers_off` and `rasters_off` on their own rule: the ones that are OFF, never the ones
         that are on, so Earth's recipe stays empty and a full planet does not restage."""
         mars = self._written(monkeypatch, tmp_path, bodies.MARS)
-        assert mars["layers_off"] == ["glaciers", "lake_depth", "sea_ice"]
+        assert mars["layers_off"] == ["antarctic_rock", "glaciers", "lake_depth", "sea_ice"]
         assert mars["rasters_off"] == ["oceanmask", "watermask"]
 
     def test_earth_records_nothing_off_at_all(self, monkeypatch, tmp_path):

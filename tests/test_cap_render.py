@@ -1006,7 +1006,7 @@ class TestTheCapRecipeRecordsWhatIsOff:
         """The cap vocabulary, not the whole one: `lake_depth` and `glaciers` never reach a cap, so
         recording them would restage a 14 GB render on a decision it cannot contain."""
         recipe = json.loads(cap_render.cap_recipe(cap_render.north_grid(LAYERLESS_BODY), WHOLE_PLANET))
-        assert recipe["layers_off"] == ["coastline", "perennial_ice", "sea_ice"]
+        assert recipe["layers_off"] == ["antarctic_rock", "coastline", "perennial_ice", "sea_ice"]
 
     def test_turning_a_layer_off_restages_although_its_source_stops_being_a_dependency(self):
         """The two halves have to move together. Switching a layer off REMOVES its file from

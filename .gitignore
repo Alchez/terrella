@@ -63,3 +63,4 @@ deploy/certs/
 # to every session. Content MOVES between them and is never copied.
 #
 # `.claude/settings.local.json` stays out, from the global ignore rather than from here.
+.claude/rules/mars-brief-is-untracked.md

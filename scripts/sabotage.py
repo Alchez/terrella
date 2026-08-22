@@ -3287,6 +3287,41 @@ SABOTAGES: list[Sabotage] = [
         replacement='    if False and must_draw is not None and drew_nothing(out):',
         guard='test_the_guard_refuses_an_empty_burn_and_names_the_subject',
     ),
+    # THE ROCK BURN'S OWN EMPTINESS GUARD, and it is a sharper case than the one above rather than a
+    # copy of it. A missed ice burn shows: the cap loses its white. A rock mask of zeros subtracts
+    # nothing from a rule that already covers the whole continent, so it renders as exactly the look
+    # that shipped before the layer existed — every file present, every consumer working.
+    Sabotage(
+        suite='python',
+        label='the rock burn accepts an empty result, so Antarctica silently keeps its old white',
+        path='pipeline/look/snow.py',
+        needle='    if vector_raster.drew_nothing(out_path):',
+        replacement='    if False and vector_raster.drew_nothing(out_path):',
+        guard='test_geometry_that_misses_the_grid_raises',
+    ),
+    # A GeoPackage is many layers in one file and `gdal_rasterize` will burn one of them regardless.
+    Sabotage(
+        suite='python',
+        label='the burn stops naming its layer, so a GeoPackage answers by position instead',
+        path='pipeline/vector_raster.py',
+        needle='            *(["-l", layer] if layer is not None else []),',
+        replacement='',
+        guard='test_a_second_layer_in_the_same_file_contributes_nothing',
+    ),
+    # The inversion this layer exists to avoid: fold the rock into the union and the outcrop is
+    # painted the very white it was measured to remove, as a perfectly plausible ice sheet.
+    Sabotage(
+        suite='python',
+        label='the rock layer starts contributing, so the union paints the outcrop white',
+        path='pipeline/look/layer_producers.py',
+        needle='''    inversion that renders as a perfectly plausible ice sheet.
+    """
+    return None''',
+        replacement='''    inversion that renders as a perfectly plausible ice sheet.
+    """
+    return None if _window.raw is None else np.asarray(_window.raw, dtype=float)''',
+        guard='test_gather_returns_no_entry_for_it_however_much_rock_there_is',
+    ),
     Sabotage(
         suite='python',
         label='the feather pad becomes a constant, so every band seam is quietly wrong',
@@ -3379,8 +3414,10 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label='Earth quietly loses a surface layer it has always composited',
         path='pipeline/bodies.py',
-        needle='    surface_layers=frozenset({"lake_depth", "perennial_ice", "glaciers", "sea_ice", "coastline"}),',
-        replacement='    surface_layers=frozenset({"lake_depth", "perennial_ice", "glaciers", "coastline"}),',
+        needle='''    surface_layers=frozenset({"lake_depth", "perennial_ice", "glaciers", "sea_ice", "coastline",
+                              "antarctic_rock"}),''',
+        replacement='''    surface_layers=frozenset({"lake_depth", "perennial_ice", "glaciers", "coastline",
+                              "antarctic_rock"}),''',
         guard='test_earth_has_every_surface_layer_and_mars_declares_only_what_it_can_produce',
     ),
     # The under-declaring direction: Earth stops painting a product it has, which is a look change
