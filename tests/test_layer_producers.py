@@ -13,7 +13,7 @@ import pytest
 import rasterio
 from rasterio.transform import from_bounds
 
-from pipeline import bodies, freshness, layers
+from pipeline import bodies, freshness, layers, mercator
 from pipeline.look import lake_depth, layer_producers, mars_ice, palette, seaice, snow
 from pipeline.tile import shade_planet
 
@@ -34,13 +34,26 @@ def _triples(paint) -> "set[tuple[int, ...]]":
     return found
 
 
+def _ground_metres_per_px(top, bottom, rows=ROWS):
+    """This fixture's per-row ground resolution, derived from its own span.
+
+    Its own, and not Earth's z8 figure, because these windows are 8 rows over a megametre — the
+    geometry has to be self-consistent with whatever the fixture declares rather than with the
+    planet grid it stands in for.
+    """
+    return mercator.ground_metres_per_pixel(
+        snow.latitude_per_row(top, bottom, rows), (top - bottom) / rows,
+        bodies.ground_metres_per_mercator_unit(bodies.EARTH))
+
+
 def _window(raw, *, land=None, watercode=None, top=SOUTHERN_TOP, bottom=SOUTHERN_BOTTOM):
     latitude = snow.latitude_per_row(top, bottom, ROWS)
     return layer_producers.LayerWindow(
         raw=raw,
         watercode=np.zeros((ROWS, COLS), dtype=np.uint8) if watercode is None else watercode,
         land=np.ones((ROWS, COLS), dtype=bool) if land is None else land,
-        latitude=latitude, top=top, bottom=bottom)
+        latitude=latitude, ground_metres_per_px=_ground_metres_per_px(top, bottom),
+        top=top, bottom=bottom)
 
 
 class TestTheRegistryAndTheLayerDeclarationsAgree:
@@ -119,12 +132,14 @@ class TestEarthsProducersComputeWhatTheyComputedInline:
         assert got is not None and inline is not None
         assert got.tobytes() == inline.tobytes()
 
-    def test_perennial_ice_is_snow_alpha_maxed_with_the_antarctic_patch(self):
+    def test_perennial_ice_is_the_feathered_snow_alpha_maxed_with_the_antarctic_patch(self):
         packed = np.linspace(0, 10_000, ROWS * COLS, dtype="float32").reshape(ROWS, COLS)
         land = np.ones((ROWS, COLS), dtype=bool)
         latitude = snow.latitude_per_row(SOUTHERN_TOP, SOUTHERN_BOTTOM, ROWS)
         inline = np.maximum(
-            snow.snow_alpha(snow.unpack_persistence(packed), SOUTHERN_TOP, SOUTHERN_BOTTOM),
+            snow.soften_source_cells(
+                snow.snow_alpha(snow.unpack_persistence(packed), SOUTHERN_TOP, SOUTHERN_BOTTOM),
+                _ground_metres_per_px(SOUTHERN_TOP, SOUTHERN_BOTTOM)),
             snow.antarctic_snow_mask(land, latitude))
         got = layer_producers.producer_for(bodies.EARTH, layers.PERENNIAL_ICE).contribution(
             _window(packed, land=land))
@@ -201,8 +216,12 @@ class TestTheSnowUnionIsUnchangedByTheMove:
         land = np.ones((ROWS, COLS), dtype=bool)
         latitude = snow.latitude_per_row(SOUTHERN_TOP, SOUTHERN_BOTTOM, ROWS)
         # The pre-refactor order, verbatim: snow alpha, then glaciers, then the Antarctic patch.
-        inline = snow.snow_alpha(snow.unpack_persistence(persistence),
-                                 SOUTHERN_TOP, SOUTHERN_BOTTOM)
+        # The feather rides inside the perennial-ice producer and so inside the first term; the
+        # ORDER is what this reproduces, and it is unchanged by softening one of the operands.
+        inline = snow.soften_source_cells(
+            snow.snow_alpha(snow.unpack_persistence(persistence),
+                            SOUTHERN_TOP, SOUTHERN_BOTTOM),
+            _ground_metres_per_px(SOUTHERN_TOP, SOUTHERN_BOTTOM))
         inline = np.maximum(inline, glacier.astype(float))
         inline = np.maximum(inline, snow.antarctic_snow_mask(land, latitude))
         assert self._shared(persistence, glacier).snow_a.tobytes() == inline.tobytes()

@@ -125,9 +125,13 @@ def build(body: bodies.Body, window: Window, outdir: Path) -> list[str]:
     top = block_plan.mercator.MERCATOR_HALF_M - window.row_off * body.map_units_per_pixel
     bottom = top - window.height * body.map_units_per_pixel
     inland = lake_depth.inland_water(watercode) if watercode is not None else np.zeros(shape, bool)
+    latitude = snow.latitude_per_row(top, bottom, window.height)
     seen = layer_producers.LayerWindow(
-        raw=None, watercode=watercode, land=~(ocean | inland),
-        latitude=snow.latitude_per_row(top, bottom, window.height), top=top, bottom=bottom)
+        raw=None, watercode=watercode, land=~(ocean | inland), latitude=latitude,
+        ground_metres_per_px=block_plan.mercator.ground_metres_per_pixel(
+            latitude, body.map_units_per_pixel,
+            bodies.ground_metres_per_mercator_unit(body)),
+        top=top, bottom=bottom)
     layer_raw = {layer.name: (_read(layer.warped_in(work), window)
                              if layer.name in body.surface_layers
                              and layer.warped_in(work).exists() else None)

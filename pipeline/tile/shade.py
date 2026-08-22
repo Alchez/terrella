@@ -24,7 +24,7 @@ import rasterio
 from rasterio.enums import Resampling
 from scipy.ndimage import zoom
 
-from pipeline import bodies, paths
+from pipeline import bodies, mercator, paths
 from pipeline.look import hillshade, lake_depth, palette, relief, snow
 from pipeline.look.sky_view import (
     OCCLUSION_TARGET_M_PER_PX,
@@ -309,7 +309,16 @@ def main():
     persistence = snow.warp_persistence(
         (bounds.left, bounds.bottom, bounds.right, bounds.top), grid_w, grid_h,
         args.out / "sp_merc.tif")
-    snow_a = snow.snow_alpha(persistence, bounds.top, bounds.bottom)
+    snow_a = snow.soften_source_cells(
+        snow.snow_alpha(persistence, bounds.top, bounds.bottom),
+        # Earth spelled through the registry rather than as a bare 1.0, for the reason the
+        # hillshade call above states: this path takes Copernicus cells, so Earth is the subject
+        # here and not a default. The grid is the region's own, so its pixel size comes from the
+        # bounds it was warped to rather than from a body's z8 figure.
+        mercator.ground_metres_per_pixel(
+            snow.latitude_per_row(bounds.top, bounds.bottom, grid_h),
+            (bounds.top - bounds.bottom) / grid_h,
+            bodies.ground_metres_per_mercator_unit(bodies.EARTH)))
     glacier = snow.rasterize_glaciers(
         (bounds.left, bounds.bottom, bounds.right, bounds.top), grid_w, grid_h,
         args.out / "rgi_merc.tif")

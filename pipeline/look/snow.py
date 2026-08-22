@@ -15,6 +15,7 @@ from typing import Any
 import numpy as np
 import rasterio
 from rasterio.transform import from_bounds
+from scipy import ndimage
 
 from pipeline import mercator, paths
 from pipeline.raster_io import band_window, row_bands
@@ -170,13 +171,130 @@ def ramp_thresholds(latitude):
 
 
 def snow_alpha(persistence, top, bottom):
-    """Soft snow alpha (0..1) from persistence, with the latitude-ramped threshold per row."""
+    """Soft snow alpha (0..1) from persistence, with the latitude-ramped threshold per row.
+
+    SOFT IN PERSISTENCE, WHICH IS NOT THE AXIS THE STAIRCASE IS ON. `feather` is the companion that
+    softens it in PIXELS, and every caller of this wants both: a value ramp can only spread an edge
+    as far as the field's own gradient carries it, and between two 0.01 degree cells that is one
+    cell, hard-cornered at the cell boundary. The two are separate functions because they need
+    different things — this one the window's latitude span, that one the grid's ground resolution —
+    and because the cap tier reproduces this ramp on an AEQD grid where the per-row latitude here
+    would be wrong, while sharing `feather` unchanged.
+    """
     height = persistence.shape[0]
     low, high = ramp_thresholds(latitude_per_row(top, bottom, height))
     low = low.reshape(-1, 1)
     high = high.reshape(-1, 1)
     fraction = np.clip((persistence - low) / np.maximum(1e-6, high - low), 0.0, 1.0)
     return fraction * fraction * (3.0 - 2.0 * fraction)
+
+
+#: Ground size of one NSIDC-0791 cell ALONG LATITUDE, in metres: 0.01 degree of arc on the source's
+#: own sphere. Constant at every latitude, which is the half that matters — the cell's WIDTH shrinks
+#: with cos(latitude) and its height does not, so on a render grid whose pixel is square in ground
+#: metres the cell grows steadily taller than it is wide as you go north. That anisotropy is the
+#: staircase: 3.6 render px wide at every latitude, but 5.5 px tall at 49N and 20 px at 79.5N.
+SOURCE_CELL_M = 1113.2
+
+#: Blur radius as a fraction of that cell, so the feather scales with the artefact instead of with
+#: a pixel count. RATIFIED BY ROHAN on a polar A/B against the unfeathered arm; the number is a look
+#: judgement and re-tuning it is his call, not a free parameter.
+SOFTEN_FRACTION = 0.35
+
+#: How far sigma may drift inside one filtered band, as a fraction of the band's own sigma.
+#: SET BY WHAT IS INVISIBLE, NOT BY WHAT IS CHEAP: sigma varies down a Mercator window because the
+#: ground metre does, and filtering a whole window at one sigma puts a STEP in the blur radius at
+#: every window join — 17.5% across a 4096-row block join at 79.5N, which is the shape and roughly
+#: the size of the relief-scaling seam this project is already fighting. Banding at 2% turns that
+#: step into a ladder of steps too small to find.
+SOFTEN_BAND_TOLERANCE = 0.02
+
+#: How many sigmas of real data each band is filtered with above and below it, so a band's result is
+#: the same as if the whole array had been filtered at that sigma. Beyond 3 sigma a Gaussian holds
+#: under 1.2% of its mass, which is below the tolerance above.
+SOFTEN_HALO_SIGMAS = 3
+
+
+def source_cell_sigma_px(ground_metres_per_px):
+    """Blur radius in pixels that spreads an edge over `SOFTEN_FRACTION` of one source cell.
+
+    Takes GROUND metres per pixel, never map metres, and takes it rather than deriving it: the two
+    grids that call this are a Web-Mercator window (per row, varying) and an AEQD cap (one scalar
+    for the disc), and only the caller knows which it is holding. `CapIceInputs.ground_metres_per_px`
+    carries the same quantity for the same reason, and records what a producer that derived it from
+    map units got wrong.
+
+    Scalar in, scalar out; array in, array out.
+    """
+    return SOFTEN_FRACTION * SOURCE_CELL_M / np.maximum(ground_metres_per_px, 1e-6)
+
+
+def _bands(sigma: np.ndarray) -> list[tuple[int, int]]:
+    """Row ranges over which `sigma` is constant to within `SOFTEN_BAND_TOLERANCE`.
+
+    Greedy from the top: a band extends while every row in it stays inside the tolerance of the
+    band's first row, which bounds the error against the band's own filter sigma rather than
+    against a neighbour's. Returns whole-array coverage with no gaps, so the caller never has to
+    check that it filtered every row.
+    """
+    bands: list[tuple[int, int]] = []
+    start = 0
+    while start < sigma.size:
+        reference = sigma[start]
+        end = start + 1
+        while (end < sigma.size
+               and abs(sigma[end] - reference) <= SOFTEN_BAND_TOLERANCE * reference):
+            end += 1
+        bands.append((start, end))
+        start = end
+    return bands
+
+
+def soften_source_cells(alpha, ground_metres_per_px):
+    """Blur a snow alpha at the source's own cell scale, so its edge stops reading as a staircase.
+
+    NOT `mars_ice.feather_alpha`, WHICH IS A DIFFERENT LAW AND WAS NEARLY GIVEN THIS NAME. That one
+    spreads a DRAWN polygon boundary a fixed 10 ground km outward to anti-alias linework that has no
+    raster behind it; this one softens a RASTER's own cell quantisation by a fraction of that cell,
+    so its distance is the source's and not a chosen one. Same argument, adjacent call sites in
+    `perennial_ice`, opposite questions — which is exactly when one word for two concepts starts
+    costing decisions.
+
+    APPLIED AFTER THE THRESHOLD, NOT BEFORE. Blurring persistence and then thresholding would move
+    the edge as well as soften it, because the threshold is non-linear in the field; blurring the
+    alpha moves nothing and only softens. It is also what the ratified arm did, and the ratified
+    thing is an image.
+
+    `ground_metres_per_px` is a scalar for a grid of uniform resolution (an AEQD cap) or one value
+    per ROW for a Mercator window, where the ground metre shrinks with cos(latitude) and sigma
+    therefore grows northward. A per-row sigma has no single-call form in `ndimage`, so the array
+    is filtered in latitude bands narrow enough that one sigma serves the whole band; each band is
+    filtered with a halo of real rows above and below it, so the result inside the band is what a
+    whole-array filter at that sigma would have produced and the band edges leave no seam of their
+    own.
+
+    NO SMALL-SIGMA SHORTCUT, deliberately. An `if sigma > 0.5` guard never fires on Earth's planet
+    grid — sigma is 1.27 px at the equator and rises — so it would be inert on the only body that
+    has this dataset, while putting a discontinuity in the one place a coarser grid would meet it.
+    `gaussian_filter` at sigma 0 is the identity, which is the behaviour the guard was reaching for.
+    """
+    sigma = source_cell_sigma_px(np.asarray(ground_metres_per_px, dtype=float))
+    if sigma.ndim == 0:
+        return ndimage.gaussian_filter(alpha, sigma=float(sigma), mode="nearest")
+    if sigma.shape != (alpha.shape[0],):
+        raise ValueError(f"per-row ground resolution has {sigma.shape} rows for an alpha of "
+                         f"{alpha.shape} — one value per row, or a scalar for a uniform grid")
+
+    out = np.empty_like(alpha)
+    for start, end in _bands(sigma):
+        band_sigma = float(sigma[start])
+        halo = int(np.ceil(SOFTEN_HALO_SIGMAS * band_sigma))
+        read_start = max(0, start - halo)
+        read_end = min(alpha.shape[0], end + halo)
+        filtered = ndimage.gaussian_filter(alpha[read_start:read_end], sigma=band_sigma,
+                                           mode="nearest")
+        out[start:end] = filtered[start - read_start:end - read_start]
+    return out
 
 
 def antarctic_snow_mask(land, latitude, lat_max=-60.0):

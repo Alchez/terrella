@@ -7747,6 +7747,53 @@ SABOTAGES: list[Sabotage] = [
         replacement='',
         guard='test_moving_it_moves_the_recipe',
     ),
+    # The ice edge's softening. Each of the three below is silent: the alpha stays in 0..1, the
+    # composite blends it, every other test passes, and what changes is the shape of an edge at
+    # latitudes no unit test looked at until this one.
+    Sabotage(
+        suite='python',
+        label='the tile producer stops softening, so only the cap side of the crossfade is smooth',
+        path='pipeline/look/layer_producers.py',
+        needle='        persistence_alpha = snow.soften_source_cells(\n'
+               '            snow.snow_alpha(snow.unpack_persistence(window.raw), window.top, '
+               'window.bottom),\n'
+               '            window.ground_metres_per_px)',
+        replacement='        persistence_alpha = snow.snow_alpha(\n'
+                    '            snow.unpack_persistence(window.raw), window.top, window.bottom)',
+        guard='test_the_tile_producer_feathers',
+    ),
+    Sabotage(
+        suite='python',
+        label='the north cap stops softening, so only the tile side of the crossfade is smooth',
+        path='pipeline/look/perennial_ice.py',
+        needle='    return snow.soften_source_cells(alpha, inputs.ground_metres_per_px)',
+        replacement='    return alpha',
+        guard='test_the_cap_producer_feathers',
+    ),
+    Sabotage(
+        suite='python',
+        label='sigma becomes a pixel count, so the blur stops tracking the source cell',
+        path='pipeline/look/snow.py',
+        needle='    return SOFTEN_FRACTION * SOURCE_CELL_M / np.maximum(ground_metres_per_px, 1e-6)',
+        replacement='    return np.full(np.shape(ground_metres_per_px), 3.0)',
+        guard='test_sigma_rises_with_latitude_exactly_as_one_over_cosine',
+    ),
+    Sabotage(
+        suite='python',
+        label='the banded filter drops its halo, so every band edge takes the array edge instead',
+        path='pipeline/look/snow.py',
+        needle='        halo = int(np.ceil(SOFTEN_HALO_SIGMAS * band_sigma))',
+        replacement='        halo = 0',
+        guard='test_a_varying_resolution_matches_a_per_row_reference',
+    ),
+    Sabotage(
+        suite='python',
+        label='the whole array becomes one band, which is the per-window sigma the arm had',
+        path='pipeline/look/snow.py',
+        needle='               and abs(sigma[end] - reference) <= SOFTEN_BAND_TOLERANCE * reference):',
+        replacement='               and True):',
+        guard='test_no_band_is_wider_in_sigma_than_the_tolerance_allows',
+    ),
 ]
 
 

@@ -83,6 +83,13 @@ class LayerWindow:
     #: True latitude in degrees per ROW (1-D). A Mercator window has rows of constant latitude,
     #: which is what separates this from the cap tier's per-pixel field.
     latitude: np.ndarray
+    #: GROUND metres per pixel, per ROW (1-D) — never Mercator map metres. Carried for the same
+    #: reason `perennial_ice.CapIceInputs` carries its scalar twin, and named the same thing: a
+    #: producer turning a ground distance into pixels needs both the cos(latitude) stretch and the
+    #: body's own `ground_metres_per_mercator_unit`, and this window knows neither on its own. It is
+    #: per row here and scalar there because a Mercator row has one resolution and an AEQD disc has
+    #: one for the whole disc.
+    ground_metres_per_px: np.ndarray
     #: The window's latitude span in 3857 metres, for a producer whose ramp needs the extent rather
     #: than the per-row value.
     top: float
@@ -226,8 +233,9 @@ def _earth_perennial_ice(window: LayerWindow) -> "np.ndarray | None":
     if window.raw is None:
         persistence_alpha = np.zeros(window.land.shape, dtype=float)
     else:
-        persistence_alpha = snow.snow_alpha(snow.unpack_persistence(window.raw),
-                                            window.top, window.bottom)
+        persistence_alpha = snow.soften_source_cells(
+            snow.snow_alpha(snow.unpack_persistence(window.raw), window.top, window.bottom),
+            window.ground_metres_per_px)
     return np.maximum(persistence_alpha,
                       snow.antarctic_snow_mask(window.land, window.latitude))
 
@@ -280,11 +288,19 @@ def _earth_white(_window: "LayerWindow | None" = None) -> tuple[Any, Any]:
 
 
 def _earth_perennial_ice_recipe() -> dict[str, Any]:
-    """What `_earth_perennial_ice` reads: `snow_alpha`'s latitude ramp, and the white it paints in.
+    """What `_earth_perennial_ice` reads: `snow_alpha`'s latitude ramp, the softening that follows
+    it, and the white it paints in.
 
     The white is here because this producer declares it — see `LayerProducer.paint`. Earth's
     glacier producer records the identical pair from the identical home, and `produced` merges by
     key, so the duplicate is one value seen twice rather than two values that can drift.
+
+    THE SOFTENING'S TWO CONSTANTS ARE HERE FOR THE REASON `snow`'s RAMP_* ARE, and the arithmetic
+    they key is spatial rather than tonal, which is what makes leaving them out so quiet: a
+    re-tuned edge width changes no colour, no threshold and no file, so a stale planet_rgb painted
+    with the old sigma reads exactly as fresh as a new one. `SOFTEN_BAND_TOLERANCE` is deliberately
+    NOT recorded: it bounds the banding's own approximation error rather than choosing an answer,
+    so moving it can only make the same intended output more or less exactly computed.
     """
     lit, shadow = _earth_white()
     return {"snow_ramp_lat_lo": snow.RAMP_LAT_LO,
@@ -292,6 +308,8 @@ def _earth_perennial_ice_recipe() -> dict[str, Any]:
             "snow_ramp_low_min": snow.RAMP_LOW_MIN,
             "snow_ramp_low_max": snow.RAMP_LOW_MAX,
             "snow_ramp_band": snow.RAMP_BAND,
+            "snow_soften_fraction": snow.SOFTEN_FRACTION,
+            "snow_source_cell_m": snow.SOURCE_CELL_M,
             "snow_rgb": lit, "snow_shadow_rgb": shadow}
 
 

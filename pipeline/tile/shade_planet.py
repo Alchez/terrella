@@ -50,7 +50,7 @@ import rasterio
 from rasterio.enums import Resampling
 from rasterio.windows import Window
 
-from pipeline import bodies, layers, planet_seam, wrap_seam
+from pipeline import bodies, layers, mercator, planet_seam, wrap_seam
 from pipeline.freshness import (
     done_marker,
     is_stale,
@@ -725,8 +725,11 @@ def _compute_shared(inputs: _WindowInputs) -> _WindowShared:
     contributions, paints = layer_producers.gather(
         inputs.body, inputs.layer_raw,
         layer_producers.LayerWindow(raw=None, watercode=watercode, land=land_win,
-                                    latitude=latitude, top=inputs.win_top,
-                                    bottom=inputs.win_bottom),
+                                    latitude=latitude,
+                                    ground_metres_per_px=mercator.ground_metres_per_pixel(
+                                        latitude, inputs.body.map_units_per_pixel,
+                                        bodies.ground_metres_per_mercator_unit(inputs.body)),
+                                    top=inputs.win_top, bottom=inputs.win_bottom),
         layers.COMPOSITE_LAYERS)
     depth_win = contributions.get(layers.LAKE_DEPTH.name)
     snow_a, snow_paint = layer_producers.fold_white(

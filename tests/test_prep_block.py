@@ -11,7 +11,7 @@ import math
 import numpy as np
 import pytest
 
-from pipeline import block_plan, bodies, layers
+from pipeline import block_plan, bodies, layers, mercator
 from pipeline.block_plan import Block
 from pipeline.look import layer_producers, snow
 from pipeline.render import prep_block
@@ -33,10 +33,16 @@ ROWS, COLS = 8, 16
 def _window(body, raw):
     """One southern window, far enough south that the Antarctic patch is live rather than zero."""
     top, bottom = -11_000_000.0, -12_000_000.0
+    latitude = snow.latitude_per_row(top, bottom, ROWS)
     return raw, layer_producers.LayerWindow(
         raw=None, watercode=np.zeros((ROWS, COLS), dtype=np.uint8),
-        land=np.ones((ROWS, COLS), dtype=bool),
-        latitude=snow.latitude_per_row(top, bottom, ROWS), top=top, bottom=bottom)
+        land=np.ones((ROWS, COLS), dtype=bool), latitude=latitude,
+        # Derived from this fixture's own span rather than from the body's z8 figure, so the
+        # window's geometry is self-consistent at whatever size the fixture is written at.
+        ground_metres_per_px=mercator.ground_metres_per_pixel(
+            latitude, (top - bottom) / ROWS,
+            bodies.ground_metres_per_mercator_unit(body)),
+        top=top, bottom=bottom)
 
 
 class TestTheGroundWidthIsTheBodysAndNotTheProjectionsphere:
