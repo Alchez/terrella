@@ -4307,10 +4307,80 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label='the block width drops the body ground ratio, which is exactly 1.0 on Earth',
         path='pipeline/render/prep_block.py',
-        needle='    return (mercator_width * math.cos(math.radians(mid_latitude))\n'
+        needle='    return (mercator_width * math.cos(math.radians(mid_latitude_deg(window, body)))\n'
                '            * bodies.ground_metres_per_mercator_unit(body))',
-        replacement='    return mercator_width * math.cos(math.radians(mid_latitude))',
+        replacement='    return mercator_width * math.cos(math.radians(mid_latitude_deg(window, body)))',
         guard='test_the_width_matches_the_closed_form_including_the_body_ratio',
+    ),
+    Sabotage(
+        suite='python',
+        label='the per-row correction is dropped, which is what ships today',
+        path='pipeline/render/prep_block.py',
+        needle='    return np.cos(np.radians(mid_latitude_deg(window, body))) / np.cos(np.radians(latitudes))',
+        replacement='    return np.ones(window.height)',
+        guard='test_one_metre_of_elevation_displaces_the_bodys_exaggeration_on_every_row',
+    ),
+    Sabotage(
+        suite='python',
+        label='the per-row correction is inverted, so the poles flatten instead of rising',
+        path='pipeline/render/prep_block.py',
+        needle='    return np.cos(np.radians(mid_latitude_deg(window, body))) / np.cos(np.radians(latitudes))',
+        replacement='    return np.cos(np.radians(latitudes)) / np.cos(np.radians(mid_latitude_deg(window, body)))',
+        guard='test_one_metre_of_elevation_displaces_the_bodys_exaggeration_on_every_row',
+    ),
+    Sabotage(
+        suite='python',
+        label='the two mids disagree, which is uniform and therefore invisible to every seam',
+        path='pipeline/render/prep_block.py',
+        needle='    rows = np.arange(window.row_off, window.row_off + window.height, dtype=np.float64)',
+        replacement='    window = Window(window.col_off, window.row_off + 1, window.width, window.height)\n'
+                    '    rows = np.arange(window.row_off, window.row_off + window.height, dtype=np.float64)',
+        guard='test_one_metre_of_elevation_displaces_the_bodys_exaggeration_on_every_row',
+    ),
+    Sabotage(
+        suite='python',
+        label='the writer re-derives the law instead of calling it, so every case above lies CAUGHT',
+        path='pipeline/render/prep_block.py',
+        needle='    column = row_scale(window, body).reshape(-1, 1).astype(np.float32)',
+        replacement='    _rows = np.arange(window.row_off, window.row_off + window.height, dtype=np.float64)\n'
+                    '    _lat = np.array([block_plan.row_latitude_deg(float(r), body) for r in _rows])\n'
+                    '    column = (np.cos(np.radians(mid_latitude_deg(window, body)))\n'
+                    '              / np.cos(np.radians(_lat))).reshape(-1, 1).astype(np.float32)',
+        guard='test_the_column_equals_the_law_to_the_float32_it_is_stored_as',
+    ),
+    Sabotage(
+        suite='python',
+        label='the written column is flipped, which doubles the error and looks like a correction',
+        path='pipeline/render/prep_block.py',
+        needle='    column = row_scale(window, body).reshape(-1, 1).astype(np.float32)',
+        replacement='    column = row_scale(window, body)[::-1].reshape(-1, 1).astype(np.float32)',
+        guard='test_it_is_written_top_down_so_row_zero_is_the_northernmost',
+    ),
+    Sabotage(
+        suite='python',
+        label='the column is sized to the delivered block, stretching the correction over the context',
+        path='pipeline/render/prep_block.py',
+        needle='                       height=window.height, count=1, dtype="float32",\n'
+               '                       crs="EPSG:3857", transform=transform, **GTIFF_CREATE) as tif:',
+        replacement='                       height=block_plan.RENDER_BLOCK_PX, count=1, dtype="float32",\n'
+                    '                       crs="EPSG:3857", transform=transform, **GTIFF_CREATE) as tif:',
+        guard='test_it_is_one_pixel_wide_and_as_tall_as_the_PLANE',
+    ),
+    Sabotage(
+        suite='python',
+        label='the context is sized at the block centre, which is right only while the defect exists',
+        path='pipeline/block_plan.py',
+        needle='        nxt = context_for(max_relief_m, poleward_sizing_latitude(row0, context, body),',
+        replacement='        nxt = context_for(max_relief_m, row_latitude_deg(row0 + RENDER_BLOCK_PX / 2.0, body),',
+        guard='test_no_block_row_is_narrower_than_sizing_at_its_centre',
+    ),
+    Sabotage(
+        suite='python',
+        label='the sizing latitude takes the north edge, narrowing every southern block',
+        path='pipeline/block_plan.py',
+        needle='    return north if abs(north) >= abs(south) else south',
+        replacement='    return north',
+        guard='test_the_two_hemispheres_are_sized_alike',
     ),
     Sabotage(
         suite='python',

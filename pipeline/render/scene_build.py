@@ -147,6 +147,17 @@ IMAGES = {  # node name -> (filename, interpolation)
 #: The one entry in `IMAGES` a look can decline, being the sea branch's own input.
 SEA_IMAGE = "Image Texture.001"
 
+#: The rowscale node's wiring, as constants rather than literals at the call site, SO THAT THE
+#: RECIPE CAN SEE THEM. `rig_recipe` records every capital in this module and nothing else, so a
+#: value spelled inline is a value a planet can be re-rendered without noticing — which is what
+#: the snow, lake-depth and sea-ice nodes still are, and is their own item rather than this one's.
+#: The interpolation is load-bearing twice over: the image is one texel wide so there is nothing to
+#: interpolate across u, and EXTEND rather than REPEAT is what stops one pole's row wrapping into
+#: the other's at the plane's UV boundary.
+ROWSCALE_NODE = "Image Texture.007"
+ROWSCALE_INTERPOLATION = "Closest"
+ROWSCALE_EXTENSION = "EXTEND"
+
 
 @dataclasses.dataclass(frozen=True)
 class LookConstants:
@@ -226,6 +237,9 @@ def rig_recipe(look: palette.Look) -> dict[str, Any]:
         # oceanmask read Linear instead of Closest feathers every coastline.
         "IMAGES": {name: list(spec) for name, spec in images_for(look).items()},
         "SEA_IMAGE": SEA_IMAGE,
+        "ROWSCALE_NODE": ROWSCALE_NODE,
+        "ROWSCALE_INTERPOLATION": ROWSCALE_INTERPOLATION,
+        "ROWSCALE_EXTENSION": ROWSCALE_EXTENSION,
         "look": {
             "land_range": list(constants.land_range),
             "land_stops": [[position, list(rgba)] for position, rgba in constants.land_stops],
@@ -468,6 +482,10 @@ def build_material(ob, render_dir, displacement_scale, look, present):
     disp.name = "Displacement"
     disp.space = "OBJECT"
     disp.inputs["Midlevel"].default_value = DISPLACEMENT_MIDLEVEL
+    # Live on the hero path and overridden on the block path, where the rowscale Math node below
+    # drives this socket instead. Not a second owner of the constant despite appearing twice: a
+    # linked socket ignores its default, so exactly one of the two reaches a pixel per render, and
+    # a hero has no `rowscale.tif` to link from.
     disp.inputs["Scale"].default_value = displacement_scale
 
     # The sea nodes stay interleaved rather than grouped, and the `.00N` names stay frozen: the
@@ -541,6 +559,25 @@ def build_material(ob, render_dir, displacement_scale, look, present):
         float_socket(ice_flatten, "B").default_value = 0.0  # sea level
         print(f"{render_seam.SEAICE} declared — wiring Ice mix + displacement damp", flush=True)
 
+    # THE DRIVEN SOCKET IS SCALE AND NOT HEIGHT, for two reasons that outlast today's constants.
+    # `disp = (Height - Midlevel) * Scale`, so multiplying Scale is right at any midlevel where
+    # multiplying Height is right only while `DISPLACEMENT_MIDLEVEL` is 0.0; and it leaves the
+    # Height chain alone, so the sea-ice damp above and the ramps' raw metres both need no thought.
+    rowscale = None
+    if render_seam.ROWSCALE in present:
+        rowscale_image_node = nt.nodes.new("ShaderNodeTexImage")
+        rowscale_image_node.name = ROWSCALE_NODE
+        rowscale_image_node.image = load_image(render_dir, render_seam.ROWSCALE)
+        rowscale_image_node.interpolation = ROWSCALE_INTERPOLATION  # one texel wide across u
+        rowscale_image_node.extension = ROWSCALE_EXTENSION  # never wrap one pole's row into the other
+        tex[ROWSCALE_NODE] = rowscale_image_node
+        rowscale = nt.nodes.new("ShaderNodeMath")
+        rowscale.name = "Math"
+        rowscale.operation = "MULTIPLY"
+        rowscale.use_clamp = False  # the correction leaves 1.0 in both directions
+        rowscale.inputs[1].default_value = displacement_scale
+        print(f"{render_seam.ROWSCALE} declared — wiring per-row displacement scale", flush=True)
+
     bsdf = nt.nodes.new("ShaderNodeBsdfPrincipled")
     bsdf.name = "Principled BSDF"
     bsdf.inputs["Roughness"].default_value = 1.0
@@ -548,6 +585,9 @@ def build_material(ob, render_dir, displacement_scale, look, present):
     out.name = "Material Output"
 
     link = nt.links.new
+    if rowscale is not None:
+        link(tex[ROWSCALE_NODE].outputs["Color"], rowscale.inputs[0])
+        link(rowscale.outputs["Value"], disp.inputs["Scale"])
     hf = tex["Image Texture"]
     if ice_flatten is not None:
         link(hf.outputs["Color"], float_socket(ice_flatten, "A"))

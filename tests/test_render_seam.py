@@ -103,10 +103,14 @@ class TestAnUnfilledDirectoryIsNotAnEmptyOne:
 
 
 class TestTheVocabularyIsTheRigsOwn:
-    def test_the_mandatory_four_and_the_optional_three_together_are_the_whole_vocabulary(self):
+    def test_the_named_images_are_exactly_the_whole_vocabulary(self):
+        """Named rather than counted, because the count is what rotted last time: this class's
+        previous name said "the mandatory four and the optional three" and stayed green through
+        sea ice landing, since a test name is prose and prose does not assert."""
         assert render_seam.KNOWN_IMAGES == {
             render_seam.HEIGHTFIELD, render_seam.OCEANMASK, render_seam.INLANDLAKE,
-            render_seam.RIVER, render_seam.SNOWMASK, render_seam.LAKEDEPTH, render_seam.SEAICE}
+            render_seam.RIVER, render_seam.SNOWMASK, render_seam.LAKEDEPTH, render_seam.SEAICE,
+            render_seam.ROWSCALE}
 
 
 def _docstring_nodes(tree: ast.Module) -> set[int]:

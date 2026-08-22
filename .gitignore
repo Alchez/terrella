@@ -55,8 +55,11 @@ deploy/certs/
 # demand. Written wherever a wrangler command is run, so this is deliberately unanchored.
 .wrangler/
 
-# Per-author agent instructions, loaded from disk when a matching file is opened. They are one
-# person's working notes rather than a project standard, so committing them would put a second,
-# unowned set of instructions beside CLAUDE.md. Everything a contributor must follow belongs in
-# CLAUDE.md, which IS tracked. Same posture as .claude/settings.local.json.
-.claude/rules/
+# `.claude/rules/` and `.claude/skills/` are TRACKED, and the fear that once ignored them is
+# answered by a rule rather than by exclusion. They were kept out because a second set of
+# instructions beside CLAUDE.md would be unowned; the answer is that each topic has exactly one
+# home, and these are where a topic lives when it is needed only sometimes. A rule loads when a
+# matching file is opened, a skill when a matching task starts, and CLAUDE.md carries what applies
+# to every session. Content MOVES between them and is never copied.
+#
+# `.claude/settings.local.json` stays out, from the global ignore rather than from here.

@@ -425,6 +425,87 @@ def test_plan_takes_no_ocean_share_any_more():
 
 # --------------------------------------------------------------- the ceilings
 
+class TestTheSizingLatitudeIsPolewardAndNeverNarrows:
+    """The guard for the rule that replaced sizing at the block's own centre row.
+
+    THE DIRECTION IS THE WHOLE TEST. A margin is a safety quantity, so "did it change" is the wrong
+    question and "did any of it get SMALLER" is the right one. The rule this replaced was adopted
+    after two censuses that both counted only blocks whose margin GREW, which is a statistic that
+    cannot report the failure however the data comes out; it narrowed 306 of Earth's blocks and
+    both censuses read as clean. Every case here is therefore an inequality in one direction, and
+    the last one is the arm that proves the inequality is capable of failing.
+    """
+
+    RELIEFS = (0.0, 500.0, 3000.0, 8000.0)
+
+    def _settled(self, relief_m: float, row0: int) -> int:
+        return block_plan.settled_context(
+            relief_m, row0, bodies.EARTH,
+            ground_scale=bodies.ground_metres_per_mercator_unit(bodies.EARTH),
+            altitude_deg=SUN_ALTITUDE_DEG)
+
+    def _mid_latitude_context(self, relief_m: float, row0: int) -> int:
+        centre = block_plan.row_latitude_deg(row0 + block_plan.RENDER_BLOCK_PX / 2.0, bodies.EARTH)
+        return earth_context(relief_m, centre)
+
+    def _rows(self) -> range:
+        return range(block_plan.grid_px(bodies.EARTH) // block_plan.RENDER_BLOCK_PX)
+
+    def test_no_block_row_is_narrower_than_sizing_at_its_centre(self):
+        """The safety direction, asked of every row of Earth's grid in both hemispheres."""
+        narrowed = [(row_index, relief_m)
+                    for row_index in self._rows() for relief_m in self.RELIEFS
+                    if self._settled(relief_m, row_index * block_plan.RENDER_BLOCK_PX)
+                    < self._mid_latitude_context(relief_m, row_index * block_plan.RENDER_BLOCK_PX)]
+        assert not narrowed, f"the margin shrank on {len(narrowed)} row/relief pairs: {narrowed[:6]}"
+
+    def test_the_two_hemispheres_are_sized_alike(self):
+        """A rule that names a compass direction rather than a distance from the equator fails here
+        and passes everything else: mirrored rows hold mirrored latitudes, so the same relief must
+        buy the same margin, and only a hemisphere-blind rule can deliver that."""
+        rows = list(self._rows())
+        for row_index, mirror_index in zip(rows, reversed(rows)):
+            for relief_m in self.RELIEFS:
+                north = self._settled(relief_m, row_index * block_plan.RENDER_BLOCK_PX)
+                south = self._settled(relief_m, mirror_index * block_plan.RENDER_BLOCK_PX)
+                assert north == south, (f"rows {row_index} and {mirror_index} mirror each other "
+                                        f"but got {north} and {south} for {relief_m} m")
+
+    def test_every_block_row_settles(self):
+        """`settled_context` raises rather than returning a wrong number, so this asserts by not
+        raising — and the reliefs above span the range that made the rejected rule 2-cycle."""
+        for row_index in self._rows():
+            for relief_m in self.RELIEFS:
+                assert self._settled(relief_m, row_index * block_plan.RENDER_BLOCK_PX) > 0
+
+    def test_a_north_edge_rule_would_have_narrowed_southern_blocks(self):
+        """THE ARM THAT PROVES THE THREE ABOVE CAN FAIL, and it pins the rejected idea in place.
+
+        Without it, all of this passes on a rule that ignores latitude entirely. It reproduces the
+        refuted rule locally rather than importing one, because the point is that the module no
+        longer offers it.
+        """
+        def north_edge(relief_m: float, row0: int) -> int:
+            context = self._mid_latitude_context(relief_m, row0)
+            for _ in range(8):
+                nxt = earth_context(relief_m,
+                                    block_plan.row_latitude_deg(row0 - context, bodies.EARTH))
+                if nxt == context:
+                    break
+                context = nxt
+            return context
+
+        southern = [row for row in self._rows()
+                    if block_plan.row_latitude_deg(
+                        row * block_plan.RENDER_BLOCK_PX + block_plan.RENDER_BLOCK_PX / 2.0,
+                        bodies.EARTH) < -20.0]
+        assert southern, "no southern rows selected, so the arm below would pass vacuously"
+        narrowed = [row for row in southern
+                    if north_edge(8000.0, row * block_plan.RENDER_BLOCK_PX)
+                    < self._mid_latitude_context(8000.0, row * block_plan.RENDER_BLOCK_PX)]
+        assert narrowed, "the rejected rule narrowed nothing, so these tests prove nothing"
+
+
 def test_context_clamps_at_the_ceiling():
     absurd = earth_context(500_000.0, 84.0)
     assert absurd == block_plan.CONTEXT_CEILING_PX
@@ -433,10 +514,12 @@ def test_context_clamps_at_the_ceiling():
 def test_the_ceiling_does_not_bind_on_any_block_that_was_rendered():
     """A CLAMPED BLOCK KEEPS ITS DEFECT WHILE LOOKING FIXED, which is what this is really about.
 
-    Measured on Earth's own relief cache at this block edge, the widest ask is 1,856 px — the three
-    row-0 blocks at 84.5N holding 5,076 m of haloed relief — so the ceiling is headroom rather than
-    a clamp. That measurement needs the store; this is the weaker check that survives without it,
-    and it says none of the rendered blocks reaches the ceiling either.
+    THE PLANET-WIDE FIGURE LIVES ON `CONTEXT_CEILING_PX` AND IS DELIBERATELY NOT REPEATED HERE.
+    This docstring used to carry its own copy of it, which went false when the sizing latitude
+    moved while this assertion stayed green — the assertion runs over `RENDERED_BLOCKS`, so it can
+    never see a planet-wide ask at all. A second reader of a measurement, with nothing to make the
+    two agree. What is left is what this check can actually answer: none of the blocks in the table
+    reaches the ceiling.
     """
     for row, relief_m, margin in RENDERED_BLOCKS:
         _, high = implied_context_band(margin)

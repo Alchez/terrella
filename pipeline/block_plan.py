@@ -94,10 +94,15 @@ CONTEXT_QUANTUM_PX = 64
 #: The largest context any block may ask for, and on Earth it is headroom rather than a clamp.
 #:
 #: MEASURED ON THE REAL RELIEF CACHE rather than derived, because a clamped block keeps its defect
-#: while looking fixed. At `CONTEXT_RATIO` and this block edge Earth's widest ask is 1,856 px, on
-#: the three blocks of row 0 at 84.5N that hold 5,076 m of haloed relief; the deepest south is
-#: 1,664 px. So 2,048 clamps nothing, 1,792 clamps 3 blocks and 1,024 clamps 74. The cost of the
-#: headroom is borne only by the blocks that use it, since the plane is sized per block.
+#: while looking fixed. Under the poleward rule at this block edge, Earth's widest ask is EXACTLY
+#: 2,048 px, on the three blocks of row 0 at 84.5N holding 5,076 m of haloed relief; the next
+#: widest is 1,984. So nothing clamps and there is no headroom left either — the two numbers meet.
+#: The cost is borne only by the blocks that use it, since the plane is sized per block.
+#:
+#: RE-MEASURE THIS WHEN THE SIZING LATITUDE MOVES, NOT WHEN THE NUMBER LOOKS WRONG. The previous
+#: figures here (widest ask 1,856 px, "1,792 clamps 3 and 1,024 clamps 74") were true of the
+#: mid-latitude rule and went false the moment the occluder's own latitude became the subject; they
+#: could not have gone false any other way, and no test noticed.
 CONTEXT_CEILING_PX = 2048
 
 #: The largest square frame renderable on this GPU. It bounds the TRACED size and not the plane:
@@ -185,9 +190,12 @@ def context_for(max_relief_m: float, latitude_deg: float, *, exaggeration: float
     Every argument is explicit and keyword-only, so this stays a pure function of numbers. `plan`
     below derives them all from a `Body` and is what production calls.
 
-    `altitude_deg` has no default: the sun altitude belongs to `tile.shade.KNOBS`, which a root
-    module must not import, and a second copy of it here would be one more place to drift. Getting
-    it wrong truncates shadows silently.
+    `altitude_deg` has no default: the sun altitude is `palette.SUN_ALT_DEG`, read by both
+    `tile.shade.KNOBS` and the rig's `SUN_ROTATION`, and a second copy of it here would be one more
+    place to drift. Getting it wrong truncates shadows silently.
+
+    `latitude_deg` IS THE OCCLUDER'S AND NOT THE BLOCK'S, which is `poleward_sizing_latitude`'s
+    subject; this function only turns a latitude into a length.
 
     THE FLOOR IS `DENOISE_BAND_PX` AND IT IS A STRUCTURAL BOUND, NOT A LOOK ONE. The plane must
     cover the traced rectangle: a block whose law asks for less than the band would path-trace a
@@ -204,6 +212,68 @@ def context_for(max_relief_m: float, latitude_deg: float, *, exaggeration: float
     per_axis_px = reach_px * math.cos(math.radians(45.0))
     quantised = math.ceil(CONTEXT_RATIO * per_axis_px / CONTEXT_QUANTUM_PX) * CONTEXT_QUANTUM_PX
     return min(max(quantised, DENOISE_BAND_PX), CONTEXT_CEILING_PX)
+
+
+def poleward_sizing_latitude(row0: int, context_px: int, body: Body) -> float:
+    """The latitude a block's context must be sized at: whichever plane edge is further from 0.
+
+    THE LAW LIVES ON THE OCCLUDER, WHICH IS WHY THIS IS NOT THE BLOCK'S OWN MID-LATITUDE. Once
+    `prep_block.row_scale` makes the applied exaggeration uniform, the pixels a shadow crosses no
+    longer share one scale: a shadow cast from row r reaches `exaggeration * relief / (ground_scale
+    * cos(lat_r) * tan(alt) * pixel)`, so it is the OCCLUDER's cosine that sets the length. Sizing
+    at the block's centre row is right only while every row is displaced by the centre's number,
+    which was true exactly because of the defect being removed.
+
+    IT TAKES THE POLEWARD EDGE IN BOTH HEMISPHERES, AND "NORTH IN BOTH" IS A REJECTED IDEA RATHER
+    THAN AN OPEN ONE. A 315-degree sun does put every occluder north-WEST, and that is true of the
+    column component and silent about the binding latitude: the occluder set is the north ring plus
+    the WEST ring, and the west ring spans the block's own rows. So in the north the north edge is
+    the most poleward point of that set and in the south it is the least, and a north-edge rule
+    narrows the margin on every southern block instead of widening it. Censused when it was
+    proposed: it shrank 306 of Earth's 1,024 blocks, everything from 11S to the pole, and failed to
+    settle on 7. Under-context is silent on both sides, by this module's own admission above.
+
+    CONVERGENCE IS A PROPERTY OF THIS CHOICE AND NOT AN ACCIDENT. More context moves the sizing row
+    further from the equator, which asks for more context again, so the iteration in `plan` is
+    monotone increasing and bounded by `CONTEXT_CEILING_PX`. The north-edge rule is monotone in
+    opposite directions in the two hemispheres, which is why it could 2-cycle at all.
+    """
+    north = row_latitude_deg(row0 - context_px, body)
+    south = row_latitude_deg(row0 + RENDER_BLOCK_PX + context_px, body)
+    return north if abs(north) >= abs(south) else south
+
+
+def settled_context(max_relief_m: float, row0: int, body: Body, *,
+                    ground_scale: float, altitude_deg: float) -> int:
+    """`context_for` iterated to its fixed point, since the sizing latitude depends on the answer.
+
+    THE ITERATION IS HERE AND NOT IN `context_for`, which is documented as a pure function of
+    numbers and would have to grow `row0` and the block size to do this. Keeping the recursion out
+    of it also keeps its tests able to ask "what length does this latitude imply" without also
+    asking "which latitude does this block settle at" — two questions that fail for different
+    reasons.
+
+    PER COLUMN AND NOT PER ROW: the fixed point starts from the block's own relief, so two blocks
+    in one row settle at different contexts and therefore at different sizing latitudes.
+
+    Terminates because `poleward_sizing_latitude` makes the map monotone increasing and
+    `CONTEXT_CEILING_PX` bounds it; the loop is over quantised values, so it reaches equality rather
+    than approaching it. The bound is `grid_px` quanta, which no real block comes close to, and it
+    raises rather than returning a wrong number if the monotonicity argument above ever stops
+    holding.
+    """
+    context = context_for(max_relief_m, row_latitude_deg(row0 + RENDER_BLOCK_PX / 2.0, body),
+                          exaggeration=body.exaggeration, ground_scale=ground_scale,
+                          map_units_per_pixel=body.map_units_per_pixel, altitude_deg=altitude_deg)
+    for _ in range(CONTEXT_CEILING_PX // CONTEXT_QUANTUM_PX + 1):
+        nxt = context_for(max_relief_m, poleward_sizing_latitude(row0, context, body),
+                          exaggeration=body.exaggeration, ground_scale=ground_scale,
+                          map_units_per_pixel=body.map_units_per_pixel, altitude_deg=altitude_deg)
+        if nxt == context:
+            return context
+        context = nxt
+    raise RuntimeError(f"context for the block at row {row0} did not settle; the poleward rule is "
+                       f"supposed to be monotone increasing and this says it is not")
 
 
 def haloed(relief: NDArray[np.float64]) -> NDArray[np.float64]:
@@ -348,13 +418,10 @@ def plan(relief: NDArray[np.float64], window: Window, body: Body, *,
     blocks: list[Block] = []
     for row_index in range(rows):
         row0 = row_origin + row_index * RENDER_BLOCK_PX
-        latitude = row_latitude_deg(row0 + RENDER_BLOCK_PX / 2.0, body)
         for column_index in range(columns):
-            context = context_for(float(reach[row_index, column_index]), latitude,
-                                  exaggeration=body.exaggeration,
-                                  ground_scale=ground_scale,
-                                  map_units_per_pixel=body.map_units_per_pixel,
-                                  altitude_deg=altitude_deg)
+            relief_m = float(reach[row_index, column_index])
+            context = settled_context(relief_m, row0, body,
+                                      ground_scale=ground_scale, altitude_deg=altitude_deg)
             blocks.append(Block(col0=col_origin + column_index * RENDER_BLOCK_PX, row0=row0,
                                 size_px=RENDER_BLOCK_PX, context_px=context))
     return blocks

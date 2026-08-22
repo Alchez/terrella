@@ -3,8 +3,12 @@
 `planet_seam` ONE TIER DOWN, AND FOR THE SAME REASON. That module exists because
 `(planet / "planet_oceanmask.vrt").exists()` cannot tell "this planet has no sea" from "the
 producer died two rasters in". A render directory has the identical problem one step later: the rig
-loads six images out of it, two of which its producers legitimately skip, and `Path.exists()` is the
-only thing that has ever decided which. Skipped and crashed look the same on disk.
+loads several images out of it, some of which its producers legitimately skip, and `Path.exists()`
+is the only thing that has ever decided which. Skipped and crashed look the same on disk.
+
+The counts stay out of this sentence deliberately. It said "six, two of which" and was already wrong
+at seven and three when sea ice landed, because a total is a fact about `KNOWN_IMAGES` twelve lines
+below and nothing goes red when the set and the prose disagree.
 
 STDLIB ONLY, AND THAT IS A HARD CONSTRAINT RATHER THAN A PREFERENCE. `scene_build` runs inside
 Blender's interpreter, which cannot import this project's virtual environment — that is why the rig
@@ -39,6 +43,12 @@ SNOWMASK = "snowmask.png"
 LAKEDEPTH = "lakedepth.tif"
 SEAICE = "seaice.png"
 
+#: The per-row Mercator correction, one pixel wide and as tall as the plane. Named beside the three
+#: optional images above but unlike them in kind: those are absent when a region has no snow or no
+#: lake bed to measure, where this is a property of the PROJECTION. So the block path always writes
+#: one and the hero path, which is not in Mercator at all, never does.
+ROWSCALE = "rowscale.tif"
+
 #: Prep byproducts on the hero path: analytical masks the post stages read and the rig never
 #: loads, which is why they are named here but stay outside the declaration vocabulary below.
 OCEANMASK_TIF = "oceanmask.tif"
@@ -49,7 +59,8 @@ WATERMASK = "watermask.tif"
 #: THE ONE OWNER FOR THESE SPELLINGS, on the rule that a second reader with no owner is the defect.
 #: The retired `_aea` suffix asserted a projection, and the block path writes these same names as
 #: EPSG:3857 cuts — no projection suffix can be true for both writers, which is why none returns.
-KNOWN_IMAGES = frozenset({HEIGHTFIELD, OCEANMASK, INLANDLAKE, RIVER, SNOWMASK, LAKEDEPTH, SEAICE})
+KNOWN_IMAGES = frozenset({HEIGHTFIELD, OCEANMASK, INLANDLAKE, RIVER, SNOWMASK, LAKEDEPTH, SEAICE,
+                          ROWSCALE})
 
 #: The file every stage that fills a render directory records itself in.
 DECLARATION_NAME = "render_inputs.json"

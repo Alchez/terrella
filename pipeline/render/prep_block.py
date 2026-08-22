@@ -34,6 +34,8 @@ from typing import Any
 
 import numpy as np
 import rasterio
+from numpy.typing import NDArray
+from rasterio.transform import from_origin
 from rasterio.windows import Window
 
 from pipeline import block_plan, bodies, freshness, layers, planet_seam
@@ -47,6 +49,18 @@ from pipeline.tile import shade_planet
 RECIPE_NAME = "block_recipe.json"
 
 
+def mid_latitude_deg(window: Window, body: bodies.Body) -> float:
+    """The one latitude a plane's single ground width is true at: its centre row.
+
+    ONE OWNER, AND THAT IS THE WHOLE REASON IT IS A FUNCTION. `ground_width_m` multiplies by this
+    cosine and `row_scale` divides by it, so the two must agree on the same row or the plane comes
+    out uniformly exaggerated at the wrong value. That failure has no symptom: the joins match, the
+    within-block gradient is gone, and every seam measurement reads clean while the whole planet is
+    scaled wrong. Two spellings of "the middle" is all it would take.
+    """
+    return block_plan.row_latitude_deg(window.row_off + window.height / 2.0, body)
+
+
 def ground_width_m(window: Window, body: bodies.Body) -> float:
     """The block's true ground width at its mid-latitude, in metres.
 
@@ -56,12 +70,49 @@ def ground_width_m(window: Window, body: bodies.Body) -> float:
     is exactly 1.0 on Earth. `bodies.ground_metres_per_mercator_unit` owns that ratio — 1.878 on
     Mars — and a copy that dropped it would undersize the great majority of Martian blocks while
     being perfect on the only planet anyone tests against.
+
+    ONE WIDTH IS ALL A PLANE CAN HAVE, and that is not the same as one width being right. The plane
+    is a single rectangle, so the Blender-unit scale it is framed at has to be a single number;
+    Mercator's ground scale is not. `row_scale` carries the difference on the displacement rather
+    than here, which is why this function keeps its mid-latitude meaning unchanged.
     """
-    mid_row = window.row_off + window.height / 2.0
-    mid_latitude = block_plan.row_latitude_deg(mid_row, body)
     mercator_width = window.width * body.map_units_per_pixel
-    return (mercator_width * math.cos(math.radians(mid_latitude))
+    return (mercator_width * math.cos(math.radians(mid_latitude_deg(window, body)))
             * bodies.ground_metres_per_mercator_unit(body))
+
+
+def row_scale(window: Window, body: bodies.Body) -> NDArray[np.float64]:
+    """Per-row multiplier on the displacement that makes the applied exaggeration uniform.
+
+    THE DEFECT IT EXISTS TO REMOVE. `displacement_scale` converts elevation metres into Blender
+    units through `ground_width_m`, which is one number taken at the plane's centre row. Mercator's
+    ground metres per pixel vary continuously with latitude, so that number is right on exactly one
+    row, and neighbouring block rows disagree across their shared edge by the ratio of their two
+    centre cosines. The measurements are in the tests and in the decision archive rather than here,
+    on the rule that a comment may not carry a number that can go false behind its back.
+
+    WHAT IT MULTIPLIES TO. `displacement_scale * row_scale(r) * (width / 2)` times the ground metres
+    one pixel covers at row r is exactly `Body.exaggeration`, on every row, with the centre row's
+    cosine cancelling completely.
+
+    IT IS NOT THE COMPOSITE'S LAW, AND AN EARLIER VERSION OF THIS DOCSTRING CLAIMED IT WAS.
+    `hillshade.per_row_zfactor_hillshade` scales the GRADIENT per row; this scales the HEIGHT. A
+    height field whose gradient is the composite's cannot exist: matching it needs
+    `K'(row) * de/dcol == 0` everywhere, so no scalar displacement reproduces it and the difference
+    is a spurious row-ward tilt of `K'(row) * elevation`. That term is proportional to ELEVATION and
+    not to relief, so it is largest exactly where relief is smallest, which is the polar ice. What
+    this buys is a continuous field in place of a discontinuous one at the block joins; what it
+    costs is that tilt, and the caps keep the gradient law across the 81 to 84 blend either way.
+    Which of the two is preferable is a look judgement made on rendered pixels, not on this algebra.
+
+    CLIPPED AT MERCATOR'S LIMIT because `block_plan.row_latitude_deg` clips there, and a plane may
+    extend past the grid on the pole side. Those rows are zero-filled heightfield, so the value is
+    not felt; what matters is that it stays finite and that this uses the same spelling of "the
+    latitude of a row" the partition and the context law use.
+    """
+    rows = np.arange(window.row_off, window.row_off + window.height, dtype=np.float64)
+    latitudes = np.array([block_plan.row_latitude_deg(float(row), body) for row in rows])
+    return np.cos(np.radians(mid_latitude_deg(window, body))) / np.cos(np.radians(latitudes))
 
 
 def _read(path: Path, window: Window) -> np.ndarray:
@@ -95,6 +146,37 @@ def _write_mask(out: Path, array: np.ndarray) -> None:
         png.write(scaled, 1)
 
 
+def _write_rowscale(out: Path, window: Window, body: bodies.Body) -> None:
+    """`row_scale` as a one-pixel-wide column, as tall as the plane, for the rig to sample per row.
+
+    ONE PIXEL WIDE, AND THAT IS THE POINT RATHER THAN A SAVING. The correction is constant along a
+    row by construction, so a plane-sized field would carry no extra information; Blender expands a
+    float image to RGBA float, which on the widest plane is about a gigabyte on top of a render
+    already peaking near 7.5 GB, against 131 KB for the column.
+
+    IT CALLS `row_scale` AND MUST GO ON DOING SO. A copy of the law here would be inert under every
+    mutation `scripts/sabotage.py` makes, so all four of its cases would report CAUGHT while the
+    raster the rig actually samples stayed unmutated — a harness lying in the direction that reads
+    as safe.
+
+    Written top-down like every other raster here, so row 0 is the northernmost, and GEOREFERENCED
+    as the plane's westmost pixel column, which is what it is: the rig samples it by UV and never
+    reads the transform, but writing one makes the file a legitimate crop rather than a bare array,
+    lets a verifier check its rows against the heightfield's, and keeps `NotGeoreferencedWarning`
+    meaning something the next time it fires.
+    """
+    column = row_scale(window, body).reshape(-1, 1).astype(np.float32)
+    half = block_plan.mercator.MERCATOR_HALF_M
+    transform = from_origin(
+        -half + window.col_off * body.map_units_per_pixel,
+        half - window.row_off * body.map_units_per_pixel,
+        body.map_units_per_pixel, body.map_units_per_pixel)
+    with rasterio.open(out, "w", driver="GTiff", width=1,  # pyright: ignore[reportCallIssue]
+                       height=window.height, count=1, dtype="float32",
+                       crs="EPSG:3857", transform=transform, **GTIFF_CREATE) as tif:
+        tif.write(column, 1)
+
+
 def build(body: bodies.Body, window: Window, outdir: Path) -> list[str]:
     """Cut every image this body can produce for `window`, and return what was written."""
     work = bodies.work_dir(body, "planet_tiles")
@@ -109,6 +191,11 @@ def build(body: bodies.Body, window: Window, outdir: Path) -> list[str]:
                        width=window.width, height=window.height, count=1, dtype="float32",
                        crs="EPSG:3857", transform=transform, **GTIFF_CREATE) as out:
         out.write(elevation.astype(np.float32), 1)
+
+    # Unconditional, and unlike every other optional image below it that is not a measurement: the
+    # correction is a property of the PROJECTION, so every block has one and no block declines.
+    _write_rowscale(outdir / render_seam.ROWSCALE, window, body)
+    written.append(render_seam.ROWSCALE)
 
     shape = elevation.shape
     ocean = (_read(work / shade_planet.OCEAN_3857, window).astype(bool)

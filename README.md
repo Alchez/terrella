@@ -38,3 +38,14 @@ Code [MIT](LICENSE). Imagery [CC BY-SA 4.0](https://creativecommons.org/licenses
 - Measured stage runtimes → [`PROCESS.md`](PROCESS.md)
 - Data sources & licenses → [`ATTRIBUTIONS.md`](ATTRIBUTIONS.md)
 - Parked ideas, and what was deliberately not built → [`FUTURE.md`](FUTURE.md)
+- Driving Blender, and the shader gotchas → [`.claude/skills/blender-rig/`](.claude/skills/blender-rig/SKILL.md)
+- Acquiring or refetching a source dataset → [`.claude/skills/acquire-data/`](.claude/skills/acquire-data/SKILL.md)
+- Reclaiming disk, and what must never be deleted → [`.claude/skills/reclaim-pass/`](.claude/skills/reclaim-pass/SKILL.md)
+- Serving, the tile Worker and its landmine → [`.claude/rules/tile-worker-and-delivery.md`](.claude/rules/tile-worker-and-delivery.md)
+
+## Prior art
+
+Daniel Huffman, "Creating Shaded Relief in Blender", is the canonical technique this is built on.
+For land and sea fusion: ETOPO 2022 (NOAA), Tozer et al. 2019 (SRTM15+), the GMT `grdblend` docs and
+Tom Patterson's shadedrelief.com. The globe and the tile archive follow the MapLibre globe
+projection docs and the PMTiles spec (Protomaps).

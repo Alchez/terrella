@@ -10,6 +10,7 @@ import math
 
 import numpy as np
 import pytest
+import rasterio
 
 from pipeline import block_plan, bodies, layers, mercator
 from pipeline.block_plan import Block
@@ -96,6 +97,152 @@ class TestTheGroundWidthIsTheBodysAndNotTheProjectionsphere:
         polar = prep_block.ground_width_m(
             plane_window(0, 0, block_plan.RENDER_BLOCK_PX, 0), bodies.EARTH)
         assert polar < equator
+
+
+class TestTheAppliedExaggerationIsUniformDownThePlane:
+    """The rig's per-row geometry, asserted against a TARGET rather than against another render.
+
+    THE PRODUCT IS THE CLAIM, NOT EITHER FACTOR. `ground_width_m` divides by the centre row's
+    cosine and `row_scale` multiplies it back, so checking them separately would pass with the two
+    disagreeing about which row the centre is — an error that is uniform across the whole planet
+    and therefore invisible to every seam, join and neighbour measurement there is. What has to
+    hold is that one metre of elevation displaces exactly `Body.exaggeration` ground metres on
+    EVERY row, and that is what these assert.
+
+    THE ORACLE IS A DIFFERENT MODULE AND A DIFFERENT FORMULA. `mercator.ground_metres_per_pixel`
+    takes a latitude and returns ground metres directly; it never scales a mid-latitude by
+    anything. So agreement is evidence rather than a restatement, which comparing against a second
+    copy of the same arithmetic would not be.
+
+    NO GPU, NO STORE AND NO BLENDER. This is the whole of the correctness claim about the fix, and
+    it costs milliseconds; the renders that follow are for Rohan's eye, not for this.
+    """
+
+    CONTEXTS = (0, block_plan.DENOISE_BAND_PX, block_plan.CONTEXT_CEILING_PX)
+
+    def _windows(self, body):
+        """One plane per block row, at three context widths, which brackets every real plane."""
+        edge = block_plan.RENDER_BLOCK_PX
+        rows = block_plan.grid_px(body) // edge
+        return [plane_window(0, row * edge, edge, context)
+                for row in range(rows) for context in self.CONTEXTS]
+
+    def _displaced_ground_metres(self, window, body, scale):
+        """Ground metres of relief per metre of elevation, per row, as the rig would apply them.
+
+        The plane is 2 Blender units across `window.width` pixels, so one unit is
+        `window.width / 2` pixels wide, and a pixel is worth `ground_metres_per_pixel` on its own
+        row. `displacement_scale` is read off the shipping seam rather than recomputed.
+        """
+        numbers = prep_block.render_prep.scene_numbers(
+            window.width, window.height, prep_block.ground_width_m(window, body),
+            exaggeration=body.exaggeration, hero_long_edge=window.width, camera_fraction=1.0)
+        rows = np.arange(window.row_off, window.row_off + window.height, dtype=np.float64)
+        latitudes = np.array([block_plan.row_latitude_deg(float(row), body) for row in rows])
+        ground_per_px = mercator.ground_metres_per_pixel(
+            latitudes, body.map_units_per_pixel,
+            bodies.ground_metres_per_mercator_unit(body))
+        return (numbers["displacement_scale"] * scale * (window.width / 2.0) * ground_per_px)
+
+    @pytest.mark.parametrize("body", [bodies.EARTH, bodies.MARS], ids=lambda b: b.name)
+    def test_one_metre_of_elevation_displaces_the_bodys_exaggeration_on_every_row(self, body):
+        for window in self._windows(body):
+            applied = self._displaced_ground_metres(
+                window, body, prep_block.row_scale(window, body))
+            assert applied == pytest.approx(body.exaggeration, rel=1e-12), (
+                f"row {window.row_off}, height {window.height}: applied exaggeration spans "
+                f"{applied.min():.6f} to {applied.max():.6f}, not a flat {body.exaggeration}")
+
+    @pytest.mark.parametrize("body", [bodies.EARTH, bodies.MARS], ids=lambda b: b.name)
+    def test_without_the_correction_the_same_assertion_fails(self, body):
+        """THE POSITIVE CONTROL, and it is what says the defect is real rather than theoretical.
+
+        Substituting 1.0 for the per-row scale is exactly what ships today. If that arm passed,
+        the test above would be measuring nothing.
+        """
+        worst = 0.0
+        for window in self._windows(body):
+            applied = self._displaced_ground_metres(window, body, 1.0)
+            worst = max(worst, float(applied.max() / applied.min() - 1.0))
+        assert worst > 0.2, (
+            f"the uncorrected arm spans only {worst:.1%} of applied exaggeration, so this control "
+            f"no longer demonstrates the defect the correction removes")
+
+    @pytest.mark.parametrize("body", [bodies.EARTH, bodies.MARS], ids=lambda b: b.name)
+    def test_the_centre_row_is_exactly_unchanged(self, body):
+        """The correction is a redistribution, not a gain: the row today is right at stays right."""
+        for window in self._windows(body):
+            scale = prep_block.row_scale(window, body)
+            assert scale.min() <= 1.0 <= scale.max()
+            assert float(np.abs(scale - 1.0).min()) == pytest.approx(0.0, abs=1e-6)
+
+    def test_the_scale_grows_toward_the_pole_and_not_away_from_it(self):
+        """A vertical flip is the one implementation error this catches and a join cannot.
+
+        Flipping the field doubles the error instead of halving it, and on a window straddling the
+        equator it is invisible, so the check has to be made on a polar block.
+        """
+        window = plane_window(0, 0, block_plan.RENDER_BLOCK_PX, 0)
+        scale = prep_block.row_scale(window, bodies.EARTH)
+        assert scale[0] > scale[-1], "row 0 is the northernmost, so it must carry the larger scale"
+
+    def test_the_shader_identity_holds_against_the_projection(self):
+        """`cos(latitude) == 1 / cosh(northing / R)`, pinned so a rig-side implementation can use it.
+
+        The correction can be computed from a northing with two hyperbolic operations and no
+        latitude at all, which is what lets it be three nodes instead of a per-block raster. That
+        identity is projection maths living outside Python, so it is made executable here rather
+        than trusted: this is the drift-fails-loudly form the repo's rules ask for.
+        """
+        radius = mercator.WEB_MERCATOR_RADIUS_M
+        northings = np.linspace(-mercator.MERCATOR_HALF_M, mercator.MERCATOR_HALF_M, 97)
+        latitudes = mercator.latitude_at(northings, radius)
+        assert np.cos(np.radians(latitudes)) == pytest.approx(
+            1.0 / np.cosh(northings / radius), rel=1e-12)
+
+
+class TestTheWrittenColumnIsTheLawAndNotACopyOfIt:
+    """What the rig actually samples, as opposed to what `row_scale` returns.
+
+    THE GAP THESE CLOSE IS A MUTATION HARNESS LYING IN THE SAFE DIRECTION. Every case in
+    `scripts/sabotage.py` mutates `row_scale`; if the writer re-derived the law instead of calling
+    it, all four would report CAUGHT off the class above while the raster on disk stayed correct
+    and the rendered planet stayed wrong. The prototype this shipped from did exactly that, so it
+    is a mistake with an instance and not a hypothetical.
+    """
+
+    def _written(self, tmp_path, window, body=bodies.EARTH):
+        prep_block._write_rowscale(tmp_path / "rowscale.tif", window, body)
+        with rasterio.open(tmp_path / "rowscale.tif") as src:  # pyright: ignore[reportCallIssue]
+            return src.read(1)
+
+    @pytest.mark.parametrize("body", [bodies.EARTH, bodies.MARS])
+    @pytest.mark.parametrize("context", [0, block_plan.DENOISE_BAND_PX])
+    def test_the_column_equals_the_law_to_the_float32_it_is_stored_as(self, tmp_path, body,
+                                                                     context):
+        """Compared against the CAST and not against the float64: `rel=1e-12` on the raw law would
+        fail on a correct writer, which would read as a defect in the thing being guarded."""
+        window = plane_window(0, block_plan.grid_px(body) // 2 - 4096, 4096, context)
+        expected = prep_block.row_scale(window, body).astype(np.float32)
+        assert self._written(tmp_path, window, body).ravel() == pytest.approx(expected, rel=1e-12)
+
+    def test_it_is_one_pixel_wide_and_as_tall_as_the_PLANE(self, tmp_path):
+        """The height is the plane's, not the delivered block's. Taking `size_px` would still write
+        a plausible file, still load in Blender, and silently stretch the correction over the
+        context — wrong by the context ratio at every row rather than absent."""
+        block = Block(col0=0, row0=0, size_px=block_plan.RENDER_BLOCK_PX, context_px=512)
+        written = self._written(tmp_path, block.plane_window)
+        assert written.shape == (block.plane_edge_px, 1)
+        assert written.shape[0] != block.size_px, "the context would be indistinguishable"
+
+    def test_it_is_written_top_down_so_row_zero_is_the_northernmost(self, tmp_path):
+        """A FLIP IS INVISIBLE IN THE ALGEBRA AND DOUBLES THE ERROR INSTEAD OF HALVING IT, which is
+        why this asks about order rather than about values. In the northern hemisphere the
+        correction falls monotonically from the pole side to the equator side."""
+        window = plane_window(0, 0, 4096, 0)  # block row 0: entirely northern
+        written = self._written(tmp_path, window).ravel()
+        assert written[0] > written[-1]
+        assert np.all(np.diff(written) <= 0.0)
 
 
 class TestTheContextIsCutAndNeverDelivered:
