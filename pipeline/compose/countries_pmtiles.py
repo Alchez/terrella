@@ -38,7 +38,7 @@ GDAL SIMPLIFIES NOTHING BY DEFAULT — that is not a safe default here, it is a 
 against what a tolerance-3 tiler produces, and it is invisible unless the tiles are weighed.
 
 The archive carries ALL countries, not just the rendered ones. Scope is a runtime layer filter
-(`inScopeFilter` in earth.astro) applied to all four country layers, so a newly rendered hero does
+(`inScopeFilter` in Globe.astro) applied to all four country layers, so a newly rendered hero does
 not require re-cutting tiles, and "which countries are interactive" stays single-homed in the
 manifest instead of being split across a build step and a filter.
 

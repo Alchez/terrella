@@ -21,7 +21,7 @@ The alpha is graded from luma and the luma is collapsed from the very RGB being 
 resampling difference can creep between the weight and the thing it weights.
 
 WHAT IS DELIBERATELY NOT RESPELLED HERE. The extent rule, the levels, the grading curve, the feather
-and the luma weights each have an owner in `render/mars_ice`, and this script is the INSTRUMENT that
+and the luma weights each have an owner in `look/mars_ice`, and this script is the INSTRUMENT that
 produces the target — so it is exactly the copy whose drift would be invisible, agreeing with itself
 while measuring something the renderer no longer paints.
 
@@ -43,7 +43,7 @@ import rasterio
 
 from pipeline import bodies, freshness
 from pipeline.acquire import download_sim3292, download_viking_mosaic
-from pipeline.render import mars_ice, palette, viking_luma
+from pipeline.look import mars_ice, palette, viking_luma
 from pipeline.tile import cap_render
 
 #: Degrees of latitude kept either side of the pole. Imported rather than restated: the levels script

@@ -22,7 +22,7 @@ import rasterio
 import rasterio.transform  # rasterio's __init__ pulls this in at runtime; name it for the checker
 
 from pipeline import bodies
-from pipeline.render import snow
+from pipeline.look import snow
 
 # --- shared geometry: a small WMQ-aligned 3857 target over a snowy region (the Alps) ---
 # READ FROM THE REGISTRY, not restated. Both of these were local literals with a comment claiming

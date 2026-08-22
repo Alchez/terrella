@@ -18,7 +18,7 @@ nodata, which makes "nothing was measured" and "the darkest surface on the plane
   wide by 100 km long. A hard edge between two of those vertices reads as faceted, so any feather
   over this boundary is DRAWN and must be described as drawn -- a distance transform wearing a
   measurement's clothes is the `antarctic_snow_mask` mistake. How wide such a feather is in PIXELS
-  belongs to `render/mars_ice.FEATHER_KM`, whose note holds why no count may be written here.
+  belongs to `look/mars_ice.FEATHER_KM`, whose note holds why no count may be written here.
 
 LICENCE: attribution-only, and read at the product rather than at the publisher. The FGDC metadata
 states `Access_Constraints: None`, `Use_Constraints: please cite authors.`, `Distribution_Liability:

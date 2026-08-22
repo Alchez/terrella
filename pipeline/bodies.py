@@ -58,7 +58,7 @@ which body it holds — every one of them reads a FIELD (`body.exaggeration`, `b
 `"perennial_ice" in body.surface_layers`), so a subclass would carry no overridden behaviour and be a
 constructor call spelled longer. A body's facts are DATA, and a frozen dataclass is how Python
 states data. THIS ARGUMENT IS ABOUT BODIES AND DOES NOT CARRY TO PRODUCERS — those are behaviour and
-they do dispatch, which is why `render/perennial_ice.py` is a registry of functions instead.
+they do dispatch, which is why `look/perennial_ice.py` is a registry of functions instead.
 
     from pipeline import bodies
     body = bodies.get("earth")     # raises on an unknown name; never falls back
@@ -190,7 +190,7 @@ EARTH = Body(
     # number is what the live 46 GB raster was actually warped at, and it is a rounded value — the
     # exact z8 figure is 305.748113. See the field's note for why the rounding stays.
     map_units_per_pixel=305.7483,
-    # Duplicated today in render/palette.py, which the hero scene imports directly.
+    # Duplicated today in look/palette.py, which the hero scene imports directly.
     exaggeration=15.0,
     # Both cuts read this now — the raster pass and, since the two vector composers merged onto one
     # driver, `countries_pmtiles.MAX_ZOOM` as well. The bridging test that stood in for that second
@@ -200,7 +200,8 @@ EARTH = Body(
     path_prefix="",
     # All of them, written out rather than spelled `SURFACE_LAYERS`: Earth is the reference body, and
     # "whatever the vocabulary happens to contain" is how it would inherit the next layer unexamined.
-    surface_layers=frozenset({"lake_depth", "perennial_ice", "glaciers", "sea_ice", "coastline"}),
+    surface_layers=frozenset({"lake_depth", "perennial_ice", "glaciers", "sea_ice", "coastline",
+                              "antarctic_rock"}),
     # The reference body, and the caps are a signature feature rather than a detail: both poles
     # ship a full rung ladder, feathered into the tiles at the seam.
     renders_polar_caps=True,

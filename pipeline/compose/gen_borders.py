@@ -7,10 +7,11 @@ proven AEA->pixel mapping and 'borders' styling — at the hero render resolutio
 (frame.json res_x/res_y), then downscales it to the same long-edge sizes as the
 hero WebP variants so the two srcset in lockstep.
 
-It needs only the prep outputs (frame.json + heightfield_aea.tif), NOT the hero
+It needs only the prep outputs (frame.json + heightfield.tif), NOT the hero
 render, so it can run any time after prep. Idempotent: existing outputs skip.
-Line widths are tuned for the full 8K render and survive downscaling (see ART.md
-/ overlay_borders), so the layer is always drawn at full res then scaled down.
+Line widths are tuned for the full 8K render and survive downscaling (ART.md
+§ Borders, with overlay_borders), so the layer is always drawn at full res then
+scaled down.
 
   gen_borders.py --only srilanka,switzerland
   gen_borders.py                      # every in-scope country with a render dir
@@ -42,6 +43,7 @@ from pipeline.frame.country_config import (
     load_config,
     load_ne_rows,
 )
+from pipeline.render import render_seam
 
 # The rendered layers live in the CHECKOUT beside the heroes they overlay; the per-country inputs
 # they read live in the DATA store, reached through `country_work_dir`. Two roots, two seams.
@@ -63,7 +65,7 @@ def find_render_dir(slug: str) -> Path | None:
     work = country_work_dir(slug)
     cand = [country_render_dir(slug), *sorted(work.glob("render*"))]
     for candidate in cand:
-        if (candidate / "frame.json").exists() and (candidate / "heightfield_aea.tif").exists():
+        if (candidate / "frame.json").exists() and (candidate / render_seam.HEIGHTFIELD).exists():
             return candidate
     return None
 
@@ -72,7 +74,7 @@ def draw_layer(rdir: Path):
     """Draw casing + white ink at the hero render resolution; return the surface."""
     meta = json.loads((rdir / "frame.json").read_text())
     width, height = int(meta["res_x"]), int(meta["res_y"])
-    to_px, _m, crs, bounds = render_mapping(rdir / "heightfield_aea.tif", width, height)
+    to_px, _m, crs, bounds = render_mapping(rdir / render_seam.HEIGHTFIELD, width, height)
     fwd = pyproj.Transformer.from_crs("EPSG:4326", crs, always_xy=True)
     bbox = frame_bbox_lonlat(bounds, crs)
 

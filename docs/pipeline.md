@@ -12,6 +12,21 @@ python -m pipeline.frame.country_config --country nepal
 
 That prints Nepal's frame, its derived render numbers, its data preflights, and **the exact stage commands**, the same commands the batch runner executes. When in doubt about how a country is built, ask `country_config`; this doc explains the workflow around it, not a frozen command list that would drift.
 
+## How `pipeline/` is laid out
+
+Four kinds of thing live in the package, and which one a module is decides where it sits.
+
+- **A sub-package holds stages that run.** Most are named for the step they perform, in roughly the order the data moves: `acquire` fetches published data, `fuse` welds land and sea into one heightfield, `frame` resolves a country into render parameters, `tile` cuts the raster pyramids, `compose` assembles the delivered vectors and image variants. `render` is the hero rig, one country into one Cycles image. Two are named for what they hold instead of for a step, `look` and `profile`.
+- **A law or a seam at the top level of `pipeline/` is something more than one stage reads**, and it is there because the copies had drifted. `mercator.py` exists because two shading modules each carried their own Earth radius and their own inverse projection; `raster_io.py` because one windowed-read fix landed at a single call site and was missed at its siblings. So reaching for a new one is a claim that a second reader exists, and the test is: change one copy, what goes red? Nothing red means it does not belong at the top level yet.
+- **An entry point also sits at the top level, and the reader test above does not apply to it**, because it is run rather than imported and its reader count is zero by construction. `batch.py` is the runner and the documented way in; `ot_oracle.py` is a dev-time fusion oracle that no production sweep invokes. What places these is that they stand outside the stage order rather than inside it.
+- **A helper at the top level is reached for by a test or a hand-run probe, and by no stage.** `verify.py` is the one, a raster comparison built so that a check cannot quietly pass. It is not `profile/`, which measures what a run cost; this measures whether the output is what it should be.
+
+**`look/` and `render/` are the pair most easily confused.** `look/` is what a surface is painted with and how it is lit, the surface layers and the shared shading law, read by both rigs. `render/` is the hero rig alone. The dependency runs one way, `render` onto `look`, and a cycle between them means a module sits on the wrong side. `profile/` is instrumentation and produces nothing the site serves.
+
+**Nothing here is grouped by planet**, which is the question the tree invites and the one a directory listing answers wrongly. Bodies are data and stages are code: a stage never branches on which body it holds, it reads a field. So what a planet is, has, and requires is declared rather than filed, in `bodies.Body` (its geometry and its exaggeration), `Body.surface_layers` against the `layers.Layer` vocabulary (which surfaces it has), and `look/layer_producers.py` with `look/perennial_ice.py` (who builds each of those for it). No field carries a default, so every one of those is a hard error until a new body answers for it. A per-body directory would state the same thing where nothing can check it, and a body that had not answered would look like a body with fewer files.
+
+The root `__init__.py` carries this rule beside the code, and each sub-package's own `__init__.py` states what that package holds, so both are readable from inside the package as well as from here.
+
 ## Environment setup (fresh machine)
 
 The project runs natively on Ubuntu (dev box and the rohome host share the distro family; the pipeline is designed to run unchanged on both).
@@ -70,7 +85,7 @@ The chain `country_config` prints per country, in order. Each stage finalizes it
 | 3 | Fuse heightfield | `pipeline.fuse.fuse_heightfield` | Seamless land+sea heightfield + ocean/lake/river masks |
 | 4 | Render prep | `pipeline.render.render_prep` | Projected rasters + `frame.json` (every derived number) |
 | 5 | Snow mask | `pipeline.render.snow_mask` | Snow/ice mask (ESA WorldCover class 70) |
-| 6 | Lake depth mask | `pipeline.render.lake_mask` | `lakedepth_aea.tif` (GLOBathy depth → ramp position; lakes shade by depth, rivers stay flat) |
+| 6 | Lake depth mask | `pipeline.render.lake_mask` | `lakedepth.tif` (GLOBathy depth → ramp position; lakes shade by depth, rivers stay flat) |
 | 7 | Render | `render/scene_build.py` via `blender -b` | The hero PNG |
 
 Python stages run as `python -m <module>` (e.g. `python -m pipeline.render.render_prep …`), shell stages as `bash pipeline/<sub>/<script>.sh`, and the Blender scene as `blender -b --python pipeline/render/scene_build.py`. Ask `country_config --country <slug>` for the exact, filled-in commands.
@@ -83,7 +98,7 @@ Borders are **never** rendered inside the Blender scene. They are composited in 
 
 A separate, raster-only path that does **not** use Blender: fuse the whole planet once, shade it to imitate the hero look, cut tiles, and pack them into one servable archive.
 
-**Every stage below takes a required `--body`.** None of them defaults to Earth, deliberately: a default is exactly the silent Earth assumption the second body exists to remove, and the wrong one would produce plausible output against the wrong master. The body decides the vertical exaggeration, the zoom ceiling, the colour ramp and the projection radii together, from the registry in `pipeline/bodies.py`.
+**The four planet-raster stages take a required `--body`**: `shade_planet`, `cap_render`, `terrain_rgb` and `pack_pmtiles`. None of them defaults to Earth, deliberately: a default is exactly the silent Earth assumption the second body exists to remove, and the wrong one would produce plausible output against the wrong master. The body decides the vertical exaggeration, the zoom ceiling, the colour ramp and the projection radii together, from the registry in `pipeline/bodies.py`. The acquire stages and the surface-layer producers below take no `--body`, because each is already about one body's own dataset, and the two vector cuts are one stage per body rather than one stage taking a body.
 
 Each body's intermediates live under its own work directory, `data/work/<body>/<stage>/`. **Earth's prefix is empty**, which keeps it on its historical layout: Earth's cut lands in `data/work/planet_tiles/` and Mars's in `data/work/mars/planet_tiles/`. That is what makes every recipe sidecar body-specific for free, without a body field in the recipe itself, which would have invalidated Earth's entire correct output the moment a second body existed.
 
@@ -106,11 +121,11 @@ It runs the pass inside a systemd scope with a memory cap derived per body by `p
 | NSIDC-0791 snow persistence | the snow-persistence NetCDF, obtained from NSIDC via Earthdata (earthaccess/CMR) and placed at `data/raw/snow/`. **No committed acquire script** (unlike RGI / sea ice) |
 | `pipeline.acquire.download_rgi` | RGI 7.0 glacier shapefiles merged to `data/raw/rgi/rgi7_g_3857.gpkg` |
 | `pipeline.acquire.download_seaice` | OSI SAF monthly sea-ice concentration → the annual ice-frequency climatology |
-| `pipeline.render.snow` | tile snow: persistence → latitude-ramped soft alpha, unioned with RGI glaciers |
-| `pipeline.render.seaice` | sea-ice alpha over the ocean (translucent white, seafloor glows through) |
-| `pipeline.render.lake_depth` | GLOBathy lake depth on the tile grid (depth-keyed lake tint) |
+| `pipeline.look.snow` | tile snow: persistence → latitude-ramped soft alpha, unioned with RGI glaciers |
+| `pipeline.look.seaice` | sea-ice alpha over the ocean (translucent white, seafloor glows through) |
+| `pipeline.look.lake_depth` | GLOBathy lake depth on the tile grid (depth-keyed lake tint) |
 | `pipeline.tile.shade_planet` | the production planet pass: warp everything to one Web-Mercator grid, hillshade + fill sun, sky-view, windowed composite → `planet_rgb.tif`, then `gdal raster tile` → the z0–8 pyramid (`pipeline.tile.shade` is the region-sized A/B path) |
-| `pipeline.tile.cap_render` | both polar caps (AEQD, the same composite) → `web/public/caps/`. Takes the same required `--body` the shade pass does, and is invoked with it automatically at that pass's tail. The cap assets are gitignored, so a fresh clone regenerates them here; `--elev-only` rebuilds just the per-pole terrain-RGB textures, which have their own freshness gate and do not require the ~14 GB colour render |
+| `pipeline.tile.cap_render` | both polar caps (AEQD, the same composite) → `web/public/caps/` for Earth, whose URLs are a frontend contract, with a second body nesting one level in. Takes the same required `--body` the shade pass does, and is invoked with it automatically at that pass's tail. The cap assets are gitignored, so a fresh clone regenerates them here; `--elev-only` rebuilds just the per-pole terrain-RGB textures, which have their own freshness gate and do not require the ~14 GB colour render |
 | `pipeline.tile.terrain_rgb` | the terrain-RGB elevation pyramid for the globe's Tier-3 displacement, read straight off `height_3857.tif`, never the composite, so it is a separate lane rather than a stage of the shade pass. Takes the same required `--body` the shade and cap passes do, which picks the master, the ceiling and the descent's factor together; `--out` stays required, because the variant directory under the stage is operator-named and is checked to be under that body's tree rather than derived |
 | `pipeline.compose.countries_geojson` → `pipeline.compose.countries_pmtiles` | Earth's vector pyramid: Natural Earth admin-0 polygons simplified to one WGS84 GeoJSON, then cut to `vector.pmtiles`. Three layers (fill, outline, and a fat invisible hit target), because a 176-atoll nation is otherwise unclickable |
 | `pipeline.compose.features_geojson` → `pipeline.compose.features_pmtiles` | Mars's vector pyramid: the IAU gazetteer folded to GeoJSON, then cut to its own `vector.pmtiles`. Four layers, including the IAU's label anchors. Both cuts are driven by `pipeline.compose.vector_cut`, which owns the freshness gate, the staging loop and the conversion; the two stages above only declare what is in them |

@@ -1,7 +1,7 @@
 """Which code names a file in the store, and whose output goes stale when that file changes.
 
     python -m scripts.who_reads data/raw/mars/sim3292/lapc_sim3292.json
-    python -m scripts.who_reads --module pipeline/render/viking_luma.py   # silent if nothing
+    python -m scripts.who_reads --module pipeline/look/viking_luma.py   # silent if nothing
     python -m scripts.who_reads --index                 # every declared source, and every orphan
 
 `--module` is the form `who-reads-this-module.py` injects on the first `Read` of a pipeline module,

@@ -1,6 +1,6 @@
 // Colours the PIPELINE owns, restated for the browser.
 //
-// pipeline/render/palette.py is the single source of truth for the hypsometric ramps, and it
+// pipeline/look/palette.py is the single source of truth for the hypsometric ramps, and it
 // holds them in LINEAR RGB — the space the Cycles shader and the tile compositor both work in.
 // Nothing here can import that, so each value below is the 8-bit sRGB encoding of a named stop,
 // hand-copied and pinned by tests/test_palette.py::TestSharedConstants, which recomputes it

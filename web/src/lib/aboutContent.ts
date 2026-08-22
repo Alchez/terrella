@@ -110,7 +110,7 @@ export const ABOUT: Record<BodySlug, BodyAbout> = {
     // NO COUNT OF DATASETS HERE, and that is the same rule the "Site-wide" mark is written under:
     // this said "fused from eight datasets into one seamless heightfield", which counted the CREDITS
     // and attached them to the HEIGHTFIELD. Two datasets enter it. The rest are warped on at
-    // composite time and never reach the fusion master, which `render/lake_depth.py` states outright.
+    // composite time and never reach the fusion master, which `look/lake_depth.py` states outright.
     lede:
       "Every country on Earth, with the land and the sea floor fused into one seamless heightfield, " +
       "so shelves and trenches read as terrain rather than as a blue background. Snow, sea ice, " +

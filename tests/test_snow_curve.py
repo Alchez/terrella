@@ -12,7 +12,7 @@ import pytest
 from conftest import hillshade_for_light
 
 from pipeline import bodies, planet_seam
-from pipeline.render import palette, seaice
+from pipeline.look import palette, seaice
 from pipeline.tile import shade, shade_planet
 
 #: A planet whose seam emitted all three rasters — what Earth declares, and the only

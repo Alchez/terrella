@@ -17,7 +17,7 @@ import math
 import pytest
 
 from pipeline import bodies
-from pipeline.render.sky_view import OCCLUSION_TARGET_M_PER_PX, occlusion_shape
+from pipeline.look.sky_view import OCCLUSION_TARGET_M_PER_PX, occlusion_shape
 from pipeline.tile.shade import Z8_MERC_RES
 
 # The planet grid's pixel, which is now the BODY's rather than a module constant. Earth's, because

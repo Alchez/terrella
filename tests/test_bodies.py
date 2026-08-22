@@ -26,7 +26,7 @@ import pytest
 
 from pipeline import bodies, layers, mercator, paths, planet_seam
 from pipeline.compose import countries_pmtiles, features_pmtiles
-from pipeline.render import palette
+from pipeline.look import palette
 from pipeline.tile import cap_render, shade_planet, terrain_rgb
 
 #: A planet whose seam emitted all three rasters — what Earth declares, and the only
@@ -1167,6 +1167,7 @@ def test_every_built_layer_names_the_raster_the_composite_reads(subtests) -> Non
         "perennial_ice": "snow_persistence_3857.tif",
         "glaciers": "glacier_3857.tif",
         "sea_ice": "seaice_3857.tif",
+        "antarctic_rock": "addrock_3857.tif",
     }
     with subtests.test("every composite layer builds a raster today"):
         assert {layer.name for layer in layers.WARPED_LAYERS} == layers.COMPOSITE_LAYERS, (
@@ -1188,12 +1189,12 @@ def test_the_stage_vocabularies_together_cover_the_whole_one_and_nothing_else(su
     """
     for layer in layers.LAYERS:
         with subtests.test(layer.name):
-            assert layer.in_composite or layer.in_cap, (
+            assert layer.in_composite or layer.in_cap or layer.in_block, (
                 f"{layer.name} is read by no stage — a body could declare it and nothing would "
                 f"ever build it, and `layers_off` would never mention it either"
             )
     with subtests.test("no stage is empty"):
-        assert layers.COMPOSITE_LAYERS and layers.CAP_LAYERS
+        assert layers.COMPOSITE_LAYERS and layers.CAP_LAYERS and layers.BLOCK_LAYERS
 
 
 def test_every_required_raster_is_one_the_planet_seam_can_emit(subtests) -> None:
@@ -1224,30 +1225,79 @@ def test_the_stages_disagree_about_which_layers_they_read(subtests) -> None:
     and the tile composite would record `coastline`, which it cannot contain — so a cap-only look
     decision would restage a 46 GB planet. Over- and under-tracking are both silent.
 
-    DERIVING THE TWO VIEWS FROM ONE TABLE DID NOT MAKE THIS REDUNDANT — it is what keeps the table
-    honest. A wrong `in_composite` / `in_cap` column is exactly as silent as two frozensets drifting
-    apart was, so these literals are the hand-written expectation the derivation is checked against.
+    DERIVING THE VIEWS FROM ONE TABLE DID NOT MAKE THIS REDUNDANT — it is what keeps the table
+    honest. A wrong `in_composite` / `in_cap` / `in_block` column is exactly as silent as three
+    frozensets drifting apart was, so these literals are the hand-written expectation the derivation
+    is checked against.
+
+    THE BLOCK COLUMN NOW EQUALS THE COMPOSITE'S, AND THE PIN CHANGES JOBS RATHER THAN RETIRING.
+    While the rig lacked an ice input the literals held `sea_ice` open as a stated gap; since it
+    gained one, the equality is the hand-written expectation — and a NEW layer that copies
+    `in_composite` unexamined still fails here until its row is answered on purpose.
     """
     with subtests.test("cap only"):
         assert layers.CAP_LAYERS - layers.COMPOSITE_LAYERS == {"coastline"}
     with subtests.test("composite only"):
         assert layers.COMPOSITE_LAYERS - layers.CAP_LAYERS == {"lake_depth", "glaciers"}
+    with subtests.test("block matches the composite exactly, and on purpose"):
+        # The rig grew its ice input, so a raytraced Arctic paints pack instead of open teal
+        # ocean; what remains block-versus-composite is agreement, pinned from both directions.
+        assert layers.COMPOSITE_LAYERS - layers.BLOCK_LAYERS == set()
+        assert layers.BLOCK_LAYERS - layers.COMPOSITE_LAYERS == set()
+    with subtests.test("block against the caps"):
+        assert layers.CAP_LAYERS - layers.BLOCK_LAYERS == {"coastline"}
+        assert layers.BLOCK_LAYERS - layers.CAP_LAYERS == {"lake_depth", "glaciers"}
+
+
+def test_the_rock_row_is_read_by_every_stage_that_forces_antarctic_white(subtests) -> None:
+    """Antarctic outcrop is a layer no stage PAINTS, and its row still has to answer all three.
+
+    The rule it modifies (`snow.antarctic_snow_mask`) runs in the tile composite, in the block prep
+    and on the south cap, so all three read it and all three must record it when it is off. A
+    column answered `False` here is the silent kind: the stage would go on subtracting rock while
+    its recipe said nothing about the layer, so switching the layer off would leave that stage's
+    output — painted with rock removed — reading perfectly fresh.
+
+    THE THREE DIFFERENCE LITERALS ABOVE ARE UNCHANGED BY THIS ROW, and that is the point rather
+    than a coincidence: a layer every stage reads moves none of them. Had one column been answered
+    wrong, the differences would have moved and that test would have failed instead of this one.
+    """
+    with subtests.test("every stage"):
+        assert layers.ANTARCTIC_ROCK.in_composite
+        assert layers.ANTARCTIC_ROCK.in_cap
+        assert layers.ANTARCTIC_ROCK.in_block
+    with subtests.test("no planet raster behind it"):
+        # Subtraction from a mask the caller already computed — it needs no oceanmask of its own,
+        # and claiming one would refuse the layer on any body whose seam emitted none.
+        assert layers.ANTARCTIC_ROCK.requires_raster is None
+    with subtests.test("earth declares it and mars does not"):
+        assert layers.ANTARCTIC_ROCK.name in bodies.EARTH.surface_layers
+        assert layers.ANTARCTIC_ROCK.name not in bodies.MARS.surface_layers
 
 
 def test_layers_off_names_what_is_missing_and_stays_silent_when_nothing_is(subtests) -> None:
     """Off, never on. Earth answers with an empty list at every stage, which is what lets the
     callers' conditional record write nothing and leave a live 46 GB composite and a 14 GB cap
     render byte-identical."""
-    for name, vocabulary in (("composite", layers.COMPOSITE_LAYERS), ("cap", layers.CAP_LAYERS)):
+    for name, vocabulary in (("composite", layers.COMPOSITE_LAYERS), ("cap", layers.CAP_LAYERS),
+                             ("block", layers.BLOCK_LAYERS)):
         with subtests.test(f"earth {name}"):
             assert layers.layers_off(bodies.EARTH, vocabulary) == []
     with subtests.test("mars cap"):
-        assert layers.layers_off(bodies.MARS, layers.CAP_LAYERS) == ["coastline", "sea_ice"]
+        assert layers.layers_off(bodies.MARS, layers.CAP_LAYERS) == [
+            "antarctic_rock", "coastline", "sea_ice"]
+    with subtests.test("mars block"):
+        # Mars declares perennial ice and nothing else, so a Martian block is short the layers
+        # whose only sources are Earth datasets — sea ice too now that the rig reads it, because
+        # Mars has no sea for pack to float on, and Antarctic outcrop because it has no Antarctica.
+        assert layers.layers_off(bodies.MARS, layers.BLOCK_LAYERS) == [
+            "antarctic_rock", "glaciers", "lake_depth", "sea_ice"]
     with subtests.test("a body that declares nothing names the whole vocabulary"):
         # The all-off end of the range, which Mars stopped supplying when its ice landed. Without
         # it the sweep only ever exercises "none off" and "some off", and the branch that names
         # every layer would never run.
         assert layers.layers_off(LAYERLESS, layers.CAP_LAYERS) == sorted(layers.CAP_LAYERS)
+        assert layers.layers_off(LAYERLESS, layers.BLOCK_LAYERS) == sorted(layers.BLOCK_LAYERS)
     with subtests.test("sorted"):
         # Sorted, so a frozenset's iteration order cannot make one body's recipe two recipes.
         partial = dataclasses.replace(bodies.EARTH, name="partial",

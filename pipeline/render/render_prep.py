@@ -20,19 +20,27 @@ metadata, and overlay_borders.py must model the camera identically). A
 hand-authored frame.json is never overwritten: that is the pinning mechanism
 for frames whose renders predate the formulas (India v3).
 
+It records `body` and `exaggeration` alongside, because a pinned frame could
+not previously say which exaggeration produced its own displacement_scale.
+The body alone would not have said it: it resolves to whatever that planet's
+exaggeration is TODAY, so a frame pinned before a change would silently
+claim the new value. `body` is what scene_build cross-checks its own --body
+against; `exaggeration` is the recipe.
+
 Every mask the shader consumes is also emitted as a 0/255 PNG (Blender
-divides 8-bit images by 255 on load): oceanmask_aea.png always, and with
---watermask (the 4-class mask from fusion) additionally watermask_aea.tif
-plus inlandlake_aea.png and river_aea.png.
+divides 8-bit images by 255 on load): oceanmask.png always, and with
+--watermask (the 4-class mask from fusion) additionally watermask.tif
+plus inlandlake.png and river.png.
 
 Per-output idempotency: existing outputs are skipped, never overwritten, so
-new outputs can be backfilled next to old ones. When heightfield_aea.tif
+new outputs can be backfilled next to old ones. When heightfield.tif
 already exists the grid AND projection are taken from it, not re-derived
 (--frame is then unneeded), so backfilled outputs stay aligned with any
 render already made from it.
 
 Usage:
-  render_prep.py --heightfield data/work/nepal/heightfield_3s.tif \
+  render_prep.py --body earth \
+                 --heightfield data/work/nepal/heightfield_3s.tif \
                  --mask data/work/nepal/oceanmask_3s.tif \
                  --frame 79.6 25.9 88.7 31.0 \
                  [--watermask data/work/nepal/watermask_3s.tif] \
@@ -53,9 +61,12 @@ from rasterio.vrt import WarpedVRT
 from rasterio.warp import transform_bounds
 from rasterio.windows import Window
 
-from pipeline.render.palette import EXAGGERATION  # shared vertical exaggeration
+from pipeline import bodies
+from pipeline.render import render_seam
 
-FRAME_MARGIN = 1.0006  # camera overshoot: the plane underfills the frame a hair
+FRAME_MARGIN = 1.0006  # the hero path's `camera_fraction`: camera overshoot, so the plane
+                       # underfills the frame a hair. `scene_numbers` says why it is a default
+                       # rather than the rule
 HERO_LONG_EDGE = 7680  # hero render long edge in px; the short axis follows
                        # raster aspect (a tall country caps at 7680 tall, not
                        # 7680 wide — Maldives would be 56k px otherwise)
@@ -85,14 +96,34 @@ def aea_crs(frame):
             f"+datum=WGS84 +units=m")
 
 
-def scene_numbers(width_px, height_px, extent_w_m, hero_long_edge=HERO_LONG_EDGE):
+def scene_numbers(width_px, height_px, extent_w_m, *, exaggeration,
+                  hero_long_edge=HERO_LONG_EDGE, camera_fraction=FRAME_MARGIN):
     """Blender scene numbers for a warped grid (docs/framing-math.md).
 
     The displacement plane is always 2 Blender units wide, so one unit is
     half the frame width in meters — every number here is that conversion
     applied to the locked global look constants. The render resolution puts
     hero_long_edge on the grid's longer axis; for landscape grids this is
-    identical to the retired fixed-width rule."""
+    identical to the retired fixed-width rule.
+
+    `camera_fraction` IS HOW MUCH OF THE PLANE THE CAMERA SEES, and its
+    default is the hero path's 1.0006 overshoot, which is why no pinned
+    frame moves. A block passes a fraction BELOW one: its plane carries
+    terrain far past the traced rectangle so that off-block ridges cast in,
+    and that terrain must not be photographed. The alternative was a render
+    border, which crops the output buffer while leaving the camera spanning
+    everything — so the whole plane still dices at full rate and the context
+    is charged for in geometry it does not need. Narrowing the camera is what
+    makes off-frustum context nearly free; `block_plan` holds the three
+    widths this is one half of.
+
+    `exaggeration` IS KEYWORD-ONLY AND REQUIRED, and this used to import
+    Earth's 15x directly. It is `Body.exaggeration`, which is 20x on Mars,
+    and this function is not the hero path's alone: the block prep calls it
+    too and says so ("scene_numbers is the whole seam"), so a Mars block
+    prepared through the old import displaced at two thirds of correct with
+    nothing to notice. No default, for the reason no field on `Body` has
+    one — the type checker names every call site at once."""
     plane_h = 2.0 * height_px / width_px
     if height_px > width_px:
         res = dict(res_x=round(hero_long_edge * width_px / height_px),
@@ -102,10 +133,37 @@ def scene_numbers(width_px, height_px, extent_w_m, hero_long_edge=HERO_LONG_EDGE
                    res_y=round(hero_long_edge * height_px / width_px))
     return dict(
         plane_height_units=plane_h,
-        ortho_scale=max(2.0, plane_h) * FRAME_MARGIN,
-        displacement_scale=EXAGGERATION / (extent_w_m / 2.0),
+        ortho_scale=max(2.0, plane_h) * camera_fraction,
+        displacement_scale=exaggeration / (extent_w_m / 2.0),
         **res,
     )
+
+
+#: frame.json's keys, in the one order they are written in.
+#:
+#: THE ORDER IS LOAD-BEARING AND USED NOT TO HAVE AN OWNER. A frame that exists is never
+#: overwritten, so the only way to check a pin is to regenerate beside it and compare; the CRS
+#: spelling is normalised for exactly that reason. Backfilling `body` and `exaggeration` into 203
+#: pinned frames put a second writer beside this one, and two writers of one key order is the drift
+#: this constant exists to refuse.
+FRAME_KEYS = ("body", "frame_lonlat", "dst_crs", "width_px", "height_px", "xres_m",
+              "extent_w_m", "extent_h_m", "exaggeration", "plane_height_units",
+              "ortho_scale", "displacement_scale", "res_x", "res_y")
+
+
+def frame_json_text(payload: dict[str, Any]) -> str:
+    """Serialise a frame payload in `FRAME_KEYS` order, refusing a missing or unknown key.
+
+    Refusing rather than tolerating, because both directions are silent otherwise: a dropped key
+    leaves a consumer reading `None` as a number, and a stray one makes a regenerated frame differ
+    from its pin for a reason that has nothing to do with the geometry.
+    """
+    missing = [key for key in FRAME_KEYS if key not in payload]
+    unknown = sorted(set(payload) - set(FRAME_KEYS))
+    if missing or unknown:
+        raise ValueError(f"frame payload does not match FRAME_KEYS: missing {missing}, "
+                         f"unknown {unknown}")
+    return json.dumps({key: payload[key] for key in FRAME_KEYS}, indent=2) + "\n"
 
 
 def finalize(tmp, final):
@@ -171,11 +229,14 @@ def write_class_png(watermask_path, out_path, cls):
 
 def main():
     ap = argparse.ArgumentParser()
+    ap.add_argument("--body", required=True, choices=sorted(bodies.BODIES),
+                    help="which planet this frame belongs to; supplies the vertical exaggeration "
+                         "and is recorded in frame.json so the scene can cross-check its own flag")
     ap.add_argument("--heightfield", type=Path, required=True)
     ap.add_argument("--mask", type=Path, required=True)
     ap.add_argument("--watermask", type=Path,
-                    help="4-class water mask; adds watermask_aea.tif + "
-                         "inlandlake_aea.png + river_aea.png")
+                    help=f"4-class water mask; adds {render_seam.WATERMASK} + "
+                         f"{render_seam.INLANDLAKE} + {render_seam.RIVER}")
     ap.add_argument("--outdir", type=Path, required=True)
     ap.add_argument("--width", type=int, default=16384)
     ap.add_argument("--hero-long-edge", type=int, default=HERO_LONG_EDGE,
@@ -188,12 +249,13 @@ def main():
                          "config/countries.toml resolution_floor_m is the home")
     ap.add_argument("--frame", nargs=4, type=float, metavar=("W", "S", "E", "N"),
                     help="padded lon/lat frame from frame_country.py; "
-                         "required unless heightfield_aea.tif already exists")
+                         f"required unless {render_seam.HEIGHTFIELD} already exists")
     args = ap.parse_args()
+    body = bodies.BODIES[args.body]
 
-    out_h = args.outdir / "heightfield_aea.tif"
-    out_m = args.outdir / "oceanmask_aea.tif"
-    out_w = args.outdir / "watermask_aea.tif"
+    out_h = args.outdir / render_seam.HEIGHTFIELD
+    out_m = args.outdir / render_seam.OCEANMASK_TIF
+    out_w = args.outdir / render_seam.WATERMASK
     out_f = args.outdir / "frame.json"
     args.outdir.mkdir(parents=True, exist_ok=True)
 
@@ -227,19 +289,22 @@ def main():
               flush=True)
     else:
         numbers = scene_numbers(width, height, width * xres,
-                                args.hero_long_edge)
+                                exaggeration=body.exaggeration,
+                                hero_long_edge=args.hero_long_edge)
         # normalize the CRS spelling so a regenerated frame.json is
         # byte-identical whether the projection came from --frame or the file
         crs_norm = CRS.from_string(dst_crs) \
             if isinstance(dst_crs, str) else dst_crs
         payload = dict(
+            body=body.name,
             frame_lonlat=args.frame,
             dst_crs=crs_norm.to_proj4(),
             width_px=width, height_px=height, xres_m=xres,
             extent_w_m=width * xres, extent_h_m=height * xres,
+            exaggeration=body.exaggeration,
             **numbers)
         tmp_f = out_f.with_name(out_f.name + ".tmp")
-        tmp_f.write_text(json.dumps(payload, indent=2) + "\n")
+        tmp_f.write_text(frame_json_text(payload))
         os.replace(tmp_f, out_f)
         print(f"wrote {out_f}", flush=True)
         wrote += 1
@@ -256,9 +321,9 @@ def main():
              dtype, pred, floor_m=fm)
         wrote += 1
 
-    png_jobs = [(out_m, 1, "oceanmask_aea.png")]
+    png_jobs = [(out_m, 1, render_seam.OCEANMASK)]
     if args.watermask:
-        png_jobs += [(out_w, 2, "inlandlake_aea.png"), (out_w, 3, "river_aea.png")]
+        png_jobs += [(out_w, 2, render_seam.INLANDLAKE), (out_w, 3, render_seam.RIVER)]
     for src_tif, cls, name in png_jobs:
         out_png = args.outdir / name
         if out_png.exists():
@@ -267,6 +332,12 @@ def main():
         write_class_png(src_tif, out_png, cls)
         wrote += 1
 
+    # Declared unconditionally, INCLUDING on the "nothing to do" path, because the record is a
+    # statement about this stage having finished rather than about it having written bytes. A resume
+    # that skipped every warp has still produced the directory the rig is about to read.
+    print(f"declared {render_seam.declare(args.outdir, render_seam.PREP,
+                                          [render_seam.HEIGHTFIELD] + [n for _, _, n in png_jobs])}",
+          flush=True)
     print("complete" if wrote else "nothing to do — all outputs exist",
           flush=True)
 

@@ -22,7 +22,7 @@ import math
 import numpy as np
 import pytest
 
-from pipeline.render.cast_shadow import (
+from pipeline.look.cast_shadow import (
     SUN_ANGULAR_DIAMETER,
     shadow_mask,
     shadow_reach_px,

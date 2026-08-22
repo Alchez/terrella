@@ -32,7 +32,7 @@ import sys
 
 import numpy as np
 
-from pipeline.render import palette, seaice
+from pipeline.look import palette, seaice
 from pipeline.tile import shade
 
 WIDTH = 131072       # the planet grid's full width -- windows are always full-width

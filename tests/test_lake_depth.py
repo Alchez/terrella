@@ -23,7 +23,7 @@ import numpy as np
 import pytest
 from conftest import hillshade_for_light
 
-from pipeline.render import lake_depth, palette, seaice
+from pipeline.look import lake_depth, palette, seaice
 from pipeline.tile import shade
 
 CURVES = ["log1p", "sqrt", "linear"]

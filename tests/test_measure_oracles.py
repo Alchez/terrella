@@ -35,7 +35,7 @@ from rasterio.transform import from_bounds
 
 from pipeline import bodies, freshness, paths
 from pipeline.acquire import download_sim3292, download_viking_mosaic
-from pipeline.render import mars_ice, viking_luma
+from pipeline.look import mars_ice, viking_luma
 from pipeline.tile import cap_render
 from scripts import measure_mars_ice_white as ice_white
 from scripts import measure_viking_levels as levels

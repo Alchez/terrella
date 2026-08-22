@@ -4,7 +4,7 @@ ONE ANSWER TO "HOW DOES THIS BODY MAKE THAT LAYER" at the Mercator tier. `layers
 layer is and which stages read it; `Body.surface_layers` says which ones a planet has; this says who
 builds each one, out of what, and how the result becomes a number the composite can blend.
 
-THE CAP TIER'S REGISTRY IS `render/perennial_ice.py`, whose docstring holds the argument this module
+THE CAP TIER'S REGISTRY IS `look/perennial_ice.py`, whose docstring holds the argument this module
 inherits rather than restates: a producer is CODE, so bodies differ in machinery and not in
 constants. Two registries and not one because the tiers key differently — that one by
 `(body, pole)`, this one by `(body, layer)` — and a cap producer paints an AEQD disc where these
@@ -27,10 +27,11 @@ graded by NSIDC's packing convention, which no type and no test could notice.
 read on the main thread precisely so the compute stays pure; a producer opening a file here would
 put GDAL back where rasterio is not thread-safe.
 
-    from pipeline.render import layer_producers
+    from pipeline.look import layer_producers
     producer = layer_producers.producer_for(body, layers.SEA_ICE)
 """
 
+import dataclasses
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -39,8 +40,8 @@ from typing import Any
 import numpy as np
 
 from pipeline import bodies, layers
-from pipeline.acquire import download_sim3292
-from pipeline.render import lake_depth, mars_ice, palette, seaice, snow, viking_luma
+from pipeline.acquire import download_add_rock, download_sim3292
+from pipeline.look import lake_depth, mars_ice, palette, seaice, snow, viking_luma
 
 
 @dataclass(frozen=True)
@@ -82,6 +83,13 @@ class LayerWindow:
     #: True latitude in degrees per ROW (1-D). A Mercator window has rows of constant latitude,
     #: which is what separates this from the cap tier's per-pixel field.
     latitude: np.ndarray
+    #: GROUND metres per pixel, per ROW (1-D) — never Mercator map metres. Carried for the same
+    #: reason `perennial_ice.CapIceInputs` carries its scalar twin, and named the same thing: a
+    #: producer turning a ground distance into pixels needs both the cos(latitude) stretch and the
+    #: body's own `ground_metres_per_mercator_unit`, and this window knows neither on its own. It is
+    #: per row here and scalar there because a Mercator row has one resolution and an AEQD disc has
+    #: one for the whole disc.
+    ground_metres_per_px: np.ndarray
     #: The window's latitude span in 3857 metres, for a producer whose ramp needs the extent rather
     #: than the per-row value.
     top: float
@@ -199,6 +207,32 @@ def _build_sea_ice(request: LayerBuild) -> None:
                               band_rows=request.band_rows)
 
 
+def _build_antarctic_rock(request: LayerBuild) -> None:
+    """SCAR ADD's outcrop burnt onto the grid as a 0/1 Byte mask — the glacier burn's twin.
+
+    Reads the source path and the layer name off the acquirer that writes them, at call time. The
+    acquirer is the one home for both: it chose the filename and it chose `-nln rock`, so a second
+    spelling here would agree with it until one of them moved, and the failure is an absent file
+    read as "this body has no exposed rock".
+    """
+    print("rasterize ADD Antarctic rock -> 3857 ...", flush=True)
+    snow.rasterize_antarctic_rock(request.bounds, request.width, request.height, request.out,
+                                  gpkg=download_add_rock.GPKG, layer=download_add_rock.LAYER)
+
+
+def _earth_antarctic_rock(_window: LayerWindow) -> "np.ndarray | None":
+    """None on every window, and that is this layer's whole answer at this tier.
+
+    THE ONE PRODUCER THAT BUILDS A RASTER AND CONTRIBUTES NOTHING. What reads the raster is
+    `_earth_perennial_ice`, which SUBTRACTS it from the forced Antarctic white; the mask reaches that
+    producer as a shared field on the window rather than as its own contribution, exactly as
+    `watercode` reaches lake depth. Returning an array here instead would put the rock into
+    `fold_white`'s maximum and paint the outcrop the very white this layer exists to remove — an
+    inversion that renders as a perfectly plausible ice sheet.
+    """
+    return None
+
+
 def _earth_lake_depth(window: LayerWindow) -> "np.ndarray | None":
     """Depth in metres, zeroed off watermask class 2 — the one contribution that is not an alpha.
 
@@ -225,8 +259,9 @@ def _earth_perennial_ice(window: LayerWindow) -> "np.ndarray | None":
     if window.raw is None:
         persistence_alpha = np.zeros(window.land.shape, dtype=float)
     else:
-        persistence_alpha = snow.snow_alpha(snow.unpack_persistence(window.raw),
-                                            window.top, window.bottom)
+        persistence_alpha = snow.soften_source_cells(
+            snow.snow_alpha(snow.unpack_persistence(window.raw), window.top, window.bottom),
+            window.ground_metres_per_px)
     return np.maximum(persistence_alpha,
                       snow.antarctic_snow_mask(window.land, window.latitude))
 
@@ -279,11 +314,19 @@ def _earth_white(_window: "LayerWindow | None" = None) -> tuple[Any, Any]:
 
 
 def _earth_perennial_ice_recipe() -> dict[str, Any]:
-    """What `_earth_perennial_ice` reads: `snow_alpha`'s latitude ramp, and the white it paints in.
+    """What `_earth_perennial_ice` reads: `snow_alpha`'s latitude ramp, the softening that follows
+    it, and the white it paints in.
 
     The white is here because this producer declares it — see `LayerProducer.paint`. Earth's
     glacier producer records the identical pair from the identical home, and `produced` merges by
     key, so the duplicate is one value seen twice rather than two values that can drift.
+
+    THE SOFTENING'S TWO CONSTANTS ARE HERE FOR THE REASON `snow`'s RAMP_* ARE, and the arithmetic
+    they key is spatial rather than tonal, which is what makes leaving them out so quiet: a
+    re-tuned edge width changes no colour, no threshold and no file, so a stale planet_rgb painted
+    with the old sigma reads exactly as fresh as a new one. `SOFTEN_BAND_TOLERANCE` is deliberately
+    NOT recorded: it bounds the banding's own approximation error rather than choosing an answer,
+    so moving it can only make the same intended output more or less exactly computed.
     """
     lit, shadow = _earth_white()
     return {"snow_ramp_lat_lo": snow.RAMP_LAT_LO,
@@ -291,6 +334,8 @@ def _earth_perennial_ice_recipe() -> dict[str, Any]:
             "snow_ramp_low_min": snow.RAMP_LOW_MIN,
             "snow_ramp_low_max": snow.RAMP_LOW_MAX,
             "snow_ramp_band": snow.RAMP_BAND,
+            "snow_soften_fraction": snow.SOFTEN_FRACTION,
+            "snow_source_cell_m": snow.SOURCE_CELL_M,
             "snow_rgb": lit, "snow_shadow_rgb": shadow}
 
 
@@ -402,7 +447,7 @@ def _mars_ice_recipe() -> dict[str, Any]:
 def _mars_ice_build_recipe() -> dict[str, Any]:
     """The two constants `_build_mars_ice` freezes into its raster.
 
-    The luma WEIGHTS are deliberately absent, and covered rather than forgotten: `render/viking_luma`
+    The luma WEIGHTS are deliberately absent, and covered rather than forgotten: `look/viking_luma`
     records them in its own recipe, so a weight change restages that stage, moves the field's mtime,
     and reaches this raster as a moved SOURCE. Recording them here as well would rebuild correctly
     and claim the coupling lives in two places.
@@ -414,9 +459,10 @@ def _mars_ice_build_recipe() -> dict[str, Any]:
 
 #: Every composite-tier producer that ships, by (body slug, layer name).
 #:
-#: Five entries and five MECHANISMS — a banded NetCDF warp, a vector rasterize, a banded GeoTIFF
-#: warp, a nodata-masked bilinear warp, and Mars's graded-and-feathered polar bands — which is what
-#: gives the parameterisation real instances instead of one shape repeated with a different constant.
+#: Six entries and six MECHANISMS — a banded NetCDF warp, a vector rasterize, a banded GeoTIFF warp,
+#: a nodata-masked bilinear warp, Mars's graded-and-feathered polar bands, and a vector rasterize
+#: whose result no pixel of its own is painted from — which is what gives the parameterisation real
+#: instances instead of one shape repeated with a different constant.
 PRODUCER_BY_BODY_LAYER: dict[tuple[str, str], LayerProducer] = {
     ("earth", layers.LAKE_DEPTH.name): LayerProducer(
         sources=lambda: (lake_depth.LAKE_VRT,),
@@ -439,6 +485,15 @@ PRODUCER_BY_BODY_LAYER: dict[tuple[str, str], LayerProducer] = {
         build=_build_sea_ice, contribution=_earth_sea_ice,
         paint=lambda _window: seaice.ice_white(),
         recipe=_earth_sea_ice_recipe, build_recipe=_no_tunables),
+    ("earth", layers.ANTARCTIC_ROCK.name): LayerProducer(
+        sources=lambda: (download_add_rock.GPKG,),
+        # None for both, and neither is a gap. The number this layer builds is consumed by the
+        # perennial-ice producer rather than blended, so there is no contribution to paint and no
+        # white to name — the two fields existing and being answered "not applicable" is what keeps
+        # that visible, exactly as lake depth's `paint` does for a number that is a depth.
+        build=_build_antarctic_rock, contribution=_earth_antarctic_rock,
+        paint=lambda _window: None,
+        recipe=_no_tunables, build_recipe=_no_tunables),
     ("mars", layers.PERENNIAL_ICE.name): LayerProducer(
         sources=_mars_ice_sources,
         build=_build_mars_ice, contribution=_mars_perennial_ice, paint=_mars_ice_white,
@@ -465,3 +520,70 @@ def producer_for(body: bodies.Body, layer: layers.Layer) -> LayerProducer:
             f"{body.name} declares the {layer.name} layer but registers no composite producer; "
             f"known: {sorted(PRODUCER_BY_BODY_LAYER)}"
         ) from None
+
+
+#: The layers whose contributions merge into ONE white, in the order they fold.
+#:
+#: SEA ICE IS ABSENT AND THAT IS THE POINT. `shade.composite` gates it on the ocean selector where
+#: this union paints land, so folding it in here would paint pack ice onto the shore it borders.
+#: Lake depth is absent for a different reason: it is a ramp position and not a white at all.
+WHITE_UNION: tuple[layers.Layer, ...] = (layers.PERENNIAL_ICE, layers.GLACIERS)
+
+
+def gather(body: bodies.Body, layer_raw: dict[str, "np.ndarray | None"], window: LayerWindow,
+           vocabulary: frozenset[str]) -> tuple[dict[str, np.ndarray], dict[str, tuple[Any, Any]]]:
+    """Every layer `vocabulary` reads, as this body's producers answer for one window.
+
+    ASKED OF THE BODY, NEVER OF THE RASTER ON DISK. A producer runs because the planet DECLARED the
+    layer, which is what lets Earth's perennial ice carry the forced Antarctic patch — a
+    latitude-and-land rule with no file behind it, so no missing raster could ever switch it off.
+    Reading the declaration off `layer_raw` instead would drop it the day NSIDC went absent.
+
+    `vocabulary` IS THE CALLER'S STAGE VIEW, on `layers.layers_off`'s rule: the composite reads
+    `COMPOSITE_LAYERS` and the block render `BLOCK_LAYERS`, and the two genuinely disagree.
+
+    A paint is asked ONLY of a layer that contributed, so a producer that paints nothing this window
+    never has to answer what colour it would have used.
+    """
+    contributions: dict[str, np.ndarray] = {}
+    paints: dict[str, tuple[Any, Any]] = {}
+    for layer in layers.WARPED_LAYERS:
+        if layer.name not in vocabulary or layer.name not in body.surface_layers:
+            continue
+        producer = producer_for(body, layer)
+        seen = dataclasses.replace(window, raw=layer_raw[layer.name])
+        value = producer.contribution(seen)
+        if value is None:
+            continue
+        contributions[layer.name] = value
+        paint = producer.paint(seen)
+        if paint is not None:
+            paints[layer.name] = paint
+    return contributions, paints
+
+
+def fold_white(contributions: dict[str, np.ndarray], shape: tuple[int, ...], *,
+               merge: "Callable[[Any, np.ndarray, str, np.ndarray], Any] | None" = None
+               ) -> tuple[np.ndarray, Any]:
+    """Fold `WHITE_UNION`'s contributions into the one alpha `shade.composite` paints as snow.
+
+    float64 base because that is what `snow_alpha` returns and what the maxima promote to; a float32
+    base would narrow every pixel the compositor blends. `np.maximum` reorders freely and every
+    contribution is non-negative, so which layer lands first cannot move a bit — the fixed order is
+    for the caller that folds something ALONGSIDE the alpha and is not commutative.
+
+    `merge` is that caller. It receives the value carried so far, the alpha BEFORE this layer folds
+    in, and this layer's name and contribution, and it exists so the compositor's paint merge reads
+    the same running alpha this fold produces rather than recomputing a second one beside it. Left
+    None by a caller that wants the alpha alone, which is every caller that does not paint.
+    """
+    alpha = np.zeros(shape, dtype=float)
+    carried = None
+    for layer in WHITE_UNION:
+        contribution = contributions.get(layer.name)
+        if contribution is None:
+            continue
+        if merge is not None:
+            carried = merge(carried, alpha, layer.name, contribution)
+        alpha = np.maximum(alpha, contribution)
+    return alpha, carried

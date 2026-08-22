@@ -47,7 +47,7 @@ import numpy as np
 
 from pipeline import bodies, layers
 from pipeline.acquire import download_sim3292
-from pipeline.render import mars_ice, palette, snow, viking_luma
+from pipeline.look import mars_ice, palette, snow, viking_luma
 
 
 class WarpToCap(Protocol):
@@ -144,6 +144,13 @@ def _earth_north(inputs: CapIceInputs) -> np.ndarray:
     `snow_alpha`'s latitude ramp is CONSTANT across every pixel of it. Reproduced here with the
     fixed high-latitude thresholds rather than by calling `snow_alpha`, whose per-row latitude is
     Mercator-specific and would be wrong on an AEQD grid.
+
+    THE FEATHER IS SHARED THOUGH, AND HAS TO BE. Only the RAMP is Mercator-specific; the staircase
+    it softens is the source's own 0.01 degree cell, which this grid resolves exactly as the tiles
+    do — and the cap meets those tiles across the 80..84 crossfade, at the latitudes where the cell
+    is 20 to 35 render pixels tall and the staircase is at its worst. Feathering one side of that
+    seam and not the other would swap one visible discontinuity for another. The disc has a single
+    ground resolution, so `feather` takes the scalar branch here and the per-row branch there.
     """
     sp_raw = inputs.warp(f'NETCDF:"{snow.SP_NC}":{snow.SP_VAR}', "sp", "bilinear", "Float32",
                          srcnodata=snow.SP_FILL)
@@ -151,7 +158,8 @@ def _earth_north(inputs: CapIceInputs) -> np.ndarray:
     low = snow.RAMP_LOW_MAX
     high = low + snow.RAMP_BAND
     fraction = np.clip((persistence - low) / (high - low), 0.0, 1.0)
-    return fraction * fraction * (3.0 - 2.0 * fraction)  # float64, as before the N/S refactor
+    alpha = fraction * fraction * (3.0 - 2.0 * fraction)  # float64, as before the N/S refactor
+    return snow.soften_source_cells(alpha, inputs.ground_metres_per_px)
 
 
 def _earth_south(inputs: CapIceInputs) -> np.ndarray:
@@ -218,7 +226,7 @@ def _mars_cap_ice(inputs: CapIceInputs, pole: str) -> np.ndarray:
 #:
 #: MARS ARRIVED ONCE ITS FIELD HAD AN OWNER, which was the ordering this note used to record as the
 #: reason for its absence: a producer cannot declare a path nothing acquired. `download_viking_mosaic`
-#: and `render/viking_luma` closed that, and the OMEGA entries that once stood here are gone rather
+#: and `look/viking_luma` closed that, and the OMEGA entries that once stood here are gone rather
 #: than repointed because the licence blocks the source, not because the seam moved.
 def _earth_cap_white() -> tuple[Any, Any]:
     """Earth's one white at both poles, and the same pair its composite-tier producers declare.

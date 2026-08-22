@@ -19,7 +19,7 @@ import pytest
 from conftest import cap_ground_metres_per_px_from_ground_radius
 
 from pipeline import bodies, layers, mercator
-from pipeline.render import layer_producers, mars_ice, perennial_ice, snow
+from pipeline.look import layer_producers, mars_ice, perennial_ice, snow
 from pipeline.tile import cap_render
 
 
@@ -130,19 +130,37 @@ class TestEarthsProducersComputeWhatTheyComputedInline:
         Mercator-specific and simply wrong on an AEQD grid.
 
         `snow.snow_alpha` is the oracle rather than a smoothstep written out here: a second copy of
-        the formula would prove the two copies agree, not that either matches what ships."""
-        packed = (np.arange(16, dtype=np.float32) * 700.0).reshape(4, 4)  # 0.00 .. 1.05 unpacked
+        the formula would prove the two copies agree, not that either matches what ships.
+
+        THE SOFTENING RIDES ON BOTH SIDES AND AGREES IN GROUND METRES, NOT IN PIXELS, which is why
+        it is applied here at the CAP's resolution rather than at the Mercator window's. The two
+        grids resolve the same 0.01 degree source cell at different pixel counts — a Mercator pixel
+        at 82N is ~43 ground metres and the cap disc's is its own fixed figure — so a sigma equal on
+        both sides in pixels would be unequal in the world, which is the axis the crossfade is
+        judged on. `soften_source_cells` takes ground metres for exactly this reason, and pinning
+        the equality here is what stops that seam being re-decided in pixels later."""
+        # A 4x4 FIXTURE CANNOT CARRY THIS CLAIM ANY MORE, and the "saturated or dead" guard below is
+        # what said so: the softening is a spatial operator with a ~1.4 px sigma on this grid, so a
+        # 4-wide ramp comes out smeared to 0.72 at both ends and the test would be comparing two
+        # mushes. The field is constant DOWN each column, which makes the vertical pass an exact
+        # identity under `mode="nearest"`, and it over- and under-shoots the ramp by ten columns at
+        # each end, which is past three sigma — so the extremes survive and the interior is the
+        # gradient the comparison is about.
+        profile = np.clip(np.linspace(-0.8, 1.8, 32), 0.0, 1.05) * 10_000.0
+        packed = np.tile(profile.astype(np.float32), (32, 1))
         log: list[str] = []
         inputs = perennial_ice.CapIceInputs(
-            land=np.ones((4, 4), dtype=bool),
-            latitude=np.full((4, 4), 82.0, dtype=np.float32),
+            land=np.ones((32, 32), dtype=bool),
+            latitude=np.full((32, 32), 82.0, dtype=np.float32),
             warp=_fixed_warp(log, packed), burn=_refusing_burn,
             ground_metres_per_px=EARTH_CAP_GROUND_M_PER_PX)
         alpha = perennial_ice.cap_ice(bodies.EARTH, "north").alpha(inputs)
 
         top, bottom = (float(mercator.northing_at(lat, mercator.WEB_MERCATOR_RADIUS_M))
                        for lat in (84.0, 78.0))
-        expected = snow.snow_alpha(snow.unpack_persistence(packed), top, bottom)
+        expected = snow.soften_source_cells(
+            snow.snow_alpha(snow.unpack_persistence(packed), top, bottom),
+            EARTH_CAP_GROUND_M_PER_PX)
         assert alpha == pytest.approx(expected)
         assert alpha.max() > 0.9 and alpha.min() == 0.0, "a saturated or dead ramp proves nothing"
 
@@ -393,7 +411,11 @@ class TestTheTwoTiersAgreeOnTheColourOfTheSameIce:
                 latitude = snow.latitude_per_row(top, bottom, 4)
                 window = layer_producers.LayerWindow(
                     raw=None, watercode=None, land=np.ones((4, 4), dtype=bool),
-                    latitude=latitude, top=top, bottom=bottom)
+                    latitude=latitude,
+                    ground_metres_per_px=mercator.ground_metres_per_pixel(
+                        latitude, (top - bottom) / 4,
+                        bodies.ground_metres_per_mercator_unit(body)),
+                    top=top, bottom=bottom)
                 tile_paint = layer_producers.producer_for(
                     body, layers.PERENNIAL_ICE).paint(window)
                 assert tile_paint is not None

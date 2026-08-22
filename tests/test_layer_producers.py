@@ -13,8 +13,9 @@ import pytest
 import rasterio
 from rasterio.transform import from_bounds
 
-from pipeline import bodies, freshness, layers
-from pipeline.render import lake_depth, layer_producers, mars_ice, palette, seaice, snow
+from pipeline import bodies, freshness, layers, mercator
+from pipeline.acquire import download_add_rock
+from pipeline.look import lake_depth, layer_producers, mars_ice, palette, seaice, snow
 from pipeline.tile import shade_planet
 
 #: A window well south of the Antarctic patch's -60, so the rule that has no dataset behind it is
@@ -34,13 +35,26 @@ def _triples(paint) -> "set[tuple[int, ...]]":
     return found
 
 
+def _ground_metres_per_px(top, bottom, rows=ROWS):
+    """This fixture's per-row ground resolution, derived from its own span.
+
+    Its own, and not Earth's z8 figure, because these windows are 8 rows over a megametre — the
+    geometry has to be self-consistent with whatever the fixture declares rather than with the
+    planet grid it stands in for.
+    """
+    return mercator.ground_metres_per_pixel(
+        snow.latitude_per_row(top, bottom, rows), (top - bottom) / rows,
+        bodies.ground_metres_per_mercator_unit(bodies.EARTH))
+
+
 def _window(raw, *, land=None, watercode=None, top=SOUTHERN_TOP, bottom=SOUTHERN_BOTTOM):
     latitude = snow.latitude_per_row(top, bottom, ROWS)
     return layer_producers.LayerWindow(
         raw=raw,
         watercode=np.zeros((ROWS, COLS), dtype=np.uint8) if watercode is None else watercode,
         land=np.ones((ROWS, COLS), dtype=bool) if land is None else land,
-        latitude=latitude, top=top, bottom=bottom)
+        latitude=latitude, ground_metres_per_px=_ground_metres_per_px(top, bottom),
+        top=top, bottom=bottom)
 
 
 class TestTheRegistryAndTheLayerDeclarationsAgree:
@@ -119,12 +133,14 @@ class TestEarthsProducersComputeWhatTheyComputedInline:
         assert got is not None and inline is not None
         assert got.tobytes() == inline.tobytes()
 
-    def test_perennial_ice_is_snow_alpha_maxed_with_the_antarctic_patch(self):
+    def test_perennial_ice_is_the_feathered_snow_alpha_maxed_with_the_antarctic_patch(self):
         packed = np.linspace(0, 10_000, ROWS * COLS, dtype="float32").reshape(ROWS, COLS)
         land = np.ones((ROWS, COLS), dtype=bool)
         latitude = snow.latitude_per_row(SOUTHERN_TOP, SOUTHERN_BOTTOM, ROWS)
         inline = np.maximum(
-            snow.snow_alpha(snow.unpack_persistence(packed), SOUTHERN_TOP, SOUTHERN_BOTTOM),
+            snow.soften_source_cells(
+                snow.snow_alpha(snow.unpack_persistence(packed), SOUTHERN_TOP, SOUTHERN_BOTTOM),
+                _ground_metres_per_px(SOUTHERN_TOP, SOUTHERN_BOTTOM)),
             snow.antarctic_snow_mask(land, latitude))
         got = layer_producers.producer_for(bodies.EARTH, layers.PERENNIAL_ICE).contribution(
             _window(packed, land=land))
@@ -201,8 +217,12 @@ class TestTheSnowUnionIsUnchangedByTheMove:
         land = np.ones((ROWS, COLS), dtype=bool)
         latitude = snow.latitude_per_row(SOUTHERN_TOP, SOUTHERN_BOTTOM, ROWS)
         # The pre-refactor order, verbatim: snow alpha, then glaciers, then the Antarctic patch.
-        inline = snow.snow_alpha(snow.unpack_persistence(persistence),
-                                 SOUTHERN_TOP, SOUTHERN_BOTTOM)
+        # The feather rides inside the perennial-ice producer and so inside the first term; the
+        # ORDER is what this reproduces, and it is unchanged by softening one of the operands.
+        inline = snow.soften_source_cells(
+            snow.snow_alpha(snow.unpack_persistence(persistence),
+                            SOUTHERN_TOP, SOUTHERN_BOTTOM),
+            _ground_metres_per_px(SOUTHERN_TOP, SOUTHERN_BOTTOM))
         inline = np.maximum(inline, glacier.astype(float))
         inline = np.maximum(inline, snow.antarctic_snow_mask(land, latitude))
         assert self._shared(persistence, glacier).snow_a.tobytes() == inline.tobytes()
@@ -515,4 +535,58 @@ class TestAProducerDeclaresTheWhiteItIsPaintedIn:
         recorded = layer_producers.producer_for(bodies.MARS, layers.PERENNIAL_ICE).recipe()
         assert list(palette.SNOW_RGB) not in [list(v) for v in recorded.values()]
         assert list(palette.SNOW_SHADOW_RGB) not in [list(v) for v in recorded.values()]
+
+
+class TestARockLayerBuildsARasterAndContributesNothing:
+    """Antarctic outcrop is the first layer whose raster is read by ANOTHER layer's producer.
+
+    It has a row, a source, a build and a warped raster like the four before it, and then its own
+    `contribution` is None on every window: what consumes it is `snow.antarctic_snow_mask` inside
+    the perennial-ice producer, which SUBTRACTS it. That asymmetry is the whole design, and both
+    halves of it are silent if they break. A rock layer that started contributing would be folded
+    into `WHITE_UNION`'s maximum and paint the outcrop the very white it exists to remove — the
+    exact inversion, and one that renders as a plausible ice sheet.
+    """
+
+    def _rock(self, rows=ROWS, cols=COLS) -> np.ndarray:
+        """A rock mask covering the left half — enough that a fold would be unmistakable."""
+        mask = np.zeros((rows, cols), dtype=np.uint8)
+        mask[:, : cols // 2] = 1
+        return mask
+
+    def test_gather_returns_no_entry_for_it_however_much_rock_there_is(self):
+        """`gather` skips a producer returning None, so the layer never reaches the fold at all.
+
+        Asserted with the raster PRESENT and non-empty: a rock mask of zeros would satisfy this
+        against a producer that folded its input, which is the arm that has to fail.
+        """
+        raw: dict[str, np.ndarray | None] = {layer.name: None for layer in layers.WARPED_LAYERS}
+        raw[layers.ANTARCTIC_ROCK.name] = self._rock()
+        contributions, paints = layer_producers.gather(
+            bodies.EARTH, raw, _window(None), layers.COMPOSITE_LAYERS)
+        assert layers.ANTARCTIC_ROCK.name not in contributions
+        assert layers.ANTARCTIC_ROCK.name not in paints
+
+    def test_it_is_not_in_the_white_union(self):
+        """The union is the one place a contribution would become white, and it is a fixed tuple —
+        so this is the guard against the tidy that adds every ice-ish layer to it."""
+        assert layers.ANTARCTIC_ROCK not in layer_producers.WHITE_UNION
+
+    def test_it_declares_no_paint_because_it_is_never_painted(self):
+        """None rather than a white, for lake depth's reason and a stronger one: this layer's
+        number reaches no pixel of its own at all."""
+        producer = layer_producers.producer_for(bodies.EARTH, layers.ANTARCTIC_ROCK)
+        assert producer.paint(_window(self._rock())) is None
+        assert producer.contribution(_window(self._rock())) is None
+
+    def test_its_source_is_the_gpkg_the_acquirer_writes(self, monkeypatch, tmp_path):
+        """One home for the path, read at CALL time — the acquirer owns it because it writes it.
+
+        A second spelling here would be a path that agrees with the acquirer's until one of them
+        moves, and the failure is an absent file read as "this body has no rock".
+        """
+        moved = tmp_path / "somewhere-else.gpkg"
+        monkeypatch.setattr(download_add_rock, "GPKG", moved)
+        producer = layer_producers.producer_for(bodies.EARTH, layers.ANTARCTIC_ROCK)
+        assert producer.sources() == (moved,)
 

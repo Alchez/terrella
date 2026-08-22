@@ -16,7 +16,7 @@ import itertools
 import numpy as np
 import pytest
 
-from pipeline.render import palette
+from pipeline.look import palette
 
 KINDS = ["land", "sea"]
 

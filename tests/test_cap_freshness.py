@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from pipeline import bodies, planet_seam
-from pipeline.render import perennial_ice
+from pipeline.look import perennial_ice
 from pipeline.tile import cap_render
 from pipeline.tile.shade import KNOBS
 

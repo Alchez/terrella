@@ -6,7 +6,7 @@ to a WebMercatorQuad-aligned 3857 grid, mosaic them (VRT), then shade the MOSAIC
 Knobs are locked to the values validated on the Nepal chunk (single-NW sun, the physical
 15x exaggeration via the latitude z-factor, the tuned composite defaults).
 
-Snow comes from NSIDC-0791 snow persistence (pipeline/render/snow.py) as a latitude-ramped
+Snow comes from NSIDC-0791 snow persistence (pipeline/look/snow.py) as a latitude-ramped
 soft alpha — replacing WorldCover class 70, which left mid/high-latitude ranges bare. The
 composite loads the whole region into RAM — fine per-region; a planet run must window it.
 
@@ -24,14 +24,14 @@ import rasterio
 from rasterio.enums import Resampling
 from scipy.ndimage import zoom
 
-from pipeline import bodies, paths
-from pipeline.raster_io import GTIFF_CREATE
-from pipeline.render import hillshade, lake_depth, palette, relief, snow
-from pipeline.render.sky_view import (
+from pipeline import bodies, mercator, paths
+from pipeline.look import hillshade, lake_depth, palette, relief, snow
+from pipeline.look.sky_view import (
     OCCLUSION_TARGET_M_PER_PX,
     normalised_occlusion,
     occlusion_shape,
 )
+from pipeline.raster_io import GTIFF_CREATE
 
 DATA = paths.DATA
 CHUNKS = DATA / "work/planet/chunks"
@@ -93,12 +93,13 @@ class Knobs(TypedDict):
 # global SVF. It is the hero's own ratio, and any value >= 0.10 already drives pure black to 0.00%
 # everywhere; past ~0.20 the compression starts reading flat rather than soft.
 #
-# `hi` 1.30 -> 1.12 lands with it, as ART.md:56 demands (tune the pair, never each alone): the fill
-# lowers peak light, so the old 1.30 ceiling no longer binds and only clips the pale ramp.
+# `hi` 1.30 -> 1.12 lands with it, as ART.md § Fill sun — TILES demands (tune the pair, never each
+# alone): the fill lowers peak light, so the old 1.30 ceiling no longer binds and only clips the
+# pale ramp.
 # `ambient` deliberately STAYS 0.50 -- the sweep tried 0.56/0.62 and both re-created the "washed
 # rosy and flat" failure the hero's own A/B already rejected. The fill IS the shadow floor
-# (ART.md:90); a second floor under it only hazes the pale high country. Every metric said 0.62 was
-# best and every metric was wrong -- the eye decided it.
+# (ART.md § Fill sun — TILES); a second floor under it only hazes the pale high country. Every
+# metric said 0.62 was best and every metric was wrong -- the eye decided it.
 # hero's fill sun
 #
 # `snow_curve` **"gamma8", chosen by eye** off a four-curve A/B (linear/gamma4/gamma8/
@@ -304,11 +305,20 @@ def main():
     water = lake_depth.inland_water(watercode)
     hs = read1(hs_tif).astype(float)
 
-    # snow: NSIDC-0791 persistence -> latitude-ramped soft alpha (pipeline/render/snow.py)
+    # snow: NSIDC-0791 persistence -> latitude-ramped soft alpha (pipeline/look/snow.py)
     persistence = snow.warp_persistence(
         (bounds.left, bounds.bottom, bounds.right, bounds.top), grid_w, grid_h,
         args.out / "sp_merc.tif")
-    snow_a = snow.snow_alpha(persistence, bounds.top, bounds.bottom)
+    snow_a = snow.soften_source_cells(
+        snow.snow_alpha(persistence, bounds.top, bounds.bottom),
+        # Earth spelled through the registry rather than as a bare 1.0, for the reason the
+        # hillshade call above states: this path takes Copernicus cells, so Earth is the subject
+        # here and not a default. The grid is the region's own, so its pixel size comes from the
+        # bounds it was warped to rather than from a body's z8 figure.
+        mercator.ground_metres_per_pixel(
+            snow.latitude_per_row(bounds.top, bounds.bottom, grid_h),
+            (bounds.top - bounds.bottom) / grid_h,
+            bodies.ground_metres_per_mercator_unit(bodies.EARTH)))
     glacier = snow.rasterize_glaciers(
         (bounds.left, bounds.bottom, bounds.right, bounds.top), grid_w, grid_h,
         args.out / "rgi_merc.tif")
@@ -316,7 +326,7 @@ def main():
         snow_a = np.maximum(snow_a, glacier.astype(float))
         print(f"unioned RGI glaciers: {int((glacier > 0).sum()):,} px", flush=True)
 
-    # lake depth: GLOBathy modelled depth, tint-only (pipeline/render/lake_depth.py)
+    # lake depth: GLOBathy modelled depth, tint-only (pipeline/look/lake_depth.py)
     depth = lake_depth.lakes_only(
         lake_depth.warp_depth((bounds.left, bounds.bottom, bounds.right, bounds.top),
                               grid_w, grid_h, args.out / "lakedepth_merc.tif"),

@@ -64,6 +64,7 @@ from scipy.ndimage import (
 from pipeline import naturalearth, paths
 from pipeline.compose.overlay_borders import render_mapping
 from pipeline.frame.country_config import country_render_dir
+from pipeline.render import render_seam
 
 warnings.filterwarnings("ignore", category=NotGeoreferencedWarning)  # hero PNGs
 
@@ -224,8 +225,8 @@ def load_parts(shp_path, bbox, want_slug, exclude=False):
 def render_one(slug, dim, desat, force, outline_div=OUTLINE_DIV_DEFAULT, halo=HALO_ALPHA_DEFAULT):
     hero_path = HEROES / f"{slug}.png"
     render_dir = country_render_dir(slug)
-    ocean_path = render_dir / "oceanmask_aea.tif"
-    heightfield_path = render_dir / "heightfield_aea.tif"
+    ocean_path = render_dir / render_seam.OCEANMASK_TIF
+    heightfield_path = render_dir / render_seam.HEIGHTFIELD
     if not hero_path.exists() or not ocean_path.exists() or not heightfield_path.exists():
         print(f"  {slug}: skip (no hero / oceanmask / heightfield)", flush=True)
         return
@@ -270,7 +271,7 @@ def render_one(slug, dim, desat, force, outline_div=OUTLINE_DIV_DEFAULT, halo=HA
         ocean = np.ones((height, width), dtype=ocean_full.dtype)  # margin fills as ocean(1)
         reproject(ocean_full, ocean, src_transform=ocean_transform, src_crs=crs,
                   dst_transform=hero_transform, dst_crs=crs, resampling=Resampling.nearest)
-        dem_land = ocean == 0  # value 0 = land in oceanmask_aea (verified)
+        dem_land = ocean == 0  # value 0 = land in the oceanmask (verified)
 
         subject_seed = rasterise_polygons(subject_parts, fwd, to_px, width, height)
         neighbours = rasterise_polygons(neighbour_parts, fwd, to_px, width, height) if neighbour_parts \

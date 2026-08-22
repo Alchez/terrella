@@ -15,10 +15,11 @@
 | `glo30/` | 551 GB | Copernicus GLO-30 land DEM tiles (downloaded per-country, on demand) | fusion (heroes + planet) | Keep: any re-fuse, new country, or z9/z10 extension reads it; largest store |
 | `worldcover/` | 114 GB | ESA WorldCover 2021 (class-70 permanent snow/ice) | **hero snow only** (`render/snow_mask.py`), NOT the tile pipeline | Reclaimable: see reclaim picture |
 | `gebco/` | 7.3 GB | GEBCO 2026 bathymetry / ice-surface | fusion (heroes + planet); Caspian bathymetry | Keep |
-| `rgi/` | 2.6 GB | RGI 7.0 glaciers (merged `rgi7_g_3857.gpkg` + source shp) | tile snow (`render/snow.py`) | Keep |
-| `snow/` | 1.6 GB | NSIDC-0791 snow-persistence climatology | tile snow (`render/snow.py`) | Keep |
-| `seaice/` | 640 MB | OSI SAF OSI-450-a monthly EASE2 files + the derived 1991–2020 ice-frequency climatology (`seaice_frequency_1991-2020_4326.tif`) + native `freq_{nh,sh}_ease2.tif` | tile sea ice (`render/seaice.py`) + both caps | Keep (climatology is tiny); `monthly/` regenerable from anonymous THREDDS |
+| `rgi/` | 2.6 GB | RGI 7.0 glaciers (merged `rgi7_g_3857.gpkg` + source shp) | tile snow (`look/snow.py`) | Keep |
+| `snow/` | 1.6 GB | NSIDC-0791 snow-persistence climatology | tile snow (`look/snow.py`) | Keep |
+| `seaice/` | 640 MB | OSI SAF OSI-450-a monthly EASE2 files + the derived 1991–2020 ice-frequency climatology (`seaice_frequency_1991-2020_4326.tif`) + native `freq_{nh,sh}_ease2.tif` | tile sea ice (`look/seaice.py`) + both caps | Keep (climatology is tiny); `monthly/` regenerable from anonymous THREDDS |
 | `cop30_void/` | 1.2 GB | Cop30 void-fill DEM | fusion void-fill | Keep |
+| `addrock/` | 410 MB | SCAR ADD rock outcrop, the LANDSAT auto-extraction (zip + unzipped shp + the reprojected `add_rock_3857.gpkg`) | Antarctic ice subtraction (`look/snow.py`), tiles + block + south cap | Keep the gpkg; the unzipped shp is regenerable from the zip, and the zip from `acquire/download_add_rock.py` |
 | `naturalearth/` | 38 MB | NE vectors (borders, framing polygons, coastline oracle) | framing, borders, countries/boundary GeoJSON | Keep (tiny) |
 | `mars/` | 12 GB | Two whole-planet downloads, no per-tile machinery. The MOLA/HRSC blended DEM (`Mars_HRSC_MOLA_BlendDEM_Global_200mp_v2.tif`, 11,384,463,908 B, 106694 × 53347 int16) is the heightfield. `Mars_Viking_ClrMosaic_global_925m.tif` (797,888,177 B, 23059 × 11530 RGB, SimpleCylindrical metres) is **an acquired input**: it is the field Mars's polar ice alpha is graded from, and `mars_ice.ALPHA_LEVELS` was measured over these exact bytes; it is also what the land ramp's hue was measured against | the DEM feeds Mars's planet seam (`fuse/relabel_mars.py`); the mosaic is acquired by `acquire/download_viking_mosaic.py` and read so far only by the ice-level scripts, no render stage yet | Keep the DEM: re-downloadable, but a ~23 min single-stream fetch with its edition pinned by size and Last-Modified. The mosaic is **re-fetchable exactly**, its acquirer pinning the publisher's own md5, so a deleted copy returns byte-identical in ~90 s, but it is no longer spare, and deleting it now costs a re-fetch rather than nothing |
 
@@ -56,7 +57,7 @@
 
 | File | Size | What it is | Reclaim? |
 |---|---|---|---|
-| `height_3857.tif` + `.done` | 44 GB | planet heightfield on the WMQ 3857 grid (131072², Float32, full Mercator extent incl. Antarctica) | Keep: the composite's direct colour input (ramps apply from elevation) |
+| `height_3857.tif` + `.done` | 46 GB | planet heightfield on the WMQ 3857 grid (131072², Float32, full Mercator extent incl. Antarctica) | Keep: the composite's direct colour input (ramps apply from elevation) |
 | `seaice_3857.tif` + `.done` | 18 GB | OSI SAF ice-frequency climatology warped ONCE to the 3857 grid, raw packed Float32, in latitude bands (a coarse 25 km source decimates under a single whole-grid warp); composite reads window slices, ocean-gated | Keep: fresh; dep is `seaice_frequency_1991-2020_4326.tif`. Regenerable |
 | `tiles/` | **3.1 GB** | **LIVE and APPROVED**: the ratified look (z0–8, 512 px WebP q95, rows to y=255) | Keep (live) |
 | `planet.pmtiles` | **3.1 GB** | the serving archive (`pmtiles convert`, capped, `--tmpdir` on ext4): spec v3, clustered, z0–8, ~5% duplicate tiles collapsed; verified via `pmtiles verify` + 5-tile byte-compare | Keep: the deployment artifact; ~34 s + ~1m11s to rebuild from `tiles/` |

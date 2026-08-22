@@ -19,7 +19,7 @@ import rasterio
 from rasterio.transform import from_bounds
 
 from pipeline import bodies, freshness, layers, mercator, planet_seam
-from pipeline.render import palette, seaice, snow
+from pipeline.look import palette, seaice, snow
 from pipeline.tile import cap_render, shade, shade_planet
 
 #: A planet whose seam emitted all three rasters — what Earth declares, and the only

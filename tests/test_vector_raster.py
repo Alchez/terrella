@@ -79,6 +79,23 @@ class TestTheArgvContract:
               "-te", str(-edge), str(-edge), str(edge), str(edge),
               "-ts", "8192", "8192", "coast.gpkg", "coast.tif"]
 
+    def test_naming_no_layer_leaves_the_command_exactly_as_it_was(self):
+        """The default has to be ABSENCE and not a name, or the shipped coastline command changes.
+
+        `-l` was added for the GeoPackage caller, whose file can hold several layers; every caller
+        that came first hands over a single-layer GeoJSON or shapefile where `gdal_rasterize` needs
+        no telling. A default of "the first layer" would be the same command spelled two ways.
+        """
+        argv = vector_raster.rasterize_argv(Path("v.json"), WORLD_3857, 4, 4, Path("o.tif"))
+        assert "-l" not in argv
+
+    def test_a_named_layer_is_selected_by_name(self):
+        """A GeoPackage is many layers in one file, so burning it without saying which is a
+        question `gdal_rasterize` answers by position — and the wrong answer burns cleanly."""
+        argv = vector_raster.rasterize_argv(Path("v.gpkg"), WORLD_3857, 4, 4, Path("o.tif"),
+                                            layer="rock")
+        assert argv[argv.index("rock") - 1] == "-l"
+
     def test_each_creation_option_becomes_its_own_co_flag(self):
         argv = vector_raster.rasterize_argv(Path("v.json"), WORLD_3857, 4, 4, Path("o.tif"),
                                             creation_options=("TILED=YES", "COMPRESS=DEFLATE"))

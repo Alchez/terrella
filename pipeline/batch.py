@@ -55,6 +55,8 @@ from pipeline.frame.country_config import (
     resolve,
     stage_commands,
 )
+from pipeline.profile import pass_cap
+from pipeline.render import render_seam
 
 #: The CHECKOUT, and the working directory every stage subprocess is run from — so the
 #: checkout-relative paths in those commands (`pipeline/…`, `blender/…`) resolve. Data paths do NOT
@@ -139,7 +141,7 @@ def run_country(slug, resolved, through, force, dry, cap_gib, use_cap, floor,
     """Run one country's stages; return a short outcome string."""
     do_clean = clean and through == "render" and not dry
     target = (ROOT / f"blender/renders/heroes/{slug}.png" if through == "render"
-              else country_render_dir(slug) / "lakedepth_aea.tif")
+              else country_render_dir(slug) / render_seam.LAKEDEPTH)
     if target.exists() and not force:
         if do_clean:
             prune_intermediates(slug)
@@ -190,7 +192,7 @@ def run_country(slug, resolved, through, force, dry, cap_gib, use_cap, floor,
             # writes the shaded hero as a SEPARATE file (atomic, internal .tmp), so
             # the raw stays pristine and post-look tweaks never re-render.
             sv = subprocess.run(
-                f"python -m pipeline.render.sky_view --render-dir {country_render_dir(slug)}"
+                f"python -m pipeline.look.sky_view --render-dir {country_render_dir(slug)}"
                 f" --hero {raw} --out {final}"
                 f" --strength {resolved['sky_view_strength']}", shell=True,
                 cwd=ROOT, env=ENV, check=False).returncode
@@ -235,7 +237,12 @@ def main() -> int:
         slugs = slugs[:args.limit]
 
     use_cap = False if args.dry_run else detect_cgroup_cap()
-    cap_gib = 0.85 * meminfo_gib("MemTotal")
+    # THE CEILING IS A POLICY AND MUST NOT BE DERIVED FROM THE HOST. This read `0.85 *
+    # MemTotal`, which scales the blast radius with the machine rather than bounding it, and it is
+    # the one place in the tree that sized a cap that way. It also hid a real fault: the largest
+    # hero under a base grid wants 17.0 GB, which dies loudly at the ratified 16 G here and would
+    # have passed silently on a bigger box, shipping a hero lane that only works on big machines.
+    cap_gib = pass_cap.HEAVY_JOB_GIB
     print(f"batch: {len(slugs)} countries, through={args.through}, "
           f"mem-floor={args.mem_floor_gib:g} GiB, cgroup-cap="
           f"{f'{cap_gib:.0f} GiB' if use_cap else 'unavailable'}"
