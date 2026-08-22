@@ -9,8 +9,9 @@ start a pass the box could comfortably have run. That refusal is the failure thi
 remove: measured on this box with a browser open, `MemAvailable` sits near 15 GiB, which clears
 every cap Mars actually needs and misses the one it does not.
 
-THE FLOOR IS THE PROJECT'S STANDING CAP, NOT A NEW NUMBER. 12 G is what every heavy job here runs
-under; the pass was raised above it for the caps stage and for nothing else. Dropping back to it
+THE FLOOR IS NOT A NEW NUMBER EITHER. 12 G is Mars's own measurement, and it sits below
+`HEAVY_JOB_GIB`, the ratified ceiling any heavy job here runs under; the pass was raised above 12
+for the caps stage and for nothing else. Dropping back to it
 for a capless body also restores a tripwire the raise knowingly gave up — 12 G was an accidental
 guard on composite footprint, and a regression there currently hides until 16 G.
 
@@ -42,8 +43,20 @@ from pipeline.tile import shade_planet
 #: invokes that stage as a subprocess.
 CAP_RENDERING_GIB = 16
 
-#: The cap a pass needs when it will not, in GiB. The project's standing cap for any heavy job.
+#: The cap a pass needs when it will not, in GiB. MEASURED off Mars's own pass (4.01 GiB VmHWM, so
+#: this leaves 3x) and deliberately below the ceiling below, because dropping back to it restores a
+#: tripwire on composite footprint that the caps-stage raise gave up.
 STANDING_GIB = 12
+
+#: The ceiling any heavy job on this box runs under, in GiB. **A RATIFIED POLICY, NOT A
+#: MEASUREMENT**, which is what separates it from the two numbers above: those are sized off real
+#: passes, this is Rohan's call about how much of a 30 GiB box a single job may take before the
+#: desktop is at risk, and it holds whatever a given job happens to peak at. Anything that needs a
+#: cap and has no measured pass behind it takes this one -- the hero batch is the first such caller,
+#: and it previously derived `0.85 * MemTotal`, which scales the blast radius with the machine
+#: instead of bounding it. A host-derived cap also hides a real regression: the base grid needs
+#: 17.0 GB for the largest hero and died loudly at 16 G here, where a bigger box would have passed.
+HEAVY_JOB_GIB = 16
 
 
 def pass_memory_cap_gib(body: bodies.Body) -> int:
