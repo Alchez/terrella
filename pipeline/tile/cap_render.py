@@ -58,7 +58,14 @@ from scipy.ndimage import (
 
 from pipeline import bodies, layers, naturalearth, planet_seam, vector_raster
 from pipeline.acquire import download_add_rock
-from pipeline.look import hillshade, lake_depth, palette, perennial_ice, seaice
+from pipeline.look import (
+    hillshade,
+    lake_depth,
+    layer_producers,
+    palette,
+    perennial_ice,
+    seaice,
+)
 from pipeline.tile import shade, terrain_rgb
 from pipeline.tile.shade import KNOBS
 from pipeline.tile.shade_planet import (
@@ -805,11 +812,26 @@ def _cap_sea_ice(grid: CapGrid, consequence: str) -> "np.ndarray | None":
 ROCK_CONSEQUENCE = "Antarctic outcrop stays under the forced white on this disc"
 
 
+def _cap_exclusion(grid: CapGrid, layer: layers.Layer) -> "np.ndarray | None":
+    """The mask for one layer this pole DECLARED as an exclusion, or None if it cannot be built.
+
+    A HARD ERROR ON AN UNDECLARED LAYER, because there is no honest default. A producer naming a
+    layer this function has no burn recipe for is a registry that has outgrown its renderer, and the
+    silent answer — None, meaning "nothing to exclude" — renders as white over ground the
+    declaration says is bare.
+    """
+    if layer is not layers.ANTARCTIC_ROCK:
+        raise KeyError(
+            f"{grid.body.name}'s {grid.name} cap declares {layer.name} as a white exclusion and "
+            f"this renderer has no burn for it; known: {layers.ANTARCTIC_ROCK.name}")
+    return _cap_rock(grid)
+
+
 def _cap_rock(grid: CapGrid) -> "np.ndarray | None":
     """This cap's exposed-rock mask, or None — asked of the BODY first and then of the disk.
 
-    ONLY EVER CALLED BY EARTH'S SOUTH, because `CapIceInputs.rock` is handed over unevaluated and no
-    other producer asks. So the `must_draw` claim is safe: Antarctic outcrop genuinely reaches this
+    ONLY EVER REACHED FROM EARTH'S SOUTH, because only that key declares the rock in its
+    `CapIce.exclusions`. So the `must_draw` claim is safe: Antarctic outcrop genuinely reaches this
     disc (19.9% of it lies at or below −81), and an empty burn here is a broken projection rather
     than an honest fact about the ground.
 
@@ -851,13 +873,21 @@ def _cap_perennial_ice(grid: CapGrid, ocean: np.ndarray, water: np.ndarray, lati
             grid, source, cap_warp(grid, name), resampling, dtype, srcnodata),
         burn=lambda source, name, must_draw: _burn(grid, source, name, must_draw),
         ground_metres_per_px=cap_ground_metres_per_px(grid),
-        # Unevaluated, and that is the field's whole design — see `CapIceInputs.rock`. Only Earth's
-        # south asks, so no other cap pays a reprojection of the whole ADD GeoPackage for a mask
-        # that would come back empty and raise on `must_draw`.
-        rock=lambda: _cap_rock(grid),
     )
     producer = perennial_ice.cap_ice(grid.body, grid.name)
-    return producer.alpha(inputs), producer.paint()
+    # FOLDED BY THE TILE TIER'S OWN FUNCTION, with a one-entry union. The cap has a single white
+    # producer, so the maximum is arithmetically a no-op here and the fold is not: it is what
+    # applies the exclusions, and it is what makes "the two tiers agree across the crossfade" a
+    # consequence of shared code rather than a sentence in a docstring. It was the latter for
+    # months, and false by 25,198,053 pixels in the one place it claimed to be true.
+    # Shaped from the ANSWER and not from `grid.px`, which would be a second source of truth for
+    # something the producer has just stated.
+    answer = producer.alpha(inputs)
+    alpha, _ = layer_producers.fold_white(
+        {layers.PERENNIAL_ICE.name: answer}, answer.shape,
+        exclusions={layer.name: mask for layer in producer.exclusions()
+                    if (mask := _cap_exclusion(grid, layer)) is not None})
+    return alpha, producer.paint()
 
 
 def _announce(grid: CapGrid, raster: str, consequence: str) -> None:

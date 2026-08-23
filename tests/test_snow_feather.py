@@ -213,7 +213,6 @@ class TestBothProducersFeatherOrTheCrossfadeShowsTheSeam:
             latitude=np.full((rows, cols), 85.0),
             warp=warp, burn=lambda *a, **k: np.zeros((rows, cols)),
             # The NORTH producer, which has no outcrop to subtract and never asks for one.
-            rock=lambda: None,
             ground_metres_per_px=cap_resolution)
 
         persistence = snow.unpack_persistence(packed)

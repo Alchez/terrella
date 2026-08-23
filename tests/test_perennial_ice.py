@@ -152,7 +152,7 @@ class TestEarthsProducersComputeWhatTheyComputedInline:
         inputs = perennial_ice.CapIceInputs(
             land=np.ones((32, 32), dtype=bool),
             latitude=np.full((32, 32), 82.0, dtype=np.float32),
-            warp=_fixed_warp(log, packed), burn=_refusing_burn, rock=_refusing_rock,
+            warp=_fixed_warp(log, packed), burn=_refusing_burn,
             ground_metres_per_px=EARTH_CAP_GROUND_M_PER_PX)
         alpha = perennial_ice.cap_ice(bodies.EARTH, "north").alpha(inputs)
 
@@ -175,67 +175,56 @@ class TestEarthsProducersComputeWhatTheyComputedInline:
         assert alpha[3].min() == 1.0, "the −89 row is all land and must be forced white"
 
 
-class TestTheSouthTakesItsOutcropFromAnotherLayer:
-    """SCAR ADD's rock at the cap tier, and the shape is `LayerWindow.rock`'s twin one tier up.
+class TestOnlyEarthsSouthDeclaresTheOutcropAsAnExclusion:
+    """SCAR ADD's rock at the cap tier, where the producer now has nothing to do with it.
 
-    A CALLABLE RATHER THAN AN ARRAY, and that is what keeps "only Antarctica has Antarctic rock" a
-    fact of the registry KEY rather than a pole test written somewhere else. `_earth_south` is the
-    south by definition, so it is the only producer that ever asks; the north and both Martian caps
-    never call it, and therefore never pay a reprojection of a 206 MB GeoPackage for a mask that
-    would come back empty. Handing every producer a pre-burnt array instead would need a
-    `grid.name == "south"` somewhere in `cap_render`, which is exactly the shape `cap_sources`'
-    own docstring records as the mistake it was extracted to remove.
+    `_earth_south` answers only where Antarctic ice IS. The outcrop is a `CapIce.exclusions` member
+    that `cap_render` burns and `layer_producers.fold_white` removes after the union folds, which is
+    the same law the tiles run and is what makes the two sides of the −84 crossfade agree by
+    construction rather than by a docstring saying so.
+
+    THE DECLARATION IS WHAT KEEPS THE POLE A FACT OF THE REGISTRY KEY, rather than a
+    `grid.name == "south"` written into the renderer — the shape `cap_sources`' own docstring
+    records as the mistake it was extracted to remove. It is also what keeps the burn off every
+    other disc: an ogr2ogr of the whole ADD GeoPackage onto an Arctic or Martian grid comes back
+    empty, and `must_draw` turns that into a raised exception on a shipping pass.
     """
 
-    def _rocky_inputs(self, ice_inputs, rock):
-        return dataclasses.replace(ice_inputs, rock=lambda: rock)
+    def test_only_earths_south_declares_an_exclusion(self, subtests):
+        """Asserted HERE and never in `test_cap_render.py`, whose autouse fixture aliases every
+        ("mars", pole) key to Earth's producer — `mars` is an Earth-shaped stand-in there, so a
+        registry-wide claim written in that file reads a registry doctored for another question."""
+        for key, expected in ((("earth", "south"), (layers.ANTARCTIC_ROCK,)),
+                              (("earth", "north"), ()),
+                              (("mars", "north"), ()),
+                              (("mars", "south"), ())):
+            with subtests.test(str(key)):
+                got = perennial_ice.CAP_ICE_BY_BODY[key].exclusions()
+                assert got == expected, (
+                    f"{key} declares {[layer.name for layer in got]}, "
+                    f"expected {[layer.name for layer in expected]}")
 
-    def test_outcrop_on_cold_land_stops_being_forced_white(self, ice_inputs):
-        rock = np.zeros((4, 4), dtype=bool)
-        rock[3, :2] = True  # the −89 row, which is otherwise solid forced white
-        alpha = perennial_ice.cap_ice(bodies.EARTH, "south").alpha(
-            self._rocky_inputs(ice_inputs, rock))
-        assert alpha[3].tolist() == [0.0, 0.0, 1.0, 1.0]
+    def test_every_declared_exclusion_is_one_the_fold_actually_applies(self, subtests):
+        """`fold_white` iterates `WHITE_EXCLUSIONS`, so a layer declared here and absent from that
+        tuple is handed over and silently ignored: white a reader believes is being removed, with
+        nothing going red. The two declarations are kept in step here."""
+        for key, producer in perennial_ice.CAP_ICE_BY_BODY.items():
+            with subtests.test(str(key)):
+                for layer in producer.exclusions():
+                    assert layer in layer_producers.WHITE_EXCLUSIONS
 
-    def test_it_is_the_same_rule_the_tiles_run_including_the_rock(self, ice_inputs):
-        """The −84 crossfade's whole guarantee: one function, one argument list, both sides."""
-        rock = np.zeros((4, 4), dtype=bool)
-        rock[2, 1] = True
-        alpha = perennial_ice.cap_ice(bodies.EARTH, "south").alpha(
-            self._rocky_inputs(ice_inputs, rock))
-        assert alpha == pytest.approx(
-            snow.antarctic_snow_mask(ice_inputs.land, ice_inputs.latitude, rock=rock))
+    def test_the_producer_is_rock_blind_and_is_the_bare_rule(self, ice_inputs):
+        """The inversion guard, and the reason the declaration is the whole of the cap's
+        involvement. A producer that could still see a rock mask could still subtract it inside its
+        own answer, which is the placement that discarded 63% of the subtraction one tier up."""
+        assert perennial_ice.cap_ice(bodies.EARTH, "south").alpha(ice_inputs) == pytest.approx(
+            snow.antarctic_snow_mask(ice_inputs.land, ice_inputs.latitude))
 
-    def test_no_rock_reproduces_todays_cap_exactly(self, ice_inputs):
-        """None is "this cap has nothing to say about rock", never "there is no rock". The layer
-        can be off and its file can be absent, and neither may move a pixel of the forced white."""
-        assert perennial_ice.cap_ice(bodies.EARTH, "south").alpha(
-            self._rocky_inputs(ice_inputs, None)) == pytest.approx(
-            perennial_ice.cap_ice(bodies.EARTH, "south").alpha(ice_inputs))
-
-    def test_no_other_producer_ever_asks_for_it(self, subtests):
-        """THE ABSENCE IS THE ASSERTION, on `_refusing_burn`'s rule and for a sharper reason: the
-        callable does real work — an ogr2ogr of the whole ADD GeoPackage onto an AEQD disc — so a
-        producer that started calling it would burn Antarctic geometry onto an Arctic or Martian
-        grid, where `must_draw` turns an empty result into a raised exception on a shipping pass.
-        """
-        for body, pole in (("earth", "north"), ("mars", "north"), ("mars", "south")):
-            with subtests.test(f"{body} {pole}"):
-                inputs = perennial_ice.CapIceInputs(
-                    land=np.ones((4, 4), dtype=bool),
-                    latitude=np.full((4, 4), 85.0, dtype=np.float32),
-                    warp=_fixed_warp([], np.zeros((4, 4), dtype=np.float32)),
-                    burn=_unit_burn([], {unit.lower(): np.ones((4, 4), dtype=bool)
-                                         for unit in mars_ice.NORTH_UNITS}),
-                    ground_metres_per_px=EARTH_CAP_GROUND_M_PER_PX,
-                    rock=_refusing_rock)
-                perennial_ice.cap_ice(bodies.get(body), pole).alpha(inputs)
-
-
-def _refusing_rock() -> "np.ndarray | None":
-    """A rock input that fails if it is ever asked for. See the class above for why."""
-    raise AssertionError(
-        "only Earth's south cap has Antarctic outcrop, and only it may ask for the burn")
+    def test_no_cap_producer_can_be_handed_a_rock_at_all(self):
+        """The field is GONE from `CapIceInputs` rather than passed as None, exactly as
+        `LayerWindow.rock` is — which is what makes the old placement unwritable here too."""
+        assert "rock" not in {field.name
+                              for field in dataclasses.fields(perennial_ice.CapIceInputs)}
 
 
 @pytest.fixture
@@ -251,7 +240,6 @@ def ice_inputs() -> perennial_ice.CapIceInputs:
     latitude = np.array([[-58.0] * 4, [-62.0] * 4, [-70.0] * 4, [-89.0] * 4], dtype=np.float32)
     return perennial_ice.CapIceInputs(land=land, latitude=latitude,
                                       warp=_recording_warp([], (4, 4)), burn=_refusing_burn,
-                                      rock=lambda: None,
                                       ground_metres_per_px=EARTH_CAP_GROUND_M_PER_PX)
 
 
@@ -327,7 +315,6 @@ class TestMarsGradesTheFieldInsideTheMappedUnits:
             latitude=np.full((4, 4), 85.0, dtype=np.float32),
             warp=_field_warp(warped, field), burn=_unit_burn(burnt, {"lapc": self.LAPC,
                                                                      "apu": self.APU}),
-            rock=_refusing_rock,
             ground_metres_per_px=cap_render.cap_ground_metres_per_px(
                 cap_render.north_grid(bodies.MARS)))
 
@@ -423,7 +410,6 @@ class TestTheFeatherReachesItsGroundWidthOnTheRealCapScale:
             # back is the feather alone rather than the feather times an albedo shape.
             warp=_field_warp([], np.full(self.SHAPE, 255.0, dtype=np.float32)),
             burn=_unit_burn([], {"lapc": lapc, "apu": np.zeros(self.SHAPE, dtype=bool)}),
-            rock=_refusing_rock,
             ground_metres_per_px=ground_metres_per_px)
         return perennial_ice.cap_ice(bodies.MARS, "north").alpha(inputs)
 

@@ -862,7 +862,8 @@ class TestCapSourcesFollowTheLayers:
             monkeypatch.setitem(perennial_ice.CAP_ICE_BY_BODY, ("other", pole),
                                 perennial_ice.CapIce(sources=lambda: (elsewhere,),
                                                      alpha=lambda inputs: np.zeros(()),
-                                                     paint=lambda: ((0, 0, 0), (0, 0, 0))))
+                                                     paint=lambda: ((0, 0, 0), (0, 0, 0)),
+                                                     exclusions=lambda: ()))
             with subtests.test(pole):
                 other = dataclasses.replace(bodies.EARTH, name="other", path_prefix="other")
                 sources = cap_render.cap_sources(factory(other), WHOLE_PLANET)
@@ -1101,6 +1102,71 @@ class TestTheRockNeverGatesTheForcedWhite:
             "optional subtraction and must never be able to switch the rule itself off"
         )
         assert paint is not None
+
+
+class TestTheCapFoldsThroughTheSameLawAsTheTiles:
+    """The cap's white is folded by `layer_producers.fold_white`, the function the tiles use.
+
+    Before this the cap returned its producer's alpha straight out while the tile tier folded, so
+    "the two tiers agree across the crossfade" was a sentence in a docstring that nothing executed.
+    It was false for months in the exact place it claimed to be true, by 25,198,053 pixels. Sharing
+    the function is what turns the claim from an assertion into a construction.
+    """
+
+    SHAPE = (8, 8)
+    HALF = SHAPE[1] // 2
+
+    def _covered(self):
+        mask = np.zeros(self.SHAPE, dtype=bool)
+        mask[:, : self.HALF] = True
+        return mask
+
+    def _alpha(self, monkeypatch, *, claims, rock):
+        """The south's alpha with its producer's answer and its rock mask both dictated.
+
+        `_cap_rock` is stubbed rather than driven off a real GeoPackage because the claim under
+        test is the FOLD, not the burn: what the burn does with a missing file is
+        `TestTheRockNeverGatesTheForcedWhite`'s subject, one class up.
+        """
+        monkeypatch.setattr(cap_render, "_cap_rock", lambda grid: rock)
+        monkeypatch.setitem(
+            perennial_ice.CAP_ICE_BY_BODY, ("earth", "south"),
+            dataclasses.replace(perennial_ice.cap_ice(bodies.EARTH, "south"),
+                                alpha=lambda inputs: claims))
+        alpha, _ = cap_render._cap_perennial_ice(
+            cap_render.south_grid(bodies.EARTH),
+            ocean=np.zeros(self.SHAPE, dtype=bool), water=np.zeros(self.SHAPE, dtype=bool),
+            latitude=np.full(self.SHAPE, -80.0, dtype=np.float32), consequence="no ice")
+        return alpha
+
+    def test_a_producer_claiming_every_pixel_still_loses_the_outcrop(self, monkeypatch):
+        """THE OUTCOME, and the cap's twin of the tile tier's glacier case.
+
+        A producer claiming the rock at full strength is exactly what a second white source on this
+        disc would be, and RGI region 19 is the concrete one waiting. Returning the producer's array
+        directly cannot answer it however carefully the producer itself subtracts.
+        """
+        alpha = self._alpha(monkeypatch, claims=np.ones(self.SHAPE), rock=self._covered())
+        assert not alpha[:, : self.HALF].any(), "the outcrop kept a white its producer claimed"
+        assert alpha[:, self.HALF:].all(), "the ice beside the outcrop lost its white"
+
+    def test_with_no_rock_the_producers_answer_survives_untouched(self, monkeypatch):
+        """The falsifier. Without it the assertion above is satisfied by a fold that zeroes the
+        disc for any reason at all."""
+        assert self._alpha(monkeypatch, claims=np.ones(self.SHAPE), rock=None).all()
+
+    def test_an_undeclared_exclusion_is_refused_rather_than_ignored(self):
+        """`_cap_exclusion` has no honest default. A producer naming a layer this renderer has no
+        burn for is a registry that has outgrown it, and the silent answer — None, meaning "nothing
+        to exclude" — renders as white over ground the declaration says is bare.
+        """
+        with pytest.raises(KeyError, match="no burn for it"):
+            cap_render._cap_exclusion(cap_render.south_grid(bodies.EARTH), layers.GLACIERS)
+
+    # WHICH POLES DECLARE WHAT IS ASSERTED IN `test_perennial_ice.py` AND MUST NOT MOVE HERE. An
+    # autouse fixture in this module aliases every ("mars", pole) key to EARTH's producer, because
+    # `mars` here is an Earth-shaped stand-in rather than the planet — so a registry-wide claim
+    # written in this file reads a registry that was doctored for a different question.
 
 
 class TestTheCapPassAsksTheSeamBeforeTheDisk:

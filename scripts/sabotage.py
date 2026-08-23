@@ -361,8 +361,8 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label='the cap and the tiles disagree about one ice colour across the crossfade',
         path='pipeline/look/perennial_ice.py',
-        needle='                              paint=lambda: palette.MARS_ICE_WHITE["north"]),',
-        replacement='                              paint=lambda: palette.MARS_ICE_WHITE["south"]),',
+        needle='                              paint=lambda: palette.MARS_ICE_WHITE["north"],',
+        replacement='                              paint=lambda: palette.MARS_ICE_WHITE["south"],',
         guard='test_each_body_paints_one_pole_the_same_in_both_tiers',
     ),
     Sabotage(
@@ -3410,24 +3410,56 @@ SABOTAGES: list[Sabotage] = [
                      'fromlist=["GPKG"]).GPKG,), alpha=_earth_south,'),
         guard='test_an_absent_rock_file_leaves_the_forced_white_untouched',
     ),
-    # The cap's own consumer end, the tile producer's twin one tier down.
+    # The south stops declaring the exclusion. Every raster is still built, warped and burnt, the
+    # producer still answers, and the only symptom is Antarctica back under solid white.
     Sabotage(
         suite='python',
-        label='the south cap stops passing its rock, so the two sides of the -84 seam disagree',
+        label='the south cap stops declaring the outcrop, so the -84 seam quietly re-covers it',
         path='pipeline/look/perennial_ice.py',
-        needle='    return snow.antarctic_snow_mask(inputs.land, inputs.latitude, rock=inputs.rock())',
-        replacement='    return snow.antarctic_snow_mask(inputs.land, inputs.latitude)',
-        guard='test_outcrop_on_cold_land_stops_being_forced_white',
+        needle='                               exclusions=lambda: (layers.ANTARCTIC_ROCK,)),',
+        replacement='                               exclusions=lambda: ()),',
+        guard='test_only_earths_south_declares_an_exclusion',
     ),
-    # An eager burn reads as a harmless simplification and puts a pole test outside the registry:
-    # the north would reproject the whole ADD GeoPackage for a disc it can never intersect.
+    # An eager burn on every pole reads as a harmless simplification and puts a pole test outside
+    # the registry: the north would reproject the whole ADD GeoPackage for a disc it cannot
+    # intersect, where the burn's own emptiness guard raises on a shipping pass.
     Sabotage(
         suite='python',
-        label='the cap burns the outcrop for every pole rather than only where a producer asks',
+        label='the north cap declares the outcrop too, so a disc that cannot hold it burns anyway',
+        path='pipeline/look/perennial_ice.py',
+        needle='                               paint=_earth_cap_white, exclusions=lambda: ()),',
+        replacement=('                               paint=_earth_cap_white, '
+                     'exclusions=lambda: (layers.ANTARCTIC_ROCK,)),'),
+        guard='test_only_earths_south_declares_an_exclusion',
+    ),
+    # THE CAP STOPS SHARING THE TILE TIER'S LAW. Returning the producer's answer straight out is
+    # what shipped, and it is invisible while the cap has exactly one white producer -- until a
+    # second one arrives, which RGI region 19 is.
+    Sabotage(
+        suite='python',
+        label='the cap returns its producer alpha unfolded, so no exclusion reaches the disc',
         path='pipeline/tile/cap_render.py',
-        needle='        rock=lambda: _cap_rock(grid),',
-        replacement='        rock=(lambda burnt=_cap_rock(grid): burnt),',
-        guard='test_no_other_producer_ever_asks_for_it',
+        needle='''    alpha, _ = layer_producers.fold_white(
+        {layers.PERENNIAL_ICE.name: answer}, answer.shape,
+        exclusions={layer.name: mask for layer in producer.exclusions()
+                    if (mask := _cap_exclusion(grid, layer)) is not None})
+    return alpha, producer.paint()''',
+        replacement='    return answer, producer.paint()',
+        guard='test_a_producer_claiming_every_pixel_still_loses_the_outcrop',
+    ),
+    # A layer the renderer has no burn for must be a hard error: the silent answer means "nothing to
+    # exclude", which renders as white over ground the declaration says is bare.
+    Sabotage(
+        suite='python',
+        label='an undeclared cap exclusion is ignored rather than refused',
+        path='pipeline/tile/cap_render.py',
+        needle='''    if layer is not layers.ANTARCTIC_ROCK:
+        raise KeyError(''',
+        replacement='''    if layer is not layers.ANTARCTIC_ROCK:
+        return None
+    if False:
+        raise KeyError(''',
+        guard='test_an_undeclared_exclusion_is_refused_rather_than_ignored',
     ),
     Sabotage(
         suite='python',
@@ -3596,8 +3628,8 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label='the pole leaves the key, so both caps of a body get one producer',
         path='pipeline/look/perennial_ice.py',
-        needle='    ("earth", "south"): CapIce(sources=lambda: (), alpha=_earth_south, paint=_earth_cap_white),',
-        replacement='    ("earth", "south"): CapIce(sources=lambda: (Path(snow.SP_NC),), alpha=_earth_north, paint=_earth_cap_white),',
+        needle='    ("earth", "south"): CapIce(sources=lambda: (), alpha=_earth_south, paint=_earth_cap_white,',
+        replacement='    ("earth", "south"): CapIce(sources=lambda: (Path(snow.SP_NC),), alpha=_earth_north, paint=_earth_cap_white,',
         guard='test_earths_two_poles_get_DIFFERENT_producers',
     ),
     Sabotage(

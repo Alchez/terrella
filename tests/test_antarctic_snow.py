@@ -5,6 +5,8 @@ so nothing else whitens it and nothing else could un-whiten it either; one home 
 the two paths agreeing across the -84 cap<->tile seam.
 """
 
+import inspect
+
 import numpy as np
 
 from pipeline.look import snow
@@ -59,64 +61,26 @@ class TestAntarcticSnowMask:
         assert snow.antarctic_snow_mask(np.ones((1, 1), bool), np.array([-80.0])).dtype == np.float32
 
 
-class TestExposedRockComesOutFromUnderTheWhite:
-    """SCAR ADD's rock outcrop, SUBTRACTED rather than unioned.
+class TestTheRuleIsPureAndTheOutcropIsNotItsBusiness:
+    """SCAR ADD's outcrop is a `layer_producers.WHITE_EXCLUSIONS` member, removed after the whole
+    white union folds, in both tiers.
 
-    THE SUBTRACTION IS THE DESIGN AND NOT AN IMPLEMENTATION CHOICE. A union of "where the data says
-    ice" would need a data-availability branch, and the boundary between "the dataset answers here"
-    and "the latitude rule answers here" is a hard edge across the ice shelves — which is exactly
-    what the superseded MODIS arm drew, as thin tan outlines. Removing rock from a rule that
-    otherwise covers the whole continent has no such boundary anywhere.
+    IT BRIEFLY TOOK A `rock` ARGUMENT HERE INSTEAD, and that placement put a negative inside one
+    positive claim: this rule is one term of a maximum, and every other white source re-claimed the
+    pixel in the next operation. Measured, it cost the outcrop 63% of its subtraction, because
+    NSIDC-0791 persistence reads a median 1.0000 on the very rock ADD maps.
 
-    `rock` stays OPTIONAL because the argument is about a dataset and the rule is not: a body that
-    declares no rock layer, or a window built before the raster existed, must get today's answer
-    exactly rather than a plausible one.
+    So the guard here is that the argument cannot come back, and it has to be a SIGNATURE claim: a
+    rule that subtracted the rock perfectly would still be overruled by the union above it, so no
+    value test written against this function can see the defect. What the outcrop does to the
+    finished white is asserted where the fold is — `test_layer_producers.py` and
+    `test_prep_block.py` for the tiles, `test_cap_render.py` and `test_perennial_ice.py` for the cap.
     """
 
-    def test_rock_on_cold_land_is_not_forced_white(self):
-        land = np.ones((1, 3), bool)
-        latitude = np.array([-75.0])
-        rock = np.array([[True, False, True]])
-        assert snow.antarctic_snow_mask(land, latitude, rock=rock).ravel().tolist() == \
-            [0.0, 1.0, 0.0]
+    def test_the_rule_takes_no_rock_argument(self):
+        assert "rock" not in inspect.signature(snow.antarctic_snow_mask).parameters
 
-    def test_rock_outside_the_cold_land_region_changes_nothing(self):
-        """Rock north of the cutoff and rock on ocean are both already 0.0, so neither can move.
-
-        The arm that makes this non-vacuous is the case above: without it, a mask that simply
-        returned zeros everywhere would satisfy this one.
-        """
-        land = np.array([[True, False]])
-        latitude = np.array([-40.0])
-        rock = np.ones((1, 2), bool)
-        assert (snow.antarctic_snow_mask(land, latitude, rock=rock) ==
-                snow.antarctic_snow_mask(land, latitude)).all()
-
-    def test_omitting_rock_reproduces_todays_answer_exactly(self):
-        """The default is not "no rock anywhere", it is "this caller has nothing to say about rock".
-
-        Both spellings are checked because `rock=None` is what a body without the layer passes and
-        an omitted argument is what every existing call site passes, and a signature that made them
-        differ would break one of the two silently.
-        """
-        land = np.array([[True, True], [True, False]])
-        latitude = np.array([-70.0, -50.0])
-        expected = [[1.0, 1.0], [0.0, 0.0]]
-        assert snow.antarctic_snow_mask(land, latitude).tolist() == expected
-        assert snow.antarctic_snow_mask(land, latitude, rock=None).tolist() == expected
-
-    def test_rock_takes_the_same_two_latitude_shapes_the_rule_does(self):
-        """The AEQD cap passes 2-D per-pixel latitude and the Mercator path 1-D per-row, and rock is
-        a full 2-D field on both. A rock term that only worked against one of them would pass every
-        tile test and fail on the cap alone, which is the seam this rule exists to hold."""
-        land = np.ones((2, 2), bool)
-        rock = np.array([[True, False], [False, False]])
-        per_row = snow.antarctic_snow_mask(land, np.array([-70.0, -70.0]), rock=rock)
-        per_pixel = snow.antarctic_snow_mask(
-            land, np.array([[-70.0, -70.0], [-70.0, -70.0]]), rock=rock)
-        assert per_row.tolist() == per_pixel.tolist() == [[0.0, 1.0], [1.0, 1.0]]
-
-    def test_it_still_returns_float32_with_rock_applied(self):
-        rock = np.array([[True, False]])
-        mask = snow.antarctic_snow_mask(np.ones((1, 2), bool), np.array([-80.0]), rock=rock)
-        assert mask.dtype == np.float32
+    def test_cold_land_is_still_white_whatever_is_lying_on_it(self):
+        """The anti-vacuity companion: the signature claim above is equally satisfied by a function
+        that returns nothing at all, and by one that stopped forcing the white."""
+        assert (snow.antarctic_snow_mask(np.ones((1, 3), bool), np.array([-75.0])) == 1.0).all()

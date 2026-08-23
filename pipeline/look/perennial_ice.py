@@ -105,24 +105,6 @@ class CapIceInputs:
     #: draws it at roughly half the width its own constant claims. That has already happened once,
     #: which is why this is supplied rather than left for each producer to derive.
     ground_metres_per_px: float
-    #: This cap's Antarctic outcrop, or None where the body declares no rock layer and where its
-    #: source is not on disk. `LayerWindow.rock`'s twin one tier up, and the same subtraction.
-    #:
-    #: A CALLABLE AND NOT AN ARRAY, which is what keeps "only Antarctica has Antarctic rock" a fact
-    #: of this registry's KEY rather than a pole test written in the renderer. `_earth_south` is the
-    #: south by definition and is the only producer that asks; the north and both Martian caps never
-    #: call it, so no burn runs where the answer would be an empty disc. Handing every producer a
-    #: pre-burnt mask instead needs a `grid.name == "south"` in `cap_render` — one of Earth's facts
-    #: written down as though it were the layer's, which is the shape `cap_sources` was extracted to
-    #: remove.
-    #:
-    #: NOT `CapIce.sources`, AND THAT IS A CORRECTNESS BOUNDARY RATHER THAN A PLACEMENT. Those are
-    #: the ice producer's MANDATORY inputs: `cap_render._cap_perennial_ice` refuses the whole layer
-    #: unless every one of them exists, so a rock entry there would let an undownloaded GeoPackage
-    #: switch off the forced Antarctic white and render the continent on the tan LAND ramp. The rock
-    #: is gated by its own layer and rides `cap_sources` beside `sea_ice`, so it is still an mtime
-    #: dependency and can still never be fatal.
-    rock: Callable[[], "np.ndarray | None"]
 
 
 @dataclass(frozen=True)
@@ -153,6 +135,24 @@ class CapIce:
     #: `palette` held at import, so a test that swings a body's white would be answered with the
     #: value from before the swing.
     paint: Callable[[], tuple[Any, Any]]
+    #: The `layer_producers.WHITE_EXCLUSIONS` members this pole takes back out of its folded white.
+    #:
+    #: DECLARED HERE BECAUSE THE POLE IS HALF THIS REGISTRY'S KEY, which is what keeps "only
+    #: Antarctica has Antarctic rock" a fact of the key rather than a `grid.name == "south"` written
+    #: into the renderer — one of Earth's facts recorded outside the registry that already states
+    #: it, and the shape `cap_render.cap_sources` was extracted to remove. It also keeps the burn
+    #: where it belongs: an undeclared pole never opens the file, so no disc pays a reprojection of
+    #: the whole GeoPackage for a mask that would come back empty and raise on `must_draw`.
+    #:
+    #: NOT `sources`, AND THAT IS A CORRECTNESS BOUNDARY RATHER THAN A PLACEMENT. Those are this
+    #: producer's MANDATORY inputs and `cap_render._cap_perennial_ice` refuses the whole layer
+    #: unless every one exists, so a rock entry there would let an undownloaded GeoPackage switch
+    #: off the forced Antarctic white and render the continent on the tan LAND ramp. An exclusion is
+    #: optional by construction: absent, the fold simply removes nothing.
+    #:
+    #: REQUIRED WITH NO DEFAULT, on `bodies.Body`'s rule. Forgetting it fails toward "this pole
+    #: excludes nothing", which renders as a plausible ice sheet rather than as an error.
+    exclusions: Callable[[], tuple[layers.Layer, ...]]
 
 
 def _earth_north(inputs: CapIceInputs) -> np.ndarray:
@@ -188,14 +188,16 @@ def _earth_south(inputs: CapIceInputs) -> np.ndarray:
     which is why it rides the body's layer declaration and why its `sources` tuple stays empty.
     `pipeline/acquire/download_add_rock.py` holds the measurement behind the saturation claim.
 
-    THE ROCK IS OPTIONAL AND ITS ABSENCE IS NOT AN ERROR, which is the whole reason it arrives as
-    `inputs.rock` and not as a source of this producer's. `CapIceInputs.rock` holds that argument.
+    THE OUTCROP IS NOT THIS PRODUCER'S BUSINESS, and that is the point rather than an omission. It
+    is declared in `exclusions` and removed by `layer_producers.fold_white` after this answer folds,
+    so a rock mask cannot be re-claimed by anything else that paints this disc white. `CapIce
+    .exclusions` holds the argument, and this function answers only where Antarctic ice IS.
 
-    `snow.antarctic_snow_mask` is the one home for the rule and the tile composite calls it with the
-    same arguments, so the two sides of the −84 crossfade agree by construction — including about
-    the rock, which is where a two-producer disagreement would actually show.
+    `snow.antarctic_snow_mask` is the one home for the rule and the tile composite calls the same
+    function through the same fold, so the two sides of the −84 crossfade agree by construction —
+    which is a property of sharing the code rather than a claim this docstring makes.
     """
-    return snow.antarctic_snow_mask(inputs.land, inputs.latitude, rock=inputs.rock())
+    return snow.antarctic_snow_mask(inputs.land, inputs.latitude)
 
 
 def _mars_sources() -> tuple[Path, ...]:
@@ -263,14 +265,17 @@ def _earth_cap_white() -> tuple[Any, Any]:
 
 CAP_ICE_BY_BODY: dict[tuple[str, str], CapIce] = {
     ("earth", "north"): CapIce(sources=lambda: (Path(snow.SP_NC),), alpha=_earth_north,
-                               paint=_earth_cap_white),
-    ("earth", "south"): CapIce(sources=lambda: (), alpha=_earth_south, paint=_earth_cap_white),
+                               paint=_earth_cap_white, exclusions=lambda: ()),
+    ("earth", "south"): CapIce(sources=lambda: (), alpha=_earth_south, paint=_earth_cap_white,
+                               exclusions=lambda: (layers.ANTARCTIC_ROCK,)),
     ("mars", "north"): CapIce(sources=_mars_sources,
                               alpha=lambda inputs: _mars_cap_ice(inputs, "north"),
-                              paint=lambda: palette.MARS_ICE_WHITE["north"]),
+                              paint=lambda: palette.MARS_ICE_WHITE["north"],
+                              exclusions=lambda: ()),
     ("mars", "south"): CapIce(sources=_mars_sources,
                               alpha=lambda inputs: _mars_cap_ice(inputs, "south"),
-                              paint=lambda: palette.MARS_ICE_WHITE["south"]),
+                              paint=lambda: palette.MARS_ICE_WHITE["south"],
+                              exclusions=lambda: ()),
 }
 
 

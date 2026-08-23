@@ -330,7 +330,7 @@ def soften_source_cells(alpha, ground_metres_per_px):
     return out
 
 
-def antarctic_snow_mask(land, latitude, rock=None, lat_max=-60.0):
+def antarctic_snow_mask(land, latitude, lat_max=-60.0):
     """1.0 where Antarctic land must be forced permanent-ice white, else 0.0 (float32).
 
     Antarctica has no snow dataset in this pipeline: NSIDC-0791 persistence is NH-only and RGI region
@@ -343,21 +343,19 @@ def antarctic_snow_mask(land, latitude, rock=None, lat_max=-60.0):
     is south of -60, so lat_max=-60 covers the continent; only tiny sub-Antarctic islands north of it
     stay bare (deferred RGI-19 polish).
 
-    `rock` is SCAR ADD's outcrop, SUBTRACTED rather than unioned, and the direction is the design.
+    A PURE RULE, AND THE EXPOSED ROCK IS DELIBERATELY NOT ITS BUSINESS. SCAR ADD's outcrop is a
+    `layer_producers.WHITE_EXCLUSIONS` member removed after the whole white union folds, in both
+    tiers. It briefly took a `rock` argument here instead, and that placement put a negative inside
+    one positive claim: every other white source re-claimed the pixel in the next operation, which
+    cost the outcrop 63% of its subtraction against saturated NSIDC persistence.
+
+    The direction is still the design though, and belongs with the data rather than with the fold.
     A union of "where a dataset says ice" needs a data-availability branch, and the boundary between
     "the dataset answers here" and "the rule answers here" is a hard edge across the ice shelves --
     which is what the superseded MODIS arm drew, as thin tan outlines. Removing rock from a rule that
     already covers the whole continent has no such boundary anywhere.
-
-    OPTIONAL BECAUSE THE ARGUMENT IS ABOUT A DATASET AND THE RULE IS NOT. A body that declares no
-    rock layer, or a window built before the raster existed, must get the un-subtracted answer
-    exactly rather than a plausible one -- the same reason the forced patch rides the layer's
-    DECLARATION and never a `Path.exists()`.
     """
     cold = np.asarray(latitude) < lat_max
     if cold.ndim == 1:
         cold = cold[:, None]
-    white = np.asarray(land) & cold
-    if rock is not None:
-        white = white & ~np.asarray(rock).astype(bool)
-    return white.astype(np.float32)
+    return (np.asarray(land) & cold).astype(np.float32)
