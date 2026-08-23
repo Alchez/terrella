@@ -271,6 +271,23 @@ def unsuppliable_rig_images(rasters: frozenset[str]) -> list[str]:
     return [] if "watermask" in rasters else [render_seam.INLANDLAKE, render_seam.RIVER]
 
 
+def rig_seam_refusals(rasters: frozenset[str]) -> list[str]:
+    """The same gap as a reason a caller can print, or `[]`.
+
+    TWO CALLERS AND ONE WORDING. The pass asks this before the shared warp so a wrongly-declared
+    body does not pay 6:49 to hear no; `check_inputs` asks it again below because `main` is a second
+    door into this producer that never passes through the pass. Neither can be dropped, and the
+    explanation is written once so the two answers cannot drift into disagreeing about why.
+    """
+    unsuppliable = unsuppliable_rig_images(rasters)
+    if not unsuppliable:
+        return []
+    return [(f"its planet stage declared no watermask, so no block carries "
+             f"{' or '.join(unsuppliable)}, which the rig loads for every look. This is a body-seam "
+             f"gap rather than a missing file — either its planet producer must emit one, or the "
+             f"rig must learn to render without it")]
+
+
 def check_inputs(work: Path, body: bodies.Body, rasters: frozenset[str]) -> None:
     """Refuse to start when this body cannot feed the rig, or its warped rasters are not on disk.
 
@@ -290,13 +307,10 @@ def check_inputs(work: Path, body: bodies.Body, rasters: frozenset[str]) -> None
 
     The warp itself is still the pass's, which is the seam this names rather than papers over.
     """
-    unsuppliable = unsuppliable_rig_images(rasters)
-    if unsuppliable:
-        raise SystemExit(
-            f"{body.name} cannot be rendered by this producer: its planet stage declared no "
-            f"watermask, so no block carries {' or '.join(unsuppliable)}, which the rig loads for "
-            f"every look. This is a body-seam gap rather than a missing file — either its planet "
-            f"producer must emit one, or the rig must learn to render without it")
+    refusals = rig_seam_refusals(rasters)
+    if refusals:
+        raise SystemExit(f"{body.name} cannot be rendered by this producer: "
+                         + "; ".join(refusals))
     required = [work / shade_planet.HEIGHT_3857]
     if "oceanmask" in rasters:
         required.append(work / shade_planet.OCEAN_3857)

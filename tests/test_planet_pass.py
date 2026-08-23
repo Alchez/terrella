@@ -13,8 +13,74 @@ from unittest import mock
 
 import pytest
 
-from pipeline import bodies, freshness
-from pipeline.tile import cap_render, planet_pass
+from pipeline import bodies, freshness, planet_seam
+from pipeline.tile import cap_render, planet_pass, shade_planet
+
+
+class TestABodyCannotDeclareAProducerItCannotRun:
+    """`planet_producer` is a CHOICE a body writes down; whether that choice is possible is DERIVED
+    from what its planet seam declared. Nothing tied the two, so the registry could hold a pair that
+    cannot run, and the unit's own goal is that the registry is the add-a-body checklist verified by
+    test rather than by prose.
+
+    The cost of not tying them is not an exception, it is an exception charged at the wrong time.
+    Both producers share the warp, and the pass runs it before the producer is asked anything — so a
+    body declaring the wrong one paid a full Earth height warp (6:49) before hearing no, and every
+    resume paid it again.
+    """
+
+    def test_every_registered_body_can_run_the_producer_it_names(self, subtests):
+        """The sweep. It passes today because both bodies answer `composite`, which is exactly why
+        the two arms below exist: a guard whose only instances agree proves nothing about the
+        question it asks."""
+        assert bodies.BODIES, "no bodies are registered, so this sweep proves nothing"
+        for name in sorted(bodies.BODIES):
+            with subtests.test(name):
+                body = bodies.get(name)
+                assert planet_pass.cannot_run(body, planet_seam.declared(body)) == [], (
+                    f"{name} names producer {body.planet_producer!r}, which cannot run on what its "
+                    f"planet seam declares"
+                )
+
+    def test_a_seam_that_cannot_feed_the_rig_refuses_the_raytrace(self):
+        """The NEGATIVE arm, and it has to be synthetic. Mars is the real instance and it answers
+        `composite`, so sourcing this from the registry would test nothing the day anything flips.
+        """
+        mars_raytraced = dataclasses.replace(bodies.MARS, planet_producer="raytrace")
+        blocked = planet_pass.cannot_run(mars_raytraced, frozenset({"heightfield"}))
+        assert blocked, "a heightfield-only seam cannot carry the rig's lake and river images"
+        assert any("river" in reason for reason in blocked), blocked
+
+    def test_the_same_seam_does_not_refuse_the_composite(self):
+        """The control that makes the arm above a statement about the PRODUCER rather than about
+        the seam. Mars composites today on exactly this declaration."""
+        assert planet_pass.cannot_run(bodies.MARS, frozenset({"heightfield"})) == []
+
+    def test_a_whole_planet_seam_does_not_refuse_the_raytrace(self):
+        """And the control in the other direction, so the refusal is not simply always-on."""
+        earth_raytraced = dataclasses.replace(bodies.EARTH, planet_producer="raytrace")
+        assert planet_pass.cannot_run(earth_raytraced, planet_seam.KNOWN_RASTERS) == []
+
+    def test_the_refusal_comes_before_the_warp(self, monkeypatch, tmp_path):
+        """THE ORDERING, asserted through the real entry point, because only running `main` proves
+        it. A tripwire on the warp is what makes this a claim about WHEN rather than whether: the
+        refusal already existed inside the producer, and the whole defect was that it fired after
+        the expensive shared stage the pass runs first.
+        """
+        unrunnable = dataclasses.replace(bodies.MARS, name="unrunnable", path_prefix="unrunnable",
+                                         planet_producer="raytrace")
+        monkeypatch.setitem(bodies.BODIES, unrunnable.name, unrunnable)
+        monkeypatch.setattr(planet_seam, "declared", lambda body: frozenset({"heightfield"}))
+
+        def _tripwire(*args, **kwargs):
+            raise AssertionError("the warp ran before the producer was refused")
+
+        monkeypatch.setattr(shade_planet, "warp_inputs", _tripwire)
+        with mock.patch.object(sys, "argv",
+                               ["planet_pass", "--body", unrunnable.name, "--out", str(tmp_path)]), \
+                pytest.raises(SystemExit) as refusal:
+            planet_pass.main()
+        assert "watermask" in str(refusal.value), refusal.value
 
 
 class TestTheBodyIsRequired:
@@ -129,9 +195,24 @@ class TestEveryProducerTheVocabularyAllowsCanBeDispatched:
         assert planet_pass.PRODUCERS
 
     def test_every_registered_body_dispatches(self, subtests):
+        """BOTH HALVES OF THE RECORD, because a producer that can be dispatched but cannot say who
+        may dispatch it is the gap the record exists to close. Asserting only `produce` would pass
+        against a member that answered the second question with None."""
         for name in sorted(bodies.BODIES):
             with subtests.test(name):
-                assert callable(planet_pass.producer_for(bodies.get(name)))
+                producer = planet_pass.producer_for(bodies.get(name))
+                assert callable(producer.produce)
+                assert callable(producer.refusals_for)
+
+    def test_every_producer_in_the_registry_answers_both_questions(self, subtests):
+        """The same claim over the REGISTRY rather than over the bodies, so a producer no body names
+        yet cannot ship half-built and be found by the first planet that chooses it."""
+        for producer_name, producer in sorted(planet_pass.PRODUCERS.items()):
+            with subtests.test(producer_name):
+                assert callable(producer.produce)
+                assert producer.refusals_for(planet_seam.KNOWN_RASTERS) == [], (
+                    "a whole planet seam must satisfy every producer, or this one can never run"
+                )
 
     def test_a_producer_nothing_runs_is_refused_by_name(self):
         """No fallback, on the rule `bodies.get` and `palette.look_for` already state."""

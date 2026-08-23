@@ -5084,9 +5084,35 @@ SABOTAGES: list[Sabotage] = [
         # implementation, and points the reader at `bodies.py` instead of at this file.
         label='the dispatch registry stops answering for a producer the vocabulary allows',
         path='pipeline/tile/planet_pass.py',
-        needle='    "raytrace": _raytrace,\n',
+        needle='    "raytrace": Producer(_raytrace, block_render.rig_seam_refusals),\n',
         replacement='',
         guard='test_the_registry_and_the_vocabulary_are_the_same_set',
+    ),
+    Sabotage(
+        suite='python',
+        # ITEM 4's ORDERING. Moving the refusal after the warp reads as grouping the reads together
+        # and is the whole defect: the answer never depended on the warp, so a wrongly-declared body
+        # paid a full Earth height warp -- 6:49, on every run and every resume -- to hear the same
+        # no. The producer still refuses, so nothing renders wrong; it just costs the expensive
+        # shared stage first, which is exactly the failure `check_inputs` exists to prevent one
+        # tier down.
+        label='the producer refusal moves after the warp, so a bad declaration costs 6 49 to learn',
+        path='pipeline/tile/planet_pass.py',
+        needle='    refusals = cannot_run(body, rasters)\n',
+        replacement='',
+        guard='test_the_refusal_comes_before_the_warp',
+    ),
+    Sabotage(
+        suite='python',
+        # The raytrace producer stops answering who may choose it. Reads as removing a redundant
+        # check -- `check_inputs` asks the same question inside the producer -- and re-opens the gap
+        # the pass exists to close: the registry can then hold a body/producer pair that cannot run,
+        # and nothing says so until a night has been spent warping for it.
+        label='the raytrace claims it runs on any seam, so an impossible pairing is never refused',
+        path='pipeline/tile/planet_pass.py',
+        needle='    "raytrace": Producer(_raytrace, block_render.rig_seam_refusals),',
+        replacement='    "raytrace": Producer(_raytrace, _composite_runs_on_any_seam),',
+        guard='test_a_seam_that_cannot_feed_the_rig_refuses_the_raytrace',
     ),
     Sabotage(
         suite='python',

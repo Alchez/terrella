@@ -14,14 +14,15 @@ WHAT IS SHARED IS MOST OF IT, and that is why the fork is this small:
   4. the tile cut    both — the cut cannot tell which producer ran, which is the design
   5. the polar caps  both — `cap_render` composites its own discs whatever made the tiles
 
-THE PRODUCER IS A DEPENDENCY AND NOT ONLY A CHOICE. Both producers stamp the same
-`planet_rgb.done`, because `freshness.done_marker` derives from the output alone. So without the
-stamp below each producer's freshness question is answered by the other's work, in both directions:
-after a raytraced run the composite finds its own recipe unmoved and a newer raster and skips,
-reporting raytraced pixels fresh; after a composited one an unchanged raytrace recipe does the same
-in reverse. Separate recipes do not close this, because the hazard is the shared OUTPUT rather than
-a shared dependency list. Both producers name the stamp, so a switch moves one mtime and both go
-stale.
+THE PRODUCER IS A DEPENDENCY AND NOT ONLY A CHOICE, and `tile/producer_seam.py` owns that: each
+producer declares itself, because this module is not on every path into one. It holds the argument
+in full.
+
+AND THE CHOICE CAN BE IMPOSSIBLE, which is what `cannot_run` asks. `planet_producer` is written by
+hand while raytraceability is DERIVED from what a body's planet seam declared, so the registry can
+hold a pair that cannot run. The question is asked here, before the warp both producers share,
+because the answer does not depend on that warp and asking afterwards charged a wrongly-declared
+body a full Earth height warp on every run to hear the same no.
 
     python -m pipeline.tile.planet_pass --body earth            # produce only
     python -m pipeline.tile.planet_pass --body earth --tiles    # + cut tiles
@@ -31,6 +32,7 @@ import argparse
 import subprocess
 import sys
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
@@ -56,14 +58,59 @@ def _raytrace(work: Path, body: bodies.Body, rasters: frozenset[str], height: Pa
     return mosaic
 
 
+def _composite_runs_on_any_seam(rasters: frozenset[str]) -> list[str]:
+    """The composite has no seam requirement, and that is a FACT about it rather than a stub.
+
+    It paints from the heightfield and treats every mask and every surface layer as optional --
+    `composite_deps` names them all unconditionally precisely because `newest_mtime` scores a
+    missing path 0.0. So there is no declaration it can be handed that it cannot shade; a thin one
+    costs it pixels rather than the run. Spelled out because the alternative reads as "not
+    implemented yet", and a reader would then be free to add a requirement here that is not real.
+    """
+    del rasters
+    return []
+
+
+@dataclass(frozen=True)
+class Producer:
+    """One way to fill a body's planet raster, together with which bodies may choose it.
+
+    THE TWO ANSWERS SHARE A RECORD BECAUSE THEY ARE ASKED OF ONE CHOICE. A second registry keyed on
+    the same producer names would be free to gain a member the first one lacks, and the gap is
+    silent in the direction that matters: a producer nothing can refuse. This way a new producer
+    cannot be dispatchable without also saying who is allowed to dispatch it.
+    """
+
+    #: Fill the raster and return its path.
+    produce: Callable[[Path, bodies.Body, frozenset[str], Path], Path]
+    #: Why a body declaring these rasters cannot use this producer, as reasons, or `[]` if it can.
+    #: Takes the DECLARATION rather than the body, because that is what the answer turns on and it
+    #: keeps the question answerable without a planet on disk.
+    refusals_for: Callable[[frozenset[str]], list[str]]
+
+
 #: The producers, keyed by the value a body answers with.
 #:
 #: A REGISTRY RATHER THAN AN `if`, so that `bodies.PLANET_PRODUCERS` gaining a member is a red test
 #: instead of a branch that silently falls through to the other one.
-PRODUCERS: dict[str, Callable[[Path, bodies.Body, frozenset[str], Path], Path]] = {
-    "composite": _composite,
-    "raytrace": _raytrace,
+PRODUCERS: dict[str, Producer] = {
+    "composite": Producer(_composite, _composite_runs_on_any_seam),
+    "raytrace": Producer(_raytrace, block_render.rig_seam_refusals),
 }
+
+
+def cannot_run(body: bodies.Body, rasters: frozenset[str]) -> list[str]:
+    """Why this body's declared producer cannot run on what its planet seam declared, or `[]`.
+
+    THE FIELD IS A CHOICE AND THE ANSWER IS DERIVED, which is the whole reason this exists.
+    `Body.planet_producer` is written down by hand; whether that choice is possible depends on a
+    different module's declaration, and until this was asked the registry could hold a pair that
+    cannot run -- `MARS.planet_producer = "raytrace"` type-checks and passes every gate.
+
+    Asked of the DECLARATION, so a test can sweep every registered body without a store, and so the
+    pass can ask it before the shared warp rather than after.
+    """
+    return producer_for(body).refusals_for(rasters)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -102,7 +149,7 @@ def resolve_out(args: argparse.Namespace) -> Path:
     return args.out if args.out is not None else bodies.work_dir(resolve_body(args), "planet_tiles")
 
 
-def producer_for(body: bodies.Body) -> Callable[[Path, bodies.Body, frozenset[str], Path], Path]:
+def producer_for(body: bodies.Body) -> "Producer":
     """The producer this body answers with, or raise naming the ones that exist.
 
     NO FALLBACK, on the rule `bodies.get` and `palette.look_for` already state: a body quietly
@@ -180,7 +227,7 @@ def main() -> None:
     body = resolve_body(args)
     work = resolve_out(args)
     work.mkdir(parents=True, exist_ok=True)
-    produce = producer_for(body)
+    producer = producer_for(body)
     apply_knob_overrides(body, args.knob)
 
     # Read ONCE, at the top, and threaded down. The planet stage declares what it emitted and this
@@ -188,8 +235,19 @@ def main() -> None:
     # plausible-looking pyramid. Threading it (rather than each stage reading the file) keeps
     # `_compute_shared` a pure function of its arguments, which is what lets it run on workers.
     rasters = planet_seam.declared(body)
+
+    # BEFORE THE WARP, because the warp is the expensive stage BOTH producers share and the answer
+    # does not depend on it. `planet_producer` is a choice written by hand and whether it is
+    # possible is derived from the declaration just read, so this is the first moment the question
+    # can be asked at all -- and asking it one line later charged a wrongly-declared body a full
+    # Earth height warp, on every run, to hear the same no.
+    refusals = cannot_run(body, rasters)
+    if refusals:
+        raise SystemExit(f"{body.name} declares planet producer {body.planet_producer!r}, which "
+                         f"cannot run on this body: " + "; ".join(refusals))
+
     height = shade_planet.warp_inputs(work, planet_seam.planet_dir(body), body, rasters)
-    planet_tif = produce(work, body, rasters, height)
+    planet_tif = producer.produce(work, body, rasters, height)
 
     if args.tiles and not raster_is_complete(planet_tif):
         print(f"{planet_tif.name} is incomplete -> tiles NOT cut (re-run to resume the producer)",
