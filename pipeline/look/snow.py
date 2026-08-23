@@ -333,10 +333,16 @@ def soften_source_cells(alpha, ground_metres_per_px):
 def antarctic_snow_mask(land, latitude, lat_max=-60.0):
     """1.0 where Antarctic land must be forced permanent-ice white, else 0.0 (float32).
 
-    Antarctica has no snow dataset in this pipeline: NSIDC-0791 persistence is NH-only and RGI region
-    19 is excluded, so `snow_alpha` and the glacier union are both zero over the continent -- left alone
-    it would render on the tan LAND ramp. The tile composite and the south cap both force it white by a
-    latitude+land rule instead, and this is the one home for that rule so the two agree across the seam.
+    ANTARCTICA'S SNOW DATASET HAS HOLES RATHER THAN BEING ABSENT, and the difference is measured.
+    NSIDC-0791 does cover the continent and saturates over it: every band 60-90S reads a median
+    persistence of 1.000, with 98-100% of it full white. What it does NOT cover is 9-14% of Antarctic
+    land that arrives as CLUSTERED fill, one component alone running to 101,088 px, which
+    `unpack_persistence` maps to 0.0. RGI region 19 genuinely is excluded, so nothing else answers
+    there either, and left alone those patches render as tan blotches inside the ice sheet.
+
+    So the rule closes holes; it does not stand in for a missing measurement. Over the saturating
+    86-91% it agrees with the data rather than overriding it. The tile composite and the south cap
+    both apply it, and this is the one home so the two agree across the seam.
 
     `land` is a 2-D boolean. `latitude` is either per-row (1-D, the Mercator tile path) or per-pixel
     (2-D, the AEQD cap); a 1-D array is broadcast down `land`'s columns. The whole Antarctic Peninsula

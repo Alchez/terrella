@@ -247,11 +247,13 @@ def _earth_lake_depth(window: LayerWindow) -> "np.ndarray | None":
 def _earth_perennial_ice(window: LayerWindow) -> "np.ndarray | None":
     """NSIDC-0791 persistence, plus the forced Antarctic patch that has no dataset behind it.
 
-    BOTH HALVES ARE THIS LAYER'S ANSWER, exactly as the cap tier's two poles are: NSIDC-0791 is
-    NH-only and RGI region 19 is excluded, so persistence and glaciers are both zero over the
-    continent and it would render on the tan LAND ramp. The patch therefore rides the layer's
-    DECLARATION and not its raster — no file could ever switch a latitude-and-land rule off — which
-    is why this returns an array even when `raw` is None.
+    BOTH HALVES ARE THIS LAYER'S ANSWER, exactly as the cap tier's two poles are. NSIDC-0791 covers
+    Antarctica and saturates over it (median 1.000 per band 60-90S), but 9-14% of the continent's
+    land arrives as clustered fill that unpacks to 0.0, and RGI region 19 is excluded — so the patch
+    exists to close those holes rather than to substitute for an absent dataset. The holes are IN
+    the file, which is what makes the patch ride the layer's DECLARATION and not its raster: no
+    file could ever switch a latitude-and-land rule off, and this returns an array even when `raw`
+    is None.
 
     float64 in both branches. `snow_alpha` returns float64 and `antarctic_snow_mask` float32, so the
     zeros base is what keeps the two paths feeding `shade.composite` the same dtype.

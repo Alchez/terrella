@@ -246,10 +246,11 @@ independent causes, split by depth in the frame: the far field was the atmospher
 **Mechanism.** Over full snow (`alpha = 1`) the composite is `base_rgb * (1 - alpha) + snow_rgb *
 alpha`, so `base_rgb` is multiplied by zero and every bit of hillshade *and the entire elevation
 ramp* is discarded. Relief survives only through `snow_t`, a two-colour ramp. Antarctic land is
-forced to alpha 1 by `snow.antarctic_snow_mask` because **there is no snow dataset for it**: 
-NSIDC-0791 is NH-only and RGI region 19 is excluded, so without the mask Antarctica renders on the
-tan LAND ramp, i.e. a brown continent. Flatness is a side effect of that substitution, not its
-purpose.
+forced to alpha 1 by `snow.antarctic_snow_mask` because **its snow dataset has holes**:
+NSIDC-0791 covers the continent and saturates over it, but 9 to 14% of that land arrives as
+clustered fill and RGI region 19 is excluded, so without the mask those patches render on the tan
+LAND ramp, i.e. brown blotches inside the ice sheet. Flatness is a side effect of closing them, not
+its purpose.
 
 **Then the ramp saturates.** Ice sheets have real elevation (the z6 plateau tile spans 2512–2944 m,
 a 432 m range) but almost no SLOPE: about 0.1° across a ~200 km tile, with a median neighbour step

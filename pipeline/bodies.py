@@ -147,10 +147,11 @@ class Body:
     #: field exists to close.
     #:
     #: THE ANTARCTIC LAND-ICE RULE RIDES WITH `perennial_ice`, and that is not a conflation. The rule
-    #: exists only because the snow dataset has a hole — NSIDC-0791 is northern-hemisphere-only and
-    #: RGI region 19 is excluded — so the continent would render on the tan LAND ramp. It is a patch
-    #: on that layer, so a body without it has nothing to patch. On a body with no sea it would
-    #: instead whiten every piece of land below 60 degrees south.
+    #: exists because the snow dataset has HOLES: NSIDC-0791 covers Antarctica and saturates over it,
+    #: but 9 to 14% of that land arrives as clustered fill, and RGI region 19 is excluded, so those
+    #: patches would render on the tan LAND ramp. It is a patch on that layer, so a body without it
+    #: has nothing to patch. On a body with no sea it would instead whiten every piece of land below
+    #: 60 degrees south.
     surface_layers: frozenset[str]
     #: Whether this body PUBLISHES rendered polar-cap textures.
     #:

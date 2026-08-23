@@ -17,8 +17,9 @@ Both poles share the projection/warp/coastline machinery but source their inputs
   - SOUTH (Antarctica): the same fused planet VRTs (they reach -90 since the fill;
     GEBCO-direct sourcing died the same day -- it shaded ~2.5 DN darker than the tiles and read as
     an interior ring). Ocean -> bathymetry depth ramp + the SH half of the same sea-ice climatology.
-    Snow is FORCED over Antarctic land, not read from a dataset (NSIDC-0791 is NH-only, RGI region
-    19 is excluded), via snow.antarctic_snow_mask (shared with the tile composite). Since the
+    Snow is FORCED over Antarctic land rather than read per pixel (NSIDC-0791 does cover the
+    continent and saturates over it, but 9-14% of that land is clustered fill; RGI region 19 is
+    excluded), via snow.antarctic_snow_mask (shared with the tile composite). Since the
     pyramid carries Antarctica itself, the cap mirrors the north exactly (edge_lat -80, feathered
     81..84 over interior ice) and only covers the last smeared Mercator sliver.
 

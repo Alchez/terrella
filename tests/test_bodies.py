@@ -1132,11 +1132,14 @@ def test_a_body_without_the_perennial_ice_layer_composites_no_ice_at_all() -> No
 def test_earth_still_forces_its_antarctic_land_white() -> None:
     """The companion that shows the guard above can FAIL — without it the assertion would pass on a
     composite that had simply stopped painting snow for everyone."""
-    persistence = np.zeros((8, 16), dtype=np.float32)  # no measured snow; the patch is the only source
+    # All-zero, which is NSIDC's clustered fill rather than a hypothetical: the real raster
+    # saturates over Antarctica and drops 9-14% of it to this, so the patch is the only source here.
+    persistence = np.zeros((8, 16), dtype=np.float32)
     shared = shade_planet._compute_shared(_southern_window(bodies.EARTH, persistence))
     assert shared.snow_a.min() == 1.0, (
-        "Earth stopped forcing its Antarctic land white — NSIDC-0791 is northern-hemisphere-only "
-        "and RGI excludes region 19, so without this patch the continent renders on the tan ramp"
+        "Earth stopped forcing its Antarctic land white — NSIDC-0791 saturates over most of the "
+        "continent but leaves 9-14% of it as clustered fill, and RGI excludes region 19, so "
+        "without this patch those holes render on the tan ramp"
     )
 
 
