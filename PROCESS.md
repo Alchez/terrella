@@ -72,10 +72,10 @@ All stage numbers below are at the **131072² grid** (the full Mercator square) 
 | 1 | warp height → 3857 | **6:49** | ~0 s | `height_3857.tif` 44 GB | `is_stale` |
 | 2 | warp ocean + water masks → 3857 | **~3:30** (1:45 + 1:47) | ~0 s | 69 MB | `warp_needs_rebuild` |
 | 3 | warp GLOBathy lake depth → 3857 | **1:01:44** (nodata-masker-bound, 102% CPU; no lakes south of −60°, the cost lives in the 50–70°N belt) | ~0 s | `lakedepth_3857.tif` 310 MB | `warp_needs_rebuild` |
-| 3b | warp snow persistence (banded) + rasterize glaciers + warp sea ice (banded) → 3857 | **snow 15:16, glaciers 0:19, sea-ice 14:42** | ~0 s | `snow_persistence_3857.tif`, `glacier_3857.tif`, `seaice_3857.tif` | `warp_needs_rebuild` |
+| 3b | warp snow persistence (banded) + rasterize glaciers + rasterize Antarctic rock + warp sea ice (banded) → 3857 | **snow 15:16, glaciers 0:19, rock 0:27, sea-ice 14:42** | ~0 s | `snow_persistence_3857.tif`, `glacier_3857.tif`, `addrock_3857.tif`, `seaice_3857.tif` | `warp_needs_rebuild` |
 | 4 | `look/hillshade.py` — per-row z-factor **+ fill sun** | **16:20** | ~0 s | `hs_3857.tif` | `is_stale` |
 | 5 | `global_occlusion` — sky-view factor | **3:23** (I/O-bound) | ~0 s | in-memory only | **lazy** |
-| 6 | `composite_planet` — ramps × hillshade × SVF + snow + sea ice + lake depth | **21:37** (1024 windows; the Antarctic windows are all snow+ice work) | ~0 s | `planet_rgb.tif` 11 GB | `is_stale` |
+| 6 | `composite_planet` — ramps × hillshade × SVF + snow + sea ice + lake depth | **57:23** (1024 windows at 0.30 win/s; the Antarctic windows are all snow+ice work) | ~0 s | `planet_rgb.tif` 11 GB | `is_stale` |
 | 7 | `build_tiles` — `gdal raster tile` z0–8, WebP q95 | **4:19** | **skip** | `tiles/` **3.1 GB**, 87,381 tiles | `tiles.done` + `tile_params.json` |
 | T | `tile/terrain_rgb.py` — terrain-RGB encode + cut **z0–8**, 8 m, lossless WebP *(separate lane: reads `height_3857.tif` directly, never the composite, and is not part of the shade pass)* | **30:14** cold, whole `elev_z*` chain built, of which cutting is 8:08 (z8 alone 5:31). The **41:00** this replaced was measured before the latitude ramp was deleted from the encode, which removed a per-row inverse-Mercator projection and a smoothstep multiply from every window. A z0–6 variant is **~4 min** once the chain exists. | **skip** | `work/planet_terrain/bathy_s8_webp/tiles/` **2.72 GB**, 87,381 tiles | `tiles.done` + `terrain_params.json`; chain on `elev_z*.done` |
 | R | `tile/relief_scan.py`, the block partition's per-cell cache *(separate lane: streams `height_3857.tif` + the ocean mask once and feeds `block_plan`; not part of the shade pass)* | **3:07**, 1.5 GB peak (Mars measured **0:41** at its 65536² z7 grid) | ~0 s | `relief_cells.tif` + `ocean_cells.tif` | `is_stale` + `relief_params.json` |
@@ -151,11 +151,34 @@ stage does not approach 16 G. `GDAL_CACHEMAX=512` across `-j ALL_CPUS` workers i
 that never fills — measured at 3.74 GiB across the whole cut, 537 samples, making it the LIGHTEST
 of the three stages rather than the reason for the cap.
 
-**The 21:37 composite was taken on a quiet box.** A recipe-only restage measured **26:40** for the
-same stage while a desktop session held ~6.5 GB of swap — while the cut (4:29 against 4:19) and the
-caps (1:42 against 1:36) both matched. So the long DRAM-bandwidth-bound stage is the one that pays
-for contention, and every stage figure in this file assumes the box is otherwise idle. The cause is
-not isolated; a quiet-box rerun would settle it.
+**THE COMPOSITE ROW SAYS 57:23, AND CONTENTION IS NOT WHAT PUT IT THERE.** The row read **21:37**
+for most of this file's life. A recipe-only restage of that same stage measured **26:40** while a
+desktop session held ~6.5 GB of swap, and on that run the cut (4:29 against 4:19) and the caps (1:42
+against 1:36) both matched, so the long DRAM-bandwidth-bound stage is the one that pays for
+contention and every other figure here assumes an idle box.
+
+**A full pass then measured 57:23**, on the same 1024 windows, threaded x4, at 0.30 win/s. That is
+**2.2x the contended figure and 2.65x the original**, and the stages around it on that same pass
+matched their records: sky-view **3:13** against 3:23, cut **4:30** against 4:19, glacier burn
+**0:19** against 0:19. The whole pass came to **68:52**. Its cap stage read 3:00 against a recorded
+1:36 and is NOT comparable: it re-rendered both colour discs and wrote the south elevation texture
+while skipping the north's, so it did more work than the figure it is being read against.
+
+**NO CODE CHANGE ACCOUNTS FOR IT, AND THE ICE-EDGE FEATHER IS REFUTED RATHER THAN UNTESTED.** A
+cProfile over six real windows sampled across latitude, running the same `_compute_shared` +
+`_compose` a worker runs, prices `soften_source_cells` at **4.1%** of composite compute (0.42 s of
+8.19 s per window). Everything added since the 21:37 measurement summed is **9 to 14%**, an order of
+magnitude short of the 165% the wall clock grew by, and `composite()` itself carries **35 numpy
+operations against 33** in the commit that recorded 21:37. Grid, window count, threading, layer
+count and the 16 G cgroup cap are all unchanged between the two measurements.
+
+**The live candidate is sustained I/O under the cap, and no isolated rig can see it.** Reads measure
+0.81 s per window on six windows, which would make the stage compute-bound, but that rig has a warm
+cache and a real pass streams ~86 GB through a 16 G cgroup that `memory.peak` shows pinned at its
+ceiling throughout. The production evidence points the same way: **per-window compute varies 1.87x
+across latitude (6.00 s to 11.23 s) while the pass's own wall rate varies only 1.14x** (36.1 to 41.3
+rows/s, flat from pole to pole), so something uniform is absorbing the compute variation. Settling
+it means instrumenting the REAL pass for per-window read against compute, not building another arm.
 
 **`pipeline/profile/run_pass.sh` sizes its cgroup cap from the body, and both bodies now want 16 G.**
 `pipeline/profile/pass_cap.py` derives it from `renders_polar_caps` and holds both measurements. 16 G
@@ -380,7 +403,7 @@ Run once; all are resumable and verify against a pinned size/md5, so a re-run is
 | ESA WorldCover | 114 GB | **hero snow only**, not the tile pipeline |
 | GLOBathy | 16.7 GB zip | → 83,357 per-lake rasters; **reclaimable once extracted** |
 | GEBCO 2026 | 7.3 GB | bathymetry + ice surface |
-| RGI 7.0 glaciers | 2.6 GB | tile snow |
+| RGI 7.0 glaciers | 2.7 GB | tile snow; **all 19 regions**, of which the merged `rgi7_g_3857.gpkg` is 1.1 GB. The merge ran **~40 min** while it carried `-skipfailures`, which sets the transaction size to 1: free into an empty table and quadratic into a populated one, measured at 51.8 s against 1.3 s appending region 19 into a 75,613-row base. That flag is gone and **the whole-merge cost without it has not been measured**, only the single-region A/B |
 | NSIDC-0791 snow persistence | 1.6 GB | tile snow |
 | OSI SAF sea ice (OSI-450-a) | 640 MB | tile sea ice; **anonymous** THREDDS, **serial** (OSI SAF forbids parallel); 720 monthly files → the 1991–2020 frequency climatology |
 | Cop30 void-fill | 1.2 GB | fusion void-fill |

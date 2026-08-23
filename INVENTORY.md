@@ -6,16 +6,16 @@
   passes and their lessons live in HISTORY (§ the reclaim log moves out of INVENTORY).
 - Two gitignored stores hold everything: `data/` (sources + intermediates) and
   `blender/renders/` (the hero products); no assets or DEM data are in git. Free space:
-  **~389 GB** of a 1.8 TB ext4 root. Sizes approximate.
+  **~359 GB** of a 1.8 TB ext4 root. Sizes approximate.
 
-## Raw sources: `data/raw/` (~688 GB)
+## Raw sources: `data/raw/` (~689 GB)
 
 | Store | Size | What it is | Used by | Reclaim? |
 |---|---|---|---|---|
 | `glo30/` | 551 GB | Copernicus GLO-30 land DEM tiles (downloaded per-country, on demand) | fusion (heroes + planet) | Keep: any re-fuse, new country, or z9/z10 extension reads it; largest store |
 | `worldcover/` | 114 GB | ESA WorldCover 2021 (class-70 permanent snow/ice) | **hero snow only** (`render/snow_mask.py`), NOT the tile pipeline | Reclaimable: see reclaim picture |
 | `gebco/` | 7.3 GB | GEBCO 2026 bathymetry / ice-surface | fusion (heroes + planet); Caspian bathymetry | Keep |
-| `rgi/` | 2.6 GB | RGI 7.0 glaciers (merged `rgi7_g_3857.gpkg` + source shp) | tile snow (`look/snow.py`) | Keep |
+| `rgi/` | 2.7 GB | RGI 7.0 glaciers, **all 19 regions** (merged `rgi7_g_3857.gpkg` 1.1 GB + source shp) | tile snow (`look/snow.py`) | Keep |
 | `snow/` | 1.6 GB | NSIDC-0791 snow-persistence climatology | tile snow (`look/snow.py`) | Keep |
 | `seaice/` | 640 MB | OSI SAF OSI-450-a monthly EASE2 files + the derived 1991–2020 ice-frequency climatology (`seaice_frequency_1991-2020_4326.tif`) + native `freq_{nh,sh}_ease2.tif` | tile sea ice (`look/seaice.py`) + both caps | Keep (climatology is tiny); `monthly/` regenerable from anonymous THREDDS |
 | `cop30_void/` | 1.2 GB | Cop30 void-fill DEM | fusion void-fill | Keep |
