@@ -248,7 +248,7 @@ alpha`, so `base_rgb` is multiplied by zero and every bit of hillshade *and the 
 ramp* is discarded. Relief survives only through `snow_t`, a two-colour ramp. Antarctic land is
 forced to alpha 1 by `snow.antarctic_snow_mask` because **its snow dataset has holes**:
 NSIDC-0791 covers the continent and saturates over it, but 9 to 14% of that land arrives as
-clustered fill and RGI region 19 is excluded, so without the mask those patches render on the tan
+clustered fill that RGI's peripheral region 19 does not reach, so without the mask those render on the tan
 LAND ramp, i.e. brown blotches inside the ice sheet. Flatness is a side effect of closing them, not
 its purpose.
 

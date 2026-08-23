@@ -249,8 +249,9 @@ def _earth_perennial_ice(window: LayerWindow) -> "np.ndarray | None":
 
     BOTH HALVES ARE THIS LAYER'S ANSWER, exactly as the cap tier's two poles are. NSIDC-0791 covers
     Antarctica and saturates over it (median 1.000 per band 60-90S), but 9-14% of the continent's
-    land arrives as clustered fill that unpacks to 0.0, and RGI region 19 is excluded — so the patch
-    exists to close those holes rather than to substitute for an absent dataset. The holes are IN
+    land arrives as clustered fill that unpacks to 0.0, which RGI's peripheral region 19 does not
+    reach either — so the patch exists to close those holes rather than to substitute for an absent
+    dataset. The holes are IN
     the file, which is what makes the patch ride the layer's DECLARATION and not its raster: no
     file could ever switch a latitude-and-land rule off, and this returns an array even when `raw`
     is None.

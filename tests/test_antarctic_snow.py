@@ -1,8 +1,8 @@
 """snow.antarctic_snow_mask: the shared rule that forces Antarctic land white in BOTH the tile
-composite and the south cap. RGI region 19 is excluded and NSIDC-0791 persistence saturates over the
-whole continent -- median 0.9999 measured on exposed rock itself, against a ramp cutoff of 0.60 --
-so nothing else whitens it and nothing else could un-whiten it either; one home for the rule keeps
-the two paths agreeing across the -84 cap<->tile seam.
+composite and the south cap. NSIDC-0791 persistence saturates over the whole continent -- median
+0.9999 measured on exposed rock itself, against a ramp cutoff of 0.60 -- and RGI region 19 reaches
+only the periphery, so nothing else whitens the interior and nothing else could un-whiten it either;
+one home for the rule keeps the two paths agreeing across the -84 cap<->tile seam.
 """
 
 import inspect

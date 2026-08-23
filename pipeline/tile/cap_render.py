@@ -18,8 +18,9 @@ Both poles share the projection/warp/coastline machinery but source their inputs
     GEBCO-direct sourcing died the same day -- it shaded ~2.5 DN darker than the tiles and read as
     an interior ring). Ocean -> bathymetry depth ramp + the SH half of the same sea-ice climatology.
     Snow is FORCED over Antarctic land rather than read per pixel (NSIDC-0791 does cover the
-    continent and saturates over it, but 9-14% of that land is clustered fill; RGI region 19 is
-    excluded), via snow.antarctic_snow_mask (shared with the tile composite). Since the
+    continent and saturates over it, but 9-14% of that land is clustered fill that RGI region 19's
+    peripheral polygons do not reach), via snow.antarctic_snow_mask (shared with the tile
+    composite). Since the
     pyramid carries Antarctica itself, the cap mirrors the north exactly (edge_lat -80, feathered
     81..84 over interior ice) and only covers the last smeared Mercator sliver.
 
@@ -968,7 +969,8 @@ def render_cap_south(grid: CapGrid, rasters: frozenset[str]) -> Path:
     to -90: the cap now shades the SAME fused heightfield and masks as the tiles, so the tone across
     the -84 cap<->tile crossfade agrees by construction (the GEBCO cap measured ~2.5 DN darker than
     the tiles it feathered into -- the visible interior ring). Earth's ice here is FORCED over
-    Antarctic land (no SH snow dataset, no RGI region 19), exactly as the tile composite does.
+    Antarctic land (persistence covers the continent but leaves clustered holes, and RGI region 19
+    is peripheral), exactly as the tile composite does.
 
     THAT FORCED PATCH IS THE ONE PRODUCER WITH NO FILE BEHIND IT, which is why a producer's
     `sources` may honestly be empty. It is latitude and land and nothing else, so no missing dataset

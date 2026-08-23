@@ -8,7 +8,8 @@ own 0.01 degree grid over these very polygons: persistence reads a median 0.9999
 against 1.0000 off it, and only 0.23% of rock cells score below the tile ramp's 0.60 cutoff. The
 signal exists and sits three orders of magnitude away from any threshold that could act on it, so
 99.77% of the outcrop would render as ice however the ramp were tuned. RGI 7.0 cannot help either:
-it excludes region 19 outright.
+it is an inventory of GLACIERS, so an absent polygon is not a claim that the ground is bare, and its
+region 19 maps 0.99% of Antarctic land.
 
 THE PRODUCT MATTERS AND THERE ARE THREE OF THEM UNDER NEARLY THE SAME NAME. This is the LANDSAT
 auto-extraction (Burton-Johnson et al. 2016, Gerrish 2020), not the high-resolution compilation and

@@ -183,8 +183,8 @@ def _earth_north(inputs: CapIceInputs) -> np.ndarray:
 def _earth_south(inputs: CapIceInputs) -> np.ndarray:
     """Antarctic land forced white, less its exposed rock — the one producer with no MANDATORY file.
 
-    RGI region 19 is excluded and NSIDC-0791 saturates over the whole continent, so the white comes
-    from latitude and land rather than from a measurement. Nothing on disk can switch that off,
+    NSIDC-0791 saturates over the whole continent and RGI region 19 reaches only its periphery, so
+    the white comes from latitude and land rather than from a measurement. Nothing on disk can switch that off,
     which is why it rides the body's layer declaration and why its `sources` tuple stays empty.
     `pipeline/acquire/download_add_rock.py` holds the measurement behind the saturation claim.
 

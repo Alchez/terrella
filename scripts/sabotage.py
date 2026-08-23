@@ -3433,8 +3433,8 @@ SABOTAGES: list[Sabotage] = [
         guard='test_only_earths_south_declares_an_exclusion',
     ),
     # THE CAP STOPS SHARING THE TILE TIER'S LAW. Returning the producer's answer straight out is
-    # what shipped, and it is invisible while the cap has exactly one white producer -- until a
-    # second one arrives, which RGI region 19 is.
+    # what shipped, and it is invisible while the cap has exactly one white producer -- which is
+    # what RGI region 19, now carried, stops being safe to assume.
     Sabotage(
         suite='python',
         label='the cap returns its producer alpha unfolded, so no exclusion reaches the disc',
@@ -4148,6 +4148,28 @@ SABOTAGES: list[Sabotage] = [
         needle='MOSAIC_NAME = "Mars_Viking_ClrMosaic_global_925m.tif"',
         replacement='MOSAIC_NAME = "Mars_Viking_MDIM21_ClrMosaic_global_232m.tif"',
         guard='test_the_product_taken_is_the_925_metre_colour_mosaic_and_not_a_finer_one',
+    ),
+    # --- RGI: the acquisition decides how much of the planet the glacier layer covers ------------
+    # THE FAILURE HAS NO SYMPTOM AT ITS OWN STAGE. A region that never downloads leaves a burn with
+    # no polygons there, and every downstream check -- file exists, right size, mtime fresh -- is
+    # satisfied by it. The map is the only thing that can tell, and it says "bare ground", which is
+    # a thing maps legitimately say. Both cases below are the shape that actually shipped.
+    Sabotage(
+        suite='python',
+        label='region 19 is filtered back out at download, so the sub-Antarctic islands go bare',
+        path='pipeline/acquire/download_rgi.py',
+        needle='    urls = sorted(r["url"] for r in resources if (r.get("format") or "").upper() == "SHP")',
+        replacement=('    urls = sorted(r["url"] for r in resources '
+                     'if (r.get("format") or "").upper() == "SHP" and "-19_" not in r["url"])'),
+        guard='test_the_antarctic_region_is_one_of_them',
+    ),
+    Sabotage(
+        suite='python',
+        label='a short portal listing is merged as-is, so the layer quietly covers less than before',
+        path='pipeline/acquire/download_rgi.py',
+        needle='    missing = sorted(set(range(1, REGION_COUNT + 1)) - found)',
+        replacement='    missing = []',
+        guard='test_a_region_missing_from_the_portal_is_refused_rather_than_merged_short',
     ),
     # --- The HTTP identity --------------------------------------------------------------------------
     # These are the hardest mutations in the file to catch by any other means. Every acquisition test

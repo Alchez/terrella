@@ -718,12 +718,12 @@ class TestTheOutcropLosesItsWhiteWhateverElseClaimsThePixel:
         assert (white[:, COLS // 2:] == 1.0).all(), "the ice beside the outcrop lost its white"
 
     def test_a_glacier_over_the_outcrop_does_not_rescue_it_either(self):
-        """The claim that makes this an EXCLUSION and not a bigger subtraction, and the reason RGI
-        region 19 is unsafe until it holds.
+        """The claim that makes this an EXCLUSION and not a bigger subtraction, and what RGI region
+        19 is carried on.
 
-        Region 19's polygons are invisible over Antarctica today only because the forced rule
-        already paints white there. The moment rock comes out they are a second whitener landing on
-        the same pixels — and a negative applied inside any one positive term cannot answer them.
+        Region 19's polygons are invisible over Antarctica only because the forced rule already
+        paints white there. Where rock comes out they are a second whitener landing on the same
+        pixels — and a negative applied inside any one positive term cannot answer them.
         """
         white = self._snow_alpha(rock=self._rock(),
                                  glacier=np.ones((ROWS, COLS), dtype=np.uint8))

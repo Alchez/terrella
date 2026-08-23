@@ -337,8 +337,9 @@ def antarctic_snow_mask(land, latitude, lat_max=-60.0):
     NSIDC-0791 does cover the continent and saturates over it: every band 60-90S reads a median
     persistence of 1.000, with 98-100% of it full white. What it does NOT cover is 9-14% of Antarctic
     land that arrives as CLUSTERED fill, one component alone running to 101,088 px, which
-    `unpack_persistence` maps to 0.0. RGI region 19 genuinely is excluded, so nothing else answers
-    there either, and left alone those patches render as tan blotches inside the ice sheet.
+    `unpack_persistence` maps to 0.0. RGI does not answer there either: region 19 is peripheral,
+    covering 0.99% of Antarctic land and closing 0.44% of the fill. Left alone those patches render
+    as tan blotches inside the ice sheet.
 
     So the rule closes holes; it does not stand in for a missing measurement. Over the saturating
     86-91% it agrees with the data rather than overriding it. The tile composite and the south cap
@@ -346,8 +347,9 @@ def antarctic_snow_mask(land, latitude, lat_max=-60.0):
 
     `land` is a 2-D boolean. `latitude` is either per-row (1-D, the Mercator tile path) or per-pixel
     (2-D, the AEQD cap); a 1-D array is broadcast down `land`'s columns. The whole Antarctic Peninsula
-    is south of -60, so lat_max=-60 covers the continent; only tiny sub-Antarctic islands north of it
-    stay bare (deferred RGI-19 polish).
+    is south of -60, so lat_max=-60 covers the continent; the sub-Antarctic islands north of it are
+    whitened by RGI region 19 instead, the only dataset that reaches them — South Sandwich is 100%
+    SP_FILL, so persistence cannot.
 
     A PURE RULE, AND THE EXPOSED ROCK IS DELIBERATELY NOT ITS BUSINESS. SCAR ADD's outcrop is a
     `layer_producers.WHITE_EXCLUSIONS` member removed after the whole white union folds, in both

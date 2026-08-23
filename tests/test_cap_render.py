@@ -1143,8 +1143,8 @@ class TestTheCapFoldsThroughTheSameLawAsTheTiles:
         """THE OUTCOME, and the cap's twin of the tile tier's glacier case.
 
         A producer claiming the rock at full strength is exactly what a second white source on this
-        disc would be, and RGI region 19 is the concrete one waiting. Returning the producer's array
-        directly cannot answer it however carefully the producer itself subtracts.
+        disc would be, and RGI region 19 is the concrete one now carried. Returning the producer's
+        array directly cannot answer it however carefully the producer itself subtracts.
         """
         alpha = self._alpha(monkeypatch, claims=np.ones(self.SHAPE), rock=self._covered())
         assert not alpha[:, : self.HALF].any(), "the outcrop kept a white its producer claimed"

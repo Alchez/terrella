@@ -1138,8 +1138,8 @@ def test_earth_still_forces_its_antarctic_land_white() -> None:
     shared = shade_planet._compute_shared(_southern_window(bodies.EARTH, persistence))
     assert shared.snow_a.min() == 1.0, (
         "Earth stopped forcing its Antarctic land white — NSIDC-0791 saturates over most of the "
-        "continent but leaves 9-14% of it as clustered fill, and RGI excludes region 19, so "
-        "without this patch those holes render on the tan ramp"
+        "continent but leaves 9-14% of it as clustered fill that RGI's peripheral region 19 does "
+        "not reach, so without this patch those holes render on the tan ramp"
     )
 
 
