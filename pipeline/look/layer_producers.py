@@ -76,17 +76,6 @@ class LayerWindow:
     """
 
     raw: np.ndarray | None
-    #: This window's Antarctic outcrop, or None where the body declares no rock layer and where its
-    #: raster was never built. ONE LAYER'S RASTER SEEN BY ANOTHER LAYER'S PRODUCER, which is why it
-    #: sits here beside the masks rather than arriving as `raw`: `_earth_perennial_ice` subtracts it
-    #: from a rule that has no dataset of its own.
-    #:
-    #: FILLED BY `gather` AND HANDED OVER AS None BY EVERY SUPPLIER, exactly as `raw` is. Each
-    #: supplier already passes `layer_raw` to `gather`, so reading the slice there instead would put
-    #: the declared-and-exists gate in two places and let the composite and the block prep disagree
-    #: about one window. It is a shared field and not a per-producer one because the producer that
-    #: BUILDS it contributes nothing at all.
-    rock: np.ndarray | None
     #: The planet seam's water classes, or None on a body whose seam emitted no water mask.
     watercode: np.ndarray | None
     #: `~(ocean | water)` for this window — the composite's own definition of land.
@@ -234,10 +223,10 @@ def _build_antarctic_rock(request: LayerBuild) -> None:
 def _earth_antarctic_rock(_window: LayerWindow) -> "np.ndarray | None":
     """None on every window, and that is this layer's whole answer at this tier.
 
-    THE ONE PRODUCER THAT BUILDS A RASTER AND CONTRIBUTES NOTHING. What reads the raster is
-    `_earth_perennial_ice`, which SUBTRACTS it from the forced Antarctic white; the mask reaches that
-    producer as a shared field on the window rather than as its own contribution, exactly as
-    `watercode` reaches lake depth. Returning an array here instead would put the rock into
+    THE ONE PRODUCER THAT BUILDS A RASTER AND CONTRIBUTES NOTHING. What consumes the raster is
+    `fold_white`, which takes it back OUT of the finished union as a `WHITE_EXCLUSIONS` member;
+    `gather` reads the slice straight off `layer_raw` and returns it beside the contributions, so it
+    reaches no producer at all. Returning an array here instead would put the rock into
     `fold_white`'s maximum and paint the outcrop the very white this layer exists to remove — an
     inversion that renders as a perfectly plausible ice sheet.
     """
@@ -267,11 +256,11 @@ def _earth_perennial_ice(window: LayerWindow) -> "np.ndarray | None":
     float64 in both branches. `snow_alpha` returns float64 and `antarctic_snow_mask` float32, so the
     zeros base is what keeps the two paths feeding `shade.composite` the same dtype.
 
-    THE ROCK IS THE PATCH'S ONLY INPUT AND IT IS OPTIONAL, on the same rule as the patch itself: the
-    subtraction is about a DATASET and the rule is not, so None must give today's answer exactly
-    rather than a plausible one. It reaches the patch and not the persistence half deliberately —
-    NSIDC measures the outcrop as bare already, and subtracting there would take white off ground
-    the data says is snow-covered.
+    NO ROCK REACHES THIS PRODUCER, and that is a correctness boundary rather than a tidy. The
+    outcrop used to be subtracted from the patch here, inside ONE TERM of the maximum below, where
+    `persistence_alpha` re-claimed 63% of it — a negative has no home in a positive claim. It is now
+    a `WHITE_EXCLUSIONS` member applied after the whole union folds, so this producer answers only
+    the question it can answer: where Earth's perennial ice IS.
     """
     if window.raw is None:
         persistence_alpha = np.zeros(window.land.shape, dtype=float)
@@ -280,7 +269,7 @@ def _earth_perennial_ice(window: LayerWindow) -> "np.ndarray | None":
             snow.snow_alpha(snow.unpack_persistence(window.raw), window.top, window.bottom),
             window.ground_metres_per_px)
     return np.maximum(persistence_alpha,
-                      snow.antarctic_snow_mask(window.land, window.latitude, rock=window.rock))
+                      snow.antarctic_snow_mask(window.land, window.latitude))
 
 
 def _earth_glaciers(window: LayerWindow) -> "np.ndarray | None":
@@ -546,9 +535,26 @@ def producer_for(body: bodies.Body, layer: layers.Layer) -> LayerProducer:
 #: Lake depth is absent for a different reason: it is a ramp position and not a white at all.
 WHITE_UNION: tuple[layers.Layer, ...] = (layers.PERENNIAL_ICE, layers.GLACIERS)
 
+#: The layers that REMOVE white, applied after that union and never folded into it.
+#:
+#: THE NEGATIVE HALF OF THE SAME LAW, and it exists because `fold_white` is a maximum over POSITIVE
+#: claims. Every member of `WHITE_UNION` says "this pixel is ice"; "this pixel is definitively NOT
+#: ice" has no representation in a maximum of non-negative arrays at all. Before this tuple the only
+#: way to say it was to subtract inside one union member's own contribution — where every OTHER
+#: member independently outvotes it. Measured, that cost the Antarctic outcrop 63% of its
+#: subtraction, because NSIDC-0791 persistence reads a median 1.0000 on the very rock SCAR ADD maps.
+#:
+#: BESIDE THE UNION AND NOT IN `layers`, because the two are one law and a reader who finds either
+#: half needs the other: what makes a new white source safe to add is that this half lands after all
+#: of them. A layer belongs here rather than in the union when its answer is about a pixel NOT being
+#: white, which is a different question from how strongly something else claims it.
+WHITE_EXCLUSIONS: tuple[layers.Layer, ...] = (layers.ANTARCTIC_ROCK,)
+
 
 def gather(body: bodies.Body, layer_raw: dict[str, "np.ndarray | None"], window: LayerWindow,
-           vocabulary: frozenset[str]) -> tuple[dict[str, np.ndarray], dict[str, tuple[Any, Any]]]:
+           vocabulary: frozenset[str]) -> tuple[dict[str, np.ndarray],
+                                                dict[str, tuple[Any, Any]],
+                                                dict[str, np.ndarray]]:
     """Every layer `vocabulary` reads, as this body's producers answer for one window.
 
     ASKED OF THE BODY, NEVER OF THE RASTER ON DISK. A producer runs because the planet DECLARED the
@@ -562,14 +568,18 @@ def gather(body: bodies.Body, layer_raw: dict[str, "np.ndarray | None"], window:
     A paint is asked ONLY of a layer that contributed, so a producer that paints nothing this window
     never has to answer what colour it would have used.
 
-    THE ROCK SLICE IS PLACED ON THE WINDOW HERE, ONCE, because this is the only place that holds
-    both `layer_raw` and the body's declarations. It is asked of the BODY and not of the dict: one
-    supplier keys `layer_raw` on `path.exists()` alone, so a slice can arrive for a body that
-    declares no rock layer, and the per-layer declaration check has always been this function's.
+    THE EXCLUSIONS ARE READ HERE, ONCE, because this is the only place holding both `layer_raw` and
+    the body's declarations. They are the third return rather than a shared field on the window: no
+    producer is allowed to see them, since the whole point of `WHITE_EXCLUSIONS` is that a negative
+    is applied to the FOLD and not inside any one producer's positive answer.
+
+    ASKED OF THE BODY AND OF THE VOCABULARY, NEVER OF THE DICT. One supplier keys `layer_raw` on
+    `path.exists()` alone, so a slice can arrive for a body that declares no such layer, and a stage
+    that does not read the layer must get the un-excluded answer exactly.
     """
-    rock = (layer_raw.get(layers.ANTARCTIC_ROCK.name)
-            if layers.ANTARCTIC_ROCK.name in body.surface_layers else None)
-    window = dataclasses.replace(window, rock=rock)
+    exclusions = {layer.name: raw for layer in WHITE_EXCLUSIONS
+                  if layer.name in vocabulary and layer.name in body.surface_layers
+                  and (raw := layer_raw.get(layer.name)) is not None}
     contributions: dict[str, np.ndarray] = {}
     paints: dict[str, tuple[Any, Any]] = {}
     for layer in layers.WARPED_LAYERS:
@@ -584,13 +594,15 @@ def gather(body: bodies.Body, layer_raw: dict[str, "np.ndarray | None"], window:
         paint = producer.paint(seen)
         if paint is not None:
             paints[layer.name] = paint
-    return contributions, paints
+    return contributions, paints, exclusions
 
 
 def fold_white(contributions: dict[str, np.ndarray], shape: tuple[int, ...], *,
+               exclusions: dict[str, np.ndarray],
                merge: "Callable[[Any, np.ndarray, str, np.ndarray], Any] | None" = None
                ) -> tuple[np.ndarray, Any]:
-    """Fold `WHITE_UNION`'s contributions into the one alpha `shade.composite` paints as snow.
+    """Fold `WHITE_UNION`'s contributions into the one alpha `shade.composite` paints as snow,
+    then take `WHITE_EXCLUSIONS` back out of the result.
 
     float64 base because that is what `snow_alpha` returns and what the maxima promote to; a float32
     base would narrow every pixel the compositor blends. `np.maximum` reorders freely and every
@@ -601,6 +613,19 @@ def fold_white(contributions: dict[str, np.ndarray], shape: tuple[int, ...], *,
     in, and this layer's name and contribution, and it exists so the compositor's paint merge reads
     the same running alpha this fold produces rather than recomputing a second one beside it. Left
     None by a caller that wants the alpha alone, which is every caller that does not paint.
+
+    THE EXCLUSIONS LAND AFTER THE MAXIMUM AND THAT ORDER IS THE WHOLE POINT. Subtracting inside any
+    one contribution leaves every other union member free to re-claim the pixel, which is what a
+    maximum of positives does by construction — so an exclusion applied earlier is not a weaker fix,
+    it is a fix that a second white source silently undoes. `WHITE_EXCLUSIONS` holds the argument.
+
+    REQUIRED RATHER THAN DEFAULTED, because a caller that skips the negative gets a plausible white
+    rather than an error, and a plausible white is precisely the failure this parameter exists to
+    end. Pass an empty dict to mean "this window excludes nothing" and say so deliberately.
+
+    `merge` still sees pre-exclusion alphas, and that is correct rather than tolerated: it decides
+    which layer's COLOUR wins a pixel, and `shade.composite` multiplies that colour by the alpha
+    returned here — which is zero on every excluded pixel, so the colour there reaches nothing.
     """
     alpha = np.zeros(shape, dtype=float)
     carried = None
@@ -611,4 +636,9 @@ def fold_white(contributions: dict[str, np.ndarray], shape: tuple[int, ...], *,
         if merge is not None:
             carried = merge(carried, alpha, layer.name, contribution)
         alpha = np.maximum(alpha, contribution)
+    for layer in WHITE_EXCLUSIONS:
+        removed = exclusions.get(layer.name)
+        if removed is None:
+            continue
+        alpha = np.where(np.asarray(removed).astype(bool), 0.0, alpha)
     return alpha, carried

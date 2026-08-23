@@ -47,11 +47,10 @@ def _ground_metres_per_px(top, bottom, rows=ROWS):
         bodies.ground_metres_per_mercator_unit(bodies.EARTH))
 
 
-def _window(raw, *, land=None, watercode=None, rock=None, top=SOUTHERN_TOP,
-            bottom=SOUTHERN_BOTTOM):
+def _window(raw, *, land=None, watercode=None, top=SOUTHERN_TOP, bottom=SOUTHERN_BOTTOM):
     latitude = snow.latitude_per_row(top, bottom, ROWS)
     return layer_producers.LayerWindow(
-        raw=raw, rock=rock,
+        raw=raw,
         watercode=np.zeros((ROWS, COLS), dtype=np.uint8) if watercode is None else watercode,
         land=np.ones((ROWS, COLS), dtype=bool) if land is None else land,
         latitude=latitude, ground_metres_per_px=_ground_metres_per_px(top, bottom),
@@ -542,11 +541,15 @@ class TestARockLayerBuildsARasterAndContributesNothing:
     """Antarctic outcrop is the first layer whose raster is read by ANOTHER layer's producer.
 
     It has a row, a source, a build and a warped raster like the four before it, and then its own
-    `contribution` is None on every window: what consumes it is `snow.antarctic_snow_mask` inside
-    the perennial-ice producer, which SUBTRACTS it. That asymmetry is the whole design, and both
-    halves of it are silent if they break. A rock layer that started contributing would be folded
-    into `WHITE_UNION`'s maximum and paint the outcrop the very white it exists to remove — the
-    exact inversion, and one that renders as a plausible ice sheet.
+    `contribution` is None on every window: what consumes it is `fold_white`, which takes it back
+    OUT of the finished union as a `WHITE_EXCLUSIONS` member. That asymmetry is the whole design,
+    and both halves of it are silent if they break. A rock layer that started contributing would be
+    folded into `WHITE_UNION`'s maximum and paint the outcrop the very white it exists to remove —
+    the exact inversion, and one that renders as a plausible ice sheet.
+
+    The OUTCOME these plumbing claims are supposed to add up to is asserted separately, in
+    `TestTheOutcropLosesItsWhiteWhateverElseClaimsThePixel` — every guard in this class passed while
+    the outcrop still rendered solid white, which is the reason that class exists.
     """
 
     def _rock(self, rows=ROWS, cols=COLS) -> np.ndarray:
@@ -563,14 +566,19 @@ class TestARockLayerBuildsARasterAndContributesNothing:
         """
         raw: dict[str, np.ndarray | None] = {layer.name: None for layer in layers.WARPED_LAYERS}
         raw[layers.ANTARCTIC_ROCK.name] = self._rock()
-        contributions, paints = layer_producers.gather(
+        contributions, paints, _ = layer_producers.gather(
             bodies.EARTH, raw, _window(None), layers.COMPOSITE_LAYERS)
         assert layers.ANTARCTIC_ROCK.name not in contributions
         assert layers.ANTARCTIC_ROCK.name not in paints
 
-    def test_it_is_not_in_the_white_union(self):
-        """The union is the one place a contribution would become white, and it is a fixed tuple —
-        so this is the guard against the tidy that adds every ice-ish layer to it."""
+    def test_it_is_in_the_exclusions_and_not_in_the_union(self):
+        """Both tuples, because membership of either one alone is half a claim.
+
+        The union is where a contribution would become white and the exclusions are where a raster
+        removes it; a layer in neither reaches no pixel at all, and a layer in both would fight
+        itself. This is the guard against the tidy that adds every ice-ish layer to the union.
+        """
+        assert layers.ANTARCTIC_ROCK in layer_producers.WHITE_EXCLUSIONS
         assert layers.ANTARCTIC_ROCK not in layer_producers.WHITE_UNION
 
     def test_it_declares_no_paint_because_it_is_never_painted(self):
@@ -580,22 +588,29 @@ class TestARockLayerBuildsARasterAndContributesNothing:
         assert producer.paint(_window(self._rock())) is None
         assert producer.contribution(_window(self._rock())) is None
 
-    def test_gather_hands_the_rock_to_the_producer_that_subtracts_it(self):
-        """The end-to-end claim, taken through `gather` rather than by building a window by hand.
-
-        `gather` is the one place that owns the mapping from `layer_raw` to a window's shared
-        fields, so the plumbing under test is precisely the thing a hand-built window would skip.
-        Southern all-land, so the forced patch is 1.0 everywhere before the rock lands.
-        """
+    def _gathered(self, body=bodies.EARTH, vocabulary=None, rock=True):
         raw: dict[str, np.ndarray | None] = {layer.name: None for layer in layers.WARPED_LAYERS}
-        raw[layers.ANTARCTIC_ROCK.name] = self._rock()
-        contributions, _ = layer_producers.gather(
-            bodies.EARTH, raw, _window(None), layers.COMPOSITE_LAYERS)
-        white = contributions[layers.PERENNIAL_ICE.name]
-        assert (white[:, : COLS // 2] == 0.0).all(), "outcrop kept the forced white"
-        assert (white[:, COLS // 2:] == 1.0).all(), "the ice beside it lost its white"
+        raw[layers.ANTARCTIC_ROCK.name] = self._rock() if rock else None
+        return layer_producers.gather(
+            body, raw, _window(None),
+            layers.COMPOSITE_LAYERS if vocabulary is None else vocabulary)
 
-    def test_a_body_that_declares_no_rock_layer_gets_the_unsubtracted_answer(self):
+    def test_gather_returns_the_rock_as_an_exclusion_and_no_producer_sees_it(self):
+        """Both halves, and the second is the one the placement before this got wrong.
+
+        `gather` holds `layer_raw` and the body's declarations together, so the exclusion is read
+        here. And the perennial-ice contribution must be BYTE-IDENTICAL with the rock present and
+        absent: a producer that could still see the mask could still subtract it inside its own
+        maximum, which is the arrangement that discarded 63% of the subtraction.
+        """
+        contributions, _, exclusions = self._gathered()
+        assert (exclusions[layers.ANTARCTIC_ROCK.name] == self._rock()).all()
+        blind, _, empty = self._gathered(rock=False)
+        assert not empty
+        assert (contributions[layers.PERENNIAL_ICE.name].tobytes()
+                == blind[layers.PERENNIAL_ICE.name].tobytes())
+
+    def test_a_body_that_declares_no_rock_layer_excludes_nothing(self):
         """The body gate, and it has to live in `gather` because one supplier does not apply it.
 
         `shade_planet` builds `layer_raw` off `path.exists()` alone — every per-layer declaration
@@ -607,19 +622,27 @@ class TestARockLayerBuildsARasterAndContributesNothing:
         rockless = dataclasses.replace(
             bodies.EARTH,
             surface_layers=bodies.EARTH.surface_layers - {layers.ANTARCTIC_ROCK.name})
-        raw: dict[str, np.ndarray | None] = {layer.name: None for layer in layers.WARPED_LAYERS}
-        raw[layers.ANTARCTIC_ROCK.name] = self._rock()
-        contributions, _ = layer_producers.gather(
-            rockless, raw, _window(None), layers.COMPOSITE_LAYERS)
-        assert (contributions[layers.PERENNIAL_ICE.name] == 1.0).all()
+        _, _, exclusions = self._gathered(body=rockless)
+        assert not exclusions
 
-    def test_the_window_carries_no_rock_until_gather_puts_it_there(self):
-        """`rock` is a gather-filled field like `raw`, so a supplier hands over None.
-
-        Pinned because the alternative shape — each supplier reading `layer_raw` itself — is the one
-        that lets the composite and the block prep disagree about the same window.
+    def test_a_stage_that_does_not_read_the_layer_excludes_nothing(self):
+        """The vocabulary gate's own case. Both stage vocabularies carry the rock today, so only a
+        deliberately narrow one can show the gate exists at all — and without it a stage would take
+        an exclusion for a layer it never gathered, which is the block prep's disagreement in
+        miniature.
         """
-        assert _window(None).rock is None
+        _, _, exclusions = self._gathered(vocabulary=frozenset({layers.PERENNIAL_ICE.name}))
+        assert not exclusions
+
+    def test_no_producer_can_see_the_rock_at_all(self):
+        """The field is GONE rather than handed over as None, and that is what makes the old
+        placement unwritable rather than merely unwritten.
+
+        A shared `rock` on the window is exactly what let a negative be smuggled inside a positive
+        contribution. A producer cannot reach for a field its window does not have.
+        """
+        assert "rock" not in {field.name
+                              for field in dataclasses.fields(layer_producers.LayerWindow)}
 
     def test_its_source_is_the_gpkg_the_acquirer_writes(self, monkeypatch, tmp_path):
         """One home for the path, read at CALL time — the acquirer owns it because it writes it.
@@ -631,4 +654,97 @@ class TestARockLayerBuildsARasterAndContributesNothing:
         monkeypatch.setattr(download_add_rock, "GPKG", moved)
         producer = layer_producers.producer_for(bodies.EARTH, layers.ANTARCTIC_ROCK)
         assert producer.sources() == (moved,)
+
+
+class TestTheOutcropLosesItsWhiteWhateverElseClaimsThePixel:
+    """The tile tier's OUTCOME, asserted where no plumbing guard is able to assert it.
+
+    Every other rock guard in this file names a MECHANISM — `gather` places the slice, the producer
+    passes it, the rule subtracts it — and every one of them passes while the outcrop still renders
+    solid white. The subtraction used to sit inside ONE TERM of `_earth_perennial_ice`'s maximum,
+    and persistence is the other term: `max(persistence, rule - rock)` keeps the white wherever
+    persistence claims the pixel independently. On the shipping rasters it claims almost all of it.
+
+    SO THE FIXTURE SATURATES PERSISTENCE, and that is the whole design of these tests rather than a
+    convenient extreme. Run against an all-zero persistence raster every assertion below passes on
+    the broken placement and on the fixed one alike, which is the shape that let this ship.
+
+    Taken through `shade_planet._compute_shared` rather than through `fold_white` directly, because
+    the claim is about the alpha `shade.composite` paints and not about one function's return.
+    """
+
+    #: Packed persistence that `unpack_persistence` clips to 1.0, so `snow_alpha` saturates on every
+    #: row of this window. NSIDC-0791's own median ON the outcrop is 0.9999, so this is the measured
+    #: state of the other term rather than a stressor invented for the test.
+    SATURATED = 10_000.0
+
+    def _rock(self) -> np.ndarray:
+        """Rock over the left half, ice over the right, so one window carries claim and control."""
+        mask = np.zeros((ROWS, COLS), dtype=np.uint8)
+        mask[:, : COLS // 2] = 1
+        return mask
+
+    def _snow_alpha(self, *, rock=None, persistence=None, glacier=None, body=bodies.EARTH):
+        from rasterio.windows import Window
+
+        raw: dict[str, np.ndarray | None] = {layer.name: None for layer in layers.WARPED_LAYERS}
+        raw[layers.PERENNIAL_ICE.name] = persistence
+        raw[layers.GLACIERS.name] = glacier
+        raw[layers.ANTARCTIC_ROCK.name] = rock
+        return shade_planet._compute_shared(shade_planet._WindowInputs(
+            win=Window(0, 0, COLS, ROWS),  # pyright: ignore[reportCallIssue]
+            win_h=ROWS, win_top=SOUTHERN_TOP, win_bottom=SOUTHERN_BOTTOM,
+            height_win=np.zeros((ROWS, COLS), dtype=np.float32),
+            ocean_raw=np.zeros((ROWS, COLS), dtype=np.uint8),
+            watercode=np.zeros((ROWS, COLS), dtype=np.uint8),
+            hs_raw=np.full((ROWS, COLS), 128, dtype=np.uint8),
+            layer_raw=raw, occ_win=np.zeros((ROWS, COLS), dtype=np.float32),
+            body=body)).snow_a
+
+    def test_the_fixture_really_does_saturate_the_other_term(self):
+        """The positive control, and it runs FIRST because every claim below is void without it.
+
+        If `SATURATED` did not reach 1.0 the tests under it would pass for the wrong reason — the
+        subtraction would be surviving a maximum against something smaller than itself rather than
+        being applied after the union at all.
+        """
+        assert (self._snow_alpha(persistence=np.full((ROWS, COLS), self.SATURATED)) == 1.0).all()
+
+    def test_saturated_persistence_does_not_rescue_the_white_on_rock(self):
+        """THE DEFECT, stated as an outcome. Red on the placement that shipped."""
+        white = self._snow_alpha(rock=self._rock(),
+                                 persistence=np.full((ROWS, COLS), self.SATURATED))
+        assert (white[:, : COLS // 2] == 0.0).all(), "the outcrop kept a white another term claimed"
+        assert (white[:, COLS // 2:] == 1.0).all(), "the ice beside the outcrop lost its white"
+
+    def test_a_glacier_over_the_outcrop_does_not_rescue_it_either(self):
+        """The claim that makes this an EXCLUSION and not a bigger subtraction, and the reason RGI
+        region 19 is unsafe until it holds.
+
+        Region 19's polygons are invisible over Antarctica today only because the forced rule
+        already paints white there. The moment rock comes out they are a second whitener landing on
+        the same pixels — and a negative applied inside any one positive term cannot answer them.
+        """
+        white = self._snow_alpha(rock=self._rock(),
+                                 glacier=np.ones((ROWS, COLS), dtype=np.uint8))
+        assert (white[:, : COLS // 2] == 0.0).all(), "a glacier re-covered the outcrop"
+        assert (white[:, COLS // 2:] == 1.0).all(), "the glacier beside it lost its white"
+
+    def test_no_rock_leaves_the_white_untouched(self):
+        """The instrument's own falsifier: the assertions above must be reporting the rock rather
+        than a window that was never white to begin with."""
+        assert (self._snow_alpha(persistence=np.full((ROWS, COLS), self.SATURATED),
+                                 glacier=np.ones((ROWS, COLS), dtype=np.uint8)) == 1.0).all()
+
+    def test_a_body_that_declares_no_rock_layer_keeps_every_pixel_white(self):
+        """The declaration gate at the outcome level. `shade_planet` keys `layer_raw` on
+        `path.exists()` alone, so a slice genuinely can arrive for a body that declares no such
+        layer, and the answer must then be today's exactly rather than a plausible one.
+        """
+        rockless = dataclasses.replace(
+            bodies.EARTH,
+            surface_layers=bodies.EARTH.surface_layers - {layers.ANTARCTIC_ROCK.name})
+        white = self._snow_alpha(rock=self._rock(), body=rockless,
+                                 persistence=np.full((ROWS, COLS), self.SATURATED))
+        assert (white == 1.0).all()
 

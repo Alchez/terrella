@@ -3322,35 +3322,80 @@ SABOTAGES: list[Sabotage] = [
     return None if _window.raw is None else np.asarray(_window.raw, dtype=float)''',
         guard='test_gather_returns_no_entry_for_it_however_much_rock_there_is',
     ),
-    # The plumbing, mutated where it actually lives. Every producer still runs, every raster is
-    # still built and warped, and the only symptom is Antarctica back under solid white.
+    # THE DEFECT THAT SHIPPED, WRITTEN OUT AS A MUTATION. Moving the negative back inside a union
+    # member is the placement the outcrop spent a release under: every plumbing guard passes, the
+    # subtraction genuinely runs, and `persistence_alpha` re-claims 63% of the rock in the very next
+    # operation. Only an OUTCOME guard can see it, which is what this case exists to prove.
     Sabotage(
         suite='python',
-        label='gather stops placing the rock on the window, so the subtraction silently has no input',
+        label='the exclusion moves back inside the union, so any other white source re-covers the rock',
         path='pipeline/look/layer_producers.py',
-        needle='    window = dataclasses.replace(window, rock=rock)',
-        replacement='    window = dataclasses.replace(window, rock=None)',
-        guard='test_gather_hands_the_rock_to_the_producer_that_subtracts_it',
+        needle='''    alpha = np.zeros(shape, dtype=float)
+    carried = None
+    for layer in WHITE_UNION:
+        contribution = contributions.get(layer.name)
+        if contribution is None:
+            continue
+        if merge is not None:
+            carried = merge(carried, alpha, layer.name, contribution)
+        alpha = np.maximum(alpha, contribution)
+    for layer in WHITE_EXCLUSIONS:
+        removed = exclusions.get(layer.name)
+        if removed is None:
+            continue
+        alpha = np.where(np.asarray(removed).astype(bool), 0.0, alpha)
+    return alpha, carried''',
+        replacement='''    alpha = np.zeros(shape, dtype=float)
+    carried = None
+    contributions = dict(contributions)
+    for layer in WHITE_EXCLUSIONS:
+        removed = exclusions.get(layer.name)
+        if removed is None or WHITE_UNION[0].name not in contributions:
+            continue
+        contributions[WHITE_UNION[0].name] = np.where(
+            np.asarray(removed).astype(bool), 0.0, contributions[WHITE_UNION[0].name])
+    for layer in WHITE_UNION:
+        contribution = contributions.get(layer.name)
+        if contribution is None:
+            continue
+        if merge is not None:
+            carried = merge(carried, alpha, layer.name, contribution)
+        alpha = np.maximum(alpha, contribution)
+    return alpha, carried''',
+        guard='test_a_glacier_over_the_outcrop_does_not_rescue_it_either',
+    ),
+    # The fold stops excluding at all. The tell it must NOT have is a crash: every raster is still
+    # built, warped and read, and the only symptom is Antarctica back under solid white.
+    Sabotage(
+        suite='python',
+        label='the fold takes the exclusions and applies none of them',
+        path='pipeline/look/layer_producers.py',
+        needle='    for layer in WHITE_EXCLUSIONS:',
+        replacement='    for layer in ():',
+        guard='test_saturated_persistence_does_not_rescue_the_white_on_rock',
     ),
     # `shade_planet` keys `layer_raw` on `path.exists()` alone, so this gate is the only thing
-    # standing between a body that declares no rock layer and a rock slice on its window.
+    # standing between a body that declares no rock layer and an exclusion on its fold.
     Sabotage(
         suite='python',
-        label='the rock reaches the window off the raster rather than off the declaration',
+        label='the exclusion is read off the raster rather than off the declaration',
         path='pipeline/look/layer_producers.py',
-        needle='''    rock = (layer_raw.get(layers.ANTARCTIC_ROCK.name)
-            if layers.ANTARCTIC_ROCK.name in body.surface_layers else None)''',
-        replacement='    rock = layer_raw.get(layers.ANTARCTIC_ROCK.name)',
-        guard='test_a_body_that_declares_no_rock_layer_gets_the_unsubtracted_answer',
+        needle='''    exclusions = {layer.name: raw for layer in WHITE_EXCLUSIONS
+                  if layer.name in vocabulary and layer.name in body.surface_layers
+                  and (raw := layer_raw.get(layer.name)) is not None}''',
+        replacement='''    exclusions = {layer.name: raw for layer in WHITE_EXCLUSIONS
+                  if (raw := layer_raw.get(layer.name)) is not None}''',
+        guard='test_a_body_that_declares_no_rock_layer_excludes_nothing',
     ),
-    # The consumer end: the rule keeps its argument and the producer stops passing one.
+    # The stage half of that same gate: a vocabulary the caller narrowed must narrow the negatives
+    # with it, or a stage takes an exclusion for a layer it never gathered.
     Sabotage(
         suite='python',
-        label='the perennial-ice producer stops passing the rock, so the mask it built reaches nothing',
+        label='the exclusions ignore the caller vocabulary, so a stage excludes a layer it never reads',
         path='pipeline/look/layer_producers.py',
-        needle='snow.antarctic_snow_mask(window.land, window.latitude, rock=window.rock))',
-        replacement='snow.antarctic_snow_mask(window.land, window.latitude))',
-        guard='test_gather_hands_the_rock_to_the_producer_that_subtracts_it',
+        needle='                  if layer.name in vocabulary and layer.name in body.surface_layers',
+        replacement='                  if layer.name in body.surface_layers',
+        guard='test_a_stage_that_does_not_read_the_layer_excludes_nothing',
     ),
     # THE PLANNED STEP 6, WRITTEN OUT AS A MUTATION. Declaring the rock among the ice producer's
     # sources looks like the obvious symmetry with `_earth_north`'s NetCDF, and it hands an

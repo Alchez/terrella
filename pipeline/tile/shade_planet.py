@@ -723,9 +723,9 @@ def _compute_shared(inputs: _WindowInputs) -> _WindowShared:
     # dtype the whites fold in are all decisions, and a stage that re-wrote them would re-decide
     # every one with nothing going red. What stays here is the PAINT, because only the compositor
     # paints — the raytraced rig reads a ramp.
-    contributions, paints = layer_producers.gather(
+    contributions, paints, exclusions = layer_producers.gather(
         inputs.body, inputs.layer_raw,
-        layer_producers.LayerWindow(raw=None, rock=None, watercode=watercode, land=land_win,
+        layer_producers.LayerWindow(raw=None, watercode=watercode, land=land_win,
                                     latitude=latitude,
                                     ground_metres_per_px=mercator.ground_metres_per_pixel(
                                         latitude, inputs.body.map_units_per_pixel,
@@ -734,7 +734,7 @@ def _compute_shared(inputs: _WindowInputs) -> _WindowShared:
         layers.COMPOSITE_LAYERS)
     depth_win = contributions.get(layers.LAKE_DEPTH.name)
     snow_a, snow_paint = layer_producers.fold_white(
-        contributions, inputs.height_win.shape,
+        contributions, inputs.height_win.shape, exclusions=exclusions,
         merge=lambda carried, alpha, name, contribution:
             _merge_paint(carried, alpha, paints.get(name), contribution))
     # The sea-side twin, kept OUT of that union on purpose: `shade.composite` gates it on the ocean

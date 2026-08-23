@@ -476,7 +476,7 @@ class TestTheTwoTiersAgreeOnTheColourOfTheSameIce:
                 cap_paint = perennial_ice.cap_ice(body, pole).paint()
                 latitude = snow.latitude_per_row(top, bottom, 4)
                 window = layer_producers.LayerWindow(
-                    raw=None, rock=None, watercode=None, land=np.ones((4, 4), dtype=bool),
+                    raw=None, watercode=None, land=np.ones((4, 4), dtype=bool),
                     latitude=latitude,
                     ground_metres_per_px=mercator.ground_metres_per_pixel(
                         latitude, (top - bottom) / 4,

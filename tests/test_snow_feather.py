@@ -181,7 +181,7 @@ class TestBothProducersFeatherOrTheCrossfadeShowsTheSeam:
         packed = np.zeros((rows, cols), dtype="float32")
         packed[:, cols // 2:] = 10_000.0  # full persistence on half the window
         return packed, layer_producers.LayerWindow(
-            raw=packed, rock=None, watercode=None, land=np.ones((rows, cols), dtype=bool),
+            raw=packed, watercode=None, land=np.ones((rows, cols), dtype=bool),
             latitude=latitude,
             ground_metres_per_px=mercator.ground_metres_per_pixel(
                 latitude, EARTH.map_units_per_pixel, GROUND_SCALE),
@@ -247,7 +247,7 @@ class TestTheAntarcticPatchIsNotFeathered:
         land = np.zeros((rows, cols), dtype=bool)
         land[:, cols // 2:] = True
         window = layer_producers.LayerWindow(
-            raw=None, rock=None, watercode=None, land=land, latitude=latitude,
+            raw=None, watercode=None, land=land, latitude=latitude,
             ground_metres_per_px=mercator.ground_metres_per_pixel(
                 latitude, EARTH.map_units_per_pixel, GROUND_SCALE),
             top=top, bottom=bottom)

@@ -214,7 +214,7 @@ def build(body: bodies.Body, window: Window, outdir: Path) -> list[str]:
     inland = lake_depth.inland_water(watercode) if watercode is not None else np.zeros(shape, bool)
     latitude = snow.latitude_per_row(top, bottom, window.height)
     seen = layer_producers.LayerWindow(
-        raw=None, rock=None, watercode=watercode, land=~(ocean | inland), latitude=latitude,
+        raw=None, watercode=watercode, land=~(ocean | inland), latitude=latitude,
         ground_metres_per_px=block_plan.mercator.ground_metres_per_pixel(
             latitude, body.map_units_per_pixel,
             bodies.ground_metres_per_mercator_unit(body)),
@@ -223,12 +223,13 @@ def build(body: bodies.Body, window: Window, outdir: Path) -> list[str]:
                              if layer.name in body.surface_layers
                              and layer.warped_in(work).exists() else None)
                  for layer in layers.WARPED_LAYERS}
-    contributions, _ = layer_producers.gather(body, layer_raw, seen, layers.BLOCK_LAYERS)
+    contributions, _, exclusions = layer_producers.gather(body, layer_raw, seen,
+                                                          layers.BLOCK_LAYERS)
 
     # WRITTEN ONLY WHERE IT REACHES A PIXEL, AND DECLARED EITHER WAY. Skipping an all-zero mask is a
     # real saving across thousands of blocks; leaving the skip undeclared is what turned it into an
     # inference, since the rig then had to read meaning into an absent file.
-    white, _ = layer_producers.fold_white(contributions, shape)
+    white, _ = layer_producers.fold_white(contributions, shape, exclusions=exclusions)
     if white.any():
         _write_mask(outdir / render_seam.SNOWMASK, white)
         written.append(render_seam.SNOWMASK)

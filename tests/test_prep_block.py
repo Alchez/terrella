@@ -36,7 +36,7 @@ def _window(body, raw):
     top, bottom = -11_000_000.0, -12_000_000.0
     latitude = snow.latitude_per_row(top, bottom, ROWS)
     return raw, layer_producers.LayerWindow(
-        raw=None, rock=None, watercode=np.zeros((ROWS, COLS), dtype=np.uint8),
+        raw=None, watercode=np.zeros((ROWS, COLS), dtype=np.uint8),
         land=np.ones((ROWS, COLS), dtype=bool), latitude=latitude,
         # Derived from this fixture's own span rather than from the body's z8 figure, so the
         # window's geometry is self-consistent at whatever size the fixture is written at.
@@ -291,7 +291,7 @@ class TestTheBlockStageAsksForItsOwnLayersAndNotTheComposites:
         raw, window = _window(bodies.EARTH, packed)
         layer_raw: dict[str, np.ndarray | None] = {
             layer.name: raw for layer in layers.WARPED_LAYERS}
-        contributions, _ = layer_producers.gather(bodies.EARTH, layer_raw, window, vocabulary)
+        contributions, _, _ = layer_producers.gather(bodies.EARTH, layer_raw, window, vocabulary)
         return set(contributions)
 
     def test_the_block_gathers_sea_ice_like_the_composite(self):
@@ -346,16 +346,16 @@ class TestTheWhiteUnionIsFoldedByItsOwner:
         contribution folded in here would paint pack ice onto the shore it borders."""
         assert layers.SEA_ICE not in layer_producers.WHITE_UNION
         contributions = {layers.SEA_ICE.name: np.ones((ROWS, COLS))}
-        alpha, _ = layer_producers.fold_white(contributions, (ROWS, COLS))
+        alpha, _ = layer_producers.fold_white(contributions, (ROWS, COLS), exclusions={})
         assert not alpha.any()
 
     def test_the_base_is_float64_so_no_contribution_is_narrowed(self):
-        alpha, _ = layer_producers.fold_white({}, (ROWS, COLS))
+        alpha, _ = layer_producers.fold_white({}, (ROWS, COLS), exclusions={})
         assert alpha.dtype == np.float64
 
     def test_a_caller_that_does_not_paint_gets_no_paint(self):
         contributions = {layers.PERENNIAL_ICE.name: np.ones((ROWS, COLS))}
-        alpha, carried = layer_producers.fold_white(contributions, (ROWS, COLS))
+        alpha, carried = layer_producers.fold_white(contributions, (ROWS, COLS), exclusions={})
         assert alpha.all() and carried is None
 
     def test_the_merge_hook_sees_the_alpha_from_before_its_own_layer_folds(self):
@@ -365,10 +365,40 @@ class TestTheWhiteUnionIsFoldedByItsOwner:
         contributions = {layers.PERENNIAL_ICE.name: np.full((ROWS, COLS), 0.5),
                          layers.GLACIERS.name: np.ones((ROWS, COLS))}
         layer_producers.fold_white(
-            contributions, (ROWS, COLS),
+            contributions, (ROWS, COLS), exclusions={},
             merge=lambda carried, alpha, name, contribution: seen.append(
                 (name, float(alpha.max()))))
         assert seen == [(layers.PERENNIAL_ICE.name, 0.0), (layers.GLACIERS.name, 0.5)]
+
+    def test_an_exclusion_beats_every_union_member_at_once(self):
+        """The fold's own statement of the law, under the worst case it has: BOTH members claiming
+        the pixel at full strength. A subtraction inside either one of them survives this; only a
+        negative applied after the maximum does."""
+        contributions = {layers.PERENNIAL_ICE.name: np.ones((ROWS, COLS)),
+                         layers.GLACIERS.name: np.ones((ROWS, COLS))}
+        covered = np.zeros((ROWS, COLS), dtype=np.uint8)
+        covered[:, : COLS // 2] = 1
+        alpha, _ = layer_producers.fold_white(
+            contributions, (ROWS, COLS),
+            exclusions={layers.ANTARCTIC_ROCK.name: covered})
+        assert not alpha[:, : COLS // 2].any()
+        assert alpha[:, COLS // 2:].all(), "the exclusion reached past the pixels it covers"
+
+    def test_a_layer_outside_the_exclusions_tuple_removes_nothing(self):
+        """The negative half's twin of the sea-ice claim above. Membership is a fixed tuple at both
+        ends, so a caller handing over an arbitrary mask cannot quietly erase white with it."""
+        assert layers.SEA_ICE not in layer_producers.WHITE_EXCLUSIONS
+        contributions = {layers.PERENNIAL_ICE.name: np.ones((ROWS, COLS))}
+        alpha, _ = layer_producers.fold_white(
+            contributions, (ROWS, COLS),
+            exclusions={layers.SEA_ICE.name: np.ones((ROWS, COLS), dtype=np.uint8)})
+        assert alpha.all()
+
+    def test_the_exclusions_argument_is_required(self):
+        """Not defaulted, because the failure of omitting it is a plausible white rather than an
+        error — which is the exact failure the parameter exists to end."""
+        with pytest.raises(TypeError):
+            layer_producers.fold_white({}, (ROWS, COLS))  # pyright: ignore[reportCallIssue]
 
 
 class TestTheFrameGoesThroughTheHerosOwnSeam:
