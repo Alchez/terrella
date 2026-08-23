@@ -66,8 +66,18 @@ they do dispatch, which is why `look/perennial_ice.py` is a registry of function
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal, get_args
 
 from pipeline import paths
+
+#: What may fill a body's planet raster. Both producers write the same file in the same directory,
+#: each with its own recipe beside it, so nothing downstream can tell which ran.
+PlanetProducer = Literal["composite", "raytrace"]
+
+#: The same vocabulary as a runtime value, DERIVED from the type rather than restated beside it.
+#: Widening the annotation to a bare `str` empties this instead of silently accepting anything,
+#: which is what `test_every_body_names_a_producer_the_vocabulary_knows` reads.
+PLANET_PRODUCERS: tuple[PlanetProducer, ...] = get_args(PlanetProducer)
 
 
 @dataclass(frozen=True)
@@ -173,6 +183,22 @@ class Body:
     #: tell "this body publishes none" from "the render died", which is the distinction
     #: `planet_seam` exists to preserve one tier up.
     renders_polar_caps: bool
+    #: Which producer fills this body's planet raster: `composite` shades it window by window out of
+    #: numpy, `raytrace` renders it block by block through Cycles.
+    #:
+    #: A BEHAVIOUR CHOICE IN A REGISTRY OF FACTS, which the module note anticipated: producers
+    #: dispatch where bodies do not, so what a body answers here is which one runs, never what a
+    #: consumer then does with the result.
+    #:
+    #: NOT DERIVABLE FROM ANY OTHER FIELD, which is why it is asked rather than inferred. Radius,
+    #: exaggeration and surface layers say nothing about whether this planet's relief is worth a
+    #: night of GPU, and a body with no ratified look can still be composited.
+    #:
+    #: TRANSITIONAL BY CONSTRUCTION, said here because the declaration is where someone would
+    #: otherwise build on it. The field exists because two producers do, so it and the dispatcher
+    #: that reads it both end on the day the last body's planet raster stops being composited. The
+    #: caps do not keep it alive: they call `shade.composite` directly and never ask this question.
+    planet_producer: PlanetProducer
 
 
 EARTH = Body(
@@ -206,6 +232,9 @@ EARTH = Body(
     # The reference body, and the caps are a signature feature rather than a detail: both poles
     # ship a full rung ladder, feathered into the tiles at the seam.
     renders_polar_caps=True,
+    # Composite today. Flipping this alone does not produce a planet: the raytraced producer's first
+    # production run is a full night of GPU, and the pixels it ships are a look decision.
+    planet_producer="composite",
 )
 
 
@@ -278,6 +307,9 @@ MARS = Body(
     # textures exist to be drawn over, which MapLibre stretched across the pole and which was tested
     # on Earth's globe and rejected. Do not reach for False again as a cheap way to skip a render.
     renders_polar_caps=True,
+    # Composite. Nothing has calibrated the block margin law on this body, so a raytraced Mars would
+    # be its own first instrument rather than a product.
+    planet_producer="composite",
 )
 
 

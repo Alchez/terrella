@@ -2863,9 +2863,36 @@ SABOTAGES: list[Sabotage] = [
         # `Body`, and the needle still matched exactly once, so the table's own freshness gate stayed
         # green. `test_the_defaulted_field_case_still_names_the_last_field_of_body` is what makes the
         # next append a red test instead of a silently hollow case.
-        needle='    renders_polar_caps: bool\n',
-        replacement='    renders_polar_caps: bool = True\n',
+        needle='    planet_producer: PlanetProducer\n',
+        replacement='    planet_producer: PlanetProducer = "composite"\n',
         guard='test_no_field_carries_a_default_so_a_new_one_must_be_decided_per_body',
+    ),
+    # --- The producer vocabulary, whose two failures are opposite shapes ------------------------
+    # The typo case. It is a plausible one — "raytraced" is how the arc's prose spells the adjective
+    # — and pyright would refuse it, but a `str` annotation reaching here in some future edit would
+    # not, so the runtime membership test is what has to hold.
+    Sabotage(
+        suite='python',
+        label='a body names a producer nothing can dispatch, and pyright is the only thing refusing it',
+        path='pipeline/bodies.py',
+        # The comment line disambiguates: the field's VALUE line is identical on both bodies, and a
+        # needle matching twice is refused by the harness rather than mutating an arbitrary one.
+        needle='    # production run is a full night of GPU, and the pixels it ships are a look decision.\n'
+               '    planet_producer="composite",\n',
+        replacement='    # production run is a full night of GPU, and the pixels it ships are a look decision.\n'
+                    '    planet_producer="raytraced",\n',
+        guard='test_every_body_names_a_producer_the_vocabulary_knows',
+    ),
+    # The opposite shape, and the one that reads as a simplification: dropping the Literal for a
+    # plain `str` empties `PLANET_PRODUCERS` through `get_args`, which turns every downstream
+    # membership test into a check against nothing rather than into an error anyone would see.
+    Sabotage(
+        suite='python',
+        label='the producer vocabulary widens to a bare str, so it can no longer refuse anything',
+        path='pipeline/bodies.py',
+        needle='PlanetProducer = Literal["composite", "raytrace"]\n',
+        replacement='PlanetProducer = str\n',
+        guard='test_every_body_names_a_producer_the_vocabulary_knows',
     ),
     # --- Polar caps as a per-body decision ----------------------------------------------------------
     # The dangerous property of all three: a body publishing no caps would RENDER them perfectly well.

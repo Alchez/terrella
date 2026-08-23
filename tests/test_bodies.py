@@ -72,6 +72,24 @@ def test_no_field_carries_a_default_so_a_new_one_must_be_decided_per_body() -> N
     assert defaulted == [], f"these fields would be inherited unexamined by a new body: {defaulted}"
 
 
+def test_every_body_names_a_producer_the_vocabulary_knows() -> None:
+    """A body may only name a producer that exists.
+
+    `PLANET_PRODUCERS` derives from the annotation through `get_args`, so widening it to a bare
+    `str` empties the tuple rather than accepting anything, and the first assertion names that
+    failure directly instead of leaving it to be read out of a list naming every body at once. The
+    second is the anti-vacuity one: with no bodies registered the membership test passes while
+    checking nothing.
+    """
+    assert bodies.PLANET_PRODUCERS, (
+        "the producer vocabulary is empty, so no body's answer can be checked against anything"
+    )
+    assert bodies.BODIES, "no bodies are registered, so the membership test below proves nothing"
+    unknown = {body.name: body.planet_producer for body in bodies.BODIES.values()
+               if body.planet_producer not in bodies.PLANET_PRODUCERS}
+    assert unknown == {}, f"these bodies name a producer nothing can dispatch: {unknown}"
+
+
 def test_a_body_is_frozen() -> None:
     """Mutating a body at runtime would let one stage's change leak into another's freshness key."""
     with pytest.raises(dataclasses.FrozenInstanceError):
