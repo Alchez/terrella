@@ -52,7 +52,7 @@ import rasterio
 from rasterio.enums import Resampling
 from rasterio.windows import Window
 
-from pipeline import bodies, layers, mercator, planet_seam, wrap_seam
+from pipeline import bodies, layers, mercator, planet_seam, progress, wrap_seam
 from pipeline.freshness import (
     done_marker,
     is_stale,
@@ -450,7 +450,7 @@ def warp_inputs(work: Path, planet: Path, body: bodies.Body, rasters: frozenset[
     # NOT `is_stale` ALONE: this raster's inputs are a VRT and a chunk directory, and neither moves
     # when the body's ceiling does. `reference_needs_rebuild` asks the raster its own pixel size.
     if reference_needs_rebuild(height, resolution, planet / "planet_heightfield.vrt", chunks):
-        print("warp height -> 3857 ...", flush=True)
+        progress.stage("warp height -> 3857 ...")
         height.unlink(missing_ok=True)  # gdalwarp UPDATES an existing target; it must be gone
         _run(["gdalwarp", "-q", "-t_srs", "EPSG:3857", "-tr", resolution, resolution, "-tap",
               "-r", "bilinear", "-ot", "Float32", "-co", "TILED=YES", "-co", "COMPRESS=DEFLATE",
@@ -484,13 +484,13 @@ def warp_inputs(work: Path, planet: Path, body: bodies.Body, rasters: frozenset[
     grid = (grid_width, grid_height, grid_bounds)
     for name, raster in (("ocean", "oceanmask"), ("water", "watermask")):
         if raster not in rasters:
-            print(f"{body.name}'s planet stage emitted no {raster} -> {name}_3857 skipped "
-                  f"(the composite reads None and treats every pixel as land)", flush=True)
+            progress.stage(f"{body.name}'s planet stage emitted no {raster} -> {name}_3857 "
+                           f"skipped (the composite reads None and treats every pixel as land)")
             continue
         src = f"planet_{raster}.vrt"
         out = work / f"{name}_3857.tif"
         if warp_needs_rebuild(out, grid, planet / src, chunks):
-            print(f"warp {name} -> 3857 ...", flush=True)
+            progress.stage(f"warp {name} -> 3857 ...")
             out.unlink(missing_ok=True)
             _run(["gdalwarp", "-q", "-t_srs", "EPSG:3857", "-te", *bounds, "-ts", *size,
                   "-r", "near", "-ot", "Byte", "-co", "TILED=YES", "-co", "COMPRESS=DEFLATE",
@@ -554,8 +554,8 @@ def build_hillshade(work: Path, height: Path, body: bodies.Body):
         fill_note = (f", fill {KNOBS['fill_strength']:.2f}" if KNOBS["fill_strength"] else "")
         shadow_note = (f", shadow {KNOBS['shadow_strength']:.2f}" if KNOBS["shadow_strength"]
                        else "")
-        print(f"per-row-z hillshade (exag={body.exaggeration}{fill_note}{shadow_note}) ...",
-              flush=True)
+        progress.stage(f"per-row-z hillshade (exag={body.exaggeration}"
+                       f"{fill_note}{shadow_note}) ...")
         hillshade.per_row_zfactor_hillshade(
             height, hs, body.exaggeration, ALT, AZ,
             fill_strength=KNOBS["fill_strength"],
@@ -823,9 +823,9 @@ def composite_planet(work: Path, hs, compute_occlusion: Callable[[], np.ndarray]
     # One shared params file is sound because every variant is composited in a single pass:
     # the guard rebuilds all of them or none.
     if max_windows is None and not any(is_stale(tif, *deps) for tif in outs.values()):
-        print("planet_rgb fresh -> skip composite", flush=True)
+        progress.stage("planet_rgb fresh -> skip composite")
         return outs
-    print("global sky-view factor ...", flush=True)
+    progress.stage("global sky-view factor ...")
     occ = compute_occlusion()
     with rasterio.open(work / HEIGHT_3857) as h:
         width, height, transform = h.width, h.height, h.transform
@@ -916,13 +916,13 @@ def composite_planet(work: Path, hs, compute_occlusion: Callable[[], np.ndarray]
             writer.close()
     elapsed = time.monotonic() - started
     mode = f"threaded x{max_workers}" if threaded else "serial"
-    print(f"composite: {len(rows)} windows in {elapsed:.1f}s "
-          f"({len(rows) / max(elapsed, 1e-9):.2f} win/s, {mode})", flush=True)
+    progress.stage(f"composite: {len(rows)} windows in {elapsed:.1f}s "
+                   f"({len(rows) / max(elapsed, 1e-9):.2f} win/s, {mode})")
     if max_windows is None and row_start == 0:  # a partial raster (smoke/region) is never done
         for tif in outs.values():
             mark_done(tif)
     for tif in outs.values():
-        print(f"wrote {tif}", flush=True)
+        progress.stage(f"wrote {tif}")
     return outs
 
 
@@ -1066,13 +1066,13 @@ def build_tiles(planet_tif: Path, out: Path, body: bodies.Body):
     cut = tile_cut(body)
     write_if_changed(tile_params_path(out), tile_params(body))
     if tiles_are_fresh(planet_tif, out):
-        print("tiles fresh -> skip cut", flush=True)
+        progress.stage("tiles fresh -> skip cut")
         return
     staging = out / "tiles_new"
     if staging.exists():
         _run(["rm", "-rf", str(staging)])   # a partial from a prior mid-cut crash: never resume over it
-    print(f"cutting z{cut['min_zoom']}-{cut['max_zoom']} {cut['tile_size']}px tiles "
-          f"-> {staging} ...", flush=True)
+    progress.stage(f"cutting z{cut['min_zoom']}-{cut['max_zoom']} {cut['tile_size']}px tiles "
+                   f"-> {staging} ...")
     _run(_tile_cmd(planet_tif, staging, body))
     live = out / "tiles"
     if live.exists():
@@ -1082,4 +1082,4 @@ def build_tiles(planet_tif: Path, out: Path, body: bodies.Body):
         live.rename(old)
     staging.rename(live)
     mark_done(live)
-    print(f"tiles live -> {live} (previous kept at {out / 'tiles_old'})", flush=True)
+    progress.stage(f"tiles live -> {live} (previous kept at {out / 'tiles_old'})")

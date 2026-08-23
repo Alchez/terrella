@@ -36,7 +36,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
-from pipeline import bodies, planet_seam
+from pipeline import bodies, planet_seam, progress
 from pipeline.freshness import is_stale
 from pipeline.tile import block_render, shade_planet
 from pipeline.tile.shade import KNOBS
@@ -250,8 +250,8 @@ def main() -> None:
     planet_tif = producer.produce(work, body, rasters, height)
 
     if args.tiles and not raster_is_complete(planet_tif):
-        print(f"{planet_tif.name} is incomplete -> tiles NOT cut (re-run to resume the producer)",
-              flush=True)
+        progress.stage(f"{planet_tif.name} is incomplete -> tiles NOT cut "
+                       f"(re-run to resume the producer)")
     elif args.tiles:
         shade_planet.build_tiles(planet_tif, work, body)
 
@@ -262,16 +262,16 @@ def main() -> None:
     # Subprocess, not import: cap_render imports FROM shade_planet, and the caps' pyproj/scipy stack
     # stays out of the tile pass.
     if runs_cap_pass(body):
-        print("polar caps ...", flush=True)
+        progress.stage("polar caps ...")
         subprocess.run(cap_pass_command(body), check=True)
     else:
         # SAID OUT LOUD, because the alternative is a pass that silently does less than the last one
         # did. The cap pass would otherwise run and SUCCEED here — it needs only the heightfield once
         # a body declares no surface layers — spending ~14 GB per pole to publish discs shaded by
         # ramps this body has not ratified.
-        print(f"polar caps: {body.name} publishes none — skipped "
-              f"(the globe carries a hole above the Mercator limit)", flush=True)
-    print("DONE", flush=True)
+        progress.stage(f"polar caps: {body.name} publishes none — skipped "
+                       f"(the globe carries a hole above the Mercator limit)")
+    progress.stage("DONE")
 
 
 if __name__ == "__main__":

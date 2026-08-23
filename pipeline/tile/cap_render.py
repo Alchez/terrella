@@ -58,7 +58,7 @@ from scipy.ndimage import (
     uniform_filter1d,
 )
 
-from pipeline import bodies, layers, naturalearth, planet_seam, vector_raster
+from pipeline import bodies, layers, naturalearth, planet_seam, progress, vector_raster
 from pipeline.acquire import download_add_rock
 from pipeline.look import (
     hillshade,
@@ -906,8 +906,8 @@ def _announce(grid: CapGrid, raster: str, consequence: str) -> None:
     quiet about a skipped input is a pass whose output cannot be read back, and the case where they
     diverge is the next one — a sea at a chosen contour, with no inland water behind it.
     """
-    print(f"{grid.body.name}'s planet stage emitted no {raster} -> {grid.name} cap: {consequence}",
-          flush=True)
+    progress.stage(f"{grid.body.name}'s planet stage emitted no {raster} -> "
+                   f"{grid.name} cap: {consequence}")
 
 
 def _cap_masks(grid: CapGrid, rasters: frozenset[str],
@@ -1047,9 +1047,9 @@ def main() -> int:
             sidecar = work / f"cap_{grid.name}_params.json"
             if not args.force and cap_is_fresh(recipe, cap_assets(grid), sidecar,
                                                cap_sources(grid, rasters)):
-                print(f"cap {grid.name} fresh -> skip", flush=True)
+                progress.stage(f"cap {grid.name} fresh -> skip")
             else:
-                print(f"wrote {render(grid, rasters)}", flush=True)
+                progress.stage(f"wrote {render(grid, rasters)}")
                 sidecar.write_text(recipe)  # AFTER the render, so a crash leaves the cap stale
 
         # Gated separately, and NOT behind the colour stage's `continue`: the displacement texture
@@ -1060,9 +1060,9 @@ def main() -> int:
         if not args.force and cap_is_fresh(
                 elev_recipe, [cap_elev_asset(grid)], elev_sidecar,
                 [planet_seam.vrt_path(grid.body, "heightfield")]):
-            print(f"cap {grid.name} elevation fresh -> skip", flush=True)
+            progress.stage(f"cap {grid.name} elevation fresh -> skip")
         else:
-            print(f"wrote {write_cap_elevation(grid)}", flush=True)
+            progress.stage(f"wrote {write_cap_elevation(grid)}")
             elev_sidecar.write_text(elev_recipe)
     served = caps_public_dir(body)  # both poles of one body publish to one directory
     served.mkdir(parents=True, exist_ok=True)

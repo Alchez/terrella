@@ -46,7 +46,16 @@ import numpy as np
 import rasterio
 from rasterio.transform import from_bounds
 
-from pipeline import block_plan, bodies, freshness, layers, mercator, paths, planet_seam
+from pipeline import (
+    block_plan,
+    bodies,
+    freshness,
+    layers,
+    mercator,
+    paths,
+    planet_seam,
+    progress,
+)
 from pipeline.block_plan import Block
 from pipeline.look import palette
 from pipeline.raster_io import GTIFF_CREATE
@@ -381,8 +390,7 @@ def ensure_mosaic(mosaic: Path, body: bodies.Body) -> None:
         with rasterio.open(mosaic) as existing:  # pyright: ignore[reportCallIssue]
             if (existing.width, existing.height, existing.count) == (edge, edge, 3):
                 return
-        print(f"{mosaic.name} is not this body's {edge}x{edge} 3-band grid -> recreating",
-              flush=True)
+        progress.stage(f"{mosaic.name} is not this body's {edge}x{edge} 3-band grid -> recreating")
         mosaic.unlink()
     half = mercator.MERCATOR_HALF_M
     mosaic.parent.mkdir(parents=True, exist_ok=True)
@@ -391,7 +399,7 @@ def ensure_mosaic(mosaic: Path, body: bodies.Body) -> None:
             crs="EPSG:3857", transform=from_bounds(-half, -half, half, half, edge, edge),
             BIGTIFF="YES", SPARSE_OK="TRUE", **GTIFF_CREATE):
         pass
-    print(f"created {mosaic} ({edge} x {edge})", flush=True)
+    progress.stage(f"created {mosaic} ({edge} x {edge})")
 
 
 #: Where OIDN runs for BLOCKS, which is not where it runs for heroes and is the only Cycles setting
@@ -566,12 +574,20 @@ class Status:
         }, indent=2) + "\n")
 
 
-def log(message: str) -> None:
+def log(message: str, *, stage: bool = False) -> None:
     """One progress line, stamped in LOCAL time because a night run is read against a wall clock.
 
     `astimezone()` on a UTC now, rather than a naive one: the reader wants their own hours and the
     project's other timestamps are UTC by rule, so the conversion is stated rather than implied.
+
+    `stage=True` marks the line as a boundary a watcher should wake for, and the default is what
+    makes this producer readable at all: it runs 4,096 blocks on Earth and the watchdog EXITS on
+    every marker it matches, so marking the per-block line would be 4,096 wake-ups in a night. The
+    per-block story is read from `raytrace_status.json`, which is rewritten in place and can be
+    sampled at whatever interval the reader wants; only the boundaries of the run are stages.
     """
+    if stage:
+        message = progress.marked(message)
     print(f"{datetime.now(UTC).astimezone():%H:%M:%S}  {message}", flush=True)
 
 
@@ -606,10 +622,11 @@ def run(body: bodies.Body, work: Path, mosaic: Path, *, limit: int | None = None
     markers = markers_in(mosaic)
 
     if not freshness.is_stale(mosaic, *deps):
-        log(f"{mosaic.name} fresh -> skip render")
+        log(f"{mosaic.name} fresh -> skip render", stage=True)
         return 0
     if not generation_is_current(markers, deps):
-        log("inputs or recipe moved since the last generation -> every block re-renders")
+        log("inputs or recipe moved since the last generation -> every block re-renders",
+            stage=True)
         start_generation(markers, mosaic)
     freshness.done_marker(mosaic).unlink(missing_ok=True)
 
@@ -630,21 +647,21 @@ def run(body: bodies.Body, work: Path, mosaic: Path, *, limit: int | None = None
     status.write()
     log(f"{body.name}: {already}/{len(blocks)} blocks already done, {len(todo)} to render"
         f"{'' if only is None else f' (of {len(selected)} selected)'}, "
-        f"{free_bytes(mosaic.parent) / 1e9:.0f} GB free")
+        f"{free_bytes(mosaic.parent) / 1e9:.0f} GB free", stage=True)
 
     consecutive = 0
     ceiling = max(CONSECUTIVE_ABORT, int(FAILURE_CEILING_FRACTION * len(blocks)))
     rendered = 0
     for index, block in enumerate(todo, 1):
         if limit is not None and rendered >= limit:
-            log(f"--limit {limit} reached")
+            log(f"--limit {limit} reached", stage=True)
             status.state = "limited"
             status.write()
             break
         floor = disk_floor_bytes(body, len(todo) - index + 1, len(blocks))
         if free_bytes(mosaic.parent) < floor:
             log(f"ABORT: {free_bytes(mosaic.parent) / 1e9:.1f} GB free is below the "
-                f"{floor / 1e9:.1f} GB this run may still need")
+                f"{floor / 1e9:.1f} GB this run may still need", stage=True)
             status.state = "aborted-disk"
             status.write()
             break
@@ -660,12 +677,14 @@ def run(body: bodies.Body, work: Path, mosaic: Path, *, limit: int | None = None
             log(f"[{index}/{len(todo)}] {name} FAILED ({consecutive} in a row): "
                 f"{str(failure)[:300]}")
             if consecutive >= CONSECUTIVE_ABORT:
-                log(f"ABORT: {consecutive} consecutive failures — this is the GPU, not a block")
+                log(f"ABORT: {consecutive} consecutive failures — this is the GPU, not a block",
+                    stage=True)
                 status.state = "aborted-failures"
                 status.write()
                 break
             if len(status.failures) >= ceiling:
-                log(f"ABORT: {len(status.failures)} failures against a ceiling of {ceiling}")
+                log(f"ABORT: {len(status.failures)} failures against a ceiling of {ceiling}",
+                    stage=True)
                 status.state = "aborted-failures"
                 status.write()
                 break
@@ -685,11 +704,12 @@ def run(body: bodies.Body, work: Path, mosaic: Path, *, limit: int | None = None
         freshness.mark_done(mosaic)
         shutil.rmtree(scratch, ignore_errors=True)
         status.state = "complete"
-        log(f"PLANET COMPLETE: {len(blocks)} blocks, {len(status.failures)} failures -> {mosaic}")
+        log(f"PLANET COMPLETE: {len(blocks)} blocks, {len(status.failures)} failures -> {mosaic}",
+            stage=True)
     elif status.state == "rendering":
         status.state = "incomplete"
         log(f"stopped with {status.total - status.done} block(s) still to render; "
-            f"re-run to resume")
+            f"re-run to resume", stage=True)
     status.write()
     return rendered
 

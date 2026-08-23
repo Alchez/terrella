@@ -39,7 +39,7 @@ from typing import Any
 
 import numpy as np
 
-from pipeline import bodies, layers
+from pipeline import bodies, layers, progress
 from pipeline.acquire import download_add_rock, download_rgi, download_sim3292
 from pipeline.look import lake_depth, mars_ice, palette, seaice, snow, viking_luma
 
@@ -175,7 +175,7 @@ def _build_lake_depth(request: LayerBuild) -> None:
     It is an 83k-source VRT and a many-source VRT re-reads every source on each touch, the same
     reason the tiler materialises before cutting.
     """
-    print("warp lake depth -> 3857 ...", flush=True)
+    progress.stage("warp lake depth -> 3857 ...")
     request.out.unlink(missing_ok=True)
     lake_depth.warp_depth_raster(request.bounds, request.width, request.height, request.out)
 
@@ -186,7 +186,7 @@ def _build_persistence(request: LayerBuild) -> None:
     Banded so each strip is exactly the per-window warp it replaced; `snow.warp_persistence_raster`
     holds why a single whole-grid warp decimates a source this coarse.
     """
-    print("warp snow persistence -> 3857 (banded) ...", flush=True)
+    progress.stage("warp snow persistence -> 3857 (banded) ...")
     request.out.unlink(missing_ok=True)
     snow.warp_persistence_raster(request.bounds, request.width, request.height, request.out,
                                  band_rows=request.band_rows)
@@ -198,7 +198,7 @@ def _build_glaciers(request: LayerBuild) -> None:
     Reads the source path and the layer name off the acquirer that writes them, at call time, for
     the reason `_build_antarctic_rock` states beside the same pattern.
     """
-    print("rasterize RGI glaciers -> 3857 ...", flush=True)
+    progress.stage("rasterize RGI glaciers -> 3857 ...")
     snow.rasterize_glaciers_raster(request.bounds, request.width, request.height, request.out,
                                    gpkg=download_rgi.GPKG, layer=download_rgi.LAYER)
 
@@ -206,7 +206,7 @@ def _build_glaciers(request: LayerBuild) -> None:
 def _build_sea_ice(request: LayerBuild) -> None:
     """The 1991-2020 frequency climatology onto the grid, banded like persistence and for its
     reason: a single whole-grid warp of a 0.1 degree source decimates the ice edge."""
-    print("warp sea-ice frequency -> 3857 (banded) ...", flush=True)
+    progress.stage("warp sea-ice frequency -> 3857 (banded) ...")
     request.out.unlink(missing_ok=True)
     seaice.warp_seaice_raster(request.bounds, request.width, request.height, request.out,
                               band_rows=request.band_rows)
@@ -220,7 +220,7 @@ def _build_antarctic_rock(request: LayerBuild) -> None:
     spelling here would agree with it until one of them moved, and the failure is an absent file
     read as "this body has no exposed rock".
     """
-    print("rasterize ADD Antarctic rock -> 3857 ...", flush=True)
+    progress.stage("rasterize ADD Antarctic rock -> 3857 ...")
     snow.rasterize_antarctic_rock(request.bounds, request.width, request.height, request.out,
                                   gpkg=download_add_rock.GPKG, layer=download_add_rock.LAYER)
 
@@ -396,7 +396,7 @@ def _build_mars_ice(request: LayerBuild) -> None:
     slice is in hand. That asymmetry is what `build_recipe` exists for, and why this producer's
     `recipe` is empty rather than carrying those two.
     """
-    print("grade Viking luma -> Mars ice alpha (polar bands) ...", flush=True)
+    progress.stage("grade Viking luma -> Mars ice alpha (polar bands) ...")
     request.out.unlink(missing_ok=True)
     mars_ice.build_alpha_raster(
         field=viking_luma.luma_path(), field_nodata=viking_luma.NODATA,

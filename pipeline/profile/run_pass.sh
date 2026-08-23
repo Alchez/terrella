@@ -122,11 +122,29 @@ awk -v available="$memory_available_kib" -v cap="$memory_cap_gib" 'BEGIN {
     printf "memory preflight: %.1f GiB available >= %d G cap -- OK\n", available/1048576, cap
 }'
 
-# PREFLIGHT_ONLY exists so the tests can exercise BOTH branches without launching a real pass.
-[[ -n "${PREFLIGHT_ONLY:-}" ]] && exit 0
+# STOP_AFTER exists so the tests can exercise branches without launching a real pass, and it names
+# the point rather than being a boolean: `preflight` stops above any side effect at all, `logs`
+# stops once this run's log is prepared, which is the only way to observe the rotation below.
+[[ "${STOP_AFTER:-}" == preflight ]] && exit 0
 
+# ONE LOG PER RUN, AND EVERY RUN'S LOG KEPT. The raytrace producer resumes across nights by design
+# -- the box is not free for 22 consecutive hours -- and this line used to be `: > pass.log`, which
+# meant a four-night render kept only the fourth night's record of which blocks failed.
+#
+# Rotated rather than appended, because the log is not the only per-run artifact and the others do
+# not append either: samples.jsonl is rewritten, and stamp.py's elapsed column counts from ITS OWN
+# start, so two runs in one file would carry two clocks under one heading. A rotated name keeps
+# each night internally consistent, and `grep FAILED "$PROF"/pass*.log` still reads the whole
+# render in one command.
 mkdir -p "$PROF"
+if [[ -s "$PROF/pass.log" ]]; then
+    # Named for when that run's log was last written rather than for now, so the filename says
+    # which night it covers, and so re-running twice inside one second cannot land on one name.
+    mv "$PROF/pass.log" "$PROF/pass-$(date -r "$PROF/pass.log" +%Y%m%dT%H%M%S).log"
+fi
 : > "$PROF/pass.log"
+
+[[ "${STOP_AFTER:-}" == logs ]] && exit 0
 
 # Sampler first: it polls for the cgroup, so it is already watching when the scope appears.
 # 0.5 s, not 1 s: the composite forks ~728 short-lived snow subprocesses (gdalwarp +

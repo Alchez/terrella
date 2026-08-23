@@ -132,6 +132,11 @@ MUTABLE_ROOTS = (
     # at once and shows up as a rebuilt planet that quietly kept one empty layer. There is no output
     # to inspect for a stage that DIDN'T run, which is the whole reason mutation is the only proof.
     "pipeline/freshness.py",
+    # Joined with the stage sentinel, whose subject is a PRINT: the pass runs correctly whichever
+    # way this module is broken, and what changes is only what a reader learns about a night that
+    # takes 22 hours. Dropping the marker leaves every call site printing what it printed before,
+    # so there is nothing to inspect and no other gate is about a log line.
+    "pipeline/progress.py",
     # Joined with the antimeridian fill, whose every wrong answer is a PLAUSIBLE one. Copying a
     # neighbour instead of interpolating across the seam is within noise of correct on real terrain
     # (the two differ by a median of 2.2 m), and the refusal that keeps it from smoothing genuine
@@ -7232,6 +7237,120 @@ SABOTAGES: list[Sabotage] = [
         replacement='',
         guard='says so in the read-out rather than going quiet',
     ),
+    # --- what a night reports, and what it deliberately does not ----------------------------------
+    # Every case here leaves the pass rendering correct pixels. What breaks is the reader's view of a
+    # 22-hour run: either it goes silent, which is how four of Earth's five surface layers went
+    # unreported for months, or it goes loud 4,096 times, which is the same failure spent the other
+    # way. Neither shows in any output, and no other gate is about a print.
+    Sabotage(
+        suite='python',
+        # The marker dropped from the helper. Reads like removing noise from a log, and every call
+        # site still prints exactly what it printed before -- so the pass looks identical and the
+        # watcher matches nothing on any body, producer or layer.
+        label='the stage helper stops marking, so nothing the pass announces is reported',
+        path='pipeline/progress.py',
+        needle='    return f"{STAGE_MARKER} {message}"',
+        replacement='    return message',
+        guard='test_a_stage_no_one_has_written_yet_is_reported',
+    ),
+    Sabotage(
+        suite='python',
+        # The regex goes back to a list of phrasings. It is CORRECT for every stage on it, which is
+        # what made the original survive: a stage the list has not been taught about is invisible,
+        # and an invisible stage looks exactly like one that has not started.
+        label='the watcher holds its own list of phrasings again instead of matching the marker',
+        path='pipeline/profile/watchdog.py',
+        needle='STAGE_RE = re.compile(re.escape(progress.STAGE_MARKER))',
+        replacement='STAGE_RE = re.compile(r"warp height ->|per-row-z hillshade|cutting z0-8")',
+        guard='test_a_stage_no_one_has_written_yet_is_reported',
+    ),
+    Sabotage(
+        suite='python',
+        # The keyword accepted and ignored: every call site still reads as if it marks a boundary.
+        label='block_render takes the stage flag and drops it, so the runner announces nothing',
+        path='pipeline/tile/block_render.py',
+        needle='    if stage:\n        message = progress.marked(message)\n',
+        replacement='',
+        guard='test_the_run_starting_is_a_stage',
+    ),
+    Sabotage(
+        suite='python',
+        # The other direction, and the one that reads as fixing an omission: the per-block line is
+        # the most informative line in the run, so marking it looks like an improvement. It is 4,096
+        # wake-ups in a night on Earth, which is why the sidecar carries progress instead.
+        label='the per-block line becomes a stage, so a night wakes the reader 4,096 times',
+        path='pipeline/tile/block_render.py',
+        needle="            f\"{status.done}/{status.total} ({100 * status.done / status.total:.1f}%)\")",
+        replacement="            f\"{status.done}/{status.total} ({100 * status.done / status.total:.1f}%)\",\n"
+                    "            stage=True)",
+        guard='test_the_per_block_line_wakes_nobody',
+    ),
+    Sabotage(
+        suite='python',
+        # A failure matched only when the exception text happens to carry the word. A CUDA message
+        # does; a segfault, an Xid MMU fault and a Blender exit code do not, so the failures that
+        # mean the GPU is gone are exactly the ones that stay quiet.
+        label='the fault net drops the runner s own words for a dead block and a dead run',
+        path='pipeline/profile/watchdog.py',
+        needle='FAULT_RE = re.compile(r"(Traceback|MemoryError|Killed|ABORT|FAILED|Error|error)")',
+        replacement='FAULT_RE = re.compile(r"(Traceback|MemoryError|Killed|Error|error)")',
+        guard='test_a_block_failing_is_a_fault_whatever_it_failed_with',
+    ),
+    Sabotage(
+        suite='python',
+        # Stage before fault, which is the order the reasons are declared in. An abort is a stage
+        # boundary too, so the reader is woken either way -- and told the run reached a stage.
+        label='a stage that is also a failure is reported as a stage',
+        path='pipeline/profile/watchdog.py',
+        needle='    if FAULT_RE.search(line):\n        return "FAULT"\n    if STAGE_RE.search(line):\n        return "STAGE"',
+        replacement='    if STAGE_RE.search(line):\n        return "STAGE"\n    if FAULT_RE.search(line):\n        return "FAULT"',
+        guard='test_the_run_giving_up_is_a_fault',
+    ),
+    Sabotage(
+        suite='python',
+        # Differencing instead of banding. It fires at roughly the right rate, which is what makes
+        # it survive review, and the milestones drift with wherever the previous report landed.
+        label='progress is differenced rather than banded, so the milestones drift off the planet',
+        path='pipeline/profile/watchdog.py',
+        needle='    return int(current // step) > int(previous // step)',
+        replacement='    return current - previous >= step',
+        guard='test_a_milestone_fires_and_the_steps_between_do_not',
+    ),
+    Sabotage(
+        suite='python',
+        # The baseline read reports. Harmless-looking, and it means a watcher pointed at a finished
+        # run announces last night's result as this night's progress before anything has happened.
+        label='the first sidecar read fires, so last night s status is reported as tonight s',
+        path='pipeline/profile/watchdog.py',
+        needle='    if previous is None:\n        return False',
+        replacement='    if previous is None:\n        return True',
+        guard='test_the_first_read_never_fires',
+    ),
+    Sabotage(
+        suite='python',
+        # An optional input that goes quiet when it is missing. A raytraced night watched without
+        # --status then looks exactly like one whose producer never rendered a block.
+        label='the missing sidecar stops saying which absence it is',
+        path='pipeline/profile/watchdog.py',
+        needle='        return None, "no --status given"',
+        replacement='        return None, None',
+        guard='test_absence_says_which_absence_it_is',
+    ),
+    Sabotage(
+        suite='python',
+        # Back to `: > pass.log`. The pass still resumes correctly -- blocks are skipped by marker
+        # existence -- so nothing is lost but the record of which of them failed on every night but
+        # the last, on a producer whose whole point is that it runs across several.
+        label='the pass log is emptied at the top of every run, so a resumed render loses its record',
+        path='pipeline/profile/run_pass.sh',
+        needle='if [[ -s "$PROF/pass.log" ]]; then\n'
+               '    # Named for when that run\'s log was last written rather than for now, so the filename says\n'
+               '    # which night it covers, and so re-running twice inside one second cannot land on one name.\n'
+               '    mv "$PROF/pass.log" "$PROF/pass-$(date -r "$PROF/pass.log" +%Y%m%dT%H%M%S).log"\n'
+               'fi\n',
+        replacement='',
+        guard='test_a_prior_runs_log_survives_the_next_run',
+    ),
     # --- the pass's memory cap becomes the body's --------------------------------------------------
     # Every case here restores "one cap for every planet" while the harness still starts, still caps,
     # and still prints a preflight line. The damage is asymmetric and that is why they are worth
@@ -7299,6 +7418,31 @@ SABOTAGES: list[Sabotage] = [
         needle='STANDING_GIB = 12',
         replacement='STANDING_GIB = 16',
         guard='test_the_two_numbers_actually_differ',
+    ),
+    Sabotage(
+        suite='python',
+        # A pass sized off a measurement instead of off the policy. It reads as the responsible
+        # change -- the caps peak 14.41 GiB and 20 G is honest headroom -- and it is a pass running
+        # outside the ratified one-heavy-job-at-a-time ceiling, which is a decision rather than a
+        # constant. Nothing checked the relationship, and the cap has sat exactly AT the ceiling
+        # since the caps stage pushed it there, so the first body to want more takes it silently.
+        label='the pass cap is raised past the ratified heavy-job ceiling',
+        path='pipeline/profile/pass_cap.py',
+        needle='CAP_RENDERING_GIB = 16',
+        replacement='CAP_RENDERING_GIB = 20',
+        guard='test_no_pass_is_capped_above_the_ratified_ceiling',
+    ),
+    Sabotage(
+        suite='python',
+        # A figure this module argues from goes stale against PROCESS, which is what it points at.
+        # Both retired figures got here exactly this way and neither was noticed: the prose still
+        # reads as sourced, and a reader who follows the pointer finds a different number with
+        # nothing saying the two disagree.
+        label='the module argues from a composite peak PROCESS no longer carries',
+        path='pipeline/profile/pass_cap.py',
+        needle='- Earth at z8: `cap_render` **14.41 GiB** · composite **12.56 GiB**',
+        replacement='- Earth at z8: `cap_render` **14.41 GiB** · composite **11.02 GiB**',
+        guard='test_every_figure_the_module_argues_from_is_one_PROCESS_still_carries',
     ),
     # `set -u` does NOT catch this: a failed command substitution assigns the EMPTY STRING rather
     # than leaving the name unset, so the cap becomes `G`, the arithmetic compares against zero, and

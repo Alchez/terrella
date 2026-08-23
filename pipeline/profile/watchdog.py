@@ -6,10 +6,20 @@ from the assistant side would burn context for nothing; this sleeps, and only re
 there is genuinely something to say.
 
 Fires on:
-  * STAGE     -- a new stage marker in pass.log (NOT the every-20-windows composite progress,
-                 which would fire ~18 times and say nothing new)
+  * STAGE     -- the pass crossed a stage boundary and said so. The vocabulary is ONE marker,
+                 owned by `pipeline/progress.py`, because a watcher holding a list of the
+                 phrasings it expects goes stale the day a stage is added and says nothing while
+                 it does: this module carried such a list, and four of Earth's five surface
+                 layers plus both of Mars's own stages had never been reported.
+  * FAULT     -- a line that means something went wrong, matched by pattern rather than declared,
+                 because the interesting faults are the ones nobody wrote a marker for. A dying
+                 process prints; it does not get to update a status document first.
+  * PROGRESS  -- the producer's own status sidecar crossed a milestone, or changed state.
+                 Throttled by `--progress-step`, which is what a sidecar buys and a regex cannot:
+                 the raytrace producer renders 4,096 blocks on Earth and a match is a match, so a
+                 per-block MARKER would be 4,096 wake-ups in a night. A number can be sampled.
   * DONE      -- the scope's cgroup is gone: pass finished or died
-  * MEMORY    -- ANON memory nearing the 12 G cap, an actual oom_kill, or swap in use.
+  * MEMORY    -- ANON memory nearing this body's cap, an actual oom_kill, or swap in use.
                  NOT memory.current: that includes PAGE CACHE, which is reclaimable, and a job
                  streaming a 31 GB raster parks the cgroup at its cap by design (measured:
                  current 12287 MB = anon 802 + file 11382, with oom_kill 0 and the
@@ -19,8 +29,12 @@ Fires on:
   * STALL     -- no CPU and no disk progress anywhere in the cgroup for STALL_S
   * HEARTBEAT -- HEARTBEAT_S elapsed with none of the above, so silence is never ambiguous
 
+The cap this runs under is the BODY's and this module does not know it: `pipeline/profile/
+pass_cap.py` derives it and holds every measurement behind it.
+
 Exit code is always 0; the REASON is on stdout. Usage:
-  watchdog.py --unit terrella-pass.scope --log pass.log --samples samples.jsonl
+  watchdog.py --unit terrella-pass.scope --log pass.log --samples samples.jsonl \
+              [--status <work>/raytrace_status.json]
 """
 
 import argparse
@@ -30,18 +44,36 @@ import re
 import time
 from pathlib import Path
 
+from pipeline import progress
+
 POLL_S = 10.0
 HEARTBEAT_S = 1200.0     # 20 min: quiet enough not to nag, often enough that silence is not scary
 STALL_S = 420.0          # 7 min of zero CPU AND zero disk anywhere in the cgroup
-ANON_WARN_MB = 10_000    # the cap is 12 G; composite peaks at 6.24 GiB of anon (re-measured 07-16)
+ANON_WARN_MB = 10_000    # composite peaks at 6.24 GiB of anon (re-measured 07-16)
 SWAP_WARN_MB = 1_500     # swap once sat pinned 7/7 for a whole day; never again unnoticed
+PROGRESS_STEP_PCT = 5.0  # 20 wake-ups across a whole planet, against 4,096 if every block fired
 
-# Stage markers shade_planet.py already prints. "composited rows" is deliberately excluded.
-STAGE_RE = re.compile(
-    r"(warp height ->|warp ocean ->|warp water ->|warp lake depth ->|no lakedepth|"
-    r"per-row-z hillshade|global sky-view factor|planet_rgb fresh|"
-    r"cutting z0-8|tiles live ->|"          # build_tiles: added 07-16, the first instrumented cut
-    r"wrote |DONE|Traceback|Error|error|Killed|MemoryError)")
+#: A stage boundary, in the one spelling the pass emits. Imported rather than copied: a second
+#: spelling here is the exact failure this replaced, one file further along.
+STAGE_RE = re.compile(re.escape(progress.STAGE_MARKER))
+
+#: Trouble, matched rather than declared. `FAILED` and `ABORT` are the runner's own words for a
+#: block that died and a run that gave up; the rest are what an interpreter or the kernel says
+#: when nothing in this repo got the chance to say anything.
+FAULT_RE = re.compile(r"(Traceback|MemoryError|Killed|ABORT|FAILED|Error|error)")
+
+
+def classify(line: str) -> str | None:
+    """What this log line is worth waking for, if anything.
+
+    FAULT wins a line that is both, because a stage boundary that also carries a failure is read
+    for the failure.
+    """
+    if FAULT_RE.search(line):
+        return "FAULT"
+    if STAGE_RE.search(line):
+        return "STAGE"
+    return None
 
 
 def find_cgroup(unit: str):
@@ -75,14 +107,47 @@ def cgroup_health(cgroup: Path) -> dict:
     return health
 
 
-def tail_stages(log: Path, seen: int):
-    """Return (new_stage_lines, total_lines_seen)."""
+def tail_events(log: Path, seen: int):
+    """Return (new_reportable_lines, worst_reason, total_lines_seen)."""
     try:
         lines = log.read_text(errors="replace").splitlines()
     except OSError:
-        return [], seen
-    fresh = [line for line in lines[seen:] if STAGE_RE.search(line)]
-    return fresh, len(lines)
+        return [], None, seen
+    fresh = [(line, classify(line)) for line in lines[seen:]]
+    reportable = [line for line, reason in fresh if reason]
+    worst = "FAULT" if any(reason == "FAULT" for _, reason in fresh) else (
+        "STAGE" if reportable else None)
+    return reportable, worst, len(lines)
+
+
+def read_status(status: Path | None) -> tuple[dict | None, str | None]:
+    """The producer's own progress document, or None when there is none to read.
+
+    Absence is THREE different things and a caller that cannot tell them apart is why this returns
+    the reason: no `--status` given (the composite has no sidecar, and a raytraced run wired without
+    the flag looks identical), the path given but not yet written, or written and unreadable.
+    """
+    if status is None:
+        return None, "no --status given"
+    try:
+        return json.loads(status.read_text()), None
+    except FileNotFoundError:
+        return None, f"not written yet: {status}"
+    except (OSError, ValueError) as failure:
+        return None, f"unreadable ({failure}): {status}"
+
+
+def crossed_step(previous: float | None, current: float, step: float) -> bool:
+    """Whether `current` has entered a new `step`-wide band since `previous`.
+
+    Banded rather than differenced so the milestones are absolute -- 5, 10, 15 percent of the
+    planet -- and a resumed night that starts at 62% reports at 65 rather than at 67. `previous`
+    is None on the first read, which establishes the baseline and never fires: a watcher started
+    over a finished run must not announce last night's result as this night's progress.
+    """
+    if previous is None:
+        return False
+    return int(current // step) > int(previous // step)
 
 
 def last_sample(samples: Path):
@@ -98,6 +163,21 @@ def last_sample(samples: Path):
     except (OSError, ValueError):
         pass
     return None
+
+
+def summarise_status(status, absence: str | None) -> str:
+    """The producer's own numbers, on every report, or why there are none.
+
+    Printed even when absent because an optional input that says nothing when it is missing makes
+    the broken wiring the quiet case: a raytraced night watched without `--status` would look
+    exactly like one whose producer never wrote a block.
+    """
+    if not status:
+        return f"  (no producer status: {absence})"
+    return (f"  {status.get('body')} {status.get('state')}  {status.get('progress')} "
+            f"({status.get('percent')}%)  {status.get('blocks_per_min')} blk/min  "
+            f"eta {status.get('eta_min')} min  {status.get('failures')} failed  "
+            f"{status.get('free_gb')} GB free  last {status.get('last_block')!r}")
 
 
 def summarise(sample) -> str:
@@ -121,10 +201,20 @@ def main() -> int:
     parser.add_argument("--log", required=True)
     parser.add_argument("--samples", required=True)
     parser.add_argument("--seen", type=int, default=0, help="log lines already reported")
+    parser.add_argument("--status", type=Path, default=None,
+                        help="the producer's own progress document, if it writes one "
+                             "(block_render's raytrace_status.json). Without it a night reports "
+                             "only stage boundaries and faults, which on a producer whose whole "
+                             "middle is one stage means nothing between the warp and the cut.")
+    parser.add_argument("--progress-step", type=float, default=PROGRESS_STEP_PCT,
+                        help="percent of the planet between progress reports. This is a WAKE "
+                             "POLICY rather than a display setting: each report exits the "
+                             "watchdog and wakes the reader.")
     parser.add_argument("--anon-warn", type=float, default=ANON_WARN_MB,
-                        help="anon MB before warning. The hillshade legitimately sawtooths to "
-                             "~11.6 G under the 12 G cap (float64 @ 1024 rows), so a 10 G "
-                             "threshold is a false-alarm generator: oom_kill is the real signal.")
+                        help="anon MB before warning. Anon sawtooths high on the composite's "
+                             "windowed stages by design, so this is a coarse net and oom_kill is "
+                             "the real signal. Unmeasured on the raytrace producer, whose memory "
+                             "sits in a Blender subprocess rather than in this one.")
     parser.add_argument("--heartbeat", type=float, default=HEARTBEAT_S,
                         help="seconds of quiet before reporting 'still healthy'. Raise it for "
                              "unattended overnight runs: stage/memory/stall events still fire, so "
@@ -139,35 +229,52 @@ def main() -> int:
     last_event = time.time()
     last_progress = time.time()
     last_totals = None
+    last_state: str | None = None
+    last_percent: float | None = None
+
+    def report(reason: str, status, absence, lines=()) -> int:
+        print(f"REASON: {reason}\nSEEN: {seen}\n")
+        for line in lines:
+            print(f"  {line}")
+        print(summarise_status(status, absence))
+        print(summarise(last_sample(samples)))
+        return 0
 
     while True:
         time.sleep(POLL_S)
         now = time.time()
 
-        fresh, seen = tail_stages(log, seen)
+        fresh, worst, seen = tail_events(log, seen)
         sample = last_sample(samples)
+        status, absence = read_status(args.status)
 
         if fresh:
-            print(f"REASON: STAGE\nSEEN: {seen}\n")
-            print("\n".join(f"  {line}" for line in fresh[-6:]))
-            print(summarise(sample))
-            return 0
+            return report(worst or "STAGE", status, absence, fresh[-6:])
+
+        # AFTER the log and before the cgroup: a sidecar milestone is real progress, and a sidecar
+        # that has gone quiet is not an event at all -- STALL below is what notices that, from the
+        # cgroup, because a killed process stops updating this file and stops burning CPU together.
+        if status:
+            state, percent = status.get("state"), float(status.get("percent") or 0.0)
+            if last_state is not None and state != last_state:
+                last_state, last_percent = state, percent
+                return report("PROGRESS", status, absence)
+            if crossed_step(last_percent, percent, args.progress_step):
+                last_state, last_percent = state, percent
+                return report("PROGRESS", status, absence)
+            last_state, last_percent = state, percent
 
         cgroup = find_cgroup(args.unit)
         if cgroup is None:
-            print(f"REASON: DONE (scope gone after {(now-started)/60:.1f} min of watching)\n"
-                  f"SEEN: {seen}\n")
-            print(summarise(sample))
-            return 0
+            return report(f"DONE (scope gone after {(now-started)/60:.1f} min of watching)",
+                          status, absence)
 
         health = cgroup_health(cgroup)
         if health["oom_kill"] or health["anon_mb"] > anon_warn_mb or (
                 sample and sample["swap_used_mb"] > SWAP_WARN_MB):
-            print(f"REASON: MEMORY  (anon {health['anon_mb']:.0f} MB, "
-                  f"file/cache {health['file_mb']:.0f} MB, oom_kill {health['oom_kill']})\n"
-                  f"SEEN: {seen}\n")
-            print(summarise(sample))
-            return 0
+            return report(f"MEMORY  (anon {health['anon_mb']:.0f} MB, "
+                          f"file/cache {health['file_mb']:.0f} MB, "
+                          f"oom_kill {health['oom_kill']})", status, absence)
 
         if sample:
 
@@ -177,15 +284,11 @@ def main() -> int:
                 last_progress = now
             last_totals = totals
             if now - last_progress > STALL_S:
-                print(f"REASON: STALL (no cpu/disk progress for {STALL_S/60:.0f} min)\n"
-                      f"SEEN: {seen}\n")
-                print(summarise(sample))
-                return 0
+                return report(f"STALL (no cpu/disk progress for {STALL_S/60:.0f} min)",
+                              status, absence)
 
         if now - last_event > heartbeat_s:
-            print(f"REASON: HEARTBEAT ({heartbeat_s/60:.0f} min, all healthy)\nSEEN: {seen}\n")
-            print(summarise(sample))
-            return 0
+            return report(f"HEARTBEAT ({heartbeat_s/60:.0f} min, all healthy)", status, absence)
 
 
 if __name__ == "__main__":

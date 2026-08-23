@@ -122,6 +122,12 @@ file mtimes at minute resolution, which is coarser than the instrumented figures
 printed fresh and skipped, which is correct and not a shortcut — `cap_sources` reads the VRTs and the
 ice sources, never `height_3857.tif`, so rebuilding the master cannot restage a cap.
 
+### Memory: what a cap has to back, and which of the three readings says so
+
+This block is the authority for both cgroup caps, and `pipeline/profile/pass_cap.py` argues from its
+figures by name. A heading rather than a bold lead-in because code cites it: a load-bearing block
+nothing can point at is one nobody re-reads before changing a number.
+
 **THREE MEMORY NUMBERS, AND ONLY ONE ANSWERS "DID IT FIT".** The cgroup's `memory.peak` is charged
 for reclaimable page cache — the source read and the outputs written — so it overstates what the box
 must actually hold. Summed per-process `VmHWM` overstates in the opposite direction and worse: it
@@ -346,10 +352,12 @@ Why the numbers are what they are (current-state explanations, not history):
 > never true at 8192²). It needs **≥16 G**, and that reaches beyond a manual run: `shade_planet.py`
 > invokes `cap_render` as a subprocess at the tail of the planet pass, inheriting the pass's cgroup —
 > so a pass at `MEMORY_CAP=12G` completed every tile stage and then died at the last one.
-> **Resolved:** `run_pass.sh`'s shade cap is now **16 G**, matching the tiling run. The composite is
-> unaffected — it peaks at 10.55 GiB and `COMPOSITE_ROWS=128` is a hardcoded constant, not a
-> function of the cap, so a bigger cap cannot let it grow. Accepted cost: 12 G was also an
-> accidental tripwire on composite footprint, and a regression there now hides until 16 G.
+> **Resolved:** `run_pass.sh`'s shade cap is now **16 G**, matching the tiling run, and
+> `pass_cap.py` derives it per body. `COMPOSITE_ROWS=128` is a hardcoded constant rather than a
+> function of the cap, so a bigger cap cannot let the composite grow into it. Accepted cost: 12 G
+> was also an accidental tripwire on composite footprint, and a regression there now hides until
+> 16 G. **That tripwire had already fired by the time anyone looked**: the composite is measured at
+> **12.56 GiB** in § EARTH, PER STAGE above, so it no longer fits under 12 G at all.
 
 **Memory preflight (both run labels).** `run_pass.sh` reads `MemAvailable` and **refuses to start**
 when it is below the cap, because a cap the box cannot back protects nothing — it relocates the OOM
@@ -367,11 +375,12 @@ restages SVF + composite → tiles — **~29 min**. The composite is the bulk of
 (§ the composite is threaded is the 3.5× that made iterating viable), and the caps auto-restage
 (~1:35) behind either knob.
 
-Peak RSS is **10.55 GiB** — the threaded composite under `MemoryMax=12G` (~1.14× headroom; a 6-worker
-layout would OOM). Tiling runs under a **separate 16 G cap** (`run_pass.sh`, sized off the per-worker
-`GDAL_CACHEMAX` math) and peaks ~2 GiB anon across 18 processes. **`memory.current` is not RSS**:
-during tiling the cgroup sits at ~16 GiB, but that is reclaimable page cache (`anon` 0.58 GiB) —
-watch **anon**, not the total.
+Peak RSS is **12.56 GiB** for the threaded composite, measured as peak live RSS in § EARTH, PER
+STAGE above; the **10.55 GiB** this line used to give was taken by a retired method, and the 1.14x
+headroom it claimed under a 12 G cap was never available. The pass runs under **16 G** whichever run
+label it takes, sized per body by `pass_cap.py`, and the cut is the lightest of the three stages
+rather than the reason for the cap. **`memory.current` is not RSS**: during tiling the cgroup sits at
+~16 GiB, but that is reclaimable page cache (`anon` 0.58 GiB), so watch **anon**, not the total.
 
 ## Hero renders (separate pipeline — Blender, not the tiler)
 
@@ -380,13 +389,21 @@ watch **anon**, not the total.
 | `render/render_prep.py --frame` → `frame.json` | ~seconds | `is_stale` | per-country frame + warps |
 | `render/lake_mask.py` (stage 6 of 7) | **0:11 finland (lake-densest) / 0:03 estonia** — the feared 83k-source-VRT warp cost is seconds, not minutes | skip-if-exists | `lakedepth.tif` (log1p ramp position) |
 | `render/scene_build.py --render` — headless Cycles, OptiX | **3:36 @ 8K** (finland 1:29 at 4142×7680) | n/a | one hero PNG |
-| Full batch — **203 heroes** | **~10.5 h measured** (a full sweep at the current scene rig: 203 heroes, 0 fail; 9.36 h GPU-bound = 89.5% duty; host RSS peaked ~10 GB vs the 25 GB cap → the single 12 GB GPU is the wall, more RAM saves nothing) | per-country resume | `blender/renders/` |
+| Full batch — **203 heroes** | **~10.5 h measured** (a full sweep at the current scene rig: 203 heroes, 0 fail; 9.36 h GPU-bound = 89.5% duty; host RSS peaked ~10 GB against the host-derived cap that run used, ~25 GB, since superseded by the ratified 16 G → the single 12 GB GPU is the wall, more RAM saves nothing) | per-country resume | `blender/renders/` |
 | `look/sky_view.py` re-shade (look re-tune, no re-render) | **no GPU, minutes** — re-runs the AO over the kept `heroes/raw/*.png`; a `sky_view_strength` change re-shaded all 203 with no Blender pass | — | shaded `heroes/*.png` |
 | Targeted re-render (e.g. a sea-floor fix across 7 microstates) | **~28 min** (~4 min each, tiny frames) — rm `heightfield.tif` + hero + raw, then `batch --through render --only` | per-country resume | the named heroes |
 | `batch --through prep`, warm walk | **1.25 s/country** (six guarded stages) | same | prep-complete markers |
 
 - 8K frames denoise on **CPU**, not GPU: GPU render + GPU OIDN contend for the 12 GB VRAM → Xid 31
   MMU fault.
+- **The base grid is why the hero lane keeps its single quad, and the wall is host RAM as well as
+  VRAM.** Measured on this box's 12 GB card, micropolygons per plane: a render block lands near
+  **21M** and is comfortable, Nepal at **41.8M** renders but takes **177% longer**, and Australia at
+  **67M** fails outright with `Failed to build OptiX acceleration structure`, having wanted
+  **17.0 GB** of host against the ratified 16 G. Which frame sizes sit on which side is unmeasured:
+  Nepal clears it at 36.8 Mpx and Australia does not at 58.8. `pipeline/profile/pass_cap.py`,
+  `pipeline/batch.py` and `render/scene_build.py` all argue from the 17.0 GB figure, and this row is
+  where it is measured.
 - The warm walk is near-free because the two expensive per-country redundancies are guarded:
   `build_mosaics.sh` skips when its `.sources` sidecar matches (17.6 → 0.63 s) and
   `download_glo30` runs one ETag preflight per day (`preflight_ok.json`, then ~0.07 s). What
