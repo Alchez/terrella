@@ -111,7 +111,7 @@ class TestPreflightBlocksAnUnbackedCap:
 class TestBothRunLabelsAreGuarded:
     @pytest.mark.parametrize("args,label", [((), "pass"), (("--tiles",), "tiles")])
     def test_each_run_label_carries_the_bodys_cap_and_the_check(self, tmp_path, args, label):
-        """Earth wants 16 G under both labels — the caps stage ends the shade pass, and the tiler's
+        """Earth wants 16 G under both labels — the caps stage ends the planet pass, and the tiler's
         per-worker block cache makes the tiling run ask for the same. Neither may start without it.
         """
         meminfo = write_meminfo(tmp_path / "meminfo", 3 * GIB_IN_KIB)

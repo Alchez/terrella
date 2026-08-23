@@ -285,7 +285,7 @@ class TestTheGridsAreBuiltPerBody:
 
 
 class TestTheCapPassRequiresABody:
-    """`--body` has no default here for the same reason the shade pass has none.
+    """`--body` has no default here for the same reason the planet pass has none.
 
     A cap is the one output where the wrong sphere is entirely invisible: it projects, it blends,
     it downsamples to every rung — and it sits on the wrong parallel, feathering into tiles drawn on

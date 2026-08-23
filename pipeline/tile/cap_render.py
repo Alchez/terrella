@@ -1002,7 +1002,7 @@ def render_cap_south(grid: CapGrid, rasters: frozenset[str]) -> Path:
 def build_parser() -> argparse.ArgumentParser:
     """The CLI, split out of `main` so its contract is testable without rendering a cap."""
     parser = argparse.ArgumentParser(description=(__doc__ or "").split("\n")[0])
-    # REQUIRED, WITH NO DEFAULT, exactly as the shade pass requires it. A cap is the one output
+    # REQUIRED, WITH NO DEFAULT, exactly as the planet pass requires it. A cap is the one output
     # where the wrong sphere leaves no trace: it projects, blends and downsamples to every rung, and
     # simply sits on a different parallel than the tiles it feathers into. `shade_planet` passes
     # this through when it invokes the cap pass — the flag name is stated in both places, and
@@ -1023,7 +1023,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> int:
     args = build_parser().parse_args()
     body = bodies.get(args.body)  # raises on an unknown name; never falls back to Earth
-    # THE BODY BEFORE ANYTHING ELSE, and a refusal rather than a quiet exit 0. The shade pass already
+    # THE BODY BEFORE ANYTHING ELSE, and a refusal rather than a quiet exit 0. The planet pass already
     # declines to invoke this for such a body, so reaching here means an operator asked directly —
     # and the honest answer to "render Mars's caps" is that this body publishes none, not a pair of
     # discs in a palette it has never been given. Same rule the layer gates follow: ask the body, then
@@ -1032,7 +1032,7 @@ def main() -> int:
         sys.exit(f"{body.name} publishes no polar caps — nothing to render. Its relief would shade "
                  f"from the same ramps as the tiles, so turning this on is a look decision: set "
                  f"renders_polar_caps on the body in pipeline/bodies.py once they are ratified.")
-    # Read once and threaded, exactly as the shade pass does it. This raises when the planet stage
+    # Read once and threaded, exactly as the planet pass does it. This raises when the planet stage
     # never finished, so a cap can never be rendered from half a fusion — which used to be
     # indistinguishable from a planet that genuinely has no masks.
     rasters = planet_seam.declared(body)

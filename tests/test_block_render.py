@@ -18,6 +18,7 @@ from pipeline import block_plan, bodies, freshness, layers, planet_seam
 from pipeline.block_plan import Block
 from pipeline.look import palette
 from pipeline.raster_io import GTIFF_CREATE
+from pipeline.render import render_seam
 from pipeline.tile import block_render, shade_planet
 
 
@@ -485,25 +486,61 @@ class TestARunRefusesToStartWithoutItsInputs:
     that never ran. On an unattended night that reads as a hardware fault.
     """
 
+    #: A seam that CAN feed the rig, so the file checks below are reached at all.
+    FEEDS_THE_RIG = frozenset({"heightfield", "watermask"})
+
     def test_a_missing_heightfield_stops_the_run_by_name(self, tmp_path):
         with pytest.raises(SystemExit, match=shade_planet.HEIGHT_3857):
-            block_render.check_inputs(tmp_path, frozenset({"heightfield"}))
+            block_render.check_inputs(tmp_path, bodies.EARTH, self.FEEDS_THE_RIG)
 
     def test_the_error_names_the_stage_that_builds_them(self, tmp_path):
         """An error that says what is missing and not how to fix it costs the reader two tiers."""
-        with pytest.raises(SystemExit, match="shade_planet"):
-            block_render.check_inputs(tmp_path, frozenset({"heightfield"}))
+        with pytest.raises(SystemExit, match="planet_pass"):
+            block_render.check_inputs(tmp_path, bodies.EARTH, self.FEEDS_THE_RIG)
 
-    def test_a_body_that_declares_no_inland_water_is_not_asked_for_a_watermask(self, tmp_path):
+    def test_a_body_that_declares_no_ocean_is_not_asked_for_an_oceanmask(self, tmp_path):
         """The declaration decides, never the disk: asking every body for every raster would make
-        a sea-less planet unrenderable, and sniffing the disk cannot tell 'has none' from 'died'."""
+        a sea-less planet unrenderable, and sniffing the disk cannot tell 'has none' from 'died'.
+
+        THE OCEANMASK IS THE ONE THIS STILL HOLDS FOR, and the watermask is not: `images_for` drops
+        the sea image for a look with no sea, so a block without one is a scene the rig will build.
+        """
         (tmp_path / shade_planet.HEIGHT_3857).write_bytes(b"")
-        block_render.check_inputs(tmp_path, frozenset({"heightfield"}))
+        (tmp_path / shade_planet.WATER_3857).write_bytes(b"")
+        block_render.check_inputs(tmp_path, bodies.EARTH, self.FEEDS_THE_RIG)
 
     def test_a_body_that_does_declare_one_may_not_start_without_it(self, tmp_path):
         (tmp_path / shade_planet.HEIGHT_3857).write_bytes(b"")
         with pytest.raises(SystemExit, match=shade_planet.WATER_3857):
-            block_render.check_inputs(tmp_path, frozenset({"heightfield", "watermask"}))
+            block_render.check_inputs(tmp_path, bodies.EARTH, self.FEEDS_THE_RIG)
+
+
+class TestASeamThatCannotFeedTheRigIsRefusedBeforeAnyBlock:
+    """The same misattributed failure one tier up, and the one a producer switch actually hits.
+
+    A planet declaring no watermask is not asked for a file it never had, so every raster check
+    passes — and then every block fails inside Blender on `inlandlake.png`, eight times, under the
+    message that says the GPU is gone. Mars is that planet today.
+    """
+
+    def test_mars_seam_is_refused_by_name(self, tmp_path):
+        _stage_warped_inputs(tmp_path)
+        with pytest.raises(SystemExit, match="watermask"):
+            block_render.check_inputs(tmp_path, bodies.MARS, frozenset({"heightfield"}))
+
+    def test_the_refusal_names_both_images_no_block_can_carry(self):
+        assert block_render.unsuppliable_rig_images(frozenset({"heightfield"})) == [
+            render_seam.INLANDLAKE, render_seam.RIVER]
+
+    def test_a_seam_with_a_watermask_supplies_them_all(self):
+        """The anti-vacuity half: a refusal that fired for every seam would prove nothing."""
+        assert block_render.unsuppliable_rig_images(frozenset({"heightfield", "watermask"})) == []
+
+    def test_the_oceanmask_is_not_among_them(self):
+        """It is the one mandatory image a LOOK answers for, and that rule lives in `scene_build`,
+        which this interpreter cannot import. Demanding it here would refuse every sea-less body."""
+        assert render_seam.OCEANMASK not in block_render.unsuppliable_rig_images(
+            frozenset({"heightfield"}))
 
 
 def _stage_warped_inputs(tmp_path):

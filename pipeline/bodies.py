@@ -178,7 +178,7 @@ class Body:
     #: discs in a palette nobody has agreed to.
     #:
     #: A body fact rather than a look constant because the two consumers are in different processes:
-    #: the shade pass decides whether to invoke the cap pass at all, and the cap pass must give the
+    #: the planet pass decides whether to invoke the cap pass at all, and the cap pass must give the
     #: same answer when an operator runs it directly. Absence on disk cannot carry that — it cannot
     #: tell "this body publishes none" from "the render died", which is the distinction
     #: `planet_seam` exists to preserve one tier up.
@@ -213,7 +213,7 @@ EARTH = Body(
     # on Earth's equatorial radius, which is what makes Earth's ground ratio exactly 1.0 and every
     # existing pixel byte-identical through each call site that adopts the conversion.
     ground_radius_m=6378137.0,
-    # The ONE home now: the shade pass reads this, and a test scans it for a regrown literal. The
+    # The ONE home now: the planet pass reads this, and a test scans it for a regrown literal. The
     # number is what the live 46 GB raster was actually warped at, and it is a rounded value — the
     # exact z8 figure is 305.748113. See the field's note for why the rounding stays.
     map_units_per_pixel=305.7483,

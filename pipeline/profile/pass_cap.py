@@ -36,7 +36,7 @@ nothing would ever name it. `bodies.get` raises on an unknown name, so this does
 import sys
 
 from pipeline import bodies
-from pipeline.tile import shade_planet
+from pipeline.tile import planet_pass
 
 #: The cap a pass needs when it will render polar caps, in GiB. Set by `cap_render`'s measured
 #: 14.3 GB peak plus headroom, and reached through the scope's cgroup because `shade_planet`
@@ -73,13 +73,13 @@ def pass_memory_cap_gib(body: bodies.Body) -> int:
 def cap_for_argv(argv: list[str]) -> int:
     """The cap for a pass invoked with `argv`, parsed by the pass's OWN parser.
 
-    Sharing `shade_planet.build_parser` rather than re-reading `--body` in shell is the point: the
+    Sharing `planet_pass.build_parser` rather than re-reading `--body` in shell is the point: the
     harness forwards this exact argv to that module moments later, so a second spelling of the
     grammar is a second thing to keep in step. It also makes the harness honour its own documented
     contract EARLIER — `--body` is required, and until now a run that omitted it cleared the
     preflight, opened a cgroup scope and only then died inside Python.
     """
-    return pass_memory_cap_gib(bodies.get(shade_planet.build_parser().parse_args(argv).body))
+    return pass_memory_cap_gib(bodies.get(planet_pass.build_parser().parse_args(argv).body))
 
 
 def main() -> None:

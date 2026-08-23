@@ -21,6 +21,10 @@ composite is per-pixel, so windowing it cannot seam):
   6. cut 512px tiles from z0 to THIS BODY's ceiling -- z8 for Earth, and the body says so rather
      than this module (no overview step: `gdal raster tile` never reads them; see build_tiles).
 
+THIS MODULE IS NOT AN ENTRY POINT. It holds the shared stages above AND one of the two producers of
+step 5; `tile/planet_pass.py` owns the sequence and picks the producer from the body, so that the
+composite is not the host of its own alternative.
+
 Every stage skips if its output is FRESH -- present, completed, and newer than everything it
 derives from (`is_stale`). An exists()-only guard cannot tell "built" from "still correct":
 the Caspian re-fuse rewrote 4 of the 540 chunks, and a plain re-run would have
@@ -28,15 +32,13 @@ skipped every stage and silently re-cut tiles from the pre-Caspian, pre-sea-rewo
 Grid matches the existing tile pyramid exactly (131072 x 131072 — square since Antarctica was
 fused in; it was 131072 x 93009 while the pyramid stopped at -60).
 
-    python -m pipeline.tile.shade_planet --body earth            # shade only
-    python -m pipeline.tile.shade_planet --body earth --tiles    # + cut tiles
+    python -m pipeline.tile.planet_pass --body earth            # produce only
+    python -m pipeline.tile.planet_pass --body earth --tiles    # + cut tiles
 """
 
-import argparse
 import gc
 import json
 import subprocess
-import sys
 import time
 from collections import deque
 from collections.abc import Callable
@@ -381,9 +383,16 @@ def composite_deps(work, hs, params) -> tuple:
     making this one exact, which trades a harmless imprecision for the chance to under-track — and
     under-tracking is the direction that is silent. `test_the_two_freshness_predicates_disagree_on_a
     _missing_input` is the executable form of this paragraph; read it before changing either.
+
+    `PRODUCER_STAMP` IS THE ONE ENTRY HERE THAT IS NOT A WARP SOURCE, and it is here rather than in
+    the recipe for the reason the recipe cannot reach: the fact it records is not a constant this
+    composite read, it is WHICH PRODUCER wrote the raster this list is deciding about. A raster left
+    by the other producer is newer than every source and every recipe here, so nothing else in this
+    tuple can see it.
     """
     return (work / HEIGHT_3857, hs, work / OCEAN_3857, work / WATER_3857,
-            *(layer.warped_in(work) for layer in layers.WARPED_LAYERS), params)
+            *(layer.warped_in(work) for layer in layers.WARPED_LAYERS), params,
+            work / PRODUCER_STAMP)
 
 
 #: What the finished pixels lose when a layer is skipped at the WARP stage, by layer name.
@@ -407,6 +416,14 @@ WATER_3857 = "water_3857.tif"
 #: publish all key on this one basename — so it is exactly the kind of spelling the second writer
 #: would otherwise copy. The variant suffix stays a local f-string: only the composite emits those.
 PLANET_RGB = "planet_rgb.tif"
+
+#: What the pass records about which producer made `PLANET_RGB`, and a dependency of BOTH of them.
+#:
+#: NAMED BESIDE THE RASTER IT DESCRIBES, and read by three modules that cannot import each other's
+#: owner: `planet_pass` writes it, and both producers' dependency lists name it. `freshness`
+#: derives a done-marker from the OUTPUT alone, so two producers of one raster share one marker and
+#: each would otherwise read the other's work as its own completed output.
+PRODUCER_STAMP = "planet_producer.json"
 
 #: `cap_render` says something different about the same layers because it paints a different
 #: picture. Each states what the reader will see rather than what was missing, so a partial build
@@ -1068,113 +1085,3 @@ def build_tiles(planet_tif: Path, out: Path, body: bodies.Body):
     staging.rename(live)
     mark_done(live)
     print(f"tiles live -> {live} (previous kept at {out / 'tiles_old'})", flush=True)
-
-
-def build_parser() -> argparse.ArgumentParser:
-    """The CLI, split out of `main` so its contract is testable without running a pass."""
-    ap = argparse.ArgumentParser()
-    # REQUIRED, WITH NO DEFAULT, and that is the whole point. A pass that assumes Earth because
-    # nobody said otherwise does not fail — it produces a complete, plausible, entirely wrong
-    # pyramid, and the cost of discovering that late is a planet. Naming it costs one word.
-    ap.add_argument("--body", required=True,
-                    help=f"which planet this pass is for ({', '.join(sorted(bodies.BODIES))})")
-    # Optional override. Left unset it follows the body, which also honours the MAPS_DATA seam its
-    # checkout-rooted default used to bypass; set, it is how a look A/B is pointed elsewhere. The
-    # old spelling is described rather than quoted — `tests/test_paths.py` scans for it, and a
-    # comment reproducing it re-creates the needle the scan exists to find.
-    ap.add_argument("--out", type=Path, default=None)
-    ap.add_argument("--tiles", action="store_true",
-                    help="also cut tiles from the mosaic, z0 to the body's own ceiling")
-    ap.add_argument("--knob", action="append", default=[], metavar="KEY=VALUE",
-                    help="override a locked KNOBS entry (repeatable), as tile/shade.py does. "
-                         "Look changes used to be made by EDITING the constant, which meant an "
-                         "experiment and production shared one source of truth. Overrides are "
-                         "safe for freshness by construction: composite_params/hs_params "
-                         "serialise KNOBS, so an override restages exactly what it changes and "
-                         "the recorded params always describe the pyramid that exists.")
-    return ap
-
-
-def resolve_body(args: argparse.Namespace) -> bodies.Body:
-    """The body this run is for. Raises through the registry, which names the ones that exist."""
-    return bodies.get(args.body)
-
-
-def runs_cap_pass(body: bodies.Body) -> bool:
-    """Whether a shade pass for this body ends by rendering polar caps.
-
-    A named predicate rather than the field read inline, so the DECISION is testable without
-    spawning a subprocess. Inline, the only way to prove the pass respects the registry is to run it
-    and watch what it shells out to — which needs a composited planet on disk, so in practice it
-    would be proven by nothing.
-    """
-    return body.renders_polar_caps
-
-
-def cap_pass_command(body: bodies.Body) -> list[str]:
-    """The command that renders this body's polar caps at the tail of a shade pass.
-
-    Built here rather than spelled inline because the body crosses a PROCESS boundary as a string
-    on a command line, which is the one hop the registry cannot type-check. Left off, the cap pass
-    would refuse to start (its `--body` is required too) — which is the failure this shape converts
-    into a hard stop instead of a Mars pass quietly re-rendering Earth's poles.
-    """
-    return [sys.executable, "-m", "pipeline.tile.cap_render", "--body", body.name]
-
-
-def resolve_out(args: argparse.Namespace) -> Path:
-    """Where this run writes: the explicit `--out`, else the body's own tile-work directory."""
-    return args.out if args.out is not None else bodies.work_dir(resolve_body(args), "planet_tiles")
-
-
-def main():
-    args = build_parser().parse_args()
-    # A key off argv is dynamic by construction, so a TypedDict cannot check it -- this view is
-    # the honest escape hatch, and the membership test below is what actually validates the key.
-    knobs = cast(dict[str, Any], KNOBS)
-    for override in args.knob:
-        key, _, value = override.partition("=")
-        if key not in knobs:
-            raise SystemExit(f"unknown knob {key!r}; valid: {', '.join(sorted(knobs))}")
-        knobs[key] = value if isinstance(knobs[key], str) else float(value)
-        print(f"knob override: {key} = {knobs[key]}", flush=True)
-    body = resolve_body(args)
-    work = resolve_out(args)
-    work.mkdir(parents=True, exist_ok=True)
-
-    # Read ONCE, at the top, and threaded down. The planet stage declares what it emitted and this
-    # raises if it never finished, so a half-built planet stops here rather than being shaded into a
-    # plausible-looking pyramid. Threading it (rather than each stage reading the file) keeps
-    # `_compute_shared` a pure function of its arguments, which is what lets it run on workers.
-    rasters = planet_seam.declared(body)
-    height = warp_inputs(work, planet_seam.planet_dir(body), body, rasters)
-    hs = build_hillshade(work, height, body)
-    # Passed unevaluated: composite_planet runs it only if the composite is actually stale.
-    # Production composite is threaded at COMPOSITE_ROWS/N_WORKERS (optimisation #5); the snow
-    # persistence stays banded at WINDOW_ROWS (256), sliced 128 rows at a time.
-    planet_tif = composite_planet(work, hs, lambda: global_occlusion(height, body), body, rasters,
-                                  window_rows=COMPOSITE_ROWS, max_workers=N_WORKERS)[None]
-    if args.tiles:
-        build_tiles(planet_tif, work, body)
-    # The polar caps are shade-stage outputs too: they run the same composite over the same
-    # sources, so a look change that restages planet_rgb must restage them. Both caps once sat
-    # stale against the tiles they feather into (the north −6.7 DN adrift) because nothing
-    # coupled them to the recipe. cap_render guards
-    # itself (cap_is_fresh), so a fresh pass pays only the ~2 s import here. Subprocess, not
-    # import: cap_render imports FROM this module, and the caps' pyproj/scipy stack stays out
-    # of the tile pass.
-    if runs_cap_pass(body):
-        print("polar caps ...", flush=True)
-        subprocess.run(cap_pass_command(body), check=True)
-    else:
-        # SAID OUT LOUD, because the alternative is a pass that silently does less than the last one
-        # did. The cap pass would otherwise run and SUCCEED here — it needs only the heightfield once
-        # a body declares no surface layers — spending ~14 GB per pole to publish discs shaded by
-        # ramps this body has not ratified.
-        print(f"polar caps: {body.name} publishes none — skipped "
-              f"(the globe carries a hole above the Mercator limit)", flush=True)
-    print("DONE", flush=True)
-
-
-if __name__ == "__main__":
-    sys.exit(main())

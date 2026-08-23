@@ -50,7 +50,7 @@ from pipeline import block_plan, bodies, freshness, layers, mercator, paths, pla
 from pipeline.block_plan import Block
 from pipeline.look import palette
 from pipeline.raster_io import GTIFF_CREATE
-from pipeline.render import prep_block
+from pipeline.render import prep_block, render_seam
 from pipeline.tile import relief_scan, shade_planet
 
 #: Consecutive block failures that stop the run. A single block can fail for its own reasons — a
@@ -214,10 +214,16 @@ def raytrace_deps(work: Path, recipe: Path) -> tuple[Path, ...]:
 
     Over-inclusive in the same way and for the same reason: `is_stale` takes the newest mtime, so
     naming a raster this body does not have costs nothing, while missing one is silent.
+
+    `PRODUCER_STAMP` IS SHARED WITH `composite_deps` AND IS THE ONLY ENTRY THAT IS. It is what makes
+    a producer switch visible from this side: the mosaic left by the composite is newer than every
+    warp and newer than this recipe, so without the stamp this producer would report it fresh and
+    skip the render, publishing composited pixels under a raytrace recipe.
     """
     return (work / shade_planet.HEIGHT_3857, work / shade_planet.OCEAN_3857,
             work / shade_planet.WATER_3857,
-            *(layer.warped_in(work) for layer in layers.WARPED_LAYERS), recipe)
+            *(layer.warped_in(work) for layer in layers.WARPED_LAYERS), recipe,
+            work / shade_planet.PRODUCER_STAMP)
 
 
 def generation_is_current(markers: Path, deps: tuple[Path, ...]) -> bool:
@@ -248,20 +254,49 @@ def start_generation(markers: Path, mosaic: Path) -> None:
     generation_stamp(markers).touch()
 
 
-def check_inputs(work: Path, rasters: frozenset[str]) -> None:
-    """Refuse to start when the warped rasters this producer cuts from are not on disk.
+def unsuppliable_rig_images(rasters: frozenset[str]) -> list[str]:
+    """The rig's mandatory images no block on this planet seam can carry.
+
+    A DECLARATION QUESTION AND NOT A DISK ONE, asked before any block is prepped: `prep_block.build`
+    writes `inlandlake.png` and `river.png` only when the seam declared a `watermask`, and the rig
+    loads both for every look. So on a body with no watermask the images are not missing from one
+    block, they are unproduceable for all of them.
+
+    THE OCEANMASK IS DELIBERATELY NOT CHECKED, and that is the one asymmetry. It is the single
+    mandatory image a look can answer for — `scene_build.images_for` drops it when `Look.sea is
+    None` — and that rule lives in a module this interpreter cannot import, since `scene_build`
+    imports `bpy`. Lake and river carry no such escape: whether a planet has inland water is its
+    planet seam's answer rather than a colour, which is what makes them decidable from here.
+    """
+    return [] if "watermask" in rasters else [render_seam.INLANDLAKE, render_seam.RIVER]
+
+
+def check_inputs(work: Path, body: bodies.Body, rasters: frozenset[str]) -> None:
+    """Refuse to start when this body cannot feed the rig, or its warped rasters are not on disk.
 
     THE ALTERNATIVE IS A SLOW FAILURE THAT BLAMES THE WRONG THING. Without this the first block
     raises on a missing heightfield, and so does the next, and the run stops eight blocks later on
     the consecutive-failure counter — whose message says the GPU is gone, about a stage that never
     ran. On an unattended night that reads as a hardware fault until someone opens the log.
 
+    THE SEAM CHECK IS THE SAME FAILURE ONE TIER UP, and it is the one a body switched to this
+    producer hits. A planet declaring no watermask passes every raster check below — it is not asked
+    for a file it never had — and then fails inside Blender on an image the rig loads
+    unconditionally, eight times, under the message about the GPU.
+
     WHICH RASTERS ARE REQUIRED COMES FROM THE DECLARATION AND NEVER FROM THE DISK, because those are
     different questions: a body that emits no inland water must not be asked for a watermask, and a
     body that does must not be allowed to start without one.
 
-    The warp itself is still the shade pass's, which is the seam this names rather than papers over.
+    The warp itself is still the pass's, which is the seam this names rather than papers over.
     """
+    unsuppliable = unsuppliable_rig_images(rasters)
+    if unsuppliable:
+        raise SystemExit(
+            f"{body.name} cannot be rendered by this producer: its planet stage declared no "
+            f"watermask, so no block carries {' or '.join(unsuppliable)}, which the rig loads for "
+            f"every look. This is a body-seam gap rather than a missing file — either its planet "
+            f"producer must emit one, or the rig must learn to render without it")
     required = [work / shade_planet.HEIGHT_3857]
     if "oceanmask" in rasters:
         required.append(work / shade_planet.OCEAN_3857)
@@ -271,8 +306,8 @@ def check_inputs(work: Path, rasters: frozenset[str]) -> None:
     if missing:
         raise SystemExit(
             f"{work} is missing the warped input(s) this producer cuts from: {', '.join(missing)}. "
-            f"They are the shade pass's to build — run `python -m pipeline.tile.shade_planet "
-            f"--body <body>` first, which warps them onto the grid this renders on")
+            f"They are the pass's to build — run `python -m pipeline.tile.planet_pass "
+            f"--body {body.name}` first, which warps them onto the grid this renders on")
 
 
 def check_fits(blocks: list[Block], body: bodies.Body) -> list[Block]:
@@ -541,7 +576,7 @@ def run(body: bodies.Body, work: Path, mosaic: Path, *, limit: int | None = None
     # rather than after a whole-grid plan.
     rasters = planet_seam.declared(body)
     look = palette.look_for(body.name)
-    check_inputs(work, rasters)
+    check_inputs(work, body, rasters)
     blocks = plan_blocks(body, work)
     recipe = freshness.write_if_changed(work / PARAMS_NAME,
                                         params(body, rasters, look, rig_recipe(body), blocks))
@@ -639,14 +674,14 @@ def run(body: bodies.Body, work: Path, mosaic: Path, *, limit: int | None = None
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    # REQUIRED, WITH NO DEFAULT, exactly as the shade pass's is: a producer that assumes Earth
+    # REQUIRED, WITH NO DEFAULT, exactly as the planet pass's is: a producer that assumes Earth
     # because nobody said otherwise does not fail, it spends a night rendering the wrong planet.
     parser.add_argument("--body", required=True, choices=sorted(bodies.BODIES),
                         help="which planet's grid, look and margin law to render")
     parser.add_argument("--work", type=Path, default=None,
                         help="override the stage directory holding the warped inputs")
     parser.add_argument("--mosaic", type=Path, default=None,
-                        help="override the raster written, the seam `--out` gives the shade pass: "
+                        help="override the raster written, the seam `--out` gives the planet pass: "
                              "an A/B, or a first pass that must not overwrite a shipping planet. "
                              "Its markers and scratch follow the name, so two runs never resume "
                              "over each other")

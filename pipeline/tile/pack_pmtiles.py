@@ -75,7 +75,7 @@ def pack_directory(tiles_dir: Path, out_mbtiles: Path, name: str) -> int:
     """Pack tiles_dir into out_mbtiles (.tmp + atomic replace). Returns the tile count."""
     if not tiles_dir.is_dir():
         sys.exit(f"{tiles_dir} is not a directory — cut the pyramid first "
-                 f"(python -m pipeline.tile.shade_planet --tiles)")
+                 f"(python -m pipeline.tile.planet_pass --tiles)")
     tmp = out_mbtiles.with_name(out_mbtiles.name + ".tmp")
     tmp.unlink(missing_ok=True)
     count = 0

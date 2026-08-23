@@ -26,7 +26,7 @@
 
 ## The planet tile pipeline
 
-`python -m pipeline.tile.shade_planet --body earth [--tiles]` — or instrumented:
+`python -m pipeline.tile.planet_pass --body earth [--tiles]` — or instrumented:
 `bash pipeline/profile/run_pass.sh --body earth [--tiles]`
 
 **It is ONE global streaming pass, and the shape is the cost model:** warp → per-row-z hillshade
@@ -77,12 +77,12 @@ All stage numbers below are at the **131072² grid** (the full Mercator square) 
 | 5 | `global_occlusion` — sky-view factor | **3:23** (I/O-bound) | ~0 s | in-memory only | **lazy** |
 | 6 | `composite_planet` — ramps × hillshade × SVF + snow + sea ice + lake depth | **57:23** (1024 windows at 0.30 win/s; the Antarctic windows are all snow+ice work) | ~0 s | `planet_rgb.tif` 11 GB | `is_stale` |
 | 7 | `build_tiles` — `gdal raster tile` z0–8, WebP q95 | **4:19** | **skip** | `tiles/` **3.1 GB**, 87,381 tiles | `tiles.done` + `tile_params.json` |
-| T | `tile/terrain_rgb.py` — terrain-RGB encode + cut **z0–8**, 8 m, lossless WebP *(separate lane: reads `height_3857.tif` directly, never the composite, and is not part of the shade pass)* | **30:14** cold, whole `elev_z*` chain built, of which cutting is 8:08 (z8 alone 5:31). The **41:00** this replaced was measured before the latitude ramp was deleted from the encode, which removed a per-row inverse-Mercator projection and a smoothstep multiply from every window. A z0–6 variant is **~4 min** once the chain exists. | **skip** | `work/planet_terrain/bathy_s8_webp/tiles/` **2.72 GB**, 87,381 tiles | `tiles.done` + `terrain_params.json`; chain on `elev_z*.done` |
-| R | `tile/relief_scan.py`, the block partition's per-cell cache *(separate lane: streams `height_3857.tif` + the ocean mask once and feeds `block_plan`; not part of the shade pass)* | **3:07**, 1.5 GB peak (Mars measured **0:41** at its 65536² z7 grid) | ~0 s | `relief_cells.tif` + `ocean_cells.tif` | `is_stale` + `relief_params.json` |
+| T | `tile/terrain_rgb.py` — terrain-RGB encode + cut **z0–8**, 8 m, lossless WebP *(separate lane: reads `height_3857.tif` directly, never the composite, and is not part of the planet pass)* | **30:14** cold, whole `elev_z*` chain built, of which cutting is 8:08 (z8 alone 5:31). The **41:00** this replaced was measured before the latitude ramp was deleted from the encode, which removed a per-row inverse-Mercator projection and a smoothstep multiply from every window. A z0–6 variant is **~4 min** once the chain exists. | **skip** | `work/planet_terrain/bathy_s8_webp/tiles/` **2.72 GB**, 87,381 tiles | `tiles.done` + `terrain_params.json`; chain on `elev_z*.done` |
+| R | `tile/relief_scan.py`, the block partition's per-cell cache *(separate lane: streams `height_3857.tif` + the ocean mask once and feeds `block_plan`; not part of the planet pass)* | **3:07**, 1.5 GB peak (Mars measured **0:41** at its 65536² z7 grid) | ~0 s | `relief_cells.tif` + `ocean_cells.tif` | `is_stale` + `relief_params.json` |
 
 ### The same pass on Mars — measured, at the 65536² z7 grid
 
-`python -m pipeline.tile.shade_planet --body mars --tiles`. The pass this column is taken from ran
+`python -m pipeline.tile.planet_pass --body mars --tiles`. The pass this column is taken from ran
 **7:35 with the warp and the hillshade already fresh**; composing the carried warp onto it puts a
 cold pass near **16:52**, against ~52 minutes for the equivalent Earth stages plus the hour and a half
 of optional-layer warps Mars still mostly does not pay.
@@ -344,7 +344,7 @@ Why the numbers are what they are (current-state explanations, not history):
 > ⚠ **The cap render does NOT fit under the old 12 G cap** — it OOM-killed twice at a 12.5 GB
 > anon-RSS peak before being measured at ~14 GB (this row previously claimed ~4 GiB, which was
 > never true at 8192²). It needs **≥16 G**, and that reaches beyond a manual run: `shade_planet.py`
-> invokes `cap_render` as a subprocess at the tail of the shade pass, inheriting the pass's cgroup —
+> invokes `cap_render` as a subprocess at the tail of the planet pass, inheriting the pass's cgroup —
 > so a pass at `MEMORY_CAP=12G` completed every tile stage and then died at the last one.
 > **Resolved:** `run_pass.sh`'s shade cap is now **16 G**, matching the tiling run. The composite is
 > unaffected — it peaks at 10.55 GiB and `COMPOSITE_ROWS=128` is a hardcoded constant, not a

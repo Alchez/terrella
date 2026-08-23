@@ -2900,11 +2900,11 @@ SABOTAGES: list[Sabotage] = [
     # file to stop it and no error to read — just ~14 GB a pole spent shipping a look nobody ratified.
     Sabotage(
         suite='python',
-        label='the shade pass shells out to the cap render for every body again',
-        path='pipeline/tile/shade_planet.py',
+        label='the pass shells out to the cap render for every body again',
+        path='pipeline/tile/planet_pass.py',
         needle='    return body.renders_polar_caps\n',
         replacement='    return True\n',
-        guard='test_the_shade_pass_skips_the_cap_subprocess_for_a_body_that_publishes_none',
+        guard='test_the_pass_skips_the_cap_subprocess_for_a_body_that_publishes_none',
     ),
     Sabotage(
         suite='python',
@@ -5060,7 +5060,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='python',
         label='--body regains a default, so a pass with no planet named silently means Earth',
-        path='pipeline/tile/shade_planet.py',
+        path='pipeline/tile/planet_pass.py',
         needle='    ap.add_argument("--body", required=True,',
         replacement='    ap.add_argument("--body", default="earth",',
         guard='test_omitting_the_body_is_an_error_rather_than_an_assumption',
@@ -5069,10 +5069,102 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='python',
         label='--out stops overriding the body default, so an A/B overwrites the live pyramid',
-        path='pipeline/tile/shade_planet.py',
+        path='pipeline/tile/planet_pass.py',
         needle='    return args.out if args.out is not None else bodies.work_dir(resolve_body(args), "planet_tiles")',
         replacement='    return bodies.work_dir(resolve_body(args), "planet_tiles")',
         guard='test_an_explicit_out_still_wins_over_the_body_s_default',
+    ),
+    # --- The producer choice: dispatch, refusal, and the stamp that makes a switch visible -------
+    # Every one of these is silent in production. The dispatcher runs SOME producer, the deps lists
+    # still gate on real files, and the pass prints its usual stage lines throughout.
+    Sabotage(
+        suite='python',
+        # The registry drops a producer the vocabulary still allows. A body naming it then falls
+        # through the `KeyError` into the refusal — which reads as a typo rather than as a missing
+        # implementation, and points the reader at `bodies.py` instead of at this file.
+        label='the dispatch registry stops answering for a producer the vocabulary allows',
+        path='pipeline/tile/planet_pass.py',
+        needle='    "raytrace": _raytrace,\n',
+        replacement='',
+        guard='test_the_registry_and_the_vocabulary_are_the_same_set',
+    ),
+    Sabotage(
+        suite='python',
+        # The tidy-looking version, and the most expensive mutation in this block: an unknown
+        # producer quietly composites. A night of GPU is not spent, it is simply never started, and
+        # the pass reports a complete planet made by a producer nobody chose.
+        label='an unknown producer falls back to the composite instead of refusing',
+        path='pipeline/tile/planet_pass.py',
+        needle='        return PRODUCERS[body.planet_producer]\n',
+        replacement='        return PRODUCERS.get(body.planet_producer, _composite)\n',
+        guard='test_a_producer_nothing_runs_is_refused_by_name',
+    ),
+    Sabotage(
+        suite='python',
+        # Reads as tidying an odd entry out of a list of warp sources. It is the entry that is not
+        # one, and dropping it lets a composite skip over a raytraced raster reporting it fresh.
+        label='the composite drops the producer stamp, so it reads raytraced pixels as its own',
+        path='pipeline/tile/shade_planet.py',
+        needle='            *(layer.warped_in(work) for layer in layers.WARPED_LAYERS), params,\n'
+               '            work / PRODUCER_STAMP)',
+        replacement='            *(layer.warped_in(work) for layer in layers.WARPED_LAYERS), params)',
+        guard='test_the_composite_names_it',
+    ),
+    Sabotage(
+        suite='python',
+        # The same edit on the other side, and the direction that publishes composited pixels under
+        # a raytrace recipe. Both halves are needed: one list naming it detects nothing.
+        label='the raytrace drops the producer stamp, so it reads composited pixels as its own',
+        path='pipeline/tile/block_render.py',
+        needle='            *(layer.warped_in(work) for layer in layers.WARPED_LAYERS), recipe,\n'
+               '            work / shade_planet.PRODUCER_STAMP)',
+        replacement='            *(layer.warped_in(work) for layer in layers.WARPED_LAYERS), recipe)',
+        guard='test_the_raytrace_names_it',
+    ),
+    Sabotage(
+        suite='python',
+        # The stamp is written unconditionally, which looks simpler and is the one change that
+        # inverts its whole purpose: every pass then moves its mtime, so every pass restages the
+        # planet it was about to skip. Correct output, at a full re-render each time.
+        label='the producer stamp is rewritten every pass, so an unchanged body restages',
+        path='pipeline/tile/planet_pass.py',
+        needle='    return write_if_changed(producer_stamp(work),\n'
+               '                            json.dumps({"producer": body.planet_producer}, indent=2) + "\\n")',
+        replacement='    stamp = producer_stamp(work)\n'
+                    '    stamp.write_text(json.dumps({"producer": body.planet_producer}, indent=2) + "\\n")\n'
+                    '    return stamp',
+        guard='test_an_unchanged_producer_does_not_move_the_mtime',
+    ),
+    Sabotage(
+        suite='python',
+        # The seam check stops refusing anything. Mars then passes every raster check — it is not
+        # asked for a file it never had — and fails inside Blender on the eighth block, under the
+        # message that says the GPU is gone about a rig input no block on that body can carry.
+        label='the rig-seam check accepts every planet, so a bodyless image fails as a dead GPU',
+        path='pipeline/tile/block_render.py',
+        needle='    return [] if "watermask" in rasters else [render_seam.INLANDLAKE, render_seam.RIVER]',
+        replacement='    return []',
+        guard='test_the_refusal_names_both_images_no_block_can_carry',
+    ),
+    Sabotage(
+        suite='python',
+        # A validity test in place of a producer test: it reads as the stricter check and can never
+        # fire, because the vocabulary is exactly where the field's values come from.
+        label='the knob refusal checks the vocabulary instead of the producer, so it never fires',
+        path='pipeline/tile/planet_pass.py',
+        needle='    if overrides and body.planet_producer != "composite":',
+        replacement='    if overrides and body.planet_producer not in bodies.PLANET_PRODUCERS:',
+        guard='test_a_raytraced_body_refuses_one',
+    ),
+    Sabotage(
+        suite='python',
+        # The completion test always says yes, which is invisible on the composite path — it
+        # finishes or it raises — and cuts a pyramid from a part-rendered planet on the other.
+        label='a part-rendered planet reads as complete, so the cut ships a pyramid with holes',
+        path='pipeline/tile/planet_pass.py',
+        needle='    return not is_stale(planet_tif)',
+        replacement='    return True',
+        guard='test_a_raster_with_no_marker_is_incomplete',
     ),
     # --- The caps' body facts ------------------------------------------------------------------------
     # The AEQD sphere moved onto the body. Both mutations below leave caps that render, project and
@@ -6233,8 +6325,8 @@ SABOTAGES: list[Sabotage] = [
         guard="takes Earth's floor from the pipeline's own stop rather than a third copy of the hex",
     ),
     # --- The cap pass takes its own body ---------------------------------------------------------
-    # The same argument the shade pass requires, on the entry point that renders the caps. A default
-    # here is worse than one there: the caps are invoked automatically at the shade pass's tail, so
+    # The same argument the planet pass requires, on the entry point that renders the caps. A default
+    # here is worse than one there: the caps are invoked automatically at the planet pass's tail, so
     # a defaulted body means a Mars pass ends by re-rendering Earth's poles and reporting success.
     Sabotage(
         suite='python',
@@ -6248,19 +6340,19 @@ SABOTAGES: list[Sabotage] = [
     # name is silent, and stays silent until the day a second body exists.
     Sabotage(
         suite='python',
-        label='the shade pass hands the cap pass a hardcoded earth instead of its own body',
-        path='pipeline/tile/shade_planet.py',
+        label='the pass hands the cap pass a hardcoded earth instead of its own body',
+        path='pipeline/tile/planet_pass.py',
         needle='    return [sys.executable, "-m", "pipeline.tile.cap_render", "--body", body.name]',
         replacement='    return [sys.executable, "-m", "pipeline.tile.cap_render", "--body", "earth"]',
-        guard='test_the_shade_pass_hands_its_own_body_down_to_the_cap_pass',
+        guard='test_the_pass_hands_its_own_body_down_to_the_cap_pass',
     ),
     Sabotage(
         suite='python',
-        label='the shade pass stops passing --body to the cap pass at all',
-        path='pipeline/tile/shade_planet.py',
+        label='the pass stops passing --body to the cap pass at all',
+        path='pipeline/tile/planet_pass.py',
         needle='    return [sys.executable, "-m", "pipeline.tile.cap_render", "--body", body.name]',
         replacement='    return [sys.executable, "-m", "pipeline.tile.cap_render"]',
-        guard='test_the_shade_pass_hands_its_own_body_down_to_the_cap_pass',
+        guard='test_the_pass_hands_its_own_body_down_to_the_cap_pass',
     ),
     # --- The grids are built per body ----------------------------------------------------------
     # A factory that ignores its argument is the exact failure the module constants were deleted to

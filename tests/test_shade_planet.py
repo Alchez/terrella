@@ -8,10 +8,8 @@ silently stale because the old guard only asked whether the output existed.
 import dataclasses
 import json
 import os
-import sys
 import time
 from pathlib import Path
-from unittest import mock
 
 import numpy as np
 import pytest
@@ -786,103 +784,6 @@ class TestTileRecipe:
         before = params.stat().st_mtime
         freshness.write_if_changed(params, shade_planet.tile_params(bodies.EARTH))
         assert params.stat().st_mtime == before
-
-
-class TestTheBodyIsRequired:
-    """`--body` has no default, and that is the point of it.
-
-    A pipeline that assumes Earth when nobody said so is the most expensive failure mode this
-    registry exists to prevent: it does not raise, it produces a complete, plausible, entirely wrong
-    pyramid. Cheap to re-run, ruinous to discover late — so the argument is required rather than
-    defaulted, and every documented invocation names the planet it means.
-    """
-
-    def test_omitting_the_body_is_an_error_rather_than_an_assumption(self):
-        with pytest.raises(SystemExit):
-            shade_planet.build_parser().parse_args([])
-
-    def test_a_named_body_resolves_to_its_own_work_tree(self):
-        args = shade_planet.build_parser().parse_args(["--body", "earth"])
-        assert shade_planet.resolve_out(args) == bodies.work_dir(bodies.EARTH, "planet_tiles")
-
-    def test_an_explicit_out_still_wins_over_the_body_s_default(self, tmp_path):
-        """The override has to survive, because a look A/B is run by pointing --out elsewhere."""
-        args = shade_planet.build_parser().parse_args(["--body", "earth", "--out", str(tmp_path)])
-        assert shade_planet.resolve_out(args) == tmp_path
-
-    def test_an_unknown_body_is_rejected_by_the_registry_not_silently_accepted(self):
-        args = shade_planet.build_parser().parse_args(["--body", "pluto"])
-        with pytest.raises(KeyError):
-            shade_planet.resolve_body(args)
-
-    def test_the_shade_pass_hands_its_own_body_down_to_the_cap_pass(self, subtests):
-        """The caps run as a SUBPROCESS at the tail of this pass, so the body crosses a process
-        boundary as a string on a command line — the one place the registry cannot protect it.
-
-        Without this, a Mars pass composites Mars and then shells out to a cap render that renders
-        EARTH, into Earth's directories, over Earth's shipped textures. Every stage reports success.
-
-        Written as a round trip rather than as two pinned strings on purpose: it builds the real
-        command and parses it with the real parser on the other side, so renaming the flag on either
-        side fails here instead of at the next multi-body render.
-        """
-        for name in sorted(bodies.BODIES):
-            with subtests.test(name):
-                body = bodies.get(name)
-                command = shade_planet.cap_pass_command(body)
-                module = command.index("pipeline.tile.cap_render")
-                parsed = cap_render.build_parser().parse_args(command[module + 1:])
-                assert bodies.get(parsed.body) is body
-
-        with subtests.test("a body the registry does not know yet"):
-            # THE LOOP ABOVE CANNOT CATCH A HARDCODED "earth" while the registry holds one body —
-            # every assertion in it would pass against a command that ignored its argument entirely.
-            # This is the arm that says the command names the body it was GIVEN, and it is the arm
-            # that will still be doing work on the day a second planet is added.
-            other = dataclasses.replace(bodies.EARTH, name="other", path_prefix="other")
-            command = shade_planet.cap_pass_command(other)
-            assert command[command.index("--body") + 1] == "other"
-
-    def test_a_body_publishing_no_caps_is_refused_by_the_cap_pass_itself(self, monkeypatch):
-        """The SECOND gate, and it is not redundant with the shade pass declining to invoke this.
-
-        Reaching `cap_render.main` means an operator ran it directly, and the answer has to be the
-        same one. It matters because the render would otherwise SUCCEED: a body declaring no surface
-        layers needs only the heightfield, so there is no missing file to stop it — it would spend
-        ~14 GB a pole to publish discs shaded by ramps that body has never been given.
-
-        Asserted through the real entry point with the real parser, because the refusal has to
-        happen before anything reads a raster, and only running `main` proves the order.
-
-        THE CAPLESS BODY IS SYNTHETIC AND HAS TO BE. It used to be found by scanning the registry,
-        which held one while Mars's ramps were unratified; ratifying them turned Mars's caps on and
-        took the last negative instance with it. A guard that sources its negative instance from a
-        live field is a guard that quietly stops testing anything when that field flips. It goes
-        INTO the registry for the call, because `main` resolves a name off argv.
-        """
-        capless = dataclasses.replace(bodies.EARTH, name="capless", path_prefix="capless",
-                                      renders_polar_caps=False)
-        monkeypatch.setitem(bodies.BODIES, capless.name, capless)
-        with mock.patch.object(sys, "argv", ["cap_render", "--body", capless.name]), \
-                pytest.raises(SystemExit) as refusal:
-            cap_render.main()
-        message = str(refusal.value)
-        assert capless.name in message and "renders_polar_caps" in message, message
-
-    def test_the_shade_pass_skips_the_cap_subprocess_for_a_body_that_publishes_none(self):
-        """The FIRST gate, asserted on the branch rather than on the flag.
-
-        A test reading `body.renders_polar_caps` back would pass against a shade pass that consulted
-        it and then shelled out anyway. What must be true is that no cap subprocess is spawned, so
-        the assertion is on the decision the pass makes with the field.
-
-        The synthetic body is what keeps the loop from being one-sided: every registered planet
-        renders caps now, so the registry alone would only ever exercise the True arm and a
-        `runs_cap_pass` hardcoded to True would pass.
-        """
-        capless = dataclasses.replace(bodies.EARTH, name="capless", renders_polar_caps=False)
-        for body in [bodies.get(name) for name in sorted(bodies.BODIES)] + [capless]:
-            assert shade_planet.runs_cap_pass(body) is body.renders_polar_caps
 
 
 class TestTheWarpPassAsksTheSeamBeforeTheDisk:

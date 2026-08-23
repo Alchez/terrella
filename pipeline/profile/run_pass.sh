@@ -155,7 +155,7 @@ fi
 
 systemd-run --user --scope --unit="$UNIT" -p MemoryMax="$MEMORY_CAP" -p MemorySwapMax=0 \
     ${PERF_PREFIX[@]+"${PERF_PREFIX[@]}"} \
-    env GDAL_CACHEMAX=512 "$VENV" -u -m pipeline.tile.shade_planet "$@" 2>&1 \
+    env GDAL_CACHEMAX=512 "$VENV" -u -m pipeline.tile.planet_pass "$@" 2>&1 \
     | "$VENV" "$HARNESS/stamp.py" | tee -a "$PROF/pass.log"
 
 STATUS=${PIPESTATUS[0]}
