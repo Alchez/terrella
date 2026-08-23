@@ -32,6 +32,7 @@ from conftest import cap_ground_metres_per_px_from_ground_radius
 from rasterio.transform import from_bounds
 
 from pipeline import bodies, layers, paths, planet_seam
+from pipeline.acquire import download_add_rock
 from pipeline.look import layer_producers, palette, perennial_ice, seaice, snow
 from pipeline.tile import cap_render, shade_planet, terrain_rgb
 
@@ -687,12 +688,29 @@ def _drive_cap(monkeypatch, tmp_path, body, pole, missing=(), rasters=None):
                             str(absent if attribute in missing else present))
     monkeypatch.setattr(cap_render, "COAST_SHP",
                         absent if "COAST_SHP" in missing else present)
+    # A Path and not a str, unlike the two above: this one is consumed as a Path everywhere, and
+    # the layer gate calls `.exists()` on it directly. Redirected for the reason the loop above is
+    # — untouched, the rock gate would read whether THIS BOX holds a 206 MB download, and the burn
+    # underneath it would shell out to a real ogr2ogr on the real file inside a unit test.
+    monkeypatch.setattr(download_add_rock, "GPKG",
+                        absent if "ADD_ROCK" in missing else present)
 
     warped: list[str] = []
+    burnt: list[str] = []
 
     def fake_warp(grid, src, out, resampling, dtype, srcnodata=None):
         warped.append(Path(out).stem.split("_", 1)[1])
         return np.zeros((grid.px, grid.px), dtype=np.float32)
+
+    def fake_burn(grid, source, name, must_draw):
+        """`_burn` IS A BOUNDARY OF THE CODE UNDER TEST NOW, which it was not before the rock layer.
+
+        Earth's south went from reading no file to burning a vector, so the same argument that
+        captures `_warp` applies: recording the call is the assertion, and a version that burnt
+        Antarctic geometry onto the Arctic disc would otherwise be invisible here.
+        """
+        burnt.append(name)
+        return np.zeros((grid.px, grid.px), dtype=bool)
 
     painted: dict[str, Any] = {}
 
@@ -701,13 +719,14 @@ def _drive_cap(monkeypatch, tmp_path, body, pole, missing=(), rasters=None):
         return tmp_path / f"cap_{grid.name}.webp"
 
     monkeypatch.setattr(cap_render, "_warp", fake_warp)
+    monkeypatch.setattr(cap_render, "_burn", fake_burn)
     monkeypatch.setattr(cap_render, "_write_cap", fake_write)
 
     factory, render = ((cap_render.north_grid, cap_render.render_cap_north) if pole == "north"
                        else (cap_render.south_grid, cap_render.render_cap_south))
     render(dataclasses.replace(factory(body), px=8),
            WHOLE_PLANET if rasters is None else rasters)
-    return sorted(warped), painted
+    return sorted(warped), painted, sorted(burnt)
 
 
 class TestTheCapPassAsksTheBodyBeforeTheDisk:
@@ -721,12 +740,12 @@ class TestTheCapPassAsksTheBodyBeforeTheDisk:
     def test_earth_warps_its_cryosphere_at_both_poles(self, tmp_path, monkeypatch, subtests):
         """The positive control, and the reason the negatives below mean anything: with the layers
         declared, both climatologies are read exactly as they always were."""
-        north, painted_n = _drive_cap(monkeypatch, tmp_path, bodies.EARTH, "north")
+        north, painted_n, burnt_n = _drive_cap(monkeypatch, tmp_path, bodies.EARTH, "north")
         with subtests.test("north"):
             assert north == ["height", "ocean", "seaice", "sp", "water"]
             assert painted_n["ice_a"] is not None
 
-        south, painted_s = _drive_cap(monkeypatch, tmp_path, bodies.EARTH, "south")
+        south, painted_s, burnt_s = _drive_cap(monkeypatch, tmp_path, bodies.EARTH, "south")
         with subtests.test("south"):
             # No `sp`: the south's snow is forced, never read from a dataset.
             assert south == ["height", "ocean", "seaice", "water"]
@@ -734,13 +753,21 @@ class TestTheCapPassAsksTheBodyBeforeTheDisk:
             # Antarctica forced white — the whole disc is land below -60 in this fixture.
             assert np.all(painted_s["snow_a"] == 1.0)
 
+        with subtests.test("only the south burns the outcrop"):
+            # THE POLE TEST LIVES IN THE REGISTRY KEY AND NOWHERE ELSE, driven end to end. The rock
+            # input is handed to every producer unevaluated, so what decides is which one calls it —
+            # and the north calling it would reproject the whole ADD GeoPackage onto an Arctic disc,
+            # where `must_draw` turns the empty answer into a raised exception mid-pass.
+            assert burnt_s == ["addrock"]
+            assert burnt_n == []
+
     def test_a_body_with_no_layers_opens_none_of_earths_files(self, tmp_path, monkeypatch,
                                                              subtests):
         """The bug this commit exists to close. Every source is present on disk in this fixture, so
         the only thing that can refuse them is the body — and it must, at both poles."""
         for pole in ("north", "south"):
             with subtests.test(pole):
-                warped, painted = _drive_cap(monkeypatch, tmp_path, LAYERLESS_BODY, pole)
+                warped, painted, _burnt = _drive_cap(monkeypatch, tmp_path, LAYERLESS_BODY, pole)
                 assert warped == ["height", "ocean", "water"]
                 assert painted["ice_a"] is None
                 assert np.all(painted["snow_a"] == 0.0)
@@ -754,8 +781,8 @@ class TestTheCapPassAsksTheBodyBeforeTheDisk:
         Asserted against Earth's own south cap in the same fixture, which forces the whole disc
         white: the two runs differ in `surface_layers` and in nothing else.
         """
-        _, earths = _drive_cap(monkeypatch, tmp_path, bodies.EARTH, "south")
-        _, layerless = _drive_cap(monkeypatch, tmp_path, LAYERLESS_BODY, "south")
+        _, earths, _ = _drive_cap(monkeypatch, tmp_path, bodies.EARTH, "south")
+        _, layerless, _ = _drive_cap(monkeypatch, tmp_path, LAYERLESS_BODY, "south")
         assert np.all(earths["snow_a"] == 1.0)
         assert np.all(layerless["snow_a"] == 0.0)
 
@@ -764,7 +791,7 @@ class TestTheCapPassAsksTheBodyBeforeTheDisk:
         """Body first does not mean body only. Earth with the download absent must skip the layer
         rather than crash the pass — that half of the gate predates this commit and has to survive
         it, or a partial build stops being legal."""
-        warped, painted = _drive_cap(monkeypatch, tmp_path, bodies.EARTH, "north",
+        warped, painted, _burnt = _drive_cap(monkeypatch, tmp_path, bodies.EARTH, "north",
                                      missing={"SP_NC"})
         assert warped == ["height", "ocean", "seaice", "water"]  # no `sp`
         assert np.all(painted["snow_a"] == 0.0)
@@ -1018,7 +1045,62 @@ class TestTheCapRecipeRecordsWhatIsOff:
                                 surface_layers=bodies.EARTH.surface_layers - {"sea_ice"}))
         assert Path(seaice.SEAICE_SRC) in cap_render.cap_sources(with_ice, WHOLE_PLANET)
         assert Path(seaice.SEAICE_SRC) not in cap_render.cap_sources(without, WHOLE_PLANET)
-        assert cap_render.cap_recipe(with_ice, WHOLE_PLANET) != cap_render.cap_recipe(without, WHOLE_PLANET)
+        assert cap_render.cap_recipe(with_ice, WHOLE_PLANET) != cap_render.cap_recipe(
+            without, WHOLE_PLANET)
+
+
+class TestTheRockNeverGatesTheForcedWhite:
+    """THE DEFECT THIS CLOSES WAS PLANNED AND CAUGHT BEFORE IT WAS WRITTEN, and it is the sharpest
+    version of a trap this module already carries twice.
+
+    The obvious step 6 was for `_earth_south` to declare the ADD GeoPackage in its `CapIce.sources`,
+    the way `_earth_north` declares NSIDC. But `_cap_perennial_ice` refuses the whole layer unless
+    EVERY declared source exists, so a store without ADD downloaded would have switched off the
+    forced Antarctic white entirely and rendered the continent on the tan LAND ramp — from adding a
+    layer whose only job is to remove white from 0.2% of it.
+
+    So the rock is gated by its OWN layer, and these are the executable form of that: the ice
+    producer's mandatory sources must not grow, and the white must survive the file's absence.
+    """
+
+    def test_the_south_declares_no_mandatory_source_at_all(self):
+        """Earth's south reads no file it cannot do without, and that is what makes its `sources`
+        tuple empty rather than unset. A rock entry here is the defect, whatever else is true."""
+        assert perennial_ice.cap_ice(bodies.EARTH, "south").sources() == ()
+
+    def test_the_rock_is_a_cap_source_by_DECLARATION_and_drops_with_the_layer(self, subtests):
+        """It still has to be an mtime dependency — a re-burn must restage the cap — so it rides in
+        `cap_sources` under its own layer, exactly as `sea_ice` does, and never in the ice
+        producer's list where its absence would be fatal."""
+        without = dataclasses.replace(
+            bodies.EARTH,
+            surface_layers=bodies.EARTH.surface_layers - {layers.ANTARCTIC_ROCK.name})
+        for pole, factory in (("north", cap_render.north_grid),
+                              ("south", cap_render.south_grid)):
+            with subtests.test(pole):
+                assert download_add_rock.GPKG in cap_render.cap_sources(
+                    factory(bodies.EARTH), WHOLE_PLANET)
+                assert download_add_rock.GPKG not in cap_render.cap_sources(
+                    factory(without), WHOLE_PLANET)
+
+    def test_an_absent_rock_file_leaves_the_forced_white_untouched(self, monkeypatch, tmp_path):
+        """The regression guard, driven through `_cap_perennial_ice`'s real gate.
+
+        Pointed at a path that does not exist while the body still DECLARES the layer, which is the
+        only arrangement that can tell "gated on the rock" from "gated on the declaration". A test
+        that dropped the declaration too would pass against the broken version.
+        """
+        monkeypatch.setattr(download_add_rock, "GPKG", tmp_path / "never-downloaded.gpkg")
+        grid = cap_render.south_grid(bodies.EARTH)
+        shape = (8, 8)
+        alpha, paint = cap_render._cap_perennial_ice(
+            grid, ocean=np.zeros(shape, dtype=bool), water=np.zeros(shape, dtype=bool),
+            latitude=np.full(shape, -80.0, dtype=np.float32), consequence="no ice")
+        assert alpha.min() == 1.0, (
+            "Antarctica lost its forced white because SCAR ADD was not downloaded — the rock is an "
+            "optional subtraction and must never be able to switch the rule itself off"
+        )
+        assert paint is not None
 
 
 class TestTheCapPassAsksTheSeamBeforeTheDisk:
@@ -1034,7 +1116,7 @@ class TestTheCapPassAsksTheSeamBeforeTheDisk:
     def test_an_undeclared_mask_is_never_warped(self, monkeypatch, tmp_path, subtests):
         for pole in ("north", "south"):
             with subtests.test(pole):
-                warped, _painted = _drive_cap(monkeypatch, tmp_path, LAYERLESS_BODY, pole,
+                warped, _painted, _burnt = _drive_cap(monkeypatch, tmp_path, LAYERLESS_BODY, pole,
                                               rasters=self.HEIGHTFIELD_ONLY)
                 assert "ocean" not in warped and "water" not in warped
                 assert "height" in warped, "the cap must still warp the heightfield"
@@ -1043,7 +1125,7 @@ class TestTheCapPassAsksTheSeamBeforeTheDisk:
         """The mirror arm, without which the test above passes against a cap that warps nothing."""
         for pole in ("north", "south"):
             with subtests.test(pole):
-                warped, _painted = _drive_cap(monkeypatch, tmp_path, LAYERLESS_BODY, pole)
+                warped, _painted, _burnt = _drive_cap(monkeypatch, tmp_path, LAYERLESS_BODY, pole)
                 assert "ocean" in warped and "water" in warped
 
     def test_the_forced_antarctic_patch_sees_a_planet_of_pure_land(self, monkeypatch, tmp_path):
@@ -1052,7 +1134,7 @@ class TestTheCapPassAsksTheSeamBeforeTheDisk:
         declarations, and it is pinned so nobody re-derives it as a bug in the mask gate."""
         snowy = dataclasses.replace(bodies.EARTH, name="snowy", path_prefix="snowy",
                                     surface_layers=frozenset({"perennial_ice"}))
-        _warped, painted = _drive_cap(monkeypatch, tmp_path, snowy, "south",
+        _warped, painted, _burnt = _drive_cap(monkeypatch, tmp_path, snowy, "south",
                                       rasters=self.HEIGHTFIELD_ONLY)
         assert painted["snow_a"].all()
 

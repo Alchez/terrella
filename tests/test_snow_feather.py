@@ -181,7 +181,7 @@ class TestBothProducersFeatherOrTheCrossfadeShowsTheSeam:
         packed = np.zeros((rows, cols), dtype="float32")
         packed[:, cols // 2:] = 10_000.0  # full persistence on half the window
         return packed, layer_producers.LayerWindow(
-            raw=packed, watercode=None, land=np.ones((rows, cols), dtype=bool),
+            raw=packed, rock=None, watercode=None, land=np.ones((rows, cols), dtype=bool),
             latitude=latitude,
             ground_metres_per_px=mercator.ground_metres_per_pixel(
                 latitude, EARTH.map_units_per_pixel, GROUND_SCALE),
@@ -212,6 +212,8 @@ class TestBothProducersFeatherOrTheCrossfadeShowsTheSeam:
             land=np.ones((rows, cols), dtype=bool),
             latitude=np.full((rows, cols), 85.0),
             warp=warp, burn=lambda *a, **k: np.zeros((rows, cols)),
+            # The NORTH producer, which has no outcrop to subtract and never asks for one.
+            rock=lambda: None,
             ground_metres_per_px=cap_resolution)
 
         persistence = snow.unpack_persistence(packed)
@@ -245,7 +247,7 @@ class TestTheAntarcticPatchIsNotFeathered:
         land = np.zeros((rows, cols), dtype=bool)
         land[:, cols // 2:] = True
         window = layer_producers.LayerWindow(
-            raw=None, watercode=None, land=land, latitude=latitude,
+            raw=None, rock=None, watercode=None, land=land, latitude=latitude,
             ground_metres_per_px=mercator.ground_metres_per_pixel(
                 latitude, EARTH.map_units_per_pixel, GROUND_SCALE),
             top=top, bottom=bottom)

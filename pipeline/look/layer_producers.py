@@ -76,6 +76,17 @@ class LayerWindow:
     """
 
     raw: np.ndarray | None
+    #: This window's Antarctic outcrop, or None where the body declares no rock layer and where its
+    #: raster was never built. ONE LAYER'S RASTER SEEN BY ANOTHER LAYER'S PRODUCER, which is why it
+    #: sits here beside the masks rather than arriving as `raw`: `_earth_perennial_ice` subtracts it
+    #: from a rule that has no dataset of its own.
+    #:
+    #: FILLED BY `gather` AND HANDED OVER AS None BY EVERY SUPPLIER, exactly as `raw` is. Each
+    #: supplier already passes `layer_raw` to `gather`, so reading the slice there instead would put
+    #: the declared-and-exists gate in two places and let the composite and the block prep disagree
+    #: about one window. It is a shared field and not a per-producer one because the producer that
+    #: BUILDS it contributes nothing at all.
+    rock: np.ndarray | None
     #: The planet seam's water classes, or None on a body whose seam emitted no water mask.
     watercode: np.ndarray | None
     #: `~(ocean | water)` for this window — the composite's own definition of land.
@@ -255,6 +266,12 @@ def _earth_perennial_ice(window: LayerWindow) -> "np.ndarray | None":
 
     float64 in both branches. `snow_alpha` returns float64 and `antarctic_snow_mask` float32, so the
     zeros base is what keeps the two paths feeding `shade.composite` the same dtype.
+
+    THE ROCK IS THE PATCH'S ONLY INPUT AND IT IS OPTIONAL, on the same rule as the patch itself: the
+    subtraction is about a DATASET and the rule is not, so None must give today's answer exactly
+    rather than a plausible one. It reaches the patch and not the persistence half deliberately —
+    NSIDC measures the outcrop as bare already, and subtracting there would take white off ground
+    the data says is snow-covered.
     """
     if window.raw is None:
         persistence_alpha = np.zeros(window.land.shape, dtype=float)
@@ -263,7 +280,7 @@ def _earth_perennial_ice(window: LayerWindow) -> "np.ndarray | None":
             snow.snow_alpha(snow.unpack_persistence(window.raw), window.top, window.bottom),
             window.ground_metres_per_px)
     return np.maximum(persistence_alpha,
-                      snow.antarctic_snow_mask(window.land, window.latitude))
+                      snow.antarctic_snow_mask(window.land, window.latitude, rock=window.rock))
 
 
 def _earth_glaciers(window: LayerWindow) -> "np.ndarray | None":
@@ -544,7 +561,15 @@ def gather(body: bodies.Body, layer_raw: dict[str, "np.ndarray | None"], window:
 
     A paint is asked ONLY of a layer that contributed, so a producer that paints nothing this window
     never has to answer what colour it would have used.
+
+    THE ROCK SLICE IS PLACED ON THE WINDOW HERE, ONCE, because this is the only place that holds
+    both `layer_raw` and the body's declarations. It is asked of the BODY and not of the dict: one
+    supplier keys `layer_raw` on `path.exists()` alone, so a slice can arrive for a body that
+    declares no rock layer, and the per-layer declaration check has always been this function's.
     """
+    rock = (layer_raw.get(layers.ANTARCTIC_ROCK.name)
+            if layers.ANTARCTIC_ROCK.name in body.surface_layers else None)
+    window = dataclasses.replace(window, rock=rock)
     contributions: dict[str, np.ndarray] = {}
     paints: dict[str, tuple[Any, Any]] = {}
     for layer in layers.WARPED_LAYERS:

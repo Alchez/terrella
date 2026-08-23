@@ -1,8 +1,14 @@
 """Fetch SCAR ADD's automatically-extracted Antarctic rock outcrop and reproject it to EPSG:3857.
 
-Antarctic land is forced permanent-ice white by a latitude rule, because NSIDC-0791 persistence is
-NH-only and RGI region 19 is excluded. This is the dataset that takes exposed rock back out from
-under that white; `snow.antarctic_snow_mask` subtracts it.
+Antarctic land is forced permanent-ice white by a latitude rule, and this is the dataset that takes
+exposed rock back out from under it; `snow.antarctic_snow_mask` subtracts it.
+
+WHY A SEPARATE DATASET RATHER THAN A THRESHOLD ON THE SNOW WE ALREADY HAVE. Measured on NSIDC-0791's
+own 0.01 degree grid over these very polygons: persistence reads a median 0.9999 ON exposed rock
+against 1.0000 off it, and only 0.23% of rock cells score below the tile ramp's 0.60 cutoff. The
+signal exists and sits three orders of magnitude away from any threshold that could act on it, so
+99.77% of the outcrop would render as ice however the ramp were tuned. RGI 7.0 cannot help either:
+it excludes region 19 outright.
 
 THE PRODUCT MATTERS AND THERE ARE THREE OF THEM UNDER NEARLY THE SAME NAME. This is the LANDSAT
 auto-extraction (Burton-Johnson et al. 2016, Gerrish 2020), not the high-resolution compilation and

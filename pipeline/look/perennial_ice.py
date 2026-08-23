@@ -105,6 +105,24 @@ class CapIceInputs:
     #: draws it at roughly half the width its own constant claims. That has already happened once,
     #: which is why this is supplied rather than left for each producer to derive.
     ground_metres_per_px: float
+    #: This cap's Antarctic outcrop, or None where the body declares no rock layer and where its
+    #: source is not on disk. `LayerWindow.rock`'s twin one tier up, and the same subtraction.
+    #:
+    #: A CALLABLE AND NOT AN ARRAY, which is what keeps "only Antarctica has Antarctic rock" a fact
+    #: of this registry's KEY rather than a pole test written in the renderer. `_earth_south` is the
+    #: south by definition and is the only producer that asks; the north and both Martian caps never
+    #: call it, so no burn runs where the answer would be an empty disc. Handing every producer a
+    #: pre-burnt mask instead needs a `grid.name == "south"` in `cap_render` — one of Earth's facts
+    #: written down as though it were the layer's, which is the shape `cap_sources` was extracted to
+    #: remove.
+    #:
+    #: NOT `CapIce.sources`, AND THAT IS A CORRECTNESS BOUNDARY RATHER THAN A PLACEMENT. Those are
+    #: the ice producer's MANDATORY inputs: `cap_render._cap_perennial_ice` refuses the whole layer
+    #: unless every one of them exists, so a rock entry there would let an undownloaded GeoPackage
+    #: switch off the forced Antarctic white and render the continent on the tan LAND ramp. The rock
+    #: is gated by its own layer and rides `cap_sources` beside `sea_ice`, so it is still an mtime
+    #: dependency and can still never be fatal.
+    rock: Callable[[], "np.ndarray | None"]
 
 
 @dataclass(frozen=True)
@@ -163,15 +181,21 @@ def _earth_north(inputs: CapIceInputs) -> np.ndarray:
 
 
 def _earth_south(inputs: CapIceInputs) -> np.ndarray:
-    """Antarctic land forced white — the one producer with no file behind it.
+    """Antarctic land forced white, less its exposed rock — the one producer with no MANDATORY file.
 
-    NSIDC-0791 is NH-only and RGI region 19 is excluded, so there is no southern dataset to read and
-    no missing file that could ever switch this off. It is latitude and land and nothing else, which
-    is why it rides the body's layer declaration and why its `sources` tuple is empty rather than
-    unset. `snow.antarctic_snow_mask` is the one home for the rule; the tile composite calls the
-    same function, so the two agree across the −84 seam by construction.
+    RGI region 19 is excluded and NSIDC-0791 saturates over the whole continent, so the white comes
+    from latitude and land rather than from a measurement. Nothing on disk can switch that off,
+    which is why it rides the body's layer declaration and why its `sources` tuple stays empty.
+    `pipeline/acquire/download_add_rock.py` holds the measurement behind the saturation claim.
+
+    THE ROCK IS OPTIONAL AND ITS ABSENCE IS NOT AN ERROR, which is the whole reason it arrives as
+    `inputs.rock` and not as a source of this producer's. `CapIceInputs.rock` holds that argument.
+
+    `snow.antarctic_snow_mask` is the one home for the rule and the tile composite calls it with the
+    same arguments, so the two sides of the −84 crossfade agree by construction — including about
+    the rock, which is where a two-producer disagreement would actually show.
     """
-    return snow.antarctic_snow_mask(inputs.land, inputs.latitude)
+    return snow.antarctic_snow_mask(inputs.land, inputs.latitude, rock=inputs.rock())
 
 
 def _mars_sources() -> tuple[Path, ...]:

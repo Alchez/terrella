@@ -214,7 +214,7 @@ def build(body: bodies.Body, window: Window, outdir: Path) -> list[str]:
     inland = lake_depth.inland_water(watercode) if watercode is not None else np.zeros(shape, bool)
     latitude = snow.latitude_per_row(top, bottom, window.height)
     seen = layer_producers.LayerWindow(
-        raw=None, watercode=watercode, land=~(ocean | inland), latitude=latitude,
+        raw=None, rock=None, watercode=watercode, land=~(ocean | inland), latitude=latitude,
         ground_metres_per_px=block_plan.mercator.ground_metres_per_pixel(
             latitude, body.map_units_per_pixel,
             bodies.ground_metres_per_mercator_unit(body)),

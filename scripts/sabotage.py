@@ -3322,6 +3322,76 @@ SABOTAGES: list[Sabotage] = [
     return None if _window.raw is None else np.asarray(_window.raw, dtype=float)''',
         guard='test_gather_returns_no_entry_for_it_however_much_rock_there_is',
     ),
+    # The plumbing, mutated where it actually lives. Every producer still runs, every raster is
+    # still built and warped, and the only symptom is Antarctica back under solid white.
+    Sabotage(
+        suite='python',
+        label='gather stops placing the rock on the window, so the subtraction silently has no input',
+        path='pipeline/look/layer_producers.py',
+        needle='    window = dataclasses.replace(window, rock=rock)',
+        replacement='    window = dataclasses.replace(window, rock=None)',
+        guard='test_gather_hands_the_rock_to_the_producer_that_subtracts_it',
+    ),
+    # `shade_planet` keys `layer_raw` on `path.exists()` alone, so this gate is the only thing
+    # standing between a body that declares no rock layer and a rock slice on its window.
+    Sabotage(
+        suite='python',
+        label='the rock reaches the window off the raster rather than off the declaration',
+        path='pipeline/look/layer_producers.py',
+        needle='''    rock = (layer_raw.get(layers.ANTARCTIC_ROCK.name)
+            if layers.ANTARCTIC_ROCK.name in body.surface_layers else None)''',
+        replacement='    rock = layer_raw.get(layers.ANTARCTIC_ROCK.name)',
+        guard='test_a_body_that_declares_no_rock_layer_gets_the_unsubtracted_answer',
+    ),
+    # The consumer end: the rule keeps its argument and the producer stops passing one.
+    Sabotage(
+        suite='python',
+        label='the perennial-ice producer stops passing the rock, so the mask it built reaches nothing',
+        path='pipeline/look/layer_producers.py',
+        needle='snow.antarctic_snow_mask(window.land, window.latitude, rock=window.rock))',
+        replacement='snow.antarctic_snow_mask(window.land, window.latitude))',
+        guard='test_gather_hands_the_rock_to_the_producer_that_subtracts_it',
+    ),
+    # THE PLANNED STEP 6, WRITTEN OUT AS A MUTATION. Declaring the rock among the ice producer's
+    # sources looks like the obvious symmetry with `_earth_north`'s NetCDF, and it hands an
+    # undownloaded GeoPackage the power to render Antarctica on the tan LAND ramp.
+    Sabotage(
+        suite='python',
+        label="the south declares the rock as a source, so a missing file switches off the white",
+        path='pipeline/look/perennial_ice.py',
+        needle='    ("earth", "south"): CapIce(sources=lambda: (), alpha=_earth_south,',
+        replacement=('    ("earth", "south"): CapIce('
+                     'sources=lambda: (__import__("pipeline.acquire.download_add_rock", '
+                     'fromlist=["GPKG"]).GPKG,), alpha=_earth_south,'),
+        guard='test_an_absent_rock_file_leaves_the_forced_white_untouched',
+    ),
+    # The cap's own consumer end, the tile producer's twin one tier down.
+    Sabotage(
+        suite='python',
+        label='the south cap stops passing its rock, so the two sides of the -84 seam disagree',
+        path='pipeline/look/perennial_ice.py',
+        needle='    return snow.antarctic_snow_mask(inputs.land, inputs.latitude, rock=inputs.rock())',
+        replacement='    return snow.antarctic_snow_mask(inputs.land, inputs.latitude)',
+        guard='test_outcrop_on_cold_land_stops_being_forced_white',
+    ),
+    # An eager burn reads as a harmless simplification and puts a pole test outside the registry:
+    # the north would reproject the whole ADD GeoPackage for a disc it can never intersect.
+    Sabotage(
+        suite='python',
+        label='the cap burns the outcrop for every pole rather than only where a producer asks',
+        path='pipeline/tile/cap_render.py',
+        needle='        rock=lambda: _cap_rock(grid),',
+        replacement='        rock=(lambda burnt=_cap_rock(grid): burnt),',
+        guard='test_no_other_producer_ever_asks_for_it',
+    ),
+    Sabotage(
+        suite='python',
+        label='the rock stops being a cap dependency, so a re-burn leaves both caps looking fresh',
+        path='pipeline/tile/cap_render.py',
+        needle='        sources.append(download_add_rock.GPKG)',
+        replacement='        pass  # no rock dependency: a re-burn now moves no mtime the cap sees',
+        guard='test_the_rock_is_a_cap_source_by_DECLARATION_and_drops_with_the_layer',
+    ),
     Sabotage(
         suite='python',
         label='the feather pad becomes a constant, so every band seam is quietly wrong',
@@ -8060,7 +8130,15 @@ def main() -> int:
         return 2
 
     suites = sorted({case.suite for case in cases})
-    print(f"{len(cases)} case(s) across {', '.join(suites)}; each edits a file and restores it.")
+    # THE DENOMINATOR, PRINTED, because a narrowed run's summary is a ratio over what it SELECTED
+    # and reads exactly like a complete one. `--filter` matches LABELS, and a label names what
+    # breaks rather than the noun you are hunting by: nine cases added for one layer, and
+    # `--filter <layer>` selected seven, the two missed being named for their mechanism. Both were
+    # caught once found, so the only cost was nearly reporting seven as the whole set.
+    narrowed = "" if len(cases) == len(SABOTAGES) else (
+        f" (of {len(SABOTAGES)}; the rest are not run)")
+    print(f"{len(cases)} case(s){narrowed} across {', '.join(suites)}; "
+          f"each edits a file and restores it.")
     print("If this is killed mid-run, `uv run scripts/sabotage.py --restore` puts the tree back.\n")
 
     for name in suites:

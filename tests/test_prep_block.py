@@ -36,7 +36,7 @@ def _window(body, raw):
     top, bottom = -11_000_000.0, -12_000_000.0
     latitude = snow.latitude_per_row(top, bottom, ROWS)
     return raw, layer_producers.LayerWindow(
-        raw=None, watercode=np.zeros((ROWS, COLS), dtype=np.uint8),
+        raw=None, rock=None, watercode=np.zeros((ROWS, COLS), dtype=np.uint8),
         land=np.ones((ROWS, COLS), dtype=bool), latitude=latitude,
         # Derived from this fixture's own span rather than from the body's z8 figure, so the
         # window's geometry is self-consistent at whatever size the fixture is written at.

@@ -152,7 +152,7 @@ class TestEarthsProducersComputeWhatTheyComputedInline:
         inputs = perennial_ice.CapIceInputs(
             land=np.ones((32, 32), dtype=bool),
             latitude=np.full((32, 32), 82.0, dtype=np.float32),
-            warp=_fixed_warp(log, packed), burn=_refusing_burn,
+            warp=_fixed_warp(log, packed), burn=_refusing_burn, rock=_refusing_rock,
             ground_metres_per_px=EARTH_CAP_GROUND_M_PER_PX)
         alpha = perennial_ice.cap_ice(bodies.EARTH, "north").alpha(inputs)
 
@@ -175,6 +175,69 @@ class TestEarthsProducersComputeWhatTheyComputedInline:
         assert alpha[3].min() == 1.0, "the −89 row is all land and must be forced white"
 
 
+class TestTheSouthTakesItsOutcropFromAnotherLayer:
+    """SCAR ADD's rock at the cap tier, and the shape is `LayerWindow.rock`'s twin one tier up.
+
+    A CALLABLE RATHER THAN AN ARRAY, and that is what keeps "only Antarctica has Antarctic rock" a
+    fact of the registry KEY rather than a pole test written somewhere else. `_earth_south` is the
+    south by definition, so it is the only producer that ever asks; the north and both Martian caps
+    never call it, and therefore never pay a reprojection of a 206 MB GeoPackage for a mask that
+    would come back empty. Handing every producer a pre-burnt array instead would need a
+    `grid.name == "south"` somewhere in `cap_render`, which is exactly the shape `cap_sources`'
+    own docstring records as the mistake it was extracted to remove.
+    """
+
+    def _rocky_inputs(self, ice_inputs, rock):
+        return dataclasses.replace(ice_inputs, rock=lambda: rock)
+
+    def test_outcrop_on_cold_land_stops_being_forced_white(self, ice_inputs):
+        rock = np.zeros((4, 4), dtype=bool)
+        rock[3, :2] = True  # the −89 row, which is otherwise solid forced white
+        alpha = perennial_ice.cap_ice(bodies.EARTH, "south").alpha(
+            self._rocky_inputs(ice_inputs, rock))
+        assert alpha[3].tolist() == [0.0, 0.0, 1.0, 1.0]
+
+    def test_it_is_the_same_rule_the_tiles_run_including_the_rock(self, ice_inputs):
+        """The −84 crossfade's whole guarantee: one function, one argument list, both sides."""
+        rock = np.zeros((4, 4), dtype=bool)
+        rock[2, 1] = True
+        alpha = perennial_ice.cap_ice(bodies.EARTH, "south").alpha(
+            self._rocky_inputs(ice_inputs, rock))
+        assert alpha == pytest.approx(
+            snow.antarctic_snow_mask(ice_inputs.land, ice_inputs.latitude, rock=rock))
+
+    def test_no_rock_reproduces_todays_cap_exactly(self, ice_inputs):
+        """None is "this cap has nothing to say about rock", never "there is no rock". The layer
+        can be off and its file can be absent, and neither may move a pixel of the forced white."""
+        assert perennial_ice.cap_ice(bodies.EARTH, "south").alpha(
+            self._rocky_inputs(ice_inputs, None)) == pytest.approx(
+            perennial_ice.cap_ice(bodies.EARTH, "south").alpha(ice_inputs))
+
+    def test_no_other_producer_ever_asks_for_it(self, subtests):
+        """THE ABSENCE IS THE ASSERTION, on `_refusing_burn`'s rule and for a sharper reason: the
+        callable does real work — an ogr2ogr of the whole ADD GeoPackage onto an AEQD disc — so a
+        producer that started calling it would burn Antarctic geometry onto an Arctic or Martian
+        grid, where `must_draw` turns an empty result into a raised exception on a shipping pass.
+        """
+        for body, pole in (("earth", "north"), ("mars", "north"), ("mars", "south")):
+            with subtests.test(f"{body} {pole}"):
+                inputs = perennial_ice.CapIceInputs(
+                    land=np.ones((4, 4), dtype=bool),
+                    latitude=np.full((4, 4), 85.0, dtype=np.float32),
+                    warp=_fixed_warp([], np.zeros((4, 4), dtype=np.float32)),
+                    burn=_unit_burn([], {unit.lower(): np.ones((4, 4), dtype=bool)
+                                         for unit in mars_ice.NORTH_UNITS}),
+                    ground_metres_per_px=EARTH_CAP_GROUND_M_PER_PX,
+                    rock=_refusing_rock)
+                perennial_ice.cap_ice(bodies.get(body), pole).alpha(inputs)
+
+
+def _refusing_rock() -> "np.ndarray | None":
+    """A rock input that fails if it is ever asked for. See the class above for why."""
+    raise AssertionError(
+        "only Earth's south cap has Antarctic outcrop, and only it may ask for the burn")
+
+
 @pytest.fixture
 def ice_inputs() -> perennial_ice.CapIceInputs:
     """A 4x4 cap: land everywhere except one ocean pixel, latitudes straddling the −60 threshold.
@@ -188,6 +251,7 @@ def ice_inputs() -> perennial_ice.CapIceInputs:
     latitude = np.array([[-58.0] * 4, [-62.0] * 4, [-70.0] * 4, [-89.0] * 4], dtype=np.float32)
     return perennial_ice.CapIceInputs(land=land, latitude=latitude,
                                       warp=_recording_warp([], (4, 4)), burn=_refusing_burn,
+                                      rock=lambda: None,
                                       ground_metres_per_px=EARTH_CAP_GROUND_M_PER_PX)
 
 
@@ -263,6 +327,7 @@ class TestMarsGradesTheFieldInsideTheMappedUnits:
             latitude=np.full((4, 4), 85.0, dtype=np.float32),
             warp=_field_warp(warped, field), burn=_unit_burn(burnt, {"lapc": self.LAPC,
                                                                      "apu": self.APU}),
+            rock=_refusing_rock,
             ground_metres_per_px=cap_render.cap_ground_metres_per_px(
                 cap_render.north_grid(bodies.MARS)))
 
@@ -358,6 +423,7 @@ class TestTheFeatherReachesItsGroundWidthOnTheRealCapScale:
             # back is the feather alone rather than the feather times an albedo shape.
             warp=_field_warp([], np.full(self.SHAPE, 255.0, dtype=np.float32)),
             burn=_unit_burn([], {"lapc": lapc, "apu": np.zeros(self.SHAPE, dtype=bool)}),
+            rock=_refusing_rock,
             ground_metres_per_px=ground_metres_per_px)
         return perennial_ice.cap_ice(bodies.MARS, "north").alpha(inputs)
 
@@ -410,7 +476,7 @@ class TestTheTwoTiersAgreeOnTheColourOfTheSameIce:
                 cap_paint = perennial_ice.cap_ice(body, pole).paint()
                 latitude = snow.latitude_per_row(top, bottom, 4)
                 window = layer_producers.LayerWindow(
-                    raw=None, watercode=None, land=np.ones((4, 4), dtype=bool),
+                    raw=None, rock=None, watercode=None, land=np.ones((4, 4), dtype=bool),
                     latitude=latitude,
                     ground_metres_per_px=mercator.ground_metres_per_pixel(
                         latitude, (top - bottom) / 4,

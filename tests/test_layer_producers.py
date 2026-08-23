@@ -47,10 +47,11 @@ def _ground_metres_per_px(top, bottom, rows=ROWS):
         bodies.ground_metres_per_mercator_unit(bodies.EARTH))
 
 
-def _window(raw, *, land=None, watercode=None, top=SOUTHERN_TOP, bottom=SOUTHERN_BOTTOM):
+def _window(raw, *, land=None, watercode=None, rock=None, top=SOUTHERN_TOP,
+            bottom=SOUTHERN_BOTTOM):
     latitude = snow.latitude_per_row(top, bottom, ROWS)
     return layer_producers.LayerWindow(
-        raw=raw,
+        raw=raw, rock=rock,
         watercode=np.zeros((ROWS, COLS), dtype=np.uint8) if watercode is None else watercode,
         land=np.ones((ROWS, COLS), dtype=bool) if land is None else land,
         latitude=latitude, ground_metres_per_px=_ground_metres_per_px(top, bottom),
@@ -578,6 +579,47 @@ class TestARockLayerBuildsARasterAndContributesNothing:
         producer = layer_producers.producer_for(bodies.EARTH, layers.ANTARCTIC_ROCK)
         assert producer.paint(_window(self._rock())) is None
         assert producer.contribution(_window(self._rock())) is None
+
+    def test_gather_hands_the_rock_to_the_producer_that_subtracts_it(self):
+        """The end-to-end claim, taken through `gather` rather than by building a window by hand.
+
+        `gather` is the one place that owns the mapping from `layer_raw` to a window's shared
+        fields, so the plumbing under test is precisely the thing a hand-built window would skip.
+        Southern all-land, so the forced patch is 1.0 everywhere before the rock lands.
+        """
+        raw: dict[str, np.ndarray | None] = {layer.name: None for layer in layers.WARPED_LAYERS}
+        raw[layers.ANTARCTIC_ROCK.name] = self._rock()
+        contributions, _ = layer_producers.gather(
+            bodies.EARTH, raw, _window(None), layers.COMPOSITE_LAYERS)
+        white = contributions[layers.PERENNIAL_ICE.name]
+        assert (white[:, : COLS // 2] == 0.0).all(), "outcrop kept the forced white"
+        assert (white[:, COLS // 2:] == 1.0).all(), "the ice beside it lost its white"
+
+    def test_a_body_that_declares_no_rock_layer_gets_the_unsubtracted_answer(self):
+        """The body gate, and it has to live in `gather` because one supplier does not apply it.
+
+        `shade_planet` builds `layer_raw` off `path.exists()` alone — every per-layer declaration
+        check is `gather`'s — so a rock slice can reach here for a body that declares no such layer.
+        The answer must then be today's exactly, not a plausible one.
+        """
+        # Earth's NAME is kept and only its declaration dropped: both registries key on the slug,
+        # so a renamed body would raise in `producer_for` before reaching the claim under test.
+        rockless = dataclasses.replace(
+            bodies.EARTH,
+            surface_layers=bodies.EARTH.surface_layers - {layers.ANTARCTIC_ROCK.name})
+        raw: dict[str, np.ndarray | None] = {layer.name: None for layer in layers.WARPED_LAYERS}
+        raw[layers.ANTARCTIC_ROCK.name] = self._rock()
+        contributions, _ = layer_producers.gather(
+            rockless, raw, _window(None), layers.COMPOSITE_LAYERS)
+        assert (contributions[layers.PERENNIAL_ICE.name] == 1.0).all()
+
+    def test_the_window_carries_no_rock_until_gather_puts_it_there(self):
+        """`rock` is a gather-filled field like `raw`, so a supplier hands over None.
+
+        Pinned because the alternative shape — each supplier reading `layer_raw` itself — is the one
+        that lets the composite and the block prep disagree about the same window.
+        """
+        assert _window(None).rock is None
 
     def test_its_source_is_the_gpkg_the_acquirer_writes(self, monkeypatch, tmp_path):
         """One home for the path, read at CALL time — the acquirer owns it because it writes it.

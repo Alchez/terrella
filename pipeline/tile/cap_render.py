@@ -57,6 +57,7 @@ from scipy.ndimage import (
 )
 
 from pipeline import bodies, layers, naturalearth, planet_seam, vector_raster
+from pipeline.acquire import download_add_rock
 from pipeline.look import hillshade, lake_depth, palette, perennial_ice, seaice
 from pipeline.tile import shade, terrain_rgb
 from pipeline.tile.shade import KNOBS
@@ -565,6 +566,17 @@ def cap_sources(grid: CapGrid, rasters: frozenset[str]) -> list[Path]:
                for raster in planet_seam.PLANET_RASTERS if raster in rasters]
     if layers.SEA_ICE.name in grid.body.surface_layers:
         sources.append(Path(seaice.SEAICE_SRC))
+    if layers.ANTARCTIC_ROCK.name in grid.body.surface_layers:
+        # BESIDE `sea_ice` AND NOT INSIDE THE ICE PRODUCER'S OWN LIST, which is a correctness
+        # boundary: `_cap_perennial_ice` requires every source a producer declares to EXIST, so a
+        # rock entry there would let an undownloaded GeoPackage switch off the forced Antarctic
+        # white. Here it is only an mtime, so a re-burn restages the cap and an absence cannot.
+        #
+        # NO POLE TEST, deliberately. Only the south opens the file, so listing it for the north
+        # over-tracks by one mtime — a spare re-render at worst. The alternative writes "only
+        # Antarctica has Antarctic rock" a second time, outside the registry key that already
+        # says it, and under-tracking is the direction that is silent.
+        sources.append(download_add_rock.GPKG)
     if layers.PERENNIAL_ICE.name in grid.body.surface_layers:
         # ASKED OF THE PRODUCER, NOT SPELLED OUT HERE. This was `grid.name == "north"` plus Earth's
         # NetCDF, which is two of Earth's facts written down as though they were the layer's: that
@@ -785,6 +797,32 @@ def _cap_sea_ice(grid: CapGrid, consequence: str) -> "np.ndarray | None":
                             ice_lo=grid.ice_lo, ice_max_alpha=grid.ice_max_alpha)
 
 
+#: What the cap loses when the outcrop cannot be burnt — the cap tier's `WARP_CONSEQUENCE` entry.
+#:
+#: Its own sentence rather than the tile one, on `WARP_CONSEQUENCE`'s rule that a consequence is per
+#: (layer, stage): the tiles lose rock across the whole continent, this disc loses the fifth of it
+#: that sits below −81.
+ROCK_CONSEQUENCE = "Antarctic outcrop stays under the forced white on this disc"
+
+
+def _cap_rock(grid: CapGrid) -> "np.ndarray | None":
+    """This cap's exposed-rock mask, or None — asked of the BODY first and then of the disk.
+
+    ONLY EVER CALLED BY EARTH'S SOUTH, because `CapIceInputs.rock` is handed over unevaluated and no
+    other producer asks. So the `must_draw` claim is safe: Antarctic outcrop genuinely reaches this
+    disc (19.9% of it lies at or below −81), and an empty burn here is a broken projection rather
+    than an honest fact about the ground.
+
+    None on either gate, never zeros. The rule this feeds must be able to tell "no rock layer" from
+    "no rock", and `snow.antarctic_snow_mask` is built to give today's answer exactly for the first.
+    """
+    if not layers.layer_is_buildable(grid.body, layers.ANTARCTIC_ROCK,
+                                     download_add_rock.GPKG, ROCK_CONSEQUENCE):
+        return None
+    return _burn(grid, download_add_rock.GPKG, "addrock",
+                 f"SCAR ADD rock outcrop must reach the {grid.name} cap disc")
+
+
 def _cap_perennial_ice(grid: CapGrid, ocean: np.ndarray, water: np.ndarray, latitude: np.ndarray,
                        consequence: str) -> "tuple[np.ndarray, tuple[Any, Any] | None]":
     """This cap's perennial-ice alpha, from the producer this body registered for this pole.
@@ -813,6 +851,10 @@ def _cap_perennial_ice(grid: CapGrid, ocean: np.ndarray, water: np.ndarray, lati
             grid, source, cap_warp(grid, name), resampling, dtype, srcnodata),
         burn=lambda source, name, must_draw: _burn(grid, source, name, must_draw),
         ground_metres_per_px=cap_ground_metres_per_px(grid),
+        # Unevaluated, and that is the field's whole design — see `CapIceInputs.rock`. Only Earth's
+        # south asks, so no other cap pays a reprojection of the whole ADD GeoPackage for a mask
+        # that would come back empty and raise on `must_draw`.
+        rock=lambda: _cap_rock(grid),
     )
     producer = perennial_ice.cap_ice(grid.body, grid.name)
     return producer.alpha(inputs), producer.paint()

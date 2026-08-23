@@ -725,7 +725,7 @@ def _compute_shared(inputs: _WindowInputs) -> _WindowShared:
     # paints — the raytraced rig reads a ramp.
     contributions, paints = layer_producers.gather(
         inputs.body, inputs.layer_raw,
-        layer_producers.LayerWindow(raw=None, watercode=watercode, land=land_win,
+        layer_producers.LayerWindow(raw=None, rock=None, watercode=watercode, land=land_win,
                                     latitude=latitude,
                                     ground_metres_per_px=mercator.ground_metres_per_pixel(
                                         latitude, inputs.body.map_units_per_pixel,
