@@ -4149,6 +4149,59 @@ SABOTAGES: list[Sabotage] = [
         replacement='MOSAIC_NAME = "Mars_Viking_MDIM21_ClrMosaic_global_232m.tif"',
         guard='test_the_product_taken_is_the_925_metre_colour_mosaic_and_not_a_finer_one',
     ),
+    # A GeoPackage written in place EXISTS and is short for the whole 40-minute merge, and every
+    # consumer keys on exactly that -- `layer_producers` lists it as a freshness mtime, so a merge
+    # that dies partway is NEWER than the composite reading it and therefore current.
+    Sabotage(
+        suite='python',
+        label='the merge writes its GeoPackage in place, so a crash publishes a short planet',
+        path='pipeline/acquire/download_rgi.py',
+        needle='    staging = out.with_name(out.name + ".part")',
+        replacement='    staging = out',
+        guard='test_a_merge_that_dies_partway_leaves_the_previous_geopackage_untouched',
+    ),
+    # --- The RGI path and layer name have ONE home, and it is the acquirer that writes them ------
+    # Both were spelled twice, and a second spelling agrees with the acquirer right up until one of
+    # them moves. The layer case is the one `sources()` cannot see: naming the right file is not the
+    # same claim as opening the right table inside it.
+    Sabotage(
+        suite='python',
+        label='the glacier burn re-spells the layer name instead of asking its acquirer',
+        path='pipeline/look/layer_producers.py',
+        needle='                                   gpkg=download_rgi.GPKG, layer=download_rgi.LAYER)',
+        replacement='                                   gpkg=download_rgi.GPKG, layer="glaciers")',
+        guard='test_the_glacier_burn_reads_the_redirected_path_rather_than_one_bound_at_import',
+    ),
+    Sabotage(
+        suite='python',
+        label='the glacier source is re-spelled, so a redirected store is read at the old path',
+        path='pipeline/look/layer_producers.py',
+        needle='        sources=lambda: (download_rgi.GPKG,),',
+        replacement='        sources=lambda: (snow.DATA / "raw/rgi/rgi7_g_3857.gpkg",),',
+        guard='test_the_glacier_source_is_the_gpkg_its_own_acquirer_writes',
+    ),
+    # --- The cap mesh is the resolution limit, and the claim is a RATIO --------------------------
+    # The comparison this guards was written as absolute kilometres measured at CAP_EDGE_LAT 78. It
+    # went stale when the edge moved to 80 and would have gone stale again at the ratified 84, while
+    # the quantity it rests on -- CAP_ELEV_PX / (2 * RINGS) -- never moved at all. The old assertion
+    # was `ringKm < 15`, which the mutation below sails through: at 320 rings a ring is 3.47 km.
+    Sabotage(
+        suite='web',
+        label='the mesh outruns the texture it samples, which the old absolute bound could not see',
+        path='web/src/lib/polarCaps.ts',
+        needle='export const RINGS = 160;',
+        replacement='export const RINGS = 320;',
+        guard='keeps the mesh coarser than the elevation texture it samples, at whatever edge is served',
+    ),
+    # A contract field the web can only check with is one the pipeline actually publishes.
+    Sabotage(
+        suite='python',
+        label='caps.json stops stating the elevation texture size, so the web cannot check its mesh',
+        path='pipeline/tile/cap_render.py',
+        needle='                    "elev_px": CAP_ELEV_PX,\n',
+        replacement='',
+        guard='test_the_manifest_states_the_elevation_texture_s_size',
+    ),
     # --- RGI: the acquisition decides how much of the planet the glacier layer covers ------------
     # THE FAILURE HAS NO SYMPTOM AT ITS OWN STAGE. A region that never downloads leaves a burn with
     # no polygons there, and every downstream check -- file exists, right size, mtime fresh -- is

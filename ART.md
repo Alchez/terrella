@@ -360,8 +360,9 @@ Cost: hero sweep **~10–13 h** + tile restage **~29 min** + caps auto-restage *
   baked **dark** coastline (`COAST_RGB`, muted steel-blue — a white coast vanishes between white
   snow and white ice).
 - **South cap:** sources the same fused planet VRTs as the tiles (they reach −90°). Snow is
-  forced white over Antarctic land (`snow.antarctic_snow_mask` — no SH snow/glacier dataset
-  exists to read); **no baked coastline** (white ice on teal self-separates). Its sea ice is
+  forced white over Antarctic land (`snow.antarctic_snow_mask`, closing the clustered gaps
+  NSIDC-0791 leaves where it otherwise saturates, which RGI's peripheral region 19 does not
+  reach); **no baked coastline** (white ice on teal self-separates). Its sea ice is
   toned via `SH_ICE_LO 0.62` / `SH_ICE_MAX_ALPHA 0.55` — Antarctica is a continent ringed by a
   mostly-seasonal belt, and the NH-strength climatology read as a bright halo.
 - **No pole special-case remains:** the old flat-pole taper (hiding the azimuth-sweep "pinwheel"

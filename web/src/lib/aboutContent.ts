@@ -147,7 +147,7 @@ export const ABOUT: Record<BodySlug, BodyAbout> = {
       // where it swaps them). WorldCover still dresses the heroes, so it keeps its credit below.
       {
         title: "Snow",
-        text: "Permanent snow from a MODIS persistence climatology and the Randolph glacier inventory, faded at its margins so the edges take the hillshade. Antarctica is painted white outright, no dataset here reaching that far south.",
+        text: "Permanent snow from a MODIS persistence climatology and the Randolph glacier inventory, faded at its margins so the edges take the hillshade. Antarctica is painted white outright: the climatology saturates over the continent but leaves clustered gaps, and the glacier inventory only reaches its coastal fringe.",
       },
       {
         title: "Sea ice",
@@ -202,7 +202,7 @@ export const ABOUT: Record<BodySlug, BodyAbout> = {
         role: "Glaciers",
         license: "CC-BY 4.0",
         attribution:
-          "Randolph Glacier Inventory 7.0 (RGI Consortium, 2023), NSIDC-0770 v7. Antarctic region 19 excluded.",
+          "Randolph Glacier Inventory 7.0 (RGI Consortium, 2023), NSIDC-0770 v7.",
       },
       {
         name: "OSI SAF Sea Ice (OSI-450-a)",

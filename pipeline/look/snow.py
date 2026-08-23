@@ -25,7 +25,8 @@ SP_NC = DATA / "raw/snow/NSIDC-0791_SP_0.01Deg_WY2001-2023_V01.0.nc"
 SP_VAR = "snow_persistence_climatology"  # continuous (9999 levels); the day-quantized sibling is snow_persistence
 SP_SCALE = 1e-4     # unpacked persistence = 0.0001 x packed (valid 0..10000 -> 0..1 fraction)
 SP_FILL = 65535     # packed fill (ocean / no valid MODIS observation)
-RGI_GPKG = DATA / "raw/rgi/rgi7_g_3857.gpkg"  # RGI 7.0 glaciers merged to EPSG:3857 (layer 'glaciers')
+# The RGI path and its layer name live in `acquire.download_rgi`, which writes them; the two burns
+# below take them as arguments. A second spelling here agreed with the acquirer until one moved.
 
 # persistence cutoff ramps with |latitude|, anchored to the two validated endpoints
 RAMP_LAT_LO, RAMP_LAT_HI = 45.0, 63.0
@@ -120,7 +121,7 @@ def warp_persistence(bounds, width, height, out_path, sp_nc=SP_NC):
         return unpack_persistence(dataset.read(1))
 
 
-def rasterize_glaciers_raster(bounds, width, height, out_path, rgi=RGI_GPKG):
+def rasterize_glaciers_raster(bounds, width, height, out_path, gpkg, layer):
     """Burn RGI 7.0 glacier polygons to a Web-Mercator 0/1 Byte raster (None if RGI absent).
 
     Crisp permanent ice that a 1 km persistence field blurs (glacier tongues) or misses (small
@@ -129,15 +130,21 @@ def rasterize_glaciers_raster(bounds, width, height, out_path, rgi=RGI_GPKG):
     cheap to read windowed. Unlinks first because gdal_rasterize opens an existing target in UPDATE
     mode and would burn onto its old contents. Returns out_path, or None when RGI isn't downloaded
     yet (persistence-only fallback).
+
+    `gpkg` and `layer` are REQUIRED and come from `download_rgi`, exactly as the rock burn below
+    takes its pair from `download_add_rock`. They were a module constant and a literal here, and a
+    DEFAULT is the half that bites: it binds the value at def time, so redirecting the data store
+    afterwards leaves this burn reading the path from before the redirect.
     """
-    if not rgi.exists():
+    gpkg = Path(gpkg)
+    if not gpkg.exists():
         return None
     left, bottom, right, top = bounds
     Path(out_path).unlink(missing_ok=True)
     _run(["gdal_rasterize", "-q", "-burn", "1", "-init", "0", "-ot", "Byte", "-of", "GTiff",
           "-co", "TILED=YES", "-co", "COMPRESS=DEFLATE", "-co", "BIGTIFF=YES",
-          "-l", "glaciers", "-te", repr(left), repr(bottom), repr(right), repr(top),
-          "-ts", str(width), str(height), str(rgi), str(out_path)])
+          "-l", layer, "-te", repr(left), repr(bottom), repr(right), repr(top),
+          "-ts", str(width), str(height), str(gpkg), str(out_path)])
     return out_path
 
 
@@ -174,13 +181,13 @@ def rasterize_antarctic_rock(bounds, width, height, out_path, gpkg, layer):
     return out_path
 
 
-def rasterize_glaciers(bounds, width, height, out_path, rgi=RGI_GPKG):
+def rasterize_glaciers(bounds, width, height, out_path, gpkg, layer):
     """Burn RGI glaciers and return the 0/1 mask array (None if RGI absent) -- thin wrapper.
 
     The region path (shade.py) calls this; kept byte-for-byte by delegating to
     rasterize_glaciers_raster and reading the (region-sized) result back.
     """
-    if rasterize_glaciers_raster(bounds, width, height, out_path, rgi=rgi) is None:
+    if rasterize_glaciers_raster(bounds, width, height, out_path, gpkg, layer) is None:
         return None
     with rasterio.open(out_path) as dataset:
         return dataset.read(1)

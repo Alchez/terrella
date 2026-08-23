@@ -113,8 +113,10 @@ CAP_MEASURE_BAND_DEGREES = 20.0
 CAP_WEBP_QUALITY = 85  # gdal_translate WEBP quality — hero_variants' proven setting; rides in
                        # cap_recipe because the encoder changes the shipped pixels
 CAP_ELEV_PX = 512      # elevation texture side; see cap_elev_asset for why there is only one size.
-                       # 512 over this grid's 2,668 km diameter is ~5.2 km/px, finer than the mesh
-                       # that samples it at every latitude, so the mesh is the limit and not this.
+                       # Finer than the mesh that samples it, at every latitude AND at every cap
+                       # edge: a ring is CAP_ELEV_PX / (2 * polarCaps.RINGS) = 1.6 texture pixels,
+                       # a ratio the disc radius cancels out of, so the mesh stays the limit when
+                       # CAP_EDGE_LAT moves. At the shipped edge that reads as 4.34 km/px.
                        # MUST divide CAP_PX exactly — write_cap_elevation box-means by the ratio.
 # The AEQD sphere now comes from the body — see `Body.aeqd_radius_m`, which records why it is a
 # separate field from the Mercator radius and from MapLibre's globe radius. The warning that used to
@@ -251,9 +253,9 @@ def cap_elev_asset(grid: CapGrid) -> Path:
     """The cap's elevation texture — one size, not a rung ladder.
 
     The colour rungs exist because a phone can RESOLVE 8192 at a pole. This texture is not resolved
-    by the eye at all: it is sampled by the cap MESH, which is orders of magnitude coarser
-    (RINGS/SECTORS give ~6-13 km spacing against this grid's ~5.2 km), so a ladder would ship
-    bytes no vertex ever reads."""
+    by the eye at all: it is sampled by the cap MESH, which is coarser than this grid by 1.6x in
+    rings and ~2.5x in sectors — ratios the cap edge cancels out of — so a ladder would ship bytes
+    no vertex ever reads."""
     return caps_public_dir(grid.body) / f"cap_{grid.name}_elev.webp"
 
 
@@ -552,10 +554,15 @@ def caps_manifest(body: bodies.Body) -> str:
                               for px in CAP_RUNGS],
                     "edge_lat": grid.edge_lat,
                     "feather_hi": feather_hi,
-                    # The displacement texture and the step needed to decode it. The step ships
-                    # here rather than as a web-side literal for the same reason edge_lat does:
-                    # the pipeline encoded these bytes, so the pipeline states how to read them.
+                    # The displacement texture, its size, and the step needed to decode it. All
+                    # three ship here rather than as web-side literals for the same reason edge_lat
+                    # does: the pipeline encoded these bytes, so the pipeline states how to read
+                    # them. `elev_px` also makes the manifest uniform — every colour rung already
+                    # publishes its own `px`, and the elevation texture was the one this contract
+                    # named without saying how big it was, which left the web unable to check that
+                    # its mesh is coarser than what it samples.
                     "elev_url": served_url(cap_elev_asset(grid)),
+                    "elev_px": CAP_ELEV_PX,
                     "elev_step": terrain_rgb.QUANTISATION_M}
         for grid, feather_hi in ((north_grid(body), CAP_NORTH), (south_grid(body), CAP_SOUTH))
     }, sort_keys=True, indent=2)

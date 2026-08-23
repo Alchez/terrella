@@ -24,6 +24,7 @@ CKAN = "https://ihp-wins.unesco.org/api/3/action/package_search?q=Randolph+Glaci
 DATASET = "randolph-glacier-inventory-rgi-7-0-glacier-product"
 OUT = paths.DATA / "raw/rgi"
 GPKG = OUT / "rgi7_g_3857.gpkg"
+LAYER = "glaciers"     # the merged layer's name; every consumer reads it from here
 
 #: RGI 7.0's first-order regions, 01 to 19, and the merge wants every one of them.
 REGION_COUNT = 19
@@ -62,6 +63,38 @@ def resource_urls():
     return shp_urls(pkg["resources"])
 
 
+def merge_to_gpkg(shapefiles, out=GPKG):
+    """Merge regional shapefiles into one EPSG:3857 GeoPackage, appearing only when complete.
+
+    STAGED AND RENAMED, never written in place, for the reason the zips above are: a target written
+    in place EXISTS and is short for the whole merge, and every consumer downstream keys on exactly
+    that. `layer_producers` lists this path as a freshness mtime, so a merge that dies at region 12
+    leaves a GeoPackage missing seven regions, newer than the composite that reads it, and therefore
+    CURRENT — the planet is burnt with a third of its glaciers gone and nothing anywhere reports it.
+    A rename is atomic within a filesystem, so the previous complete merge stands until this one is.
+
+    NO `-skipfailures`, AND IT MUST NOT COME BACK. It sets the transaction size to 1, which is free
+    while the table is empty and quadratic once it is not: measured on region 19 into a 75,613-row
+    base, 51.8s with it against 1.3s without, byte-identical output. Over 19 appends that is the
+    difference between ~40 minutes and ~1. `-gt` does not rescue it -- paired with `-skipfailures`
+    the append silently writes nothing at all. It is also the wrong behaviour: it DROPS features
+    quietly, which is the failure `shp_urls` refuses one tier up. A bad geometry should stop the
+    merge, not thin it.
+    """
+    staging = out.with_name(out.name + ".part")
+    staging.unlink(missing_ok=True)
+    try:
+        for index, shp in enumerate(shapefiles):
+            cmd = ["ogr2ogr", "-f", "GPKG", "-t_srs", "EPSG:3857", "-nln", LAYER]
+            cmd += (["-append"] if index else []) + [str(staging), str(shp)]
+            subprocess.run(cmd, check=True, capture_output=True)
+    except BaseException:
+        staging.unlink(missing_ok=True)  # a gigabyte of half-merged planet is not worth keeping
+        raise
+    staging.replace(out)
+    return out
+
+
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
     urls = resource_urls()
@@ -87,13 +120,8 @@ def main():
         shapefiles.append(next(unzip_dir.rglob("*.shp")))
         print(f"  {name}: {zip_path.stat().st_size / 1e6:.1f} MB", flush=True)
 
-    if GPKG.exists():
-        GPKG.unlink()
     print(f"merging {len(shapefiles)} regions -> {GPKG.name} (EPSG:3857) ...", flush=True)
-    for index, shp in enumerate(shapefiles):
-        cmd = ["ogr2ogr", "-f", "GPKG", "-t_srs", "EPSG:3857", "-nln", "glaciers", "-skipfailures"]
-        cmd += (["-append"] if index else []) + [str(GPKG), str(shp)]
-        subprocess.run(cmd, check=True, capture_output=True)
+    merge_to_gpkg(shapefiles)
     print(f"done -> {GPKG}", flush=True)
 
 

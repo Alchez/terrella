@@ -16,6 +16,9 @@ Offline: `shp_urls` is the pure half `resource_urls` calls after the fetch, so t
 shipping selection without a network round trip.
 """
 
+import subprocess
+from pathlib import Path
+
 import pytest
 
 from pipeline.acquire import download_rgi
@@ -76,6 +79,47 @@ class TestEveryPublishedRegionReachesTheMerge:
         short = [name for name in REGION_NAMES if not name.startswith("19_")]
         with pytest.raises(RuntimeError, match="19"):
             download_rgi.shp_urls(_resources(short))
+
+    def test_a_merge_that_dies_partway_leaves_the_previous_geopackage_untouched(
+            self, monkeypatch, tmp_path):
+        """THE OUTCOME: what a consumer sees while, and after, a merge that fails.
+
+        A short GeoPackage here is worse than no GeoPackage. `layer_producers` lists this path as a
+        freshness mtime, so a merge that dies at region 12 leaves a file missing seven regions and
+        NEWER than the composite reading it — which makes the planet current by every check the
+        pipeline has, with a third of its glaciers absent.
+        """
+        target = tmp_path / "rgi7_g_3857.gpkg"
+        target.write_bytes(b"the previous complete merge")
+        calls: list[int] = []
+
+        def failing_run(cmd, **kwargs):
+            calls.append(1)
+            Path(cmd[-2]).write_bytes(b"partial")  # ogr2ogr does create the target it is given
+            if len(calls) == 3:
+                raise subprocess.CalledProcessError(1, cmd)
+
+        monkeypatch.setattr(download_rgi.subprocess, "run", failing_run)
+        with pytest.raises(subprocess.CalledProcessError):
+            download_rgi.merge_to_gpkg([tmp_path / f"r{n}.shp" for n in range(5)], out=target)
+        assert target.read_bytes() == b"the previous complete merge", "a failed merge was published"
+        assert not list(tmp_path.glob("*.part")), "the half-merged staging file was left behind"
+
+    def test_a_merge_that_succeeds_publishes_exactly_once_at_the_end(self, monkeypatch, tmp_path):
+        """The falsifier for the test above: it must be reporting the FAILURE, not a rename that
+        never happens. Also the claim itself — the target appears only when the merge is whole."""
+        target = tmp_path / "rgi7_g_3857.gpkg"
+        seen_target = []
+
+        def staged_run(cmd, **kwargs):
+            Path(cmd[-2]).write_bytes(b"merged")
+            seen_target.append(target.exists())
+
+        monkeypatch.setattr(download_rgi.subprocess, "run", staged_run)
+        assert download_rgi.merge_to_gpkg([tmp_path / f"r{n}.shp" for n in range(5)],
+                                          out=target) == target
+        assert seen_target == [False] * 5, "the target existed while the merge was still running"
+        assert target.read_bytes() == b"merged"
 
     def test_a_renamed_filename_is_refused_too(self):
         """The region number is read out of the NAME, so a portal rename is indistinguishable from a

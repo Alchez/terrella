@@ -25,6 +25,7 @@ from rasterio.enums import Resampling
 from scipy.ndimage import zoom
 
 from pipeline import bodies, mercator, paths
+from pipeline.acquire import download_rgi
 from pipeline.look import hillshade, lake_depth, palette, relief, snow
 from pipeline.look.sky_view import (
     OCCLUSION_TARGET_M_PER_PX,
@@ -321,7 +322,7 @@ def main():
             bodies.ground_metres_per_mercator_unit(bodies.EARTH)))
     glacier = snow.rasterize_glaciers(
         (bounds.left, bounds.bottom, bounds.right, bounds.top), grid_w, grid_h,
-        args.out / "rgi_merc.tif")
+        args.out / "rgi_merc.tif", gpkg=download_rgi.GPKG, layer=download_rgi.LAYER)
     if glacier is not None:
         snow_a = np.maximum(snow_a, glacier.astype(float))
         print(f"unioned RGI glaciers: {int((glacier > 0).sum()):,} px", flush=True)

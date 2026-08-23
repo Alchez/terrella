@@ -36,10 +36,14 @@ import { beginSpan } from "./perfSpans";
  *  against ~1-2 km on the terrain-displaced tiles it crossfades into, so the two surfaces would
  *  ghost apart across the feather however exactly they agree in metres.
  *
- *  160x640 gives ~7 km rings and ~11 km sectors at the mesh edge (the widest they get), which
- *  sits just under the elevation texture's 5.2 km/px — so the MESH is the limit and the texture
- *  is not the thing to spend on. Cost is 103,201 vertices and 4.9 MB of buffers per cap, and it
- *  lands on mobile with everything else. This is the knob to judge the look on. */
+ *  160x640 leaves the MESH coarser than the elevation texture it samples, which is what makes the
+ *  mesh the limit and the texture not the thing to spend on. The margin is a RATIO and the cap edge
+ *  cancels out of it: a ring is `CAP_ELEV_PX / (2 * RINGS)` = 1.6 texture pixels at ANY edge
+ *  latitude, a sector at the mesh edge ~2.5. Both spacings scale with the disc radius, so the
+ *  quoted distances move when the edge does and the conclusion does not — at the shipped edge 80,
+ *  ~7 km rings and ~11 km sectors against 4.34 km/px; at the ratified 84, ~4.2 against 2.61.
+ *  Cost is 103,201 vertices and 4.9 MB of buffers per cap, and it lands on mobile with everything
+ *  else. This is the knob to judge the look on. */
 export const RINGS = 160;
 /** Longitude subdivisions. See RINGS.
  *
@@ -75,6 +79,7 @@ export interface CapManifestEntry {
   edge_lat: number; // texture inscribed-circle latitude, signed (cap_render CapGrid.edge_lat)
   feather_hi: number; // signed |lat| where the cap goes opaque (shade_planet CAP_NORTH/CAP_SOUTH)
   elev_url: string; // terrain-RGB displacement texture (cap_render cap_elev_asset)
+  elev_px: number; // its side in pixels (cap_render CAP_ELEV_PX); the mesh is checked against it
   elev_step: number; // metres per encoded level (cap_render reads terrain_rgb.QUANTISATION_M)
 }
 /** The two poles, in the order their caps are added. */

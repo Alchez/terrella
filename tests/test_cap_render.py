@@ -644,6 +644,16 @@ class TestCapElevationContract:
             assert manifest[name]["elev_url"] == f"/caps/cap_{name}_elev.webp"
             assert cap_render.cap_elev_asset(grid).name == f"cap_{name}_elev.webp"
 
+    def test_the_manifest_states_the_elevation_texture_s_size(self, monkeypatch):
+        """Sized like every colour rung, and from `CAP_ELEV_PX` rather than a repeated literal.
+
+        The web side divides by it to check its mesh is coarser than the texture it samples, which
+        it could not express while the contract named the texture without measuring it.
+        """
+        monkeypatch.setattr(cap_render, "CAP_ELEV_PX", 256)
+        manifest = json.loads(cap_render.caps_manifest(bodies.EARTH))
+        assert [manifest[pole]["elev_px"] for pole in ("north", "south")] == [256, 256]
+
 
 #: A body that declares no layers at all — the whole of what a second planet costs the cap pass.
 #:

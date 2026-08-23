@@ -40,7 +40,7 @@ from typing import Any
 import numpy as np
 
 from pipeline import bodies, layers
-from pipeline.acquire import download_add_rock, download_sim3292
+from pipeline.acquire import download_add_rock, download_rgi, download_sim3292
 from pipeline.look import lake_depth, mars_ice, palette, seaice, snow, viking_luma
 
 
@@ -193,9 +193,14 @@ def _build_persistence(request: LayerBuild) -> None:
 
 
 def _build_glaciers(request: LayerBuild) -> None:
-    """RGI 7.0 burnt onto the grid as a 0/1 Byte mask — the one build here that is not a warp."""
+    """RGI 7.0 burnt onto the grid as a 0/1 Byte mask — the one build here that is not a warp.
+
+    Reads the source path and the layer name off the acquirer that writes them, at call time, for
+    the reason `_build_antarctic_rock` states beside the same pattern.
+    """
     print("rasterize RGI glaciers -> 3857 ...", flush=True)
-    snow.rasterize_glaciers_raster(request.bounds, request.width, request.height, request.out)
+    snow.rasterize_glaciers_raster(request.bounds, request.width, request.height, request.out,
+                                   gpkg=download_rgi.GPKG, layer=download_rgi.LAYER)
 
 
 def _build_sea_ice(request: LayerBuild) -> None:
@@ -484,7 +489,7 @@ PRODUCER_BY_BODY_LAYER: dict[tuple[str, str], LayerProducer] = {
         build=_build_persistence, contribution=_earth_perennial_ice, paint=_earth_white,
         recipe=_earth_perennial_ice_recipe, build_recipe=_no_tunables),
     ("earth", layers.GLACIERS.name): LayerProducer(
-        sources=lambda: (snow.RGI_GPKG,),
+        sources=lambda: (download_rgi.GPKG,),
         build=_build_glaciers, contribution=_earth_glaciers, paint=_earth_white,
         recipe=_earth_glaciers_recipe, build_recipe=_no_tunables),
     ("earth", layers.SEA_ICE.name): LayerProducer(

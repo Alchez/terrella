@@ -22,6 +22,7 @@ import rasterio
 import rasterio.transform  # rasterio's __init__ pulls this in at runtime; name it for the checker
 
 from pipeline import bodies
+from pipeline.acquire import download_rgi
 from pipeline.look import snow
 
 # --- shared geometry: a small WMQ-aligned 3857 target over a snowy region (the Alps) ---
@@ -164,12 +165,13 @@ class TestPersistenceWarpOnceEqualsPerWindow:
         assert np.array_equal(one_packed, many_packed)
 
 
-@pytest.mark.skipif(not snow.RGI_GPKG.exists(), reason="RGI glacier .gpkg not present (CI)")
+@pytest.mark.skipif(not download_rgi.GPKG.exists(), reason="RGI glacier .gpkg not present (CI)")
 class TestGlacierWarpOnceEqualsPerWindow:
     def test_every_window_slice_matches_its_own_rasterize(self, tmp_path):
         bounds, width, rows = _alps_grid()  # the Alps carry RGI glaciers
         whole = tmp_path / "glacier_whole.tif"
-        assert snow.rasterize_glaciers_raster(bounds, width, rows, whole) is not None
+        assert snow.rasterize_glaciers_raster(bounds, width, rows, whole,
+                                              download_rgi.GPKG, download_rgi.LAYER) is not None
         with rasterio.open(whole) as dataset:
             transform = dataset.transform
             whole_mask = dataset.read(1)
@@ -179,7 +181,8 @@ class TestGlacierWarpOnceEqualsPerWindow:
             row1 = min(rows, row0 + window_rows)
             part = tmp_path / f"glacier_win_{row0}.tif"
             snow.rasterize_glaciers_raster(_window_bounds(transform, width, row0, row1),
-                                           width, row1 - row0, part)
+                                           width, row1 - row0, part,
+                                           download_rgi.GPKG, download_rgi.LAYER)
             with rasterio.open(part) as dataset:
                 part_mask = dataset.read(1)
             assert np.array_equal(whole_mask[row0:row1], part_mask), f"window at row {row0}"
@@ -188,4 +191,5 @@ class TestGlacierWarpOnceEqualsPerWindow:
         """The persistence-only fallback: a missing .gpkg must not raise."""
         bounds, width, rows = _alps_grid()
         assert snow.rasterize_glaciers_raster(
-            bounds, width, rows, tmp_path / "g.tif", rgi=tmp_path / "nonexistent.gpkg") is None
+            bounds, width, rows, tmp_path / "g.tif",
+            gpkg=tmp_path / "nonexistent.gpkg", layer=download_rgi.LAYER) is None

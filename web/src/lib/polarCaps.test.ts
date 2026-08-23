@@ -60,11 +60,11 @@ const RUNGS = (pole: string) => [
 const MANIFEST: CapsManifest = {
   north: {
     rungs: RUNGS("north"), edge_lat: 80, feather_hi: 84,
-    elev_url: "/caps/cap_north_elev.webp", elev_step: TERRAIN_QUANTISATION_M,
+    elev_url: "/caps/cap_north_elev.webp", elev_px: 512, elev_step: TERRAIN_QUANTISATION_M,
   },
   south: {
     rungs: RUNGS("south"), edge_lat: -80, feather_hi: -84,
-    elev_url: "/caps/cap_south_elev.webp", elev_step: TERRAIN_QUANTISATION_M,
+    elev_url: "/caps/cap_south_elev.webp", elev_px: 512, elev_step: TERRAIN_QUANTISATION_M,
   },
 };
 
@@ -729,16 +729,26 @@ describe("the displaced mesh", () => {
     expect(highest).toBe(vertexCount - 1); // every vertex reachable, and none wrapped to 0
   });
 
-  it("keeps facets finer than the elevation texture it samples", () => {
-    // The mesh is the resolution limit by design (cap_render CAP_ELEV_PX says so from its side).
-    // At the mesh's equatorward edge — where sectors are widest — a sector must stay under the
-    // texture's ~5.2 km/px times a small factor, or the cap would be visibly coarser than the
-    // tiles it crossfades into however exactly the two agree in metres.
-    const earthCircumferenceKm = 2 * Math.PI * 6371;
-    const sectorKmAtMeshEdge = (earthCircumferenceKm * Math.cos((80 * Math.PI) / 180)) / SECTORS;
-    const ringKm = (earthCircumferenceKm / 360) * (10 / RINGS);
-    expect(sectorKmAtMeshEdge).toBeLessThan(15);
-    expect(ringKm).toBeLessThan(15);
+  it("keeps the mesh coarser than the elevation texture it samples, at whatever edge is served", () => {
+    // THE CLAIM IS A RATIO AND THE CAP EDGE CANCELS OUT OF IT. Ring spacing and texture pixel both
+    // scale with the disc radius, so the sphere radius and the edge latitude divide away and a ring
+    // is exactly `elev_px / (2 * RINGS)` texture pixels — 1.6 at edge 78, at the served 80, and at
+    // the ratified 84 alike. This replaced a comparison against absolute kilometres, which was true
+    // at edge 78, went stale at 80, and would have gone stale again at 84.
+    const { edge_lat: edgeLat, elev_px: elevPx } = MANIFEST.north;
+    const edgeRad = (Math.abs(edgeLat) * Math.PI) / 180;
+    const colatitudeRad = ((90 - Math.abs(edgeLat)) * Math.PI) / 180;
+    const ringRatio = elevPx / (2 * RINGS);
+    // The mesh conforms to the SPHERE, so a sector at the mesh edge spans the small circle at that
+    // latitude, while the texture is equidistant along the disc's radius. Radius cancels here too.
+    const sectorRatio = (Math.PI * Math.cos(edgeRad) * elevPx) / (SECTORS * colatitudeRad);
+    expect(ringRatio).toBeGreaterThan(1); // >1 means the MESH is the coarser of the two
+    expect(sectorRatio).toBeGreaterThan(1);
+    expect(ringRatio).toBeCloseTo(1.6, 10);
+    expect(sectorRatio).toBeCloseTo(2.5, 1);
+    // The positive control: the assertions above must be capable of failing. Double the rings and
+    // the mesh becomes finer than the texture, which is the state they exist to reject.
+    expect(elevPx / (2 * RINGS * 2)).toBeLessThan(1);
   });
 });
 

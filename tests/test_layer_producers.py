@@ -14,7 +14,7 @@ import rasterio
 from rasterio.transform import from_bounds
 
 from pipeline import bodies, freshness, layers, mercator
-from pipeline.acquire import download_add_rock
+from pipeline.acquire import download_add_rock, download_rgi
 from pipeline.look import lake_depth, layer_producers, mars_ice, palette, seaice, snow
 from pipeline.tile import shade_planet
 
@@ -654,6 +654,35 @@ class TestARockLayerBuildsARasterAndContributesNothing:
         monkeypatch.setattr(download_add_rock, "GPKG", moved)
         producer = layer_producers.producer_for(bodies.EARTH, layers.ANTARCTIC_ROCK)
         assert producer.sources() == (moved,)
+
+    def test_the_glacier_source_is_the_gpkg_its_own_acquirer_writes(self, monkeypatch, tmp_path):
+        """The same claim for RGI, which held a second spelling of the path until it did not.
+
+        A DEFAULT argument would satisfy the rock's version of this test and fail this one: it
+        binds at def time, so the redirect below would never reach the burn.
+        """
+        moved = tmp_path / "elsewhere.gpkg"
+        monkeypatch.setattr(download_rgi, "GPKG", moved)
+        producer = layer_producers.producer_for(bodies.EARTH, layers.GLACIERS)
+        assert producer.sources() == (moved,)
+
+    def test_the_glacier_burn_reads_the_redirected_path_rather_than_one_bound_at_import(
+            self, monkeypatch, tmp_path):
+        """`sources()` naming the right path is not the same claim as the BURN opening it.
+
+        The two were separately spelled, so they could disagree; this asserts the argv the build
+        actually hands gdal_rasterize, which is the thing that reads the planet's glaciers.
+        """
+        moved = tmp_path / "elsewhere.gpkg"
+        monkeypatch.setattr(download_rgi, "GPKG", moved)
+        monkeypatch.setattr(download_rgi, "LAYER", "renamed_layer")
+        seen: dict[str, object] = {}
+        monkeypatch.setattr(snow, "rasterize_glaciers_raster",
+                            lambda *args, **kwargs: seen.update(kwargs))
+        layer_producers.producer_for(bodies.EARTH, layers.GLACIERS).build(
+            layer_producers.LayerBuild(bounds=(0.0, 0.0, 1.0, 1.0), width=4, height=4,
+                                       out=tmp_path / "g.tif", band_rows=4))
+        assert seen == {"gpkg": moved, "layer": "renamed_layer"}
 
 
 class TestTheOutcropLosesItsWhiteWhateverElseClaimsThePixel:
