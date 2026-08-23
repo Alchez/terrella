@@ -5106,7 +5106,7 @@ SABOTAGES: list[Sabotage] = [
         label='the composite drops the producer stamp, so it reads raytraced pixels as its own',
         path='pipeline/tile/shade_planet.py',
         needle='            *(layer.warped_in(work) for layer in layers.WARPED_LAYERS), params,\n'
-               '            work / PRODUCER_STAMP)',
+               '            producer_seam.stamp_path(work))',
         replacement='            *(layer.warped_in(work) for layer in layers.WARPED_LAYERS), params)',
         guard='test_the_composite_names_it',
     ),
@@ -5117,7 +5117,7 @@ SABOTAGES: list[Sabotage] = [
         label='the raytrace drops the producer stamp, so it reads composited pixels as its own',
         path='pipeline/tile/block_render.py',
         needle='            *(layer.warped_in(work) for layer in layers.WARPED_LAYERS), recipe,\n'
-               '            work / shade_planet.PRODUCER_STAMP)',
+               '            producer_seam.stamp_path(work))',
         replacement='            *(layer.warped_in(work) for layer in layers.WARPED_LAYERS), recipe)',
         guard='test_the_raytrace_names_it',
     ),
@@ -5127,13 +5127,37 @@ SABOTAGES: list[Sabotage] = [
         # inverts its whole purpose: every pass then moves its mtime, so every pass restages the
         # planet it was about to skip. Correct output, at a full re-render each time.
         label='the producer stamp is rewritten every pass, so an unchanged body restages',
-        path='pipeline/tile/planet_pass.py',
-        needle='    return write_if_changed(producer_stamp(work),\n'
-               '                            json.dumps({"producer": body.planet_producer}, indent=2) + "\\n")',
-        replacement='    stamp = producer_stamp(work)\n'
-                    '    stamp.write_text(json.dumps({"producer": body.planet_producer}, indent=2) + "\\n")\n'
+        path='pipeline/tile/producer_seam.py',
+        needle='    return freshness.write_if_changed(stamp_path(work),\n'
+               '                                      json.dumps({"producer": producer}, indent=2) + "\\n")',
+        replacement='    stamp = stamp_path(work)\n'
+                    '    stamp.write_text(json.dumps({"producer": producer}, indent=2) + "\\n")\n'
                     '    return stamp',
         guard='test_an_unchanged_producer_does_not_move_the_mtime',
+    ),
+    Sabotage(
+        suite='python',
+        # THE PLACEMENT, WHICH IS WHAT THE FIRST VERSION GOT WRONG. Moving the declaration back to
+        # the dispatcher reads as tidying: the pass knows the producer, so why should the producer
+        # repeat it? Because `block_render.main` is a second shipped door that never reaches the
+        # dispatcher, and an ABSENT stamp scores 0.0 in `newest_mtime` — so the dependency both
+        # recipes name contributes nothing and the whole mechanism goes inert.
+        label='only the dispatcher declares the producer, so the runner s own door bypasses it',
+        path='pipeline/tile/block_render.py',
+        needle='    producer_seam.declare(work, "raytrace")\n',
+        replacement='',
+        guard='test_the_raytrace_door_records_the_raytrace',
+    ),
+    Sabotage(
+        suite='python',
+        # Recording the BODY's answer instead of the producer that ran. Reads more principled --
+        # the registry is the source of truth -- and is the one value guaranteed to agree with a
+        # registry the pixels disagree with, which is precisely the state that reads as fresh.
+        label='the stamp records the body s declared producer rather than the one that ran',
+        path='pipeline/tile/block_render.py',
+        needle='    producer_seam.declare(work, "raytrace")',
+        replacement='    producer_seam.declare(work, body.planet_producer)',
+        guard='test_it_declares_the_producer_that_RAN_not_the_one_the_body_asked_for',
     ),
     Sabotage(
         suite='python',

@@ -51,7 +51,7 @@ from pipeline.block_plan import Block
 from pipeline.look import palette
 from pipeline.raster_io import GTIFF_CREATE
 from pipeline.render import prep_block, render_seam
-from pipeline.tile import relief_scan, shade_planet
+from pipeline.tile import producer_seam, relief_scan, shade_planet
 
 #: Consecutive block failures that stop the run. A single block can fail for its own reasons — a
 #: transient OptiX fault, a bad frame — and throwing away the hours still queued behind it would be
@@ -215,15 +215,15 @@ def raytrace_deps(work: Path, recipe: Path) -> tuple[Path, ...]:
     Over-inclusive in the same way and for the same reason: `is_stale` takes the newest mtime, so
     naming a raster this body does not have costs nothing, while missing one is silent.
 
-    `PRODUCER_STAMP` IS SHARED WITH `composite_deps` AND IS THE ONLY ENTRY THAT IS. It is what makes
-    a producer switch visible from this side: the mosaic left by the composite is newer than every
-    warp and newer than this recipe, so without the stamp this producer would report it fresh and
-    skip the render, publishing composited pixels under a raytrace recipe.
+    THE PRODUCER STAMP IS SHARED WITH `composite_deps` AND IS THE ONLY ENTRY THAT IS. It is what
+    makes a producer switch visible from this side: the mosaic left by the composite is newer than
+    every warp and newer than this recipe, so without the stamp this producer would report it fresh
+    and skip the render, publishing composited pixels under a raytrace recipe.
     """
     return (work / shade_planet.HEIGHT_3857, work / shade_planet.OCEAN_3857,
             work / shade_planet.WATER_3857,
             *(layer.warped_in(work) for layer in layers.WARPED_LAYERS), recipe,
-            work / shade_planet.PRODUCER_STAMP)
+            producer_seam.stamp_path(work))
 
 
 def generation_is_current(markers: Path, deps: tuple[Path, ...]) -> bool:
@@ -574,9 +574,17 @@ def run(body: bodies.Body, work: Path, mosaic: Path, *, limit: int | None = None
     # is what still makes a settings change restage itself; planning first only supplies the
     # recipe's content. Inputs are checked first of all, so a missing warp fails in a second
     # rather than after a whole-grid plan.
+    # THIS PRODUCER NAMES ITSELF, before the freshness question below that depends on it and before
+    # any block is prepped. It names the RAYTRACE rather than `body.planet_producer`, and the
+    # difference is the whole point: this module is a shipped entry point of its own (`--only` is
+    # how one block is re-rendered for judging), so it can put raytraced bytes into the raster of a
+    # body the registry still calls `"composite"`. Recording the body's answer here would leave the
+    # stamp agreeing with a registry the pixels disagree with, and the composite would then find
+    # nothing moved and republish them under its own recipe.
     rasters = planet_seam.declared(body)
     look = palette.look_for(body.name)
     check_inputs(work, body, rasters)
+    producer_seam.declare(work, "raytrace")
     blocks = plan_blocks(body, work)
     recipe = freshness.write_if_changed(work / PARAMS_NAME,
                                         params(body, rasters, look, rig_recipe(body), blocks))

@@ -14,7 +14,7 @@ from unittest import mock
 import pytest
 
 from pipeline import bodies, freshness
-from pipeline.tile import block_render, cap_render, planet_pass, shade_planet
+from pipeline.tile import cap_render, planet_pass
 
 
 class TestTheBodyIsRequired:
@@ -138,54 +138,6 @@ class TestEveryProducerTheVocabularyAllowsCanBeDispatched:
         stranger = dataclasses.replace(bodies.EARTH, planet_producer="etch-a-sketch")
         with pytest.raises(SystemExit, match="etch-a-sketch"):
             planet_pass.producer_for(stranger)
-
-
-class TestTheProducerIsADependencyOfBothProducers:
-    """The stamp is what makes a producer switch visible, and it only works if BOTH lists name it.
-
-    `freshness.done_marker` derives from the output alone, so the two producers of `planet_rgb.tif`
-    share one completion marker. Each one's freshness question is otherwise answered by the other's
-    work: whichever ran last leaves a raster newer than every source and every recipe the OTHER one
-    tracks, so that one skips and republishes the wrong producer's pixels under its own recipe.
-    """
-
-    def test_the_composite_names_it(self, tmp_path):
-        deps = shade_planet.composite_deps(tmp_path, tmp_path / "hs.tif", tmp_path / "p.json")
-        assert planet_pass.producer_stamp(tmp_path) in deps
-
-    def test_the_raytrace_names_it(self, tmp_path):
-        deps = block_render.raytrace_deps(tmp_path, tmp_path / "r.json")
-        assert planet_pass.producer_stamp(tmp_path) in deps
-
-    def test_it_is_the_same_path_on_both_sides(self, tmp_path):
-        """One basename with one owner: two spellings would leave each producer watching its own
-        file, which is the shape that cannot detect a switch in either direction."""
-        composite = set(shade_planet.composite_deps(tmp_path, tmp_path / "hs.tif",
-                                                    tmp_path / "p.json"))
-        raytrace = set(block_render.raytrace_deps(tmp_path, tmp_path / "r.json"))
-        assert planet_pass.producer_stamp(tmp_path) in composite & raytrace
-
-    def test_the_stamp_records_the_body_s_own_answer(self, tmp_path, subtests):
-        for name in sorted(bodies.BODIES):
-            with subtests.test(name):
-                body = bodies.get(name)
-                stamp = planet_pass.write_producer_stamp(tmp_path, body)
-                assert body.planet_producer in stamp.read_text()
-
-    def test_an_unchanged_producer_does_not_move_the_mtime(self, tmp_path):
-        """Which is what makes it a dependency rather than a restage: re-running an unchanged body
-        must rebuild nothing, and `write_if_changed` is what guarantees that."""
-        first = planet_pass.write_producer_stamp(tmp_path, bodies.EARTH)
-        before = first.stat().st_mtime_ns
-        planet_pass.write_producer_stamp(tmp_path, bodies.EARTH)
-        assert first.stat().st_mtime_ns == before
-
-    def test_a_changed_producer_does_move_it(self, tmp_path):
-        """The positive control for the test above, and the behaviour the whole file exists for."""
-        stamp = planet_pass.write_producer_stamp(tmp_path, bodies.EARTH)
-        before = stamp.read_text()
-        switched = dataclasses.replace(bodies.EARTH, planet_producer="raytrace")
-        assert planet_pass.write_producer_stamp(tmp_path, switched).read_text() != before
 
 
 class TestAPartlyRenderedPlanetIsNotCut:

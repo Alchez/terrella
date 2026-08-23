@@ -19,7 +19,7 @@ from pipeline.block_plan import Block
 from pipeline.look import palette
 from pipeline.raster_io import GTIFF_CREATE
 from pipeline.render import render_seam
-from pipeline.tile import block_render, shade_planet
+from pipeline.tile import block_render, producer_seam, shade_planet
 
 
 def _block(row_index, col_index, context=block_plan.DENOISE_BAND_PX):
@@ -390,7 +390,12 @@ class TestTheRunnerStopsWhenTheMosaicIsAlreadyCurrent:
 
     def test_a_fresh_mosaic_renders_nothing(self, tmp_path, monkeypatch):
         """The recipe is already on disk holding exactly what this run would write, which is the
-        second-run state: `write_if_changed` moves no mtime, so the stamp stays the newest thing."""
+        second-run state: `write_if_changed` moves no mtime, so the stamp stays the newest thing.
+
+        THE PRODUCER DECLARATION IS PART OF THAT STATE and has to be staged with the rest of it.
+        `run` declares the raytrace before asking its freshness question, so a work directory that
+        has never been declared is a FIRST run however fresh everything else looks — the declaration
+        lands newer than the marker and every block correctly re-renders."""
         _declare_planet_rasters(monkeypatch)
         planned = [_block(0, column) for column in range(3)]
         monkeypatch.setattr(block_render, "plan_blocks", lambda body, work: planned)
@@ -398,10 +403,28 @@ class TestTheRunnerStopsWhenTheMosaicIsAlreadyCurrent:
         (tmp_path / block_render.PARAMS_NAME).write_text(block_render.params(
             bodies.EARTH, planet_seam.declared(bodies.EARTH), palette.look_for("earth"),
             block_render.rig_recipe(bodies.EARTH), planned))
+        producer_seam.declare(tmp_path, "raytrace")
         mosaic = tmp_path / "planet_rgb.tif"
         mosaic.write_bytes(b"")
         freshness.mark_done(mosaic)
         assert block_render.run(bodies.EARTH, tmp_path, mosaic) == 0
+
+    def test_a_mosaic_the_other_producer_made_is_not_fresh(self, tmp_path, monkeypatch):
+        """The switch, from this side, and the reason the declaration is a dependency at all.
+
+        Everything is identical to the test above except who last claimed the raster. A composited
+        planet is newer than every warp source and newer than this producer's recipe, so without the
+        stamp this run would report it fresh and publish composited pixels under a raytrace recipe.
+        """
+        _declare_planet_rasters(monkeypatch)
+        monkeypatch.setattr(block_render, "plan_blocks", _stop_here)
+        _stage_warped_inputs(tmp_path)
+        producer_seam.declare(tmp_path, "composite")
+        mosaic = tmp_path / "planet_rgb.tif"
+        mosaic.write_bytes(b"")
+        freshness.mark_done(mosaic)
+        with pytest.raises(SystemExit, match="reached the plan"):
+            block_render.run(bodies.EARTH, tmp_path, mosaic)
 
     def test_a_moved_input_is_not_fresh(self, tmp_path, monkeypatch):
         """The other direction, so the test above cannot pass by the predicate always saying yes."""

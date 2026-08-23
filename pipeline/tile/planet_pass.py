@@ -28,7 +28,6 @@ stale.
 """
 
 import argparse
-import json
 import subprocess
 import sys
 from collections.abc import Callable
@@ -36,30 +35,9 @@ from pathlib import Path
 from typing import Any, cast
 
 from pipeline import bodies, planet_seam
-from pipeline.freshness import is_stale, write_if_changed
+from pipeline.freshness import is_stale
 from pipeline.tile import block_render, shade_planet
 from pipeline.tile.shade import KNOBS
-
-
-def producer_stamp(work: Path) -> Path:
-    """Where this pass records the producer, which both producers name as a dependency.
-
-    The basename is `shade_planet.PRODUCER_STAMP`, beside the raster it describes rather than here,
-    because the two dependency lists that read it cannot import this module without a cycle.
-    """
-    return work / shade_planet.PRODUCER_STAMP
-
-
-def write_producer_stamp(work: Path, body: bodies.Body) -> Path:
-    """Record the producer this body's raster is made by, and return the stamp.
-
-    `write_if_changed` is what makes this a dependency rather than a restage: the mtime moves if and
-    only if the recorded producer actually changed, so re-running an unchanged body rebuilds
-    nothing. Written before either producer is asked its freshness question, per that function's own
-    ordering rule.
-    """
-    return write_if_changed(producer_stamp(work),
-                            json.dumps({"producer": body.planet_producer}, indent=2) + "\n")
 
 
 def _composite(work: Path, body: bodies.Body, rasters: frozenset[str], height: Path) -> Path:
@@ -211,7 +189,6 @@ def main() -> None:
     # `_compute_shared` a pure function of its arguments, which is what lets it run on workers.
     rasters = planet_seam.declared(body)
     height = shade_planet.warp_inputs(work, planet_seam.planet_dir(body), body, rasters)
-    write_producer_stamp(work, body)
     planet_tif = produce(work, body, rasters, height)
 
     if args.tiles and not raster_is_complete(planet_tif):

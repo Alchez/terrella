@@ -72,7 +72,7 @@ from pipeline.look import (
 )
 from pipeline.look.sky_view import normalised_occlusion, occlusion_shape
 from pipeline.raster_io import GTIFF_CREATE, band_window
-from pipeline.tile import shade
+from pipeline.tile import producer_seam, shade
 from pipeline.tile.shade import KNOBS
 
 # The grid resolution used to live here as a module constant named for the one zoom Earth cuts to.
@@ -384,15 +384,15 @@ def composite_deps(work, hs, params) -> tuple:
     under-tracking is the direction that is silent. `test_the_two_freshness_predicates_disagree_on_a
     _missing_input` is the executable form of this paragraph; read it before changing either.
 
-    `PRODUCER_STAMP` IS THE ONE ENTRY HERE THAT IS NOT A WARP SOURCE, and it is here rather than in
-    the recipe for the reason the recipe cannot reach: the fact it records is not a constant this
+    THE PRODUCER STAMP IS THE ONE ENTRY HERE THAT IS NOT A WARP SOURCE, and it is here rather than
+    in the recipe for the reason the recipe cannot reach: the fact it records is not a constant this
     composite read, it is WHICH PRODUCER wrote the raster this list is deciding about. A raster left
     by the other producer is newer than every source and every recipe here, so nothing else in this
-    tuple can see it.
+    tuple can see it. `producer_seam` holds the argument in full.
     """
     return (work / HEIGHT_3857, hs, work / OCEAN_3857, work / WATER_3857,
             *(layer.warped_in(work) for layer in layers.WARPED_LAYERS), params,
-            work / PRODUCER_STAMP)
+            producer_seam.stamp_path(work))
 
 
 #: What the finished pixels lose when a layer is skipped at the WARP stage, by layer name.
@@ -416,14 +416,6 @@ WATER_3857 = "water_3857.tif"
 #: publish all key on this one basename — so it is exactly the kind of spelling the second writer
 #: would otherwise copy. The variant suffix stays a local f-string: only the composite emits those.
 PLANET_RGB = "planet_rgb.tif"
-
-#: What the pass records about which producer made `PLANET_RGB`, and a dependency of BOTH of them.
-#:
-#: NAMED BESIDE THE RASTER IT DESCRIBES, and read by three modules that cannot import each other's
-#: owner: `planet_pass` writes it, and both producers' dependency lists name it. `freshness`
-#: derives a done-marker from the OUTPUT alone, so two producers of one raster share one marker and
-#: each would otherwise read the other's work as its own completed output.
-PRODUCER_STAMP = "planet_producer.json"
 
 #: `cap_render` says something different about the same layers because it paints a different
 #: picture. Each states what the reader will see rather than what was missing, so a partial build
@@ -819,6 +811,12 @@ def composite_planet(work: Path, hs, compute_occlusion: Callable[[], np.ndarray]
         variants = {None: None}
     outs = {name: work / (PLANET_RGB if not name else f"planet_rgb_{name}.tif")
             for name in variants}
+    # THIS PRODUCER NAMES ITSELF, and it does so before its own freshness question because that
+    # question depends on the answer. Only when the canonical raster is among the outputs: a
+    # variants-only pass writes `planet_rgb_<name>.tif` and leaves `planet_rgb.tif` to whoever made
+    # it, so claiming it here would restage a raster this call never touched.
+    if None in outs:
+        producer_seam.declare(work, "composite")
     params = write_if_changed(work / "composite_params.json",
                               composite_params(variants, body, rasters, window_rows))
     deps = composite_deps(work, hs, params)
