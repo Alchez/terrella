@@ -95,68 +95,146 @@ def arrival_azimuth_deg(rotation):
 # ---- times (sea ramp, water tint, sun altitude) —
 # ---- imports cannot. WORLD_*/FILL_*/SUN_ANGLE/STRENGTH stay local: they have no
 # ---- tile counterpart or are deliberately not ports (ART.md hero→tile map). ----
-DISPLACEMENT_MIDLEVEL = 0.0
-SUN_ROTATION = (math.radians(90.0 - palette.SUN_ALT_DEG), 0.0, math.radians(-135.0))
-SUN_ANGLE = math.radians(12.0)
-SUN_STRENGTH = 3.0
-FILL_ROTATION = (math.radians(30.0), 0.0, math.radians(45.0))
-FILL_ANGLE = math.radians(10.0)
-FILL_STRENGTH = 0.45   # 15% of SUN_STRENGTH; shadowless SE fill so shadowed
-                       # faces keep directional modeling (never pure black).
-                       # The comment said SE while the light arrived from NE;
-                       # putting the main sun on 315 put this on 135 and made
-                       # it true. `arrival_azimuth_deg` is what says so.
-WORLD_RGBA = (0.887923, 0.799103, 0.665388, 1.0)   # F2E7D5
-WORLD_STRENGTH = 0.3
-WATER_RGBA = (*palette.srgb8_to_linear(palette.WATER_RGB), 1.0)  # 8EC6C4 — sea
-                       # surface +7%, pinned relationally (the 98C5C8 drift's cure)
-SNOW_RGBA = (*palette.srgb8_to_linear(palette.SNOW_RGB), 1.0)    # E8F1F6
-ICE_RGBA = (*palette.srgb8_to_linear(palette.ICE_RGB), 1.0)      # D4E4F0 — sea ice; a single
-                       # albedo where the composite keys a (sunlit, shadowed) pair, because
-                       # Cycles lights the sheet itself and the pair's shadowed half was the
-                       # fake light key's job (seaice.ice_white)
+@dataclasses.dataclass(frozen=True)
+class Rig:
+    """Every constant that reaches a rendered pixel and is this module's rather than a look's.
 
-LAKE_STOPS = _rgba(palette.LAKE_STOPS)   # depth-position ramp; stop 0 IS the water tint
-RAMP_INTERPOLATION = "EASE"
+    ONE STRUCTURE SO THE RECIPE CAN BE DERIVED RATHER THAN ENUMERATED. `rig_recipe` is
+    `dataclasses.asdict` of the instance below, which makes a forgotten constant *unrepresentable*
+    instead of merely caught. What it replaces was a hand-written list of keys policed by a scan for
+    module-level ALL-CAPS names, and that scan is blind by construction to a value written inline in
+    a function body: three such values shipped, reaching every pixel and no freshness record.
 
-SAMPLES = 4096        # a Cycles SAMPLE COUNT, and the one number here measured in the same units
-                      # as a block edge without being one. Never search-and-replace it.
-ADAPTIVE_THRESHOLD = 0.01
-DICING_RATE = 1.0
-MAX_SUBDIVISIONS = 12   # per PATCH, not per mesh — `base_patches` holds what that means
-OFFSCREEN_DICING_SCALE = 16.0
-                      # How much coarser geometry outside the camera is diced. It exists for the
-                      # block path, whose plane carries terrain far past the traced rectangle so
-                      # that off-block ridges cast shadows in; at Earth's widest that plane is
-                      # 7,808 px against a 4,352 px frame, so most of the mesh is never seen.
-                      # PINNED BECAUSE IT WAS AN UNRECORDED BLENDER DEFAULT, not because it is a
-                      # quality lever: 4, 16 and 64 sit within 0.06 DN mean of each other on the
-                      # same block, against 37.58 DN for the control that deletes the context
-                      # outright. 16 over the default 4 for memory rather than for pixels.
-BOUNCES = dict(max_bounces=12, diffuse_bounces=4, glossy_bounces=4,
-               transmission_bounces=12, volume_bounces=0)
-CLAMP_INDIRECT = 10.0
+    FIELD NAMES ARE RECIPE KEYS, so renaming one restages every rendered block. That is the price of
+    the derivation and it is deliberate: the alternative is a name-to-key mapping, which is the
+    second copy this exists to delete.
+    """
 
-IMAGES = {  # node name -> (filename, interpolation)
-    "Image Texture": (render_seam.HEIGHTFIELD, "Linear"),
-    "Image Texture.001": (render_seam.OCEANMASK, "Closest"),
-    "Image Texture.002": (render_seam.INLANDLAKE, "Closest"),
-    "Image Texture.003": (render_seam.RIVER, "Closest"),
+    displacement_midlevel: float
+    sun_rotation: tuple[float, float, float]
+    sun_angle: float
+    sun_strength: float
+    fill_rotation: tuple[float, float, float]
+    fill_angle: float
+    #: 15% of `sun_strength`; a shadowless SE fill so shadowed faces keep directional modeling and
+    #: never go pure black. The comment said SE while the light arrived from NE; putting the main
+    #: sun on 315 put this on 135 and made it true. `arrival_azimuth_deg` is what says so.
+    fill_strength: float
+    world_rgba: tuple[float, float, float, float]
+    world_strength: float
+    water_rgba: tuple[float, float, float, float]
+    snow_rgba: tuple[float, float, float, float]
+    ice_rgba: tuple[float, float, float, float]
+    #: Depth-position ramp; stop 0 IS the flat water tint.
+    lake_stops: list[tuple[float, tuple[float, float, float, float]]]
+    ramp_interpolation: str
+    #: A Cycles SAMPLE COUNT, and the one number here measured in the same units as a block edge
+    #: without being one. Never search-and-replace it.
+    samples: int
+    adaptive_threshold: float
+    dicing_rate: float
+    #: Per PATCH, not per mesh — `base_patches` holds what that means.
+    max_subdivisions: int
+    #: How much coarser geometry outside the camera is diced. It exists for the block path, whose
+    #: plane carries terrain far past the traced rectangle so that off-block ridges cast shadows in;
+    #: at Earth's widest that plane is 7,808 px against a 4,352 px frame, so most of the mesh is
+    #: never seen. PINNED BECAUSE IT WAS AN UNRECORDED BLENDER DEFAULT, not because it is a quality
+    #: lever: 4, 16 and 64 sit within 0.06 DN mean of each other on the same block, against 37.58 DN
+    #: for the control that deletes the context outright. 16 over the default 4 for memory.
+    offscreen_dicing_scale: float
+    bounces: dict[str, int]
+    clamp_indirect: float
+    #: Set on EVERY image the rig loads, so 0-255 maps linearly to 0-1 with no sRGB transform on
+    #: top — the thing a binary mask never notices and a soft alpha very much does. One of the
+    #: founding bpy lessons, and it was spelled inline in `load_image` where no recipe could see it.
+    image_colorspace: str
+
+
+RIG = Rig(
+    displacement_midlevel=0.0,
+    sun_rotation=(math.radians(90.0 - palette.SUN_ALT_DEG), 0.0, math.radians(-135.0)),
+    sun_angle=math.radians(12.0),
+    sun_strength=3.0,
+    fill_rotation=(math.radians(30.0), 0.0, math.radians(45.0)),
+    fill_angle=math.radians(10.0),
+    fill_strength=0.45,
+    world_rgba=(0.887923, 0.799103, 0.665388, 1.0),   # F2E7D5
+    world_strength=0.3,
+    # 8EC6C4 — sea surface +7%, pinned relationally (the 98C5C8 drift's cure)
+    water_rgba=(*palette.srgb8_to_linear(palette.WATER_RGB), 1.0),
+    snow_rgba=(*palette.srgb8_to_linear(palette.SNOW_RGB), 1.0),    # E8F1F6
+    # D4E4F0 — sea ice; a single albedo where the composite keys a (sunlit, shadowed) pair, because
+    # Cycles lights the sheet itself and the pair's shadowed half was the fake light key's job
+    # (seaice.ice_white)
+    ice_rgba=(*palette.srgb8_to_linear(palette.ICE_RGB), 1.0),
+    lake_stops=_rgba(palette.LAKE_STOPS),
+    ramp_interpolation="EASE",
+    samples=4096,
+    adaptive_threshold=0.01,
+    dicing_rate=1.0,
+    max_subdivisions=12,
+    offscreen_dicing_scale=16.0,
+    bounces=dict(max_bounces=12, diffuse_bounces=4, glossy_bounces=4,
+                 transmission_bounces=12, volume_bounces=0),
+    clamp_indirect=10.0,
+    image_colorspace="Non-Color",
+)
+
+@dataclasses.dataclass(frozen=True)
+class TextureSpec:
+    """One image node's whole wiring, declared here rather than spelled at the call site.
+
+    EVERY VALUE ON A TEXTURE IS A LOOK DECISION EXCEPT ITS NAME. `interpolation` decides whether a
+    mask has a hard edge or a feathered one; `extension` decides whether a texture wraps at the
+    plane's UV boundary, which at the poles is whether one pole's row bleeds into the other's. Both
+    reach every pixel and neither moves an mtime, so both belong in the recipe.
+
+    The name is an IDENTITY and not a look value: renaming a node consistently renders
+    byte-identically. It rides along because the table is recorded whole, and that is the one key
+    here whose change costs a re-render it does not need.
+
+    `optional` is the raster's presence, never a look: an optional node is built iff its file was
+    declared, which is how a body that draws no sea ice simply has no ice node.
+    """
+
+    name: str
+    filename: str
+    interpolation: str
+    extension: str
+    optional: bool
+
+
+#: Every image node the rig can build, in creation order. THE ORDER IS LOAD-BEARING: the dump-diff
+#: against the hand-built .blend sees creation order, so the mandatory four are built by one loop
+#: in this sequence and the optional four at their own sites, where their mixes and ramps are wired.
+TEXTURES = {
+    spec.name: spec for spec in (
+        TextureSpec("Image Texture", render_seam.HEIGHTFIELD, "Linear", "REPEAT", optional=False),
+        TextureSpec("Image Texture.001", render_seam.OCEANMASK, "Closest", "REPEAT", optional=False),
+        TextureSpec("Image Texture.002", render_seam.INLANDLAKE, "Closest", "REPEAT", optional=False),
+        TextureSpec("Image Texture.003", render_seam.RIVER, "Closest", "REPEAT", optional=False),
+        # Closest because snow is a hard-edged mask; the softening it ships with is baked into the
+        # raster by `snow.soften_source_cells`, never asked of the sampler.
+        TextureSpec("Image Texture.004", render_seam.SNOWMASK, "Closest", "REPEAT", optional=True),
+        # Linear on both of these: a continuous field, like the heightfield.
+        TextureSpec("Image Texture.005", render_seam.LAKEDEPTH, "Linear", "REPEAT", optional=True),
+        TextureSpec("Image Texture.006", render_seam.SEAICE, "Linear", "REPEAT", optional=True),
+        # The rowscale column is one texel wide, so there is nothing to interpolate across u, and
+        # EXTEND rather than REPEAT is what stops one pole's row wrapping into the other's.
+        TextureSpec("Image Texture.007", render_seam.ROWSCALE, "Closest", "EXTEND", optional=True),
+    )
 }
 
-#: The one entry in `IMAGES` a look can decline, being the sea branch's own input.
+#: The one texture a look can decline, being the sea branch's own input.
 SEA_IMAGE = "Image Texture.001"
 
-#: The rowscale node's wiring, as constants rather than literals at the call site, SO THAT THE
-#: RECIPE CAN SEE THEM. `rig_recipe` records every capital in this module and nothing else, so a
-#: value spelled inline is a value a planet can be re-rendered without noticing — which is what
-#: the snow, lake-depth and sea-ice nodes still are, and is their own item rather than this one's.
-#: The interpolation is load-bearing twice over: the image is one texel wide so there is nothing to
-#: interpolate across u, and EXTEND rather than REPEAT is what stops one pole's row wrapping into
-#: the other's at the plane's UV boundary.
-ROWSCALE_NODE = "Image Texture.007"
-ROWSCALE_INTERPOLATION = "Closest"
-ROWSCALE_EXTENSION = "EXTEND"
+
+def texture_for(filename: str) -> TextureSpec:
+    """The one spec that reads this raster, so no call site spells a node's values itself."""
+    for spec in TEXTURES.values():
+        if spec.filename == filename:
+            return spec
+    raise KeyError(f"no texture declared for {filename}")
 
 
 @dataclasses.dataclass(frozen=True)
@@ -212,34 +290,16 @@ def rig_recipe(look: palette.Look) -> dict[str, Any]:
     """
     constants = look_constants(look)
     return {
-        "DISPLACEMENT_MIDLEVEL": DISPLACEMENT_MIDLEVEL,
-        "SUN_ROTATION": list(SUN_ROTATION),
-        "SUN_ANGLE": SUN_ANGLE,
-        "SUN_STRENGTH": SUN_STRENGTH,
-        "FILL_ROTATION": list(FILL_ROTATION),
-        "FILL_ANGLE": FILL_ANGLE,
-        "FILL_STRENGTH": FILL_STRENGTH,
-        "WORLD_RGBA": list(WORLD_RGBA),
-        "WORLD_STRENGTH": WORLD_STRENGTH,
-        "WATER_RGBA": list(WATER_RGBA),
-        "SNOW_RGBA": list(SNOW_RGBA),
-        "ICE_RGBA": list(ICE_RGBA),
-        "LAKE_STOPS": [[position, list(rgba)] for position, rgba in LAKE_STOPS],
-        "RAMP_INTERPOLATION": RAMP_INTERPOLATION,
-        "SAMPLES": SAMPLES,
-        "ADAPTIVE_THRESHOLD": ADAPTIVE_THRESHOLD,
-        "DICING_RATE": DICING_RATE,
-        "MAX_SUBDIVISIONS": MAX_SUBDIVISIONS,
-        "OFFSCREEN_DICING_SCALE": OFFSCREEN_DICING_SCALE,
-        "BOUNCES": dict(BOUNCES),
-        "CLAMP_INDIRECT": CLAMP_INDIRECT,
-        # The interpolation beside each filename is as much a look decision as a colour is: an
-        # oceanmask read Linear instead of Closest feathers every coastline.
-        "IMAGES": {name: list(spec) for name, spec in images_for(look).items()},
-        "SEA_IMAGE": SEA_IMAGE,
-        "ROWSCALE_NODE": ROWSCALE_NODE,
-        "ROWSCALE_INTERPOLATION": ROWSCALE_INTERPOLATION,
-        "ROWSCALE_EXTENSION": ROWSCALE_EXTENSION,
+        # DERIVED, NEVER ENUMERATED. A field added to `Rig` is in the recipe with nothing to
+        # remember, which is the whole reason the constants are a structure.
+        "rig": dataclasses.asdict(RIG),
+        # DERIVED TOO, and the whole table rather than the four this look loads: the optional ones
+        # are declined by a body's planet seam rather than by its look, so recording only what is
+        # loaded would let a planet that GAINED sea ice restage nothing. An interpolation is as much
+        # a look decision as a colour is — an oceanmask read Linear instead of Closest feathers
+        # every coastline — and it is the half that used to be spelled inline where no recipe saw it.
+        "textures": {name: dataclasses.asdict(spec) for name, spec in TEXTURES.items()},
+        "sea_texture": None if look.sea is None else SEA_IMAGE,
         "look": {
             "land_range": list(constants.land_range),
             "land_stops": [[position, list(rgba)] for position, rgba in constants.land_stops],
@@ -250,8 +310,12 @@ def rig_recipe(look: palette.Look) -> dict[str, Any]:
     }
 
 
-def images_for(look: palette.Look) -> dict[str, tuple[str, str]]:
-    """The images this look's graph loads: all of `IMAGES` bar the oceanmask, for a sea-less body.
+def textures_for(look: palette.Look) -> dict[str, TextureSpec]:
+    """The textures built unconditionally for this look: the mandatory four, bar the oceanmask for
+    a sea-less body.
+
+    THE OPTIONAL ONES ARE NOT HERE because they are built at their own sites, beside the mixes and
+    ramps they feed, and the dump-diff against the hand-built .blend sees creation order.
 
     A DECLARATION DECIDES THIS AND NEVER `Path.exists()`. Snow and lake depth are sniffed below and
     survive it because a missing mask degrades to a defined colour; a missing oceanmask cannot tell
@@ -262,8 +326,23 @@ def images_for(look: palette.Look) -> dict[str, tuple[str, str]]:
     seam's `watermask` declaration, not a colour, and absent one the image load fails loudly rather
     than drawing anything. Giving the rig that declaration to read is unit 4's block sidecar.
     """
-    return {name: spec for name, spec in IMAGES.items()
-            if look.sea is not None or name != SEA_IMAGE}
+    return {name: spec for name, spec in TEXTURES.items()
+            if not spec.optional and (look.sea is not None or name != SEA_IMAGE)}
+
+
+def make_texture(nt, render_dir, spec: TextureSpec):
+    """Build one image node entirely from its declaration.
+
+    THE ONLY PLACE AN IMAGE NODE IS CONFIGURED, so there is nowhere left to spell an interpolation
+    or an extension inline. That is what closes the hole the capitals scan could never see: three
+    nodes set those values as literals here for months, reaching every rendered pixel and no recipe.
+    """
+    node = nt.nodes.new("ShaderNodeTexImage")
+    node.name = spec.name
+    node.image = load_image(render_dir, spec.filename)
+    node.interpolation = spec.interpolation
+    node.extension = spec.extension
+    return node
 
 
 def clear_scene():
@@ -318,7 +397,7 @@ def base_patches(span_px):
     and the alternative is not a slower hero but no hero at all. Which frame sizes sit on which side
     of that wall is unmeasured; Nepal at 36.8 Mpx clears it and Australia at 58.8 does not.
     """
-    return max(1, math.ceil(span_px / 2 ** MAX_SUBDIVISIONS))
+    return max(1, math.ceil(span_px / 2 ** RIG.max_subdivisions))
 
 
 def build_plane(height, patches_per_edge):
@@ -357,22 +436,22 @@ def build_camera(ortho_scale):
 
 def build_sun():
     sun = bpy.data.lights.new("Light", "SUN")
-    sun.energy = SUN_STRENGTH
-    sun.angle = SUN_ANGLE
+    sun.energy = RIG.sun_strength
+    sun.angle = RIG.sun_angle
     ob = bpy.data.objects.new("Light", sun)
     ob.location = (4.076245, 1.005454, 5.903862)  # cosmetic; sun is a direction
-    ob.rotation_euler = SUN_ROTATION
+    ob.rotation_euler = RIG.sun_rotation
     bpy.context.collection.objects.link(ob)
     return ob
 
 
 def build_fill():
     sun = bpy.data.lights.new("Fill", "SUN")
-    sun.energy = FILL_STRENGTH
-    sun.angle = FILL_ANGLE
+    sun.energy = RIG.fill_strength
+    sun.angle = RIG.fill_angle
     sun.use_shadow = False
     ob = bpy.data.objects.new("Fill", sun)
-    ob.rotation_euler = FILL_ROTATION
+    ob.rotation_euler = RIG.fill_rotation
     bpy.context.collection.objects.link(ob)
     return ob
 
@@ -381,14 +460,14 @@ def build_world():
     world = bpy.data.worlds.new("World")
     world.use_nodes = True
     bg = world.node_tree.nodes["Background"]
-    bg.inputs["Color"].default_value = WORLD_RGBA
-    bg.inputs["Strength"].default_value = WORLD_STRENGTH
+    bg.inputs["Color"].default_value = RIG.world_rgba
+    bg.inputs["Strength"].default_value = RIG.world_strength
     bpy.context.scene.world = world
 
 
 def load_image(render_dir, filename):
     img = bpy.data.images.load(str(render_dir / filename))
-    img.colorspace_settings.name = "Non-Color"
+    img.colorspace_settings.name = RIG.image_colorspace
     return img
 
 
@@ -396,7 +475,7 @@ def make_ramp(nt, name, label, stops):
     ramp_node = nt.nodes.new("ShaderNodeValToRGB")
     ramp_node.name, ramp_node.label = name, label
     cr = ramp_node.color_ramp
-    cr.interpolation = RAMP_INTERPOLATION
+    cr.interpolation = RIG.ramp_interpolation
     # bpy gotcha (API edition of "stops re-sort by position"): elements.new()
     # and position writes re-sort the collection and invalidate held element
     # references — colors then land on the wrong stops. Never hold refs across
@@ -469,19 +548,21 @@ def build_material(ob, render_dir, displacement_scale, look, present):
         nt.nodes.remove(node)
 
     constants = look_constants(look)
+    # The optional four, looked up unconditionally: a DECLARATION exists whether or not the raster
+    # does, and only the node below is conditional on `present`.
+    snow_spec = texture_for(render_seam.SNOWMASK)
+    lake_depth_spec = texture_for(render_seam.LAKEDEPTH)
+    ice_spec = texture_for(render_seam.SEAICE)
+    rowscale_spec = texture_for(render_seam.ROWSCALE)
+
     tex = {}
-    for name, (filename, interp) in images_for(look).items():
-        image_node = nt.nodes.new("ShaderNodeTexImage")
-        image_node.name = name
-        image_node.image = load_image(render_dir, filename)
-        image_node.interpolation = interp
-        image_node.extension = "REPEAT"
-        tex[name] = image_node
+    for name, spec in textures_for(look).items():
+        tex[name] = make_texture(nt, render_dir, spec)
 
     disp = nt.nodes.new("ShaderNodeDisplacement")
     disp.name = "Displacement"
     disp.space = "OBJECT"
-    disp.inputs["Midlevel"].default_value = DISPLACEMENT_MIDLEVEL
+    disp.inputs["Midlevel"].default_value = RIG.displacement_midlevel
     # Live on the hero path and overridden on the block path, where the rowscale Math node below
     # drives this socket instead. Not a second owner of the constant despite appearing twice: a
     # linked socket ignores its default, so exactly one of the two reaches a pixel per render, and
@@ -500,7 +581,7 @@ def build_material(ob, render_dir, displacement_scale, look, present):
 
     rgb = nt.nodes.new("ShaderNodeRGB")
     rgb.name = "Color"
-    rgb.outputs[0].default_value = WATER_RGBA
+    rgb.outputs[0].default_value = RIG.water_rgba
 
     lake = make_mix(nt, "Mix.001", "Lake")
     river = make_mix(nt, "Mix.002", "River")
@@ -510,14 +591,9 @@ def build_material(ob, render_dir, displacement_scale, look, present):
     # -> graph identical to the pre-snow scene
     snow = None
     if render_seam.SNOWMASK in present:
-        snow_image_node = nt.nodes.new("ShaderNodeTexImage")
-        snow_image_node.name = "Image Texture.004"
-        snow_image_node.image = load_image(render_dir, render_seam.SNOWMASK)
-        snow_image_node.interpolation = "Closest"
-        snow_image_node.extension = "REPEAT"
-        tex["Image Texture.004"] = snow_image_node
+        tex[snow_spec.name] = make_texture(nt, render_dir, snow_spec)
         snow = make_mix(nt, "Mix.003", "Snow")
-        mix_socket(snow, "B").default_value = SNOW_RGBA
+        mix_socket(snow, "B").default_value = RIG.snow_rgba
         print(f"{render_seam.SNOWMASK} declared — wiring Snow mix", flush=True)
 
     # optional depth-keyed lake tint (render/lake_mask.py); raster absent ->
@@ -530,13 +606,8 @@ def build_material(ob, render_dir, displacement_scale, look, present):
     # carved bed makes Namtso a 1.5 km crater).
     lake_ramp = None
     if render_seam.LAKEDEPTH in present:
-        lake_depth_node = nt.nodes.new("ShaderNodeTexImage")
-        lake_depth_node.name = "Image Texture.005"
-        lake_depth_node.image = load_image(render_dir, render_seam.LAKEDEPTH)
-        lake_depth_node.interpolation = "Linear"  # continuous field, like the heightfield
-        lake_depth_node.extension = "REPEAT"
-        tex["Image Texture.005"] = lake_depth_node
-        lake_ramp = make_ramp(nt, "Color Ramp.002", "", LAKE_STOPS)
+        tex[lake_depth_spec.name] = make_texture(nt, render_dir, lake_depth_spec)
+        lake_ramp = make_ramp(nt, "Color Ramp.002", "", RIG.lake_stops)
         print(f"{render_seam.LAKEDEPTH} declared — wiring depth-keyed Lake ramp", flush=True)
 
     # optional sea ice (block prep only today): ONE continuous ocean-gated alpha drives BOTH
@@ -547,14 +618,9 @@ def build_material(ob, render_dir, displacement_scale, look, present):
     ice = None
     ice_flatten = None
     if render_seam.SEAICE in present:
-        ice_image_node = nt.nodes.new("ShaderNodeTexImage")
-        ice_image_node.name = "Image Texture.006"
-        ice_image_node.image = load_image(render_dir, render_seam.SEAICE)
-        ice_image_node.interpolation = "Linear"  # continuous alpha, like the heightfield
-        ice_image_node.extension = "REPEAT"
-        tex["Image Texture.006"] = ice_image_node
+        tex[ice_spec.name] = make_texture(nt, render_dir, ice_spec)
         ice = make_mix(nt, "Mix.004", "Ice")
-        mix_socket(ice, "B").default_value = ICE_RGBA
+        mix_socket(ice, "B").default_value = RIG.ice_rgba
         ice_flatten = make_float_mix(nt, "Mix.005", "Ice Flatten")
         float_socket(ice_flatten, "B").default_value = 0.0  # sea level
         print(f"{render_seam.SEAICE} declared — wiring Ice mix + displacement damp", flush=True)
@@ -565,12 +631,7 @@ def build_material(ob, render_dir, displacement_scale, look, present):
     # Height chain alone, so the sea-ice damp above and the ramps' raw metres both need no thought.
     rowscale = None
     if render_seam.ROWSCALE in present:
-        rowscale_image_node = nt.nodes.new("ShaderNodeTexImage")
-        rowscale_image_node.name = ROWSCALE_NODE
-        rowscale_image_node.image = load_image(render_dir, render_seam.ROWSCALE)
-        rowscale_image_node.interpolation = ROWSCALE_INTERPOLATION  # one texel wide across u
-        rowscale_image_node.extension = ROWSCALE_EXTENSION  # never wrap one pole's row into the other
-        tex[ROWSCALE_NODE] = rowscale_image_node
+        tex[rowscale_spec.name] = make_texture(nt, render_dir, rowscale_spec)
         rowscale = nt.nodes.new("ShaderNodeMath")
         rowscale.name = "Math"
         rowscale.operation = "MULTIPLY"
@@ -586,12 +647,12 @@ def build_material(ob, render_dir, displacement_scale, look, present):
 
     link = nt.links.new
     if rowscale is not None:
-        link(tex[ROWSCALE_NODE].outputs["Color"], rowscale.inputs[0])
+        link(tex[rowscale_spec.name].outputs["Color"], rowscale.inputs[0])
         link(rowscale.outputs["Value"], disp.inputs["Scale"])
     hf = tex["Image Texture"]
     if ice_flatten is not None:
         link(hf.outputs["Color"], float_socket(ice_flatten, "A"))
-        link(tex["Image Texture.006"].outputs["Color"], ice_flatten.inputs["Factor"])
+        link(tex[ice_spec.name].outputs["Color"], ice_flatten.inputs["Factor"])
         link(float_socket(ice_flatten, "Result"), disp.inputs["Height"])
     else:
         link(hf.outputs["Color"], disp.inputs["Height"])
@@ -604,12 +665,12 @@ def build_material(ob, render_dir, displacement_scale, look, present):
     land_color = land_ramp.outputs["Color"]
     if snow is not None:
         link(land_color, mix_socket(snow, "A"))
-        link(tex["Image Texture.004"].outputs["Color"], snow.inputs[0])
+        link(tex[snow_spec.name].outputs["Color"], snow.inputs[0])
         land_color = mix_socket(snow, "Result")
     link(land_color, mix_socket(lake, "A"))
     link(tex["Image Texture.002"].outputs["Color"], lake.inputs[0])
     if lake_ramp is not None:
-        link(tex["Image Texture.005"].outputs["Color"], lake_ramp.inputs["Factor"])
+        link(tex[lake_depth_spec.name].outputs["Color"], lake_ramp.inputs["Factor"])
         link(lake_ramp.outputs["Color"], mix_socket(lake, "B"))
     else:
         link(rgb.outputs["Color"], mix_socket(lake, "B"))
@@ -624,7 +685,7 @@ def build_material(ob, render_dir, displacement_scale, look, present):
         surface_color = mix_socket(ocean, "Result")
     if ice is not None:
         link(surface_color, mix_socket(ice, "A"))
-        link(tex["Image Texture.006"].outputs["Color"], ice.inputs[0])
+        link(tex[ice_spec.name].outputs["Color"], ice.inputs[0])
         surface_color = mix_socket(ice, "Result")
     link(surface_color, bsdf.inputs["Base Color"])
     link(bsdf.outputs["BSDF"], out.inputs["Surface"])
@@ -660,21 +721,21 @@ def configure_render(res_x, res_y, *, denoise_device):
     render_settings.image_settings.file_format = "PNG"
     render_settings.image_settings.color_mode = "RGBA"
     cycles_settings.device = "GPU"
-    cycles_settings.samples = SAMPLES
+    cycles_settings.samples = RIG.samples
     cycles_settings.use_adaptive_sampling = True
-    cycles_settings.adaptive_threshold = ADAPTIVE_THRESHOLD
+    cycles_settings.adaptive_threshold = RIG.adaptive_threshold
     cycles_settings.use_denoising = True
     cycles_settings.denoiser = "OPENIMAGEDENOISE"
     cycles_settings.denoising_input_passes = "RGB_ALBEDO_NORMAL"
     cycles_settings.denoising_prefilter = "ACCURATE"
     cycles_settings.denoising_quality = "HIGH"
     cycles_settings.denoising_use_gpu = denoise_device == "gpu"
-    cycles_settings.dicing_rate = DICING_RATE
-    cycles_settings.max_subdivisions = MAX_SUBDIVISIONS
-    cycles_settings.offscreen_dicing_scale = OFFSCREEN_DICING_SCALE
-    for attr, val in BOUNCES.items():
+    cycles_settings.dicing_rate = RIG.dicing_rate
+    cycles_settings.max_subdivisions = RIG.max_subdivisions
+    cycles_settings.offscreen_dicing_scale = RIG.offscreen_dicing_scale
+    for attr, val in RIG.bounces.items():
         setattr(cycles_settings, attr, val)
-    cycles_settings.sample_clamp_indirect = CLAMP_INDIRECT
+    cycles_settings.sample_clamp_indirect = RIG.clamp_indirect
     scene.view_settings.view_transform = "Standard"
 
 
@@ -746,7 +807,7 @@ def main():
     build_sun()
     build_fill()
 
-    probe = load_image(render_dir, IMAGES["Image Texture"][0])
+    probe = load_image(render_dir, texture_for(render_seam.HEIGHTFIELD).filename)
     if tuple(probe.size) != (frame["width_px"], frame["height_px"]):
         sys.exit(f"heightfield is {tuple(probe.size)} px but frame.json says "
                  f"({frame['width_px']}, {frame['height_px']}) — stale or "

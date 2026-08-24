@@ -8,11 +8,14 @@ Since the sea-sync the constants are imports from
 any re-inlined literal fails HERE instead of on a hero render.
 """
 
+import ast
+import dataclasses
 import importlib
 import json
 import math
 import sys
 import types
+from pathlib import Path
 
 import pytest
 
@@ -54,7 +57,7 @@ class TestRampsAreThePalettes:
     def test_lake_stops(self, scene_build):
         """Still a module attribute, because the lake ramp is not on `Look` — it is one shared
         depth ramp with no per-body values authored yet."""
-        assert scene_build.LAKE_STOPS == rgba_stops(palette.LAKE_STOPS)
+        assert scene_build.RIG.lake_stops == rgba_stops(palette.LAKE_STOPS)
 
     def test_ranges(self, scene_build):
         """BOTH ends read off the Surface, which is what this used to be unable to see.
@@ -102,14 +105,14 @@ class TestTheRigsFilenamesHaveOneOwner:
     """
 
     def test_the_rig_loads_only_images_the_seam_declares(self, scene_build):
-        loaded = {filename for filename, _ in scene_build.IMAGES.values()}
+        loaded = {spec.filename for spec in scene_build.TEXTURES.values()}
         assert loaded <= render_seam.KNOWN_IMAGES
         assert render_seam.HEIGHTFIELD in loaded, "the elevation is always loaded"
 
     def test_the_sea_image_is_the_oceanmask_by_name_and_not_by_position(self, scene_build):
         """`SEA_IMAGE` is a node name and the table maps it to a filename; a table reordered so
         that `.001` became a different mask would drop the wrong image for a sea-less body."""
-        filename, _ = scene_build.IMAGES[scene_build.SEA_IMAGE]
+        filename = scene_build.TEXTURES[scene_build.SEA_IMAGE].filename
         assert filename == render_seam.OCEANMASK
 
 
@@ -132,8 +135,8 @@ class TestASeaLessLookDropsTheSeaBranch:
     def test_the_oceanmask_is_not_asked_for(self, scene_build):
         """A sea-less body never names the raster its planet seam declines to declare, so the
         rig cannot fail on a missing file that was never supposed to exist."""
-        earth_images = scene_build.images_for(palette.EARTH_LOOK)
-        mars_images = scene_build.images_for(palette.MARS_LOOK)
+        earth_images = scene_build.textures_for(palette.EARTH_LOOK)
+        mars_images = scene_build.textures_for(palette.MARS_LOOK)
         assert scene_build.SEA_IMAGE in earth_images
         assert scene_build.SEA_IMAGE not in mars_images
         assert set(earth_images) - set(mars_images) == {scene_build.SEA_IMAGE}
@@ -143,13 +146,14 @@ class TestASeaLessLookDropsTheSeaBranch:
         look's two ramps. Inland water is a planet-seam declaration rather than a colour, so keying
         it off `sea is None` here would answer a question the look was never asked."""
         for look in (palette.EARTH_LOOK, palette.MARS_LOOK):
-            names = scene_build.images_for(look)
+            names = scene_build.textures_for(look)
             assert "Image Texture.002" in names and "Image Texture.003" in names
 
     def test_earths_image_table_and_its_order_are_untouched(self, scene_build):
         """The dump-diff against the hand-built .blend sees creation order, so the sea-less arm
         must not have reordered the arm that renders 203 heroes."""
-        assert list(scene_build.images_for(palette.EARTH_LOOK)) == list(scene_build.IMAGES)
+        mandatory = [name for name, spec in scene_build.TEXTURES.items() if not spec.optional]
+        assert list(scene_build.textures_for(palette.EARTH_LOOK)) == mandatory
 
 
 class TestTheFlagIsCrossCheckedAgainstTheFrame:
@@ -194,41 +198,26 @@ class TestTheFlagIsCrossCheckedAgainstTheFrame:
 class TestFlatTintsAreThePalettes:
     def test_water_is_the_relational_tint(self, scene_build):
         """The 98C5C8 drift's cure: the hero flat water IS palette.WATER_RGB."""
-        assert scene_build.WATER_RGBA == (*palette.srgb8_to_linear(palette.WATER_RGB), 1.0)
+        assert scene_build.RIG.water_rgba == (*palette.srgb8_to_linear(palette.WATER_RGB), 1.0)
 
     def test_snow_is_the_shared_white(self, scene_build):
-        assert scene_build.SNOW_RGBA == (*palette.srgb8_to_linear(palette.SNOW_RGB), 1.0)
+        assert scene_build.RIG.snow_rgba == (*palette.srgb8_to_linear(palette.SNOW_RGB), 1.0)
 
     def test_ice_is_the_palettes_cool_white(self, scene_build):
         """A single albedo where the composite keys a (sunlit, shadowed) pair: Cycles lights the
         sheet itself, so the pair's shadowed half was the fake light key's job."""
-        assert scene_build.ICE_RGBA == (*palette.srgb8_to_linear(palette.ICE_RGB), 1.0)
+        assert scene_build.RIG.ice_rgba == (*palette.srgb8_to_linear(palette.ICE_RGB), 1.0)
 
 
-class TestTheRigRecipeNamesEveryConstantHere:
-    """The freshness recipe for a raytraced planet is `rig_recipe`, and the failure it has to be
-    proof against is OMISSION rather than error.
+class TestTheRigRecipeCarriesTheLook:
+    """The recipe's other half: the body's ramps, which are not this module's to own.
 
-    A constant added here and forgotten there reaches every pixel and moves no mtime, so a planet
-    rendered with the old value keeps reading as current forever — and the render is the most
-    expensive output the project has. Nothing about a missing key is visible from the recipe's own
-    side, which is why the check runs from the MODULE's side: every all-caps name this file defines
-    must appear, so forgetting is red here rather than silent for a night.
+    THE CAPITALS SCAN THAT USED TO LIVE HERE IS GONE, not weakened. It required every module-level
+    ALL-CAPS name to appear in a hand-written recipe, which caught a forgotten constant and was
+    blind by construction to a value spelled inline in a function body. `rig_recipe` now derives
+    from `RIG`, so omission is unrepresentable rather than policed, and
+    `TestTheRecipeIsDerivedRatherThanEnumerated` is what holds that.
     """
-
-    def _capitals(self, scene_build):
-        return {name for name in vars(scene_build)
-                if name.isupper() and not name.startswith("_")}
-
-    def test_every_module_constant_is_in_the_recipe(self, scene_build):
-        recipe = scene_build.rig_recipe(palette.EARTH_LOOK)
-        assert self._capitals(scene_build) <= set(recipe)
-
-    def test_the_scan_finds_the_constants_it_claims_to(self, scene_build):
-        """The anti-vacuity arm. An empty capital set would satisfy the subset above trivially, and
-        that is exactly what a rename to lower case or a moved constant block would produce."""
-        found = self._capitals(scene_build)
-        assert {"SAMPLES", "SUN_STRENGTH", "WORLD_RGBA", "IMAGES"} <= found
 
     def test_the_look_rides_along_rather_than_being_restated(self, scene_build):
         """A ramp is as much a render input as a sun is, and it is the body's rather than this
@@ -244,13 +233,13 @@ class TestTheRigRecipeNamesEveryConstantHere:
         sealess = palette.Look(land=palette.EARTH_LOOK.land, sea=None)
         recipe = scene_build.rig_recipe(sealess)
         assert recipe["look"]["sea_stops"] is None
-        assert scene_build.SEA_IMAGE not in recipe["IMAGES"]
+        assert recipe["sea_texture"] is None
 
 
 class TestSunAltitudeIsShared:
     def test_x_tilt_derives_from_sun_alt_deg(self, scene_build):
         """The 46-vs-45 split's cure: the X tilt is 90 − the shared altitude."""
-        assert math.degrees(scene_build.SUN_ROTATION[0]) == pytest.approx(
+        assert math.degrees(scene_build.RIG.sun_rotation[0]) == pytest.approx(
             90.0 - palette.SUN_ALT_DEG)
 
     def test_the_sun_arrives_from_the_north_west(self, scene_build):
@@ -264,11 +253,11 @@ class TestSunAltitudeIsShared:
 
         Ratified at 315 on real z8 tiles in the product globe rather than on images.
         """
-        assert scene_build.arrival_azimuth_deg(scene_build.SUN_ROTATION) == pytest.approx(315.0)
+        assert scene_build.arrival_azimuth_deg(scene_build.RIG.sun_rotation) == pytest.approx(315.0)
 
     def test_the_fill_arrives_from_the_south_east_its_comment_already_claimed(self, scene_build):
         """The comment said SE while the light came from NE. Both were wrong by the same 90."""
-        assert scene_build.arrival_azimuth_deg(scene_build.FILL_ROTATION) == pytest.approx(135.0)
+        assert scene_build.arrival_azimuth_deg(scene_build.RIG.fill_rotation) == pytest.approx(135.0)
 
     def test_rotating_the_pair_together_is_what_the_bearing_pin_catches(self, scene_build):
         """THE MUTATION THE OLD GUARD COULD NOT SEE, run rather than described.
@@ -277,11 +266,11 @@ class TestSunAltitudeIsShared:
         to match, and that is how the defect survived a guard for two years. A bearing is derived,
         so a moved euler moves it and there is nothing to edit into agreement.
         """
-        tilt = scene_build.SUN_ROTATION[0]
+        tilt = scene_build.RIG.sun_rotation[0]
         # The bearing runs OPPOSITE to the euler — arrival is (180 - z) — which is one more reason
         # not to read a rotation as a compass direction by eye.
         for turn_deg, expected in ((90.0, 225.0), (180.0, 135.0), (-90.0, 45.0)):
-            turned = (tilt, 0.0, scene_build.SUN_ROTATION[2] + math.radians(turn_deg))
+            turned = (tilt, 0.0, scene_build.RIG.sun_rotation[2] + math.radians(turn_deg))
             assert scene_build.arrival_azimuth_deg(turned) == pytest.approx(expected)
 
     def test_a_sun_below_the_horizon_has_no_bearing_to_report(self, scene_build):
@@ -326,7 +315,7 @@ class TestEveryBlockGetsAMicropolygonPerPixel:
             frame = self._frame(block, body)
             span = scene_build.plane_span_px(frame)
             patches = scene_build.base_patches(span)
-            reachable = patches * 2 ** scene_build.MAX_SUBDIVISIONS
+            reachable = patches * 2 ** scene_build.RIG.max_subdivisions
             assert reachable >= span, (
                 f"{body.name} at context {block.context_px}: {patches} patches reach "
                 f"{reachable} micropolygons per edge against a plane spanning {span:.0f} px")
@@ -374,7 +363,7 @@ class TestEveryBlockGetsAMicropolygonPerPixel:
                                  context_px=block_plan.CONTEXT_CEILING_PX)
         span = scene_build.plane_span_px(self._frame(block, bodies.EARTH))
         assert scene_build.base_patches(span) > 1, "the cap does not bind, so this proves nothing"
-        assert 1 * 2 ** scene_build.MAX_SUBDIVISIONS < span, (
+        assert 1 * 2 ** scene_build.RIG.max_subdivisions < span, (
             "a bare quad would reach far enough here, so removing the grid would not fail")
 
     def test_a_hero_frame_also_needs_more_than_one_patch(self, scene_build):
@@ -385,5 +374,152 @@ class TestEveryBlockGetsAMicropolygonPerPixel:
         hero = render_prep.scene_numbers(16384, 12000, 4.0e6, exaggeration=bodies.EARTH.exaggeration)
         span = scene_build.plane_span_px(hero)
         assert span == pytest.approx(render_prep.HERO_LONG_EDGE / render_prep.FRAME_MARGIN, rel=1e-3)
-        assert span > 2 ** scene_build.MAX_SUBDIVISIONS
+        assert span > 2 ** scene_build.RIG.max_subdivisions
         assert scene_build.base_patches(span) == 2
+
+
+class TestTheRecipeIsDerivedRatherThanEnumerated:
+    """The recipe's failure mode is OMISSION, and today it is policed rather than prevented.
+
+    `TestTheRigRecipeNamesEveryConstantHere` above scans the module for ALL-CAPS names and demands
+    each in the recipe. That catches a forgotten constant, and it is blind by construction to a value
+    written inline in a function body: an inline literal has no module-level name to find. Three
+    instances of the same class have now shipped, and the last of them, `snow_image_node.interpolation
+    = "Closest"`, reaches every rendered pixel and no freshness record.
+
+    A constant held in a dataclass cannot go missing from a recipe derived from that dataclass, so
+    these pin the derivation rather than a second enumeration of it.
+    """
+
+    def test_the_rig_constants_are_one_structure(self, scene_build):
+        """A dataclass instance, so `dataclasses.asdict` can be the recipe."""
+        assert dataclasses.is_dataclass(scene_build.RIG)
+        assert dataclasses.fields(scene_build.RIG), "an empty structure satisfies every check below"
+
+    def test_the_recipe_carries_the_structure_exactly(self, scene_build):
+        """Derived, so a field added to `RIG` is in the recipe with nothing to remember.
+
+        Equality rather than a subset: a subset would let the recipe carry a stale key for a field
+        that no longer exists, which reads as a value being tracked when nothing produces it.
+        """
+        recipe = scene_build.rig_recipe(palette.EARTH_LOOK)
+        assert recipe["rig"] == dataclasses.asdict(scene_build.RIG)
+
+    def test_the_structure_holds_what_the_module_used_to_spell_as_capitals(self, scene_build):
+        """The anti-vacuity arm, in the shape the capitals scan already uses.
+
+        An empty or gutted `RIG` passes the two checks above trivially, and that is exactly what a
+        half-finished conversion produces.
+        """
+        fields = {field.name for field in dataclasses.fields(scene_build.RIG)}
+        assert {"samples", "sun_strength", "world_rgba", "clamp_indirect"} <= fields
+
+    def test_no_rig_constant_is_left_at_module_level(self, scene_build):
+        """The conversion is only worth doing if it is complete.
+
+        A constant left outside the structure is a constant the derivation cannot see, which is the
+        hole this replaces rather than a smaller version of it. The texture table is excluded
+        because it is its own structure, checked below, and `SEA_IMAGE` because it names a row of
+        that table rather than carrying a value.
+        """
+        allowed = {"TEXTURES", "SEA_IMAGE", "RIG"}
+        stragglers = {name for name in vars(scene_build)
+                      if name.isupper() and not name.startswith("_") and name not in allowed}
+        assert not stragglers, f"still module-level capitals: {sorted(stragglers)}"
+
+
+class TestEveryTextureNodeIsDeclaredRatherThanSpelledInline:
+    """The seven image nodes are one table, and the three conditional ones are not special.
+
+    Snow, lake depth and sea ice each set a node name, an interpolation and an extension as literals
+    inside `build_material`, so none of the three reaches `rig_recipe`. The other four come from
+    the old `IMAGES`, which carried name and interpolation but NOT extension, so it was inline for
+    all seven. Interpolation is a look decision exactly as a colour is: `Closest` gives a mask a hard
+    edge and `Linear` feathers it, and extension decides whether one pole's row wraps into the other.
+    """
+
+    def test_every_texture_states_all_four_of_its_values(self, scene_build):
+        for name, spec in scene_build.TEXTURES.items():
+            assert spec.name == name, f"{name} disagrees with its own key"
+            assert spec.filename, f"{name} names no raster"
+            assert spec.interpolation, f"{name} states no interpolation"
+            assert spec.extension, f"{name} states no extension"
+
+    def test_the_conditional_textures_are_declared_like_every_other(self, scene_build):
+        """Snow, lake depth and sea ice are ordinary rows that happen to be optional.
+
+        Being optional is a property of the RASTER being present, never of the values being spelled
+        somewhere the recipe cannot reach.
+        """
+        declared = {spec.filename for spec in scene_build.TEXTURES.values()}
+        assert {render_seam.SNOWMASK, render_seam.LAKEDEPTH, render_seam.SEAICE} <= declared
+
+    def test_the_texture_table_is_in_the_recipe(self, scene_build):
+        recipe = scene_build.rig_recipe(palette.EARTH_LOOK)
+        for name, spec in scene_build.TEXTURES.items():
+            assert recipe["textures"][name] == dataclasses.asdict(spec)
+
+    def test_the_masks_keep_the_interpolations_they_ship_with(self, scene_build):
+        """A conversion that quietly re-decided a look value would be a regression wearing a
+        refactor's clothes. These are the values on disk today."""
+        by_file = {spec.filename: spec for spec in scene_build.TEXTURES.values()}
+        assert by_file[render_seam.SNOWMASK].interpolation == "Closest"
+        assert by_file[render_seam.LAKEDEPTH].interpolation == "Linear"
+        assert by_file[render_seam.SEAICE].interpolation == "Linear"
+        assert by_file[render_seam.ROWSCALE].extension == "EXTEND"
+
+    #: Attributes whose value changes what a pixel comes out as. A node's own `.name` is NOT here:
+    #: it is an identity, a consistent rename renders byte-identically, and recording one would put
+    #: a 22 h re-render behind a rename that moves nothing. `colorspace_settings.name` is a
+    #: different attribute that happens to share the word, and it is very much pixel-moving.
+    PIXEL_MOVING = ("interpolation", "extension")
+
+    def _inline_values(self, source: str) -> list[str]:
+        found = []
+        for node in ast.walk(ast.parse(source)):
+            if not isinstance(node, ast.Assign) or not isinstance(node.value, ast.Constant):
+                continue
+            if not isinstance(node.value.value, str):
+                continue
+            for target in node.targets:
+                if not isinstance(target, ast.Attribute):
+                    continue
+                colorspace = (target.attr == "name"
+                              and isinstance(target.value, ast.Attribute)
+                              and target.value.attr == "colorspace_settings")
+                if target.attr in self.PIXEL_MOVING or colorspace:
+                    found.append(f"line {node.lineno}: .{target.attr} = {node.value.value!r}")
+        return found
+
+    def test_no_pixel_moving_value_is_spelled_inline_in_the_builder(self, scene_build):
+        """The guard that catches the NEXT inline literal rather than the ones already listed.
+
+        Everything above pins values that exist today. This asks the structural question none of
+        them can: does the builder assign a bare string to an attribute that decides a pixel? A
+        conversion only holds if re-introducing the pattern goes red.
+
+        This is what found `load_image`'s `colorspace_settings.name = "Non-Color"`, which reaches
+        EVERY raster the rig loads and was on no list of the file's inline values.
+        """
+        found = self._inline_values(Path(scene_build.__file__).read_text(encoding="utf-8"))
+        assert not found, "values spelled inline, invisible to the recipe:\n" + "\n".join(found)
+
+    def test_the_scan_finds_an_inline_value_when_there_is_one(self):
+        """`scene_dump`'s own lesson, applied to this scanner: before trusting a passing comparison,
+        run it once against a known-bad input and watch it fail.
+
+        A scanner that silently matches nothing reports a clean module and a gutted regex the same
+        way, and that is exactly how the first version of this project's dump oracle passed on a
+        broken scene.
+        """
+        known_bad = (
+            "def build():\n"
+            "    node.interpolation = 'Closest'\n"
+            "    node.extension = 'REPEAT'\n"
+            "    img.colorspace_settings.name = 'Non-Color'\n"
+            "    node.name = 'Displacement'\n"
+        )
+        found = self._inline_values(known_bad)
+        assert len(found) == 3, f"expected the three pixel-moving ones, got {found}"
+        assert not any("Displacement" in entry for entry in found), (
+            "a node's own name is an identity, not a look value, and must not be flagged")

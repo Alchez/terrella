@@ -200,7 +200,7 @@ class TestTheRecipeSeesWhatNoMtimeCan:
         """The whole reason the rig's constants are serialised rather than left to source mtimes:
         a look change has to restage the render, and a checkout must not."""
         rig = block_render.rig_recipe(bodies.EARTH)
-        moved = {**rig, "SAMPLES": rig["SAMPLES"] // 2}
+        moved = {**rig, "rig": {**rig["rig"], "samples": rig["rig"]["samples"] // 2}}
         arguments = (bodies.EARTH, planet_seam.declared(bodies.EARTH), palette.look_for("earth"))
         assert (block_render.params(*arguments, moved, self.BLOCKS)
                 != block_render.params(*arguments, rig, self.BLOCKS))

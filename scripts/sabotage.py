@@ -4535,7 +4535,7 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label='the plane goes back to one patch, so every block dices at half its own resolution',
         path='pipeline/render/scene_build.py',
-        needle='    return max(1, math.ceil(span_px / 2 ** MAX_SUBDIVISIONS))',
+        needle='    return max(1, math.ceil(span_px / 2 ** RIG.max_subdivisions))',
         replacement='    return 1',
         guard='test_the_base_grid_covers_every_context_width_on_every_body',
     ),
@@ -4667,11 +4667,22 @@ SABOTAGES: list[Sabotage] = [
     # passing, and a look change made through that constant restages nothing at all.
     Sabotage(
         suite='python',
-        label='the rig recipe forgets a constant, so a look change leaves the planet reading fresh',
+        label='the rig recipe hand-picks instead of deriving, so a new constant reaches no planet',
         path='pipeline/render/scene_build.py',
-        needle='        "SAMPLES": SAMPLES,',
-        replacement='',
-        guard='test_every_module_constant_is_in_the_recipe',
+        needle='        "rig": dataclasses.asdict(RIG),',
+        replacement='        "rig": {"samples": RIG.samples},',
+        guard='test_the_recipe_carries_the_structure_exactly',
+    ),
+    # The texture half of the same law. Recording only what THIS look loads reads as thrift and is
+    # the freshness hole in miniature: the optional four are declined by a body's planet seam rather
+    # than by its look, so a planet that GAINED sea ice would restage nothing.
+    Sabotage(
+        suite='python',
+        label='the recipe records only the textures loaded, so a body gaining one restages nothing',
+        path='pipeline/render/scene_build.py',
+        needle='        "textures": {name: dataclasses.asdict(spec) for name, spec in TEXTURES.items()},',
+        replacement='        "textures": {name: dataclasses.asdict(spec) for name, spec in textures_for(look).items()},',
+        guard='test_the_texture_table_is_in_the_recipe',
     ),
     Sabotage(
         suite='python',
@@ -5044,8 +5055,8 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label='the rig asks every body for an oceanmask, including the ones with no sea',
         path='pipeline/render/scene_build.py',
-        needle='            if look.sea is not None or name != SEA_IMAGE}',
-        replacement='            if True}',
+        needle='            if not spec.optional and (look.sea is not None or name != SEA_IMAGE)}',
+        replacement='            if not spec.optional}',
         guard='test_the_oceanmask_is_not_asked_for',
     ),
     # The scene and its frame are the two places one fact lives, so one of them has to be
@@ -7518,7 +7529,7 @@ SABOTAGES: list[Sabotage] = [
         # step was wrongly blamed on: a per-block parameter that differs across a shared edge.
         label='the base grid scales with the plane, so neighbours can dice differently again',
         path='pipeline/render/scene_build.py',
-        needle='    return max(1, math.ceil(span_px / 2 ** MAX_SUBDIVISIONS))',
+        needle='    return max(1, math.ceil(span_px / 2 ** RIG.max_subdivisions))',
         replacement='    return max(1, math.ceil(span_px / 2048))',
         guard='test_the_base_grid_cannot_discriminate_between_neighbouring_blocks',
     ),

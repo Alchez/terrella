@@ -984,6 +984,35 @@ require a re-render, so they are parked until a re-render is on the table anyway
 - **Note:** validated that atoll/island heroes themselves read well (Maldives/Marshall are striking): 
   the problem is only over-exaggeration of *steep* small islands, not small frames per se.
 
+## Hero and block renders differ in their contents, when only their projection should (raised 2026-08-24)
+
+`scene_build` is one rig with two callers, and the split between them was meant to be geometric:
+`render_prep` warps a country into its own Albers equal-area conic, the block prep windows a global
+EPSG:3857 master. That much is inherent, and the per-row displacement correction exists only because
+Mercator's scale varies with latitude inside one block. What drifted alongside it is the LOOK, which
+was never meant to differ.
+
+- **Snow comes from a different dataset on each path.** Tiles take NSIDC-0791 persistence plus all
+  nineteen RGI 7.0 regions; heroes take ESA WorldCover class 70. HISTORY's *Snow source reworked*
+  entry replaced WorldCover for the tiles on the finding that class 70 is permanent ice rather than
+  seasonal snow, and the hero path kept it. `snow_mask.py` states a coherent reason of its own (the
+  hero's editorial stance is eternal snow), so this is half a decision and half a question nobody
+  re-asked after the tile side moved.
+- **Sea ice reaches the block rig and never the hero rig.** HISTORY's *sea ice reaches the rig* entry
+  wires one ocean-gated alpha in the block prep. Nothing records a decision to leave heroes out, so
+  an Arctic country's hero draws open water where its own tiles draw pack.
+- **The rig's conditional branches exist only because of that divergence**, and they are where the
+  inline literals that bypassed the freshness recipe were living. Converging the two paths removes
+  the branches rather than guarding them.
+
+**The target is that projection is the only thing the two paths may differ in**: same layers, same
+sources, same constants, with the frame and the CRS as the only arguments. Getting there means giving
+the hero path the tile path's layer set rather than the reverse, since the tile set is the one that
+was revised on evidence.
+
+Deferred past the 22h Earth pass deliberately: every part of it is a HERO deficiency, and none of it
+changes a raytraced tile.
+
 ## Small debts and open calls, carried out of the working plan (parked 2026-08-24)
 
 The working plan had become the project's only backlog as well as its live state, which is why it
@@ -1016,6 +1045,22 @@ in hand. None is urgent; each is here so it is greppable rather than compressed 
 
 ### One concept with two homes
 
+- **The two render preps are named in opposite orders, and the package docstring no longer matches.**
+  - `render_prep` and `prep_block` are the same category of stage: build a render directory, then
+    shell into `scene_build`. Nothing in HISTORY justifies the difference, so it is drift.
+  - `pipeline/render/__init__.py` says "the rest of this package is the hero path" and enumerates
+    four modules. `prep_block.py` sits in that package, is not the hero path, and is not enumerated.
+  - Renaming changes no recipe, so it is neither cheaper nor dearer after the render pass.
+- **17 mutation cases name a guard that does not catch them**, found by `sabotage.py --audit` on
+  2026-08-24 and listed in HISTORY's *the audit runs* entry. Each is a guard repair rather than a
+  pipeline change, and none of them changes a rendered pixel. The 394 web and collection cases could
+  not be audited at all, since neither suite can be narrowed to one guard.
+- **A freshness recipe could be derived from the built scene rather than enumerated by hand.**
+  `scene_dump.py` already dumps the graph exhaustively, including sampled ramp evaluations, and it
+  reads the BUILT graph rather than the source, so it sees values written inline. Hashing it would
+  have caught all three instances of the enumeration going short. The obstacle is that it needs real
+  Blender, where the freshness check today runs with `bpy` stubbed; the graph is body-shaped rather
+  than block-shaped, so one invocation per pass would do.
 - **The RGI glacier path is spelled twice and its burn argv has no owner.**
   - `snow.RGI_GPKG` and `download_rgi.GPKG` are one path written in two places, and
     `rasterize_glaciers_raster` carries a copy of the argv `vector_raster.rasterize_argv` now owns.
