@@ -13,6 +13,7 @@ wrote the stamp, and `block_render.main` is a second shipped door that never rea
 A unit test of the write function passed throughout.
 """
 
+import dataclasses
 import json
 
 import pytest
@@ -145,15 +146,19 @@ class TestEveryDoorIntoAProducerDeclaresThatProducer:
         )
 
     def test_it_declares_the_producer_that_RAN_not_the_one_the_body_asked_for(self, raytraceable,
-                                                                             tmp_path):
-        """The two differ in exactly the case this exists for. Earth is registered `"composite"`,
-        and running the block runner against it puts raytraced bytes on disk whatever the registry
-        says. Recording the body's answer would leave the stamp agreeing with a registry the pixels
-        disagree with — which is the state that reads as fresh."""
-        assert bodies.EARTH.planet_producer == "composite", (
-            "this guard needs a body whose registry answer differs from the producer being run; "
-            "if Earth has switched, point it at one that has not"
-        )
+                                                                             tmp_path, monkeypatch):
+        """The two differ in exactly the case this exists for: `--only` re-renders one block of any
+        body for judging, so raytraced bytes can land on a planet the registry calls composite.
+        Recording the body's answer would leave the stamp agreeing with a registry the pixels
+        disagree with — which is the state that reads as fresh.
+
+        THE DIVERGENCE IS CONSTRUCTED RATHER THAN BORROWED. It used to read Earth's registered
+        `"composite"`, which made the guard a hostage of which body happens to be composite today —
+        and Earth's switch to raytrace turned it red for a reason that was not about the seam.
+        """
+        composited = dataclasses.replace(bodies.get("earth"), planet_producer="composite")
+        monkeypatch.setitem(bodies.BODIES, "earth", composited)
+
         block_render.main(["--body", "earth", "--work", str(tmp_path)])
         assert producer_seam.declared(tmp_path) == "raytrace"
 

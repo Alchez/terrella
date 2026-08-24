@@ -232,9 +232,9 @@ EARTH = Body(
     # The reference body, and the caps are a signature feature rather than a detail: both poles
     # ship a full rung ladder, feathered into the tiles at the seam.
     renders_polar_caps=True,
-    # Composite today. Flipping this alone does not produce a planet: the raytraced producer's first
-    # production run is a full night of GPU, and the pixels it ships are a look decision.
-    planet_producer="composite",
+    # Raytraced. Reverting this is a look change rather than a rollback: `planet_rgb.tif` is
+    # rewritten in place by whichever producer runs, and the two do not agree on colour.
+    planet_producer="raytrace",
 )
 
 

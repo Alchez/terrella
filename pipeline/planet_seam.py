@@ -37,6 +37,7 @@ believing `layers_off` and this set are the same switch.
 import json
 from collections.abc import Callable, Iterable
 from pathlib import Path
+from xml.etree import ElementTree
 
 from pipeline import bodies, layers
 
@@ -113,6 +114,86 @@ def _require_coherent(body: bodies.Body, rasters: frozenset[str]) -> None:
                 f"surface_layers are")
 
 
+#: How far two planet rasters' bounds may differ and still count as the same ground, in degrees.
+#: Set by what is INVISIBLE rather than by float noise: 1e-7 degrees is about 1 cm, four orders
+#: below the 10-arcsec pixel this seam's coarsest raster uses, so a real shift always trips it while
+#: the round-trip through a VRT's decimal GeoTransform never does. Same reasoning as
+#: `freshness.grid_matches`' 1 m tolerance under a 305 m pixel.
+GRID_TOLERANCE_DEG = 1e-7
+
+
+def _grid_of(path: Path) -> tuple[int, int, tuple[float, float, float, float]]:
+    """`(width, height, bounds)` read out of a VRT's own XML.
+
+    PARSED RATHER THAN OPENED, so this module stays stdlib-only. `pipeline/render/prep_block.py`
+    imports it and runs inside Blender's interpreter, which has no rasterio, and a GDAL dependency
+    here would be discovered at the first block of a production pass rather than at import.
+
+    A VRT with no `GeoTransform` RAISES rather than being skipped. Skipping would make a malformed
+    file the one input that disarms the check that exists to read it.
+    """
+    root = ElementTree.parse(path).getroot()
+    width = int(root.get("rasterXSize", 0))
+    height = int(root.get("rasterYSize", 0))
+    element = root.find("GeoTransform")
+    if not width or not height or element is None or not element.text:
+        raise ValueError(
+            f"{path} carries no usable grid (size {width}x{height}, "
+            f"GeoTransform {'absent' if element is None else 'empty'}) — a planet raster must "
+            f"state the ground it covers, and one that cannot is not a raster this seam can declare")
+    origin_x, pixel_w, _, origin_y, _, pixel_h = (float(v) for v in element.text.split(","))
+    return width, height, (origin_x, origin_y + height * pixel_h,
+                           origin_x + width * pixel_w, origin_y)
+
+
+def _require_nested_grids(body: bodies.Body, rasters: Iterable[str]) -> None:
+    """Refuse a set whose rasters do not sit on nested grids — same bounds, whole-number size ratio.
+
+    NOT "ALL THREE MUST MATCH", AND THE DIFFERENCE IS DELIBERATE. `prep_block` reads the heightfield
+    and the ocean mask independently — the mask picks the material, the heightfield drives
+    displacement — so they are allowed to carry different detail, and the masks are refined in
+    latitude alone to take the high-latitude coastline lattice out of the delivered pixels. What
+    they may NOT do is straddle: pixel edges that fall between each other put the mask's coast a
+    fraction of a pixel off the terrain it classifies, on every warp, systematically and silently.
+
+    Identical bounds plus a whole-number ratio per axis is exactly the condition that every coarse
+    edge lands on a fine one. Either direction passes, because which raster is finer is a producer's
+    choice and only the alignment is a correctness claim.
+
+    THE HEIGHTFIELD IS THE REFERENCE because `_require_coherent` has already refused a set without
+    one, and because it is what `shade_planet` measures the 3857 reference grid from.
+
+    WRITE-SIDE ONLY, unlike `_require_coherent` next door, and the asymmetry is the point. That one
+    is re-checked on read because the LAYER REGISTRY can gain an entry months after a declaration is
+    written, so the same file becomes incoherent without anything touching it. A grid cannot: it
+    moves only when a producer re-runs, and a producer that re-runs writes this file again.
+    """
+    named = sorted(set(rasters))
+    if "heightfield" not in named:
+        return
+    reference = _grid_of(vrt_path(body, "heightfield"))
+    ref_width, ref_height, ref_bounds = reference
+    for raster in named:
+        if raster == "heightfield":
+            continue
+        width, height, bounds = _grid_of(vrt_path(body, raster))
+        if any(abs(a - b) > GRID_TOLERANCE_DEG for a, b in zip(bounds, ref_bounds)):
+            raise ValueError(
+                f"{body.name}: {raster!r} covers different ground from the heightfield — bounds "
+                f"{bounds} against {ref_bounds}. Every 3857 warp reads them onto one grid, so a "
+                f"planet declared like this classifies terrain it is not sitting on")
+        for axis, (size, ref_size) in (("width", (width, ref_width)),
+                                       ("height", (height, ref_height))):
+            larger, smaller = max(size, ref_size), min(size, ref_size)
+            if smaller == 0 or larger % smaller:
+                raise ValueError(
+                    f"{body.name}: {raster!r} does not nest inside the heightfield's grid — "
+                    f"{axis} {size} against {ref_size}, a ratio of {larger / smaller:.4g} rather "
+                    f"than a whole number. A mask may be finer than the terrain it classifies, but "
+                    f"its pixel edges must fall on the terrain's or its coast lands a fraction of "
+                    f"a pixel off, on every warp and with nothing to report it")
+
+
 def write_vrt_if_changed(vrt: Path, build: Callable[[Path], None]) -> bool:
     """Have `build` write `vrt`, and replace the file on disk only when the XML actually differs.
 
@@ -167,6 +248,7 @@ def declare(body: bodies.Body, rasters: Iterable[str]) -> Path:
     if absent:
         raise FileNotFoundError(
             f"{body.name}: refusing to declare rasters that are not on disk: {', '.join(absent)}")
+    _require_nested_grids(body, named)
     path = declaration_path(body)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps({"rasters": named}, indent=2) + "\n")

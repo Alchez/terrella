@@ -310,20 +310,25 @@ class TestAKnobOverrideMustReachAPixel:
     indistinguishable from the look being insensitive to the knob.
     """
 
+    #: Both arms are BUILT rather than borrowed from the registry, so neither goes vacuous the day
+    #: the last body of one kind switches. Earth alone used to stand for the composite here, and
+    #: flipping it to raytrace turned this class's two composite arms into raytraced ones — which
+    #: read as failures of the code rather than of the fixture.
+    COMPOSITE = dataclasses.replace(bodies.EARTH, planet_producer="composite")
+    RAYTRACED = dataclasses.replace(bodies.EARTH, planet_producer="raytrace")
+
     def test_a_composite_body_accepts_one(self):
-        planet_pass.apply_knob_overrides(bodies.EARTH, [])
+        planet_pass.apply_knob_overrides(self.COMPOSITE, [])
 
     def test_a_raytraced_body_refuses_one(self):
-        raytraced = dataclasses.replace(bodies.EARTH, planet_producer="raytrace")
         with pytest.raises(SystemExit, match="reach no pixel"):
-            planet_pass.apply_knob_overrides(raytraced, ["ambient=0.5"])
+            planet_pass.apply_knob_overrides(self.RAYTRACED, ["ambient=0.5"])
 
     def test_a_raytraced_body_with_no_override_is_not_refused(self):
         """The refusal is about the override, not about the producer: an ordinary raytraced pass
         must not be stopped by a check on a flag nobody passed."""
-        raytraced = dataclasses.replace(bodies.EARTH, planet_producer="raytrace")
-        planet_pass.apply_knob_overrides(raytraced, [])
+        planet_pass.apply_knob_overrides(self.RAYTRACED, [])
 
     def test_an_unknown_knob_is_still_refused_on_a_composite_body(self):
         with pytest.raises(SystemExit, match="unknown knob"):
-            planet_pass.apply_knob_overrides(bodies.EARTH, ["nosuchknob=1"])
+            planet_pass.apply_knob_overrides(self.COMPOSITE, ["nosuchknob=1"])

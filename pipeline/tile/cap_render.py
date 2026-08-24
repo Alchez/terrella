@@ -97,8 +97,12 @@ CAP_EDGE_LAT = 80.0    # inscribed-circle latitude of the texture disc, north; t
                        # latitude to the pole and samples nothing outside the disc, so the two move
                        # together. The visible band opens at that file's FEATHER_LO 81 and is fully
                        # opaque from shade_planet.CAP_NORTH 84, so the whole ladder is
-                       # |edge_lat| <= MESH_EDGE_LAT <= FEATHER_LO < |feather_hi| -- asserted in
-                       # polarCaps.test.ts against the served caps.json rather than restated here.
+                       # |edge_lat| <= MESH_EDGE_LAT <= FEATHER_LO < |feather_hi| -- asserted by
+                       # test_the_cap_latitude_ladder_holds, which is the only reader that spans
+                       # both languages. RAISING THIS ALONE CANNOT SHIP: at 84 both ends of the
+                       # ladder break, so the two web constants must come up with it and feather_hi
+                       # must clear 84 against no Mercator tile above 85.05 -- which leaves the
+                       # feather at most 1.05 degrees against the 3 it has here.
                        # DO NOT raise CAP_PX chasing a finer cap: Mars's disc already oversamples its
                        # 200 m source, and RINGS (polarCaps.ts) makes the MESH the limit, not this.
 CAP_MEASURE_BAND_DEGREES = 20.0

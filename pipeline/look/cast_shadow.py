@@ -18,19 +18,17 @@ Two properties are load-bearing and both are inherited, not invented:
   going pure black. That is the same invariant the fill-sun port established, where a
   single unfilled sun turned 43.7% of the Alps into flat black slabs.
 
-* **The penumbra is the sun's angular size, not a blur radius.** scene_build's SUN_ANGLE is 12
-  degrees of angular DIAMETER, so the terrain horizon crossing the sun's disc takes 12 degrees to
-  go from fully lit to fully occluded. Ramping over +/- 6 degrees about the sun altitude gives the
-  soft edge for free, with no post-blur and no invented parameter.
+* **The penumbra is the sun's angular size, not a blur radius.** `palette.SUN_ANGULAR_DIAMETER_DEG`
+  is the disc's angular DIAMETER, so the terrain horizon crossing it takes that many degrees to go
+  from fully lit to fully occluded. Ramping over half of it either side of the sun altitude gives
+  the soft edge for free, with no post-blur and no invented parameter.
 """
 
 import math
 
 import numpy as np
 
-# scene_build.SUN_ANGLE — the sun disc's angular DIAMETER in degrees. The penumbra spans exactly
-# this, centred on the sun's altitude, because that is how long the horizon takes to cross the disc.
-SUN_ANGULAR_DIAMETER = 12.0
+from pipeline.look import palette
 
 
 def sun_offsets(azimuth: float) -> tuple[float, float]:
@@ -106,11 +104,12 @@ def shadow_mask(heights: np.ndarray, zfactor: float | np.ndarray, m_per_px: floa
             upsun = np.roll(upsun, -column_offset, axis=1)
         np.maximum(steepest, (upsun - exaggerated) / (distance * m_per_px), out=steepest)
 
-    # The horizon crosses the sun's disc over SUN_ANGULAR_DIAMETER degrees: fully lit while it sits
-    # a half-diameter below the sun's altitude, fully occluded a half-diameter above.
-    half_disc = SUN_ANGULAR_DIAMETER / 2.0
+    # The horizon crosses the sun's disc over its whole angular diameter: fully lit while it sits a
+    # half-diameter below the sun's altitude, fully occluded a half-diameter above. Read from
+    # `palette` at CALL time, so this module cannot hold a stale copy of a shared look constant.
+    disc = palette.SUN_ANGULAR_DIAMETER_DEG
     horizon = np.degrees(np.arctan(np.clip(steepest, 0.0, None)))
-    fraction = (horizon - (altitude - half_disc)) / SUN_ANGULAR_DIAMETER
+    fraction = (horizon - (altitude - disc / 2.0)) / disc
     return np.clip(fraction, 0.0, 1.0).astype(np.float32)
 
 

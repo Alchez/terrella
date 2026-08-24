@@ -22,6 +22,7 @@ import subprocess
 import numpy as np
 import pytest
 import rasterio
+from conftest import write_planet_vrt
 from rasterio.transform import from_bounds
 
 from pipeline import bodies, layers, paths, planet_seam
@@ -39,11 +40,17 @@ def store(tmp_path, monkeypatch):
     return tmp_path
 
 
-def _emit(body: bodies.Body, *rasters: str) -> None:
-    """Put stand-in VRTs on disk for `rasters` — `declare` checks presence, never contents."""
+def _emit(body: bodies.Body, *rasters: str, grid: tuple[int, int] = (3600, 3600),
+          bounds: tuple[float, float, float, float] = (-180.0, -90.0, 180.0, 90.0)) -> None:
+    """Put stand-in VRTs on disk for `rasters`, each on `grid` over `bounds`.
+
+    THESE CARRY A REAL GEOTRANSFORM because `declare` now reads one. They stayed contentless
+    (`<VRTDataset/>`) while presence was the only thing checked, and that stopped being true when
+    the grids became something a producer can get wrong.
+    """
     planet_seam.planet_dir(body).mkdir(parents=True, exist_ok=True)
     for raster in rasters:
-        planet_seam.vrt_path(body, raster).write_text("<VRTDataset/>")
+        write_planet_vrt(planet_seam.vrt_path(body, raster), grid=grid, bounds=bounds)
 
 
 class TestTheVocabulary:
@@ -167,6 +174,97 @@ class TestCoherenceWithTheBodysOwnLayers:
     def test_a_layer_whose_mask_is_present_is_coherent(self, store) -> None:
         body = _body("ok", frozenset({"lake_depth", "sea_ice"}))
         _emit(body, *planet_seam.PLANET_RASTERS)
+        planet_seam.declare(body, planet_seam.PLANET_RASTERS)
+        assert planet_seam.declared(body) == planet_seam.KNOWN_RASTERS
+
+
+class TestTheRastersMustSitOnNESTEDGrids:
+    """The masks may be FINER than the heightfield, but their pixel edges must still coincide.
+
+    WHY THIS IS NOT "ALL THREE MUST MATCH". `prep_block` reads the heightfield and the ocean mask
+    INDEPENDENTLY — the mask picks the material, the heightfield drives displacement — so the two
+    are allowed to carry different detail, and the coastline work deliberately refines latitude in
+    the masks alone. What is NOT allowed is grids whose pixels straddle each other, because then
+    every warp lands the mask's coast a fraction of a pixel off the heightfield's and the offset is
+    systematic, silent, and looks exactly like a fusion bug.
+
+    NESTING IS THE PROPERTY, and it is two facts: identical BOUNDS, and a whole-number size ratio
+    per axis. Together those put every coarse pixel edge on a fine pixel edge. Either direction is
+    legal — which raster is finer is a choice, and only the alignment is a correctness claim.
+
+    NOTHING ELSE IN THE TREE ASSERTS THIS. `freshness.grid_matches` checks that a warp's OUTPUT is
+    on the reference grid and says nothing about its source; `_require_coherent` checks WHICH
+    rasters a producer emitted and never opens one. So an accidental mismatch had no oracle at all,
+    which mattered little while all three were written by one call at one resolution and matters
+    now that they are not.
+    """
+
+    def test_a_mask_whose_grid_does_not_nest_is_refused(self, store) -> None:
+        body = _body("straddle")
+        _emit(body, "heightfield", grid=(3600, 3600))
+        _emit(body, "oceanmask", "watermask", grid=(5400, 5400))  # 1.5x — pixel edges straddle
+        with pytest.raises(ValueError, match="does not nest"):
+            planet_seam.declare(body, planet_seam.PLANET_RASTERS)
+
+    def test_a_mask_covering_different_ground_is_refused(self, store) -> None:
+        """Same shape, shifted bounds. The size ratio is a clean 1, so a ratio-only check passes it
+        and every downstream warp reads the mask one degree east of the terrain it classifies."""
+        body = _body("shifted")
+        _emit(body, "heightfield", "watermask", grid=(3600, 3600))
+        _emit(body, "oceanmask", grid=(3600, 3600), bounds=(-179.0, -90.0, 181.0, 90.0))
+        with pytest.raises(ValueError, match="bounds"):
+            planet_seam.declare(body, planet_seam.PLANET_RASTERS)
+
+    def test_the_refusal_names_the_raster_and_both_grids(self, store) -> None:
+        """An error that says only 'grids disagree' costs the reader a gdalinfo on three files."""
+        body = _body("named")
+        _emit(body, "heightfield", grid=(3600, 3600))
+        _emit(body, "oceanmask", "watermask", grid=(5400, 5400))
+        with pytest.raises(ValueError) as raised:
+            planet_seam.declare(body, planet_seam.PLANET_RASTERS)
+        message = str(raised.value)
+        assert "oceanmask" in message and "3600" in message and "5400" in message
+
+    def test_a_refused_grid_leaves_no_declaration_behind(self, store) -> None:
+        """The declaration is the completion stamp, so a refused planet must not look finished."""
+        body = _body("nofile")
+        _emit(body, "heightfield", grid=(3600, 3600))
+        _emit(body, "oceanmask", "watermask", grid=(5400, 5400))
+        with pytest.raises(ValueError):
+            planet_seam.declare(body, planet_seam.PLANET_RASTERS)
+        assert not planet_seam.declaration_path(body).exists()
+
+    def test_a_vrt_with_no_geotransform_is_refused_rather_than_skipped(self, store) -> None:
+        """A malformed VRT must not be the one input that disarms the check that reads it.
+
+        Skipping is the natural way to write it — an absent GeoTransform reads as "no opinion"
+        rather than "broken" — and it turns a corrupt planet into a declared one.
+        """
+        body = _body("malformed")
+        _emit(body, *planet_seam.PLANET_RASTERS, grid=(3600, 3600))
+        planet_seam.vrt_path(body, "oceanmask").write_text(
+            '<VRTDataset rasterXSize="3600" rasterYSize="3600"/>')
+        with pytest.raises(ValueError, match="no usable grid"):
+            planet_seam.declare(body, planet_seam.PLANET_RASTERS)
+
+    def test_masks_ten_times_finer_in_LATITUDE_ONLY_are_allowed(self, store) -> None:
+        """The coastline fix's exact shape, pinned so a later tightening cannot forbid it.
+
+        PASSES BY CONSTRUCTION BEFORE THE GUARD EXISTS and is therefore not a failing-first test: it
+        is a regression guard against the guard, which is the failure mode a rule like this actually
+        has. The three above are the ones that must go red first.
+        """
+        body = _body("anisotropic")
+        _emit(body, "heightfield", grid=(3600, 3600))
+        _emit(body, "oceanmask", "watermask", grid=(3600, 36000))  # 1x across, 10x down
+        planet_seam.declare(body, planet_seam.PLANET_RASTERS)
+        assert planet_seam.declared(body) == planet_seam.KNOWN_RASTERS
+
+    def test_a_coarser_mask_that_still_nests_is_allowed(self, store) -> None:
+        """Which raster is finer is a choice; only the alignment is a correctness claim."""
+        body = _body("coarser")
+        _emit(body, "heightfield", grid=(3600, 3600))
+        _emit(body, "oceanmask", "watermask", grid=(1200, 1200))  # 3x coarser, edges still coincide
         planet_seam.declare(body, planet_seam.PLANET_RASTERS)
         assert planet_seam.declared(body) == planet_seam.KNOWN_RASTERS
 

@@ -242,6 +242,16 @@ class TestSunAltitudeIsShared:
         assert math.degrees(scene_build.RIG.sun_rotation[0]) == pytest.approx(
             90.0 - palette.SUN_ALT_DEG)
 
+    def test_the_discs_width_derives_from_the_shared_one(self, scene_build):
+        """THE ALTITUDE'S SIBLING, and it had drifted into two copies the same way.
+
+        `cast_shadow` carried its own 12.0 with a comment naming the rig's, which is the 46-vs-45
+        split's exact shape. It becomes load-bearing the moment the context law reads it: the ring
+        is sized from this width, so a drift silently mis-sizes every block on the planet.
+        """
+        assert math.degrees(scene_build.RIG.sun_angle) == pytest.approx(
+            palette.SUN_ANGULAR_DIAMETER_DEG)
+
     def test_the_sun_arrives_from_the_north_west(self, scene_build):
         """THE ASSERTION THIS REPLACES PINNED A COORDINATE AND THE RIG SHIPPED 90 DEGREES OFF.
 

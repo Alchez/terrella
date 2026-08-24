@@ -19,7 +19,7 @@ from pipeline.block_plan import Block
 from pipeline.look import layer_producers, palette, seaice, snow
 from pipeline.raster_io import GTIFF_CREATE
 from pipeline.render import prep_block, render_seam
-from pipeline.tile import block_render, producer_seam, shade_planet
+from pipeline.tile import block_render, producer_seam, relief_scan, shade_planet
 
 
 def _block(row_index, col_index, context=block_plan.DENOISE_BAND_PX):
@@ -255,6 +255,34 @@ class TestTheRecipeSeesWhatNoMtimeCan:
         assert mars["layers_off"] == layers.layers_off(bodies.MARS, layers.BLOCK_LAYERS)
         assert mars["layers_off"], "Mars declares fewer block layers than Earth; if this is empty "\
                                    "the assertion above can no longer tell a read from a constant"
+
+
+class TestTheShippingPlannerSizesFromTheSharedSunAltitude:
+    """EVERY OTHER TEST IN THIS FILE STUBS `plan_blocks`, so the one line choosing the sizing
+    altitude has no other guard, and getting it wrong truncates every shadow reaching into a block
+    with no error and no edge to notice.
+
+    It moves the shared constant rather than asserting the number, because the failure this can
+    actually see is a DRIFT: `palette.SUN_ALT_DEG` is what the rig and the tile shader are lit by
+    too, so a local copy here sizes the planet for a sun nothing else uses. Sizing anywhere BELOW
+    that altitude is rejected rather than open, and `block_plan.context_for` says why.
+    """
+
+    def test_it_sizes_from_the_shared_sun_altitude(self, monkeypatch, tmp_path):
+        seen = {}
+
+        def _capture(relief, window, body, *, altitude_deg):
+            seen["altitude"] = altitude_deg
+            return []
+
+        monkeypatch.setattr(relief_scan, "scan", lambda body, **kwargs: None)
+        monkeypatch.setattr(relief_scan, "read_relief",
+                            lambda work: (np.zeros((32, 32)), np.zeros((32, 32))))
+        monkeypatch.setattr(block_plan, "plan", _capture)
+        monkeypatch.setattr(palette, "SUN_ALT_DEG", palette.SUN_ALT_DEG - 5.0)
+        block_render.plan_blocks(bodies.EARTH, tmp_path)
+        assert seen["altitude"] == palette.SUN_ALT_DEG, \
+            "the planner carries its own altitude, so the rig's sun and the ring's sun can drift"
 
 
 class TestTheWhiteLawReachesTheRecipeAndNotOnlyTheCode:

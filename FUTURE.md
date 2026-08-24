@@ -1042,6 +1042,16 @@ in hand. None is urgent; each is here so it is greppable rather than compressed 
   reproduce CI exactly. Without it, a store-reading test is green locally and red only after a push.
 - **An explicit env override on `pass_cap.HEAVY_JOB_GIB`** is the half of the ratified cap ruling
   `4f4daf8` that never landed. The two measured caps stay fixed either way.
+- **Every planet fusion chunk is older than the mosaics it was fused from, and nothing can notice.**
+  `fuse_planet.fuse_cell` skips a cell on `heightfield_10s.tif` EXISTENCE, so rebuilding
+  `dem_mosaic.vrt` or `wbm_mosaic.vrt` after a tile download never restages one.
+  - Measured on `e010_n70`: re-fusing today moves **928 px of 12.96 M, 0.0072%**, scattered and
+    symmetric. Small per cell, systematic across all 648, and invisible from disk.
+  - The module already guards the OPPOSITE direction, warning that a stale mosaic fuses new land as
+    ocean. This is the same hazard with the arrow reversed and no guard at all.
+  - The fix is an mtime gate rather than an existence one, which is what every other stage in this
+    pipeline already uses. Cheap; unscheduled because a full re-fuse is 15 min and nobody has judged
+    whether 0.0072% is worth spending it on.
 
 ### One concept with two homes
 
@@ -1051,10 +1061,26 @@ in hand. None is urgent; each is here so it is greppable rather than compressed 
   - `pipeline/render/__init__.py` says "the rest of this package is the hero path" and enumerates
     four modules. `prep_block.py` sits in that package, is not the hero path, and is not enumerated.
   - Renaming changes no recipe, so it is neither cheaper nor dearer after the render pass.
-- **17 mutation cases name a guard that does not catch them**, found by `sabotage.py --audit` on
-  2026-08-24 and listed in HISTORY's *the audit runs* entry. Each is a guard repair rather than a
-  pipeline change, and none of them changes a rendered pixel. The 394 web and collection cases could
-  not be audited at all, since neither suite can be narrowed to one guard.
+- **17 mutation cases name a guard that does not catch them**, found by `sabotage.py --audit` on 2026-08-24. Each is a guard repair rather than a pipeline change, and none of them changes a rendered pixel, so none gates a render pass. HISTORY's *the audit runs* entry carries every conclusion about the audit and none of the items, which is why they are enumerated here.
+  - **The list is re-derivable in 8.5 min** by re-running `--audit`, and a re-run is the honest list rather than this one, which rots as the table changes. Prefer it if any of the 17 has been touched since.
+  - The 394 web and collection cases could not be audited at all, since neither suite can be narrowed to one guard, so their guards remain unproven and are not counted here.
+  1. *a refactor moves a needle out from under its case*. A regression from the same day: the in-flight skip keys on the mutated PATH, so every needle pointing at that file is skipped, the moved one included. Fix is to key it on the in-flight CASE.
+  2. *the region preview regrows its own exaggeration*, `test_exaggeration_is_shared`.
+  3. *the hillshade forgets the ground scale*. The guard captures `exaggeration` and not `ground_scale`, on a body whose ground ratio is exactly 1.0.
+  4. *the warp asks the disk before the body*, caught by three other tests and naming a fourth.
+  5. *the reprojection stops removing its target*. CONFIRMED WRONG against the full suite; the real catcher is `test_a_corrupt_intermediate_does_not_survive_into_the_burn`.
+  6. *the brightness recipe stops recording its weights*, `test_changed_weights_are_STALE`.
+  7. *the recipe drops the source edition*, `test_a_republished_source_edition_is_STALE`.
+  8. *the cap recipe stops recording which layers are off*, `test_turning_a_layer_off_restages_although_its_source_stops_being_a_dependency`.
+  9. *the gazetteer extracts as it verifies*, `test_a_bad_digest_writes_NOTHING_not_even_the_members_before_it`.
+  10. *an edge ACROSS the meridian counts as one along it*. CONFIRMED MISSED against the full suite; nothing catches it.
+  11. *the writer re-derives the law instead of calling it*. The replacement is numerically identical, so only asserting `row_scale` is CALLED can catch it.
+  12. *the context is sized at the block centre*, `test_no_block_row_is_narrower_than_sizing_at_its_centre`.
+  13. *the scratch VRT is built outside the directory*, `test_an_unchanged_source_set_leaves_the_file_untouched`.
+  14. *served assets are resolved against the data store*, `test_served_assets_follow_the_checkout_not_the_data_store`.
+  15. *the About page keeps the superseded output licence*, `test_every_site_states_the_output_license`.
+  16. *gen_spotlight restates the ladder instead of importing it*, `test_the_ladder_matches_the_spotlight_overlay`.
+  17. *the render dir drifts from the work dir*, `test_it_follows_a_relocated_store`.
 - **A freshness recipe could be derived from the built scene rather than enumerated by hand.**
   `scene_dump.py` already dumps the graph exhaustively, including sampled ramp evaluations, and it
   reads the BUILT graph rather than the source, so it sees values written inline. Hashing it would
@@ -1090,6 +1116,16 @@ in hand. None is urgent; each is here so it is greppable rather than compressed 
 
 ### Unpriced or unscheduled work
 
+- **72 of Earth's 1,024 blocks are under-sized at the sun's OWN altitude**, which is a different
+  defect from the soft-sun limb and outlived its rejection. `haloed` maxes relief per BLOCK, so a
+  ring pairing one block's summit against an adjacent block's valley holds more range than the
+  sizing block was told about; worst ratio 0.674.
+  - **Do not act on this before it gets the treatment the limb got.** It is a census of RANGES, and
+    the limb's control established that only a single occluder's REACH puts a shadow anywhere, so
+    the same instrument that manufactured that finding produced this one. `block_plan.context_for`
+    carries the mechanism.
+  - The ring measured is one 512 px cache cell wide, so the number itself is a lower bound on the
+    population rather than a measurement of the shortfall.
 - **The last unbuilt pipeline optimisation**: 0-filling GLOBathy instead of `-srcnodata` deletes about
   51% of the 62-minute lake warp, but it is a source rewrite that pays only on a re-extract.
 - **256 px DEM assets stay unmeasured**: 4x fewer bytes per slot with slot count and refetch

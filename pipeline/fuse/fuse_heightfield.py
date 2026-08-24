@@ -26,6 +26,7 @@ Usage:
 """
 
 import argparse
+import contextlib
 import os
 import sys
 from pathlib import Path
@@ -33,6 +34,7 @@ from typing import Any
 
 import numpy as np
 import rasterio
+from affine import Affine
 from rasterio.enums import Resampling
 from rasterio.transform import from_origin
 from rasterio.vrt import WarpedVRT
@@ -68,12 +70,53 @@ CASPIAN_BBOX = (46.5, 36.5, 55.5, 47.5)  # west, south, east, north (EPSG:4326)
 CASPIAN_MAX_SURFACE_M = -5.0  # its surface is a uniform -28 m; +83 m Mingevir is not
 
 
-def make_grid(bounds, res_arcsec):
+def make_grid(bounds, res_arcsec, lat_res_arcsec=None) -> tuple[Affine, int, int]:
+    """The output grid, square by default and finer in LATITUDE ALONE when asked.
+
+    WHY ONLY ONE AXIS CAN BE REFINED HERE. The high-latitude coastline staircase is a latitude
+    artefact: a source row is a fixed ground distance at every latitude, while a Web-Mercator pixel
+    spans `305.748 * cos(lat)` in BOTH axes, so a source COLUMN and an output pixel shrink together
+    and the longitude ratio is 1.011 everywhere. Only rows are replicated. Refining longitude would
+    upsample 3 arcsec of native GLO-30 to 1 at 79.5N and invent data, for 100x the pixels instead of
+    10x; refining latitude is at the source's own resolution, which is 1 arcsec in every GLO-30 band.
+
+    THE RATIO MUST BE A WHOLE NUMBER, and that is a correctness bound rather than tidiness:
+    `planet_seam._require_nested_grids` refuses a mask whose pixel edges fall between the
+    heightfield's, because the misregistration it causes is sub-pixel, systematic, and invisible in
+    any image. Refusing it here is refusing it where the grid is chosen.
+    """
     west, south, east, north = bounds
     res = res_arcsec / 3600.0
     width = round((east - west) / res)
-    height = round((north - south) / res)
-    return from_origin(west, north, res, res), width, height
+    if lat_res_arcsec is None:
+        return from_origin(west, north, res, res), width, round((north - south) / res)
+    ratio = res_arcsec / lat_res_arcsec
+    if ratio < 1 or abs(ratio - round(ratio)) > 1e-9:
+        raise ValueError(
+            f"a latitude resolution of {lat_res_arcsec}\" against {res_arcsec}\" of longitude is a "
+            f"ratio of {ratio:g} rather than a whole number, so the rows would not nest inside the "
+            f"square grid's and every consumer would read the mask a fraction of a pixel off the "
+            f"terrain it classifies")
+    lat_res = lat_res_arcsec / 3600.0
+    return (from_origin(west, north, res, lat_res), width,
+            round((north - south) / lat_res))
+
+
+def grid_tag(res_arcsec, lat_res_arcsec=None):
+    """The filename tag for a grid: `10s` square, `1x10s` for 1" latitude by 10" longitude.
+
+    ONE OWNER BECAUSE TWO MODULES SPELL IT. This writes `oceanmask_<tag>.tif` and `fuse_planet`
+    GLOBS for it to index the VRTs, so a second copy of this format is a set of chunks nothing can
+    find — an empty VRT rather than an error.
+
+    A LATITUDE EQUAL TO THE LONGITUDE IS THE SQUARE TAG, deliberately: `--lat-res-arcsec 10` beside
+    `--res-arcsec 10` describes the grid that is already on disk, and giving it a second name would
+    fuse the planet again into files no consumer reads.
+    """
+    lon = f"{res_arcsec:g}".replace(".", "p")
+    if lat_res_arcsec is None or lat_res_arcsec == res_arcsec:
+        return f"{lon}s"
+    return f"{f'{lat_res_arcsec:g}'.replace('.', 'p')}x{lon}s"
 
 
 def is_caspian(transform, win, wbm, land):
@@ -164,6 +207,17 @@ def main():
     ap.add_argument("--wbm-vrt", type=Path, default=WBM_VRT,
                     help="water-body mask mosaic (default: the GLO-30 WBM mosaic); "
                          "override alongside --dem-vrt so void-fill land is classified")
+    ap.add_argument("--lat-res-arcsec", type=float,
+                    help="finer LATITUDE resolution, leaving longitude at --res-arcsec. The "
+                         "high-latitude coastline staircase is a latitude artefact (a source "
+                         "column and a Mercator pixel both shrink by cos(lat), so only rows "
+                         "replicate), and GLO-30 is 1 arcsec in latitude at every band — so this "
+                         "is native resolution, not interpolation. Must divide --res-arcsec.")
+    ap.add_argument("--masks-only", action="store_true",
+                    help="write the ocean and water masks and no heightfield. GEBCO is never "
+                         "opened: it feeds only the fused elevation, while the land/sea rule needs "
+                         "DEM and WBM alone. Pairs with --lat-res-arcsec to refine the coastline "
+                         "without paying for a finer elevation master nobody asked for.")
     ap.add_argument("--watermask-only", action="store_true",
                     help="backfill the water mask from an existing fusion")
     ap.add_argument("--coverage-warn", action="store_true",
@@ -174,7 +228,7 @@ def main():
                          "the cell mid-sweep. The country path leaves this off (fail loud).")
     args = ap.parse_args()
 
-    tag = f"{args.res_arcsec:g}s".replace(".", "p")
+    tag = grid_tag(args.res_arcsec, args.lat_res_arcsec)
     out_height = args.outdir / f"heightfield_{tag}.tif"
     out_mask = args.outdir / f"oceanmask_{tag}.tif"
     out_water = args.outdir / f"watermask_{tag}.tif"
@@ -193,7 +247,10 @@ def main():
 
     if args.bounds is None:
         ap.error("--bounds is required for a full fusion run")
-    if out_height.exists() and out_mask.exists() and out_water.exists():
+    # The skip predicate is what this run PRODUCES, not the full set: a masks-only run beside an
+    # existing square fusion emits no heightfield, so demanding one would make it re-run forever.
+    produced = [out_mask, out_water] if args.masks_only else [out_height, out_mask, out_water]
+    if all(path.exists() for path in produced):
         print(f"fusion outputs exist in {args.outdir} — skipping", flush=True)
         return
     args.outdir.mkdir(parents=True, exist_ok=True)
@@ -204,8 +261,10 @@ def main():
     tmp_mask = out_mask.with_name(out_mask.name + ".tmp")
     tmp_water = out_water.with_name(out_water.name + ".tmp")
 
-    transform, width, height = make_grid(args.bounds, args.res_arcsec)
-    print(f"target grid: {width} x {height} @ {args.res_arcsec}\"", flush=True)
+    transform, width, height = make_grid(args.bounds, args.res_arcsec, args.lat_res_arcsec)
+    print(f"target grid: {width} x {height} @ {args.res_arcsec}\" lon x "
+          f"{args.lat_res_arcsec or args.res_arcsec:g}\" lat"
+          f"{' (masks only)' if args.masks_only else ''}", flush=True)
 
     profile: dict[str, Any] = dict(
         driver="GTiff", crs="EPSG:4326", transform=transform,
@@ -216,16 +275,25 @@ def main():
     vrt_kw = dict(crs="EPSG:4326", transform=transform,
                   width=width, height=height)
 
-    with rasterio.open(args.dem_vrt) as dem_src, \
-         rasterio.open(args.wbm_vrt) as wbm_src, \
-         rasterio.open(args.gebco) as geb_src, \
-         WarpedVRT(dem_src, resampling=getattr(Resampling, args.land_resampling), **vrt_kw) as dem, \
-         WarpedVRT(wbm_src, resampling=Resampling.nearest, **vrt_kw) as wbm, \
-         WarpedVRT(geb_src, resampling=Resampling.cubic_spline, **vrt_kw) as geb, \
-         rasterio.open(tmp_height, "w", dtype="float32", predictor=3,
-                       **profile) as fh, \
-         rasterio.open(tmp_mask, "w", dtype="uint8", **profile) as fm, \
-         rasterio.open(tmp_water, "w", dtype="uint8", **profile) as fw:
+    # AN ExitStack RATHER THAN A `with` CHAIN, because two of these are conditional: `--masks-only`
+    # opens neither GEBCO nor the heightfield writer. GEBCO is skippable at all only because it
+    # feeds `fused` and nothing else — the land/sea rule below reads DEM and WBM alone — and it is
+    # the expensive one, a cubic-spline warp of a global mosaic.
+    with contextlib.ExitStack() as stack:
+        dem_src = stack.enter_context(rasterio.open(args.dem_vrt))
+        wbm_src = stack.enter_context(rasterio.open(args.wbm_vrt))
+        dem = stack.enter_context(WarpedVRT(
+            dem_src, resampling=getattr(Resampling, args.land_resampling), **vrt_kw))
+        wbm = stack.enter_context(WarpedVRT(wbm_src, resampling=Resampling.nearest, **vrt_kw))
+        geb = fh = None
+        if not args.masks_only:
+            geb_src = stack.enter_context(rasterio.open(args.gebco))
+            geb = stack.enter_context(WarpedVRT(
+                geb_src, resampling=Resampling.cubic_spline, **vrt_kw))
+            fh = stack.enter_context(rasterio.open(tmp_height, "w", dtype="float32",
+                                                   predictor=3, **profile))
+        fm = stack.enter_context(rasterio.open(tmp_mask, "w", dtype="uint8", **profile))
+        fw = stack.enter_context(rasterio.open(tmp_water, "w", dtype="uint8", **profile))
 
         nwin = ((height + BLOCK - 1) // BLOCK) * ((width + BLOCK - 1) // BLOCK)
         done = 0
@@ -237,7 +305,6 @@ def main():
                              min(BLOCK, width - col), min(BLOCK, height - row))
                 dem_win = dem.read(1, window=win)
                 wbm_win = wbm.read(1, window=win)
-                geb_win = geb.read(1, window=win)
 
                 land = np.where(dem_win == DEM_NODATA, 0, dem_win)
                 coastal_water = ((wbm_win == 2) | (wbm_win == 3)) & (np.abs(land) <= 1.0)
@@ -245,9 +312,9 @@ def main():
                 ocean = (wbm_win == 1) | (wbm_win == WBM_NODATA) | coastal_water | caspian
                 gap_px += int(((dem_win == DEM_NODATA) & (wbm_win == 0)).sum())  # WBM-land, no DEM tile
                 land_px += int((wbm_win == 0).sum())
-                fused = np.where(ocean, np.minimum(geb_win, -1.0), land)
-
-                fh.write(fused.astype("float32"), 1, window=win)
+                if fh is not None and geb is not None:
+                    fused = np.where(ocean, np.minimum(geb.read(1, window=win), -1.0), land)
+                    fh.write(fused.astype("float32"), 1, window=win)
                 fm.write(ocean.astype("uint8"), 1, window=win)
                 wm = classify_water(ocean, wbm_win)
                 fw.write(wm, 1, window=win)
@@ -269,13 +336,14 @@ def main():
         print(f"coverage: {gap_frac:.3%} land gap ({gap_px:,} px) — below fail "
               f"threshold, flat-filled", flush=True)
     # class codes must not be averaged — a 2 next to a 0 is not a 1
-    for path, rs in ((tmp_height, Resampling.average),
-                     (tmp_mask, Resampling.average),
-                     (tmp_water, Resampling.nearest)):
+    written = [(tmp_mask, out_mask, Resampling.average),
+               (tmp_water, out_water, Resampling.nearest)]
+    if not args.masks_only:
+        written.insert(0, (tmp_height, out_height, Resampling.average))
+    for path, _final, rs in written:
         with rasterio.open(path, "r+") as ds:
             ds.build_overviews([2, 4, 8, 16, 32], rs)
-    for tmp, final in ((tmp_height, out_height), (tmp_mask, out_mask),
-                       (tmp_water, out_water)):
+    for tmp, final, _rs in written:
         os.replace(tmp, final)
     print("complete", flush=True)
 

@@ -209,6 +209,17 @@ def context_for(max_relief_m: float, latitude_deg: float, *, exaggeration: float
     `tile.shade.KNOBS` and the rig's `SUN_ROTATION`, and a second copy of it here would be one more
     place to drift. Getting it wrong truncates shadows silently.
 
+    SIZING BELOW THAT ALTITUDE IS A REJECTED IDEA RATHER THAN AN OPEN ONE. The sun is a disc
+    `palette.SUN_ANGULAR_DIAMETER_DEG` wide, so the last ray a ridge can block leaves its lower
+    limb and runs 1.2349x further than this altitude lays a shadow; a census says 315 of Earth's
+    1,024 blocks have no slack absorbing that. It was implemented, rendered and refuted. A positive
+    control widening one block's ring 832 to 2048 px — 2.46x, past the ceiling the limb would ask
+    for — moves that block NO MORE than the limb's 1.15x does, over added terrain holding more
+    relief than the ring already carries, and the join oracle puts both arms deep inside the
+    distribution of the same terrain's own interior column steps. The mechanism is why the census
+    was the wrong instrument: this law sizes from a block's relief RANGE, peak to trench, but only
+    a single occluder's REACH can put a shadow anywhere, and no occluder embodies that range.
+
     `latitude_deg` IS THE OCCLUDER'S AND NOT THE BLOCK'S, which is `poleward_sizing_latitude`'s
     subject; this function only turns a latitude into a length.
 

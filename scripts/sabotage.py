@@ -2905,11 +2905,12 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label='a body names a producer nothing can dispatch, and pyright is the only thing refusing it',
         path='pipeline/bodies.py',
-        # The comment line disambiguates: the field's VALUE line is identical on both bodies, and a
-        # needle matching twice is refused by the harness rather than mutating an arbitrary one.
-        needle='    # production run is a full night of GPU, and the pixels it ships are a look decision.\n'
-               '    planet_producer="composite",\n',
-        replacement='    # production run is a full night of GPU, and the pixels it ships are a look decision.\n'
+        # Earth's value line, which is unique while it is the only raytraced body. The comment line
+        # rides along so the needle stays anchored if Mars joins it: a needle matching twice is
+        # refused by the harness rather than mutating an arbitrary one.
+        needle='    # rewritten in place by whichever producer runs, and the two do not agree on colour.\n'
+               '    planet_producer="raytrace",\n',
+        replacement='    # rewritten in place by whichever producer runs, and the two do not agree on colour.\n'
                     '    planet_producer="raytraced",\n',
         guard='test_every_body_names_a_producer_the_vocabulary_knows',
     ),
@@ -4370,6 +4371,57 @@ SABOTAGES: list[Sabotage] = [
         replacement='    return rasters',
         guard='test_coherence_is_rechecked_on_READ_not_only_on_write',
     ),
+    # The masks may be FINER than the heightfield and deliberately are, so the tempting shape here is
+    # "sizes need not match" -- which is true, and which passes every grid that straddles as well as
+    # every grid that nests. The ratio is the whole claim.
+    # The land guard's two halves. Its old test was "tiles are listed, so there must be land", which
+    # is false wherever GLO-30 publishes an all-ocean tile — and the natural repair, "stop failing on
+    # an all-ocean cell", deletes the Antarctic protection the guard exists for. Both halves are
+    # needed and each one alone reads like a complete fix, which is why both have a case.
+    Sabotage(
+        suite='python',
+        label='an unserved tile counts as served, so a stale mosaic fuses a continent away again',
+        path='pipeline/fuse/fuse_planet.py',
+        needle='            if served.size and (served != nodata).any():',
+        replacement='            if True:',
+        guard='test_a_cell_whose_tiles_are_NOT_indexed_still_fails',
+    ),
+    Sabotage(
+        suite='python',
+        label='land the mosaic really holds is never noticed, so a lost coastline reads as landless',
+        path='pipeline/fuse/fuse_planet.py',
+        needle='            if served.size and (served == WBM_LAND).any():',
+        replacement='            if False:',
+        guard='test_land_in_the_mosaic_that_the_fusion_LOST_still_fails',
+    ),
+    Sabotage(
+        suite='python',
+        label='a mask grid that straddles the heightfield\'s pixels is declared as if it nested',
+        path='pipeline/planet_seam.py',
+        needle='            if smaller == 0 or larger % smaller:',
+        replacement='            if False:',
+        guard='test_a_mask_whose_grid_does_not_nest_is_refused',
+    ),
+    # The size ratio is a clean 1 when only the BOUNDS move, so the nesting test above passes a mask
+    # sitting a degree off the terrain it classifies. Two facts, two guards.
+    Sabotage(
+        suite='python',
+        label='a mask covering different ground passes because its pixel COUNT still matches',
+        path='pipeline/planet_seam.py',
+        needle='        if any(abs(a - b) > GRID_TOLERANCE_DEG for a, b in zip(bounds, ref_bounds)):',
+        replacement='        if False:',
+        guard='test_a_mask_covering_different_ground_is_refused',
+    ),
+    # A malformed VRT is the one input that could disarm the check that reads it, and skipping is the
+    # natural way to write that -- an absent GeoTransform then means "no opinion" instead of "broken".
+    Sabotage(
+        suite='python',
+        label='a VRT with no GeoTransform is skipped rather than refused',
+        path='pipeline/planet_seam.py',
+        needle='    if not width or not height or element is None or not element.text:',
+        replacement='    if False:',
+        guard='test_a_vrt_with_no_geotransform_is_refused_rather_than_skipped',
+    ),
     # The tidy that motivates it: the write side already checks, so the read side looks redundant. It
     # is not — the registry can gain a layer long after the declaration was written.
     Sabotage(
@@ -4603,6 +4655,32 @@ SABOTAGES: list[Sabotage] = [
     ),
     Sabotage(
         suite='python',
+        # The planner's altitude is reachable by no other test in its file: every one of them
+        # stubs `plan_blocks` outright, so this line is the only thing standing under the guard.
+        label='the planner carries its own sun altitude, so the ring and the rig can drift apart',
+        path='pipeline/tile/block_render.py',
+        needle='                                      altitude_deg=palette.SUN_ALT_DEG), body)',
+        replacement='                                      altitude_deg=45.0), body)',
+        guard='test_it_sizes_from_the_shared_sun_altitude',
+    ),
+    Sabotage(
+        suite='python',
+        label='the penumbra grades on a local copy of the disc, so the rig and the tiles drift',
+        path='pipeline/look/cast_shadow.py',
+        needle='    disc = palette.SUN_ANGULAR_DIAMETER_DEG',
+        replacement='    disc = 12.0',
+        guard='test_the_ramp_follows_the_shared_width_rather_than_a_local_copy',
+    ),
+    Sabotage(
+        suite='python',
+        label="the rig re-inlines the sun's disc, which is how the altitude split happened",
+        path='pipeline/render/scene_build.py',
+        needle='    sun_angle=math.radians(palette.SUN_ANGULAR_DIAMETER_DEG),',
+        replacement='    sun_angle=math.radians(11.0),',
+        guard='test_the_discs_width_derives_from_the_shared_one',
+    ),
+    Sabotage(
+        suite='python',
         label='the block recipe stops recording which side of the fold each layer sits on',
         path='pipeline/tile/block_render.py',
         needle='        **layer_producers.white_law(body, layers.BLOCK_LAYERS),\n',
@@ -4819,7 +4897,12 @@ SABOTAGES: list[Sabotage] = [
         path='pipeline/planet_seam.py',
         needle='    scratch = vrt.with_suffix(".vrt.new")',
         replacement='    scratch = vrt.parent.parent / (vrt.name + ".new")',
-        guard='test_an_unchanged_source_set_leaves_the_file_untouched',
+        # The test that actually fires, which is the DIRECT one: it asserts the scratch path's
+        # parent. `test_an_unchanged_source_set_leaves_the_file_untouched` was named here for the
+        # CONSEQUENCE (GDAL writes relative source paths, so building elsewhere makes every
+        # comparison unequal and every re-index rewrite the VRT) and it does go red too — but a
+        # guard field naming a downstream symptom reads as coverage the direct guard already has.
+        guard='test_the_scratch_target_shares_the_vrts_directory',
     ),
     # The consumer side of the same seam. Each of these leaves a pass that runs to completion and
     # produces a whole planet; what changes is whether that planet's sea was declared or assumed.

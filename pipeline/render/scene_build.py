@@ -153,7 +153,7 @@ class Rig:
 RIG = Rig(
     displacement_midlevel=0.0,
     sun_rotation=(math.radians(90.0 - palette.SUN_ALT_DEG), 0.0, math.radians(-135.0)),
-    sun_angle=math.radians(12.0),
+    sun_angle=math.radians(palette.SUN_ANGULAR_DIAMETER_DEG),
     sun_strength=3.0,
     fill_rotation=(math.radians(30.0), 0.0, math.radians(45.0)),
     fill_angle=math.radians(10.0),

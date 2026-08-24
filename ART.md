@@ -449,7 +449,7 @@ Cost: hero sweep **~10–13 h** + tile restage **~29 min** + caps auto-restage *
   per-country *derived* numbers in frame.json (formulas in docs/framing-math.md) — not levers.
   Resolution rule: 7680 px on the raster's longer axis, short axis follows.
 - Displacement Midlevel 0, adaptive subdivision + dicing rates.
-- Mask wiring (ocean/lake/river/snow): Non-Color, Closest interpolation, 0/255 PNG.
+- Mask wiring (ocean/lake/river/snow): Non-Color, Closest interpolation. Binary masks are 0/255; the graded ones are 16-bit, because 8 bits terraced the sea floor through the ice-flatten displacement.
 - Warp width ≈ render width and ≤ source width (the anti-bump rule).
 - No Map Range with reversed ranges — Math Multiply + Clamp only.
 

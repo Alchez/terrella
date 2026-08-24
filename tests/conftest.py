@@ -61,6 +61,29 @@ def the_suite_never_writes_into_the_served_tree():
                 f"paths.ROOT, check every root derived from it is read at call time.")
 
 
+def write_planet_vrt(path: Path, grid: tuple[int, int] = (3600, 3600),
+                     bounds: tuple[float, float, float, float] = (-180.0, -90.0, 180.0, 90.0),
+                     ) -> None:
+    """Write a stand-in planet VRT carrying a real grid, the way a producer's `gdalbuildvrt` would.
+
+    ONE OWNER BECAUSE TWO SUITES FABRICATE THESE. `planet_seam.declare` reads a GeoTransform now, to
+    refuse rasters whose pixels straddle each other, so `<VRTDataset/>` stopped being enough — and it
+    stopped being enough in `test_relief_scan` as well as in `test_planet_seam`, which is how a
+    second copy of this string would have been born. Change the shape here and both go red together.
+
+    Written as XML rather than built with `gdalbuildvrt` because these back no real files: the point
+    is the grid a declaration is checked against, and a real VRT would need real chunks to index.
+    """
+    west, south, east, north = bounds
+    width, height = grid
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        f'<VRTDataset rasterXSize="{width}" rasterYSize="{height}">'
+        f"<GeoTransform>{west}, {(east - west) / width}, 0.0, "
+        f"{north}, 0.0, {-(north - south) / height}</GeoTransform>"
+        f"</VRTDataset>")
+
+
 def hillshade_for_light(light: float) -> float:
     """The hillshade DN whose post-`apply_ambient_floor` light is exactly `light`.
 

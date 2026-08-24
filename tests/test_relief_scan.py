@@ -15,6 +15,7 @@ from typing import Any
 import numpy as np
 import pytest
 import rasterio
+from conftest import write_planet_vrt
 from rasterio.transform import from_bounds
 
 from pipeline import block_plan, bodies, mercator, paths, planet_seam, raster_io
@@ -68,7 +69,7 @@ def _prepare(body, elevations, *, ocean=None, nodata=None, declare=("heightfield
         _raster(relief_scan.ocean_master_path(work), ocean)
     planet_seam.planet_dir(body).mkdir(parents=True, exist_ok=True)
     for raster in declare:
-        planet_seam.vrt_path(body, raster).write_text("<VRTDataset/>")
+        write_planet_vrt(planet_seam.vrt_path(body, raster))
     planet_seam.declare(body, declare)
     return work
 
@@ -242,7 +243,7 @@ class TestTheGridIsTheBodysOwn:
         _raster(relief_scan.master_path(work),
                 np.zeros((TEST_EDGE // 2, TEST_EDGE // 2), dtype=np.float32))
         planet_seam.planet_dir(body).mkdir(parents=True, exist_ok=True)
-        planet_seam.vrt_path(body, "heightfield").write_text("<VRTDataset/>")
+        write_planet_vrt(planet_seam.vrt_path(body, "heightfield"))
         planet_seam.declare(body, ("heightfield",))
         with pytest.raises(ValueError, match=f"{TEST_EDGE}x{TEST_EDGE} grid"):
             relief_scan.scan(body)

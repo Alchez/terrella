@@ -62,7 +62,6 @@ from pipeline.freshness import (
     write_if_changed,
 )
 from pipeline.look import (
-    cast_shadow,
     hillshade,
     lake_depth,
     layer_producers,
@@ -193,7 +192,7 @@ def hs_params(body: bodies.Body) -> str:
     if KNOBS["shadow_strength"] != 0.0:
         params["shadow"] = {"strength": KNOBS["shadow_strength"],
                             "reach_px": int(KNOBS["shadow_reach"]),
-                            "disc": cast_shadow.SUN_ANGULAR_DIAMETER}
+                            "disc": palette.SUN_ANGULAR_DIAMETER_DEG}
     return json.dumps(params, sort_keys=True, indent=2)
 
 

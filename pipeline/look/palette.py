@@ -102,6 +102,11 @@ LAKE_MAX_M = 1642.0  # Baikal — the deepest lake GLOBathy carries; the lake ra
 SUN_ALT_DEG = 45.0   # the shared sun altitude: tile KNOBS["alt"] and the hero SUN_ROTATION
 # X-tilt (90 - alt) both derive from this (the sea-sync — the cure for the 46/45
 # split). Azimuth stays per-side: both are NW by their own conventions (tile 315, hero -45).
+SUN_ANGULAR_DIAMETER_DEG = 12.0  # how wide the sun's disc is, which is why shadow edges are soft
+# rather than hard. THE ALTITUDE'S SIBLING AND IT DRIFTED THE SAME WAY: `cast_shadow` carried its
+# own 12.0 and the rig's `sun_angle` a second, each with a comment naming the other. Three readers
+# now, and the third is why the drift stopped being cosmetic — `block_plan` sizes every block's
+# context from the half-diameter, so two copies disagreeing silently mis-size the whole planet.
 EXAGGERATION = 15.0  # EARTH's vertical exaggeration, and the region preview is the last path that
 # reads it directly. Everything that draws more than one body reads Body.exaggeration — relief is a
 # different fraction of the radius on every planet, so it cannot be one number — and

@@ -49,6 +49,7 @@ import sys
 from pathlib import Path
 
 import rasterio
+from rasterio.windows import from_bounds
 
 from pipeline import bodies, planet_seam
 from pipeline.acquire.download_glo30 import (
@@ -57,10 +58,39 @@ from pipeline.acquire.download_glo30 import (
     in_extent,
     parse_tile_name,
 )
+from pipeline.fuse import fuse_heightfield
 
 RES_ARCSEC = 10
 CELL_DEG = 10
-TAG = "10s"  # must equal fuse_heightfield's f"{RES_ARCSEC:g}s"
+TAG = fuse_heightfield.grid_tag(RES_ARCSEC)
+
+#: The masks alone are fused a second time at this LATITUDE resolution, leaving longitude at
+#: `RES_ARCSEC`, and the finer pair is what the planet's mask VRTs index.
+#:
+#: WHY THE MASKS AND NOT THE HEIGHTFIELD. The high-latitude coastline staircase is a latitude
+#: artefact — a source column and a Web-Mercator pixel both shrink by cos(lat), so the longitude
+#: ratio is 1.011 everywhere and only ROWS replicate, 5.55x at 79.5N. Measured on the shipped
+#: `ocean_3857.tif`, adjacent rows are byte-identical 82.5% of the time there; refused at 1 arcsec
+#: it falls to 0.3%. GLO-30 is 1 arcsec in LATITUDE at every band, so this is the source's own
+#: resolution rather than an upsample.
+#:
+#: THE HEIGHTFIELD DELIBERATELY STAYS SQUARE. `prep_block` reads it and the mask independently — the
+#: mask picks the material, the heightfield drives displacement — so they may carry different
+#: detail, and the disagreement this creates was measured at 0.123% of pixels, symmetric, at a
+#: median elevation of +0.92 m against controls of +399 (land) and -397 (sea). It lands on the
+#: ramps' shared endpoint. Refining the heightfield too would be ~140 GB retained against these
+#: masks' ~810 MB, and it is the z9/z10 re-fuse FUTURE parks as blocked on disk.
+#:
+#: `planet_seam._require_nested_grids` is what keeps the pair honest: 10 is a whole multiple of 1,
+#: so the fine rows nest inside the square ones and no consumer reads a mask off its terrain.
+MASK_LAT_ARCSEC = 1
+MASK_TAG = fuse_heightfield.grid_tag(RES_ARCSEC, MASK_LAT_ARCSEC)
+
+#: The Copernicus water-body classes the land guard reads, from `fuse_heightfield`'s own recipe:
+#: 0 is land, 255 is the mosaic's nodata — what a VRT returns where it indexes no source.
+WBM_LAND = 0
+WBM_NODATA = fuse_heightfield.WBM_NODATA
+WBM_VRT = fuse_heightfield.WBM_VRT
 #: EARTH BY CONSTRUCTION, AND DELIBERATELY WITHOUT A `--body`. This driver fuses Copernicus tiles
 #: against GEBCO over a Natural-Earth-indexed land list; every input it reads describes one planet,
 #: so parameterising it would produce a flag whose only legal value is `earth`. A second body enters
@@ -70,6 +100,16 @@ EARTH_PLANET_DIR = planet_seam.planet_dir(bodies.EARTH)
 CHUNKS_DIR = EARTH_PLANET_DIR / "chunks"
 DEFAULT_WORKERS = 12
 GIB_PER_WORKER = 1.5  # fuse_heightfield peak RSS incl. GDAL cache, rounded up
+
+#: The same figure for a `--masks` cell, and it is LARGER for a reason that is not "more pixels".
+#: `BLOCK` bounds a window's ROWS at 8192, so a square cell (3600 x 3600) is one window covering the
+#: whole thing while a 1"-latitude cell (3600 x 36000) is five windows of 8192 x 3600 — 2.3x the
+#: window, not 10x the cell. MEASURED at 2.19 GiB peak RSS on a dense cell (0-10E 40-50N, 72.9%
+#: land) and rounded up, the same way its neighbour was.
+#:
+#: 16 GiB / 2.5 is SIX workers, which is what a run under this project's cgroup cap must pass as
+#: `--workers`: `mem_available_gib` reads the host's MemAvailable and cannot see the cap.
+MASK_GIB_PER_WORKER = 2.5
 
 FUSE_ENV = {
     "GDAL_CACHEMAX": "384",          # MB, per process -> multiplies by --workers
@@ -126,47 +166,126 @@ def mem_available_gib() -> float:
     return 0.0
 
 
-def enforce_land_guard(outdir: Path) -> bool:
-    """True if the fused ocean mask holds at least one land pixel; on pure ocean, fail the cell.
+def tiles_are_served(listed_tiles, wbm_vrt: Path) -> bool:
+    """True if the mosaic actually serves at least one of this cell's listed GLO-30 tiles.
 
-    Closes the stale-mosaic route around the coverage oracle (found when the
-    first Antarctic sweep fused the whole continent as ocean): every listed tile can be on
-    disk while dem_mosaic.vrt / wbm_mosaic.vrt predate the download — a VRT enumerates its
-    sources at build time, so the tiles are invisible to fusion, and the in-window gap
-    check stays silent because its land definition reads the same stale mosaic. The one
-    input that cannot go stale is the OUTPUT: a cell tileList calls land must fuse to at
-    least one land pixel. On zero, write error.log and delete the outputs so the resume
-    contract retries the cell instead of trusting it.
+    THE FACT THAT GOES STALE, ASKED DIRECTLY. A VRT enumerates its sources at build time, so tiles
+    downloaded afterwards are on disk and invisible to every read through it — and what the mosaic
+    returns over them is NODATA, which `fuse_heightfield` classifies as ocean. Sampling the middle
+    of a listed tile therefore separates "this tile is not in the mosaic" from every other reason a
+    cell might fuse to open water.
+
+    A WINDOW RATHER THAN A POINT, because one stray nodata pixel inside a served tile would
+    otherwise read as an unserved mosaic. Copernicus ships a complete raster per tile, so any real
+    class code inside the square answers the question.
+
+    PER LISTED TILE AND NOT OVER THE CELL, which is the distinction `w010_n80` forces: that cell is
+    90% nodata because it is open ocean beyond its two tiles, so a whole-cell test for "any real
+    pixel" would read the emptiness around them and refuse a cell whose tiles are perfectly fine.
     """
-    with rasterio.open(outdir / f"oceanmask_{TAG}.tif") as mask:
+    with rasterio.open(wbm_vrt) as wbm:
+        nodata = wbm.nodata if wbm.nodata is not None else WBM_NODATA
+        for tile in listed_tiles:
+            south, west = parse_tile_name(tile)
+            window = from_bounds(west + 0.4, south + 0.4, west + 0.6,
+                                                  south + 0.6, wbm.transform)
+            served = wbm.read(1, window=window, boundless=True, fill_value=nodata)
+            if served.size and (served != nodata).any():
+                return True
+    return False
+
+
+def _mosaic_holds_land(listed_tiles, wbm_vrt: Path) -> bool:
+    """True if any listed tile carries WBM land, i.e. the fusion had something to lose.
+
+    THE OTHER HALF OF THE DISCRIMINATOR, and without it "the tiles are served" becomes a blanket
+    excuse: a mosaic serving real land while the fused mask reads 100% ocean means something between
+    the two dropped it, which is a defect wearing the same output as the landless case.
+
+    Reads the tile's whole degree square rather than `tiles_are_served`'s centre window, because a
+    coastline can be anywhere in it and one land pixel is the entire question.
+    """
+    with rasterio.open(wbm_vrt) as wbm:
+        for tile in listed_tiles:
+            south, west = parse_tile_name(tile)
+            window = from_bounds(west, south, west + 1, south + 1, wbm.transform)
+            served = wbm.read(1, window=window, boundless=True, fill_value=WBM_NODATA)
+            if served.size and (served == WBM_LAND).any():
+                return True
+    return False
+
+
+def enforce_land_guard(outdir: Path, tag: str = TAG, listed_tiles=(),
+                       wbm_vrt: Path = WBM_VRT) -> bool:
+    """True if this cell's all-ocean result is explicable; on an unexplained one, fail the cell.
+
+    Closes the stale-mosaic route around the coverage oracle (found when the first Antarctic sweep
+    fused the whole continent as ocean): every listed tile can be on disk while dem_mosaic.vrt /
+    wbm_mosaic.vrt predate the download, so the tiles are invisible to fusion and the in-window gap
+    check stays silent because its land definition reads the same stale mosaic. On failure, write
+    error.log and delete the outputs so the resume contract retries the cell instead of trusting it.
+
+    "TILES ARE LISTED, SO THERE IS LAND" WAS THE ORIGINAL TEST AND IT IS FALSE. GLO-30 publishes
+    tiles over open water — they carry the water mask and 0 m elevation — so a cell can list tiles,
+    have every one present and indexed, and hold no land at all. Two of Earth's 648 do: `w180_s70`
+    and `w010_n80`. Neither had ever reached this function, because both chunks predate the guard
+    and `fuse_cell` skips a cell whose output exists.
+
+    SO THE ALL-OCEAN RESULT IS AMBIGUOUS AND THE INPUT IS NOT. A stale mosaic and a genuinely
+    landless cell produce identical output; they differ in whether the cell's listed tiles are
+    reachable through the mosaic at all, which is what `tiles_are_served` asks. Indexed-ness is not
+    a blanket excuse either: a served tile that HOLDS land still fails, because then something
+    between the mosaic and the mask dropped it.
+    """
+    with rasterio.open(outdir / f"oceanmask_{tag}.tif") as mask:
         for _block_index, window in mask.block_windows(1):
             if not (mask.read(1, window=window) == 1).all():
                 return True
+    if listed_tiles and tiles_are_served(listed_tiles, wbm_vrt) and not _mosaic_holds_land(
+            listed_tiles, wbm_vrt):
+        print(f"{outdir.name}: all ocean, and its listed tiles are served and hold no land — "
+              f"genuinely landless, not a stale mosaic", flush=True)
+        return True
     (outdir / "error.log").write_text(
         "LAND GUARD: tileList lists land tiles for this cell, but the fused ocean mask is "
         "100% ocean. The DEM/WBM mosaics are almost certainly stale (a VRT enumerates its "
         "sources at build time) — run pipeline/fuse/build_mosaics.sh, then re-run the "
         "sweep. Outputs were deleted so this cell retries.\n")
     for raster in planet_seam.PLANET_RASTERS:
-        (outdir / f"{raster}_{TAG}.tif").unlink(missing_ok=True)
+        (outdir / f"{raster}_{tag}.tif").unlink(missing_ok=True)
     return False
 
 
-def fuse_cell(name: str, bounds, expect_land: bool) -> tuple[str, str]:
-    """Fuse one cell in an isolated subprocess. Returns (name, status)."""
+def fuse_cell(name: str, bounds, listed_tiles, masks_only: bool = False) -> tuple[str, str]:
+    """Fuse one cell in an isolated subprocess. Returns (name, status).
+
+    TAKES THE TILE NAMES AND NOT A BOOLEAN, because the land guard needs them: whether an all-ocean
+    result is a stale mosaic or a genuinely landless cell is decided by reading those tiles through
+    the mosaic. A `bool(listed)` here would answer "should this be guarded" and throw away the only
+    thing that can answer "and did it legitimately come back empty".
+
+    THE SKIP PREDICATE IS THIS RUN'S OWN OUTPUT. A masks-only run emits no heightfield, so it must
+    resume on its own ocean mask; keying both modes off the heightfield would make the fine pass
+    re-run every already-finished cell, and keying the square pass off the mask would let a
+    half-written cell read as complete.
+    """
     outdir = CHUNKS_DIR / name
-    if (outdir / f"heightfield_{TAG}.tif").exists():
+    tag = MASK_TAG if masks_only else TAG
+    sentinel = f"oceanmask_{tag}.tif" if masks_only else f"heightfield_{tag}.tif"
+    if (outdir / sentinel).exists():
         return name, "skipped"
     cmd = [sys.executable, "-m", "pipeline.fuse.fuse_heightfield",
            "--bounds", *map(str, bounds), "--res-arcsec", str(RES_ARCSEC),
            "--outdir", str(outdir), "--coverage-warn"]
+    if masks_only:
+        cmd += ["--lat-res-arcsec", str(MASK_LAT_ARCSEC), "--masks-only"]
     result = subprocess.run(cmd, env={**os.environ, **FUSE_ENV},
                             capture_output=True, text=True, check=False)
     if result.returncode != 0:
         outdir.mkdir(parents=True, exist_ok=True)
         (outdir / "error.log").write_text(result.stdout + "\n" + result.stderr)
         return name, "failed"
-    if expect_land and not enforce_land_guard(outdir):
+    if listed_tiles and not enforce_land_guard(outdir, tag, listed_tiles):
         return name, "failed"
     if "WARNING: COVERAGE GAP" in result.stdout:
         return name, "warned"
@@ -177,8 +296,12 @@ def _run(command: list[str]) -> None:
     subprocess.run(command, check=True)
 
 
-def build_vrts():
+def build_vrts(mask_tag: str = TAG):
     """Index the per-cell outputs into planet-wide VRTs, then declare what was built.
+
+    `mask_tag` says which grid the two MASKS were fused on, the heightfield always being square.
+    `planet_seam.declare` re-derives the grids from the VRTs and refuses a pair that does not nest
+    inside the heightfield's, so a wrong tag here fails loudly rather than repointing the planet.
 
     THE DECLARATION IS WRITTEN LAST, and it is the reason this function ends where it does. Its
     presence is this stage's completion stamp, and its contents are what every consumer reads to
@@ -192,7 +315,12 @@ def build_vrts():
     """
     built = []
     for raster in planet_seam.PLANET_RASTERS:
-        sources = sorted(CHUNKS_DIR.glob(f"*/{raster}_{TAG}.tif"))
+        # PASSED IN RATHER THAN PROBED FOR. Choosing the fine tag because fine chunks happen to be
+        # on disk would make a half-finished mask pass silently repoint the planet at it, and would
+        # make deleting one chunk a silent revert to the coarse grid. The caller ran the pass, so
+        # the caller is the one that can say which grid it produced.
+        tag = mask_tag if raster.endswith("mask") else TAG
+        sources = sorted(CHUNKS_DIR.glob(f"*/{raster}_{tag}.tif"))
         if not sources:
             print(f"no {raster} chunks yet — skipping {raster} VRT", flush=True)
             continue
@@ -227,10 +355,16 @@ def main() -> int:
                     help="skip the tileList completeness gate (validate on partial coverage)")
     ap.add_argument("--build-vrts", action="store_true",
                     help="(re)build the planet VRTs over existing chunks and exit")
+    ap.add_argument("--masks", action="store_true",
+                    help=f"fuse the two MASKS only, at {MASK_LAT_ARCSEC}\" latitude by "
+                         f"{RES_ARCSEC}\" longitude, writing *_{MASK_TAG}.tif beside the square "
+                         f"chunks. Takes the high-latitude coastline staircase out of the "
+                         f"delivered pixels; the heightfield is untouched. Combine with "
+                         f"--build-vrts to index the fine masks instead of the square ones.")
     args = ap.parse_args()
 
     if args.build_vrts:
-        build_vrts()
+        build_vrts(MASK_TAG if args.masks else TAG)
         return 0
 
     tile_index = load_tile_index()
@@ -280,21 +414,26 @@ def main() -> int:
         print(f"--allow-incomplete: proceeding with {len(selected_incomplete)} partial land "
               f"cells (their un-downloaded interiors will render as ocean)", flush=True)
 
-    pending = [(name, bounds, bool(listed)) for name, bounds, listed, _missing in selected]
+    pending = [(name, bounds, listed) for name, bounds, listed, _missing in selected]
 
-    need = args.workers * GIB_PER_WORKER
+    # A masks-only cell is TALLER, so its windows are bigger: `BLOCK` bounds rows, and at 1" the
+    # cell is 36000 of them against 3600, so the window goes from the whole cell to 8192 x 3600.
+    # Measured peak RSS is the constant's authority either way, and the fine budget is the measured
+    # one rather than the square one scaled by a guess.
+    per_worker = MASK_GIB_PER_WORKER if args.masks else GIB_PER_WORKER
+    need = args.workers * per_worker
     avail = mem_available_gib()
     if need > avail:
         sys.exit(f"{args.workers} workers need ~{need:.0f} GiB but only {avail:.0f} GiB "
-                 f"available — lower --workers to {int(avail / GIB_PER_WORKER)}")
+                 f"available — lower --workers to {int(avail / per_worker)}")
 
-    print(f"fusing {len(pending)} cells, {args.workers}-wide "
-          f"(~{need:.0f} GiB of {avail:.0f} available)", flush=True)
+    print(f"fusing {len(pending)} cells{' (masks only, ' + MASK_TAG + ')' if args.masks else ''}, "
+          f"{args.workers}-wide (~{need:.0f} GiB of {avail:.0f} available)", flush=True)
     tally: dict[str, int] = {"ok": 0, "warned": 0, "skipped": 0, "failed": 0}
     flagged: list[str] = []
     with cf.ThreadPoolExecutor(args.workers) as pool:
-        futures = {pool.submit(fuse_cell, name, bounds, expect_land): name
-                   for name, bounds, expect_land in pending}
+        futures = {pool.submit(fuse_cell, name, bounds, listed, args.masks): name
+                   for name, bounds, listed in pending}
         for done, fut in enumerate(cf.as_completed(futures), 1):
             name, status = fut.result()
             tally[status] += 1
@@ -309,7 +448,7 @@ def main() -> int:
         for entry in sorted(flagged):
             print(f"  {entry}", flush=True)
     if tally["failed"] == 0:
-        build_vrts()
+        build_vrts(MASK_TAG if args.masks else TAG)
     return 1 if tally["failed"] else 0
 
 
