@@ -1061,6 +1061,12 @@ in hand. None is urgent; each is here so it is greppable rather than compressed 
   have caught all three instances of the enumeration going short. The obstacle is that it needs real
   Blender, where the freshness check today runs with `bpy` stubbed; the graph is body-shaped rather
   than block-shaped, so one invocation per pass would do.
+- **The composite and cap tiers still fold the white law without recording it.**
+  - `layer_producers.white_law` exists and `block_render.params` reads it; `shade_planet.composite_params` and `cap_render.cap_recipe`, which embeds it, do not.
+  - So a layer moving between `WHITE_UNION` and `WHITE_EXCLUSIONS` repaints the Antarctic outcrop on both and leaves both looking fresh. Measured on the recipe strings, with the block tier as the positive control.
+  - Deferred on cost rather than on doubt: adopting it restages whatever those tiers still produce, and both bodies are `planet_producer="composite"` today, so doing it before Earth flips would recompute a 57:23 composite that unit 9 replaces. After the flip it is Mars's composite plus both caps.
+  - It does not retire with the switch. `cap_render` calls `shade.composite` outright and reuses `composite_params`, so the caps keep both alive past units 9 and 10.
+- **No test pins that `PERENNIAL_ICE` and `GLACIERS` are IN `WHITE_UNION`.** Every membership assertion in the suite is negative, so a layer silently ceasing to be white is caught by nothing. Belongs with the guard repairs above rather than with the recipe work, since it changes no recipe.
 - **The RGI glacier path is spelled twice and its burn argv has no owner.**
   - `snow.RGI_GPKG` and `download_rgi.GPKG` are one path written in two places, and
     `rasterize_glaciers_raster` carries a copy of the argv `vector_raster.rasterize_argv` now owns.

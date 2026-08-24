@@ -465,6 +465,70 @@ class TestABuildTimeConstantReachesTheFreshnessGate:
         assert not {key for key in painted if key.startswith("mars_")}
 
 
+class TestTheFoldsLawIsRecordedAndNotOnlyRun:
+    """`white_law` is what a stage's recipe carries and `fold_white` is what it runs.
+
+    Reading the tuples on both sides would pass on any pair agreeing with itself, so each recorded
+    member is put through the fold and asked to do what its half claims.
+    """
+
+    VOCABULARY = layers.BLOCK_LAYERS
+    SHAPE = (4,)
+
+    def _law(self, body=bodies.EARTH, vocabulary=None):
+        return layer_producers.white_law(
+            body, self.VOCABULARY if vocabulary is None else vocabulary)
+
+    def test_every_recorded_union_member_adds_white(self, subtests):
+        for name in self._law()["white_union"]:
+            with subtests.test(layer=name):
+                alpha, _ = layer_producers.fold_white(
+                    {name: np.ones(self.SHAPE)}, self.SHAPE, exclusions={})
+                assert alpha.max() == 1.0, f"{name} is recorded as folding in and folds nothing"
+
+    def test_every_recorded_exclusion_removes_white(self, subtests):
+        """Against a SATURATED union rather than an empty one: an exclusion that ran before the
+        maximum instead of after it would leave this white and is the defect the tuple exists for."""
+        saturated = {name: np.ones(self.SHAPE) for name in self._law()["white_union"]}
+        for name in self._law()["white_exclusions"]:
+            with subtests.test(layer=name):
+                alpha, _ = layer_producers.fold_white(
+                    saturated, self.SHAPE,
+                    exclusions={name: np.ones(self.SHAPE, dtype=bool)})
+                assert not alpha.any(), f"{name} is recorded as an exclusion and removes nothing"
+
+    def test_the_union_is_recorded_in_the_order_it_folds(self):
+        """A set comprehension would read identically and lose this, and order is part of the law:
+        `fold_white`'s maximum commutes, the `merge` caller folded alongside it does not."""
+        assert self._law()["white_union"] == [layer.name for layer in layer_producers.WHITE_UNION]
+
+    def test_a_stage_that_does_not_read_a_layer_records_neither_half(self):
+        """Filtered as `gather` filters. Recording the whole law everywhere would restage a stage
+        over a layer it never folds."""
+        assert self._law(vocabulary=frozenset()) == {"white_union": [], "white_exclusions": []}
+
+    def test_a_body_that_does_not_declare_a_layer_records_neither_half(self):
+        """Mars folds one white and subtracts nothing; Earth's law is not a default it inherits."""
+        assert self._law(bodies.MARS) == {"white_union": [layers.PERENNIAL_ICE.name],
+                                          "white_exclusions": []}
+
+    def test_the_law_records_exactly_the_fold_layers_the_stage_runs(self):
+        """Narrowed by `producers_for` and not by a copy of its filter, which is what makes the
+        record and the run one answer: a name here that no producer runs is a law nothing folds."""
+        runs = {layer.name for layer, _ in
+                layer_producers.producers_for(bodies.EARTH, self.VOCABULARY)}
+        folds = {layer.name for half in (layer_producers.WHITE_UNION,
+                                         layer_producers.WHITE_EXCLUSIONS) for layer in half}
+        law = self._law()
+        assert set(law["white_union"]) | set(law["white_exclusions"]) == folds & runs
+
+    def test_it_records_nothing_a_producer_already_carries(self):
+        """The split is the fold's shape rather than tidiness: a producer says how it grades its
+        own claim, and none of them can see whether that claim is added or subtracted."""
+        constants = layer_producers.constants_for(bodies.EARTH, self.VOCABULARY, painted=True)
+        assert not set(constants) & set(self._law())
+
+
 class TestAProducerDeclaresTheWhiteItIsPaintedIn:
     """The white moved out of `shade.composite` and into the producer that computed the alpha.
 

@@ -601,6 +601,33 @@ WHITE_UNION: tuple[layers.Layer, ...] = (layers.PERENNIAL_ICE, layers.GLACIERS)
 WHITE_EXCLUSIONS: tuple[layers.Layer, ...] = (layers.ANTARCTIC_ROCK,)
 
 
+def white_law(body: bodies.Body, vocabulary: frozenset[str]) -> dict[str, list[str]]:
+    """Which of `vocabulary` this body folds INTO the white and which it takes back OUT.
+
+    A LAW RATHER THAN A CONSTANT, which is why it is not `constants_for`'s: a producer's recipe says
+    how it grades its own claim, and no producer can see whether that claim is added or subtracted.
+    Nothing else in a recipe stands in for this. `producers_for` walks `WARPED_LAYERS`, so a layer's
+    producer is recorded whichever tuple it sits in, and `glaciers` and `antarctic_rock` both grade
+    nothing per window — a layer changing side moves no other entry anywhere.
+
+    Filtered as `gather` filters, so a stage records the law it runs and no other.
+
+    LISTS AND NOT SETS: order is part of the law, since `fold_white`'s `merge` caller is not
+    commutative, and these are recipe values a set could not serialise in a stable order anyway.
+
+    NARROWED BY `producers_for` RATHER THAN BY ITS OWN COPY OF THAT FILTER, so the law recorded is
+    the law the stage runs by construction: a fourth spelling of "this body, this vocabulary" is a
+    fourth thing to keep in step, and this one has to agree with `gather` or the record is fiction.
+    """
+    runs = {layer.name for layer, _ in producers_for(body, vocabulary)}
+
+    def folded(law: tuple[layers.Layer, ...]) -> list[str]:
+        return [layer.name for layer in law if layer.name in runs]
+
+    return {"white_union": folded(WHITE_UNION),
+            "white_exclusions": folded(WHITE_EXCLUSIONS)}
+
+
 def gather(body: bodies.Body, layer_raw: dict[str, "np.ndarray | None"], window: LayerWindow,
            vocabulary: frozenset[str]) -> tuple[dict[str, np.ndarray],
                                                 dict[str, tuple[Any, Any]],

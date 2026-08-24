@@ -23,15 +23,28 @@ the params recipe plus the planet rasters. So:
   going to render anyway.
 - **`params()` is the lever.** Inside it, two entries move for block-geometry work: `contexts`
   (`context_census`, the context law's *output*) and `rig` (`scene_build.rig_recipe`).
-- **`rig_recipe` records this module's CAPITALS and nothing else**, enforced from the module's side
-  by `test_every_module_constant_is_in_the_recipe`. A value spelled as a literal at its call site
-  is a value a planet can be re-rendered without noticing — which the snow, lake-depth and sea-ice
-  node names and interpolations still are.
+- **`rig_recipe` is DERIVED, not enumerated**: `dataclasses.asdict(RIG)` plus the texture table plus
+  the look. A constant added to `Rig` is in the recipe with nothing to remember.
+  - It used to be a hand-written list policed by a scan for this module's ALL-CAPS names, and that
+    scan was blind by construction to a value spelled inline in a function body. Three such values
+    shipped. **Do not re-add the scan**: it is the mechanism the derivation replaced.
+  - **Field names ARE recipe keys**, so renaming one restages every rendered block.
+- **Every image node is built by `make_texture` from a `TextureSpec`**, and that is the only place
+  one is configured. An interpolation or extension spelled at a call site is a look decision no
+  recipe can see; `test_no_pixel_moving_value_is_spelled_inline_in_the_builder` fails on it.
+  - The table is recorded WHOLE rather than per look: the optional textures are declined by a body's
+    planet seam, not by its look, so a planet that gained one would otherwise restage nothing.
+  - **Creation order is load-bearing** — the dump-diff against the hand-built .blend sees it — so
+    the mandatory textures are built by one loop and the optional ones at their own sites.
+- **The fold's law is a third entry, through `layer_producers.white_law`.** Which of `WHITE_UNION`
+  and `WHITE_EXCLUSIONS` a layer sits in decides whether its raster adds white or removes it, and no
+  producer's recipe can carry that: `producers_for` walks `WARPED_LAYERS`, so a producer is recorded
+  whichever half its layer joins, and `glaciers` and `antarctic_rock` grade nothing per window.
 - **Heroes do not restage.** `rig_recipe`'s only reader is `block_render.params`; the hero path
   shells into `scene_build` without one.
 
-So a change that moves pixels but touches no capital and no context is **silently invisible to
-freshness**. Give it a capital.
+So a change that moves pixels but reaches none of `Rig`, the texture table, the fold's law or a
+context is **silently invisible to freshness**. Put it in the structure.
 
 ## A per-block parameter that differs across a shared edge does NOT become a seam
 

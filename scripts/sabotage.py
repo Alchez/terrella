@@ -4603,6 +4603,32 @@ SABOTAGES: list[Sabotage] = [
     ),
     Sabotage(
         suite='python',
+        label='the block recipe stops recording which side of the fold each layer sits on',
+        path='pipeline/tile/block_render.py',
+        needle='        **layer_producers.white_law(body, layers.BLOCK_LAYERS),\n',
+        replacement='',
+        guard='test_a_layer_leaving_the_union_moves_the_recipe',
+    ),
+    Sabotage(
+        suite='python',
+        label='the fold law is recorded unfiltered, so an Earth-only white restages Mars',
+        path='pipeline/look/layer_producers.py',
+        needle='        return [layer.name for layer in law if layer.name in runs]',
+        replacement='        return [layer.name for layer in law]',
+        guard='test_a_body_that_does_not_declare_a_layer_records_neither_half',
+    ),
+    Sabotage(
+        suite='python',
+        # Sorted rather than a set: `json.dumps` refuses a set outright, so the mutation that
+        # actually ships the defect is the one that still serialises and loses only the order.
+        label='the fold law is recorded alphabetically, losing the order the paint merge reads',
+        path='pipeline/look/layer_producers.py',
+        needle='        return [layer.name for layer in law if layer.name in runs]',
+        replacement='        return sorted(layer.name for layer in law if layer.name in runs)',
+        guard='test_the_union_is_recorded_in_the_order_it_folds',
+    ),
+    Sabotage(
+        suite='python',
         label='a producer grades with a constant and declares none of it',
         path='pipeline/look/layer_producers.py',
         # An early return rather than `{} or {...}`, which was the first attempt and is a NO-OP:

@@ -199,6 +199,9 @@ def params(body: bodies.Body, rasters: frozenset[str], look: palette.Look,
         # `painted=False` because the rig colours the masks from `scene_build.SNOW_RGBA`, which
         # `rig` below records. The producers' whites cannot reach a raytraced pixel.
         **layer_producers.constants_for(body, layers.BLOCK_LAYERS, painted=False),
+        # The fold's own law, which no producer's constants can stand in for: a layer moving between
+        # the union and the exclusions repaints the Antarctic outcrop and moves nothing else here.
+        **layer_producers.white_law(body, layers.BLOCK_LAYERS),
         "rig": rig,
     }
     if look.sea is None:

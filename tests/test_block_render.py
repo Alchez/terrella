@@ -257,6 +257,65 @@ class TestTheRecipeSeesWhatNoMtimeCan:
                                    "the assertion above can no longer tell a read from a constant"
 
 
+class TestTheWhiteLawReachesTheRecipeAndNotOnlyTheCode:
+    """WHICH SIDE OF THE FOLD A LAYER SITS ON MOVES PIXELS AND MOVED NO RECIPE.
+
+    `fold_white` is a maximum over `WHITE_UNION` with `WHITE_EXCLUSIONS` subtracted after it, and
+    the two tuples are the law rather than any producer's constant. Nothing else in this recipe can
+    stand in for them: `producers_for` walks `WARPED_LAYERS` and so records a layer's producer
+    whichever tuple it sits in, and `glaciers` and `antarctic_rock` both declare an EMPTY
+    `contribution_recipe`, so a layer changing side moves no other entry at all.
+    """
+
+    BLOCKS: ClassVar[list] = [_block(0, 0, context=128)]
+
+    @pytest.fixture(autouse=True)
+    def _no_store(self, monkeypatch):
+        _declare_planet_rasters(monkeypatch)
+
+    def _params(self, body=bodies.EARTH):
+        return block_render.params(body, planet_seam.declared(body),
+                                   palette.look_for(body.name), block_render.rig_recipe(body),
+                                   self.BLOCKS)
+
+    def test_a_layer_moving_from_the_exclusions_into_the_union_moves_the_recipe(self, monkeypatch):
+        """The shipped defect's own shape, run forwards: the outcrop stops being subtracted and is
+        painted the very white it exists to remove."""
+        before = self._params()
+        monkeypatch.setattr(layer_producers, "WHITE_UNION",
+                            layer_producers.WHITE_UNION + (layers.ANTARCTIC_ROCK,))
+        monkeypatch.setattr(layer_producers, "WHITE_EXCLUSIONS", ())
+        assert self._params() != before
+
+    def test_a_layer_leaving_the_union_moves_the_recipe(self, monkeypatch):
+        """The arm no test pins from the other direction either: every membership assertion in the
+        suite is negative, so glaciers silently ceasing to be white is caught by nothing."""
+        before = self._params()
+        monkeypatch.setattr(layer_producers, "WHITE_UNION", (layers.PERENNIAL_ICE,))
+        assert self._params() != before
+
+    def test_reordering_the_union_moves_the_recipe(self, monkeypatch):
+        """Order is part of the law, not presentation: `fold_white`'s maximum commutes and the
+        `merge` caller folded alongside it does not."""
+        before = self._params()
+        monkeypatch.setattr(layer_producers, "WHITE_UNION",
+                            tuple(reversed(layer_producers.WHITE_UNION)))
+        assert self._params() != before
+
+    def test_the_recorded_law_is_read_from_the_tuples_rather_than_spelled_here(self):
+        """Derived on both sides, so this cannot pass by two hand-written lists agreeing."""
+        recipe = json.loads(self._params())
+        assert recipe == {**recipe,
+                          **layer_producers.white_law(bodies.EARTH, layers.BLOCK_LAYERS)}
+
+    def test_the_law_a_body_does_not_declare_is_not_recorded(self):
+        """Mars folds one white and subtracts nothing, and the recipe says so rather than
+        repeating Earth's."""
+        mars = json.loads(self._params(bodies.MARS))
+        assert mars["white_exclusions"] == []
+        assert mars["white_union"] != json.loads(self._params())["white_union"]
+
+
 class TestTheCropTakesTheBandAndNeverTheContext:
     """TRACED IS NOT PLANE, and getting the two the wrong way round is the silent failure.
 
