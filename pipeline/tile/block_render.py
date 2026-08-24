@@ -184,6 +184,12 @@ def params(body: bodies.Body, rasters: frozenset[str], look: palette.Look,
         # differ by 1.4 DN mean and up to 75, which is a look difference rather than a rounding one.
         # A pass resumed across a change of it would write both dicings into one mosaic.
         "base_grid": BLOCK_BASE_GRID,
+        # The mask writer's depth, which is `prep_block`'s constant and not this module's. It is
+        # here because nothing else can carry it: a re-cut mask does not restage a rendered block,
+        # since blocks are skipped by marker existence and `raytrace_deps` tracks planet rasters
+        # rather than the per-block prep directory. Left out, a depth change would reach only the
+        # blocks that were going to render anyway and leave every finished one terraced.
+        "mask_full_scale": prep_block.MASK_FULL_SCALE,
         "rig": rig,
     }
     if look.sea is None:
@@ -581,8 +587,9 @@ def log(message: str, *, stage: bool = False) -> None:
     project's other timestamps are UTC by rule, so the conversion is stated rather than implied.
 
     `stage=True` marks the line as a boundary a watcher should wake for, and the default is what
-    makes this producer readable at all: it runs 4,096 blocks on Earth and the watchdog EXITS on
-    every marker it matches, so marking the per-block line would be 4,096 wake-ups in a night. The
+    makes this producer readable at all: it runs 1,024 blocks on Earth at today's block size and
+    the watchdog EXITS on every marker it matches, so marking the per-block line would be one
+    wake-up per block in a night, and the figure grows as the block shrinks. The
     per-block story is read from `raytrace_status.json`, which is rewritten in place and can be
     sampled at whatever interval the reader wants; only the boundaries of the run are stages.
     """

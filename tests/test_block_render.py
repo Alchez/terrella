@@ -18,7 +18,7 @@ from pipeline import block_plan, bodies, freshness, layers, planet_seam
 from pipeline.block_plan import Block
 from pipeline.look import palette
 from pipeline.raster_io import GTIFF_CREATE
-from pipeline.render import render_seam
+from pipeline.render import prep_block, render_seam
 from pipeline.tile import block_render, producer_seam, shade_planet
 
 
@@ -657,6 +657,19 @@ class TestTheDenoiseDeviceIsTheCallersAndIsRecorded:
             bodies.EARTH, frozenset(planet_seam.KNOWN_RASTERS), palette.EARTH_LOOK,
             {"SAMPLES": 4096}, [Block(col0=0, row0=0, size_px=2048, context_px=128)]))
         assert recipe["base_grid"] == block_render.BLOCK_BASE_GRID
+
+    def test_the_recipe_records_the_mask_depth(self):
+        """The mask writer's depth is `prep_block`'s constant, and only this recipe can carry it.
+
+        A re-cut mask does not restage a rendered block: blocks are skipped by marker existence and
+        `raytrace_deps` tracks planet rasters rather than the per-block prep directory. So without
+        this key, changing the depth reaches only the blocks that were going to render anyway and
+        leaves every finished one carrying whatever the old depth produced.
+        """
+        recipe = json.loads(block_render.params(
+            bodies.EARTH, frozenset(planet_seam.KNOWN_RASTERS), palette.EARTH_LOOK,
+            {"SAMPLES": 4096}, [Block(col0=0, row0=0, size_px=2048, context_px=128)]))
+        assert recipe["mask_full_scale"] == prep_block.MASK_FULL_SCALE
 
     def test_the_recipe_records_it(self):
         recipe = json.loads(block_render.params(

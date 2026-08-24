@@ -4541,9 +4541,25 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label='the recipe stops recording the dicing, so a resumed pass blends both into one mosaic',
         path='pipeline/tile/block_render.py',
-        needle='        "base_grid": BLOCK_BASE_GRID,\n        "rig": rig,',
-        replacement='        "rig": rig,',
+        needle='        "base_grid": BLOCK_BASE_GRID,\n',
+        replacement='',
         guard='test_the_recipe_records_the_base_grid',
+    ),
+    Sabotage(
+        suite='python',
+        label='the mask writer goes back to 8 bits, terracing the sea floor under the ice alpha',
+        path='pipeline/render/prep_block.py',
+        needle='MASK_FULL_SCALE = 65535.0',
+        replacement='MASK_FULL_SCALE = 255.0',
+        guard='test_a_quantised_alpha_does_not_terrace_the_sea_floor_past_one_ground_pixel',
+    ),
+    Sabotage(
+        suite='python',
+        label='the recipe stops recording the mask depth, so no rendered block restages for it',
+        path='pipeline/tile/block_render.py',
+        needle='        "mask_full_scale": prep_block.MASK_FULL_SCALE,\n',
+        replacement='',
+        guard='test_the_recipe_records_the_mask_depth',
     ),
     Sabotage(
         suite='python',
@@ -7436,6 +7452,17 @@ SABOTAGES: list[Sabotage] = [
         needle='CAP_RENDERING_GIB = 16',
         replacement='CAP_RENDERING_GIB = 20',
         guard='test_no_pass_is_capped_above_the_ratified_ceiling',
+    ),
+    Sabotage(
+        suite='python',
+        # The base grid starts varying with the plane span. It reads as a refinement -- dice in
+        # proportion to what you are dicing -- and it silently re-creates the thing a measured join
+        # step was wrongly blamed on: a per-block parameter that differs across a shared edge.
+        label='the base grid scales with the plane, so neighbours can dice differently again',
+        path='pipeline/render/scene_build.py',
+        needle='    return max(1, math.ceil(span_px / 2 ** MAX_SUBDIVISIONS))',
+        replacement='    return max(1, math.ceil(span_px / 2048))',
+        guard='test_the_base_grid_cannot_discriminate_between_neighbouring_blocks',
     ),
     Sabotage(
         suite='python',

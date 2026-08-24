@@ -12,8 +12,8 @@ marker. What the tests below pin is that direction, not the strings: **anything*
 is reported, and the two lines a producer repeats thousands of times are not.
 
 THE WAKE POLICY IS THE REAL SUBJECT. The watchdog EXITS on an event so the harness can wake the
-reader, which makes every match a turn spent. Earth is 4,096 blocks; a marker on the per-block line
-would be 4,096 wake-ups in a night, which is not a smaller version of reporting nothing but a
+reader, which makes every match a turn spent. Earth is 1,024 blocks at today's block size; a marker
+on the per-block line would be one wake-up each in a night, which is not a smaller version of
 different failure. Progress within a stage is therefore read from the producer's own status
 document, where it is a number that can be sampled, and the log carries boundaries and faults.
 """
@@ -210,6 +210,25 @@ class TestANewStageCannotBeAddedUnreported:
                 assert not offenders, (
                     f"{module.name} announces a stage without progress.stage(), so the watchdog "
                     f"cannot see it and nothing will ever go red about it: {offenders}"
+                )
+
+    def test_the_block_count_the_prose_argues_from_is_the_one_the_grid_gives(self, subtests):
+        """The wake-policy argument is sized by a NUMBER, so the number is executable here.
+
+        It was wrong when written: three docstrings said 4,096, which is Earth's count at the 2,048
+        px block the cost model was measured on, and `RENDER_BLOCK_PX` has been 4,096 px since. A
+        figure that is only prose drifts silently with the constant it describes, and this one had
+        already drifted by 4x before anyone read it back.
+        """
+        from pipeline import block_plan
+        blocks = (block_plan.grid_px(bodies.EARTH) // block_plan.RENDER_BLOCK_PX) ** 2
+        stated = f"{blocks:,}"
+        for path in (ROOT / "pipeline/profile/watchdog.py",
+                     ROOT / "pipeline/tile/block_render.py",
+                     Path(__file__)):
+            with subtests.test(path.name):
+                assert stated in path.read_text(), (
+                    f"{path.name} argues from a block count that is not {stated}"
                 )
 
     def test_the_scan_can_actually_find_one(self):

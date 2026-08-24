@@ -33,19 +33,31 @@ the params recipe plus the planet rasters. So:
 So a change that moves pixels but touches no capital and no context is **silently invisible to
 freshness**. Give it a capital.
 
-## A per-block parameter that differs across a shared edge becomes a seam
+## A per-block parameter that differs across a shared edge does NOT become a seam
 
-`context_px` is chosen per block from that block's own haloed relief, so two vertically adjacent
-blocks can get different contexts, hence different `SPAN_PX`, hence a different fitted base grid.
+`context_px` is chosen per block from that block's own haloed relief, so two adjacent blocks can get
+different contexts and hence different `SPAN_PX`. That much is true. **Everything that used to be
+written here about what it costs was wrong, and both halves failed for different reasons.**
 
-**Measured**: three blocks whose `SPAN_PX` was unchanged between two renders are identical to
-**0.0000 DN mean**; the one block whose `SPAN_PX` moved 4,992 → 5,120 shifted **+0.545 DN mean and
-+0.68 DN in the rows on the join**, turning a ~0 DN join into ~1.2 DN. That is the same base-grid
-sensitivity already recorded at ~1.4 DN mean.
+- **"Hence a different fitted base grid" is false.** `base_patches` is `ceil(span / 2**12)` and
+  takes the single value **2** across every one of Earth's 1,024 blocks, so it cannot discriminate
+  between any pair of neighbours. Guarded by
+  `test_the_base_grid_cannot_discriminate_between_neighbouring_blocks`.
+- **"Widening the quantum is the lever" is REJECTED, twice, on two different pairs.** On the
+  worst-disagreeing pair on Earth the join sits inside the distribution of the same terrain's own
+  adjacent-column steps, and matching the rims recovers a small fraction of one DN. An earlier arm
+  that forced every context equal found the same, marginally worse rather than better.
+- **The asymmetry is why it is closed rather than unproven**: a coarser quantum can only round
+  contexts up, and while the plane costs no render time, `prep_block.cut` runs inside
+  `render_block`'s own clock and scales superlinearly with plane area. Every coarser value is a
+  pass-time cost buying an invisible improvement.
 
-`CONTEXT_QUANTUM_PX` exists to make neighbours share plane sizes, and this is the reason it matters
-beyond allocator reuse. **Widening the quantum is the lever if joins need to get better**, and it
-trades a little wasted plane for neighbours agreeing more often.
+**The transferable part is the oracle, not the verdict.** A join is visible because it is *coherent*
+along a straight line, so a raw difference cannot settle it: terrain routinely differs more across
+one pixel than a seam does. Compare the join's signed mean against the distribution of signed means
+over the render's own interior column pairs; that is the same terrain measuring itself with no
+boundary present, it needs no extra render, and it is what turns "there is a difference" into "there
+is or is not a line".
 
 ## The exaggeration law lives on the OCCLUDER, not on the block
 

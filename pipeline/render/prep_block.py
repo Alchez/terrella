@@ -48,6 +48,12 @@ from pipeline.tile import shade_planet
 #: The recipe this stage bakes into its outputs, beside them, as every writer in the pipeline does.
 RECIPE_NAME = "block_recipe.json"
 
+#: The integer range a 0..1 mask is written across, and it is a GEOMETRY constant. `_write_mask`
+#: holds why 8 bits terraced the sea floor; this is named rather than spelled inline so that
+#: `block_render.params` can record it, since a depth change moves pixels and blocks are skipped by
+#: marker existence alone.
+MASK_FULL_SCALE = 65535.0
+
 
 def mid_latitude_deg(window: Window, body: bodies.Body) -> float:
     """The one latitude a plane's single ground width is true at: its centre row.
@@ -135,14 +141,26 @@ def gated_sea_ice(contribution: "np.ndarray | None", ocean: np.ndarray) -> "np.n
 
 
 def _write_mask(out: Path, array: np.ndarray) -> None:
-    """A 0..1 field as 8-bit grey, which the rig takes as a Mix FACTOR rather than a switch.
+    """A 0..1 field as 16-bit grey, which the rig takes as a Mix FACTOR rather than a switch.
 
-    Safe as grey because `scene_build.load_image` sets Non-Color, so 0..255 maps linearly with no
-    sRGB transform — which a binary mask would not have noticed and a soft alpha very much would.
+    Safe as grey because `scene_build.load_image` sets Non-Color, so the range maps linearly with no
+    sRGB transform, which a binary mask would not have noticed and a soft alpha very much would.
+
+    THE DEPTH IS A GEOMETRY CONSTRAINT AND NOT A COLOUR ONE, which is why 8 bits was not enough.
+    `scene_build` wires the sea-ice alpha to two arms: an ice-white colour mix, and `Mix.005 Ice
+    Flatten`, which pulls displacement toward sea level. So a quantised alpha terraces the sea
+    floor rather than merely banding its colour, and each level boundary becomes a riser of
+    `depth * quantum * exaggeration` metres. At 8 bits over abyssal water that is a step far taller
+    than the ground one pixel covers, so it is a slope past 45 degrees against a 45-degree sun and
+    every boundary self-shadows into a visible line.
+
+    `test_a_quantised_alpha_does_not_terrace_the_sea_floor_past_one_ground_pixel` is the bound, and
+    it is stated as that physical law rather than as a bit count so it cannot rot behind a retune.
+    A binary mask is exact at any depth, so this costs the switch-shaped masks nothing but bytes.
     """
-    scaled = np.rint(np.clip(array, 0.0, 1.0) * 255.0).astype(np.uint8)
+    scaled = np.rint(np.clip(array, 0.0, 1.0) * MASK_FULL_SCALE).astype(np.uint16)
     with rasterio.open(out, "w", driver="PNG", width=scaled.shape[1],  # pyright: ignore[reportCallIssue]
-                       height=scaled.shape[0], count=1, dtype="uint8") as png:
+                       height=scaled.shape[0], count=1, dtype="uint16") as png:
         png.write(scaled, 1)
 
 

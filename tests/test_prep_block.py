@@ -479,3 +479,81 @@ class TestTheMidLatitudeIsTheWindowsAndNotTheBlocks:
         expected = (window.width * bodies.EARTH.map_units_per_pixel
                     * math.cos(math.radians(mid)))
         assert prep_block.ground_width_m(window, bodies.EARTH) == pytest.approx(expected)
+
+
+class TestASoftAlphaSurvivesTheWriterWellEnoughNotToTerrace:
+    """`_write_mask`'s precision is a GEOMETRY constraint, because one alpha drives two arms.
+
+    `scene_build` wires the sea-ice alpha to an ice-white colour mix AND to `Mix.005 Ice Flatten`,
+    which pulls displacement toward sea level. So a quantised alpha does not merely band the colour,
+    it terraces the sea floor: every level boundary becomes a riser of `depth * quantum *
+    exaggeration` metres, and a low sun draws each riser as a hard line.
+
+    THE BOUND IS A PHYSICAL LAW RATHER THAN A TUNED NUMBER, which is what keeps it from rotting. A
+    riser taller than the ground one pixel covers is a slope past 45 degrees, and the sun sits at
+    45, so such a riser is fully self-shadowing however the look is later retuned. Measured on the
+    block that exposed this, the risers read 30.4 DN below their own neighbourhood while the band
+    interiors differed by 1.07 DN, so the geometry arm is the defect and the colour arm is not the
+    subject.
+    """
+
+    #: The real case, taken from the block this was found on rather than invented: sea ice over
+    #: abyssal water at 81.92N, where the alpha spans a twentieth of full scale across the block.
+    DEPTH_M = 2195.0
+    ALPHA_SPAN = 0.051
+    LATITUDE_DEG = 81.92
+
+    def _ground_metres_per_pixel(self, body):
+        return (body.map_units_per_pixel
+                * math.cos(math.radians(self.LATITUDE_DEG))
+                * bodies.ground_metres_per_mercator_unit(body))
+
+    def _round_trip_quantum(self, tmp_path, body):
+        """The smallest alpha step the writer actually preserves, measured through it.
+
+        Driven through `_write_mask` rather than reasoned about, so this measures the shipping
+        writer and not a belief about its dtype.
+        """
+        rows = 512
+        ramp = np.linspace(0.5, 0.5 + self.ALPHA_SPAN, rows, dtype=np.float64)
+        soft = np.repeat(ramp[:, None], 8, axis=1)
+        out = tmp_path / "soft.png"
+        prep_block._write_mask(out, soft)
+        with rasterio.open(out) as read_back:
+            stored = read_back.read(1)
+            dtype = read_back.dtypes[0]
+        # Normalise by the DTYPE's full scale, not by this ramp's own maximum: the writer maps
+        # alpha 0..1 onto the whole integer range, so dividing by the observed max reports a
+        # quantum inflated by however far below full scale this particular ramp happened to sit.
+        full = float(np.iinfo(stored.dtype).max) if np.issubdtype(stored.dtype, np.integer) else 1.0
+        levels = np.unique(stored.astype(np.float64) / full)
+        assert levels.size > 1, (
+            f"the writer collapsed a ramp to one value in {dtype}, so nothing is measurable")
+        return float(np.diff(levels).min())
+
+    def test_a_quantised_alpha_does_not_terrace_the_sea_floor_past_one_ground_pixel(self, tmp_path):
+        body = bodies.EARTH
+        quantum = self._round_trip_quantum(tmp_path, body)
+        riser_m = self.DEPTH_M * quantum * body.exaggeration
+        ground_m = self._ground_metres_per_pixel(body)
+        assert riser_m < ground_m, (
+            f"the mask writer preserves the alpha only to {quantum:.3g}, so one level boundary "
+            f"steps the displaced sea floor by {riser_m:.1f} m across {ground_m:.1f} m of ground "
+            f"at {self.LATITUDE_DEG}N. That is a slope past 45 degrees against a "
+            f"{body.exaggeration}x exaggeration, so a 45-degree sun renders every boundary as a "
+            f"self-shadowing line, measured at 30.4 DN below the surrounding surface.")
+
+    def test_the_same_writer_loses_nothing_on_a_binary_mask(self, tmp_path):
+        """The positive control for the bound: it must NOT fire on the masks that are switches.
+
+        `oceanmask`, `inlandlake` and `river` are 0-or-1, so any precision is exact for them, and a
+        guard that failed here would be measuring the writer rather than the defect.
+        """
+        binary = np.zeros((64, 64), dtype=np.float64)
+        binary[32:, :] = 1.0
+        out = tmp_path / "binary.png"
+        prep_block._write_mask(out, binary)
+        with rasterio.open(out) as read_back:
+            stored = read_back.read(1)
+        full = float(np.iinfo(stored.dtype).max) if np.issubdtype(stored.dtype, np.integer) else 1.0
+        assert sorted(np.unique(stored.astype(np.float64) / full).tolist()) == [0.0, 1.0]

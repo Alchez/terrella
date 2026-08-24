@@ -89,6 +89,21 @@ CONTEXT_RATIO = 1.0
 
 #: Contexts round up to this, so that neighbouring blocks share plane sizes and the renderer's
 #: allocations repeat instead of being unique per block.
+#:
+#: RAISING IT IS A REJECTED IDEA RATHER THAN AN OPEN ONE, and it has been rejected twice on two
+#: different pairs. Neighbours whose rims disagree get different plane spans, and the standing
+#: hypothesis was that this makes their shared edge a seam worth spending plane on. Measured on the
+#: worst-disagreeing adjacent pair on Earth, the join sits INSIDE the distribution of the same
+#: terrain's own adjacent-column steps: it is not a line, and matching the rims recovers a small
+#: fraction of one DN. An earlier arm that forced every context equal had already found the same
+#: thing, slightly worse rather than better.
+#:
+#: THE ASYMMETRY IS WHAT MAKES IT REJECTED RATHER THAN MERELY UNPROVEN. A coarser quantum can only
+#: round contexts UP, so it always widens planes; the plane is off-camera and costs no render time,
+#: but `render_block` runs `prep_block.cut` inside its own per-block clock and the cut scales
+#: superlinearly with plane area. So every coarser value is a pass-time cost buying an invisible
+#: improvement, and there is no value of this constant that is free. Reopening needs a join that
+#: someone can see, not a smaller number.
 CONTEXT_QUANTUM_PX = 64
 
 #: The largest context any block may ask for, and on Earth it is headroom rather than a clamp.

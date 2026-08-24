@@ -16,8 +16,9 @@ Fires on:
                  process prints; it does not get to update a status document first.
   * PROGRESS  -- the producer's own status sidecar crossed a milestone, or changed state.
                  Throttled by `--progress-step`, which is what a sidecar buys and a regex cannot:
-                 the raytrace producer renders 4,096 blocks on Earth and a match is a match, so a
-                 per-block MARKER would be 4,096 wake-ups in a night. A number can be sampled.
+                 the raytrace producer renders one block per grid cell -- 1,024 on Earth at
+                 today's RENDER_BLOCK_PX -- and a match is a match, so a per-block MARKER would be
+                 one wake-up per block in a night. A number can be sampled; a match cannot.
   * DONE      -- the scope's cgroup is gone: pass finished or died
   * MEMORY    -- ANON memory nearing this body's cap, an actual oom_kill, or swap in use.
                  NOT memory.current: that includes PAGE CACHE, which is reclaimable, and a job

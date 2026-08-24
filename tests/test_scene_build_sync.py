@@ -331,6 +331,31 @@ class TestEveryBlockGetsAMicropolygonPerPixel:
                 f"{body.name} at context {block.context_px}: {patches} patches reach "
                 f"{reachable} micropolygons per edge against a plane spanning {span:.0f} px")
 
+    def test_the_base_grid_cannot_discriminate_between_neighbouring_blocks(self, scene_build):
+        """THE BASE GRID IS ONE VALUE FOR THE WHOLE PLANET, so it cannot explain a per-block seam.
+
+        Written because it was blamed for one. A measured +0.545 DN join step was attributed to a
+        block whose plane span moved 4,992 to 5,120 "and its fitted base grid changed with it".
+        `base_patches` is `ceil(span / 2**MAX_SUBDIVISIONS)` and the cap is 4,096, so both spans
+        give TWO patches: nothing changed, and the real cause is still unidentified. Measured over
+        the real plan, every one of Earth's 1,024 blocks lands on the same patch count.
+
+        THE ASSERTION IS DELIBERATELY THE WEAK ONE. It does not pin the value, which would go red
+        on any harmless change to the block edge; it pins that the value is UNIFORM, which is the
+        property the false attribution needed and did not have. If a future geometry makes the grid
+        vary per block, this goes red and the grid becomes a candidate again -- which is the day
+        someone should be allowed to blame it.
+        """
+        counts = set()
+        for body in (bodies.EARTH, bodies.MARS):
+            for block in self._widest_blocks(body):     # the law's whole context range, store-free
+                counts.add(scene_build.base_patches(scene_build.plane_span_px(
+                    self._frame(block, body))))
+        assert len(counts) == 1, (
+            f"the base grid now takes {sorted(counts)} across planned blocks, so it CAN differ "
+            f"between neighbours and is a live candidate for a join step again"
+        )
+
     def test_the_plane_span_is_the_planes_and_not_the_heightfields(self, scene_build):
         """The number this is computed FROM is where it would go wrong, and both paths disagree
         with the tempting answer in opposite directions: a block's plane is wider than what its

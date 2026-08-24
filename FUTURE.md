@@ -983,3 +983,79 @@ require a re-render, so they are parked until a re-render is on the table anyway
   (`EXAGGERATION = 15.0`), so it wants the sea-sync freeze lifted (ratified) first.
 - **Note:** validated that atoll/island heroes themselves read well (Maldives/Marshall are striking): 
   the problem is only over-exaggeration of *steep* small islands, not small frames per se.
+
+## Small debts and open calls, carried out of the working plan (parked 2026-08-24)
+
+The working plan had become the project's only backlog as well as its live state, which is why it
+kept hitting its own line cap. These are the items that had no deadline and no relation to the arc
+in hand. None is urgent; each is here so it is greppable rather than compressed away.
+
+### Stated numbers that are wrong, and cannot go red
+
+- **The cap's elevation resolution is wrong in two files and the error is load-bearing.**
+  - `CAP_ELEV_PX`'s comment says the disc is "2,668 km diameter, ~5.2 km/px" and `polarCaps.ts`'s
+    `RINGS` comment repeats the 5.2. Both are edge-78 figures; the truth is 2,223.9 km and 4.34 km/px.
+  - Those same two comments are the mesh ladder's ONLY sizing argument: `RINGS = 160` is justified as
+    sitting "just under" 5.2 km/px, and against the real 4.34 the mesh is no longer the limit it
+    claims to be. So correcting the comment also reopens whether 160 is right.
+- **The TERRAIN staleness claim is unverified**: its sidecar is not at
+  `planet_terrain/terrain_params.json`, so the claim rests on a path that does not exist.
+- **The Mars DEM ships a `.tif.md5` its acquirer ignores**, and the mosaic host now has two spellings
+  that nothing ties together.
+
+### Test and freshness gaps
+
+- **Nothing pins any of the gallery manifest.** A garbage `countries.json` with cold caches still
+  passes 1,415 of 1,415, so no test reads the real one.
+- **`--mosaic` redirects the raster and its markers but not the recipe**, so a scratch A/B restages
+  the shipping planet's freshness. `--work` is the workaround rather than the fix.
+- **Open call: should `check.sh` run the suite a second time under an empty `MAPS_DATA`?** 17.5 s to
+  reproduce CI exactly. Without it, a store-reading test is green locally and red only after a push.
+- **An explicit env override on `pass_cap.HEAVY_JOB_GIB`** is the half of the ratified cap ruling
+  `4f4daf8` that never landed. The two measured caps stay fixed either way.
+
+### One concept with two homes
+
+- **The RGI glacier path is spelled twice and its burn argv has no owner.**
+  - `snow.RGI_GPKG` and `download_rgi.GPKG` are one path written in two places, and
+    `rasterize_glaciers_raster` carries a copy of the argv `vector_raster.rasterize_argv` now owns.
+  - The rock layer deliberately has one of each, so this is the last instance rather than a pattern.
+- **INVENTORY does not track `~/terrella-scratch`**, so roughly 20 GB of arc scratch is invisible to
+  the file that calls itself the storage map, and no reclaim rule reaches it.
+
+### Rejected, with the reason, so it is not re-proposed
+
+- **Bedmap3 `bm3_masks.tif` as a replacement for the whole Antarctic white rule: REJECTED for now.**
+  - In its favour: CC BY 4.0, no OAuth, 345 MB, 500 m EPSG:3031, and the only product carrying ice
+    and rock together (classes grounded, transient, floating, rock, nodata).
+  - Against it: its coastline is the grounding line and cannot match our fused DEM's, its nodata
+    conflates sea with no-coverage, and its rock reads 75,627 km2 against ADD's 26,340 on our grid.
+  - Reopening needs a coastline reconciliation, not a re-read of the licence.
+- **The four superseded R2 objects STAY**: `mars/relief-v2`, `mars/features-v1`, `terrain-v1`,
+  `countries-v1`. Six cents a month buys revert-and-redeploy instead of rebuild, and R2 has no
+  undelete.
+- **`_crism_scout` (60 MB) is the one reclaim not taken.** Its index tables are the evidence behind a
+  closed census, and 0.24% of the reclaim is not worth destroying them for.
+
+### Unpriced or unscheduled work
+
+- **The last unbuilt pipeline optimisation**: 0-filling GLOBathy instead of `-srcnodata` deletes about
+  51% of the 62-minute lake warp, but it is a source rewrite that pays only on a re-extract.
+- **256 px DEM assets stay unmeasured**: 4x fewer bytes per slot with slot count and refetch
+  unchanged, but z8 falls from 306 to 612 m/px and z9 cannot rescue it.
+- **The low-data path is unpriced at both ends.** Replacing `downlink` wants a pure
+  `summariseTileTimings` over `PerformanceResourceTiming`, and `saveData` visitors are routed to a
+  gallery that then serves everyone identically.
+- **The `Protocol` conversion for both ice registries**: no behaviour change, reversible, unscheduled.
+- **The next Mars pass rebuilds the ice caps and the ice tile layer.** The recovered units carry
+  today's mtime and `_mars_sources` gates on mtimes, so the output is correct but not free.
+- **`data/raw` is written by `pipeline/acquire/*` alone**, so making it read-only on disk is the
+  candidate that removes the target instead of detecting the write. Rohan's call, being 1.1 TB of his
+  own data.
+
+### A colour call and a product question
+
+- **`MARS_MODAL_GROUND` is the authored stop and the tiles ship the composited one**, so the space
+  floor behind a missing tile is cooler than its surroundings. Cosmetic, pre-existing, a colour call.
+- **Mars phase 4 is an open product question rather than queued work**: whether the body gets a
+  curated landmark set or a hero per feature. Nothing downstream is waiting on the answer.
