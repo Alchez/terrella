@@ -46,7 +46,14 @@ Usage:
     uv run scripts/sabotage.py --suite python   # only one suite
     uv run scripts/sabotage.py --list           # print the table, run nothing
     uv run scripts/sabotage.py --harvest        # print which tests catch each case, judge nothing
+    uv run scripts/sabotage.py --audit          # run each guard ALONE, never escalate — see below
     uv run scripts/sabotage.py --restore        # undo leftover backups from a killed run
+
+`--audit` answers one question over the whole table for the price of one narrow run a case: does
+each guard fail on its own subject when nothing else is running? A guard that goes red under
+`-k <guard>` cannot be borrowing another test's failure, because no other test ran. Every other
+outcome is a defect in the case — the guard is vacuous, or the table names the wrong catcher — and
+only the repair differs, which is what the full suite would tell you.
 
 `tests/test_sabotage_cases.py` checks the table against the tree without running anything, so a
 needle that a refactor moved is a 0.1 s pytest failure rather than a shrugged-off SKIP 5 min in.
@@ -222,7 +229,8 @@ class Suite(NamedTuple):
     cwd: str
     environment: dict[str, str]
     # Vitest prints ` FAIL  <file> > <describe> > <title>`; pytest prints `FAILED <file>::<name>`.
-    # `guard` is matched against the whole output, so it may be any substring of the name.
+    # The names this yields are matched by `guard_fired`, which anchors: a guard may be a PREFIX of
+    # the name it credits, never an interior substring.
     #
     # The vitest form gains a `|browser (chromium)|` segment for the browser project and NOT for
     # node, so the project label has to be optional. Judging never noticed, because it greps the
@@ -8541,6 +8549,34 @@ SABOTAGES: list[Sabotage] = [
         replacement='               and True):',
         guard='test_no_band_is_wider_in_sigma_than_the_tolerance_allows',
     ),
+    # The harness's own judging, whose every wrong answer is a case reading CAUGHT. All three
+    # mutations leave a harness that runs, prints a plausible table and exits 0.
+    Sabotage(
+        suite='python',
+        label='the guard credit goes back to a bare substring, so a sibling failing reads as caught',
+        path='scripts/sabotage.py',
+        needle='    return any(re.match(rf"{re.escape(guard)}(\\W|$)", name) for name in reported)',
+        replacement='    return any(guard in name for name in reported)',
+        guard='test_a_longer_sibling_failing_does_not_credit_the_guard',
+    ),
+    Sabotage(
+        suite='python',
+        label='the audit stops narrowing, so it runs the whole suite and answers a different question',
+        path='scripts/sabotage.py',
+        # Spanning the blank lines below it, because a needle that reads as one line of this file
+        # would match its own table entry as well as its subject.
+        needle='in_flight=case.path, only=case.guard), False)\n\n\ndef judge_fully',
+        replacement='in_flight=case.path), False)\n\n\ndef judge_fully',
+        guard='test_the_audit_calls_its_suite_once_and_narrowed',
+    ),
+    Sabotage(
+        suite='python',
+        label='a guard that ran and stayed silent is called proven, which is the audit lying',
+        path='scripts/sabotage.py',
+        needle='    if green:\n        return AUDIT_SILENT,',
+        replacement='    if green:\n        return AUDIT_PROVEN,',
+        guard='test_a_narrow_run_that_stays_green_is_silent',
+    ),
 ]
 
 
@@ -8579,6 +8615,19 @@ def failing_tests(name: str, output: str) -> list[str]:
         if reported and reported not in seen:
             seen.append(reported)
     return seen
+
+
+def guard_fired(guard: str, reported: Sequence[str]) -> bool:
+    """Did the NAMED guard fail, rather than a test whose name merely contains it?
+
+    `-k <guard>` selects by substring, so a guard that prefixes a longer test name drags that
+    sibling into the same run; a plain `in` then credits the guard with the sibling's failure and
+    the case reads as proven. Four cases in the table have such a sibling.
+
+    A web guard may legitimately be a prefix of its title, so the break is allowed at a non-word
+    character and nowhere else.
+    """
+    return any(re.match(rf"{re.escape(guard)}(\W|$)", name) for name in reported)
 
 
 def leftover_backups(
@@ -8665,20 +8714,53 @@ def judge_while_mutated(case: Sabotage) -> tuple[bool, str, bool]:
     total cannot show where it went.
     """
     green, output = run_suite(case.suite, in_flight=case.path, only=case.guard)
-    if not green and any(case.guard in name for name in failing_tests(case.suite, output)):
+    if not green and guard_fired(case.guard, failing_tests(case.suite, output)):
         return green, output, False
     return (*run_suite(case.suite, in_flight=case.path), True)
 
 
-def run_case(case: Sabotage, narrow: bool = True) -> tuple[bool, str, bool]:
-    """Apply one sabotage, judge it, restore. Returns (green, output, escalated).
+def judge_narrowly(case: Sabotage) -> tuple[bool, str, bool]:
+    """Run the case's own guard and stop there, whatever the answer. For `--audit`.
 
-    `narrow=False` is for `--harvest`, which asks which tests catch a case: running only the guard
-    you already named would answer with the name you put in.
+    Dropping the escalation drops the ability to tell a vacuous guard from a mislabelled one, and
+    keeps the ability to tell either from a working one — which is the whole question when sweeping
+    a table nobody has time to run in full.
     """
+    return (*run_suite(case.suite, in_flight=case.path, only=case.guard), False)
+
+
+def judge_fully(case: Sabotage) -> tuple[bool, str, bool]:
+    """Run the whole suite with no narrowing. For `--harvest`, which asks which tests catch a case:
+    running only the guard you already named would answer with the name you put in."""
+    return (*run_suite(case.suite, in_flight=case.path), True)
+
+
+AUDIT_PROVEN = "PROVEN"
+AUDIT_SILENT = "SILENT"
+AUDIT_OTHER = "OTHER"
+AUDIT_UNSELECTED = "UNSELECT"
+
+
+def audit_verdict(case: Sabotage, green: bool, output: str) -> tuple[str, str]:
+    """Read one narrow run. Returns (verdict, detail).
+
+    Only PROVEN is a clean bill: the guard failed while it was the only thing running, so nothing
+    else can have failed on its behalf. The other three are all defects, differing in what to fix.
+    """
+    reported = failing_tests(case.suite, output)
+    if guard_fired(case.guard, reported):
+        return AUDIT_PROVEN, ""
+    if not reported and "no tests ran" in output:
+        return AUDIT_UNSELECTED, f"-k {case.guard} selected no test at all"
+    if green:
+        return AUDIT_SILENT, "the guard ran with the mutation live and did not fail"
+    return AUDIT_OTHER, "red, but reported " + (", ".join(reported) or "nothing this pattern reads")
+
+
+def run_case(case: Sabotage, judge: Callable[[Sabotage], tuple[bool, str, bool]] =
+             judge_while_mutated) -> tuple[bool, str, bool]:
+    """Apply one sabotage, judge it, restore. Returns (green, output, escalated)."""
     target = REPO_ROOT / case.path
-    judge = judge_while_mutated if narrow else (
-        lambda one: (*run_suite(one.suite, in_flight=one.path), True))
     if not case.needle:
         target.write_text(case.replacement, encoding="utf-8")
         try:
@@ -8725,10 +8807,16 @@ def main() -> int:
     parser.add_argument("--suite", choices=sorted(SUITES), help="only cases for this suite")
     parser.add_argument("--list", action="store_true", help="print the table and exit")
     parser.add_argument("--restore", action="store_true", help="undo leftover backups and exit")
-    parser.add_argument(
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
         "--harvest",
         action="store_true",
         help="report which tests catch each case instead of judging it — for assigning `guard`",
+    )
+    mode.add_argument(
+        "--audit",
+        action="store_true",
+        help="run each guard alone and never escalate — sweeps the table for guards that never fire",
     )
     arguments = parser.parse_args()
 
@@ -8741,6 +8829,15 @@ def main() -> int:
         return 0
 
     cases = selected(arguments.filter, arguments.suite, arguments.changed)
+    if arguments.audit:
+        # PRINTED, NOT SILENT. A suite that cannot narrow would run whole for every one of its
+        # cases, which is the cost the audit exists to avoid — but a summary over a set quietly
+        # reduced to a third reads exactly like a summary over all of it.
+        blind = sorted({case.suite for case in cases if SUITES[case.suite].narrow is None})
+        cases = [case for case in cases if SUITES[case.suite].narrow is not None]
+        if blind:
+            print(f"AUDIT SKIPS every case in {', '.join(blind)}: those suites cannot be narrowed "
+                  f"to one guard, so an audit of them would cost a full run each.\n")
     if not cases:
         print(f"no case matches filter={arguments.filter!r} suite={arguments.suite!r} "
               f"changed={arguments.changed!r}")
@@ -8792,7 +8889,9 @@ def main() -> int:
             problems.append((case.label, stale))
             continue
 
-        green, output, escalated = run_case(case, narrow=not arguments.harvest)
+        judge = judge_fully if arguments.harvest else (
+            judge_narrowly if arguments.audit else judge_while_mutated)
+        green, output, escalated = run_case(case, judge=judge)
         if escalated and not arguments.harvest:
             escalations.append(case.label)
 
@@ -8800,6 +8899,15 @@ def main() -> int:
             print(f"HARVEST {case.label}")
             for reported in failing_tests(case.suite, output) or ["(nothing failed)"]:
                 print(f"        {reported}")
+            continue
+
+        if arguments.audit:
+            verdict, detail = audit_verdict(case, green, output)
+            print(f"{verdict:<8} {case.label}" + (f"\n         {detail}" if detail else ""))
+            if verdict == AUDIT_PROVEN:
+                caught.append(case)
+            else:
+                problems.append((case.label, f"{verdict}  {detail}"))
             continue
 
         # PARSED FAILURE NAMES, NEVER THE RAW OUTPUT. pytest echoes a parametrised argument's repr
@@ -8810,7 +8918,7 @@ def main() -> int:
         if green:
             print(f"MISSED  {case.label}\n        nothing failed; expected: {case.guard}")
             problems.append((case.label, f"not caught; expected {case.guard}"))
-        elif any(case.guard in name for name in reported):
+        elif guard_fired(case.guard, reported):
             print(f"CAUGHT  {case.label}")
             caught.append(case)
         else:
@@ -8821,6 +8929,19 @@ def main() -> int:
     if arguments.harvest:
         print("\nharvest only — nothing judged")
         return 0
+
+    if arguments.audit:
+        print(f"\n{len(caught)}/{len(cases)} guards failed alone, which nothing else can explain")
+        for verdict in (AUDIT_SILENT, AUDIT_OTHER, AUDIT_UNSELECTED):
+            named = [label for label, why in problems if why.startswith(verdict)]
+            if named:
+                print(f"\n{len(named)} {verdict}:")
+                for label in named:
+                    print(f"  - {label}")
+        for name in suites:
+            green, _ = run_suite(name)
+            print(f"\nrestored baseline ({name}): " + ("green" if green else "RED — restore failed"))
+        return 0 if not problems else 1
 
     print(f"\n{len(caught)}/{len(cases)} caught by the named guard")
     for label, why in problems:
