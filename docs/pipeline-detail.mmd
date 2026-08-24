@@ -80,7 +80,10 @@ flowchart TD
     SN["look/snow.py: NSIDC-0791 persistence to a<br/>latitude-ramped soft alpha (0.40@45 to 0.60@63)<br/>unioned with an RGI 7.0 glacier raster"]
     LD["look/lake_depth.py: GLOBathy depth warped once<br/>to the 3857 grid, masked to watermask class 2<br/>(tint-only: never carved into the heightfield)"]
     IC["look/seaice.py: OSI SAF monthlies reduced to a<br/>1991-2020 annual ice-frequency climatology;<br/>smoothstep alpha, ocean-gated"]
-    WI["tile/shade_planet.py warp_inputs<br/>height + masks -> one WMQ-aligned 3857 grid<br/>-tap -tr 305.7483 -> 131072 x 131072"]
+    WI["tile/shade_planet.py warp_inputs<br/>height + masks -> one WMQ-aligned 3857 grid<br/>-tap -tr 305.7483 -> 131072 x 131072<br/>SHARED: both producers below read exactly this, so it runs before the fork"]
+    PP{"tile/planet_pass.py: the fork, decided by Body.planet_producer<br/>refuses a body that names a producer its seam cannot feed, BEFORE the warp<br/>one raster, one path, one .done marker either way, so each producer<br/>declares ITSELF into planet_producer.json (tile/producer_seam.py)"}
+    BR["tile/block_render.py: the RAYTRACE producer<br/>the same 3857 grid rendered block by block through Cycles<br/>Earth 4096 blocks; skipped by marker existence, so a night can stop<br/>and resume, and an interrupted run never marks the mosaic done"]
+    PR[("planet_rgb.tif, EPSG:3857 uint8 RGB<br/>whichever producer filled it, with its own recipe sidecar beside it<br/>the cut cannot tell which ran, which is the design")]
     HS["look/hillshade.py: per-row z-factor 15/cos(lat)<br/>full-width, 1-row halo -> seamless;<br/>gdaldem takes only a scalar z, hence our own"]
     SH["tile/shade.py composite(): per 128-row window, 4 workers:<br/>land/sea ramps from elevation via a 17.6 KB LUT<br/>(replaced two gdaldem color-relief passes)<br/>x hillshade x sky-view + snow + sea ice + lake depth"]
     T2["gdal raster tile: 512 px, xyz convention, to the body ceiling<br/>Earth z0-8, 87,381 tiles; tiles_old kept as rollback<br/>(cut/pyramid/@2x/serve mechanics: see docs/tiling.mmd)"]
@@ -91,17 +94,23 @@ flowchart TD
 
   PH --> WI
   PH --> TT
-  WI --> HS
+  WI --> PP
+  PP --> HS
   HS --> SH
-  WI --> SH
+  PP --> BR
   S4 --> SN
   S5 --> SN
   S7 --> IC
   IC --> SH
+  IC --> BR
   R5 --> LD
   SN --> SH
+  SN --> BR
   LD --> SH
-  SH --> T2
+  LD --> BR
+  SH --> PR
+  BR --> PR
+  PR --> T2
   T2 --> T5
   PH --> CP
 

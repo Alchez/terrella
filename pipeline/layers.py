@@ -48,11 +48,12 @@ class Layer:
     in_cap: bool
     #: Read by the raytraced block render (`render/scene_build.py`, staged by the block prep).
     #:
-    #: THE THIRD STAGE. It shades the same Mercator grid the composite does and is about to replace
-    #: it as `planet_rgb`'s producer, which makes copying the `in_composite` column the natural
-    #: mistake. Today the two columns agree row for row — the rig paints every raster layer the
-    #: composite does, `sea_ice` included — but the agreement is an answer per row and not a rule:
-    #: `tests/test_bodies.py` pins it as literals so a new layer still answers here on purpose.
+    #: THE THIRD STAGE. It shades the same Mercator grid the composite does and is the OTHER
+    #: producer of `planet_rgb`, chosen per body by `Body.planet_producer`, which makes copying the
+    #: `in_composite` column the natural mistake. Today the two columns agree row for row — the rig
+    #: paints every raster layer the composite does, `sea_ice` included — but the agreement is an
+    #: answer per row and not a rule: `tests/test_bodies.py` pins it as literals so a new layer
+    #: still answers here on purpose.
     in_block: bool
     #: The planet raster this layer cannot be computed without, or None.
     #:

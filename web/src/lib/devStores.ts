@@ -56,7 +56,7 @@ const ARCHIVES: Record<LayerId, ArchiveLocation> = {
   relief: {
     stage: "planet_tiles",
     file: "planet.pmtiles",
-    producedBy: "pipeline/tile/shade_planet.py, then pipeline/tile/pack_pmtiles.py",
+    producedBy: "pipeline/tile/planet_pass.py, then pipeline/tile/pack_pmtiles.py",
   },
   terrain: {
     stage: "planet_terrain",

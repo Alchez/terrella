@@ -7,14 +7,19 @@ of BOTH producers — without which each one reads the other's raster as its own
 
 import dataclasses
 import os
+import re
+import subprocess
 import sys
 import time
+from pathlib import Path
 from unittest import mock
 
 import pytest
 
 from pipeline import bodies, freshness, planet_seam
 from pipeline.tile import cap_render, planet_pass, shade_planet
+
+REPO = Path(__file__).resolve().parents[1]
 
 
 class TestABodyCannotDeclareAProducerItCannotRun:
@@ -109,6 +114,51 @@ class TestTheBodyIsRequired:
         args = planet_pass.build_parser().parse_args(["--body", "pluto"])
         with pytest.raises(KeyError):
             planet_pass.resolve_body(args)
+
+    @staticmethod
+    def _stages_the_docs_name():
+        """The modules `docs/pipeline.md` says take a required `--body`, PARSED rather than restated.
+
+        A hand-written list here would be a second copy of that sentence, free to drift in its own
+        direction, which is the failure this whole file is about one tier down.
+        """
+        line = next(text for text in (REPO / "docs" / "pipeline.md").read_text().splitlines()
+                    if "planet-raster stages take a required" in text)
+        head, _, _ = line.partition("None of them defaults")
+        return re.findall(r"`([a-z_]+)`", head)
+
+    def test_the_sentence_naming_them_is_still_there_to_parse(self):
+        """Anti-vacuity: reworded, the sweep below would check nothing and report success."""
+        named = self._stages_the_docs_name()
+        assert len(named) >= 3, f"parsed only {named} out of docs/pipeline.md"
+
+    def test_every_stage_the_docs_name_actually_refuses_an_empty_argv(self, subtests):
+        """THE CLAIM IS PROSE, SO NOTHING COULD GO RED WHEN ONE OF THEM STOPPED BEING AN ENTRY POINT.
+
+        That is not hypothetical: the sentence named `shade_planet` for as long as the pass lived
+        there, and kept naming it after the sequence moved out. A module with no CLI does not fail
+        visibly when run — it imports, runs no main, and exits 0, which is indistinguishable from
+        success, so a reader following the document got a stage that accepted anything and did
+        nothing.
+
+        DRIVES THE CLI rather than looking for a `build_parser` attribute. The first version of this
+        asked for that name and reported `pack_pmtiles` as broken, which builds its parser inline in
+        `main`: the oracle was testing a naming convention and inventing a defect.
+        """
+        for stage in self._stages_the_docs_name():
+            with subtests.test(stage=stage):
+                finished = subprocess.run(
+                    [sys.executable, "-m", f"pipeline.tile.{stage}"],
+                    cwd=REPO, capture_output=True, text=True, timeout=120,
+                    check=False)     # a refusing stage is what this asserts about
+                assert finished.returncode != 0, (
+                    f"docs/pipeline.md says `{stage}` takes a required --body, but running it with "
+                    f"no arguments succeeded: it has no CLI at all, so the sentence names a stage "
+                    f"that cannot be invoked"
+                )
+                assert "--body" in finished.stderr, (
+                    f"`{stage}` refused, but not for want of --body: {finished.stderr[:200]}"
+                )
 
     def test_the_pass_hands_its_own_body_down_to_the_cap_pass(self, subtests):
         """The caps run as a SUBPROCESS at the tail of this pass, so the body crosses a process

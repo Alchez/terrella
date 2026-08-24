@@ -475,7 +475,7 @@ the first question to ask about any visual artifact.
 
 ## Delivery encoding — what the browser actually receives
 
-The masters are lossless and stay lossless: 203 hero PNGs and the `planet_rgb` composite. Everything
+The masters are lossless and stay lossless: 203 hero PNGs and the `planet_rgb` planet master. Everything
 below is *delivery only* and regenerable, so a wrong call here costs an encode pass, never pixels.
 
 **Quality is a policy, not one constant — it follows how closely a surface is inspected.**

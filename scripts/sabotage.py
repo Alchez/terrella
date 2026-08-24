@@ -132,6 +132,11 @@ MUTABLE_ROOTS = (
     # at once and shows up as a rebuilt planet that quietly kept one empty layer. There is no output
     # to inspect for a stage that DIDN'T run, which is the whole reason mutation is the only proof.
     "pipeline/freshness.py",
+    # Joined on PROCESS.md's reasoning, one document over: this file's sentence enumerating the
+    # stages that take a required `--body` is a CLAIM ABOUT FOUR ENTRY POINTS, and a guard drives
+    # every one of them to check it. A doc nobody can mutate is a doc whose guard cannot be shown to
+    # fire, and this sentence carried a module that had stopped having a CLI for a whole arc.
+    "docs/pipeline.md",
     # Joined with the stage sentinel, whose subject is a PRINT: the pass runs correctly whichever
     # way this module is broken, and what changes is only what a reader learns about a night that
     # takes 22 hours. Dropping the marker leaves every call site printing what it printed before,
@@ -7431,6 +7436,29 @@ SABOTAGES: list[Sabotage] = [
         needle='CAP_RENDERING_GIB = 16',
         replacement='CAP_RENDERING_GIB = 20',
         guard='test_no_pass_is_capped_above_the_ratified_ceiling',
+    ),
+    Sabotage(
+        suite='python',
+        # The document goes back to naming the module the pass used to live in. It reads as a true
+        # sentence -- shade_planet is still where the shared stages and the composite producer are
+        # -- and it names a module with no CLI at all, so a reader who runs it gets exit 0 and no
+        # output. This exact sentence carried the stale name for the whole of the arc.
+        label='the docs name a planet stage that has no entry point to require a body',
+        path='docs/pipeline.md',
+        needle='**The four planet-raster stages take a required `--body`**: `planet_pass`,',
+        replacement='**The four planet-raster stages take a required `--body`**: `shade_planet`,',
+        guard='test_every_stage_the_docs_name_actually_refuses_an_empty_argv',
+    ),
+    Sabotage(
+        suite='python',
+        # The wrapper forwards argv to one module while the resolver parses it with another. Both
+        # halves keep working on today's flags, because the two grammars still overlap; what breaks
+        # is the day one of them grows a flag, and nothing about the failure points here.
+        label='the harness forwards its argv to a module the cap resolver does not parse with',
+        path='pipeline/profile/run_pass.sh',
+        needle='"$VENV" -u -m pipeline.tile.planet_pass "$@" 2>&1',
+        replacement='"$VENV" -u -m pipeline.tile.shade_planet "$@" 2>&1',
+        guard='test_the_shell_and_the_resolver_name_the_same_module',
     ),
     Sabotage(
         suite='python',

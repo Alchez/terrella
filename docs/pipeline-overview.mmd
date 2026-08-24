@@ -65,16 +65,20 @@ flowchart TD
     T4["Lake depth:<br/>deep lakes shade like the sea instead of<br/>reading as flat plates"]
     T6["Sea ice:<br/>translucent white where the sea is often frozen,<br/>the seafloor glowing through"]
     T1["Fast shading that imitates the Blender look<br/>without ray tracing: hillshade + sky-view shadows<br/>+ the same land/sea colors + snow + sea ice + lake depth"]
+    TP{"Which of the two ways to draw it? The planet chooses,<br/>and the tiles cannot tell afterwards: same file, same name.<br/>Both planets still choose the fast way today"}
+    TR["The slow way: the real Blender look, ray-traced<br/>one block of the world at a time rather than imitated,<br/>so the tiles finally carry the cast shadows the<br/>country pictures have. A night's work for Earth"]
     T2["512 px map tiles, pole to pole, up to the body's own ceiling<br/>(Earth zoom 0-8, ~87,000 tiles; Mars stops at 7)"]
     T5["Packed into one PMTiles file:<br/>a small server reads the byte range for one tile<br/>and hands back just that tile, so the browser<br/>never downloads the whole archive"]
-    T7["Polar caps: the two poles Mercator can't reach,<br/>drawn as separate circular images<br/>(sea ice over real seafloor)"]
+    T7["Polar caps: the two poles Mercator can't reach,<br/>drawn as separate circular images<br/>(sea ice over real seafloor). Shaded the fast way whichever<br/>way the tiles were drawn, from the heights rather than from them"]
     T8["A second pyramid of raw heights, colour-coded,<br/>so the globe can push the terrain into real 3D<br/>(read from the height map, never from the shaded picture)"]
     T9["A third pyramid, of shapes rather than pictures:<br/>country outlines on Earth, named features on Mars.<br/>This is what makes a click land on something"]
   end
 
-  O1 --> T1
-  O2 --> T1
-  O3 --> T1
+  O1 --> TP
+  O2 --> TP
+  O3 --> TP
+  TP --> T1
+  TP --> TR
   S4 --> T3
   S5 --> T3
   S6 --> T4
@@ -82,8 +86,12 @@ flowchart TD
   T3 --> T1
   T4 --> T1
   T6 --> T1
+  T3 --> TR
+  T4 --> TR
+  T6 --> TR
   T1 --> T2
-  T1 --> T7
+  TR --> T2
+  O1 --> T7
   O1 --> T8
   T2 --> T5
 

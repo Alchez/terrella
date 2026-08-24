@@ -180,6 +180,23 @@ class TestTheCapReachesTheCgroup:
         result = run_preflight(meminfo, "--body", "earth", MEMORY_CAP_OVERRIDE_GIB="12")
         assert "memory cap overridden: 12 G instead of this body's 16 G" in result.stdout
 
+    def test_the_shell_and_the_resolver_name_the_same_module(self):
+        """The one coupling in this harness that nothing checked, and it is silent when it breaks.
+
+        `run_pass.sh` forwards its argv to a module, and `pass_cap` parses that SAME argv with that
+        module's parser to size the cap. Point them at different modules and nothing raises: the cap
+        is resolved from one grammar and the pass run under another, so a flag one accepts and the
+        other does not either aborts the wrapper on a valid invocation or resolves a cap for a body
+        the pass never sees. The script's header spent this whole arc naming a module it had stopped
+        invoking, which is how long a prose-only version of this claim survives.
+        """
+        invoked = set(re.findall(r"-m (pipeline\.[a-z_.]+)", SCRIPT.read_text()))
+        assert pass_cap.__name__ in invoked, "the script stopped asking the resolver; re-read it"
+        assert invoked - {pass_cap.__name__} == {pass_cap.planet_pass.__name__}, (
+            f"run_pass.sh forwards its argv to {sorted(invoked - {pass_cap.__name__})}, and "
+            f"pass_cap sizes the cap by parsing that same argv with {pass_cap.planet_pass.__name__}"
+        )
+
     def test_the_resolver_still_runs_when_the_override_is_set(self, tmp_path):
         """The ordering, asserted rather than trusted. Read as `${OVERRIDE:-$(pass_cap ...)}` the
         override would skip the resolver, and with it the `--body` contract the wrapper enforces —

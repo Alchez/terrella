@@ -2,14 +2,19 @@
 # Instrumented planet pass.
 #
 # Usage:
-#   pipeline/profile/run_pass.sh --body earth           # shade only
-#   pipeline/profile/run_pass.sh --body earth --tiles   # shade (skipped when fresh) + cut z0-8 tiles
+#   pipeline/profile/run_pass.sh --body earth           # the planet raster only
+#   pipeline/profile/run_pass.sh --body earth --tiles   # the raster (skipped when fresh) + the cut
+#
+# "the planet raster" rather than "shade", because which producer fills it is the BODY's answer
+# (Body.planet_producer) and this wrapper never learns it; and the cut runs to that body's own
+# ceiling, z8 on Earth and z7 on Mars, rather than to a number spelled here.
 #
 # `--body` is REQUIRED and this wrapper deliberately does not supply one: injecting a default here
-# would reintroduce, one layer up, exactly the silent Earth assumption shade_planet refuses to make.
+# would reintroduce, one layer up, exactly the silent Earth assumption planet_pass refuses to make.
 #
-# Args are passed through to shade_planet.py; --tiles additionally picks its own output dir,
-# scope name and memory cap, so a tiling run never overwrites a shade run's profile.
+# Args are passed through to pipeline.tile.planet_pass, which is the pass's entry point and the
+# module that chooses the body's producer; --tiles additionally picks its own output dir, scope name
+# and memory cap, so a tiling run never overwrites a shade run's profile.
 #
 # Four instruments, chosen because each answers something the others cannot:
 #   1. perf record   -> WHERE the CPU goes, at symbol level, for every forked child (perf inherits
@@ -17,8 +22,9 @@
 #   2. sample_tree   -> RSS, peak RSS, thread count, real disk bytes per process per second.
 #                       perf cannot answer "is it I/O-bound or single-threaded"; this can.
 #   3. stamp.py      -> per-stage wall clock from the pass's own existing stage prints, free.
-#   4. the cgroup    -> memory.peak for the whole scope, and the 12 G cap that kills the job not
-#                       the box (proven today: a 4-cell region render hit it and died alone).
+#   4. the cgroup    -> memory.peak for the whole scope, and the body's own cap, which kills the job
+#                       rather than the box (proven: a 4-cell region render hit it and died alone).
+#                       The number is pass_cap.py's, never this script's -- see the block below.
 #
 # THE CAP IS THE BODY'S AND THIS SCRIPT DOES NOT KNOW IT -- pipeline/profile/pass_cap.py derives
 # it from the registry, and holds the whole argument plus the measurements behind both numbers.
@@ -147,9 +153,13 @@ fi
 [[ "${STOP_AFTER:-}" == logs ]] && exit 0
 
 # Sampler first: it polls for the cgroup, so it is already watching when the scope appears.
-# 0.5 s, not 1 s: the composite forks ~728 short-lived snow subprocesses (gdalwarp +
-# gdal_rasterize per window x 364 windows) and a 1 s interval races their exit. perf catches
-# their CPU regardless, but only the sampler sees their RSS and disk bytes.
+# 0.5 s, not 1 s, AND THE REASON IS THE COMPOSITE PRODUCER'S ALONE: it forks ~728 short-lived snow
+# subprocesses (gdalwarp + gdal_rasterize per window x 364 windows) and a 1 s interval races their
+# exit. perf catches their CPU regardless, but only the sampler sees their RSS and disk bytes.
+# The raytrace producer forks one long-lived Blender per block instead, which nothing can race, so
+# on that producer the rate buys accuracy nobody needs and costs ~158k samples over a night. It is
+# left at 0.5 s rather than made per-producer because this script does not know which one runs --
+# the body does, and asking would be a second reader of pass_cap's question for a sampling rate.
 "$VENV" "$HARNESS/sample_tree.py" --unit "${UNIT}.scope" --out "$PROF/samples.jsonl" \
     --interval 0.5 2> "$PROF/sampler.log" &
 SAMPLER_PID=$!
