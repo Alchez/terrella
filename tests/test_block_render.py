@@ -16,7 +16,7 @@ import pytest
 
 from pipeline import block_plan, bodies, freshness, layers, planet_seam
 from pipeline.block_plan import Block
-from pipeline.look import palette
+from pipeline.look import layer_producers, palette, seaice, snow
 from pipeline.raster_io import GTIFF_CREATE
 from pipeline.render import prep_block, render_seam
 from pipeline.tile import block_render, producer_seam, shade_planet
@@ -686,3 +686,79 @@ class TestTheDenoiseDeviceIsTheCallersAndIsRecorded:
         before = block_render.params(*args)
         monkeypatch.setattr(block_render, "BLOCK_DENOISE_DEVICE", "cpu")
         assert block_render.params(*args) != before
+
+
+class TestTheRecipeRecordsWhatThePrepGradesWith:
+    """`prep_block` runs the same producers the composite does, and only one tier recorded them.
+
+    A block generation is compared ONCE at pass start against markers skipped by existence, so a
+    re-tune landed after a planet renders moves nothing and leaves every marker reading current.
+
+    BOTH DIRECTIONS ARE TESTED because both are silent. Recording a constant the prep never reads
+    is not the safe side: the whites are the rig's, so recording them here would restage a night of
+    GPU for pixels that cannot move.
+    """
+
+    BLOCKS: ClassVar[list] = [Block(col0=0, row0=0, size_px=2048, context_px=128)]
+
+    def _params(self, body=bodies.EARTH):
+        return block_render.params(body, frozenset(planet_seam.KNOWN_RASTERS),
+                                   palette.look_for(body.name), {"SAMPLES": 4096}, self.BLOCKS)
+
+    def _in_block_producers(self, body=bodies.EARTH):
+        """The producers this body's block prep actually runs, derived from the same two facts
+        `gather` is given: the stage's own vocabulary and the body's declarations."""
+        return [(layer, layer_producers.producer_for(body, layer)) for layer in layers.LAYERS
+                if layer.name in layers.BLOCK_LAYERS and layer.name in body.surface_layers]
+
+    def test_the_ice_softening_moving_moves_the_recipe(self, monkeypatch):
+        """`SOFTEN_FRACTION` reaches a pixel and reaches no file: the warped persistence raster is
+        unchanged by it, so `raytrace_deps` sees nothing move."""
+        before = self._params()
+        monkeypatch.setattr(snow, "SOFTEN_FRACTION", snow.SOFTEN_FRACTION * 2)
+        assert self._params() != before
+
+    def test_the_sea_ice_ramp_moving_moves_the_recipe(self, monkeypatch):
+        """A SECOND producer, grading by a different mechanism into a different image, so a fix
+        reaching only the snow path passes the test above and leaves this one red."""
+        before = self._params()
+        monkeypatch.setattr(seaice, "ICE_LO", seaice.ICE_LO / 2)
+        assert self._params() != before
+
+    def test_every_constant_an_in_block_producer_grades_with_reaches_the_recipe(self, subtests):
+        """Derived rather than listed, so a producer that GROWS a constant goes red. A hand-written
+        list of today's keys is the shape that went short three times in the context census."""
+        recorded = json.loads(self._params())
+        graded = {f"{layer.name}.{key}": (key, value)
+                  for layer, producer in self._in_block_producers()
+                  for key, value in producer.contribution_recipe().items()}
+        assert len(graded) >= 12, \
+            f"only {len(graded)} graded constants swept; a short read would pass this vacuously"
+        for name, (key, value) in sorted(graded.items()):
+            with subtests.test(name):
+                assert key in recorded, f"{name} grades a block pixel and reaches no recipe"
+                assert recorded[key] == value
+
+    def test_a_white_the_RIG_paints_from_does_not_reach_the_recipe(self, monkeypatch):
+        """The over-tracking direction: `palette.SNOW_RGB` is a composite-and-cap constant that
+        cannot move a block pixel, and recording it would put a 22 h restage behind a cap re-tune.
+
+        The softening arm runs in the SAME test as its control, because a negative alone cannot
+        tell "correctly absent" from "nothing is recorded at all" — the state this was written
+        against.
+        """
+        before = self._params()
+        monkeypatch.setattr(palette, "SNOW_RGB", (1, 2, 3))
+        assert self._params() == before, "a white the rig never reads must not restage the planet"
+        monkeypatch.setattr(snow, "SOFTEN_FRACTION", snow.SOFTEN_FRACTION * 2)
+        assert self._params() != before, \
+            "the control did not move either — the recipe records no producer constant at all"
+
+    def test_a_body_whose_producers_grade_nothing_records_nothing(self):
+        """Mars, on the conditional-record idiom this recipe follows for `layers_off`: empty
+        entries would read as tracked while tracking nothing."""
+        graded = {key for _layer, producer in self._in_block_producers(bodies.MARS)
+                  for key in producer.contribution_recipe()}
+        assert not graded, f"Mars grades with {graded}; this test's premise has moved"
+        assert "snow_rgb_north" not in json.loads(self._params(bodies.MARS)), \
+            "Mars's whites are its cap's and its composite's, and no block of it is painted here"

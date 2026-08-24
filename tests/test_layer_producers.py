@@ -286,7 +286,7 @@ class TestTheWarpGateAsksTheBodyFirst:
                     sources=lambda source=source: (source,),
                     build=lambda request, name=layer.name: built.append(name),
                     contribution=lambda window: None, paint=lambda window: None,
-                    recipe=dict, build_recipe=dict))
+                    contribution_recipe=dict, paint_recipe=dict, build_recipe=dict))
         shade_planet.warp_inputs(work, planet, body, frozenset())
         return built
 
@@ -342,7 +342,7 @@ class TestTheWarpGateAsksTheBodyFirst:
                     sources=lambda source=source: (source,),
                     build=lambda request, name=layer.name: built.append(name),
                     contribution=lambda window: None, paint=lambda window: None,
-                    recipe=dict, build_recipe=dict))
+                    contribution_recipe=dict, paint_recipe=dict, build_recipe=dict))
         shade_planet.warp_inputs(work, planet, bodies.EARTH, frozenset())
         assert layers.PERENNIAL_ICE.name not in built
         assert layers.SEA_ICE.name in built, "the other layers must be unaffected"
@@ -379,7 +379,8 @@ class TestABuildTimeConstantReachesTheFreshnessGate:
                 if layer is layers.PERENNIAL_ICE else
                 layer_producers.LayerProducer(
                     sources=lambda: (), build=lambda request: None,
-                    contribution=lambda window: None, paint=lambda window: None, recipe=dict, build_recipe=dict))
+                    contribution=lambda window: None, paint=lambda window: None,
+                    contribution_recipe=dict, paint_recipe=dict, build_recipe=dict))
             monkeypatch.setitem(layer_producers.PRODUCER_BY_BODY_LAYER,
                                 (body.name, layer.name), registered)
         shade_planet.warp_inputs(work, planet, body, frozenset())
@@ -392,7 +393,7 @@ class TestABuildTimeConstantReachesTheFreshnessGate:
         return layer_producers.LayerProducer(
             sources=lambda: (source,), build=lambda request: None,
             contribution=lambda window: None, paint=lambda window: None,
-            recipe=dict, build_recipe=lambda: dict(tunables))
+            contribution_recipe=dict, paint_recipe=dict, build_recipe=lambda: dict(tunables))
 
     def test_a_changed_build_constant_rebuilds_the_raster(self, monkeypatch, tmp_path):
         """THE POINT. Nothing on disk moved — only a number the build bakes in."""
@@ -448,17 +449,20 @@ class TestABuildTimeConstantReachesTheFreshnessGate:
                                   for pole, levels in sorted(mars_ice.ALPHA_LEVELS.items())}}
 
     def test_mars_grades_nothing_per_window_so_only_its_whites_reach_the_composite_recipe(self):
-        """The other side of the split, and its recipe is no longer empty.
+        """The producer that answers all three declaration fields differently, and the reason the
+        split has real instances rather than one shape with a field left empty.
 
-        `contribution` still returns the slice unchanged, so no GRADING constant belongs here — but
-        what this producer is PAINTED in is re-tunable and read per window, which is exactly what
-        `recipe` tracks. The build's two constants still stay out: putting them here would restage
-        the composite without rebuilding the raster they are baked into.
+        `contribution` returns the slice unchanged, so its grading half is empty; what this producer
+        is PAINTED in is re-tunable and read per window, so its paint half is not; and the build's
+        two constants stay out of both, since putting them there would restage the composite without
+        rebuilding the raster they are baked into.
         """
-        recipe = layer_producers.producer_for(bodies.MARS, layers.PERENNIAL_ICE).recipe()
-        assert set(recipe) == {"snow_rgb_north", "snow_shadow_rgb_north",
-                               "snow_rgb_south", "snow_shadow_rgb_south"}
-        assert not {key for key in recipe if key.startswith("mars_")}
+        producer = layer_producers.producer_for(bodies.MARS, layers.PERENNIAL_ICE)
+        assert producer.contribution_recipe() == {}
+        painted = producer.paint_recipe()
+        assert set(painted) == {"snow_rgb_north", "snow_shadow_rgb_north",
+                                "snow_rgb_south", "snow_shadow_rgb_south"}
+        assert not {key for key in painted if key.startswith("mars_")}
 
 
 class TestAProducerDeclaresTheWhiteItIsPaintedIn:
@@ -488,7 +492,7 @@ class TestAProducerDeclaresTheWhiteItIsPaintedIn:
 
     def test_every_declared_white_reaches_that_bodys_recipe(self, subtests):
         """A white that paints a pixel and reaches no recipe leaves a stale composite looking fresh
-        — the exact hole `recipe` exists to close, now applied to the values that moved into it.
+        — the exact hole `paint_recipe` exists to close, asked of the field named for `paint`.
 
         Evaluated at BOTH hemispheres and unioned, because a producer whose paint varies by row
         would otherwise be checked on whichever half the fixture happened to pick.
@@ -504,7 +508,7 @@ class TestAProducerDeclaresTheWhiteItIsPaintedIn:
                     assert paint is not None
                     painted |= _triples(paint)
                 recorded = {tuple(int(channel) for channel in value)
-                            for value in producer.recipe().values()
+                            for value in producer.paint_recipe().values()
                             if isinstance(value, list | tuple) and len(value) == 3
                             and all(isinstance(channel, int) for channel in value)}
                 with subtests.test(f"{body.name} {layer.name}"):
@@ -532,7 +536,8 @@ class TestAProducerDeclaresTheWhiteItIsPaintedIn:
     def test_mars_does_not_paint_in_earths_white(self):
         """The failure this replaced, and it shipped: a module-global read gave Mars Earth's
         `E8F1F6` with nothing anywhere able to show a reader that a second planet existed."""
-        recorded = layer_producers.producer_for(bodies.MARS, layers.PERENNIAL_ICE).recipe()
+        recorded = layer_producers.producer_for(bodies.MARS, layers.PERENNIAL_ICE).paint_recipe()
+        assert recorded, "no white recorded at all — the negatives below would pass vacuously"
         assert list(palette.SNOW_RGB) not in [list(v) for v in recorded.values()]
         assert list(palette.SNOW_SHADOW_RGB) not in [list(v) for v in recorded.values()]
 

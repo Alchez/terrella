@@ -58,7 +58,7 @@ import re
 import shutil
 import subprocess
 import sys
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import NamedTuple
 
@@ -231,6 +231,12 @@ class Suite(NamedTuple):
     # exactly the tool you reach for when you do not yet know which test catches a case, so a blind
     # spot there reads as "nothing guards this".
     fail_pattern: re.Pattern[str]
+    #: The same suite narrowed to ONE named guard, or None where it cannot be narrowed.
+    #:
+    #: None FOR THE WEB SUITE ON PURPOSE. Some vitest guards are a describe and a title run
+    #: together — `guard_is_findable` has to split them to match — so `-t` would silently select
+    #: nothing. Making it fast means first making those guards selectable titles.
+    narrow: Callable[[str], list[str]] | None
 
 
 SUITES: dict[str, Suite] = {
@@ -239,20 +245,26 @@ SUITES: dict[str, Suite] = {
         cwd="web",
         environment={},
         fail_pattern=re.compile(r"^\s*FAIL\s+(?:\|[^|]*\|\s+)?\S+\s+>\s+(.+)$"),
+        narrow=None,
     ),
     "python": Suite(
         command=["uv", "run", "pytest", "-q", "-p", "no:cacheprovider"],
         cwd=".",
         environment={"PYTHONDONTWRITEBYTECODE": "1"},
         fail_pattern=re.compile(r"^FAILED\s+\S+::([^\s\[]+)"),
+        # A python guard is a function name, so always a legal `-k` term. Matching none exits 5,
+        # which reads as not-green with the guard absent, so `run_case` escalates rather than judges.
+        narrow=lambda guard: ["uv", "run", "pytest", "-q", "-p", "no:cacheprovider", "-k", guard],
     ),
     # Not a test framework: a script that names its own failing check, so a case here is held to
-    # the same standard as one naming a vitest title or a pytest function.
+    # the same standard as one naming a vitest title or a pytest function. It runs one script and
+    # has nothing to narrow to.
     "collection": Suite(
         command=["node", "scripts/check_test_collection.ts"],
         cwd="web",
         environment={},
         fail_pattern=re.compile(r"^✗ test collection: (\S+)$"),
+        narrow=None,
     ),
 }
 
@@ -363,8 +375,8 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label="a body's whites paint pixels and reach no recipe, so a re-tune looks fresh",
         path='pipeline/look/layer_producers.py',
-        needle='def _mars_ice_recipe() -> dict[str, Any]:\n',
-        replacement='def _mars_ice_recipe() -> dict[str, Any]:\n    return {}\n',
+        needle='def _mars_ice_paint_recipe() -> dict[str, Any]:\n',
+        replacement='def _mars_ice_paint_recipe() -> dict[str, Any]:\n    return {}\n',
         guard='test_every_declared_white_reaches_that_bodys_recipe',
     ),
     Sabotage(
@@ -3241,8 +3253,12 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label='the producer is gated on its raster rather than on the body declaring the layer',
         path='pipeline/look/layer_producers.py',
-        needle='        if layer.name not in vocabulary or layer.name not in body.surface_layers:',
-        replacement='        if layer.name not in vocabulary or layer_raw[layer.name] is None:',
+        needle=('    for layer, producer in producers_for(body, vocabulary):\n'
+                '        seen = dataclasses.replace(window, raw=layer_raw[layer.name])'),
+        replacement=('    for layer, producer in producers_for(body, vocabulary):\n'
+                     '        if layer_raw[layer.name] is None:\n'
+                     '            continue\n'
+                     '        seen = dataclasses.replace(window, raw=layer_raw[layer.name])'),
         guard='test_earths_antarctic_patch_survives_a_missing_persistence_raster',
     ),
     Sabotage(
@@ -4380,8 +4396,8 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label="the gather ignores its caller's vocabulary, handing every stage every declared layer",
         path='pipeline/look/layer_producers.py',
-        needle='        if layer.name not in vocabulary or layer.name not in body.surface_layers:',
-        replacement='        if layer.name not in body.surface_layers:',
+        needle='            if layer.name in vocabulary and layer.name in body.surface_layers]',
+        replacement='            if layer.name in body.surface_layers]',
         guard='test_the_vocabulary_is_an_actual_filter',
     ),
     Sabotage(
@@ -4560,6 +4576,40 @@ SABOTAGES: list[Sabotage] = [
         needle='        "mask_full_scale": prep_block.MASK_FULL_SCALE,\n',
         replacement='',
         guard='test_the_recipe_records_the_mask_depth',
+    ),
+    Sabotage(
+        suite='python',
+        label='the block recipe stops recording what its masks were graded with',
+        path='pipeline/tile/block_render.py',
+        needle='        **layer_producers.constants_for(body, layers.BLOCK_LAYERS, painted=False),\n',
+        replacement='',
+        guard='test_the_ice_softening_moving_moves_the_recipe',
+    ),
+    Sabotage(
+        suite='python',
+        label="the block recipe records the producers' whites, which the rig paints without",
+        path='pipeline/tile/block_render.py',
+        needle='        **layer_producers.constants_for(body, layers.BLOCK_LAYERS, painted=False),',
+        replacement='        **layer_producers.constants_for(body, layers.BLOCK_LAYERS, painted=True),',
+        guard='test_a_white_the_RIG_paints_from_does_not_reach_the_recipe',
+    ),
+    Sabotage(
+        suite='python',
+        label='a producer grades with a constant and declares none of it',
+        path='pipeline/look/layer_producers.py',
+        # An early return rather than `{} or {...}`, which was the first attempt and is a NO-OP:
+        # an empty dict is falsy, so `or` hands back the very dict it was meant to suppress.
+        needle='    return {"snow_ramp_lat_lo": snow.RAMP_LAT_LO,',
+        replacement='    return {}\n    return {"snow_ramp_lat_lo": snow.RAMP_LAT_LO,',
+        guard='test_every_constant_an_in_block_producer_grades_with_reaches_the_recipe',
+    ),
+    Sabotage(
+        suite='python',
+        label='the composite stops recording the whites it paints with, keeping only the grading',
+        path='pipeline/look/layer_producers.py',
+        needle='        if painted:\n            recorded.update(producer.paint_recipe())',
+        replacement='        if False:\n            recorded.update(producer.paint_recipe())',
+        guard='test_the_grading_and_painting_split_leaves_the_composite_recording_BOTH_halves',
     ),
     Sabotage(
         suite='python',
@@ -8494,14 +8544,20 @@ SABOTAGES: list[Sabotage] = [
 ]
 
 
-def run_suite(name: str, in_flight: str | None = None) -> tuple[bool, str]:
-    """Run one suite. Returns (green, combined output)."""
+def run_suite(name: str, in_flight: str | None = None,
+              only: str | None = None) -> tuple[bool, str]:
+    """Run one suite, or just the one guard named by `only`. Returns (green, combined output).
+
+    `only` is ignored where a suite cannot narrow: the caller still gets a correct answer, just a
+    slower one. See `Suite.narrow`.
+    """
     suite = SUITES[name]
     environment = {**os.environ, **suite.environment}
     if in_flight is not None:
         environment[IN_FLIGHT_ENV] = in_flight
+    command = suite.command if only is None or suite.narrow is None else suite.narrow(only)
     result = subprocess.run(
-        suite.command,
+        command,
         cwd=REPO_ROOT / suite.cwd,
         capture_output=True,
         text=True,
@@ -8565,21 +8621,68 @@ def restore_backups(backups: list[Path]) -> None:
         print(f"restored {target.relative_to(REPO_ROOT)}")
 
 
-def selected(pattern: str | None, suite: str | None) -> list[Sabotage]:
+def changed_paths(against: str) -> set[str]:
+    """Repo-relative paths differing from `against`, staged, unstaged and untracked alike.
+
+    All three, because `git diff <ref>` alone misses what is staged and misses new files entirely
+    — which is the work most in need of a run.
+    """
+    paths: set[str] = set()
+    for command in (["git", "diff", "--name-only", against],
+                    ["git", "diff", "--name-only", "--cached", against],
+                    ["git", "ls-files", "--others", "--exclude-standard"]):
+        result = subprocess.run(command, cwd=REPO_ROOT, capture_output=True, text=True, check=False)
+        paths.update(line.strip() for line in result.stdout.splitlines() if line.strip())
+    return paths
+
+
+def selected(pattern: str | None, suite: str | None, changed: str | None = None) -> list[Sabotage]:
+    """The cases to run: by suite, by label substring, and by which files actually moved.
+
+    PREFER `changed` TO `pattern`. A label names what breaks, so filtering on one finds the cases
+    whose author reached for your word — it has twice selected a subset of a batch just added. A
+    path cannot be phrased differently.
+    """
     cases = SABOTAGES if suite is None else [case for case in SABOTAGES if case.suite == suite]
+    if changed is not None:
+        moved = changed_paths(changed)
+        cases = [case for case in cases if case.path in moved]
     if pattern is None:
         return cases
     needle = pattern.lower()
     return [case for case in cases if needle in case.label.lower() or needle in case.path.lower()]
 
 
-def run_case(case: Sabotage) -> tuple[bool, str]:
-    """Apply one sabotage, run its suite, restore. Returns (green, output)."""
+def judge_while_mutated(case: Sabotage) -> tuple[bool, str, bool]:
+    """Run the narrow guard first and escalate to the whole suite unless it already answered.
+
+    THE ESCALATION IS WHAT MAKES THE SHORTCUT SAFE. A narrow run that goes red naming this case's
+    guard has settled it; every other outcome — nothing caught it, something else did, the `-k`
+    selected nothing — is indistinguishable without the full suite. So `MISSED` and `WRONG` stay
+    full-suite verdicts and no guard can be called vacuous by the fast path.
+
+    The third return says whether that happened, since a run's cost is bimodal and a wall-clock
+    total cannot show where it went.
+    """
+    green, output = run_suite(case.suite, in_flight=case.path, only=case.guard)
+    if not green and any(case.guard in name for name in failing_tests(case.suite, output)):
+        return green, output, False
+    return (*run_suite(case.suite, in_flight=case.path), True)
+
+
+def run_case(case: Sabotage, narrow: bool = True) -> tuple[bool, str, bool]:
+    """Apply one sabotage, judge it, restore. Returns (green, output, escalated).
+
+    `narrow=False` is for `--harvest`, which asks which tests catch a case: running only the guard
+    you already named would answer with the name you put in.
+    """
     target = REPO_ROOT / case.path
+    judge = judge_while_mutated if narrow else (
+        lambda one: (*run_suite(one.suite, in_flight=one.path), True))
     if not case.needle:
         target.write_text(case.replacement, encoding="utf-8")
         try:
-            return run_suite(case.suite, in_flight=case.path)
+            return judge(case)
         finally:
             target.unlink()
 
@@ -8589,7 +8692,7 @@ def run_case(case: Sabotage) -> tuple[bool, str]:
     try:
         target.write_text(source.replace(case.needle, case.replacement, 1), encoding="utf-8")
         target.touch()  # mtime, or a running Vite serves the sabotaged module after restore
-        return run_suite(case.suite, in_flight=case.path)
+        return judge(case)
     finally:
         shutil.move(str(backup), str(target))
         target.touch()
@@ -8612,6 +8715,13 @@ def main() -> int:
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument("--filter", help="only cases whose label or path contains this substring")
+    parser.add_argument(
+        "--changed",
+        nargs="?",
+        const="HEAD",
+        metavar="REF",
+        help="only cases whose file differs from REF (default HEAD), untracked files included",
+    )
     parser.add_argument("--suite", choices=sorted(SUITES), help="only cases for this suite")
     parser.add_argument("--list", action="store_true", help="print the table and exit")
     parser.add_argument("--restore", action="store_true", help="undo leftover backups and exit")
@@ -8630,9 +8740,10 @@ def main() -> int:
         restore_backups(backups)
         return 0
 
-    cases = selected(arguments.filter, arguments.suite)
+    cases = selected(arguments.filter, arguments.suite, arguments.changed)
     if not cases:
-        print(f"no case matches filter={arguments.filter!r} suite={arguments.suite!r}")
+        print(f"no case matches filter={arguments.filter!r} suite={arguments.suite!r} "
+              f"changed={arguments.changed!r}")
         return 2
 
     if arguments.list:
@@ -8672,6 +8783,7 @@ def main() -> int:
 
     caught: list[Sabotage] = []
     problems: list[tuple[str, str]] = []
+    escalations: list[str] = []
 
     for case in cases:
         stale = stale_reason(case)
@@ -8680,7 +8792,9 @@ def main() -> int:
             problems.append((case.label, stale))
             continue
 
-        green, output = run_case(case)
+        green, output, escalated = run_case(case, narrow=not arguments.harvest)
+        if escalated and not arguments.harvest:
+            escalations.append(case.label)
 
         if arguments.harvest:
             print(f"HARVEST {case.label}")
@@ -8688,14 +8802,19 @@ def main() -> int:
                 print(f"        {reported}")
             continue
 
+        # PARSED FAILURE NAMES, NEVER THE RAW OUTPUT. pytest echoes a parametrised argument's repr
+        # into the failure detail, and the argument here is the `Sabotage` — so `guard='test_...'`
+        # appears whenever any check over this table fails. `case.guard in output` was reading the
+        # case back to itself and reporting CAUGHT for a mutation nothing caught.
+        reported = failing_tests(case.suite, output)
         if green:
             print(f"MISSED  {case.label}\n        nothing failed; expected: {case.guard}")
             problems.append((case.label, f"not caught; expected {case.guard}"))
-        elif case.guard in output:
+        elif any(case.guard in name for name in reported):
             print(f"CAUGHT  {case.label}")
             caught.append(case)
         else:
-            actual = ", ".join(failing_tests(case.suite, output)) or "(unparsed)"
+            actual = ", ".join(reported) or "(unparsed)"
             print(f"WRONG   {case.label}\n        expected: {case.guard}\n        got: {actual}")
             problems.append((case.label, f"caught by {actual}, not by {case.guard}"))
 
@@ -8706,6 +8825,12 @@ def main() -> int:
     print(f"\n{len(caught)}/{len(cases)} caught by the named guard")
     for label, why in problems:
         print(f"  - {label}: {why}")
+    # Where the wall clock went: each of these ran the whole suite because narrowing did not
+    # answer, and each costs what every case used to.
+    if escalations:
+        print(f"\n{len(escalations)}/{len(cases)} escalated to the full suite:")
+        for label in escalations:
+            print(f"  - {label}")
 
     restored = True
     for name in suites:

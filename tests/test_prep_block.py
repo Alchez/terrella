@@ -511,8 +511,11 @@ class TestASoftAlphaSurvivesTheWriterWellEnoughNotToTerrace:
     def _round_trip_quantum(self, tmp_path, body):
         """The smallest alpha step the writer actually preserves, measured through it.
 
-        Driven through `_write_mask` rather than reasoned about, so this measures the shipping
-        writer and not a belief about its dtype.
+        THE ALPHA SPAN IS THE RULER, NOT THE DTYPE AND NOT THE CONSTANT. `_write_mask` fixes
+        `uint16` and scales by `MASK_FULL_SCALE` independently, so dividing the stored levels by
+        the dtype's range measures storage rather than fidelity — at scale 255 it reports a quantum
+        40x finer than the writer can express, and the mutation restoring the defect stayed green.
+        Counting how many levels a known input span survives as needs no full scale at all.
         """
         rows = 512
         ramp = np.linspace(0.5, 0.5 + self.ALPHA_SPAN, rows, dtype=np.float64)
@@ -522,14 +525,10 @@ class TestASoftAlphaSurvivesTheWriterWellEnoughNotToTerrace:
         with rasterio.open(out) as read_back:
             stored = read_back.read(1)
             dtype = read_back.dtypes[0]
-        # Normalise by the DTYPE's full scale, not by this ramp's own maximum: the writer maps
-        # alpha 0..1 onto the whole integer range, so dividing by the observed max reports a
-        # quantum inflated by however far below full scale this particular ramp happened to sit.
-        full = float(np.iinfo(stored.dtype).max) if np.issubdtype(stored.dtype, np.integer) else 1.0
-        levels = np.unique(stored.astype(np.float64) / full)
+        levels = np.unique(stored)
         assert levels.size > 1, (
             f"the writer collapsed a ramp to one value in {dtype}, so nothing is measurable")
-        return float(np.diff(levels).min())
+        return self.ALPHA_SPAN / float(levels.size - 1)
 
     def test_a_quantised_alpha_does_not_terrace_the_sea_floor_past_one_ground_pixel(self, tmp_path):
         body = bodies.EARTH

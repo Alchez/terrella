@@ -139,7 +139,15 @@ def test_needle_matches_exactly_once(case: Sabotage) -> None:
 
     Two matches means the case perturbs whichever one happens to come first in the file, which is not
     the thing its label claims to break.
+
+    SKIPPED FOR THE FILE A RUN IS HOLDING, on the backup check's rule below. Most python cases
+    remove their own needle, so this fired inside almost every run and was read as ordinary noise —
+    which hid a real defect, since pytest prints the `case` repr on failure and the harness was
+    finding `guard=` in it and reporting CAUGHT for mutations nothing caught.
     """
+    in_flight = os.environ.get(IN_FLIGHT_ENV)
+    if in_flight == case.path:
+        pytest.skip(f"{case.path} is sabotaged right now; its needles are expected to be disturbed")
     matches = (REPO_ROOT / case.path).read_text(encoding="utf-8").count(case.needle)
     assert matches == 1, f"needle appears {matches}x in {case.path}, expected exactly 1"
 

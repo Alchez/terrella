@@ -57,7 +57,7 @@ from pipeline import (
     progress,
 )
 from pipeline.block_plan import Block
-from pipeline.look import palette
+from pipeline.look import layer_producers, palette
 from pipeline.raster_io import GTIFF_CREATE
 from pipeline.render import prep_block, render_seam
 from pipeline.tile import producer_seam, relief_scan, shade_planet
@@ -159,6 +159,9 @@ def params(body: bodies.Body, rasters: frozenset[str], look: palette.Look,
     0.0 and is invisible, so switching sea ice off would otherwise leave a planet painted with it
     looking current.
 
+    THREE TIERS REACH A BLOCK, each declared by the code that reads it: this module's own, the
+    rig's through `rig_recipe`, and the producers' through `layer_producers.constants_for`.
+
     The rig arrives as an argument because `scene_build` owns its own constants; see `rig_recipe`.
     """
     recipe: dict[str, Any] = {
@@ -190,6 +193,12 @@ def params(body: bodies.Body, rasters: frozenset[str], look: palette.Look,
         # rather than the per-block prep directory. Left out, a depth change would reach only the
         # blocks that were going to render anyway and leave every finished one terraced.
         "mask_full_scale": prep_block.MASK_FULL_SCALE,
+        # What the prep grades its masks with, and the general case of the line above it: none of
+        # it moves a warped raster, so `raytrace_deps` is blind to all of it.
+        #
+        # `painted=False` because the rig colours the masks from `scene_build.SNOW_RGBA`, which
+        # `rig` below records. The producers' whites cannot reach a raytraced pixel.
+        **layer_producers.constants_for(body, layers.BLOCK_LAYERS, painted=False),
         "rig": rig,
     }
     if look.sea is None:

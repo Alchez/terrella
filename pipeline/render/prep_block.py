@@ -300,6 +300,10 @@ def write_recipe(body: bodies.Body, window: Window, outdir: Path, written: list[
     A PROSE README WITH A GIT SHA IS NOT A RECIPE. Existence cannot see a settings change, so every
     writer in this pipeline records the values it used where a freshness check can compare them;
     a commit id names the whole tree and moves on every checkout that touches anything at all.
+
+    IT IS NOT WHAT MAKES A BLOCK RESTAGE. A pass deletes this directory and skips blocks by marker
+    existence, so nothing compares two generations of it — `block_render.params` has the teeth.
+    This is for the standalone cut, where the directory is kept.
     """
     freshness.write_if_changed(outdir / RECIPE_NAME, json.dumps({
         "body": body.name,
@@ -310,6 +314,10 @@ def write_recipe(body: bodies.Body, window: Window, outdir: Path, written: list[
         "map_units_per_pixel": body.map_units_per_pixel,
         "layers_off": layers.layers_off(body, layers.BLOCK_LAYERS),
         "rasters_off": planet_seam.rasters_off(planet_seam.declared(body)),
+        "mask_full_scale": MASK_FULL_SCALE,
+        # `painted=False` because `build` above folds the alpha and drops `gather`'s paints, so no
+        # white reaches an image this recipe describes.
+        **layer_producers.constants_for(body, layers.BLOCK_LAYERS, painted=False),
         "images": sorted(written),
     }, indent=2, sort_keys=True) + "\n")
 

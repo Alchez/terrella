@@ -127,26 +127,28 @@ class LayerProducer:
     #: either fact exists, which is the whole failure: the code that decided to paint a pixel is the
     #: only code that knows what the pixel is made of.
     paint: Callable[[LayerWindow], "tuple[Any, Any] | None"]
-    #: The constants THIS producer's own arithmetic reads, for the composite's freshness recipe.
+    #: The constants `contribution` reads, for the freshness recipe of every stage that grades.
     #:
-    #: A tunable reaching a pixel and reaching no recipe leaves a stale composite looking fresh; one
+    #: A tunable reaching a pixel and reaching no recipe leaves a stale output looking fresh; one
     #: recorded by a body that cannot evaluate it restages that body for output it could not have
     #: changed. Both are silent, and a single gate cannot separate them once two bodies paint the
     #: same layer by different arithmetic — the gate asks whether the body paints ice, which is
     #: right, and the values behind it answered for Earth, which stopped being right. So the code
     #: that READS a constant is the code that declares it.
     #:
-    #: THE WHITES USED TO BE EXCLUDED FROM HERE AND ARE NOW INCLUDED, deliberately. The rule was
-    #: that `shade.composite` paints any alpha with `palette.SNOW_RGB` on every body alike, so the
-    #: whites were live per LAYER and `composite_params` gated them on the layer. Mars measures two
-    #: whites of its own, one per pole, so "one white per layer" is simply false and the gate would
-    #: record Earth's values for a body that paints neither. What a producer PAINTS with is now as
-    #: much its own declaration as what it grades with — see `paint` above.
-    #:
     #: Still not here: `palette.LAKE_*`. Lake depth really is one ramp on every body that has lakes,
     #: it is not a white, and no second instance has contradicted it — so it stays in
     #: `composite_params` until one does.
-    recipe: Callable[[], dict[str, Any]]
+    contribution_recipe: Callable[[], dict[str, Any]]
+    #: The constants `paint` reads, for the freshness recipe of every stage that paints.
+    #:
+    #: NOT A RETREAT FROM RECORDING THE WHITES — they are still the producer's and still restage
+    #: the composite and both caps. The split exists because `prep_block` grades without painting:
+    #: it folds the alpha and lets Blender colour it, so recording the whites there would put a
+    #: night of GPU behind a colour tweak that cannot reach one raytraced pixel.
+    #:
+    #: Empty where the number is not a white at all, exactly as `paint` returns None.
+    paint_recipe: Callable[[], dict[str, Any]]
     #: The constants `build` bakes INTO the raster, which is a different set from `recipe` above and
     #: cannot share its machinery.
     #:
@@ -328,56 +330,52 @@ def _earth_white(_window: "LayerWindow | None" = None) -> tuple[Any, Any]:
 
 
 def _earth_perennial_ice_recipe() -> dict[str, Any]:
-    """What `_earth_perennial_ice` reads: `snow_alpha`'s latitude ramp, the softening that follows
-    it, and the white it paints in.
-
-    The white is here because this producer declares it — see `LayerProducer.paint`. Earth's
-    glacier producer records the identical pair from the identical home, and `produced` merges by
-    key, so the duplicate is one value seen twice rather than two values that can drift.
+    """What `_earth_perennial_ice` GRADES with: `snow_alpha`'s latitude ramp and the softening.
 
     THE SOFTENING'S TWO CONSTANTS ARE HERE FOR THE REASON `snow`'s RAMP_* ARE, and the arithmetic
     they key is spatial rather than tonal, which is what makes leaving them out so quiet: a
-    re-tuned edge width changes no colour, no threshold and no file, so a stale planet_rgb painted
+    re-tuned edge width changes no colour, no threshold and no file, so a stale output painted
     with the old sigma reads exactly as fresh as a new one. `SOFTEN_BAND_TOLERANCE` is deliberately
     NOT recorded: it bounds the banding's own approximation error rather than choosing an answer,
     so moving it can only make the same intended output more or less exactly computed.
     """
-    lit, shadow = _earth_white()
     return {"snow_ramp_lat_lo": snow.RAMP_LAT_LO,
             "snow_ramp_lat_hi": snow.RAMP_LAT_HI,
             "snow_ramp_low_min": snow.RAMP_LOW_MIN,
             "snow_ramp_low_max": snow.RAMP_LOW_MAX,
             "snow_ramp_band": snow.RAMP_BAND,
             "snow_soften_fraction": snow.SOFTEN_FRACTION,
-            "snow_source_cell_m": snow.SOURCE_CELL_M,
-            "snow_rgb": lit, "snow_shadow_rgb": shadow}
+            "snow_source_cell_m": snow.SOURCE_CELL_M}
 
 
-def _earth_glaciers_recipe() -> dict[str, Any]:
-    """The glacier mask is pure transport, so the white is the whole of what this producer reads.
+def _earth_white_recipe() -> dict[str, Any]:
+    """Earth's one ice white as a recipe, declared by BOTH producers that paint in it.
 
-    IT PAINTS WITHOUT GRADING, which is exactly the case the old layer gate got wrong: it recorded
-    the white under `perennial_ice`, so a body with glaciers and no perennial ice would have painted
-    a white it never recorded. No such body exists yet; the gate was still one declaration away from
-    being wrong, and asking the producer removes the question.
+    From `_earth_white`, the same function their `paint` returns, so the recipe cannot record a
+    colour the producer does not use. Both declare it and the merge is by key, so the duplicate is
+    one value seen twice rather than two free to drift.
     """
     lit, shadow = _earth_white()
     return {"snow_rgb": lit, "snow_shadow_rgb": shadow}
 
 
 def _earth_sea_ice_recipe() -> dict[str, Any]:
-    """`ice_alpha`'s frequency ramp, in both hemispheres' tunings — what `_earth_sea_ice` reads.
+    """`ice_alpha`'s frequency ramp, in both hemispheres' tunings — what `_earth_sea_ice` grades by.
 
     The southern pair is here rather than under a hemisphere gate because one producer evaluates
     both: `_earth_sea_ice` calls `ice_alpha` twice and selects per row, so a window that straddles
     no southern ice still ran on a body whose producer can reach them.
     """
-    lit, shadow = seaice.ice_white()
     return {"ice_lo": seaice.ICE_LO, "ice_band": seaice.ICE_BAND,
             "ice_max_alpha": seaice.ICE_MAX_ALPHA,
             "sh_ice_lo": seaice.SH_ICE_LO,
-            "sh_ice_max_alpha": seaice.SH_ICE_MAX_ALPHA,
-            "ice_rgb": lit, "ice_shadow_rgb": shadow}
+            "sh_ice_max_alpha": seaice.SH_ICE_MAX_ALPHA}
+
+
+def _earth_sea_ice_paint_recipe() -> dict[str, Any]:
+    """The pair `seaice.ice_white` hands both this tier and the caps, so one re-tune moves both."""
+    lit, shadow = seaice.ice_white()
+    return {"ice_rgb": lit, "ice_shadow_rgb": shadow}
 
 
 def _mars_ice_sources() -> tuple[Path, ...]:
@@ -443,7 +441,7 @@ def _mars_ice_white(window: LayerWindow) -> tuple[Any, Any]:
             per_row(palette.MARS_ICE_WHITE["north"][1], palette.MARS_ICE_WHITE["south"][1]))
 
 
-def _mars_ice_recipe() -> dict[str, Any]:
+def _mars_ice_paint_recipe() -> dict[str, Any]:
     """Both whites, flat and per pole, so a re-tune of either one restages the composite.
 
     FOUR KEYS RATHER THAN EARTH'S TWO, and the asymmetry is the point: a recipe records what its own
@@ -483,22 +481,28 @@ PRODUCER_BY_BODY_LAYER: dict[tuple[str, str], LayerProducer] = {
         # None, not a white: this producer's number is a DEPTH, graded by the lake ramp. The field
         # existing and being answered "not applicable" is what keeps that visible.
         build=_build_lake_depth, contribution=_earth_lake_depth, paint=lambda _window: None,
-        recipe=_no_tunables, build_recipe=_no_tunables),
+        contribution_recipe=_no_tunables, paint_recipe=_no_tunables,
+        build_recipe=_no_tunables),
     ("earth", layers.PERENNIAL_ICE.name): LayerProducer(
         sources=lambda: (snow.SP_NC,),
         build=_build_persistence, contribution=_earth_perennial_ice, paint=_earth_white,
-        recipe=_earth_perennial_ice_recipe, build_recipe=_no_tunables),
+        contribution_recipe=_earth_perennial_ice_recipe, paint_recipe=_earth_white_recipe,
+        build_recipe=_no_tunables),
     ("earth", layers.GLACIERS.name): LayerProducer(
         sources=lambda: (download_rgi.GPKG,),
+        # Pure transport: the mask is rasterized and handed through, so there is nothing to grade
+        # and the white is the whole of what this producer reads.
         build=_build_glaciers, contribution=_earth_glaciers, paint=_earth_white,
-        recipe=_earth_glaciers_recipe, build_recipe=_no_tunables),
+        contribution_recipe=_no_tunables, paint_recipe=_earth_white_recipe,
+        build_recipe=_no_tunables),
     ("earth", layers.SEA_ICE.name): LayerProducer(
         sources=lambda: (seaice.SEAICE_SRC,),
         # `seaice.ice_white`, not a literal: the cap tier reads that same function directly, so the
         # sentence "sea ice is painted in this pair" has one home across both tiers.
         build=_build_sea_ice, contribution=_earth_sea_ice,
         paint=lambda _window: seaice.ice_white(),
-        recipe=_earth_sea_ice_recipe, build_recipe=_no_tunables),
+        contribution_recipe=_earth_sea_ice_recipe, paint_recipe=_earth_sea_ice_paint_recipe,
+        build_recipe=_no_tunables),
     ("earth", layers.ANTARCTIC_ROCK.name): LayerProducer(
         sources=lambda: (download_add_rock.GPKG,),
         # None for both, and neither is a gap. The number this layer builds is consumed by the
@@ -507,14 +511,16 @@ PRODUCER_BY_BODY_LAYER: dict[tuple[str, str], LayerProducer] = {
         # that visible, exactly as lake depth's `paint` does for a number that is a depth.
         build=_build_antarctic_rock, contribution=_earth_antarctic_rock,
         paint=lambda _window: None,
-        recipe=_no_tunables, build_recipe=_no_tunables),
+        contribution_recipe=_no_tunables, paint_recipe=_no_tunables,
+        build_recipe=_no_tunables),
     ("mars", layers.PERENNIAL_ICE.name): LayerProducer(
         sources=_mars_ice_sources,
         build=_build_mars_ice, contribution=_mars_perennial_ice, paint=_mars_ice_white,
-        # NO LONGER EMPTY: this producer grades nothing per window, but it does declare what it is
-        # painted in, and those two whites are re-tunable. What it bakes into the raster is a
-        # different set again, which is what `build_recipe` tracks.
-        recipe=_mars_ice_recipe, build_recipe=_mars_ice_build_recipe),
+        # THE ONLY PRODUCER THAT ANSWERS ALL THREE FIELDS DIFFERENTLY, which is what keeps the
+        # split honest: it grades nothing per window, declares two whites per pole, and bakes a
+        # feather and its alpha levels into the raster. One field could not carry that.
+        contribution_recipe=_no_tunables, paint_recipe=_mars_ice_paint_recipe,
+        build_recipe=_mars_ice_build_recipe),
 }
 
 
@@ -534,6 +540,42 @@ def producer_for(body: bodies.Body, layer: layers.Layer) -> LayerProducer:
             f"{body.name} declares the {layer.name} layer but registers no composite producer; "
             f"known: {sorted(PRODUCER_BY_BODY_LAYER)}"
         ) from None
+
+
+def producers_for(body: bodies.Body, vocabulary: frozenset[str]
+                  ) -> list[tuple[layers.Layer, LayerProducer]]:
+    """The producers a stage with this vocabulary runs on this body, in `LAYERS` order.
+
+    ONE ANSWER, because `gather` runs them and `constants_for` records what they read: a layer one
+    saw and the other did not is a constant reaching a pixel with no recipe behind it.
+
+    ASKED OF THE BODY, NEVER OF THE RASTER ON DISK. A producer runs because the planet DECLARED the
+    layer, which is what lets Earth's perennial ice carry the forced Antarctic patch — a rule with
+    no file behind it, so no missing raster could switch it off.
+    """
+    return [(layer, producer_for(body, layer)) for layer in layers.WARPED_LAYERS
+            if layer.name in vocabulary and layer.name in body.surface_layers]
+
+
+def constants_for(body: bodies.Body, vocabulary: frozenset[str], *,
+                  painted: bool) -> dict[str, Any]:
+    """Every constant this body's producers read for `vocabulary`, as one stage's freshness record.
+
+    `vocabulary` IS THE SAME ARGUMENT THE CALLER HANDS `gather`, so a stage cannot run a producer
+    without passing the set that decides whether its constants are recorded.
+
+    `painted` is what the stage DOES with the answer, derivable from no layer or body: the
+    composite blends contribution and white together, `prep_block` folds the alpha alone.
+
+    ONE PARAMETER RATHER THAN TWO FUNCTIONS: a caller that must merge two calls can forget the
+    second and get a plausible, shorter recipe, which is the failure being closed here.
+    """
+    recorded: dict[str, Any] = {}
+    for _layer, producer in producers_for(body, vocabulary):
+        recorded.update(producer.contribution_recipe())
+        if painted:
+            recorded.update(producer.paint_recipe())
+    return recorded
 
 
 #: The layers whose contributions merge into ONE white, in the order they fold.
@@ -565,10 +607,9 @@ def gather(body: bodies.Body, layer_raw: dict[str, "np.ndarray | None"], window:
                                                 dict[str, np.ndarray]]:
     """Every layer `vocabulary` reads, as this body's producers answer for one window.
 
-    ASKED OF THE BODY, NEVER OF THE RASTER ON DISK. A producer runs because the planet DECLARED the
-    layer, which is what lets Earth's perennial ice carry the forced Antarctic patch — a
-    latitude-and-land rule with no file behind it, so no missing raster could ever switch it off.
-    Reading the declaration off `layer_raw` instead would drop it the day NSIDC went absent.
+    WHICH PRODUCERS RUN IS `producers_for`'S ANSWER and not a condition restated here, so that this
+    and `constants_for` cannot disagree about the set — see there for why the declaration is asked
+    of the body rather than of the rasters on disk.
 
     `vocabulary` IS THE CALLER'S STAGE VIEW, on `layers.layers_off`'s rule: the composite reads
     `COMPOSITE_LAYERS` and the block render `BLOCK_LAYERS`, and the two genuinely disagree.
@@ -590,10 +631,7 @@ def gather(body: bodies.Body, layer_raw: dict[str, "np.ndarray | None"], window:
                   and (raw := layer_raw.get(layer.name)) is not None}
     contributions: dict[str, np.ndarray] = {}
     paints: dict[str, tuple[Any, Any]] = {}
-    for layer in layers.WARPED_LAYERS:
-        if layer.name not in vocabulary or layer.name not in body.surface_layers:
-            continue
-        producer = producer_for(body, layer)
+    for layer, producer in producers_for(body, vocabulary):
         seen = dataclasses.replace(window, raw=layer_raw[layer.name])
         value = producer.contribution(seen)
         if value is None:

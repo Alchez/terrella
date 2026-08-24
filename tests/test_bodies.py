@@ -1107,6 +1107,28 @@ def test_the_composite_recipe_records_only_the_layers_that_are_off() -> None:
     assert layers.PERENNIAL_ICE.name not in mars["layers_off"]
 
 
+def test_the_grading_and_painting_split_leaves_the_composite_recording_BOTH_halves() -> None:
+    """This stage reads both halves, so a split dropping either would leave those constants
+    untracked and the live composite and both cap PNGs reading fresh, on a diff that looks like a
+    rename.
+
+    LITERALS RATHER THAN A SWEEP: asking the same functions the code asks agrees by construction,
+    so it cannot tell a dropped half from a legitimately empty one.
+    """
+    earth = json.loads(shade_planet.composite_params({None: None}, bodies.EARTH, WHOLE_PLANET))
+    for graded in ("snow_ramp_lat_lo", "snow_ramp_lat_hi", "snow_ramp_low_min",
+                   "snow_ramp_low_max", "snow_ramp_band", "snow_soften_fraction",
+                   "snow_source_cell_m", "ice_lo", "ice_band", "ice_max_alpha",
+                   "sh_ice_lo", "sh_ice_max_alpha"):
+        assert graded in earth, f"{graded} grades a composite pixel and left the recipe"
+    for painted in ("snow_rgb", "snow_shadow_rgb", "ice_rgb", "ice_shadow_rgb"):
+        assert painted in earth, f"{painted} paints a composite pixel and left the recipe"
+    # Mars is the body whose two halves differ: it grades nothing per window and paints four.
+    mars = json.loads(shade_planet.composite_params({None: None}, bodies.MARS, WHOLE_PLANET))
+    assert {"snow_rgb_north", "snow_shadow_rgb_north",
+            "snow_rgb_south", "snow_shadow_rgb_south"} <= set(mars)
+
+
 def _southern_window(body: bodies.Body, persistence: "np.ndarray | None"):
     """One synthetic composite window over land at ~70 degrees south, where the Antarctic patch
     fires. All land, no ocean: the patch's other term is `land`, so a sea-less body is exactly the

@@ -286,19 +286,14 @@ def composite_params(variants, body: bodies.Body, rasters: frozenset[str],
     # when either layer is painted.
     keys_white = bool({layers.PERENNIAL_ICE.name, layers.SEA_ICE.name} & declared)
     # WHAT EACH DECLARED LAYER'S OWN PRODUCER READS, asked of the producer rather than spelled out
-    # here — `LayerProducer.recipe` carries the argument. This function gates on whether a body
-    # paints a layer, which stays right for every body; what it cannot know is HOW that body grades
-    # it, and a second planet painting the same layer by different arithmetic is exactly where a
-    # gate holding one body's constants starts recording the wrong ones. Merging keeps the answer
-    # beside the code that computes it and keeps a body's name out of this stage entirely.
+    # here — `layer_producers.constants_for` carries why, for both stages that ask it.
+    #
+    # `painted=True` because this stage blends the contribution and the white in one pass, so both
+    # halves of a producer's declaration reach a pixel here; the block render reads one of the two.
     #
     # Order-free by construction: `sort_keys` below normalises the output, so where a key enters
-    # this dict cannot move a byte of a live sidecar. `layers.LAYERS` all the same, for its stated
-    # contract rather than `declared`'s arbitrary set iteration order.
-    produced: dict[str, Any] = {}
-    for layer in layers.LAYERS:
-        if layer.in_composite and layer.name in declared:
-            produced.update(layer_producers.producer_for(body, layer).recipe())
+    # this dict cannot move a byte of a live sidecar.
+    produced = layer_producers.constants_for(body, layers.COMPOSITE_LAYERS, painted=True)
     return json.dumps({**missing, **sea_recipe, **produced,
                        "knobs": knobs,
                        "composite_window_rows": window_rows,
