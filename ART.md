@@ -424,10 +424,13 @@ Cost: hero sweep **~10–13 h** + tile restage **~29 min** + caps auto-restage *
 - **Adjust:** `palette.WATER_RGB` / `LAKE_STOPS`; `--knob lake_curve=off` disables the depth
   ramp for A/B. In-blend: mute the Lake or River Mix node.
 
-### View transform — configure_render (scene_build.py)
+### View transform: `RIG.view_transform` (scene_build.py)
 
-- **Standard, locked.** AgX's highlight desaturation greyed the sand and teal; a map has no
-  speculars, so filmic rolloff buys nothing. Ramp hexes render near-verbatim — not a lever.
+- **`Khronos PBR Neutral`.** It is a `Rig` field, so a change of tone map restages; it was spelled inline until snow was measured clipping under the transform it replaced.
+- **It rolls highlights off instead of clipping them.** On the Iceland arm that took snow from 21.59% of pixels clipped to 0.00%, and cost about 9 DN of global darkening.
+- **AgX's rejection does not transfer, and this is not a re-litigation of it.** AgX was refused for desaturating the sand and teal. PBR Neutral moved snow hue by 1 DN in the same arm, so it buys the rolloff without the wash.
+- **What it breaks, and no gate can see: the composite and the rig no longer encode alike.** The composite reaches 8-bit through a plain sRGB transfer and the rig through this tone map. They agreed while it was `Standard`, which is the premise the frozen ramp hexes in `test_palette.py` were locked against, so that oracle now pins the composite to hexes describing a hero that is no longer rendered.
+- The divergence lands on the surfaces still composited, which is both caps and all of Mars. Sign is favourable at the polar seam, where the raytraced tiles read brighter than the cap, but nothing has measured it there.
 
 ### Borders (composited overlay — heroes)
 

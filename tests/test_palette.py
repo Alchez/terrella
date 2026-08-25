@@ -10,6 +10,12 @@ locked-constants section, which is kept outside the repository, so nothing a rea
 them independently of `palette.py` itself. That is the point: an oracle stored beside the code it
 checks is no oracle at all, and these literals are deliberately hand-written rather than derived.
 Changing one means re-rendering every hero. See ART.md for the look decisions behind them.
+
+WHAT THIS ORACLE CAN NO LONGER SEE. "The approved hero look" meant these stops encoded to these
+hexes because the rig's view transform was a plain sRGB encode, exactly like `_srgb8`. It is
+`Khronos PBR Neutral` now, so the equality below is a claim about the COMPOSITE path alone and the
+hero it is named for renders them darker. Every assertion here still passes and none of them is
+about the rig any more; re-freezing them is a look decision, not a test repair.
 """
 
 import hashlib

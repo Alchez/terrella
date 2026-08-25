@@ -8,11 +8,16 @@ dependency-light (numpy only, which Blender bundles) so it imports from either
 interpreter — Blender's bundled Python cannot see the venv's packages, so any
 constant shared with `scene_build` must live in a module like this one.
 
-Colors are LINEAR RGB (the ramp stops), matching the hero's ColorRamp nodes under the
-Standard view transform, where linear→sRGB is the only encode on the way to an 8-bit
-image. `color_relief_rows` densely samples each ramp and sRGB-encodes it into the rows
+Colors are LINEAR RGB (the ramp stops), matching the hero's ColorRamp nodes.
+`color_relief_rows` densely samples each ramp and sRGB-encodes it into the rows
 `gdaldem color-relief` consumes. Land and sea are separate ramps chosen later by the
 ocean mask (not the elevation sign), which keeps the coastline crisp.
+
+THE TWO PRODUCERS NO LONGER SHARE AN ENCODE, and no gate here can see it. The composite reaches
+8-bit through `_srgb8` below, a plain sRGB transfer; the rig reaches it through
+`scene_build.RIG.view_transform`, a tone map that rolls highlights off and darkens mid-tones. The
+two agreed for as long as that transform was `Standard`, and this module's frozen hexes were locked
+against a hero rendered under it. Read any "the hero renders these verbatim" claim as historical.
 
 EVERY RAMP CONSTANT HERE IS ONE BODY'S, and the module holds more than one body's. Earth's land
 runs 0/6000 m and its sea 85B9B7/3A6E7D over 0/-6000 m, both frozen and guarded against drift by

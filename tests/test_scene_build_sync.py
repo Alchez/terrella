@@ -426,6 +426,18 @@ class TestTheRecipeIsDerivedRatherThanEnumerated:
         fields = {field.name for field in dataclasses.fields(scene_build.RIG)}
         assert {"samples", "sun_strength", "world_rgba", "clamp_indirect"} <= fields
 
+    def test_the_view_transform_is_the_rigs_rather_than_a_literal(self, scene_build):
+        """The tone map decides what every pixel's linear value comes out AS, and it reached no
+        recipe at all: changing it moved every pixel and restaged nothing.
+
+        The conversion that structured this module took the values already spelled as module-level
+        capitals and left the ones written inline in `configure_render`. This is the largest of
+        those, not the last of them.
+        """
+        assert scene_build.RIG.view_transform, "the rig states no view transform"
+        recipe = scene_build.rig_recipe(palette.EARTH_LOOK)
+        assert recipe["rig"]["view_transform"] == scene_build.RIG.view_transform
+
     def test_no_rig_constant_is_left_at_module_level(self, scene_build):
         """The conversion is only worth doing if it is complete.
 
@@ -484,7 +496,11 @@ class TestEveryTextureNodeIsDeclaredRatherThanSpelledInline:
     #: it is an identity, a consistent rename renders byte-identically, and recording one would put
     #: a 22 h re-render behind a rename that moves nothing. `colorspace_settings.name` is a
     #: different attribute that happens to share the word, and it is very much pixel-moving.
-    PIXEL_MOVING = ("interpolation", "extension")
+    #:
+    #: HAND-LISTED, SO WHAT IT MISSES IT MISSES IN SILENCE. bpy tags nothing as look-bearing, so
+    #: this set cannot be derived; an attribute nobody thought to add is simply unguarded, which is
+    #: how `view_transform` sat inline through the conversion that structured every number near it.
+    PIXEL_MOVING = ("interpolation", "extension", "view_transform")
 
     def _inline_values(self, source: str) -> list[str]:
         found = []
@@ -529,9 +545,10 @@ class TestEveryTextureNodeIsDeclaredRatherThanSpelledInline:
             "    node.interpolation = 'Closest'\n"
             "    node.extension = 'REPEAT'\n"
             "    img.colorspace_settings.name = 'Non-Color'\n"
+            "    scene.view_settings.view_transform = 'Standard'\n"
             "    node.name = 'Displacement'\n"
         )
         found = self._inline_values(known_bad)
-        assert len(found) == 3, f"expected the three pixel-moving ones, got {found}"
+        assert len(found) == 4, f"expected the four pixel-moving ones, got {found}"
         assert not any("Displacement" in entry for entry in found), (
             "a node's own name is an identity, not a look value, and must not be flagged")

@@ -157,6 +157,11 @@ class Rig:
     #: top — the thing a binary mask never notices and a soft alpha very much does. One of the
     #: founding bpy lessons, and it was spelled inline in `load_image` where no recipe could see it.
     image_colorspace: str
+    #: The other end of the same axis: how linear light becomes an 8-bit value, and the last thing
+    #: to touch every pixel in the frame. It must be a VIEW name from Blender's OCIO config, not a
+    #: colorspace name. Spelled inline in `configure_render` until snow was measured clipping under
+    #: it, so no change of tone map could restage anything.
+    view_transform: str
 
 
 RIG = Rig(
@@ -182,6 +187,7 @@ RIG = Rig(
                  transmission_bounces=12, volume_bounces=0),
     clamp_indirect=10.0,
     image_colorspace="Non-Color",
+    view_transform="Khronos PBR Neutral",
 )
 
 @dataclasses.dataclass(frozen=True)
@@ -751,7 +757,7 @@ def configure_render(res_x, res_y, *, denoise_device):
     for attr, val in RIG.bounces.items():
         setattr(cycles_settings, attr, val)
     cycles_settings.sample_clamp_indirect = RIG.clamp_indirect
-    scene.view_settings.view_transform = "Standard"
+    scene.view_settings.view_transform = RIG.view_transform
 
 
 def build_parser():
