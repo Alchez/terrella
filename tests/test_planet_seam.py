@@ -22,7 +22,7 @@ import subprocess
 import numpy as np
 import pytest
 import rasterio
-from conftest import write_planet_vrt
+from conftest import DECLARED_RASTERS, write_planet_vrt
 from rasterio.transform import from_bounds
 
 from pipeline import bodies, layers, paths, planet_seam
@@ -377,3 +377,29 @@ class TestWriteVrtIfChanged:
         assert beside.read_bytes() != elsewhere.read_bytes()
         assert 'relativeToVRT="1"' in beside.read_text(), (
             "the production layout keeps chunks under the VRT, which is what makes paths relative")
+
+
+class TestTheSuitesStandInMatchesTheRealDeclaration:
+    """`conftest.DECLARED_RASTERS` is a hand-written copy of what the producers emit, so it can
+    drift, and drift here is silent in the worst direction: every test that builds a recipe against
+    the stand-in would keep passing against a set no producer writes any more.
+
+    HELD HERE BECAUSE THIS MODULE OWNS THE DECLARATION, not in whichever suite happens to substitute
+    the table. Two of them do now, and the guard belongs beside the thing it is a copy OF.
+
+    SKIPPED RATHER THAN FAKED WHERE THERE IS NO STORE. On a fresh clone there is nothing to compare
+    against, and a test that fabricated a declaration would be checking the copy against itself. On
+    any machine that has run a planet stage it is a real comparison. This class must therefore NOT
+    take the `store` fixture: the real store is its subject.
+    """
+
+    @pytest.mark.parametrize("body", [bodies.EARTH, bodies.MARS])
+    def test_the_table_is_what_the_producer_declared(self, body):
+        if not planet_seam.declaration_path(body).exists():
+            pytest.skip(f"{body.name}'s planet stage has not run on this machine (CI)")
+        assert DECLARED_RASTERS[body.name] == planet_seam.declared(body)
+
+    def test_every_registered_body_has_an_entry(self):
+        """Derived from the registry, not listed: a third planet must fail here rather than at
+        whichever test happens to name it first. This one runs everywhere, store or no store."""
+        assert set(DECLARED_RASTERS) == set(bodies.BODIES)

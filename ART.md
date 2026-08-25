@@ -54,7 +54,7 @@
 
 ### Both surfaces — shared constants (`pipeline/look/palette.py`)
 
-Cost: hero sweep **~10–13 h** + tile restage **~29 min** + caps auto-restage **~1:35**.
+Cost: hero sweep **~10–13 h** + tile restage **~29 min** + caps auto-restage **~3:05**.
 
 | Lever | Value | Section |
 |---|---|---|

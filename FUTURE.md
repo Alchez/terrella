@@ -54,6 +54,7 @@ Not a lower tier. Nobody has written down what would make them worth doing, and 
 
 - [The display face swaps in at a different width](#the-display-face-swaps-in-at-a-different-width-and-the-metric-matched-fallback-is-inert-analysed-2026-08-02)
 - [Flat ice saturates the snow ramp](#flat-ice-saturates-the-snow-ramp-and-the-curve-was-fitted-before-antarctica-existed-analysed-2026-07-29) · look-call · needs-render-store
+- [The snow persistence source paints salt playas white](#the-snow-persistence-source-paints-salt-playas-white-and-nobody-has-counted-them-analysed-2026-08-25) · look-call · needs-render-store
 - [Look presets: user-selectable globe styles](#look-presets-user-selectable-globe-styles-analysed-2026-07-23) · look-call · product
 - [Hero presentation: geography-conditional](#hero-presentation-geography-conditional-and-no-universal-design-exists-analysed-2026-07-09) · product
 - [Kiribati presentation](#kiribati-presentation-the-one-antimeridian-deferred-country-analysed-2026-07-24) · product
@@ -478,6 +479,16 @@ Raised while reviewing the gallery after the sea-sync sweep (the sea look was ap
 
 Deferred past the 22h Earth pass deliberately: every part of it is a HERO deficiency, and none of it changes a raytraced tile.
 
+## The snow persistence source paints salt playas white, and nobody has counted them (analysed 2026-08-25)
+
+> **OPEN** · look-call · needs-render-store. Nothing named would reopen it, because **the sizing has not been done and that is the open question**, not the fix.
+
+- **What it looks like:** small hard-edged white blobs on terrain that has never held snow. Two on the Iranian plateau, at **52.87E 32.15N** (the Gavkhouni salt marsh) and **55.39E 29.33N** (the Sirjan playa), sitting beside the correctly drawn Bakhtegan and Tashk lakes.
+- **The cause is one layer and the others are eliminated.** Sampling every input at both sites against a desert control 40 km east: `snow_persistence_3857` reads **5,434 to 7,418** where the control reads **0.12 mean, 2.63 max**, while `glacier`, `addrock`, `seaice`, `water` and `ocean` are all exactly **0**. NSIDC-0791 classifies bright evaporite crust as persistent snow, and the pipeline paints what it is told.
+- **It is NOT a raytracing defect and it is live in production.** The same pixels in the previous composite pyramid are already 100% near-white at Sirjan and 66% at Gavkhouni. The raytraced pass moved them 239 to 244 and 227 to 234 luminance, so it brightened them slightly and did not create them.
+- **The next action is a measurement, not a fix.** 4,931 near-white pixels is 0.049% of a 3641 x 2742 Iran window, and nobody has swept the planet. Every low-latitude playa is a candidate: Etosha, Uyuni, the Lut, the Australian salt lakes. **The answer at five sites and the answer at five hundred are different decisions**, and the sweep is a real job on the 30 GB master.
+- **Why a fix is not obvious even once sized.** The layer is a persistence percentage with no class information, so nothing in it distinguishes salt from snow. Masking by latitude would take real snow off mid-latitude ranges, which is the failure that made the tiles drop WorldCover class 70 in the first place. A separate playa mask is a new dataset and a new licence.
+
 ## Small debts and open calls, carried out of the working plan (parked 2026-08-24)
 
 > **MIXED**, and the subsections below carry the states. The guard repairs under *One concept with two homes* are the most pickable work in this file: they need a clone and nothing else.
@@ -497,6 +508,8 @@ The working plan had become the project's only backlog as well as its live state
 - **Nothing pins any of the gallery manifest.** A garbage `countries.json` with cold caches still passes 1,415 of 1,415, so no test reads the real one.
 - **`--mosaic` redirects the raster and its markers but not the recipe**, so a scratch A/B restages the shipping planet's freshness. `--work` is the workaround rather than the fix.
 - **Open call: should `check.sh` run the suite a second time under an empty `MAPS_DATA`?** 17.5 s to reproduce CI exactly. Without it, a store-reading test is green locally and red only after a push.
+  - **The trigger has now fired twice.** Five recipe tests in `test_block_render.py` went red in CI this way, and then a registry sweep in `test_planet_pass.py` did the same, in a module written after the first was fixed. Both were green on every local gate.
+  - The second one is what settles the shape of the objection: the fix for the first was a per-file helper, so the next file could not inherit it. A gate is the only form of this that reaches a module nobody has written yet.
 - **An explicit env override on `pass_cap.HEAVY_JOB_GIB`** is the half of the ratified cap ruling `4f4daf8` that never landed. The two measured caps stay fixed either way.
 - **Every planet fusion chunk is older than the mosaics it was fused from, and nothing can notice.** `fuse_planet.fuse_cell` skips a cell on `heightfield_10s.tif` EXISTENCE, so rebuilding `dem_mosaic.vrt` or `wbm_mosaic.vrt` after a tile download never restages one.
   - Measured on `e010_n70`: re-fusing today moves **928 px of 12.96 M, 0.0072%**, scattered and symmetric. Small per cell, systematic across all 648, and invisible from disk.

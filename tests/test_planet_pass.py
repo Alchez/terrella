@@ -15,6 +15,7 @@ from pathlib import Path
 from unittest import mock
 
 import pytest
+from conftest import DECLARED_RASTERS
 
 from pipeline import bodies, freshness, planet_seam
 from pipeline.tile import cap_render, planet_pass, shade_planet
@@ -35,14 +36,22 @@ class TestABodyCannotDeclareAProducerItCannotRun:
     """
 
     def test_every_registered_body_can_run_the_producer_it_names(self, subtests):
-        """The sweep. It passes today because both bodies answer `composite`, which is exactly why
-        the two arms below exist: a guard whose only instances agree proves nothing about the
-        question it asks."""
+        """The sweep, and it exercises both producers now that Earth raytraces a whole seam while
+        Mars composites a heightfield alone. The synthetic arms below still earn their place: they
+        are what keeps this claim falsifiable on the day the registry holds one kind again.
+
+        THE SEAM IS ANSWERED FROM `conftest.DECLARED_RASTERS`, NOT FROM THIS MACHINE'S STORE, which
+        is the whole point of `cannot_run` taking the rasters as an argument. Calling `declared`
+        here made a registry sweep depend on a 1.1 TB store: it passed on the maintainer's box and
+        went red in CI, where a body that has never been fused raises rather than answering. Read
+        from the table it runs everywhere, so a body flipped to a producer its seam cannot feed
+        fails on a fresh clone instead of only where the planet already exists.
+        """
         assert bodies.BODIES, "no bodies are registered, so this sweep proves nothing"
         for name in sorted(bodies.BODIES):
             with subtests.test(name):
                 body = bodies.get(name)
-                assert planet_pass.cannot_run(body, planet_seam.declared(body)) == [], (
+                assert planet_pass.cannot_run(body, DECLARED_RASTERS[name]) == [], (
                     f"{name} names producer {body.planet_producer!r}, which cannot run on what its "
                     f"planet seam declares"
                 )

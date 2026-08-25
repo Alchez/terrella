@@ -13,6 +13,7 @@ from typing import ClassVar
 
 import numpy as np
 import pytest
+from conftest import declare_planet_rasters
 
 from pipeline import block_plan, bodies, freshness, layers, planet_seam
 from pipeline.block_plan import Block
@@ -189,7 +190,7 @@ class TestTheRecipeSeesWhatNoMtimeCan:
         """Every test here builds a recipe, and a recipe names the rasters the planet stage
         declared — which on a machine with no store is a raised FileNotFoundError, not an empty
         answer. The seam is answered from the registry so these run in a bare checkout."""
-        _declare_planet_rasters(monkeypatch)
+        declare_planet_rasters(monkeypatch)
 
     def _params(self, body=bodies.EARTH, blocks=None):
         return block_render.params(body, planet_seam.declared(body),
@@ -299,7 +300,7 @@ class TestTheWhiteLawReachesTheRecipeAndNotOnlyTheCode:
 
     @pytest.fixture(autouse=True)
     def _no_store(self, monkeypatch):
-        _declare_planet_rasters(monkeypatch)
+        declare_planet_rasters(monkeypatch)
 
     def _params(self, body=bodies.EARTH):
         return block_render.params(body, planet_seam.declared(body),
@@ -483,7 +484,7 @@ class TestTheRunnerStopsWhenTheMosaicIsAlreadyCurrent:
         `run` declares the raytrace before asking its freshness question, so a work directory that
         has never been declared is a FIRST run however fresh everything else looks — the declaration
         lands newer than the marker and every block correctly re-renders."""
-        _declare_planet_rasters(monkeypatch)
+        declare_planet_rasters(monkeypatch)
         planned = [_block(0, column) for column in range(3)]
         monkeypatch.setattr(block_render, "plan_blocks", lambda body, work: planned)
         _stage_warped_inputs(tmp_path)
@@ -503,7 +504,7 @@ class TestTheRunnerStopsWhenTheMosaicIsAlreadyCurrent:
         planet is newer than every warp source and newer than this producer's recipe, so without the
         stamp this run would report it fresh and publish composited pixels under a raytrace recipe.
         """
-        _declare_planet_rasters(monkeypatch)
+        declare_planet_rasters(monkeypatch)
         monkeypatch.setattr(block_render, "plan_blocks", _stop_here)
         _stage_warped_inputs(tmp_path)
         producer_seam.declare(tmp_path, "composite")
@@ -515,7 +516,7 @@ class TestTheRunnerStopsWhenTheMosaicIsAlreadyCurrent:
 
     def test_a_moved_input_is_not_fresh(self, tmp_path, monkeypatch):
         """The other direction, so the test above cannot pass by the predicate always saying yes."""
-        _declare_planet_rasters(monkeypatch)
+        declare_planet_rasters(monkeypatch)
         monkeypatch.setattr(block_render, "plan_blocks", _stop_here)
         mosaic = tmp_path / "planet_rgb.tif"
         mosaic.write_bytes(b"")
@@ -536,7 +537,7 @@ class TestTheLoopStampsOnlyAWholePlanet:
     """
 
     def _drive(self, tmp_path, monkeypatch, *, blocks=3, **kwargs):
-        _declare_planet_rasters(monkeypatch)
+        declare_planet_rasters(monkeypatch)
         # The disk floor is sized for a whole planet and these blocks stand in for one, so on any
         # ordinary scratch filesystem it would abort before the loop this class is about. It has
         # its own guards above; here it is held out of the way rather than left to fire.
@@ -658,54 +659,6 @@ def _stage_warped_inputs(tmp_path):
     whether they are there, and a test that wrote real ones would be testing rasterio."""
     for name in (shade_planet.HEIGHT_3857, shade_planet.OCEAN_3857, shade_planet.WATER_3857):
         (tmp_path / name).write_bytes(b"")
-
-
-#: What each body's planet producer really declares, keyed by body name.
-#:
-#: A LITERAL, and the one place in this file that spells it. `planet_seam.declared` reads the
-#: producer's own declaration off disk, so there is no registry answer to derive this from — the set
-#: is a production fact. Stating it once means a body whose producer starts emitting more raster is
-#: one edit here, rather than a hunt through every class that builds a recipe.
-_DECLARED_RASTERS = {
-    "earth": frozenset(planet_seam.KNOWN_RASTERS),
-    # `relabel_mars` declares the heightfield alone: Mars has no sea, so no mask classifies one.
-    "mars": frozenset({"heightfield"}),
-}
-
-
-def _declare_planet_rasters(monkeypatch):
-    """Answer the planet seam from the table above rather than from this machine's store, so these
-    guards run in a checkout with no data at all.
-
-    THE MODE THIS FILE IS ACTUALLY RUN IN BY ANYONE BUT THE MAINTAINER, and the reason it is a
-    helper rather than a line: five recipe tests called `declared` directly, passed on the box that
-    has the store, and went red on CI where `data/` is empty. A store read is invisible locally.
-    """
-    monkeypatch.setattr(block_render.planet_seam, "declared",
-                        lambda body: _DECLARED_RASTERS[body.name])
-
-
-class TestTheFakeDeclarationMatchesTheRealOne:
-    """The stand-in above is a hand-written copy of a production fact, so it can drift — and drift
-    here is silent in the worst direction: every recipe test would keep passing against a set no
-    producer emits any more.
-
-    SKIPPED RATHER THAN FAKED WHERE THE STORE IS ABSENT, which is the pattern this file should have
-    followed to begin with: on a machine with no `data/` there is nothing to compare against, and a
-    test that invented one would be checking the copy against itself. On the maintainer's box, and
-    on any machine that has run the planet stage, it is a real comparison.
-    """
-
-    @pytest.mark.parametrize("body", [bodies.EARTH, bodies.MARS])
-    def test_the_table_is_what_the_producer_declared(self, body):
-        if not planet_seam.declaration_path(body).exists():
-            pytest.skip(f"{body.name}'s planet stage has not run on this machine (CI)")
-        assert _DECLARED_RASTERS[body.name] == planet_seam.declared(body)
-
-    def test_every_registered_body_has_an_entry(self):
-        """Derived from the registry, not listed: a third planet must fail here rather than at
-        whichever recipe test happens to name it first."""
-        assert set(_DECLARED_RASTERS) == set(bodies.BODIES)
 
 
 def _stop_here(*args, **kwargs):

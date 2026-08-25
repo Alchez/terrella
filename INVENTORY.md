@@ -40,7 +40,7 @@ flowchart LR
   end
 
   subgraph OUT["delivered · the only bytes a visitor fetches"]
-    PM["planet.pmtiles · 3.1 GB"]
+    PM["planet.pmtiles · 2.50 GB"]
     TER["terrain.pmtiles · 2.63 GB"]
     VEC["vector.pmtiles · 10.2 MB"]
     CAP["web/public/caps/ · WebP rungs"]
@@ -128,8 +128,8 @@ flowchart LR
 | `height_3857.tif` + `.done` | 46 GB | planet heightfield on the WMQ 3857 grid (131072², Float32, full Mercator extent incl. Antarctica) | Keep: the composite's direct colour input (ramps apply from elevation) |
 | `seaice_3857.tif` + `.done` | 18 GB | OSI SAF ice-frequency climatology warped ONCE to the 3857 grid, raw packed Float32, in latitude bands (a coarse 25 km source decimates under a single whole-grid warp); composite reads window slices, ocean-gated | Keep: fresh; dep is `seaice_frequency_1991-2020_4326.tif`. Regenerable |
 | `tiles/` | **3.1 GB** | **LIVE and APPROVED**: the ratified look (z0–8, 512 px WebP q95, rows to y=255) | Keep (live) |
-| `planet.pmtiles` | **3.1 GB** | the serving archive (`pmtiles convert`, capped, `--tmpdir` on ext4): spec v3, clustered, z0–8, ~5% duplicate tiles collapsed; verified via `pmtiles verify` + 5-tile byte-compare | Keep: the deployment artifact; ~34 s + ~1m11s to rebuild from `tiles/` |
-| `planet_rgb.tif` + `.done` | 11 GB | the approved look at the full 131072² grid, which the tiles are cut from. Written by whichever producer this body names, and `planet_producer.json` beside it is the only thing on disk that says which | Keep: `--tiles` reads it |
+| `planet.pmtiles` | **2.50 GB** | the serving archive (`pmtiles convert`, capped, `--tmpdir` on ext4): spec v3, clustered, z0–8, 87,366 distinct contents of 87,381; verified via `pmtiles verify` + 5-tile byte-compare. **0.80× the composite archive it replaced**, so a raytraced pyramid is smaller on disk despite a master 2.7× larger | Keep: the deployment artifact; ~10 s + ~7 s to rebuild from `tiles/` |
+| `planet_rgb.tif` + `.done` | **30 GB** | the approved look at the full 131072² grid, which the tiles are cut from. Written by whichever producer this body names, and `planet_producer.json` beside it is the only thing on disk that says which. **The raytraced master is 2.7× the composite's 11 GB at identical dimensions**: the pixel count is the grid either way and the difference is entirely how well deflate compresses raytraced detail | Keep: `--tiles` reads it |
 | `snow_persistence_3857.tif` + `.done` | 10 GB | NSIDC-0791 persistence warped ONCE to the 3857 grid, raw packed Float32, in 256-row latitude bands (whole-grid warp decimates the ~1.1 km source; banding == the per-window warp, byte-identical); composite reads window slices | Keep: fresh; dep is `snow/*.nc`. Regenerable |
 | `hs_3857.tif` + `.done` | 10 GB | per-row-z hillshade **+ the fill sun, baked**: *combined light*, not a bare hillshade, still on the `flat = 255·sin(alt)` contract; max DN 226 | Keep: fresh |
 | `glacier_3857.tif` + `.done` | 30 MB | RGI 7.0 glacier mask (Byte 0/1) rasterized ONCE to the 3857 grid; exact vector burn, so no banding needed | Keep: fresh; dep is `rgi7_g_3857.gpkg`. Regenerable |

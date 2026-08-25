@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from pipeline import bodies
+from pipeline import bodies, planet_seam
 from pipeline.tile import cap_render, shade
 
 #: The REAL served root, resolved once while `paths.ROOT` still points at this checkout.
@@ -82,6 +82,34 @@ def write_planet_vrt(path: Path, grid: tuple[int, int] = (3600, 3600),
         f"<GeoTransform>{west}, {(east - west) / width}, 0.0, "
         f"{north}, 0.0, {-(north - south) / height}</GeoTransform>"
         f"</VRTDataset>")
+
+
+#: What each body's planet producer really declares, keyed by body name.
+#:
+#: A LITERAL, because there is nothing to derive it from: `planet_seam.declared` reads the producer's
+#: own declaration off a disk that a fresh clone does not have, so the set is a production fact
+#: rather than a registry answer.
+#:
+#: SUITE-WIDE RATHER THAN PER-FILE, because three test modules have now walked into the same trap
+#: independently. A store read passes on the maintainer's box and goes red in CI, so it is invisible
+#: exactly where it is written, and each module discovered it separately and wrote its own copy.
+#: `tests/test_planet_seam.py` holds this table against the real declarations.
+DECLARED_RASTERS = {
+    "earth": frozenset(planet_seam.KNOWN_RASTERS),
+    # `relabel_mars` declares the heightfield alone: Mars has no sea, so no mask classifies one.
+    "mars": frozenset({"heightfield"}),
+}
+
+
+def declare_planet_rasters(monkeypatch) -> dict[str, frozenset[str]]:
+    """Answer the planet seam from `DECLARED_RASTERS` rather than from this machine's store, and
+    return the table for a caller that wants the set rather than the substitution.
+
+    THE MODE THIS SUITE IS ACTUALLY RUN IN BY ANYONE BUT THE MAINTAINER. Patches the module
+    attribute, not one importer's view of it, so every consumer in the process is answered.
+    """
+    monkeypatch.setattr(planet_seam, "declared", lambda body: DECLARED_RASTERS[body.name])
+    return DECLARED_RASTERS
 
 
 def hillshade_for_light(light: float) -> float:
