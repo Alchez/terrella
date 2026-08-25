@@ -117,8 +117,15 @@ flowchart LR
   generations once hid; and a *deferred* measurement of a growing directory is the same failure
   as a stale one. Re-measure when the chain moves.
 - Steady state is **one live pyramid + one rollback**: `tiles/` plus the `tiles_old/` that
-  `build_tiles` auto-rotates on each cut. `tiles_old/` is currently absent: the WebP pyramid it
-  guarded is live and served, so the rollback window closed and its 16 GB was reclaimed.
+  `build_tiles` auto-rotates on each cut. Both are present at 2.6 GB each, and **both are now
+  raytraced cuts**: the rotation happened twice in one day, so the second one pushed the composite
+  out. The rollback window is one cut deep, never one producer deep.
+- **THE COMPOSITE PYRAMID NO LONGER EXISTS LOCALLY, and `tiles_old` is not a stand-in for it.** That
+  matters because a composite arm is the only control for judging what the producer switch changed,
+  and rotation destroys it silently: the directory is the right size and the wrong contents, so an
+  `ls` says nothing. It survives in R2 as the deployed `planet-v2.pmtiles`, and as **64 z8 tiles
+  fetched from it into `~/terrella-scratch/cap-join/composite/`, which is the only local copy and
+  must not be reclaimed** while the polar disc is open.
 - `pack_pmtiles.py` emits an intermediate `planet.mbtiles` (3.19 GB) that `pmtiles convert` reads: 
   **transient by design**, and currently absent: it is deleted once the archive verifies and rebuilds
   from `tiles/` in ~10 s.

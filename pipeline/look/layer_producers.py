@@ -318,7 +318,7 @@ def _no_tunables() -> dict[str, Any]:
     return {}
 
 
-def _earth_white(_window: "LayerWindow | None" = None) -> tuple[Any, Any]:
+def _earth_paint(_window: "LayerWindow | None" = None) -> tuple[Any, Any]:
     """Earth's one ice white, shared by its perennial ice, its glaciers and its cap producers.
 
     ONE HOME, DECLARED BY EACH READER RATHER THAN COPIED INTO IT. Earth's two composite-tier ice
@@ -348,14 +348,14 @@ def _earth_perennial_ice_recipe() -> dict[str, Any]:
             "snow_source_cell_m": snow.SOURCE_CELL_M}
 
 
-def _earth_white_recipe() -> dict[str, Any]:
+def _earth_paint_recipe() -> dict[str, Any]:
     """Earth's one ice white as a recipe, declared by BOTH producers that paint in it.
 
-    From `_earth_white`, the same function their `paint` returns, so the recipe cannot record a
+    From `_earth_paint`, the same function their `paint` returns, so the recipe cannot record a
     colour the producer does not use. Both declare it and the merge is by key, so the duplicate is
     one value seen twice rather than two free to drift.
     """
-    lit, shadow = _earth_white()
+    lit, shadow = _earth_paint()
     return {"snow_rgb": lit, "snow_shadow_rgb": shadow}
 
 
@@ -373,8 +373,8 @@ def _earth_sea_ice_recipe() -> dict[str, Any]:
 
 
 def _earth_sea_ice_paint_recipe() -> dict[str, Any]:
-    """The pair `seaice.ice_white` hands both this tier and the caps, so one re-tune moves both."""
-    lit, shadow = seaice.ice_white()
+    """The pair `seaice.ice_paint` hands both this tier and the caps, so one re-tune moves both."""
+    lit, shadow = seaice.ice_paint()
     return {"ice_rgb": lit, "ice_shadow_rgb": shadow}
 
 
@@ -417,7 +417,7 @@ def _mars_perennial_ice(window: LayerWindow) -> "np.ndarray | None":
     return np.asarray(window.raw, dtype=float)
 
 
-def _mars_ice_white(window: LayerWindow) -> tuple[Any, Any]:
+def _mars_ice_paint(window: LayerWindow) -> tuple[Any, Any]:
     """Mars's white, chosen PER ROW, because its two poles are not the same colour.
 
     Measured off the Viking mosaic over each pole's own painted extent, weighted by the alpha this
@@ -485,22 +485,22 @@ PRODUCER_BY_BODY_LAYER: dict[tuple[str, str], LayerProducer] = {
         build_recipe=_no_tunables),
     ("earth", layers.PERENNIAL_ICE.name): LayerProducer(
         sources=lambda: (snow.SP_NC,),
-        build=_build_persistence, contribution=_earth_perennial_ice, paint=_earth_white,
-        contribution_recipe=_earth_perennial_ice_recipe, paint_recipe=_earth_white_recipe,
+        build=_build_persistence, contribution=_earth_perennial_ice, paint=_earth_paint,
+        contribution_recipe=_earth_perennial_ice_recipe, paint_recipe=_earth_paint_recipe,
         build_recipe=_no_tunables),
     ("earth", layers.GLACIERS.name): LayerProducer(
         sources=lambda: (download_rgi.GPKG,),
         # Pure transport: the mask is rasterized and handed through, so there is nothing to grade
         # and the white is the whole of what this producer reads.
-        build=_build_glaciers, contribution=_earth_glaciers, paint=_earth_white,
-        contribution_recipe=_no_tunables, paint_recipe=_earth_white_recipe,
+        build=_build_glaciers, contribution=_earth_glaciers, paint=_earth_paint,
+        contribution_recipe=_no_tunables, paint_recipe=_earth_paint_recipe,
         build_recipe=_no_tunables),
     ("earth", layers.SEA_ICE.name): LayerProducer(
         sources=lambda: (seaice.SEAICE_SRC,),
-        # `seaice.ice_white`, not a literal: the cap tier reads that same function directly, so the
+        # `seaice.ice_paint`, not a literal: the cap tier reads that same function directly, so the
         # sentence "sea ice is painted in this pair" has one home across both tiers.
         build=_build_sea_ice, contribution=_earth_sea_ice,
-        paint=lambda _window: seaice.ice_white(),
+        paint=lambda _window: seaice.ice_paint(),
         contribution_recipe=_earth_sea_ice_recipe, paint_recipe=_earth_sea_ice_paint_recipe,
         build_recipe=_no_tunables),
     ("earth", layers.ANTARCTIC_ROCK.name): LayerProducer(
@@ -515,7 +515,7 @@ PRODUCER_BY_BODY_LAYER: dict[tuple[str, str], LayerProducer] = {
         build_recipe=_no_tunables),
     ("mars", layers.PERENNIAL_ICE.name): LayerProducer(
         sources=_mars_ice_sources,
-        build=_build_mars_ice, contribution=_mars_perennial_ice, paint=_mars_ice_white,
+        build=_build_mars_ice, contribution=_mars_perennial_ice, paint=_mars_ice_paint,
         # THE ONLY PRODUCER THAT ANSWERS ALL THREE FIELDS DIFFERENTLY, which is what keeps the
         # split honest: it grades nothing per window, declares two whites per pole, and bakes a
         # feather and its alpha levels into the raster. One field could not carry that.

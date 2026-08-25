@@ -49,7 +49,7 @@ def composite_pixel(light_value, *, ocean=True, water=False, snow=0.0, ice=0.0,
                            np.full(shape, hillshade_for_light(light_value), dtype="float32"),
                            np.zeros(shape, dtype="float32"), shape, shape,
                            ice_a=np.full(shape, ice, dtype="float32"), look=palette.EARTH_LOOK,
-                           snow_paint=(palette.SNOW_RGB, palette.SNOW_SHADOW_RGB), ice_paint=seaice.ice_white())[:, 0, 0].astype(float)
+                           snow_paint=(palette.SNOW_RGB, palette.SNOW_SHADOW_RGB), ice_paint=seaice.ice_paint())[:, 0, 0].astype(float)
 
 
 def relief_spread(damp, ice):

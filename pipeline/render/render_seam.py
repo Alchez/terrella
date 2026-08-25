@@ -90,12 +90,44 @@ def _require_known(image: str) -> None:
         raise ValueError(f"unknown render input {image!r}; known images are: {known}")
 
 
-def _records(render_dir: Path) -> dict[str, list[str]]:
-    """Every stage's record for this directory, or an empty mapping if none has written yet."""
+#: The images that are a mask rather than a picture, so something has to say what colour they are
+#: painted. The paint is the BODY's, and the rig cannot ask for it: `layer_producers` holds each
+#: body's answer and pulls in rasterio and GDAL, where `scene_build` runs in Blender's interpreter.
+#: So the prep, which has both the registry and the window, resolves it and writes it here.
+PAINTED_IMAGES = frozenset({SNOWMASK, SEAICE})
+
+#: One 8-bit sRGB colour on the wire. Spelled here rather than imported from `palette`, which owns
+#: the identical alias: `palette` is Blender-shared, and that set is exactly three files, pinned by
+#: `scripts/check_blender_drift.sh`. Borrowing a type name is not worth widening it to four.
+RGB8 = tuple[int, int, int]
+
+#: The `(sunlit, shadowed)` pair a mask is painted in.
+#:
+#: `LayerProducer.paint` answers `tuple[Any, Any]` and must keep doing so: a body may vary its
+#: colour across a window, as Mars does per pole. This is what survives the reduction to a value a
+#: shader socket can hold, so `prep_block.one_colour` between them is a check and never a cast.
+Paint = tuple[RGB8, RGB8]
+
+
+def _document(render_dir: Path) -> dict:
+    """The whole declaration for this directory, or an empty one if no stage has written yet."""
     path = declaration_path(render_dir)
     if not path.exists():
         return {}
-    return json.loads(path.read_text())["stages"]
+    return json.loads(path.read_text())
+
+
+def _write(render_dir: Path, document: dict) -> Path:
+    """Persist a declaration, keeping its two halves in one file and one existence question."""
+    path = declaration_path(render_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(document, indent=2, sort_keys=True) + "\n")
+    return path
+
+
+def _records(render_dir: Path) -> dict[str, list[str]]:
+    """Every stage's record for this directory, or an empty mapping if none has written yet."""
+    return _document(render_dir).get("stages", {})
 
 
 def declare(render_dir: Path, stage: str, images: Iterable[str]) -> Path:
@@ -118,12 +150,55 @@ def declare(render_dir: Path, stage: str, images: Iterable[str]) -> Path:
     if absent:
         raise FileNotFoundError(
             f"{render_dir}: {stage} is declaring images that are not on disk: {', '.join(absent)}")
-    stages = _records(render_dir)
+    document = _document(render_dir)
+    stages = document.get("stages", {})
     stages[stage] = named
-    path = declaration_path(render_dir)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({"stages": dict(sorted(stages.items()))}, indent=2) + "\n")
-    return path
+    document["stages"] = dict(sorted(stages.items()))
+    return _write(render_dir, document)
+
+
+def declare_paint(render_dir: Path, image: str, sunlit: RGB8, shadowed: RGB8) -> Path:
+    """Record the colour pair `image`'s mask is painted in, as the stage that resolved it.
+
+    The pair travels whole though today's rig reads only `sunlit`: the rig lets Cycles produce the
+    shaded end from light, which is how a body's authored shadow hue stopped reaching a raytraced
+    pixel, and dropping the half in question here would make it unrecoverable.
+
+    Order against `declare` does not matter — both halves live in one document and each writer
+    preserves the other's.
+    """
+    _require_known(image)
+    if image not in PAINTED_IMAGES:
+        painted = ", ".join(sorted(PAINTED_IMAGES))
+        raise ValueError(f"{image!r} is not a painted mask; paintable images are: {painted}")
+    document = _document(render_dir)
+    paints = document.get("paints", {})
+    paints[image] = {"sunlit": [int(channel) for channel in sunlit],
+                     "shadowed": [int(channel) for channel in shadowed]}
+    document["paints"] = dict(sorted(paints.items()))
+    return _write(render_dir, document)
+
+
+def paint_for(render_dir: Path, image: str) -> Paint:
+    """The `(sunlit, shadowed)` colours `image` is painted in here. Raises if nothing declared one.
+
+    Never add a default. A rig that fell back to a constant would render one body in another's
+    white with no missing file, no failed stage and every gate green — the failure this seam exists
+    to make impossible.
+    """
+    _require_known(image)
+    paint = _document(render_dir).get("paints", {}).get(image)
+    if paint is None:
+        raise FileNotFoundError(
+            f"{declaration_path(render_dir)}: no stage declared what {image} is painted in. "
+            f"The colour is the BODY's, resolved from its producer registry by the prep that cut "
+            f"this directory — re-run that prep (`render_prep.py`/`snow_mask.py` for a country, "
+            f"`prep_block.py` for a block). Rendering without it would paint this body in "
+            f"whichever white was authored first.")
+    def triple(end: str) -> RGB8:
+        red, green, blue = paint[end]
+        return red, green, blue
+    return triple("sunlit"), triple("shadowed")
 
 
 def declared(render_dir: Path) -> frozenset[str]:

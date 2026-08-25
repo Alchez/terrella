@@ -779,26 +779,33 @@ class TestTheRecipeRecordsWhatThePrepGradesWith:
                 assert key in recorded, f"{name} grades a block pixel and reaches no recipe"
                 assert recorded[key] == value
 
-    def test_a_white_the_RIG_paints_from_does_not_reach_the_recipe(self, monkeypatch):
-        """The over-tracking direction: `palette.SNOW_RGB` is a composite-and-cap constant that
-        cannot move a block pixel, and recording it would put a 22 h restage behind a cap re-tune.
+    def test_a_white_the_PREP_declares_reaches_the_recipe(self, monkeypatch):
+        """INVERTED WHEN THE RIG STOPPED HOLDING ITS OWN ALBEDO, and the old assertion was right
+        until then: while `RIG.snow_rgba` painted every mask, `palette.SNOW_RGB` could not move a
+        block pixel and recording it would have put a night of GPU behind a cap re-tune.
 
-        The softening arm runs in the SAME test as its control, because a negative alone cannot
-        tell "correctly absent" from "nothing is recorded at all" — the state this was written
-        against.
+        The rig now reads the colour the prep resolved from the body's registry, so the white moves
+        a block pixel — and reaches freshness only here. `raytrace_deps` tracks planet rasters, not
+        the prep directory, and blocks skip on marker existence, so without this a re-tuned white
+        would leave every finished block wearing the old colour with every gate green.
         """
         before = self._params()
         monkeypatch.setattr(palette, "SNOW_RGB", (1, 2, 3))
-        assert self._params() == before, "a white the rig never reads must not restage the planet"
-        monkeypatch.setattr(snow, "SOFTEN_FRACTION", snow.SOFTEN_FRACTION * 2)
         assert self._params() != before, \
-            "the control did not move either — the recipe records no producer constant at all"
+            "a white the rig now paints from must restage the blocks that were painted with it"
 
-    def test_a_body_whose_producers_grade_nothing_records_nothing(self):
-        """Mars, on the conditional-record idiom this recipe follows for `layers_off`: empty
-        entries would read as tracked while tracking nothing."""
+    def test_a_body_whose_producers_grade_nothing_still_records_its_white(self):
+        """Mars: nothing to GRADE and a white to PAINT, which are separate halves of the recipe.
+
+        Its `contribution_recipe` is empty on the conditional-record idiom, while its paint is two
+        measured pairs — one per pole, since the deposits are different colours. A raytraced Mars
+        that recorded Earth's shape here would be recording a white no Martian pixel is painted in.
+        """
         graded = {key for _layer, producer in self._in_block_producers(bodies.MARS)
                   for key in producer.contribution_recipe()}
         assert not graded, f"Mars grades with {graded}; this test's premise has moved"
-        assert "snow_rgb_north" not in json.loads(self._params(bodies.MARS)), \
-            "Mars's whites are its cap's and its composite's, and no block of it is painted here"
+        recorded = json.loads(self._params(bodies.MARS))
+        assert "snow_rgb_north" in recorded and "snow_rgb_south" in recorded, \
+            "Mars paints its polar ice from its own registry, so both whites must be tracked"
+        assert recorded["snow_rgb_north"] != recorded["snow_rgb_south"], \
+            "the two poles were measured separately; one value here means the pair collapsed"

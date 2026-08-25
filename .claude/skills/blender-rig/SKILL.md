@@ -25,6 +25,7 @@ them worth carrying rather than rediscovering.
 - **Map Range with reversed ranges is undefined.** Use Math Multiply plus Clamp instead.
 - **ColorRamp stops re-sort by position**, so never address one by index. The bpy edition of this is documented where it bites, in `scene_build.make_ramp`: `elements.new()` and position writes both re-sort the collection and invalidate any element reference held across the mutation.
 - **`ShaderNodeMath` defaults to ADD with `use_clamp` off.** Both need setting explicitly; a silently clamped factor is correct near 1.0 and wrong at the extremes.
+- **`is` on any RNA reference is False even for the same datablock**, because Blender returns a fresh Python wrapper on every access: `link.to_node is node` and `link.to_socket is node.inputs[0]` never match, so compare `.name`. A probe that unlinks a socket this way cuts nothing, the socket keeps its link, the default it then writes is ignored because a linked socket has no default, and the render is production under a different filename. Assert the count of links you CUT, never the count of nodes you found.
 
 ## When a render dies
 

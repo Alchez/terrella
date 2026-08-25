@@ -399,7 +399,7 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label="Earth's two union layers declare different whites, so one wins by table order",
         path='pipeline/look/layer_producers.py',
-        needle='        build=_build_glaciers, contribution=_earth_glaciers, paint=_earth_white,',
+        needle='        build=_build_glaciers, contribution=_earth_glaciers, paint=_earth_paint,',
         replacement='        build=_build_glaciers, contribution=_earth_glaciers,\n'
                     '        paint=lambda _window: ((9, 9, 9), (1, 1, 1)),',
         guard='test_earths_two_union_layers_declare_the_SAME_white',
@@ -3489,8 +3489,8 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label='the north cap declares the outcrop too, so a disc that cannot hold it burns anyway',
         path='pipeline/look/perennial_ice.py',
-        needle='                               paint=_earth_cap_white, exclusions=lambda: ()),',
-        replacement=('                               paint=_earth_cap_white, '
+        needle='                               paint=_earth_cap_paint, exclusions=lambda: ()),',
+        replacement=('                               paint=_earth_cap_paint, '
                      'exclusions=lambda: (layers.ANTARCTIC_ROCK,)),'),
         guard='test_only_earths_south_declares_an_exclusion',
     ),
@@ -3690,8 +3690,8 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label='the pole leaves the key, so both caps of a body get one producer',
         path='pipeline/look/perennial_ice.py',
-        needle='    ("earth", "south"): CapIce(sources=lambda: (), alpha=_earth_south, paint=_earth_cap_white,',
-        replacement='    ("earth", "south"): CapIce(sources=lambda: (Path(snow.SP_NC),), alpha=_earth_north, paint=_earth_cap_white,',
+        needle='    ("earth", "south"): CapIce(sources=lambda: (), alpha=_earth_south, paint=_earth_cap_paint,',
+        replacement='    ("earth", "south"): CapIce(sources=lambda: (Path(snow.SP_NC),), alpha=_earth_north, paint=_earth_cap_paint,',
         guard='test_earths_two_poles_get_DIFFERENT_producers',
     ),
     Sabotage(
@@ -4480,9 +4480,28 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label='a stage rewrites the whole declaration, so a resume erases the stages behind it',
         path='pipeline/render/render_seam.py',
-        needle='    stages = _records(render_dir)\n    stages[stage] = named',
+        needle='    stages = document.get("stages", {})\n    stages[stage] = named',
         replacement='    stages = {}\n    stages[stage] = named',
         guard='test_re_running_one_stage_leaves_the_others_standing',
+    ),
+    Sabotage(
+        suite='python',
+        label='the paint reaches a raytraced pixel and no recipe, so a re-tuned white restages '
+              'nothing and every finished block keeps the old colour',
+        path='pipeline/tile/block_render.py',
+        needle='        **layer_producers.constants_for(body, layers.BLOCK_LAYERS, painted=True),',
+        replacement='        **layer_producers.constants_for(body, layers.BLOCK_LAYERS, '
+                    'painted=False),',
+        guard='test_a_white_the_PREP_declares_reaches_the_recipe',
+    ),
+    Sabotage(
+        suite='python',
+        label='the rig falls back to a module white when the prep declared none, so every body '
+              'renders in whichever one was authored first',
+        path='pipeline/render/scene_build.py',
+        needle='    sunlit, _shadowed = render_seam.paint_for(render_dir, image)',
+        replacement='    sunlit = palette.SNOW_RGB',
+        guard='test_an_undeclared_paint_raises_rather_than_defaulting',
     ),
     Sabotage(
         suite='python',
@@ -4641,17 +4660,9 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label='the block recipe stops recording what its masks were graded with',
         path='pipeline/tile/block_render.py',
-        needle='        **layer_producers.constants_for(body, layers.BLOCK_LAYERS, painted=False),\n',
+        needle='        **layer_producers.constants_for(body, layers.BLOCK_LAYERS, painted=True),\n',
         replacement='',
         guard='test_the_ice_softening_moving_moves_the_recipe',
-    ),
-    Sabotage(
-        suite='python',
-        label="the block recipe records the producers' whites, which the rig paints without",
-        path='pipeline/tile/block_render.py',
-        needle='        **layer_producers.constants_for(body, layers.BLOCK_LAYERS, painted=False),',
-        replacement='        **layer_producers.constants_for(body, layers.BLOCK_LAYERS, painted=True),',
-        guard='test_a_white_the_RIG_paints_from_does_not_reach_the_recipe',
     ),
     Sabotage(
         suite='python',

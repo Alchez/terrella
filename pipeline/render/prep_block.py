@@ -221,8 +221,56 @@ def _write_rowscale(out: Path, window: Window, body: bodies.Body) -> None:
         tif.write(column, 1)
 
 
+def one_colour(value: Any, what: str) -> render_seam.RGB8:
+    """One RGB triple from a producer's paint, refusing anything that varies inside this window.
+
+    A PAINT MAY LEGITIMATELY VARY AND A RIG SHADER SOCKET CANNOT, so the reduction has to be a
+    check rather than an average. Mars answers `(3, H, 1)` because its two poles are different
+    colours; that array is constant within any block, since it splits at the equator and Mars
+    carries no ice within 76 degrees of it. A block that straddled the split would be a real
+    conflict with no correct single answer, and averaging two measured whites into a third that
+    neither pole has would render it as though it had been chosen.
+    """
+    array = np.asarray(value, dtype=np.float64).reshape(3, -1)
+    if not np.allclose(array, array[:, :1]):
+        raise ValueError(
+            f"{what} varies within this window, and the rig paints one colour per mask. "
+            f"Split the render so each side gets its own, or give this body a paint that is "
+            f"constant over a block.")
+    red, green, blue = (round(channel) for channel in array[:, 0])
+    return red, green, blue
+
+
+def merged_paint(paints: dict[str, tuple[Any, Any]], members: "tuple[layers.Layer, ...]",
+                 what: str) -> "render_seam.Paint | None":
+    """The one paint the layers folding into a single mask agree on, or None if none contributed.
+
+    THE FOLD IS A MAXIMUM OVER ALPHAS AND CARRIES NO COLOUR, so several layers land in one image
+    and the rig gets one socket for it. Earth's perennial ice and glaciers both answer `_earth_white`
+    and agree trivially; a body whose two white layers disagreed would have no representable answer
+    here, which is why this refuses rather than picking the first.
+    """
+    present = [paints[layer.name] for layer in members if layer.name in paints]
+    if not present:
+        return None
+    resolved = [(one_colour(sunlit, f"{what} sunlit"), one_colour(shadowed, f"{what} shadowed"))
+                for sunlit, shadowed in present]
+    if len({pair for pair in resolved}) > 1:
+        raise ValueError(f"{what}: layers folding into one mask declare different colours "
+                         f"{resolved}; the rig has one socket for them.")
+    return resolved[0]
+
+
 def build(body: bodies.Body, window: Window, outdir: Path) -> list[str]:
-    """Cut every image this body can produce for `window`, and return what was written."""
+    """Cut every image this body can produce for `window`, and return what was written.
+
+    THE PAINTS ARE DECLARED HERE AND USED TO BE DISCARDED ON ONE LINE. `gather` already resolves
+    each layer's colour from this body's own registry for this window — `_earth_white` for Earth,
+    `_mars_ice_white` per pole for Mars — and this stage kept the alphas and threw the colours away,
+    because the rig held its own module-level white. That white is Earth's, so every body rendered
+    in it and Earth was indistinguishable from correct. The registry answer now travels with the
+    mask it belongs to; `render_seam.PAINTED_IMAGES` holds why it has to travel as data.
+    """
     work = bodies.work_dir(body, "planet_tiles")
     rasters = planet_seam.declared(body)
     outdir.mkdir(parents=True, exist_ok=True)
@@ -267,8 +315,8 @@ def build(body: bodies.Body, window: Window, outdir: Path) -> list[str]:
                              if layer.name in body.surface_layers
                              and layer.warped_in(work).exists() else None)
                  for layer in layers.WARPED_LAYERS}
-    contributions, _, exclusions = layer_producers.gather(body, layer_raw, seen,
-                                                          layers.BLOCK_LAYERS)
+    contributions, paints, exclusions = layer_producers.gather(body, layer_raw, seen,
+                                                               layers.BLOCK_LAYERS)
 
     # WRITTEN ONLY WHERE IT REACHES A PIXEL, AND DECLARED EITHER WAY. Skipping an all-zero mask is a
     # real saving across thousands of blocks; leaving the skip undeclared is what turned it into an
@@ -277,6 +325,12 @@ def build(body: bodies.Body, window: Window, outdir: Path) -> list[str]:
     if white.any():
         _write_mask(outdir / render_seam.SNOWMASK, white)
         written.append(render_seam.SNOWMASK)
+        snow_paint = merged_paint(paints, layer_producers.WHITE_UNION, "the white union")
+        if snow_paint is None:
+            raise ValueError(
+                f"{body.name} wrote a snow mask for this window but no producer declared what "
+                f"colour it is. A mask the rig cannot paint is not a usable render input.")
+        render_seam.declare_paint(outdir, render_seam.SNOWMASK, *snow_paint)
     depth = contributions.get(layers.LAKE_DEPTH.name)
     if depth is not None and bool((depth > 0).any()):
         with rasterio.open(outdir / render_seam.LAKEDEPTH, "w", driver="GTiff",  # pyright: ignore[reportCallIssue]
@@ -288,6 +342,14 @@ def build(body: bodies.Body, window: Window, outdir: Path) -> list[str]:
     if ice is not None:
         _write_mask(outdir / render_seam.SEAICE, ice)
         written.append(render_seam.SEAICE)
+        # Its own image and so its own paint: `WHITE_UNION` deliberately excludes sea ice, because
+        # the composite gates it on the ocean selector where the union paints land.
+        ice_paint = merged_paint(paints, (layers.SEA_ICE,), "sea ice")
+        if ice_paint is None:
+            raise ValueError(
+                f"{body.name} wrote a sea-ice mask for this window but its producer declared no "
+                f"colour for it.")
+        render_seam.declare_paint(outdir, render_seam.SEAICE, *ice_paint)
     return written
 
 

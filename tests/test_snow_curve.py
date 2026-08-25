@@ -169,7 +169,7 @@ class TestCompositeHonoursTheKnob:
                                np.ones(shape, dtype="float32"),
                                np.full(shape, hillshade_dn, dtype="float32"),
                                np.zeros((1, 1), dtype="float32"), (1, 1), shape, look=palette.EARTH_LOOK,
-                               snow_paint=(palette.SNOW_RGB, palette.SNOW_SHADOW_RGB), ice_paint=seaice.ice_white())
+                               snow_paint=(palette.SNOW_RGB, palette.SNOW_SHADOW_RGB), ice_paint=seaice.ice_paint())
 
     def test_the_knob_reaches_the_pixel(self):
         """Greenland's median light must render differently under linear than under the shipped

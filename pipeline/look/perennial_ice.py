@@ -254,7 +254,7 @@ def _mars_cap_ice(inputs: CapIceInputs, pole: str) -> np.ndarray:
 #: reason for its absence: a producer cannot declare a path nothing acquired. `download_viking_mosaic`
 #: and `look/viking_luma` closed that, and the OMEGA entries that once stood here are gone rather
 #: than repointed because the licence blocks the source, not because the seam moved.
-def _earth_cap_white() -> tuple[Any, Any]:
+def _earth_cap_paint() -> tuple[Any, Any]:
     """Earth's one white at both poles, and the same pair its composite-tier producers declare.
 
     Read through `palette` rather than restated, so the cap and the tiles it feathers into cannot
@@ -265,8 +265,8 @@ def _earth_cap_white() -> tuple[Any, Any]:
 
 CAP_ICE_BY_BODY: dict[tuple[str, str], CapIce] = {
     ("earth", "north"): CapIce(sources=lambda: (Path(snow.SP_NC),), alpha=_earth_north,
-                               paint=_earth_cap_white, exclusions=lambda: ()),
-    ("earth", "south"): CapIce(sources=lambda: (), alpha=_earth_south, paint=_earth_cap_white,
+                               paint=_earth_cap_paint, exclusions=lambda: ()),
+    ("earth", "south"): CapIce(sources=lambda: (), alpha=_earth_south, paint=_earth_cap_paint,
                                exclusions=lambda: (layers.ANTARCTIC_ROCK,)),
     ("mars", "north"): CapIce(sources=_mars_sources,
                               alpha=lambda inputs: _mars_cap_ice(inputs, "north"),

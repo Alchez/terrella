@@ -196,9 +196,12 @@ def params(body: bodies.Body, rasters: frozenset[str], look: palette.Look,
         # What the prep grades its masks with, and the general case of the line above it: none of
         # it moves a warped raster, so `raytrace_deps` is blind to all of it.
         #
-        # `painted=False` because the rig colours the masks from `scene_build.SNOW_RGBA`, which
-        # `rig` below records. The producers' whites cannot reach a raytraced pixel.
-        **layer_producers.constants_for(body, layers.BLOCK_LAYERS, painted=False),
+        # `painted=True` since the rig stopped holding its own albedo: the prep resolves each
+        # producer's colour and declares it, so a producer's white now reaches a raytraced pixel and
+        # `rig` no longer carries one to record. Left False, a re-tuned white would restage nothing
+        # anywhere — the prep directory is not in `raytrace_deps` and blocks skip on marker
+        # existence, so every finished block would keep the old colour.
+        **layer_producers.constants_for(body, layers.BLOCK_LAYERS, painted=True),
         # The fold's own law, which no producer's constants can stand in for: a layer moving between
         # the union and the exclusions repaints the Antarctic outcrop and moves nothing else here.
         **layer_producers.white_law(body, layers.BLOCK_LAYERS),

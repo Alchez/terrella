@@ -778,7 +778,7 @@ def _write_cap(grid: CapGrid, heights: np.ndarray, ocean: np.ndarray, water: np.
     rgb = shade.composite(heights, ocean, water, snow_a, hillshade_dn, occ, occ.shape,
                           (grid.px, grid.px), depth=None, ice_a=ice_a,
                           look=palette.look_for(grid.body.name), snow_paint=snow_paint,
-                          ice_paint=None if ice_a is None else seaice.ice_white())
+                          ice_paint=None if ice_a is None else seaice.ice_paint())
     _bake_coastline(grid, rgb)  # the land/sea line, so ice sheet reads distinct from sea ice at the pole
 
     tif = cap_work_dir(grid.body) / f"cap_{grid.name}.tif"

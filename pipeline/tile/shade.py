@@ -437,18 +437,24 @@ def apply_ambient_floor(raw, ambient: float, hi: float, knee: float):
     return np.minimum(softened, hi)
 
 
-# The hero's shadow is WARMER IN HUE, not merely darker: Cycles fills it with warm sky
-# (WORLD_RGBA F2E7D5 @ WORLD_STRENGTH 0.3) plus bounce off the rosy land, while our `light` is a
-# single scalar that multiplies all three channels equally and therefore cannot move hue at all.
-# Measured on heroes/raw/switzerland.png, inside narrow elevation bands so the ramp
-# colour is constant: linear R/B is 1.61-1.98x higher in the darkest quartile than the brightest,
-# monotonic across all ten luminance deciles. Ours is exactly 1.00x. -> ART.md "Hero -> tile map".
+# The hero's shadow is WARMER IN HUE, not merely darker: Cycles fills it with sky plus bounce off
+# the rosy land, while our `light` is a single scalar that multiplies all three channels equally and
+# therefore cannot move hue at all. Measured on heroes/raw/switzerland.png, inside narrow elevation
+# bands so the ramp colour is constant: linear R/B is 1.61-1.98x higher in the darkest quartile than
+# the brightest, monotonic across all ten luminance deciles. Ours is exactly 1.00x.
+# -> ART.md "Hero -> tile map".
 #
 # DERIVATION: the sky's own chromaticity only accounts for 1.334x of that, so the tint is the world
 # colour DEEPENED to the measured 1.80x mid-band ratio (world ** 2.0373), the residual being warm
 # GI bounce off the land ramp -- which our greyscale SVF stand-in structurally cannot carry.
 # Then normalised to luminance 1.0, so this knob moves HUE ONLY and cannot re-create the
 # brightness wash that got `ambient` raises rejected twice. That is the point of the design.
+#
+# THE `world` IN THAT DERIVATION IS F2E7D5, WHICH THE RIG NO LONGER EMITS. Its ambient is achromatic
+# now, and running the same derivation on a grey sky returns (1, 1, 1): the sky half of this tint's
+# source is gone and only the GI bounce would survive a re-measurement. The number stands because
+# nothing has re-measured a hero under the new sky, NOT because it was re-derived. Anyone re-tuning
+# it needs that render first; `scene_build.RIG.world_rgba` cannot be substituted in here.
 SHADOW_TINT = (1.205239, 0.972347, 0.669577)
 
 

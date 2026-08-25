@@ -76,7 +76,7 @@ Cost: hero sweep **~10–13 h** + tile restage **~29 min** + caps auto-restage *
 | `sky_view_strength` (countries.toml) | 0.20 default; **0.0** volcanic islands, **0.38** flat Qatar/Paraguay — per-country AO burn | § Sky-view shading |
 | `resolution_floor_m` (countries.toml) | 60 default; auto-engages where a frame upsamples >5× (7 microstates), **0** exempts andorra — anti-striping | § Resolution floor |
 | `SUN_ANGLE` | 12° disc (shadow penumbra) | § Shadow softness |
-| `SUN_STRENGTH` / `WORLD_STRENGTH` / `WORLD_RGBA` | 3.0 / 0.3 / `F2E7D5` | § Light balance |
+| `sun_strength` / `world_strength` / `world_rgba` (`RIG`) | 3.0 / 0.3 / achromatic | § Light balance |
 | `FILL_ROTATION` / `FILL_ANGLE` / `FILL_STRENGTH` | alt 60° az 135° / 10° disc / 0.45 (15% of sun) | § Fill sun |
 | `FRAME_MARGIN` / `HERO_LONG_EDGE` (render_prep) | 1.0006 / 7680 px | § Vertical exaggeration |
 | `RAMP_INTERPOLATION` | EASE | § Land color ramp |
@@ -231,7 +231,7 @@ Cost: hero sweep **~10–13 h** + tile restage **~29 min** + caps auto-restage *
 | `KNOBS["alt"]` 45°, azimuth 315° | `SUN_ROTATION` X = `90 − SUN_ALT_DEG`, NW | both derive from `palette.SUN_ALT_DEG` |
 | `KNOBS["fill_strength"]` 0.15 | `FILL_STRENGTH 0.45 / SUN_STRENGTH 3.0` | the ratio, ported exactly |
 | `FILL_ALTITUDE 60°` / `FILL_AZIMUTH 135°` | `FILL_ROTATION` | identical geometry |
-| `KNOBS["ambient"]` + `ambient_knee` | `WORLD_STRENGTH 0.3`, sky `F2E7D5` | **not a port** — ours is a tone curve, the hero's is light that physically arrives |
+| `KNOBS["ambient"]` + `ambient_knee` | `world_strength` 0.3, achromatic sky | **not a port**: ours is a tone curve, the hero's is light that physically arrives. Both are colourless now, and the sky's warmth was the polar disc's hue term |
 | `shadow_strength` 0.0 + 12° penumbra | `SUN_ANGLE 12°` + ray-traced shadows | built, off — see below |
 | `svf_strength` 0.20 | Cycles GI | approximation — see below |
 
@@ -252,12 +252,12 @@ Cost: hero sweep **~10–13 h** + tile restage **~29 min** + caps auto-restage *
   - **Global illumination — the SVF term is the stand-in**, and it is falsified as *the*
     softness term; don't chase softness through it.
 
-### Light balance — Sun Strength + World (scene_build.py)
+### Light balance: Sun Strength + World (scene_build.py)
 
-- Sun `SUN_STRENGTH 3`; World `WORLD_RGBA F2E7D5` @ `WORLD_STRENGTH 0.3` — the ambient: tints
-  everything and is the backdrop colour around the map plane.
-- Division of labor: **sun = contrast, fill = shadow floor/modeling, world = tint + backdrop.**
-  Raising World to fix dark shadows was tried and rejected — it brightens without modeling.
+- Sun `sun_strength` 3; World `world_rgba` achromatic @ `world_strength` 0.3. The world is a LIGHT before it is a backdrop, and the only one that could carry a colour: both suns are set with energy and angle alone.
+- **It is achromatic on purpose, and re-warming it is not a taste call.** Authored `F2E7D5` arrived with a linear B/R of 0.749, and a tint does not tint a near-white surface, it replaces it: measured on the hero arms, that cost snow 64% of its blue, the sea 7%, and land nothing. Its grey holds F2E7D5's luminance, so the move was hue only rather than the rejected ambient raise.
+- The backdrop goes grey with it, in the hairline `FRAME_MARGIN` leaves around the plane. Nothing can colour that border without tinting every white on the planet to do it.
+- Division of labor: **sun = contrast, fill = shadow floor/modeling, world = ambient level + backdrop.** Raising World to fix dark shadows was tried and rejected: it brightens without modeling.
 - **Adjust:** the three constants; in-blend: Light object / World properties.
 
 ### Land color ramp (elevation-keyed) — `palette.LAND_STOPS` + `LAND_MAX_M`

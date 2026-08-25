@@ -42,7 +42,21 @@ from rasterio.warp import transform_bounds
 
 from pipeline import paths
 from pipeline.fetch import download_one
+from pipeline.look import palette
 from pipeline.render import render_seam
+
+
+def declare_snow_paint(render_dir: Path) -> None:
+    """What colour the mask above is painted, since the rig no longer holds a default.
+
+    The constant is spelled out rather than asked of `layer_producers`, which answers for the tile
+    tier's sources: the hero snow is WorldCover class 70, an Earth dataset with no registry entry.
+    A second body's hero would have to add its own here, because `render_seam.paint_for` raises
+    instead of guessing.
+    """
+    render_seam.declare_paint(render_dir, render_seam.SNOWMASK,
+                              palette.SNOW_RGB, palette.SNOW_SHADOW_RGB)
+
 
 BUCKET_URL = "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map"
 DATA_DIR = paths.DATA / "raw/worldcover"
@@ -82,6 +96,7 @@ def main():
     if out_png.exists():
         print(f"{out_png} exists — skipping", flush=True)
         render_seam.declare(render_dir, render_seam.SNOW, [render_seam.SNOWMASK])
+        declare_snow_paint(render_dir)
         return
 
     # grid + CRS from the existing heightfield (render_prep.py pattern):
@@ -189,6 +204,7 @@ def main():
     os.replace(tmp, out_png)
 
     render_seam.declare(render_dir, render_seam.SNOW, [render_seam.SNOWMASK])
+    declare_snow_paint(render_dir)
     px = int((mask > 0).sum())
     km2 = px * (xres * xres) / 1e6
     print(f"wrote {out_png}", flush=True)

@@ -53,7 +53,7 @@ SH_ICE_LO = 0.62
 SH_ICE_MAX_ALPHA = 0.55
 
 
-def ice_white() -> "tuple[Any, Any]":
+def ice_paint() -> "tuple[Any, Any]":
     """The `(sunlit, shadowed)` pair `shade.composite` paints this layer's alpha with.
 
     ONE DECLARATION, TWO TIERS. The composite tier reaches it through its producer's `paint`; the

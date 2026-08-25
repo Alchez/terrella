@@ -120,11 +120,20 @@ class Rig:
     #: never go pure black. The comment said SE while the light arrived from NE; putting the main
     #: sun on 315 put this on 135 and made it true. `arrival_azimuth_deg` is what says so.
     fill_strength: float
+    #: ACHROMATIC ON PURPOSE, and it is the scene's only ambient light rather than a backdrop
+    #: swatch. Authored warm as `F2E7D5` it arrived with a linear B/R of 0.749, and a tint does not
+    #: tint a near-white surface, it REPLACES it: measured on the hero arms that cost snow 64% of
+    #: its blue, the sea 7%, and land nothing. Its grey is the luminance of that warm colour, so the
+    #: move was hue-only and not the twice-rejected ambient raise. Re-warming it to colour the
+    #: backdrop tints every white on the planet to do it.
     world_rgba: tuple[float, float, float, float]
     world_strength: float
     water_rgba: tuple[float, float, float, float]
-    snow_rgba: tuple[float, float, float, float]
-    ice_rgba: tuple[float, float, float, float]
+    #: NO SNOW OR ICE ALBEDO LIVES HERE. Both were module constants spelling Earth's whites, wired
+    #: into every body's render while the composite tier asked each body's registry — which on Earth
+    #: returns that same constant, so the two agreed by coincidence of value and nothing went red.
+    #: The colour arrives per render directory through `render_seam.paint_for`; re-adding a default
+    #: here restores the silent fallback that hid this.
     #: Depth-position ramp; stop 0 IS the flat water tint.
     lake_stops: list[tuple[float, tuple[float, float, float, float]]]
     ramp_interpolation: str
@@ -158,15 +167,10 @@ RIG = Rig(
     fill_rotation=(math.radians(30.0), 0.0, math.radians(45.0)),
     fill_angle=math.radians(10.0),
     fill_strength=0.45,
-    world_rgba=(0.887923, 0.799103, 0.665388, 1.0),   # F2E7D5
+    world_rgba=(0.808332, 0.808332, 0.808332, 1.0),   # the luminance F2E7D5 carried
     world_strength=0.3,
     # 8EC6C4 — sea surface +7%, pinned relationally (the 98C5C8 drift's cure)
     water_rgba=(*palette.srgb8_to_linear(palette.WATER_RGB), 1.0),
-    snow_rgba=(*palette.srgb8_to_linear(palette.SNOW_RGB), 1.0),    # E8F1F6
-    # D4E4F0 — sea ice; a single albedo where the composite keys a (sunlit, shadowed) pair, because
-    # Cycles lights the sheet itself and the pair's shadowed half was the fake light key's job
-    # (seaice.ice_white)
-    ice_rgba=(*palette.srgb8_to_linear(palette.ICE_RGB), 1.0),
     lake_stops=_rgba(palette.LAKE_STOPS),
     ramp_interpolation="EASE",
     samples=4096,
@@ -434,6 +438,17 @@ def build_camera(ortho_scale):
     return ob
 
 
+def declared_albedo(render_dir: Path, image: str) -> tuple[float, float, float, float]:
+    """The linear RGBA this render directory says `image`'s mask is painted in.
+
+    Only the sunlit half is wired: Cycles is meant to produce the shaded end from light, where the
+    composite keys it to the producer's second colour. That substitution is what stopped a body's
+    authored shadow hue reaching a raytraced pixel, and the seam keeps the other half recoverable.
+    """
+    sunlit, _shadowed = render_seam.paint_for(render_dir, image)
+    return (*palette.srgb8_to_linear(sunlit), 1.0)
+
+
 def build_sun():
     sun = bpy.data.lights.new("Light", "SUN")
     sun.energy = RIG.sun_strength
@@ -593,7 +608,7 @@ def build_material(ob, render_dir, displacement_scale, look, present):
     if render_seam.SNOWMASK in present:
         tex[snow_spec.name] = make_texture(nt, render_dir, snow_spec)
         snow = make_mix(nt, "Mix.003", "Snow")
-        mix_socket(snow, "B").default_value = RIG.snow_rgba
+        mix_socket(snow, "B").default_value = declared_albedo(render_dir, render_seam.SNOWMASK)
         print(f"{render_seam.SNOWMASK} declared — wiring Snow mix", flush=True)
 
     # optional depth-keyed lake tint (render/lake_mask.py); raster absent ->
@@ -620,7 +635,7 @@ def build_material(ob, render_dir, displacement_scale, look, present):
     if render_seam.SEAICE in present:
         tex[ice_spec.name] = make_texture(nt, render_dir, ice_spec)
         ice = make_mix(nt, "Mix.004", "Ice")
-        mix_socket(ice, "B").default_value = RIG.ice_rgba
+        mix_socket(ice, "B").default_value = declared_albedo(render_dir, render_seam.SEAICE)
         ice_flatten = make_float_mix(nt, "Mix.005", "Ice Flatten")
         float_socket(ice_flatten, "B").default_value = 0.0  # sea level
         print(f"{render_seam.SEAICE} declared — wiring Ice mix + displacement damp", flush=True)

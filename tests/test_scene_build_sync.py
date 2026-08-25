@@ -196,17 +196,19 @@ class TestTheFlagIsCrossCheckedAgainstTheFrame:
 
 
 class TestFlatTintsAreThePalettes:
+    """THE SNOW AND SEA-ICE WHITES ARE NO LONGER HERE, and their absence is the point rather than a
+    gap in this suite. They were `RIG` constants asserted equal to `palette.SNOW_RGB` and
+    `palette.ICE_RGB` — assertions that were green throughout while the rig painted every body in
+    Earth's whites, because a body never entered either side of them. A colour that is the BODY's
+    cannot be guarded by comparing one global to another, so it moved to a seam that carries the
+    body: `tests/test_rig_whites_are_the_bodys.py`, which drives the registry, the prep's reducer
+    and the rig's accessor end to end. Water stays because it genuinely is one tint on every body
+    that has lakes, and no second instance has contradicted it.
+    """
+
     def test_water_is_the_relational_tint(self, scene_build):
         """The 98C5C8 drift's cure: the hero flat water IS palette.WATER_RGB."""
         assert scene_build.RIG.water_rgba == (*palette.srgb8_to_linear(palette.WATER_RGB), 1.0)
-
-    def test_snow_is_the_shared_white(self, scene_build):
-        assert scene_build.RIG.snow_rgba == (*palette.srgb8_to_linear(palette.SNOW_RGB), 1.0)
-
-    def test_ice_is_the_palettes_cool_white(self, scene_build):
-        """A single albedo where the composite keys a (sunlit, shadowed) pair: Cycles lights the
-        sheet itself, so the pair's shadowed half was the fake light key's job."""
-        assert scene_build.RIG.ice_rgba == (*palette.srgb8_to_linear(palette.ICE_RGB), 1.0)
 
 
 class TestTheRigRecipeCarriesTheLook:
