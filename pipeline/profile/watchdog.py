@@ -20,7 +20,7 @@ Fires on:
                  today's RENDER_BLOCK_PX -- and a match is a match, so a per-block MARKER would be
                  one wake-up per block in a night. A number can be sampled; a match cannot.
   * DONE      -- the scope's cgroup is gone: pass finished or died
-  * MEMORY    -- ANON memory nearing this body's cap, an actual oom_kill, or swap in use.
+  * MEMORY    -- ANON memory nearing this body's cap, an actual oom_kill, or the BOX swapping.
                  NOT memory.current: that includes PAGE CACHE, which is reclaimable, and a job
                  streaming a 31 GB raster parks the cgroup at its cap by design (measured:
                  current 12287 MB = anon 802 + file 11382, with oom_kill 0 and the
@@ -51,7 +51,12 @@ POLL_S = 10.0
 HEARTBEAT_S = 1200.0     # 20 min: quiet enough not to nag, often enough that silence is not scary
 STALL_S = 420.0          # 7 min of zero CPU AND zero disk anywhere in the cgroup
 ANON_WARN_MB = 10_000    # composite peaks at 6.24 GiB of anon (re-measured 07-16)
-SWAP_WARN_MB = 1_500     # swap once sat pinned 7/7 for a whole day; never again unnoticed
+#: System-wide swap before warning, in MB. **IT IS THE BOX'S NUMBER AND NOT THE RUN'S**, which is
+#: the one memory term here that does not come from the cgroup: `sample_tree` reads SwapTotal minus
+#: SwapFree out of `/proc/meminfo`, and a pass scoped `MemorySwapMax=0` cannot contribute a byte to
+#: it. So it answers "is this box thrashing", and a desktop that has parked cold pages there answers
+#: yes forever — which is why `--swap-warn` exists rather than this being the only reading.
+SWAP_WARN_MB = 1_500
 PROGRESS_STEP_PCT = 5.0  # 20 wake-ups across a whole planet, against 4,096 if every block fired
 
 #: A stage boundary, in the one spelling the pass emits. Imported rather than copied: a second
@@ -216,6 +221,11 @@ def main() -> int:
                              "windowed stages by design, so this is a coarse net and oom_kill is "
                              "the real signal. Unmeasured on the raytrace producer, whose memory "
                              "sits in a Blender subprocess rather than in this one.")
+    parser.add_argument("--swap-warn", type=float, default=SWAP_WARN_MB,
+                        help="system-wide swap MB before warning. Raise it on a box whose desktop "
+                             "legitimately holds cold pages in swap: the scope cannot swap at all, "
+                             "so a static occupancy below this is somebody else's memory and not "
+                             "this run's.")
     parser.add_argument("--heartbeat", type=float, default=HEARTBEAT_S,
                         help="seconds of quiet before reporting 'still healthy'. Raise it for "
                              "unattended overnight runs: stage/memory/stall events still fire, so "
@@ -223,6 +233,7 @@ def main() -> int:
     args = parser.parse_args()
     heartbeat_s = args.heartbeat
     anon_warn_mb = args.anon_warn
+    swap_warn_mb = args.swap_warn
 
     log, samples = Path(args.log), Path(args.samples)
     seen = args.seen
@@ -272,7 +283,7 @@ def main() -> int:
 
         health = cgroup_health(cgroup)
         if health["oom_kill"] or health["anon_mb"] > anon_warn_mb or (
-                sample and sample["swap_used_mb"] > SWAP_WARN_MB):
+                sample and sample["swap_used_mb"] > swap_warn_mb):
             return report(f"MEMORY  (anon {health['anon_mb']:.0f} MB, "
                           f"file/cache {health['file_mb']:.0f} MB, "
                           f"oom_kill {health['oom_kill']})", status, absence)

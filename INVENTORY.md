@@ -4,9 +4,77 @@
   reclaimable. This file is maintained, not a snapshot: **re-measure when the chain moves; if a
   row and the disk disagree, the row is the bug.** Past states live in git history; reclaim
   passes and their lessons live in HISTORY (§ the reclaim log moves out of INVENTORY).
-- Two gitignored stores hold everything: `data/` (sources + intermediates) and
-  `blender/renders/` (the hero products); no assets or DEM data are in git. Free space:
+- Three gitignored stores hold everything: `data/` (sources + intermediates),
+  `blender/renders/` (the hero products) and `web/public/caps/` (**26 MB**, Earth at the root and
+  Mars's 11 files under `mars/`: the only rendered assets that ship inside the site build rather
+  than from R2, gitignored at `web/.gitignore:26`);
+  no assets or DEM data are in git. Free space:
   **~359 GB** of a 1.8 TB ext4 root. Sizes approximate.
+
+## The chain, from download to browser
+
+- **Organised by BYTES, which is this file's axis and nothing else's.** `docs/pipeline-overview.mmd`
+  draws the same chain as a process and `PROCESS.md` draws it as stage timings; neither says what is
+  on disk or who can delete it. Read this one to find a store, those to find a stage.
+- **The dashed edges are the only ones that leave the box, and they have two destinations.** The
+  three archives and the hero store go to R2; the caps alone ride inside the site build. Everything
+  left of that line is local and rebuildable, and a raw source is the sole thing that cannot be
+  re-derived, only re-downloaded.
+- **Two rasters fuse and no others.** Every other layer is warped onto the render grid at composite
+  time, which is why a finer re-fuse would not have to redo any of them.
+
+```mermaid
+flowchart LR
+  subgraph SRC["data/raw/ · 689 GB · re-downloadable, never re-derivable"]
+    GLO["glo30 · 551 GB"]
+    GEB["gebco · 7.3 GB"]
+    LAY["rgi · snow · seaice · addrock<br/>globathy · naturalearth"]
+  end
+
+  subgraph MID["data/work/ · 330 GB · every byte rebuildable"]
+    FUSE["planet/ · 14 GB<br/>fused heightfield + masks · 648 cells"]
+    W["*_3857.tif · ~85 GB<br/>height, masks, surface layers<br/>on the one 131072² grid"]
+    RGB["planet_rgb.tif<br/>the colour master"]
+    PYR["tiles/ · 3.1 GB<br/>87,381 WebP · z0-8"]
+    CTRY["per-country dirs · ~190 GB<br/>hero intermediates"]
+  end
+
+  subgraph OUT["delivered · the only bytes a visitor fetches"]
+    PM["planet.pmtiles · 3.1 GB"]
+    TER["terrain.pmtiles · 2.63 GB"]
+    VEC["vector.pmtiles · 10.2 MB"]
+    CAP["web/public/caps/ · WebP rungs"]
+    HERO["variants/ · 3.5 GB<br/>hero WebP + overlays"]
+  end
+
+  GLO --> FUSE
+  GEB --> FUSE
+  FUSE --> W
+  LAY --> W
+  W -->|"Body.planet_producer<br/>composite or raytrace"| RGB
+  RGB --> PYR
+  PYR --> PM
+  W --> TER
+  FUSE --> CAP
+  LAY --> VEC
+  GLO --> CTRY
+  GEB --> CTRY
+  CTRY --> HERO
+  PM -.-> R2[("R2 · ranged by the tile Worker")]
+  TER -.-> R2
+  VEC -.-> R2
+  HERO -.-> R2
+  CAP -.-> SITE[("web/dist · the site Worker's static assets")]
+```
+
+- **`Body.planet_producer` is the one fork in the chain**, and it is a per-body field rather than a
+  flag: Earth answers `raytrace` and Mars answers `composite`. Only `planet_producer.json` beside the
+  master records which one actually filled it, because the bytes cannot say.
+- **The caps branch at the FUSION and never touch the render grid.** `cap_sources` warps AEQD from
+  the planet VRTs, so the caps share no warped intermediate and no pyramid with the tiles they
+  feather into. What couples them is the recipe rather than a file: their sidecar carries
+  `composite_params`, so a look change restages both, and nothing else would keep them from drifting
+  apart at the seam.
 
 ## Raw sources: `data/raw/` (~689 GB)
 

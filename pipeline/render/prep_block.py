@@ -121,9 +121,35 @@ def row_scale(window: Window, body: bodies.Body) -> NDArray[np.float64]:
     return np.cos(np.radians(mid_latitude_deg(window, body))) / np.cos(np.radians(latitudes))
 
 
+def _read_cyclic(dataset: Any, window: Window) -> np.ndarray:
+    """`window` read from an open dataset, with columns taken around the cyclic longitude axis.
+
+    THE TWO AXES ARE NOT SYMMETRIC and only columns are handled here, which is the same split
+    `Block.plane_window` and `cast_shadow.shadow_mask` make: a Mercator planet joins itself at the
+    antimeridian and does not join itself at the poles, so rows keep the zero fill.
+
+    A zero fill on the COLUMNS is a wrong planet rather than a missing feature. The context is
+    exactly the terrain that shadows a block, so filling it puts a sea-level plateau where the far
+    side of the antimeridian belongs and reads as LAND on the ocean mask, and the NW sun then casts
+    that wall east across block column 0's delivered pixels.
+    """
+    width = dataset.width
+    col_off, remaining = int(window.col_off), int(window.width)
+    pieces = []
+    while remaining > 0:
+        start = col_off % width
+        take = min(remaining, width - start)
+        pieces.append(dataset.read(1, boundless=True, fill_value=0,
+                                   window=Window(start, window.row_off,  # pyright: ignore[reportCallIssue]
+                                                 take, window.height)))
+        col_off += take
+        remaining -= take
+    return pieces[0] if len(pieces) == 1 else np.hstack(pieces)
+
+
 def _read(path: Path, window: Window) -> np.ndarray:
     with rasterio.open(path) as dataset:  # pyright: ignore[reportCallIssue]
-        return dataset.read(1, window=window, boundless=True, fill_value=0)
+        return _read_cyclic(dataset, window)
 
 
 def gated_sea_ice(contribution: "np.ndarray | None", ocean: np.ndarray) -> "np.ndarray | None":
@@ -203,7 +229,7 @@ def build(body: bodies.Body, window: Window, outdir: Path) -> list[str]:
     written = [render_seam.HEIGHTFIELD]
 
     with rasterio.open(work / shade_planet.HEIGHT_3857) as height:  # pyright: ignore[reportCallIssue]
-        elevation = height.read(1, window=window, boundless=True, fill_value=0)
+        elevation = _read_cyclic(height, window)
         transform = height.window_transform(window)
     with rasterio.open(outdir / render_seam.HEIGHTFIELD, "w", driver="GTiff",  # pyright: ignore[reportCallIssue]
                        width=window.width, height=window.height, count=1, dtype="float32",

@@ -11,6 +11,7 @@ import math
 import numpy as np
 import pytest
 import rasterio
+from rasterio.windows import Window
 
 from pipeline import block_plan, bodies, layers, mercator
 from pipeline.block_plan import Block
@@ -556,3 +557,45 @@ class TestASoftAlphaSurvivesTheWriterWellEnoughNotToTerrace:
             stored = read_back.read(1)
         full = float(np.iinfo(stored.dtype).max) if np.issubdtype(stored.dtype, np.integer) else 1.0
         assert sorted(np.unique(stored.astype(np.float64) / full).tolist()) == [0.0, 1.0]
+
+
+class TestTheContextWrapsAroundTheAntimeridian:
+    """`Block.plane_window` promises that columns past the grid WRAP and hands the job to its
+    reader; this is that reader holding up its end.
+
+    THE ZERO-FILL IS NOT A MISSING FEATURE BUT A WRONG PLANET. A block's context is the terrain
+    that shadows it, so filling it with 0 puts a sea-level plateau where the far side of the
+    antimeridian belongs, and on the ocean mask it reads as LAND. Under the NW sun that wall casts
+    east across block column 0's delivered pixels, which is a seam the composite never had.
+
+    The axes stay asymmetric on purpose, so the third guard is the negative control: the north pole
+    does not shadow the south, and a reader that wrapped rows too would pass the first two.
+    """
+
+    WIDTH, HEIGHT = 64, 8
+
+    def _cyclic_grid(self, tmp_path):
+        """A raster whose every value IS its own column index, so a wrapped read names itself."""
+        path = tmp_path / "cyclic.tif"
+        data = np.tile(np.arange(self.WIDTH, dtype=np.float32), (self.HEIGHT, 1))
+        with rasterio.open(path, "w", driver="GTiff", width=self.WIDTH, height=self.HEIGHT,
+                           count=1, dtype="float32") as out:  # pyright: ignore[reportCallIssue]
+            out.write(data, 1)
+        return path
+
+    def test_a_window_overhanging_the_west_edge_reads_the_east_edge(self, tmp_path):
+        got = prep_block._read(self._cyclic_grid(tmp_path),
+                               Window(-4, 0, 8, self.HEIGHT))  # pyright: ignore[reportCallIssue]
+        assert got[0].tolist() == [60.0, 61.0, 62.0, 63.0, 0.0, 1.0, 2.0, 3.0]
+
+    def test_a_window_overhanging_the_east_edge_reads_the_west_edge(self, tmp_path):
+        got = prep_block._read(self._cyclic_grid(tmp_path),
+                               Window(self.WIDTH - 4, 0, 8, self.HEIGHT))  # pyright: ignore[reportCallIssue]
+        assert got[0].tolist() == [60.0, 61.0, 62.0, 63.0, 0.0, 1.0, 2.0, 3.0]
+
+    def test_rows_past_the_grid_still_do_not_wrap(self, tmp_path):
+        """The negative control: wrapping BOTH axes would satisfy the two guards above."""
+        got = prep_block._read(self._cyclic_grid(tmp_path),
+                               Window(0, -2, 4, 4))  # pyright: ignore[reportCallIssue]
+        assert got[0].tolist() == [0.0, 0.0, 0.0, 0.0], "row -2 must not read the grid's last row"
+        assert got[2].tolist() == [0.0, 1.0, 2.0, 3.0], "row 0 must still be the grid's first row"
