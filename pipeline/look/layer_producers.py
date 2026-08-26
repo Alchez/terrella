@@ -562,8 +562,8 @@ def producers_for(body: bodies.Body, vocabulary: frozenset[str]
     layer, which is what lets Earth's perennial ice carry the forced Antarctic patch — a rule with
     no file behind it, so no missing raster could switch it off.
     """
-    return [(layer, producer_for(body, layer)) for layer in layers.WARPED_LAYERS
-            if layer.name in vocabulary and layer.name in body.surface_layers]
+    return [(layer, producer_for(body, layer)) for layer in layers.warped_for(vocabulary)
+            if layer.name in body.surface_layers]
 
 
 def constants_for(body: bodies.Body, vocabulary: frozenset[str], *,
@@ -615,7 +615,7 @@ def white_law(body: bodies.Body, vocabulary: frozenset[str]) -> dict[str, list[s
 
     A LAW RATHER THAN A CONSTANT, which is why it is not `constants_for`'s: a producer's recipe says
     how it grades its own claim, and no producer can see whether that claim is added or subtracted.
-    Nothing else in a recipe stands in for this. `producers_for` walks `WARPED_LAYERS`, so a layer's
+    Nothing else in a recipe stands in for this. `producers_for` walks `warped_for`, so a layer's
     producer is recorded whichever tuple it sits in, and `glaciers` and `antarctic_rock` both grade
     nothing per window — a layer changing side moves no other entry anywhere.
 

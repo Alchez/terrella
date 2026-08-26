@@ -21,16 +21,30 @@ import rasterio
 from pipeline import bodies
 from pipeline.tile import cap_render, terrain_rgb
 
-#: Latitudes to compare — the crossfade band, from the cap disc's own edge to the Mercator limit.
-#: Nothing below `CAP_EDGE_LAT` belongs here: the cap does not exist there, and a sampler that
-#: clamped to the texture's edge instead of refusing reported a 1.2 km disagreement that was its
-#: own doing.
-SAMPLE_LATITUDES = (80.0, 81.0, 82.0, 83.0, 84.0, 84.8)
+#: How many latitudes to compare across the crossfade band.
+SAMPLE_COUNT = 6
 
 #: A disagreement this large cannot be the cap texture's own coarseness — it samples ~2.3 km/px on
 #: Mars against a tile's ~325 m, so a few hundred metres of terrain roughness is expected and a
 #: kilometre is a systematic term.
 TOLERANCE_M = 500.0
+
+
+def sample_latitudes(grid: cap_render.CapGrid) -> tuple[float, ...]:
+    """The crossfade band, DERIVED from the disc rather than spelled, and open at both ends.
+
+    Spelled, this tuple silently stops describing the band the moment `CAP_EDGE_LAT` moves, and the
+    failure is total rather than partial: `cap_metres` refuses anything outside the disc, so the
+    whole instrument exits on its first sample. That is not hypothetical, it is what the move from
+    80 to 82 did, and the edge has now moved twice.
+
+    Open at both ends because each end is a boundary rather than a sample. At `edge_lat` exactly,
+    the radius is 1.0 and a float rounding either way decides between a reading and a refusal; at
+    the Mercator limit there is no tile left to read the cap against.
+    """
+    low, high = abs(grid.edge_lat), cap_render.feather_hi_deg()
+    span = high - low
+    return tuple(low + span * (index + 1) / (SAMPLE_COUNT + 1) for index in range(SAMPLE_COUNT))
 
 
 def tile_metres(tiles: Path, zoom: int, latitude: float, longitude: float) -> float:
@@ -81,7 +95,7 @@ def main() -> int:
     print(f"{'lat':>6} {'cap m':>10} {'tile m':>10} {'gap m':>10}")
     print("-" * 40)
     worst = 0.0
-    for latitude in SAMPLE_LATITUDES:
+    for latitude in sample_latitudes(cap_render.north_grid(body)):
         cap = cap_metres(body, latitude, arguments.lon)
         tile = tile_metres(tiles, zoom, latitude, arguments.lon)
         gap = cap - tile

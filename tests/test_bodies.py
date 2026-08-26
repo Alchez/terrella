@@ -1147,7 +1147,7 @@ def _southern_window(body: bodies.Body, persistence: "np.ndarray | None"):
         watercode=np.zeros((rows, cols), dtype=np.uint8),   # no inland water
         hs_raw=np.full((rows, cols), 128, dtype=np.uint8),
         layer_raw={layer.name: persistence if layer is layers.PERENNIAL_ICE else None
-                   for layer in layers.WARPED_LAYERS},
+                   for layer in layers.warped_for(layers.COMPOSITE_LAYERS)},
         occ_win=zeros,
         body=body)
 
@@ -1205,7 +1205,7 @@ def test_every_built_layer_names_the_raster_the_composite_reads(subtests) -> Non
     `composite_deps` in one edit — so the layer stops being painted AND stops being a dependency the
     composite must be newer than, which is a stale pyramid that reports itself fresh forever.
     """
-    assert {layer.name: layer.warped_basename for layer in layers.WARPED_LAYERS} == {
+    assert {layer.name: layer.warped_basename for layer in layers.warped_for(layers.COMPOSITE_LAYERS)} == {
         "lake_depth": "lakedepth_3857.tif",
         "perennial_ice": "snow_persistence_3857.tif",
         "glaciers": "glacier_3857.tif",
@@ -1213,7 +1213,7 @@ def test_every_built_layer_names_the_raster_the_composite_reads(subtests) -> Non
         "antarctic_rock": "addrock_3857.tif",
     }
     with subtests.test("every composite layer builds a raster today"):
-        assert {layer.name for layer in layers.WARPED_LAYERS} == layers.COMPOSITE_LAYERS, (
+        assert {layer.name for layer in layers.warped_for(layers.COMPOSITE_LAYERS)} == layers.COMPOSITE_LAYERS, (
             "the two agree today but are set independently — a composite layer answered by pure "
             "arithmetic would carry no basename, so neither column may be derived from the other"
         )

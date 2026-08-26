@@ -355,7 +355,7 @@ def composite_deps(work, hs, params) -> tuple:
     ramps itself from elevation, so the height raster IS the colour input. The ramp constants ride
     in `params` (composite_params) rather than in ramp_*.txt, which no longer exists.
 
-    THE BUILT LAYERS COME FROM `layers.WARPED_LAYERS`, so this list, the warp that fills it and the
+    THE BUILT LAYERS COME FROM `layers.warped_for(COMPOSITE_LAYERS)`, so this list, the warp that fills it and the
     per-window reads cannot disagree about the set or the order. Each is joined here because the
     composite reads a pre-warped slice per window instead of forking gdalwarp/gdal_rasterize in the
     loop (optimisation #4), so a re-warp -- new NSIDC/RGI, or a re-fuse to a new grid -- must restage
@@ -390,7 +390,8 @@ def composite_deps(work, hs, params) -> tuple:
     tuple can see it. `producer_seam` holds the argument in full.
     """
     return (work / HEIGHT_3857, hs, work / OCEAN_3857, work / WATER_3857,
-            *(layer.warped_in(work) for layer in layers.WARPED_LAYERS), params,
+            *(layer.warped_in(work) for layer in layers.warped_for(layers.COMPOSITE_LAYERS)),
+            params,
             producer_seam.stamp_path(work))
 
 
@@ -420,7 +421,7 @@ PLANET_RGB = "planet_rgb.tif"
 #: picture. Each states what the reader will see rather than what was missing, so a partial build
 #: can be read back off its own output.
 #:
-#: Keyed by name and looked up unconditionally, so a layer added to `WARPED_LAYERS` and forgotten
+#: Keyed by name and looked up unconditionally, so a layer added to the composite's set and forgotten
 #: here raises on the next pass of any body rather than being quietly skipped forever.
 WARP_CONSEQUENCE: dict[str, str] = {
     layers.LAKE_DEPTH.name: "lakes stay flat; run pipeline.acquire.extract_globathy",
@@ -501,7 +502,7 @@ def warp_inputs(work: Path, planet: Path, body: bodies.Body, rasters: frozenset[
     # fixed-path temps -- the shared paths that blocked threading the composite. Deliberately NOT in
     # the mask loop above: those are class codes wanting `near`/Byte, and every one of these is a
     # continuous or vector source with its own resampling.
-    for layer in layers.WARPED_LAYERS:
+    for layer in layers.warped_for(layers.COMPOSITE_LAYERS):
         consequence = WARP_CONSEQUENCE[layer.name]
         out = layer.warped_in(work)
         # THE BODY IS ASKED FIRST AND THE PRODUCER SECOND, and the order is what makes the disk
@@ -639,7 +640,7 @@ class _WindowInputs:
     ocean_raw: "np.ndarray | None"
     watercode: "np.ndarray | None"
     hs_raw: np.ndarray
-    #: One slice per `layers.WARPED_LAYERS` row, keyed by layer name, None where that layer's
+    #: One slice per `layers.warped_for(COMPOSITE_LAYERS)` row, keyed by layer name, None where that layer's
     #: raster was never built. ONE DICT AND NOT A FIELD PER LAYER: the reads are gated identically,
     #: so a field each is four chances for the fourth to be written without the guard — which is
     #: exactly what happened to snow persistence before this was one expression.
@@ -836,7 +837,8 @@ def composite_planet(work: Path, hs, compute_occlusion: Callable[[], np.ndarray]
         crs="EPSG:3857", transform=transform, photometric="RGB", BIGTIFF="YES",
         num_threads="ALL_CPUS", **GTIFF_CREATE)
     ocean_p, water_p = work / OCEAN_3857, work / WATER_3857
-    layer_paths = {layer.name: layer.warped_in(work) for layer in layers.WARPED_LAYERS}
+    layer_paths = {layer.name: layer.warped_in(work)
+                   for layer in layers.warped_for(layers.COMPOSITE_LAYERS)}
 
     def read_window(row0: int) -> _WindowInputs:
         """Gather one window's raw reads + geometry — MAIN thread only (GDAL is not thread-safe)."""

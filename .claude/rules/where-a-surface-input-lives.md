@@ -48,8 +48,9 @@ saturate a union member over the same pixels and assert the finished alpha, or i
 arrangements alike.
 
 **A stage that folds the law must also record it, through `white_law` and not through any producer.**
-Nothing else in a recipe carries which tuple a layer sits in: `producers_for` walks `WARPED_LAYERS`,
-so a layer's producer is recorded whichever half it joins, and `glaciers` and `antarctic_rock` both
+Nothing else in a recipe carries which tuple a layer sits in: `producers_for` walks
+`layers.warped_for(vocabulary)`, so a layer's producer is recorded whichever half it joins, and
+`glaciers` and `antarctic_rock` both
 grade nothing per window. A `fold_white` caller whose recipe omits it keeps its output looking fresh
 across a change that repaints the Antarctic outcrop.
 

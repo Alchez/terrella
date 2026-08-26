@@ -38,8 +38,9 @@ the params recipe plus the planet rasters. So:
     the mandatory textures are built by one loop and the optional ones at their own sites.
 - **The fold's law is a third entry, through `layer_producers.white_law`.** Which of `WHITE_UNION`
   and `WHITE_EXCLUSIONS` a layer sits in decides whether its raster adds white or removes it, and no
-  producer's recipe can carry that: `producers_for` walks `WARPED_LAYERS`, so a producer is recorded
-  whichever half its layer joins, and `glaciers` and `antarctic_rock` grade nothing per window.
+  producer's recipe can carry that: `producers_for` walks `layers.warped_for(vocabulary)`, so a
+  producer is recorded whichever half its layer joins, and `glaciers` and `antarctic_rock` grade
+  nothing per window.
 - **Heroes do not restage.** `rig_recipe`'s only reader is `block_render.params`; the hero path
   shells into `scene_build` without one.
 

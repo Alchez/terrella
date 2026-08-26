@@ -3921,6 +3921,19 @@ SABOTAGES: list[Sabotage] = [
         replacement='        if not out.exists():',
         guard='test_an_artifact_from_another_disc_is_rebuilt',
     ),
+    # The agreement probe goes back to spelling its own sample band, at values inside TODAY's disc
+    # so nothing refuses and every "is this latitude on the texture" assertion still passes. That is
+    # the state it was actually in: the edge moved 80 -> 82 and the whole instrument exited on its
+    # first sample, which is a check that cannot run rather than one that answers wrongly.
+    Sabotage(
+        suite='python',
+        label='the cap/tile agreement probe spells its sample band instead of deriving it',
+        path='scripts/measure_cap_tile_agreement.py',
+        needle='    return tuple(low + span * (index + 1) / (SAMPLE_COUNT + 1)'
+               ' for index in range(SAMPLE_COUNT))',
+        replacement='    return (82.4, 82.9, 83.3, 83.7, 84.2, 84.6)',
+        guard='test_the_band_moves_with_the_edge_rather_than_being_spelled',
+    ),
     # --- a freshness predicate must ANSWER, never raise ------------------------------------------
     # `download_sim3292.is_fresh` guarded the parse and not the shape, so a two-byte `{}` — valid
     # JSON — reached `document["features"]` and raised `KeyError`, killing the re-fetch that was
@@ -4572,10 +4585,12 @@ SABOTAGES: list[Sabotage] = [
     # where a producer skipped a file for a reason other than the region having none.
     Sabotage(
         suite='python',
-        label="the gather ignores its caller's vocabulary, handing every stage every declared layer",
+        # REPOINTED WHEN THE FILTER MOVED INTO `warped_for`, and the mutation is now the exact
+        # regression that move was made to prevent: answering every tier with the composite's set.
+        label="the gather ignores its caller's vocabulary, handing every stage the composite's",
         path='pipeline/look/layer_producers.py',
-        needle='            if layer.name in vocabulary and layer.name in body.surface_layers]',
-        replacement='            if layer.name in body.surface_layers]',
+        needle='for layer in layers.warped_for(vocabulary)',
+        replacement='for layer in layers.warped_for(layers.COMPOSITE_LAYERS)',
         guard='test_the_vocabulary_is_an_actual_filter',
     ),
     Sabotage(
@@ -5698,9 +5713,13 @@ SABOTAGES: list[Sabotage] = [
         # one, and dropping it lets a composite skip over a raytraced raster reporting it fresh.
         label='the composite drops the producer stamp, so it reads raytraced pixels as its own',
         path='pipeline/tile/shade_planet.py',
-        needle='            *(layer.warped_in(work) for layer in layers.WARPED_LAYERS), params,\n'
+        needle='            *(layer.warped_in(work) for layer in'
+               ' layers.warped_for(layers.COMPOSITE_LAYERS)),\n'
+               '            params,\n'
                '            producer_seam.stamp_path(work))',
-        replacement='            *(layer.warped_in(work) for layer in layers.WARPED_LAYERS), params)',
+        replacement='            *(layer.warped_in(work) for layer in'
+                    ' layers.warped_for(layers.COMPOSITE_LAYERS)),\n'
+                    '            params)',
         guard='test_the_composite_names_it',
     ),
     Sabotage(
@@ -5709,9 +5728,11 @@ SABOTAGES: list[Sabotage] = [
         # a raytrace recipe. Both halves are needed: one list naming it detects nothing.
         label='the raytrace drops the producer stamp, so it reads composited pixels as its own',
         path='pipeline/tile/block_render.py',
-        needle='            *(layer.warped_in(work) for layer in layers.WARPED_LAYERS), recipe,\n'
+        needle='            *(layer.warped_in(work) for layer in'
+               ' layers.warped_for(layers.BLOCK_LAYERS)), recipe,\n'
                '            producer_seam.stamp_path(work))',
-        replacement='            *(layer.warped_in(work) for layer in layers.WARPED_LAYERS), recipe)',
+        replacement='            *(layer.warped_in(work) for layer in'
+                    ' layers.warped_for(layers.BLOCK_LAYERS)), recipe)',
         guard='test_the_raytrace_names_it',
     ),
     Sabotage(
@@ -8063,17 +8084,19 @@ SABOTAGES: list[Sabotage] = [
         replacement='pipeline.profile.pass_cap "$@")',
         guard='test_an_omitted_body_is_refused_before_the_scope_opens',
     ),
-    # The panel's own defect, restored: indexing `sizes[0]` unconditionally asks for
-    # `<slug>-undefined.webp`, which 404s behind a spinner. Nothing on Earth reaches it today, which
-    # is exactly why it survived — the branch only became reachable when a body with no renders
-    # arrived.
+    # RETIRED AND REPLACED, because the defect it modelled is now unreachable rather than merely
+    # unguarded: it restored `sizes[0]` indexed unconditionally, asking for `<slug>-undefined.webp`,
+    # and Earth's builder no longer composes a hero URL at all. What can still go wrong is the
+    # figure coming BACK, so that is what this mutates. `names no hero asset` catches it too, from
+    # the structural side, which is what would survive a figure rebuilt under another field name.
     Sabotage(
         suite='web',
-        label='an unrendered place asks for a hero variant that does not exist',
+        label='the country card grows a hero figure again',
         path='web/src/lib/detailPanel.ts',
-        needle='    sizes.length === 0\n      ? null\n      : {',
-        replacement='    false\n      ? null\n      : {',
-        guard='yields NO figure for an unrendered country rather than a broken image',
+        needle='    note: null,\n    figure: null,',
+        replacement='    note: null,\n    figure: { aspect: 1, src: HERO_BASE + slug + "-640.webp",'
+                    ' srcset: "", alt: name, border: null },',
+        guard='carries NEITHER a figure nor a note, whatever the country has rendered',
     ),
     # A portrait hero's key names its HEIGHT. Taking the descriptor from the key overstates every
     # portrait variant's width, so the browser settles for a rung too small — and the picture is
@@ -8102,9 +8125,20 @@ SABOTAGES: list[Sabotage] = [
         suite='web',
         label='a querySelector keeps a class the markup no longer carries',
         path='web/src/components/Globe.astro',
-        needle='panel.querySelector(".dp-note")!.textContent = content.note;',
-        replacement='panel.querySelector(".dp-caption")!.textContent = content.note;',
+        needle='const noteEl = panel.querySelector(".dp-note") as HTMLElement;',
+        replacement='const noteEl = panel.querySelector(".dp-caption") as HTMLElement;',
         guard='selects only classes the markup actually carries',
+    ),
+    # The note's element is emptied instead of hidden. The DOM reads correct and the screen does
+    # not: `.dp-note` keeps its 0.85rem bottom margin around an empty `<p>`, so every Earth card
+    # carries the gap its deleted sentence used to fill and the link sits away from the name.
+    Sabotage(
+        suite='web',
+        label='a card with no note empties the element instead of hiding it',
+        path='web/src/components/Globe.astro',
+        needle='    if (content.note === null) {\n      noteEl.hidden = true;',
+        replacement='    if (false) {\n      noteEl.hidden = true;',
+        guard="hides the note's own element, not just its text, on a card that has no note",
     ),
     # The note goes back to being a sentence in the markup that claims the card shows a ray-traced
     # render. True on Earth, false on Mars, and nothing renders differently on Earth either way.

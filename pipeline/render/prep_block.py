@@ -305,7 +305,7 @@ def build(body: bodies.Body, window: Window, outdir: Path) -> list[str]:
     layer_raw = {layer.name: (_read(layer.warped_in(work), window)
                              if layer.name in body.surface_layers
                              and layer.warped_in(work).exists() else None)
-                 for layer in layers.WARPED_LAYERS}
+                 for layer in layers.warped_for(layers.BLOCK_LAYERS)}
     contributions, paints, exclusions = layer_producers.gather(body, layer_raw, seen,
                                                                layers.BLOCK_LAYERS)
 

@@ -1,7 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import {
-  COUNTRY_PANEL_NOTE,
   FRAME_EDGE_PX,
   GAZETTEER_LINK_LABEL,
   HERO_LINK_LABEL,
@@ -72,11 +71,10 @@ describe("srcset descriptors are widths, not long edges", () => {
 });
 
 describe("a country becomes card content", () => {
-  it("puts the continent in the eyebrow and the render sentence in the note", () => {
+  it("puts the continent in the eyebrow and sends the reader to the country's own page", () => {
     const content = countryPanelContent(country());
     expect(content.eyebrow).toBe("South America");
     expect(content.name).toBe("Chile");
-    expect(content.note).toBe(COUNTRY_PANEL_NOTE);
     expect(content.link).toEqual({
       href: "/chile/",
       label: HERO_LINK_LABEL,
@@ -88,28 +86,30 @@ describe("a country becomes card content", () => {
     expect(countryPanelContent(country({ continent: "" })).eyebrow).toBe("");
   });
 
-  it("builds the figure from the smallest rung and describes it for a screen reader", () => {
-    const { figure } = countryPanelContent(country());
-    expect(figure).not.toBeNull();
-    expect(figure!.aspect).toBe(0.5);
-    expect(figure!.src).toContain("chile-640.webp");
-    expect(figure!.srcset).toContain("chile-3840.webp 1920w");
-    expect(figure!.alt).toBe("Ray-traced relief map of Chile");
+  it("carries NEITHER a figure nor a note, whatever the country has rendered", () => {
+    // The card stopped showing a hero once the globe's own tiles became ray-traced from the same
+    // rig: the picture had become the globe's picture at a different exaggeration, and the note
+    // existed only to excuse a difference that was going away. The link still reaches the render.
+    //
+    // THE TWO POSITIVE ASSERTIONS RIDE WITH THE TWO NULLS ON PURPOSE. `toBeNull` cannot tell a
+    // field deliberately dropped from a builder that returned nothing at all, so both nulls
+    // survive a `countryPanelContent` gutted to `{}` — the name and the link are what refuse it.
+    //
+    // BOTH SAMPLES, because `sizes` is the field the figure used to be built from: a builder that
+    // starts consulting it again passes on the unrendered one alone.
+    for (const sample of [country(), country({ sizes: [], native: null, rendered: false })]) {
+      const content = countryPanelContent(sample);
+      expect(content.figure).toBeNull();
+      expect(content.note).toBeNull();
+      expect(content.name).toBe("Chile");
+      expect(content.link).not.toBeNull();
+    }
   });
 
-  it("drops the border when the country has none", () => {
-    expect(countryPanelContent(country({ hasBorder: false })).figure!.border).toBeNull();
-    expect(countryPanelContent(country({ borderSizes: [] })).figure!.border).toBeNull();
-  });
-
-  it("yields NO figure for an unrendered country rather than a broken image", () => {
-    // The defect this pins: the old panel indexed `sizes[0]` unconditionally and asked for
-    // `chile-undefined.webp`, which 404s behind a spinner. Unreachable on Earth today because only
-    // in-scope countries are interactive — and the reason the figure has to be nullable at all is
-    // the body that has no renders for ANY of its places.
-    const content = countryPanelContent(country({ sizes: [], native: null, rendered: false }));
-    expect(content.figure).toBeNull();
-    expect(JSON.stringify(content)).not.toContain("undefined.webp");
+  it("names no hero asset anywhere in the card it builds", () => {
+    // The structural half of the pair above, and it catches what a null check cannot: a figure
+    // rebuilt under another field name, or a hero URL smuggled into the link or the eyebrow.
+    expect(JSON.stringify(countryPanelContent(country()))).not.toContain(".webp");
   });
 });
 
@@ -228,9 +228,21 @@ describe("the panel seam the module cannot check itself", () => {
     // and the link used to promise one — "Open full-size render →" — over a body that has none.
     // A static string cannot be right on one body and wrong on another, so it must arrive written.
     expect(panelMarkup()).toContain('<p class="dp-note"></p>');
-    expect(GLOBE).toContain('panel.querySelector(".dp-note")!.textContent = content.note;');
+    expect(GLOBE).toContain("noteEl.textContent = content.note;");
     expect(panelMarkup()).toContain('<a class="dp-link" href="/"></a>');
     expect(GLOBE).toContain("linkEl.textContent = content.link.label;");
+  });
+
+  it("hides the note's own element, not just its text, on a card that has no note", () => {
+    // BOTH DIRECTIONS, the link's rule one element over. `.dp-note` carries a bottom margin, so a
+    // card left with an empty `<p>` keeps 0.85rem of the gap the sentence used to fill and the
+    // link floats away from the name. Writing `""` into it is the version that looks correct in
+    // the DOM and wrong on the screen.
+    // MATCHED AS CONDITION-THEN-EFFECT, NOT AS TWO STRINGS. `toContain("noteEl.hidden = true")`
+    // is satisfied by the line surviving under a condition that never fires — `if (false)` keeps
+    // every character this test would have looked for. The pair has to be tied together.
+    expect(GLOBE).toMatch(/if \(content\.note === null\) \{\s*\n\s*noteEl\.hidden = true;/);
+    expect(GLOBE).toMatch(/\} else \{\s*\n\s*noteEl\.hidden = false;/);
   });
 
   it("honours both values of external, not just the one its own body asks for", () => {
@@ -387,7 +399,9 @@ describe("a gazetteer row becomes a card", () => {
     for (const row of featureIndex) {
       const content = featurePanelContent(row);
       expect(content.name.length, `${row.name} lost its name`).toBeGreaterThan(0);
-      expect(content.note.length, `${row.name} has no origin to show`).toBeGreaterThan(0);
+      // `?? ""` KEEPS THE ASSERTION, IT DOES NOT SOFTEN IT: the note is nullable since Earth's
+      // card stopped carrying one, and a null here still measures 0 and still fails this row.
+      expect((content.note ?? "").length, `${row.name} has no origin to show`).toBeGreaterThan(0);
       expect(content.eyebrow.length, `${row.name} has no eyebrow`).toBeGreaterThan(0);
       expect(content.link?.href, `${row.name} has nowhere to send a reader`).toMatch(
         /^https:\/\/planetarynames\.wr\.usgs\.gov\/Feature\/\d+$/,

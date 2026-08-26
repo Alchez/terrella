@@ -73,7 +73,7 @@ class TestTheRegistryAndTheLayerDeclarationsAgree:
 
     def test_every_body_declaring_a_built_layer_has_a_producer(self, subtests):
         declared = [(body, layer) for body in bodies.BODIES.values()
-                    for layer in layers.WARPED_LAYERS if layer.name in body.surface_layers]
+                    for layer in layers.warped_for(layers.COMPOSITE_LAYERS) if layer.name in body.surface_layers]
         assert declared, "no body declares a built layer — this sweep would pass vacuously"
         for body, layer in declared:
             with subtests.test(f"{body.name} {layer.name}"):
@@ -81,7 +81,7 @@ class TestTheRegistryAndTheLayerDeclarationsAgree:
 
     def test_no_producer_is_registered_for_a_body_that_declares_no_such_layer(self, subtests):
         for body in bodies.BODIES.values():
-            for layer in layers.WARPED_LAYERS:
+            for layer in layers.warped_for(layers.COMPOSITE_LAYERS):
                 if layer.name in body.surface_layers:
                     continue
                 with subtests.test(f"{body.name} {layer.name}"):
@@ -116,7 +116,7 @@ class TestWhatAProducerDeclaresItReads:
         """Unlike the cap tier, where Earth's south genuinely reads nothing. Every layer here is
         built from a file, so an empty tuple would mean a warp with no dependency — a raster that
         can never go stale because nothing it reads is tracked."""
-        for layer in layers.WARPED_LAYERS:
+        for layer in layers.warped_for(layers.COMPOSITE_LAYERS):
             with subtests.test(layer.name):
                 assert layer_producers.producer_for(bodies.EARTH, layer).sources()
 
@@ -124,7 +124,7 @@ class TestWhatAProducerDeclaresItReads:
         """A layer added to the table and forgotten here would raise on the next pass of any body,
         which is the intent — pinned so the set is checked without waiting for a pass."""
         assert set(shade_planet.WARP_CONSEQUENCE) == {
-            layer.name for layer in layers.WARPED_LAYERS}
+            layer.name for layer in layers.warped_for(layers.COMPOSITE_LAYERS)}
 
 
 class TestEarthsProducersComputeWhatTheyComputedInline:
@@ -206,7 +206,7 @@ class TestTheSnowUnionIsUnchangedByTheMove:
     def _shared(self, persistence, glacier, top=SOUTHERN_TOP, bottom=SOUTHERN_BOTTOM):
         from rasterio.windows import Window
 
-        raw: dict[str, np.ndarray | None] = {layer.name: None for layer in layers.WARPED_LAYERS}
+        raw: dict[str, np.ndarray | None] = {layer.name: None for layer in layers.warped_for(layers.COMPOSITE_LAYERS)}
         raw[layers.PERENNIAL_ICE.name] = persistence
         raw[layers.GLACIERS.name] = glacier
         return shade_planet._compute_shared(shade_planet._WindowInputs(
@@ -285,7 +285,7 @@ class TestTheWarpGateAsksTheBodyFirst:
         _age(planet / "chunks", 500)
         height = _height_raster(work / "height_3857.tif")
         freshness.mark_done(height)
-        for layer in layers.WARPED_LAYERS:
+        for layer in layers.warped_for(layers.COMPOSITE_LAYERS):
             source = tmp_path / f"{layer.name}.source"
             source.write_text("downloaded")
             monkeypatch.setitem(
@@ -302,7 +302,7 @@ class TestTheWarpGateAsksTheBodyFirst:
         """The companion that shows the two below can fail: with the gate working, the body that
         declares everything gets everything."""
         assert self._drive(monkeypatch, tmp_path, bodies.EARTH) == [
-            layer.name for layer in layers.WARPED_LAYERS]
+            layer.name for layer in layers.warped_for(layers.COMPOSITE_LAYERS)]
 
     def test_a_body_with_no_layers_opens_none_of_earths_files(self, monkeypatch, tmp_path):
         """A SYNTHETIC body, because Mars now declares one and would drive its REAL producer here.
@@ -340,7 +340,7 @@ class TestTheWarpGateAsksTheBodyFirst:
         _age(planet / "planet_heightfield.vrt", 500)
         _age(planet / "chunks", 500)
         freshness.mark_done(_height_raster(work / "height_3857.tif"))
-        for layer in layers.WARPED_LAYERS:
+        for layer in layers.warped_for(layers.COMPOSITE_LAYERS):
             source = tmp_path / f"{layer.name}.source"
             if layer is not layers.PERENNIAL_ICE:  # this one was never downloaded
                 source.write_text("downloaded")
@@ -377,7 +377,7 @@ class TestABuildTimeConstantReachesTheFreshnessGate:
         _age(planet / "planet_heightfield.vrt", 500)
         _age(planet / "chunks", 500)
         freshness.mark_done(_height_raster(work / "height_3857.tif"))
-        for layer in layers.WARPED_LAYERS:
+        for layer in layers.warped_for(layers.COMPOSITE_LAYERS):
             registered = (
                 # A REAL raster on the reference grid, not a stub: the gate also asks
                 # `grid_matches`, which opens the target — a text file makes the second pass raise
@@ -641,7 +641,7 @@ class TestARockLayerBuildsARasterAndContributesNothing:
         Asserted with the raster PRESENT and non-empty: a rock mask of zeros would satisfy this
         against a producer that folded its input, which is the arm that has to fail.
         """
-        raw: dict[str, np.ndarray | None] = {layer.name: None for layer in layers.WARPED_LAYERS}
+        raw: dict[str, np.ndarray | None] = {layer.name: None for layer in layers.warped_for(layers.COMPOSITE_LAYERS)}
         raw[layers.ANTARCTIC_ROCK.name] = self._rock()
         contributions, paints, _ = layer_producers.gather(
             bodies.EARTH, raw, _window(None), layers.COMPOSITE_LAYERS)
@@ -666,7 +666,7 @@ class TestARockLayerBuildsARasterAndContributesNothing:
         assert producer.contribution(_window(self._rock())) is None
 
     def _gathered(self, body=bodies.EARTH, vocabulary=None, rock=True):
-        raw: dict[str, np.ndarray | None] = {layer.name: None for layer in layers.WARPED_LAYERS}
+        raw: dict[str, np.ndarray | None] = {layer.name: None for layer in layers.warped_for(layers.COMPOSITE_LAYERS)}
         raw[layers.ANTARCTIC_ROCK.name] = self._rock() if rock else None
         return layer_producers.gather(
             body, raw, _window(None),
@@ -793,7 +793,7 @@ class TestTheOutcropLosesItsWhiteWhateverElseClaimsThePixel:
     def _snow_alpha(self, *, rock=None, persistence=None, glacier=None, body=bodies.EARTH):
         from rasterio.windows import Window
 
-        raw: dict[str, np.ndarray | None] = {layer.name: None for layer in layers.WARPED_LAYERS}
+        raw: dict[str, np.ndarray | None] = {layer.name: None for layer in layers.warped_for(layers.COMPOSITE_LAYERS)}
         raw[layers.PERENNIAL_ICE.name] = persistence
         raw[layers.GLACIERS.name] = glacier
         raw[layers.ANTARCTIC_ROCK.name] = rock

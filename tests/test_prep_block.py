@@ -299,7 +299,7 @@ class TestTheBlockStageAsksForItsOwnLayersAndNotTheComposites:
         # Open sea, since the question is whether the SEA-ICE producer is reached at all.
         raw, window = _window(bodies.EARTH, packed, ocean=True)
         layer_raw: dict[str, np.ndarray | None] = {
-            layer.name: raw for layer in layers.WARPED_LAYERS}
+            layer.name: raw for layer in layers.warped_for(layers.BLOCK_LAYERS)}
         contributions, _, _ = layer_producers.gather(bodies.EARTH, layer_raw, window, vocabulary)
         return set(contributions)
 

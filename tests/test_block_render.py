@@ -172,8 +172,13 @@ class TestTheDependencySetIsTheRaytracesAndNotTheComposites:
         deps = set(block_render.raytrace_deps(tmp_path, tmp_path / block_render.PARAMS_NAME))
         for name in (shade_planet.HEIGHT_3857, shade_planet.OCEAN_3857, shade_planet.WATER_3857):
             assert tmp_path / name in deps
-        for layer in layers.WARPED_LAYERS:
+        for layer in layers.warped_for(layers.BLOCK_LAYERS):
             assert layer.warped_in(tmp_path) in deps
+        # THE OTHER DIRECTION, and it is the one that is silent: a dependency list built from the
+        # composite's set would restage every block when a layer this tier cannot read moves.
+        for layer in layers.LAYERS:
+            if layer.warped_basename and layer.name not in layers.BLOCK_LAYERS:
+                assert layer.warped_in(tmp_path) not in deps
 
     def test_the_recipe_itself_is_a_dependency(self, tmp_path):
         recipe = tmp_path / block_render.PARAMS_NAME
@@ -291,7 +296,7 @@ class TestTheWhiteLawReachesTheRecipeAndNotOnlyTheCode:
 
     `fold_white` is a maximum over `WHITE_UNION` with `WHITE_EXCLUSIONS` subtracted after it, and
     the two tuples are the law rather than any producer's constant. Nothing else in this recipe can
-    stand in for them: `producers_for` walks `WARPED_LAYERS` and so records a layer's producer
+    stand in for them: `producers_for` walks `warped_for` and so records a layer's producer
     whichever tuple it sits in, and `glaciers` and `antarctic_rock` both declare an EMPTY
     `contribution_recipe`, so a layer changing side moves no other entry at all.
     """

@@ -252,7 +252,7 @@ def raytrace_deps(work: Path, recipe: Path) -> tuple[Path, ...]:
     """
     return (work / shade_planet.HEIGHT_3857, work / shade_planet.OCEAN_3857,
             work / shade_planet.WATER_3857,
-            *(layer.warped_in(work) for layer in layers.WARPED_LAYERS), recipe,
+            *(layer.warped_in(work) for layer in layers.warped_for(layers.BLOCK_LAYERS)), recipe,
             producer_seam.stamp_path(work))
 
 

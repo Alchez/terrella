@@ -76,7 +76,7 @@ class Layer:
     def warped_in(self, work: Path) -> Path:
         """This layer's built raster inside one body's work directory — the one place they join.
 
-        Only meaningful for a `WARPED_LAYERS` row, and the assertion is that filter restated where a
+        Only meaningful for a row `warped_for` returns, and the assertion is that filter restated where a
         type checker can see it rather than a condition anything is expected to reach.
         """
         assert self.warped_basename is not None, f"{self.name} builds no raster"
@@ -146,14 +146,27 @@ COMPOSITE_LAYERS = frozenset(layer.name for layer in LAYERS if layer.in_composit
 CAP_LAYERS = frozenset(layer.name for layer in LAYERS if layer.in_cap)
 BLOCK_LAYERS = frozenset(layer.name for layer in LAYERS if layer.in_block)
 
-#: The composite layers with a file behind them, as rows and IN `LAYERS` ORDER — the three places
-#: `shade_planet` handles a built layer walk this, so the warp, the dependency tuple and the window
-#: reads cannot disagree about the set or about its order.
-#:
-#: ORDER IS PART OF THE CONTRACT, not tidiness: `composite_deps` returns a tuple whose contents a
-#: test pins, and `LAYERS` is written in the order that tuple has always had.
-WARPED_LAYERS: tuple[Layer, ...] = tuple(
-    layer for layer in LAYERS if layer.in_composite and layer.warped_basename)
+def warped_for(vocabulary: frozenset[str]) -> tuple[Layer, ...]:
+    """One stage's layers that have a file to read, as rows and IN `LAYERS` ORDER.
+
+    ASKED PER STAGE BECAUSE THE ANSWER DIFFERS PER STAGE, which the three views above already say
+    and which one shared tuple used to deny. Its predecessor filtered on `in_composite` and was read
+    by the block prep, the block render's dependency list and `producers_for` alike. That agreed
+    with the block's own view for every live row and disagreed with the cap's by two, so the cap
+    could not use it and no test could see the disagreement.
+
+    BOTH DIRECTIONS OF THE MISMATCH ARE SILENT, which is why the vocabulary is an argument rather
+    than a default. A block-tier layer outside the composite is dropped from the only list the prep
+    reads: declared, warped, and reaching no pixel, with its file unable to help because a path
+    nobody names is not a dependency. A composite-only layer handed to the block tier is the same
+    bug facing the other way, and the price is in the note above: switching it restages a render
+    that cannot contain it.
+
+    ORDER IS PART OF THE CONTRACT, not tidiness: `composite_deps` returns a tuple whose contents a
+    test pins, and `LAYERS` is written in the order that tuple has always had.
+    """
+    return tuple(layer for layer in LAYERS
+                 if layer.warped_basename and layer.name in vocabulary)
 
 #: Which planet raster each dependent layer needs, derived. Read by `planet_seam._require_coherent`.
 #:
