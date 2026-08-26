@@ -112,7 +112,7 @@ which is where a Mars pass peaks, did not run.
 | `global_occlusion` | 3:23 | **0:52** | |
 | `composite_planet` | 21:37 | **2:58** | 512 windows, 2.88 win/s, threaded ×4 |
 | `build_tiles` z0–7 | 4:19 | **1:21** | 21,845 tiles, 1.4 GB |
-| `cap_render` | **3:11** | **~1:15** *(isolated)* | Both discs, warping all three planet rasters. **THE TWO COLUMNS ARE TWO PROGRAMS**: Earth's is the stage at a pass tail (north 1:44, south 1:27, both elevation textures fresh and skipped), Mars's is a standalone rig, because Mars's pass printed fresh and skipped and has no in-pass reading. § The cap stage costs about twice at a pass tail |
+| `cap_pass` | **3:11** | **~1:15** *(isolated)* | Both discs, warping all three planet rasters. **BOTH FIGURES ARE THE COMPOSITE ARM**, which is what ran on both bodies when they were taken; `cap_pass` now picks the arm off `planet_producer` and the raytraced one is a different order of cost, unmeasured in production. **THE TWO COLUMNS ARE TWO PROGRAMS**: Earth's is the stage at a pass tail (north 1:44, south 1:27, both elevation textures fresh and skipped), Mars's is a standalone rig, because Mars's pass printed fresh and skipped and has no in-pass reading. § The cap stage costs about twice at a pass tail |
 | pack + convert | 0:16 | **~4 s** | `planet.pmtiles` **1.40 GB**, **20,950 unique tile bodies of 21,845** — counted over the cut directory, which is what the archive dedupes on |
 | T · `tile/terrain_rgb.py` z0–7 | 41:00 | **8:15** | the separate lane, cut cold from the master. z7 alone is **1:36** and the whole `elev_z*` descent beneath it **1:03**, so the ceiling is most of the cost. **21,845 tiles, 0.77 GB** |
 | T · `tile/terrain_rgb.py` z0–7, re-cut | — | **6:03** | the same cut with the elevation chain already on disk. `elev_z*` is gated on the master's mtime and NOT on `terrain_params.json`, so a recipe change re-encodes and re-cuts every zoom while re-descending none — z7 1:41, z6 0:27 |
@@ -134,7 +134,7 @@ nothing can point at is one nobody re-reads before changing a number.
 for reclaimable page cache — the source read and the outputs written — so it overstates what the box
 must actually hold. Summed per-process `VmHWM` overstates in the opposite direction and worse: it
 adds LIFETIME high-water marks across children that never coexisted, and this pass forks gdalwarp,
-gdal_translate, the tile workers and `cap_render` in sequence. **A Mars tiles pass sums to 19.03 GiB
+gdal_translate, the tile workers and `cap_pass` in sequence. **A Mars tiles pass sums to 19.03 GiB
 of `VmHWM` under a 16 G cap that never fired**, which is proof the sum is not a simultaneity measure
 and cannot size a cap. Size it off the **peak instantaneous summed RSS**.
 
@@ -152,7 +152,7 @@ footprint while it is in hand. Ranked, what the cap has to back on Mars is caps 
 composite 4.37 > cut 2.95.
 
 **EARTH, PER STAGE, PEAK LIVE RSS** — composite **12.56 GiB** · tile cut z0–8 **3.74 GiB** ·
-`cap_render` **14.41 GiB**, with the cgroup peak pinned at the 16 G cap throughout (page cache,
+`cap_pass` **14.41 GiB**, with the cgroup peak pinned at the 16 G cap throughout (page cache,
 reclaimed under the limit, never a kill). **The caps alone are what the cap has to back, on both
 bodies**, and two older claims fall out: the composite does not peak at 10.55 GiB, and the tiling
 stage does not approach 16 G. `GDAL_CACHEMAX=512` across `-j ALL_CPUS` workers is an upper bound
@@ -190,7 +190,7 @@ it means instrumenting the REAL pass for per-window read against compute, not bu
 
 **`pipeline/profile/run_pass.sh` sizes its cgroup cap from the body, and both bodies now want 16 G.**
 `pipeline/profile/pass_cap.py` derives it from `renders_polar_caps` and holds both measurements. 16 G
-is the cap-rendering number because the pass ends by invoking `cap_render` as a subprocess that
+is the cap-rendering number because the pass ends by invoking `cap_pass` as a subprocess that
 inherits the scope's cgroup and peaks near 14 GB; a body that renders no caps never reaches that
 stage, so on it 16 G is unbacked rather than protective and the harness's own `MemAvailable`
 preflight would refuse a pass the box could comfortably have run. Mars answered 12 G until its ramps
@@ -375,12 +375,12 @@ Why the numbers are what they are (current-state explanations, not history):
 | No `--tiles`, everything fresh | **0.29 s** | every stage skips; this is the guard working |
 | Lake-depth warp (stage 3) | **1:01:44** | one-time; its `.done` is what stops a pass paying that hour again |
 | **Cast shadows** (`shadow_strength` > 0 — currently 0.0, rejected) | **+0.625 s/Mpx** measured; est. **+2.1 h** on the planet hillshade at `shadow_reach=300` | Iran region A/B (32.4 Mpx): 16.73 s control → 37.01 s, **+121%**, peak RSS unchanged (the wide halo costs time, not memory). The march is `reach_px` full-raster passes — cost is **linear in `shadow_reach`** (300 px ≈ 2.6 h, covers 6,115 m of relief). Hillshade-stage, so ~46 min + the shadow march to see it. |
-| **Polar cap render** (`tile/cap_render.py`) | **~1:36** both caps at the production 8192² (54 + 42 s), peak **14.3 GB north / 13.9 GB south** (measured under `systemd-run`, anon RSS). **STANDALONE, which is what this table is for**: through a pass the same stage costs about 3:05, per § The cap stage costs about twice at a pass tail | AEQD warps + the shared `shade.composite` + baked coastline → `web/public/caps/cap_{north,south}_{1024,2048,4096,8192}.webp` (both caps together: **155 KB · 559 KB · 1.7 MB · 5.1 MB**, WebP q85) + `caps.json`. Every rung is downsampled from the one render, so the whole rung set costs ~1 s, not a second pass — adding the 1024/2048 rungs did not move this row's runtime (re-measured 1:39). The web layer picks one by the cap's projected on-screen size, so a default visit fetches only the 1024s. The fast browser-free pole-look loop. **Freshness-guarded** by a recipe sidecar carrying every input that can move a cap pixel, plus source mtimes; the planet pass's tail invokes it (`tile/planet_pass.py`), so the caps restage whenever the look does — a fresh check is ~2 s. |
+| **Polar cap render** (`tile/cap_pass.py`, composite arm) | **~1:36** both caps at the production 8192² (54 + 42 s), peak **14.3 GB north / 13.9 GB south** (measured under `systemd-run`, anon RSS). **THE ARM IS PART OF THE MEASUREMENT**: the raytraced arm renders 56 Cycles frames instead, priced at about **41 min** off the arm's own two circles and never yet run in production. **STANDALONE, which is what this table is for**: through a pass the same stage costs about 3:05, per § The cap stage costs about twice at a pass tail | AEQD warps + the shared `shade.composite` + baked coastline → `web/public/caps/cap_{north,south}_{1024,2048,4096,8192}.webp` (both caps together: **155 KB · 559 KB · 1.7 MB · 5.1 MB**, WebP q85) + `caps.json`. Every rung is downsampled from the one render, so the whole rung set costs ~1 s, not a second pass — adding the 1024/2048 rungs did not move this row's runtime (re-measured 1:39). The web layer picks one by the cap's projected on-screen size, so a default visit fetches only the 1024s. The fast browser-free pole-look loop. **Freshness-guarded** by a recipe sidecar carrying every input that can move a cap pixel, plus source mtimes; the planet pass's tail invokes it (`tile/planet_pass.py`), so the caps restage whenever the look does — a fresh check is ~2 s. |
 
 > ⚠ **The cap render does NOT fit under the old 12 G cap** — it OOM-killed twice at a 12.5 GB
 > anon-RSS peak before being measured at ~14 GB (this row previously claimed ~4 GiB, which was
 > never true at 8192²). It needs **≥16 G**, and that reaches beyond a manual run: `planet_pass.py`
-> invokes `cap_render` as a subprocess at the tail of the planet pass, inheriting the pass's cgroup —
+> invokes `cap_pass` as a subprocess at the tail of the planet pass, inheriting the pass's cgroup —
 > so a pass at `MEMORY_CAP=12G` completed every tile stage and then died at the last one.
 > **Resolved:** `run_pass.sh`'s shade cap is now **16 G**, matching the tiling run, and
 > `pass_cap.py` derives it per body. `COMPOSITE_ROWS=128` is a hardcoded constant rather than a

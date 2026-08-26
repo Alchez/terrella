@@ -2960,8 +2960,8 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         # The tidy-looking version: an operator running the module directly "obviously" wants a
         # render, so the second gate reads as belt-and-braces. It is the only gate on that path.
-        label='cap_render trusts its caller and drops its own body check',
-        path='pipeline/tile/cap_render.py',
+        label='the cap pass trusts its caller and drops its own body check',
+        path='pipeline/tile/cap_pass.py',
         needle='    if not body.renders_polar_caps:\n',
         replacement='    if False:\n',
         guard='test_a_body_publishing_no_caps_is_refused_by_the_cap_pass_itself',
@@ -2971,7 +2971,7 @@ SABOTAGES: list[Sabotage] = [
         # Not cosmetic: the refusal names the field an operator must change to turn caps ON. Without
         # it the message says a body publishes no caps and gives no way to disagree with that.
         label='the cap refusal stops naming the field that would enable them',
-        path='pipeline/tile/cap_render.py',
+        path='pipeline/tile/cap_pass.py',
         needle='                 f"renders_polar_caps on the body in pipeline/bodies.py once they are ratified.")',
         replacement='                 f"the body in pipeline/bodies.py once they are ratified.")',
         guard='test_a_body_publishing_no_caps_is_refused_by_the_cap_pass_itself',
@@ -4865,6 +4865,132 @@ SABOTAGES: list[Sabotage] = [
         needle='    fill_az = (hillshade.FILL_AZIMUTH + delta).astype(np.float32)',
         replacement='    fill_az = np.full(delta.shape, hillshade.FILL_AZIMUTH, dtype=np.float32)',
         guard='test_both_lights_turn_together_so_a_rigid_rotation_reproduces_them',
+    ),
+    # --- The raytraced cap: the ring, its plan, and the arm registry ------------------------------
+    # NOTHING HERE FAILS LOUDLY. A disc rendered from the wrong frames stitches, downsamples to every
+    # rung and publishes; the only report is the picture, which no gate can see.
+    #
+    # THE BRACKET LOSES ITS UPPER NEIGHBOUR. Each quadrant then renders only the passes its own
+    # longitudes floor onto, and every pixel that is not exactly on the lattice has nothing to fade
+    # toward -- which the coverage check catches at blend time, after 41 minutes of GPU.
+    Sabotage(
+        suite='python',
+        label='a quadrant renders only the passes below it, so every fade has no upper frame',
+        path='pipeline/tile/cap_raytrace.py',
+        needle='        plan[(row, col)] = sorted(present | {(index + 1) % CAP_AZIMUTH_PASSES\n'
+               '                                             for index in present})',
+        replacement='        plan[(row, col)] = sorted(present)',
+        guard='test_a_quadrant_takes_a_quarter_of_the_ring_plus_its_upper_neighbour',
+    ),
+    # THE PLAN STOPS BEING PER POLE. `az_sign` is the one field the two discs disagree about, so the
+    # south then plans off the north's convention over its own longitudes: 28 correct-looking frames,
+    # every one of them the wrong half of the circle.
+    #
+    # CAUGHT BY COVERAGE AND NOT BY THE POLES-DIFFER GUARD, which was where this was first aimed. The
+    # mutated plans still DIFFER between the poles, because the longitudes are still each pole's own
+    # — so "they are not identical" stays true while every pixel's bracket is missing.
+    Sabotage(
+        suite='python',
+        label='the frame plan reads one pole s convention for both discs',
+        path='pipeline/tile/cap_raytrace.py',
+        needle='        lower, _frac = bracketing_pass(\n'
+               '            grid, longitude[row * half:(row + 1) * half, col * half:(col + 1) * half])',
+        replacement='        lower, _frac = bracketing_pass(\n'
+                    '            cap_render.north_grid(grid.body),\n'
+                    '            longitude[row * half:(row + 1) * half, col * half:(col + 1) * half])',
+        guard='test_every_pixel_has_both_of_the_passes_it_will_be_blended_from',
+    ),
+    # THE RING STOPS CLOSING. A pixel just under a full turn brackets pass 23 and pass 0; without the
+    # modulo the upper neighbour is index 24, which no frame carries and no name resolves to.
+    Sabotage(
+        suite='python',
+        label='the azimuth ring runs off its own end instead of wrapping',
+        path='pipeline/tile/cap_raytrace.py',
+        needle='    lower = np.floor(position).astype(int) % CAP_AZIMUTH_PASSES',
+        replacement='    lower = np.floor(position).astype(int)',
+        guard='test_a_delta_infinitesimally_below_zero_lands_on_the_first_pass',
+    ),
+    # THE SHARED LAW SPELLED AGAIN, which renders identically today. The other reader is the
+    # COMPOSITE, in another module, and a drift between them shows only where the disc feathers in.
+    Sabotage(
+        suite='python',
+        label='the ring imitates the meridian rotation instead of reading its owner',
+        path='pipeline/tile/cap_raytrace.py',
+        needle='    wanted = np.asarray(cap_render.azimuth_delta(grid, longitude), dtype=np.float64) % 360.0',
+        replacement='    wanted = np.asarray(grid.az_sign * longitude, dtype=np.float64) % 360.0',
+        guard='test_it_is_derived_from_the_shared_rotation_and_not_from_longitude',
+    ),
+    # THE ECHO CHECK BECOMES A PRESENCE CHECK. Every flag is then confirmed by a run that reported a
+    # DIFFERENT quadrant or a different sun: the frame renders, stitches, and lands under the name of
+    # the thing that was asked for rather than the thing that happened.
+    Sabotage(
+        suite='python',
+        label='the render accepts an echo naming a different quadrant',
+        path='pipeline/tile/cap_raytrace.py',
+        needle='              f"TILE {row},{col} ",',
+        replacement='              "TILE ",',
+        guard='test_an_echo_reporting_a_DIFFERENT_quadrant_is_refused',
+    ),
+    Sabotage(
+        suite='python',
+        label='the render accepts an echo naming a different sun',
+        path='pipeline/tile/cap_raytrace.py',
+        needle='              f"SUN_AZIMUTH_DELTA {index * azimuth_step():.4f}",',
+        replacement='              "SUN_AZIMUTH_DELTA ",',
+        guard='test_an_echo_reporting_a_DIFFERENT_sun_is_refused',
+    ),
+    # THE FRAME IS CALLED RENDERED BEFORE IT IS WHOLE. A killed Blender leaves a non-empty partial
+    # PNG, which the arm's own `[ -s ]` accepted -- and a partial frame blends garbage into the disc
+    # on the next resume rather than re-rendering.
+    Sabotage(
+        suite='python',
+        label='a frame is written under its final name, so a killed render resumes over a stub',
+        path='pipeline/tile/cap_raytrace.py',
+        needle='    part = png.with_suffix(".part.png")',
+        replacement='    part = png',
+        guard='test_a_partly_written_frame_is_never_left_under_its_final_name',
+    ),
+    # THE RAYTRACE RECIPE BECOMES THE COMPOSITE'S. Then a producer switch leaves both sidecars
+    # identical and both discs falsely fresh, in both directions -- the hazard one tier up that
+    # `producer_seam` exists to close, arriving on the caps.
+    Sabotage(
+        suite='python',
+        label='the raytraced cap records the composite s recipe, so a switch restages no disc',
+        path='pipeline/tile/cap_pass.py',
+        needle='    "raytrace": CapProducer(cap_raytrace.render, cap_raytrace.params),',
+        replacement='    "raytrace": CapProducer(cap_raytrace.render, cap_render.cap_recipe),',
+        guard='test_the_arms_do_not_write_the_same_recipe_for_one_disc',
+    ),
+    # THE REGISTRY FALLS BACK. A body whose producer has no cap arm then paints composited discs
+    # under raytraced tiles and reports success, which is the exact mismatch the key exists to stop.
+    Sabotage(
+        suite='python',
+        label='an unregistered producer silently borrows the composite s discs',
+        path='pipeline/tile/cap_pass.py',
+        needle='        return CAP_PRODUCERS[body.planet_producer]',
+        replacement='        return CAP_PRODUCERS.get(body.planet_producer, CAP_PRODUCERS["composite"])',
+        guard='test_an_unknown_producer_is_refused_naming_the_ones_that_exist',
+    ),
+    # THE VOCABULARY GAINS A MEMBER WITH NO ARM. The registry is what makes that a red test rather
+    # than a night's render ending on a KeyError at the cap stage.
+    Sabotage(
+        suite='python',
+        label='a planet producer exists that no cap arm can paint discs for',
+        path='pipeline/bodies.py',
+        needle='PlanetProducer = Literal["composite", "raytrace"]',
+        replacement='PlanetProducer = Literal["composite", "raytrace", "watercolour"]',
+        guard='test_the_registry_covers_the_body_vocabulary_exactly',
+    ),
+    # THE UNIT CORRECTION DROPPED FROM THE DISPLACEMENT. `_shade`'s z-factor divides by this and the
+    # raytraced arm must too, or the two producers of one disc disagree about geology as well as
+    # light. Earth's ratio is 1.0011 and hides it; Mars's is 0.5331.
+    Sabotage(
+        suite='python',
+        label='the raytraced disc displaces in map metres rather than the body s own',
+        path='pipeline/render/prep_cap.py',
+        needle='        grid.px, grid.px, extent_m * bodies.ground_metres_per_aeqd_unit(grid.body),',
+        replacement='        grid.px, grid.px, extent_m,',
+        guard='test_both_producers_of_one_disc_agree_on_the_relief',
     ),
     Sabotage(
         suite='python',
@@ -6822,7 +6948,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='python',
         label='the cap pass defaults its body, so a Mars pass ends by re-rendering Earth\'s poles',
-        path='pipeline/tile/cap_render.py',
+        path='pipeline/tile/cap_pass.py',
         needle='    parser.add_argument("--body", required=True,',
         replacement='    parser.add_argument("--body", default="earth",',
         guard='test_omitting_the_body_is_an_error_rather_than_an_assumption',
@@ -6833,16 +6959,16 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label='the pass hands the cap pass a hardcoded earth instead of its own body',
         path='pipeline/tile/planet_pass.py',
-        needle='    return [sys.executable, "-m", "pipeline.tile.cap_render", "--body", body.name]',
-        replacement='    return [sys.executable, "-m", "pipeline.tile.cap_render", "--body", "earth"]',
+        needle='    return [sys.executable, "-m", "pipeline.tile.cap_pass", "--body", body.name]',
+        replacement='    return [sys.executable, "-m", "pipeline.tile.cap_pass", "--body", "earth"]',
         guard='test_the_pass_hands_its_own_body_down_to_the_cap_pass',
     ),
     Sabotage(
         suite='python',
         label='the pass stops passing --body to the cap pass at all',
         path='pipeline/tile/planet_pass.py',
-        needle='    return [sys.executable, "-m", "pipeline.tile.cap_render", "--body", body.name]',
-        replacement='    return [sys.executable, "-m", "pipeline.tile.cap_render"]',
+        needle='    return [sys.executable, "-m", "pipeline.tile.cap_pass", "--body", body.name]',
+        replacement='    return [sys.executable, "-m", "pipeline.tile.cap_pass"]',
         guard='test_the_pass_hands_its_own_body_down_to_the_cap_pass',
     ),
     # --- The grids are built per body ----------------------------------------------------------

@@ -195,6 +195,67 @@ class TestTheFrameDescribesOneQuadrantOfTheDisc:
         assert (north / "frame.json").read_text() != (south / "frame.json").read_text()
 
 
+class TestTheDisplacementIsMeasuredInGroundMetres:
+    """`_shade`'s unit correction, arriving on the OTHER producer of the same disc.
+
+    The heightfield holds ground metres on the body; `edge_m` is map metres on `aeqd_radius_m`, the
+    sphere PROJ forces every body onto. The rise and the run are therefore measured with different
+    rulers, and the displacement scale is a relief in neither. The composite divides its z-factor by
+    `ground_metres_per_aeqd_unit`; a raytraced disc that does not divide is a second producer of one
+    surface disagreeing about geology, which is the thing `prep_cap` exists not to do.
+
+    EARTH HIDES IT AND MARS DOES NOT. Earth's ratio is 1.0011, so the error is 0.11% and invisible
+    on the discs already judged. Mars's is 0.5331, so its raytraced cap would render at 53% of the
+    relief its own tiles carry.
+    """
+
+    def _scale(self, body, tmp_path):
+        prep_cap.write_frame(cap_render.north_grid(body), tmp_path)
+        return json.loads((tmp_path / "frame.json").read_text())["displacement_scale"]
+
+    def test_the_scale_is_the_exaggeration_over_the_bodys_own_half_extent(self, tmp_path):
+        grid = cap_render.north_grid(EARTH)
+        ground_half_extent = grid.edge_m * bodies.ground_metres_per_aeqd_unit(EARTH)
+        assert self._scale(EARTH, tmp_path) == pytest.approx(
+            EARTH.exaggeration / ground_half_extent)
+
+    def test_a_body_whose_spheres_coincide_needs_no_correction(self, tmp_path):
+        """The discriminator a wrong-way division cannot pass: with the ground and AEQD radii equal
+        the ratio is exactly 1, so the scale must be the uncorrected one — inverting the quotient
+        leaves this case identical and every other case wrong."""
+        identity = dataclasses.replace(EARTH, name="identity",
+                                       ground_radius_m=EARTH.aeqd_radius_m)
+        grid = cap_render.north_grid(identity)
+        assert self._scale(identity, tmp_path) == pytest.approx(
+            identity.exaggeration / grid.edge_m)
+
+    def test_mars_is_displaced_at_nearly_twice_the_uncorrected_scale(self, tmp_path):
+        """Direction AND magnitude on the body that actually diverges, because a correction applied
+        backwards is still monotonic in the ratio. Mars's AEQD sphere is larger than its ground
+        radius, so the corrected scale is the bigger number."""
+        mars = bodies.BODIES["mars"]
+        grid = cap_render.north_grid(mars)
+        uncorrected = mars.exaggeration / grid.edge_m
+        assert self._scale(mars, tmp_path) == pytest.approx(uncorrected / 0.5330701616700675)
+        assert self._scale(mars, tmp_path) > 1.8 * uncorrected
+
+    def test_both_producers_of_one_disc_agree_on_the_relief(self, tmp_path, subtests):
+        """THE CLAIM THAT MATTERS, and neither arm alone can make it. The composite's z-factor and
+        this scale are the same physical statement expressed in different units, so their ratio must
+        be the pixel size and nothing else — on every body that renders caps."""
+        for name in sorted(bodies.BODIES):
+            body = bodies.BODIES[name]
+            if not body.renders_polar_caps:
+                continue
+            with subtests.test(body=name):
+                grid = cap_render.north_grid(body)
+                zfactor = body.exaggeration / bodies.ground_metres_per_aeqd_unit(body)
+                # The composite's z-factor is per map CELL; this scale is per unit of a plane 2.0
+                # units wide. One cell is `2 * edge_m / px` map units, and one Blender unit is
+                # `edge_m` of them, so the conversion between the two is exactly `px / 2`.
+                assert self._scale(body, tmp_path) == pytest.approx(zfactor * 2 / (2 * grid.edge_m))
+
+
 class TestWhatTheCapPrepWrites:
     def test_it_declares_the_masks_the_rig_reads(self, prepped):
         """Existence is not re-asserted here: `render_seam.declare` refuses to name an image that

@@ -105,7 +105,7 @@ Cost: hero sweep **~10–13 h** + tile restage **~29 min** + caps auto-restage *
 | `lake_curve` | log1p | composite | § Inland water |
 | `OCCLUSION_TARGET_M_PER_PX` (look/sky_view.py) | 9784 — resolution, not hue; region A/Bs must match it | SVF + composite | § Sky-view shading |
 
-### Caps only (`tile/cap_render.py`) — ~1:35 both poles
+### Caps only (`tile/cap_pass.py`) — ~1:35 both poles on the composite arm
 
 | Lever | Value | Section |
 |---|---|---|
@@ -346,7 +346,7 @@ Cost: hero sweep **~10–13 h** + tile restage **~29 min** + caps auto-restage *
   so a change restages composite → tiles (~29 min). The climatology itself rebuilds via
   `download_seaice.py --build-only --force` (~40 s, no re-download), then a recomposite.
 
-### Polar caps — the pole look (`tile/cap_render.py`)
+### Polar caps — the pole look (`tile/cap_pass.py`, composite arm)
 
 - Web Mercator can't reach the poles, and **no flat cap colour works** — dark reads as a hole,
   pale as a plug; the problem is flatness, not hue.

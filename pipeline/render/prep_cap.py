@@ -108,10 +108,19 @@ def write_frame(grid: cap_render.CapGrid, outdir: Path) -> dict[str, Any]:
     offsets by half an `ortho_scale` to centre on its own quarter. At any other fraction the frames
     overlap or leave a gap, and a stitched disc with a one-pixel gap reads as a render artefact
     rather than as a wrong argument.
+
+    THE DISPLACEMENT IS MEASURED IN GROUND METRES AND THE GRID IS NOT, which is `_shade`'s z-factor
+    correction arriving on the other producer of the same disc. Heights are ground metres on the
+    body; `edge_m` is map metres on `aeqd_radius_m`, the sphere PROJ forces every body onto. So the
+    rise and the run come off different rulers, and the quotient is a relief in neither. Earth's
+    ratio is 1.0011 and hides it; Mars's is 0.5331, so a raytraced Martian cap would carry 53% of
+    the relief its own tiles do. The recorded extents stay AEQD, because those describe the grid the
+    warp actually covers.
     """
     extent_m = 2.0 * grid.edge_m
     numbers = render_prep.scene_numbers(
-        grid.px, grid.px, extent_m, exaggeration=grid.body.exaggeration,
+        grid.px, grid.px, extent_m * bodies.ground_metres_per_aeqd_unit(grid.body),
+        exaggeration=grid.body.exaggeration,
         hero_long_edge=grid.px // cap_render.CAP_QUADRANT_SPLIT,
         camera_fraction=1.0 / cap_render.CAP_QUADRANT_SPLIT)
     # The full FRAME_KEYS vocabulary in a cap's own terms: no padded lon/lat frame exists, the CRS

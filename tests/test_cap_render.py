@@ -396,27 +396,25 @@ class TestTheGridsAreBuiltPerBody:
                             == cap_render.cap_elev_asset(grid))
 
 
-class TestTheCapPassRequiresABody:
-    """`--body` has no default here for the same reason the planet pass has none.
+class TestTheCompositeArmIsOnePoleDeep:
+    """`render_cap` is what `cap_pass` dispatches to, and its whole job is picking a pole.
 
-    A cap is the one output where the wrong sphere is entirely invisible: it projects, it blends,
-    it downsamples to every rung — and it sits on the wrong parallel, feathering into tiles drawn on
-    a different globe. Nothing in the pipeline can report that, and nothing in the picture shows it.
+    A cap is the one output where the wrong hemisphere is entirely invisible: it projects, blends
+    and downsamples to every rung, and simply shows somewhere else. The CLI that used to live here
+    moved to `cap_pass` with the registry; `tests/test_cap_pass.py` holds its contract.
     """
 
-    def test_omitting_the_body_is_an_error_rather_than_an_assumption(self):
-        with pytest.raises(SystemExit):
-            cap_render.build_parser().parse_args([])
-
-    def test_a_named_body_still_parses_the_pole_and_force_flags(self):
-        """The required argument must not have displaced the flags a pole-look loop actually uses."""
-        args = cap_render.build_parser().parse_args(["--body", "earth", "--north", "--force"])
-        assert (args.body, args.north, args.south, args.force) == ("earth", True, False, True)
-
-    def test_an_unknown_body_is_rejected_by_the_registry_not_silently_accepted(self):
-        args = cap_render.build_parser().parse_args(["--body", "pluto"])
-        with pytest.raises(KeyError):
-            bodies.get(args.body)
+    def test_each_pole_reaches_its_own_renderer(self, monkeypatch, subtests):
+        seen: list[str] = []
+        monkeypatch.setattr(cap_render, "render_cap_north",
+                            lambda grid, rasters: seen.append("north"))
+        monkeypatch.setattr(cap_render, "render_cap_south",
+                            lambda grid, rasters: seen.append("south"))
+        for grid in (EARTH_NORTH, EARTH_SOUTH):
+            with subtests.test(pole=grid.name):
+                seen.clear()
+                cap_render.render_cap(grid, WHOLE_PLANET)
+                assert seen == [grid.name]
 
 
 class TestCapPathsFollowTheBody:

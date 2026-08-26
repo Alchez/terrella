@@ -198,9 +198,10 @@ class Body:
     #: otherwise build on it. The field exists because two producers do, so it and the dispatcher
     #: that reads it both end on the day the last body's planet raster stops being composited.
     #:
-    #: THE CAPS DO NOT KEEP IT ALIVE, and they do read it — the two are not in tension. `cap_render`
-    #: records it as a freshness dependency, because a disc has to match the tiles it feathers into
-    #: and the two producers disagree on colour. Nothing dispatches on it there.
+    #: THE CAPS DO NOT KEEP IT ALIVE, and they now dispatch on it TWICE — the two are not in
+    #: tension. A disc has to match the tiles it feathers into and the two producers disagree on
+    #: colour, so `cap_pass` picks the cap arm off this field and the arm records it as a freshness
+    #: dependency. Both ends the same day the tiles' dispatcher does, for the same reason.
     planet_producer: PlanetProducer
 
 

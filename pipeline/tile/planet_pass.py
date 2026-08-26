@@ -219,7 +219,7 @@ def cap_pass_command(body: bodies.Body) -> list[str]:
     would refuse to start (its `--body` is required too) — which is the failure this shape converts
     into a hard stop instead of a Mars pass quietly re-rendering Earth's poles.
     """
-    return [sys.executable, "-m", "pipeline.tile.cap_render", "--body", body.name]
+    return [sys.executable, "-m", "pipeline.tile.cap_pass", "--body", body.name]
 
 
 def main() -> None:

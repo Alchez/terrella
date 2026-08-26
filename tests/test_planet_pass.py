@@ -18,7 +18,7 @@ import pytest
 from conftest import DECLARED_RASTERS
 
 from pipeline import bodies, freshness, planet_seam
-from pipeline.tile import cap_render, planet_pass, shade_planet
+from pipeline.tile import cap_pass, planet_pass, shade_planet
 
 REPO = Path(__file__).resolve().parents[1]
 
@@ -184,8 +184,8 @@ class TestTheBodyIsRequired:
             with subtests.test(name):
                 body = bodies.get(name)
                 command = planet_pass.cap_pass_command(body)
-                module = command.index("pipeline.tile.cap_render")
-                parsed = cap_render.build_parser().parse_args(command[module + 1:])
+                module = command.index("pipeline.tile.cap_pass")
+                parsed = cap_pass.build_parser().parse_args(command[module + 1:])
                 assert bodies.get(parsed.body) is body
 
         with subtests.test("a body the registry does not know yet"):
@@ -200,7 +200,7 @@ class TestTheBodyIsRequired:
     def test_a_body_publishing_no_caps_is_refused_by_the_cap_pass_itself(self, monkeypatch):
         """The SECOND gate, and it is not redundant with the pass declining to invoke this.
 
-        Reaching `cap_render.main` means an operator ran it directly, and the answer has to be the
+        Reaching `cap_pass.main` means an operator ran it directly, and the answer has to be the
         same one. It matters because the render would otherwise SUCCEED: a body declaring no surface
         layers needs only the heightfield, so there is no missing file to stop it — it would spend
         ~14 GB a pole to publish discs shaded by ramps that body has never been given.
@@ -217,9 +217,9 @@ class TestTheBodyIsRequired:
         capless = dataclasses.replace(bodies.EARTH, name="capless", path_prefix="capless",
                                       renders_polar_caps=False)
         monkeypatch.setitem(bodies.BODIES, capless.name, capless)
-        with mock.patch.object(sys, "argv", ["cap_render", "--body", capless.name]), \
+        with mock.patch.object(sys, "argv", ["cap_pass", "--body", capless.name]), \
                 pytest.raises(SystemExit) as refusal:
-            cap_render.main()
+            cap_pass.main()
         message = str(refusal.value)
         assert capless.name in message and "renders_polar_caps" in message, message
 

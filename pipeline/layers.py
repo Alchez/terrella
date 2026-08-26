@@ -44,7 +44,7 @@ class Layer:
     name: str
     #: Read by the Mercator tile composite (`tile/shade_planet.py`).
     in_composite: bool
-    #: Read by the polar cap render (`tile/cap_render.py`).
+    #: Read by the polar cap pass (`tile/cap_pass.py`), whichever arm it dispatches to.
     in_cap: bool
     #: Read by the raytraced block render (`render/scene_build.py`, staged by the block prep).
     #:

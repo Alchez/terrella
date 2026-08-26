@@ -89,7 +89,7 @@ flowchart TD
     T2["gdal raster tile: 512 px, xyz convention, to the body ceiling<br/>Earth z0-8, 87,381 tiles; tiles_old kept as rollback<br/>(cut/pyramid/@2x/serve mechanics: see docs/tiling.mmd)"]
     T5["tile/pack_pmtiles.py + pmtiles convert<br/>-> planet.pmtiles 3.1 GB, range-request served<br/>(see docs/tiling.mmd)"]
     TT["tile/terrain_rgb.py: stage T, a SEPARATE LANE<br/>reads height_3857.tif directly, never the composite above<br/>elevation -> RGB at 8 m, sea kept as bathymetry, LOSSLESS WebP<br/>-> terrain.pmtiles 2.6 GB, declared tileSize 128 (see docs/tiling.mmd)"]
-    CP["tile/cap_render.py: AEQD polar caps, both poles<br/>same shade.composite over the fused VRTs;<br/>8192-px WebP pair + caps.json -> web/public/caps/<br/>freshness-guarded: restages whenever the look does"]
+    CP["tile/cap_pass.py: AEQD polar caps, both poles<br/>arm picked off planet_producer, so a disc matches its tiles:<br/>cap_render.py composites, cap_raytrace.py renders a 24-pass ring<br/>8192-px WebP pair + caps.json -> web/public/caps/<br/>freshness-guarded: restages whenever the look does"]
   end
 
   PH --> WI
