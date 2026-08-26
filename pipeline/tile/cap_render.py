@@ -803,6 +803,18 @@ def _lonlat_grid(grid: CapGrid) -> tuple[np.ndarray, np.ndarray]:
     return np.asarray(lon, dtype=np.float32), np.asarray(lat, dtype=np.float32)
 
 
+def azimuth_delta(grid: CapGrid, longitude: np.ndarray) -> np.ndarray:
+    """How far this disc's light turns from the rig's base bearing, at each pixel's longitude.
+
+    THE LAW BOTH CAP PRODUCERS OBEY, and only one of them can turn a light per pixel. `_shade`
+    below adds this to each of the two azimuths; the raytraced arm cannot, because Cycles takes one
+    sun direction per frame, so it renders a ring of rigidly rotated passes and asks this which two
+    a pixel falls between. A second copy of the expression would leave the two producers lighting
+    the same ground a few degrees apart, which is visible only where the disc feathers into tiles.
+    """
+    return grid.az_sign * longitude
+
+
 def _shade(grid: CapGrid, heights: np.ndarray, longitude: np.ndarray) -> np.ndarray:
     """Combined light (main + fill) with the per-pixel longitude-rotated azimuth. heights get a
     1-row edge halo top+bottom (hillshade_array wraps columns itself; the wrapped seam sits in the
@@ -822,8 +834,9 @@ def _shade(grid: CapGrid, heights: np.ndarray, longitude: np.ndarray) -> np.ndar
     cell = 2 * grid.edge_m / grid.px
     zfactor = grid.body.exaggeration / bodies.ground_metres_per_aeqd_unit(grid.body)
     haloed = np.pad(heights, ((1, 1), (0, 0)), mode="edge")
-    main_az = (AZ + grid.az_sign * longitude).astype(np.float32)
-    fill_az = (hillshade.FILL_AZIMUTH + grid.az_sign * longitude).astype(np.float32)
+    delta = azimuth_delta(grid, longitude)
+    main_az = (AZ + delta).astype(np.float32)
+    fill_az = (hillshade.FILL_AZIMUTH + delta).astype(np.float32)
     shaded = hillshade.hillshade_array(haloed, cell, zfactor, ALT, main_az)
     fill = hillshade.hillshade_array(haloed, cell, zfactor, hillshade.FILL_ALTITUDE, fill_az)
     # No pole special-case: the rotating azimuth's pinwheel wash at the exact pole is quenched by

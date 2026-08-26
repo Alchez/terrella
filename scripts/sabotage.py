@@ -4758,6 +4758,114 @@ SABOTAGES: list[Sabotage] = [
         replacement='',
         guard='test_the_recipe_records_the_base_grid',
     ),
+    # THE SAME FAMILY, TWO FLAGS ON, and these two are worse than their siblings above in one way:
+    # the wrong regime does not fail, slow down or soften. A hero lit from a turned rig and a hero
+    # photographed as a quarter are both plausible pictures, so the default is the whole guard.
+    Sabotage(
+        suite='python',
+        label='the rig starts turning by default, so every hero is relit off the convention',
+        path='pipeline/render/scene_build.py',
+        needle='    ap.add_argument("--sun-azimuth-delta", type=float, default=0.0, metavar="DEG",',
+        replacement='    ap.add_argument("--sun-azimuth-delta", type=float, default=15.0, '
+                    'metavar="DEG",',
+        guard='test_the_defaults_the_hero_inherits_are_the_rig_as_built',
+    ),
+    # A NEGATIVE INDEX IS A LEGAL INT AND A LEGAL LIST INDEX, which is what makes this quiet: -1
+    # photographs the LAST tile while the driver that asked for it records the first.
+    Sabotage(
+        suite='python',
+        label='the tile flag accepts a negative index, which wraps to the far side of the plane',
+        path='pipeline/render/scene_build.py',
+        needle='    if len(parts) != 2 or not all(part.strip().isdigit() for part in parts):',
+        replacement='    if len(parts) != 2 or not all(part.strip().lstrip("-").isdigit() '
+                    'for part in parts):',
+        guard='test_a_negative_index_is_refused_where_python_would_wrap_it',
+    ),
+    # THE EULER TURNS OPPOSITE TO THE BEARING, and the arm shipped this exact mutation first: +90 on
+    # the Z euler took the arrival bearing from 315 to 225. A ring of passes rendered through it is
+    # a ring lit from the wrong side of every meridian, and each frame looks fine.
+    Sabotage(
+        suite='python',
+        label='the rig turns the same way as the bearing it was asked for',
+        path='pipeline/render/scene_build.py',
+        needle='    turned = (rotation[0], rotation[1], rotation[2] - math.radians(delta_deg))',
+        replacement='    turned = (rotation[0], rotation[1], rotation[2] + math.radians(delta_deg))',
+        guard='test_the_euler_turns_OPPOSITE_to_the_bearing',
+    ),
+    # THE SELF-CHECK DEFEATED WHILE IT STAYS VISIBLE. `arrival_azimuth_deg`'s arithmetic drops the Y
+    # euler, so a light that is yawed is reported at a bearing it does not arrive from -- and
+    # `rotate_arrival` then confirms its own rotation against that report.
+    Sabotage(
+        suite='python',
+        label='the bearing stops seeing a yawed light, so its own self-check confirms a lie',
+        path='pipeline/render/scene_build.py',
+        needle='    rx, ry, rz = rotation\n',
+        replacement='    rx, ry, rz = rotation[0], 0.0, rotation[2]\n',
+        guard='test_a_light_yawed_about_Y_has_no_bearing_this_can_report',
+    ),
+    # ROW AND COLUMN SWAPPED. On the square grid a cap actually uses this exchanges exactly two of
+    # the four quadrants, and the disc stitches with no seam, no gap and two quarters transposed.
+    Sabotage(
+        suite='python',
+        label='the tile camera reads row for column, transposing two quadrants of the disc',
+        path='pipeline/render/scene_build.py',
+        needle='    return ((col + 0.5) * ortho_scale - half, half - (row + 0.5) * ortho_scale)',
+        replacement='    return ((row + 0.5) * ortho_scale - half, half - (col + 0.5) * ortho_scale)',
+        guard='test_the_four_quadrants_sit_where_the_judged_renders_put_them',
+    ),
+    # THE ROW AXIS FLIPPED, which stitching is blind to: the disc reassembles seamlessly, upside
+    # down, and a polar cap upside down is a plausible picture of nowhere.
+    Sabotage(
+        suite='python',
+        label='row zero becomes the bottom of the plane, so the disc stitches inverted',
+        path='pipeline/render/scene_build.py',
+        needle='half - (row + 0.5) * ortho_scale)',
+        replacement='(row + 0.5) * ortho_scale - half)',
+        guard='test_row_zero_is_the_TOP_of_the_plane',
+    ),
+    # THE CONTRADICTION THE DERIVED SPLIT EXISTS TO CATCH, let through. A tile past the grid the
+    # frame implies photographs empty space beyond the plane, and the stitch is a disc with a
+    # quarter missing rather than a run that failed.
+    Sabotage(
+        suite='python',
+        label='a tile outside the grid the camera fraction implies is photographed anyway',
+        path='pipeline/render/scene_build.py',
+        needle='    if not (0 <= row < split and 0 <= col < split):',
+        replacement='    if not (0 <= row and 0 <= col):',
+        guard='test_a_tile_outside_the_grid_the_ortho_scale_implies_is_refused',
+    ),
+    # THE MERIDIAN ROTATION'S SIGN, which is the one field the two poles disagree about. Flipped, the
+    # light sits north-EAST of local north across a whole disc: cartographically inverted relief,
+    # and nothing about the frame says so.
+    Sabotage(
+        suite='python',
+        label='the caps turn their light the wrong way around the meridian',
+        path='pipeline/tile/cap_render.py',
+        needle='    return grid.az_sign * longitude',
+        replacement='    return -grid.az_sign * longitude',
+        guard='test_the_light_arrives_north_west_of_LOCAL_north_at_every_longitude',
+    ),
+    # THE SECOND COPY, RE-INLINED. It renders identically today, which is the whole difficulty: the
+    # other reader is `cap_raytrace`, in another process, and the drift only shows where the disc
+    # feathers into the tiles.
+    Sabotage(
+        suite='python',
+        label='the shade pass spells the rotation again instead of reading its owner',
+        path='pipeline/tile/cap_render.py',
+        needle='    delta = azimuth_delta(grid, longitude)',
+        replacement='    delta = grid.az_sign * longitude',
+        guard='test_the_shade_pass_reads_the_shared_delta_rather_than_spelling_it',
+    ),
+    # ONLY THE KEY LIGHT TURNS. That makes the composite a different intervention from the rigidly
+    # rotated pass the raytraced arm renders, and the two agree everywhere the fill does not reach.
+    Sabotage(
+        suite='python',
+        label='the fill light stays put while the key turns with the meridian',
+        path='pipeline/tile/cap_render.py',
+        needle='    fill_az = (hillshade.FILL_AZIMUTH + delta).astype(np.float32)',
+        replacement='    fill_az = np.full(delta.shape, hillshade.FILL_AZIMUTH, dtype=np.float32)',
+        guard='test_both_lights_turn_together_so_a_rigid_rotation_reproduces_them',
+    ),
     Sabotage(
         suite='python',
         label='the mask writer goes back to 8 bits, terracing the sea floor under the ice alpha',

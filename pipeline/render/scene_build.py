@@ -55,6 +55,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from pipeline.look import palette
 from pipeline.render import render_seam
 
+#: How wide the displacement plane is in Blender units, which is the ruler every other number in
+#: this module is written on: `ortho_scale` is a fraction of it, `plane_height_units` is measured
+#: against it, and a tile's camera offset is a multiple of it.
+#:
+#: NOT A RIG CONSTANT AND DELIBERATELY OUTSIDE `Rig`. Every look value there decides what a pixel
+#: comes out as; this decides what a unit means, and moving it renders identically because the
+#: frame arithmetic that feeds it moves in the same step. It is a constant rather than four
+#: literals because the tiling law has to agree with the plane `build_plane` actually adds, and a
+#: disagreement photographs the wrong ground and stitches perfectly.
+PLANE_WIDTH_UNITS = 2.0
+
 
 def _rgba(stops):
     """palette Stop list (position, linear RGB) -> the (position, RGBA) ColorRamps take."""
@@ -78,7 +89,7 @@ def arrival_azimuth_deg(rotation):
     Pure arithmetic on purpose: no `bpy`, so a test can call it without Blender, and it was checked
     against Blender's own world matrix on the renders the 315 decision was taken from.
     """
-    rx, _, rz = rotation
+    rx, ry, rz = rotation
     # Travel direction is Rz @ Ry @ Rx applied to (0, 0, -1), giving a source direction whose
     # horizontal part is sin(rx) * (sin rz, -cos rz). For any sun above the horizon sin(rx) is
     # positive and divides out, so the bearing is the z euler's alone — but only then, which is why
@@ -86,7 +97,82 @@ def arrival_azimuth_deg(rotation):
     if math.sin(rx) <= 0.0:
         raise ValueError(f"a sun tilted {math.degrees(rx):.1f} degrees is at or below the horizon, "
                          f"where it has no arrival bearing to report")
+    # The Y euler drops out of that arithmetic entirely, so a yawed light would be REPORTED at a
+    # bearing it does not arrive from — and `rotate_arrival` would then confirm its own rotation
+    # against that report. Admissible only because no light in the rig is yawed, which is a fact
+    # `test_the_rig_it_ships_with_is_not_yawed` keeps true rather than one this may assume.
+    if ry != 0.0:
+        raise ValueError(f"a light yawed {math.degrees(ry):.1f} degrees about Y has no bearing "
+                         f"this can report: the horizontal term is no longer the Z euler's alone")
     return math.degrees(math.atan2(math.sin(rz), -math.cos(rz))) % 360.0
+
+
+def rotate_arrival(rotation, delta_deg):
+    """`rotation` turned so its light ARRIVES `delta_deg` further clockwise. Checks its own work.
+
+    THE EULER TURNS THE OTHER WAY, and that was measured rather than reasoned: +90 on the Z euler
+    took the arrival bearing from 315 to 225. This is the sign convention `arrival_azimuth_deg` was
+    written about, and a frame lit from the wrong side of the meridian is a plausible frame.
+
+    THE RESIDUAL IS ITSELF AN ANGLE, so it wraps. Comparing it linearly refuses a correct
+    180-degree turn, where the move reads +180 and the ask normalises to -180: one rotation, 360
+    apart on a straight number line.
+
+    Pure arithmetic, so a test reaches it without Blender — and the check runs at delta 0 too,
+    which is every hero and every block, so the conversion cannot rot on the path nobody turns.
+    """
+    turned = (rotation[0], rotation[1], rotation[2] - math.radians(delta_deg))
+    moved = (arrival_azimuth_deg(turned) - arrival_azimuth_deg(rotation) + 180.0) % 360.0 - 180.0
+    want = (delta_deg + 180.0) % 360.0 - 180.0
+    if abs((moved - want + 180.0) % 360.0 - 180.0) > 1e-6:
+        raise ValueError(f"asked for {want:+.4f} degrees of arrival and the euler moved it "
+                         f"{moved:+.4f}")
+    return turned
+
+
+def tile_index(text: str) -> tuple[int, int]:
+    """`--tile`'s ROW,COL. Parsed here so a malformed one fails before Blender starts.
+
+    Negatives are refused although they are legal ints: -1 is a legal index too, so it would
+    photograph the last tile while the driver's recipe recorded the first.
+    """
+    parts = text.split(",")
+    if len(parts) != 2 or not all(part.strip().isdigit() for part in parts):
+        raise argparse.ArgumentTypeError(
+            f"--tile takes ROW,COL as two non-negative integers, got {text!r}")
+    return int(parts[0]), int(parts[1])
+
+
+def tile_camera_location(ortho_scale, plane_height_units, tile):
+    """Where the ortho camera sits to photograph one tile of the plane, as (x, y) in plane units.
+
+    THE SPLIT IS DERIVED FROM `ortho_scale` AND NEVER PASSED IN. The camera fraction the prep chose
+    is already in the frame, so a driver asking for tile 1,1 of a frame framed for the whole plane
+    is a contradiction visible here — where a split arriving as its own argument would simply agree
+    with whichever of the two was wrong.
+
+    MOVING THE OBJECT AND NOT `shift_x`, because shift is expressed in sensor widths and inherits
+    the sensor-fit rules, while a location is in the units the plane itself is measured in.
+
+    SQUARE PLANES ONLY, refused rather than generalised. The rows here step by `ortho_scale`, which
+    is the plane's own step only while its height equals its width; a block's plane is not square
+    and nothing tiles one, so a two-axis version would have no second instance to verify it.
+    """
+    if abs(plane_height_units - PLANE_WIDTH_UNITS) > 1e-9:
+        raise ValueError(f"tiling needs a square plane and this one is {PLANE_WIDTH_UNITS} x "
+                         f"{plane_height_units} units")
+    exact = PLANE_WIDTH_UNITS / ortho_scale
+    split = round(exact)
+    if split < 1 or abs(exact - split) > 1e-9:
+        raise ValueError(f"a camera spanning {ortho_scale} of a {PLANE_WIDTH_UNITS}-unit plane "
+                         f"tiles it {exact:.4f} times, which is not a whole number, so no set of "
+                         f"tiles covers it")
+    row, col = tile
+    if not (0 <= row < split and 0 <= col < split):
+        raise ValueError(f"tile {row},{col} is outside the {split}x{split} grid this frame's "
+                         f"camera fraction implies")
+    half = PLANE_WIDTH_UNITS / 2
+    return ((col + 0.5) * ortho_scale - half, half - (row + 0.5) * ortho_scale)
 
 
 # ---- locked look
@@ -375,7 +461,7 @@ def plane_span_px(frame):
     along the longer axis, and the render puts its long resolution across that span.
     """
     pixels_per_unit = max(frame["res_x"], frame["res_y"]) / frame["ortho_scale"]
-    return max(2.0, frame["plane_height_units"]) * pixels_per_unit
+    return max(PLANE_WIDTH_UNITS, frame["plane_height_units"]) * pixels_per_unit
 
 
 def base_patches(span_px):
@@ -414,11 +500,11 @@ def build_plane(height, patches_per_edge):
     # NO DEFAULT, for the reason no field on `Body` has one. A defaulted 1 is exactly the value
     # that under-dices in silence, so a caller that dropped the argument would render a softer
     # planet and raise nothing; without one it is a TypeError before Cycles starts.
-    bpy.ops.mesh.primitive_plane_add(size=2.0)
+    bpy.ops.mesh.primitive_plane_add(size=PLANE_WIDTH_UNITS)
     ob = bpy.context.active_object
     ob.name = "Plane"
     for vertex in ob.data.vertices:
-        vertex.co.y *= height / 2.0
+        vertex.co.y *= height / PLANE_WIDTH_UNITS
     if patches_per_edge > 1:
         bpy.ops.object.mode_set(mode="EDIT")
         bpy.ops.mesh.select_all(action="SELECT")
@@ -432,13 +518,13 @@ def build_plane(height, patches_per_edge):
     return ob
 
 
-def build_camera(ortho_scale):
+def build_camera(ortho_scale, offset=(0.0, 0.0)):
     cam = bpy.data.cameras.new("Camera")
     cam.type = "ORTHO"
     cam.ortho_scale = ortho_scale
     cam.clip_end = 100.0
     ob = bpy.data.objects.new("Camera", cam)
-    ob.location = (0.0, 0.0, 5.0)
+    ob.location = (*offset, 5.0)
     bpy.context.collection.objects.link(ob)
     bpy.context.scene.camera = ob
     return ob
@@ -455,24 +541,27 @@ def declared_albedo(render_dir: Path, image: str) -> tuple[float, float, float, 
     return (*palette.srgb8_to_linear(sunlit), 1.0)
 
 
-def build_sun():
+def build_sun(azimuth_delta_deg=0.0):
     sun = bpy.data.lights.new("Light", "SUN")
     sun.energy = RIG.sun_strength
     sun.angle = RIG.sun_angle
     ob = bpy.data.objects.new("Light", sun)
     ob.location = (4.076245, 1.005454, 5.903862)  # cosmetic; sun is a direction
-    ob.rotation_euler = RIG.sun_rotation
+    ob.rotation_euler = rotate_arrival(RIG.sun_rotation, azimuth_delta_deg)
     bpy.context.collection.objects.link(ob)
     return ob
 
 
-def build_fill():
+def build_fill(azimuth_delta_deg=0.0):
+    """THE FILL TURNS WITH THE KEY, never on its own. `cap_render.azimuth_delta` is added to both
+    of the composite's azimuths, so a rig that moved only the key would be a different intervention
+    from the one the raytraced arm has to reproduce."""
     sun = bpy.data.lights.new("Fill", "SUN")
     sun.energy = RIG.fill_strength
     sun.angle = RIG.fill_angle
     sun.use_shadow = False
     ob = bpy.data.objects.new("Fill", sun)
-    ob.rotation_euler = RIG.fill_rotation
+    ob.rotation_euler = rotate_arrival(RIG.fill_rotation, azimuth_delta_deg)
     bpy.context.collection.objects.link(ob)
     return ob
 
@@ -763,9 +852,11 @@ def configure_render(res_x, res_y, *, denoise_device):
 def build_parser():
     """The CLI, separated from `main` so its DEFAULTS can be asserted without Blender.
 
-    Only one of them is load-bearing and it is `--denoise-device`: that default is the whole
-    mechanism protecting 203 pinned hero renders from a setting measured only on blocks, and a
-    default nothing can reach is a default nothing can pin.
+    FOUR OF THESE DEFAULTS ARE LOAD-BEARING AND THEY FAIL THE SAME WAY: `--denoise-device`,
+    `--base-grid`, `--sun-azimuth-delta` and `--tile` each describe a regime one caller opts into
+    and the other must not. Together they are the whole mechanism protecting 203 pinned hero
+    renders from settings measured on blocks and caps, and a default nothing can reach is a default
+    nothing can pin.
     """
     ap = argparse.ArgumentParser()
     ap.add_argument("--body", required=True, choices=sorted(palette.LOOK_BY_BODY),
@@ -784,6 +875,17 @@ def build_parser():
                          "than 4096 px. Defaults to single because that is the only one that is "
                          "known to RENDER at hero sizes -- see `base_patches` for the VRAM "
                          "ceiling. The block runner opts in explicitly and records that it did")
+    ap.add_argument("--sun-azimuth-delta", type=float, default=0.0, metavar="DEG",
+                    help="turn the WHOLE lighting rig this many degrees clockwise in arrival "
+                         "bearing. Defaults to 0, which is the rig every hero and every block "
+                         "renders under; the cap's raytraced arm renders a ring of these because "
+                         "Cycles takes one sun direction per frame where the composite turns its "
+                         "light per pixel")
+    ap.add_argument("--tile", type=tile_index, default=None, metavar="ROW,COL",
+                    help="photograph one tile of the plane instead of the whole frame, by moving "
+                         "the ortho camera. The grid is derived from the frame's own camera "
+                         "fraction. Defaults to none: a plane small enough to render whole should "
+                         "render whole, and a tiled hero would ship a quarter of a country")
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--frame-json", type=Path, default=None,
                     help="per-country numbers from render_prep.py; "
@@ -824,9 +926,23 @@ def main():
     # a lie: the block would be correct, slow, and permanently mislabelled.
     print(f"DENOISE_DEVICE {args.denoise_device}", flush=True)
     build_world()
-    build_camera(frame["ortho_scale"])
-    build_sun()
-    build_fill()
+    offset = ((0.0, 0.0) if args.tile is None
+              else tile_camera_location(frame["ortho_scale"], frame["plane_height_units"],
+                                        args.tile))
+    build_camera(frame["ortho_scale"], offset)
+    sun = build_sun(args.sun_azimuth_delta)
+    fill = build_fill(args.sun_azimuth_delta)
+    # ECHOED SO A CALLER CAN ASSERT THEM, for `--denoise-device`'s reason and harder. A dropped
+    # `--sun-azimuth-delta` renders a frame lit from the base bearing, a dropped `--tile`
+    # photographs the whole plane at a quadrant's resolution: both succeed, both look like a
+    # rendered cap, and neither leaves anything on disk that differs from the frame that was asked
+    # for. The BEARINGS are read back off the built objects rather than recomputed, so what is
+    # reported is what Blender stored.
+    print(f"SUN_AZIMUTH_DELTA {args.sun_azimuth_delta:.4f} main arrives from "
+          f"{arrival_azimuth_deg(tuple(sun.rotation_euler)):.2f} "
+          f"fill from {arrival_azimuth_deg(tuple(fill.rotation_euler)):.2f}", flush=True)
+    tile = "none" if args.tile is None else f"{args.tile[0]},{args.tile[1]}"
+    print(f"TILE {tile} camera at {offset[0]:+.6f},{offset[1]:+.6f}", flush=True)
 
     probe = load_image(render_dir, texture_for(render_seam.HEIGHTFIELD).filename)
     if tuple(probe.size) != (frame["width_px"], frame["height_px"]):

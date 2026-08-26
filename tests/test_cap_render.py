@@ -158,6 +158,102 @@ class TestShade:
         assert np.array_equal(shaded, again)
 
 
+class TestTheLongitudeRotationHasOneOwner:
+    """The cap's light turns with the meridian, and TWO producers have to turn it the same way.
+
+    The composite turns it per pixel inside `_shade`. The raytraced arm cannot: Cycles takes one
+    sun direction for a whole frame, so it renders a ring of rigidly rotated passes and blends the
+    two a pixel falls between. Both are the same law — `azimuth_delta` — and the blend lives in a
+    module this process never imports, which is why these pin the law's MEANING and not just that
+    `_shade` reads it.
+    """
+
+    #: Big enough that a central difference near the middle of the disc is not curvature-dominated,
+    #: small enough to shade in milliseconds.
+    PX = 128
+
+    def _azimuths(self, monkeypatch, grid, longitude):
+        """The (main, fill) azimuth fields `_shade` actually drives the two lights with."""
+        seen: list[np.ndarray] = []
+        real = cap_render.hillshade.hillshade_array
+
+        def spy(heights, cell, zfactor, altitude, azimuth):
+            seen.append(np.asarray(azimuth, dtype=np.float64))
+            return real(heights, cell, zfactor, altitude, azimuth)
+
+        monkeypatch.setattr(cap_render.hillshade, "hillshade_array", spy)
+        cap_render._shade(grid, np.zeros((grid.px, grid.px), dtype=np.float32), longitude)
+        assert len(seen) == 2, f"two lights means two azimuth fields, got {len(seen)}"
+        return seen
+
+    def _local_north_bearing(self, grid):
+        """Image-frame bearing of LOCAL north at each pixel, read off the grid's own latitudes.
+
+        THE INDEPENDENT ORACLE FOR `az_sign`, and it never mentions longitude. North is the
+        direction latitude increases, which on a pole-centred azimuthal projection turns with the
+        meridian — so if the sign is wrong the light sits north-EAST of local north and this
+        notices, where an oracle built from `az_sign * longitude` would agree with any sign at all.
+        Row runs DOWN the image, so a gradient's up-component is its negation.
+        """
+        _longitude, latitude = cap_render._lonlat_grid(grid)
+        grad_row, grad_col = np.gradient(np.asarray(latitude, dtype=np.float64))
+        return np.degrees(np.arctan2(grad_col, -grad_row)) % 360.0
+
+    def _ring(self, grid):
+        """Pixels far enough from the centre for a central difference to resolve the direction, and
+        inside the disc. The exact pole is a singularity in BEARING though not in latitude."""
+        rows, cols = np.indices((grid.px, grid.px))
+        radius = np.hypot(rows - (grid.px - 1) / 2, cols - (grid.px - 1) / 2) / (grid.px / 2)
+        ring = (radius > 0.4) & (radius < 0.9)
+        assert ring.sum() > 5000, f"the oracle sampled {int(ring.sum())} px, which is not a disc"
+        return ring
+
+    @pytest.mark.parametrize("shipped", (EARTH_NORTH, EARTH_SOUTH), ids=("north", "south"))
+    def test_the_light_arrives_north_west_of_LOCAL_north_at_every_longitude(self, monkeypatch,
+                                                                            shipped):
+        """The claim the rotation exists to make, measured against the projection's own geometry.
+
+        BOTH POLES, because `az_sign` is the one field where they disagree and a north-only
+        assertion is satisfied by hardcoding -1. The south's latitudes increase OUTWARD from its
+        pole, so the same gradient reads its north correctly with no case here.
+        """
+        grid = dataclasses.replace(shipped, px=self.PX)
+        longitude, _latitude = cap_render._lonlat_grid(grid)
+        main, _fill = self._azimuths(monkeypatch, grid, longitude)
+        offset = (main - self._local_north_bearing(grid)) % 360.0
+        ring = self._ring(grid)
+        assert np.allclose(offset[ring], cap_render.AZ, atol=0.5)
+
+    def test_both_lights_turn_together_so_a_rigid_rotation_reproduces_them(self, monkeypatch):
+        """WHY THE RAYTRACED ARM MAY ROTATE THE WHOLE RIG AT ONCE. Turning only the key light would
+        make a rendered pass a different intervention from the per-pixel one it must match, and the
+        two would agree everywhere the fill happens not to reach."""
+        grid = dataclasses.replace(EARTH_NORTH, px=self.PX)
+        longitude, _latitude = cap_render._lonlat_grid(grid)
+        main, fill = self._azimuths(monkeypatch, grid, longitude)
+        # Anti-vacuity: two CONSTANT fields would satisfy the separation below trivially, which is
+        # exactly what a deleted rotation leaves behind.
+        assert np.ptp(main) > 300.0, "the main azimuth barely moves, so nothing is rotating"
+        separation = (cap_render.AZ - cap_render.hillshade.FILL_AZIMUTH) % 360.0
+        assert np.allclose((main - fill) % 360.0, separation)
+
+    def test_the_shade_pass_reads_the_shared_delta_rather_than_spelling_it(self, monkeypatch):
+        """THE OTHER READER IS NOT IN THIS PROCESS, so ownership is the only thing that binds it.
+
+        `cap_raytrace` imports this expression to decide which rendered pass a pixel wants. Spelled
+        inline here it would be a second copy free to drift, and the drift is invisible: both
+        producers render a plausible disc, lit a few degrees apart, and only the feather into the
+        tiles shows it.
+        """
+        monkeypatch.setattr(cap_render, "azimuth_delta",
+                            lambda grid, longitude: np.full_like(longitude, 7.0, dtype=np.float64))
+        grid = dataclasses.replace(EARTH_NORTH, px=16)
+        longitude, _latitude = cap_render._lonlat_grid(grid)
+        main, fill = self._azimuths(monkeypatch, grid, longitude)
+        assert np.allclose(main, cap_render.AZ + 7.0)
+        assert np.allclose(fill, cap_render.hillshade.FILL_AZIMUTH + 7.0)
+
+
 #: Both poles as they shipped, field for field — the golden this module's grids are held to.
 #:
 #: EVERY FIELD, not the interesting ones. The grids stopped being module constants and became

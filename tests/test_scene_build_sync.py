@@ -8,6 +8,7 @@ Since the sea-sync the constants are imports from
 any re-inlined literal fails HERE instead of on a hero render.
 """
 
+import argparse
 import ast
 import dataclasses
 import importlib
@@ -17,6 +18,7 @@ import sys
 import types
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from pipeline import block_plan, bodies
@@ -292,6 +294,151 @@ class TestSunAltitudeIsShared:
             scene_build.arrival_azimuth_deg((math.radians(200.0), 0.0, 0.0))
 
 
+class TestTheWholeRigCanBeTurnedToOneBearing:
+    """The cap's raytraced arm needs the light at an arbitrary bearing, which Cycles cannot do per
+    pixel — so it turns the rig rigidly, once per pass, and blends. These pin the conversion.
+
+    THE SIGN CONVENTION IS MEASURED AND NOT REASONED. +90 on the euler's Z took the arrival bearing
+    from 315 to 225, which is the arm's own record of getting it backwards first. A frame lit from
+    the wrong side of the meridian is a plausible frame, so nothing downstream would have said so.
+    """
+
+    def test_zero_leaves_the_euler_untouched(self, scene_build):
+        """THE DEFAULT PATH, and it is every hero and every one of 1,024 blocks. The arithmetic runs
+        on all of them, so it has to be the identity rather than merely close to it."""
+        for rotation in (scene_build.RIG.sun_rotation, scene_build.RIG.fill_rotation):
+            assert scene_build.rotate_arrival(rotation, 0.0) == rotation
+
+    def test_the_arrival_bearing_moves_by_exactly_what_was_asked(self, scene_build, subtests):
+        """BOTH LIGHTS, because the cap turns the whole rig and a fill left behind would make a
+        rendered pass a different intervention from the per-pixel one it has to reproduce."""
+        for name in ("sun_rotation", "fill_rotation"):
+            rotation = getattr(scene_build.RIG, name)
+            before = scene_build.arrival_azimuth_deg(rotation)
+            for delta in (7.5, 15.0, 90.0, 180.0, -30.0, 345.0):
+                with subtests.test(light=name, delta=delta):
+                    turned = scene_build.rotate_arrival(rotation, delta)
+                    moved = (scene_build.arrival_azimuth_deg(turned) - before) % 360.0
+                    assert moved == pytest.approx(delta % 360.0, abs=1e-6)
+
+    def test_the_euler_turns_OPPOSITE_to_the_bearing(self, scene_build):
+        """The measurement above stated as the thing a reader would get wrong. A Blender sun shines
+        along its local -Z, so asking the light to arrive further clockwise turns the euler
+        anticlockwise, and the two cancel to a frame that looks fine."""
+        turned = scene_build.rotate_arrival(scene_build.RIG.sun_rotation, 90.0)
+        assert turned[2] < scene_build.RIG.sun_rotation[2]
+        assert scene_build.arrival_azimuth_deg(turned) == pytest.approx(45.0)
+
+    def test_a_full_turn_lands_back_where_it_started(self, scene_build):
+        """The wrap the arm's first self-check refused: a residual is itself an angle, so comparing
+        it linearly rejects a correct 180-degree frame where `moved` reads +180 and the ask
+        normalises to -180 — the same rotation, 360 apart on a straight number line."""
+        for delta in (360.0, -360.0, 180.0, -180.0):
+            turned = scene_build.rotate_arrival(scene_build.RIG.sun_rotation, delta)
+            assert scene_build.arrival_azimuth_deg(turned) == pytest.approx(
+                (315.0 + delta) % 360.0)
+
+    def test_a_light_yawed_about_Y_has_no_bearing_this_can_report(self, scene_build):
+        """`arrival_azimuth_deg`'s arithmetic drops the Y euler entirely, so a yawed light would be
+        reported at a bearing it does not arrive from and `rotate_arrival`'s own self-check would
+        confirm a rotation that never happened. Refused rather than silently answered."""
+        with pytest.raises(ValueError, match="Y"):
+            scene_build.arrival_azimuth_deg((math.radians(45.0), math.radians(30.0), 0.0))
+
+    def test_the_rig_it_ships_with_is_not_yawed(self, scene_build):
+        """The control on the refusal above: it is only admissible because no light in the rig is
+        yawed, so a refusal that fired on the shipping path would be a broken guard rather than a
+        strict one."""
+        assert scene_build.RIG.sun_rotation[1] == 0.0
+        assert scene_build.RIG.fill_rotation[1] == 0.0
+
+
+class TestTheCameraCanPhotographOneTileOfThePlane:
+    """A cap's disc is one plane rendered in quadrants: `CAP_PX` in a single frame is OOM-killed at
+    the 16 G cap, and the neighbours are literally the same plane, so an off-tile ridge casts into
+    frame for free with no context margin to buy.
+
+    THE SPLIT IS DERIVED FROM `ortho_scale`, NEVER PASSED. The camera fraction the prep chose is
+    already in the frame, so a driver that asked for tile 1,1 of a frame framed for the whole plane
+    is a contradiction this can see — where a split arriving as its own argument would simply agree
+    with whichever caller was wrong.
+    """
+
+    #: One quadrant of a square plane: `2.0 / CAP_QUADRANT_SPLIT`.
+    QUADRANT = 1.0
+
+    def test_the_four_quadrants_sit_where_the_judged_renders_put_them(self, scene_build, subtests):
+        """The arm's own numbers, which are what both 8192 discs on disk were photographed at."""
+        for (row, col), expected in (((0, 0), (-0.5, 0.5)), ((0, 1), (0.5, 0.5)),
+                                     ((1, 0), (-0.5, -0.5)), ((1, 1), (0.5, -0.5))):
+            with subtests.test(row=row, col=col):
+                assert scene_build.tile_camera_location(
+                    self.QUADRANT, 2.0, (row, col)) == pytest.approx(expected)
+
+    def test_row_zero_is_the_TOP_of_the_plane(self, scene_build):
+        """Stitching is blind to this: a flipped row order reassembles into a seamless disc showing
+        the hemisphere upside down, which on a polar cap is a plausible picture of nowhere."""
+        top = scene_build.tile_camera_location(self.QUADRANT, 2.0, (0, 0))[1]
+        bottom = scene_build.tile_camera_location(self.QUADRANT, 2.0, (1, 0))[1]
+        assert top > bottom
+
+    def test_the_tiles_abut_exactly_with_no_overlap_and_no_gap(self, scene_build, subtests):
+        """A SECOND SPLIT, because the quadrant case passes by construction for any law that
+        happens to put four cameras at the corners. A one-pixel gap in a stitched disc reads as a
+        render artefact rather than as a wrong argument, so nobody would look here."""
+        for split in (2, 4, 8):
+            with subtests.test(split=split):
+                scale = 2.0 / split
+                xs = [scene_build.tile_camera_location(scale, 2.0, (0, col))[0]
+                      for col in range(split)]
+                assert xs[0] == pytest.approx(-1.0 + scale / 2)
+                assert xs[-1] == pytest.approx(1.0 - scale / 2)
+                assert np.allclose(np.diff(xs), scale)
+
+    def test_the_untiled_plane_is_its_own_single_tile(self, scene_build):
+        """A camera seeing the whole plane is a 1x1 grid, and its only tile is the origin — the
+        same place `build_camera` puts a camera nobody tiled."""
+        assert scene_build.tile_camera_location(2.0, 2.0, (0, 0)) == pytest.approx((0.0, 0.0))
+
+    def test_a_tile_outside_the_grid_the_ortho_scale_implies_is_refused(self, scene_build):
+        """The frame says four tiles; asking for a fifth photographs empty space past the plane and
+        stitches a disc with a quarter of it missing."""
+        with pytest.raises(ValueError, match="2x2"):
+            scene_build.tile_camera_location(self.QUADRANT, 2.0, (0, 2))
+
+    def test_a_camera_fraction_that_does_not_divide_the_plane_is_refused(self, scene_build):
+        """0.35 of a plane tiles it 2.857 times, so no set of tiles covers it. The frame is the
+        thing that is wrong, and it is wrong before a single frame has been rendered."""
+        with pytest.raises(ValueError, match="whole number"):
+            scene_build.tile_camera_location(0.7, 2.0, (0, 0))
+
+    def test_a_rectangular_plane_is_refused_rather_than_tiled_along_one_axis(self, scene_build):
+        """The law here spaces rows by `ortho_scale`, which is the plane's own step only while it is
+        square. A block's plane is not, and the generalisation has no second instance to verify it,
+        so this refuses instead of guessing what a tiled block would mean."""
+        with pytest.raises(ValueError, match="square"):
+            scene_build.tile_camera_location(self.QUADRANT, 1.2, (0, 0))
+
+
+class TestTheTileFlagIsParsedBeforeBlenderStarts:
+    def test_it_arrives_as_a_row_and_a_column(self, scene_build):
+        assert scene_build.tile_index("1,0") == (1, 0)
+
+    def test_a_malformed_tile_is_an_argument_error_rather_than_a_render(self, scene_build,
+                                                                       subtests):
+        """A `--tile 1` that reached Blender would take the whole 41-minute ring down at the first
+        frame, or worse, be read as something."""
+        for text in ("1", "1,2,3", "a,b", "", "1;2"):
+            with subtests.test(text=text), pytest.raises(argparse.ArgumentTypeError):
+                scene_build.tile_index(text)
+
+    def test_a_negative_index_is_refused_where_python_would_wrap_it(self, scene_build):
+        """`-1` is a legal int and a legal list index, and it would silently photograph the last
+        tile while the driver's recipe recorded the first."""
+        with pytest.raises(argparse.ArgumentTypeError):
+            scene_build.tile_index("-1,0")
+
+
 class TestEveryBlockGetsAMicropolygonPerPixel:
     """THE DICING GUARD, and what it protects against does not raise, log or look broken.
 
@@ -445,8 +592,14 @@ class TestTheRecipeIsDerivedRatherThanEnumerated:
         hole this replaces rather than a smaller version of it. The texture table is excluded
         because it is its own structure, checked below, and `SEA_IMAGE` because it names a row of
         that table rather than carrying a value.
+
+        THE TEST FOR ADDING A NAME HERE IS NOT "IT IS NOT A COLOUR". `PLANE_WIDTH_UNITS` is
+        excluded because it decides what a UNIT MEANS rather than what a pixel comes out as: every
+        other number in the module is a fraction or a multiple of it, so moving it renders
+        identically. A value that changes a rendered pixel while the rest of the frame arithmetic
+        stands still belongs in `Rig`, however few pixels it moves.
         """
-        allowed = {"TEXTURES", "SEA_IMAGE", "RIG"}
+        allowed = {"TEXTURES", "SEA_IMAGE", "RIG", "PLANE_WIDTH_UNITS"}
         stragglers = {name for name in vars(scene_build)
                       if name.isupper() and not name.startswith("_") and name not in allowed}
         assert not stragglers, f"still module-level capitals: {sorted(stragglers)}"

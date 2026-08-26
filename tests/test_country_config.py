@@ -332,6 +332,19 @@ class TestTheStageListPointsAtTheStore:
         assert any("fuse_heightfield" in command for command in commands)
 
 
+def hero_scene_build_command():
+    """The one `scene_build` invocation the hero lane makes, for the arms that pin what it omits.
+
+    Anti-vacuity is the point of the count: "no command mentions the flag" is trivially true of an
+    empty list, which is exactly what a renamed stage or a reordered pipeline would hand a caller.
+    """
+    resolved = cc.resolve("nepal", _rows()[0], _cfg())
+    assert resolved is not None
+    hero = [command for command in cc.stage_commands(resolved) if "scene_build.py" in command]
+    assert len(hero) == 1, f"expected exactly one scene_build stage, got {len(hero)}"
+    return hero[0]
+
+
 class TestTheHeroRenderStaysOnCpuDenoise:
     """THE ANTI-REGRESSION ARM for the block runner's GPU-denoise opt-in.
 
@@ -347,18 +360,8 @@ class TestTheHeroRenderStaysOnCpuDenoise:
     remembering to pass it.
     """
 
-    def _hero_command(self):
-        resolved = cc.resolve("nepal", _rows()[0], _cfg())
-        assert resolved is not None
-        hero = [command for command in cc.stage_commands(resolved)
-                if "scene_build.py" in command]
-        # Anti-vacuity: "no command mentions the flag" is trivially true of an empty list, which is
-        # exactly what a renamed stage or a reordered pipeline would hand this test.
-        assert len(hero) == 1, f"expected exactly one scene_build stage, got {len(hero)}"
-        return hero[0]
-
     def test_the_hero_stage_does_not_pass_the_flag(self):
-        assert "--denoise-device" not in self._hero_command()
+        assert "--denoise-device" not in hero_scene_build_command()
 
     def test_the_default_the_hero_inherits_is_cpu(self, scene_build_module):
         """Pinned separately from the absence above, because the two fail independently: the hero
@@ -392,16 +395,8 @@ class TestTheHeroRenderStaysOnTheSingleQuad:
     measurement; this pins that heroes cannot reach it by construction.
     """
 
-    def _hero_command(self):
-        resolved = cc.resolve("nepal", _rows()[0], _cfg())
-        assert resolved is not None
-        hero = [command for command in cc.stage_commands(resolved)
-                if "scene_build.py" in command]
-        assert len(hero) == 1, f"expected exactly one scene_build stage, got {len(hero)}"
-        return hero[0]
-
     def test_the_hero_stage_does_not_pass_the_flag(self):
-        assert "--base-grid" not in self._hero_command()
+        assert "--base-grid" not in hero_scene_build_command()
 
     def test_the_default_the_hero_inherits_is_the_single_quad(self, scene_build_module):
         """Pinned separately from the absence above, because the two fail independently."""
@@ -415,6 +410,45 @@ class TestTheHeroRenderStaysOnTheSingleQuad:
             ["--body", "earth", "--render-dir", "/tmp/x", "--out", "/tmp/x.blend",
              "--base-grid", "fitted"])
         assert args.base_grid == "fitted"
+
+
+class TestTheHeroKeepsTheWholeCountryAndTheRigsOwnSun:
+    """THE THIRD ANTI-REGRESSION ARM, and the one whose defaults nobody would notice moving.
+
+    `--sun-azimuth-delta` and `--tile` exist for the cap's raytraced arm, which renders a ring of
+    rigidly rotated passes over a plane too large for one frame. Both are catastrophic on a hero and
+    neither raises: a turned rig relights a country against the cartographic convention every other
+    surface in the project follows, and a tiled camera ships a quarter of one. There are 203 heroes
+    on disk and the failure is a plausible picture in both cases.
+
+    They are pinned HERE rather than beside the arithmetic because what is guarded is the hero
+    lane's silence, and silence is a property of the command the config emits.
+    """
+
+    def _default_args(self, scene_build_module):
+        return scene_build_module.build_parser().parse_args(
+            ["--body", "earth", "--render-dir", "/tmp/x", "--out", "/tmp/x.blend"])
+
+    def test_the_hero_stage_passes_neither_flag(self, subtests):
+        for flag in ("--sun-azimuth-delta", "--tile"):
+            with subtests.test(flag=flag):
+                assert flag not in hero_scene_build_command()
+
+    def test_the_defaults_the_hero_inherits_are_the_rig_as_built(self, scene_build_module):
+        """Pinned separately from the absence above, because the two fail independently: the hero
+        stage could stay silent while the default underneath it started turning the sun."""
+        args = self._default_args(scene_build_module)
+        assert args.sun_azimuth_delta == 0.0
+        assert args.tile is None
+
+    def test_the_flags_still_take_the_values_the_cap_will_pass(self, scene_build_module):
+        """The control on the defaults: an inert default proves nothing if the parser accepts
+        nothing else, which is how both would pass after the arguments were gutted."""
+        args = scene_build_module.build_parser().parse_args(
+            ["--body", "earth", "--render-dir", "/tmp/x", "--out", "/tmp/x.blend",
+             "--sun-azimuth-delta", "15", "--tile", "1,0"])
+        assert args.sun_azimuth_delta == 15.0
+        assert args.tile == (1, 0)
 
 
 @pytest.fixture(scope="module")
