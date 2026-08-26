@@ -156,6 +156,29 @@ def ice_alpha(frequency, ice_lo=None, ice_band=None, ice_max_alpha=None):
     return ice_max_alpha * fraction * fraction * (3.0 - 2.0 * fraction)
 
 
+def gated_alpha(contribution, ocean):
+    """The ice alpha confined to ocean pixels, or None when no pixel survives.
+
+    THE GATE IS THE COASTAL-COLLAPSE GUARD, not bookkeeping. The same alpha is spent twice in the
+    rig -- an ice-white colour mix and `Mix.005 Ice Flatten`, which pulls displacement toward sea
+    level -- so ungated it drags shoreline LAND to sea level at full exaggeration rather than merely
+    miscolouring it.
+
+    IT LIVES BESIDE `ice_alpha` BECAUSE IT BELONGS TO THE PRODUCER. It sat in `render/prep_block.py`
+    while exactly one prep called it, and a second prep written without it painted 99.92% of a disc's
+    land ice-white and cut its relief to 0.46x, with nothing red anywhere. Both producers of this
+    alpha now gate before returning, so no consumer has to know and no future consumer can forget.
+
+    None rather than zeros on the way out: `shade.composite` takes `ice_a=None` and skips the blend
+    entirely, where zeros would run it and multiply the whole window by nothing, and `prep_block`
+    reads it to decide whether the layer exists in this window at all.
+    """
+    if contribution is None:
+        return None
+    gated = np.where(np.asarray(ocean, dtype=bool), contribution, 0.0)
+    return gated if bool(gated.any()) else None
+
+
 def warp_seaice(bounds, width, height, out_path, src=SEAICE_SRC):
     """Warp ice frequency and return it as a float64 fraction in 0..1 (raster + unpack) -- thin wrapper.
 

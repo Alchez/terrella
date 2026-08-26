@@ -34,7 +34,7 @@ from rasterio.transform import from_bounds
 from pipeline import bodies, layers, paths, planet_seam
 from pipeline.acquire import download_add_rock
 from pipeline.look import layer_producers, palette, perennial_ice, seaice, snow
-from pipeline.tile import cap_render, shade_planet, terrain_rgb
+from pipeline.tile import cap_render, terrain_rgb
 
 #: A planet whose seam emitted all three rasters — what Earth declares, and the only
 #: shape these tests care about unless they say otherwise.
@@ -97,8 +97,24 @@ class TestCapGridGeometry:
             assert cap_render.CAP_EDGE_LAT <= found["MESH_EDGE_LAT"]
         with subtests.test("the visible feather opens inside the mesh"):
             assert found["MESH_EDGE_LAT"] <= found["FEATHER_LO"]
-        with subtests.test("the feather closes below the plug boundary"):
-            assert found["FEATHER_LO"] < abs(shade_planet.CAP_NORTH)
+        with subtests.test("the feather closes where Mercator tiles stop existing"):
+            assert found["FEATHER_LO"] < cap_render.feather_hi_deg()
+        with subtests.test("the feather is wide enough to have hidden the handover"):
+            # THE RUNG THE LADDER WAS MISSING. Ordering alone is satisfied by a feather 0.05
+            # degrees wide, which is what an edge-84 arm shipped and what showed the disc as a
+            # hard-edged circle. The width is the thing that collapses silently when the edge moves.
+            assert (cap_render.feather_hi_deg() - found["FEATHER_LO"]
+                    >= cap_render.CAP_FEATHER_MIN_DEG)
+
+    def test_the_width_rung_rejects_a_collapsed_feather(self):
+        """The rung above passes on the shipped numbers, so its catching power is asserted here.
+
+        A guard added beside a configuration that already satisfies it has never been shown to fail,
+        which is the shape that lets a broken check sit green for months.
+        """
+        assert not cap_render.feather_is_wide_enough(84.0, 84.05)   # the arm that showed the disc
+        assert not cap_render.feather_is_wide_enough(82.0, 83.05)   # 1.05, measured as visible
+        assert cap_render.feather_is_wide_enough(82.0, 85.05)       # the ratified 3.05
 
 
 class TestLonlatGrid:
@@ -152,10 +168,10 @@ class TestShade:
 #: once, in full, rather than trusting eight separate assertions to stay complete.
 SHIPPED_GRIDS = {
     "north": {"aeqd_radius_m": 6371000.0, "az_sign": -1.0, "coast_dilate": 1,
-              "coast_opacity": 0.55, "edge_lat": 80.0, "ice_lo": None, "ice_max_alpha": None,
+              "coast_opacity": 0.55, "edge_lat": 82.0, "ice_lo": None, "ice_max_alpha": None,
               "lat_0": 90.0, "name": "north", "px": 8192},
     "south": {"aeqd_radius_m": 6371000.0, "az_sign": 1.0, "coast_dilate": 0,
-              "coast_opacity": 0.0, "edge_lat": -80.0, "ice_lo": 0.62, "ice_max_alpha": 0.55,
+              "coast_opacity": 0.0, "edge_lat": -82.0, "ice_lo": 0.62, "ice_max_alpha": 0.55,
               "lat_0": -90.0, "name": "south", "px": 8192},
 }
 
@@ -371,8 +387,11 @@ class TestCapsManifest:
             assert [rung["px"] for rung in entry["rungs"]] == list(cap_render.CAP_RUNGS)
             for rung in entry["rungs"]:
                 assert rung["url"] == f"/caps/cap_{name}_{rung['px']}.webp"
-        assert manifest["north"]["feather_hi"] == shade_planet.CAP_NORTH
-        assert manifest["south"]["feather_hi"] == shade_planet.CAP_SOUTH
+        # NOT `shade_planet.CAP_NORTH` any more: that is the plug boundary, a statement about what a
+        # COMPOSITED raster holds in its polar sliver. The fade's ceiling is where Mercator tiles
+        # stop, which is why it derives from the limit rather than from the plug.
+        assert manifest["north"]["feather_hi"] == cap_render.feather_hi_deg()
+        assert manifest["south"]["feather_hi"] == -cap_render.feather_hi_deg()
 
     def test_rungs_are_ascending_and_topped_by_the_render_grid(self):
         """The largest rung IS the render grid — every smaller one is downsampled from it, so a
@@ -603,6 +622,34 @@ class TestCapElevationTexture:
             cap_render.write_cap_elevation(grid)
 
 
+class TestTheRungLadderHasASecondCaller:
+    """The ladder is no longer the compositing branch's private tail.
+
+    A raytraced disc arrives as a rendered TIF and never passes through `shade.composite`, so a
+    caller holding only that file has to be able to ship every rung. Written against the SECOND
+    caller because the first passes by construction: the loop was correct while it was welded in.
+    """
+
+    @pytest.mark.skipif(not HAS_WEBP_WRITE, reason="GDAL here cannot write WEBP")
+    def test_a_caller_holding_only_a_tif_writes_every_rung_at_its_own_size(self, tmp_path,
+                                                                          monkeypatch):
+        grid = _tiny_cap(monkeypatch, tmp_path, cap_px=64, elev_px=16)
+        monkeypatch.setattr(cap_render, "CAP_RUNGS", (16, 32, 64))
+        tif = cap_render.cap_work_dir(grid.body) / "cap_tiny.tif"
+        band = np.linspace(0, 255, grid.px * grid.px, dtype=np.uint8).reshape(grid.px, grid.px)
+        profile: dict[str, Any] = dict(driver="GTiff", width=grid.px, height=grid.px, count=3,
+                                       dtype="uint8", photometric="RGB")
+        with rasterio.open(tif, "w", **profile) as dataset:  # pyright: ignore[reportCallIssue]
+            dataset.write(np.stack([band, band[::-1], band.T]))
+
+        top = cap_render.write_cap_rungs(grid, tif)
+
+        assert top == cap_render.cap_asset(grid, grid.px)
+        for px in (16, 32, 64):
+            with rasterio.open(cap_render.cap_asset(grid, px)) as rung:
+                assert (rung.width, rung.height) == (px, px)
+
+
 class TestCapElevationContract:
     def test_the_encoding_is_imported_from_terrain_rgb_and_never_restated(self, monkeypatch):
         """The cap and the tiles are both drawn across the alpha crossfade, so they must encode
@@ -664,7 +711,7 @@ LAYERLESS_BODY = dataclasses.replace(bodies.EARTH, name="layerless", path_prefix
                                      surface_layers=frozenset())
 
 
-def _drive_cap(monkeypatch, tmp_path, body, pole, missing=(), rasters=None):
+def _drive_cap(monkeypatch, tmp_path, body, pole, missing=(), rasters=None, ocean=False):
     """Run one REAL cap renderer with its two GDAL edges recorded rather than executed.
 
     `_warp` and `_write_cap` are the boundaries of the code under test — one shells out to gdalwarp,
@@ -709,8 +756,28 @@ def _drive_cap(monkeypatch, tmp_path, body, pole, missing=(), rasters=None):
     burnt: list[str] = []
 
     def fake_warp(grid, src, out, resampling, dtype, srcnodata=None):
-        warped.append(Path(out).stem.split("_", 1)[1])
-        return np.zeros((grid.px, grid.px), dtype=np.float32)
+        layer = Path(out).stem.split("_", 1)[1]
+        warped.append(layer)
+        # THE OCEAN STAND-IN IS THE CALLER'S CHOICE, and there is no default that serves both tests
+        # in this class. The sea-ice producer gates on this mask, so a disc with no sea returns None
+        # and a "was this layer painted" assertion fails for a reason about the fixture; but the
+        # forced Antarctic patch needs LAND to paint, so a disc that is all sea breaks that one.
+        # All land stays the default, which is what every case here asked for before ice was gated.
+        if layer == "ocean":
+            # HALF THE DISC, not all of it, when a caller asks for sea. A disc that is entirely
+            # ocean has no land for the forced Antarctic patch to paint, and one that is entirely
+            # land gives the gated ice alpha nowhere to survive; the south case asserts both.
+            sea = np.zeros((grid.px, grid.px), dtype=np.float32)
+            if ocean:
+                sea[:, : grid.px // 2] = 1.0
+            return sea
+        # THE ICE STAND-IN CARRIES REAL FREQUENCY, for the same reason. Zeros unpack to alpha zero,
+        # and `seaice.gated_alpha` collapses an all-zero result to None precisely so that None means
+        # "this layer reaches no pixel here" — so a zeros stand-in cannot tell "read and empty" from
+        # "never read", which is the distinction every assertion in this class is about. 9000 packs
+        # to 0.9 frequency, well above `seaice.ICE_LO`.
+        fill = 9_000.0 if layer == "seaice" else 0.0
+        return np.full((grid.px, grid.px), fill, dtype=np.float32)
 
     def fake_burn(grid, source, name, must_draw):
         """`_burn` IS A BOUNDARY OF THE CODE UNDER TEST NOW, which it was not before the rock layer.
@@ -750,18 +817,31 @@ class TestTheCapPassAsksTheBodyBeforeTheDisk:
     def test_earth_warps_its_cryosphere_at_both_poles(self, tmp_path, monkeypatch, subtests):
         """The positive control, and the reason the negatives below mean anything: with the layers
         declared, both climatologies are read exactly as they always were."""
-        north, painted_n, burnt_n = _drive_cap(monkeypatch, tmp_path, bodies.EARTH, "north")
+        # Sea under both discs, because this case asserts the ICE alpha reaches the composite and
+        # its producer gates on ocean. The forced-patch case below wants the opposite and says so.
+        north, painted_n, burnt_n = _drive_cap(monkeypatch, tmp_path, bodies.EARTH, "north",
+                                               ocean=True)
         with subtests.test("north"):
             assert north == ["height", "ocean", "seaice", "sp", "water"]
             assert painted_n["ice_a"] is not None
 
-        south, painted_s, burnt_s = _drive_cap(monkeypatch, tmp_path, bodies.EARTH, "south")
+        south, painted_s, burnt_s = _drive_cap(monkeypatch, tmp_path, bodies.EARTH, "south",
+                                               ocean=True)
         with subtests.test("south"):
             # No `sp`: the south's snow is forced, never read from a dataset.
             assert south == ["height", "ocean", "seaice", "water"]
             assert painted_s["ice_a"] is not None
-            # Antarctica forced white — the whole disc is land below -60 in this fixture.
-            assert np.all(painted_s["snow_a"] == 1.0)
+            # Antarctica forced white over the LAND half. Not the whole disc any more: this fixture
+            # now puts sea in the other half so the gated ice alpha has somewhere to survive, and a
+            # forced patch that painted open ocean white would be the defect, not the assertion.
+            # Halved off the ARRAY's own width, never off `CAP_PX`: this fixture shrinks the grid,
+            # so a CAP_PX slice is empty and `np.all` of nothing is True — the assertion passes
+            # while touching no pixel at all.
+            snow_s = painted_s["snow_a"]
+            half = snow_s.shape[1] // 2
+            assert half > 0, "the fixture grid has no width to halve"
+            assert np.all(snow_s[:, half:] == 1.0)          # land: forced white
+            assert np.all(snow_s[:, :half] == 0.0)          # open sea: the patch must not reach it
 
         with subtests.test("only the south burns the outcrop"):
             # THE POLE TEST LIVES IN THE REGISTRY KEY AND NOWHERE ELSE, driven end to end. The rock
@@ -802,7 +882,7 @@ class TestTheCapPassAsksTheBodyBeforeTheDisk:
         rather than crash the pass — that half of the gate predates this commit and has to survive
         it, or a partial build stops being legal."""
         warped, painted, _burnt = _drive_cap(monkeypatch, tmp_path, bodies.EARTH, "north",
-                                     missing={"SP_NC"})
+                                     missing={"SP_NC"}, ocean=True)
         assert warped == ["height", "ocean", "seaice", "water"]  # no `sp`
         assert np.all(painted["snow_a"] == 0.0)
         assert painted["ice_a"] is not None  # the OTHER layer is unaffected

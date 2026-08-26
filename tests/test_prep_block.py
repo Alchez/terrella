@@ -15,7 +15,7 @@ from rasterio.windows import Window
 
 from pipeline import block_plan, bodies, layers, mercator
 from pipeline.block_plan import Block
-from pipeline.look import layer_producers, snow
+from pipeline.look import layer_producers, seaice, snow
 from pipeline.render import prep_block
 
 
@@ -32,13 +32,20 @@ def plane_window(col, row, size, context):
 ROWS, COLS = 8, 16
 
 
-def _window(body, raw):
-    """One southern window, far enough south that the Antarctic patch is live rather than zero."""
+def _window(body, raw, *, ocean=False):
+    """One southern window, far enough south that the Antarctic patch is live rather than zero.
+
+    ALL LAND BY DEFAULT, because the Antarctic patch is what most callers here are about. A caller
+    asking about the SEA-ICE producer has to say so: that producer gates on `ocean` and returns None
+    over land, so an all-land window would answer "the layer is absent" for the wrong reason.
+    """
     top, bottom = -11_000_000.0, -12_000_000.0
     latitude = snow.latitude_per_row(top, bottom, ROWS)
+    sea = np.full((ROWS, COLS), ocean, dtype=bool)
     return raw, layer_producers.LayerWindow(
         raw=None, watercode=np.zeros((ROWS, COLS), dtype=np.uint8),
-        land=np.ones((ROWS, COLS), dtype=bool), latitude=latitude,
+        land=~sea, ocean=sea,
+        latitude=latitude,
         # Derived from this fixture's own span rather than from the body's z8 figure, so the
         # window's geometry is self-consistent at whatever size the fixture is written at.
         ground_metres_per_px=mercator.ground_metres_per_pixel(
@@ -289,7 +296,8 @@ class TestTheBlockStageAsksForItsOwnLayersAndNotTheComposites:
 
     def _gathered(self, vocabulary):
         packed = np.full((ROWS, COLS), 9_000.0, dtype="float32")
-        raw, window = _window(bodies.EARTH, packed)
+        # Open sea, since the question is whether the SEA-ICE producer is reached at all.
+        raw, window = _window(bodies.EARTH, packed, ocean=True)
         layer_raw: dict[str, np.ndarray | None] = {
             layer.name: raw for layer in layers.WARPED_LAYERS}
         contributions, _, _ = layer_producers.gather(bodies.EARTH, layer_raw, window, vocabulary)
@@ -317,28 +325,17 @@ class TestTheBlockStageAsksForItsOwnLayersAndNotTheComposites:
 
 class TestSeaIceIsGatedToTheOcean:
     """The coastal-collapse guard: the same alpha damps displacement in the rig, so ice that
-    leaked onto shoreline land would drag it toward sea level at full exaggeration."""
+    leaked onto shoreline land would drag it toward sea level at full exaggeration.
 
-    def test_ice_that_reaches_land_is_refused(self):
-        contribution = np.full((ROWS, COLS), 0.85)
-        ocean = np.zeros((ROWS, COLS), dtype=bool)
-        assert prep_block.gated_sea_ice(contribution, ocean) is None
+    THE GATE MOVED TO `look/seaice.py` WITH THE PRODUCERS, and these cases moved with it — this
+    module no longer applies it, it receives an alpha that has been gated already. What survives
+    here is the prep's own question: does a window with no surviving ice write a mask at all.
+    """
 
-    def test_ice_on_the_ocean_survives_the_gate_exactly(self):
-        contribution = np.full((ROWS, COLS), 0.85)
-        ocean = np.zeros((ROWS, COLS), dtype=bool)
-        ocean[:, : COLS // 2] = True
-        gated = prep_block.gated_sea_ice(contribution, ocean)
-        assert gated is not None
-        assert gated[:, : COLS // 2].min() == 0.85
-        assert not gated[:, COLS // 2:].any()
-
-    def test_no_contribution_and_no_surviving_pixel_both_read_as_nothing_to_write(self):
-        """Both land in the skip-and-declare-empty path: `build` writes no image, and the block's
-        declaration says so rather than leaving an absence to interpret."""
-        ocean = np.ones((ROWS, COLS), dtype=bool)
-        assert prep_block.gated_sea_ice(None, ocean) is None
-        assert prep_block.gated_sea_ice(np.zeros((ROWS, COLS)), ocean) is None
+    def test_a_window_whose_ice_did_not_survive_its_producer_writes_no_mask(self, tmp_path):
+        """None is what a fully-gated-away alpha becomes, and this is the branch that reads it."""
+        assert seaice.gated_alpha(np.full((ROWS, COLS), 0.85),
+                                  np.zeros((ROWS, COLS), dtype=bool)) is None
 
 
 class TestTheWhiteUnionIsFoldedByItsOwner:
@@ -483,7 +480,7 @@ class TestTheMidLatitudeIsTheWindowsAndNotTheBlocks:
 
 
 class TestASoftAlphaSurvivesTheWriterWellEnoughNotToTerrace:
-    """`_write_mask`'s precision is a GEOMETRY constraint, because one alpha drives two arms.
+    """`write_mask`'s precision is a GEOMETRY constraint, because one alpha drives two arms.
 
     `scene_build` wires the sea-ice alpha to an ice-white colour mix AND to `Mix.005 Ice Flatten`,
     which pulls displacement toward sea level. So a quantised alpha does not merely band the colour,
@@ -512,7 +509,7 @@ class TestASoftAlphaSurvivesTheWriterWellEnoughNotToTerrace:
     def _round_trip_quantum(self, tmp_path, body):
         """The smallest alpha step the writer actually preserves, measured through it.
 
-        THE ALPHA SPAN IS THE RULER, NOT THE DTYPE AND NOT THE CONSTANT. `_write_mask` fixes
+        THE ALPHA SPAN IS THE RULER, NOT THE DTYPE AND NOT THE CONSTANT. `write_mask` fixes
         `uint16` and scales by `MASK_FULL_SCALE` independently, so dividing the stored levels by
         the dtype's range measures storage rather than fidelity — at scale 255 it reports a quantum
         40x finer than the writer can express, and the mutation restoring the defect stayed green.
@@ -522,7 +519,7 @@ class TestASoftAlphaSurvivesTheWriterWellEnoughNotToTerrace:
         ramp = np.linspace(0.5, 0.5 + self.ALPHA_SPAN, rows, dtype=np.float64)
         soft = np.repeat(ramp[:, None], 8, axis=1)
         out = tmp_path / "soft.png"
-        prep_block._write_mask(out, soft)
+        prep_block.write_mask(out, soft)
         with rasterio.open(out) as read_back:
             stored = read_back.read(1)
             dtype = read_back.dtypes[0]
@@ -552,7 +549,7 @@ class TestASoftAlphaSurvivesTheWriterWellEnoughNotToTerrace:
         binary = np.zeros((64, 64), dtype=np.float64)
         binary[32:, :] = 1.0
         out = tmp_path / "binary.png"
-        prep_block._write_mask(out, binary)
+        prep_block.write_mask(out, binary)
         with rasterio.open(out) as read_back:
             stored = read_back.read(1)
         full = float(np.iinfo(stored.dtype).max) if np.issubdtype(stored.dtype, np.integer) else 1.0

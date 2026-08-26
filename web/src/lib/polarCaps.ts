@@ -50,8 +50,12 @@ export const RINGS = 160;
  *  These two together are what pushed the index buffer past 65,535 — see buildMesh. */
 export const SECTORS = 640;
 const RADIUS = 1.0004; // a hair above the globe surface (radius 1) so it paints over the tiles
-export const FEATHER_LO = 81; // |lat| where the fade into the real tiles begins — frontend aesthetic
-export const MESH_EDGE_LAT = 80; // mesh equatorward edge, just outside the visible feather zone
+export const FEATHER_LO = 82; // |lat| where the fade into the real tiles begins — frontend aesthetic
+// The fade cannot begin equatorward of the disc, because there is no cap out there to fade from, so
+// this is bounded below by the served `edge_lat` and above by where Mercator tiles stop. Its WIDTH
+// is the rung the ladder used to omit: ordering alone admits a 0.05-degree fade, which renders the
+// cap as a hard-edged circle. `cap_render.CAP_FEATHER_MIN_DEG` is the floor.
+export const MESH_EDGE_LAT = 82; // mesh equatorward edge, just outside the visible feather zone
 // Equals cap_render.CAP_EDGE_LAT, the texture disc's inscribed circle: the mesh samples nothing
 // outside the disc, so lowering MESH_EDGE_LAT below the served `edge_lat` reads past the texture.
 // `asserts the cap latitude ladder` in polarCaps.test.ts pins the whole chain against caps.json.

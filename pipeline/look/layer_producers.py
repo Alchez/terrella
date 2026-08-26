@@ -80,6 +80,11 @@ class LayerWindow:
     watercode: np.ndarray | None
     #: `~(ocean | water)` for this window — the composite's own definition of land.
     land: np.ndarray
+    #: Open sea alone, WITHOUT inland water. Carried separately from `land` because it is not its
+    #: complement: `~land` is `ocean | water`, so a producer gating on it paints lakes as well, and
+    #: the sea-ice producer gating on lakes is a white disc on every one of them. Not derivable from
+    #: `watercode` either — the ocean mask is its own planet raster, not one of that mask's classes.
+    ocean: np.ndarray
     #: True latitude in degrees per ROW (1-D). A Mercator window has rows of constant latitude,
     #: which is what separates this from the cap tier's per-pixel field.
     latitude: np.ndarray
@@ -293,6 +298,10 @@ def _earth_sea_ice(window: LayerWindow) -> "np.ndarray | None":
     South of the equator the pack takes the cap's fainter, pulled-in fringe (`seaice.SH_ICE_*`), or
     the full-strength Antarctic belt reads as a bright halo — proven on the cap. No window straddles
     both hemispheres' ice and the equator is ice-free, so the per-row split is exact.
+
+    GATED HERE AND NOT BY A CONSUMER. The frequency field is nonzero over land near the coast, and
+    the alpha is spent on displacement as well as colour, so an ungated return is a producer handing
+    out something that flattens shorelines. `tests/test_sea_ice_gate.py` is the law's guard.
     """
     if window.raw is None:
         return None
@@ -303,7 +312,7 @@ def _earth_sea_ice(window: LayerWindow) -> "np.ndarray | None":
         toned = seaice.ice_alpha(frequency, ice_lo=seaice.SH_ICE_LO,
                                  ice_max_alpha=seaice.SH_ICE_MAX_ALPHA)
         ice_alpha = np.where(southern[:, None], toned, ice_alpha)
-    return ice_alpha
+    return seaice.gated_alpha(ice_alpha, window.ocean)
 
 
 def _no_tunables() -> dict[str, Any]:

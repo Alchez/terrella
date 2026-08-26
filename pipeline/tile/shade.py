@@ -644,18 +644,22 @@ def composite(heights, ocean, water, snow_a, hs, occ, occ_shape, grid, depth=Non
         snow_rgb = snow_shadow + (snow_lit - snow_shadow) * snow_t[None]
         final = base_rgb * (1.0 - alpha)[None] + snow_rgb * alpha[None]
 
-    # soft-alpha sea ice: the sea-side mirror of the snow blend above. Gated on `ocean` (the mirror
-    # of snow's ~(ocean|water) land gate) so ice paints ONLY over open sea -- never land, never the
-    # inland-water branch (the disc-glow trap). Reuses the same light-keyed white `snow_rgb`: one
-    # white family for both cryosphere layers. `ice_a` is already zero off the ice edge (the
-    # frequency field), so ice fades to the bathymetry at the margin -- the intended pole look. None
-    # on the region path (and any caller that passes no ice), which then behaves exactly as before.
+    # soft-alpha sea ice: the sea-side mirror of the snow blend above. Reuses the same light-keyed
+    # white `snow_rgb`: one white family for both cryosphere layers. `ice_a` is already zero off the
+    # ice edge (the frequency field), so ice fades to the bathymetry at the margin -- the intended
+    # pole look. None on the region path (and any caller that passes no ice), which then behaves
+    # exactly as before.
+    #
+    # ARRIVES ALREADY GATED ON `ocean`, and re-gating it here is what this consumer USED to do. That
+    # made the composite safe and left every other consumer of the same alpha -- the rig, through a
+    # prep -- to remember for itself, which one prep did not. `seaice.gated_alpha` is now applied by
+    # both producers, and `tests/test_sea_ice_gate.py` asserts this branch does not take it back.
     if ice_a is not None:
         # Sea ice is a cooler/dimmer white than snow (palette.ICE_*), light-keyed by the same snow_t
         # so it still takes the hillshade on pressure ridges / shelf edges. Distinct from land snow
         # without a hard colour split -- the coastline and relief carry the rest.
         ice_shadow, ice_lit = paint_end(ice_paint[1]), paint_end(ice_paint[0])
-        gated_ice = np.where(ocean, np.asarray(ice_a, dtype=np.float32), 0.0)
+        gated_ice = np.asarray(ice_a, dtype=np.float32)
         ice_light_key = snow_t
         if KNOBS["ice_relief_damp"] > 0.0:
             # Thick ice conceals the floor's SHADING (this key), never its COLOUR (the (1 - alpha)

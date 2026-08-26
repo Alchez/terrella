@@ -58,7 +58,15 @@ from scipy.ndimage import (
     uniform_filter1d,
 )
 
-from pipeline import bodies, layers, naturalearth, planet_seam, progress, vector_raster
+from pipeline import (
+    block_plan,
+    bodies,
+    layers,
+    naturalearth,
+    planet_seam,
+    progress,
+    vector_raster,
+)
 from pipeline.acquire import download_add_rock
 from pipeline.look import (
     hillshade,
@@ -73,8 +81,6 @@ from pipeline.tile.shade import KNOBS
 from pipeline.tile.shade_planet import (
     ALT,
     AZ,
-    CAP_NORTH,
-    CAP_SOUTH,
     composite_params,
 )
 
@@ -92,19 +98,51 @@ CAP_RUNGS = (1024, 2048, 4096, CAP_PX)  # shipped texture sizes, ascending; the 
                        # cap's PROJECTED on-screen size: the untouched default camera paints the cap
                        # at 110 CSS px, so the 8192 was a 74x linear oversupply for every visitor who
                        # never zooms to a pole. Measured both caps: 162 KB / 570 KB / 1.7 MB / 5.1 MB.
-CAP_EDGE_LAT = 80.0    # inscribed-circle latitude of the texture disc, north; the south mirrors it.
+CAP_EDGE_LAT = 82.0    # inscribed-circle latitude of the texture disc, north; the south mirrors it.
                        # EQUALS polarCaps.ts's MESH_EDGE_LAT and must stay >= it: the mesh spans this
                        # latitude to the pole and samples nothing outside the disc, so the two move
-                       # together. The visible band opens at that file's FEATHER_LO 81 and is fully
-                       # opaque from shade_planet.CAP_NORTH 84, so the whole ladder is
-                       # |edge_lat| <= MESH_EDGE_LAT <= FEATHER_LO < |feather_hi| -- asserted by
+                       # together. The visible band opens at that file's FEATHER_LO and closes at
+                       # `feather_hi_deg`, so the whole ladder is
+                       # |edge_lat| <= MESH_EDGE_LAT <= FEATHER_LO < feather_hi -- asserted by
                        # test_the_cap_latitude_ladder_holds, which is the only reader that spans
-                       # both languages. RAISING THIS ALONE CANNOT SHIP: at 84 both ends of the
-                       # ladder break, so the two web constants must come up with it and feather_hi
-                       # must clear 84 against no Mercator tile above 85.05 -- which leaves the
-                       # feather at most 1.05 degrees against the 3 it has here.
+                       # both languages.
+                       #
+                       # THIS NUMBER SETS THE FADE'S CEILING AS WELL AS THE CAP'S SHARPNESS, in
+                       # opposite directions, and that trade is the whole reason it is 82. The disc
+                       # spans this latitude to the pole, so raising it sharpens the texture (8192
+                       # over 8 degrees is 217 m/px, over 6 degrees 163) while lowering the widest
+                       # feather that can exist, because the fade cannot BEGIN equatorward of the
+                       # disc -- there is no cap out there to fade from. At 84 the widest feather is
+                       # 1.05 degrees, which was measured moving 1.7 DN on the north and 3.3 on the
+                       # south against the 3.05 that ships. → HISTORY, *the cap edge goes to 82*.
+                       #
+                       # RAISING THIS ALONE STILL CANNOT SHIP: polarCaps.ts's two constants must
+                       # come up with it, and the ladder above is what refuses a half-move.
                        # DO NOT raise CAP_PX chasing a finer cap: Mars's disc already oversamples its
                        # 200 m source, and RINGS (polarCaps.ts) makes the MESH the limit, not this.
+CAP_QUADRANT_SPLIT = 2
+                       # Quadrants per edge when the disc is RAYTRACED: it renders as SPLIT x SPLIT
+                       # frames, so 2 means four. The composite tier ignores this entirely, shading
+                       # the whole square in numpy.
+                       #
+                       # A SPLIT RATHER THAN A RESOLUTION, because two numbers derive from it and
+                       # must not disagree: each frame is CAP_PX // SPLIT pixels and the camera sees
+                       # 1 / SPLIT of the plane, which puts `ortho_scale` at 2.0 / SPLIT. Spelled
+                       # separately, a frame could ask for a resolution its camera does not cover
+                       # and the four pieces would overlap or leave a gap.
+                       #
+                       # WHY IT IS NOT 1. CAP_PX in a single frame is OOM-killed at the 16 G cap,
+                       # measured at both edge 82 and 84; a quadrant peaks near 8 G. → HISTORY,
+                       # *both caps raytraced at edge 84*.
+CAP_FEATHER_MIN_DEG = 3.0
+                       # The narrowest fade that may ship, in degrees of latitude.
+                       #
+                       # A FLOOR RATHER THAN THE VALUE, because the ordering ladder above is
+                       # satisfied by a feather 0.05 degrees wide and an arm shipped exactly that:
+                       # the cap read as a hard-edged circle over the tiles. Width is what collapses
+                       # silently when CAP_EDGE_LAT moves, since every other rung still holds.
+                       # 3.0 is the width the site shipped before the edge moved and the one judged
+                       # on rendered views at both poles; 1.05 was judged and rejected.
 CAP_MEASURE_BAND_DEGREES = 20.0
                        # Latitude kept either side of the pole when an INSTRUMENT crops a global
                        # raster before warping it onto a cap disc. Nothing shipped reads it; the two
@@ -235,6 +273,21 @@ def cap_work_dir(body: bodies.Body) -> Path:
     comment reproducing it re-creates the needle the scan exists to find.
     """
     return bodies.work_dir(body, "cap")
+
+
+def cap_render_dir(grid: CapGrid) -> Path:
+    """The render directory the raytraced arm fills for one pole, under this body's cap work.
+
+    KEPT ACROSS A POLE'S WHOLE CIRCLE, where `block_render` rmtrees a block's directory after every
+    frame. The difference is arithmetic: a block is prepped once and photographed once, while this
+    is prepped once and photographed CAP_QUADRANT_SPLIT squared times per azimuth, so deleting it
+    would re-cut the same masks for every frame that reads them.
+
+    ONE DIRECTORY PER POLE AND NOT PER QUADRANT. What differs between quadrants is where the camera
+    stands, which is a scene argument rather than a texture; four directories would be four copies
+    of one heightfield and four chances for them to disagree.
+    """
+    return cap_work_dir(grid.body) / f"render_{grid.name}"
 
 
 def caps_public_dir(body: bodies.Body) -> Path:
@@ -514,7 +567,19 @@ def cap_recipe(grid: CapGrid, rasters: frozenset[str]) -> str:
     `layers_off` IS conditional, and for the reason the tile composite's is: Earth declares every cap
     layer, so nothing is written and its recipe keeps the shape it has always had. It cannot be left
     to `cap_sources` mtimes, because turning a layer off REMOVES its source from that list — the
-    dependency disappears along with the layer, and the cap would sit fresh wearing the old one."""
+    dependency disappears along with the layer, and the cap would sit fresh wearing the old one.
+
+    `planet_producer` RIDES HERE BECAUSE A DISC IS BUILT TO MATCH THE TILES IT FEATHERS INTO, and
+    the two producers of `planet_rgb` do not agree on colour. Nothing else in this recipe can see
+    that choice move: flipping it repaints every tile while leaving `composite_params` identical,
+    and the planet raster is not a cap source — so without this key both discs stay fresh across the
+    switch, in BOTH directions. The same hazard `tile/producer_seam.py` closes one tier up.
+
+    THE BODY'S FIELD AND NOT THAT SEAM'S STAMP, which records what actually wrote the raster. The
+    cap pass is a subprocess that is never told where the planet was written (`--out` redirects it),
+    and a body whose planet has never been produced has no stamp at all — so the stamp answers about
+    the wrong directory or answers None, where the field is the same registry fact `exaggeration`
+    and `aeqd_radius_m` already ride in as."""
     absent = layers.layers_off(grid.body, layers.CAP_LAYERS)
     missing = {"layers_off": absent} if absent else {}
     return json.dumps({**missing,
@@ -527,6 +592,9 @@ def cap_recipe(grid: CapGrid, rasters: frozenset[str]) -> str:
                        "coast_rgb": list(COAST_RGB),
                        "asset": {"format": "webp", "quality": CAP_WEBP_QUALITY,
                                  "rungs": list(CAP_RUNGS)},
+                       # NOT in `grid_recipe_fields`: that helper is shared with the elevation
+                       # texture, which encodes metres with no light in them.
+                       "planet_producer": grid.body.planet_producer,
                        "composite": json.loads(composite_params({}, grid.body, rasters))},
                       sort_keys=True, indent=2)
 
@@ -540,6 +608,30 @@ def served_url(asset: Path) -> str:
     advertised one directory up — every rung a 404, discovered only by loading the globe.
     """
     return "/" + asset.relative_to(bodies.public_root()).as_posix()
+
+
+def feather_hi_deg() -> float:
+    """The latitude where the cap goes fully opaque, as an absolute value.
+
+    DERIVED FROM WHERE MERCATOR TILES STOP, not chosen. The feather exists to hide the handover
+    between the cap and the tiles beneath it, so it has to finish exactly where there is nothing
+    beneath it left to hide; a ceiling above the grid edge would fade over emptiness.
+
+    IT USED TO BE `shade_planet.CAP_NORTH`, and that was one constant doing two jobs. That one is
+    the latitude a COMPOSITED raster is flat-filled above, which is a statement about what a body
+    without a rendered cap holds in its polar sliver -- a different question with a different
+    answer, and tying them meant the fade could not widen without moving the plug on Mars.
+    """
+    return block_plan.MERCATOR_LATITUDE_LIMIT_DEG
+
+
+def feather_is_wide_enough(feather_lo: float, feather_hi: float) -> bool:
+    """Whether this pair leaves a fade at least `CAP_FEATHER_MIN_DEG` wide.
+
+    Split out from the ladder guard so the guard's catching power can be asserted against a
+    collapsed pair. A rung added beside numbers that already satisfy it has never been seen to fail.
+    """
+    return abs(feather_hi) - abs(feather_lo) >= CAP_FEATHER_MIN_DEG
 
 
 def caps_manifest(body: bodies.Body) -> str:
@@ -568,7 +660,9 @@ def caps_manifest(body: bodies.Body) -> str:
                     "elev_url": served_url(cap_elev_asset(grid)),
                     "elev_px": CAP_ELEV_PX,
                     "elev_step": terrain_rgb.QUANTISATION_M}
-        for grid, feather_hi in ((north_grid(body), CAP_NORTH), (south_grid(body), CAP_SOUTH))
+        # Signed per pole, because the shader compares |lat| but the manifest describes a hemisphere.
+        for grid, feather_hi in ((north_grid(body), feather_hi_deg()),
+                                 (south_grid(body), -feather_hi_deg()))
     }, sort_keys=True, indent=2)
 
 
@@ -766,6 +860,23 @@ def _bake_coastline(grid: CapGrid, rgb: np.ndarray) -> None:
         rgb[band][line] = np.rint(blended).astype("uint8")
 
 
+def write_cap_rungs(grid: CapGrid, tif: Path) -> Path:
+    """Downsample one rendered disc into every `CAP_RUNGS` size and return the top rung's path.
+
+    PUBLIC BECAUSE THE DISC HAS TWO PRODUCERS. The composite shades it in numpy and the raytraced
+    cap renders it through Cycles, and neither can own the other's ladder — a second copy would put
+    the encoder, the quality and the resampling in two places that no test compares.
+    """
+    caps_public_dir(grid.body).mkdir(parents=True, exist_ok=True)
+    for px in CAP_RUNGS:
+        # -outsize on the render TIF, so every rung is the SAME picture at a different scale;
+        # gdal_translate's average resampling supersamples (4:1 at the 4096 rung).
+        size = ["-outsize", str(px), str(px), "-r", "average"] if px != grid.px else []
+        _run(["gdal_translate", "-q", "-of", "WEBP", "-co", f"QUALITY={CAP_WEBP_QUALITY}",
+              *size, str(tif), str(cap_asset(grid, px))])
+    return cap_asset(grid, grid.px)
+
+
 def _write_cap(grid: CapGrid, heights: np.ndarray, ocean: np.ndarray, water: np.ndarray,
                snow_a: np.ndarray, ice_a: "np.ndarray | None", hillshade_dn: np.ndarray,
                snow_paint: "tuple[Any, Any] | None") -> Path:
@@ -786,25 +897,21 @@ def _write_cap(grid: CapGrid, heights: np.ndarray, ocean: np.ndarray, water: np.
                                    dtype="uint8", photometric="RGB")
     with rasterio.open(tif, "w", **profile) as dataset:
         dataset.write(rgb)
-    caps_public_dir(grid.body).mkdir(parents=True, exist_ok=True)
-    for px in CAP_RUNGS:
-        # -outsize on the render TIF, so every rung is the SAME picture at a different scale;
-        # gdal_translate's average resampling supersamples (4:1 at the 4096 rung).
-        size = ["-outsize", str(px), str(px), "-r", "average"] if px != grid.px else []
-        _run(["gdal_translate", "-q", "-of", "WEBP", "-co", f"QUALITY={CAP_WEBP_QUALITY}",
-              *size, str(tif), str(cap_asset(grid, px))])
-    return cap_asset(grid, grid.px)
+    return write_cap_rungs(grid, tif)
 
 
-def _cap_sea_ice(grid: CapGrid, consequence: str) -> "np.ndarray | None":
+def _cap_sea_ice(grid: CapGrid, ocean: np.ndarray, consequence: str) -> "np.ndarray | None":
     """This cap's sea-ice alpha, or None when the body has no sea ice — shared by both poles.
 
     ONE HOME BECAUSE BOTH POLES WARP THE SAME CLIMATOLOGY. The two renderers differ only in their
     `ice_lo` / `ice_max_alpha` overrides, which ride on the grid; writing the gate out twice is how a
     fix reaches one pole and not the other, which this module has already done once with GEBCO.
 
-    None rather than a zero array: `shade.composite` takes `ice_a=None` and skips the blend entirely,
-    where zeros would run it and multiply the whole disc by nothing.
+    GATED HERE, BECAUSE THIS IS WHERE THE ALPHA IS MADE. The disc's own ocean mask is the only one
+    on this grid, and a consumer-side gate is what let a second prep ship an ungated alpha that
+    painted land white and flattened it. `tests/test_sea_ice_gate.py` holds the law for both
+    producers. None rather than a zero array on the way out: `shade.composite` takes `ice_a=None`
+    and skips the blend entirely, where zeros would run it and multiply the whole disc by nothing.
     """
     if not layers.layer_is_buildable(grid.body, layers.SEA_ICE, Path(seaice.SEAICE_SRC),
                                      consequence):
@@ -813,8 +920,9 @@ def _cap_sea_ice(grid: CapGrid, consequence: str) -> "np.ndarray | None":
                     "bilinear", "Float32", srcnodata=seaice.ICE_FILL)
     # No latitude term in ice_alpha -> valid on an AEQD grid. The south's fainter, pulled-in fringe
     # comes from the grid's seaice.SH_ICE_* overrides, not from a second code path.
-    return seaice.ice_alpha(seaice.unpack_seaice(ice_raw),
-                            ice_lo=grid.ice_lo, ice_max_alpha=grid.ice_max_alpha)
+    return seaice.gated_alpha(
+        seaice.ice_alpha(seaice.unpack_seaice(ice_raw),
+                         ice_lo=grid.ice_lo, ice_max_alpha=grid.ice_max_alpha), ocean)
 
 
 #: What the cap loses when the outcrop cannot be burnt — the cap tier's `WARP_CONSEQUENCE` entry.
@@ -969,7 +1077,7 @@ def render_cap_north(grid: CapGrid, rasters: frozenset[str]) -> Path:
     hillshade_dn = _shade(grid, heights, longitude)
 
     snow_a, snow_paint = _cap_perennial_ice(grid, ocean, water, latitude, "the north cap paints no ice")
-    ice_a = _cap_sea_ice(grid, "the north cap paints no pack ice")
+    ice_a = _cap_sea_ice(grid, ocean, "the north cap paints no pack ice")
     return _write_cap(grid, heights, ocean, water, snow_a, ice_a, hillshade_dn, snow_paint)
 
 
@@ -999,7 +1107,7 @@ def render_cap_south(grid: CapGrid, rasters: frozenset[str]) -> Path:
     hillshade_dn = _shade(grid, heights, longitude)
 
     snow_a, snow_paint = _cap_perennial_ice(grid, ocean, water, latitude, "polar land stays on the relief ramp")
-    ice_a = _cap_sea_ice(grid, "the south cap paints no pack ice")
+    ice_a = _cap_sea_ice(grid, ocean, "the south cap paints no pack ice")
     return _write_cap(grid, heights, ocean, water, snow_a, ice_a, hillshade_dn, snow_paint)
 
 

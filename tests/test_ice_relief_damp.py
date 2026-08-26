@@ -108,24 +108,26 @@ class TestItLeavesTheOtherSurfacesAlone:
         shade.KNOBS["ice_relief_damp"] = 1.0
         assert np.array_equal(bare, composite_pixel(0.60, ice=0.0))
 
-    def test_land_and_snow_are_untouched(self):
-        """Ice is gated on `ocean` before the damp sees it, so land — snowy or bare — cannot
-        move even if the ice field claims coverage there."""
-        shade.KNOBS["ice_relief_damp"] = 0.0
-        bare_land = composite_pixel(0.60, ocean=False, height=1500.0, ice=0.85)
-        snowy_land = composite_pixel(0.60, ocean=False, height=1500.0, snow=1.0, ice=0.85)
-        shade.KNOBS["ice_relief_damp"] = 1.0
-        assert np.array_equal(bare_land,
-                              composite_pixel(0.60, ocean=False, height=1500.0, ice=0.85))
-        assert np.array_equal(snowy_land,
-                              composite_pixel(0.60, ocean=False, height=1500.0, snow=1.0,
-                                              ice=0.85))
+    def test_land_snow_and_lakes_are_untouched(self):
+        """The damp is inert wherever there is no ice, which off ocean is everywhere.
 
-    def test_inland_water_is_untouched(self):
-        shade.KNOBS["ice_relief_damp"] = 0.0
-        lake = composite_pixel(0.60, ocean=False, water=True, ice=0.85)
-        shade.KNOBS["ice_relief_damp"] = 1.0
-        assert np.array_equal(lake, composite_pixel(0.60, ocean=False, water=True, ice=0.85))
+        THE INPUT IS THE GATED ONE, and that is the change. These cases used to pass `ice=0.85`
+        with `ocean=False` and lean on `shade.composite` re-gating it, which made this file a guard
+        for a law it does not own. Both producers of the alpha now gate before returning, so an
+        ungated pair is not a state the composite can be handed, and `tests/test_sea_ice_gate.py`
+        holds that law across both of them rather than across this one consumer.
+        """
+        cases = (("bare land", 1500.0, 0.0, False),
+                 ("snowy land", 1500.0, 1.0, False),
+                 ("a lake", 0.0, 0.0, True))
+        for label, height, snow, water in cases:
+            shade.KNOBS["ice_relief_damp"] = 0.0
+            before = composite_pixel(0.60, ocean=False, ice=0.0,
+                                     height=height, snow=snow, water=water)
+            shade.KNOBS["ice_relief_damp"] = 1.0
+            after = composite_pixel(0.60, ocean=False, ice=0.0,
+                                    height=height, snow=snow, water=water)
+            assert np.array_equal(before, after), label
 
 
 class TestFreshness:

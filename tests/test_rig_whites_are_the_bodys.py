@@ -69,7 +69,8 @@ def polar_window(latitude_deg: float, rows: int = 4) -> layer_producers.LayerWin
     latitude = np.full(rows, latitude_deg, dtype=np.float64)
     ones = np.ones((rows, 1), dtype=np.float64)
     return layer_producers.LayerWindow(
-        raw=None, watercode=None, land=ones.astype(bool), latitude=latitude,
+        raw=None, watercode=None, land=ones.astype(bool), ocean=~ones.astype(bool),
+        latitude=latitude,
         ground_metres_per_px=ones, top=0.0, bottom=0.0)
 
 

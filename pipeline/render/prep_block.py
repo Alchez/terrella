@@ -48,7 +48,7 @@ from pipeline.tile import shade_planet
 #: The recipe this stage bakes into its outputs, beside them, as every writer in the pipeline does.
 RECIPE_NAME = "block_recipe.json"
 
-#: The integer range a 0..1 mask is written across, and it is a GEOMETRY constant. `_write_mask`
+#: The integer range a 0..1 mask is written across, and it is a GEOMETRY constant. `write_mask`
 #: holds why 8 bits terraced the sea floor; this is named rather than spelled inline so that
 #: `block_render.params` can record it, since a depth change moves pixels and blocks are skipped by
 #: marker existence alone.
@@ -152,22 +152,13 @@ def _read(path: Path, window: Window) -> np.ndarray:
         return _read_cyclic(dataset, window)
 
 
-def gated_sea_ice(contribution: "np.ndarray | None", ocean: np.ndarray) -> "np.ndarray | None":
-    """The ice alpha confined to ocean pixels, or None when no pixel survives.
-
-    THE GATE IS THE COASTAL-COLLAPSE GUARD, not bookkeeping: the same alpha damps displacement in
-    the rig, and ungated it would drag shoreline LAND toward sea level at full exaggeration.
-    `shade.composite` applies the identical gate for its own paint, and
-    `layers.SEA_ICE.requires_raster` is why an ocean mask is guaranteed wherever this layer is.
-    """
-    if contribution is None:
-        return None
-    gated = np.where(ocean, contribution, 0.0)
-    return gated if bool(gated.any()) else None
-
-
-def _write_mask(out: Path, array: np.ndarray) -> None:
+def write_mask(out: Path, array: np.ndarray) -> None:
     """A 0..1 field as 16-bit grey, which the rig takes as a Mix FACTOR rather than a switch.
+
+    PUBLIC BECAUSE TWO PREPS FILL A RENDER DIRECTORY. `prep_cap` writes the same masks for the same
+    rig, so the depth below is one law with two readers and this is its owner. It stays here rather
+    than moving somewhere neutral because the measurement that fixes the depth is a statement about
+    what the rig does with these masks, which is this module's subject.
 
     Safe as grey because `scene_build.load_image` sets Non-Color, so the range maps linearly with no
     sRGB transform, which a binary mask would not have noticed and a soft alpha very much would.
@@ -294,11 +285,11 @@ def build(body: bodies.Body, window: Window, outdir: Path) -> list[str]:
              if "oceanmask" in rasters else np.zeros(shape, bool))
     watercode = _read(work / shade_planet.WATER_3857, window) if "watermask" in rasters else None
     if "oceanmask" in rasters:
-        _write_mask(outdir / render_seam.OCEANMASK, ocean.astype(float))
+        write_mask(outdir / render_seam.OCEANMASK, ocean.astype(float))
         written.append(render_seam.OCEANMASK)
     if watercode is not None:
-        _write_mask(outdir / render_seam.INLANDLAKE, (watercode == 2).astype(float))
-        _write_mask(outdir / render_seam.RIVER, (watercode == 3).astype(float))
+        write_mask(outdir / render_seam.INLANDLAKE, (watercode == 2).astype(float))
+        write_mask(outdir / render_seam.RIVER, (watercode == 3).astype(float))
         written += [render_seam.INLANDLAKE, render_seam.RIVER]
 
     top = block_plan.mercator.MERCATOR_HALF_M - window.row_off * body.map_units_per_pixel
@@ -306,7 +297,7 @@ def build(body: bodies.Body, window: Window, outdir: Path) -> list[str]:
     inland = lake_depth.inland_water(watercode) if watercode is not None else np.zeros(shape, bool)
     latitude = snow.latitude_per_row(top, bottom, window.height)
     seen = layer_producers.LayerWindow(
-        raw=None, watercode=watercode, land=~(ocean | inland), latitude=latitude,
+        raw=None, watercode=watercode, land=~(ocean | inland), ocean=ocean, latitude=latitude,
         ground_metres_per_px=block_plan.mercator.ground_metres_per_pixel(
             latitude, body.map_units_per_pixel,
             bodies.ground_metres_per_mercator_unit(body)),
@@ -323,7 +314,7 @@ def build(body: bodies.Body, window: Window, outdir: Path) -> list[str]:
     # inference, since the rig then had to read meaning into an absent file.
     white, _ = layer_producers.fold_white(contributions, shape, exclusions=exclusions)
     if white.any():
-        _write_mask(outdir / render_seam.SNOWMASK, white)
+        write_mask(outdir / render_seam.SNOWMASK, white)
         written.append(render_seam.SNOWMASK)
         snow_paint = merged_paint(paints, layer_producers.WHITE_UNION, "the white union")
         if snow_paint is None:
@@ -338,12 +329,15 @@ def build(body: bodies.Body, window: Window, outdir: Path) -> list[str]:
                            dtype="float32", **GTIFF_CREATE) as out:
             out.write(depth.astype(np.float32), 1)
         written.append(render_seam.LAKEDEPTH)
-    ice = gated_sea_ice(contributions.get(layers.SEA_ICE.name), ocean)
+    # ALREADY GATED ON OCEAN BY ITS PRODUCER, and None here means the layer reaches no pixel in this
+    # window — `seaice.gated_alpha` collapses an all-zero result to None precisely so this stays the
+    # question of whether to write a mask at all rather than a second place the law is applied.
+    ice = contributions.get(layers.SEA_ICE.name)
     if ice is not None:
-        _write_mask(outdir / render_seam.SEAICE, ice)
+        write_mask(outdir / render_seam.SEAICE, ice)
         written.append(render_seam.SEAICE)
         # Its own image and so its own paint: `WHITE_UNION` deliberately excludes sea ice, because
-        # the composite gates it on the ocean selector where the union paints land.
+        # its producer gates it on the ocean selector where the union paints land.
         ice_paint = merged_paint(paints, (layers.SEA_ICE,), "sea ice")
         if ice_paint is None:
             raise ValueError(

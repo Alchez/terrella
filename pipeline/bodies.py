@@ -196,8 +196,11 @@ class Body:
     #:
     #: TRANSITIONAL BY CONSTRUCTION, said here because the declaration is where someone would
     #: otherwise build on it. The field exists because two producers do, so it and the dispatcher
-    #: that reads it both end on the day the last body's planet raster stops being composited. The
-    #: caps do not keep it alive: they call `shade.composite` directly and never ask this question.
+    #: that reads it both end on the day the last body's planet raster stops being composited.
+    #:
+    #: THE CAPS DO NOT KEEP IT ALIVE, and they do read it — the two are not in tension. `cap_render`
+    #: records it as a freshness dependency, because a disc has to match the tiles it feathers into
+    #: and the two producers disagree on colour. Nothing dispatches on it there.
     planet_producer: PlanetProducer
 
 

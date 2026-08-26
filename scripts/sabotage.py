@@ -2764,16 +2764,35 @@ SABOTAGES: list[Sabotage] = [
         replacement='                   frame_lonlat=None, dst_crs="EPSG:3857")',
         guard='test_the_payload_round_trips_the_validating_serialiser',
     ),
-    # The ocean gate on the block's sea-ice cut. Dropping it leaks alpha onto shoreline land, and
-    # the same alpha damps displacement in the rig — coastal collapse at full exaggeration, while
-    # every open-ocean pixel still renders correctly.
+    # The ocean gate itself. Dropping it leaks alpha onto shoreline land, and the same alpha damps
+    # displacement in the rig — coastal collapse at full exaggeration, while every open-ocean pixel
+    # still renders correctly.
     Sabotage(
         suite='python',
         label='the sea-ice alpha stops being gated to the ocean',
-        path='pipeline/render/prep_block.py',
-        needle='    gated = np.where(ocean, contribution, 0.0)',
+        path='pipeline/look/seaice.py',
+        needle='    gated = np.where(np.asarray(ocean, dtype=bool), contribution, 0.0)',
         replacement='    gated = np.asarray(contribution, dtype=float)',
-        guard='test_ice_that_reaches_land_is_refused',
+        guard='test_ice_over_ocean_survives_the_gate_at_full_value',
+    ),
+    # ONE PRODUCER SILENTLY DROPS THE GATE while the other keeps it, which is the exact shape the
+    # law had before it moved: the composite tier stayed correct and the rig's prep did not, and
+    # nothing was red. A guard that only ever exercised one producer cannot see this.
+    Sabotage(
+        suite='python',
+        label='the Mercator sea-ice producer returns its alpha ungated',
+        path='pipeline/look/layer_producers.py',
+        needle='    return seaice.gated_alpha(ice_alpha, window.ocean)',
+        replacement='    return ice_alpha',
+        guard='test_the_mercator_producer_returns_nothing_off_ocean',
+    ),
+    Sabotage(
+        suite='python',
+        label='the cap sea-ice producer returns its alpha ungated',
+        path='pipeline/tile/cap_render.py',
+        needle='    return seaice.gated_alpha(\n',
+        replacement='    return (\n',
+        guard='test_the_cap_producer_returns_nothing_off_ocean',
     ),
     # The column quietly flips back to the pre-ice answer. The literal pins in test_bodies catch
     # the table; this guard catches the BEHAVIOUR — the gather stops handing the rig its ice.
@@ -3163,6 +3182,105 @@ SABOTAGES: list[Sabotage] = [
         needle='                       "light": {"az": AZ, "alt": ALT, "exag": grid.body.exaggeration,',
         replacement='                       "light": {"az": AZ, "alt": ALT, "exag": 15.0,',
         guard='test_the_cap_recipe_records_the_body_s_own_exaggeration',
+    ),
+    # THE CAP PREP'S OWN STAGE, and the shape the arm actually shipped: it declared itself as `prep`
+    # because the vocabulary was closed and refused anything else. `declared` unions images across
+    # stages, so two preps under one name are indistinguishable to everything that reads it back.
+    Sabotage(
+        suite='python',
+        label='the cap prep borrows the block prep stage, so nothing can tell the two apart',
+        path='pipeline/render/prep_cap.py',
+        needle='    render_seam.declare(outdir, render_seam.CAP, written)',
+        replacement='    render_seam.declare(outdir, render_seam.BLOCK, written)',
+        guard='test_it_does_not_borrow_another_prep_s_stage',
+    ),
+    # THE PHOTOGRAPH TAKES THE PLANE'S WIDTH, which is the three-widths trap arriving on the cap
+    # tier. It renders successfully, at 4x the pixels the quadrant camera covers, and the OOM at the
+    # 16 G cap is the only thing that would report it.
+    Sabotage(
+        suite='python',
+        label='the cap frame photographs the whole disc rather than one quadrant',
+        path='pipeline/render/prep_cap.py',
+        needle='        hero_long_edge=grid.px // cap_render.CAP_QUADRANT_SPLIT,',
+        replacement='        hero_long_edge=grid.px,',
+        guard='test_the_render_resolution_is_one_quadrant',
+    ),
+    # The OTHER half of the same pair, and the one with no crash behind it: a full-plane camera
+    # renders four overlapping quadrants that stitch into a disc showing the same quarter four times.
+    Sabotage(
+        suite='python',
+        label='the cap camera spans the whole plane, so four quadrants photograph one quarter',
+        path='pipeline/render/prep_cap.py',
+        needle='        camera_fraction=1.0 / cap_render.CAP_QUADRANT_SPLIT)',
+        replacement='        camera_fraction=1.0)',
+        guard='test_the_ortho_scale_is_what_the_quadrant_camera_requires',
+    ),
+    # A SECOND SPELLING OF THE PROJECTION, which projects perfectly and lands the disc on the wrong
+    # parallel. `CapGrid.aeqd` is the owner; a rebuilt string here is free to drift from it.
+    Sabotage(
+        suite='python',
+        label='the cap frame rebuilds the proj string instead of reading the grid s own',
+        path='pipeline/render/prep_cap.py',
+        needle='frame_lonlat=None, dst_crs=grid.aeqd,',
+        replacement='frame_lonlat=None, dst_crs="EPSG:4326",',
+        guard='test_the_projection_is_the_grid_s_own',
+    ),
+    # A STAGE IN THE VOCABULARY WITH NO CONSTANT NAMING IT. This is the direction the derivation
+    # opened: `KNOWN_STAGES` now comes from `STAGE_TOOL`, so a mapping entry added without its
+    # constant makes the stage declarable by a string literal and by nothing a reader can grep for.
+    Sabotage(
+        suite='python',
+        label='a stage joins the vocabulary through the tool map with no constant naming it',
+        path='pipeline/render/render_seam.py',
+        needle='                              LAKE: "lake_mask.py", BLOCK: "prep_block.py", CAP: "prep_cap.py"}',
+        replacement='                              LAKE: "lake_mask.py", BLOCK: "prep_block.py", CAP: "prep_cap.py",\n'
+                    '                              "elev": "cap_render.py"}',
+        guard='test_every_stage_constant_is_in_the_vocabulary',
+    ),
+    # A TOOL THAT DOES NOT EXIST, which is what the mapping rots into. The message is only read when
+    # something already went wrong, so a stale filename there sends a reader to a module that is not
+    # in the tree at the one moment they needed the right one.
+    Sabotage(
+        suite='python',
+        label='a stage names a prep tool that is not in the tree',
+        path='pipeline/render/render_seam.py',
+        needle='STAGE_TOOL: dict[str, str] = {PREP: "render_prep.py", SNOW: "snow_mask.py",',
+        replacement='STAGE_TOOL: dict[str, str] = {PREP: "render_prep_v2.py", SNOW: "snow_mask.py",',
+        guard='test_every_stage_names_a_tool_that_exists',
+    ),
+    # The same species one dependency over, and the one the cap tier had open until the raytraced
+    # planet existed to expose it. Deleting the key restages nothing when a body changes producer,
+    # so a composited disc keeps feathering into raytraced tiles it is a measurable distance from.
+    Sabotage(
+        suite='python',
+        label='the cap recipe drops the planet producer, so a producer switch restages no disc',
+        path='pipeline/tile/cap_render.py',
+        needle='                       "planet_producer": grid.body.planet_producer,\n',
+        replacement='',
+        guard='test_flipping_the_producer_restages_both_discs',
+    ),
+    # HARDCODED RATHER THAN DELETED, which is the shape an Earth-only assertion cannot see: the
+    # value is right for the body every other cap test is written about, and the switch is still
+    # silent. It is why that guard sweeps the registry instead of naming a planet.
+    Sabotage(
+        suite='python',
+        label="the cap recipe pins the producer to Earth's, so Mars records a planet it does not have",
+        path='pipeline/tile/cap_render.py',
+        needle='                       "planet_producer": grid.body.planet_producer,',
+        replacement='                       "planet_producer": "raytrace",',
+        guard='test_every_registered_body_records_its_own_answer',
+    ),
+    # The OVER-tracking direction, and the case that gives the control its teeth. `grid_recipe_fields`
+    # is shared with the elevation texture, so a producer key landing there drags both displacement
+    # textures through a re-encode for a number no vertex reads.
+    Sabotage(
+        suite='python',
+        label='the producer key lands in the shared grid block, so a look switch re-encodes the mesh',
+        path='pipeline/tile/cap_render.py',
+        needle='    fields["aeqd_radius_m"] = grid.body.aeqd_radius_m\n',
+        replacement='    fields["aeqd_radius_m"] = grid.body.aeqd_radius_m\n'
+                    '    fields["planet_producer"] = grid.body.planet_producer\n',
+        guard='test_the_displacement_texture_does_not_follow_it',
     ),
     # The mirror of the two above: the shader takes the body and the RECORD forgets it. Each body
     # writes into its own work tree, so this is not a collision between planets — it is the quieter
@@ -6641,8 +6759,20 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label='the cap mesh reaches further equatorward than the texture disc it samples',
         path='web/src/lib/polarCaps.ts',
-        needle='export const MESH_EDGE_LAT = 80;',
-        replacement='export const MESH_EDGE_LAT = 79;',
+        needle='export const MESH_EDGE_LAT = 82;',
+        replacement='export const MESH_EDGE_LAT = 81;',
+        guard='test_the_cap_latitude_ladder_holds',
+    ),
+    # THE RUNG THE LADDER USED TO OMIT. Ordering alone admits a fade 0.05 degrees wide, and an arm
+    # shipped exactly that: the cap rendered as a hard-edged circle over the tiles. This mutation
+    # leaves every ordering rung satisfied -- 82 <= 84 <= 84 < 85.05 -- so only the WIDTH rung can
+    # fail, which is what makes it a test of that rung rather than of the ladder in general.
+    Sabotage(
+        suite='python',
+        label='the cap feather collapses to a width that shows the disc as a hard circle',
+        path='web/src/lib/polarCaps.ts',
+        needle='export const FEATHER_LO = 82;',
+        replacement='export const FEATHER_LO = 84;',
         guard='test_the_cap_latitude_ladder_holds',
     ),
     # The URL is rebuilt from the basename, which is what it used to be. Correct for Earth, whose

@@ -74,8 +74,28 @@ DECLARATION_NAME = "render_inputs.json"
 #: guessing at the first two's output. Per stage, each says only what it emitted, and an EMPTY list
 #: is the statement that matters: "I ran over this region and produced nothing" is exactly the fact
 #: a missing file cannot carry.
-PREP, SNOW, LAKE, BLOCK = "prep", "snow", "lake", "block"
-KNOWN_STAGES = frozenset({PREP, SNOW, LAKE, BLOCK})
+PREP, SNOW, LAKE, BLOCK, CAP = "prep", "snow", "lake", "block", "cap"
+
+#: Which tool fills a directory under each stage, so a message that tells someone to re-run the prep
+#: can NAME it.
+#:
+#: A MAPPING RATHER THAN THE THREE SENTENCES IT REPLACED. Those sentences enumerated the preps in
+#: prose inside two error messages, and a third prep made both of them quietly incomplete — the
+#: reader is told to re-run one of the two tools that cannot fill their directory. Derived, adding a
+#: stage without an owner is a failing test instead of a wrong instruction at the worst moment.
+STAGE_TOOL: dict[str, str] = {PREP: "render_prep.py", SNOW: "snow_mask.py",
+                              LAKE: "lake_mask.py", BLOCK: "prep_block.py", CAP: "prep_cap.py"}
+
+KNOWN_STAGES = frozenset(STAGE_TOOL)
+
+
+def first_stage_tools() -> str:
+    """The tools that WRITE A HEIGHTFIELD, named for a reader who has to re-run one.
+
+    Only a first stage writes one — the other stages add masks to a directory that already exists —
+    so this is the answer to "the prep never ran", which is the only question the message asks.
+    """
+    return ", ".join(f"`{STAGE_TOOL[stage]}`" for stage in (PREP, BLOCK, CAP))
 
 
 def declaration_path(render_dir: Path) -> Path:
@@ -192,9 +212,9 @@ def paint_for(render_dir: Path, image: str) -> Paint:
         raise FileNotFoundError(
             f"{declaration_path(render_dir)}: no stage declared what {image} is painted in. "
             f"The colour is the BODY's, resolved from its producer registry by the prep that cut "
-            f"this directory — re-run that prep (`render_prep.py`/`snow_mask.py` for a country, "
-            f"`prep_block.py` for a block). Rendering without it would paint this body in "
-            f"whichever white was authored first.")
+            f"this directory — re-run that prep ({first_stage_tools()}, plus "
+            f"`{STAGE_TOOL[SNOW]}`/`{STAGE_TOOL[LAKE]}` for a country's optional masks). Rendering "
+            f"without it would paint this body in whichever white was authored first.")
     def triple(end: str) -> RGB8:
         red, green, blue = paint[end]
         return red, green, blue
@@ -209,8 +229,9 @@ def declared(render_dir: Path) -> frozenset[str]:
     agree right up until the run that matters.
 
     THE HEIGHTFIELD IS THE COMPLETION TEST because only a first stage writes one — `render_prep` for
-    a country, `prep_block` for a block — so its presence in the union means some stage filled this
-    directory rather than merely touching it. WHETHER THE WHOLE CHAIN RAN IS NOT ASKED HERE: that is
+    a country, `prep_block` for a block, `prep_cap` for a polar disc — so its presence in the union
+    means some stage filled this directory rather than merely touching it. WHETHER THE WHOLE CHAIN
+    RAN IS NOT ASKED HERE: that is
     `batch.py`'s question, which sequences the stages and stops on the first one that fails, and a
     rig that re-litigated it would need to know which chain was supposed to run.
     """
@@ -226,6 +247,6 @@ def declared(render_dir: Path) -> frozenset[str]:
             f"{declaration_path(render_dir)}: no stage has declared {HEIGHTFIELD} in {render_dir}. "
             f"A stage's record is written after its images, so this means the prep never ran or "
             f"died partway — the images beside it, if any, cannot be trusted. Re-run the prep that "
-            f"fills this directory (`render_prep.py` for a country, `prep_block.py` for a block); "
+            f"fills this directory ({first_stage_tools()}); "
             f"stages that have spoken: {sorted(stages) or 'none'}")
     return images

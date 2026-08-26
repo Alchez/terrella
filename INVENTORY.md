@@ -75,6 +75,10 @@ flowchart LR
   feather into. What couples them is the recipe rather than a file: their sidecar carries
   `composite_params`, so a look change restages both, and nothing else would keep them from drifting
   apart at the seam.
+  - **The fork above is the one look change `composite_params` cannot see**, so the cap sidecar
+    carries `planet_producer` beside it. Those constants are identical under either producer and the
+    master is not a cap source, so without that key a switch repaints every tile and leaves both
+    discs reading fresh, in either direction.
 
 ## Raw sources: `data/raw/` (~689 GB)
 

@@ -21,6 +21,18 @@ Blender/Cycles, tiling, MapLibre, serving — not to be handed a finished site.
 
 In the maintainer's own sessions with an AI assistant: be a **guide, not a workhorse**, explaining the why and involving the maintainer in the doing, and **Claude writes the code** while the teaching lives in chat. Neither says anything about outside contributions, which CONTRIBUTING.md covers and which are wanted.
 
+## Check a claim before it ships
+
+Six checks, each one earned by a wrong answer this project actually shipped into a conversation.
+Run them on any measurement before it is reported, and on any value or plan before it is recommended.
+
+- **Provenance.** Did I measure this, or read it somewhere? A cited fact is only about its own subject: "0.000% land above 84" was true, was about land, and was used to rule out shadows on the seabed.
+- **Population.** Does one number cover a mixed population? A median over a sample that was 90% flat pack ice read -0.7 DN and hid a 19.2 DN swing on the ridges, which was the thing being asked about.
+- **Instrument.** What else shapes this signal? An image gradient reports the terrain's grain, not the light's direction. Name the confound first, and give the instrument a control that must fail when the instrument is broken.
+- **Range.** Am I outside where I measured? Scaling a 90 degree difference down to 15 degrees linearly predicted 3.7 DN; measured, it was 2.55.
+- **Arbitrary.** Can I name the evidence for this exact value? "12 passes" had none and was offered as a recommendation anyway. Where there is no evidence, the sentence has to say so.
+- **Set.** Does this claim quantify over a set: every consumer, the only producer, nothing else reads this, all the remaining work? Enumerate the set from code before the sentence ships. "Gating at the producer covers every consumer" was written after finding one of two, and "the cap raytrace needs this regardless" was written without walking the work list it claimed to depend on it.
+
 ## Architecture (decided — do not re-litigate without explicit discussion)
 
 Three tiers of one site, one asset store, chosen by a client-side capability probe.
@@ -81,9 +93,9 @@ own skill (`.claude/skills/acquire-data/`).
 - **Every gate stays at zero and there is no "pre-existing error" allowance.** `./scripts/check.sh` from the repo root is the single place the list lives, and its header carries the order and the tool-by-tool reasoning. rasterio call sites take a targeted `# pyright: ignore[reportCallIssue]`; GDAL creation-option dicts are `dict[str, Any]`.
 - Docs in this repo state current truth, not history: if a row and reality disagree, the row is the bug. Dated decisions live in a decision archive kept outside the repo.
 - A learning goes where it will be met: a fact about one function into that function's docstring, a general work heuristic into the agent's memory.
-- **A second reader with no owner is the defect, and the KIND of thing is incidental**: a path, a procedure, a constant, a header, an explanation in a comment. With no home to import from the second module copies, and every copy is correct where it sits. The trigger is "change one copy, what goes red?", and nothing red means it needs an owner. Where one owner is impossible, such as a latitude that must exist in Python and in TypeScript, make one copy executable so the drift fails loudly instead.
-- For an EXPLANATION that trigger is inert, since nothing ever goes red, so ask instead "if this concept changed, how many places would I edit?" A concept gets one block, and the sites that need it get one line pointing at it. Measure with `scripts/prose_report.py`, as an instrument you run rather than a gate, since a dense constants file is legitimately dense.
-- A comment explains its own subject and makes no claim that can rot behind its back. The test: could this sentence go false without anyone touching this function? Counts, measurements taken elsewhere and system-wide properties all answer yes, and belong in a test, in PROCESS.md, or nowhere. What stays is the concept, the context needed to read the code, and the anti-redo guard.
+- **Anything with two readers needs one owner**, and the kind of thing is incidental: a path, a procedure, a constant, a header, an explanation. Trigger: change one copy, what goes red? Nothing red means it needs an owner. Where one owner is impossible, such as a latitude that must live in both Python and TypeScript, make one copy executable so drift fails loudly.
+- **For an explanation nothing ever goes red**, so ask instead how many places you would edit if the concept changed. One block owns a concept; every site that needs it gets one line pointing there. `scripts/prose_report.py` measures it, as an instrument you run rather than a gate.
+- **A comment explains its own subject and claims nothing that can rot behind its back.** Trigger: could this sentence go false without anyone touching this function? Counts, measurements taken elsewhere and system-wide properties all can, and belong in a test, in PROCESS.md, or nowhere. Keep the concept, the context needed to read the code, and the anti-redo guard.
 - A superseded path is deleted the same day, or moved out of the production package: prose calling it "retired" does not disarm a runnable entry point. Exception: under gitignored `data/`, where deletion is permanent.
 - Never commit rendered assets or DEM data, code and config only.
 - Plan first (Plan Mode) before any multi-file or architectural task.

@@ -47,12 +47,20 @@ def _ground_metres_per_px(top, bottom, rows=ROWS):
         bodies.ground_metres_per_mercator_unit(bodies.EARTH))
 
 
-def _window(raw, *, land=None, watercode=None, top=SOUTHERN_TOP, bottom=SOUTHERN_BOTTOM):
+def _window(raw, *, land=None, ocean=None, watercode=None, top=SOUTHERN_TOP,
+            bottom=SOUTHERN_BOTTOM):
+    """`ocean` defaults to ALL-SEA rather than to `~land`, and the two are independent on purpose.
+
+    The default here has to suit the producer most tests exercise, and the sea-ice producer now
+    gates on `ocean` — an all-land default would collapse its alpha to None and make every assertion
+    about its VALUE vacuous. Land-side producers ignore the field entirely.
+    """
     latitude = snow.latitude_per_row(top, bottom, ROWS)
     return layer_producers.LayerWindow(
         raw=raw,
         watercode=np.zeros((ROWS, COLS), dtype=np.uint8) if watercode is None else watercode,
         land=np.ones((ROWS, COLS), dtype=bool) if land is None else land,
+        ocean=np.ones((ROWS, COLS), dtype=bool) if ocean is None else ocean,
         latitude=latitude, ground_metres_per_px=_ground_metres_per_px(top, bottom),
         top=top, bottom=bottom)
 

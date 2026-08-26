@@ -112,11 +112,16 @@ N_WORKERS = 4              # composite worker threads. The knee: numpy is DRAM-b
 # smeared Mercator sliver past -84, not real Antarctica (which is shaded down to the -85.06 grid edge).
 # It was -59.5 while the pyramid stopped at -60 and the AEQD cap supplied everything south of it.
 #
-# ON A BODY THAT RENDERS CAPS THIS FILL IS DEAD PIXELS, AND THAT IS THE POINT OF IT. polarCaps.ts
-# feathers with `smoothstep(FEATHER_LO 81, feather_hi)` where `feather_hi` IS CAP_NORTH, so the cap
-# is fully opaque from exactly this latitude poleward and nothing under it is ever seen. The fill
+# ON A BODY THAT RENDERS CAPS THIS FILL IS MOSTLY DEAD PIXELS, AND THAT IS THE POINT OF IT. The fill
 # exists because the raster must hold SOMETHING between here and the 85.05 grid edge, and a smeared
 # Mercator sliver is uglier than a flat plug in the one case the plug shows.
+#
+# IT IS NO LONGER THE FEATHER'S CEILING, and that separation is deliberate. `caps_manifest` served
+# this same number as `feather_hi` until the cap edge moved to 82, which made one constant answer
+# two questions: where a composited raster starts being flat-filled, and where the cap finishes
+# fading over the tiles. The second is `cap_render.feather_hi_deg`, derived from the Mercator limit,
+# because a fade must end where there is nothing left beneath it to hide. Tied together, the fade
+# could not widen on Earth without moving the plug on Mars.
 #
 # It shows on a body with `renders_polar_caps = False`, where it becomes the whole pole — MapLibre
 # extends the top tile row over the projection's hole as well, so a flat disc replaces the ice cap.
@@ -729,7 +734,7 @@ def _compute_shared(inputs: _WindowInputs) -> _WindowShared:
     contributions, paints, exclusions = layer_producers.gather(
         inputs.body, inputs.layer_raw,
         layer_producers.LayerWindow(raw=None, watercode=watercode, land=land_win,
-                                    latitude=latitude,
+                                    ocean=ocean_win, latitude=latitude,
                                     ground_metres_per_px=mercator.ground_metres_per_pixel(
                                         latitude, inputs.body.map_units_per_pixel,
                                         bodies.ground_metres_per_mercator_unit(inputs.body)),
