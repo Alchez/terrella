@@ -6,13 +6,20 @@ its own Albers projection, and the block prep for a z8 EPSG:3857 block,
 which writes its cuts under the same filenames purely to satisfy the
 table below. Nothing here is country-shaped.
 
-Reconstructs the hand-built Phase 0 scene — plane + adaptive-subdivision
+Builds the whole scene from the constants below — plane + adaptive-subdivision
 displacement, a land ramp with lake/river switches over an optional sea ramp
 (plus a snow switch iff snowmask.png exists in the render dir, and a
 depth-keyed lake ramp iff lakedepth.tif does), sun plus a shadowless
-fill sun, ortho camera, locked render settings — entirely from the constants
-below. Verified against the hand-built .blend by structural dump-diff and a
-pixel-diff of test renders
+fill sun, ortho camera, locked render settings.
+
+It began as a reconstruction of a hand-built scene, verified against it by
+structural dump-diff and a pixel-diff of test renders. THAT BASELINE IS RETIRED
+and no longer shipped: the graph built here is conditional on what the render
+directory declared, so no single file can track it, and regenerating one from
+this module would only compare the code against itself. `scene_dump` still
+verifies a CHANGE, by diffing two dumps of scenes it built itself. The origin
+scene is recoverable from history:
+  git show 3e35eb6:blender/india_hero_handbuilt_phase0.blend > origin.blend
 
 THE LOOK ARRIVES AS `--body`, WHICH IS A SLUG AND NOT A `Body`: Blender's
 interpreter cannot import this project's virtual environment, and
@@ -286,8 +293,8 @@ class TextureSpec:
     reach every pixel and neither moves an mtime, so both belong in the recipe.
 
     The name is an IDENTITY and not a look value: renaming a node consistently renders
-    byte-identically. It rides along because the table is recorded whole, and that is the one key
-    here whose change costs a re-render it does not need.
+    byte-identically. It is therefore the one field `rig_recipe` leaves out, which is why the
+    recipe keys this table by `filename` rather than by the name that opens it here.
 
     `optional` is the raster's presence, never a look: an optional node is built iff its file was
     declared, which is how a body that draws no sea ice simply has no ice node.
@@ -300,29 +307,28 @@ class TextureSpec:
     optional: bool
 
 
-#: Every image node the rig can build, in creation order. THE ORDER IS LOAD-BEARING: the dump-diff
-#: against the hand-built .blend sees creation order, so the mandatory four are built by one loop
+#: Every image node the rig can build, in creation order: the mandatory four are built by one loop
 #: in this sequence and the optional four at their own sites, where their mixes and ramps are wired.
 TEXTURES = {
     spec.name: spec for spec in (
-        TextureSpec("Image Texture", render_seam.HEIGHTFIELD, "Linear", "REPEAT", optional=False),
-        TextureSpec("Image Texture.001", render_seam.OCEANMASK, "Closest", "REPEAT", optional=False),
-        TextureSpec("Image Texture.002", render_seam.INLANDLAKE, "Closest", "REPEAT", optional=False),
-        TextureSpec("Image Texture.003", render_seam.RIVER, "Closest", "REPEAT", optional=False),
+        TextureSpec("Heightfield", render_seam.HEIGHTFIELD, "Linear", "REPEAT", optional=False),
+        TextureSpec("Ocean Mask", render_seam.OCEANMASK, "Closest", "REPEAT", optional=False),
+        TextureSpec("Inland Lake", render_seam.INLANDLAKE, "Closest", "REPEAT", optional=False),
+        TextureSpec("River", render_seam.RIVER, "Closest", "REPEAT", optional=False),
         # Closest because snow is a hard-edged mask; the softening it ships with is baked into the
         # raster by `snow.soften_source_cells`, never asked of the sampler.
-        TextureSpec("Image Texture.004", render_seam.SNOWMASK, "Closest", "REPEAT", optional=True),
+        TextureSpec("Snow Mask", render_seam.SNOWMASK, "Closest", "REPEAT", optional=True),
         # Linear on both of these: a continuous field, like the heightfield.
-        TextureSpec("Image Texture.005", render_seam.LAKEDEPTH, "Linear", "REPEAT", optional=True),
-        TextureSpec("Image Texture.006", render_seam.SEAICE, "Linear", "REPEAT", optional=True),
+        TextureSpec("Lake Depth", render_seam.LAKEDEPTH, "Linear", "REPEAT", optional=True),
+        TextureSpec("Sea Ice", render_seam.SEAICE, "Linear", "REPEAT", optional=True),
         # The rowscale column is one texel wide, so there is nothing to interpolate across u, and
         # EXTEND rather than REPEAT is what stops one pole's row wrapping into the other's.
-        TextureSpec("Image Texture.007", render_seam.ROWSCALE, "Closest", "EXTEND", optional=True),
+        TextureSpec("Row Scale", render_seam.ROWSCALE, "Closest", "EXTEND", optional=True),
     )
 }
 
 #: The one texture a look can decline, being the sea branch's own input.
-SEA_IMAGE = "Image Texture.001"
+SEA_IMAGE = "Ocean Mask"
 
 
 def texture_for(filename: str) -> TextureSpec:
@@ -394,8 +400,18 @@ def rig_recipe(look: palette.Look) -> dict[str, Any]:
         # loaded would let a planet that GAINED sea ice restage nothing. An interpolation is as much
         # a look decision as a colour is — an oceanmask read Linear instead of Closest feathers
         # every coastline — and it is the half that used to be spelled inline where no recipe saw it.
-        "textures": {name: dataclasses.asdict(spec) for name, spec in TEXTURES.items()},
-        "sea_texture": None if look.sea is None else SEA_IMAGE,
+        #
+        # KEYED BY THE RASTER AND MINUS THE NODE'S NAME, which is the one field in the row that
+        # cannot move a pixel: renaming a node consistently renders byte-identically, so recorded,
+        # it put 11h41m of Cycles plus both cap discs behind a change that moves nothing. Excluded
+        # BY NAME rather than by listing what to keep, so a field added to `TextureSpec` later is
+        # recorded with nothing here to remember. `TestRenamingANodeDoesNotRestageThePlanet` holds
+        # both directions, its control being that `interpolation` in the same row still moves this.
+        "textures": {spec.filename: {field: value
+                                     for field, value in dataclasses.asdict(spec).items()
+                                     if field != "name"}
+                     for spec in TEXTURES.values()},
+        "sea_texture": None if look.sea is None else TEXTURES[SEA_IMAGE].filename,
         "look": {
             "land_range": list(constants.land_range),
             "land_stops": [[position, list(rgba)] for position, rgba in constants.land_stops],
@@ -410,7 +426,7 @@ def textures_for(look: palette.Look, declared: frozenset[str]) -> dict[str, Text
     """The mandatory textures this render directory can actually supply, in table order.
 
     THE OPTIONAL ONES ARE NOT HERE because they are built at their own sites, beside the mixes and
-    ramps they feed, and the dump-diff against the hand-built .blend sees creation order.
+    ramps they feed, which is what keeps each optional branch readable as one block.
 
     A DECLARATION DECIDES THIS AND NEVER `Path.exists()`, which is the rule the optional four have
     always followed and these four used to be exempt from. `prep_block.build` writes the lake and
@@ -659,7 +675,7 @@ def build_material(ob, render_dir, displacement_scale, look, present):
     The two optional images are skipped by a prep that measured no snow or no lake bed in this
     region, and an absent file cannot tell that measurement from a prep that died before writing it.
     """
-    mat = bpy.data.materials.new("Material.001")
+    mat = bpy.data.materials.new("Terrain")
     mat.use_nodes = True
     mat.displacement_method = "DISPLACEMENT"
     nt = mat.node_tree
@@ -692,33 +708,34 @@ def build_material(ob, render_dir, displacement_scale, look, present):
     # a hero has no `rowscale.tif` to link from.
     disp.inputs["Scale"].default_value = displacement_scale
 
-    # The sea nodes stay interleaved rather than grouped, and the `.00N` names stay frozen: the
-    # rig's only baseline is a hand-built .blend compared by dump-diff, which sees both.
-    land_range = make_map_range(nt, "Map Range", "Land",
+    # NAMED FOR WHAT THEY ARE, and the sea nodes stay interleaved with the land ones rather than
+    # grouped. Both used to be frozen against a hand-built .blend compared by dump-diff; that
+    # baseline is retired, so a node's name now answers to the reader and to the arm probes that
+    # reach into the built graph, which is the only thing that ever addressed one by name.
+    land_range = make_map_range(nt, "Land Range", "Land",
                                 constants.land_range, (0.0, 1.0))
     sea_range = (None if constants.sea_range is None else
-                 make_map_range(nt, "Map Range.001", "Sea", constants.sea_range, (1.0, 0.0)))
-    land_ramp = make_ramp(nt, "Color Ramp.001", "", constants.land_stops)
+                 make_map_range(nt, "Sea Range", "Sea", constants.sea_range, (1.0, 0.0)))
+    land_ramp = make_ramp(nt, "Land Ramp", "Land", constants.land_stops)
     sea_ramp = (None if constants.sea_stops is None else
-                make_ramp(nt, "Color Ramp", "", constants.sea_stops))
+                make_ramp(nt, "Sea Ramp", "Sea", constants.sea_stops))
 
     rgb = nt.nodes.new("ShaderNodeRGB")
-    rgb.name = "Color"
+    rgb.name = "Water Color"
     rgb.outputs[0].default_value = RIG.water_rgba
 
     # EACH MIX EXISTS ONLY WHERE ITS MASK DOES, which is the same rule the optional nodes below
-    # follow. Creation order is unchanged for a body that declares everything, which is every body
-    # the dump-diff baseline covers.
-    lake = make_mix(nt, "Mix.001", "Lake") if lake_spec.filename in present else None
-    river = make_mix(nt, "Mix.002", "River") if river_spec.filename in present else None
-    ocean = None if sea_ramp is None else make_mix(nt, "Mix", "")
+    # follow.
+    lake = make_mix(nt, "Lake Mix", "Lake") if lake_spec.filename in present else None
+    river = make_mix(nt, "River Mix", "River") if river_spec.filename in present else None
+    ocean = None if sea_ramp is None else make_mix(nt, "Ocean Mix", "Ocean")
 
     # optional data-driven snow/ice (render/snow_mask.py); layer not declared
     # -> graph identical to the pre-snow scene
     snow = None
     if render_seam.SNOWMASK in present:
         tex[snow_spec.name] = make_texture(nt, render_dir, snow_spec)
-        snow = make_mix(nt, "Mix.003", "Snow")
+        snow = make_mix(nt, "Snow Mix", "Snow")
         mix_socket(snow, "B").default_value = declared_albedo(render_dir, render_seam.SNOWMASK)
         print(f"{render_seam.SNOWMASK} declared — wiring Snow mix", flush=True)
 
@@ -733,7 +750,7 @@ def build_material(ob, render_dir, displacement_scale, look, present):
     lake_ramp = None
     if render_seam.LAKEDEPTH in present:
         tex[lake_depth_spec.name] = make_texture(nt, render_dir, lake_depth_spec)
-        lake_ramp = make_ramp(nt, "Color Ramp.002", "", RIG.lake_stops)
+        lake_ramp = make_ramp(nt, "Lake Ramp", "Lake Bed", RIG.lake_stops)
         print(f"{render_seam.LAKEDEPTH} declared — wiring depth-keyed Lake ramp", flush=True)
 
     # optional sea ice (block prep only today): ONE continuous ocean-gated alpha drives BOTH
@@ -745,9 +762,9 @@ def build_material(ob, render_dir, displacement_scale, look, present):
     ice_flatten = None
     if render_seam.SEAICE in present:
         tex[ice_spec.name] = make_texture(nt, render_dir, ice_spec)
-        ice = make_mix(nt, "Mix.004", "Ice")
+        ice = make_mix(nt, "Ice Mix", "Ice")
         mix_socket(ice, "B").default_value = declared_albedo(render_dir, render_seam.SEAICE)
-        ice_flatten = make_float_mix(nt, "Mix.005", "Ice Flatten")
+        ice_flatten = make_float_mix(nt, "Ice Flatten", "Ice Flatten")
         float_socket(ice_flatten, "B").default_value = 0.0  # sea level
         print(f"{render_seam.SEAICE} declared — wiring Ice mix + displacement damp", flush=True)
 
@@ -759,7 +776,7 @@ def build_material(ob, render_dir, displacement_scale, look, present):
     if render_seam.ROWSCALE in present:
         tex[rowscale_spec.name] = make_texture(nt, render_dir, rowscale_spec)
         rowscale = nt.nodes.new("ShaderNodeMath")
-        rowscale.name = "Math"
+        rowscale.name = "Row Scale Multiply"
         rowscale.operation = "MULTIPLY"
         rowscale.use_clamp = False  # the correction leaves 1.0 in both directions
         rowscale.inputs[1].default_value = displacement_scale

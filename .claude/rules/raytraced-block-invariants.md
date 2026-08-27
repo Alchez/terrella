@@ -54,11 +54,19 @@ the params recipe plus the planet rasters. So:
   - **So WHICH textures a directory loads is free to change and WHAT THE TABLE CONTAINS is not**, and
     that asymmetry is what let the rig learn to render a body with no inland water for nothing.
     `textures_for` is a filter over the recorded table, so its rule is invisible to the recipe.
-  - **A node's NAME is a table field, so renaming one texture node restages the planet** for pixels
-    that did not move. Mix node names are the opposite case: they are spelled in the builder, reach
-    no recipe, and cost only the hand-built `.blend` dump-diff baseline they were chosen to match.
-  - **Creation order is load-bearing** — the dump-diff against the hand-built .blend sees it — so
-    the mandatory textures are built by one loop and the optional ones at their own sites.
+  - **NO NODE NAME REACHES THE RECIPE, so renaming one is free on every tier.** The table is keyed
+    into the recipe by `filename` and the `name` field is excluded, because a consistent rename
+    renders byte-identically; it used to ride in whole and put a planet re-render behind a change
+    that moved nothing. The exclusion is one NAMED field, so a field added to `TextureSpec` later
+    is still recorded. `TestNoNodeCarriesBlendersAutoName` keeps names off Blender's `.00N`, and
+    `TestRenamingANodeDoesNotRestageThePlanet` holds both directions of the exclusion.
+  - **NOTHING COMPARES THE BUILT GRAPH AGAINST A HAND-BUILT BASELINE ANY MORE**, so creation order
+    and node names answer only to the reader and to the arm probes that reach into the built graph.
+    The hand-built origin scene is out of version control and lives in history alone
+    (`git show 3e35eb6:blender/india_hero_handbuilt_phase0.blend`): it diverges on the view
+    transform, the world colour and the fill sun, and a single file cannot track a graph whose
+    shape depends on what the prep declared. What survives is `scene_dump`'s other use, diffing
+    two dumps across a change, which needs no baseline at all.
 - **The fold's law is a third entry, through `layer_producers.white_law`.** Which of `WHITE_UNION`
   and `WHITE_EXCLUSIONS` a layer sits in decides whether its raster adds white or removes it, and no
   producer's recipe can carry that: `producers_for` walks `layers.warped_for(vocabulary)`, so a

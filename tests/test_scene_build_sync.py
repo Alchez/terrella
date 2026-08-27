@@ -14,6 +14,7 @@ import dataclasses
 import importlib
 import json
 import math
+import re
 import sys
 import types
 from pathlib import Path
@@ -154,8 +155,10 @@ class TestASeaLessLookDropsTheSeaBranch:
         assert scene_build.SEA_IMAGE not in mars_images
 
     def test_earths_image_table_and_its_order_are_untouched(self, scene_build):
-        """The dump-diff against the hand-built .blend sees creation order, so the sea-less arm
-        must not have reordered the arm that renders 203 heroes."""
+        """WHICH textures are mandatory is the claim; the list form is kept because it is strictly
+        stronger than a set and costs nothing. Order itself no longer answers to anything — it was
+        pinned for a dump-diff against a hand-built .blend that is retired, and the dump sorts by
+        node name anyway."""
         mandatory = [name for name, spec in scene_build.TEXTURES.items() if not spec.optional]
         assert list(scene_build.textures_for(palette.EARTH_LOOK, EARTH_DECLARED)) == mandatory
 
@@ -750,9 +753,14 @@ class TestEveryTextureNodeIsDeclaredRatherThanSpelledInline:
         assert {render_seam.SNOWMASK, render_seam.LAKEDEPTH, render_seam.SEAICE} <= declared
 
     def test_the_texture_table_is_in_the_recipe(self, scene_build):
+        """KEYED BY THE RASTER, NOT THE NODE, and the node's name is the one field left out. It is
+        an identity rather than a look value, so recording it put a whole planet re-render behind a
+        rename that moves no pixel. Everything else in the row rides in untouched."""
         recipe = scene_build.rig_recipe(palette.EARTH_LOOK)
-        for name, spec in scene_build.TEXTURES.items():
-            assert recipe["textures"][name] == dataclasses.asdict(spec)
+        for spec in scene_build.TEXTURES.values():
+            recorded = dataclasses.asdict(spec)
+            del recorded["name"]
+            assert recipe["textures"][spec.filename] == recorded
 
     def test_the_masks_keep_the_interpolations_they_ship_with(self, scene_build):
         """A conversion that quietly re-decided a look value would be a regression wearing a
@@ -962,3 +970,167 @@ class TestTheBuilderSpellsNoLookValueWhereTheRecipeCannotSeeIt:
         )
         found = self._inline_values(known_bad)
         assert len(found) == 4, f"expected all four non-string literals, got {found}"
+
+
+class TestNoNodeCarriesBlendersAutoName:
+    """A node's identity is its `name`, and Blender's default for one is the type plus a counter.
+
+    THE COUNTER IS THE DEFECT AND NOT THE UGLINESS. Two nodes handed the same name do not both
+    keep it: bpy appends `.001` to the second silently, so a collision reintroduces the very
+    suffix this removes and leaves the graph addressable only by creation order. That is why
+    uniqueness is asserted rather than assumed.
+
+    NONE OF THESE REACH A PIXEL, which `TestTheBuilderSpellsNoLookValueWhereTheRecipeCannotSeeIt`
+    rules on by naming `name` its one inert attribute. What is guarded here is legibility, and
+    legibility is load-bearing for anything that reaches into the BUILT graph by name — every
+    arm probe does, since bpy hands out a fresh wrapper per access and `is` never matches.
+    """
+
+    #: Blender's own suffix for a name it had to disambiguate.
+    AUTO_SUFFIX = re.compile(r"\.\d{3}$")
+
+    def test_no_node_name_carries_the_auto_suffix(self, scene_build):
+        """The texture half comes from the table at runtime and the rest from the builder's source,
+        because that is where each is spelled: a table entry is a value, a mix name is a literal."""
+        offenders = sorted(name for name in self._every_name(scene_build)
+                           if self.AUTO_SUFFIX.search(name))
+        assert not offenders, (
+            f"nodes still carrying Blender's auto-name counter: {offenders}. The counter is "
+            "assigned by creation order, so it renames itself when a node is added above it.")
+
+    def test_no_two_nodes_share_a_name(self, scene_build):
+        """A collision does not fail — bpy resolves it by appending the suffix to the loser, so
+        the graph silently regains exactly what the test above forbids."""
+        names = self._every_name(scene_build)
+        duplicated = sorted({name for name in names if names.count(name) > 1})
+        assert not duplicated, f"two nodes would be given the same name, bpy renames one: {duplicated}"
+
+    def test_every_node_the_builder_creates_is_given_a_name(self, scene_build):
+        """The arm that catches a node added without one, which Blender then auto-names. Counting
+        rather than matching: a `nodes.new` and its `.name =` are two statements apart."""
+        source = Path(scene_build.__file__).read_text()
+        created, named = self._builder_node_counts(source)
+        assert created == named, (
+            f"build_material creates {created} nodes directly but names {named} of them; an "
+            "unnamed node takes Blender's type name plus a counter")
+
+    def test_the_scan_can_see_an_auto_name(self, scene_build):
+        """The control. Every assertion above is satisfied by an extractor that found nothing, and
+        the builder is exactly the shape — helpers, keywords, conditionals — that produces that."""
+        found = self._names_in_source(
+            "def make_mix(nt, name, label):\n"
+            "    pass\n"
+            "def build_material(ob, render_dir, displacement_scale, look, present):\n"
+            "    lake = make_mix(nt, 'Mix.001', 'Lake')\n"
+            "    disp.name = 'Displacement.002'\n")
+        assert sorted(found) == ["Displacement.002", "Mix.001"], (
+            f"the scan missed one of the two shapes it has to see: {sorted(found)}")
+
+    def _every_name(self, scene_build) -> list[str]:
+        """Both halves as one list, so uniqueness is asked across the whole graph rather than
+        within either half. A texture colliding with a mix is as silent as two mixes colliding."""
+        return (list(scene_build.TEXTURES)
+                + self._names_in_source(Path(scene_build.__file__).read_text()))
+
+    @staticmethod
+    def _names_in_source(source: str) -> list[str]:
+        """Every name `build_material` spells, from `.name = "..."` and from the make_* helpers.
+
+        THE HELPER SET IS DERIVED RATHER THAN LISTED: a module-level function whose first three
+        parameters are `(nt, name, label)` is a node constructor, so one written later is scanned
+        with nothing here to remember. A listed set would go short exactly when the rig grows.
+        """
+        tree = ast.parse(source)
+        constructors = {node.name for node in tree.body
+                        if isinstance(node, ast.FunctionDef)
+                        and [arg.arg for arg in node.args.args[:3]] == ["nt", "name", "label"]}
+        builder = next(node for node in ast.walk(tree)
+                       if isinstance(node, ast.FunctionDef) and node.name == "build_material")
+        names: list[str] = []
+        for node in ast.walk(builder):
+            if (isinstance(node, ast.Assign) and len(node.targets) == 1
+                    and isinstance(node.targets[0], ast.Attribute)
+                    and node.targets[0].attr == "name"
+                    and isinstance(node.value, ast.Constant)
+                    and isinstance(node.value.value, str)):
+                names.append(node.value.value)
+            elif (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                    and node.func.id in constructors and len(node.args) >= 2
+                    and isinstance(node.args[1], ast.Constant)
+                    and isinstance(node.args[1].value, str)):
+                names.append(node.args[1].value)
+        return names
+
+    @staticmethod
+    def _builder_node_counts(source: str) -> tuple[int, int]:
+        """`(nodes created directly, names assigned)` inside `build_material`.
+
+        Direct only: a helper names the node it makes, so counting those would compare a helper's
+        internals against the builder's.
+        """
+        builder = next(node for node in ast.walk(ast.parse(source))
+                       if isinstance(node, ast.FunctionDef) and node.name == "build_material")
+        created = sum(1 for node in ast.walk(builder)
+                      if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                      and node.func.attr == "new" and isinstance(node.func.value, ast.Attribute)
+                      and node.func.value.attr == "nodes")
+        named = sum(1 for node in ast.walk(builder)
+                    if isinstance(node, ast.Assign) and len(node.targets) == 1
+                    and isinstance(node.targets[0], ast.Attribute)
+                    and node.targets[0].attr == "name")
+        return created, named
+
+
+class TestRenamingANodeDoesNotRestageThePlanet:
+    """`rig_recipe` records what can move a rendered pixel, and a node's name provably cannot.
+
+    THE RECIPE USED TO OVER-TRACK BY ITS OWN SIBLING'S REASONING.
+    `TestTheBuilderSpellsNoLookValueWhereTheRecipeCannotSeeIt` names `name` its ONE inert
+    attribute, on the grounds that a consistent rename renders byte-identically; the table was
+    nonetheless recorded whole, so the identity rode in beside the look values and any rename
+    cleared all 1,024 markers plus both cap discs for pixels that did not move.
+
+    OVER- AND UNDER-TRACKING ARE BOTH SILENT, so the exclusion is one NAMED FIELD rather than a
+    chosen subset: a field added to `TextureSpec` later is recorded with nothing here to remember,
+    which is the same reason the table is derived rather than enumerated. The control below is
+    what keeps the exclusion honest, since an exclusion that grew would look exactly like this.
+    """
+
+    def test_renaming_every_node_leaves_the_recipe_byte_identical(self, scene_build, monkeypatch):
+        """A rename touches the table's keys, its specs and `SEA_IMAGE` together, because the key
+        IS the node name. None of that may reach the recipe."""
+        before = json.dumps(scene_build.rig_recipe(palette.EARTH_LOOK), sort_keys=True)
+        monkeypatch.setattr(scene_build, "SEA_IMAGE", f"Renamed {scene_build.SEA_IMAGE}")
+        monkeypatch.setattr(scene_build, "TEXTURES", {
+            f"Renamed {spec.name}": dataclasses.replace(spec, name=f"Renamed {spec.name}")
+            for spec in scene_build.TEXTURES.values()})
+        after = json.dumps(scene_build.rig_recipe(palette.EARTH_LOOK), sort_keys=True)
+        assert before == after, "a node rename still moves the recipe, so it restages the planet"
+
+    def test_a_look_bearing_field_in_the_same_row_still_moves_it(self, scene_build, monkeypatch):
+        """THE CONTROL, and it decides that the exclusion is a field rather than the whole row.
+        `interpolation` sits in the same dataclass and reaches every coastline: an oceanmask read
+        Linear instead of Closest feathers the lot. If this passes green the recipe has stopped
+        watching the table at all, which is indistinguishable from the fix above."""
+        before = json.dumps(scene_build.rig_recipe(palette.EARTH_LOOK), sort_keys=True)
+        monkeypatch.setattr(scene_build, "TEXTURES", {
+            name: dataclasses.replace(spec, interpolation="Cubic")
+            for name, spec in scene_build.TEXTURES.items()})
+        after = json.dumps(scene_build.rig_recipe(palette.EARTH_LOOK), sort_keys=True)
+        assert before != after, "an interpolation change no longer reaches the recipe"
+
+    def test_no_two_textures_read_the_same_raster(self, scene_build):
+        """The recipe is keyed on the filename now, so a duplicate would drop a whole row and take
+        its interpolation and extension out of the recipe with it, silently. `texture_for` already
+        assumed this by returning the first match; here it is asserted."""
+        filenames = [spec.filename for spec in scene_build.TEXTURES.values()]
+        duplicated = sorted({name for name in filenames if filenames.count(name) > 1})
+        assert not duplicated, f"two texture rows read one raster, so the recipe drops one: {duplicated}"
+
+    def test_the_sea_texture_key_names_a_raster_rather_than_a_node(self, scene_build):
+        """The second place a node name used to reach the recipe. It records WHICH texture the sea
+        branch reads, and the raster answers that as well as the node did without moving on a
+        rename."""
+        recipe = scene_build.rig_recipe(palette.EARTH_LOOK)
+        assert recipe["sea_texture"] == render_seam.OCEANMASK
+        assert scene_build.rig_recipe(palette.MARS_LOOK)["sea_texture"] is None

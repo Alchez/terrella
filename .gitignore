@@ -4,12 +4,13 @@ data/
 blender/renders/
 blender/*.png
 *.blend1
-# Hero .blend scenes are build artifacts — regenerate with pipeline/scene_build.py
+# .blend scenes are build artifacts — regenerate with pipeline/render/scene_build.py
 # (thin ~96K files that reference gitignored rasters, so a committed copy can't
-# even open on a fresh clone). The source of truth is scene_build.py. The one
-# exception is the hand-built Phase 0 scene, which no script reproduces.
+# even open on a fresh clone). The source of truth is scene_build.py, with NO
+# exception: the hand-built origin scene used to be one, and it is now history
+# rather than a working file. Recover it with
+#   git show 3e35eb6:blender/india_hero_handbuilt_phase0.blend > origin.blend
 blender/*.blend
-!blender/india_hero_handbuilt_phase0.blend
 
 # CLAUDE.md is TRACKED, deliberately: it is the standing brief for anyone — human or agent —
 # working on this repo, and shipping it is the honest version of "here is how this was built".

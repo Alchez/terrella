@@ -5159,8 +5159,11 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label='the recipe records only the textures loaded, so a body gaining one restages nothing',
         path='pipeline/render/scene_build.py',
-        needle='        "textures": {name: dataclasses.asdict(spec) for name, spec in TEXTURES.items()},',
-        replacement='        "textures": {name: dataclasses.asdict(spec) for name, spec in textures_for(look).items()},',
+        # Re-anchored when the row lost its `name` field: the mutation now drops the OPTIONAL rows
+        # rather than calling a `textures_for` whose signature has since gained the declaration,
+        # which would have been caught by a TypeError instead of by a wrong recipe.
+        needle='                     for spec in TEXTURES.values()},',
+        replacement='                     for spec in TEXTURES.values() if not spec.optional},',
         guard='test_the_texture_table_is_in_the_recipe',
     ),
     # --- the inline-literal scan, which had a positive control and no mutation case -------------
@@ -5207,6 +5210,82 @@ SABOTAGES: list[Sabotage] = [
         replacement='        if isinstance(value, ast.Constant) and isinstance(value.value, str):\n'
                     '            return ast.unparse(value)',
         guard='test_the_scan_is_not_blind_to_a_literal_that_is_not_a_string',
+    ),
+    # --- node identity: Blender's auto-names, and the collision that silently restores one -------
+    Sabotage(
+        suite='python',
+        # A builder node goes back to the counter. The name reaches no pixel, so nothing else in
+        # the suite can see it: the graph simply stops being addressable by anything but position.
+        label='a mix node takes Blender\'s auto-name again',
+        path='pipeline/render/scene_build.py',
+        needle='make_mix(nt, "Lake Mix", "Lake")',
+        replacement='make_mix(nt, "Mix.001", "Lake")',
+        guard='test_no_node_name_carries_the_auto_suffix',
+    ),
+    Sabotage(
+        suite='python',
+        # The table half, which is spelled as a VALUE rather than a call argument, so it is the
+        # runtime arm of the scan that has to catch it rather than the AST one.
+        label='a texture node takes Blender\'s auto-name again',
+        path='pipeline/render/scene_build.py',
+        needle='TextureSpec("Ocean Mask", render_seam.OCEANMASK',
+        replacement='TextureSpec("Image Texture.001", render_seam.OCEANMASK',
+        guard='test_no_node_name_carries_the_auto_suffix',
+    ),
+    Sabotage(
+        suite='python',
+        # THE FAILURE MODE THE SUFFIX TEST CANNOT SEE. Two nodes given one name leaves bpy to
+        # rename the loser, so the graph regains a `.001` that no source line anywhere spells.
+        label='two nodes are given the same name, which bpy resolves by re-adding the suffix',
+        path='pipeline/render/scene_build.py',
+        needle='make_mix(nt, "River Mix", "River")',
+        replacement='make_mix(nt, "Lake Mix", "River")',
+        guard='test_no_two_nodes_share_a_name',
+    ),
+    Sabotage(
+        suite='python',
+        # A node created and never named. Blender supplies the type name plus a counter, so this
+        # arrives as an auto-name that no literal in the module spells either.
+        label='a directly created node is left unnamed',
+        path='pipeline/render/scene_build.py',
+        needle='        rowscale.name = "Row Scale Multiply"\n        rowscale.operation = "MULTIPLY"',
+        replacement='        rowscale.operation = "MULTIPLY"',
+        guard='test_every_node_the_builder_creates_is_given_a_name',
+    ),
+    Sabotage(
+        suite='python',
+        # The extractor goes blind and every assertion above passes on an empty list. The helper
+        # set is derived from the parameter names, so a signature it no longer matches finds none.
+        label='the node-name scan stops recognising the builder\'s helpers',
+        path='tests/test_scene_build_sync.py',
+        needle='and [arg.arg for arg in node.args.args[:3]] == ["nt", "name", "label"]}',
+        replacement='and [arg.arg for arg in node.args.args[:3]] == ["nt", "node_name", "label"]}',
+        guard='test_the_scan_can_see_an_auto_name',
+    ),
+    Sabotage(
+        suite='python',
+        # The identity rides back into the recipe. Reads as the more faithful record -- the table
+        # written whole -- and is what put 11h41m of Cycles plus both cap discs behind a rename
+        # that renders byte-identically.
+        label='the recipe records the whole texture row again, node name included',
+        path='pipeline/render/scene_build.py',
+        needle='        "textures": {spec.filename: {field: value\n'
+               '                                     for field, value in dataclasses.asdict(spec).items()\n'
+               '                                     if field != "name"}\n'
+               '                     for spec in TEXTURES.values()},',
+        replacement='        "textures": {name: dataclasses.asdict(spec) for name, spec in TEXTURES.items()},',
+        guard='test_renaming_every_node_leaves_the_recipe_byte_identical',
+    ),
+    Sabotage(
+        suite='python',
+        # THE OTHER DIRECTION, and it is the one that ships a stale planet. An exclusion that grows
+        # looks exactly like the fix: both leave the recipe unmoved by a rename, and only the
+        # control can tell "stopped recording the identity" from "stopped watching the table".
+        label='the recipe exclusion grows to swallow a look-bearing field',
+        path='pipeline/render/scene_build.py',
+        needle='                                     if field != "name"}',
+        replacement='                                     if field not in ("name", "interpolation")}',
+        guard='test_a_look_bearing_field_in_the_same_row_still_moves_it',
     ),
     Sabotage(
         suite='python',
