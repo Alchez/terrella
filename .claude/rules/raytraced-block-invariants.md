@@ -51,6 +51,12 @@ the params recipe plus the planet rasters. So:
   recipe can see; `test_no_pixel_moving_value_is_spelled_inline_in_the_builder` fails on it.
   - The table is recorded WHOLE rather than per look: the optional textures are declined by a body's
     planet seam, not by its look, so a planet that gained one would otherwise restage nothing.
+  - **So WHICH textures a directory loads is free to change and WHAT THE TABLE CONTAINS is not**, and
+    that asymmetry is what let the rig learn to render a body with no inland water for nothing.
+    `textures_for` is a filter over the recorded table, so its rule is invisible to the recipe.
+  - **A node's NAME is a table field, so renaming one texture node restages the planet** for pixels
+    that did not move. Mix node names are the opposite case: they are spelled in the builder, reach
+    no recipe, and cost only the hand-built `.blend` dump-diff baseline they were chosen to match.
   - **Creation order is load-bearing** — the dump-diff against the hand-built .blend sees it — so
     the mandatory textures are built by one loop and the optional ones at their own sites.
 - **The fold's law is a third entry, through `layer_producers.white_law`.** Which of `WHITE_UNION`

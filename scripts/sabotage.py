@@ -5582,11 +5582,51 @@ SABOTAGES: list[Sabotage] = [
     ),
     Sabotage(
         suite='python',
-        label='the rig asks every body for an oceanmask, including the ones with no sea',
+        label='the rig asks every body for every mandatory image, declared or not',
         path='pipeline/render/scene_build.py',
-        needle='            if not spec.optional and (look.sea is not None or name != SEA_IMAGE)}',
+        needle='            if not spec.optional and spec.filename in declared}',
         replacement='            if not spec.optional}',
         guard='test_the_oceanmask_is_not_asked_for',
+    ),
+    Sabotage(
+        suite='python',
+        # The same mutation seen by the guard that is about Mars rather than about the sea: the
+        # lake and river masks come back for a body whose prep never wrote them, which is the
+        # refusal-before-any-block that unit 10 existed to remove.
+        label='the inland-water masks go back to being loaded on a planet that has none',
+        path='pipeline/render/scene_build.py',
+        needle='            if not spec.optional and spec.filename in declared}',
+        replacement='            if not spec.optional}',
+        guard='test_a_body_with_no_inland_water_loads_neither_mask',
+    ),
+    Sabotage(
+        suite='python',
+        # The pair that must never resolve quietly, resolved quietly. A look with a sea over a
+        # directory with no oceanmask then drops the image, wires the sea ramp to nothing and
+        # renders every ocean as land -- which is a correct-looking render of a different planet.
+        label='a sea look over a sealess directory renders land instead of refusing',
+        path='pipeline/render/scene_build.py',
+        needle='    if look.sea is not None and TEXTURES[SEA_IMAGE].filename not in declared:',
+        replacement='    if False:',
+        guard='test_a_look_with_a_sea_over_a_directory_with_no_oceanmask_refuses',
+    ),
+    Sabotage(
+        suite='python',
+        # The wiring half. `textures_for` can be perfectly correct and the graph still raise
+        # KeyError on a body that declared neither mask, because these two subscripts sat outside
+        # every conditional -- which is how the rig demanded an image its own filter had dropped.
+        label='the river mask is wired outside its guard again, so a body with none raises',
+        path='pipeline/render/scene_build.py',
+        needle='    if river is not None:\n'
+               '        link(surface_color, mix_socket(river, "A"))\n'
+               '        link(tex[river_spec.name].outputs["Color"], river.inputs[0])\n'
+               '        link(rgb.outputs["Color"], mix_socket(river, "B"))\n'
+               '        surface_color = mix_socket(river, "Result")',
+        replacement='    link(surface_color, mix_socket(river, "A"))\n'
+                    '    link(tex[river_spec.name].outputs["Color"], river.inputs[0])\n'
+                    '    link(rgb.outputs["Color"], mix_socket(river, "B"))\n'
+                    '    surface_color = mix_socket(river, "Result")',
+        guard='test_the_builder_subscripts_only_always_declared_images_unconditionally',
     ),
     # The scene and its frame are the two places one fact lives, so one of them has to be
     # executable. Absent the check a wrong flag draws another planet's ramps and nothing raises.
@@ -5708,7 +5748,7 @@ SABOTAGES: list[Sabotage] = [
         # implementation, and points the reader at `bodies.py` instead of at this file.
         label='the dispatch registry stops answering for a producer the vocabulary allows',
         path='pipeline/tile/planet_pass.py',
-        needle='    "raytrace": Producer(_raytrace, block_render.rig_seam_refusals),\n',
+        needle='    "raytrace": Producer(_raytrace, _runs_on_any_seam),\n',
         replacement='',
         guard='test_the_registry_and_the_vocabulary_are_the_same_set',
     ),
@@ -5728,15 +5768,15 @@ SABOTAGES: list[Sabotage] = [
     ),
     Sabotage(
         suite='python',
-        # The raytrace producer stops answering who may choose it. Reads as removing a redundant
-        # check -- `check_inputs` asks the same question inside the producer -- and re-opens the gap
-        # the pass exists to close: the registry can then hold a body/producer pair that cannot run,
-        # and nothing says so until a night has been spent warping for it.
-        label='the raytrace claims it runs on any seam, so an impossible pairing is never refused',
+        # The refusal MECHANISM goes dead while every registered producer happens to answer `[]`.
+        # Nothing in production changes, because nothing refuses anything today -- which is exactly
+        # what makes it undetectable without a synthetic producer, and exactly what would let a
+        # third producer's real requirement be silently ignored on the day it arrives.
+        label='cannot_run stops asking the producer, and no real body can show it',
         path='pipeline/tile/planet_pass.py',
-        needle='    "raytrace": Producer(_raytrace, block_render.rig_seam_refusals),',
-        replacement='    "raytrace": Producer(_raytrace, _composite_runs_on_any_seam),',
-        guard='test_a_seam_that_cannot_feed_the_rig_refuses_the_raytrace',
+        needle='    return producer_for(body).refusals_for(rasters)',
+        replacement='    del rasters\n    return []',
+        guard='test_the_refusal_MECHANISM_is_still_live',
     ),
     Sabotage(
         suite='python',
@@ -5955,14 +5995,14 @@ SABOTAGES: list[Sabotage] = [
     ),
     Sabotage(
         suite='python',
-        # The seam check stops refusing anything. Mars then passes every raster check — it is not
-        # asked for a file it never had — and fails inside Blender on the eighth block, under the
-        # message that says the GPU is gone about a rig input no block on that body can carry.
-        label='the rig-seam check accepts every planet, so a bodyless image fails as a dead GPU',
+        # The raster checks go back to disk. A thin seam is then asked for the water raster it
+        # never had, which is the old refusal returning through the other door: the body starts,
+        # finds no `water_3857.tif`, and is turned away for a file its planet does not produce.
+        label='a thin seam is asked for the water raster its planet never emits',
         path='pipeline/tile/block_render.py',
-        needle='    return [] if "watermask" in rasters else [render_seam.INLANDLAKE, render_seam.RIVER]',
-        replacement='    return []',
-        guard='test_the_refusal_names_both_images_no_block_can_carry',
+        needle='    if "watermask" in rasters:\n        required.append(work / shade_planet.WATER_3857)',
+        replacement='    required.append(work / shade_planet.WATER_3857)',
+        guard='test_a_thin_seam_is_asked_for_no_water_raster',
     ),
     Sabotage(
         suite='python',

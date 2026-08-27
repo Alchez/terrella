@@ -59,7 +59,7 @@ from pipeline import (
 from pipeline.block_plan import Block
 from pipeline.look import layer_producers, palette
 from pipeline.raster_io import GTIFF_CREATE
-from pipeline.render import blender_proc, prep_block, render_seam
+from pipeline.render import blender_proc, prep_block
 from pipeline.tile import producer_seam, relief_scan, shade_planet
 
 #: Consecutive block failures that stop the run. A single block can fail for its own reasons — a
@@ -319,40 +319,6 @@ def start_generation(markers: Path, mosaic: Path) -> None:
     generation_stamp(markers).touch()
 
 
-def unsuppliable_rig_images(rasters: frozenset[str]) -> list[str]:
-    """The rig's mandatory images no block on this planet seam can carry.
-
-    A DECLARATION QUESTION AND NOT A DISK ONE, asked before any block is prepped: `prep_block.build`
-    writes `inlandlake.png` and `river.png` only when the seam declared a `watermask`, and the rig
-    loads both for every look. So on a body with no watermask the images are not missing from one
-    block, they are unproduceable for all of them.
-
-    THE OCEANMASK IS DELIBERATELY NOT CHECKED, and that is the one asymmetry. It is the single
-    mandatory image a look can answer for — `scene_build.images_for` drops it when `Look.sea is
-    None` — and that rule lives in a module this interpreter cannot import, since `scene_build`
-    imports `bpy`. Lake and river carry no such escape: whether a planet has inland water is its
-    planet seam's answer rather than a colour, which is what makes them decidable from here.
-    """
-    return [] if "watermask" in rasters else [render_seam.INLANDLAKE, render_seam.RIVER]
-
-
-def rig_seam_refusals(rasters: frozenset[str]) -> list[str]:
-    """The same gap as a reason a caller can print, or `[]`.
-
-    TWO CALLERS AND ONE WORDING. The pass asks this before the shared warp so a wrongly-declared
-    body does not pay 6:49 to hear no; `check_inputs` asks it again below because `main` is a second
-    door into this producer that never passes through the pass. Neither can be dropped, and the
-    explanation is written once so the two answers cannot drift into disagreeing about why.
-    """
-    unsuppliable = unsuppliable_rig_images(rasters)
-    if not unsuppliable:
-        return []
-    return [(f"its planet stage declared no watermask, so no block carries "
-             f"{' or '.join(unsuppliable)}, which the rig loads for every look. This is a body-seam "
-             f"gap rather than a missing file — either its planet producer must emit one, or the "
-             f"rig must learn to render without it")]
-
-
 def check_inputs(work: Path, body: bodies.Body, rasters: frozenset[str]) -> None:
     """Refuse to start when this body cannot feed the rig, or its warped rasters are not on disk.
 
@@ -361,10 +327,13 @@ def check_inputs(work: Path, body: bodies.Body, rasters: frozenset[str]) -> None
     the consecutive-failure counter — whose message says the GPU is gone, about a stage that never
     ran. On an unattended night that reads as a hardware fault until someone opens the log.
 
-    THE SEAM CHECK IS THE SAME FAILURE ONE TIER UP, and it is the one a body switched to this
-    producer hits. A planet declaring no watermask passes every raster check below — it is not asked
-    for a file it never had — and then fails inside Blender on an image the rig loads
-    unconditionally, eight times, under the message about the GPU.
+    THERE IS NO LONGER A SEAM CHECK ABOVE THIS, and its removal is the point rather than an
+    omission. A planet declaring no watermask used to be refused here, because the rig loaded
+    `inlandlake.png` and `river.png` for every look while `prep_block` wrote them only where the
+    seam declared one; `scene_build.textures_for` now reads the render directory's own declaration,
+    so a thin seam is rendered rather than turned away. What replaced it is a narrower question in
+    the only place that can ask it: a LOOK with a sea over a directory with no oceanmask refuses in
+    `scene_build`, which this interpreter cannot import because it imports `bpy`.
 
     WHICH RASTERS ARE REQUIRED COMES FROM THE DECLARATION AND NEVER FROM THE DISK, because those are
     different questions: a body that emits no inland water must not be asked for a watermask, and a
@@ -372,10 +341,6 @@ def check_inputs(work: Path, body: bodies.Body, rasters: frozenset[str]) -> None
 
     The warp itself is still the pass's, which is the seam this names rather than papers over.
     """
-    refusals = rig_seam_refusals(rasters)
-    if refusals:
-        raise SystemExit(f"{body.name} cannot be rendered by this producer: "
-                         + "; ".join(refusals))
     required = [work / shade_planet.HEIGHT_3857]
     if "oceanmask" in rasters:
         required.append(work / shade_planet.OCEAN_3857)

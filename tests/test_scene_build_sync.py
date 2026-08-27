@@ -26,6 +26,16 @@ from pipeline import block_plan, bodies
 from pipeline.look import palette
 from pipeline.render import prep_block, render_prep, render_seam
 
+#: What a filled render directory declares on each body, which is what the rig may load.
+#:
+#: NOT HAND-PICKED PER TEST: these are `prep_block.build`'s own two outcomes. Earth's planet seam
+#: declares an oceanmask and a watermask, so the cut writes all four mandatory images; Mars declares
+#: the heightfield alone, so it writes one and the rig must render without the other three. The
+#: rowscale rides along on both and is optional, so it is not part of what is asserted here.
+EARTH_DECLARED = frozenset({render_seam.HEIGHTFIELD, render_seam.OCEANMASK,
+                            render_seam.INLANDLAKE, render_seam.RIVER})
+MARS_DECLARED = frozenset({render_seam.HEIGHTFIELD})
+
 
 @pytest.fixture(scope="module")
 def scene_build():
@@ -138,25 +148,132 @@ class TestASeaLessLookDropsTheSeaBranch:
     def test_the_oceanmask_is_not_asked_for(self, scene_build):
         """A sea-less body never names the raster its planet seam declines to declare, so the
         rig cannot fail on a missing file that was never supposed to exist."""
-        earth_images = scene_build.textures_for(palette.EARTH_LOOK)
-        mars_images = scene_build.textures_for(palette.MARS_LOOK)
+        earth_images = scene_build.textures_for(palette.EARTH_LOOK, EARTH_DECLARED)
+        mars_images = scene_build.textures_for(palette.MARS_LOOK, MARS_DECLARED)
         assert scene_build.SEA_IMAGE in earth_images
         assert scene_build.SEA_IMAGE not in mars_images
-        assert set(earth_images) - set(mars_images) == {scene_build.SEA_IMAGE}
-
-    def test_the_lake_and_river_masks_stay_mandatory_for_every_look(self, scene_build):
-        """The oceanmask is the only image a LOOK can answer for, because it selects between this
-        look's two ramps. Inland water is a planet-seam declaration rather than a colour, so keying
-        it off `sea is None` here would answer a question the look was never asked."""
-        for look in (palette.EARTH_LOOK, palette.MARS_LOOK):
-            names = scene_build.textures_for(look)
-            assert "Image Texture.002" in names and "Image Texture.003" in names
 
     def test_earths_image_table_and_its_order_are_untouched(self, scene_build):
         """The dump-diff against the hand-built .blend sees creation order, so the sea-less arm
         must not have reordered the arm that renders 203 heroes."""
         mandatory = [name for name, spec in scene_build.TEXTURES.items() if not spec.optional]
-        assert list(scene_build.textures_for(palette.EARTH_LOOK)) == mandatory
+        assert list(scene_build.textures_for(palette.EARTH_LOOK, EARTH_DECLARED)) == mandatory
+
+
+class TestTheMandatoryImagesAreTheDirectorysAnswerAndNotTheLooks:
+    """What the rig loads is what the prep DECLARED it wrote, which is the rule the optional four
+    have always followed and the mandatory four were exempt from.
+
+    THE EXEMPTION IS WHAT BLOCKED MARS. `prep_block.build` writes `inlandlake.png` and `river.png`
+    only when the planet seam declared a watermask, and the rig loaded both for every look, so a
+    body with no inland water was refused before its first block rather than rendered without them.
+    The refusal was correct about the rig and is what this replaces.
+
+    A LOOK STILL ANSWERS FOR THE SEA, and that has not collapsed into the declaration: `Look.sea`
+    decides whether the sea BRANCH exists in the graph, the declaration decides whether the IMAGE
+    can be loaded, and the pair that must never pass silently is a look with a sea over a directory
+    with no oceanmask. That renders a planet of land, which is the failure the declaration rule
+    exists to prevent, so it raises here rather than resolving to the smaller set.
+    """
+
+    def test_a_body_with_no_inland_water_loads_neither_mask(self, scene_build):
+        names = scene_build.textures_for(palette.MARS_LOOK, MARS_DECLARED)
+        assert {spec.filename for spec in names.values()} == {render_seam.HEIGHTFIELD}
+
+    def test_a_body_that_declares_them_still_loads_both(self, scene_build):
+        """The other direction, so the filter is not simply dropping them everywhere."""
+        loaded = {spec.filename
+                  for spec in scene_build.textures_for(palette.EARTH_LOOK, EARTH_DECLARED).values()}
+        assert {render_seam.INLANDLAKE, render_seam.RIVER} <= loaded
+
+    def test_a_look_with_a_sea_over_a_directory_with_no_oceanmask_refuses(self, scene_build):
+        """The one pair that must not resolve quietly. Dropping the image because it was not
+        declared would wire the sea ramp to nothing and render Earth as a planet of land, which is
+        indistinguishable from a correct render of a body that has no sea."""
+        with pytest.raises(ValueError, match="oceanmask"):
+            scene_build.textures_for(palette.EARTH_LOOK, MARS_DECLARED)
+
+    def test_the_recipe_does_not_move_when_the_declaration_does(self, scene_build):
+        """The cost guard, and it is the reason this could land at all. `rig_recipe` records the
+        whole TEXTURES table rather than the subset a directory loads, so making the load
+        declaration-driven moves no recipe key and restages none of Earth's 1,024 blocks."""
+        before = json.dumps(scene_build.rig_recipe(palette.EARTH_LOOK), sort_keys=True)
+        after = json.dumps(scene_build.rig_recipe(palette.EARTH_LOOK), sort_keys=True)
+        assert before == after
+        assert "declared" not in before and render_seam.INLANDLAKE in before
+
+    #: The subscript keys the builder may use with no conditional around them, AS SOURCE TEXT.
+    #:
+    #: Spelled rather than derived because the scan below reads the AST: it sees the expression a
+    #: line uses for a node, never the node it resolves to at run time. Only the heightfield
+    #: belongs here, and the reason is `render_seam.declared`'s own — it is the completion test, so
+    #: a directory that declared anything at all declared that.
+    ALWAYS_DECLARED: ClassVar[frozenset[str]] = frozenset({
+        "texture_for(render_seam.HEIGHTFIELD).name",
+    })
+
+    def test_the_builder_subscripts_only_always_declared_images_unconditionally(self, scene_build):
+        """The wiring half, which no stubbed-bpy test can reach by running it.
+
+        `build_material` links `tex[...]` for every mandatory image, and two of those subscripts
+        were unconditional — so a directory that legitimately declared neither raised `KeyError`
+        deep in the graph rather than skipping the mix. Only the heightfield may be subscripted
+        without a guard, because it is the one image `render_seam.declared` treats as the
+        completion test and therefore the one every filled directory has.
+
+        WHAT THIS CANNOT SEE is whether the enclosing condition is the RIGHT one: any `if` counts,
+        so a subscript nested under a vacuous guard reads as covered here. It catches the shape the
+        defect actually had, which is a subscript at the function's top level.
+        """
+        source = Path(scene_build.__file__).read_text()
+        tree = ast.parse(source)
+        builder = next(node for node in ast.walk(tree)
+                       if isinstance(node, ast.FunctionDef) and node.name == "build_material")
+        guarded, unguarded = self._subscripts(builder)
+        assert unguarded <= self.ALWAYS_DECLARED, (
+            f"build_material subscripts tex{sorted(unguarded - self.ALWAYS_DECLARED)} outside any "
+            "conditional; a body whose prep declared none of those raises KeyError in the graph "
+            f"instead of skipping the mix (guarded, and therefore fine: {sorted(guarded)})")
+
+    def test_that_scan_can_see_an_unguarded_subscript(self, scene_build):
+        """The control. The assertion above is satisfied by a walk that found no subscripts at
+        all, which is what a renamed local or a restructured builder would produce."""
+        builder = next(node for node in ast.walk(ast.parse(Path(scene_build.__file__).read_text()))
+                       if isinstance(node, ast.FunctionDef) and node.name == "build_material")
+        guarded, unguarded = self._subscripts(builder)
+        assert guarded | unguarded, "the scan found no tex[...] subscripts at all"
+
+    @staticmethod
+    def _subscripts(builder: ast.FunctionDef) -> tuple[set[str], set[str]]:
+        """Every `tex[...]` key in the builder, split by whether an `if` encloses it.
+
+        The key is read as a NAME rather than a literal wherever the builder spells one, so
+        `tex[spec.name]` is reported under the node name its spec carries; an unresolvable key is
+        reported as unguarded, which fails toward flagging rather than toward silence.
+        """
+        guarded: set[str] = set()
+        unguarded: set[str] = set()
+
+        def walk(node: ast.AST, inside_if: bool) -> None:
+            for child in ast.iter_child_nodes(node):
+                if isinstance(child, ast.If):
+                    for grandchild in ast.iter_child_nodes(child):
+                        walk(grandchild, True)
+                    continue
+                if (isinstance(child, ast.Subscript) and isinstance(child.value, ast.Name)
+                        and child.value.id == "tex"
+                        # The build loop's `tex[name] = ...` is where the dict is FILLED, so it is
+                        # not a read that can miss and must not be counted as one.
+                        and not isinstance(child.ctx, ast.Store)):
+                    key = (child.slice.value
+                           if isinstance(child.slice, ast.Constant)
+                           and isinstance(child.slice.value, str)
+                           else ast.unparse(child.slice))
+                    (guarded if inside_if else unguarded).add(key)
+                walk(child, inside_if)
+
+        walk(builder, False)
+        return guarded, unguarded
 
 
 class TestTheFlagIsCrossCheckedAgainstTheFrame:

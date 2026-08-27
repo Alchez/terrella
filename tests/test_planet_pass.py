@@ -56,19 +56,36 @@ class TestABodyCannotDeclareAProducerItCannotRun:
                     f"planet seam declares"
                 )
 
-    def test_a_seam_that_cannot_feed_the_rig_refuses_the_raytrace(self):
-        """The NEGATIVE arm, and it has to be synthetic. Mars is the real instance and it answers
-        `composite`, so sourcing this from the registry would test nothing the day anything flips.
-        """
-        mars_raytraced = dataclasses.replace(bodies.MARS, planet_producer="raytrace")
-        blocked = planet_pass.cannot_run(mars_raytraced, frozenset({"heightfield"}))
-        assert blocked, "a heightfield-only seam cannot carry the rig's lake and river images"
-        assert any("river" in reason for reason in blocked), blocked
+    def test_no_registered_producer_refuses_any_seam_today(self):
+        """CURRENT TRUTH, and it used to be false. The raytrace refused a seam with no watermask,
+        because the rig loaded the two inland-water masks for every look; since
+        `scene_build.textures_for` reads the render directory's declaration there is no image a
+        thin seam fails to supply, so both producers now answer alike.
 
-    def test_the_same_seam_does_not_refuse_the_composite(self):
-        """The control that makes the arm above a statement about the PRODUCER rather than about
-        the seam. Mars composites today on exactly this declaration."""
-        assert planet_pass.cannot_run(bodies.MARS, frozenset({"heightfield"})) == []
+        Swept over the registry rather than asserted of one entry, so a third producer arriving
+        with a real requirement is a red test here rather than a silent exemption. This lives in
+        the module that OWNS `PRODUCERS`, not in one that doctors it.
+        """
+        for name, producer in planet_pass.PRODUCERS.items():
+            for rasters in (frozenset({"heightfield"}), frozenset(planet_seam.KNOWN_RASTERS)):
+                assert producer.refusals_for(rasters) == [], (
+                    f"{name} refuses {sorted(rasters)}; if that is real it needs its own guard, "
+                    "and if it is not, the registry entry is stale")
+
+    def test_the_refusal_MECHANISM_is_still_live(self, monkeypatch):
+        """The anti-vacuity arm, and it is the whole reason the assertion above is safe to make.
+
+        With every producer answering `[]`, `cannot_run` cannot be shown working by any real body,
+        and a `cannot_run` that had been broken into always returning `[]` would read exactly the
+        same. So a synthetic producer WITH a requirement is registered and the refusal is shown
+        coming back out, which is the control that removes my own arm.
+        """
+        refusing = planet_pass.Producer(
+            lambda *args: Path("unused"), lambda rasters: ["it wants a mask nobody declares"])
+        monkeypatch.setitem(planet_pass.PRODUCERS, "synthetic", refusing)
+        body = dataclasses.replace(bodies.MARS, planet_producer="synthetic")
+        assert planet_pass.cannot_run(body, frozenset({"heightfield"})) == [
+            "it wants a mask nobody declares"]
 
     def test_a_whole_planet_seam_does_not_refuse_the_raytrace(self):
         """And the control in the other direction, so the refusal is not simply always-on."""
@@ -80,9 +97,16 @@ class TestABodyCannotDeclareAProducerItCannotRun:
         it. A tripwire on the warp is what makes this a claim about WHEN rather than whether: the
         refusal already existed inside the producer, and the whole defect was that it fired after
         the expensive shared stage the pass runs first.
+
+        THE PRODUCER IS SYNTHETIC BECAUSE NO REAL ONE REFUSES ANY MORE, and the ordering is still
+        the claim. Sourcing the refusal from the registry would have made this test disappear the
+        day the rig learned to render a thin seam, taking the ordering guarantee with it.
         """
+        refusing = planet_pass.Producer(
+            lambda *args: Path("unused"), lambda rasters: ["it wants a mask nobody declares"])
+        monkeypatch.setitem(planet_pass.PRODUCERS, "synthetic", refusing)
         unrunnable = dataclasses.replace(bodies.MARS, name="unrunnable", path_prefix="unrunnable",
-                                         planet_producer="raytrace")
+                                         planet_producer="synthetic")
         monkeypatch.setitem(bodies.BODIES, unrunnable.name, unrunnable)
         monkeypatch.setattr(planet_seam, "declared", lambda body: frozenset({"heightfield"}))
 
@@ -94,7 +118,7 @@ class TestABodyCannotDeclareAProducerItCannotRun:
                                ["planet_pass", "--body", unrunnable.name, "--out", str(tmp_path)]), \
                 pytest.raises(SystemExit) as refusal:
             planet_pass.main()
-        assert "watermask" in str(refusal.value), refusal.value
+        assert "it wants a mask nobody declares" in str(refusal.value), refusal.value
 
 
 class TestTheBodyIsRequired:

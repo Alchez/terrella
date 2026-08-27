@@ -21,8 +21,14 @@ from pipeline import block_plan, bodies, freshness, layers, planet_seam
 from pipeline.block_plan import Block
 from pipeline.look import layer_producers, palette, seaice, snow
 from pipeline.raster_io import GTIFF_CREATE
-from pipeline.render import prep_block, render_seam
-from pipeline.tile import block_render, producer_seam, relief_scan, shade_planet
+from pipeline.render import prep_block
+from pipeline.tile import (
+    block_render,
+    planet_pass,
+    producer_seam,
+    relief_scan,
+    shade_planet,
+)
 
 
 def _block(row_index, col_index, context=block_plan.DENOISE_BAND_PX):
@@ -732,8 +738,9 @@ class TestARunRefusesToStartWithoutItsInputs:
         """The declaration decides, never the disk: asking every body for every raster would make
         a sea-less planet unrenderable, and sniffing the disk cannot tell 'has none' from 'died'.
 
-        THE OCEANMASK IS THE ONE THIS STILL HOLDS FOR, and the watermask is not: `images_for` drops
-        the sea image for a look with no sea, so a block without one is a scene the rig will build.
+        EVERY MANDATORY IMAGE NOW WORKS THIS WAY, and the oceanmask used to be the only one:
+        `scene_build.textures_for` loads what the render directory declared, so a block missing any
+        of them is a scene the rig will build rather than one it refuses.
         """
         (tmp_path / shade_planet.HEIGHT_3857).write_bytes(b"")
         (tmp_path / shade_planet.WATER_3857).write_bytes(b"")
@@ -745,32 +752,42 @@ class TestARunRefusesToStartWithoutItsInputs:
             block_render.check_inputs(tmp_path, bodies.EARTH, self.FEEDS_THE_RIG)
 
 
-class TestASeamThatCannotFeedTheRigIsRefusedBeforeAnyBlock:
-    """The same misattributed failure one tier up, and the one a producer switch actually hits.
+class TestATHinSeamNoLongerStopsTheProducer:
+    """The refusal this replaces was correct about the rig and is what the rig stopped needing.
 
-    A planet declaring no watermask is not asked for a file it never had, so every raster check
-    passes — and then every block fails inside Blender on `inlandlake.png`, eight times, under the
-    message that says the GPU is gone. Mars is that planet today.
+    A planet declaring no watermask was refused before its first block, because the rig loaded
+    `inlandlake.png` and `river.png` for every look while `prep_block` wrote them only where the
+    seam declared one. Since `scene_build.textures_for` reads the render directory's own
+    declaration, there is no image a thin seam fails to supply and nothing left to refuse.
+
+    THE REPLACEMENT IS NOT NOTHING, and it is a different question in a different place: a LOOK
+    with a sea over a directory with no oceanmask still refuses, in `scene_build`, because that
+    pair renders a planet of land. It is not askable here — this interpreter cannot import a
+    module that imports `bpy`, which is why the old refusal deliberately skipped the oceanmask.
     """
 
-    def test_mars_seam_is_refused_by_name(self, tmp_path):
+    def test_mars_seam_starts_where_it_used_to_be_refused(self, tmp_path):
+        """The oracle for unit 10's code blocker: the thin seam gets past the door."""
         _stage_warped_inputs(tmp_path)
-        with pytest.raises(SystemExit, match="watermask"):
+        block_render.check_inputs(tmp_path, bodies.MARS, frozenset({"heightfield"}))
+
+    def test_the_raster_checks_below_it_still_fire(self, tmp_path):
+        """The control. A `check_inputs` that returned early would satisfy the test above for the
+        wrong reason, so the check it must still be doing is asserted on the same body."""
+        with pytest.raises(SystemExit, match="height_3857"):
             block_render.check_inputs(tmp_path, bodies.MARS, frozenset({"heightfield"}))
 
-    def test_the_refusal_names_both_images_no_block_can_carry(self):
-        assert block_render.unsuppliable_rig_images(frozenset({"heightfield"})) == [
-            render_seam.INLANDLAKE, render_seam.RIVER]
+    def test_a_thin_seam_is_asked_for_no_water_raster(self, tmp_path):
+        """The other half of that control: refusing Mars for a missing `water_3857.tif` would be
+        the same defect wearing the other hat, since its seam declares no watermask."""
+        (tmp_path / shade_planet.HEIGHT_3857).write_bytes(b"")
+        block_render.check_inputs(tmp_path, bodies.MARS, frozenset({"heightfield"}))
 
-    def test_a_seam_with_a_watermask_supplies_them_all(self):
-        """The anti-vacuity half: a refusal that fired for every seam would prove nothing."""
-        assert block_render.unsuppliable_rig_images(frozenset({"heightfield", "watermask"})) == []
-
-    def test_the_oceanmask_is_not_among_them(self):
-        """It is the one mandatory image a LOOK answers for, and that rule lives in `scene_build`,
-        which this interpreter cannot import. Demanding it here would refuse every sea-less body."""
-        assert render_seam.OCEANMASK not in block_render.unsuppliable_rig_images(
-            frozenset({"heightfield"}))
+    def test_the_registry_sweep_lives_where_the_registry_does(self):
+        """A pointer rather than a second copy: `test_planet_pass` owns the claim that no producer
+        refuses a seam, because `PRODUCERS` is that module's. Asserting it here too would be two
+        guards to update the day a third producer arrives."""
+        assert "refusals_for" in planet_pass.Producer.__dataclass_fields__
 
 
 def _stage_warped_inputs(tmp_path):

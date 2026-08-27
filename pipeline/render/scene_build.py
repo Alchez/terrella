@@ -406,24 +406,33 @@ def rig_recipe(look: palette.Look) -> dict[str, Any]:
     }
 
 
-def textures_for(look: palette.Look) -> dict[str, TextureSpec]:
-    """The textures built unconditionally for this look: the mandatory four, bar the oceanmask for
-    a sea-less body.
+def textures_for(look: palette.Look, declared: frozenset[str]) -> dict[str, TextureSpec]:
+    """The mandatory textures this render directory can actually supply, in table order.
 
     THE OPTIONAL ONES ARE NOT HERE because they are built at their own sites, beside the mixes and
     ramps they feed, and the dump-diff against the hand-built .blend sees creation order.
 
-    A DECLARATION DECIDES THIS AND NEVER `Path.exists()`. Snow and lake depth are sniffed below and
-    survive it because a missing mask degrades to a defined colour; a missing oceanmask cannot tell
-    "this planet has no sea" from "prep crashed", and guessing the first renders a planet of land.
+    A DECLARATION DECIDES THIS AND NEVER `Path.exists()`, which is the rule the optional four have
+    always followed and these four used to be exempt from. `prep_block.build` writes the lake and
+    river masks only when the planet seam declared a watermask, so the rig loading both for every
+    look made a body with no inland water unrenderable — refused before its first block rather than
+    drawn without them. What is loaded is now what some stage said it wrote.
 
-    THE OCEANMASK IS THE ONLY ONE A LOOK CAN ANSWER FOR, because it selects between this look's two
-    ramps. The lake and river masks stay mandatory: whether a planet has inland water is its planet
-    seam's `watermask` declaration, not a colour, and absent one the image load fails loudly rather
-    than drawing anything. Giving the rig that declaration to read is unit 4's block sidecar.
+    A LOOK STILL ANSWERS FOR THE SEA AND THAT HAS NOT COLLAPSED INTO THE DECLARATION. `Look.sea`
+    decides whether the sea BRANCH exists in the graph; the declaration decides whether the IMAGE
+    can be loaded. The pair that must never resolve quietly is a look with a sea over a directory
+    with no oceanmask: dropping the image there wires the sea ramp to nothing and renders a planet
+    of land, which is indistinguishable from a correct render of a body that has no sea. So it
+    raises, on the same reasoning that keeps this off `Path.exists()` in the first place.
     """
+    if look.sea is not None and TEXTURES[SEA_IMAGE].filename not in declared:
+        raise ValueError(
+            f"this look draws a sea but the render directory declared no "
+            f"{TEXTURES[SEA_IMAGE].filename}: {sorted(declared)}. A sea ramp with no mask to "
+            f"select it renders the whole planet as land, which is why this refuses rather than "
+            f"loading the smaller set.")
     return {name: spec for name, spec in TEXTURES.items()
-            if not spec.optional and (look.sea is not None or name != SEA_IMAGE)}
+            if not spec.optional and spec.filename in declared}
 
 
 def make_texture(nt, render_dir, spec: TextureSpec):
@@ -664,9 +673,13 @@ def build_material(ob, render_dir, displacement_scale, look, present):
     lake_depth_spec = texture_for(render_seam.LAKEDEPTH)
     ice_spec = texture_for(render_seam.SEAICE)
     rowscale_spec = texture_for(render_seam.ROWSCALE)
+    # The two inland-water masks, looked up the same way, because they are no longer guaranteed:
+    # a body whose seam declares no watermask has neither, and the mixes they drive are skipped.
+    lake_spec = texture_for(render_seam.INLANDLAKE)
+    river_spec = texture_for(render_seam.RIVER)
 
     tex = {}
-    for name, spec in textures_for(look).items():
+    for name, spec in textures_for(look, present).items():
         tex[name] = make_texture(nt, render_dir, spec)
 
     disp = nt.nodes.new("ShaderNodeDisplacement")
@@ -693,8 +706,11 @@ def build_material(ob, render_dir, displacement_scale, look, present):
     rgb.name = "Color"
     rgb.outputs[0].default_value = RIG.water_rgba
 
-    lake = make_mix(nt, "Mix.001", "Lake")
-    river = make_mix(nt, "Mix.002", "River")
+    # EACH MIX EXISTS ONLY WHERE ITS MASK DOES, which is the same rule the optional nodes below
+    # follow. Creation order is unchanged for a body that declares everything, which is every body
+    # the dump-diff baseline covers.
+    lake = make_mix(nt, "Mix.001", "Lake") if lake_spec.filename in present else None
+    river = make_mix(nt, "Mix.002", "River") if river_spec.filename in present else None
     ocean = None if sea_ramp is None else make_mix(nt, "Mix", "")
 
     # optional data-driven snow/ice (render/snow_mask.py); layer not declared
@@ -759,7 +775,7 @@ def build_material(ob, render_dir, displacement_scale, look, present):
     if rowscale is not None:
         link(tex[rowscale_spec.name].outputs["Color"], rowscale.inputs[0])
         link(rowscale.outputs["Value"], disp.inputs["Scale"])
-    hf = tex["Image Texture"]
+    hf = tex[texture_for(render_seam.HEIGHTFIELD).name]
     if ice_flatten is not None:
         link(hf.outputs["Color"], float_socket(ice_flatten, "A"))
         link(tex[ice_spec.name].outputs["Color"], ice_flatten.inputs["Factor"])
@@ -777,17 +793,23 @@ def build_material(ob, render_dir, displacement_scale, look, present):
         link(land_color, mix_socket(snow, "A"))
         link(tex[snow_spec.name].outputs["Color"], snow.inputs[0])
         land_color = mix_socket(snow, "Result")
-    link(land_color, mix_socket(lake, "A"))
-    link(tex["Image Texture.002"].outputs["Color"], lake.inputs[0])
-    if lake_ramp is not None:
-        link(tex[lake_depth_spec.name].outputs["Color"], lake_ramp.inputs["Factor"])
-        link(lake_ramp.outputs["Color"], mix_socket(lake, "B"))
-    else:
-        link(rgb.outputs["Color"], mix_socket(lake, "B"))
-    link(mix_socket(lake, "Result"), mix_socket(river, "A"))
-    link(tex["Image Texture.003"].outputs["Color"], river.inputs[0])
-    link(rgb.outputs["Color"], mix_socket(river, "B"))
-    surface_color = mix_socket(river, "Result")
+    # THE CHAIN IS THREADED RATHER THAN FIXED, so a body with no inland water hands the land colour
+    # straight to the sea branch instead of through two mixes it has no masks to drive.
+    surface_color = land_color
+    if lake is not None:
+        link(surface_color, mix_socket(lake, "A"))
+        link(tex[lake_spec.name].outputs["Color"], lake.inputs[0])
+        if lake_ramp is not None:
+            link(tex[lake_depth_spec.name].outputs["Color"], lake_ramp.inputs["Factor"])
+            link(lake_ramp.outputs["Color"], mix_socket(lake, "B"))
+        else:
+            link(rgb.outputs["Color"], mix_socket(lake, "B"))
+        surface_color = mix_socket(lake, "Result")
+    if river is not None:
+        link(surface_color, mix_socket(river, "A"))
+        link(tex[river_spec.name].outputs["Color"], river.inputs[0])
+        link(rgb.outputs["Color"], mix_socket(river, "B"))
+        surface_color = mix_socket(river, "Result")
     if ocean is not None and sea_ramp is not None:
         link(surface_color, mix_socket(ocean, "A"))
         link(sea_ramp.outputs["Color"], mix_socket(ocean, "B"))
