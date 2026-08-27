@@ -7576,9 +7576,16 @@ SABOTAGES: list[Sabotage] = [
         #
         # A hand-edited leaf count now has no oracle inside the suite — only `check:tile-tokens`,
         # which reads the archives themselves and so cannot run on a checkout without a data store.
+        #
+        # THIS NEEDLE RE-ANCHORS ON EVERY RE-CUT OF THE ARCHIVE IT NAMES, and it is the only case
+        # here whose file is GENERATED — so it breaks when a pipeline runs rather than when someone
+        # edits code, and the break surfaces on CI well after the run that caused it. The guard
+        # quantifies over every entry, so any token would serve; this one is Earth's relief because
+        # that is the archive the deploy rule is written about, which keeps the coupling visible.
+        # Re-cut procedure, including this line: `.claude/rules/tile-worker-and-delivery.md`.
         label='a token is committed as its placeholder, addressing an archive nothing can bust',
         path='web/src/lib/tileTokens.json',
-        needle='"token": "4d04db58"',
+        needle='"token": "7a5e21c1"',
         replacement='"token": "00000000"',
         guard='holds a real hash for every one, never the placeholder',
     ),
