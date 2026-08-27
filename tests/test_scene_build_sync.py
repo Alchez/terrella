@@ -17,6 +17,7 @@ import math
 import sys
 import types
 from pathlib import Path
+from typing import ClassVar
 
 import numpy as np
 import pytest
@@ -645,45 +646,148 @@ class TestEveryTextureNodeIsDeclaredRatherThanSpelledInline:
         assert by_file[render_seam.SEAICE].interpolation == "Linear"
         assert by_file[render_seam.ROWSCALE].extension == "EXTEND"
 
-    #: Attributes whose value changes what a pixel comes out as. A node's own `.name` is NOT here:
-    #: it is an identity, a consistent rename renders byte-identically, and recording one would put
-    #: a 22 h re-render behind a rename that moves nothing. `colorspace_settings.name` is a
-    #: different attribute that happens to share the word, and it is very much pixel-moving.
+
+class TestTheBuilderSpellsNoLookValueWhereTheRecipeCannotSeeIt:
+    """`rig_recipe` records `Rig`, the texture table and the look. Anything else the builder decides
+    is a value the recipe cannot see, so a change to it leaves every rendered block reading fresh.
+
+    THE TEXTURE TABLE ABOVE WAS ONE INSTANCE OF THIS, NOT THE WHOLE OF IT, which is why this is its
+    own class: the scan below rules on the camera, the subdivision, the lights, the node graph and
+    the Cycles settings as well, and a reader asking why `engine = 'CYCLES'` is pinned would never
+    look under a heading about image nodes.
+    """
+
+    #: The one attribute a bare literal may name, because its value cannot reach a pixel: a node's
+    #: identity. A consistent rename renders byte-identically, and recording one would put a whole
+    #: planet re-render behind a change that moves nothing.
     #:
-    #: HAND-LISTED, SO WHAT IT MISSES IT MISSES IN SILENCE. bpy tags nothing as look-bearing, so
-    #: this set cannot be derived; an attribute nobody thought to add is simply unguarded, which is
-    #: how `view_transform` sat inline through the conversion that structured every number near it.
-    PIXEL_MOVING = ("interpolation", "extension", "view_transform")
+    #: `colorspace_settings.name` is a different attribute that happens to share the word, and it is
+    #: very much pixel-moving — it reaches EVERY raster the rig loads.
+    IDENTITY_ATTRIBUTE = "name"
+
+    #: AN ALLOWLIST, AND THE INVERSION IS THE WHOLE POINT. What stood here named the attributes that
+    #: DO move pixels — `interpolation`, `extension`, `view_transform` — so an attribute nobody
+    #: thought of was unguarded and SILENT. bpy tags nothing as look-bearing, so neither direction
+    #: can be derived from it; what differs is which way an omission fails. Listing the movers meant
+    #: a module holding `blend_type`, `displacement_method`, `space`, `levels` and two dozen others
+    #: read as clean. Listing the one inert attribute means a new one is red until someone rules on
+    #: it.
+    #:
+    #: The value filter went with it. Restricting to `str` constants made every number, bool and
+    #: tuple invisible whatever the attribute was called, which hid the subdivision levels, the
+    #: BSDF roughness and the fill sun's `use_shadow`.
+
+    #: Inline literals that provably cannot reach a pixel. A sun lamp in Cycles is a DIRECTION, so
+    #: where the object stands is not a light term; the builder's own comment says so.
+    COSMETIC_INLINE: ClassVar[frozenset[str]] = frozenset({
+        ".location = (4.076245, 1.005454, 5.903862)",
+    })
+
+    #: Inline literals that DO reach a pixel and that `rig_recipe` therefore cannot see. In file
+    #: order, so the sweep can be walked top to bottom.
+    #:
+    #: PINNED RATHER THAN FIXED, AND THE PIN IS WHAT MAKES DEFERRING SAFE. `rig_recipe` is
+    #: `asdict(RIG)`, so moving any one of these into `Rig` changes the recipe's text, and
+    #: `block_render` then clears every marker and re-renders the whole planet — for pixels that did
+    #: not move. Earth's recipe on disk currently matches what `params` would write, so that night
+    #: would buy nothing. Pinning the VALUE instead costs no GPU and converts the silent miss into a
+    #: red test: change one of these and this list has to be edited, which is the moment to decide
+    #: whether the change rides a pass that is already happening.
+    #:
+    #: SO THIS IS A TRIPWIRE AND NOT A FIX. The recipe stays blind to all of them until the sweep.
+    DEFERRED_INLINE: ClassVar[frozenset[str]] = frozenset({
+        ".subdivision_type = 'SIMPLE'",
+        ".levels = 1",
+        ".render_levels = 2",
+        ".use_adaptive_subdivision = True",
+        ".type = 'ORTHO'",
+        ".clip_end = 100.0",
+        ".use_shadow = False",
+        ".use_nodes = True",
+        ".data_type = 'FLOAT'",
+        ".data_type = 'RGBA'",
+        ".clamp = True",
+        ".blend_type = 'MIX'",
+        ".clamp_factor = True",
+        ".displacement_method = 'DISPLACEMENT'",
+        ".space = 'OBJECT'",
+        ".default_value = 0.0",
+        ".operation = 'MULTIPLY'",
+        ".use_clamp = False",
+        ".default_value = 1.0",
+        ".engine = 'CYCLES'",
+        ".file_format = 'PNG'",
+        ".color_mode = 'RGBA'",
+        ".device = 'GPU'",
+        ".use_adaptive_sampling = True",
+        ".use_denoising = True",
+        ".denoiser = 'OPENIMAGEDENOISE'",
+        ".denoising_input_passes = 'RGB_ALBEDO_NORMAL'",
+        ".denoising_prefilter = 'ACCURATE'",
+        ".denoising_quality = 'HIGH'",
+    })
+
+    @staticmethod
+    def _literal(value: ast.expr) -> str | None:
+        """`value` rendered as source if it is a literal, else None.
+
+        Tuples and lists count and are the reason this is not `isinstance(value, ast.Constant)`:
+        the fill sun's position is three floats in a tuple, which is a look value in every sense
+        and matches no scalar test.
+        """
+        if isinstance(value, ast.Constant):
+            return ast.unparse(value)
+        if isinstance(value, ast.Tuple | ast.List) and all(
+                isinstance(item, ast.Constant) for item in value.elts):
+            return ast.unparse(value)
+        return None
 
     def _inline_values(self, source: str) -> list[str]:
         found = []
         for node in ast.walk(ast.parse(source)):
-            if not isinstance(node, ast.Assign) or not isinstance(node.value, ast.Constant):
+            if not isinstance(node, ast.Assign):
                 continue
-            if not isinstance(node.value.value, str):
+            literal = self._literal(node.value)
+            if literal is None:
                 continue
             for target in node.targets:
                 if not isinstance(target, ast.Attribute):
                     continue
-                colorspace = (target.attr == "name"
+                colorspace = (target.attr == self.IDENTITY_ATTRIBUTE
                               and isinstance(target.value, ast.Attribute)
                               and target.value.attr == "colorspace_settings")
-                if target.attr in self.PIXEL_MOVING or colorspace:
-                    found.append(f"line {node.lineno}: .{target.attr} = {node.value.value!r}")
+                if target.attr != self.IDENTITY_ATTRIBUTE or colorspace:
+                    found.append(f".{target.attr} = {literal}")
         return found
 
-    def test_no_pixel_moving_value_is_spelled_inline_in_the_builder(self, scene_build):
+    def test_every_inline_literal_in_the_builder_is_one_somebody_ruled_on(self, scene_build):
         """The guard that catches the NEXT inline literal rather than the ones already listed.
 
         Everything above pins values that exist today. This asks the structural question none of
-        them can: does the builder assign a bare string to an attribute that decides a pixel? A
+        them can: does the builder hand a bare literal to an attribute nobody has ruled on? A
         conversion only holds if re-introducing the pattern goes red.
 
         This is what found `load_image`'s `colorspace_settings.name = "Non-Color"`, which reaches
         EVERY raster the rig loads and was on no list of the file's inline values.
+
+        BOTH DIRECTIONS, BECAUSE A PIN LIST ROTS BOTH WAYS. An unruled site is a value that reaches
+        a pixel with nothing watching it. A ruling with no site left is worse in a quieter way: the
+        next reader takes this list for a description of the file, and it has stopped being one.
+
+        AND THE SECOND DIRECTION IS THE SCANNER'S OWN CONTROL, which is why it is not merely tidy.
+        A scanner that matched nothing would satisfy every "no unruled sites" assertion ever
+        written; here it fails instead, naming every ruling whose site it could not find.
         """
-        found = self._inline_values(Path(scene_build.__file__).read_text(encoding="utf-8"))
-        assert not found, "values spelled inline, invisible to the recipe:\n" + "\n".join(found)
+        found = set(self._inline_values(Path(scene_build.__file__).read_text(encoding="utf-8")))
+        ruled = self.COSMETIC_INLINE | self.DEFERRED_INLINE
+        assert not found - ruled, (
+            "inline literals nobody has ruled on, invisible to `rig_recipe`:\n  "
+            + "\n  ".join(sorted(found - ruled))
+            + "\nEither derive the value from `Rig` — which restages the whole planet — or add it "
+              "to DEFERRED_INLINE with the value it ships today.")
+        assert not ruled - found, (
+            "rulings whose site is gone, so this list no longer describes the builder:\n  "
+            + "\n  ".join(sorted(ruled - found)))
 
     def test_the_scan_finds_an_inline_value_when_there_is_one(self):
         """`scene_dump`'s own lesson, applied to this scanner: before trusting a passing comparison,
@@ -705,3 +809,39 @@ class TestEveryTextureNodeIsDeclaredRatherThanSpelledInline:
         assert len(found) == 4, f"expected the four pixel-moving ones, got {found}"
         assert not any("Displacement" in entry for entry in found), (
             "a node's own name is an identity, not a look value, and must not be flagged")
+
+    def test_an_attribute_nobody_listed_is_flagged_rather_than_ignored(self):
+        """The inversion, and the failure a hand-listed set of pixel-moving names cannot avoid.
+
+        Every one of these decides pixels — `MIX` against `MULTIPLY` is a different composite,
+        `DISPLACEMENT` against `BUMP` is real geometry against a shading trick, and a displacement
+        read in `WORLD` space is a different height. None was on the list, so a module holding all
+        three read as clean.
+        """
+        known_bad = (
+            "def build():\n"
+            "    mix.blend_type = 'MULTIPLY'\n"
+            "    mat.displacement_method = 'BUMP'\n"
+            "    disp.space = 'WORLD'\n"
+        )
+        found = self._inline_values(known_bad)
+        assert len(found) == 3, f"expected all three unlisted attributes, got {found}"
+
+    def test_the_scan_is_not_blind_to_a_literal_that_is_not_a_string(self):
+        """The second blind spot, and it is independent of the list: a `str` filter on the value
+        made every number, bool and tuple invisible whatever the attribute was called.
+
+        The first three are in the shipping rig: subdivision levels are geometry, roughness is the
+        whole surface response, and a fill sun that casts no shadow is a light term. The tuple is
+        here because the scanner must SEE one — whether a particular tuple reaches a pixel is the
+        pin list's ruling to make, and the rig's one tuple is exempt for a reason it states.
+        """
+        known_bad = (
+            "def build():\n"
+            "    mod.levels = 1\n"
+            "    bsdf.inputs['Roughness'].default_value = 1.0\n"
+            "    sun.use_shadow = False\n"
+            "    ob.location = (4.076245, 1.005454, 5.903862)\n"
+        )
+        found = self._inline_values(known_bad)
+        assert len(found) == 4, f"expected all four non-string literals, got {found}"

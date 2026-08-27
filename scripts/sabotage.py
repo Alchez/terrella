@@ -104,6 +104,11 @@ MUTABLE_ROOTS = (
     # repo and blamed on whichever file happens to expose it — the reason it earns mutation coverage
     # is that its failures name the wrong line by construction.
     "tests/test_repo_integrity.py",
+    # The same principle a third time. The rig builder's inline-literal scan carries the pin list of
+    # values `rig_recipe` cannot see, and both the scanner's reach and the list's two directions are
+    # what the guard actually IS — a scanner nobody can narrow is a scanner nobody can prove is
+    # still looking at numbers, tuples and attributes no one has ruled on.
+    "tests/test_scene_build_sync.py",
     # Joined for the body registry. Its whole safety story is a set of bridge tests holding the
     # duplicated constants (`EARTH_RADIUS` twice, `EXAGGERATION` once) to the registry's copy until
     # each original is deleted — and a bridge nobody can mutate is a bridge nobody can prove is
@@ -5157,6 +5162,51 @@ SABOTAGES: list[Sabotage] = [
         needle='        "textures": {name: dataclasses.asdict(spec) for name, spec in TEXTURES.items()},',
         replacement='        "textures": {name: dataclasses.asdict(spec) for name, spec in textures_for(look).items()},',
         guard='test_the_texture_table_is_in_the_recipe',
+    ),
+    # --- the inline-literal scan, which had a positive control and no mutation case -------------
+    Sabotage(
+        suite='python',
+        # A pinned value CHANGES. This is the whole reason the pin records the value rather than the
+        # attribute: subdivision levels are geometry, `rig_recipe` cannot see them, and every
+        # rendered block would go on reading fresh at a different mesh density.
+        label='a pinned look value changes and the pin still lists the old one',
+        path='pipeline/render/scene_build.py',
+        needle='    mod.levels = 1',
+        replacement='    mod.levels = 3',
+        guard='test_every_inline_literal_in_the_builder_is_one_somebody_ruled_on',
+    ),
+    Sabotage(
+        suite='python',
+        # The list stops describing the file from the other side. Nothing in the builder moves, so
+        # only the reverse assertion can see it -- and without that assertion the next reader takes
+        # this list for a description of a module it no longer matches.
+        label='a ruling names a site the builder does not have',
+        path='tests/test_scene_build_sync.py',
+        needle='        ".denoising_quality = \'HIGH\'",',
+        replacement='        ".denoising_quality = \'HIGH\'",\n        ".made_up = \'NOTHING\'",',
+        guard='test_every_inline_literal_in_the_builder_is_one_somebody_ruled_on',
+    ),
+    Sabotage(
+        suite='python',
+        # The allowlist inverts back into the hand-listed set of movers. Reads as a tightening --
+        # naming what matters rather than what does not -- and is how a module holding two dozen
+        # unlisted pixel-moving attributes read as clean.
+        label='the inline scan lists the pixel-moving attributes again instead of the inert one',
+        path='tests/test_scene_build_sync.py',
+        needle='                if target.attr != self.IDENTITY_ATTRIBUTE or colorspace:',
+        replacement='                if target.attr in ("interpolation", "extension", "view_transform") or colorspace:',
+        guard='test_an_attribute_nobody_listed_is_flagged_rather_than_ignored',
+    ),
+    Sabotage(
+        suite='python',
+        # The value filter comes back. It reads as narrowing the scan to the values that are look
+        # decisions, and it is what made every number, bool and tuple in the rig invisible.
+        label='the inline scan inspects string literals again, so numbers go unseen',
+        path='tests/test_scene_build_sync.py',
+        needle='        if isinstance(value, ast.Constant):\n            return ast.unparse(value)',
+        replacement='        if isinstance(value, ast.Constant) and isinstance(value.value, str):\n'
+                    '            return ast.unparse(value)',
+        guard='test_the_scan_is_not_blind_to_a_literal_that_is_not_a_string',
     ),
     Sabotage(
         suite='python',

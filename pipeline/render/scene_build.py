@@ -366,16 +366,16 @@ def look_constants(look: palette.Look) -> LookConstants:
 def rig_recipe(look: palette.Look) -> dict[str, Any]:
     """Every constant here that can move a rendered pixel, keyed by its own name.
 
-    THE ENUMERATION LIVES WITH THE CONSTANTS, which is the whole point of it being here rather than
-    in the runner that serialises it. A freshness recipe is a list of things that reach a pixel, and
-    a list kept anywhere but beside them is a second copy that goes quietly short: the constant gets
-    added, the recipe does not, and the output that was rendered with the old value keeps reading as
-    current forever. `test_scene_build_sync` closes that by scanning this module's own capitals and
-    requiring every one of them to appear below, so forgetting is a red test rather than a silent
-    stale planet.
+    DERIVED FROM THE STRUCTURE, NEVER ENUMERATED, and that replaced a hand-written list policed by a
+    scan of this module's capitals. A list kept beside the constants still goes quietly short — the
+    constant gets added, the list does not, and the output rendered with the old value reads as
+    current forever — and the scan could not see a value spelled inline in a function body at all.
+    So there is no list: `Rig` and `TEXTURES` are the enumeration, and the capitals scan now asks the
+    opposite question, that no constant survives OUTSIDE them.
 
-    KEYED BY CONSTANT NAME AND NOT BY CONCEPT, for the same reason: a key like "sun" cannot be
-    checked against anything, where `SUN_STRENGTH` can be checked against the module.
+    WHAT IS STILL SPELLED INLINE IS THEREFORE INVISIBLE HERE. Those values are pinned rather than
+    derived, and `TestTheBuilderSpellsNoLookValueWhereTheRecipeCannotSeeIt` enumerates them and
+    holds both the reason and the cost of moving them in.
 
     A HASH OF THIS FILE WOULD ALSO BE HONEST AND IS DELIBERATELY NOT WHAT THIS IS. It would restage
     a planet render on a docstring edit, and the render is the most expensive output the project
