@@ -17,14 +17,12 @@ import subprocess
 import sys
 import zipfile
 
-from pipeline import fetch, paths
+from pipeline import datasets, fetch
 from pipeline.fetch import download_one
 
 CKAN = "https://ihp-wins.unesco.org/api/3/action/package_search?q=Randolph+Glacier+Inventory+7.0&rows=5"
 DATASET = "randolph-glacier-inventory-rgi-7-0-glacier-product"
-OUT = paths.DATA / "raw/rgi"
-GPKG = OUT / "rgi7_g_3857.gpkg"
-LAYER = "glaciers"     # the merged layer's name; every consumer reads it from here
+LAYER ="glaciers"     # the merged layer's name; every consumer reads it from here
 
 #: RGI 7.0's first-order regions, 01 to 19, and the merge wants every one of them.
 REGION_COUNT = 19
@@ -63,7 +61,7 @@ def resource_urls():
     return shp_urls(pkg["resources"])
 
 
-def merge_to_gpkg(shapefiles, out=GPKG):
+def merge_to_gpkg(shapefiles, out=None):
     """Merge regional shapefiles into one EPSG:3857 GeoPackage, appearing only when complete.
 
     STAGED AND RENAMED, never written in place, for the reason the zips above are: a target written
@@ -80,7 +78,10 @@ def merge_to_gpkg(shapefiles, out=GPKG):
     the append silently writes nothing at all. It is also the wrong behaviour: it DROPS features
     quietly, which is the failure `shp_urls` refuses one tier up. A bad geometry should stop the
     merge, not thin it.
+    DEFAULTED HERE AND NOT IN THE SIGNATURE, because a default argument is evaluated at import and
+    would freeze the store exactly as the module-level constant it replaced did.
     """
+    out = datasets.rgi_gpkg() if out is None else out
     staging = out.with_name(out.name + ".part")
     staging.unlink(missing_ok=True)
     try:
@@ -96,13 +97,14 @@ def merge_to_gpkg(shapefiles, out=GPKG):
 
 
 def main():
-    OUT.mkdir(parents=True, exist_ok=True)
+    out_dir, gpkg_path = datasets.rgi(), datasets.rgi_gpkg()
+    out_dir.mkdir(parents=True, exist_ok=True)
     urls = resource_urls()
     print(f"{len(urls)} RGI 7.0 G regional shapefiles, every published region", flush=True)
     shapefiles = []
     for url in urls:
         name = url.split("/")[-1]
-        zip_path = OUT / name
+        zip_path = out_dir / name
         if not zip_path.exists():
             print(f"downloading {name} ...", flush=True)
             # `download_one` rather than a direct fetch, and not only for the User-Agent: it
@@ -113,16 +115,16 @@ def main():
             status = download_one(url, zip_path)
             if status.startswith("failed"):
                 sys.exit(f"{name}: {status}")
-        unzip_dir = OUT / zip_path.stem
+        unzip_dir = out_dir / zip_path.stem
         if not unzip_dir.exists():
             with zipfile.ZipFile(zip_path) as zf:
                 zf.extractall(unzip_dir)
         shapefiles.append(next(unzip_dir.rglob("*.shp")))
         print(f"  {name}: {zip_path.stat().st_size / 1e6:.1f} MB", flush=True)
 
-    print(f"merging {len(shapefiles)} regions -> {GPKG.name} (EPSG:3857) ...", flush=True)
+    print(f"merging {len(shapefiles)} regions -> {gpkg_path.name} (EPSG:3857) ...", flush=True)
     merge_to_gpkg(shapefiles)
-    print(f"done -> {GPKG}", flush=True)
+    print(f"done -> {gpkg_path}", flush=True)
 
 
 if __name__ == "__main__":

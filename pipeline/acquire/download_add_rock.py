@@ -31,7 +31,7 @@ import subprocess
 import sys
 import zipfile
 
-from pipeline import paths
+from pipeline import datasets
 from pipeline.fetch import download_one
 
 #: The dataset landing page, which is where the licence and citation below come from. Recorded
@@ -49,16 +49,15 @@ URL = ("https://ramadda.data.bas.ac.uk/repository/entry/get/" + ARCHIVE +
        "?entryid=synth%3A178ec50d-1ffb-42a4-a4a3-1145419da2bb"
        "%3AL2FkZF9yb2Nrb3V0Y3JvcF9sYW5kc2F0X3Y3LjMuemlw")
 
-OUT = paths.DATA / "raw/addrock"
-GPKG = OUT / "add_rock_3857.gpkg"
 LAYER = "rock"
 
 
 def main():
-    OUT.mkdir(parents=True, exist_ok=True)
+    out_dir, gpkg_path = datasets.addrock(), datasets.addrock_gpkg()
+    out_dir.mkdir(parents=True, exist_ok=True)
     print(f"{CITATION}\nLicence: {LICENCE} ({LANDING})", flush=True)
 
-    zip_path = OUT / ARCHIVE
+    zip_path = out_dir / ARCHIVE
     if not zip_path.exists():
         print(f"downloading {ARCHIVE} (~41 MB) ...", flush=True)
         # `download_one` streams to `.part` and renames atomically, so an interrupted download
@@ -68,19 +67,19 @@ def main():
             sys.exit(f"{ARCHIVE}: {status}")
     print(f"  {ARCHIVE}: {zip_path.stat().st_size / 1e6:.1f} MB", flush=True)
 
-    unzip_dir = OUT / zip_path.stem
+    unzip_dir = out_dir / zip_path.stem
     if not unzip_dir.exists():
         with zipfile.ZipFile(zip_path) as archive:
             archive.extractall(unzip_dir)
     shapefile = next(unzip_dir.rglob("*.shp"))
 
-    if not GPKG.exists():
-        print(f"reprojecting {shapefile.name} -> {GPKG.name} (EPSG:3031 -> EPSG:3857) ...",
+    if not gpkg_path.exists():
+        print(f"reprojecting {shapefile.name} -> {gpkg_path.name} (EPSG:3031 -> EPSG:3857) ...",
               flush=True)
         subprocess.run(["ogr2ogr", "-f", "GPKG", "-t_srs", "EPSG:3857", "-nln", LAYER,
-                        "-skipfailures", str(GPKG), str(shapefile)],
+                        "-skipfailures", str(gpkg_path), str(shapefile)],
                        check=True, capture_output=True)
-    print(f"done -> {GPKG}", flush=True)
+    print(f"done -> {gpkg_path}", flush=True)
 
 
 if __name__ == "__main__":

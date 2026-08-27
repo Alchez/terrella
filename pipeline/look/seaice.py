@@ -24,12 +24,18 @@ import numpy as np
 import rasterio
 from rasterio.transform import from_bounds
 
-from pipeline import paths
+from pipeline import datasets, paths
 from pipeline.look import palette
 from pipeline.raster_io import band_window, row_bands
 
 DATA = paths.DATA
-SEAICE_SRC = DATA / "raw/seaice/seaice_frequency_1991-2020_4326.tif"
+def seaice_src(src: Path | None = None) -> Path:
+    """The ice-frequency raster, or the override a caller passed.
+
+    RESOLVED HERE RATHER THAN IN A DEFAULT ARGUMENT, which is evaluated at import and froze the
+    store exactly as the module-level constant it replaced did.
+    """
+    return datasets.seaice_frequency() if src is None else src
 ICE_SCALE = 1e-4    # unpacked frequency = 0.0001 x packed (0..10000 -> 0..1); matches snow.SP_SCALE
 ICE_FILL = 65535    # packed fill (land / no valid observation); matches snow.SP_FILL
 
@@ -76,7 +82,7 @@ def _run(cmd):
     subprocess.run([str(part) for part in cmd], check=True, capture_output=True)
 
 
-def _warp_seaice_direct(bounds, width, height, out_path, src=SEAICE_SRC):
+def _warp_seaice_direct(bounds, width, height, out_path, src=None):
     """One gdalwarp of the ice-frequency source onto a Web-Mercator grid, storing RAW PACKED Float32.
 
     bounds = (left, bottom, right, top) in EPSG:3857. -srcnodata excludes the 65535 fill from the
@@ -88,11 +94,11 @@ def _warp_seaice_direct(bounds, width, height, out_path, src=SEAICE_SRC):
           "-te", repr(left), repr(bottom), repr(right), repr(top),
           "-ts", str(width), str(height), "-r", "bilinear", "-ot", "Float32",
           "-co", "TILED=YES", "-co", "COMPRESS=DEFLATE", "-co", "BIGTIFF=YES",
-          str(src), str(out_path)])
+          str(seaice_src(src)), str(out_path)])
     return out_path
 
 
-def warp_seaice_raster(bounds, width, height, out_path, src=SEAICE_SRC, band_rows=None):
+def warp_seaice_raster(bounds, width, height, out_path, src=None, band_rows=None):
     """Warp the ice-frequency source onto a Web-Mercator grid in latitude BANDS (RAW PACKED Float32).
 
     Stores the packed value (0..10000, fill 65535), NOT the 0..1 fraction, for the same reason as snow
@@ -179,7 +185,7 @@ def gated_alpha(contribution, ocean):
     return gated if bool(gated.any()) else None
 
 
-def warp_seaice(bounds, width, height, out_path, src=SEAICE_SRC):
+def warp_seaice(bounds, width, height, out_path, src=None):
     """Warp ice frequency and return it as a float64 fraction in 0..1 (raster + unpack) -- thin wrapper.
 
     For whole-grid callers (the cap render, or a region path): delegates to the two halves so the

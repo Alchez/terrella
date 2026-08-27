@@ -183,6 +183,7 @@ MUTABLE_ROOTS = (
     # way of breaking it is invisible on a developer box, where `MAPS_DATA` is unset and the two
     # roots resolve to the same directory. Its guards therefore never fire during ordinary work,
     # and a guard that never fires is one nobody can tell apart from a guard that cannot.
+    "pipeline/datasets.py",
     "pipeline/naturalearth.py",
     # Joined with the hero pipeline's paths. This is the one tier whose stages talk to each other in
     # SHELL STRINGS rather than in Python values, so its wiring is invisible to both the type
@@ -3427,8 +3428,8 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label='a producer freezes its composite sources at import, so a moved data store never reaches it',
         path='pipeline/look/layer_producers.py',
-        needle='        sources=lambda: (snow.SP_NC,),',
-        replacement='        sources=lambda frozen=(snow.SP_NC,): frozen,',
+        needle='        sources=lambda: (datasets.snow_persistence(),),',
+        replacement='        sources=lambda frozen=(datasets.snow_persistence(),): frozen,',
         guard='test_the_composite_sources_are_read_at_CALL_time_so_a_redirect_reaches_them',
     ),
     # --- the vector->raster stage: four ways to draw nothing, or the wrong thing, in silence ------
@@ -3642,7 +3643,7 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label='the rock stops being a cap dependency, so a re-burn leaves both caps looking fresh',
         path='pipeline/tile/cap_render.py',
-        needle='        sources.append(download_add_rock.GPKG)',
+        needle='        sources.append(datasets.addrock_gpkg())',
         replacement='        pass  # no rock dependency: a re-burn now moves no mtime the cap sees',
         guard='test_the_rock_is_a_cap_source_by_DECLARATION_and_drops_with_the_layer',
     ),
@@ -3765,8 +3766,8 @@ SABOTAGES: list[Sabotage] = [
         label="the cap's sea ice asks the disk before the body, painting an Arctic on any planet",
         path='pipeline/tile/cap_render.py',
         needle=('    if not layers.layer_is_buildable(grid.body, layers.SEA_ICE, '
-                'Path(seaice.SEAICE_SRC),\n                                     consequence):'),
-        replacement='    if not Path(seaice.SEAICE_SRC).exists():',
+                'Path(datasets.seaice_frequency()),\n                                     consequence):'),
+        replacement='    if not Path(datasets.seaice_frequency()).exists():',
         guard='test_a_body_with_no_layers_opens_none_of_earths_files',
     ),
     # Both of the above are the tidy-looking collapse rather than a typo: the body check reads as
@@ -3806,15 +3807,15 @@ SABOTAGES: list[Sabotage] = [
         label='the pole leaves the key, so both caps of a body get one producer',
         path='pipeline/look/perennial_ice.py',
         needle='    ("earth", "south"): CapIce(sources=lambda: (), alpha=_earth_south, paint=_earth_cap_paint,',
-        replacement='    ("earth", "south"): CapIce(sources=lambda: (Path(snow.SP_NC),), alpha=_earth_north, paint=_earth_cap_paint,',
+        replacement='    ("earth", "south"): CapIce(sources=lambda: (Path(datasets.snow_persistence()),), alpha=_earth_north, paint=_earth_cap_paint,',
         guard='test_earths_two_poles_get_DIFFERENT_producers',
     ),
     Sabotage(
         suite='python',
         label='a producer freezes its source list at import, so a moved data store never reaches it',
         path='pipeline/look/perennial_ice.py',
-        needle='    ("earth", "north"): CapIce(sources=lambda: (Path(snow.SP_NC),), alpha=_earth_north,',
-        replacement='    ("earth", "north"): CapIce(sources=lambda frozen=(Path(snow.SP_NC),): frozen, alpha=_earth_north,',
+        needle='    ("earth", "north"): CapIce(sources=lambda: (Path(datasets.snow_persistence()),), alpha=_earth_north,',
+        replacement='    ("earth", "north"): CapIce(sources=lambda frozen=(Path(datasets.snow_persistence()),): frozen, alpha=_earth_north,',
         guard='test_the_sources_are_read_at_CALL_time_so_a_redirect_reaches_them',
     ),
     # Still a callable, still typed, still correct on a box that never moves its store — the default
@@ -3824,7 +3825,7 @@ SABOTAGES: list[Sabotage] = [
         label='the coastline gate keeps only its look half, burning Natural Earth onto any body',
         path='pipeline/tile/cap_render.py',
         needle=('    if grid.coast_opacity <= 0.0:\n        return False\n'
-                '    return layers.layer_is_buildable(grid.body, layers.COASTLINE, COAST_SHP,\n'
+                '    return layers.layer_is_buildable(grid.body, layers.COASTLINE, coast_shp(),\n'
                 '                                     "the cap ships with no land/sea line")'),
         replacement='    return grid.coast_opacity > 0.0',
         guard='test_a_body_without_the_layer_declines_it_though_earths_file_is_right_there',
@@ -3834,8 +3835,8 @@ SABOTAGES: list[Sabotage] = [
         label='a cap depends on a climatology it never opens, so it can never read fresh',
         path='pipeline/tile/cap_render.py',
         needle=('    if layers.SEA_ICE.name in grid.body.surface_layers:\n'
-                '        sources.append(Path(seaice.SEAICE_SRC))'),
-        replacement='    sources.append(Path(seaice.SEAICE_SRC))',
+                '        sources.append(Path(datasets.seaice_frequency()))'),
+        replacement='    sources.append(Path(datasets.seaice_frequency()))',
         guard='test_a_source_for_an_absent_layer_is_not_a_dependency',
     ),
     Sabotage(
@@ -4358,16 +4359,16 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label='the glacier burn re-spells the layer name instead of asking its acquirer',
         path='pipeline/look/layer_producers.py',
-        needle='                                   gpkg=download_rgi.GPKG, layer=download_rgi.LAYER)',
-        replacement='                                   gpkg=download_rgi.GPKG, layer="glaciers")',
+        needle='                                   gpkg=datasets.rgi_gpkg(), layer=download_rgi.LAYER)',
+        replacement='                                   gpkg=datasets.rgi_gpkg(), layer="glaciers")',
         guard='test_the_glacier_burn_reads_the_redirected_path_rather_than_one_bound_at_import',
     ),
     Sabotage(
         suite='python',
         label='the glacier source is re-spelled, so a redirected store is read at the old path',
         path='pipeline/look/layer_producers.py',
-        needle='        sources=lambda: (download_rgi.GPKG,),',
-        replacement='        sources=lambda: (snow.DATA / "raw/rgi/rgi7_g_3857.gpkg",),',
+        needle='        sources=lambda: (datasets.rgi_gpkg(),),',
+        replacement='        sources=lambda: (datasets.rgi() / "rgi7_g_3857.gpkg",),',
         guard='test_the_glacier_source_is_the_gpkg_its_own_acquirer_writes',
     ),
     # --- The cap mesh is the resolution limit, and the claim is a RATIO --------------------------
@@ -6073,6 +6074,60 @@ SABOTAGES: list[Sabotage] = [
         needle='        return {stage: len(spellings[stage]) for stage in deferred}',
         replacement='        return dict(deferred)',
         guard='test_the_deferred_count_check_still_bites_with_nothing_deferred',
+    ),
+    # --- the raw-store registry ------------------------------------------------------------------
+    Sabotage(
+        suite='python',
+        # THE FREEZE, REINTRODUCED IN ITS MOST PLAUSIBLE FORM. A default argument is evaluated once,
+        # at import, so this reads as a harmless bit of parameterisation and quietly restores the
+        # exact defect the module exists to remove -- for all twenty entries at once.
+        label='the registry captures the store in a default argument, freezing every entry',
+        path='pipeline/datasets.py',
+        # THE WHOLE FUNCTION, because the body is where the freeze lives. A first version changed
+        # only the signature to `root: Path = paths.DATA` and left the body reading `paths.DATA` at
+        # call time -- inert, MISSED, and silent about the guard. A mutation must break the thing.
+        needle=('def _raw(*parts: str) -> Path:\n'
+                '    """The raw store\'s own root, joined at call time so a redirected '
+                '`MAPS_DATA` reaches it."""\n'
+                '    return paths.DATA.joinpath("raw", *parts)'),
+        replacement=('_FROZEN_ROOT = paths.DATA\n'
+                     '\n'
+                     '\n'
+                     'def _raw(*parts: str) -> Path:\n'
+                     '    """The raw store\'s own root, joined at call time so a redirected '
+                     '`MAPS_DATA` reaches it."""\n'
+                     '    return _FROZEN_ROOT.joinpath("raw", *parts)'),
+        guard='test_a_redirected_store_moves_every_entry',
+    ),
+    Sabotage(
+        suite='python',
+        # Two keys for one location: the duplication this module replaced, re-created inside it. A
+        # layout change then edits one and leaves the other, which is where it came from.
+        label='two registry accessors name one location',
+        path='pipeline/datasets.py',
+        needle='    return _raw("gebco")\n',
+        replacement='    return _raw("glo30")\n',
+        guard='test_no_two_accessors_name_one_location',
+    ),
+    Sabotage(
+        suite='python',
+        # An entry that resolves outside the store while reading as an ordinary one. The next
+        # acquire run then writes wherever `..` lands.
+        label='a registry entry escapes the raw store',
+        path='pipeline/datasets.py',
+        needle='    return _raw("worldcover")',
+        replacement='    return _raw("..", "worldcover")',
+        guard='test_nothing_escapes_the_raw_store',
+    ),
+    Sabotage(
+        suite='python',
+        # The route from a missing file to the command that makes it, pointed at a script that is
+        # not there. A contributor follows it and concludes the acquirer is broken.
+        label='an accessor names an acquirer that does not exist',
+        path='pipeline/datasets.py',
+        needle='written by `acquire/download_gebco.py`."""\n    return _raw("gebco")',
+        replacement='written by `acquire/download_gebco_v2.py`."""\n    return _raw("gebco")',
+        guard='test_every_named_acquirer_exists',
     ),
     Sabotage(
         suite='python',
@@ -7970,10 +8025,12 @@ SABOTAGES: list[Sabotage] = [
     # accumulated: every one of them was right, on this machine, every time anyone looked.
     Sabotage(
         suite='python',
+        # Re-anchored onto the registry: the directory used to be `naturalearth.DIR` and is now one
+        # entry in `datasets`, which is the whole point of that module. The defect is unchanged.
         label='the vectors go back to being read out of the checkout',
-        path='pipeline/naturalearth.py',
-        needle='DIR = paths.DATA / "raw/naturalearth"',
-        replacement='DIR = paths.ROOT / "data/raw/naturalearth"',
+        path='pipeline/datasets.py',
+        needle='    return _raw("naturalearth")',
+        replacement='    return paths.ROOT / "data/raw/naturalearth"',
         guard='test_no_module_path_stays_behind_when_the_store_moves',
     ),
     # The probe itself, reverted to reading the ABSOLUTE path's segments. That version answers a
@@ -8010,8 +8067,8 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label='the layer join loses the directory level',
         path='pipeline/naturalearth.py',
-        needle='    return (DIR if directory is None else directory) / name / f"{name}.shp"',
-        replacement='    return (DIR if directory is None else directory) / f"{name}.shp"',
+        needle='    return root / name / f"{name}.shp"',
+        replacement='    return root / f"{name}.shp"',
         guard='test_the_name_appears_as_both_directory_and_stem',
     ),
     # The tidy that looks like a redundant check being removed. Without it a typo resolves to a
@@ -8049,8 +8106,8 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label='a reader hand-writes the layer path again instead of asking for it',
         path='pipeline/tile/cap_render.py',
-        needle='COAST_SHP = naturalearth.layer("ne_10m_coastline")',
-        replacement='COAST_SHP = naturalearth.DIR / "ne_10m_coastline/ne_10m_coastline.shp"',
+        needle='    return naturalearth.layer("ne_10m_coastline")',
+        replacement='    return datasets.naturalearth() / "ne_10m_coastline/ne_10m_coastline.shp"',
         guard='test_the_layer_name_is_never_doubled_by_hand',
     ),
     # --- the hero pipeline's own paths ------------------------------------------------------

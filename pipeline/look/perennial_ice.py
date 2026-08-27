@@ -45,7 +45,7 @@ from typing import Any, Protocol
 
 import numpy as np
 
-from pipeline import bodies, layers
+from pipeline import bodies, datasets, layers
 from pipeline.acquire import download_sim3292
 from pipeline.look import mars_ice, palette, snow, viking_luma
 
@@ -116,9 +116,9 @@ class CapIce:
     #: source named for a body that never opens it leaves that body's caps permanently stale.
     #:
     #: A CALLABLE, NOT A TUPLE, AND THE SUITE IS WHAT PROVED IT HAS TO BE. A tuple literal in the
-    #: registry below evaluates `snow.SP_NC` once, at import — so a caller that redirects that
+    #: registry below evaluates `datasets.snow_persistence()` once, at import — so a caller that redirects that
     #: constant is answered with the path from before the redirect, and the gate reports the wrong
-    #: file's existence. The code this replaced read `snow.SP_NC` at the call site, i.e. at call
+    #: file's existence. The code this replaced read `datasets.snow_persistence()` at the call site, i.e. at call
     #: time, so freezing it here would have been a silent narrowing introduced by the extraction
     #: rather than a property of the seam. Every path in this pipeline hangs off `paths.DATA`, which
     #: a relocated store moves; a zero-argument callable keeps the read where it was.
@@ -170,7 +170,7 @@ def _earth_north(inputs: CapIceInputs) -> np.ndarray:
     seam and not the other would swap one visible discontinuity for another. The disc has a single
     ground resolution, so `feather` takes the scalar branch here and the per-row branch there.
     """
-    sp_raw = inputs.warp(f'NETCDF:"{snow.SP_NC}":{snow.SP_VAR}', "sp", "bilinear", "Float32",
+    sp_raw = inputs.warp(f'NETCDF:"{datasets.snow_persistence()}":{snow.SP_VAR}', "sp", "bilinear", "Float32",
                          srcnodata=snow.SP_FILL)
     persistence = snow.unpack_persistence(sp_raw)
     low = snow.RAMP_LOW_MAX
@@ -264,7 +264,7 @@ def _earth_cap_paint() -> tuple[Any, Any]:
 
 
 CAP_ICE_BY_BODY: dict[tuple[str, str], CapIce] = {
-    ("earth", "north"): CapIce(sources=lambda: (Path(snow.SP_NC),), alpha=_earth_north,
+    ("earth", "north"): CapIce(sources=lambda: (Path(datasets.snow_persistence()),), alpha=_earth_north,
                                paint=_earth_cap_paint, exclusions=lambda: ()),
     ("earth", "south"): CapIce(sources=lambda: (), alpha=_earth_south, paint=_earth_cap_paint,
                                exclusions=lambda: (layers.ANTARCTIC_ROCK,)),

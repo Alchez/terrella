@@ -31,9 +31,8 @@ import rasterio
 from conftest import cap_ground_metres_per_px_from_ground_radius
 from rasterio.transform import from_bounds
 
-from pipeline import bodies, layers, paths, planet_seam
-from pipeline.acquire import download_add_rock
-from pipeline.look import layer_producers, palette, perennial_ice, seaice, snow
+from pipeline import bodies, datasets, layers, paths, planet_seam
+from pipeline.look import layer_producers, palette, perennial_ice
 from pipeline.tile import cap_render, terrain_rgb
 
 #: A planet whose seam emitted all three rasters — what Earth declares, and the only
@@ -834,17 +833,16 @@ def _drive_cap(monkeypatch, tmp_path, body, pole, missing=(), rasters=None, ocea
     present = tmp_path / "an-earth-dataset-this-box-already-has"
     present.write_text("")
     absent = tmp_path / "never-downloaded"
-    for attribute, module in (("SP_NC", snow), ("SEAICE_SRC", seaice)):
-        monkeypatch.setattr(module, attribute,
-                            str(absent if attribute in missing else present))
-    monkeypatch.setattr(cap_render, "COAST_SHP",
-                        absent if "COAST_SHP" in missing else present)
-    # A Path and not a str, unlike the two above: this one is consumed as a Path everywhere, and
-    # the layer gate calls `.exists()` on it directly. Redirected for the reason the loop above is
-    # — untouched, the rock gate would read whether THIS BOX holds a 206 MB download, and the burn
-    # underneath it would shell out to a real ogr2ogr on the real file inside a unit test.
-    monkeypatch.setattr(download_add_rock, "GPKG",
-                        absent if "ADD_ROCK" in missing else present)
+    # REDIRECTED AT THE REGISTRY, which is where each of these now lives. Untouched, every gate
+    # below would read whether THIS BOX holds the real download — and the rock burn would shell
+    # out to a real ogr2ogr on a 206 MB file inside a unit test.
+    for accessor, key in (("snow_persistence", "SP_NC"),
+                          ("seaice_frequency", "SEAICE_SRC"),
+                          ("addrock_gpkg", "ADD_ROCK")):
+        target = absent if key in missing else present
+        monkeypatch.setattr(datasets, accessor, lambda target=target: target)
+    coastline = absent if "COAST_SHP" in missing else present
+    monkeypatch.setattr(cap_render, "coast_shp", lambda: coastline)
 
     warped: list[str] = []
     burnt: list[str] = []
@@ -983,14 +981,14 @@ class TestTheCapPassAsksTheBodyBeforeTheDisk:
 
 
 class TestTheCoastlineIsABodyFact:
-    """`COAST_SHP` is one global path to a Natural Earth product. Its presence answers "did we
+    """`coast_shp()` is one global path to a Natural Earth product. Its presence answers "did we
     download Earth's vectors", which is yes for every planet on this box."""
 
     def test_earth_bakes_it_in_the_north_and_declines_it_in_the_south(self, subtests, monkeypatch,
                                                                      tmp_path):
         present = tmp_path / "ne_10m_coastline.shp"
         present.write_text("")
-        monkeypatch.setattr(cap_render, "COAST_SHP", present)
+        monkeypatch.setattr(cap_render, "coast_shp", lambda: present)
         with subtests.test("north"):
             assert cap_render.bakes_coastline(cap_render.north_grid(bodies.EARTH)) is True
         with subtests.test("south"):
@@ -1001,7 +999,7 @@ class TestTheCoastlineIsABodyFact:
             self, monkeypatch, tmp_path):
         present = tmp_path / "ne_10m_coastline.shp"
         present.write_text("")
-        monkeypatch.setattr(cap_render, "COAST_SHP", present)
+        monkeypatch.setattr(cap_render, "coast_shp", lambda: present)
         grid = cap_render.north_grid(LAYERLESS_BODY)
         assert present.exists()
         assert grid.coast_opacity == 0.55  # the LOOK still says draw it; the body says there is none
@@ -1026,8 +1024,8 @@ class TestCapSourcesFollowTheLayers:
             with subtests.test(pole):
                 earth = cap_render.cap_sources(factory(bodies.EARTH), WHOLE_PLANET)
                 bare = cap_render.cap_sources(factory(LAYERLESS_BODY), WHOLE_PLANET)
-                assert Path(seaice.SEAICE_SRC) in earth
-                assert not any(source.name == Path(seaice.SEAICE_SRC).name for source in bare)
+                assert datasets.seaice_frequency() in earth
+                assert not any(source.name == datasets.seaice_frequency().name for source in bare)
                 assert len(bare) == 3  # heightfield, oceanmask, watermask — the body's own relief
 
     def test_a_caps_sources_are_exactly_what_its_own_producer_declares(self, monkeypatch, subtests,
@@ -1052,7 +1050,7 @@ class TestCapSourcesFollowTheLayers:
                 other = dataclasses.replace(bodies.EARTH, name="other", path_prefix="other")
                 sources = cap_render.cap_sources(factory(other), WHOLE_PLANET)
                 assert elsewhere in sources
-                assert not any(source == Path(snow.SP_NC) for source in sources)
+                assert not any(source == datasets.snow_persistence() for source in sources)
 
 
 class TestTheCapIsShadedInGroundMetres:
@@ -1234,8 +1232,8 @@ class TestTheCapRecipeRecordsWhatIsOff:
         without = cap_render.north_grid(
             dataclasses.replace(bodies.EARTH, name="noice",
                                 surface_layers=bodies.EARTH.surface_layers - {"sea_ice"}))
-        assert Path(seaice.SEAICE_SRC) in cap_render.cap_sources(with_ice, WHOLE_PLANET)
-        assert Path(seaice.SEAICE_SRC) not in cap_render.cap_sources(without, WHOLE_PLANET)
+        assert datasets.seaice_frequency() in cap_render.cap_sources(with_ice, WHOLE_PLANET)
+        assert datasets.seaice_frequency() not in cap_render.cap_sources(without, WHOLE_PLANET)
         assert "layers_off" not in json.loads(cap_render.cap_recipe(with_ice, WHOLE_PLANET))
         assert json.loads(
             cap_render.cap_recipe(without, WHOLE_PLANET))["layers_off"] == ["sea_ice"]
@@ -1270,9 +1268,9 @@ class TestTheRockNeverGatesTheForcedWhite:
         for pole, factory in (("north", cap_render.north_grid),
                               ("south", cap_render.south_grid)):
             with subtests.test(pole):
-                assert download_add_rock.GPKG in cap_render.cap_sources(
+                assert datasets.addrock_gpkg() in cap_render.cap_sources(
                     factory(bodies.EARTH), WHOLE_PLANET)
-                assert download_add_rock.GPKG not in cap_render.cap_sources(
+                assert datasets.addrock_gpkg() not in cap_render.cap_sources(
                     factory(without), WHOLE_PLANET)
 
     def test_an_absent_rock_file_leaves_the_forced_white_untouched(self, monkeypatch, tmp_path):
@@ -1282,7 +1280,8 @@ class TestTheRockNeverGatesTheForcedWhite:
         only arrangement that can tell "gated on the rock" from "gated on the declaration". A test
         that dropped the declaration too would pass against the broken version.
         """
-        monkeypatch.setattr(download_add_rock, "GPKG", tmp_path / "never-downloaded.gpkg")
+        monkeypatch.setattr(datasets, "addrock_gpkg",
+                            lambda: tmp_path / "never-downloaded.gpkg")
         grid = cap_render.south_grid(bodies.EARTH)
         shape = (8, 8)
         alpha, paint = cap_render._cap_perennial_ice(

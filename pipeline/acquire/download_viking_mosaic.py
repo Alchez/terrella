@@ -81,10 +81,8 @@ from pathlib import Path
 import pyproj
 import rasterio
 
-from pipeline import bodies, fetch, paths
+from pipeline import bodies, datasets, fetch
 from pipeline.fetch import download_one
-
-DATA_DIR = paths.DATA / "raw/mars"
 
 MOSAIC_NAME = "Mars_Viking_ClrMosaic_global_925m.tif"
 
@@ -115,7 +113,7 @@ EXPECTED_PIXEL_METRES = 925.406
 
 def mosaic_path() -> Path:
     """Where the mosaic lives once fetched. A function, not a constant, per `paths`."""
-    return DATA_DIR / MOSAIC_NAME
+    return datasets.mars() / MOSAIC_NAME
 
 
 def file_md5(path: Path) -> str:
@@ -270,7 +268,7 @@ def main() -> int:
     if args.check:
         return 0
 
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    datasets.mars().mkdir(parents=True, exist_ok=True)
     if destination.exists():
         print(f"{destination} is already on disk — re-checking, not re-fetching", flush=True)
     else:

@@ -5,7 +5,7 @@ single whole-grid warp of the ice-frequency climatology; the load-bearing claim 
 warping that window alone. Every claim pairs with a companion that proves the check can fail.
 
 The pure `unpack_seaice` / `ice_alpha` tests need no gdal or data and always run; the warp tests need
-the OSI SAF frequency source (`seaice.SEAICE_SRC`, built by download_seaice.py) and skip without it.
+the OSI SAF frequency source (`seaice.seaice_src()`, built by download_seaice.py) and skip without it.
 """
 import math
 
@@ -105,7 +105,8 @@ class TestIceAlpha:
         assert 0.0 < mid < 1.0
 
 
-@pytest.mark.skipif(not seaice.SEAICE_SRC.exists(), reason="OSI SAF ice-frequency source not present (CI)")
+@pytest.mark.skipif(not seaice.seaice_src().exists(),
+                    reason="OSI SAF ice-frequency source not present (CI)")
 class TestSeaiceWarpOnceEqualsPerWindow:
     """THE test: whole-grid warp sliced == per-window warp, on the real source over a small region."""
 

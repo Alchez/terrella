@@ -13,8 +13,8 @@ import pytest
 import rasterio
 from rasterio.transform import from_bounds
 
-from pipeline import bodies, freshness, layers, mercator
-from pipeline.acquire import download_add_rock, download_rgi
+from pipeline import bodies, datasets, freshness, layers, mercator
+from pipeline.acquire import download_rgi
 from pipeline.look import lake_depth, layer_producers, mars_ice, palette, seaice, snow
 from pipeline.tile import shade_planet
 
@@ -108,7 +108,7 @@ class TestWhatAProducerDeclaresItReads:
         registry evaluates its paths once, at import, so a caller that moves the data store is
         answered with the path from before the move. Every path here hangs off `paths.DATA`."""
         moved = tmp_path / "somewhere-else.nc"
-        monkeypatch.setattr(snow, "SP_NC", moved)
+        monkeypatch.setattr(datasets, "snow_persistence", lambda: moved)
         producer = layer_producers.producer_for(bodies.EARTH, layers.PERENNIAL_ICE)
         assert producer.sources() == (moved,)
 
@@ -728,7 +728,7 @@ class TestARockLayerBuildsARasterAndContributesNothing:
         moves, and the failure is an absent file read as "this body has no rock".
         """
         moved = tmp_path / "somewhere-else.gpkg"
-        monkeypatch.setattr(download_add_rock, "GPKG", moved)
+        monkeypatch.setattr(datasets, "addrock_gpkg", lambda: moved)
         producer = layer_producers.producer_for(bodies.EARTH, layers.ANTARCTIC_ROCK)
         assert producer.sources() == (moved,)
 
@@ -739,7 +739,7 @@ class TestARockLayerBuildsARasterAndContributesNothing:
         binds at def time, so the redirect below would never reach the burn.
         """
         moved = tmp_path / "elsewhere.gpkg"
-        monkeypatch.setattr(download_rgi, "GPKG", moved)
+        monkeypatch.setattr(datasets, "rgi_gpkg", lambda: moved)
         producer = layer_producers.producer_for(bodies.EARTH, layers.GLACIERS)
         assert producer.sources() == (moved,)
 
@@ -751,7 +751,7 @@ class TestARockLayerBuildsARasterAndContributesNothing:
         actually hands gdal_rasterize, which is the thing that reads the planet's glaciers.
         """
         moved = tmp_path / "elsewhere.gpkg"
-        monkeypatch.setattr(download_rgi, "GPKG", moved)
+        monkeypatch.setattr(datasets, "rgi_gpkg", lambda: moved)
         monkeypatch.setattr(download_rgi, "LAYER", "renamed_layer")
         seen: dict[str, object] = {}
         monkeypatch.setattr(snow, "rasterize_glaciers_raster",

@@ -31,7 +31,10 @@ from pathlib import Path
 from pipeline import naturalearth
 from pipeline.compose import countries_pmtiles
 
-SRC = naturalearth.layer("ne_10m_admin_0_countries")
+#: The Natural Earth layer this cut descends from, resolved at call time so a relocated store
+#: reaches it. A module-level `SRC = layer(...)` froze the root at import, which is the defect
+#: `paths.py` names: `layer` reads the store on every call, and binding its result once undid that.
+SOURCE_LAYER = "ne_10m_admin_0_countries"
 
 # Douglas-Peucker tolerance in degrees. 0.002 deg ~= 220 m ~= 0.7 px at z8 on
 # the equator (Earth's grid pixel, ~305.75 m/px) — sub-pixel where the raster
@@ -63,14 +66,15 @@ def translate(force: bool):
     `source_path` because the reader of this file is the one stage that must never disagree with
     the writer about where it is."""
     out = countries_pmtiles.source_path()
-    if not SRC.exists():
-        sys.exit(f"missing Natural Earth source: {SRC}")
+    source = naturalearth.layer(SOURCE_LAYER)
+    if not source.exists():
+        sys.exit(f"missing Natural Earth source: {source}")
     if out.exists() and not force:
         print(f"{out.name} exists -> skip (use --force to regenerate)")
         return
     tmp = out.with_suffix(".geojson.tmp")
     tmp.unlink(missing_ok=True)
-    cmd = ogr_command(SRC, tmp)
+    cmd = ogr_command(source, tmp)
     print(" ".join(cmd), flush=True)
     subprocess.run(cmd, check=True)
     tmp.replace(out)  # atomic promote

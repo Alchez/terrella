@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from pipeline import bodies, planet_seam
+from pipeline import bodies, datasets, planet_seam
 from pipeline.look import perennial_ice
 from pipeline.tile import cap_render
 from pipeline.tile.shade import KNOBS
@@ -180,7 +180,7 @@ class TestCapSources:
         """A present coastline, so the disk question answers yes and the look and body decide."""
         shapefile = tmp_path / "ne_10m_coastline.shp"
         shapefile.write_text("only its existence is read")
-        monkeypatch.setattr(cap_render, "COAST_SHP", shapefile)
+        monkeypatch.setattr(cap_render, "coast_shp", lambda: shapefile)
         return shapefile
 
     def test_north_reads_the_ice_producers_dataset_and_the_coastline(self, coastline):
@@ -196,7 +196,7 @@ class TestCapSources:
     def test_south_forced_ice_needs_no_dataset_and_bakes_no_coastline(self, coastline):
         sources = cap_render.cap_sources(EARTH_SOUTH, WHOLE_PLANET)
         assert perennial_ice.cap_ice(bodies.EARTH, "south").sources() == ()
-        assert not any(str(perennial_ice.snow.SP_NC) in str(source) for source in sources)
+        assert not any(str(datasets.snow_persistence()) in str(source) for source in sources)
         assert coastline not in sources
 
 

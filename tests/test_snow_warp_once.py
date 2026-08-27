@@ -21,7 +21,7 @@ import pytest
 import rasterio
 import rasterio.transform  # rasterio's __init__ pulls this in at runtime; name it for the checker
 
-from pipeline import bodies
+from pipeline import bodies, datasets
 from pipeline.acquire import download_rgi
 from pipeline.look import snow
 
@@ -87,7 +87,8 @@ class TestUnpackPersistence:
         assert snow.unpack_persistence(np.array([[5000.0]], dtype=np.float32)).dtype == np.float64
 
 
-@pytest.mark.skipif(not snow.SP_NC.exists(), reason="NSIDC persistence .nc not present (CI)")
+@pytest.mark.skipif(not snow.persistence_nc().exists(),
+                    reason="NSIDC persistence .nc not present (CI)")
 class TestPersistenceWarpOnceEqualsPerWindow:
     """THE test: whole-grid warp sliced == per-window warp, on the real source over a small region."""
 
@@ -165,13 +166,13 @@ class TestPersistenceWarpOnceEqualsPerWindow:
         assert np.array_equal(one_packed, many_packed)
 
 
-@pytest.mark.skipif(not download_rgi.GPKG.exists(), reason="RGI glacier .gpkg not present (CI)")
+@pytest.mark.skipif(not datasets.rgi_gpkg().exists(), reason="RGI glacier .gpkg not present (CI)")
 class TestGlacierWarpOnceEqualsPerWindow:
     def test_every_window_slice_matches_its_own_rasterize(self, tmp_path):
         bounds, width, rows = _alps_grid()  # the Alps carry RGI glaciers
         whole = tmp_path / "glacier_whole.tif"
         assert snow.rasterize_glaciers_raster(bounds, width, rows, whole,
-                                              download_rgi.GPKG, download_rgi.LAYER) is not None
+                                              datasets.rgi_gpkg(), download_rgi.LAYER) is not None
         with rasterio.open(whole) as dataset:
             transform = dataset.transform
             whole_mask = dataset.read(1)
@@ -182,7 +183,7 @@ class TestGlacierWarpOnceEqualsPerWindow:
             part = tmp_path / f"glacier_win_{row0}.tif"
             snow.rasterize_glaciers_raster(_window_bounds(transform, width, row0, row1),
                                            width, row1 - row0, part,
-                                           download_rgi.GPKG, download_rgi.LAYER)
+                                           datasets.rgi_gpkg(), download_rgi.LAYER)
             with rasterio.open(part) as dataset:
                 part_mask = dataset.read(1)
             assert np.array_equal(whole_mask[row0:row1], part_mask), f"window at row {row0}"

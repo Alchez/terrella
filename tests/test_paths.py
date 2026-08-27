@@ -256,10 +256,10 @@ class TestSharedDatasetsHaveOneHome:
         return offenders
 
     def test_the_natural_earth_directory_is_spelled_once(self):
-        offenders = self.scan("raw/naturalearth", {Path("pipeline/naturalearth.py")})
+        offenders = self.scan("raw/naturalearth", {Path("pipeline/datasets.py")})
         assert not offenders, (
             f"a second spelling of the Natural Earth directory: {offenders} — "
-            "use pipeline.naturalearth.DIR, or naturalearth.layer(name) for a shapefile"
+            "use datasets.naturalearth(), or naturalearth.layer(name) for a shapefile"
         )
 
     def test_the_layer_name_is_never_doubled_by_hand(self):
@@ -298,13 +298,19 @@ class TestSharedDatasetsHaveOneHome:
         )
 
     def test_the_scans_can_see_a_violation(self):
-        """The control, and it is load-bearing: all three assertions above pass on an empty list,
-        which is equally what a scan reading the wrong file set returns. Dropping the allowlist must
-        surface the one site that legitimately holds the spelling."""
-        unfiltered = self.scan("raw/naturalearth", set())
-        assert any(hit.startswith("pipeline/naturalearth.py") for hit in unfiltered), (
-            "the scan cannot find the directory even in the module that defines it — it is "
-            f"reading nothing, and every assertion in this class is vacuous (saw: {unfiltered})"
+        """The control, and it is load-bearing: every assertion above passes on an empty list,
+        which is equally what a scan reading the wrong file set returns.
+
+        THE NEEDLE IS NOT THE ONE THE ASSERTIONS USE, and it cannot be any more. `datasets.py`
+        joins its entries as `_raw("naturalearth")`, so the literal `raw/naturalearth` is now
+        spelled NOWHERE — which is the point of that module and which leaves this control with no
+        real subject, exactly as an emptied allowlist does. What is proved instead is that the
+        walker reads these files and matches text in them, with a needle that does exist once.
+        """
+        unfiltered = self.scan('_raw("naturalearth")', set())
+        assert any(hit.startswith("pipeline/datasets.py") for hit in unfiltered), (
+            "the scan cannot find a string that is definitely in the registry — it is reading "
+            f"nothing, and every assertion in this class is vacuous (saw: {unfiltered})"
         )
 
 
@@ -616,58 +622,29 @@ class TestNoNewPathFreezesTheStoreAtImport:
     #: AN EXCEPTIONS LIST AND NOT A TARGET LIST, which is why it is long rather than clever: a
     #: guard listing the modules it cares about is silent on the one nobody thought of. Set
     #: EQUALITY is asserted, so this fails in both directions — a new freeze, and an entry fixed
-    #: without being struck off. `pipeline.acquire` holds 22 of the 52 and is where a sweep starts.
+    #: without being struck off.
+    #:
+    #: WAS 52. The 33 that named a location under `raw/` are gone, `pipeline.datasets` owning that
+    #: layout now. What is left is the `work/` tree, whose owner is `bodies.work_dir`, and six
+    #: `DATA = paths.DATA` aliases that exist only to spell the frozen constants beneath them.
     FROZEN_AT_IMPORT: ClassVar[frozenset[str]] = frozenset({
-        "pipeline.acquire.download_add_rock.GPKG",
-        "pipeline.acquire.download_add_rock.OUT",
-        "pipeline.acquire.download_cop30_void.DATA_DIR",
-        "pipeline.acquire.download_cop30_void.TILE_LIST",
-        "pipeline.acquire.download_gebco.DATA_DIR",
-        "pipeline.acquire.download_gebco.VRT_PATH",
-        "pipeline.acquire.download_glo30.DATA_DIR",
-        "pipeline.acquire.download_glo30.TILE_LIST",
-        "pipeline.acquire.download_globathy.DATA_DIR",
-        "pipeline.acquire.download_mars_dem.DATA_DIR",
-        "pipeline.acquire.download_nomenclature.DATA_DIR",
-        "pipeline.acquire.download_rgi.GPKG",
-        "pipeline.acquire.download_rgi.OUT",
-        "pipeline.acquire.download_seaice.DATA_DIR",
-        "pipeline.acquire.download_seaice.FINAL",
-        "pipeline.acquire.download_seaice.MONTHLY_DIR",
-        "pipeline.acquire.download_sim3292.DATA_DIR",
-        "pipeline.acquire.download_viking_mosaic.DATA_DIR",
         "pipeline.acquire.extract_globathy.DATA",
         "pipeline.acquire.extract_globathy.RASTER_DIR",
         "pipeline.acquire.extract_globathy.VRT_PATH",
-        "pipeline.acquire.extract_globathy.ZIP_PATH",
-        "pipeline.compose.countries_geojson.SRC",
         "pipeline.compose.features_geojson.LABELS",
         "pipeline.compose.features_geojson.LINES",
         "pipeline.compose.features_geojson.OUT_DIR",
         "pipeline.compose.features_geojson.POLYGONS",
-        "pipeline.compose.gen_spotlight.NE_COUNTRIES",
-        "pipeline.frame.country_config.GEBCO",
-        "pipeline.frame.country_config.TILE_LIST",
-        "pipeline.fuse.build_void_wbm.VOID_DIR",
-        "pipeline.fuse.build_void_wbm.WC_DIR",
         "pipeline.fuse.fuse_heightfield.DATA",
         "pipeline.fuse.fuse_heightfield.DEM_VRT",
-        "pipeline.fuse.fuse_heightfield.GEBCO",
         "pipeline.fuse.fuse_heightfield.WBM_VRT",
         "pipeline.fuse.fuse_planet.CHUNKS_DIR",
-        "pipeline.fuse.fuse_planet.DATA_DIR",
         "pipeline.fuse.fuse_planet.EARTH_PLANET_DIR",
-        "pipeline.fuse.fuse_planet.TILE_LIST",
         "pipeline.fuse.fuse_planet.WBM_VRT",
         "pipeline.look.lake_depth.DATA",
         "pipeline.look.lake_depth.LAKE_VRT",
         "pipeline.look.seaice.DATA",
-        "pipeline.look.seaice.SEAICE_SRC",
         "pipeline.look.snow.DATA",
-        "pipeline.look.snow.SP_NC",
-        "pipeline.naturalearth.DIR",
-        "pipeline.render.snow_mask.DATA_DIR",
-        "pipeline.tile.cap_render.COAST_SHP",
         "pipeline.tile.shade.CHUNKS",
         "pipeline.tile.shade.DATA",
     })

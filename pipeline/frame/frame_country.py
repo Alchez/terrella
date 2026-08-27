@@ -28,7 +28,7 @@ from pathlib import Path
 
 import shapefile
 
-from pipeline import naturalearth
+from pipeline import datasets, naturalearth
 
 
 def country_bbox(shp_path, name):
@@ -68,7 +68,7 @@ def main():
     ap.add_argument("--country", required=True,
                     help="ADMIN name in ne_10m_admin_0_countries "
                          "(case-insensitive)")
-    ap.add_argument("--ne-dir", type=Path, default=naturalearth.DIR)
+    ap.add_argument("--ne-dir", type=Path, default=datasets.naturalearth())
     ap.add_argument("--pad-pct", type=float, default=5.0)
     args = ap.parse_args()
 

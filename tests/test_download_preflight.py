@@ -16,6 +16,7 @@ from pathlib import Path
 
 import pytest
 
+from pipeline import datasets
 from pipeline.acquire import download_glo30
 
 TILE_NAME = "Copernicus_DSM_COG_10_N40_00_E010_00_DEM"
@@ -37,7 +38,7 @@ class FakeResponse:
 @pytest.fixture
 def store(tmp_path, monkeypatch):
     """A DATA_DIR holding one fake tile whose md5 the fake bucket can echo."""
-    monkeypatch.setattr(download_glo30, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(datasets, "glo30", lambda: tmp_path)
     (tmp_path / "dem").mkdir()
     (tmp_path / "dem" / f"{TILE_NAME}.tif").write_bytes(b"fake tile bytes")
     return tmp_path
@@ -95,7 +96,7 @@ class TestStampWriting:
 
     def test_no_held_tiles_never_stamps(self, tmp_path, monkeypatch):
         """Nothing verified -> nothing to cache (and the check is a no-op anyway)."""
-        monkeypatch.setattr(download_glo30, "DATA_DIR", tmp_path)
+        monkeypatch.setattr(datasets, "glo30", lambda: tmp_path)
         refuse_network(monkeypatch)
         download_glo30.bucket_preflight()
         assert not (tmp_path / "preflight_ok.json").exists()

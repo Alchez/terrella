@@ -51,15 +51,9 @@ import rasterio
 import shapefile
 from rasterio.warp import transform_bounds
 
-from pipeline import bodies, naturalearth, paths
-from pipeline.acquire.download_glo30 import (
-    TILE_LIST,
-    in_extent,
-    parse_tile_name,
-    tile_files,
-)
+from pipeline import bodies, datasets, naturalearth, paths
+from pipeline.acquire.download_glo30 import in_extent, parse_tile_name, tile_files
 from pipeline.frame.frame_country import pad_frame
-from pipeline.fuse.fuse_heightfield import GEBCO
 from pipeline.render.render_prep import aea_crs
 
 #: The CHECKOUT. Both paths below are TRACKED config, so they follow the repo and not the data
@@ -315,10 +309,11 @@ def preflight_glo30(frame):
 
     tileList.txt lists land tiles only, so ocean cells never count as
     missing; a needed tile is held iff both its DEM and WBM files exist."""
-    if not TILE_LIST.exists():
-        sys.exit(f"{TILE_LIST} not found — run python -m pipeline.acquire.download_glo30 "
+    tile_list = datasets.glo30_tile_list()
+    if not tile_list.exists():
+        sys.exit(f"{tile_list} not found — run python -m pipeline.acquire.download_glo30 "
                  f"once (any extent) to fetch the bucket index")
-    needed = [name for name in TILE_LIST.read_text().split()
+    needed = [name for name in tile_list.read_text().split()
               if in_extent(*parse_tile_name(name), frame)]
     missing = [name for name in needed
                if not all(dest.exists() for _, dest in tile_files(name))]
@@ -327,9 +322,10 @@ def preflight_glo30(frame):
 
 def preflight_gebco(frame) -> str | None:
     """None if the GEBCO mosaic covers the frame, else the failure."""
-    if not GEBCO.exists():
-        return f"{GEBCO} not found — run python -m pipeline.acquire.download_gebco"
-    with rasterio.open(GEBCO) as gebco:
+    gebco_vrt = datasets.gebco_vrt()
+    if not gebco_vrt.exists():
+        return f"{gebco_vrt} not found — run python -m pipeline.acquire.download_gebco"
+    with rasterio.open(gebco_vrt) as gebco:
         bounds = gebco.bounds
     west, south, east, north = frame
     if (bounds.left <= west and bounds.bottom <= south

@@ -71,9 +71,7 @@ import sys
 import zipfile
 from pathlib import Path
 
-from pipeline import fetch, paths
-
-DATA_DIR = paths.DATA / "raw/mars/nomenclature"
+from pipeline import datasets, fetch
 
 #: The regional endpoint rather than the global alias. Both answer today; naming the region means a
 #: recorded recipe says WHERE the bytes came from, which the global alias leaves ambiguous.
@@ -141,17 +139,17 @@ USE_CONSTRAINT = "Public domain."
 
 def archive_path() -> Path:
     """Where the published zip lives once fetched. A function rather than a constant, per `paths`."""
-    return DATA_DIR / ARCHIVE
+    return datasets.mars_nomenclature() / ARCHIVE
 
 
 def layer_path(layer: str, suffix: str = "shp") -> Path:
     """One extracted layer's component, e.g. `MARS_nomenclature_poly.dbf`."""
-    return DATA_DIR / f"MARS_nomenclature_{layer}.{suffix}"
+    return datasets.mars_nomenclature() / f"MARS_nomenclature_{layer}.{suffix}"
 
 
 def recipe_path() -> Path:
     """The recipe sidecar, beside the outputs it describes."""
-    return DATA_DIR / "nomenclature_params.json"
+    return datasets.mars_nomenclature() / "nomenclature_params.json"
 
 
 def archive_url() -> str:
@@ -198,7 +196,7 @@ def extract(archive: Path) -> list[Path]:
                          f"Nothing was extracted, so what is on disk is still the pinned edition.")
             verified[name] = data
     for name, data in verified.items():
-        destination = DATA_DIR / name
+        destination = datasets.mars_nomenclature() / name
         part = destination.with_suffix(destination.suffix + ".part")
         part.write_bytes(data)
         part.replace(destination)
@@ -305,7 +303,7 @@ def assert_licence() -> None:
     archive that changed its licence is otherwise indistinguishable from one that did not, and the
     consequence lands in the site's own CC BY-SA 4.0 rather than here.
     """
-    path = DATA_DIR / METADATA_MEMBER
+    path = datasets.mars_nomenclature() / METADATA_MEMBER
     if not path.exists():
         sys.exit(f"nothing to verify: {path} is not on disk")
     record = path.read_text(encoding="utf-8", errors="replace")
@@ -346,7 +344,7 @@ def is_fresh() -> bool:
     if not recipe_path().exists():
         return False
     for name, expected in MEMBER_DIGESTS.items():
-        member = DATA_DIR / name
+        member = datasets.mars_nomenclature() / name
         if not member.exists() or digest_of(member.read_bytes()) != expected:
             return False
     return all(layer_path(layer, "cpg").exists() for layer in LAYERS)
@@ -394,8 +392,8 @@ def main() -> int:
             assert_layer(layer, read_attributes(layer))
             print(f"verified {layer_path(layer)} ({FEATURE_COUNTS[layer]} features)", flush=True)
         drifted = [name for name, expected in sorted(MEMBER_DIGESTS.items())
-                   if not (DATA_DIR / name).exists()
-                   or digest_of((DATA_DIR / name).read_bytes()) != expected]
+                   if not (datasets.mars_nomenclature() / name).exists()
+                   or digest_of((datasets.mars_nomenclature() / name).read_bytes()) != expected]
         if drifted:
             print(f"✗ {len(drifted)} member(s) do not match their pinned digest:", flush=True)
             for name in drifted:
@@ -409,7 +407,7 @@ def main() -> int:
     if args.check:
         return check_source()
 
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    datasets.mars_nomenclature().mkdir(parents=True, exist_ok=True)
     if is_fresh():
         print(f"{ARCHIVE} fresh -> skip", flush=True)
         return 0

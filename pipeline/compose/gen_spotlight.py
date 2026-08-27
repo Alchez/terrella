@@ -72,7 +72,7 @@ warnings.filterwarnings("ignore", category=NotGeoreferencedWarning)  # hero PNGs
 # `MAPS_DATA`, the rendered layers stay in the checkout beside the heroes they dim.
 HEROES = paths.ROOT / "blender/renders/heroes"
 VARIANTS = paths.ROOT / "blender/renders/variants"
-NE_COUNTRIES = naturalearth.layer("ne_10m_admin_0_countries")
+NE_COUNTRIES_LAYER = "ne_10m_admin_0_countries"
 PLANE_WIDTH_UNITS = 2.0
 # The ladder is IMPORTED, not restated. The gallery layers this overlay directly on the hero and
 # gives both the same `sizes`, so a rung the overlay lacks makes the browser pull a larger file for
@@ -238,8 +238,9 @@ def render_one(slug, dim, desat, force, outline_div=OUTLINE_DIV_DEFAULT, halo=HA
         ocean_full = ods.read(1)
         ocean_transform = ods.transform
     bbox = frame_bbox_lonlat(bounds, crs)
-    subject_parts = load_parts(NE_COUNTRIES, bbox, slug, exclude=False)
-    neighbour_parts = load_parts(NE_COUNTRIES, bbox, slug, exclude=True)
+    ne_countries = naturalearth.layer(NE_COUNTRIES_LAYER)
+    subject_parts = load_parts(ne_countries, bbox, slug, exclude=False)
+    neighbour_parts = load_parts(ne_countries, bbox, slug, exclude=True)
     if not subject_parts:
         print(f"  {slug}: skip (no NE polygon)", flush=True)
         return

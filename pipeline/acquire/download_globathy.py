@@ -39,11 +39,10 @@ import json
 import sys
 from pathlib import Path
 
-from pipeline import fetch, paths
+from pipeline import datasets, fetch
 from pipeline.fetch import download_one
 
-DATA_DIR = paths.DATA / "raw/globathy"
-API = "https://api.figshare.com/v2/articles/{article}/versions/1"
+API ="https://api.figshare.com/v2/articles/{article}/versions/1"
 DOWNLOAD = "https://ndownloader.figshare.com/files/{file_id}"
 MD5_CHUNK = 1 << 20
 
@@ -95,7 +94,7 @@ def preflight(entry: dict) -> None:
 
 def fetch_archive(entry: dict, verify_existing: bool) -> str:
     """Download one archive if absent; md5-check whatever is new (or --verify)."""
-    dest = DATA_DIR / entry["name"]
+    dest = datasets.globathy() / entry["name"]
     gigabytes = entry["size"] / 1e9
     print(f"{entry['name']} ({gigabytes:.2f} GB) ...", flush=True)
     status = download_one(DOWNLOAD.format(file_id=entry["file_id"]), dest)
@@ -123,7 +122,7 @@ def main() -> int:
                         help="skip the figshare edition check (offline reruns)")
     args = parser.parse_args()
 
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    datasets.globathy().mkdir(parents=True, exist_ok=True)
     wanted = [FILES[args.only]] if args.only else [FILES[key] for key in ("csv", "rasters")]
 
     if not args.skip_preflight:
@@ -139,12 +138,12 @@ def main() -> int:
             failures.append(f"{entry['name']}  {status}")
 
     if failures:
-        log = DATA_DIR / "failures.txt"
+        log = datasets.globathy() / "failures.txt"
         log.write_text("\n".join(failures) + "\n")
         print("\n".join(failures), file=sys.stderr)
         print(f"{len(failures)} failure(s) written to {log} -- rerun to retry", flush=True)
         return 1
-    print(f"complete -> {DATA_DIR}", flush=True)
+    print(f"complete -> {datasets.globathy()}", flush=True)
     return 0
 
 

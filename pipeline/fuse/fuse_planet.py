@@ -51,13 +51,8 @@ from pathlib import Path
 import rasterio
 from rasterio.windows import from_bounds
 
-from pipeline import bodies, planet_seam
-from pipeline.acquire.download_glo30 import (
-    DATA_DIR,
-    TILE_LIST,
-    in_extent,
-    parse_tile_name,
-)
+from pipeline import bodies, datasets, planet_seam
+from pipeline.acquire.download_glo30 import in_extent, parse_tile_name
 from pipeline.fuse import fuse_heightfield
 
 RES_ARCSEC = 10
@@ -139,9 +134,10 @@ def enumerate_cells() -> list[tuple[int, int]]:
 
 def load_tile_index() -> list[tuple[str, int, int]]:
     """(name, lat, lon) for every land tile in the bucket index."""
-    if not TILE_LIST.exists():
-        sys.exit(f"{TILE_LIST} not found — run download_glo30 first to fetch the tile index")
-    names = TILE_LIST.read_text().split()
+    tile_list = datasets.glo30_tile_list()
+    if not tile_list.exists():
+        sys.exit(f"{tile_list} not found — run download_glo30 first to fetch the tile index")
+    names = tile_list.read_text().split()
     return [(name, *parse_tile_name(name)) for name in names]
 
 
@@ -155,7 +151,7 @@ def classify_cell(corner: tuple[int, int], tile_index):
     bounds = cell_bounds(west, south)
     listed = [name for (name, lat, lon) in tile_index if in_extent(lat, lon, bounds)]
     missing = [name for name in listed
-               if not (DATA_DIR / "dem" / f"{name}.tif").exists()]
+               if not (datasets.glo30() / "dem" / f"{name}.tif").exists()]
     return cell_name(west, south), bounds, listed, missing
 
 

@@ -25,18 +25,13 @@ import re
 import sys
 from pathlib import Path
 
-from pipeline import paths
-from pipeline.acquire.download_glo30 import (
-    TILE_LIST,
-    WORKERS,
-    fetch_tile_list,
-)
+from pipeline import datasets
+from pipeline.acquire.download_glo30 import WORKERS, fetch_tile_list
 from pipeline.fetch import download_one
 
 OT_ENDPOINT = "https://opentopography.s3.sdsc.edu"
 OT_PREFIX = "raster/COP30/COP30_hh"          # keyless public COG mirror, DGED 2023_1
-DATA_DIR = paths.DATA / "raw/cop30_void"
-KEY_RE = re.compile(r"[NS]\d\d_00_[EW]\d\d\d_00")  # the N40_00_E044_00 tile key
+KEY_RE =re.compile(r"[NS]\d\d_00_[EW]\d\d\d_00")  # the N40_00_E044_00 tile key
 
 
 def ot_index(vrt_path: Path) -> dict[str, str]:
@@ -49,15 +44,16 @@ def ot_index(vrt_path: Path) -> dict[str, str]:
 
 
 def main() -> int:
-    dem_dir = DATA_DIR / "dem"
+    data_dir, tile_list = datasets.cop30_void(), datasets.glo30_tile_list()
+    dem_dir = data_dir / "dem"
     dem_dir.mkdir(parents=True, exist_ok=True)
 
     # The withheld set is exactly what OT's index has and AWS's tileList lacks.
-    if not TILE_LIST.exists():
+    if not tile_list.exists():
         fetch_tile_list()
-    aws_keys = set(KEY_RE.findall(TILE_LIST.read_text()))
+    aws_keys = set(KEY_RE.findall(tile_list.read_text()))
 
-    vrt = DATA_DIR / "COP30_hh.vrt"
+    vrt = data_dir / "COP30_hh.vrt"
     if not vrt.exists():
         status = download_one(f"{OT_ENDPOINT}/{OT_PREFIX}.vrt", vrt)
         if status.startswith("failed"):
@@ -85,7 +81,7 @@ def main() -> int:
             print(f"[{index}/{len(jobs)}] {futs[fut].name} {status}", flush=True)
 
     if failures:
-        log = DATA_DIR / "failures.txt"
+        log = data_dir / "failures.txt"
         log.write_text("\n".join(failures) + "\n")
         print(f"{len(failures)} failures -> {log}; rerun to retry")
         return 1

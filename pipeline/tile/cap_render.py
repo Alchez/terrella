@@ -63,13 +63,13 @@ from scipy.ndimage import (
 from pipeline import (
     block_plan,
     bodies,
+    datasets,
     layers,
     naturalearth,
     planet_seam,
     progress,
     vector_raster,
 )
-from pipeline.acquire import download_add_rock
 from pipeline.look import (
     hillshade,
     lake_depth,
@@ -235,7 +235,14 @@ def south_grid(body: bodies.Body) -> CapGrid:
 # where MapLibre's Mercator vector borders can't reach the pole. It must be DARK, not the globe's
 # white coast line: a white line vanishes between white snow and white ice. A muted steel-blue reads
 # delicately on both whites without going harsh. Line strength/width are per-cap (CapGrid).
-COAST_SHP = naturalearth.layer("ne_10m_coastline")
+def coast_shp() -> Path:
+    """The Natural Earth coastline, resolved on each call so a relocated store reaches it.
+
+    A module-level binding of `naturalearth.layer(...)` froze the root at import, which is the
+    defect `paths.py` names: `layer` reads the store every call and binding its result once undid
+    that.
+    """
+    return naturalearth.layer("ne_10m_coastline")
 COAST_RGB = (96, 122, 142)  # muted steel-blue
 
 
@@ -248,7 +255,7 @@ def bakes_coastline(grid: CapGrid) -> bool:
     without the layer prints the same sentence the four raster layers print.
 
     THE BODY QUESTION CANNOT BE THE DISK QUESTION, which is the lesson this whole gate carries:
-    `COAST_SHP` is one global path to a Natural Earth product that is present on this box, so
+    `coast_shp()` is one global path to a Natural Earth product that is present on this box, so
     `.exists()` returns True for Mars exactly as it does for Earth. Ordered the other way, a Martian
     north cap would have had Earth's coastline reprojected onto it and blended in steel-blue -- a
     crisp, confident, entirely fictional shoreline.
@@ -258,7 +265,7 @@ def bakes_coastline(grid: CapGrid) -> bool:
     """
     if grid.coast_opacity <= 0.0:
         return False
-    return layers.layer_is_buildable(grid.body, layers.COASTLINE, COAST_SHP,
+    return layers.layer_is_buildable(grid.body, layers.COASTLINE, coast_shp(),
                                      "the cap ships with no land/sea line")
 
 
@@ -681,7 +688,7 @@ def cap_sources(grid: CapGrid, rasters: frozenset[str]) -> list[Path]:
     sources = [planet_seam.vrt_path(grid.body, raster)
                for raster in planet_seam.PLANET_RASTERS if raster in rasters]
     if layers.SEA_ICE.name in grid.body.surface_layers:
-        sources.append(Path(seaice.SEAICE_SRC))
+        sources.append(Path(datasets.seaice_frequency()))
     if layers.ANTARCTIC_ROCK.name in grid.body.surface_layers:
         # BESIDE `sea_ice` AND NOT INSIDE THE ICE PRODUCER'S OWN LIST, which is a correctness
         # boundary: `_cap_perennial_ice` requires every source a producer declares to EXIST, so a
@@ -692,7 +699,7 @@ def cap_sources(grid: CapGrid, rasters: frozenset[str]) -> list[Path]:
         # over-tracks by one mtime — a spare re-render at worst. The alternative writes "only
         # Antarctica has Antarctic rock" a second time, outside the registry key that already
         # says it, and under-tracking is the direction that is silent.
-        sources.append(download_add_rock.GPKG)
+        sources.append(datasets.addrock_gpkg())
     if layers.PERENNIAL_ICE.name in grid.body.surface_layers:
         # ASKED OF THE PRODUCER, NOT SPELLED OUT HERE. This was `grid.name == "north"` plus Earth's
         # NetCDF, which is two of Earth's facts written down as though they were the layer's: that
@@ -700,7 +707,7 @@ def cap_sources(grid: CapGrid, rasters: frozenset[str]) -> list[Path]:
         # south genuinely reads none, and a body grading its ice off its own rasters reads several.
         sources.extend(perennial_ice.cap_ice(grid.body, grid.name).sources())
     if bakes_coastline(grid):
-        sources.append(COAST_SHP)
+        sources.append(coast_shp())
     return sources
 
 
@@ -860,7 +867,7 @@ def _bake_coastline(grid: CapGrid, rgb: np.ndarray) -> None:
     edge = grid.edge_m
     work = cap_work_dir(grid.body)
     coast_tif = vector_raster.burn_onto_grid(
-        COAST_SHP, grid.aeqd, (-edge, -edge, edge, edge), grid.px, grid.px,
+        coast_shp(), grid.aeqd, (-edge, -edge, edge, edge), grid.px, grid.px,
         projected=work / f"cap_{grid.name}_coast_aeqd.gpkg",
         out=work / f"cap_{grid.name}_coast.tif",
         # A cap that bakes the line has already passed `bakes_coastline`, so the body declares the
@@ -939,10 +946,10 @@ def _cap_sea_ice(grid: CapGrid, ocean: np.ndarray, consequence: str) -> "np.ndar
     producers. None rather than a zero array on the way out: `shade.composite` takes `ice_a=None`
     and skips the blend entirely, where zeros would run it and multiply the whole disc by nothing.
     """
-    if not layers.layer_is_buildable(grid.body, layers.SEA_ICE, Path(seaice.SEAICE_SRC),
+    if not layers.layer_is_buildable(grid.body, layers.SEA_ICE, Path(datasets.seaice_frequency()),
                                      consequence):
         return None
-    ice_raw = _warp(grid, seaice.SEAICE_SRC, cap_warp(grid, "seaice"),
+    ice_raw = _warp(grid, datasets.seaice_frequency(), cap_warp(grid, "seaice"),
                     "bilinear", "Float32", srcnodata=seaice.ICE_FILL)
     # No latitude term in ice_alpha -> valid on an AEQD grid. The south's fainter, pulled-in fringe
     # comes from the grid's seaice.SH_ICE_* overrides, not from a second code path.
@@ -986,9 +993,9 @@ def _cap_rock(grid: CapGrid) -> "np.ndarray | None":
     "no rock", and `snow.antarctic_snow_mask` is built to give today's answer exactly for the first.
     """
     if not layers.layer_is_buildable(grid.body, layers.ANTARCTIC_ROCK,
-                                     download_add_rock.GPKG, ROCK_CONSEQUENCE):
+                                     datasets.addrock_gpkg(), ROCK_CONSEQUENCE):
         return None
-    return _burn(grid, download_add_rock.GPKG, "addrock",
+    return _burn(grid, datasets.addrock_gpkg(), "addrock",
                  f"SCAR ADD rock outcrop must reach the {grid.name} cap disc")
 
 

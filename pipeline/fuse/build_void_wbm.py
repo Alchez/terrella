@@ -35,16 +35,14 @@ from typing import Any
 import numpy as np
 import rasterio
 
-from pipeline import paths
+from pipeline import datasets
 from pipeline.fetch import download_one
 from pipeline.render.snow_mask import (
     BUCKET_URL,
     WORKERS,
     tiles_for_bounds,
 )
-from pipeline.render.snow_mask import DATA_DIR as WC_DIR
 
-VOID_DIR = paths.DATA / "raw/cop30_void"
 WATER_CLASS = 80   # ESA WorldCover "permanent water bodies"
 WBM_LAKE = 2       # fuse_heightfield inland-lake class
 
@@ -66,11 +64,12 @@ def ensure_worldcover(bounds) -> Path:
     """Fetch the WorldCover tiles overlapping bounds, build a VRT, return it."""
     names = tiles_for_bounds(*bounds)
     print(f"WorldCover: {len(names)} tiles overlap the void extent", flush=True)
-    WC_DIR.mkdir(parents=True, exist_ok=True)
+    wc_dir = datasets.worldcover()
+    wc_dir.mkdir(parents=True, exist_ok=True)
     counts = {"ok": 0, "skipped": 0, "absent": 0}
     failures = []
     with cf.ThreadPoolExecutor(WORKERS) as pool:
-        futs = {pool.submit(download_one, f"{BUCKET_URL}/{nm}", WC_DIR / nm,
+        futs = {pool.submit(download_one, f"{BUCKET_URL}/{nm}", wc_dir / nm,
                             timeout=120, absent_on_404=True): nm
                 for nm in names}
         for fut in cf.as_completed(futs):
@@ -84,13 +83,13 @@ def ensure_worldcover(bounds) -> Path:
                  + "\n  ".join(failures))
     print(f"  fetched {counts['ok']}, held {counts['skipped']}, "
           f"absent {counts['absent']}", flush=True)
-    held = [WC_DIR / nm for nm in names if (WC_DIR / nm).exists()]
+    held = [wc_dir / nm for nm in names if (wc_dir / nm).exists()]
     if not held:
         sys.exit("no WorldCover tiles over the void extent — bucket/naming changed?")
     if counts["absent"]:
         print(f"  NOTE: {counts['absent']} tiles absent (ocean cells) — any Caspian "
               f"there falls back to land; check the per-tile water% below", flush=True)
-    vrt = VOID_DIR / "worldcover_void.vrt"
+    vrt = datasets.cop30_void() / "worldcover_void.vrt"
     subprocess.run(["gdalbuildvrt", "-overwrite", str(vrt)] + [str(path) for path in held],
                    check=True, capture_output=True)
     return vrt
@@ -128,7 +127,8 @@ def build_wbm(dem_tile: Path, wbm_tile: Path, wc_vrt: Path) -> int:
 
 
 def main() -> int:
-    dem_dir, wbm_dir = VOID_DIR / "dem", VOID_DIR / "wbm"
+    void_dir = datasets.cop30_void()
+    dem_dir, wbm_dir = void_dir / "dem", void_dir / "wbm"
     dem_tiles = sorted(dem_dir.glob("*_DEM.tif"))
     if not dem_tiles:
         sys.exit(f"no void DEM tiles in {dem_dir} — run download_cop30_void.py first")

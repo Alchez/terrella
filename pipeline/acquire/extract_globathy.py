@@ -32,10 +32,9 @@ import subprocess
 import sys
 import zipfile
 
-from pipeline import paths
+from pipeline import datasets, paths
 
 DATA = paths.DATA
-ZIP_PATH = DATA / "raw/globathy/Bathymetry_Rasters.zip"
 RASTER_DIR = DATA / "work/globathy/rasters"
 VRT_PATH = DATA / "work/globathy/lakedepth.vrt"
 
@@ -91,7 +90,7 @@ def main() -> int:
     args = parser.parse_args()
 
     RASTER_DIR.mkdir(parents=True, exist_ok=True)
-    archive = zipfile.ZipFile(ZIP_PATH)
+    archive = zipfile.ZipFile(datasets.globathy_zip())
     picks = wanted(archive)
     total_gb = sum(info.file_size for info in archive.infolist()
                    if NAME_RE.search(info.filename) and info.file_size >= MIN_BYTES) / 1e9

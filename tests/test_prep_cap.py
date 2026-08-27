@@ -19,9 +19,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from pipeline import bodies, paths, planet_seam
-from pipeline.acquire import download_add_rock
-from pipeline.look import seaice, snow
+from pipeline import bodies, datasets, paths, planet_seam
 from pipeline.render import prep_cap, render_seam
 from pipeline.tile import cap_render
 
@@ -57,9 +55,9 @@ def prepped(monkeypatch, tmp_path):
     monkeypatch.setattr(paths, "ROOT", tmp_path / "checkout")
     present = tmp_path / "an-earth-dataset-this-box-already-has"
     present.write_text("")
-    monkeypatch.setattr(snow, "SP_NC", str(present))
-    monkeypatch.setattr(seaice, "SEAICE_SRC", str(present))
-    monkeypatch.setattr(cap_render, "COAST_SHP", present)
+    monkeypatch.setattr(datasets, "snow_persistence", lambda: present)
+    monkeypatch.setattr(datasets, "seaice_frequency", lambda: present)
+    monkeypatch.setattr(cap_render, "coast_shp", lambda: present)
 
     def fake_warp(grid, src, out, resampling, dtype, srcnodata=None):
         layer = Path(out).stem.split("_", 1)[1]
@@ -86,7 +84,7 @@ def prepped(monkeypatch, tmp_path):
         return np.zeros((grid.px, grid.px), dtype=bool)
 
     monkeypatch.setattr(cap_render, "_burn", fake_burn)
-    monkeypatch.setattr(download_add_rock, "GPKG", present)
+    monkeypatch.setattr(datasets, "addrock_gpkg", lambda: present)
 
     def run(pole: str = "north", body: bodies.Body = EARTH) -> Path:
         grid = _small(cap_render.north_grid(body) if pole == "north"

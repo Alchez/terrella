@@ -185,7 +185,6 @@ class TestTheRecipeDownloadsNothingByAccident:
         """Resolved at call time, not frozen at import: `MAPS_DATA` moves the whole data store, and
         a module-level join would leave 10.6 GiB landing back inside the checkout."""
         monkeypatch.setattr(paths, "DATA", tmp_path / "elsewhere")
-        monkeypatch.setattr(mars_dem, "DATA_DIR", paths.DATA / "raw/mars")
         assert mars_dem.blend_path().parent.is_relative_to(tmp_path)
 
     def test_the_atomic_download_is_imported_rather_than_restated(self):

@@ -28,13 +28,11 @@ import sys
 
 import rasterio
 
-from pipeline import paths
+from pipeline import datasets
 from pipeline.fetch import download_one
 
 BASE_URL = ("https://dap.ceda.ac.uk/bodc/gebco/global/gebco_2026"
             "/ice_surface_elevation/geotiff")
-DATA_DIR = paths.DATA / "raw/gebco"
-VRT_PATH = DATA_DIR / "gebco_2026_global.vrt"
 NODATA = -32767  # GEBCO_2026 Int16 fill; must match fuse_heightfield's read
 WORKERS = 4
 
@@ -48,20 +46,20 @@ TILES = [f"gebco_2026_n{north}.0_s{south}.0_w{west}.0_e{east}.0_geotiff.tif"
 
 def build_vrt() -> None:
     """Rebuild the global mosaic VRT over exactly the 8 tiles."""
-    tifs = [str(DATA_DIR / tile) for tile in TILES]
+    tifs = [str(datasets.gebco() / tile) for tile in TILES]
     subprocess.run(["gdalbuildvrt", "-overwrite", "-vrtnodata", str(NODATA),
-                    str(VRT_PATH), *tifs], check=True)
-    with rasterio.open(VRT_PATH) as vrt_ds:
+                    str(datasets.gebco_vrt()), *tifs], check=True)
+    with rasterio.open(datasets.gebco_vrt()) as vrt_ds:
         bounds = vrt_ds.bounds
-    print(f"built {VRT_PATH.name}: {vrt_ds.width} x {vrt_ds.height}, "
+    print(f"built {datasets.gebco_vrt().name}: {vrt_ds.width} x {vrt_ds.height}, "
           f"bounds ({bounds.left:g}, {bounds.bottom:g}, {bounds.right:g}, {bounds.top:g})",
           flush=True)
 
 
 def main() -> int:
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    jobs = [(f"{BASE_URL}/{tile}", DATA_DIR / tile) for tile in TILES]
-    print(f"{len(jobs)} GEBCO_2026 ice-surface tiles -> {DATA_DIR}", flush=True)
+    datasets.gebco().mkdir(parents=True, exist_ok=True)
+    jobs = [(f"{BASE_URL}/{tile}", datasets.gebco() / tile) for tile in TILES]
+    print(f"{len(jobs)} GEBCO_2026 ice-surface tiles -> {datasets.gebco()}", flush=True)
 
     counts = {"ok": 0, "skipped": 0}
     failures: list[str] = []

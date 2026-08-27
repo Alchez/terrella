@@ -83,10 +83,8 @@ from pathlib import Path
 import pyproj
 import rasterio
 
-from pipeline import bodies, fetch, paths
+from pipeline import bodies, datasets, fetch
 from pipeline.fetch import download_one
-
-DATA_DIR = paths.DATA / "raw/mars"
 
 BLEND_NAME = "Mars_HRSC_MOLA_BlendDEM_Global_200mp_v2.tif"
 BLEND_URL = ("https://planetarymaps.usgs.gov/mosaic/Mars/HRSC_MOLA_Blend/"
@@ -109,7 +107,7 @@ EXPECTED_NODATA = -32768.0
 
 def blend_path() -> Path:
     """Where the blend lives once fetched. A function, not a constant, per `paths`."""
-    return DATA_DIR / BLEND_NAME
+    return datasets.mars() / BLEND_NAME
 
 
 def preflight(url: str = BLEND_URL) -> None:
@@ -199,7 +197,7 @@ def main() -> int:
     if args.check:
         return 0
 
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    datasets.mars().mkdir(parents=True, exist_ok=True)
     print(f"downloading {BLEND_URL} -> {destination} (~10.6 GiB) ...", flush=True)
     result = download_one(BLEND_URL, destination)
     if result.startswith("failed"):
