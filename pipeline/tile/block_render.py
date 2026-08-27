@@ -37,6 +37,7 @@ import shutil
 import sys
 import time
 import types
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -93,12 +94,9 @@ def mosaic_in(work: Path) -> Path:
 
 
 def markers_in(mosaic: Path) -> Path:
-    """Where per-block completion is recorded, named after the mosaic it describes.
-
-    Derived from the mosaic rather than from the work directory so that a run pointed at a second
-    raster — an A/B, or a first pass that must not overwrite the shipping one — keeps its own
-    markers. Sharing them would let one run resume over the other's blocks.
-    """
+    """Where per-block completion is recorded, named after the mosaic it describes: one shared
+    directory would let one run resume over another's blocks. `sidecars_for` holds the general
+    rule this is one case of."""
     return mosaic.with_name(f"{mosaic.stem}_blocks")
 
 
@@ -107,9 +105,47 @@ def generation_stamp(markers: Path) -> Path:
     return markers / GENERATION_NAME
 
 
-def status_in(work: Path) -> Path:
-    """Where the run reports its own progress."""
-    return work / STATUS_NAME
+@dataclass(frozen=True)
+class Sidecars:
+    """Every path one run of this producer writes, and whether that run fills the canonical
+    raster — which decides what it may declare as well as what it may name."""
+
+    mosaic: Path
+    markers: Path
+    scratch: Path
+    recipe: Path
+    status: Path
+    canonical: bool
+
+
+def sidecars_for(work: Path, mosaic: Path) -> Sidecars:
+    """Everything a run writes, derived from the raster it fills rather than from `work`.
+
+    ONE RULE AND ONE OWNER: what a run writes sits beside its raster and is named after it.
+    `--mosaic` exists so an A/B cannot disturb a shipping planet, and a half-kept seam disturbs it
+    in the direction nothing looks at. The recipe is in `raytrace_deps`, so an A/B writing the
+    shipping recipe moves it, the next production pass moves it back, `generation_is_current` reads
+    False and `start_generation` clears a finished planet's entire marker set — a night of Cycles
+    to emit the pixels already on disk, logged as a line that reads like ordinary operation.
+
+    THE CANONICAL RASTER'S SIDECARS KEEP THEIR BARE NAMES, the same elision `composite_planet`
+    makes for its default variant. Prefixing every mosaic's alike is the tidier rule and renames two
+    files a finished pass left on disk, which moves an mtime: the same night, paid on the way in.
+
+    RESOLVED FIRST, so a canonical raster spelled through a symlink or a `..` is still canonical —
+    which the arm worktrees can produce, since they run against a symlinked work directory. Read as
+    a second raster it would take a recipe of its own while sharing the markers and the bytes,
+    leaving the shipping planet fresh under a recipe that describes nothing.
+    """
+    mosaic = mosaic.resolve()
+    canonical = mosaic == mosaic_in(work).resolve()
+    prefix = "" if canonical else f"{mosaic.stem}_"
+    return Sidecars(mosaic=mosaic,
+                    markers=markers_in(mosaic),
+                    scratch=mosaic.with_name(f"{mosaic.stem}_scratch"),
+                    recipe=mosaic.with_name(f"{prefix}{PARAMS_NAME}"),
+                    status=mosaic.with_name(f"{prefix}{STATUS_NAME}"),
+                    canonical=canonical)
 
 
 def block_name(block: Block) -> str:
@@ -632,15 +668,25 @@ def run(body: bodies.Body, work: Path, mosaic: Path, *, limit: int | None = None
     # body the registry still calls `"composite"`. Recording the body's answer here would leave the
     # stamp agreeing with a registry the pixels disagree with, and the composite would then find
     # nothing moved and republish them under its own recipe.
+    # ONLY FOR THE CANONICAL RASTER, which is `composite_planet`'s guard for the same reason: the
+    # declaration's subject is the raster the tile cut reads, so a run pointed elsewhere claiming it
+    # would name a producer for bytes it never wrote. A second mosaic needs no declaration at all —
+    # the stamp exists because two producers share ONE output, and that one has a single producer.
     rasters = planet_seam.declared(body)
     look = palette.look_for(body.name)
     check_inputs(work, body, rasters)
-    producer_seam.declare(work, "raytrace")
+    sidecars = sidecars_for(work, mosaic)
+    # ONE SPELLING FROM HERE DOWN. Everything beside the raster is derived from the resolved path,
+    # so addressing the raster itself by the caller's would leave one run holding two names for one
+    # file — which is what the progress document then reports and a reader compares against.
+    mosaic = sidecars.mosaic
+    if sidecars.canonical:
+        producer_seam.declare(work, "raytrace")
     blocks = plan_blocks(body, work)
-    recipe = freshness.write_if_changed(work / PARAMS_NAME,
+    recipe = freshness.write_if_changed(sidecars.recipe,
                                         params(body, rasters, look, rig_recipe(body), blocks))
     deps = raytrace_deps(work, recipe)
-    markers = markers_in(mosaic)
+    markers = sidecars.markers
 
     if not freshness.is_stale(mosaic, *deps):
         log(f"{mosaic.name} fresh -> skip render", stage=True)
@@ -652,7 +698,7 @@ def run(body: bodies.Body, work: Path, mosaic: Path, *, limit: int | None = None
     freshness.done_marker(mosaic).unlink(missing_ok=True)
 
     ensure_mosaic(mosaic, body)
-    scratch = work / f"{mosaic.stem}_scratch"
+    scratch = sidecars.scratch
     scratch.mkdir(parents=True, exist_ok=True)
 
     selected = [block for block in blocks if only is None or block_name(block) in only]
@@ -663,7 +709,7 @@ def run(body: bodies.Body, work: Path, mosaic: Path, *, limit: int | None = None
     todo = [block for block in selected if not (markers / block_name(block)).exists()]
     already = sum(1 for block in blocks if (markers / block_name(block)).exists())
 
-    status = Status(body, mosaic, status_in(work), len(blocks), already)
+    status = Status(body, mosaic, sidecars.status, len(blocks), already)
     status.state = "rendering"
     status.write()
     log(f"{body.name}: {already}/{len(blocks)} blocks already done, {len(todo)} to render"
@@ -746,8 +792,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--mosaic", type=Path, default=None,
                         help="override the raster written, the seam `--out` gives the planet pass: "
                              "an A/B, or a first pass that must not overwrite a shipping planet. "
-                             "Its markers and scratch follow the name, so two runs never resume "
-                             "over each other")
+                             "Everything the run writes follows the name and it declares no "
+                             "producer, so it cannot restage the raster it was told to keep off")
     # `default=None` and tested against None, never for truthiness: `--limit 0` has to mean render
     # nothing at all, and a falsy test would read it as no limit and start the whole planet.
     parser.add_argument("--limit", type=int, default=None,

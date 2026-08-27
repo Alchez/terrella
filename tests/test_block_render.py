@@ -9,6 +9,8 @@ sends the tile cut at a planet that is half one producer and half the other. Non
 import json
 import os
 import time
+from pathlib import Path
+from types import SimpleNamespace
 from typing import ClassVar
 
 import numpy as np
@@ -150,6 +152,114 @@ class TestTheMarkersFollowTheMosaicTheyDescribe:
 
     def test_the_markers_sit_beside_the_raster(self, tmp_path):
         assert block_render.markers_in(tmp_path / "planet_rgb.tif").parent == tmp_path
+
+
+class TestASecondMosaicOwnsEverySidecarThatDescribesIt:
+    """The markers above follow the mosaic; the recipe, the progress document and the producer
+    declaration do not, and they decide whether the raster they are keyed on is still correct.
+
+    THE PRICE IS THE WHOLE PLANET, and it is silent. The recipe is in `raytrace_deps`, so an A/B
+    moves it, the next production pass moves it back, `generation_is_current` reads False and
+    `start_generation` clears every marker: a night of Cycles to emit the pixels already on disk.
+    The line the runner logs for that is true and reads as ordinary operation.
+
+    So `--mosaic` protects a shipping planet's PIXELS and nothing else, while its own help text
+    offers it for "an A/B, or a first pass that must not overwrite a shipping planet".
+    """
+
+    def _ab(self, tmp_path):
+        return tmp_path / "planet_rgb_ab.tif"
+
+    def test_the_shipping_planet_re_renders_nothing_after_an_ab(self, tmp_path, monkeypatch):
+        """The oracle for the whole seam, and the only one priced in hours.
+
+        The A/B plans a different grid because a run with nothing different about it is not an A/B;
+        that difference reaches `params`, which is what moves the recipe. Aged between runs so the
+        verdict comes from what a run WROTE rather than from the order the fixture happened to
+        create files in.
+        """
+        first = _drive_planet(tmp_path, monkeypatch, blocks=3)
+        assert first.rendered == 3 and freshness.done_marker(first.mosaic).exists()
+        _age_everything(tmp_path)
+        _drive_planet(tmp_path, monkeypatch, mosaic=self._ab(tmp_path), blocks=4)
+        _age_everything(tmp_path)
+        again = _drive_planet(tmp_path, monkeypatch, blocks=3)
+        assert again.rendered == 0 and again.attempted == []
+
+    def test_an_ab_does_not_move_the_shipping_planets_recipe(self, tmp_path, monkeypatch):
+        """The direct cause of the test above, asserted on its own so that a fix which satisfies
+        the oracle some other way cannot leave this in place."""
+        _drive_planet(tmp_path, monkeypatch, blocks=3)
+        _age_everything(tmp_path)
+        recipe = tmp_path / block_render.PARAMS_NAME
+        before = recipe.read_text(), recipe.stat().st_mtime
+        _drive_planet(tmp_path, monkeypatch, mosaic=self._ab(tmp_path), blocks=4)
+        assert (recipe.read_text(), recipe.stat().st_mtime) == before
+
+    def test_an_ab_does_not_claim_the_raster_it_did_not_write(self, tmp_path, monkeypatch):
+        """The declaration's subject is the work directory's CANONICAL raster, and an A/B does not
+        produce it. `composite_planet` already guards its own on exactly this question, writing one
+        only when `planet_rgb.tif` is among its outputs.
+
+        THE BODY THAT WILL BE IN THIS STATE IS MARS, whose canonical raster is composited and
+        shipping while the raytrace is being judged against it. Earth stands in because Mars's seam
+        is refused before any block until the rig reads `render_seam.declared`; the assertion is
+        about the declaration, which is the same on either body.
+
+        NOTHING DECLARES THE A/B'S OWN RASTER AND NOTHING SHOULD. The stamp exists because two
+        producers share one output; a second mosaic has one producer, and its own recipe beside it
+        names which.
+        """
+        producer_seam.declare(tmp_path, "composite")
+        _drive_planet(tmp_path, monkeypatch, mosaic=self._ab(tmp_path), blocks=3)
+        assert producer_seam.declared(tmp_path) == "composite"
+
+    def test_each_run_reports_its_own_progress(self, tmp_path, monkeypatch):
+        """`raytrace_status.json` is the point of contact for a night's watcher, and two runs
+        sharing one leaves the second answering for the first. Nothing gates on its mtime, so this
+        costs no render either way; what it costs is a wrong answer to "how is the pass going".
+        """
+        first = _drive_planet(tmp_path, monkeypatch, blocks=3)
+        status = tmp_path / block_render.STATUS_NAME
+        assert json.loads(status.read_text())["mosaic"] == str(first.mosaic)
+        _drive_planet(tmp_path, monkeypatch, mosaic=self._ab(tmp_path), blocks=4)
+        assert json.loads(status.read_text())["mosaic"] == str(first.mosaic)
+
+    def test_the_scratch_sits_beside_the_raster_it_fills(self, tmp_path, monkeypatch):
+        """The disk guard already assumes it does. `free_bytes(mosaic.parent)` measures the
+        mosaic's filesystem, while the scratch it is sizing was opened in the work directory, so a
+        `--mosaic` on another volume leaves the run guarding the wrong one."""
+        elsewhere = tmp_path / "ab"
+        run = _drive_planet(tmp_path, monkeypatch, blocks=2,
+                            mosaic=elsewhere / "planet_rgb_ab.tif")
+        assert {scratch.parent for scratch in run.scratches} == {elsewhere.resolve()}
+
+    def test_the_canonical_raster_is_canonical_however_it_is_spelled(self, tmp_path):
+        """A run handed the shipping raster by another name is still the shipping run, and the arm
+        worktrees can hand it one: they drive against a symlinked work directory.
+
+        Read as a second raster it would take a recipe of its own while sharing the markers and the
+        bytes, which leaves the shipping planet fresh under a recipe describing nothing — the same
+        failure as the tests above, arriving from the opposite direction.
+        """
+        (tmp_path / "sub").mkdir()
+        spelled = tmp_path / "sub" / ".." / shade_planet.PLANET_RGB
+        sidecars = block_render.sidecars_for(tmp_path, spelled)
+        assert sidecars.canonical
+        assert sidecars.recipe == tmp_path.resolve() / block_render.PARAMS_NAME
+        assert sidecars.markers == block_render.markers_in(block_render.mosaic_in(tmp_path))
+
+    def test_the_shipping_raster_keeps_the_bare_sidecar_names(self, tmp_path, monkeypatch):
+        """A PIN ON THE NAMING RATHER THAN A DEFECT, and the reason the fix above costs nothing.
+
+        Naming every mosaic's sidecar after its stem is the tidier rule and renames the two files
+        the finished Earth pass left on disk, which moves an mtime — the same night this class
+        exists to prevent, paid once on the way in. So the canonical raster's name elides, as
+        `composite_planet`'s default variant and `capsManifestUrl`'s empty prefix both already do.
+        """
+        _drive_planet(tmp_path, monkeypatch, blocks=2)
+        assert (tmp_path / block_render.PARAMS_NAME).exists()
+        assert (tmp_path / block_render.STATUS_NAME).exists()
 
 
 class TestTheDependencySetIsTheRaytracesAndNotTheComposites:
@@ -534,64 +644,41 @@ class TestTheRunnerStopsWhenTheMosaicIsAlreadyCurrent:
 
 
 class TestTheLoopStampsOnlyAWholePlanet:
-    """`run` driven over a stand-in renderer, so the ordering it owns is provable without a GPU.
-
-    What is being checked is `run`'s own arithmetic — which blocks are attempted, and whether the
-    mosaic ends up stamped — not the stand-in's. The stamp is the dangerous one: `tiles_are_fresh`
-    keys on it, so a partial planet that stamps itself is a pyramid cut from half a producer.
+    """What `_drive_planet` is checking here is `run`'s own arithmetic — which blocks are
+    attempted, and whether the mosaic ends up stamped — not the stand-in renderer's. The stamp is
+    the dangerous one: `tiles_are_fresh` keys on it, so a partial planet that stamps itself is a
+    pyramid cut from half a producer.
     """
 
-    def _drive(self, tmp_path, monkeypatch, *, blocks=3, **kwargs):
-        declare_planet_rasters(monkeypatch)
-        # The disk floor is sized for a whole planet and these blocks stand in for one, so on any
-        # ordinary scratch filesystem it would abort before the loop this class is about. It has
-        # its own guards above; here it is held out of the way rather than left to fire.
-        monkeypatch.setattr(block_render, "free_bytes", lambda path: 1 << 60)
-        planned = [_block(0, column) for column in range(blocks)]
-        attempted: list[str] = []
-
-        def _fake_render(body, block, mosaic, scratch, markers):
-            attempted.append(block_render.block_name(block))
-            (markers / block_render.block_name(block)).write_text("margin 0\n")
-
-        monkeypatch.setattr(block_render, "plan_blocks", lambda body, work: planned)
-        monkeypatch.setattr(block_render, "ensure_mosaic", lambda mosaic, body: None)
-        monkeypatch.setattr(block_render, "render_block", _fake_render)
-        _stage_warped_inputs(tmp_path)
-        mosaic = tmp_path / "planet_rgb.tif"
-        mosaic.write_bytes(b"")
-        return attempted, mosaic, block_render.run(bodies.EARTH, tmp_path, mosaic, **kwargs)
-
     def test_a_whole_planet_stamps_the_mosaic(self, tmp_path, monkeypatch):
-        attempted, mosaic, rendered = self._drive(tmp_path, monkeypatch)
-        assert rendered == 3 and attempted == ["r00c00", "r00c01", "r00c02"]
-        assert freshness.done_marker(mosaic).exists()
+        run = _drive_planet(tmp_path, monkeypatch)
+        assert run.rendered == 3 and run.attempted == ["r00c00", "r00c01", "r00c02"]
+        assert freshness.done_marker(run.mosaic).exists()
 
     def test_a_limited_run_renders_but_does_not_stamp(self, tmp_path, monkeypatch):
-        attempted, mosaic, rendered = self._drive(tmp_path, monkeypatch, limit=2)
-        assert rendered == 2 and len(attempted) == 2
-        assert not freshness.done_marker(mosaic).exists()
+        run = _drive_planet(tmp_path, monkeypatch, limit=2)
+        assert run.rendered == 2 and len(run.attempted) == 2
+        assert not freshness.done_marker(run.mosaic).exists()
 
     def test_limit_zero_renders_nothing_at_all(self, tmp_path, monkeypatch):
         """`--limit 0` MUST mean none, and it is the falsy value: a truthiness test reads it as no
         limit and starts the whole planet. That exact shape has breached this project's one-heavy-
         job rule before, from a different flag."""
-        attempted, mosaic, rendered = self._drive(tmp_path, monkeypatch, limit=0)
-        assert rendered == 0 and attempted == []
-        assert not freshness.done_marker(mosaic).exists()
+        run = _drive_planet(tmp_path, monkeypatch, limit=0)
+        assert run.rendered == 0 and run.attempted == []
+        assert not freshness.done_marker(run.mosaic).exists()
 
     def test_a_named_subset_never_stamps_even_when_all_of_it_renders(self, tmp_path, monkeypatch):
         """The subset finished; the planet did not. Completion is asked of the grid, never of the
         selection, or `--only` on one block would declare a planet done."""
-        attempted, mosaic, rendered = self._drive(tmp_path, monkeypatch,
-                                                 only=frozenset({"r00c01"}))
-        assert rendered == 1 and attempted == ["r00c01"]
-        assert not freshness.done_marker(mosaic).exists()
+        run = _drive_planet(tmp_path, monkeypatch, only=frozenset({"r00c01"}))
+        assert run.rendered == 1 and run.attempted == ["r00c01"]
+        assert not freshness.done_marker(run.mosaic).exists()
 
     def test_a_block_that_is_not_on_the_grid_is_refused(self, tmp_path, monkeypatch):
         """A typo in `--only` would otherwise render nothing and report success."""
         with pytest.raises(SystemExit, match="no such block"):
-            self._drive(tmp_path, monkeypatch, only=frozenset({"r99c99"}))
+            _drive_planet(tmp_path, monkeypatch, only=frozenset({"r99c99"}))
 
 
 class TestARunRefusesToStartWithoutItsInputs:
@@ -661,9 +748,68 @@ class TestASeamThatCannotFeedTheRigIsRefusedBeforeAnyBlock:
 
 def _stage_warped_inputs(tmp_path):
     """The warped rasters the block prep cuts from, as empty files: `check_inputs` asks only
-    whether they are there, and a test that wrote real ones would be testing rasterio."""
+    whether they are there, and a test that wrote real ones would be testing rasterio.
+
+    ONE THAT IS ALREADY THERE IS LEFT ALONE, because a test that drives two runs over one work
+    directory would otherwise move an input's mtime between them and restage the second by its own
+    setup — which reads exactly like the defect such a test is looking for.
+    """
     for name in (shade_planet.HEIGHT_3857, shade_planet.OCEAN_3857, shade_planet.WATER_3857):
-        (tmp_path / name).write_bytes(b"")
+        if not (tmp_path / name).exists():
+            (tmp_path / name).write_bytes(b"")
+
+
+def _age_everything(root):
+    """Set every mtime under `root` back, so anything written after this call is unambiguously
+    newer than everything the runs before it left.
+
+    Whole seconds for `_stale_by_a_second`'s reason. Aging to ONE instant is the point rather than a
+    shortcut: it leaves every existing file tied, and both freshness predicates read a tie as fresh,
+    so the only thing that can make a later run rebuild is a file that run actually wrote.
+    """
+    stamp = time.time() - 2
+    for path in [root, *root.rglob("*")]:
+        os.utime(path, (stamp, stamp))
+
+
+def _drive_planet(tmp_path, monkeypatch, *, mosaic=None, blocks=3, **kwargs):
+    """`run` driven over a stand-in renderer, so the ordering and the paths it owns are provable
+    without a GPU. Returns what the run attempted, the raster it filled, the count it reported and
+    every scratch directory it handed the renderer.
+
+    `mosaic` is an argument, defaulting to the canonical raster, because the A/B route is a SECOND
+    raster in the same work directory: every guard about what one run may touch needs both.
+
+    NEITHER THE MOSAIC NOR THE WARPED INPUTS ARE REWRITTEN WHEN THEY EXIST. `is_stale` calls an
+    output rewritten-since-completed stale, so re-creating a stamped mosaic here would restage the
+    second run from the fixture rather than from anything the code did.
+    """
+    declare_planet_rasters(monkeypatch)
+    # The disk floor is sized for a whole planet and these blocks stand in for one, so on any
+    # ordinary scratch filesystem it would abort before the loop. It has its own guards above; here
+    # it is held out of the way rather than left to fire.
+    monkeypatch.setattr(block_render, "free_bytes", lambda path: 1 << 60)
+    planned = [_block(0, column) for column in range(blocks)]
+    attempted: list[str] = []
+    scratches: set[Path] = set()
+
+    def _fake_render(body, block, mosaic, scratch, markers):
+        attempted.append(block_render.block_name(block))
+        scratches.add(scratch)
+        (markers / block_render.block_name(block)).write_text("margin 0\n")
+
+    monkeypatch.setattr(block_render, "plan_blocks", lambda body, work: planned)
+    monkeypatch.setattr(block_render, "ensure_mosaic", lambda mosaic, body: None)
+    monkeypatch.setattr(block_render, "render_block", _fake_render)
+    _stage_warped_inputs(tmp_path)
+    mosaic = tmp_path / "planet_rgb.tif" if mosaic is None else mosaic
+    mosaic.parent.mkdir(parents=True, exist_ok=True)
+    if not mosaic.exists():
+        mosaic.write_bytes(b"")
+    mosaic = mosaic.resolve()          # the spelling `run` itself uses, so a caller can compare
+    rendered = block_render.run(bodies.EARTH, tmp_path, mosaic, **kwargs)
+    return SimpleNamespace(attempted=attempted, mosaic=mosaic, rendered=rendered,
+                           scratches=scratches)
 
 
 def _stop_here(*args, **kwargs):

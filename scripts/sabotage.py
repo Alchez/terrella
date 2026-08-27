@@ -5750,7 +5750,7 @@ SABOTAGES: list[Sabotage] = [
         # recipes name contributes nothing and the whole mechanism goes inert.
         label='only the dispatcher declares the producer, so the runner s own door bypasses it',
         path='pipeline/tile/block_render.py',
-        needle='    producer_seam.declare(work, "raytrace")\n',
+        needle='    if sidecars.canonical:\n        producer_seam.declare(work, "raytrace")\n',
         replacement='',
         guard='test_the_raytrace_door_records_the_raytrace',
     ),
@@ -5761,9 +5761,74 @@ SABOTAGES: list[Sabotage] = [
         # registry the pixels disagree with, which is precisely the state that reads as fresh.
         label='the stamp records the body s declared producer rather than the one that ran',
         path='pipeline/tile/block_render.py',
-        needle='    producer_seam.declare(work, "raytrace")',
-        replacement='    producer_seam.declare(work, body.planet_producer)',
+        needle='        producer_seam.declare(work, "raytrace")',
+        replacement='        producer_seam.declare(work, body.planet_producer)',
         guard='test_it_declares_the_producer_that_RAN_not_the_one_the_body_asked_for',
+    ),
+    Sabotage(
+        suite='python',
+        # The guard's whole subject, and it reads as removing a special case: every other run
+        # declares itself, so why should this one be exempt? Because the declaration's subject is
+        # the raster the tile cut reads. An A/B claiming it leaves the stamp naming a producer for
+        # bytes it never wrote, and moves an mtime BOTH recipes name.
+        label='an A/B claims the canonical raster it was told to keep off',
+        path='pipeline/tile/block_render.py',
+        needle='    if sidecars.canonical:\n        producer_seam.declare(work, "raytrace")',
+        replacement='    producer_seam.declare(work, "raytrace")',
+        guard='test_an_ab_does_not_claim_the_raster_it_did_not_write',
+    ),
+    Sabotage(
+        suite='python',
+        # The recipe goes back to the work directory both runs share. This is the expensive one:
+        # the recipe is in `raytrace_deps`, so the next production pass finds it moved and
+        # `start_generation` clears every marker on a planet that is already correct.
+        label='the recipe is keyed on the work directory, so an A/B restages the shipping planet',
+        path='pipeline/tile/block_render.py',
+        needle='    recipe = freshness.write_if_changed(sidecars.recipe,',
+        replacement='    recipe = freshness.write_if_changed(work / PARAMS_NAME,',
+        guard='test_an_ab_does_not_move_the_shipping_planets_recipe',
+    ),
+    Sabotage(
+        suite='python',
+        # The elision applied to every mosaic rather than only the canonical one. Reads as the
+        # tidier rule -- one name for one file -- and is how both sidecars end up shared again.
+        label='every mosaic s sidecars elide, so two runs share one recipe again',
+        path='pipeline/tile/block_render.py',
+        needle='    prefix = "" if canonical else f"{mosaic.stem}_"',
+        replacement='    prefix = ""',
+        guard='test_the_shipping_planet_re_renders_nothing_after_an_ab',
+    ),
+    Sabotage(
+        suite='python',
+        # Dropping the resolve. A canonical raster reached through a symlinked work directory --
+        # which is how the arm worktrees run -- then reads as a SECOND raster: its own recipe, the
+        # shipping markers, the shipping bytes, and a planet left fresh under a recipe nothing wrote.
+        label='the canonical test compares spellings, so a symlinked work dir reads as an A/B',
+        path='pipeline/tile/block_render.py',
+        needle='    mosaic = mosaic.resolve()\n    canonical = mosaic == mosaic_in(work).resolve()',
+        replacement='    canonical = mosaic == mosaic_in(work)',
+        guard='test_the_canonical_raster_is_canonical_however_it_is_spelled',
+    ),
+    Sabotage(
+        suite='python',
+        # The progress document goes back to the shared directory, where the second run of a night
+        # answers for the first. Nothing gates on its mtime, so no gate but this one can see it.
+        label='both runs report progress into one document, so the watcher reads the wrong run',
+        path='pipeline/tile/block_render.py',
+        needle='    status = Status(body, mosaic, sidecars.status, len(blocks), already)',
+        replacement='    status = Status(body, mosaic, work / STATUS_NAME, len(blocks), already)',
+        guard='test_each_run_reports_its_own_progress',
+    ),
+    Sabotage(
+        suite='python',
+        # Scratch back in the work directory. The disk guard measures `free_bytes(mosaic.parent)`,
+        # so a `--mosaic` on a second volume then sizes its floor against a filesystem the scratch
+        # is not being written to.
+        label='the scratch opens in the work dir, so the disk floor guards the wrong filesystem',
+        path='pipeline/tile/block_render.py',
+        needle='    scratch = sidecars.scratch',
+        replacement='    scratch = work / f"{mosaic.stem}_scratch"',
+        guard='test_the_scratch_sits_beside_the_raster_it_fills',
     ),
     Sabotage(
         suite='python',
