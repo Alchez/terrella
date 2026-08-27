@@ -1,8 +1,8 @@
 # Terrella — project memory
 
-A static site of ray-traced relief maps, navigable as an interactive globe — every country on Earth,
-and Mars as a second body.
-Look target: Frank Ramspott's "3D Render Topographic Map — Neutral" — soft raytraced shadows,
+A static site of ray-traced relief maps, navigable as an interactive globe, covering every country
+on Earth plus Mars as a second body.
+The look sits in the tradition of Frank Ramspott's topographic renders: soft raytraced shadows,
 heavy vertical exaggeration, warm sand land, desaturated teal sea with bathymetry, white vector
 borders, minimal typography. The aesthetic decisions live in ART.md.
 
@@ -62,8 +62,8 @@ own skill (`.claude/skills/acquire-data/`).
 - **Heroes:** headless Blender Cycles (bpy), RTX 4070 Super, OptiX backend + OpenImageDenoise — but **CPU denoise for 8K**, or render and denoise contend for the 12 GB VRAM and the driver throws an Xid 31 MMU fault.
 - One scene rig for every country: DEM displacement, low sun, two-ramp material (elevation-keyed land, depth-keyed sea), ortho camera framed from Natural Earth bounds.
 - Vertical exaggeration belongs to the body, 15x on Earth. Every path that draws more than one body reads `Body.exaggeration`, the render seam included since it is the block prep's as well as the hero's; `palette.EXAGGERATION` is the authored constant the region preview still reads and a test pins Earth's field equal to it. Unpinned, the tiles drift away from the heroes they must match.
-- Tiles approximate the Cycles look: single-NW hillshade (multidirectional rejected) plus the hero's own fill sun ported across (`hillshade.combine_fill`) plus sky-view factor from our own `sky_view.py` (WhiteboxTools dropped; the heroes burn it in post too) plus the same ramps, composited with GDAL.
-- **Cast shadows are the one light term the tiles do not have, and re-adding one is a REJECTED idea, not an open one.** `cast_shadow.py` is written, wired and shipped at `shadow_strength` 0.0 — turned down twice on the look and the second time on the *mechanism*: attenuating the main sun scales light amplitude, and fine detail amplitude falls with it, so any such shadow erases the modelling it carries. Reopening needs a different mechanism, not a different number.
+- **A body's tile look belongs to its producer, and `Body.planet_producer` is the seam.** Earth raytraces every tile block in Cycles, off the rig the heroes use. Mars composites, approximating that look with a single-NW hillshade (multidirectional rejected) plus the hero's own fill sun ported across (`hillshade.combine_fill`) plus sky-view factor from our own `sky_view.py` (WhiteboxTools dropped; the heroes burn it in post too) plus the same ramps, assembled with GDAL. `cap_pass.CAP_PRODUCERS` keys the polar disc's arm on that same field, so a body's caps and its tiles are never built by two different renderers.
+- **Cast shadows are the one light term the COMPOSITE does not have, and re-adding one there is a REJECTED idea, not an open one.** Earth's raytraced tiles carry real ones; this is about the path Mars is still on. `cast_shadow.py` is written, wired and shipped at `shadow_strength` 0.0, turned down twice on the look and the second time on the *mechanism*: attenuating the main sun scales light amplitude, and fine detail amplitude falls with it, so any such shadow erases the modelling it carries. Reopening needs a different mechanism, not a different number.
 - Tile depth belongs to the body too: `Body.tile_max_zoom`, z8 on Earth and z7 on Mars. **Earth's z8 is LOCKED**, since z9/z10 are parked in FUTURE and blocked on disk, needing a planet re-fuse at ~2.5″ rather than a tiling flag.
 - Tiles are 512px, declared to MapLibre as `tileSize: 256`, which centres the scheme on DPR 2. → FUTURE § raster tile resolution vs device pixel ratio
 - Delivery encoding is a policy rather than one constant: masters stay lossless, delivery does not. → ART § Delivery encoding · § The srcset ladder

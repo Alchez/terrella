@@ -37,7 +37,9 @@
   Never the system of record.
 - **Scripted A/B** — a small bpy script loads the built .blend, pokes values (`nt.nodes[...]`,
   light data, ramp element colors), sets `resolution_percentage = 27` (~2K), renders one arm per
-  invocation without re-saving. Cut matched crops into a labeled strip and judge side by side.
+  invocation without re-saving. Cut one matched full-frame image per arm and judge them one at a
+  time, never composited into a side-by-side strip: a strip halves each arm's pixels on screen and
+  the difference being judged is usually smaller than that.
   Ramp gotcha: only `elements.new()` and *position* writes re-sort/invalidate — color-only writes
   on held references are safe.
 - **`pipeline/compose/overlay_borders.py` style dicts** — hero border levers. Compositing only:
@@ -75,12 +77,12 @@ Cost: hero sweep **~10–13 h** + tile restage **~29 min** + caps auto-restage *
 |---|---|---|
 | `sky_view_strength` (countries.toml) | 0.20 default; **0.0** volcanic islands, **0.38** flat Qatar/Paraguay — per-country AO burn | § Sky-view shading |
 | `resolution_floor_m` (countries.toml) | 60 default; auto-engages where a frame upsamples >5× (7 microstates), **0** exempts andorra — anti-striping | § Resolution floor |
-| `SUN_ANGLE` | 12° disc (shadow penumbra) | § Shadow softness |
+| `sun_angle` | 12° disc (shadow penumbra) | § Shadow softness |
 | `sun_strength` / `world_strength` / `world_rgba` (`RIG`) | 3.0 / 0.3 / achromatic | § Light balance |
-| `FILL_ROTATION` / `FILL_ANGLE` / `FILL_STRENGTH` | alt 60° az 135° / 10° disc / 0.45 (15% of sun) | § Fill sun |
+| `fill_rotation` / `fill_angle` / `fill_strength` | alt 60° az 135° / 10° disc / 0.45 (15% of sun) | § Fill sun |
 | `FRAME_MARGIN` / `HERO_LONG_EDGE` (render_prep) | 1.0006 / 7680 px | § Vertical exaggeration |
-| `RAMP_INTERPOLATION` | EASE | § Land color ramp |
-| render-quality block (`SAMPLES` 4096, `ADAPTIVE_THRESHOLD` 0.01, `BOUNCES`, `CLAMP_INDIRECT` 10) | quality/cost, not look | § View transform |
+| `ramp_interpolation` | EASE | § Land color ramp |
+| render-quality block (`samples` 4096, `adaptive_threshold` 0.01, `bounces`, `clamp_indirect` 10) | quality/cost, not look | § View transform |
 
 ### Tiles + caps — `shade.KNOBS` (+ `look/seaice.py`), caps restage automatically
 
@@ -156,32 +158,32 @@ Cost: hero sweep **~10–13 h** + tile restage **~29 min** + caps auto-restage *
   inverted). **Azimuth stays NW-ish globally** — locked convention, not an art lever.
 - **Adjust:** `palette.SUN_ALT_DEG`; in-blend for play: Light object → Rotation.
 
-### Shadow softness — `SUN_ANGLE` (scene_build.py)
+### Shadow softness — `sun_angle` (scene_build.py)
 
 - Baseline **12°**: the sun's angular size; bigger = softer penumbras. ~0.5° = crisp
   architectural shadows; beyond ~15° = diffuse.
 - Alone it barely changes shadow *depth* (it lost to the fill sun on that axis in the A/B that
   adopted both); it is the jagged-edge lever.
-- **Adjust:** SUN_ANGLE constant; in-blend: Sun light data → Angle. Judge at 8K — penumbra ≈
-  shadow length × tan(angle) is sub-pixel at 2K.
+- **Adjust:** `sun_angle` on `RIG`; in-blend: Sun light data → Angle. Judge at 8K, since penumbra
+  ≈ shadow length × tan(angle) is sub-pixel at 2K.
 
-### Fill sun — shadow floor with modeling (`FILL_*`, scene_build.py)
+### Fill sun — shadow floor with modeling (`fill_*` on `RIG`, scene_build.py)
 
-- Baseline: shadowless second sun from the SE (`FILL_ROTATION` → 60° up, opposite azimuth),
-  `FILL_STRENGTH 0.45` = **15% of the main sun**, `FILL_ANGLE 10°`, `use_shadow` off. It
+- Baseline: shadowless second sun from the SE (`fill_rotation` → 60° up, opposite azimuth),
+  `fill_strength 0.45` = **15% of the main sun**, `fill_angle 10°`, `use_shadow` off. It
   re-lights shadowed faces *directionally*, so gullies and spurs keep modeling where the main
   sun can't reach — this, not world strength, is the "shadows are hiding texture" fix
   (ambient-raise was A/B'd and rejected as washed rosy and flat; the fill restored modeling).
 - Self-regulating across countries: fill only matters where resolved slopes are steep (fine
   grids — Switzerland), barely registers on coarse grids (India) — one global strength behaves
   per-country automatically. Swept 10/15/20%: 15 balanced, 10 defensibly moodier.
-- **Adjust:** FILL_STRENGTH / FILL_ANGLE / FILL_ROTATION; in-blend A/B: mute the "Fill" light or
-  scale its Strength.
+- **Adjust:** `fill_strength` / `fill_angle` / `fill_rotation` on `RIG`; in-blend A/B: mute the
+  "Fill" light or scale its Strength.
 
 ### Fill sun — TILES (`KNOBS["fill_strength"]`, tile/shade.py)
 
-- The hero fill, ported as a ratio. Baseline **0.15** = the hero's own `FILL_STRENGTH 0.45 /
-  SUN_STRENGTH 3`. Geometry is the hero's too: 60° up, azimuth 135° (SE), in
+- The hero fill, ported as a ratio. Baseline **0.15** = the hero's own `fill_strength 0.45 /
+  sun_strength 3`. Geometry is the hero's too: 60° up, azimuth 135° (SE), in
   `look/hillshade.py` as `FILL_ALTITUDE`/`FILL_AZIMUTH`. A hillshade has no cast shadows, so
   "shadowless" reproduces for free.
 - **Why the tiles need it:** a single 45° sun on the 15×-exaggerated grid makes the slope term
@@ -229,10 +231,10 @@ Cost: hero sweep **~10–13 h** + tile restage **~29 min** + caps auto-restage *
 |---|---|---|
 | `exaggeration` (bodies.py) | `render_prep` displacement (reads the same `Body.exaggeration`) | **one field, and the constant is pinned to it.** The tiles must vary per body, and a test holds Earth's field equal to the authored `palette.EXAGGERATION` |
 | `KNOBS["alt"]` 45°, azimuth 315° | `SUN_ROTATION` X = `90 − SUN_ALT_DEG`, NW | both derive from `palette.SUN_ALT_DEG` |
-| `KNOBS["fill_strength"]` 0.15 | `FILL_STRENGTH 0.45 / SUN_STRENGTH 3.0` | the ratio, ported exactly |
-| `FILL_ALTITUDE 60°` / `FILL_AZIMUTH 135°` | `FILL_ROTATION` | identical geometry |
+| `KNOBS["fill_strength"]` 0.15 | `fill_strength 0.45 / sun_strength 3.0` | the ratio, ported exactly |
+| `FILL_ALTITUDE 60°` / `FILL_AZIMUTH 135°` | `fill_rotation` | identical geometry |
 | `KNOBS["ambient"]` + `ambient_knee` | `world_strength` 0.3, achromatic sky | **not a port**: ours is a tone curve, the hero's is light that physically arrives. Both are colourless now, and the sky's warmth was the polar disc's hue term |
-| `shadow_strength` 0.0 + 12° penumbra | `SUN_ANGLE 12°` + ray-traced shadows | built, off — see below |
+| `shadow_strength` 0.0 + 12° penumbra | `sun_angle 12°` + ray-traced shadows | built, off — see below |
 | `svf_strength` 0.20 | Cycles GI | approximation — see below |
 
 - **The hero terms and their tile fates:**
@@ -565,8 +567,8 @@ from the cap's **projected size on the globe**, which is the same idea arrived a
   is the proof. Compute them to know where to look, then decide with your eyes.
 - Reference image on one screen, render on the other. **One lever per iteration.**
 - Cheap arms: the scripted-A/B pattern above at `resolution_percentage 27` (~2K, under a minute
-  per arm) — matched-crop strips beat memory every time. Tile-side: `--knob` + `shade.py
-  --cells` region runs.
+  per arm). Matched full-frame crops beat memory every time, one image per arm as above.
+  Tile-side: `--knob` + `shade.py --cells` region runs.
 - Keeper renders go to `renders/archive/` with self-describing names
   (`<country>_<lever>_<value>.png`); `renders/heroes/<country>.png` stays canonical-current.
 - Watch for scroll-wheel drift in the GUI: hovering a value field and scrolling silently edits

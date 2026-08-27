@@ -1222,16 +1222,23 @@ class TestTheCapRecipeRecordsWhatIsOff:
 
     def test_turning_a_layer_off_restages_although_its_source_stops_being_a_dependency(self):
         """The two halves have to move together. Switching a layer off REMOVES its file from
-        `cap_sources`, so the mtime that would have noticed disappears along with the layer — the
-        recipe is the only thing left that can tell the cap it is stale."""
+        `cap_sources`, so the mtime that would have noticed disappears along with the layer, and
+        the recipe is the only thing left that can tell the cap it is stale.
+
+        ASSERTED ON THIS TIER'S OWN `layers_off` AND NEVER ON WHOLE-RECIPE INEQUALITY. The nested
+        `composite` sub-recipe records the same layer independently, so comparing the two documents
+        passes whether or not the cap records anything at all: `sabotage.py` deleted the cap's own
+        key and this test stayed green while two unrelated ones went red.
+        """
         with_ice = cap_render.north_grid(bodies.EARTH)
         without = cap_render.north_grid(
             dataclasses.replace(bodies.EARTH, name="noice",
                                 surface_layers=bodies.EARTH.surface_layers - {"sea_ice"}))
         assert Path(seaice.SEAICE_SRC) in cap_render.cap_sources(with_ice, WHOLE_PLANET)
         assert Path(seaice.SEAICE_SRC) not in cap_render.cap_sources(without, WHOLE_PLANET)
-        assert cap_render.cap_recipe(with_ice, WHOLE_PLANET) != cap_render.cap_recipe(
-            without, WHOLE_PLANET)
+        assert "layers_off" not in json.loads(cap_render.cap_recipe(with_ice, WHOLE_PLANET))
+        assert json.loads(
+            cap_render.cap_recipe(without, WHOLE_PLANET))["layers_off"] == ["sea_ice"]
 
 
 class TestTheRockNeverGatesTheForcedWhite:
