@@ -11,7 +11,7 @@
 // to differ, and exactly the part that is not in here.
 import Masthead from "./Masthead.astro";
 import { manifest as data, type Country } from "../lib/manifest";
-import { HERO_BASE } from "../lib/assetBase";
+import { HERO_BASE, variantWidth as assetVariantWidth } from "../lib/assetBase";
 import { REPO_URL } from "../lib/siteLinks";
 import { EAGER_CARD_COUNT, STAGED_PLACEHOLDER } from "../lib/lazyCards";
 import { boundsCentre, byInitial, formatPosition } from "../lib/gazetteer";
@@ -25,11 +25,10 @@ const countries = [...data.countries].toSorted(
 );
 
 // srcset w-descriptors must be the actual pixel WIDTH, not the long-edge key:
-// for a portrait country the file keyed "1920" is only ~450px wide, so
-// advertising it as 1920w makes the browser under-select and upscale. aspect is
-// w/h, so width = long edge (landscape) or long edge*aspect (portrait).
+// The rule and its reason live on `assetBase.variantWidth`, which this used to restate: a local
+// copy here was the shipping one while the test and the mutation case sat on the card's copy.
 const variantWidth = (country: Country, longEdge: number) =>
-  Math.round(longEdge * Math.min(1, country.aspect));
+  assetVariantWidth(longEdge, country.aspect);
 
 const srcset = (country: Country) =>
   country.sizes

@@ -36,6 +36,10 @@ Ideas deliberately **not** planned: analysed enough to record, parked without co
 - [Pinned low-zoom base layer](#pinned-low-zoom-base-layer-a-deterministic-floor-under-missing-tiles-analysed-2026-07-26) · look-call
 - [Mobile lightweight identify](#mobile-lightweight-identify-what-is-this-without-committing-analysed-2026-07-26) · product
 
+**An authoritative summit source is adopted.**
+
+- [The detail card cannot state an elevation the DEM does not know](#the-detail-card-cannot-state-an-elevation-the-dem-does-not-know-analysed-2026-08-27) · product · needs-data
+
 **A transfer audit, where sizes get looked at anyway.**
 
 - [AVIF hero variants](#avif-hero-variants-analysed-2026-07-23-premise-restated-2026-07-25) · needs-render-store
@@ -77,6 +81,20 @@ Not a lower tier. Nobody has written down what would make them worth doing, and 
 
 - [A cold page load at high zoom paints a flat fill and never recovers](#a-cold-page-load-at-high-zoom-paints-a-flat-fill-and-never-recovers-observed-2026-08-11-not-analysed)
 - [Tiles "jump" a little when panning around a pole](#tiles-jump-a-little-when-panning-around-a-pole-observed-2026-08-11-not-analysed)
+
+## The detail card cannot state an elevation the DEM does not know (analysed 2026-08-27)
+
+The globe's detail card carries a country's name, its continent and a link, and nothing else. Elevation is the fact that would actually belong on a relief site, so it was scoped and then dropped, on Rohan's rule that a card reporting a wrong value for any country should not ship. What follows is the measurement, so nobody re-derives it.
+
+**Two error sources, and they have OPPOSITE SIGNS, which is what makes this worse than either alone.**
+
+- **A country's frame is not the country.** The manifest's `bbox` is the authored hero frame, a composition rectangle, so it holds whatever neighbour shares the box. Measured against published summits, over the per-country heightfields already cut to that frame: Monaco **+981 m**, San Marino **+663 m**, Liechtenstein **+245 m**, Switzerland **+171 m**, Vatican **+91 m**. Switzerland's figure is Mont Blanc, which is in France. A Natural Earth polygon burn fixes this half, and `vector_raster.py` already owns reproject-and-burn.
+- **The raster clips summits, and the planet master clips them twice as hard.** A pyramidal peak is averaged across a cell, so the maximum is never the summit. At the hero heightfields' posting: Nepal **-138 m** (Everest reads 8,711 against 8,849), Bhutan -79, Uruguay -8. At `height_3857.tif`, which is **305.7 m/px** and the durable source a stage would have to read, Nepal reads **8,586 m**, so **-263 m**. No mask reaches this.
+- **They cancel.** Switzerland's frame reads 4,725 m at the planet master against a published 4,634: contamination pushing up, clipping pulling down, landing on a plausible number that is wrong for two reasons at once. A spot check would pass it.
+
+**So the reopening event is a summit AUTHORITY, not a finer re-fuse.** Even GLO-30 at 30 m is 138 m short on Everest, so resolution alone never closes this. Natural Earth's row carries `WIKIDATAID` for every country, which is the cheapest route to a published summit name and height, and it brings a new data dependency with its own licence question and an offline fetch.
+
+**What could ship with no new data, if the claim changes rather than the method:** state the relief span of the rendered view instead of a fact about the country. The frame IS what the card's link opens, so contamination stops being an error and becomes the subject, and nothing in the sentence can be falsified. Rejected for now because it answers a question nobody asked.
 
 ## The display face swaps in at a different width, and the metric-matched fallback is inert (analysed 2026-08-02)
 

@@ -1150,24 +1150,16 @@ SABOTAGES: list[Sabotage] = [
         # `replace` matches nothing and it goes on measuring MapLibre's 10px and passing.
         guard='takes both offsets from the one token the top-left row uses',
     ),
+    # Replaces two cases about the card's hero figure, whose subject the text-only card deleted.
+    # CSS for an element nothing renders is invisible to every other guard in that file.
     Sabotage(
         suite='web',
-        # The band state read from one occupant instead of both. Every open runs the other's close
-        # first, so this leaves the class stuck off after a search hit opens a card — a phone whose
-        # gallery link is gone with nothing on screen to explain it.
-        label='the narrow cap goes back to a selector the base rule outranks',
+        label='the card grows back a figure element for nothing to fill',
         path='web/src/components/Globe.astro',
-        needle='    .dp-figure img {\n      object-fit: contain;\n    }',
-        replacement='    .dp-hero,\n    .dp-border {\n      object-fit: contain;\n    }',
-        guard='overrides the fit through the SAME selector the base rule uses, or it silently loses',
-    ),
-    Sabotage(
-        suite='web',
-        label='the card is capped at no width, so a tall hero is unbounded on a phone',
-        path='web/src/components/Globe.astro',
-        needle='      max-height: 40vh;',
-        replacement='      max-height: none;',
-        guard='caps the figure by HEIGHT, which is the only lever an inline aspect yields to',
+        needle='  <div class="dp-body">',
+        replacement='  <figure class="dp-figure"><img class="dp-hero" alt="" /></figure>\n'
+                    '  <div class="dp-body">',
+        guard='keeps no figure rule anywhere, now that the card carries no picture',
     ),
     Sabotage(
         suite='web',
@@ -7087,8 +7079,9 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label='a ladder is exempted from the mobile contract without actually having a gap',
         path='tests/test_hero_variants.py',
-        needle='ClassVar[dict[str, str]] = {\n        "border": (',
-        replacement='ClassVar[dict[str, str]] = {\n        "hero": ("no reason at all"),\n        "border": (',
+        # Names the dict: `ORPHANED_LADDERS` beside it has the same shape and the bare one matched both.
+        needle='MOBILE_EXEMPT_LADDERS: ClassVar[dict[str, str]] = {\n        "border": (',
+        replacement='MOBILE_EXEMPT_LADDERS: ClassVar[dict[str, str]] = {\n        "hero": ("no reason at all"),\n        "border": (',
         guard='test_every_exemption_is_load_bearing',
     ),
     # --- the cap ladder: a sweep must not leave a shipped constant swapped -----------------------
@@ -8100,9 +8093,9 @@ SABOTAGES: list[Sabotage] = [
         suite='web',
         label='the country card grows a hero figure again',
         path='web/src/lib/detailPanel.ts',
-        needle='    note: null,\n    figure: null,',
-        replacement='    note: null,\n    figure: { aspect: 1, src: HERO_BASE + slug + "-640.webp",'
-                    ' srcset: "", alt: name, border: null },',
+        needle='    note: null,\n    link: { href: `/${slug}/`',
+        replacement='    note: null,\n    figure: { src: `/heroes/${slug}-640.webp`, alt: name },\n'
+                    '    link: { href: `/${slug}/`',
         guard='carries NEITHER a figure nor a note, whatever the country has rendered',
     ),
     # A portrait hero's key names its HEIGHT. Taking the descriptor from the key overstates every
@@ -8111,7 +8104,7 @@ SABOTAGES: list[Sabotage] = [
     Sabotage(
         suite='web',
         label='srcset descriptors claim the long edge instead of the real width',
-        path='web/src/lib/detailPanel.ts',
+        path='web/src/lib/assetBase.ts',
         needle='  return Math.round(longEdge * Math.min(1, aspect));',
         replacement='  return longEdge;',
         guard='narrows a portrait variant to its real width',

@@ -5,7 +5,13 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { TILE_BASE, capsManifestUrl, resolveAssetBase, tileUrlTemplate } from "./assetBase";
+import {
+  TILE_BASE,
+  capsManifestUrl,
+  resolveAssetBase,
+  tileUrlTemplate,
+  variantWidth,
+} from "./assetBase";
 import { BODIES, type BodySlug } from "./bodies";
 import { LAYERS, archiveFor, tilePathTemplate } from "./tileAddress";
 
@@ -127,6 +133,28 @@ describe("capsManifestUrl", () => {
 // falls back to same-origin, so the deploy succeeds and every URL under it 404s in
 // production. That is exactly how the site stood before this phase: 204 pages addressing
 // /heroes/ on an origin that has never held a hero.
+describe("srcset descriptors are widths, not long edges", () => {
+  it("leaves a landscape variant at its key", () => {
+    expect(variantWidth(1920, 1.5)).toBe(1920);
+  });
+
+  it("narrows a portrait variant to its real width", () => {
+    // The trap this exists for: a portrait hero's key names its HEIGHT, so a descriptor taken from
+    // the key alone overstates the width and the browser settles for a rung too small.
+    expect(variantWidth(1920, 0.5)).toBe(960);
+    expect(variantWidth(3840, 0.75)).toBe(2880);
+  });
+
+  it("is the only copy of the rule, and the gallery calls THIS one", () => {
+    // The rule was written twice and tested on the copy that did not ship. This refuses the second.
+    const gallery = readFileSync(`${WEB_ROOT}src/components/Gallery.astro`, "utf8");
+    expect(gallery, "the gallery re-grew its own copy of the descriptor rule").not.toMatch(
+      /Math\.round\(longEdge \* Math\.min/,
+    );
+    expect(gallery).toContain("assetVariantWidth(longEdge, country.aspect)");
+  });
+});
+
 describe("the deploy build supplies every base the site reads", () => {
   const deployScript = (): string => {
     const packageJson = JSON.parse(readFileSync(`${WEB_ROOT}package.json`, "utf8"));

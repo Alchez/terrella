@@ -259,8 +259,12 @@ describe("the right-hand band holds one box at a time, and none of them cover th
     // picked — its z-index is 30 against MapLibre's control corner at 2 — so zoom, compass, spin
     // and fullscreen were all unreachable behind it. Earth had this too.
     expect(GLOBE).toContain("right: var(--rail-clearance);");
-    expect(GLOBE).toContain(
-      "width: min(420px, calc(100vw - var(--page-inset) - var(--rail-clearance)));",
+    // THE RAIL TERM, NEVER THE PIXEL CAP BESIDE IT. This asserted the whole declaration including
+    // `420px`, so resizing the card broke a test whose subject is the rail — and the cap is a look
+    // decision that has moved once already, when the hero figure came out and the card was sized
+    // to a paragraph instead. What has to hold is that the width subtracts the rail's footprint.
+    expect(GLOBE).toMatch(
+      /width:\s*min\(\d+px,\s*calc\(100vw - var\(--page-inset\) - var\(--rail-clearance\)\)\);/,
     );
     expect(GLOBE).not.toMatch(/\.detail-panel\s*\{[^}]*right:\s*1\.2rem/);
   });
