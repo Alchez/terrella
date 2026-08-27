@@ -5694,8 +5694,8 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label='--out stops overriding the body default, so an A/B overwrites the live pyramid',
         path='pipeline/tile/planet_pass.py',
-        needle='    return args.out if args.out is not None else bodies.work_dir(resolve_body(args), "planet_tiles")',
-        replacement='    return bodies.work_dir(resolve_body(args), "planet_tiles")',
+        needle='    return args.out if args.out is not None else relief_scan.work_dir(resolve_body(args))',
+        replacement='    return relief_scan.work_dir(resolve_body(args))',
         guard='test_an_explicit_out_still_wins_over_the_body_s_default',
     ),
     # --- The producer choice: dispatch, refusal, and the stamp that makes a switch visible -------
@@ -5879,6 +5879,79 @@ SABOTAGES: list[Sabotage] = [
         needle='    scratch = sidecars.scratch',
         replacement='    scratch = work / f"{mosaic.stem}_scratch"',
         guard='test_the_scratch_sits_beside_the_raster_it_fills',
+    ),
+    # --- the work seam: `--work` moved every check a run made and none of the pixels it cut -----
+    Sabotage(
+        suite='python',
+        # The defect itself, restored without spelling the stage: the cut resolves the body's
+        # default instead of using what it was handed. Every check the run made still passes,
+        # because they were made against the directory it was given.
+        label='the cut re-derives the stage dir, so a redirected run renders the default planet',
+        path='pipeline/render/prep_block.py',
+        needle='    written = build(body, window, outdir, work=work)',
+        replacement='    written = build(body, window, outdir, work=relief_scan.work_dir(body))',
+        guard='test_the_heightfield_is_cut_from_the_given_directory',
+    ),
+    Sabotage(
+        suite='python',
+        # The runner stops carrying it. Same end state one frame up, and the frame matters: this is
+        # the half a test of the prep alone would report CAUGHT while the pass read the wrong store.
+        label='the runner hands the renderer the default, so --work reaches the checks only',
+        path='pipeline/tile/block_render.py',
+        needle='            render_block(body, block, mosaic, scratch, markers, work)',
+        replacement='            render_block(body, block, mosaic, scratch, markers,\n'
+                    '                         relief_scan.work_dir(body))',
+        guard='test_the_renderer_is_handed_the_directory_the_run_was_given',
+    ),
+    Sabotage(
+        suite='python',
+        # The prep's CLI default goes back to naming the stage itself. Resolves identically today,
+        # which is the whole difficulty: only counting the spellings can see it.
+        label='the prep spells the stage directory again, so it can drift from the runner s',
+        path='pipeline/render/prep_block.py',
+        needle='    work = args.work if args.work is not None else relief_scan.work_dir(body)',
+        replacement='    work = args.work if args.work is not None '
+                    'else bodies.work_dir(body, "planet_tiles")',
+        guard='test_the_stage_derives_no_work_directory_of_its_own',
+    ),
+    Sabotage(
+        suite='python',
+        label='the pack names the tile stage itself instead of asking its owner',
+        path='pipeline/tile/pack_pmtiles.py',
+        needle='    return relief_scan.work_dir(body) / "planet.mbtiles"',
+        replacement='    return bodies.work_dir(body, "planet_tiles") / "planet.mbtiles"',
+        guard='test_the_tile_stage_is_no_longer_among_them',
+    ),
+    Sabotage(
+        suite='python',
+        # The language boundary, which neither side can check from inside itself. The pipeline
+        # keeps writing where it always did and the dev server serves 404s out of a directory
+        # nothing fills, which reads as a cut that did not happen rather than as a renamed path.
+        label='the dev server serves the relief archive from a stage the pipeline stopped writing',
+        path='web/src/lib/devStores.ts',
+        needle='    stage: "planet_tiles",',
+        replacement='    stage: "planet_relief",',
+        guard='test_the_dev_server_resolves_the_tile_stage_to_the_same_directory',
+    ),
+    Sabotage(
+        suite='python',
+        # A stage nobody wrote the guard for gaining its second speller. The scan is derived, so
+        # this has to be caught without `cap` appearing anywhere in the test.
+        label='a clean stage gains a second speller, and no guard names that stage',
+        path='pipeline/compose/features_geojson.py',
+        needle='OUT_DIR = bodies.work_dir(bodies.MARS, "features")',
+        replacement='OUT_DIR = bodies.work_dir(bodies.MARS, "cap")',
+        guard='test_every_stage_is_spelled_once_but_the_deferred_ones',
+    ),
+    Sabotage(
+        suite='python',
+        # The deferred entry is pinned at its COUNT, so borders moving in either direction is red.
+        # Without the pin, a fourth spelling lands inside an entry that tolerates duplicates.
+        label='a deferred stage changes its spelling count and the exception absorbs it',
+        path='pipeline/compose/countries_geojson.py',
+        needle='OUT_DIR = bodies.work_dir(bodies.EARTH, "borders")',
+        replacement='OUT_DIR = bodies.work_dir(bodies.EARTH, "features")',
+        guard='test_the_deferred_stages_have_not_grown',
     ),
     Sabotage(
         suite='python',
@@ -7705,8 +7778,8 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label='the packer takes a body and then ignores it, packing every planet from one tree',
         path='pipeline/tile/pack_pmtiles.py',
-        needle='    return bodies.work_dir(body, "planet_tiles") / "tiles"',
-        replacement='    return bodies.work_dir(bodies.EARTH, "planet_tiles") / "tiles"',
+        needle='    return relief_scan.work_dir(body) / "tiles"',
+        replacement='    return relief_scan.work_dir(bodies.EARTH) / "tiles"',
         guard='test_mars_nests_under_its_own_prefix',
     ),
     # The quieter half of the pair: reading the right pyramid and writing the archive into Earth's
@@ -7715,8 +7788,8 @@ SABOTAGES: list[Sabotage] = [
         suite='python',
         label='a second planet writes its archive beside Earth\'s',
         path='pipeline/tile/pack_pmtiles.py',
-        needle='    return bodies.work_dir(body, "planet_tiles") / "planet.mbtiles"',
-        replacement='    return bodies.work_dir(bodies.EARTH, "planet_tiles") / "planet.mbtiles"',
+        needle='    return relief_scan.work_dir(body) / "planet.mbtiles"',
+        replacement='    return relief_scan.work_dir(bodies.EARTH) / "planet.mbtiles"',
         guard='test_mars_nests_under_its_own_prefix',
     ),
     # The default nobody would notice, because on this box it is right. Earth is the only body whose
@@ -7828,7 +7901,7 @@ SABOTAGES: list[Sabotage] = [
         path='pipeline/compose/countries_pmtiles.py',
         needle='    return bodies.work_dir(bodies.EARTH, "borders")',
         replacement='    return paths.DATA / "work/borders"',
-        guard='test_the_borders_work_dir_is_spelled_once',
+        guard='test_the_borders_path_is_spelled_once',
     ),
     # A reader re-deriving the shapefile longhand: the exact shape that reached five call sites.
     Sabotage(

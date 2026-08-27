@@ -520,11 +520,15 @@ def cropped(png: Path, block: Block) -> np.ndarray:
 
 
 def render_block(body: bodies.Body, block: Block, mosaic: Path, scratch: Path,
-                 markers: Path) -> None:
+                 markers: Path, work: Path) -> None:
     """One block, end to end: prep, render, crop, write into the mosaic, mark.
 
     THE MARKER IS LAST AND THE MOSAIC IS CLOSED BEFORE IT. Only a flushed write is a block that
     exists, and this is the ordering the resume depends on being right.
+
+    `work` IS CARRIED RATHER THAN RE-DERIVED so that every raster this run reads comes from the one
+    directory `run` validated. The prep used to resolve the body's default itself, which made
+    `--work` a flag that moved the checks and left the pixels behind.
     """
     name = block_name(block)
     render_dir = scratch / name
@@ -534,7 +538,7 @@ def render_block(body: bodies.Body, block: Block, mosaic: Path, scratch: Path,
     shutil.rmtree(render_dir, ignore_errors=True)
     png.unlink(missing_ok=True)
 
-    prep_block.cut(body, block, render_dir)
+    prep_block.cut(body, block, render_dir, work=work)
     result = blender_proc.run(
         blender_command(body, render_dir, scratch / f"{name}.blend", png))
     if result.returncode != 0 or not png.exists():
@@ -735,7 +739,7 @@ def run(body: bodies.Body, work: Path, mosaic: Path, *, limit: int | None = None
         name = block_name(block)
         started = time.monotonic()
         try:
-            render_block(body, block, mosaic, scratch, markers)
+            render_block(body, block, mosaic, scratch, markers, work)
         except Exception as failure:            # noqa: BLE001 — one block must not end the night
             consecutive += 1
             status.failures.append(name)
@@ -788,7 +792,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--body", required=True, choices=sorted(bodies.BODIES),
                         help="which planet's grid, look and margin law to render")
     parser.add_argument("--work", type=Path, default=None,
-                        help="override the stage directory holding the warped inputs")
+                        help="override the stage directory holding the warped inputs: every "
+                             "raster the run checks, plans from and cuts its blocks out of comes "
+                             "from here, so a second store is rendered rather than merely "
+                             "validated")
     parser.add_argument("--mosaic", type=Path, default=None,
                         help="override the raster written, the seam `--out` gives the planet pass: "
                              "an A/B, or a first pass that must not overwrite a shipping planet. "
@@ -807,7 +814,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> None:
     args = build_parser().parse_args(argv)
     body = bodies.BODIES[args.body]
-    work = args.work if args.work is not None else bodies.work_dir(body, relief_scan.STAGE)
+    work = args.work if args.work is not None else relief_scan.work_dir(body)
     mosaic = args.mosaic if args.mosaic is not None else mosaic_in(work)
     only = frozenset(name.strip() for name in args.only.split(",")) if args.only else None
     run(body, work, mosaic, limit=args.limit, only=only)

@@ -14,12 +14,15 @@ The override tests run in a subprocess because the constants bind at import
 time — reloading modules in-process would leak state between tests.
 """
 
+import ast
+import collections
 import os
 import re
 import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import ClassVar
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -239,15 +242,19 @@ class TestSharedDatasetsHaveOneHome:
             f"a hand-written layer/layer.shp join: {offenders} — use naturalearth.layer(name)"
         )
 
-    def test_the_borders_work_dir_is_spelled_once(self):
-        """Two writers and a reader; a literal here is how one of the three drifts alone."""
+    def test_the_borders_path_is_spelled_once(self):
+        """Two writers and a reader; a literal here is how one of the three drifts alone.
+
+        THE PATH FORM ONLY. `bodies.work_dir(body, "borders")` is a different spelling of the same
+        directory and this needle cannot see it; `TestAStageDirectoryHasOneSpeller` counts those.
+        """
         offenders = self.scan('"work/borders"', set())
         assert not offenders, (
             f"a literal borders work dir: {offenders} — "
             'use bodies.work_dir(bodies.EARTH, "borders")'
         )
 
-    def test_the_planet_tiles_work_dir_is_spelled_once(self):
+    def test_the_planet_tiles_path_is_spelled_once(self):
         """The last literal outside `bodies.work_dir`, and it was the one that could pick a planet.
 
         It sat in the terrain cut's `--master` default, so the bare command read Earth's heightfield
@@ -258,7 +265,7 @@ class TestSharedDatasetsHaveOneHome:
         offenders = self.scan('"work/planet_tiles', set())
         assert not offenders, (
             f"a literal planet-tiles work dir: {offenders} — "
-            'use bodies.work_dir(body, "planet_tiles")'
+            "use relief_scan.work_dir(body)"
         )
 
     def test_the_scans_can_see_a_violation(self):
@@ -269,6 +276,116 @@ class TestSharedDatasetsHaveOneHome:
         assert any(hit.startswith("pipeline/naturalearth.py") for hit in unfiltered), (
             "the scan cannot find the directory even in the module that defines it — it is "
             f"reading nothing, and every assertion in this class is vacuous (saw: {unfiltered})"
+        )
+
+
+class TestAStageDirectoryHasOneSpeller:
+    """A stage name handed to `bodies.work_dir` is a shared directory, and the second speller of one
+    is invisible: every copy resolves to the identical path, so only counting them can say so.
+
+    THE SET IS DERIVED AND THE EXCEPTIONS ARE WHAT IS LISTED. A guard naming the stages it cares
+    about is silent on the one nobody thought of; grouping every literal the call takes makes a new
+    stage covered the day it is written, and an unlisted second spelling red by default.
+
+    The defect it exists for is `"planet_tiles"`, which reached five spellings beside its owner. One
+    of them was the block prep's, and that is what made `block_render --work` a flag that redirected
+    every check a run made and none of the pixels it cut: the run validated one store, planned from
+    its relief scan, stamped freshness against it, and rendered the default planet into the mosaic.
+    """
+
+    #: Stages knowingly spelled more than once, pinned AT THE COUNT so that a further spelling and a
+    #: fix both go red. `borders` is not an import away from clean: two of its three sites are
+    #: module-level constants, which freeze the data root at import against the rule `paths.py`
+    #: states for the whole package, so giving it one owner is a behaviour change and its own item.
+    DEFERRED: ClassVar[dict[str, int]] = {"borders": 3}
+
+    def _spellings(self) -> dict[str, list[str]]:
+        """Every string literal handed to a `*.work_dir(...)` call, grouped by the stage it names.
+
+        AST rather than a line scan, because the argument is what matters: a needle for the quoted
+        stage would hit the module that owns it, every docstring naming it, and this file.
+        """
+        found: dict[str, list[str]] = collections.defaultdict(list)
+        for source_file in sorted((REPO_ROOT / "pipeline").rglob("*.py")):
+            tree = ast.parse(source_file.read_text())
+            for node in ast.walk(tree):
+                if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                        and node.func.attr == "work_dir"):
+                    continue
+                for argument in node.args:
+                    if isinstance(argument, ast.Constant) and isinstance(argument.value, str):
+                        found[argument.value].append(
+                            f"{source_file.relative_to(REPO_ROOT)}:{node.lineno}")
+        return found
+
+    def test_every_stage_is_spelled_once_but_the_deferred_ones(self):
+        """Set equality in both directions. `over - deferred` is the new duplicate; `deferred -
+        over` is this list describing a file it no longer describes, and is equally the failure a
+        scan that matched nothing would produce, so the reverse assertion is the extractor's own
+        control built into the shipping guard."""
+        over = {stage for stage, sites in self._spellings().items() if len(sites) > 1}
+        assert over == set(self.DEFERRED), (
+            f"stages spelled more than once: {sorted(over - set(self.DEFERRED))} — give each one "
+            "owner, as relief_scan.work_dir is for the tile stage; stages listed as deferred that "
+            f"are now clean: {sorted(set(self.DEFERRED) - over)} — drop them from DEFERRED"
+        )
+
+    def test_the_deferred_stages_have_not_grown(self):
+        """The count is pinned rather than the name alone: a fourth `borders` spelling would
+        otherwise land inside an entry that already says duplicates are tolerated here."""
+        spellings = self._spellings()
+        assert {stage: len(spellings[stage]) for stage in self.DEFERRED} == self.DEFERRED, (
+            "a deferred stage changed its spelling count: "
+            f"{ {stage: spellings[stage] for stage in self.DEFERRED} }"
+        )
+
+    def test_the_scan_finds_the_calls_it_is_counting(self):
+        """The control. Both assertions above are satisfied by an extractor that parsed nothing —
+        one reads an empty set and the other an empty dict — so the scan must be shown finding the
+        stages that legitimately exist."""
+        found = self._spellings()
+        assert {"cap", "planet", "borders"} <= set(found), (
+            f"the scan cannot see stages the tree certainly spells (saw: {sorted(found)}); "
+            "both assertions above are vacuous"
+        )
+
+    def test_the_tile_stage_is_no_longer_among_them(self):
+        """The regression this class was written for, asserted by name: `relief_scan` owns the
+        string and no caller re-spells it.
+
+        Imported inside the test rather than at module scope, which the tests above this class
+        depend on: `paths` binds its roots at import, and the override cases here run in
+        subprocesses precisely so that binding is not done for them by a sibling.
+        """
+        from pipeline.tile import relief_scan
+        assert relief_scan.STAGE not in self._spellings(), (
+            f"{relief_scan.STAGE!r} is passed to work_dir at "
+            f"{self._spellings()[relief_scan.STAGE]} — call relief_scan.work_dir(body)"
+        )
+
+    def test_the_dev_server_resolves_the_tile_stage_to_the_same_directory(self):
+        """The one spelling Python cannot own, made executable so drift fails loudly.
+
+        `devStores.ts` resolves the dev middleware's tile archive under its own copy of the stage
+        name, and a language boundary is exactly where "they happen to be equal" stops being
+        checkable by either side. The failure it prevents is quiet in the direction that matters:
+        the pipeline writes to a renamed directory and the dev server keeps serving 404s from the
+        old one, which reads as a cut that did not happen.
+
+        Only the relief archive is pinned, because it is the only one of the three whose Python
+        side has an owner to pin against; `planet_terrain` and `planet_vector` are still literals
+        at their single call sites.
+        """
+        from pipeline.tile import relief_scan
+        source = (REPO_ROOT / "web/src/lib/devStores.ts").read_text()
+        match = re.search(r'relief:\s*\{[^}]*?stage:\s*"([^"]+)"', source, re.DOTALL)
+        assert match is not None, (
+            "devStores.ts no longer spells the relief archive's stage as a plain string literal — "
+            "this guard cannot see it, and an assertion it cannot make is not one it passes"
+        )
+        assert match.group(1) == relief_scan.STAGE, (
+            f"devStores.ts serves the relief archive from {match.group(1)!r} while the pipeline "
+            f"writes it to {relief_scan.STAGE!r}"
         )
 
 

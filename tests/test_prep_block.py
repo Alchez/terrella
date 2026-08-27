@@ -7,16 +7,19 @@ paired: Earth's answer, and the same answer on a body where the term is not the 
 
 import json
 import math
+from pathlib import Path
 
 import numpy as np
 import pytest
 import rasterio
+from conftest import declare_planet_rasters
 from rasterio.windows import Window
 
-from pipeline import block_plan, bodies, layers, mercator
+from pipeline import block_plan, bodies, layers, mercator, paths
 from pipeline.block_plan import Block
 from pipeline.look import layer_producers, seaice, snow
 from pipeline.render import prep_block
+from pipeline.tile import relief_scan
 
 
 def plane_window(col, row, size, context):
@@ -596,3 +599,69 @@ class TestTheContextWrapsAroundTheAntimeridian:
                                Window(0, -2, 4, 4))  # pyright: ignore[reportCallIssue]
         assert got[0].tolist() == [0.0, 0.0, 0.0, 0.0], "row -2 must not read the grid's last row"
         assert got[2].tolist() == [0.0, 1.0, 2.0, 3.0], "row 0 must still be the grid's first row"
+
+
+class TestTheCutReadsTheWorkDirectoryItWasGiven:
+    """The stage directory is the caller's answer, and this stage used to re-derive it.
+
+    `block_render.run` validates its inputs, plans its blocks and tracks its freshness under the
+    directory it was handed; this stage then resolved the default and cut every block's pixels from
+    there instead. Both halves succeed, so a run pointed at a second store checks one planet and
+    renders another into a mosaic that records it as done.
+
+    THE TWO STORES DIFFER IN THEIR GROUND, not in whether they exist, because a redirect that
+    reaches only some readers is invisible whenever the default happens to hold something openable.
+    """
+
+    STORE_PX = 32
+    BLOCK = Block(col0=8, row0=8, size_px=8, context_px=4)
+
+    def _store(self, root, elevation):
+        """A minimal stage directory: the three warped rasters this cut reads, at one elevation so
+        a block cut from it is identifiable by value alone."""
+        root.mkdir(parents=True, exist_ok=True)
+        for name, dtype, value in ((prep_block.shade_planet.HEIGHT_3857, "float32", elevation),
+                                   (prep_block.shade_planet.OCEAN_3857, "uint8", 0),
+                                   (prep_block.shade_planet.WATER_3857, "uint8", 0)):
+            with rasterio.open(root / name, "w", driver="GTiff",  # pyright: ignore[reportCallIssue]
+                               width=self.STORE_PX, height=self.STORE_PX, count=1,
+                               dtype=dtype) as out:
+                out.write(np.full((self.STORE_PX, self.STORE_PX), value, dtype=dtype), 1)
+        return root
+
+    def _both_stores(self, monkeypatch, tmp_path):
+        """The override at one elevation and the default at another, with the default reachable:
+        `paths.DATA` is moved so nothing here can touch the real store."""
+        monkeypatch.setattr(paths, "DATA", tmp_path / "store")
+        declare_planet_rasters(monkeypatch)
+        override = self._store(tmp_path / "elsewhere", 111.0)
+        default = self._store(relief_scan.work_dir(bodies.EARTH), 222.0)
+        return override, default
+
+    def test_the_heightfield_is_cut_from_the_given_directory(self, monkeypatch, tmp_path):
+        """The oracle. Reading the default instead yields a complete, correctly shaped block of the
+        wrong planet's ground, which no shape or existence check downstream can tell from right."""
+        override, _ = self._both_stores(monkeypatch, tmp_path)
+        outdir = tmp_path / "render"
+        prep_block.cut(bodies.EARTH, self.BLOCK, outdir, work=override)
+        with rasterio.open(outdir / prep_block.render_seam.HEIGHTFIELD) as cut:  # pyright: ignore[reportCallIssue]
+            assert np.unique(cut.read(1)).tolist() == [111.0]
+
+    def test_the_default_is_a_reachable_directory_with_different_ground(
+            self, monkeypatch, tmp_path):
+        """The control, and it is what makes the oracle discriminating: if the default resolved
+        somewhere unopenable, the assertion above would pass on a stage that had ignored its
+        argument and crashed, and it would pass for a body whose store simply is not there."""
+        _, default = self._both_stores(monkeypatch, tmp_path)
+        assert default == relief_scan.work_dir(bodies.EARTH)
+        with rasterio.open(default / prep_block.shade_planet.HEIGHT_3857) as height:  # pyright: ignore[reportCallIssue]
+            assert np.unique(height.read(1)).tolist() == [222.0]
+
+    def test_the_stage_derives_no_work_directory_of_its_own(self):
+        """The seam stated as a property rather than through one call: this module names the stage
+        nowhere, so there is no second route to a directory the caller did not choose."""
+        source = Path(prep_block.__file__).read_text()
+        assert relief_scan.STAGE not in source, (
+            f"{Path(prep_block.__file__).name} spells the stage directory {relief_scan.STAGE!r} — "
+            "the cut reads what its caller passes, and a local derivation is the defect this "
+            "class exists for")

@@ -38,7 +38,7 @@ from typing import Any, cast
 
 from pipeline import bodies, planet_seam, progress
 from pipeline.freshness import is_stale
-from pipeline.tile import block_render, shade_planet
+from pipeline.tile import block_render, relief_scan, shade_planet
 from pipeline.tile.shade import KNOBS
 
 
@@ -146,7 +146,7 @@ def resolve_body(args: argparse.Namespace) -> bodies.Body:
 
 def resolve_out(args: argparse.Namespace) -> Path:
     """Where this run writes: the explicit `--out`, else the body's own tile-work directory."""
-    return args.out if args.out is not None else bodies.work_dir(resolve_body(args), "planet_tiles")
+    return args.out if args.out is not None else relief_scan.work_dir(resolve_body(args))
 
 
 def producer_for(body: bodies.Body) -> "Producer":

@@ -262,6 +262,33 @@ class TestASecondMosaicOwnsEverySidecarThatDescribesIt:
         assert (tmp_path / block_render.STATUS_NAME).exists()
 
 
+class TestTheWorkDirectoryReachesTheBlocksAndNotJustTheChecks:
+    """`--mosaic`'s defect one flag over, and this one moved the READS rather than the sidecars.
+
+    `run` validates its inputs, plans its blocks and stamps its freshness under the directory it was
+    handed, then handed the renderer nothing: the prep resolved this body's default stage directory
+    itself and cut every block's pixels from there. So a run pointed at a second store checks one
+    planet and renders another, and the mosaic records it complete.
+
+    The prep's own half of this seam is `test_prep_block`'s; this is the half that carries it.
+    """
+
+    def test_the_renderer_is_handed_the_directory_the_run_was_given(self, tmp_path, monkeypatch):
+        """Discriminating because the harness never patches `paths.DATA`: the default this used to
+        re-derive is the real store, which is not `tmp_path` under any run of this suite."""
+        run = _drive_planet(tmp_path, monkeypatch, blocks=2)
+        assert run.cut_from == {tmp_path}
+
+    def test_the_default_is_resolved_through_the_stages_one_owner(self, monkeypatch):
+        """The CLI's half. `--work` absent must land on the same directory the relief scan, the
+        pack and the terrain cut all resolve, or the flag's default and the pipeline's disagree."""
+        captured = {}
+        monkeypatch.setattr(block_render, "run",
+                            lambda body, work, mosaic, **kwargs: captured.update(work=work))
+        block_render.main(["--body", "earth"])
+        assert captured["work"] == relief_scan.work_dir(bodies.EARTH)
+
+
 class TestTheDependencySetIsTheRaytracesAndNotTheComposites:
     """The switch replaces one raster's producer, so the two producers' dependency lists must
     differ in exactly the terms the switch removes. Sharing `composite_deps` would leave a body
@@ -792,10 +819,12 @@ def _drive_planet(tmp_path, monkeypatch, *, mosaic=None, blocks=3, **kwargs):
     planned = [_block(0, column) for column in range(blocks)]
     attempted: list[str] = []
     scratches: set[Path] = set()
+    cut_from: set[Path] = set()
 
-    def _fake_render(body, block, mosaic, scratch, markers):
+    def _fake_render(body, block, mosaic, scratch, markers, work):
         attempted.append(block_render.block_name(block))
         scratches.add(scratch)
+        cut_from.add(work)
         (markers / block_render.block_name(block)).write_text("margin 0\n")
 
     monkeypatch.setattr(block_render, "plan_blocks", lambda body, work: planned)
@@ -809,7 +838,7 @@ def _drive_planet(tmp_path, monkeypatch, *, mosaic=None, blocks=3, **kwargs):
     mosaic = mosaic.resolve()          # the spelling `run` itself uses, so a caller can compare
     rendered = block_render.run(bodies.EARTH, tmp_path, mosaic, **kwargs)
     return SimpleNamespace(attempted=attempted, mosaic=mosaic, rendered=rendered,
-                           scratches=scratches)
+                           scratches=scratches, cut_from=cut_from)
 
 
 def _stop_here(*args, **kwargs):

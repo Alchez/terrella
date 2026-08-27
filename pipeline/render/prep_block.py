@@ -43,7 +43,7 @@ from pipeline.block_plan import Block
 from pipeline.look import lake_depth, layer_producers, snow
 from pipeline.raster_io import GTIFF_CREATE
 from pipeline.render import render_prep, render_seam
-from pipeline.tile import shade_planet
+from pipeline.tile import relief_scan, shade_planet
 
 #: The recipe this stage bakes into its outputs, beside them, as every writer in the pipeline does.
 RECIPE_NAME = "block_recipe.json"
@@ -252,7 +252,7 @@ def merged_paint(paints: dict[str, tuple[Any, Any]], members: "tuple[layers.Laye
     return resolved[0]
 
 
-def build(body: bodies.Body, window: Window, outdir: Path) -> list[str]:
+def build(body: bodies.Body, window: Window, outdir: Path, *, work: Path) -> list[str]:
     """Cut every image this body can produce for `window`, and return what was written.
 
     THE PAINTS ARE DECLARED HERE AND USED TO BE DISCARDED ON ONE LINE. `gather` already resolves
@@ -261,8 +261,13 @@ def build(body: bodies.Body, window: Window, outdir: Path) -> list[str]:
     because the rig held its own module-level white. That white is Earth's, so every body rendered
     in it and Earth was indistinguishable from correct. The registry answer now travels with the
     mask it belongs to; `render_seam.PAINTED_IMAGES` holds why it has to travel as data.
+
+    `work` IS THE CALLER'S AND IS NEVER RE-DERIVED HERE, which is what makes `block_render --work` a
+    seam rather than half of one: this used to resolve the body's default stage directory itself, so
+    a run pointed at a second store checked that store's inputs and cut its pixels from the first.
+    Keyword-only because it and `outdir` are both directories, and a swapped pair would read the
+    render directory as a planet and write the block into the store.
     """
-    work = bodies.work_dir(body, "planet_tiles")
     rasters = planet_seam.declared(body)
     outdir.mkdir(parents=True, exist_ok=True)
     written = [render_seam.HEIGHTFIELD]
@@ -404,7 +409,7 @@ def write_recipe(body: bodies.Body, window: Window, outdir: Path, written: list[
     }, indent=2, sort_keys=True) + "\n")
 
 
-def cut(body: bodies.Body, block: Block, outdir: Path) -> dict[str, Any]:
+def cut(body: bodies.Body, block: Block, outdir: Path, *, work: Path) -> dict[str, Any]:
     """Fill `outdir` with everything the rig needs for one block, and return its frame numbers.
 
     THE FOUR CALLS ARE ONE STAGE AND THEIR ORDER IS THE CONTRACT: images, then the frame the rig
@@ -417,7 +422,7 @@ def cut(body: bodies.Body, block: Block, outdir: Path) -> dict[str, Any]:
     well as on `Block`, in two copies that nothing tied together: changing one moved no test.
     """
     window = block.plane_window
-    written = build(body, window, outdir)
+    written = build(body, window, outdir, work=work)
     frame = write_frame(body, block, outdir)
     write_recipe(body, window, outdir, written)
     render_seam.declare(outdir, render_seam.BLOCK, written)
@@ -440,11 +445,16 @@ def main() -> None:
                              "every shadow crossing the boundary and does it silently, on both "
                              "sides, with no edge to notice")
     parser.add_argument("--outdir", type=Path, required=True, help="the render directory to fill")
+    parser.add_argument("--work", type=Path, default=None,
+                        help="override the stage directory cut from; the same seam "
+                             "block_render's own --work is, so an A/B cuts from the store it "
+                             "names rather than from this body's default")
     args = parser.parse_args()
 
     body = bodies.BODIES[args.body]
     block = Block(col0=args.col, row0=args.row, size_px=args.size, context_px=args.context)
-    frame = cut(body, block, args.outdir)
+    work = args.work if args.work is not None else relief_scan.work_dir(body)
+    frame = cut(body, block, args.outdir, work=work)
     written = sorted(render_seam.declared(args.outdir))
     print(f"declared {render_seam.declaration_path(args.outdir)}", flush=True)
     print(f"{body.name} block col={args.col} row={args.row} {args.size}px delivered, "
