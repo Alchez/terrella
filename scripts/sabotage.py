@@ -6064,13 +6064,15 @@ SABOTAGES: list[Sabotage] = [
     ),
     Sabotage(
         suite='python',
-        # The deferred entry is pinned at its COUNT, so borders moving in either direction is red.
-        # Without the pin, a fourth spelling lands inside an entry that tolerates duplicates.
-        label='a deferred stage changes its spelling count and the exception absorbs it',
-        path='pipeline/compose/countries_geojson.py',
-        needle='OUT_DIR = bodies.work_dir(bodies.EARTH, "borders")',
-        replacement='OUT_DIR = bodies.work_dir(bodies.EARTH, "features")',
-        guard='test_the_deferred_stages_have_not_grown',
+        # DEFERRED is empty now that `borders` has one owner, so the count assertion has no real
+        # subject and no mutation can reach it. What is exercised instead is the comparison it
+        # runs, driven by a synthetic entry -- the arm that separates "nothing is deferred" from
+        # "deferred stages stopped being counted".
+        label='the deferred count comparison stops counting and reads the pin back at itself',
+        path='tests/test_paths.py',
+        needle='        return {stage: len(spellings[stage]) for stage in deferred}',
+        replacement='        return dict(deferred)',
+        guard='test_the_deferred_count_check_still_bites_with_nothing_deferred',
     ),
     Sabotage(
         suite='python',

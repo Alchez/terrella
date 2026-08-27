@@ -28,13 +28,10 @@ import subprocess
 import sys
 from pathlib import Path
 
-from pipeline import bodies, naturalearth
-
-#: Earth's, and named through the registry for the same reason `borders_geojson` does it.
-OUT_DIR = bodies.work_dir(bodies.EARTH, "borders")
+from pipeline import naturalearth
+from pipeline.compose import countries_pmtiles
 
 SRC = naturalearth.layer("ne_10m_admin_0_countries")
-OUT = OUT_DIR / "countries.geojson"
 
 # Douglas-Peucker tolerance in degrees. 0.002 deg ~= 220 m ~= 0.7 px at z8 on
 # the equator (Earth's grid pixel, ~305.75 m/px) — sub-pixel where the raster
@@ -62,25 +59,29 @@ def ogr_command(source: Path, destination: Path) -> list[str]:
 
 
 def translate(force: bool):
+    """THE DESTINATION IS ASKED FOR RATHER THAN SPELLED, and it is `countries_pmtiles`' own
+    `source_path` because the reader of this file is the one stage that must never disagree with
+    the writer about where it is."""
+    out = countries_pmtiles.source_path()
     if not SRC.exists():
         sys.exit(f"missing Natural Earth source: {SRC}")
-    if OUT.exists() and not force:
-        print(f"{OUT.name} exists -> skip (use --force to regenerate)")
+    if out.exists() and not force:
+        print(f"{out.name} exists -> skip (use --force to regenerate)")
         return
-    tmp = OUT.with_suffix(".geojson.tmp")
+    tmp = out.with_suffix(".geojson.tmp")
     tmp.unlink(missing_ok=True)
     cmd = ogr_command(SRC, tmp)
     print(" ".join(cmd), flush=True)
     subprocess.run(cmd, check=True)
-    tmp.replace(OUT)  # atomic promote
-    print(f"wrote {OUT} ({OUT.stat().st_size / 1e6:.1f} MB)")
+    tmp.replace(out)  # atomic promote
+    print(f"wrote {out} ({out.stat().st_size / 1e6:.1f} MB)")
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--force", action="store_true", help="regenerate even if present")
     args = parser.parse_args()
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    countries_pmtiles.borders_dir().mkdir(parents=True, exist_ok=True)
     translate(args.force)
 
 

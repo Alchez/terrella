@@ -294,10 +294,10 @@ class TestAStageDirectoryHasOneSpeller:
     """
 
     #: Stages knowingly spelled more than once, pinned AT THE COUNT so that a further spelling and a
-    #: fix both go red. `borders` is not an import away from clean: two of its three sites are
-    #: module-level constants, which freeze the data root at import against the rule `paths.py`
-    #: states for the whole package, so giving it one owner is a behaviour change and its own item.
-    DEFERRED: ClassVar[dict[str, int]] = {"borders": 3}
+    #: fix both go red. EMPTY, AND THE MECHANISM STAYS FOR THE NEXT ONE: `borders` was the last
+    #: entry, its two module-level constants replaced by `countries_pmtiles.borders_dir()`. While
+    #: this is empty `test_the_deferred_stages_have_not_grown` asserts nothing, by construction.
+    DEFERRED: ClassVar[dict[str, int]] = {}
 
     def _spellings(self) -> dict[str, list[str]]:
         """Every string literal handed to a `*.work_dir(...)` call, grouped by the stage it names.
@@ -331,13 +331,32 @@ class TestAStageDirectoryHasOneSpeller:
         )
 
     def test_the_deferred_stages_have_not_grown(self):
-        """The count is pinned rather than the name alone: a fourth `borders` spelling would
-        otherwise land inside an entry that already says duplicates are tolerated here."""
+        """The count is pinned rather than the name alone: a further spelling of a deferred stage
+        would otherwise land inside an entry that already says duplicates are tolerated here."""
         spellings = self._spellings()
-        assert {stage: len(spellings[stage]) for stage in self.DEFERRED} == self.DEFERRED, (
+        assert self._counts_for(spellings, self.DEFERRED) == self.DEFERRED, (
             "a deferred stage changed its spelling count: "
             f"{ {stage: spellings[stage] for stage in self.DEFERRED} }"
         )
+
+    def test_the_deferred_count_check_still_bites_with_nothing_deferred(self):
+        """THE DAY THE LAST REAL ENTRY IS DELETED IS THE DAY THAT ASSERTION GOES QUIET, and it
+        looks exactly like a stage that has nothing deferred. `borders` was the last one, so the
+        comparison above now runs over an empty dict and would pass on a broken `_counts_for`
+        forever. A SYNTHETIC entry is the only arm that separates "nothing is deferred" from
+        "deferred stages stopped being counted", and keeping the mechanism exercisable is the
+        deletion's obligation rather than a later reader's.
+        """
+        spellings = self._spellings()
+        stage = min(spellings)
+        actual = len(spellings[stage])
+        assert self._counts_for(spellings, {stage: actual}) == {stage: actual}
+        assert self._counts_for(spellings, {stage: actual + 1}) != {stage: actual + 1}
+
+    @staticmethod
+    def _counts_for(spellings: dict[str, list[str]], deferred: dict[str, int]) -> dict[str, int]:
+        """The comparison the pin makes, extracted so a synthetic deferral can drive it too."""
+        return {stage: len(spellings[stage]) for stage in deferred}
 
     def test_the_scan_finds_the_calls_it_is_counting(self):
         """The control. Both assertions above are satisfied by an extractor that parsed nothing —
