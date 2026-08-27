@@ -6076,6 +6076,26 @@ SABOTAGES: list[Sabotage] = [
     ),
     Sabotage(
         suite='python',
+        # A 54th module-level path computed at import. This is the defect `paths.py` describes and
+        # the one the older store probe cannot see, having moved the root BEFORE importing.
+        label='a module grows a new path that freezes the store at import',
+        path='pipeline/compose/borders_geojson.py',
+        needle='from pipeline.compose import countries_pmtiles',
+        replacement='from pipeline.compose import countries_pmtiles\n\nOUT_DIR = countries_pmtiles.borders_dir()',
+        guard='test_the_frozen_set_is_exactly_the_one_pinned',
+    ),
+    Sabotage(
+        suite='python',
+        # The probe goes blind and the shrinking end reads as a finished sweep. Set equality makes
+        # this red from the other direction too, but the control is what names it honestly.
+        label='the freeze probe stops recognising a path under the store',
+        path='tests/test_paths.py',
+        needle='        if isinstance(value, Path) and value.is_relative_to(paths.DATA):\n            frozen.append',
+        replacement='        if isinstance(value, Path) and value.is_relative_to(paths.ROOT / "nowhere"):\n            frozen.append',
+        guard='test_the_probe_can_see_a_fresh_freeze',
+    ),
+    Sabotage(
+        suite='python',
         # The raster checks go back to disk. A thin seam is then asked for the water raster it
         # never had, which is the old refusal returning through the other door: the body starts,
         # finds no `water_3857.tif`, and is turned away for a file its planet does not produce.

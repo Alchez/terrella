@@ -99,6 +99,35 @@ def tracked_files() -> list[Path]:
     return [Path(name) for name in listing.stdout.split("\0") if name]
 
 
+# The OTHER half of the category `paths.py` describes, and the half `STORE_PROBE` structurally
+# cannot see. That probe sets MAPS_DATA BEFORE importing, so a module-level constant resolves under
+# the new root and looks perfectly correct; what it detects is a path anchored onto `paths.ROOT`
+# instead of the store, which is a sibling defect and is exactly what its planted control tests. So
+# the pair read as covering the whole rule while covering half of it.
+#
+# This asks the question the docstring actually asks: was the value computed at IMPORT? A
+# module-level attribute that already lies under `paths.DATA` can only have been, since a call-time
+# path is not a module attribute at all. No environment is moved, and none needs to be.
+#
+# NAMES, NEVER RESOLVED PATHS. The resolved value carries the machine's checkout root, which
+# differs on CI — the same trap that once made this file's other probe report all sixteen
+# checkout-resident constants as offenders.
+FREEZE_PROBE = f"""
+import importlib, pkgutil
+from pathlib import Path
+from pipeline import paths
+frozen = []
+for module in pkgutil.walk_packages([str(paths.ROOT / "pipeline")], "pipeline."):
+    if module.name in {BPY_ONLY!r}:
+        continue
+    loaded = importlib.import_module(module.name)
+    for attribute, value in vars(loaded).items():
+        if isinstance(value, Path) and value.is_relative_to(paths.DATA):
+            frozen.append(f"{{module.name}}.{{attribute}}")
+print("\\n".join(sorted(set(frozen))))
+"""
+
+
 def run_probe(code: str, env_overrides: dict[str, str], cwd: Path = REPO_ROOT) -> str:
     """Run `python -c code` from a checkout with a controlled environment.
 
@@ -561,3 +590,116 @@ class TestTheStoreIsWhereTheStoreIs:
         for module in ("pipeline.tile.cap_pass", "pipeline.compose.gen_spotlight",
                        "pipeline.frame.frame_country", "pipeline.acquire.download_gebco"):
             assert module in reached, f"{module} was never imported by the probe"
+
+
+class TestNoNewPathFreezesTheStoreAtImport:
+    """`paths.py` states the rule and nothing quantified over it, so its violations were met one at
+    a time — five of them across three separate units before anyone counted the population.
+
+    THE INSTANCES ARRIVED BY PROXIMITY, WHICH HAS NO COMPLETENESS PROPERTY. Two were found by the
+    stage-name guard, which walks `*.work_dir(...)` call sites and is therefore blind to every
+    other function that returns a path; the rest were found by eye while editing those files for
+    something else. A guard exhaustive over one SHAPE reads as exhaustive over the DEFECT, and its
+    silence about `naturalearth.layer(...)` was not evidence of anything.
+
+    The population is 53, of which one is legitimate. That number was never estimated: this class
+    exists because it was measured, and it turned a queue that grew by one per unit into a list
+    that only shrinks.
+    """
+
+    #: `paths.DATA` IS the root rather than a reader of it, so being module-level is its job.
+    #: Held apart from the list below so that the list means "still to fix" and nothing else.
+    THE_ROOT_ITSELF: ClassVar[str] = "pipeline.paths.DATA"
+
+    #: Every module-level path computed at import, pinned so a NEW one is red the day it lands.
+    #:
+    #: AN EXCEPTIONS LIST AND NOT A TARGET LIST, which is why it is long rather than clever: a
+    #: guard listing the modules it cares about is silent on the one nobody thought of. Set
+    #: EQUALITY is asserted, so this fails in both directions — a new freeze, and an entry fixed
+    #: without being struck off. `pipeline.acquire` holds 22 of the 52 and is where a sweep starts.
+    FROZEN_AT_IMPORT: ClassVar[frozenset[str]] = frozenset({
+        "pipeline.acquire.download_add_rock.GPKG",
+        "pipeline.acquire.download_add_rock.OUT",
+        "pipeline.acquire.download_cop30_void.DATA_DIR",
+        "pipeline.acquire.download_cop30_void.TILE_LIST",
+        "pipeline.acquire.download_gebco.DATA_DIR",
+        "pipeline.acquire.download_gebco.VRT_PATH",
+        "pipeline.acquire.download_glo30.DATA_DIR",
+        "pipeline.acquire.download_glo30.TILE_LIST",
+        "pipeline.acquire.download_globathy.DATA_DIR",
+        "pipeline.acquire.download_mars_dem.DATA_DIR",
+        "pipeline.acquire.download_nomenclature.DATA_DIR",
+        "pipeline.acquire.download_rgi.GPKG",
+        "pipeline.acquire.download_rgi.OUT",
+        "pipeline.acquire.download_seaice.DATA_DIR",
+        "pipeline.acquire.download_seaice.FINAL",
+        "pipeline.acquire.download_seaice.MONTHLY_DIR",
+        "pipeline.acquire.download_sim3292.DATA_DIR",
+        "pipeline.acquire.download_viking_mosaic.DATA_DIR",
+        "pipeline.acquire.extract_globathy.DATA",
+        "pipeline.acquire.extract_globathy.RASTER_DIR",
+        "pipeline.acquire.extract_globathy.VRT_PATH",
+        "pipeline.acquire.extract_globathy.ZIP_PATH",
+        "pipeline.compose.countries_geojson.SRC",
+        "pipeline.compose.features_geojson.LABELS",
+        "pipeline.compose.features_geojson.LINES",
+        "pipeline.compose.features_geojson.OUT_DIR",
+        "pipeline.compose.features_geojson.POLYGONS",
+        "pipeline.compose.gen_spotlight.NE_COUNTRIES",
+        "pipeline.frame.country_config.GEBCO",
+        "pipeline.frame.country_config.TILE_LIST",
+        "pipeline.fuse.build_void_wbm.VOID_DIR",
+        "pipeline.fuse.build_void_wbm.WC_DIR",
+        "pipeline.fuse.fuse_heightfield.DATA",
+        "pipeline.fuse.fuse_heightfield.DEM_VRT",
+        "pipeline.fuse.fuse_heightfield.GEBCO",
+        "pipeline.fuse.fuse_heightfield.WBM_VRT",
+        "pipeline.fuse.fuse_planet.CHUNKS_DIR",
+        "pipeline.fuse.fuse_planet.DATA_DIR",
+        "pipeline.fuse.fuse_planet.EARTH_PLANET_DIR",
+        "pipeline.fuse.fuse_planet.TILE_LIST",
+        "pipeline.fuse.fuse_planet.WBM_VRT",
+        "pipeline.look.lake_depth.DATA",
+        "pipeline.look.lake_depth.LAKE_VRT",
+        "pipeline.look.seaice.DATA",
+        "pipeline.look.seaice.SEAICE_SRC",
+        "pipeline.look.snow.DATA",
+        "pipeline.look.snow.SP_NC",
+        "pipeline.naturalearth.DIR",
+        "pipeline.render.snow_mask.DATA_DIR",
+        "pipeline.tile.cap_render.COAST_SHP",
+        "pipeline.tile.shade.CHUNKS",
+        "pipeline.tile.shade.DATA",
+    })
+
+    def test_the_frozen_set_is_exactly_the_one_pinned(self):
+        found = {entry for entry in run_probe(FREEZE_PROBE, {}).split("\n") if entry}
+        expected = self.FROZEN_AT_IMPORT | {self.THE_ROOT_ITSELF}
+        assert found == expected, (
+            f"new module-level paths computed at import: {sorted(found - expected)} — join them "
+            "onto paths.DATA inside a function, per pipeline/paths.py; entries pinned here that "
+            f"are now clean: {sorted(expected - found)} — strike them off"
+        )
+
+    def test_the_probe_can_see_a_fresh_freeze(self):
+        """The control. An empty result is this test's PASS condition on the shrinking end, so a
+        probe that imported nothing would read as a finished sweep."""
+        planted = FREEZE_PROBE.replace(
+            "frozen = []",
+            "import pipeline.bodies\n"
+            'pipeline.bodies._PLANTED = paths.DATA / "work/planted"\n'
+            "frozen = []",
+        )
+        assert "pipeline.bodies._PLANTED" in run_probe(planted, {})
+
+    def test_the_older_probe_really_is_blind_to_this(self):
+        """WHY THIS CLASS HAD TO EXIST, asserted rather than explained. `STORE_PROBE` moves the
+        store BEFORE importing, so the same planted constant resolves under the new root and it
+        reports nothing. Were it ever to see one, this class would be redundant and should go."""
+        planted = STORE_PROBE.replace(
+            "offenders = []",
+            "import pipeline.bodies\n"
+            'pipeline.bodies._PLANTED = paths.DATA / "work/planted"\n'
+            "offenders = []",
+        )
+        assert "pipeline.bodies._PLANTED" not in run_probe(planted, {})
