@@ -52,6 +52,7 @@ Ideas deliberately **not** planned: analysed enough to record, parked without co
 
 Not a lower tier. Nobody has written down what would make them worth doing, and that absence is itself the open question.
 
+- [Shadow saturation on the land is a shading term](#shadow-saturation-on-the-land-is-a-shading-term-and-the-sea-that-was-ratified-rides-mostly-on-lit-pixels-analysed-2026-08-27) · look-call · needs-gpu
 - [The display face swaps in at a different width](#the-display-face-swaps-in-at-a-different-width-and-the-metric-matched-fallback-is-inert-analysed-2026-08-02)
 - [Flat ice saturates the snow ramp](#flat-ice-saturates-the-snow-ramp-and-the-curve-was-fitted-before-antarctica-existed-analysed-2026-07-29) · look-call · needs-render-store
 - [The snow persistence source paints salt playas white](#the-snow-persistence-source-paints-salt-playas-white-and-nobody-has-counted-them-analysed-2026-08-25) · look-call · needs-render-store
@@ -170,6 +171,27 @@ Prompted by the graphics-modernization roadmap. Read it against the DEM-cache wo
 **Correction to a recorded prediction.** The Tier-2 globe work assessed WebGPU as "a future no-op tier, not a rewrite". That was true of the code as it stood and is **false now**: `polarCaps.ts` is a MapLibre **custom layer**, and that API hands you a raw `WebGLRenderingContext`. We author GLSL, build VBOs and call `gl.drawElements` directly, so a WebGPU backend cannot preserve the signature: **the caps need a WGSL port, displacement shader included**. Anyone pricing the migration must count that; the old entry says they need not.
 
 **Verdict: not a lever for the cache work, and not free when it lands.** Revisit if MapLibre publishes a timeline, or if the evidence-driven cache budget gets built and wants a real out-of-memory signal to drive it.
+
+## Shadow saturation on the land is a shading term, and the sea that was ratified rides mostly on lit pixels (analysed 2026-08-27)
+
+> **OPEN** · look-call · needs-gpu. Two of the three terms in the trade are measured. The third is the one that killed cast shadows twice, and nobody has priced it.
+
+Rohan ratified the raytraced rig's look and named one reservation: slightly too much saturation on the land, "mostly on the high-elev side of the colour ramp", explicitly not a dealbreaker. **The named axis is falsified and the ramp is not the lever.** Binned on hue so albedo is held fixed, with the luminance split inside each bin separating lit from shadowed, over 120 million pixels across twelve blocks spread from the Arctic to Antarctica:
+
+| surface | tone | pixels | saturation |
+|---|---|---:|---|
+| land | lit | 12.2 M | 0.261 → 0.260 (−0.6%) |
+| land | shadowed | 11.4 M | 0.389 → 0.461 (+18.3%) |
+| sea | lit | 49.0 M | 0.384 → 0.510 (+32.7%) |
+| sea | shadowed | 47.4 M | 0.417 → 0.608 (+45.8%) |
+
+**Lit land did not move.** That is the control: the ramp's own output is unchanged to within a rounding error, so every bit of the land's gain is shading, and a ramp edit would move the one population that is already right. The first pass at this binned on ELEVATION and reached the opposite conclusion, because the ramp's mid stops are both dark and already saturated, so "dark" and "saturated" were confounded.
+
+**The levers are `fill_strength` 0.45, `world_strength` 0.3 and `world_rgba`, all in `scene_build.py` and all global**, so any of them reaches the sea as well. The sea survives that better than feared: its gain is majority-LIT (+32.7% before shadow adds 13 more points), so a lever that removes the shadow-specific saturation entirely should leave the sea near +33% against the +39% measured overall, keeping roughly four fifths of what was ratified. **That last sentence is a prediction from the split above, not a rendered arm.**
+
+**The unpriced third term.** Those levers work by lifting ambient into shadow, and shadow contrast is what carries the relief modelling. Cast shadows were rejected twice, the second time on precisely this mechanism: scaling light amplitude scales fine detail with it. These are fill and world rather than the main sun, so the objection does not transfer automatically, and it does not obviously fail either.
+
+**The cheap way to close it, and the reason this is parked rather than abandoned.** `~/terrella-scratch/seam-block/` holds a prepped block plus its `arm.py`; prep is the expensive half because it reads the 1.1 TB store, so an arm is a two-minute render rather than a 12-hour pass. Render two or three fill/world settings, measure the high-pass detail in shadowed land, and the third term stops being a guess. Only then is a pass worth committing.
 
 ## Flat ice saturates the snow ramp, and the curve was fitted before Antarctica existed (analysed 2026-07-29)
 
